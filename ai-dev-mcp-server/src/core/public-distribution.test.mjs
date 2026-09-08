@@ -72,3 +72,21 @@ test("ownerUsername falls back to the environment when os.userInfo throws", (t) 
   process.env.USER = "build-local-1000";
   assert.equal(ownerUsername(), "build-local-1000");
 });
+
+const ownerContext = (text, terms) =>
+  distributionTextFindings(text, "f.md", { forbiddenTerms: terms }).some(
+    (finding) => finding.rule === "private-owner-context"
+  );
+
+test("owner-context matching ignores ordinary words but catches distinctive identities", () => {
+  assert.equal(ownerContext("The project root is /workspace.", ["root"]), false);
+  assert.equal(ownerContext("Run the CI pipeline before merge.", ["ci"]), false);
+  assert.equal(ownerContext("Author: sacha", ["sacha"]), true);
+  assert.equal(ownerContext("see also sachathing/config", ["sacha"]), false);
+});
+
+test("owner-context home directories require a specific path", () => {
+  assert.equal(ownerContext("HOME is /root here", ["/root"]), false);
+  assert.equal(ownerContext("cloned into /home/sacha/vault", ["/home/sacha"]), true);
+  assert.equal(ownerContext("C:/Users/sacha/vault", ["C:\\Users\\sacha"]), true);
+});

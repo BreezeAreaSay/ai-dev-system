@@ -30,21 +30,27 @@ async function gitFixture(t) {
 
 test("editing an already-dirty file changes the fingerprint", async (t) => {
   const root = await gitFixture(t);
-  await fs.writeFile(path.join(root, "app.js"), "export const value = 2;\n");
+  // A different byte length than the committed file so `git status` never
+  // treats it as racily-clean on a fast runner.
+  await fs.writeFile(path.join(root, "app.js"), "export const value = 22;\n");
   const before = await captureProjectState(root);
   assert.equal(before.strength, "strong");
   assert.ok(before.dirty);
 
-  await fs.writeFile(path.join(root, "app.js"), "export const value = 2; // regressed\n");
+  await fs.writeFile(
+    path.join(root, "app.js"),
+    "export const value = 22; // regressed with a longer line\n"
+  );
   const after = await captureProjectState(root);
-  assert.notEqual(before.fingerprint, after.fingerprint);
+  assert.deepEqual(before.dirty_files, after.dirty_files); // same status line
+  assert.notEqual(before.fingerprint, after.fingerprint); // different contents
 });
 
 test("editing an untracked file changes the fingerprint", async (t) => {
   const root = await gitFixture(t);
   await fs.writeFile(path.join(root, "new.js"), "one\n");
   const before = await captureProjectState(root);
-  await fs.writeFile(path.join(root, "new.js"), "two\n");
+  await fs.writeFile(path.join(root, "new.js"), "a longer second version\n");
   const after = await captureProjectState(root);
   assert.notEqual(before.fingerprint, after.fingerprint);
 });
@@ -67,7 +73,7 @@ test("a non-git directory fingerprints its file contents, not just its path", as
   assert.equal(before.strength, "medium");
 
   await new Promise((resolve) => setTimeout(resolve, 10));
-  await fs.writeFile(path.join(root, "main.py"), "print(2)\n");
+  await fs.writeFile(path.join(root, "main.py"), "print(2)  # a longer regressed line\n");
   const after = await captureProjectState(root);
   assert.notEqual(before.fingerprint, after.fingerprint);
 });

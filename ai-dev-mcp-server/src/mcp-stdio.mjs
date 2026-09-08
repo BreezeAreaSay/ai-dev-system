@@ -2643,7 +2643,7 @@ async function runSearchCli(args, { timeoutMs = 600000, command = pythonCommand(
     throw new Error(`Search helper not found: ${searchCliPath}`);
   }
 
-  const output = await execFile(command, [searchCliPath, ...args], { timeoutMs });
+  const output = await execFile(command, ["-B", searchCliPath, ...args], { timeoutMs });
   try {
     return JSON.parse(stripBom(output.stdout));
   } catch (err) {
@@ -2662,7 +2662,7 @@ async function runUiUxProMax(args, { json = false } = {}) {
   });
   const output = await execFile(
     pythonCommand(),
-    [scriptPath, ...args],
+    ["-B", scriptPath, ...args],
     { cwd: uiUxProMaxRoot, timeoutMs: 120000 }
   );
   if (!json) return output.stdout.trim();
@@ -2897,6 +2897,7 @@ async function getBgeWorker({ model_dir = process.env.BGE_M3_MODEL_DIR || defaul
   if (existing && !existing.exited) return existing;
 
   const child = spawn(python, [
+    "-B",
     bgeM3WorkerCliPath,
     "--model-dir",
     resolvedModelDir,
@@ -3669,6 +3670,7 @@ async function embedTexts({
   await atomicWriteJson(requestPath, request, { spaces: 0 });
   try {
     const output = await execFile(python, [
+      "-B",
       bgeM3EmbedCliPath,
       "--model-dir",
       path.resolve(String(model_dir || defaultBgeM3ModelDir)),

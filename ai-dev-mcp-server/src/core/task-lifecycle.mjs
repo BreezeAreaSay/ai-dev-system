@@ -194,24 +194,33 @@ export class TaskStore {
 
   async complete(id, { summary, projectState, allowWaived = false }) {
     return this.update(id, (record) => {
+      if (record.status === "complete") {
+        throw new Error("Task is already complete.");
+      }
       const unresolved = record.acceptance_criteria.filter((item) => (
         item.status !== "met" && !(allowWaived && item.status === "waived" && item.note)
       ));
       if (unresolved.length) {
         throw new Error(`Task has unresolved acceptance criteria: ${unresolved.map((item) => item.id).join(", ")}`);
       }
-      const matching = record.verifications.filter((item) => (
-        item.passed && item.evidence?.source_state_fingerprint === projectState.fingerprint
-      ));
-      if (!matching.length) {
-        throw new Error("No passing verification is bound to the current project state.");
+      // Only the most recent verification counts: a later failed run, or an
+      // edit after the last passing run, must block completion.
+      const latest = record.verifications.at(-1);
+      if (!latest) {
+        throw new Error("No verification is recorded. Run verify_task first.");
+      }
+      if (!latest.passed) {
+        throw new Error(`The latest verification (${latest.id}) failed. Fix the problem and run verify_task again.`);
+      }
+      if (latest.evidence?.source_state_fingerprint !== projectState.fingerprint) {
+        throw new Error("The latest verification is stale: the project changed after it ran. Run verify_task again.");
       }
       record.status = "complete";
       record.completion = {
         at: now(),
         summary: String(summary || "").trim(),
         project_state: projectState,
-        verification_ids: matching.map((item) => item.id)
+        verification_ids: [latest.id]
       };
       return record;
     });

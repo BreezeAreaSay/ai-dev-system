@@ -39,6 +39,75 @@ test("task completion requires met criteria and current-state verification", asy
   assert.equal(complete.status, "complete");
 });
 
+test("completion rejects a stale, failed, or repeated verification", async (t) => {
+  const stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-stale-tasks-"));
+  t.after(() => fs.rm(stateRoot, { recursive: true, force: true }));
+  const store = new TaskStore({ stateRoot });
+  const record = await store.begin({
+    task: "Fix a frontend console error without changing the UI",
+    project: { project_name: "fixture", project_path: stateRoot, project_types: [], stack: [] },
+    skills: [],
+    baseline: { fingerprint: "before" }
+  });
+  await store.checkpoint(record.id, {
+    summary: "done",
+    criteria: record.acceptance_criteria.map((item) => ({ id: item.id, status: "met", evidence: ["x"] }))
+  });
+
+  await store.addVerification(record.id, {
+    id: "verify-pass", passed: true, evidence: { source_state_fingerprint: "state-1" }
+  });
+  // A later failed run must block completion even though a passing run exists.
+  await store.addVerification(record.id, {
+    id: "verify-fail", passed: false, evidence: { source_state_fingerprint: "state-1" }
+  });
+  await assert.rejects(
+    store.complete(record.id, { summary: "done", projectState: { fingerprint: "state-1" } }),
+    /latest verification .* failed/i
+  );
+
+  // A passing run against a stale fingerprint must block completion.
+  await store.addVerification(record.id, {
+    id: "verify-stale", passed: true, evidence: { source_state_fingerprint: "state-1" }
+  });
+  await assert.rejects(
+    store.complete(record.id, { summary: "done", projectState: { fingerprint: "state-2" } }),
+    /stale/i
+  );
+
+  // Current passing run completes, and a second completion is refused.
+  await store.addVerification(record.id, {
+    id: "verify-current", passed: true, evidence: { source_state_fingerprint: "state-2" }
+  });
+  const done = await store.complete(record.id, { summary: "done", projectState: { fingerprint: "state-2" } });
+  assert.equal(done.status, "complete");
+  assert.deepEqual(done.completion.verification_ids, ["verify-current"]);
+  await assert.rejects(
+    store.complete(record.id, { summary: "again", projectState: { fingerprint: "state-2" } }),
+    /already complete/i
+  );
+});
+
+test("completion refuses a task with no verification", async (t) => {
+  const stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-noverify-tasks-"));
+  t.after(() => fs.rm(stateRoot, { recursive: true, force: true }));
+  const store = new TaskStore({ stateRoot });
+  const record = await store.begin({
+    task: "Fix a frontend console error without changing the UI",
+    project: { project_name: "fixture", project_path: stateRoot, project_types: [], stack: [] },
+    skills: [],
+    baseline: { fingerprint: "before" }
+  });
+  await store.checkpoint(record.id, {
+    summary: "done",
+    criteria: record.acceptance_criteria.map((item) => ({ id: item.id, status: "met", evidence: ["x"] }))
+  });
+  await assert.rejects(
+    store.complete(record.id, { summary: "done", projectState: { fingerprint: "s" } }),
+    /No verification is recorded/i
+  );
+});
+
 test("design-first criteria apply to Russian product work but not a narrow frontend bug", async (t) => {
   const stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-product-tasks-"));
   t.after(() => fs.rm(stateRoot, { recursive: true, force: true }));

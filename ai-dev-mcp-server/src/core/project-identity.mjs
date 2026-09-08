@@ -5,6 +5,18 @@ import { runProcess } from "./process-runner.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 
 const PROJECT_ID_VERSION = 1;
+const BOUNDARY_MARKERS = [
+  ".ai-dev",
+  ".git",
+  "package.json",
+  "pyproject.toml",
+  "go.mod",
+  "Cargo.toml",
+  "pom.xml",
+  "build.gradle",
+  "Gemfile",
+  "composer.json"
+];
 
 // The host (mcp-stdio) knows `vaultRoot`; project-identity does not. It sets this
 // once at startup so the runtime-state directory is identified consistently.
@@ -70,14 +82,13 @@ async function nearestProjectBoundary(start) {
   let current = start;
   const runtimeRoot = normalizePath(configuredRuntimeStateRoot || resolveRuntimeStateRoot());
   while (true) {
-    if (
-      (normalizePath(path.join(current, ".ai-dev")) !== runtimeRoot && await pathExists(path.join(current, ".ai-dev")))
-      || await pathExists(path.join(current, ".git"))
-    ) {
-      return current;
+    for (const marker of BOUNDARY_MARKERS) {
+      const markerPath = path.join(current, marker);
+      if (marker === ".ai-dev" && normalizePath(markerPath) === runtimeRoot) continue;
+      if (await pathExists(markerPath)) return current;
     }
     const parent = path.dirname(current);
-    if (parent === current) return start;
+    if (parent === current) return null;
     current = parent;
   }
 }
@@ -123,9 +134,14 @@ export async function resolveProjectIdentity(projectPath) {
   const requestedRealPath = await fs.realpath(requestedPath);
   const gitRootResult = await git(requestedRealPath, ["rev-parse", "--show-toplevel"]);
   const rawGitRoot = gitRootResult.ok ? gitRootResult.stdout.trim() : "";
-  const boundary = rawGitRoot || await nearestProjectBoundary(requestedRealPath);
-  const projectRoot = await fs.realpath(path.resolve(boundary));
+  // A nested package or explicit .ai-dev directory remains its own project even
+  // when it lives inside a larger Git worktree. The closest boundary wins.
+  const boundary = await nearestProjectBoundary(requestedRealPath);
+  const projectRoot = await fs.realpath(path.resolve(boundary || rawGitRoot || requestedRealPath));
   const isGit = Boolean(rawGitRoot);
+  const gitRoot = isGit
+    ? await fs.realpath(rawGitRoot).catch(() => path.resolve(rawGitRoot))
+    : null;
 
   let remote = "";
   let commonGitDir = "";
@@ -153,10 +169,10 @@ export async function resolveProjectIdentity(projectPath) {
     project_root: projectRoot,
     canonical_path: projectRoot,
     requested_path: requestedPath,
-    aliases: uniquePaths([requestedPath, requestedRealPath, rawGitRoot, projectRoot]),
+    aliases: uniquePaths([requestedPath, requestedRealPath, gitRoot, projectRoot]),
     git: {
       detected: isGit,
-      root: isGit ? projectRoot : null,
+      root: gitRoot,
       common_dir: commonGitDir || null,
       remote: remote || null
     }

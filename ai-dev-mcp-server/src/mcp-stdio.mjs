@@ -255,6 +255,7 @@ const archifyArtifactsRoot = path.resolve(
 const taskStateRoot = path.resolve(
   aiDevRuntimePath("AI_DEV_STATE_ROOT", ["state"], ["state", "ai-dev-system"])
 );
+const archifyReceiptsRoot = path.join(taskStateRoot, "archify-receipts");
 const taskStore = new TaskStore({ stateRoot: taskStateRoot });
 const skillOutcomeStore = new SkillOutcomeStore({ stateRoot: taskStateRoot });
 const pilotStore = new PilotStore({ stateRoot: taskStateRoot });
@@ -7705,7 +7706,7 @@ const {
   archifyCompare,
   archifyMigrate,
   archifyBrands
-} = createArchifyTools({ vaultRoot, archifyArtifactsRoot, safeProjectRoot, safeProjectFile, slugPart, readJsonIfExists });
+} = createArchifyTools({ vaultRoot, archifyArtifactsRoot, archifyReceiptsRoot, safeProjectRoot, safeProjectFile, slugPart, readJsonIfExists });
 function frontendQaVisualArtifacts(result) {
   const artifacts = [];
   const add = (artifactPath, type, context = {}) => {
@@ -8474,11 +8475,17 @@ async function validateArchifyDeliveryEvidence(entries, projectRoot) {
   for (const entry of entries) {
     if (entry?.kind === "archify_visual_check") {
       const htmlPath = archifyProjectPath(projectRoot, entry.html_path, "html_path");
-      checks.push({ type: "archify_visual_check", result: validateArchifyVisualCheckEvidence(entry, htmlPath) });
+      checks.push({
+        type: "archify_visual_check",
+        result: await validateArchifyVisualCheckEvidence(entry, htmlPath, { receiptsDir: archifyReceiptsRoot })
+      });
       continue;
     }
     const htmlPath = archifyProjectPath(projectRoot, entry.html_path, "html_path");
-    checks.push({ type: "archify_deliver", result: await validateArchifyDeliveryReceipt(entry, htmlPath) });
+    checks.push({
+      type: "archify_deliver",
+      result: await validateArchifyDeliveryReceipt(entry, htmlPath, { receiptsDir: archifyReceiptsRoot })
+    });
   }
   return checks;
 }

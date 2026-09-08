@@ -34,6 +34,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `npm run docker:audit` now prints a clear "run `npm run docker:prepare` first"
   message when the build context is missing, instead of an `ENOENT` stack trace.
 
+### Fixed
+
+- `verify_task` no longer trusts client-supplied Archify quality numbers. Every
+  real `archify_deliver` / `archify_visual_check` run now writes a server-owned
+  receipt (keyed by the artifact's SHA-256) under
+  `~/.ai-dev/state/archify-receipts`; delivery-criterion validation hashes the
+  file on disk, looks up that receipt, and evaluates the showcase bar against
+  the recorded numbers. A forged evidence entry with no matching receipt fails
+  the check.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

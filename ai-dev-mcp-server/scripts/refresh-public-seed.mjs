@@ -9,7 +9,8 @@ import {
   auditDistributionTree,
   copyDistributionFile,
   copyDistributionTree,
-  distributionContentFingerprint
+  distributionContentFingerprint,
+  ownerUsername
 } from "../src/core/public-distribution.mjs";
 import { isDirectExecution } from "../src/core/direct-execution.mjs";
 
@@ -184,7 +185,7 @@ contexts, task history, search indexes, logs, caches, models, or runtime state.
 }
 
 function privateTerms(vaultRoot) {
-  const username = os.userInfo().username;
+  const username = ownerUsername();
   return [
     username,
     os.homedir(),

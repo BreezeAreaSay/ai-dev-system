@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
+import process from "node:process";
 
 const TEXT_EXTENSIONS = new Set([
   "",
@@ -318,4 +320,24 @@ export function distributionContentFingerprint(files) {
     .map((item) => `${item.path}\0${item.bytes}\0${item.sha256}`)
     .join("\n");
   return crypto.createHash("sha256").update(source).digest("hex");
+}
+
+/**
+ * The current user's name for privacy scanning, or `""` when the runtime cannot
+ * resolve it.
+ *
+ * `os.userInfo()` throws (`uv_os_get_passwd returned ENOENT`) when the effective
+ * uid has no `/etc/passwd` entry — routine inside `docker run --user "$uid:$gid"`
+ * during `bootstrap.sh --build-local` on macOS, or on any Linux host whose uid is
+ * not the image's baked-in `1000`. Falling back to the environment keeps the
+ * privacy audit running instead of aborting the build.
+ *
+ * @returns {string}
+ */
+export function ownerUsername() {
+  try {
+    return os.userInfo().username || "";
+  } catch {
+    return process.env.USER || process.env.USERNAME || process.env.LOGNAME || "";
+  }
 }

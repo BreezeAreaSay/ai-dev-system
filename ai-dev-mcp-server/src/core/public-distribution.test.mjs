@@ -7,7 +7,8 @@ import {
   assertCleanDistribution,
   auditDistributionTree,
   distributionPathFindings,
-  distributionTextFindings
+  distributionTextFindings,
+  ownerUsername
 } from "./public-distribution.mjs";
 
 test("distribution path policy rejects private vault and runtime state", () => {
@@ -43,4 +44,31 @@ test("distribution audit blocks owner context without exposing source text", asy
   const audit = await auditDistributionTree(root, { forbiddenTerms: ["private-owner"] });
   assert.equal(audit.ok, false);
   assert.deepEqual(audit.findings, [{ rule: "private-owner-context", path: "note.md" }]);
+});
+
+test("ownerUsername returns a string without throwing", () => {
+  assert.equal(typeof ownerUsername(), "string");
+});
+
+test("ownerUsername falls back to the environment when os.userInfo throws", (t) => {
+  const originalUserInfo = os.userInfo;
+  const originalUser = process.env.USER;
+  const originalUsername = process.env.USERNAME;
+  const originalLogname = process.env.LOGNAME;
+  t.after(() => {
+    os.userInfo = originalUserInfo;
+    if (originalUser === undefined) delete process.env.USER; else process.env.USER = originalUser;
+    if (originalUsername === undefined) delete process.env.USERNAME; else process.env.USERNAME = originalUsername;
+    if (originalLogname === undefined) delete process.env.LOGNAME; else process.env.LOGNAME = originalLogname;
+  });
+  // Reproduces `docker run --user "$uid:$gid"` with no matching passwd entry.
+  os.userInfo = () => {
+    const error = new Error("uv_os_get_passwd returned ENOENT");
+    error.code = "ERR_SYSTEM_ERROR";
+    throw error;
+  };
+  delete process.env.USERNAME;
+  delete process.env.LOGNAME;
+  process.env.USER = "build-local-1000";
+  assert.equal(ownerUsername(), "build-local-1000");
 });

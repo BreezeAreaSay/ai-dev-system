@@ -34,6 +34,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `npm run docker:audit` now prints a clear "run `npm run docker:prepare` first"
   message when the build context is missing, instead of an `ENOENT` stack trace.
 
+### Fixed
+
+- Command policy (`run_quality_gate` / `verify_task` / Frontend QA dev servers)
+  now positively allowlists every argument: it rejects code-loading and
+  output-redirecting flags (`--require`, `--import`, `--loader`,
+  `--test-reporter`, `-c`/`-e`/`-p`, `--config`, `--prefix`/`--dir`/`--cwd`,
+  `--output`, `go test -exec`, `cargo test --config`, …), inline Python fused
+  with `-c` (`python "-cimport os;…"`), Python scripts referenced by absolute
+  path or `..`, package-script "names" that are file paths, and `git diff
+  --check` with any flag other than `--cached`/`HEAD`. Executables and path
+  operands must resolve inside the project; `validateProjectExecutable` now also
+  rejects relative executables (`../../tmp/evil/pytest`), not just absolute ones.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

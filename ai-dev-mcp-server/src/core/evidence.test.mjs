@@ -37,13 +37,13 @@ test("editing an already-dirty file changes the fingerprint", async (t) => {
   assert.equal(before.strength, "strong");
   assert.ok(before.dirty);
 
-  await fs.writeFile(
-    path.join(root, "app.js"),
-    "export const value = 22; // regressed with a longer line\n"
-  );
+  // Same byte length as the "before" edit: the git status line is identical, so
+  // only the hashed file contents move the fingerprint.
+  await fs.writeFile(path.join(root, "app.js"), "export const value = 33;\n");
   const after = await captureProjectState(root);
-  assert.deepEqual(before.dirty_files, after.dirty_files); // same status line
-  assert.notEqual(before.fingerprint, after.fingerprint); // different contents
+  assert.deepEqual(before.dirty_files, after.dirty_files);
+  assert.equal(before.status_hash, after.status_hash);
+  assert.notEqual(before.fingerprint, after.fingerprint);
 });
 
 test("editing an untracked file changes the fingerprint", async (t) => {

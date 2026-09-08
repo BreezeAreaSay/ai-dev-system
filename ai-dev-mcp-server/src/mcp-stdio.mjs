@@ -2945,23 +2945,37 @@ async function getBgeWorker({ model_dir = process.env.BGE_M3_MODEL_DIR || defaul
       } else {
         pending.resolve(message);
       }
+      state.armIdle?.();
     }
   });
 
   child.stderr.on("data", (chunk) => {
     state.stderr = `${state.stderr}${chunk.toString()}`.slice(-8000);
   });
-  child.on("error", (err) => {
+  const fail = (message) => {
+    if (state.exited) return;
     state.exited = true;
-    rejectWorkerPending(state, err.message);
-    bgeWorkerStates.delete(key);
-  });
-  child.on("close", (code) => {
-    state.exited = true;
-    rejectWorkerPending(state, `BGE-M3 worker exited with code ${code}. ${state.stderr}`.trim());
-    bgeWorkerStates.delete(key);
-  });
+    clearTimeout(state.idleTimer);
+    rejectWorkerPending(state, message);
+    if (bgeWorkerStates.get(key) === state) bgeWorkerStates.delete(key);
+  };
+  // Reap an idle worker so a broken or unused model process does not sit on
+  // ~2 GB of RSS for the life of the server.
+  state.armIdle = () => {
+    clearTimeout(state.idleTimer);
+    if (state.pending.size > 0) return;
+    state.idleTimer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, 10 * 60 * 1000);
+    state.idleTimer.unref?.();
+  };
+  child.on("error", (err) => fail(err.message));
+  // A crashed worker (OOM loading the 2 GB model, missing package, killed
+  // externally) makes an in-flight stdin.write raise EPIPE. Without this
+  // handler Node rethrows it as an uncaught exception and takes the whole
+  // MCP process down (T-25).
+  child.stdin.on("error", (err) => fail(`BGE-M3 worker stdin error: ${err.message}. ${state.stderr}`.trim()));
+  child.on("close", (code) => fail(`BGE-M3 worker exited with code ${code}. ${state.stderr}`.trim()));
 
+  state.armIdle();
   return state;
 }
 
@@ -2970,8 +2984,13 @@ async function requestBgeWorker(payload, { timeoutMs = 180000 } = {}) {
     model_dir: payload.model_dir,
     device: payload.device
   });
-  if (!state.child.stdin.writable) {
+  if (state.exited || !state.child.stdin.writable) {
     throw new Error("BGE-M3 worker stdin is closed.");
+  }
+  // A worker that started but reported a failed model load would otherwise make
+  // every request block for the full timeout before rejecting (T-25).
+  if (state.ready_message && !state.ready) {
+    throw new Error(`BGE-M3 worker failed to load the model: ${state.ready_message.error || JSON.stringify(state.ready_message)}`);
   }
   const id = ++bgeWorkerRequestSeq;
   const request = {
@@ -2989,9 +3008,11 @@ async function requestBgeWorker(payload, { timeoutMs = 180000 } = {}) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       state.pending.delete(id);
+      state.armIdle?.();
       reject(new Error(`BGE-M3 worker request timed out after ${timeoutMs}ms.`));
     }, timeoutMs);
     state.pending.set(id, { resolve, reject, timer });
+    clearTimeout(state.idleTimer);
     state.child.stdin.write(`${JSON.stringify(request)}\n`, "utf8", (err) => {
       if (err) {
         state.pending.delete(id);

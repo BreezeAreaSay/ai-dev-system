@@ -105,7 +105,7 @@
       "task": "Добавь миграцию схемы базы данных и безопасный backfill",
       "project_types": ["backend"],
       "expected_all": ["feature-builder", "database-migration-guardian"],
-      "must_not": ["data-pipeline-engineer"]
+      "must_not": ["data-pipeline-engineer", "archify"]
     },
     {
       "id": "en-db-review",
@@ -186,6 +186,43 @@
       "id": "ru-generic-review",
       "task": "Сделай ревью изменений и найди регрессии",
       "expected_all": ["code-reviewer"]
+    },
+    {
+      "id": "en-architecture-text-not-diagram",
+      "task": "Document the product architecture and its trade-offs",
+      "must_not": ["archify"]
+    },
+    {
+      "id": "en-helmet-not-helm",
+      "task": "Fix the helmet size in the product catalog",
+      "must_not": ["container-deployment-reviewer"]
+    },
+    {
+      "id": "en-product-not-repository",
+      "task": "Ship the product release notes",
+      "must_not": ["repo-onboarding"]
+    },
+    {
+      "id": "en-stack-metadata-not-intent",
+      "task": "Fix a failing unit test",
+      "stack": ["Docker", "Helm"],
+      "expected_all": ["bugfix-investigator"],
+      "must_not": ["container-deployment-reviewer"]
+    },
+    {
+      "id": "en-specialist-not-ci",
+      "task": "Ask a specialist to review documentation",
+      "must_not": ["devops-release-engineer"]
+    },
+    {
+      "id": "ru-promotion-not-production",
+      "task": "Улучши продвижение продукта в поиске",
+      "must_not": ["devops-release-engineer"]
+    },
+    {
+      "id": "en-reactivity-not-frontend",
+      "task": "Improve reactivity of the vitest suite",
+      "must_not": ["beta-frontend-maintainer", "frontend-quality-gate"]
     }
   ]
 }

@@ -57,6 +57,7 @@ import {
   routeSkills,
   taskRequiresFrontendProductWorkflow
 } from "./core/skill-router.mjs";
+import { INTENT } from "./core/intent-patterns.mjs";
 import { prioritizeKnowledgeResults } from "./core/knowledge-router.mjs";
 import {
   hardNegativeRulesFromCases,
@@ -10160,7 +10161,7 @@ async function recommendSkillsProjectAware({
     );
   }
 
-  if (/(repo|repository|onboard|bootstrap|prepare|AGENTS|project map|quality gate|подготов|оформ|проект|агент|ии|репозитор)/i.test(task)) {
+  if (INTENT.repository.test(task)) {
     addNamed("repo-onboarding", "custom", "task asks to understand or prepare repository context", 145);
   }
   if (/(new feature|implement|add|build|feature|созда|добав|реализ|фич)/i.test(task)) {
@@ -10218,7 +10219,7 @@ async function recommendSkillsProjectAware({
   if (/(ci\/cd|deployment|deploy|release|rollback|github actions|gitlab ci|pipeline|деплой|релиз|откат)/i.test(task)) {
     addNamed("devops-release-engineer", "custom", "task changes build, release, deployment, or rollback behavior", 152);
   }
-  if (/(docker|dockerfile|compose|container|kubernetes|k8s|helm|докер|контейнер|кубер)/i.test(task)) {
+  if (INTENT.container.test(task)) {
     addNamed("container-deployment-reviewer", "custom", "container build or runtime behavior needs reproducibility and safety review", 154);
   }
   if (/(application security|security review|threat model|authorization|authentication|permission|vulnerab|csrf|xss|ssrf|безопасн|авториз|уязвим)/i.test(task)) {

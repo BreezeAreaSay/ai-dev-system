@@ -1,3 +1,5 @@
+import { INTENT } from "./intent-patterns.mjs";
+
 function normalized(value) {
   return String(value ?? "")
     .normalize("NFKC")
@@ -16,7 +18,10 @@ const FRONTEND_REFERENCE_PATTERN = /(reference factory|generate.{0,32}(?:fronten
  * task-lifecycle acceptance criteria so the three never diverge. The negative
  * lookahead keeps database / API schema work from being read as a diagram.
  */
-export const DIAGRAM_REQUEST_PATTERN = /(diagram|flow ?chart|\u0434\u0438\u0430\u0433\u0440\u0430\u043c\u043c[\u0430-\u044f]*|\u0431\u043b\u043e\u043a-\u0441\u0445\u0435\u043c|\u0441\u0445\u0435\u043c[\u0430\u0443\u044b](?!\s+(?:\u0431\u0430\u0437|\u0434\u0430\u043d\u043d|api|\u0430\u043f\u0438|\u0431\u0434|\u0431\u044d\u043a\u0435\u043d\u0434|\u043a\u043e\u043d\u0442\u0440\u0430\u043a\u0442))|\u0432\u0438\u0437\u0443\u0430\u043b\u0438\u0437\u0438\u0440|visuali[sz]e|architecture map|system architecture|workflow map|\u0430\u0440\u0445\u0438\u0442\u0435\u043a\u0442\u0443\u0440\u043d[\u0430-\u044f]*\s+\u043a\u0430\u0440\u0442|mermaid|sequence diagram|data\s?flow|state machine|\u043d\u0430\u0440\u0438\u0441\u0443\u0439\s+(?:\u0441\u0445\u0435\u043c\u0443|\u0434\u0438\u0430\u0433\u0440\u0430\u043c\u043c|\u0430\u0440\u0445\u0438\u0442\u0435\u043a\u0442\u0443\u0440))/i;
+export const DIAGRAM_REQUEST_PATTERN = INTENT.diagram;
+const REPOSITORY_PATTERN = INTENT.repository;
+const CONTAINER_PATTERN = INTENT.container;
+const FRONTEND_PATTERN = INTENT.frontend;
 
 /**
  * True when the task text (RU/EN) asks for a technical diagram that Archify
@@ -73,7 +78,7 @@ const RULES = [
   },
   {
     id: "repository",
-    pattern: /(agents\.md|repo(?:sitory)?|bootstrap|onboard|оформ[а-я]*\s+проект|подготов[а-я]*\s+(проект|репозитор)|репозитор|проект[а-я]*\s+для\s+ии)/i,
+    pattern: REPOSITORY_PATTERN,
     workflow: "repo-onboarding",
     verification: "code-reviewer"
   },
@@ -105,7 +110,7 @@ const RULES = [
   },
   {
     id: "container",
-    pattern: /(docker|compose|container|kubernetes|\bk8s\b|helm|контейнер|кубер)/i,
+    pattern: CONTAINER_PATTERN,
     domain: "container-deployment-reviewer",
     verification: "devops-release-engineer"
   },
@@ -129,7 +134,7 @@ const RULES = [
   },
   {
     id: "frontend",
-    pattern: /(front.?end|фронтенд|интерфейс|ui\b|ux\b|верст|компонент|экран|форма|адаптив|responsive|layout|react|next\.?js|vue|svelte|css|accessibility|a11y|wcag|доступност|клавиатур[а-я]*\s+навигац|скринридер)/i,
+    pattern: FRONTEND_PATTERN,
     domain: "beta-frontend-maintainer",
     verification: "frontend-quality-gate"
   },
@@ -163,7 +168,7 @@ function workflowFor(text) {
   if (/(knowledge|obsidian|баз[а-я]*\s+знан|заметк|памят)/i.test(text)) {
     return { name: "knowledge-curator", role: "workflow", reason: "durable knowledge workflow" };
   }
-  if (/(repo|bootstrap|onboard|оформ[а-я]*\s+проект|подготов[а-я]*\s+проект|репозитор)/i.test(text)) {
+  if (REPOSITORY_PATTERN.test(text)) {
     return { name: "repo-onboarding", role: "workflow", reason: "repository onboarding workflow" };
   }
   return { name: "feature-builder", role: "workflow", reason: "scoped implementation workflow" };
@@ -190,7 +195,7 @@ function capabilityEntries(rules, selected) {
  * @returns {{ normalized_intent: string, matched_rules: string[], skills: Array<{ name: string, source: string, role: string, reason: string, rule: string }> }}
  */
 export function routeSkills({ task, projectTypes = [], stack = [], maxSkills = 3 }) {
-  const text = normalized([task, ...projectTypes, ...stack].join(" "));
+  const text = normalized(task);
   const selected = [];
   const safeLimit = Math.max(1, Math.min(Number(maxSkills) || 3, 3));
   const matchedCapabilities = RULES.filter((rule) => rule.capability && rule.pattern.test(text));

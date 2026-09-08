@@ -1,3 +1,5 @@
+import { intentPattern } from "./intent-patterns.mjs";
+
 const STOP_WORDS = new Set([
   "and", "the", "for", "with", "from", "this", "that", "into", "как", "для", "или",
   "это", "при", "через", "нужно", "сделать", "найти", "проекта", "проект"
@@ -21,6 +23,10 @@ const INTENT_DEFINITIONS = Object.freeze({
   project: ["project card", "project registry", "project path", "карточка проекта", "реестр проектов"],
   knowledge: ["documentation", "docs", "runbook", "architecture", "knowledge", "документац", "архитектур", "база знаний"]
 });
+
+const INTENT_PATTERNS = Object.freeze(Object.fromEntries(
+  Object.entries(INTENT_DEFINITIONS).map(([name, terms]) => [name, intentPattern({ words: terms })])
+));
 
 const CONFLICTS = Object.freeze({
   frontend: new Set(["backend", "database", "devops"]),
@@ -88,7 +94,7 @@ function tokens(value) {
 export function inferSearchIntents(value) {
   const normalized = normalize(value);
   return Object.entries(INTENT_DEFINITIONS)
-    .filter(([, terms]) => terms.some((term) => normalized.includes(term)))
+    .filter(([name]) => INTENT_PATTERNS[name].test(normalized))
     .map(([intent]) => intent);
 }
 

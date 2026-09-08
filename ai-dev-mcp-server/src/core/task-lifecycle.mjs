@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { atomicWriteJson } from "./atomic-files.mjs";
+import { INTENT } from "./intent-patterns.mjs";
 import { taskRequestsDiagram, taskRequiresFrontendProductWorkflow } from "./skill-router.mjs";
 
 const TASK_ID = /^task-\d{8}T\d{6}-[a-f0-9]{8}$/;
@@ -53,7 +54,7 @@ function normalizeCriteria(task, projectTypes, provided = []) {
 
 function riskFor(task, projectTypes) {
   const text = String(task).toLowerCase();
-  if (/(payment|production|deploy|migration|database|security|auth|permission|удален|прод|депло|миграц|безопасн|платеж)/i.test(text)) return "high";
+  if (INTENT.highRisk.test(text)) return "high";
   if (projectTypes.some((item) => ["api", "backend", "mobile"].includes(item)) || /(shared|config|routing|dependency|api|сборк|маршрут|зависим)/i.test(text)) return "medium";
   return "low";
 }

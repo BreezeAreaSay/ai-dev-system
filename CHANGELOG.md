@@ -34,6 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `npm run docker:audit` now prints a clear "run `npm run docker:prepare` first"
   message when the build context is missing, instead of an `ENOENT` stack trace.
 
+### Fixed
+
+- The skill-outcome and pilot stores no longer strand every future write after a
+  single failed `update` (for example a transiently corrupt state file): the
+  internal serialisation chain is always recovered, while the failing caller
+  still sees the real error.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

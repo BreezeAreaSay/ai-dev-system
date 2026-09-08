@@ -181,7 +181,10 @@ export class PilotStore {
   }
 
   async update(mutator) {
-    this.queue = this.queue.then(async () => {
+    // Serialise writes, but never let one failed update poison the queue for
+    // every later caller: the chain the next update builds on is always
+    // recovered, while this caller still sees the real error.
+    const run = this.queue.then(async () => {
       const store = await this.read();
       const next = await mutator(store);
       next.schema_version = PILOT_SCHEMA_VERSION;
@@ -191,7 +194,8 @@ export class PilotStore {
       await atomicWriteJson(this.filePath, next);
       return next;
     });
-    return this.queue;
+    this.queue = run.catch(() => undefined);
+    return run;
   }
 
   async start({

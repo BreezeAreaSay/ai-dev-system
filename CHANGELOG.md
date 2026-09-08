@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stable Homebrew tap formula source for `v1.0.0`, validation of AUR `.SRCINFO`,
   and documented maintainer-only publication paths for `stonebridgeway/tap` and
   `ai-dev-system-git`.
+- Windows CI job (`windows-latest`): parses every PowerShell script, runs
+  `bootstrap.ps1 -Plan`, exercises the client installer's win32 path handling,
+  and runs the core unit suite. The Windows install path had no CI coverage
+  before.
 
 ### Changed
 

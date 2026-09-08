@@ -87,3 +87,56 @@ jobs:
       - name: Task lifecycle smoke
         working-directory: ai-dev-mcp-server
         run: npm run lifecycle:smoke
+
+  windows:
+    name: Windows (PowerShell syntax, bootstrap plan, installer, core tests)
+    runs-on: windows-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ai-dev-mcp-server/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ai-dev-mcp-server
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Parse every PowerShell script
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Recurse -Include *.ps1 -Path . |
+            Where-Object { $_.FullName -notmatch 'node_modules|\.venv' }
+          $failed = $false
+          foreach ($file in $files) {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($file.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors) {
+              $failed = $true
+              foreach ($e in $errors) { Write-Host "::error file=$($file.Name)::$($e.Message)" }
+            }
+          }
+          if ($failed) { exit 1 }
+          Write-Host "Parsed $($files.Count) PowerShell script(s)."
+
+      - name: Bootstrap plan (no side effects)
+        shell: pwsh
+        run: ./bootstrap.ps1 -Plan
+
+      - name: Client installer dry run (win32 path handling)
+        working-directory: ai-dev-mcp-server
+        shell: pwsh
+        run: >
+          node scripts/install-docker-mcp-clients.mjs
+          --launcher ..\docker\run-mcp.ps1
+          --image ghcr.io/stonebridgeway/ai-dev-system:latest
+          --project-path "$env:RUNNER_TEMP\projects"
+          --clients codex,cursor,vscode,claude
+
+      - name: Core unit tests
+        working-directory: ai-dev-mcp-server
+        run: npm run test:core

@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `npm run docker:audit` now prints a clear "run `npm run docker:prepare` first"
   message when the build context is missing, instead of an `ENOENT` stack trace.
 
+### Fixed
+
+- `execFileWithInput` (Frontend QA runner, UI/UX helper) now bounds captured
+  output at 16 MiB, kills the whole process group on timeout or overflow so a
+  Playwright Chromium or dev server is not orphaned, guards against a
+  double-settle, ignores `stdin` `EPIPE`, and decodes stdout/stderr from a
+  buffer so multi-byte characters are no longer corrupted at chunk boundaries.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

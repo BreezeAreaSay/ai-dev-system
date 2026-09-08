@@ -34,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `npm run docker:audit` now prints a clear "run `npm run docker:prepare` first"
   message when the build context is missing, instead of an `ENOENT` stack trace.
 
+### Fixed
+
+- Hybrid search no longer fails when the local BGE-M3 dense backend is missing.
+  `hybrid_search`, `preset_search`, `explain_search`, and `run_search_eval` now
+  pre-check the worker script, Python runtime, and model weights, fall back to
+  keyword/sparse ranking, and report a `dense_available: false` warning instead
+  of throwing "BGE-M3 Python runtime not found". Keyword-only ranking can be
+  forced with `AI_DEV_DENSE=off`.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

@@ -50,6 +50,32 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: npm run test:core
 
+  mcp-server-node-floor:
+    name: MCP server (Node 22.12 floor)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "22.12"
+          cache: npm
+          cache-dependency-path: ai-dev-mcp-server/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ai-dev-mcp-server
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Static quality gate
+        working-directory: ai-dev-mcp-server
+        run: npm run lint
+
+      - name: Core unit tests
+        working-directory: ai-dev-mcp-server
+        run: npm run test:core
+
   vault-suite:
     name: MCP server (vault-coupled suite + smokes)
     runs-on: ubuntu-latest

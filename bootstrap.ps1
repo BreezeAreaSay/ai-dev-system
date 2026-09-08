@@ -47,7 +47,7 @@ function Get-NodeCommand {
 function Ensure-Node {
     $node = Get-NodeCommand
     if (-not $node) {
-        Install-Prerequisite "Node.js 24 LTS" "OpenJS.NodeJS.LTS"
+        Install-Prerequisite "Node.js LTS" "OpenJS.NodeJS.LTS"
         $nodeBin = Join-Path $env:ProgramFiles "nodejs"
         if (Test-Path -LiteralPath $nodeBin) { $env:PATH = "$nodeBin;$env:PATH" }
         $node = Get-NodeCommand
@@ -57,8 +57,9 @@ function Ensure-Node {
     }
     $version = (& $node --version).Trim()
     $major = [int](($version -replace '^v', '').Split('.')[0])
-    if ($major -lt 24) {
-        throw "Node.js 24 or newer is required; found $version. Update Node.js and run bootstrap.ps1 again."
+    $minor = [int](($version -replace '^v', '').Split('.')[1])
+    if ($major -lt 22 -or ($major -eq 22 -and $minor -lt 12)) {
+        throw "Node.js 22.12 or newer is required; found $version. Update Node.js and run bootstrap.ps1 again."
     }
     return $node
 }

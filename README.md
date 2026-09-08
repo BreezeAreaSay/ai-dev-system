@@ -28,7 +28,7 @@ For the Docker path:
 - Docker Desktop (Windows / macOS) or Docker Engine (Linux); bootstrap can install it;
 - Docker must have access to the project folder you choose.
 
-To run from source you additionally need Node.js 24 and npm. On Windows you can
+To run from source you additionally need Node.js 22.12+ and npm. On Windows you can
 use the bundled runtime described in the [server README](ai-dev-mcp-server/README.md).
 
 ## One command on Windows
@@ -40,7 +40,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
 ```
 
 The script creates an isolated `AI-Dev-Projects` folder in your home directory,
-installs Docker Desktop and Node.js 24 LTS via `winget` if they are missing,
+installs Docker Desktop and Node.js LTS via `winget` if they are missing,
 pulls the published image, verifies MCP, and registers the local `ai-dev` server
 with Codex, Cursor, Gemini, VS Code, and Claude. On Windows it also installs a
 launcher-only copy at `C:\ProgramData\AI-Dev-System\run-mcp.ps1`, which avoids

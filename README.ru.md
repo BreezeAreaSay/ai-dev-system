@@ -28,7 +28,7 @@ MCP-сервера.
 - Docker Desktop (Windows/macOS) или Docker Engine (Linux); bootstrap может установить его;
 - Docker должен иметь доступ к выбранной папке с проектами.
 
-Для запуска из исходников дополнительно нужны Node.js 24 и npm. На Windows можно использовать
+Для запуска из исходников дополнительно нужны Node.js 22.12+ и npm. На Windows можно использовать
 bundled runtime Codex, описанный в [README сервера](ai-dev-mcp-server/README.md).
 
 ## Один запуск на Windows
@@ -40,7 +40,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
 ```
 
 Скрипт сам создаёт изолированную папку `AI-Dev-Projects` в домашнем каталоге, устанавливает
-Docker Desktop и Node.js 24 LTS через `winget`, если их нет, скачивает опубликованный образ,
+Docker Desktop и Node.js LTS через `winget`, если их нет, скачивает опубликованный образ,
 проверяет MCP и добавляет локальный сервер `ai-dev` в Codex, Cursor, Gemini, VS Code и Claude.
 Для Windows он также устанавливает копию только лаунчера в
 `C:\ProgramData\AI-Dev-System\run-mcp.ps1`: это исключает проблемы кодировки, когда путь к

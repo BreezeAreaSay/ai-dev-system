@@ -33,6 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   npm command through a bundled pnpm entrypoint — it fails closed instead.
 - `npm run docker:audit` now prints a clear "run `npm run docker:prepare` first"
   message when the build context is missing, instead of an `ENOENT` stack trace.
+- Minimum Node.js is now 22.12 (was 24). No Node 24-only API is used; `.nvmrc`
+  pins `22`, `bootstrap.ps1` accepts 22.12+, and CI adds a Node 22.12 floor job
+  (lint + core tests) alongside the Node 24 gate.
 
 ## [1.0.0] - 2026-09-01
 

@@ -34,6 +34,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `npm run docker:audit` now prints a clear "run `npm run docker:prepare` first"
   message when the build context is missing, instead of an `ENOENT` stack trace.
 
+### Fixed
+
+- `ensureSearchIndex` claims the in-flight refresh slot before its first
+  `await`, so concurrent search calls join one rebuild instead of each
+  starting their own `search_cli.py rebuild` on the same SQLite file. A
+  "dirty" reason raised while a rebuild is running is no longer cleared, so
+  the next search still rebuilds.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

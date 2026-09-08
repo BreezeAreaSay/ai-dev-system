@@ -3707,14 +3707,17 @@ async function ensureSearchIndex({ force_check = false } = {}) {
     return { action: "current", status: searchIndexLastStatus };
   }
 
-  const status = await searchIndexStatus({ include_external_project_files: true });
-  searchIndexLastStatus = status;
-  searchIndexLastStatusAt = Date.now();
-  if (!status.stale && !searchIndexDirtyReason) {
-    return { action: "current", status };
-  }
-
-  searchIndexRefreshPromise = (async () => {
+  // Claim the slot before the first await so concurrent callers join this run
+  // instead of each triggering their own status check + rebuild on the same
+  // SQLite file (T-24).
+  const refresh = (async () => {
+    const status = await searchIndexStatus({ include_external_project_files: true });
+    searchIndexLastStatus = status;
+    searchIndexLastStatusAt = Date.now();
+    const dirtyReasonAtStart = searchIndexDirtyReason;
+    if (!status.stale && !dirtyReasonAtStart) {
+      return { action: "current", status };
+    }
     const rebuild = await rebuildSearchIndex({
       include_external_project_files: true,
       dense_embeddings: false,
@@ -3723,14 +3726,16 @@ async function ensureSearchIndex({ force_check = false } = {}) {
     const refreshed = await searchIndexStatus({ include_external_project_files: true });
     searchIndexLastStatus = refreshed;
     searchIndexLastStatusAt = Date.now();
-    searchIndexDirtyReason = "";
+    // Keep a dirty reason that was raised while this rebuild was running.
+    if (searchIndexDirtyReason === dirtyReasonAtStart) searchIndexDirtyReason = "";
     return { action: "rebuilt", previous_status: status, rebuild, status: refreshed };
   })();
 
+  searchIndexRefreshPromise = refresh;
   try {
-    return await searchIndexRefreshPromise;
+    return await refresh;
   } finally {
-    searchIndexRefreshPromise = null;
+    if (searchIndexRefreshPromise === refresh) searchIndexRefreshPromise = null;
   }
 }
 

@@ -7,6 +7,7 @@ import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { execFileWithInput } from "./core/input-process-runner.mjs";
 import {
   INTEGRATION_SUBGROUPS,
   SKILL_GROUPS,
@@ -254,10 +255,12 @@ const frontendQaArtifactsRoot = path.resolve(
 const archifyArtifactsRoot = path.resolve(
   aiDevRuntimePath("AI_DEV_ARCHIFY_ARTIFACT_ROOT", ["artifacts", "archify"])
 );
+const archifyReceiptsRoot = path.resolve(
+  aiDevRuntimePath("AI_DEV_ARCHIFY_RECEIPTS_ROOT", ["state", "archify-receipts"])
+);
 const taskStateRoot = path.resolve(
   aiDevRuntimePath("AI_DEV_STATE_ROOT", ["state"], ["state", "ai-dev-system"])
 );
-const archifyReceiptsRoot = path.join(taskStateRoot, "archify-receipts");
 const taskStore = new TaskStore({ stateRoot: taskStateRoot });
 const skillOutcomeStore = new SkillOutcomeStore({ stateRoot: taskStateRoot });
 const pilotStore = new PilotStore({ stateRoot: taskStateRoot });
@@ -2552,18 +2555,18 @@ async function browseSkillGroup({
 function execFile(command, args, { cwd, timeoutMs = 120000 } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, { cwd, windowsHide: true });
-    let stdout = "";
-    let stderr = "";
+    const stdout = [];
+    const stderr = [];
     const timer = setTimeout(() => {
       child.kill();
       reject(new Error(`Command timed out: ${command} ${args.join(" ")}`));
     }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
+      stdout.push(Buffer.from(chunk));
     });
     child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
+      stderr.push(Buffer.from(chunk));
     });
     child.on("error", (err) => {
       clearTimeout(timer);
@@ -2571,73 +2574,16 @@ function execFile(command, args, { cwd, timeoutMs = 120000 } = {}) {
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      const output = {
+        stdout: Buffer.concat(stdout).toString("utf8"),
+        stderr: Buffer.concat(stderr).toString("utf8")
+      };
       if (code === 0) {
-        resolve({ stdout, stderr });
+        resolve(output);
       } else {
-        reject(new Error(stderr || stdout || `Command failed with exit code ${code}`));
+        reject(new Error(output.stderr || output.stdout || `Command failed with exit code ${code}`));
       }
     });
-  });
-}
-
-function killProcessTree(child) {
-  try {
-    if (process.platform === "win32") {
-      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
-    } else if (child.pid) {
-      process.kill(-child.pid, "SIGKILL");
-    }
-  } catch {
-    // already gone
-  }
-}
-
-function execFileWithInput(command, args, input, {
-  cwd, timeoutMs = 120000, env = {}, maxOutputBytes = 16 * 1024 * 1024
-} = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd,
-      windowsHide: true,
-      env: { ...process.env, ...env },
-      stdio: ["pipe", "pipe", "pipe"],
-      // Own process group so a timeout kills descendants (Chromium, dev server),
-      // not just the direct child.
-      detached: process.platform !== "win32"
-    });
-    const chunks = { out: [], err: [] };
-    let total = 0;
-    let settled = false;
-    const finish = (settle, value) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      settle(value);
-    };
-    const timer = setTimeout(() => {
-      killProcessTree(child);
-      finish(reject, new Error(`Command timed out after ${timeoutMs} ms: ${command} ${args.join(" ")}`));
-    }, timeoutMs);
-    const collect = (bucket) => (chunk) => {
-      total += chunk.length;
-      if (total > maxOutputBytes) {
-        killProcessTree(child);
-        finish(reject, new Error(`Command output exceeded ${maxOutputBytes} bytes: ${command}`));
-        return;
-      }
-      bucket.push(chunk);
-    };
-    child.stdout.on("data", collect(chunks.out));
-    child.stderr.on("data", collect(chunks.err));
-    child.on("error", (err) => finish(reject, err));
-    child.on("close", (code) => {
-      const stdout = Buffer.concat(chunks.out).toString("utf8");
-      const stderr = Buffer.concat(chunks.err).toString("utf8");
-      if (code === 0) finish(resolve, { stdout, stderr });
-      else finish(reject, new Error(stderr || stdout || `Command failed with exit code ${code}`));
-    });
-    child.stdin.on("error", () => { /* EPIPE if the child exits before reading stdin */ });
-    child.stdin.end(input);
   });
 }
 
@@ -2669,7 +2615,7 @@ async function runSearchCli(args, { timeoutMs = 600000, command = pythonCommand(
     throw new Error(`Search helper not found: ${searchCliPath}`);
   }
 
-  const output = await execFile(command, ["-B", searchCliPath, ...args], { timeoutMs });
+  const output = await execFile(command, [searchCliPath, ...args], { timeoutMs });
   try {
     return JSON.parse(stripBom(output.stdout));
   } catch (err) {
@@ -2688,7 +2634,7 @@ async function runUiUxProMax(args, { json = false } = {}) {
   });
   const output = await execFile(
     pythonCommand(),
-    ["-B", scriptPath, ...args],
+    [scriptPath, ...args],
     { cwd: uiUxProMaxRoot, timeoutMs: 120000 }
   );
   if (!json) return output.stdout.trim();
@@ -2923,7 +2869,6 @@ async function getBgeWorker({ model_dir = process.env.BGE_M3_MODEL_DIR || defaul
   if (existing && !existing.exited) return existing;
 
   const child = spawn(python, [
-    "-B",
     bgeM3WorkerCliPath,
     "--model-dir",
     resolvedModelDir,
@@ -2972,37 +2917,23 @@ async function getBgeWorker({ model_dir = process.env.BGE_M3_MODEL_DIR || defaul
       } else {
         pending.resolve(message);
       }
-      state.armIdle?.();
     }
   });
 
   child.stderr.on("data", (chunk) => {
     state.stderr = `${state.stderr}${chunk.toString()}`.slice(-8000);
   });
-  const fail = (message) => {
-    if (state.exited) return;
+  child.on("error", (err) => {
     state.exited = true;
-    clearTimeout(state.idleTimer);
-    rejectWorkerPending(state, message);
-    if (bgeWorkerStates.get(key) === state) bgeWorkerStates.delete(key);
-  };
-  // Reap an idle worker so a broken or unused model process does not sit on
-  // ~2 GB of RSS for the life of the server.
-  state.armIdle = () => {
-    clearTimeout(state.idleTimer);
-    if (state.pending.size > 0) return;
-    state.idleTimer = setTimeout(() => { try { child.kill(); } catch { /* gone */ } }, 10 * 60 * 1000);
-    state.idleTimer.unref?.();
-  };
-  child.on("error", (err) => fail(err.message));
-  // A crashed worker (OOM loading the 2 GB model, missing package, killed
-  // externally) makes an in-flight stdin.write raise EPIPE. Without this
-  // handler Node rethrows it as an uncaught exception and takes the whole
-  // MCP process down (T-25).
-  child.stdin.on("error", (err) => fail(`BGE-M3 worker stdin error: ${err.message}. ${state.stderr}`.trim()));
-  child.on("close", (code) => fail(`BGE-M3 worker exited with code ${code}. ${state.stderr}`.trim()));
+    rejectWorkerPending(state, err.message);
+    bgeWorkerStates.delete(key);
+  });
+  child.on("close", (code) => {
+    state.exited = true;
+    rejectWorkerPending(state, `BGE-M3 worker exited with code ${code}. ${state.stderr}`.trim());
+    bgeWorkerStates.delete(key);
+  });
 
-  state.armIdle();
   return state;
 }
 
@@ -3011,13 +2942,8 @@ async function requestBgeWorker(payload, { timeoutMs = 180000 } = {}) {
     model_dir: payload.model_dir,
     device: payload.device
   });
-  if (state.exited || !state.child.stdin.writable) {
+  if (!state.child.stdin.writable) {
     throw new Error("BGE-M3 worker stdin is closed.");
-  }
-  // A worker that started but reported a failed model load would otherwise make
-  // every request block for the full timeout before rejecting (T-25).
-  if (state.ready_message && !state.ready) {
-    throw new Error(`BGE-M3 worker failed to load the model: ${state.ready_message.error || JSON.stringify(state.ready_message)}`);
   }
   const id = ++bgeWorkerRequestSeq;
   const request = {
@@ -3035,11 +2961,9 @@ async function requestBgeWorker(payload, { timeoutMs = 180000 } = {}) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       state.pending.delete(id);
-      state.armIdle?.();
       reject(new Error(`BGE-M3 worker request timed out after ${timeoutMs}ms.`));
     }, timeoutMs);
     state.pending.set(id, { resolve, reject, timer });
-    clearTimeout(state.idleTimer);
     state.child.stdin.write(`${JSON.stringify(request)}\n`, "utf8", (err) => {
       if (err) {
         state.pending.delete(id);
@@ -3062,20 +2986,6 @@ function shutdownBgeWorkers() {
     }
   }
   bgeWorkerStates.clear();
-}
-
-// Cheap pre-flight probe for the local dense (BGE-M3) backend. hybridSearchIndex
-// uses it so a missing worker script, Python runtime, or model weights degrades
-// to keyword ranking instead of throwing and taking the whole hybrid_search /
-// preset_search / explain_search / run_search_eval surface down with it (T-34).
-async function denseBackendAvailable(modelDir = process.env.BGE_M3_MODEL_DIR || defaultBgeM3ModelDir) {
-  if (!(await pathExists(bgeM3WorkerCliPath))) return { ok: false, reason: "worker script missing" };
-  const python = embeddingPythonCommand();
-  if (!(await pathExists(python))) return { ok: false, reason: `Python runtime missing (${python})` };
-  const dir = path.resolve(String(modelDir || defaultBgeM3ModelDir));
-  const hasWeights = (await pathExists(path.join(dir, "model.safetensors")))
-    || (await pathExists(path.join(dir, "pytorch_model.bin")));
-  return hasWeights ? { ok: true } : { ok: false, reason: `model weights missing in ${dir}` };
 }
 
 
@@ -3731,7 +3641,6 @@ async function embedTexts({
   await atomicWriteJson(requestPath, request, { spaces: 0 });
   try {
     const output = await execFile(python, [
-      "-B",
       bgeM3EmbedCliPath,
       "--model-dir",
       path.resolve(String(model_dir || defaultBgeM3ModelDir)),
@@ -3770,17 +3679,14 @@ async function ensureSearchIndex({ force_check = false } = {}) {
     return { action: "current", status: searchIndexLastStatus };
   }
 
-  // Claim the slot before the first await so concurrent callers join this run
-  // instead of each triggering their own status check + rebuild on the same
-  // SQLite file (T-24).
-  const refresh = (async () => {
-    const status = await searchIndexStatus({ include_external_project_files: true });
-    searchIndexLastStatus = status;
-    searchIndexLastStatusAt = Date.now();
-    const dirtyReasonAtStart = searchIndexDirtyReason;
-    if (!status.stale && !dirtyReasonAtStart) {
-      return { action: "current", status };
-    }
+  const status = await searchIndexStatus({ include_external_project_files: true });
+  searchIndexLastStatus = status;
+  searchIndexLastStatusAt = Date.now();
+  if (!status.stale && !searchIndexDirtyReason) {
+    return { action: "current", status };
+  }
+
+  searchIndexRefreshPromise = (async () => {
     const rebuild = await rebuildSearchIndex({
       include_external_project_files: true,
       dense_embeddings: false,
@@ -3789,16 +3695,14 @@ async function ensureSearchIndex({ force_check = false } = {}) {
     const refreshed = await searchIndexStatus({ include_external_project_files: true });
     searchIndexLastStatus = refreshed;
     searchIndexLastStatusAt = Date.now();
-    // Keep a dirty reason that was raised while this rebuild was running.
-    if (searchIndexDirtyReason === dirtyReasonAtStart) searchIndexDirtyReason = "";
+    searchIndexDirtyReason = "";
     return { action: "rebuilt", previous_status: status, rebuild, status: refreshed };
   })();
 
-  searchIndexRefreshPromise = refresh;
   try {
-    return await refresh;
+    return await searchIndexRefreshPromise;
   } finally {
-    if (searchIndexRefreshPromise === refresh) searchIndexRefreshPromise = null;
+    searchIndexRefreshPromise = null;
   }
 }
 
@@ -3870,51 +3774,28 @@ async function hybridSearchIndex({
   }
   const normalizedQuery = repairSearchMojibake(query);
   const requestedLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
-  const requestedDenseWeight = Number.isFinite(Number(dense_weight)) ? Number(dense_weight) : 0.35;
-  const denseDisabled = /^(off|0|false|no)$/i.test(String(process.env.AI_DEV_DENSE || ""));
-  let selectedDenseWeight = denseDisabled ? 0 : requestedDenseWeight;
-  const warnings = [];
+  const selectedDenseWeight = Number.isFinite(Number(dense_weight)) ? Number(dense_weight) : 0.35;
   if (ensure_fresh) await ensureSearchIndex();
 
   let denseQueryVectorPath = "";
   if (selectedDenseWeight > 0) {
-    const availability = await denseBackendAvailable(dense_model_dir);
-    if (!availability.ok) {
-      selectedDenseWeight = 0;
-      warnings.push(`Dense backend unavailable (${availability.reason}); keyword-only ranking was used. Run \`ai-dev models pull\`, or set AI_DEV_DENSE=off to silence this.`);
-    } else {
-      try {
-        const denseQuery = await requestBgeWorker({
-          texts: [normalizedQuery],
-          prefix: "query: ",
-          normalize: true,
-          batch_size: 1,
-          precision: 8,
-          include_embeddings: true,
-          model_dir: dense_model_dir,
-          device: dense_device
-        }, { timeoutMs: 300000 });
-        const vector = denseQuery.embeddings?.[0];
-        if (Array.isArray(vector) && vector.length) {
-          await fs.mkdir(searchIndexDir, { recursive: true });
-          denseQueryVectorPath = path.join(searchIndexDir, `.dense-query-${crypto.randomUUID()}.json`);
-          await atomicWriteJson(denseQueryVectorPath, vector, { spaces: 0 });
-        } else {
-          selectedDenseWeight = 0;
-          warnings.push("Dense query embedding returned no vector; keyword-only ranking was used.");
-        }
-      } catch (error) {
-        selectedDenseWeight = 0;
-        warnings.push(`Dense query embedding failed (${error instanceof Error ? error.message : String(error)}); keyword-only ranking was used.`);
-      }
+    const denseQuery = await requestBgeWorker({
+      texts: [normalizedQuery],
+      prefix: "query: ",
+      normalize: true,
+      batch_size: 1,
+      precision: 8,
+      include_embeddings: true,
+      model_dir: dense_model_dir,
+      device: dense_device
+    }, { timeoutMs: 300000 });
+    const vector = denseQuery.embeddings?.[0];
+    if (Array.isArray(vector) && vector.length) {
+      await fs.mkdir(searchIndexDir, { recursive: true });
+      denseQueryVectorPath = path.join(searchIndexDir, `.dense-query-${process.pid}-${Date.now()}.json`);
+      await atomicWriteJson(denseQueryVectorPath, vector, { spaces: 0 });
     }
   }
-  const finalize = (list) => {
-    const out = Array.isArray(list) ? list.slice(0, requestedLimit) : [];
-    Object.defineProperty(out, "warnings", { value: warnings, enumerable: false });
-    Object.defineProperty(out, "denseAvailable", { value: selectedDenseWeight > 0, enumerable: false });
-    return out;
-  };
 
   const args = [
     "hybrid",
@@ -3972,12 +3853,12 @@ async function hybridSearchIndex({
       });
     }
     if (!intent_routing || !["all", "skills"].includes(String(scope || "all"))) {
-      return finalize(ranked);
+      return ranked.slice(0, requestedLimit);
     }
-    if (project || csvValue(folders)) return finalize(ranked);
-    if (isSkillCatalogQuery(normalizedQuery)) return finalize(ranked);
+    if (project || csvValue(folders)) return ranked.slice(0, requestedLimit);
+    if (isSkillCatalogQuery(normalizedQuery)) return ranked.slice(0, requestedLimit);
     const selectedSources = new Set(csvValue(source).split(",").map((item) => item.trim().toLowerCase()).filter(Boolean));
-    if (selectedSources.size && !selectedSources.has("custom")) return finalize(ranked);
+    if (selectedSources.size && !selectedSources.has("custom")) return ranked.slice(0, requestedLimit);
 
     const route = routeSkills({ task: normalizedQuery, maxSkills: 3 });
     const registry = await readSkillIndex();
@@ -4010,7 +3891,8 @@ async function hybridSearchIndex({
       })
       .filter(Boolean);
     const routedNames = new Set(routed.map((item) => item.title.toLowerCase()));
-    return finalize([...routed, ...ranked.filter((item) => !routedNames.has(String(item.title || "").toLowerCase()))]);
+    return [...routed, ...ranked.filter((item) => !routedNames.has(String(item.title || "").toLowerCase()))]
+      .slice(0, requestedLimit);
   } finally {
     if (denseQueryVectorPath) {
       await fs.rm(denseQueryVectorPath, { force: true }).catch(() => {});
@@ -7824,7 +7706,15 @@ const {
   archifyCompare,
   archifyMigrate,
   archifyBrands
-} = createArchifyTools({ vaultRoot, archifyArtifactsRoot, archifyReceiptsRoot, safeProjectRoot, safeProjectFile, slugPart, readJsonIfExists });
+} = createArchifyTools({
+  vaultRoot,
+  archifyArtifactsRoot,
+  archifyReceiptsRoot,
+  safeProjectRoot,
+  safeProjectFile,
+  slugPart,
+  readJsonIfExists
+});
 function frontendQaVisualArtifacts(result) {
   const artifacts = [];
   const add = (artifactPath, type, context = {}) => {
@@ -9118,11 +9008,7 @@ function appliedSearchPresetSummary(resolved) {
 
 async function hybridSearch(options = {}) {
   const resolved = resolveSearchPresetArgs(options, { defaultLimit: 10 });
-  const results = await hybridSearchIndex(resolved.search);
-  if (results.warnings?.length) {
-    return { dense_available: results.denseAvailable !== false, warnings: results.warnings, results: [...results] };
-  }
-  return results;
+  return hybridSearchIndex(resolved.search);
 }
 
 function clampSearchWeight(value, fallback) {
@@ -9248,8 +9134,6 @@ async function presetSearch(options = {}) {
   return {
     query: resolved.search.query,
     result_count: results.length,
-    dense_available: results.denseAvailable !== false,
-    warnings: results.warnings?.length ? results.warnings : undefined,
     applied: appliedSearchPresetSummary(resolved),
     tuning_notes: explain ? explainSearchTuningNotes(results, weights) : undefined,
     results: explain
@@ -9700,8 +9584,6 @@ async function explainSearch(options = {}) {
     query: resolved.search.query,
     scope: resolved.search.scope,
     result_count: results.length,
-    dense_available: results.denseAvailable !== false,
-    warnings: results.warnings?.length ? results.warnings : undefined,
     applied: appliedSearchPresetSummary(resolved),
     weights: appliedSearchPresetSummary(resolved).weights,
     notes: [

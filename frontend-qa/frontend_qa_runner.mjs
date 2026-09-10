@@ -1231,7 +1231,7 @@ async function withProjectConfiguration(input) {
 async function main() {
   const chunks = [];
   for await (const chunk of process.stdin) chunks.push(chunk);
-  const input = chunks.join("").trim();
+  const input = Buffer.concat(chunks).toString("utf8").trim();
   const rawOptions = input ? JSON.parse(input) : {};
   const options = rawOptions.action === "status"
     ? rawOptions

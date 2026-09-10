@@ -74,6 +74,16 @@ for (const tool of tools) {
   }
 }
 
+const { PROMPTS } = await import("../src/server.mjs");
+const promptNames = new Set();
+for (const prompt of PROMPTS) {
+  if (!prompt?.name || typeof prompt.name !== "string") findings.push("Prompt without a valid name.");
+  // GetPrompt resolves by `find`, so a duplicate name is dead weight, not an override.
+  if (promptNames.has(prompt.name)) findings.push(`Duplicate MCP prompt name: ${prompt.name}.`);
+  promptNames.add(prompt.name);
+  if (typeof prompt?.render !== "function") findings.push(`${prompt.name}: prompt must define a render function.`);
+}
+
 if (findings.length) {
   console.error(["Static quality gate failed:", ...findings.map((item) => `- ${item}`)].join("\n"));
   process.exitCode = 1;
@@ -82,6 +92,7 @@ if (findings.length) {
     status: "passed",
     checked_files: files.length,
     tools: tools.length,
+    prompts: PROMPTS.length,
     runtime_lines: runtimeLines,
     modularity_ceiling: 10_600
   }, null, 2));

@@ -38,3 +38,40 @@ test("resolveWithin blocks existing junction or symlink escapes", async (t) => {
   await assert.rejects(resolveWithin(root, "linked/secret.md"), /escapes/i);
   await assert.rejects(resolveWithin(root, "linked/new.md", { mode: "write" }), /escapes/i);
 });
+
+test("resolveWithin rejects a dangling symlink target in write mode", async (t) => {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-dangling-"));
+  const root = path.join(base, "root");
+  const outside = path.join(base, "outside");
+  await fs.mkdir(root);
+  await fs.mkdir(outside);
+  try {
+    await fs.symlink(path.join(outside, "planted.txt"), path.join(root, "dangling"));
+  } catch (error) {
+    if (["EPERM", "EACCES"].includes(error?.code)) {
+      t.skip("Symlink creation is unavailable on this host.");
+      return;
+    }
+    throw error;
+  }
+  await assert.rejects(
+    resolveWithin(root, "dangling", { mode: "write" }),
+    /dangling symbolic link/i
+  );
+  assert.throws(
+    () => resolveWithinSync(root, "dangling", { mode: "write" }),
+    /dangling symbolic link/i
+  );
+});
+
+test("resolveWithin surfaces a policy error when reading a missing path", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-missing-"));
+  await assert.rejects(resolveWithin(root, "nope.md"), (error) => {
+    assert.equal(error.name, "PathPolicyError");
+    return true;
+  });
+  assert.throws(() => resolveWithinSync(root, "nope.md"), (error) => {
+    assert.equal(error.name, "PathPolicyError");
+    return true;
+  });
+});

@@ -44,6 +44,22 @@ function assertLexicalContainment(root, candidate, options = {}) {
   }
 }
 
+function lstatSyncOrNull(target) {
+  try {
+    return fs.lstatSync(target);
+  } catch {
+    return null;
+  }
+}
+
+async function lstatOrNull(target) {
+  try {
+    return await fsp.lstat(target);
+  } catch {
+    return null;
+  }
+}
+
 function nearestExistingAncestorSync(candidate) {
   let current = path.resolve(candidate);
   while (!fs.existsSync(current)) {
@@ -102,9 +118,15 @@ export function resolveWithinSync(
   assertLexicalContainment(rootAbsolute, candidate, { allowRoot });
 
   const rootReal = fs.realpathSync.native(rootAbsolute);
-  if (mode === "read" || fs.existsSync(candidate)) {
+  const linkStat = lstatSyncOrNull(candidate);
+  if (linkStat) {
+    if (linkStat.isSymbolicLink() && !fs.existsSync(candidate)) {
+      throw new PathPolicyError("Dangling symbolic link is not allowed.", { candidate });
+    }
     const candidateReal = fs.realpathSync.native(candidate);
     assertLexicalContainment(rootReal, candidateReal, { allowRoot });
+  } else if (mode === "read") {
+    throw new PathPolicyError("Path does not exist.", { candidate, code: "ENOENT" });
   } else {
     const ancestor = nearestExistingAncestorSync(candidate);
     const ancestorReal = fs.realpathSync.native(ancestor);
@@ -139,9 +161,20 @@ export async function resolveWithin(
   assertLexicalContainment(rootAbsolute, candidate, { allowRoot });
 
   const rootReal = await fsp.realpath(rootAbsolute);
-  if (mode === "read") {
-    const candidateReal = await fsp.realpath(candidate);
+  const linkStat = await lstatOrNull(candidate);
+  if (linkStat) {
+    let candidateReal;
+    try {
+      candidateReal = await fsp.realpath(candidate);
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        throw new PathPolicyError("Dangling symbolic link is not allowed.", { candidate });
+      }
+      throw error;
+    }
     assertLexicalContainment(rootReal, candidateReal, { allowRoot });
+  } else if (mode === "read") {
+    throw new PathPolicyError("Path does not exist.", { candidate, code: "ENOENT" });
   } else {
     const ancestor = await nearestExistingAncestor(candidate);
     const ancestorReal = await fsp.realpath(ancestor);

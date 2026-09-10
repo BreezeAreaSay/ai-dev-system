@@ -77,6 +77,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   operands must resolve inside the project; `validateProjectExecutable` now also
   rejects relative executables (`../../tmp/evil/pytest`), not just absolute ones.
 
+### Fixed
+
+- `path-policy` no longer lets a write pass through a symlink whose target lives
+  outside the trusted root: a final-component symlink is `lstat`-checked, and a
+  dangling one is rejected with a `PathPolicyError` instead of being treated as
+  a new file. The async `resolveWithin` now raises a `PathPolicyError` (not a
+  raw `ENOENT`) when a dangling link or a missing path is read.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

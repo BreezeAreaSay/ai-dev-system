@@ -131,6 +131,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   internal serialisation chain is always recovered, while the failing caller
   still sees the real error.
 
+### Fixed
+
+- Hybrid search no longer fails when the local BGE-M3 dense backend is missing.
+  `hybrid_search`, `preset_search`, `explain_search`, and `run_search_eval` now
+  pre-check the worker script, Python runtime, and model weights, fall back to
+  keyword/sparse ranking, and report a `dense_available: false` warning instead
+  of throwing "BGE-M3 Python runtime not found". Keyword-only ranking can be
+  forced with `AI_DEV_DENSE=off`.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

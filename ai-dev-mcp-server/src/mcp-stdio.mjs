@@ -3041,6 +3041,20 @@ function shutdownBgeWorkers() {
   bgeWorkerStates.clear();
 }
 
+// Cheap pre-flight probe for the local dense (BGE-M3) backend. hybridSearchIndex
+// uses it so a missing worker script, Python runtime, or model weights degrades
+// to keyword ranking instead of throwing and taking the whole hybrid_search /
+// preset_search / explain_search / run_search_eval surface down with it (T-34).
+async function denseBackendAvailable(modelDir = process.env.BGE_M3_MODEL_DIR || defaultBgeM3ModelDir) {
+  if (!(await pathExists(bgeM3WorkerCliPath))) return { ok: false, reason: "worker script missing" };
+  const python = embeddingPythonCommand();
+  if (!(await pathExists(python))) return { ok: false, reason: `Python runtime missing (${python})` };
+  const dir = path.resolve(String(modelDir || defaultBgeM3ModelDir));
+  const hasWeights = (await pathExists(path.join(dir, "model.safetensors")))
+    || (await pathExists(path.join(dir, "pytorch_model.bin")));
+  return hasWeights ? { ok: true } : { ok: false, reason: `model weights missing in ${dir}` };
+}
+
 
 async function fileStatus(target) {
   try {
@@ -3833,28 +3847,51 @@ async function hybridSearchIndex({
   }
   const normalizedQuery = repairSearchMojibake(query);
   const requestedLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
-  const selectedDenseWeight = Number.isFinite(Number(dense_weight)) ? Number(dense_weight) : 0.35;
+  const requestedDenseWeight = Number.isFinite(Number(dense_weight)) ? Number(dense_weight) : 0.35;
+  const denseDisabled = /^(off|0|false|no)$/i.test(String(process.env.AI_DEV_DENSE || ""));
+  let selectedDenseWeight = denseDisabled ? 0 : requestedDenseWeight;
+  const warnings = [];
   if (ensure_fresh) await ensureSearchIndex();
 
   let denseQueryVectorPath = "";
   if (selectedDenseWeight > 0) {
-    const denseQuery = await requestBgeWorker({
-      texts: [normalizedQuery],
-      prefix: "query: ",
-      normalize: true,
-      batch_size: 1,
-      precision: 8,
-      include_embeddings: true,
-      model_dir: dense_model_dir,
-      device: dense_device
-    }, { timeoutMs: 300000 });
-    const vector = denseQuery.embeddings?.[0];
-    if (Array.isArray(vector) && vector.length) {
-      await fs.mkdir(searchIndexDir, { recursive: true });
-      denseQueryVectorPath = path.join(searchIndexDir, `.dense-query-${process.pid}-${Date.now()}.json`);
-      await atomicWriteJson(denseQueryVectorPath, vector, { spaces: 0 });
+    const availability = await denseBackendAvailable(dense_model_dir);
+    if (!availability.ok) {
+      selectedDenseWeight = 0;
+      warnings.push(`Dense backend unavailable (${availability.reason}); keyword-only ranking was used. Run \`ai-dev models pull\`, or set AI_DEV_DENSE=off to silence this.`);
+    } else {
+      try {
+        const denseQuery = await requestBgeWorker({
+          texts: [normalizedQuery],
+          prefix: "query: ",
+          normalize: true,
+          batch_size: 1,
+          precision: 8,
+          include_embeddings: true,
+          model_dir: dense_model_dir,
+          device: dense_device
+        }, { timeoutMs: 300000 });
+        const vector = denseQuery.embeddings?.[0];
+        if (Array.isArray(vector) && vector.length) {
+          await fs.mkdir(searchIndexDir, { recursive: true });
+          denseQueryVectorPath = path.join(searchIndexDir, `.dense-query-${crypto.randomUUID()}.json`);
+          await atomicWriteJson(denseQueryVectorPath, vector, { spaces: 0 });
+        } else {
+          selectedDenseWeight = 0;
+          warnings.push("Dense query embedding returned no vector; keyword-only ranking was used.");
+        }
+      } catch (error) {
+        selectedDenseWeight = 0;
+        warnings.push(`Dense query embedding failed (${error instanceof Error ? error.message : String(error)}); keyword-only ranking was used.`);
+      }
     }
   }
+  const finalize = (list) => {
+    const out = Array.isArray(list) ? list.slice(0, requestedLimit) : [];
+    Object.defineProperty(out, "warnings", { value: warnings, enumerable: false });
+    Object.defineProperty(out, "denseAvailable", { value: selectedDenseWeight > 0, enumerable: false });
+    return out;
+  };
 
   const args = [
     "hybrid",
@@ -3912,12 +3949,12 @@ async function hybridSearchIndex({
       });
     }
     if (!intent_routing || !["all", "skills"].includes(String(scope || "all"))) {
-      return ranked.slice(0, requestedLimit);
+      return finalize(ranked);
     }
-    if (project || csvValue(folders)) return ranked.slice(0, requestedLimit);
-    if (isSkillCatalogQuery(normalizedQuery)) return ranked.slice(0, requestedLimit);
+    if (project || csvValue(folders)) return finalize(ranked);
+    if (isSkillCatalogQuery(normalizedQuery)) return finalize(ranked);
     const selectedSources = new Set(csvValue(source).split(",").map((item) => item.trim().toLowerCase()).filter(Boolean));
-    if (selectedSources.size && !selectedSources.has("custom")) return ranked.slice(0, requestedLimit);
+    if (selectedSources.size && !selectedSources.has("custom")) return finalize(ranked);
 
     const route = routeSkills({ task: normalizedQuery, maxSkills: 3 });
     const registry = await readSkillIndex();
@@ -3950,8 +3987,7 @@ async function hybridSearchIndex({
       })
       .filter(Boolean);
     const routedNames = new Set(routed.map((item) => item.title.toLowerCase()));
-    return [...routed, ...ranked.filter((item) => !routedNames.has(String(item.title || "").toLowerCase()))]
-      .slice(0, requestedLimit);
+    return finalize([...routed, ...ranked.filter((item) => !routedNames.has(String(item.title || "").toLowerCase()))]);
   } finally {
     if (denseQueryVectorPath) {
       await fs.rm(denseQueryVectorPath, { force: true }).catch(() => {});
@@ -9030,7 +9066,11 @@ function appliedSearchPresetSummary(resolved) {
 
 async function hybridSearch(options = {}) {
   const resolved = resolveSearchPresetArgs(options, { defaultLimit: 10 });
-  return hybridSearchIndex(resolved.search);
+  const results = await hybridSearchIndex(resolved.search);
+  if (results.warnings?.length) {
+    return { dense_available: results.denseAvailable !== false, warnings: results.warnings, results: [...results] };
+  }
+  return results;
 }
 
 function clampSearchWeight(value, fallback) {
@@ -9156,6 +9196,8 @@ async function presetSearch(options = {}) {
   return {
     query: resolved.search.query,
     result_count: results.length,
+    dense_available: results.denseAvailable !== false,
+    warnings: results.warnings?.length ? results.warnings : undefined,
     applied: appliedSearchPresetSummary(resolved),
     tuning_notes: explain ? explainSearchTuningNotes(results, weights) : undefined,
     results: explain
@@ -9606,6 +9648,8 @@ async function explainSearch(options = {}) {
     query: resolved.search.query,
     scope: resolved.search.scope,
     result_count: results.length,
+    dense_available: results.denseAvailable !== false,
+    warnings: results.warnings?.length ? results.warnings : undefined,
     applied: appliedSearchPresetSummary(resolved),
     weights: appliedSearchPresetSummary(resolved).weights,
     notes: [

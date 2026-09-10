@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "policy": "explicit allowlist; no private vault zones or local runtime state",
-  "total_files": 922,
-  "total_bytes": 16886032,
-  "content_fingerprint": "0df2f5425349dafd60d9ffe6e8d1beb44f002d1a1f987e0dc11094decad8641c",
+  "total_files": 927,
+  "total_bytes": 16901813,
+  "content_fingerprint": "b2ce91aab1bf75b4f0979ca0bc8ac482596aec54152b960e06067e8be58bbf94",
   "files": [
     {
       "path": "01-system/Agent Rules.md",
@@ -37,8 +37,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/ai-dev-orchestrator/SKILL.md",
-      "bytes": 3503,
-      "sha256": "21a114bd710764e03c0902fd957ebd696afbe39992846b6ba9cf1702fd46bb27"
+      "bytes": 5061,
+      "sha256": "bac7f2688fab9324cbf36c7db283e87fde7bee3faab4e24732900ead3b874c18"
     },
     {
       "path": "03-skills-catalog/sources/custom/api-contract-reviewer/agents/openai.yaml",
@@ -186,6 +186,16 @@
       "sha256": "87ed49ad81da0fcab4d0682bb12cb2d6f4d53f7f03301806b7e01d43df1a0f3d"
     },
     {
+      "path": "03-skills-catalog/sources/custom/memory-curator/SKILL.md",
+      "bytes": 3016,
+      "sha256": "5dce2e0b36c293cf05e6d865ccc8408c37509ba8884f243fb2af975743225cf8"
+    },
+    {
+      "path": "03-skills-catalog/sources/custom/planner/SKILL.md",
+      "bytes": 2729,
+      "sha256": "7dd372cc6380d6fcc2217ab7a513416dabd60fa15e61571ffda4b18bb475b1a2"
+    },
+    {
       "path": "03-skills-catalog/sources/custom/repo-onboarding/SKILL.md",
       "bytes": 984,
       "sha256": "a08ff5aa8ee75ed424df1972fe3a9d9369e953502abaeeef04c9685d4213b7f0"
@@ -199,6 +209,21 @@
       "path": "03-skills-catalog/sources/custom/secrets-dependencies-auditor/SKILL.md",
       "bytes": 3484,
       "sha256": "758900f692f97fde1f1b567a1136874b093c7e5420b738f1d88315237ad610dc"
+    },
+    {
+      "path": "03-skills-catalog/sources/custom/security-reviewer/SKILL.md",
+      "bytes": 3154,
+      "sha256": "bb32fd3b82c8e8c0398422fc05b6a53d2d3f12e5fe663a6ad5f4c9f946f4dda2"
+    },
+    {
+      "path": "03-skills-catalog/sources/custom/silent-failure-hunter/SKILL.md",
+      "bytes": 2647,
+      "sha256": "190e6645384963e81d08b89783555287f4b60bbe0cd366346c2828d659793fb2"
+    },
+    {
+      "path": "03-skills-catalog/sources/custom/verification-loop/SKILL.md",
+      "bytes": 2677,
+      "sha256": "e3ae82635658d65aadc70d75a7efe2d35d281806a2afc310fe60ad06c169db28"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/LICENSE",

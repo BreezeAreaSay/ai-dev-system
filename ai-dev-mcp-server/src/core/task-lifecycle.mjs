@@ -95,7 +95,13 @@ export class TaskStore {
     const createdAt = now();
     const id = taskId(task, project.project_path);
     const risk = riskFor(task, project.project_types || []);
-    const planPolicy = classifyTaskComplexity({ task, risk, projectTypes: project.project_types || [], selectedFiles: context?.selected_files || [], acceptanceCriteria });
+    const planPolicy = classifyTaskComplexity({
+      task,
+      risk,
+      projectTypes: project.project_types || [],
+      selectedFiles: context?.selected_files || [],
+      acceptanceCriteria
+    });
     const record = {
       schema_version: 1,
       id,
@@ -116,7 +122,10 @@ export class TaskStore {
       risk,
       plan_policy: planPolicy,
       plan: null,
-      acceptance_criteria: normalizeCriteria(task, project.project_types || [], [...acceptanceCriteria, ...(planPolicy.plan_required ? [PLAN_CRITERION_TEXT] : [])]),
+      acceptance_criteria: normalizeCriteria(task, project.project_types || [], [
+        ...acceptanceCriteria,
+        ...(planPolicy.plan_required ? [PLAN_CRITERION_TEXT] : [])
+      ]),
       skills: skills || [],
       context,
       baseline,

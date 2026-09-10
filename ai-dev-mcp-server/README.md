@@ -15,7 +15,7 @@ evidence-bound task completion.
 - `src/tool-definitions.mjs`: typed MCP tool contracts, separated from runtime dispatch.
 - `src/core/`: path, command, process, project identity, context, task, routing, outcome, dashboard,
   overlay, frontend-quality, and distribution modules.
-- Node.js: 24+ on `PATH` (any distribution). No agent-specific runtime is required.
+- Node.js: 22.12+ on `PATH` (any distribution). No agent-specific runtime is required.
 - Regenerable runtime data lives under the **AI Dev home** — `AI_DEV_HOME`, default `~/.ai-dev`:
   - `~/.ai-dev/state` — task lifecycle, skill outcomes, pilots (override: `AI_DEV_STATE_ROOT`)
   - `~/.ai-dev/cache/search-index` — SQLite + dense index (override: `AI_DEV_SEARCH_INDEX_DIR`)

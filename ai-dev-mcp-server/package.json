@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Local MCP server for the AI Dev System Obsidian vault and skill registry.",
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=22.12.0"
   },
   "packageManager": "npm@11.17.0",
   "scripts": {

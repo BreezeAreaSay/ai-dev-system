@@ -24,7 +24,7 @@ A standalone checkout resolves its content root to `docker/public-seed`.
 
 ## Prerequisites
 
-- Node.js ≥ 24 (`.nvmrc` pins `24`)
+- Node.js ≥ 22.12 (`.nvmrc` pins `22`)
 - npm (the server); pnpm only if you work on `frontend-qa/`
 - Git
 - Docker Desktop / Engine — only for the Docker and packaging paths

@@ -5,6 +5,7 @@ import { atomicWriteJson } from "./atomic-files.mjs";
 import { INTENT } from "./intent-patterns.mjs";
 import { resolveProjectIdentity } from "./project-identity.mjs";
 import { taskRequestsDiagram, taskRequiresFrontendProductWorkflow } from "./skill-router.mjs";
+import { PLAN_CRITERION_TEXT, classifyTaskComplexity } from "./task-plans.mjs";
 
 const TASK_ID = /^task-\d{8}T\d{6}-[a-f0-9]{8}$/;
 
@@ -93,6 +94,8 @@ export class TaskStore {
     if (!project?.project_path) throw new Error("project.project_path is required.");
     const createdAt = now();
     const id = taskId(task, project.project_path);
+    const risk = riskFor(task, project.project_types || []);
+    const planPolicy = classifyTaskComplexity({ task, risk, projectTypes: project.project_types || [], selectedFiles: context?.selected_files || [], acceptanceCriteria });
     const record = {
       schema_version: 1,
       id,
@@ -110,8 +113,10 @@ export class TaskStore {
         stack: project.stack || [],
         components: project.components || []
       },
-      risk: riskFor(task, project.project_types || []),
-      acceptance_criteria: normalizeCriteria(task, project.project_types || [], acceptanceCriteria),
+      risk,
+      plan_policy: planPolicy,
+      plan: null,
+      acceptance_criteria: normalizeCriteria(task, project.project_types || [], [...acceptanceCriteria, ...(planPolicy.plan_required ? [PLAN_CRITERION_TEXT] : [])]),
       skills: skills || [],
       context,
       baseline,

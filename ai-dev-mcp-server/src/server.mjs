@@ -18,11 +18,14 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import {
   callTool,
+  extensionReadOnlyTools,
   shutdownBgeWorkers,
   tools as legacyTools,
+  usageLedger,
   vaultRoot
 } from "./mcp-stdio.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
+import { usageHintsFromArgs } from "./core/usage-ledger.mjs";
 
 const serverFile = fileURLToPath(import.meta.url);
 const serverRoot = path.resolve(path.dirname(serverFile), "..");
@@ -79,6 +82,8 @@ const READ_ONLY_TOOLS = new Set([
   "archify_validate",
   "archify_brands"
 ]);
+
+for (const name of extensionReadOnlyTools) READ_ONLY_TOOLS.add(name);
 
 const OPEN_WORLD_TOOLS = new Set(["import_skill_repo"]);
 
@@ -164,6 +169,21 @@ const PROMPTS = [
       `Проверь frontend beta в проекте ${project_path}. Scope: ${scope}.`,
       "Начни task lifecycle, изучи существующий дизайн и ограничения проекта, затем используй frontend skills только по необходимости.",
       "Запусти run_frontend_qa для desktop/mobile и quality gate. Не объявляй результат готовым без console/network/overflow/a11y evidence и визуального просмотра скриншотов."
+    ].join("\n")
+  },
+  {
+    name: "learn_from_task",
+    title: "Извлеки уроки из задачи",
+    description: "Turn durable corrections, decisions, and handoff state into project memory.",
+    arguments: [
+      { name: "project_path", description: "Absolute repository path.", required: true },
+      { name: "task_id", description: "Optional task lifecycle id.", required: false }
+    ],
+    render: ({ project_path, task_id = "" }) => [
+      `Проект: ${project_path}${task_id ? `, задача: ${task_id}` : ""}`,
+      "Сначала проверь list_instincts; повторяющиеся подтвержденные паттерны запиши через record_instinct, а архитектурные выборы — через record_decision.",
+      "Сохрани save_session с точным next_step и неудачными подходами, если работа продолжится в другой сессии.",
+      "Не записывай единичные случаи, код или секреты в долговременную память."
     ].join("\n")
   },
   {
@@ -376,12 +396,16 @@ export function createAiDevServer() {
       throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
     }
     await reportProgress(extra, 0, 1, `Starting ${name}`);
+    const startedAt = Date.now();
+    const hints = usageHintsFromArgs(args);
     try {
       const result = structuredResult(await callTool(name, args));
       await reportProgress(extra, 1, 1, `Completed ${name}`);
+      usageLedger.recordToolCall({ tool: name, ok: true, durationMs: Date.now() - startedAt, ...hints }).catch(() => undefined);
       return result;
     } catch (error) {
       await reportProgress(extra, 1, 1, `Failed ${name}`).catch(() => undefined);
+      usageLedger.recordToolCall({ tool: name, ok: false, durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error), ...hints }).catch(() => undefined);
       return {
         content: [{
           type: "text",

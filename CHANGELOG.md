@@ -140,6 +140,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   of throwing "BGE-M3 Python runtime not found". Keyword-only ranking can be
   forced with `AI_DEV_DENSE=off`.
 
+### Fixed
+
+- A crashed BGE-M3 embedding worker no longer takes the whole MCP process
+  down: `getBgeWorker` handles `stdin` `error` (EPIPE), a worker that reported
+  a failed model load is rejected immediately instead of after the request
+  timeout, and idle workers are reaped after ten minutes.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

@@ -2577,40 +2577,63 @@ function execFile(command, args, { cwd, timeoutMs = 120000 } = {}) {
   });
 }
 
-function execFileWithInput(command, args, input, { cwd, timeoutMs = 120000, env = {} } = {}) {
+function killProcessTree(child) {
+  try {
+    if (process.platform === "win32") {
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { windowsHide: true, stdio: "ignore" });
+    } else if (child.pid) {
+      process.kill(-child.pid, "SIGKILL");
+    }
+  } catch {
+    // already gone
+  }
+}
+
+function execFileWithInput(command, args, input, {
+  cwd, timeoutMs = 120000, env = {}, maxOutputBytes = 16 * 1024 * 1024
+} = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
       cwd,
       windowsHide: true,
       env: { ...process.env, ...env },
-      stdio: ["pipe", "pipe", "pipe"]
+      stdio: ["pipe", "pipe", "pipe"],
+      // Own process group so a timeout kills descendants (Chromium, dev server),
+      // not just the direct child.
+      detached: process.platform !== "win32"
     });
-    let stdout = "";
-    let stderr = "";
+    const chunks = { out: [], err: [] };
+    let total = 0;
+    let settled = false;
+    const finish = (settle, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      settle(value);
+    };
     const timer = setTimeout(() => {
-      child.kill();
-      reject(new Error(`Command timed out: ${command} ${args.join(" ")}`));
+      killProcessTree(child);
+      finish(reject, new Error(`Command timed out after ${timeoutMs} ms: ${command} ${args.join(" ")}`));
     }, timeoutMs);
-
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      reject(err);
-    });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        const message = stderr || stdout || `Command failed with exit code ${code}`;
-        reject(new Error(message));
+    const collect = (bucket) => (chunk) => {
+      total += chunk.length;
+      if (total > maxOutputBytes) {
+        killProcessTree(child);
+        finish(reject, new Error(`Command output exceeded ${maxOutputBytes} bytes: ${command}`));
+        return;
       }
+      bucket.push(chunk);
+    };
+    child.stdout.on("data", collect(chunks.out));
+    child.stderr.on("data", collect(chunks.err));
+    child.on("error", (err) => finish(reject, err));
+    child.on("close", (code) => {
+      const stdout = Buffer.concat(chunks.out).toString("utf8");
+      const stderr = Buffer.concat(chunks.err).toString("utf8");
+      if (code === 0) finish(resolve, { stdout, stderr });
+      else finish(reject, new Error(stderr || stdout || `Command failed with exit code ${code}`));
     });
+    child.stdin.on("error", () => { /* EPIPE if the child exits before reading stdin */ });
     child.stdin.end(input);
   });
 }

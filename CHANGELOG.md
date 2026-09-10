@@ -98,6 +98,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   later failed run, an edit after the last passing run, or a second completion
   of an already-complete task is refused with a specific message.
 
+### Fixed
+
+- `execFileWithInput` (Frontend QA runner, UI/UX helper) now bounds captured
+  output at 16 MiB, kills the whole process group on timeout or overflow so a
+  Playwright Chromium or dev server is not orphaned, guards against a
+  double-settle, ignores `stdin` `EPIPE`, and decodes stdout/stderr from a
+  buffer so multi-byte characters are no longer corrupted at chunk boundaries.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

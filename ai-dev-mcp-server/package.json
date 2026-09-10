@@ -25,6 +25,8 @@
     "skills:ensure-index": "node scripts/ensure-skill-index.mjs",
     "test:vault": "node scripts/ensure-skill-index.mjs && node --import ./test/setup.mjs --test",
     "packaging:check": "node scripts/validate-packaging.mjs",
+    "docs:tools": "node scripts/render-tool-reference.mjs",
+    "docs:tools:check": "node scripts/render-tool-reference.mjs --check",
     "clients:install": "node scripts/install-local-mcp-clients.mjs --apply",
     "start:legacy": "node src/mcp-stdio.mjs",
     "test": "node --import ./test/setup.mjs --test",

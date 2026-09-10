@@ -46,6 +46,10 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: npm run packaging:check
 
+      - name: Tool reference is current
+        working-directory: ai-dev-mcp-server
+        run: npm run docs:tools:check
+
       - name: Core unit tests
         working-directory: ai-dev-mcp-server
         run: npm run test:core

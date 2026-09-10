@@ -85,6 +85,15 @@ const READ_ONLY_TOOLS = new Set([
 
 for (const name of extensionReadOnlyTools) READ_ONLY_TOOLS.add(name);
 
+/**
+ * The tools annotated with `readOnlyHint`, in a stable order. Exported so the
+ * tool reference (`scripts/render-tool-reference.mjs`) documents the same set
+ * the server advertises instead of keeping a second copy of it.
+ *
+ * @type {readonly string[]}
+ */
+export const READ_ONLY_TOOL_NAMES = Object.freeze([...READ_ONLY_TOOLS].sort());
+
 const OPEN_WORLD_TOOLS = new Set(["import_skill_repo"]);
 
 const FIXED_RESOURCES = [

@@ -233,7 +233,7 @@ export async function runPolicyCommand({
   env
 }) {
   const parsed = validateProjectExecutable(
-    parseSafeCommand(command, { purpose }),
+    parseSafeCommand(command, { purpose, projectRoot }),
     projectRoot
   );
   const result = await runProcess({

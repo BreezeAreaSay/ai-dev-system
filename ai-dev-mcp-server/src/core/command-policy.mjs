@@ -26,7 +26,28 @@ const SHELL_EXECUTABLES = new Set([
 
 const VERIFY_SCRIPT = /(?:^|[:._-])(test|lint|typecheck|type-check|check|validate|verify|build|format-check|audit|coverage|e2e|integration)(?:$|[:._-])/i;
 const DEV_SCRIPT = /^(dev|start|serve|preview)(?::[\w.-]+)?$/i;
-const SAFE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9:._/-]*$/;
+const SAFE_NAME = /^[a-zA-Z0-9][a-zA-Z0-9:._-]*$/;
+
+// Flags that load or execute code, redirect output to an arbitrary file, or move
+// the working package/directory out from under the policy. Two-character entries
+// (`-c`, `-e`, …) are matched as a prefix so fused forms such as `-cimport os`
+// are caught; longer entries must match the flag name exactly.
+const DANGEROUS_FLAG_PREFIXES = [
+  "-c", "-e", "-p", "-r", "-o", "-x",
+  "--eval", "--print", "--require", "--import", "--loader", "--experimental-loader",
+  "--experimental-vm-modules", "--experimental-network-imports",
+  "--test-reporter", "--test-reporter-destination",
+  "--config", "--configfile", "--rcfile", "--rc", "--plugin", "--resolve-plugins-relative-to",
+  "--prefix", "--dir", "--cwd", "--filter", "--workspace", "--workspace-root",
+  "--output", "--out-file", "--exec", "--rustc", "--ldflags", "--toolexec"
+];
+// A plain flag: one/two dashes, a leading letter, letters/digits/dashes, and an
+// optional `=value` restricted to path/identifier characters (no whitespace, no
+// shell metacharacters).
+const SAFE_FLAG = /^--?[A-Za-z][A-Za-z0-9-]*(?:=[A-Za-z0-9@._:/\\*?,+-]*)?$/;
+// A plain operand: a path or identifier. `..` is allowed by the character class
+// but rejected explicitly by the traversal check below.
+const SAFE_OPERAND = /^[A-Za-z0-9@._][A-Za-z0-9@._:/\\*?,+-]*$/;
 
 function executableName(executable) {
   return path.basename(executable).toLowerCase();
@@ -88,10 +109,52 @@ export function tokenizeCommand(command) {
   return tokens;
 }
 
-function assertSafeArguments(args) {
+function isDangerousFlag(arg, allowFlags) {
+  const flag = arg.toLowerCase().split("=", 1)[0];
+  if (allowFlags.includes(flag)) return false;
+  return DANGEROUS_FLAG_PREFIXES.some((prefix) => (
+    prefix.length <= 2 ? flag.startsWith(prefix) : flag === prefix
+  ));
+}
+
+/**
+ * Positively allowlist every argument of a policy command: reject PowerShell
+ * command flags, code-loading / output-redirecting flags, values containing
+ * shell metacharacters or whitespace, absolute paths, and `..` traversal. When
+ * `projectRoot` is given, path-shaped operands must resolve inside it.
+ */
+function assertSafeArguments(args, { projectRoot, allowFlags = [] } = {}) {
   for (const arg of args) {
-    if (arg === "--%" || /^-(?:command|encodedcommand)$/i.test(arg)) {
+    if (arg === "--") continue; // argv separator, inert
+    if (arg === "--%" || /^-(?:command|encodedcommand|ec|e|enc)$/i.test(arg)) {
       throw new CommandPolicyError(`Forbidden command flag: ${arg}`);
+    }
+    if (arg.startsWith("-")) {
+      if (!SAFE_FLAG.test(arg)) {
+        throw new CommandPolicyError(`Argument is not allowed in policy commands: ${arg}`);
+      }
+      if (isDangerousFlag(arg, allowFlags)) {
+        throw new CommandPolicyError(`Flag is not allowed in policy commands: ${arg}`);
+      }
+      continue;
+    }
+    if (path.isAbsolute(arg)) {
+      throw new CommandPolicyError(`Path argument must stay inside the project: ${arg}`);
+    }
+    if (!SAFE_OPERAND.test(arg)) {
+      throw new CommandPolicyError(`Argument is not allowed in policy commands: ${arg}`);
+    }
+    const segments = arg.split(/[\\/]/);
+    if (segments.includes("..")) {
+      throw new CommandPolicyError(`Path argument must not traverse upwards: ${arg}`);
+    }
+    if (projectRoot && /[\\/]/.test(arg)) {
+      const bare = arg.replace(/[*?].*$/, "");
+      const resolved = path.resolve(projectRoot, bare);
+      const relative = path.relative(path.resolve(projectRoot), resolved);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) {
+        throw new CommandPolicyError(`Path argument escapes the project: ${arg}`);
+      }
     }
   }
 }
@@ -105,7 +168,7 @@ function packageScript(tokens, purpose) {
   } else if (manager === "yarn") {
     script = tokens[1] === "run" ? tokens[2] : tokens[1];
   }
-  if (!script || !SAFE_NAME.test(script)) {
+  if (!script || !SAFE_NAME.test(script) || script.includes("..")) {
     throw new CommandPolicyError("Only named package scripts are allowed.");
   }
   if (purpose === "quality" && !VERIFY_SCRIPT.test(`-${script}`)) {
@@ -122,7 +185,7 @@ function pythonCommand(tokens, purpose) {
     throw new CommandPolicyError("Python commands are not allowed for this purpose.");
   }
   const args = tokens.slice(1);
-  if (args.some((arg) => ["-c", "-m pip", "-"].includes(arg.toLowerCase()))) {
+  if (args.some((arg) => /^-c/i.test(arg) || arg.toLowerCase() === "-" || arg.toLowerCase() === "-m pip")) {
     throw new CommandPolicyError("Inline Python and package installation are forbidden.");
   }
   if (args[0] === "-m") {
@@ -133,7 +196,7 @@ function pythonCommand(tokens, purpose) {
     return { kind: "verification", adapter: `python:${moduleName}` };
   }
   const script = String(args[0] ?? "").replaceAll("\\", "/");
-  if (!/(^|\/)(check|test|lint|validate)[\w.-]*\.py$/i.test(script)) {
+  if (!/^(?:[\w.-]+\/)*(check|test|lint|validate)[\w.-]*\.py$/i.test(script)) {
     throw new CommandPolicyError("Only project verification scripts may run through Python.");
   }
   return { kind: "verification", adapter: "python:script", projectFile: script };
@@ -168,7 +231,11 @@ function directTool(tokens, purpose) {
     return { kind: "verification", adapter: `dotnet:${tokens[1]}` };
   }
   if (name === "git" && tokens[1] === "diff" && tokens.includes("--check")) {
-    return { kind: "verification", adapter: "git:diff-check" };
+    const allowed = new Set(["diff", "--check", "--cached", "--staged", "HEAD"]);
+    if (tokens.slice(1).every((token) => allowed.has(token))) {
+      return { kind: "verification", adapter: "git:diff-check" };
+    }
+    throw new CommandPolicyError("Only `git diff --check [--cached] [HEAD]` is allowed.");
   }
   throw new CommandPolicyError(`Executable '${name}' is not approved for quality gates.`);
 }
@@ -178,13 +245,15 @@ function directTool(tokens, purpose) {
  * scripts (npm/pnpm/yarn/bun), a small set of verification tools (pytest, ruff,
  * mypy, eslint, tsc, `node --test/--check`, cargo/go/dotnet subcommands, …), and
  * whitelisted Python verification scripts are permitted; shells, `npx`, and
- * network fetchers are always rejected. Throws {@link CommandPolicyError}.
+ * network fetchers are always rejected. Every argument is positively
+ * allowlisted, and — when `projectRoot` is given — path-shaped operands must
+ * resolve inside it. Throws {@link CommandPolicyError}.
  *
  * @param {string} command - Raw command line.
- * @param {{ purpose?: "quality" | "development" }} [options] - Intended use.
+ * @param {{ purpose?: "quality" | "development", projectRoot?: string }} [options] - Intended use and, optionally, the directory path operands must stay inside.
  * @returns {{ executable: string, args: string[], display: string, purpose: string, kind: string, script?: string, adapter?: string, projectFile?: string }}
  */
-export function parseSafeCommand(command, { purpose = "quality" } = {}) {
+export function parseSafeCommand(command, { purpose = "quality", projectRoot } = {}) {
   if (!["quality", "development"].includes(purpose)) {
     throw new CommandPolicyError(`Unknown command purpose: ${purpose}`);
   }
@@ -192,7 +261,9 @@ export function parseSafeCommand(command, { purpose = "quality" } = {}) {
   const executable = tokens[0];
   const args = tokens.slice(1);
   const name = executableName(executable);
-  assertSafeArguments(args);
+  if (executable.split(/[\\/]/).includes("..")) {
+    throw new CommandPolicyError(`Executable path must not traverse upwards: ${executable}`);
+  }
   if (SHELL_EXECUTABLES.has(name)) {
     throw new CommandPolicyError("Shell interpreters are forbidden.");
   }
@@ -209,6 +280,8 @@ export function parseSafeCommand(command, { purpose = "quality" } = {}) {
     classification = directTool(tokens, purpose);
   }
 
+  assertSafeArguments(args, { projectRoot, allowFlags: classification.allowFlags ?? [] });
+
   return {
     executable,
     args,
@@ -219,18 +292,22 @@ export function parseSafeCommand(command, { purpose = "quality" } = {}) {
 }
 
 /**
- * Guard that an absolute executable path lives inside `projectRoot` (relative
- * executables pass through untouched). Throws {@link CommandPolicyError}.
+ * Guard that an executable path lives inside `projectRoot`. Bare executable
+ * names (resolved from `PATH`) pass through; anything containing a path
+ * separator must resolve inside the project. Throws {@link CommandPolicyError}.
  *
  * @param {{ executable: string }} parsed - Result of {@link parseSafeCommand}.
  * @param {string} projectRoot - Directory the executable must be under.
  * @returns {typeof parsed} The same object, on success.
  */
 export function validateProjectExecutable(parsed, projectRoot) {
-  if (!path.isAbsolute(parsed.executable)) return parsed;
-  const relative = path.relative(path.resolve(projectRoot), path.resolve(parsed.executable));
-  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-    throw new CommandPolicyError("Absolute executable must live inside the project.", {
+  const executable = parsed.executable;
+  if (!/[\\/]/.test(executable)) return parsed;
+  const root = path.resolve(projectRoot);
+  const resolved = path.isAbsolute(executable) ? path.resolve(executable) : path.resolve(root, executable);
+  const relative = path.relative(root, resolved);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new CommandPolicyError("Executable paths must live inside the project.", {
       executable: parsed.executable,
       projectRoot
     });
@@ -262,10 +339,10 @@ export function commandRiskReason(command) {
   if (["rm", "del", "erase", "rmdir", "remove-item"].includes(executable)) return "file deletion";
   if (executable === "git" && lower[1] === "reset" && lower.includes("--hard")) return "destructive git reset";
   if (executable === "git" && lower[1] === "clean") return "destructive git clean";
-  if (["npm", "pnpm", "yarn", "bun"].includes(executable) && /( install| add| remove| update| audit fix)/.test(` ${joined}`)) {
+  if (["npm", "pnpm", "yarn", "bun"].includes(executable) && /( install| add| remove| update| audit fix| ci)( |$)/.test(` ${joined}`)) {
     return "dependency mutation";
   }
-  if (["pip", "poetry", "uv"].includes(executable) && /( install| add| remove| sync| update)/.test(` ${joined}`)) {
+  if (["pip", "pip3", "poetry", "uv"].includes(executable) && /( install| add| remove| sync| update)/.test(` ${joined}`)) {
     return "dependency or environment mutation";
   }
   if (executable === "python" && lower[1] === "-m" && lower[2] === "pip") return "dependency mutation";

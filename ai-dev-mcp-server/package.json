@@ -17,6 +17,7 @@
     "acceptance": "node scripts/ai-dev.mjs acceptance",
     "distribution": "node scripts/ai-dev.mjs distribution",
     "docker:seed": "node scripts/refresh-public-seed.mjs --replace",
+    "docker:seed:verify": "node scripts/verify-public-seed.mjs",
     "docker:prepare": "node scripts/prepare-docker-context.mjs",
     "docker:audit": "node scripts/audit-docker-context.mjs",
     "docker:build": "node scripts/prepare-docker-context.mjs && docker build --tag ai-dev-system:local ../.docker/build-context",

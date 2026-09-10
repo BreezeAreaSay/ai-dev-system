@@ -2,8 +2,8 @@
   "schema_version": 1,
   "policy": "explicit allowlist; no private vault zones or local runtime state",
   "total_files": 927,
-  "total_bytes": 16901813,
-  "content_fingerprint": "b2ce91aab1bf75b4f0979ca0bc8ac482596aec54152b960e06067e8be58bbf94",
+  "total_bytes": 16887723,
+  "content_fingerprint": "7746f8ceb5fc92b3b9a12457d6bdeea02e5881240b1c3189bb5df0c681fd921b",
   "files": [
     {
       "path": "01-system/Agent Rules.md",
@@ -32,8 +32,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/ai-dev-orchestrator/agents/openai.yaml",
-      "bytes": 262,
-      "sha256": "4e1cc65326c1b0737ee94e6587c74bc7ba05a4084101e2ce078cf0ce15361cca"
+      "bytes": 258,
+      "sha256": "609f1e6cada4bd97c9504e554ca695313a9d3306af9f224b316a03c0fb4598f0"
     },
     {
       "path": "03-skills-catalog/sources/custom/ai-dev-orchestrator/SKILL.md",
@@ -42,8 +42,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/api-contract-reviewer/agents/openai.yaml",
-      "bytes": 243,
-      "sha256": "13611e077b1e1a2061817e23de807859ee77e7f80f8c9ee8f2776a72a0f7724a"
+      "bytes": 239,
+      "sha256": "bb3d9813a55e2887dfb8335038a3491c06c603d36282ea50f3a47ca26a874f6f"
     },
     {
       "path": "03-skills-catalog/sources/custom/api-contract-reviewer/SKILL.md",
@@ -52,8 +52,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/application-security-reviewer/agents/openai.yaml",
-      "bytes": 268,
-      "sha256": "2e701ff3f6cfb5244028c5ef12085b6e0270371d6fa3e4a4303ed2c6e6066a65"
+      "bytes": 264,
+      "sha256": "ce03110342989040f0e5f2cdef2cc92746a708ccdc2b2d8218cf18426f0efc48"
     },
     {
       "path": "03-skills-catalog/sources/custom/application-security-reviewer/SKILL.md",
@@ -62,8 +62,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/backend-api-engineer/agents/openai.yaml",
-      "bytes": 255,
-      "sha256": "653f1e4f7f2ce0f4661531e6ad2b0bbd6579a72e6e25b61f4e1dd6492781aad7"
+      "bytes": 251,
+      "sha256": "96cbf08ed583881d86d1636a619fbe026b17bc8e3cabc0fedb4256fde906f8ea"
     },
     {
       "path": "03-skills-catalog/sources/custom/backend-api-engineer/SKILL.md",
@@ -72,8 +72,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/beta-frontend-maintainer/agents/openai.yaml",
-      "bytes": 128,
-      "sha256": "1126426438f6fb8e479cf3ebd935669e52cb761e1a58a80864cfb82e95c5cc57"
+      "bytes": 125,
+      "sha256": "b624bd7636c6a34fed1516a16939e7139e4aea1c783e617da7235970139c74b3"
     },
     {
       "path": "03-skills-catalog/sources/custom/beta-frontend-maintainer/SKILL.md",
@@ -92,8 +92,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/container-deployment-reviewer/agents/openai.yaml",
-      "bytes": 279,
-      "sha256": "d702b34cf62afd864f7e0f6b4732fb294448503012e394d074a93aa6393ecba7"
+      "bytes": 275,
+      "sha256": "e6ca709d3cb68471157924747d101a719a05b7b6f1133521881db642a4319a0c"
     },
     {
       "path": "03-skills-catalog/sources/custom/container-deployment-reviewer/SKILL.md",
@@ -102,8 +102,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/data-pipeline-engineer/agents/openai.yaml",
-      "bytes": 268,
-      "sha256": "655e8083b93a6aa89e2daf0d95be23f98d31003535e45c911bcf4f20af130c2f"
+      "bytes": 264,
+      "sha256": "5b74a04d40abfcfd0ffd6a80211169e1312ab6a478efdda68840360e5e348a34"
     },
     {
       "path": "03-skills-catalog/sources/custom/data-pipeline-engineer/SKILL.md",
@@ -112,8 +112,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/database-migration-guardian/agents/openai.yaml",
-      "bytes": 263,
-      "sha256": "1c7e4e84d915d5f1e98213e09ec7b6d6693ba0b974b2ddee133b98fc6a8af222"
+      "bytes": 259,
+      "sha256": "53b20c24e8340476c6ad6c350b1c6b4d428b42c5bc03b0a377a0a99136952173"
     },
     {
       "path": "03-skills-catalog/sources/custom/database-migration-guardian/SKILL.md",
@@ -122,8 +122,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/devops-release-engineer/agents/openai.yaml",
-      "bytes": 247,
-      "sha256": "1646b14f0f2264e365cbd3bf88d04fc988c89bd2b48451fa7a90d3e69007aa55"
+      "bytes": 243,
+      "sha256": "1a47a2591d8ade4a560a27854a294e7f8942239bce0729b4cf1fa083ed35089f"
     },
     {
       "path": "03-skills-catalog/sources/custom/devops-release-engineer/SKILL.md",
@@ -152,8 +152,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/frontend-quality-gate/agents/openai.yaml",
-      "bytes": 121,
-      "sha256": "979bee86127c22b8430489e7b735827f96706cafd1a841600de231ef97d52175"
+      "bytes": 118,
+      "sha256": "7426adc58d8e03fcf51af5b3097b3eba953bea62d50b313ec7452993e25b294e"
     },
     {
       "path": "03-skills-catalog/sources/custom/frontend-quality-gate/SKILL.md",
@@ -167,8 +167,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/landing-conversion-reviewer/agents/openai.yaml",
-      "bytes": 130,
-      "sha256": "4cd16ef71d4ee02e63c16a1e6b0919cc38fc4fa12f7848100d96164b0dfe3027"
+      "bytes": 127,
+      "sha256": "177214fb9701130f6598e8c7e3b289b9c105a3d5b0fcfc1d339af5a7da26c661"
     },
     {
       "path": "03-skills-catalog/sources/custom/landing-conversion-reviewer/SKILL.md",
@@ -177,8 +177,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/llm-integration-engineer/agents/openai.yaml",
-      "bytes": 277,
-      "sha256": "b95f8621d5988f0f18c0a09113f5cf7cb73729d4945614ced8866c2501be00dd"
+      "bytes": 273,
+      "sha256": "63806fe8afbb1b5f49b61e29e6ce94b2ea0fc266da2590bf16cb37284ca9f35e"
     },
     {
       "path": "03-skills-catalog/sources/custom/llm-integration-engineer/SKILL.md",
@@ -202,8 +202,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/secrets-dependencies-auditor/agents/openai.yaml",
-      "bytes": 276,
-      "sha256": "acd68767fc812204f84838c56243dc0b12e97a734e32d1e6451070da403e2f23"
+      "bytes": 272,
+      "sha256": "e7989d7f6dc5932c94ff65d2f78b9660f8abf28a90608437f0f9ca003c8e4324"
     },
     {
       "path": "03-skills-catalog/sources/custom/secrets-dependencies-auditor/SKILL.md",
@@ -227,88 +227,88 @@
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/LICENSE",
-      "bytes": 1086,
-      "sha256": "3c9f63518df3378772203cc64d38d9e381d2a4723b93d2c3849b2bf3d464de0c"
+      "bytes": 1065,
+      "sha256": "4575a543ab88dad12ccea7d97e563d0bce5b448b06072e65d3264497dad326df"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/README.md",
-      "bytes": 13313,
-      "sha256": "996fd913fed93b89df104ad71d39397c4b98539d8e5a88f13c94f84eee2269ed"
+      "bytes": 13094,
+      "sha256": "895b67a0c5f86240ee61816c0b9a0b236f0bfc9ab3ca4dbdb4eceaa2ba9d8531"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/brandkit/SKILL.md",
-      "bytes": 17220,
-      "sha256": "5320ff983d8a0894efef6cf4f3a7880a864ccb4c26b5886e05a9412719fb7e36"
+      "bytes": 16425,
+      "sha256": "cc92e8883ca32d3de0404fb8bd2400f7fc8059f661042e23d75620914a9c236b"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/brutalist-skill/SKILL.md",
-      "bytes": 8961,
-      "sha256": "8073e8ccc90b62e1c037f7aa52519c0235ef9d02289e4a88cdbb6e01c31fd533"
+      "bytes": 8870,
+      "sha256": "fb76c7d02e33a60271cbe85568c764cdbd87ed656a95e726b6b6369f387aaaf1"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/gpt-tasteskill/SKILL.md",
-      "bytes": 7796,
-      "sha256": "da84f21f8f9da3fccf216b777a23bdf833e5e548e0daa71d0efb8b2f818e7c13"
+      "bytes": 7723,
+      "sha256": "0022b187fdf2b1f7739fa5f4fc050738ef8bec2a6f7652e8053ac5d618121ea3"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/image-to-code-skill/SKILL.md",
-      "bytes": 37670,
-      "sha256": "2944189b448e2a77cbbf55014030b1890a9ec5891acc9fa97fb8c215e0008407"
+      "bytes": 36442,
+      "sha256": "4c060a8064a8b13380bc2ef3d6e6a1d0b1e316aa093cd9807d0ce9e4eeb037fa"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/imagegen-frontend-mobile/SKILL.md",
-      "bytes": 41791,
-      "sha256": "3cadf1bfbe836d377832d090e5db8479f98903453a4d1342be9636178755f9dd"
+      "bytes": 40326,
+      "sha256": "8a33389979f3074fa0926678e266ad2eb9234624472254469fc1ad916b9caa24"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/imagegen-frontend-web/SKILL.md",
-      "bytes": 37841,
-      "sha256": "23e6d27ab410e97fe5e844d18db97c8e674d317abd8567f4c7726ee16f56da6e"
+      "bytes": 36854,
+      "sha256": "6b5c2256522fdba1e3313eafa3d743b960a7b13ec029d3e6586e04b23327c1f8"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/llms.txt",
-      "bytes": 1859,
-      "sha256": "3a92967f6c76a58f98a353dee430d15e53d2ce9f13f93ad35a9aedbb0e4e3ecd"
+      "bytes": 1846,
+      "sha256": "c34dc218fe2940a3944967add63e4220e43975f5b15b31b8a280e73055484301"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/minimalist-skill/SKILL.md",
-      "bytes": 8438,
-      "sha256": "e2fd202d3dac3a09491688a5c538e29bfc8159823af191edebdcff9472294b74"
+      "bytes": 8355,
+      "sha256": "37fcbfd5fca917ebc30ba3e0ca64eb773c34ba8bf03a34fa95b2a8d9be9bd8c1"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/output-skill/SKILL.md",
-      "bytes": 2641,
-      "sha256": "7b2275b591af7760b36a2dfb1dbcf3c99c5054c52298a1066c4979f39ed947d9"
+      "bytes": 2592,
+      "sha256": "e5bf48b1ae561511439cf71672209a10a88cee0968cc925909ff861dfa0a96a7"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/redesign-skill/SKILL.md",
-      "bytes": 15610,
-      "sha256": "fc7b1250232560aeb3e3d8da7f9f41041f3d525bd342b51765db0e1d1be96c96"
+      "bytes": 15435,
+      "sha256": "7482c5f4602677fa05151f0b06916dd6a020511781b28ba9b32224a2786e5e15"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/soft-skill/SKILL.md",
-      "bytes": 10604,
-      "sha256": "f6528674c9791156769414a1bcf8865941b4ba023c708c91a22c0231594d9069"
+      "bytes": 10507,
+      "sha256": "fb2a7860b1f56f08b2023178fbb6c324bfa3eb472d2c57df1847d79b07873cd5"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/stitch-skill/DESIGN.md",
-      "bytes": 12174,
-      "sha256": "4d13f63345ee4a0774fa910c6019d0579e05ff565699ff1a79e3f648f5db1d35"
+      "bytes": 12053,
+      "sha256": "0ab6740c4ebb1966dbceddb823a66d4bf027e960efbd73faca56cbf8370ae2ad"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/stitch-skill/SKILL.md",
-      "bytes": 12322,
-      "sha256": "61598a6c1d5722571989e9894f0a39fa08760f0360d79b3b4ffd4cbd119ab631"
+      "bytes": 12141,
+      "sha256": "fa1ebc545fde3047ea07d458b86551d48da3902ffd392bcebf67a96624aadfb0"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/taste-skill-v1/SKILL.md",
-      "bytes": 21344,
-      "sha256": "26f2d0d09ca8049b4efecb07f8b178628542aea8aa9af3d80421a2b218a5d839"
+      "bytes": 21119,
+      "sha256": "e66a175cf93c4ac241938706c4e4e0c179720489726a6cdce18d040ee133a5d6"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/skills/taste-skill/SKILL.md",
-      "bytes": 88459,
-      "sha256": "2e064e92aca020b2e0bad69326fe7ea55d59005ed53d1a8cbce1bd135d44b8b3"
+      "bytes": 87253,
+      "sha256": "aa194351b246b8b4799099d4ed7b033d29eab6e6e3d58d8d2172978be7b3ec89"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/upstream.json",
@@ -4347,218 +4347,218 @@
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/app-interface.csv",
-      "bytes": 9773,
-      "sha256": "a276e55817958075a8dffeb5f5d7be16703b1611e9f0a3527525e1a44df25c46"
+      "bytes": 9743,
+      "sha256": "2a17ef810dab715ce1f339861817a8fbe3ccc38142b70517301e874803e838ac"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/charts.csv",
-      "bytes": 19391,
-      "sha256": "ebb565308115f955791b0431797a89d9b3587c25d5babb9428d10712c4924817"
+      "bytes": 19365,
+      "sha256": "a70ef7460b0eaaea8614f86a0d09a4bc38b467804179762464b5ca45b491baac"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/colors.csv",
-      "bytes": 38830,
-      "sha256": "d628b178803aee95c2bb8f3cf64d38ea5418948a072ef4feeedf4a69226912e8"
+      "bytes": 38668,
+      "sha256": "cb26759805217edaaa31b09836aec09eab0fe245c58f5884e9a16ef802c6e26a"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/google-fonts.csv",
-      "bytes": 745196,
-      "sha256": "2c03a3cd134d126bd9d6a7dc2a6360dc5272219ad6df3eb9315b031f806e1487"
+      "bytes": 743272,
+      "sha256": "3fd2898fb0fdd31ba758bf05cfcd2b58cd0f038a20cf08e417d09e5a8a4a509e"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/icons.csv",
-      "bytes": 20742,
-      "sha256": "9da693f818d43e2110e28d949905c85baad1650d383ae9e1568f58c766b0e016"
+      "bytes": 20637,
+      "sha256": "f376c29fb4df37b4bdb366a5aa70cb211ba3dd8b435390aaa03152a64b07d2e8"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/landing.csv",
-      "bytes": 16720,
-      "sha256": "080cedbcd61ff8ec9520f33929baa76bee9589e783f83b2f8d824a466b6a46d7"
+      "bytes": 16685,
+      "sha256": "121a2cac7cf21050234b5f80e7b4e182f10123536032e0f9ad862ad3aec9677d"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/motion.csv",
-      "bytes": 10517,
-      "sha256": "528be03324785eb568c9570f5d60fc1644d5bc7ce2cbdd21b648cb90ce74e76e"
+      "bytes": 10500,
+      "sha256": "6452fbd8028ab71d52993775340e1bc40a150d92be8d4b4cb8710620fd1a7512"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/products.csv",
-      "bytes": 73678,
-      "sha256": "83579b1fa5078e9607d6799195347506ffdd80ee0cb169693517b376459bc7f1"
+      "bytes": 73485,
+      "sha256": "e9749e4fd8f7d4c94919c25ebd347a4adaddb671e7b01d33fbc2c87d447e6667"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/react-performance.csv",
-      "bytes": 14867,
-      "sha256": "47c0a454cb73bf32378c55eb781dea4c44440ec6a1b52039119afc354315c17e"
+      "bytes": 14822,
+      "sha256": "904c8afcda229629545912dde0e8ac37503757131f0169f80b016f1f58c4fd3f"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/angular.csv",
-      "bytes": 18188,
-      "sha256": "550f571dbe15191de0f409accafbd9fd61938fb95e857d0a17f45554d5551514"
+      "bytes": 18137,
+      "sha256": "9de35bbda536ced9af7642d88b7675cefa3e18c370ab40c0875f75ab473f0fd6"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/astro.csv",
-      "bytes": 11924,
-      "sha256": "dfc5a1e32e85f07863b0f9dde8f299f826118a116d0e2c143e978594b1ae1d87"
+      "bytes": 11870,
+      "sha256": "6b587e32df201b6e5e7b2ed187b65eee8e6d55dcd6cc16bde29fc25e0f911dae"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/avalonia.csv",
-      "bytes": 25683,
-      "sha256": "4c44ad3db22da3f849b5ff6e65cd8c0cf4fd601506c0393dda63cdbbc05538bc"
+      "bytes": 25626,
+      "sha256": "6bfa40ec6609fcb59e52a38281edcc3a3e5b5e56341304fe5628b32cb9b1f875"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/flutter.csv",
-      "bytes": 10469,
-      "sha256": "e470e6bc2bcd8562667cc764d1e1afb0be0a30ca4dc9ec12fa18b19d46f156bd"
+      "bytes": 10416,
+      "sha256": "fe36d404c799781e8ba6e9a8179b45799ed5126a545528550cd2eb0f2346e8c5"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/html-tailwind.csv",
-      "bytes": 11361,
-      "sha256": "1f004891dd189f6bc2a7717401e3100244326e7e2f3963a79bf7b2349d85e091"
+      "bytes": 11305,
+      "sha256": "7aef38e75c53559470afcfa91580a9917ca8b7dbf8b92110389e23e93703ac52"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/javafx.csv",
-      "bytes": 30947,
-      "sha256": "95dff6d366687d07a9de006384e049bdaba867655b482f4eb7a4af704ba31229"
+      "bytes": 30871,
+      "sha256": "5545e331b2479eb431ca45203799ce1b0ab1e369045ab7735d5a9f85ec78f956"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/jetpack-compose.csv",
-      "bytes": 8248,
-      "sha256": "8e1995b93414e9d50f8d450bdd15853ff138ca3b8c9d6529cd3171729fa5fa7f"
+      "bytes": 8195,
+      "sha256": "6c8fd4b0391c342c12b0af15610cd5becbeccaef0bbe8dcfc01d928c3195d93e"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/laravel.csv",
-      "bytes": 18570,
-      "sha256": "0282fc3e09a30a6e1d825adbec9e3473dd3f7df43bc82d7812f40a97cf5890fc"
+      "bytes": 18519,
+      "sha256": "3e9f551b5232136f7b5ce1304c5e1bf5a83bd63c0dc02afb37502b238772d145"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/nextjs.csv",
-      "bytes": 12546,
-      "sha256": "06a8e8c13bd44696c6ebb4cb6c4d8dea440e3de8cce77616512529ed29258f0c"
+      "bytes": 12493,
+      "sha256": "e828ccc04843742f52f545a068e8a9ab0d2b97c0e771f7e93bf0cef74da05554"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/nuxt-ui.csv",
-      "bytes": 21301,
-      "sha256": "ceab72c6da970ebfac19154a00767bfaf1593bc9ec4c49841812ebe1e1ebbada"
+      "bytes": 21230,
+      "sha256": "b9972b31e721faabc667ee2b4e93ba2af29e1df86f186c2ff608b68370f0e3a5"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/nuxtjs.csv",
-      "bytes": 16598,
-      "sha256": "696ec6df0e5971cd8b69080ee6abea2e9748fb2de47acb2bcc748302684f2030"
+      "bytes": 16539,
+      "sha256": "f7a3f2d9542856d00199f85c6c023b7c284cc698e2e6e12d61afce2edacb24d6"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/react-native.csv",
-      "bytes": 10035,
-      "sha256": "a08ca77fcf6b6d9531982dce465366296013bfcf12d2938ac72ad57cf0c4f085"
+      "bytes": 9983,
+      "sha256": "077aefc81d194895ecf7936b3ed298b978e36961f183e3a275f8acda19b5f621"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/react.csv",
-      "bytes": 13016,
-      "sha256": "b6e3eb0e4c9c01bd00ffb951d5ca224a19d488b4544c75436f48cf92ff12bf45"
+      "bytes": 12962,
+      "sha256": "e5624ab41d33427d88e41d07581ce4eca59b37b36ab72a6ad43a9c8e2d0a1c72"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/shadcn.csv",
-      "bytes": 15982,
-      "sha256": "0f9cc6fbfebea8026950c422808bb3aae239185bad770726b331f827f8e1a6de"
+      "bytes": 15921,
+      "sha256": "395c2e415ef6f48a474acccdc8eb2c7258a6ed751a5037ba171a2d8823e02ded"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/svelte.csv",
-      "bytes": 11063,
-      "sha256": "bc8d158994a8bdf412830a9dd5e5a5534edd2f367a6e50e0ebd4d76f592dfa3f"
+      "bytes": 11009,
+      "sha256": "71af52d64f266c88070b91dbbaa900c2f8074b6baae9f35eaea6ba9cec6fd803"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/swiftui.csv",
-      "bytes": 10872,
-      "sha256": "e87cb9eee208bb753bdab96d4a261c7f830c4317ee90ec098316b248fc32be85"
+      "bytes": 10821,
+      "sha256": "c9c2d2510f8e66281a2514e8dd0125a6b653b9ef53a71281b5e7dfe003d5b569"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/threejs.csv",
-      "bytes": 44914,
-      "sha256": "ab3c9d1a690e7d2950719eba01ad6f6a5f4914886e7d9b05189a7b2d01d339d0"
+      "bytes": 44860,
+      "sha256": "c74d6ba76021f8d72c0ed12c559caecfeb6961829242acf6bcb9e99926b1a396"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/uno.csv",
-      "bytes": 27531,
-      "sha256": "bfb0904f96ef7d986369067525398e4864c51edf69e8156f94040cad4bc79a36"
+      "bytes": 27471,
+      "sha256": "5d2e0f396bb9dc5a2661204264cc0eda7cc4fa3d78152dec89d668704a41b8fc"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/uwp.csv",
-      "bytes": 22923,
-      "sha256": "bfe240f56dcd7d4ad97c851a66ef8ad9a3316d3d11932c751465ccce8a954e85"
+      "bytes": 22867,
+      "sha256": "debf669928871261ced9333788d5afd5784377ea1fa1b4f53993dd8f1574c0fc"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/vue.csv",
-      "bytes": 11056,
-      "sha256": "9b793c3f4eec85f77a758c09322f2b62f3b3ca549bb713ccf0849ef885934395"
+      "bytes": 11006,
+      "sha256": "c2724915d3c11cd67263f25896cff721f787a0fdd8326002d31e9f5806dfd8f8"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/winui.csv",
-      "bytes": 25212,
-      "sha256": "eaee213792a6d7c941114767370569407fad989f5b05e022a9d7ed9c2570a384"
+      "bytes": 25152,
+      "sha256": "2d970b08e44509d7afa53ce7feb446930b2d5e0667fa637df9aeeed65c42bbbe"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/stacks/wpf.csv",
-      "bytes": 22595,
-      "sha256": "49f41990069ef87dd4a40f5936649535253a097740788323d0b9fa76f41ea11e"
+      "bytes": 22538,
+      "sha256": "ca78b5f28dc50d66900548d602d74856400097284c73e076fcfbb5a38ae5083c"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/styles.csv",
-      "bytes": 142687,
-      "sha256": "baedf4b9681eb7b5a404179e3cd5eb1e8e40b3e2807db5154b72e1431c644b11"
+      "bytes": 142602,
+      "sha256": "1bf9c1d8484a0a7a54fb67555902380446865b604c8449e47a449cb3d9c1ef88"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/typography.csv",
-      "bytes": 49905,
-      "sha256": "9577e2243d032e226b36fe5037b33299872244f6905b296e16b597a3ed9853c8"
+      "bytes": 49830,
+      "sha256": "7abead73de0e43e09544f164cb60cd431674e411f1e063e555a8b44d51273328"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/ui-reasoning.csv",
-      "bytes": 53070,
-      "sha256": "41976082ecae1100da937c949215dc6694393e03f3c2a7444dd92a9edb43cb11"
+      "bytes": 52908,
+      "sha256": "06e4369445388ba9b7a57347510b125b7a2145bbf8546a327ba50292503b204a"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/ux-guidelines.csv",
-      "bytes": 18766,
-      "sha256": "1870ee048f2a2bdd60709f8f7adf7f3b6dcad560bc005c8b2915a8ac8639820d"
+      "bytes": 18667,
+      "sha256": "e01943c433b2cad3040f19389b3b0455673758a569b7a927b5bedf65c989cb96"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/LICENSE",
-      "bytes": 1096,
-      "sha256": "1b8bd455510cc1f6f9bd510ffe2ec372d1c51fe0e082ddfee8b41825fb7aa055"
+      "bytes": 1075,
+      "sha256": "738f69dfa83db5c347c678fb9d90e560877059f0de93a327c39001bff92dc014"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/references/pro-rules.md",
-      "bytes": 9694,
-      "sha256": "a67c8015e97c709d1dfd25706ed5ca9800c313e9e5e489d942460392909a77ad"
+      "bytes": 9585,
+      "sha256": "bc56db7cb40c5f4d8d4f6229f5c7072865278488fe5b97c76d3a38eb596da4fc"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/references/quick-reference.md",
-      "bytes": 21877,
-      "sha256": "f5647726263a26532778a980a2a2b86b84e1287f0a7d15a1468350340c8f1e5d"
+      "bytes": 21637,
+      "sha256": "b01ad594cc069d18786d5e8865356cc511226ba6f48d328fd975d31aae8e5781"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/scripts/core.py",
-      "bytes": 19265,
-      "sha256": "f2312caafcae700940644f8cf24439953bdec6a26fe7b9242613062759428b92"
+      "bytes": 18801,
+      "sha256": "64c149019196ee24647464a27278eb96d3b4638ded73ebfc35ccd2bc99c083a9"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/scripts/design_system.py",
-      "bytes": 60788,
-      "sha256": "ba22643868e715b34c8c2b967aeee194178ec9360897339e06ab57cfadcb91ba"
+      "bytes": 59417,
+      "sha256": "fcdb279eb9691dffd6c80c333d29a4e5567368e38d724520c60013c8b1aaf242"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/scripts/search.py",
-      "bytes": 8849,
-      "sha256": "3577f4e6b5f96ff2da83ad386c3c41c3d7a0948d7374e15344356990ed83fffb"
+      "bytes": 8687,
+      "sha256": "69a349d69543f35f45a12c0c82922c550d1b0a16a2b37f6b1406afb2ad2919c8"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/scripts/tests/test_core.py",
-      "bytes": 6035,
-      "sha256": "cdaed39ba0066bc1750977f3e2d50ed4f8bb177f43c66758d66f830dfe28f98f"
+      "bytes": 5901,
+      "sha256": "ce60ac571164cf35e8c866550ad989fa686706a56fa48df4fdf76444b94fdd8d"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/scripts/validate_data.py",
-      "bytes": 4299,
-      "sha256": "403bf38439b862313356dbf993632d5ad1a87e6d99fea94e467e17a375c43071"
+      "bytes": 4185,
+      "sha256": "f1b5e0916f3c2f8271416f93f6ff9ebf3311a68a943a19c1b83f16823cbb05a7"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/SKILL.md",
@@ -4567,8 +4567,8 @@
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/UPSTREAM-SKILL.md",
-      "bytes": 13773,
-      "sha256": "04e3332c3f82b3dfc60962477b834db1b0d1e2150cc4c96d7139150df612ad1f"
+      "bytes": 13577,
+      "sha256": "305a7527fcb2f5b6e4129ab22cd839b5172d26df7f14d3324bfdec8fc1763560"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/upstream.json",

@@ -18,7 +18,11 @@ test("session records normalize, score substance, and render handoff + briefing"
   const record = normalizeSessionRecord({
     building: "JWT auth with httpOnly cookies for the Next.js app.",
     worked: [{ item: "register endpoint", evidence: "POST returns 200 in Postman" }, "password hashing"],
-    failed: [{ approach: "Next-Auth", reason: "conflicts with the Prisma adapter" }],
+    failed: [
+      { approach: "Next-Auth", reason: "conflicts with the Prisma adapter" },
+      { approach: "iron-session", why: "no rotation story" },
+      { approach: "cookie in localStorage" }
+    ],
     untried: ["set cookie in login route"],
     files: [{ path: "app/api/login/route.ts", status: "In Progress", notes: "token not set yet" }, "lib/auth.ts", { path: "x.ts", status: "weird" }],
     decisions: [{ decision: "httpOnly cookie over localStorage", reason: "prevents XSS" }],
@@ -27,6 +31,12 @@ test("session records normalize, score substance, and render handoff + briefing"
   });
   assert.equal(record.topic, "JWT auth with httpOnly cookies for the Next.js app.");
   assert.equal(record.worked[1].item, "password hashing");
+  // ECC's save-session prompt writes `why`; both spellings land in `reason`.
+  assert.deepEqual(record.failed, [
+    { approach: "Next-Auth", reason: "conflicts with the Prisma adapter" },
+    { approach: "iron-session", reason: "no rotation story" },
+    { approach: "cookie in localStorage", reason: "" }
+  ]);
   assert.equal(record.files[0].status, "in_progress");
   assert.equal(record.files[1].status, "in_progress");
   assert.equal(record.files[2].status, "in_progress");

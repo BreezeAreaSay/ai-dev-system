@@ -16,10 +16,23 @@ function list(values) {
   return (Array.isArray(values) ? values : values ? [values] : []).map(normalize).filter(Boolean);
 }
 
-function pairs(values, first, second) {
+/**
+ * Normalize `[{ [first]: …, [second]: … }]` input. A bare string becomes the
+ * first field. `aliases` are accepted for the second field and folded into it,
+ * so both spellings that appear in the wild reach storage as one key (ECC's
+ * save-session prompt writes `why` where this schema says `reason`).
+ *
+ * @param {unknown} values
+ * @param {string} first
+ * @param {string} second
+ * @param {string[]} [aliases] - Alternative input keys for `second`.
+ * @returns {Array<Record<string, string>>}
+ */
+function pairs(values, first, second, aliases = []) {
   return (Array.isArray(values) ? values : []).map((item) => {
     if (typeof item === "string") return { [first]: normalize(item), [second]: "" };
-    return { [first]: normalize(item?.[first]), [second]: normalize(item?.[second]) };
+    const secondValue = [second, ...aliases].map((key) => normalize(item?.[key])).find(Boolean) || "";
+    return { [first]: normalize(item?.[first]), [second]: secondValue };
   }).filter((item) => item[first]);
 }
 
@@ -31,6 +44,9 @@ function slug(value) {
  * Validate and normalize a session handoff record (the ECC save-session
  * sections: what we are building, what worked with evidence, what failed and
  * why, untried ideas, file states, decisions, blockers, exact next step).
+ *
+ * `failed` entries take `{ approach, reason }` or `{ approach, why }`; both are
+ * stored as `reason`.
  *
  * @param {object} input
  * @returns {object} Normalized record without storage metadata.
@@ -49,7 +65,7 @@ export function normalizeSessionRecord(input = {}) {
     topic: topic || building.split("\n")[0].slice(0, 120),
     building,
     worked: pairs(input.worked, "item", "evidence"),
-    failed: pairs(input.failed, "approach", "reason"),
+    failed: pairs(input.failed, "approach", "reason", ["why"]),
     untried: list(input.untried),
     files,
     decisions: pairs(input.decisions, "decision", "reason"),

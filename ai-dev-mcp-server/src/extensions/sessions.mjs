@@ -67,7 +67,7 @@ export function createSessionTools(host) {
             topic: { type: "string", description: "One line: what this session was about." },
             building: { type: "string", description: "1-3 paragraphs a person with zero memory could act on." },
             worked: { type: "array", items: { type: "object", properties: { item: { type: "string" }, evidence: { type: "string" } }, required: ["item"] }, default: [] },
-            failed: { type: "array", items: { type: "object", properties: { approach: { type: "string" }, reason: { type: "string" } }, required: ["approach"] }, default: [] },
+            failed: { type: "array", items: { type: "object", properties: { approach: { type: "string" }, reason: { type: "string", description: "Why it failed. `why` is accepted as an alias and stored as reason." }, why: { type: "string" } }, required: ["approach"] }, default: [] },
             untried: { type: "array", items: { type: "string" }, default: [] },
             files: { type: "array", items: { type: "object", properties: { path: { type: "string" }, status: { type: "string", enum: FILE_STATUSES }, notes: { type: "string" } }, required: ["path"] }, default: [] },
             decisions: { type: "array", items: { type: "object", properties: { decision: { type: "string" }, reason: { type: "string" } }, required: ["decision"] }, default: [] },

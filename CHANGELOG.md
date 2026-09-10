@@ -210,6 +210,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   always present, a schema test pins the field list, and the docs, the tool
   description and the skill were corrected.
 
+### Fixed
+
+- `save_session` accepts both spellings of the failure reason. ECC's
+  save-session prompt (and the example in `docs/ecc-upgrades/09-session-memory.md`)
+  writes `failed: [{ approach, why }]` while the schema said `reason`, so the
+  explanation was silently dropped and `resume_session` printed "reason not
+  recorded". `why` is now normalized into `reason`; the examples and the file
+  states in them (`status`, not `state`) match the schema.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

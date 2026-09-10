@@ -25,7 +25,7 @@
 
 ## Новые файлы
 
-**Файл: `ai-dev-mcp-server/src/core/session-memory.mjs`** (347 строк)
+**Файл: `ai-dev-mcp-server/src/core/session-memory.mjs`** (363 строк)
 
 ```js
 import crypto from "node:crypto";
@@ -46,10 +46,23 @@ function list(values) {
   return (Array.isArray(values) ? values : values ? [values] : []).map(normalize).filter(Boolean);
 }
 
-function pairs(values, first, second) {
+/**
+ * Normalize `[{ [first]: …, [second]: … }]` input. A bare string becomes the
+ * first field. `aliases` are accepted for the second field and folded into it,
+ * so both spellings that appear in the wild reach storage as one key (ECC's
+ * save-session prompt writes `why` where this schema says `reason`).
+ *
+ * @param {unknown} values
+ * @param {string} first
+ * @param {string} second
+ * @param {string[]} [aliases] - Alternative input keys for `second`.
+ * @returns {Array<Record<string, string>>}
+ */
+function pairs(values, first, second, aliases = []) {
   return (Array.isArray(values) ? values : []).map((item) => {
     if (typeof item === "string") return { [first]: normalize(item), [second]: "" };
-    return { [first]: normalize(item?.[first]), [second]: normalize(item?.[second]) };
+    const secondValue = [second, ...aliases].map((key) => normalize(item?.[key])).find(Boolean) || "";
+    return { [first]: normalize(item?.[first]), [second]: secondValue };
   }).filter((item) => item[first]);
 }
 
@@ -61,6 +74,9 @@ function slug(value) {
  * Validate and normalize a session handoff record (the ECC save-session
  * sections: what we are building, what worked with evidence, what failed and
  * why, untried ideas, file states, decisions, blockers, exact next step).
+ *
+ * `failed` entries take `{ approach, reason }` or `{ approach, why }`; both are
+ * stored as `reason`.
  *
  * @param {object} input
  * @returns {object} Normalized record without storage metadata.
@@ -79,7 +95,7 @@ export function normalizeSessionRecord(input = {}) {
     topic: topic || building.split("\n")[0].slice(0, 120),
     building,
     worked: pairs(input.worked, "item", "evidence"),
-    failed: pairs(input.failed, "approach", "reason"),
+    failed: pairs(input.failed, "approach", "reason", ["why"]),
     untried: list(input.untried),
     files,
     decisions: pairs(input.decisions, "decision", "reason"),
@@ -377,7 +393,7 @@ export async function writeHandoffProjection(projectRoot, record) {
 }
 ```
 
-**Файл: `ai-dev-mcp-server/src/core/session-memory.test.mjs`** (98 строк)
+**Файл: `ai-dev-mcp-server/src/core/session-memory.test.mjs`** (108 строк)
 
 ```js
 import assert from "node:assert/strict";
@@ -400,7 +416,11 @@ test("session records normalize, score substance, and render handoff + briefing"
   const record = normalizeSessionRecord({
     building: "JWT auth with httpOnly cookies for the Next.js app.",
     worked: [{ item: "register endpoint", evidence: "POST returns 200 in Postman" }, "password hashing"],
-    failed: [{ approach: "Next-Auth", reason: "conflicts with the Prisma adapter" }],
+    failed: [
+      { approach: "Next-Auth", reason: "conflicts with the Prisma adapter" },
+      { approach: "iron-session", why: "no rotation story" },
+      { approach: "cookie in localStorage" }
+    ],
     untried: ["set cookie in login route"],
     files: [{ path: "app/api/login/route.ts", status: "In Progress", notes: "token not set yet" }, "lib/auth.ts", { path: "x.ts", status: "weird" }],
     decisions: [{ decision: "httpOnly cookie over localStorage", reason: "prevents XSS" }],
@@ -409,6 +429,12 @@ test("session records normalize, score substance, and render handoff + briefing"
   });
   assert.equal(record.topic, "JWT auth with httpOnly cookies for the Next.js app.");
   assert.equal(record.worked[1].item, "password hashing");
+  // ECC's save-session prompt writes `why`; both spellings land in `reason`.
+  assert.deepEqual(record.failed, [
+    { approach: "Next-Auth", reason: "conflicts with the Prisma adapter" },
+    { approach: "iron-session", reason: "no rotation story" },
+    { approach: "cookie in localStorage", reason: "" }
+  ]);
   assert.equal(record.files[0].status, "in_progress");
   assert.equal(record.files[1].status, "in_progress");
   assert.equal(record.files[2].status, "in_progress");
@@ -552,7 +578,7 @@ export function createSessionTools(host) {
             topic: { type: "string", description: "One line: what this session was about." },
             building: { type: "string", description: "1-3 paragraphs a person with zero memory could act on." },
             worked: { type: "array", items: { type: "object", properties: { item: { type: "string" }, evidence: { type: "string" } }, required: ["item"] }, default: [] },
-            failed: { type: "array", items: { type: "object", properties: { approach: { type: "string" }, reason: { type: "string" } }, required: ["approach"] }, default: [] },
+            failed: { type: "array", items: { type: "object", properties: { approach: { type: "string" }, reason: { type: "string", description: "Why it failed. `why` is accepted as an alias and stored as reason." }, why: { type: "string" } }, required: ["approach"] }, default: [] },
             untried: { type: "array", items: { type: "string" }, default: [] },
             files: { type: "array", items: { type: "object", properties: { path: { type: "string" }, status: { type: "string", enum: FILE_STATUSES }, notes: { type: "string" } }, required: ["path"] }, default: [] },
             decisions: { type: "array", items: { type: "object", properties: { decision: { type: "string" }, reason: { type: "string" } }, required: ["decision"] }, default: [] },
@@ -700,7 +726,7 @@ export function createSessionTools(host) {
 }
 ```
 
-**Файл: `ai-dev-mcp-server/src/extensions/sessions.test.mjs`** (77 строк)
+**Файл: `ai-dev-mcp-server/src/extensions/sessions.test.mjs`** (79 строк)
 
 ```js
 import assert from "node:assert/strict";
@@ -753,7 +779,7 @@ test("session tools save a handoff, resume with a briefing, and estimate the bud
     task_id: task.id,
     building: "JWT auth with httpOnly cookies; the login route still needs to set the cookie.",
     worked: [{ item: "register endpoint", evidence: "Postman 200" }],
-    failed: [{ approach: "Next-Auth", reason: "Prisma adapter conflict" }],
+    failed: [{ approach: "Next-Auth", reason: "Prisma adapter conflict" }, { approach: "iron-session", why: "no rotation story" }],
     next_step: "Set the cookie in the login route and run verify_task.",
     client: "claude-code"
   });
@@ -769,6 +795,8 @@ test("session tools save a handoff, resume with a briefing, and estimate the bud
   assert.equal(resumed.open_tasks[0].id, task.id);
   assert.equal(resumed.context_pack.fresh, true);
   assert.match(resumed.briefing, /WHAT NOT TO RETRY:\n- Next-Auth — Prisma adapter conflict/);
+  // `why` is the ECC spelling of `reason`; it must survive the round trip as reason.
+  assert.deepEqual(resumed.session.failed[1], { approach: "iron-session", reason: "no rotation story" });
   assert.match(resumed.briefing, /grep before edit/);
   assert.match(resumed.briefing, /GIT: branch feature\/auth, 1 uncommitted/);
 
@@ -1058,15 +1086,19 @@ node --test src/core/session-memory.test.mjs src/extensions/sessions.test.mjs sr
 { "tool": "save_session", "args": { "project_path": "/repo", "task_id": "task-…",
   "building": "Rate limiting for /login",
   "worked": [{ "item": "Token bucket in middleware", "evidence": "login.test.ts passes 429 case" }],
-  "failed": [{ "approach": "Redis INCR without TTL", "why": "keys never expired; memory grew" }],
+  "failed": [{ "approach": "Redis INCR without TTL", "reason": "keys never expired; memory grew" }],
   "untried": ["sliding window via sorted sets"],
-  "files": [{ "path": "src/middleware/rate-limit.ts", "state": "done" }],
+  "files": [{ "path": "src/middleware/rate-limit.ts", "status": "complete" }],
   "blockers": ["staging Redis credentials"],
   "next_step": "Wire middleware into routes/auth.ts and run verify_task" } }
 
 { "tool": "resume_session", "args": { "project_path": "/repo" } }
 { "tool": "context_budget_status", "args": { "task_id": "task-…", "window_tokens": 200000 } }
 ```
+
+Поле причины в `failed` называется `reason`; `why` (написание из промптов ECC) принимается
+и сохраняется как `reason`, поэтому оба варианта попадают в handoff одинаково. Статусы
+файлов — `complete`, `in_progress`, `broken`, `not_started`.
 
 Подсказка по сжатию: `context_budget_status` отвечает «safe to compact» только после
 сохранённого handoff; `save_session` с пустыми полями не даст «содержательной» записи и

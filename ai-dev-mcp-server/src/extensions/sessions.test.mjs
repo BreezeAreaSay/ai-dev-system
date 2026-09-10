@@ -75,3 +75,40 @@ test("session tools save a handoff, resume with a briefing, and estimate the bud
   assert.equal(budget.compaction_hint, "none");
   await assert.rejects(registry.handlers.get("save_session")({ topic: "x" }), /project_path or task_id is required/);
 });
+
+test("a handoff saved in a task worktree resumes from the main checkout", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "session-tools-worktree-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const checkout = path.join(root, "checkout");
+  const worktree = path.join(root, "checkout", ".worktrees", "task-one");
+  await fs.mkdir(worktree, { recursive: true });
+  const stateRoot = path.join(root, "state");
+  const host = {
+    taskStore: { read: async () => { throw new Error("no task"); }, list: async () => [], checkpoint: async () => ({}) },
+    sessionStore: new SessionStore({ stateRoot }),
+    // One clone, two working trees: what resolveProjectIdentity returns for a
+    // worktree and for its main checkout differs only in project_id.
+    resolveProjectIdentity: async (projectPath) => ({
+      project_root: projectPath,
+      project_id: `project-${path.basename(projectPath)}`,
+      repository_id: "repository-fixture"
+    }),
+    captureProjectState: async (projectPath) => ({ branch: projectPath === worktree ? "task/one" : "main", dirty: false, dirty_files: [] })
+  };
+  const registry = createExtensionTools(host, [createSessionTools]);
+
+  const saved = await registry.handlers.get("save_session")({
+    project_path: worktree,
+    building: "Rate limiting on the public API; the middleware is written but unwired.",
+    next_step: "Wire the middleware in server.ts and run the contract tests."
+  });
+  assert.equal(saved.repository_id, "repository-fixture");
+  assert.equal(path.basename(path.dirname(saved.path)), "repository-fixture");
+
+  const resumed = await registry.handlers.get("resume_session")({ project_path: checkout });
+  assert.equal(resumed.project_id, "project-checkout");
+  assert.equal(resumed.session.id, saved.session_id, "the main checkout resumes the worktree handoff");
+  assert.equal(resumed.session.branch, "task/one");
+  assert.match(resumed.briefing, /Wire the middleware in server\.ts/);
+  assert.equal((await registry.handlers.get("resume_session")({ project_path: checkout, session_id: saved.session_id })).session.id, saved.session_id);
+});

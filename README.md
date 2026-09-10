@@ -315,6 +315,9 @@ Decisions, the newest handoff, and instincts above 70% confidence are folded
 into the context pack that `begin_task` compiles, so the next session sees them
 without asking. Sessions and instincts live in your home directory (per user);
 decisions live in the repository (per project, reviewable in a pull request).
+Sessions and instincts are keyed by repository, not by directory: a task worktree
+created by `begin_task_in_worktree` and the main checkout read and write the same
+memory, while a task stays bound to the working tree it was started in.
 
 The `learn_from_task` prompt closes the loop: run it after finishing a task and
 the agent reviews the work, records durable patterns as instincts, architectural

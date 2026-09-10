@@ -35,7 +35,7 @@ export function createInstinctTools(host) {
     definitions: [
       {
         name: "record_instinct",
-        description: "Record a learned behavior as an atomic instinct: when <trigger>, <action>. Use after a user correction, an error you resolved the same way twice, or a workflow you repeat. Repeated observations of the same instinct raise its confidence; instincts above 70% are injected into later context packs. Default scope is project; use global only for universal practices.",
+        description: "Record a learned behavior as an atomic instinct: when <trigger>, <action>. Use after a user correction, an error you resolved the same way twice, or a workflow you repeat. Repeated observations of the same instinct raise its confidence; instincts above 70% are injected into later context packs. Default scope is project (the whole repository, task worktrees included); use global only for universal practices.",
         inputSchema: {
           type: "object",
           properties: {
@@ -54,7 +54,7 @@ export function createInstinctTools(host) {
       },
       {
         name: "list_instincts",
-        description: "List learned instincts visible to a project (project-scoped plus global), with decayed effective confidence; optionally filter by scope, domain, or minimum confidence.",
+        description: "List learned instincts visible to a project (its repository's own plus global), with decayed effective confidence; optionally filter by scope, domain, or minimum confidence.",
         inputSchema: {
           type: "object",
           properties: {
@@ -82,7 +82,7 @@ export function createInstinctTools(host) {
       },
       {
         name: "evolve_instincts",
-        description: "Cluster instincts by domain into skill-draft candidates and list project instincts eligible for global promotion (seen in 2+ projects, average confidence >= 0.8). With write_drafts=true, writes SKILL.md drafts into the vault custom skill catalog and marks the instincts promoted.",
+        description: "Cluster instincts by domain into skill-draft candidates and list project instincts eligible for global promotion (seen in 2+ repositories, average confidence >= 0.8). With write_drafts=true, writes SKILL.md drafts into the vault custom skill catalog and marks the instincts promoted.",
         inputSchema: {
           type: "object",
           properties: {
@@ -143,6 +143,7 @@ export function createInstinctTools(host) {
           action: args.action,
           domain: args.domain,
           scope: args.scope || "project",
+          repositoryId: identity?.repository_id,
           projectId: identity?.project_id,
           projectName: record?.project?.name || (identity ? path.basename(identity.project_root) : ""),
           source: "agent",
@@ -163,13 +164,14 @@ export function createInstinctTools(host) {
       async list_instincts(args) {
         const { identity } = await projectFor(args);
         const instincts = await host.instinctStore.list({
+          repositoryId: identity?.repository_id || "",
           projectId: identity?.project_id || "",
           scope: args.scope,
           domain: args.domain,
           minConfidence: Number(args.min_confidence) || 0,
           includeRetired: Boolean(args.include_retired)
         });
-        return { project_id: identity?.project_id || null, count: instincts.length, instincts };
+        return { project_id: identity?.project_id || null, repository_id: identity?.repository_id || null, count: instincts.length, instincts };
       },
       async update_instinct(args) {
         const instinct = await host.instinctStore.adjust(args.id, args.action, { note: args.note, taskId: args.task_id });
@@ -177,7 +179,7 @@ export function createInstinctTools(host) {
       },
       async evolve_instincts(args) {
         const { identity } = await projectFor(args);
-        const clusters = await host.instinctStore.clusters({ projectId: identity?.project_id || "", minSize: args.min_cluster_size });
+        const clusters = await host.instinctStore.clusters({ repositoryId: identity?.repository_id || "", projectId: identity?.project_id || "", minSize: args.min_cluster_size });
         const promotions = await host.instinctStore.promotionCandidates();
         const drafts = [];
         for (const cluster of clusters) {
@@ -214,6 +216,7 @@ export function createInstinctTools(host) {
       async export_instincts(args) {
         const { identity } = await projectFor(args);
         return host.instinctStore.exportInstincts({
+          repositoryId: identity?.repository_id || "",
           projectId: identity?.project_id || "",
           scope: args.scope,
           domain: args.domain,
@@ -225,6 +228,7 @@ export function createInstinctTools(host) {
         if (args.scope === "project" && !identity) throw new Error("project_path is required to import project-scoped instincts.");
         const results = await host.instinctStore.importInstincts(args.entries, {
           scope: args.scope || "",
+          repositoryId: identity?.repository_id || "",
           projectId: identity?.project_id || "",
           projectName: identity ? path.basename(identity.project_root) : ""
         });

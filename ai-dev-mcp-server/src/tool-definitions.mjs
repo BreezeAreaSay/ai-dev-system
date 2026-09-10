@@ -1170,7 +1170,7 @@ export function buildToolDefinitions({
   },
   {
     name: "project_identity",
-    description: "Resolve an absolute path or nested package to one canonical local project identity, Git root, aliases, and sanitized repository identity.",
+    description: "Resolve an absolute path or nested package to one canonical local project identity (project_id), the repository identity every worktree of that clone shares (repository_id, the key of session and instinct memory), the Git root, aliases, and the sanitized origin remote.",
     inputSchema: {
       type: "object",
       properties: {

@@ -38,12 +38,12 @@ export async function decisionsContextProvider({ projectRoot }) {
  * Latest substantive session handoff for the project: next step, blockers,
  * and approaches that already failed (so they are not retried).
  *
- * @param {{ stateRoot?: string, projectId?: string }} input
+ * @param {{ stateRoot?: string, repositoryId?: string, projectId?: string }} input
  * @returns {Promise<{ id: string, title: string, markdown: string, items: object[] } | null>}
  */
-export async function handoffContextProvider({ stateRoot, projectId }) {
-  if (!stateRoot || !projectId) return null;
-  const record = await new SessionStore({ stateRoot }).latest(projectId);
+export async function handoffContextProvider({ stateRoot, repositoryId, projectId }) {
+  if (!stateRoot || !(repositoryId || projectId)) return null;
+  const record = await new SessionStore({ stateRoot }).latest({ repositoryId, projectId });
   if (!record) return null;
   const age = sessionAgeDays(record);
   const lines = [
@@ -64,12 +64,12 @@ export async function handoffContextProvider({ stateRoot, projectId }) {
 /**
  * High-confidence learned instincts relevant to this project, stack, and task.
  *
- * @param {{ stateRoot?: string, projectId?: string, task?: string, stack?: string[] }} input
+ * @param {{ stateRoot?: string, repositoryId?: string, projectId?: string, task?: string, stack?: string[] }} input
  * @returns {Promise<{ id: string, title: string, markdown: string, items: object[] } | null>}
  */
-export async function instinctsContextProvider({ stateRoot, projectId, task, stack = [] }) {
+export async function instinctsContextProvider({ stateRoot, repositoryId, projectId, task, stack = [] }) {
   if (!stateRoot) return null;
-  const ranked = await new InstinctStore({ stateRoot }).rankForContext({ projectId, stack, task });
+  const ranked = await new InstinctStore({ stateRoot }).rankForContext({ repositoryId, projectId, stack, task });
   if (!ranked.instincts.length) return null;
   return {
     id: "instincts",
@@ -83,15 +83,18 @@ export async function instinctsContextProvider({ stateRoot, projectId, task, sta
  * Run every registered provider and collect the sections a context pack should
  * render after the routed skills. Errors are captured per provider.
  *
- * @param {{ projectRoot: string, stateRoot?: string, projectId?: string, task?: string, stack?: string[], providers?: Function[] }} input
+ * Memory-backed providers are keyed by `repositoryId` (shared by every worktree
+ * of one clone) and fall back to `projectId` for records written before it.
+ *
+ * @param {{ projectRoot: string, stateRoot?: string, repositoryId?: string, projectId?: string, task?: string, stack?: string[], providers?: Function[] }} input
  * @returns {Promise<{ sections: object[], errors: string[] }>}
  */
-export async function loadContextExtras({ projectRoot, stateRoot = "", projectId = "", task = "", stack = [], providers = CONTEXT_EXTRA_PROVIDERS }) {
+export async function loadContextExtras({ projectRoot, stateRoot = "", repositoryId = "", projectId = "", task = "", stack = [], providers = CONTEXT_EXTRA_PROVIDERS }) {
   const sections = [];
   const errors = [];
   for (const provider of providers) {
     try {
-      const section = await provider({ projectRoot, stateRoot, projectId, task, stack });
+      const section = await provider({ projectRoot, stateRoot, repositoryId, projectId, task, stack });
       if (section?.markdown) sections.push(section);
     } catch (error) {
       errors.push(`${provider.name || "provider"}: ${error instanceof Error ? error.message : String(error)}`);

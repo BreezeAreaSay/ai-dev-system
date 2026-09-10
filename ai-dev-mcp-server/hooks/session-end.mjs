@@ -4,7 +4,7 @@
 // SessionStart have something even when the agent forgot to call save_session.
 import fs from "node:fs";
 import path from "node:path";
-import { git, hooksDisabled, normalizeInput, projectIdOf, projectRootOf, readStdin, stateRoot } from "./lib.mjs";
+import { git, hooksDisabled, memoryKeysOf, migrateSessions, normalizeInput, projectIdOf, projectRootOf, readStdin, sessionsDirectory } from "./lib.mjs";
 
 const MAX_TRANSCRIPT_BYTES = 16 * 1024 * 1024;
 
@@ -64,14 +64,21 @@ async function main() {
   const summary = extract(input.transcriptPath);
   if (!summary || summary.userMessages.length < 2) process.exit(0);
   const projectRoot = projectRootOf(input.cwd);
-  const projectId = projectIdOf(projectRoot, Boolean(git(projectRoot, ["rev-parse", "--show-toplevel"])));
-  const directory = path.join(stateRoot(), "sessions", projectId);
+  const isGit = Boolean(git(projectRoot, ["rev-parse", "--show-toplevel"]));
+  // Captures land under the repository key so a task worktree and the main
+  // checkout share one memory; the project key stays on the record.
+  const keys = memoryKeysOf(projectRoot, isGit);
+  const [memoryKey] = keys;
+  const projectId = projectIdOf(projectRoot, isGit);
+  migrateSessions(keys);
+  const directory = sessionsDirectory(memoryKey);
   fs.mkdirSync(directory, { recursive: true });
   const now = new Date().toISOString();
   const record = {
     schema_version: 1,
     id: `session-hook-${input.sessionId}`,
     saved_at: now,
+    repository_id: memoryKey === projectId ? "" : memoryKey,
     project_id: projectId,
     project_path: projectRoot,
     project_name: path.basename(projectRoot),

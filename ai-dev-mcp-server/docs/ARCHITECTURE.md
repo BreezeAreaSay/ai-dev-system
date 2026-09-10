@@ -130,7 +130,7 @@ runtime state rather than knowledge:
 ```text
 ${AI_DEV_HOME}/state/
   tasks/<task-id>.json      task records (authoritative lifecycle state)
-  sessions/<project-id>/    session handoffs, one file per save; hook-<id>.json is a hook capture
+  sessions/<repository-id>/ session handoffs, one file per save; hook-<id>.json is a hook capture
   instincts.json            learned preferences with confidence and decay
   usage/events.jsonl        tool-call and token/cost ledger, pruned by size
   skill-outcomes.json       verification-bound routing outcomes
@@ -141,6 +141,15 @@ ${AI_DEV_HOME}/state/
 Three levels, deliberately kept apart: the vault is shared knowledge, this tree is per-user runtime
 state, and `<project>/.ai-dev/` (decisions, plans, context packs, rules, hooks, policy) is per-repository
 and belongs in the repository's own history.
+
+Memory inside that tree is keyed by `repository_id` — a hash of `git rev-parse --git-common-dir` plus the
+project's path inside its worktree — which is the same string in the main checkout and in every linked
+worktree of one clone. A handoff saved while working in a `begin_task_in_worktree` worktree therefore
+resumes from the main checkout, and an instinct recorded in either is visible in both. Tasks keep their
+own `project_id` (a hash of the canonical working-tree path), so a task stays bound to the tree it was
+started in. Records written before repository ids existed are still read under their `project_id` and
+move to the repository key on the first write. Outside Git (no common dir) `repository_id` is `null` and
+`project_id` remains the only key.
 
 ## Request Path
 

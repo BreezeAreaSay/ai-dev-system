@@ -58,7 +58,7 @@ export function createSessionTools(host) {
     definitions: [
       {
         name: "save_session",
-        description: "Save a structured session handoff (what we are building, what worked with evidence, what failed and why, untried ideas, file states, decisions, blockers, exact next step). Stored under ~/.ai-dev/state/sessions and projected to .ai-dev/context/handoff.md so the next session (or a compaction) resumes from facts.",
+        description: "Save a structured session handoff (what we are building, what worked with evidence, what failed and why, untried ideas, file states, decisions, blockers, exact next step). Stored under ~/.ai-dev/state/sessions, keyed by repository so task worktrees and the main checkout share one memory, and projected to .ai-dev/context/handoff.md so the next session (or a compaction) resumes from facts.",
         inputSchema: {
           type: "object",
           properties: {
@@ -81,7 +81,7 @@ export function createSessionTools(host) {
       },
       {
         name: "resume_session",
-        description: "Load the latest substantive session handoff for a project (or a specific session id) and return a resume briefing: what not to retry, blockers, next step, open tasks, git state, context-pack freshness, and relevant learned instincts. Read-only.",
+        description: "Load the latest substantive session handoff for a repository (any of its worktrees, or a specific session id) and return a resume briefing: what not to retry, blockers, next step, open tasks, git state, context-pack freshness, and relevant learned instincts. Read-only.",
         inputSchema: {
           type: "object",
           properties: {
@@ -110,6 +110,7 @@ export function createSessionTools(host) {
         const { identity, record } = await projectFor(args);
         const state = await host.captureProjectState(identity.project_root);
         const saved = await host.sessionStore.save({
+          repositoryId: identity.repository_id,
           projectId: identity.project_id,
           projectPath: identity.project_root,
           projectName: record?.project?.name || path.basename(identity.project_root),
@@ -146,6 +147,7 @@ export function createSessionTools(host) {
           path: saved.path,
           handoff_path: handoffPath,
           project_id: identity.project_id,
+          repository_id: identity.repository_id,
           markdown: renderHandoffMarkdown(saved.record),
           checkpoint,
           next_step: saved.record.next_step
@@ -155,10 +157,12 @@ export function createSessionTools(host) {
       },
       async resume_session(args) {
         const identity = await host.resolveProjectIdentity(args.project_path);
+        // The identity carries both memory keys: sessions saved in a task
+        // worktree and in the main checkout share one repository id.
         const record = args.session_id
-          ? await host.sessionStore.read(identity.project_id, args.session_id)
-          : await host.sessionStore.latest(identity.project_id);
-        const history = await host.sessionStore.list(identity.project_id, { limit: args.limit_history || 5 });
+          ? await host.sessionStore.read(identity, args.session_id)
+          : await host.sessionStore.latest(identity);
+        const history = await host.sessionStore.list(identity, { limit: args.limit_history || 5 });
         const tasks = (await host.taskStore.list({ projectPath: identity.project_root, limit: 20 }))
           .filter((task) => ["active", "verified"].includes(task.status));
         const state = await host.captureProjectState(identity.project_root);
@@ -173,6 +177,7 @@ export function createSessionTools(host) {
         if (host.instinctStore) {
           const detected = host.detectProject ? await host.detectProject(identity.project_root).catch(() => null) : null;
           const ranked = await host.instinctStore.rankForContext({
+            repositoryId: identity.repository_id,
             projectId: identity.project_id,
             stack: detected?.stack ?? [],
             task: record?.next_step || record?.topic || ""
@@ -181,6 +186,7 @@ export function createSessionTools(host) {
         }
         return {
           project_id: identity.project_id,
+          repository_id: identity.repository_id,
           project_path: identity.project_root,
           session: record,
           history: history.map((item) => ({ id: item.id, saved_at: item.saved_at, topic: item.topic, task_id: item.task_id, substance_score: item.substance_score })),

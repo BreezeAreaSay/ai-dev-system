@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { atomicWriteFile, atomicWriteJson } from "./atomic-files.mjs";
+import { memoryScopeKeys } from "./project-identity.mjs";
 
 export const HANDOFF_RELATIVE_PATH = ".ai-dev/context/handoff.md";
 export const FILE_STATUSES = ["complete", "in_progress", "broken", "not_started"];
@@ -80,30 +81,79 @@ export function sessionSubstanceScore(record) {
   return score;
 }
 
+/**
+ * Handoffs live under the repository key so every worktree of one clone reads
+ * the same memory; `scope` accepts an identity object, `{ repositoryId,
+ * projectId }`, or a bare key.
+ */
 export class SessionStore {
   constructor({ stateRoot }) {
     this.stateRoot = path.resolve(stateRoot);
     this.root = path.join(this.stateRoot, "sessions");
   }
 
-  directoryFor(projectId) {
-    const safe = String(projectId || "unknown").replace(/[^a-zA-Z0-9_.-]/g, "_");
+  directoryFor(scopeKey) {
+    const safe = String(scopeKey || "unknown").replace(/[^a-zA-Z0-9_.-]/g, "_");
     return path.join(this.root, safe);
+  }
+
+  /**
+   * Move records a legacy key wrote into the primary key's directory. Readers
+   * merge both keys, so this only consolidates: the split disappears after the
+   * first save under the repository id.
+   *
+   * @param {object | string} scope
+   * @returns {Promise<string[]>} Paths that moved.
+   */
+  async migrate(scope) {
+    const [primary, ...legacy] = memoryScopeKeys(scope);
+    if (!primary || !legacy.length) return [];
+    const target = this.directoryFor(primary);
+    const moved = [];
+    for (const key of legacy) {
+      const source = this.directoryFor(key);
+      if (source === target) continue;
+      const names = await this.recordNames(source);
+      if (!names.length) continue;
+      await fs.mkdir(target, { recursive: true });
+      for (const name of names) {
+        const destination = path.join(target, name);
+        // A same-named record already under the repository key wins; the legacy
+        // copy stays where it is and readers still merge it.
+        if (await fs.access(destination).then(() => true, () => false)) continue;
+        await fs.rename(path.join(source, name), destination);
+        moved.push(destination);
+      }
+      await fs.rmdir(source).catch(() => undefined);
+    }
+    return moved;
+  }
+
+  async recordNames(directory) {
+    try {
+      return (await fs.readdir(directory)).filter((name) => name.endsWith(".json"));
+    } catch (error) {
+      if (error?.code === "ENOENT") return [];
+      throw error;
+    }
   }
 
   /**
    * Persist a handoff record. Returns the stored record including metadata.
    *
-   * @param {{ projectId: string, projectPath: string, projectName?: string, taskId?: string, branch?: string, worktree?: string, source?: string, client?: string, sessionId?: string, now?: string } & object} input
+   * @param {{ repositoryId?: string, projectId: string, projectPath: string, projectName?: string, taskId?: string, branch?: string, worktree?: string, source?: string, client?: string, sessionId?: string, now?: string } & object} input
    */
   async save(input) {
     const record = normalizeSessionRecord(input);
     const savedAt = input.now || new Date().toISOString();
     const id = `session-${savedAt.replace(/\D/g, "").slice(0, 14)}-${crypto.randomUUID().slice(0, 8)}`;
+    const [scopeKey = ""] = memoryScopeKeys(input);
+    await this.migrate(input);
     const stored = {
       schema_version: 1,
       id,
       saved_at: savedAt,
+      repository_id: String(input.repositoryId || ""),
       project_id: String(input.projectId || ""),
       project_path: String(input.projectPath || ""),
       project_name: String(input.projectName || path.basename(String(input.projectPath || "")) || ""),
@@ -116,30 +166,28 @@ export class SessionStore {
       ...record
     };
     const fileName = `${savedAt.replace(/\D/g, "").slice(0, 14)}-${slug(record.topic)}.json`;
-    const filePath = path.join(this.directoryFor(stored.project_id), fileName);
+    const filePath = path.join(this.directoryFor(scopeKey), fileName);
     await atomicWriteJson(filePath, stored);
     return { record: stored, path: filePath };
   }
 
-  async list(projectId, { limit = 20, substantiveOnly = false } = {}) {
-    const directory = this.directoryFor(projectId);
-    let names = [];
-    try {
-      names = (await fs.readdir(directory)).filter((name) => name.endsWith(".json"));
-    } catch (error) {
-      if (error?.code === "ENOENT") return [];
-      throw error;
-    }
+  async list(scope, { limit = 20, substantiveOnly = false } = {}) {
     const records = [];
-    for (const name of names) {
-      try {
-        const record = JSON.parse(await fs.readFile(path.join(directory, name), "utf8"));
-        record.substance_score = sessionSubstanceScore(record);
-        record.path = path.join(directory, name);
-        if (substantiveOnly && record.substance_score < 3) continue;
-        records.push(record);
-      } catch {
-        // Corrupt files are skipped; system health can report them.
+    const seen = new Set();
+    for (const key of memoryScopeKeys(scope)) {
+      const directory = this.directoryFor(key);
+      for (const name of await this.recordNames(directory)) {
+        try {
+          const record = JSON.parse(await fs.readFile(path.join(directory, name), "utf8"));
+          if (seen.has(record.id)) continue;
+          seen.add(record.id);
+          record.substance_score = sessionSubstanceScore(record);
+          record.path = path.join(directory, name);
+          if (substantiveOnly && record.substance_score < 3) continue;
+          records.push(record);
+        } catch {
+          // Corrupt files are skipped; system health can report them.
+        }
       }
     }
     return records
@@ -147,12 +195,12 @@ export class SessionStore {
       .slice(0, Math.max(1, Math.min(Number(limit) || 20, 200)));
   }
 
-  async latest(projectId) {
-    return (await this.list(projectId, { limit: 1, substantiveOnly: true }))[0] ?? null;
+  async latest(scope) {
+    return (await this.list(scope, { limit: 1, substantiveOnly: true }))[0] ?? null;
   }
 
-  async read(projectId, sessionId) {
-    const records = await this.list(projectId, { limit: 200 });
+  async read(scope, sessionId) {
+    const records = await this.list(scope, { limit: 200 });
     const record = records.find((item) => item.id === sessionId);
     if (!record) throw new Error(`Unknown session: ${sessionId}`);
     return record;

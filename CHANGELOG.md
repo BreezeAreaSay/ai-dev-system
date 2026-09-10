@@ -85,6 +85,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Session and instinct memory is shared across the worktrees of one clone.
+  `repository_id` is now derived from `git rev-parse --git-common-dir` (plus the
+  project's path inside its worktree), which is identical in the main checkout
+  and in every linked worktree, and `SessionStore`, `InstinctStore`, the
+  context-extra providers and the `session-start` / `session-end` hooks key
+  memory by it — so a handoff saved inside a `begin_task_in_worktree` worktree
+  resumes from the main checkout and back. Tasks stay keyed by `project_id`, so
+  they remain bound to the working tree they were started in. Records written
+  under the old `project_id` are still read and move to the repository key on
+  the first write. `repository_id` was previously a hash of the `origin` remote,
+  which is still reported as `git.remote` by `project_identity`.
 - Package-manager split is now explicit: `packageManager` fields plus a
   `CONTRIBUTING.md` policy section pin `ai-dev-mcp-server/` to npm and
   `frontend-qa/` to pnpm. `resolveSpawnInvocation` no longer silently runs an

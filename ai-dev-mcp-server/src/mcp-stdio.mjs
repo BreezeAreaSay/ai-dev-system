@@ -2,6 +2,7 @@
 import crypto from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
@@ -4074,16 +4075,45 @@ async function safeProjectRoot(projectPath) {
     throw new Error("project_path must be an absolute path.");
   }
 
-  const resolved = path.resolve(projectPath);
-  const stats = await fs.stat(resolved).catch(() => null);
+  const stats = await fs.stat(projectPath).catch(() => null);
   if (!stats || !stats.isDirectory()) {
     throw new Error(`Project directory does not exist: ${projectPath}`);
   }
-  return resolved;
+  const identity = await resolveProjectIdentity(projectPath);
+  assertNotProtectedProjectRoot(identity.project_root);
+  return identity.project_root;
 }
 
 async function resolveTaskProjectRoot(projectPath) {
-  return (await resolveProjectIdentity(projectPath)).project_root;
+  return safeProjectRoot(projectPath);
+}
+
+function assertNotProtectedProjectRoot(projectRoot, {
+  homeDirectory = os.homedir(),
+  runtimeHome = userHome,
+  runtimeStateDirectory = path.join(userHome, ".ai-dev"),
+  stateDirectory = taskStateRoot,
+  knowledgeVault = vaultRoot
+} = {}) {
+  const resolved = path.resolve(projectRoot);
+  const filesystemRoot = path.parse(resolved).root;
+  const protectedRoots = [
+    filesystemRoot,
+    homeDirectory,
+    runtimeHome,
+    runtimeStateDirectory,
+    stateDirectory,
+    knowledgeVault
+  ].map((entry) => path.resolve(entry));
+
+  if (
+    protectedRoots.includes(resolved)
+    || protectedRoots.some((protectedRoot) => (
+      protectedRoot !== filesystemRoot && isPathInside(resolved, protectedRoot)
+    ))
+  ) {
+    throw new Error(`Refusing to treat a protected directory as a project: ${resolved}`);
+  }
 }
 
 function safeProjectFile(projectRoot, relativePath) {
@@ -10496,8 +10526,10 @@ export function startLegacyServer() {
 }
 
 export {
+  assertNotProtectedProjectRoot,
   callTool,
   resolveTaskProjectRoot,
+  safeProjectRoot,
   shutdownBgeWorkers,
   tools,
   vaultRoot

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { resolveTaskProjectRoot } from "./mcp-stdio.mjs";
+import { assertNotProtectedProjectRoot, resolveTaskProjectRoot, safeProjectRoot, vaultRoot } from "./mcp-stdio.mjs";
 
 test("task lifecycle resolves a nested package to the nearest project quality gate", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-task-root-"));
@@ -26,4 +26,30 @@ test("task lifecycle preserves a standalone project directory", async (t) => {
   t.after(() => fs.rm(root, { recursive: true, force: true }));
 
   assert.equal(await resolveTaskProjectRoot(root), root);
+});
+
+test("project root guard rejects filesystem, home, runtime, state, and vault containers", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-protected-root-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const runtimeHome = path.join(root, "runtime-home");
+  const runtimeState = path.join(runtimeHome, ".ai-dev");
+  const state = path.join(root, "state");
+  const vault = path.join(root, "vault");
+  await Promise.all([home, runtimeState, state, vault].map((target) => fs.mkdir(target, { recursive: true })));
+  const options = {
+    homeDirectory: home,
+    runtimeHome,
+    runtimeStateDirectory: runtimeState,
+    stateDirectory: state,
+    knowledgeVault: vault
+  };
+  for (const target of [path.parse(root).root, home, runtimeHome, runtimeState, state, vault, root]) {
+    assert.throws(() => assertNotProtectedProjectRoot(target, options), /protected directory/);
+  }
+});
+
+test("safe project root rejects the filesystem root and the knowledge vault", async () => {
+  await assert.rejects(safeProjectRoot(path.parse(process.cwd()).root), /protected directory/);
+  await assert.rejects(safeProjectRoot(vaultRoot), /protected directory/);
 });

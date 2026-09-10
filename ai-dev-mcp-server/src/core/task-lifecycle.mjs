@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { atomicWriteJson } from "./atomic-files.mjs";
 import { INTENT } from "./intent-patterns.mjs";
+import { resolveProjectIdentity } from "./project-identity.mjs";
 import { taskRequestsDiagram, taskRequiresFrontendProductWorkflow } from "./skill-router.mjs";
 
 const TASK_ID = /^task-\d{8}T\d{6}-[a-f0-9]{8}$/;
@@ -128,6 +129,9 @@ export class TaskStore {
   }
 
   async list({ projectPath = "", status = "", limit = 20 } = {}) {
+    const wantedProjectRoot = projectPath
+      ? (await resolveProjectIdentity(projectPath)).project_root
+      : "";
     let files = [];
     try {
       files = (await fs.readdir(this.tasksRoot)).filter((item) => item.endsWith(".json"));
@@ -140,7 +144,12 @@ export class TaskStore {
       try {
         const record = JSON.parse(await fs.readFile(path.join(this.tasksRoot, file), "utf8"));
         if (status && record.status !== status) continue;
-        if (projectPath && path.resolve(record.project.path) !== path.resolve(projectPath)) continue;
+        if (wantedProjectRoot) {
+          const recordedProjectRoot = await resolveProjectIdentity(record.project.path)
+            .then((identity) => identity.project_root)
+            .catch(() => path.resolve(record.project.path));
+          if (recordedProjectRoot !== wantedProjectRoot) continue;
+        }
         records.push(record);
       } catch {
         // Corrupt records are reported by system health and do not hide valid tasks.

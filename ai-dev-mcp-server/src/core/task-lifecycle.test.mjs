@@ -171,3 +171,27 @@ test("risk routing does not confuse продвижение with production", asy
   });
   assert.equal(record.risk, "low");
 });
+
+test("task listing canonicalizes a nested project path", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-task-list-project-"));
+  const stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-task-list-state-"));
+  t.after(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+    await fs.rm(stateRoot, { recursive: true, force: true });
+  });
+  const projectRoot = path.join(root, "apps", "web");
+  const sourcePath = path.join(projectRoot, "src");
+  await fs.mkdir(sourcePath, { recursive: true });
+  await fs.writeFile(path.join(projectRoot, "package.json"), "{\"name\":\"web\"}\n");
+  const store = new TaskStore({ stateRoot });
+  await store.begin({
+    task: "Fix the nested project",
+    project: { project_name: "web", project_path: projectRoot },
+    skills: [],
+    baseline: { fingerprint: "before" }
+  });
+
+  const records = await store.list({ projectPath: sourcePath });
+  assert.equal(records.length, 1);
+  assert.equal(records[0].project.path, projectRoot);
+});

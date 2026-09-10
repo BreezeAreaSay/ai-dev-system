@@ -2,8 +2,8 @@
   "schema_version": 1,
   "policy": "explicit allowlist; no private vault zones or local runtime state",
   "total_files": 927,
-  "total_bytes": 16887723,
-  "content_fingerprint": "7746f8ceb5fc92b3b9a12457d6bdeea02e5881240b1c3189bb5df0c681fd921b",
+  "total_bytes": 16887836,
+  "content_fingerprint": "237c0b3b6fb42795ff2d9cd471992d351c4194fce2990cc5ac5e7ee8a93aed3f",
   "files": [
     {
       "path": "01-system/Agent Rules.md",
@@ -222,8 +222,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/verification-loop/SKILL.md",
-      "bytes": 2677,
-      "sha256": "e3ae82635658d65aadc70d75a7efe2d35d281806a2afc310fe60ad06c169db28"
+      "bytes": 2790,
+      "sha256": "ff5b2ea727d4c5649ace8babb17102acc110f136ec210e5ee8e121666d83618e"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/LICENSE",

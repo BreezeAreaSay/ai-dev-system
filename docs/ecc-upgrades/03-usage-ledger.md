@@ -17,7 +17,7 @@ JSONL-журнал `~/.ai-dev/state/usage/events.jsonl`:
 
 ## Новые файлы
 
-**Файл: `ai-dev-mcp-server/src/core/usage-ledger.mjs`** (214 строк)
+**Файл: `ai-dev-mcp-server/src/core/usage-ledger.mjs`** (226 строк)
 
 ```js
 import fs from "node:fs/promises";
@@ -45,8 +45,9 @@ function round(value, digits = 6) {
  * Append-only JSONL ledger of MCP tool calls and client-reported model usage
  * (`~/.ai-dev/state/usage/events.jsonl`). The MCP server cannot see model
  * tokens itself; the client (or an orchestrator such as a session runner) posts
- * them through `record_usage`, while tool calls are recorded automatically by
- * the server transport.
+ * them through `record_usage`, while tool calls are recorded by the tool
+ * dispatcher (`callTool` in `mcp-stdio.mjs`) whichever caller invoked it: the
+ * MCP transport, the CLI, a smoke script, or a tool composed from other tools.
  */
 export class UsageLedger {
   constructor({ stateRoot, maxBytes = MAX_LEDGER_BYTES, keepLines = KEEP_LINES_AFTER_PRUNE }) {
@@ -67,6 +68,17 @@ export class UsageLedger {
       });
     await this.queue;
     return event;
+  }
+
+  /**
+   * Wait for every queued append to reach disk. Callers that record a tool call
+   * without awaiting it (the tool dispatcher) use this to settle the ledger
+   * before reading it back.
+   *
+   * @returns {Promise<void>}
+   */
+  async flush() {
+    await this.queue.catch(() => undefined);
   }
 
   async pruneIfNeeded() {
@@ -560,6 +572,27 @@ index e861e1b..240ad05 100644
 cd ai-dev-mcp-server
 node --test src/core/usage-ledger.test.mjs src/extensions/usage.test.mjs src/server.test.mjs
 ```
+
+### Обновление (пункт 2.4 плана)
+
+Запись вызова живёт не в транспорте, а в самом диспетчере `callTool` (`src/mcp-stdio.mjs`):
+`dispatchTool` выполняет инструмент, `callTool` оборачивает его и пишет событие в ledger.
+Поэтому в `usage_report` попадают и вызовы мимо MCP — `scripts/ai-dev.mjs`, smoke-скрипты,
+инструменты, собранные из других инструментов (`begin_task_in_worktree` → `begin_task`:
+два события, по одному на каждый выполненный инструмент). `server.mjs` не пишет ничего сам,
+он только передаёт свою долю времени:
+
+```js
+const startedAt = Date.now();
+await reportProgress(extra, 0, 1, `Starting ${name}`);
+const transportMs = Date.now() - startedAt;
+const result = structuredResult(await callTool(name, args, { transportMs }));
+```
+
+Двойной записи нет по построению (один вызов — одно событие), и это закреплено тестом
+в `src/server.test.mjs`: прямой вызов, вызов через транспорт и ошибка дают ровно по одному
+событию каждый. `UsageLedger.flush()` ждёт незавершённые записи — запись из `callTool`
+намеренно не ожидается, чтобы результат инструмента её не ждал.
 
 ## Использование
 

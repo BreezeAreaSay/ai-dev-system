@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { FINDING_FIELDS } from "../core/change-hygiene.mjs";
 import { TaskStore } from "../core/task-lifecycle.mjs";
 import { createExtensionTools } from "../tool-extensions.mjs";
 import { createHygieneTools } from "./hygiene.mjs";
@@ -43,8 +44,14 @@ test("verify_change_hygiene scans a task project and can checkpoint the summary"
   await fs.writeFile(path.join(projectRoot, "src", "index.js"), "export const a = 1;\nconsole.log(a);\n");
   const dirty = await registry.handlers.get("verify_change_hygiene")({ task_id: task.id, record_checkpoint: true });
   assert.equal(dirty.status, "warn");
-  assert.ok(dirty.findings.some((item) => item.code === "console_log"));
-  assert.ok(dirty.findings.some((item) => item.code === "no_test_changes"));
+  const leftover = dirty.findings.find((item) => item.rule === "console_log");
+  // The response schema every consumer reads: docs, the verification-loop skill, task notes.
+  assert.deepEqual(Object.keys(leftover), [...FINDING_FIELDS]);
+  assert.equal(leftover.file, "src/index.js");
+  assert.equal(leftover.line, 2);
+  assert.equal(leftover.severity, "warn");
+  assert.equal(leftover.excerpt, "console.log(a);");
+  assert.ok(dirty.findings.some((item) => item.rule === "no_test_changes"));
   assert.equal(dirty.checkpoint.checkpoints, 1);
   assert.match(dirty.markdown, /console_log/);
   const updated = await taskStore.read(task.id);

@@ -48,7 +48,7 @@ test("session tools save a handoff, resume with a briefing, and estimate the bud
     task_id: task.id,
     building: "JWT auth with httpOnly cookies; the login route still needs to set the cookie.",
     worked: [{ item: "register endpoint", evidence: "Postman 200" }],
-    failed: [{ approach: "Next-Auth", reason: "Prisma adapter conflict" }],
+    failed: [{ approach: "Next-Auth", reason: "Prisma adapter conflict" }, { approach: "iron-session", why: "no rotation story" }],
     next_step: "Set the cookie in the login route and run verify_task.",
     client: "claude-code"
   });
@@ -64,6 +64,8 @@ test("session tools save a handoff, resume with a briefing, and estimate the bud
   assert.equal(resumed.open_tasks[0].id, task.id);
   assert.equal(resumed.context_pack.fresh, true);
   assert.match(resumed.briefing, /WHAT NOT TO RETRY:\n- Next-Auth — Prisma adapter conflict/);
+  // `why` is the ECC spelling of `reason`; it must survive the round trip as reason.
+  assert.deepEqual(resumed.session.failed[1], { approach: "iron-session", reason: "no rotation story" });
   assert.match(resumed.briefing, /grep before edit/);
   assert.match(resumed.briefing, /GIT: branch feature\/auth, 1 uncommitted/);
 

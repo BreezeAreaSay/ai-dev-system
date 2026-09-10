@@ -21,11 +21,9 @@ import {
   extensionReadOnlyTools,
   shutdownBgeWorkers,
   tools as legacyTools,
-  usageLedger,
   vaultRoot
 } from "./mcp-stdio.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
-import { usageHintsFromArgs } from "./core/usage-ledger.mjs";
 
 const serverFile = fileURLToPath(import.meta.url);
 const serverRoot = path.resolve(path.dirname(serverFile), "..");
@@ -408,18 +406,19 @@ export function createAiDevServer() {
     if (!legacyTools.some((tool) => tool.name === name)) {
       throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
     }
-    await reportProgress(extra, 0, 1, `Starting ${name}`);
+    // `callTool` records the call itself, so every caller — this transport, the
+    // CLI, the smoke scripts — lands in the usage ledger exactly once. All this
+    // handler contributes is the transport overhead it just spent.
     const startedAt = Date.now();
-    const hints = usageHintsFromArgs(args);
+    await reportProgress(extra, 0, 1, `Starting ${name}`);
+    const transportMs = Date.now() - startedAt;
     try {
-      const result = structuredResult(await callTool(name, args));
+      const result = structuredResult(await callTool(name, args, { transportMs }));
       await reportProgress(extra, 1, 1, `Completed ${name}`);
-      usageLedger.recordToolCall({ tool: name, ok: true, durationMs: Date.now() - startedAt, ...hints }).catch(() => undefined);
       return result;
     } catch (error) {
       await reportProgress(extra, 1, 1, `Failed ${name}`).catch(() => undefined);
       const message = error instanceof Error ? error.message : String(error);
-      usageLedger.recordToolCall({ tool: name, ok: false, durationMs: Date.now() - startedAt, error: message, ...hints }).catch(() => undefined);
       return {
         content: [{
           type: "text",

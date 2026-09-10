@@ -212,6 +212,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a failed model load is rejected immediately instead of after the request
   timeout, and idle workers are reaped after ten minutes.
 
+### Fixed
+
+- `verify_change_hygiene` findings now use one shape everywhere:
+  `{ rule, severity, file, line, message, excerpt }`. The tool returned `code`
+  and `path` while the docs and the `verification-loop` skill spoke of `rule`
+  and `file`, so an agent following the skill read `undefined`. `excerpt` is
+  always present, a schema test pins the field list, and the docs, the tool
+  description and the skill were corrected.
+
+### Fixed
+
+- `save_session` accepts both spellings of the failure reason. ECC's
+  save-session prompt (and the example in `docs/ecc-upgrades/09-session-memory.md`)
+  writes `failed: [{ approach, why }]` while the schema said `reason`, so the
+  explanation was silently dropped and `resume_session` printed "reason not
+  recorded". `why` is now normalized into `reason`; the examples and the file
+  states in them (`status`, not `state`) match the schema.
+
+### Fixed
+
+- `usage_report` counts every tool call, not only the ones that arrived over
+  MCP. Recording moved from the `server.mjs` transport into `callTool` itself,
+  so calls from `scripts/ai-dev.mjs`, the smoke scripts and tools composed from
+  other tools are in the ledger too; the transport only passes its own overhead
+  as `transportMs`. One call is still exactly one event — pinned by a test that
+  compares a direct call, a call through the transport, and a failure.
+
+### Added
+
+- `install_project_rules` target `claude-md`: instead of copying the rules into
+  `.claude/rules`, it writes an `## Engineering Rules` section into `CLAUDE.md`
+  that imports the canonical files with `@.ai-dev/rules/common/<rule>.md`, which
+  Claude Code expands at session start. One line per file, because an import is
+  a path and not a glob; path-scoped packs stay listed as plain paths. The
+  target is opt-in — it replaces the `claude` target rather than adding to it,
+  and asking for both returns a warning.
+
+### Fixed
+
+- The agent hook tests run in the Windows CI job, and the hooks work there. The
+  pack runs on the developer's machine, so Windows is a first-class target:
+  `.github/workflows/ci.yml` gained an "Agent hook tests" step
+  (`src/core/agent-hooks.test.mjs` and `src/extensions/hooks.test.mjs`), and
+  three Windows-only path bugs are fixed rather than skipped.
+  - `projectRootOf` resolves the root with `fs.realpathSync` instead of
+    `fs.realpathSync.native`. The server resolves it with `fs.realpath`, and the
+    native variant additionally expands 8.3 short names on Windows
+    (`RUNNER~1` → `runneradmin`), so hook and server keyed two different
+    `project_id`s for the same repository — the hook's handoffs and instincts
+    landed where the server never looked.
+  - Project paths are compared with a new `samePath` helper (case- and
+    separator-insensitive on Windows), so `session-start` and `stop-check` find
+    the project's open tasks.
+  - `session-end` writes repository-relative paths with `/` separators, so a
+    captured handoff lists `src/login.js`, not `src\login.js`.
+  Temp-directory cleanup in those tests retries, because Windows holds handles
+  on freshly written git objects for a moment.
+
+### Fixed
+
+- Intermittent failure in `src/extensions/system.test.mjs` (roughly two runs in
+  ten under load): the fixture wrote the skill-routing report before the eval
+  cases it is compared against, so whenever the two writes landed in different
+  milliseconds the `skill_routing_benchmark` check called the report stale, that
+  critical check failed, and the health status came out `fail` instead of
+  `degraded`. The cases are written first now.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

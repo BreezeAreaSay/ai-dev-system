@@ -13,7 +13,7 @@ Six phases with a stop rule each. Run the narrowest phase that can prove the cha
 2. Types: run the type checker (`tsc --noEmit`, `mypy`, `pyright`, `go vet`, `cargo check`). Report every error; fix the ones in touched code before continuing.
 3. Lint: run the linter. Fix the code, never weaken the configuration (`verify_change_hygiene` warns when a linter config changed alongside code).
 4. Tests with coverage: run the test suite for the touched packages, then the broader suite when shared code changed. Target 80% of changed code; new behavior needs a new test.
-5. Change hygiene: call `verify_change_hygiene` (or rely on `verify_task`, which runs it). A `block` finding (secret, `.only`, conflict marker, debugger) must be fixed before continuing; `warn` findings must be fixed or justified in the checkpoint note.
+5. Change hygiene: call `verify_change_hygiene` (or rely on `verify_task`, which runs it). Every finding comes back as `{ rule, severity, file, line, message, excerpt }`. A `block` finding (secret, `.only`, conflict marker, debugger) must be fixed before continuing; `warn` findings must be fixed or justified in the checkpoint note, quoted as `rule` at `file:line`.
 6. Diff review: read `git diff --stat` and the full diff of every changed file. Look for unintended changes, missing error handling, missing edge cases, leftover debug output, and files that should not be committed.
 7. Bind the evidence: call `verify_task` after the final edit so the checks are recorded against the current Git state; re-run it after any later change.
 

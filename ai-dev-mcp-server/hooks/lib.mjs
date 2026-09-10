@@ -90,16 +90,17 @@ export function git(cwd, args) {
 
 function realpathOf(target) {
   try {
-    return fs.realpathSync.native(target);
+    // fs.realpathSync, not realpathSync.native: the server resolves roots with
+    // fs.realpath (core/project-identity.mjs), and on Windows the native variant
+    // also expands 8.3 short names (RUNNER~1 -> runneradmin). Two spellings of
+    // one directory would key two different project ids, so the hook and the
+    // server must resolve them the same way.
+    return fs.realpathSync(target);
   } catch {
     return path.resolve(target);
   }
 }
 
-function normalizeKey(value) {
-  const resolved = path.resolve(value).replaceAll("\\", "/").replace(/\/+$/, "");
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
-}
 
 function hashKey(key) {
   return crypto.createHash("sha256").update(process.platform === "win32" ? key.toLowerCase() : key).digest("hex").slice(0, 20);
@@ -110,9 +111,26 @@ export function projectRootOf(cwd) {
   return realpathOf(top || cwd);
 }
 
+/** Same normalization as the server's project identity: POSIX separators, case-folded on Windows. */
+export function normalizePath(value) {
+  const resolved = path.resolve(String(value ?? "")).replaceAll("\\", "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+/** Compare two paths the way the platform does: Windows ignores case and separator style. */
+export function samePath(left, right) {
+  if (!left || !right) return false;
+  return normalizePath(left) === normalizePath(right);
+}
+
+/** Repository-relative path with POSIX separators, whatever the platform. */
+export function relativePosix(fromRoot, target) {
+  return path.relative(fromRoot, target).replaceAll("\\", "/");
+}
+
 /** Same derivation as the server's resolveProjectIdentity (core/project-identity.mjs). */
 export function projectIdOf(projectRoot, isGit = true) {
-  return `project-${hashKey(`${isGit ? "git" : "filesystem"}:${normalizeKey(projectRoot)}`)}`;
+  return `project-${hashKey(`${isGit ? "git" : "filesystem"}:${normalizePath(projectRoot)}`)}`;
 }
 
 /**
@@ -128,7 +146,7 @@ export function repositoryIdOf(projectRoot) {
   const toplevel = git(root, ["rev-parse", "--show-toplevel"]);
   const relative = path.relative(realpathOf(toplevel || root), realpathOf(root)).replaceAll("\\", "/");
   const scope = !relative || relative.startsWith("..") ? "" : `#${relative}`;
-  return `repository-${hashKey(`git-common:${normalizeKey(canonicalCommonDir)}${scope}`)}`;
+  return `repository-${hashKey(`git-common:${normalizePath(canonicalCommonDir)}${scope}`)}`;
 }
 
 /**

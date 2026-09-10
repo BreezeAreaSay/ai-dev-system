@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
+  FINDING_FIELDS,
   analyzeChangeSet,
   collectChangeSet,
   findSecretsInLine,
@@ -98,13 +99,13 @@ test("analyzeChangeSet reports leftovers, secrets, protected configs, and missin
       ] }
     ]
   }, { lineCounts: { "src/service.ts": 950 } });
-  const codes = new Set(result.findings.map((item) => item.code));
+  const rules = new Set(result.findings.map((item) => item.rule));
   for (const expected of [
     "console_log", "debugger_statement", "empty_catch", "todo_without_reference", "secret:github_token",
     "merge_conflict_marker", "test_only", "protected_config_changed", "secret_file_in_change_set",
     "bare_except_pass", "breakpoint_call", "large_file", "sources_without_matching_test"
   ]) {
-    assert.ok(codes.has(expected), `missing finding ${expected}`);
+    assert.ok(rules.has(expected), `missing finding ${expected}`);
   }
   assert.equal(result.status, "block");
   assert.equal(result.findings[0].severity, "block");
@@ -113,13 +114,61 @@ test("analyzeChangeSet reports leftovers, secrets, protected configs, and missin
 
   const clean = analyzeChangeSet({ files: [{ path: "src/ok.ts", kind: "modified", added: [{ line: 1, text: "export const ok = true;" }] }] });
   assert.equal(clean.status, "warn");
-  assert.deepEqual(clean.findings.map((item) => item.code), ["no_test_changes"]);
+  assert.deepEqual(clean.findings.map((item) => item.rule), ["no_test_changes"]);
   const withTests = analyzeChangeSet({ files: [
     { path: "src/ok.ts", kind: "modified", added: [{ line: 1, text: "export const ok = true;" }] },
     { path: "src/ok.test.ts", kind: "modified", added: [{ line: 1, text: "test(\"ok\", () => {});" }] }
   ] });
   assert.equal(withTests.status, "pass");
   assert.equal(renderChangeHygieneMarkdown(withTests).includes("No hygiene findings"), true);
+});
+
+test("every finding uses the documented { rule, severity, file, line, message, excerpt } shape", () => {
+  const result = analyzeChangeSet({
+    files: [
+      { path: "src/service.ts", kind: "modified", added: [
+        { line: 4, text: "console.log(\"debug\");" },
+        { line: 5, text: `const token = "${fakeGithubToken}";` },
+        { line: 6, text: "<<<<<<< HEAD" }
+      ] },
+      { path: ".eslintrc.json", kind: "modified", added: [{ line: 1, text: "{ \"rules\": {} }" }] },
+      { path: ".env", kind: "untracked", added: [], skipped: "secret file" }
+    ]
+  }, { lineCounts: { "src/service.ts": 950 } });
+
+  assert.ok(result.findings.length >= 6);
+  const severities = new Set(["block", "warn", "info"]);
+  for (const item of result.findings) {
+    assert.deepEqual(Object.keys(item).slice(0, FINDING_FIELDS.length), [...FINDING_FIELDS],
+      `finding ${item.rule ?? "?"} must start with the canonical fields`);
+    assert.equal(typeof item.rule, "string");
+    assert.ok(item.rule.length > 0);
+    assert.ok(severities.has(item.severity), `unknown severity ${item.severity}`);
+    assert.equal(typeof item.file, "string");
+    assert.equal(typeof item.line, "number");
+    assert.ok(Number.isInteger(item.line) && item.line >= 0);
+    assert.equal(typeof item.message, "string");
+    assert.ok(item.message.length > 0);
+    assert.equal(typeof item.excerpt, "string");
+    for (const legacy of ["code", "path"]) {
+      assert.equal(legacy in item, false, `finding ${item.rule} still carries the old field ${legacy}`);
+    }
+    for (const key of Object.keys(item).slice(FINDING_FIELDS.length)) {
+      assert.ok(["files"].includes(key), `unexpected extra finding field ${key}`);
+    }
+  }
+
+  const lineBound = result.findings.find((item) => item.rule === "console_log");
+  assert.equal(lineBound.file, "src/service.ts");
+  assert.equal(lineBound.line, 4);
+  assert.equal(lineBound.excerpt, "console.log(\"debug\");");
+  const fileBound = result.findings.find((item) => item.rule === "secret_file_in_change_set");
+  assert.equal(fileBound.file, ".env");
+  assert.equal(fileBound.line, 0);
+  assert.equal(fileBound.excerpt, "");
+  const changeSetWide = result.findings.find((item) => item.rule === "no_test_changes");
+  assert.equal(changeSetWide.file, "");
+  assert.deepEqual(changeSetWide.files, ["src/service.ts"]);
 });
 
 test("collectChangeSet and verifyChangeHygiene use git added lines and untracked files", async (t) => {
@@ -138,10 +187,10 @@ test("collectChangeSet and verifyChangeHygiene use git added lines and untracked
 
   const result = await verifyChangeHygiene(root);
   assert.equal(result.status, "block");
-  const codes = result.findings.map((item) => item.code);
-  assert.ok(codes.includes("secret:aws_access_key"));
-  assert.ok(codes.includes("secret_file_in_change_set"));
-  assert.ok(codes.includes("console_log"));
+  const rules = result.findings.map((item) => item.rule);
+  assert.ok(rules.includes("secret:aws_access_key"));
+  assert.ok(rules.includes("secret_file_in_change_set"));
+  assert.ok(rules.includes("console_log"));
   assert.deepEqual(result.files, [".env", "src/app.js", "src/new.js"]);
 
   // Committed work compared against an explicit base ref is still covered.
@@ -151,7 +200,7 @@ test("collectChangeSet and verifyChangeHygiene use git added lines and untracked
   const head = await verifyChangeHygiene(root);
   assert.equal(head.findings.length, 0, "nothing uncommitted");
   const branch = await verifyChangeHygiene(root, { baseRef: "HEAD~1" });
-  assert.ok(branch.findings.some((item) => item.code === "secret:aws_access_key"));
+  assert.ok(branch.findings.some((item) => item.rule === "secret:aws_access_key"));
 
   const plain = await fs.mkdtemp(path.join(os.tmpdir(), "change-hygiene-plain-"));
   t.after(() => fs.rm(plain, { recursive: true, force: true }));

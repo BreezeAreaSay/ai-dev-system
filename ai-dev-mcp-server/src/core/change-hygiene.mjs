@@ -266,16 +266,34 @@ export async function collectChangeSet(projectRoot, { baseRef = "HEAD", maxFiles
   };
 }
 
-function finding(severity, code, filePath, line, message, extra = {}) {
-  return { severity, code, path: filePath, line, message, ...extra };
+/**
+ * One hygiene finding in the single shape every consumer speaks — the tool
+ * response, the Markdown projection, the docs and the `verification-loop`
+ * skill: `{ rule, severity, file, line, message, excerpt }`. `excerpt` is
+ * always present (empty when the finding is about the file, not a line);
+ * aggregate findings may add a `files` list after it.
+ *
+ * @param {"block" | "warn" | "info"} severity
+ * @param {string} rule - Rule id, for example `console_log` or `secret:jwt`.
+ * @param {string} file - Repository-relative path; empty for change-set-wide findings.
+ * @param {number} line - 1-based line in the new file; 0 when not line-bound.
+ * @param {string} message
+ * @param {object} [extra]
+ * @returns {{ rule: string, severity: string, file: string, line: number, message: string, excerpt: string }}
+ */
+function finding(severity, rule, file, line, message, extra = {}) {
+  return { rule, severity, file, line, message, excerpt: "", ...extra };
 }
+
+/** The keys every finding carries, in order. Exported for the schema test. */
+export const FINDING_FIELDS = Object.freeze(["rule", "severity", "file", "line", "message", "excerpt"]);
 
 /**
  * Run every hygiene rule over a change set produced by {@link collectChangeSet}.
  *
  * @param {ReturnType<typeof collectChangeSet> extends Promise<infer T> ? T : never} changeSet
  * @param {{ projectRoot?: string, lineCounts?: Record<string, number> }} [options]
- * @returns {{ status: "pass" | "warn" | "block", findings: object[], summary: object }}
+ * @returns {{ status: "pass" | "warn" | "block", findings: Array<{ rule: string, severity: string, file: string, line: number, message: string, excerpt: string }>, summary: object }}
  */
 export function analyzeChangeSet(changeSet, { lineCounts = {} } = {}) {
   const findings = [];
@@ -349,7 +367,7 @@ export function analyzeChangeSet(changeSet, { lineCounts = {} } = {}) {
     status,
     findings: findings.sort((left, right) => (
       ["block", "warn", "info"].indexOf(left.severity) - ["block", "warn", "info"].indexOf(right.severity)
-      || left.path.localeCompare(right.path)
+      || left.file.localeCompare(right.file)
       || left.line - right.line
     )),
     summary: {
@@ -368,7 +386,7 @@ export function analyzeChangeSet(changeSet, { lineCounts = {} } = {}) {
  *
  * @param {string} projectRoot
  * @param {{ baseRef?: string, maxFiles?: number }} [options]
- * @returns {Promise<{ status: string, findings: object[], summary: object, base_ref: string, git: boolean, files: string[] }>}
+ * @returns {Promise<{ status: string, findings: Array<{ rule: string, severity: string, file: string, line: number, message: string, excerpt: string }>, summary: object, base_ref: string, git: boolean, files: string[] }>}
  */
 export async function verifyChangeHygiene(projectRoot, options = {}) {
   const root = path.resolve(projectRoot);
@@ -402,7 +420,7 @@ export async function verifyChangeHygiene(projectRoot, options = {}) {
 /**
  * Markdown projection for reports and task notes.
  *
- * @param {{ status: string, findings: object[], summary: object }} result
+ * @param {{ status: string, findings: Array<{ rule: string, severity: string, file: string, line: number, message: string }>, summary: object }} result
  * @returns {string}
  */
 export function renderChangeHygieneMarkdown(result) {
@@ -417,8 +435,8 @@ export function renderChangeHygieneMarkdown(result) {
     return lines.join("\n");
   }
   for (const item of result.findings) {
-    const location = item.path ? `\`${item.path}${item.line ? `:${item.line}` : ""}\` ` : "";
-    lines.push(`- [${item.severity}] ${item.code}: ${location}${item.message}`);
+    const location = item.file ? `\`${item.file}${item.line ? `:${item.line}` : ""}\` ` : "";
+    lines.push(`- [${item.severity}] ${item.rule}: ${location}${item.message}`);
   }
   return lines.join("\n");
 }

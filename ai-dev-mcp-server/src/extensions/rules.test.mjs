@@ -19,6 +19,8 @@ test("rules tools detect packs from the stack and install projections", async (t
   const listed = await registry.handlers.get("list_rule_packs")({ project_path: root });
   assert.deepEqual(listed.detected.packs, ["python", "docker"]);
   assert.ok(listed.common.length >= 5);
+  assert.ok(listed.targets.includes("claude-md"));
+  assert.equal(listed.default_targets.includes("claude-md"), false);
 
   const dry = await registry.handlers.get("install_project_rules")({ project_path: root, dry_run: true });
   assert.equal(dry.action, "rules_planned");
@@ -32,4 +34,13 @@ test("rules tools detect packs from the stack and install projections", async (t
   assert.equal(installed.written.some((item) => item.startsWith(".claude/")), false);
   assert.equal(dirty.length, 1);
   assert.match(await fs.readFile(path.join(root, "AGENTS.md"), "utf8"), /## Engineering Rules/);
+  assert.deepEqual(installed.warnings, []);
+
+  const imported = await registry.handlers.get("install_project_rules")({ project_path: root, targets: ["claude-md"] });
+  assert.ok(imported.written.includes("CLAUDE.md"));
+  assert.match(await fs.readFile(path.join(root, "CLAUDE.md"), "utf8"), /@\.ai-dev\/rules\/common\/security\.md/);
+  assert.deepEqual(imported.warnings, []);
+
+  const both = await registry.handlers.get("install_project_rules")({ project_path: root, targets: ["claude", "claude-md"] });
+  assert.match(both.warnings[0], /Keep one/);
 });

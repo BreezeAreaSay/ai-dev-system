@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Twelve agent-workflow upgrades, ported from ECC (Everything Claude Code) and
+  reshaped for this server. New capabilities, all reachable as MCP tools:
+  - **Extension registry** (`src/tool-extensions.mjs`): tools now live in
+    `src/extensions/*` as `createXxxTools(host)` factories instead of growing
+    `mcp-stdio.mjs`, which is capped at 10,500 lines by the static gate.
+    Duplicate names and missing handlers fail at startup.
+  - **Decision ledger** (`record_decision`, `list_decisions`): ADR-lite records
+    under `.ai-dev/decisions`, folded into the compiled context pack.
+  - **Usage ledger** (`record_usage`, `usage_report`): per-tool call telemetry
+    plus token and cost accounting reported by the client or the runner.
+  - **Change hygiene** (`verify_change_hygiene`): diff scanner for secrets,
+    focused/skipped tests, `debugger`, conflict markers and weakened linter
+    configuration; runs as part of `verify_task`.
+  - **Task worktrees** (`begin_task_in_worktree`, `list_task_worktrees`,
+    `remove_task_worktree`): one isolated git worktree per task.
+  - **Rules library** (`list_rule_packs`, `install_project_rules`): a catalogue
+    of engineering rules (common plus stack packs with `paths:` scoping),
+    projected into `.claude/rules`, `.cursor/rules/*.mdc` and `AGENTS.md`.
+  - **Plan gate** (`plan_task`, `plan_status`): task-complexity classification
+    with a plan required before large or risky work starts.
+  - **Session memory** (`save_session`, `resume_session`,
+    `context_budget_status`): structured handoffs and a context budget.
+  - **Instincts** (`record_instinct`, `list_instincts`, `update_instinct`,
+    `evolve_instincts`, `export_instincts`, `import_instincts`): learned
+    preferences with confidence, decay, promotion to global and evolution into
+    skills.
+  - **Agent hooks** (`install_agent_hooks`, `agent_hooks_status`): an
+    installable hook pack for Claude Code and Cursor — command/file guard,
+    session start and end, pre-compact, post-edit formatting and a stop check —
+    configured by `.ai-dev/policy.json` profiles.
+  - **Five seed skills** plus an updated `ai-dev-orchestrator`:
+    `verification-loop`, `silent-failure-hunter`, `planner`,
+    `security-reviewer` and `memory-curator`.
+
 - Archify diagram capability: nine typed MCP tools for local validation,
   rendering, delivery receipts, browser checks, comparisons, migrations, and
   brand references; the clean Docker seed now carries its pinned runtime for
@@ -28,6 +62,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bootstrap.ps1 -Plan`, exercises the client installer's win32 path handling,
   and runs the core unit suite. The Windows install path had no CI coverage
   before.
+
+### Fixed
+
+- The agent hook pack is now a working implementation rather than a condensed
+  port. Three hooks did nothing at all before:
+  - **File guard.** In `guard.mjs` the `else` branch holding every file-mode
+    check was chained to the `if` *inside* the loop over shell patterns, so in
+    `file` mode — where that loop never runs — the secret-bearing-file,
+    secret-in-content and protected-configuration checks were unreachable.
+    File mode now has its own branch and its own tests.
+  - **Compaction advisor.** `compact-advisor.mjs` counted tool calls in a
+    module-level variable, but the hook is a fresh process per call, so the
+    counter was always 1 and the advisor never fired. The count is now
+    persisted per session, and the primary signal is the real context size read
+    from the transcript's most recent `usage` record, compared against the
+    model's window.
+  - **Session-end extraction.** `session-end.mjs` wrote a fixed stub record
+    ("Hook-captured session") whatever the session contained. It now distils
+    the transcript into user requests, tools used and files modified, and
+    writes nothing when there is nothing to record.
 
 ### Changed
 

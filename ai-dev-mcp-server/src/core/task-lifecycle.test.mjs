@@ -158,3 +158,16 @@ test("archify delivery criterion tracks diagram intent, not schema work", async 
   });
   assert.equal(migrationTask.acceptance_criteria.some((item) => /archify_deliver/i.test(item.text)), false);
 });
+
+test("risk routing does not confuse продвижение with production", async (t) => {
+  const stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-risk-tasks-"));
+  t.after(() => fs.rm(stateRoot, { recursive: true, force: true }));
+  const store = new TaskStore({ stateRoot });
+  const record = await store.begin({
+    task: "Улучши продвижение продукта",
+    project: { project_name: "fixture", project_path: stateRoot, project_types: [] },
+    skills: [],
+    baseline: { fingerprint: "risk" }
+  });
+  assert.equal(record.risk, "low");
+});

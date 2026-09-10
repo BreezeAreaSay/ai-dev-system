@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  inferSearchIntents,
   hardNegativeRulesFromCases,
   isSkillCatalogQuery,
   repairSearchMojibake,
   rerankSearchResults
 } from "./search-reranker.mjs";
+
+test("search intent inference ignores accidental keyword substrings", () => {
+  assert.equal(inferSearchIntents("A specialist reviews documentation").includes("devops"), false);
+  assert.equal(inferSearchIntents("Update the helmet size").includes("devops"), false);
+});
 
 test("reranker promotes matching frontend workflow over backend lexical noise", () => {
   const ranked = rerankSearchResults("frontend design responsive component", [

@@ -38,6 +38,16 @@ test("routes frontend bug to workflow, domain, and verification", () => {
   ]);
 });
 
+test("routing ignores stack metadata and incidental repository or container substrings", () => {
+  const stackOnly = routeSkills({ task: "Fix a failing unit test", stack: ["Docker", "Helm"] });
+  assert.equal(stackOnly.skills.some((item) => item.name === "container-deployment-reviewer"), false);
+
+  for (const task of ["Fix the helmet size", "Ship the product", "Document the product architecture"]) {
+    const route = routeSkills({ task });
+    assert.equal(route.skills.some((item) => item.name === "repo-onboarding" || item.name === "container-deployment-reviewer" || item.name === "archify"), false, task);
+  }
+});
+
 test("adds archify as a capability without displacing the normal routing triple", () => {
   const route = routeSkills({
     task: "Построй архитектурную карту backend API платёжного сервиса"

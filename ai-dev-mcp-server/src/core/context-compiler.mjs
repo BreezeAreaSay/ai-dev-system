@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { intentPattern } from "./intent-patterns.mjs";
 
 const SKIP_DIRECTORIES = new Set([
   ".git", ".hg", ".svn", ".idea", ".vscode", ".next", ".nuxt", ".svelte-kit",
@@ -37,6 +38,25 @@ const TASK_HINTS = Object.freeze({
   }
 });
 
+const TASK_HINT_PATTERNS = Object.freeze({
+  frontend: intentPattern({
+    words: ["frontend", "ui", "ux", "screen", "page", "layout", "component"],
+    stems: ["дизайн", "интерфейс", "страниц", "экран"]
+  }),
+  backend: intentPattern({
+    words: ["backend", "api", "endpoint", "server", "service"],
+    stems: ["бэкенд", "апи", "эндпоинт", "сервер"]
+  }),
+  database: intentPattern({
+    words: ["database", "migration", "schema", "query", "sql"],
+    stems: ["баз", "миграц", "схем", "запрос"]
+  }),
+  test: intentPattern({
+    words: ["test", "spec", "coverage"],
+    stems: ["тест", "провер"]
+  })
+});
+
 function normalize(value) {
   return String(value ?? "").trim();
 }
@@ -56,9 +76,9 @@ function tokens(value) {
 }
 
 function taskDomains(task) {
-  const normalized = normalize(task).toLowerCase();
+  const normalized = normalize(task);
   return Object.entries(TASK_HINTS)
-    .filter(([, definition]) => definition.terms.some((term) => normalized.includes(term)))
+    .filter(([name]) => TASK_HINT_PATTERNS[name].test(normalized))
     .map(([name]) => name);
 }
 

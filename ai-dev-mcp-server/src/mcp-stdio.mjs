@@ -70,11 +70,7 @@ import {
   repairSearchMojibake,
   rerankSearchResults
 } from "./core/search-reranker.mjs";
-import {
-  dashboardFreshness,
-  dashboardSourceFingerprint,
-  renderSystemDashboard
-} from "./core/system-dashboard.mjs";
+import { countBy } from "./core/system-health.mjs";
 import {
   createLocalRuntimeProfile,
   renderRuntimeDistribution,
@@ -2171,146 +2167,6 @@ async function upsertSkillOverlayRecord({
   };
 }
 
-function dashboardSkillSource(source) {
-  const value = String(source || "");
-  if (value === "custom") return "custom";
-  if (value.startsWith("membrane/")) return "membrane";
-  if (value.startsWith("design/")) return "design";
-  if (value.startsWith("external/")) return "external";
-  return value || "unknown";
-}
-
-async function buildSystemDashboardSnapshot() {
-  const [
-    skills,
-    cards,
-    qualityReport,
-    projects,
-    search,
-    outcomes,
-    pilots,
-    overlays,
-    searchCases,
-    runtimeSource
-  ] = await Promise.all([
-    readSkillIndex(),
-    readJsonIfExists(safePath(skillCardsIndexRelativePath)),
-    readJsonIfExists(safePath(skillQualityIndexRelativePath)),
-    projectSummaries({ dedupe: true }),
-    searchIndexStatus({ include_external_project_files: true }),
-    skillOutcomeStore.status(),
-    pilotStore.status(),
-    readSkillOverlayDocument(),
-    readSearchEvalCases(),
-    fs.readFile(path.join(serverDir, "mcp-stdio.mjs"), "utf8")
-  ]);
-  const bySource = countBy(skills, (item) => dashboardSkillSource(item.source));
-  const overlaySummary = summarizeSkillOverlays(overlays, skills);
-  const runtimeLines = runtimeSource.split(/\r?\n/).length;
-  const snapshot = {
-    schema_version: 1,
-    generated_at: new Date().toISOString(),
-    tools: { total: tools.length },
-    skills: {
-      total: skills.length,
-      custom: bySource.custom || 0,
-      groups: new Set(skills.map((item) => item.primary_group).filter(Boolean)).size,
-      cards: Array.isArray(cards) ? cards.length : Number(cards?.total || cards?.items?.length || 0),
-      by_source: bySource
-    },
-    quality: {
-      important_structure_ready: Number(qualityReport?.summary?.important_structure_ready || 0),
-      important_empirical_ready: Number(qualityReport?.summary?.important_empirical_ready || 0),
-      important_skills: Number(qualityReport?.summary?.important_skills || bySource.custom || 0),
-      issues: Number(qualityReport?.issues_total || 0),
-      generated_at: qualityReport?.generated_at || ""
-    },
-    projects: {
-      total: projects.length,
-      items: projects.map((project) => ({
-        id: project.project_id || project.id || "",
-        name: project.name,
-        stack: project.stack || [],
-        updated_at: project.updated_at || project.last_synced || ""
-      }))
-    },
-    search: {
-      documents: Number(search.indexed_document_count || 0),
-      dense_vectors: Number(search.dense_documents || 0),
-      pending_dense: Number(search.dense_pending_documents || 0),
-      stale: Boolean(search.stale || search.dirty_reason),
-      eval_cases: searchCases.cases.length,
-      ranking_version: 2,
-      source_fingerprint: search.source_fingerprint || ""
-    },
-    outcomes: {
-      terminal: Number(outcomes.terminal_outcomes || outcomes.events || 0),
-      attempts: Number(outcomes.verification_attempts || 0)
-    },
-    pilots: {
-      completed: Number(pilots.summary.total || 0) - Number(pilots.summary.active || 0),
-      human_confirmed: Number(pilots.summary.human_confirmed || 0)
-    },
-    overlays: {
-      source_policies: overlaySummary.source_policies,
-      specific_overlays: overlaySummary.specific_overlays,
-      orphan_overlays: overlaySummary.orphan_overlays.length
-    },
-    runtime: {
-      server_ready: true,
-      modular: runtimeLines <= 10_500,
-      main_lines: runtimeLines,
-      line_ceiling: 10_500,
-      coverage_thresholds: "85% lines / 60% branches / 85% functions"
-    }
-  };
-  snapshot.source_fingerprint = dashboardSourceFingerprint(snapshot);
-  return snapshot;
-}
-
-async function rebuildSystemDashboard({ rebuild_search = false } = {}) {
-  const snapshot = await buildSystemDashboardSnapshot();
-  await Promise.all([
-    writeJson(systemDashboardStateRelativePath, snapshot),
-    writeText(systemDashboardRelativePath, renderSystemDashboard(snapshot))
-  ]);
-  markSearchIndexDirty("generated system dashboard updated");
-  const searchRebuild = rebuild_search
-    ? await rebuildSearchIndex({
-      include_external_project_files: true,
-      dense_embeddings: false,
-      preserve_dense: true
-    })
-    : null;
-  return {
-    action: "system_dashboard_rebuilt",
-    dashboard_path: systemDashboardRelativePath,
-    state_path: systemDashboardStateRelativePath,
-    source_fingerprint: snapshot.source_fingerprint,
-    snapshot,
-    search_rebuilt: Boolean(searchRebuild),
-    search: searchRebuild
-  };
-}
-
-async function systemDashboardStatus() {
-  const [saved, current] = await Promise.all([
-    readJsonIfExists(safePath(systemDashboardStateRelativePath)),
-    buildSystemDashboardSnapshot()
-  ]);
-  return {
-    dashboard_path: systemDashboardRelativePath,
-    state_path: systemDashboardStateRelativePath,
-    generated: Boolean(saved),
-    generated_at: saved?.generated_at || "",
-    freshness: dashboardFreshness(saved, current),
-    current,
-    next_step: saved && dashboardFreshness(saved, current).fresh
-      ? "Dashboard is current."
-      : "Run rebuild_system_dashboard."
-  };
-}
-
 async function buildRuntimeDistributionManifest() {
   const serverRoot = path.resolve(serverDir, "..");
   const localConfigPath = path.join(serverRoot, "config", "runtime.local.json");
@@ -3062,36 +2918,6 @@ async function embeddingStatus({
   };
 }
 
-function healthSummary(checks) {
-  const summary = { ok: 0, warn: 0, fail: 0, skipped: 0 };
-  for (const check of checks) {
-    if (Object.hasOwn(summary, check.status)) summary[check.status] += 1;
-  }
-  return summary;
-}
-
-function overallHealthStatus(checks) {
-  if (checks.some((check) => check.status === "fail" && check.critical !== false)) return "fail";
-  if (checks.some((check) => check.status === "fail" || check.status === "warn")) return "degraded";
-  return "ok";
-}
-
-function healthErrorDetails(err) {
-  return {
-    message: err instanceof Error ? err.message : String(err),
-    name: err instanceof Error ? err.name : "Error"
-  };
-}
-
-function countBy(items, selector) {
-  const counts = {};
-  for (const item of items) {
-    const key = selector(item) || "unknown";
-    counts[key] = (counts[key] || 0) + 1;
-  }
-  return counts;
-}
-
 async function frontendQaEnvironmentStatus() {
   if (!(await pathExists(frontendQaRunnerPath))) {
     return { status: "unavailable", playwright_available: false, chromium_available: false, browser_launch_ok: false };
@@ -3107,488 +2933,6 @@ async function frontendQaEnvironmentStatus() {
     }
   );
   return JSON.parse(output.stdout);
-}
-
-async function systemHealthCheck({
-  include_search_smoke = true,
-  include_dense_smoke = false,
-  include_embedding_status = true,
-  include_registry = true,
-  include_skill_cards = true,
-  include_projects = true,
-  include_auto_commands = true,
-  include_presets = true,
-  include_search_eval = false,
-  smoke_limit = 2
-} = {}) {
-  const startedAt = new Date();
-  const checks = [];
-  const safeSmokeLimit = Math.max(1, Math.min(Number(smoke_limit) || 2, 5));
-
-  const addCheck = ({ name, status, summary, details = {}, critical = true, duration_ms = 0 }) => {
-    checks.push({
-      name,
-      status,
-      critical,
-      summary,
-      duration_ms,
-      details
-    });
-  };
-
-  const runCheck = async (name, critical, fn) => {
-    const start = Date.now();
-    try {
-      const result = await fn();
-      addCheck({
-        name,
-        critical,
-        duration_ms: Date.now() - start,
-        ...result
-      });
-    } catch (err) {
-      addCheck({
-        name,
-        critical,
-        status: "fail",
-        summary: err instanceof Error ? err.message : String(err),
-        duration_ms: Date.now() - start,
-        details: healthErrorDetails(err)
-      });
-    }
-  };
-
-  await runCheck("vault_root", true, async () => {
-    const status = await fileStatus(vaultRoot);
-    if (!status.exists) return { status: "fail", summary: "Vault root is missing.", details: status };
-    if (!status.is_directory) return { status: "fail", summary: "Vault root is not a directory.", details: status };
-    return { status: "ok", summary: "Vault root exists.", details: status };
-  });
-
-  await runCheck("required_notes", false, async () => {
-    const required = [
-      "00-start-here.md",
-      "01-system/AI Dev Control Center.md",
-      "09-mcp/README.md",
-      "09-mcp/ai-dev-mcp-server/README.md",
-      "09-mcp/ai-dev-mcp-server/docs/ARCHITECTURE.md",
-      "03-skills-catalog/Skill Cards.md"
-    ];
-    const files = [];
-    for (const relative of required) {
-      const status = await fileStatus(safePath(relative));
-      files.push({ relative_path: relative, exists: status.exists, size_bytes: status.size_bytes || 0 });
-    }
-    const missing = files.filter((file) => !file.exists);
-    return {
-      status: missing.length ? "warn" : "ok",
-      summary: missing.length ? `${missing.length} required notes are missing.` : "Core system notes exist.",
-      details: { files, missing }
-    };
-  });
-
-  await runCheck("search_index_file", true, async () => {
-    const status = await fileStatus(searchIndexPath);
-    if (!status.exists) return { status: "fail", summary: "SQLite search index is missing.", details: status };
-    if (!status.size_bytes) return { status: "fail", summary: "SQLite search index is empty.", details: status };
-    return { status: "ok", summary: "SQLite search index file exists.", details: status };
-  });
-
-  await runCheck("search_index_freshness", false, async () => {
-    const status = await searchIndexStatus({ include_external_project_files: true });
-    return {
-      status: status.stale ? "warn" : "ok",
-      summary: status.stale
-        ? `Search index is stale: ${status.added_count} added, ${status.changed_count} changed, ${status.deleted_count} deleted.`
-        : `Search index is current with ${status.current_document_count} document(s).`,
-      details: status
-    };
-  });
-
-  await runCheck("frontend_qa_runner", false, async () => {
-    const status = await fileStatus(frontendQaRunnerPath);
-    const packageStatus = await fileStatus(frontendQaPackagePath);
-    if (!status.exists) return { status: "warn", summary: "Frontend QA runner is missing.", details: status };
-    if (!status.size_bytes) return { status: "warn", summary: "Frontend QA runner is empty.", details: status };
-    return {
-      status: packageStatus.exists ? "ok" : "warn",
-      summary: packageStatus.exists ? "Frontend QA runner and package manifest exist." : "Frontend QA runner exists, but package manifest is missing.",
-      details: { runner: status, package: packageStatus, artifacts_root: frontendQaArtifactsRoot }
-    };
-  });
-
-  await runCheck("frontend_qa_environment", false, async () => {
-    const status = await frontendQaEnvironmentStatus();
-    const ready = status.playwright_available && status.chromium_available && status.browser_launch_ok;
-    return {
-      status: ready ? "ok" : "warn",
-      summary: ready
-        ? `Playwright Chromium is ready from ${status.playwright_source || "runner"}.`
-        : "Playwright Chromium is not fully ready.",
-      details: status
-    };
-  });
-
-  if (include_embedding_status) {
-    await runCheck("embedding_backend", true, async () => {
-      const status = await embeddingStatus({});
-      const required = ["search_index", "embeddings_python", "embed_helper", "worker_helper", "model_dir", "model_file", "modules_file"];
-      const missing = required.filter((key) => !status.availability?.[key]?.exists);
-      if (missing.length) {
-        return {
-          status: "fail",
-          summary: `Embedding backend is missing required files: ${missing.join(", ")}.`,
-          details: { missing, availability: status.availability, workers: status.workers }
-        };
-      }
-      return {
-        status: "ok",
-        summary: status.workers.count > 0
-          ? `Embedding backend files exist; ${status.workers.count} worker(s) currently tracked.`
-          : "Embedding backend files exist; worker is not started yet.",
-        details: {
-          backend: status.backend,
-          dense_model: status.dense_model,
-          dense_dimensions: status.dense_dimensions,
-          configured_device: status.configured_device,
-          workers: status.workers,
-          paths: status.paths
-        }
-      };
-    });
-  } else {
-    addCheck({ name: "embedding_backend", status: "skipped", critical: true, summary: "Embedding status check skipped." });
-  }
-
-  if (include_registry) {
-    await runCheck("skill_registry", true, async () => {
-      const items = await readSkillIndex();
-      if (!Array.isArray(items)) return { status: "fail", summary: "Skill registry is not a JSON array.", details: { type: typeof items } };
-      if (!items.length) return { status: "fail", summary: "Skill registry is empty.", details: { count: 0 } };
-      const sources = countBy(items, (item) => item.source);
-      const categories = countBy(items.flatMap((item) => item.categories || []), (item) => item);
-      return {
-        status: "ok",
-        summary: `Skill registry loaded with ${items.length} skills.`,
-        details: { count: items.length, sources, category_count: Object.keys(categories).length }
-      };
-    });
-    await runCheck("skill_taxonomy", true, async () => {
-      const registry = await readSkillGroupsIndex({ rebuildIfMissing: false });
-      if (!registry) return { status: "fail", summary: "Skill taxonomy registry is missing.", details: { path: skillGroupsIndexRelativePath } };
-      const items = await readSkillIndex();
-      const missing = items.filter((item) => !item.primary_group).length;
-      const knownGroups = new Set(SKILL_GROUPS.map((group) => group.id));
-      const invalid = items.filter((item) => item.primary_group && !knownGroups.has(item.primary_group)).length;
-      const assigned = items.length - missing - invalid;
-      const status = missing || invalid ? "fail" : "ok";
-      return {
-        status,
-        summary: status === "ok" ? `Skill taxonomy assigned ${assigned}/${items.length} skills across ${registry.groups.length} group(s).` : `Skill taxonomy has ${missing} missing and ${invalid} invalid assignments.`,
-        details: {
-          schema_version: registry.schema_version,
-          total: items.length,
-          assigned,
-          missing,
-          invalid,
-          groups: registry.groups.map((group) => ({ id: group.id, count: group.count })),
-          index_path: skillGroupsIndexRelativePath,
-          skills_map: skillsMapRelativePath
-        }
-      };
-    });
-    await runCheck("skill_visual_graph", true, async () => {
-      const registryPath = safePath(skillGraphIndexRelativePath);
-      if (!(await pathExists(registryPath))) {
-        return { status: "fail", summary: "Skill visual graph registry is missing.", details: { path: skillGraphIndexRelativePath } };
-      }
-      const registry = JSON.parse(stripBom(await fs.readFile(registryPath, "utf8")));
-      const files = await listMarkdownFiles(safePath(skillGraphPagesRelativeDir));
-      const expectedFiles = 1 + Number(registry.group_hubs || 0) + Number(registry.bucket_hubs || 0) + Number(registry.batch_pages || 0);
-      const complete = registry.total_skills === registry.linked_unique_skills;
-      const filesComplete = files.length === expectedFiles;
-      const status = complete && filesComplete ? "ok" : "fail";
-      return {
-        status,
-        summary: status === "ok"
-          ? `Skill visual graph links ${registry.linked_unique_skills}/${registry.total_skills} skills through ${registry.batch_pages} batch page(s).`
-          : `Skill visual graph coverage or generated file count is incomplete.`,
-        details: {
-          total_skills: registry.total_skills,
-          linked_unique_skills: registry.linked_unique_skills,
-          page_size: registry.page_size,
-          batch_pages: registry.batch_pages,
-          group_hubs: registry.group_hubs,
-          bucket_hubs: registry.bucket_hubs,
-          markdown_files: files.length,
-          expected_markdown_files: expectedFiles,
-          index_path: skillGraphIndexRelativePath,
-          root_note: registry.root_note
-        }
-      };
-    });
-    await runCheck("skill_quality", true, async () => {
-      const items = await readSkillIndex();
-      const summary = summarizeSkillQuality(items);
-      const reportExists = await pathExists(safePath(skillQualityIndexRelativePath));
-      const schemaComplete = summary.schema_current === summary.total;
-      const importantComplete = summary.important_structure_ready === summary.important_skills && !summary.important_failures.length;
-      const status = schemaComplete && importantComplete && reportExists ? "ok" : (schemaComplete && importantComplete ? "warn" : "fail");
-      return {
-        status,
-        summary: status === "ok"
-          ? `Skill Schema v${summary.schema_version} covers ${summary.schema_current}/${summary.total}; important structurally ready skills ${summary.important_structure_ready}/${summary.important_skills}.`
-          : `Skill quality is incomplete: schema ${summary.schema_current}/${summary.total}, important structurally ready ${summary.important_structure_ready}/${summary.important_skills}, report ${reportExists ? "present" : "missing"}.`,
-        details: {
-          ...summary,
-          empirical_validation_note: "Structural readiness is tracked separately from verification-bound real task outcomes.",
-          report_exists: reportExists,
-          report_path: skillQualityIndexRelativePath,
-          dashboard_path: skillQualityDashboardRelativePath
-        }
-      };
-    });
-    await runCheck("skill_routing_benchmark", true, async () => {
-      const reportPath = safePath(skillRoutingReportRelativePath);
-      const casesPath = safePath(skillRoutingEvalRelativePath);
-      const routerPath = path.join(serverDir, "core", "skill-router.mjs");
-      const reportStatus = await fileStatus(reportPath);
-      if (!reportStatus.exists) {
-        return {
-          status: "fail",
-          summary: "Skill routing benchmark report is missing.",
-          details: {
-            report_path: skillRoutingReportRelativePath,
-            cases_path: skillRoutingEvalRelativePath
-          }
-        };
-      }
-      const [casesStatus, routerStatus] = await Promise.all([
-        fileStatus(casesPath),
-        fileStatus(routerPath)
-      ]);
-      const report = JSON.parse(stripBom(await fs.readFile(reportPath, "utf8")));
-      const reportTime = Date.parse(reportStatus.mtime || "") || 0;
-      const newestInput = Math.max(
-        Date.parse(casesStatus.mtime || "") || 0,
-        Date.parse(routerStatus.mtime || "") || 0
-      );
-      const fresh = reportTime >= newestInput;
-      const passed = report.status === "pass" && Number(report.summary?.failed || 0) === 0;
-      return {
-        status: passed && fresh ? "ok" : "fail",
-        summary: passed && fresh
-          ? `Skill routing passed ${report.summary.passed}/${report.summary.total} golden case(s).`
-          : `Skill routing benchmark is ${passed ? "stale" : "failing"}; rerun run_skill_routing_eval.`,
-        details: {
-          ...report.summary,
-          benchmark_status: report.status,
-          fresh,
-          generated_at: report.generated_at,
-          report_path: skillRoutingReportRelativePath,
-          cases_path: skillRoutingEvalRelativePath
-        }
-      };
-    });
-    await runCheck("skill_outcomes", false, async () => {
-      const outcomes = await skillOutcomeStore.status();
-      const items = await readSkillIndex();
-      const registryValidated = items.filter((item) => item.source === "custom" && item.empirical_status === "pass").length;
-      const synchronized = registryValidated === outcomes.empirically_validated;
-      return {
-        status: synchronized ? "ok" : "warn",
-        summary: outcomes.events
-          ? `Recorded ${outcomes.events} verification-bound outcome(s) across ${outcomes.skills_observed} skill(s); ${outcomes.empirically_validated} empirically validated.`
-          : "No verification-bound skill outcomes have been recorded yet; custom skills remain provisional.",
-        details: {
-          ...outcomes,
-          registry_empirically_validated: registryValidated,
-          registry_synchronized: synchronized,
-          state_path: path.join(taskStateRoot, "skill-outcomes.json")
-        }
-      };
-    });
-  } else {
-    addCheck({ name: "skill_registry", status: "skipped", critical: true, summary: "Skill registry check skipped." });
-    addCheck({ name: "skill_taxonomy", status: "skipped", critical: true, summary: "Skill taxonomy check skipped." });
-    addCheck({ name: "skill_visual_graph", status: "skipped", critical: true, summary: "Skill visual graph check skipped." });
-    addCheck({ name: "skill_quality", status: "skipped", critical: true, summary: "Skill quality check skipped." });
-    addCheck({ name: "skill_routing_benchmark", status: "skipped", critical: true, summary: "Skill routing benchmark check skipped." });
-    addCheck({ name: "skill_outcomes", status: "skipped", critical: false, summary: "Skill outcome check skipped." });
-  }
-
-  if (include_skill_cards) {
-    await runCheck("skill_cards", false, async () => {
-      const cards = await readSkillCardsIndex({ syncIfMissing: false });
-      const bySource = countBy(cards, (card) => card.source || "unknown");
-      return {
-        status: cards.length ? "ok" : "warn",
-        summary: cards.length ? `Skill cards loaded with ${cards.length} card(s).` : "Skill cards index is missing or empty.",
-        details: {
-          count: cards.length,
-          by_source: bySource,
-          index_path: skillCardsIndexRelativePath,
-          catalog_path: skillCardsCatalogRelativePath
-        }
-      };
-    });
-  } else {
-    addCheck({ name: "skill_cards", status: "skipped", critical: false, summary: "Skill cards check skipped." });
-  }
-
-  if (include_projects) {
-    await runCheck("project_registry", false, async () => {
-      const projects = await listProjects();
-      return {
-        status: projects.length ? "ok" : "warn",
-        summary: projects.length ? `Project registry has ${projects.length} project card(s).` : "Project registry has no project cards yet.",
-        details: {
-          count: projects.length,
-          projects: projects.slice(0, 10).map((project) => ({
-            name: project.name,
-            project_path: project.project_path,
-            card_path: project.card_path,
-            status: project.status,
-            quality_gate_status: project.quality_gate_status
-          }))
-        }
-      };
-    });
-  } else {
-    addCheck({ name: "project_registry", status: "skipped", critical: false, summary: "Project registry check skipped." });
-  }
-
-  if (include_auto_commands) {
-    await runCheck("auto_commands", true, async () => {
-      const commands = listAutoCommands();
-      return {
-        status: commands.length ? "ok" : "fail",
-        summary: commands.length ? `Auto-command registry has ${commands.length} workflows.` : "Auto-command registry is empty.",
-        details: { count: commands.length, names: commands.map((command) => command.name) }
-      };
-    });
-  } else {
-    addCheck({ name: "auto_commands", status: "skipped", critical: true, summary: "Auto-command check skipped." });
-  }
-
-  if (include_presets) {
-    await runCheck("search_presets", true, async () => {
-      const presets = listSearchPresets();
-      const required = ["balanced", "code", "docs", "skills", "projects", "debug", "frontend", "quality"];
-      const names = presets.map((preset) => preset.name);
-      const missing = required.filter((name) => !names.includes(name));
-      return {
-        status: missing.length ? "fail" : "ok",
-        summary: missing.length ? `Missing search presets: ${missing.join(", ")}.` : `Search presets loaded: ${names.join(", ")}.`,
-        details: { count: presets.length, names, missing }
-      };
-    });
-  } else {
-    addCheck({ name: "search_presets", status: "skipped", critical: true, summary: "Search preset check skipped." });
-  }
-
-  if (include_search_smoke) {
-    await runCheck("search_smoke", true, async () => {
-      const results = await searchIndex({
-        query: "Project Bootstrap AGENTS quality gate",
-        scope: "all",
-        limit: safeSmokeLimit,
-        ensure_fresh: false
-      });
-      return {
-        status: results.length ? "ok" : "fail",
-        summary: results.length ? `FTS search returned ${results.length} result(s).` : "FTS search returned no results.",
-        details: { results: results.map((item) => ({ title: item.title, path: item.path, scope: item.scope, score: item.score })) }
-      };
-    });
-
-    await runCheck("hybrid_smoke_no_dense", true, async () => {
-      const results = await hybridSearchIndex({
-        query: "frontend design skill",
-        scope: "all",
-        limit: safeSmokeLimit,
-        dense_weight: 0,
-        ensure_fresh: false
-      });
-      return {
-        status: results.length ? "ok" : "fail",
-        summary: results.length ? `Hybrid search without dense returned ${results.length} result(s).` : "Hybrid search without dense returned no results.",
-        details: { results: results.map((item) => ({ title: item.title, path: item.path, scope: item.scope, score: item.score, dense_score: item.dense_score })) }
-      };
-    });
-  } else {
-    addCheck({ name: "search_smoke", status: "skipped", critical: true, summary: "Search smoke checks skipped." });
-  }
-
-  if (include_dense_smoke) {
-    await runCheck("dense_smoke", true, async () => {
-      const results = await hybridSearchIndex({
-        query: "\u0441\u043e\u0437\u0434\u0430\u0439 \u043a\u0430\u0447\u0435\u0441\u0442\u0432\u0435\u043d\u043d\u044b\u0439 \u0438\u043d\u0442\u0435\u0440\u0444\u0435\u0439\u0441 \u0431\u0435\u0437 \u0418\u0418 \u0441\u043b\u043e\u043f\u0430 \u043f\u043e \u0443\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d\u043d\u044b\u043c \u0440\u0435\u0444\u0435\u0440\u0435\u043d\u0441\u0430\u043c",
-        scope: "knowledge",
-        limit: safeSmokeLimit,
-        keyword_weight: 0.25,
-        semantic_weight: 0.25,
-        dense_weight: 0.50,
-        ensure_fresh: false
-      });
-      const hasDense = results.some((item) => Number(item.dense_score) > 0);
-      return {
-        status: results.length && hasDense ? "ok" : "fail",
-        summary: results.length && hasDense
-          ? `Dense hybrid search returned ${results.length} result(s) with dense scores.`
-          : "Dense hybrid search did not return dense-scored results.",
-        details: { results: results.map((item) => ({ title: item.title, path: item.path, score: item.score, dense_score: item.dense_score })) }
-      };
-    });
-  } else {
-    addCheck({ name: "dense_smoke", status: "skipped", critical: false, summary: "Dense smoke skipped. Set include_dense_smoke=true to test BGE-M3 end-to-end." });
-  }
-
-  if (include_search_eval) {
-    await runCheck("search_eval", true, async () => {
-      const evalResult = await runSearchEval({ include_dense: false, max_cases: 10 });
-      const failed = evalResult.summary.failed;
-      const passed = evalResult.summary.passed;
-      const skipped = evalResult.summary.skipped;
-      const status = evalResult.status === "ok" ? "ok" : (evalResult.status === "degraded" ? "warn" : "fail");
-      return {
-        status,
-        summary: `Search eval: ${passed} passed, ${failed} failed, ${skipped} skipped.`,
-        details: {
-          include_dense: evalResult.include_dense,
-          cases_path: evalResult.cases_path,
-          summary: evalResult.summary,
-          failed_cases: evalResult.cases
-            .filter((item) => item.status === "fail")
-            .map((item) => ({ id: item.id, query: item.query, preset: item.preset, error: item.error || "" }))
-        }
-      };
-    });
-  } else {
-    addCheck({ name: "search_eval", status: "skipped", critical: false, summary: "Search eval skipped. Set include_search_eval=true to run golden cases without dense scoring." });
-  }
-
-  const finishedAt = new Date();
-  const summary = healthSummary(checks);
-  const status = overallHealthStatus(checks);
-  const recommendations = [];
-  if (checks.some((check) => check.name === "dense_smoke" && check.status === "skipped")) {
-    recommendations.push("Run system_health_check with include_dense_smoke=true after MCP restarts or embedding changes.");
-  }
-  for (const check of checks) {
-    if (check.status === "fail") recommendations.push(`Fix failed check: ${check.name} - ${check.summary}`);
-    if (check.status === "warn") recommendations.push(`Review warning: ${check.name} - ${check.summary}`);
-  }
-
-  return {
-    status,
-    started_at: startedAt.toISOString(),
-    finished_at: finishedAt.toISOString(),
-    duration_ms: finishedAt.getTime() - startedAt.getTime(),
-    summary,
-    checks,
-    recommendations
-  };
 }
 
 async function embedTexts({
@@ -8768,11 +8112,37 @@ async function completeTask({
 // Extension tools live in src/extensions/* and receive shared runtime services
 // through this host object (see src/tool-extensions.mjs).
 const extensions = createExtensionTools({
-  vaultRoot, taskStateRoot, taskStore, skillOutcomeStore, usageLedger, sessionStore, instinctStore, callTool,
+  vaultRoot, taskStateRoot, taskStore, skillOutcomeStore, pilotStore, usageLedger, sessionStore,
+  instinctStore, callTool,
   serverRoot: path.resolve(serverDir, ".."),
   resolveProjectIdentity, detectProject, captureProjectState, readProjectTextIfExists,
   writeProjectFile, safeProjectFile, safeProjectRoot, writeKnowledgeNote, appendKnowledgeNote,
-  markSearchIndexDirty
+  markSearchIndexDirty,
+  // Vault layout, generated-state writers and live status sources. The system
+  // extension reads all of them from here so no extension has to know where the
+  // vault lives or import this module back.
+  vaultPaths: {
+    skillCardsIndex: skillCardsIndexRelativePath,
+    skillCardsCatalog: skillCardsCatalogRelativePath,
+    skillGroupsIndex: skillGroupsIndexRelativePath,
+    skillsMap: skillsMapRelativePath,
+    skillGraphIndex: skillGraphIndexRelativePath,
+    skillGraphPages: skillGraphPagesRelativeDir,
+    skillQualityIndex: skillQualityIndexRelativePath,
+    skillQualityDashboard: skillQualityDashboardRelativePath,
+    skillRoutingReport: skillRoutingReportRelativePath,
+    skillRoutingEvalCases: skillRoutingEvalRelativePath,
+    systemDashboard: systemDashboardRelativePath,
+    systemDashboardState: systemDashboardStateRelativePath
+  },
+  searchIndexPath, frontendQaRunnerPath, frontendQaPackagePath, frontendQaArtifactsRoot,
+  // `tools` is assembled from the extension definitions below, so it is read lazily.
+  toolCount: () => tools.length,
+  safePath, fileStatus, pathExists, readJsonIfExists, writeJson, writeText, listMarkdownFiles,
+  readSkillIndex, readSkillGroupsIndex, readSkillCardsIndex, readSkillOverlayDocument,
+  readSearchEvalCases, projectSummaries, listProjects, listAutoCommands, listSearchPresets,
+  searchIndexStatus, rebuildSearchIndex, searchIndex, hybridSearchIndex, runSearchEval,
+  embeddingStatus, frontendQaEnvironmentStatus
 });
 const extensionReadOnlyTools = extensions.readOnly;
 const tools = [...buildToolDefinitions({
@@ -10278,9 +9648,6 @@ async function callTool(name, args) {
   if (name === "run_search_eval") return textContent(await runSearchEval(args));
   if (name === "embed_texts") return textContent(await embedTexts(args));
   if (name === "embedding_status") return textContent(await embeddingStatus(args));
-  if (name === "system_health_check") return textContent(await systemHealthCheck(args));
-  if (name === "rebuild_system_dashboard") return textContent(await rebuildSystemDashboard(args));
-  if (name === "system_dashboard_status") return textContent(await systemDashboardStatus(args));
   if (name === "prepare_runtime_distribution") return textContent(await prepareRuntimeDistribution(args));
   if (name === "runtime_distribution_status") return textContent(await runtimeDistributionStatus(args));
   if (name === "search_projects") return textContent(await searchProjects(args));

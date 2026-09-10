@@ -1,8 +1,8 @@
 /**
  * Extension registry for MCP tools that live outside `mcp-stdio.mjs`.
  *
- * `mcp-stdio.mjs` is capped by the static quality gate (10,500 lines), so new
- * capabilities are added as extension modules under `src/extensions/`. Each
+ * `mcp-stdio.mjs` is capped by the static quality gate, so new capabilities are
+ * added as extension modules under `src/extensions/`. Each
  * module exports a factory `createXxxTools(host)` that returns:
  *
  * ```js
@@ -27,6 +27,7 @@ import { createInstinctTools } from "./extensions/instincts.mjs";
 import { createPlanTools } from "./extensions/plans.mjs";
 import { createRulesTools } from "./extensions/rules.mjs";
 import { createSessionTools } from "./extensions/sessions.mjs";
+import { createSystemTools } from "./extensions/system.mjs";
 import { createUsageTools } from "./extensions/usage.mjs";
 import { createWorktreeTools } from "./extensions/worktrees.mjs";
 
@@ -38,6 +39,7 @@ export const EXTENSION_FACTORIES = [
   createPlanTools,
   createRulesTools,
   createSessionTools,
+  createSystemTools,
   createUsageTools,
   createWorktreeTools
 ];

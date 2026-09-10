@@ -610,43 +610,6 @@ export function buildToolDefinitions({
     }
   },
   {
-    name: "system_health_check",
-    description: "Run an AI Dev System health check for vault paths, search index, skill/project registries, search presets, BGE-M3 backend, worker state, and optional search smoke tests.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        include_search_smoke: { type: "boolean", default: true },
-        include_dense_smoke: { type: "boolean", default: false },
-        include_embedding_status: { type: "boolean", default: true },
-        include_registry: { type: "boolean", default: true },
-        include_skill_cards: { type: "boolean", default: true },
-        include_projects: { type: "boolean", default: true },
-        include_auto_commands: { type: "boolean", default: true },
-        include_presets: { type: "boolean", default: true },
-        include_search_eval: { type: "boolean", default: false },
-        smoke_limit: { type: "number", default: 2 }
-      }
-    }
-  },
-  {
-    name: "rebuild_system_dashboard",
-    description: "Regenerate the Obsidian System Dashboard and machine snapshot from live MCP, skill, project, search, outcome, pilot, and overlay state.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        rebuild_search: { type: "boolean", default: false }
-      }
-    }
-  },
-  {
-    name: "system_dashboard_status",
-    description: "Compare the generated System Dashboard fingerprint with current runtime and registry sources.",
-    inputSchema: {
-      type: "object",
-      properties: {}
-    }
-  },
-  {
     name: "prepare_runtime_distribution",
     description: "Validate and document the local-first runtime, launchers, recovery scripts, secret-free profile, and blocked-by-default future VPS boundary.",
     inputSchema: {

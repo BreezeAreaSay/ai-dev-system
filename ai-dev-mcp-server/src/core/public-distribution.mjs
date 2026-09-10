@@ -127,22 +127,55 @@ export function distributionPathFindings(relativePath) {
   return findings;
 }
 
-function forbiddenTermVariants(terms) {
-  const variants = new Set();
+// Ordinary English / system words that routinely appear as a bare account name
+// (`root`, `runner`, `ci`, …). Matching one of these as an owner-context term
+// flags every file that happens to use the word, so they are never matched on
+// their own — a real home-directory path still is.
+const COMMON_TERM_STOPLIST = new Set([
+  "root", "user", "users", "home", "admin", "node", "test", "tests", "data", "dev",
+  "build", "runner", "docker", "guest", "default", "ubuntu", "debian", "fedora",
+  "arch", "vagrant", "ci", "app", "www", "public", "shared", "temp", "tmp"
+]);
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Compile owner-context terms into anchored matchers.
+ *
+ * A bare account name must appear as a whole word and must not be an ordinary
+ * English / system word (see {@link COMMON_TERM_STOPLIST}). A home directory
+ * must appear as a path of at least two segments — `/root` or `C:\` alone is
+ * not specific enough to identify anyone — and matches either separator.
+ *
+ * @param {string[]} terms
+ * @returns {RegExp[]}
+ */
+function forbiddenTermMatchers(terms) {
+  const matchers = [];
   for (const raw of terms || []) {
     const value = String(raw || "").trim();
-    if (value.length < 4) continue;
-    variants.add(value.toLowerCase());
-    variants.add(value.replaceAll("\\", "/").toLowerCase());
-    variants.add(value.replaceAll("/", "\\").toLowerCase());
+    if (!value) continue;
+    if (/[\\/]/.test(value)) {
+      const segments = value.split(/[\\/]+/).filter(Boolean);
+      if (segments.length < 2) continue;
+      const body = segments.map(escapeRegExp).join("[\\\\/]+");
+      matchers.push(new RegExp(`(?<![A-Za-z0-9])${body}(?![A-Za-z0-9_.-])`, "i"));
+    } else {
+      if (value.length < 4) continue;
+      if (COMMON_TERM_STOPLIST.has(value.toLowerCase())) continue;
+      matchers.push(new RegExp(`(?<![A-Za-z0-9_])${escapeRegExp(value)}(?![A-Za-z0-9_])`, "i"));
+    }
   }
-  return [...variants];
+  return matchers;
 }
 
 /**
  * Privacy findings for a text file's contents: known secret patterns, non-
  * placeholder credential assignments, and any configured forbidden owner-context
- * terms (matched case-insensitively with `/` and `\` variants).
+ * terms (bare account names matched as whole words, home directories as
+ * multi-segment paths — see {@link forbiddenTermMatchers}).
  *
  * @param {string} text - File contents.
  * @param {string} relativePath - Path recorded on each finding.
@@ -164,9 +197,8 @@ export function distributionTextFindings(text, relativePath, { forbiddenTerms = 
     }
   }
 
-  const lowered = source.toLowerCase();
-  for (const term of forbiddenTermVariants(forbiddenTerms)) {
-    if (lowered.includes(term)) {
+  for (const matcher of forbiddenTermMatchers(forbiddenTerms)) {
+    if (matcher.test(source)) {
       findings.push({ rule: "private-owner-context", path: relativePath });
       break;
     }

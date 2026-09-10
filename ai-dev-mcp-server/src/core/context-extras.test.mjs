@@ -48,9 +48,32 @@ test("handoff and instinct providers surface session memory and learned behavior
   });
   const handoff = await handoffContextProvider({ stateRoot, projectId: "project-x" });
   assert.equal(handoff.id, "handoff");
+  assert.equal(handoff.title, "Last Session Handoff");
+  assert.equal(handoff.items[0].unconfirmed, false);
   assert.match(handoff.markdown, /Next step: Add the idempotency middleware/);
   assert.match(handoff.markdown, /Do not retry: Retrying without keys \(double charges in staging\)/);
   assert.match(handoff.markdown, /WARNING: \d+ days ago/);
+
+  // A newer hook capture can win the "latest" slot; the pack must not present
+  // what heuristics guessed as something an agent wrote down.
+  await fs.writeFile(path.join(stateRoot, "sessions", "project-x", "hook-zz.json"), JSON.stringify({
+    id: "session-hook-zz",
+    saved_at: "2026-02-01T00:00:00.000Z",
+    project_id: "project-x",
+    project_path: root,
+    source: "hook",
+    confirmed: false,
+    captured_by: "stop",
+    topic: "Payment retries",
+    building: "Requests in this session (2):\n- Fix the retry loop\n- Add a test",
+    files: [{ path: "src/pay.js", status: "in_progress", notes: "touched this session (hook capture)" }],
+    next_step: ""
+  }));
+  const captured = await handoffContextProvider({ stateRoot, projectId: "project-x" });
+  assert.equal(captured.title, "Last Session Handoff (unconfirmed hook draft)");
+  assert.equal(captured.items[0].unconfirmed, true);
+  assert.match(captured.markdown, /UNCONFIRMED HOOK DRAFT \(session-hook-zz\)/);
+  assert.match(captured.markdown, /Next step: not recorded/);
 
   const store = new InstinctStore({ stateRoot });
   await store.record({ trigger: "when retrying payments", action: "use idempotency keys", domain: "architecture", projectId: "project-x", confidence: 0.8 });

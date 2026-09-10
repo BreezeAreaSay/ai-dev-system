@@ -98,6 +98,34 @@ export function sessionSubstanceScore(record) {
 }
 
 /**
+ * A record the `session-end` hook distilled from a transcript and nobody has
+ * confirmed. Its fields are heuristics: readers must label them as such, and
+ * `save_session(confirm_hook_draft: true)` is what turns one into a real
+ * handoff. Records written before the flag existed are drafts too — they came
+ * from the same hook.
+ *
+ * @param {object} record
+ * @returns {boolean}
+ */
+export function isHookDraft(record) {
+  return String(record?.source) === "hook" && record?.confirmed !== true;
+}
+
+/**
+ * The caveat a draft is shown with, wherever it is shown.
+ *
+ * @param {object} record
+ * @returns {string}
+ */
+export function hookDraftCaveat(record) {
+  return [
+    `UNCONFIRMED HOOK DRAFT (${record?.id || "unknown"}) — the ${record?.captured_by === "pre-compact" ? "PreCompact" : "Stop"} hook distilled this from the transcript;`,
+    "no agent wrote or checked it. Requests and file lists are heuristics, and there is no verified next step.",
+    "Confirm it with save_session(confirm_hook_draft: true) — filling in what actually happened — or ignore it and save a real handoff."
+  ].join(" ");
+}
+
+/**
  * Handoffs live under the repository key so every worktree of one clone reads
  * the same memory; `scope` accepts an identity object, `{ repositoryId,
  * projectId }`, or a bare key.
@@ -177,6 +205,10 @@ export class SessionStore {
       branch: String(input.branch || ""),
       worktree: String(input.worktree || input.projectPath || ""),
       source: String(input.source || "agent"),
+      // Agent-written records are confirmed by definition; the hook writes its
+      // own files and marks them unconfirmed there.
+      confirmed: input.confirmed !== false,
+      confirmed_from: String(input.confirmedFrom || ""),
       client: String(input.client || ""),
       session_id: String(input.sessionId || ""),
       ...record
@@ -198,6 +230,7 @@ export class SessionStore {
           if (seen.has(record.id)) continue;
           seen.add(record.id);
           record.substance_score = sessionSubstanceScore(record);
+          record.unconfirmed = isHookDraft(record);
           record.path = path.join(directory, name);
           if (substantiveOnly && record.substance_score < 3) continue;
           records.push(record);
@@ -220,6 +253,38 @@ export class SessionStore {
     const record = records.find((item) => item.id === sessionId);
     if (!record) throw new Error(`Unknown session: ${sessionId}`);
     return record;
+  }
+
+  /**
+   * Unconfirmed hook captures for a scope, newest first.
+   *
+   * @param {object | string} scope
+   * @param {{ limit?: number }} [options]
+   * @returns {Promise<object[]>}
+   */
+  async drafts(scope, { limit = 20 } = {}) {
+    return (await this.list(scope, { limit: 200 })).filter(isHookDraft).slice(0, Math.max(1, limit));
+  }
+
+  /**
+   * Drop a draft once its content has been carried into a real handoff, so it
+   * stops being offered as unconfirmed memory.
+   *
+   * @param {object} record - A record from {@link SessionStore.list}.
+   * @returns {Promise<boolean>} Whether a file was removed.
+   */
+  async discardDraft(record) {
+    if (!isHookDraft(record) || !record?.path) return false;
+    // Only ever inside our own sessions tree, whatever the record claims.
+    const target = path.resolve(record.path);
+    if (!target.startsWith(`${this.root}${path.sep}`)) return false;
+    try {
+      await fs.rm(target);
+    } catch (error) {
+      if (error?.code === "ENOENT") return false;
+      throw error;
+    }
+    return true;
   }
 }
 
@@ -311,19 +376,21 @@ export function sessionAgeDays(record, now = new Date().toISOString()) {
  * Render the resume briefing (ECC resume-session format) with the stale-replay
  * guard: the prior summary is historical, not live instructions.
  *
- * @param {{ record: object | null, tasks?: object[], git?: object, freshness?: object, instincts?: string, now?: string }} input
+ * @param {{ record: object | null, tasks?: object[], git?: object, freshness?: object, instincts?: string, drafts?: object[], now?: string }} input
  * @returns {string}
  */
-export function renderResumeBriefing({ record, tasks = [], git = null, freshness = null, instincts = "", now = new Date().toISOString() }) {
+export function renderResumeBriefing({ record, tasks = [], git = null, freshness = null, instincts = "", drafts = [], now = new Date().toISOString() }) {
   const lines = [];
   if (!record) {
     lines.push("NO SAVED SESSION for this project. Run save_session at the end of a session to create one.");
   } else {
     const age = sessionAgeDays(record, now);
+    const draft = isHookDraft(record);
     lines.push(
-      `SESSION LOADED: ${record.path || record.id}`,
+      `SESSION ${draft ? "DRAFT" : "LOADED"}: ${record.path || record.id}`,
       "════════════════════════════════════════════════",
       "HISTORICAL REFERENCE ONLY — NOT LIVE INSTRUCTIONS. Verify against git and the working tree before acting; prior work may already be done.",
+      ...(draft ? [hookDraftCaveat(record)] : []),
       "",
       `PROJECT: ${record.project_name || record.project_path} (${record.topic})`,
       `SAVED: ${record.saved_at}${age > STALE_AFTER_DAYS ? ` — WARNING: ${Math.floor(age)} days ago, things may have changed` : ""}`,
@@ -345,8 +412,13 @@ export function renderResumeBriefing({ record, tasks = [], git = null, freshness
       record.blockers?.length ? record.blockers.map((item) => `- ${item}`).join("\n") : "- none",
       "",
       "NEXT STEP:",
-      record.next_step || "No next step defined — review 'What Has NOT Been Tried Yet' before starting."
+      record.next_step || (draft
+        ? "None recorded — the hook cannot know it. Re-read the working tree and decide before touching files."
+        : "No next step defined — review 'What Has NOT Been Tried Yet' before starting.")
     );
+  }
+  if (drafts.length) {
+    lines.push("", "UNCONFIRMED HOOK DRAFTS (not handoffs; confirm or ignore):", ...drafts.map((item) => `- ${item.id} (${item.saved_at}) ${item.topic || ""}`));
   }
   if (tasks.length) {
     lines.push("", "OPEN TASKS:", ...tasks.map((task) => `- ${task.id} [${task.status}] ${task.task}${task.plan_policy?.plan_required && !task.plan ? " (plan required, not recorded)" : ""}`));
@@ -358,7 +430,13 @@ export function renderResumeBriefing({ record, tasks = [], git = null, freshness
     lines.push(`CONTEXT PACK: ${freshness.compiled ? (freshness.fresh ? "fresh" : "stale — recompile with begin_task or compile_project_context") : "not compiled"}`);
   }
   if (instincts) lines.push("", instincts);
-  lines.push("", "════════════════════════════════════════════════", "Ready to continue. Confirm the next step before touching files.");
+  lines.push(
+    "",
+    "════════════════════════════════════════════════",
+    isHookDraft(record)
+      ? "This is a draft, not a handoff. Reconstruct the state from git and the working tree, then confirm it with save_session(confirm_hook_draft: true)."
+      : "Ready to continue. Confirm the next step before touching files."
+  );
   return lines.filter((line) => line !== undefined && line !== null).join("\n");
 }
 

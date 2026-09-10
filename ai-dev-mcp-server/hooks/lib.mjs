@@ -237,6 +237,135 @@ export function profileAllows(profile, allowed) {
   return allowed.includes(profile);
 }
 
+/** Bytes of the transcript tail scanned for the newest usage record. */
+export const TRANSCRIPT_TAIL_BYTES = 256 * 1024;
+
+/** Context windows we can tell apart without asking the API. */
+export const CONTEXT_WINDOWS = { standard: 200_000, large: 1_000_000 };
+
+/** Compaction advice knobs; every one is overridable from `.ai-dev/policy.json`. */
+export const COMPACT_DEFAULTS = {
+  tool_threshold: 50,
+  tool_interval: 25,
+  context_threshold: 0,
+  context_thresholds: { standard: 160_000, large: 250_000 },
+  context_window: 0,
+  context_interval: 60_000
+};
+
+function positiveNumber(value, fallback) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+/**
+ * Usage of the newest assistant message in a Claude Code transcript.
+ *
+ * The transcript is JSONL and append-only, so only its tail is read; the first
+ * line of that tail is dropped because the slice starts mid-line. Only
+ * assistant messages carry the usage of a real API call, and sidechain entries
+ * (subagents) are billed against their own window, not this session's.
+ *
+ * @param {string} transcriptPath
+ * @param {number} [tailBytes]
+ * @returns {{ tokens: number, model: string, output_tokens: number } | null}
+ */
+export function latestAssistantUsage(transcriptPath, tailBytes = TRANSCRIPT_TAIL_BYTES) {
+  if (!transcriptPath) return null;
+  let text = "";
+  let partialFirstLine = false;
+  try {
+    const fd = fs.openSync(transcriptPath, "r");
+    try {
+      const size = fs.fstatSync(fd).size;
+      const start = Math.max(0, size - Math.max(1024, tailBytes));
+      partialFirstLine = start > 0;
+      const buffer = Buffer.alloc(size - start);
+      fs.readSync(fd, buffer, 0, buffer.length, start);
+      text = buffer.toString("utf8");
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  const lines = text.split("\n");
+  if (partialFirstLine) lines.shift();
+  for (const line of lines.reverse()) {
+    if (!line.trim()) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (entry?.isSidechain === true) continue;
+    const isAssistant = entry?.type === "assistant" || entry?.message?.role === "assistant" || entry?.role === "assistant";
+    if (!isAssistant) continue;
+    const usage = entry.message?.usage || entry.usage;
+    if (!usage || typeof usage.input_tokens !== "number") continue;
+    return {
+      tokens: (usage.input_tokens || 0) + (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0),
+      model: String(entry.message?.model || entry.model || ""),
+      output_tokens: Number(usage.output_tokens) || 0
+    };
+  }
+  return null;
+}
+
+/**
+ * Resolve the model's context window. A configured value wins; otherwise a
+ * large window is recognised from the model id suffix ("[1m]") or inferred from
+ * a token count no standard window could hold.
+ *
+ * @param {string} model
+ * @param {number} tokens
+ * @param {number} [configured]
+ * @returns {number}
+ */
+export function contextWindowFor(model, tokens, configured = 0) {
+  const override = positiveNumber(configured, 0)
+    || positiveNumber(process.env.AI_DEV_CONTEXT_WINDOW_TOKENS, 0)
+    || positiveNumber(process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW, 0);
+  if (override) return override;
+  if (String(model).includes("[1m]")) return CONTEXT_WINDOWS.large;
+  return tokens > CONTEXT_WINDOWS.standard ? CONTEXT_WINDOWS.large : CONTEXT_WINDOWS.standard;
+}
+
+/**
+ * Compaction thresholds from `.ai-dev/policy.json`, defaults filled in.
+ *
+ * @param {object} [policy] - From {@link loadPolicy}.
+ * @returns {typeof COMPACT_DEFAULTS}
+ */
+export function compactSettings(policy = {}) {
+  const thresholds = policy.compact_context_thresholds ?? {};
+  return {
+    tool_threshold: positiveNumber(policy.compact_tool_threshold, COMPACT_DEFAULTS.tool_threshold),
+    tool_interval: positiveNumber(policy.compact_tool_interval, COMPACT_DEFAULTS.tool_interval),
+    // 0 keeps the window-derived threshold below; a positive value pins it.
+    context_threshold: Math.max(0, Number(policy.compact_context_threshold) || 0),
+    context_thresholds: {
+      standard: positiveNumber(thresholds.standard, COMPACT_DEFAULTS.context_thresholds.standard),
+      large: positiveNumber(thresholds.large, COMPACT_DEFAULTS.context_thresholds.large)
+    },
+    context_window: Math.max(0, Number(policy.compact_context_window) || 0),
+    context_interval: positiveNumber(policy.compact_context_interval, COMPACT_DEFAULTS.context_interval)
+  };
+}
+
+/**
+ * The token count at which the advisor starts suggesting a compaction.
+ *
+ * @param {typeof COMPACT_DEFAULTS} settings - From {@link compactSettings}.
+ * @param {number} window
+ * @returns {number}
+ */
+export function contextThresholdFor(settings, window) {
+  if (settings.context_threshold > 0) return settings.context_threshold;
+  return window >= CONTEXT_WINDOWS.large ? settings.context_thresholds.large : settings.context_thresholds.standard;
+}
+
 export function compileRegex(source, flags = "i") {
   try {
     return new RegExp(source, flags);

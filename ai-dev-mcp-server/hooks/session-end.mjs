@@ -2,6 +2,12 @@
 // Stop / SessionEnd / PreCompact: distill the transcript into a session record
 // (user requests, files modified, tools used) so resume_session and the next
 // SessionStart have something even when the agent forgot to call save_session.
+//
+// What this writes is a draft, not a handoff: every field comes from heuristics
+// over the transcript, nobody checked it, and it carries `confirmed: false` for
+// that reason. resume_session and session-start show such a record with the
+// caveat, and `save_session` with `confirm_hook_draft: true` turns it into a
+// real record.
 import fs from "node:fs";
 import path from "node:path";
 import { git, hooksDisabled, memoryKeysOf, migrateSessions, normalizeInput, projectIdOf, projectRootOf, readStdin, relativePosix, sessionsDirectory } from "./lib.mjs";
@@ -86,6 +92,10 @@ async function main() {
     branch: git(projectRoot, ["branch", "--show-current"]),
     worktree: projectRoot,
     source: "hook",
+    // Heuristics wrote this, so nothing here is confirmed until the agent
+    // confirms it through save_session(confirm_hook_draft: true).
+    confirmed: false,
+    confirmed_from: "",
     client: process.argv.includes("--cursor") ? "cursor" : "claude-code",
     session_id: input.sessionId,
     topic: summary.userMessages[0].slice(0, 120),

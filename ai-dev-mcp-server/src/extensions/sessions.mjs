@@ -5,6 +5,7 @@ import {
   FILE_STATUSES,
   HANDOFF_RELATIVE_PATH,
   estimateContextBudget,
+  isHookDraft,
   renderHandoffMarkdown,
   renderResumeBriefing,
   writeHandoffProjection
@@ -35,6 +36,28 @@ async function directoryChars(directory) {
   }
   await walk(directory);
   return total;
+}
+
+/** Fields the agent left out are filled from the draft it is confirming. */
+function withDraft(args, draft) {
+  if (!draft) return args;
+  const text = (value, fallback) => (String(value ?? "").trim() ? value : String(fallback ?? ""));
+  const items = (value, fallback) => (Array.isArray(value) && value.length ? value : Array.isArray(fallback) ? fallback : []);
+  return {
+    ...args,
+    topic: text(args.topic, draft.topic),
+    building: text(args.building, draft.building),
+    worked: items(args.worked, draft.worked),
+    failed: items(args.failed, draft.failed),
+    untried: items(args.untried, draft.untried),
+    files: items(args.files, draft.files),
+    decisions: items(args.decisions, draft.decisions),
+    blockers: items(args.blockers, draft.blockers),
+    next_step: text(args.next_step, draft.next_step),
+    environment: text(args.environment, draft.environment),
+    client: text(args.client, draft.client),
+    session_id: text(args.session_id, draft.session_id)
+  };
 }
 
 /**
@@ -75,13 +98,15 @@ export function createSessionTools(host) {
             next_step: { type: "string", description: "The single most important thing to do when resuming." },
             environment: { type: "string" },
             client: { type: "string", description: "claude-code, cursor, codex, ..." },
-            session_id: { type: "string" }
+            session_id: { type: "string" },
+            confirm_hook_draft: { type: "boolean", default: false, description: "Promote the unconfirmed draft the session-end hook captured: fields you leave out are taken from it, the saved record is marked confirmed, and the draft is dropped." },
+            draft_session_id: { type: "string", description: "Which draft to confirm (default: the newest). Only read when confirm_hook_draft is true." }
           }
         }
       },
       {
         name: "resume_session",
-        description: "Load the latest substantive session handoff for a repository (any of its worktrees, or a specific session id) and return a resume briefing: what not to retry, blockers, next step, open tasks, git state, context-pack freshness, and relevant learned instincts. Read-only.",
+        description: "Load the latest substantive session handoff for a repository (any of its worktrees, or a specific session id) and return a resume briefing: what not to retry, blockers, next step, open tasks, git state, context-pack freshness, and relevant learned instincts. Records the session-end hook distilled from a transcript come back flagged unconfirmed, with the caveat that their fields are heuristics. Read-only.",
         inputSchema: {
           type: "object",
           properties: {
@@ -109,6 +134,18 @@ export function createSessionTools(host) {
       async save_session(args) {
         const { identity, record } = await projectFor(args);
         const state = await host.captureProjectState(identity.project_root);
+        // Confirming a draft is what turns a hook capture into memory the next
+        // session may act on: the agent's fields win, the draft fills the rest,
+        // and the draft file goes away so nothing is offered as unconfirmed twice.
+        const draft = args.confirm_hook_draft
+          ? args.draft_session_id
+            ? await host.sessionStore.read(identity, args.draft_session_id)
+            : (await host.sessionStore.drafts(identity, { limit: 1 }))[0] ?? null
+          : null;
+        if (args.draft_session_id && draft && !isHookDraft(draft)) {
+          throw new Error(`Session ${draft.id} is not an unconfirmed hook draft.`);
+        }
+        const input = withDraft(args, draft);
         const saved = await host.sessionStore.save({
           repositoryId: identity.repository_id,
           projectId: identity.project_id,
@@ -117,20 +154,23 @@ export function createSessionTools(host) {
           taskId: record?.id || "",
           branch: state.branch || "",
           worktree: identity.project_root,
-          client: args.client,
-          sessionId: args.session_id,
+          client: input.client,
+          sessionId: input.session_id,
           source: "agent",
-          topic: args.topic,
-          building: args.building,
-          worked: args.worked,
-          failed: args.failed,
-          untried: args.untried,
-          files: args.files,
-          decisions: args.decisions,
-          blockers: args.blockers,
-          next_step: args.next_step,
-          environment: args.environment
+          confirmed: true,
+          confirmedFrom: draft?.id || "",
+          topic: input.topic,
+          building: input.building,
+          worked: input.worked,
+          failed: input.failed,
+          untried: input.untried,
+          files: input.files,
+          decisions: input.decisions,
+          blockers: input.blockers,
+          next_step: input.next_step,
+          environment: input.environment
         });
+        const discarded = draft ? await host.sessionStore.discardDraft(draft) : false;
         const handoffPath = await writeHandoffProjection(identity.project_root, saved.record);
         let checkpoint = null;
         if (record && record.status !== "complete") {
@@ -150,9 +190,12 @@ export function createSessionTools(host) {
           repository_id: identity.repository_id,
           markdown: renderHandoffMarkdown(saved.record),
           checkpoint,
-          next_step: saved.record.next_step
-            ? "Safe to compact or end the session; resume_session restores this handoff."
-            : "Record an exact next step so the next session does not have to rediscover it."
+          confirmed_draft: draft ? { id: draft.id, discarded } : null,
+          next_step: args.confirm_hook_draft && !draft
+            ? "No unconfirmed hook draft was found for this repository; the handoff was saved as written."
+            : saved.record.next_step
+              ? "Safe to compact or end the session; resume_session restores this handoff."
+              : "Record an exact next step so the next session does not have to rediscover it."
         };
       },
       async resume_session(args) {
@@ -163,6 +206,8 @@ export function createSessionTools(host) {
           ? await host.sessionStore.read(identity, args.session_id)
           : await host.sessionStore.latest(identity);
         const history = await host.sessionStore.list(identity, { limit: args.limit_history || 5 });
+        // Drafts the agent has not confirmed yet, minus the one it is reading.
+        const drafts = (await host.sessionStore.drafts(identity, { limit: 5 })).filter((item) => item.id !== record?.id);
         const tasks = (await host.taskStore.list({ projectPath: identity.project_root, limit: 20 }))
           .filter((task) => ["active", "verified"].includes(task.status));
         const state = await host.captureProjectState(identity.project_root);
@@ -189,12 +234,14 @@ export function createSessionTools(host) {
           repository_id: identity.repository_id,
           project_path: identity.project_root,
           session: record,
-          history: history.map((item) => ({ id: item.id, saved_at: item.saved_at, topic: item.topic, task_id: item.task_id, substance_score: item.substance_score })),
+          unconfirmed: isHookDraft(record),
+          hook_drafts: drafts.map((item) => ({ id: item.id, saved_at: item.saved_at, topic: item.topic, captured_by: item.captured_by || "" })),
+          history: history.map((item) => ({ id: item.id, saved_at: item.saved_at, topic: item.topic, task_id: item.task_id, substance_score: item.substance_score, unconfirmed: isHookDraft(item) })),
           open_tasks: tasks.map((task) => ({ id: task.id, status: task.status, task: task.task, plan_required: Boolean(task.plan_policy?.plan_required), plan_recorded: Boolean(task.plan) })),
           git: { branch: state.branch || "", dirty: Boolean(state.dirty), dirty_files: state.dirty_files ?? [] },
           context_pack: freshness,
           handoff_path: HANDOFF_RELATIVE_PATH,
-          briefing: renderResumeBriefing({ record, tasks, git: state, freshness, instincts })
+          briefing: renderResumeBriefing({ record, tasks, git: state, freshness, instincts, drafts })
         };
       },
       async context_budget_status(args) {

@@ -6,8 +6,12 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  CURSOR_HOOKS_CONTRACT,
+  CURSOR_HOOKS_FORMATS,
+  CURSOR_HOOKS_FORMAT_VERSION,
   agentHooksStatus,
   claudeHookEntries,
+  cursorHookWarnings,
   cursorHooksDocument,
   defaultPolicy,
   installAgentHooks,
@@ -16,7 +20,9 @@ import {
   renderHookPatterns
 } from "./agent-hooks.mjs";
 
-const hooksSourceDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "hooks");
+const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const hooksSourceDir = path.join(serverRoot, "hooks");
+const fixturesDir = path.join(serverRoot, "test", "fixtures");
 
 function runGit(cwd, args) {
   const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", windowsHide: true, shell: false });
@@ -138,6 +144,61 @@ test("pure helpers: patterns, entries, merges", () => {
   assert.equal(cursorMerged.hooks.stop.length, 2);
 });
 
+test("the Cursor adapter is pinned to a checked hooks.json format version", () => {
+  // Checked 2026-09-10 against Cursor's hooks reference and two independent
+  // transcriptions of the same contract (see CURSOR_HOOKS_CONTRACT.sources):
+  // Cursor 3.x still reads `"version": 1`. When that stops being true, add a
+  // builder for the new version — do not edit the version-1 one — and move
+  // these expectations onto it.
+  assert.equal(CURSOR_HOOKS_FORMAT_VERSION, 1);
+  assert.equal(CURSOR_HOOKS_CONTRACT.verified_on, "2026-09-10");
+  assert.deepEqual(CURSOR_HOOKS_FORMATS, [1]);
+
+  const document = cursorHooksDocument("standard");
+  assert.equal(document.version, 1);
+  // Every event we register is one Cursor names, spelled Cursor's way.
+  assert.deepEqual(Object.keys(document.hooks).sort(), Object.keys(CURSOR_HOOKS_CONTRACT.events).sort());
+  assert.deepEqual(Object.keys(cursorHooksDocument("minimal").hooks).sort(), ["beforeShellExecution", "preCompact", "sessionEnd"]);
+  assert.deepEqual(cursorHooksDocument("weird").hooks, document.hooks, "an unknown profile falls back to standard");
+  assert.throws(() => cursorHooksDocument("standard", { version: 2 }), /Unknown \.cursor\/hooks\.json format version: 2\. Known: 1/);
+
+  // The document is stamped with the version our entries speak, and what the
+  // merge cannot decide comes back as a warning instead of a silent rewrite.
+  const foreign = { version: 2, hooks: { beforeShellExecution: [{ command: "node theirs.js" }] } };
+  assert.equal(mergeCursorHooks(foreign, document).version, 1);
+  assert.equal(mergeCursorHooks(foreign, document).hooks.beforeShellExecution[0].command, "node theirs.js");
+  const warnings = cursorHookWarnings(foreign, document);
+  assert.equal(warnings.length, 2);
+  assert.match(warnings[0], /declared format version 2/);
+  assert.match(warnings[1], /beforeShellExecution already lists 1 foreign hook/);
+  assert.deepEqual(cursorHookWarnings(null, document), []);
+  assert.deepEqual(cursorHookWarnings({ version: 1, hooks: {} }, document), []);
+});
+
+test("installing for Cursor records the format version and reports what it could not decide", async (t) => {
+  const { projectRoot } = await fixture(t);
+  await fs.mkdir(path.join(projectRoot, ".cursor"), { recursive: true });
+  await fs.writeFile(path.join(projectRoot, ".cursor", "hooks.json"), JSON.stringify({
+    version: 1,
+    hooks: { beforeShellExecution: [{ command: "node audit.js" }] }
+  }, null, 2));
+
+  const result = await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["cursor"], profile: "standard" });
+  assert.equal(result.cursor_format_version, 1);
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0], /Cursor runs the first entry of an event/);
+  const document = JSON.parse(await fs.readFile(path.join(projectRoot, ".cursor", "hooks.json"), "utf8"));
+  assert.equal(document.version, 1);
+  assert.equal(document.hooks.beforeShellExecution[0].command, "node audit.js");
+  assert.equal(document.hooks.beforeShellExecution[1].command, "node .ai-dev/hooks/guard.mjs bash --cursor");
+
+  const status = await agentHooksStatus(projectRoot);
+  assert.equal(status.cursor_format_version, 1);
+  assert.equal(status.cursor_format_supported, true);
+  assert.equal(status.cursor_contract.version, 1);
+  await assert.rejects(installAgentHooks({ projectRoot, hooksSourceDir, targets: ["cursor"], cursorFormatVersion: 9 }), /Unknown \.cursor\/hooks\.json format version: 9/);
+});
+
 test("guard hook blocks hook bypasses, destructive commands, secret files, config weakening, and policy rules", async (t) => {
   const { projectRoot } = await fixture(t);
   await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], profile: "standard" });
@@ -179,9 +240,14 @@ test("guard hook blocks hook bypasses, destructive commands, secret files, confi
 
   const disabled = runHook(projectRoot, "guard.mjs", ["bash"], { tool_input: { command: "rm -rf x" } }, { AI_DEV_HOOKS_ENABLED: "false" });
   assert.equal(disabled.status, 0);
+  // Cursor blocks on the response body, not the exit code, so the shape of that
+  // body is part of the contract this adapter is pinned to.
   const cursorDeny = spawnSync(process.execPath, [path.join(projectRoot, ".ai-dev", "hooks", "guard.mjs"), "bash", "--cursor"], { cwd: projectRoot, input: JSON.stringify({ command: "rm -rf x" }), encoding: "utf8" });
   assert.equal(cursorDeny.status, 0);
   assert.match(cursorDeny.stdout, /"permission":"deny"/);
+  const denied = JSON.parse(cursorDeny.stdout);
+  assert.equal(denied.permission, "deny");
+  assert.deepEqual(Object.keys(denied).sort(), [...CURSOR_HOOKS_CONTRACT.deny_response].sort());
 });
 
 test("session hooks capture transcripts, inject handoffs and instincts, and advise compaction", async (t) => {
@@ -204,6 +270,7 @@ test("session hooks capture transcripts, inject handoffs and instincts, and advi
   const [projectDir] = await fs.readdir(sessionsDir);
   const record = JSON.parse(await fs.readFile(path.join(sessionsDir, projectDir, "hook-abc123.json"), "utf8"));
   assert.equal(record.source, "hook");
+  assert.equal(record.confirmed, false, "a transcript capture is a draft until an agent confirms it");
   assert.equal(record.topic, "Add login validation");
   assert.deepEqual(record.files.map((file) => file.path), ["src/login.js"]);
 
@@ -222,6 +289,9 @@ test("session hooks capture transcripts, inject handoffs and instincts, and advi
   assert.equal(started.status, 0);
   const context = JSON.parse(started.stdout).hookSpecificOutput.additionalContext;
   assert.match(context, /HISTORICAL REFERENCE ONLY/);
+  // The injected handoff is that draft, so the caveat travels with it.
+  assert.match(context, /UNCONFIRMED HOOK DRAFT \(session-hook-abc123\)/);
+  assert.match(context, /confirm it with save_session\(confirm_hook_draft: true\)/);
   assert.match(context, /Add login validation/);
   assert.match(context, /task-20260101T000000-abcdef12 \[active\] Finish login/);
   assert.match(context, /use table-driven cases/);
@@ -240,6 +310,61 @@ test("session hooks capture transcripts, inject handoffs and instincts, and advi
   assert.match(stop.stderr, /Task task-20260101T000000-abcdef12 is active/);
   const formatted = runHook(projectRoot, "post-edit.mjs", [], { tool_input: { file_path: "src.js" } });
   assert.equal(formatted.status, 0);
+});
+
+test("the compact advisor reads the newest assistant usage out of a real transcript", async () => {
+  const { COMPACT_DEFAULTS, compactSettings, contextThresholdFor, contextWindowFor, latestAssistantUsage } = await import("../../hooks/lib.mjs");
+  const transcript = path.join(fixturesDir, "claude-transcript.jsonl");
+
+  // The fixture ends with a tool result and a subagent turn; the usage that
+  // describes this session's context is the last non-sidechain assistant one.
+  const usage = latestAssistantUsage(transcript);
+  assert.deepEqual(usage, { tokens: 170_000, model: "claude-sonnet-5", output_tokens: 412 });
+  assert.equal(latestAssistantUsage(path.join(fixturesDir, "does-not-exist.jsonl")), null);
+  assert.equal(latestAssistantUsage(""), null);
+  // Only the tail is read, and the line it starts mid-way through is dropped
+  // rather than parsed as a truncated record.
+  assert.equal(latestAssistantUsage(transcript, 1024), null);
+
+  // Every threshold is policy-driven; the defaults are the ECC ones.
+  const defaults = compactSettings({});
+  assert.equal(defaults.tool_threshold, COMPACT_DEFAULTS.tool_threshold);
+  assert.equal(contextThresholdFor(defaults, contextWindowFor(usage.model, usage.tokens)), 160_000);
+  assert.equal(contextWindowFor(usage.model, usage.tokens), 200_000);
+  assert.equal(contextWindowFor("claude-opus-5[1m]", 40_000), 1_000_000);
+  assert.equal(contextThresholdFor(defaults, contextWindowFor("claude-opus-5[1m]", 40_000)), 250_000);
+  assert.equal(contextWindowFor("claude-sonnet-5", 640_000), 1_000_000, "a count no standard window holds implies the large one");
+
+  const tuned = compactSettings({ compact_tool_threshold: 10, compact_tool_interval: 5, compact_context_thresholds: { standard: 120_000 }, compact_context_window: 300_000, compact_context_interval: 10_000 });
+  assert.equal(tuned.tool_threshold, 10);
+  assert.equal(tuned.tool_interval, 5);
+  assert.equal(tuned.context_window, 300_000);
+  assert.equal(contextThresholdFor(tuned, contextWindowFor(usage.model, usage.tokens, tuned.context_window)), 120_000);
+  assert.equal(tuned.context_thresholds.large, COMPACT_DEFAULTS.context_thresholds.large, "an unset half keeps its default");
+  assert.equal(contextThresholdFor(compactSettings({ compact_context_threshold: 90_000 }), 200_000), 90_000, "an absolute threshold wins over the window");
+  // Nonsense in policy.json must not silence the advisor.
+  assert.deepEqual(compactSettings({ compact_tool_threshold: "soon", compact_context_interval: -5 }), defaults);
+});
+
+test("compaction advice follows the thresholds in policy.json", async (t) => {
+  const { projectRoot } = await fixture(t);
+  await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], profile: "standard" });
+  const policyPath = path.join(projectRoot, ".ai-dev", "policy.json");
+  const policy = JSON.parse(await fs.readFile(policyPath, "utf8"));
+  await fs.writeFile(policyPath, JSON.stringify({ ...policy, compact_context_threshold: 200_000, compact_tool_threshold: 2 }, null, 2));
+  const transcript = path.join(fixturesDir, "claude-transcript.jsonl");
+  const sessionId = `policy${process.pid}${Date.now()}`;
+  t.after(() => Promise.all([`ai-dev-context-bucket-${sessionId}`, `ai-dev-tool-count-${sessionId}`].map((name) => fs.rm(path.join(os.tmpdir(), name), { force: true }))));
+  const advise = () => runHook(projectRoot, "compact-advisor.mjs", [], { session_id: sessionId, transcript_path: transcript, tool_input: { file_path: "x" } });
+
+  // 170k of context is under the 200k this project asked for.
+  const quiet = advise();
+  assert.doesNotMatch(quiet.stdout, /Context ~/);
+  // ...but the tool counter is set to 2, so the second call advises on that.
+  assert.match(advise().stdout, /2 tool calls in this session/);
+
+  await fs.writeFile(policyPath, JSON.stringify({ ...policy, compact_context_threshold: 100_000 }, null, 2));
+  assert.match(advise().stdout, /Context ~170k tokens \(85% of 200k\)/);
 });
 
 test("hook memory is keyed by repository, so a worktree capture reaches the main checkout", async (t) => {

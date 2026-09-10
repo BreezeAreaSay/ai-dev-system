@@ -78,6 +78,77 @@ test("session tools save a handoff, resume with a briefing, and estimate the bud
   await assert.rejects(registry.handlers.get("save_session")({ topic: "x" }), /project_path or task_id is required/);
 });
 
+test("resume flags an unconfirmed hook draft; save_session confirms it into a real handoff", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "session-tools-draft-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const projectRoot = path.join(root, "project");
+  await fs.mkdir(projectRoot, { recursive: true });
+  const stateRoot = path.join(root, "state");
+  const sessionStore = new SessionStore({ stateRoot });
+  const host = {
+    taskStore: { read: async () => { throw new Error("no task"); }, list: async () => [], checkpoint: async () => ({}) },
+    sessionStore,
+    resolveProjectIdentity: async (projectPath) => ({ project_root: projectPath, project_id: "project-draft" }),
+    captureProjectState: async () => ({ branch: "main", dirty: false, dirty_files: [] })
+  };
+  const registry = createExtensionTools(host, [createSessionTools]);
+
+  // Written by the session-end hook, not by an agent.
+  const draftPath = path.join(stateRoot, "sessions", "project-draft", "hook-abc.json");
+  await fs.mkdir(path.dirname(draftPath), { recursive: true });
+  await fs.writeFile(draftPath, JSON.stringify({
+    id: "session-hook-abc",
+    saved_at: "2026-01-04T00:00:00.000Z",
+    project_id: "project-draft",
+    project_path: projectRoot,
+    source: "hook",
+    confirmed: false,
+    captured_by: "pre-compact",
+    topic: "Rate limit the public API",
+    building: "Requests in this session (2):\n- Rate limit the public API\n- Exclude the health check",
+    files: [{ path: "src/middleware.ts", status: "in_progress", notes: "touched this session (hook capture)" }],
+    next_step: ""
+  }, null, 2));
+
+  const resumed = await registry.handlers.get("resume_session")({ project_path: projectRoot });
+  assert.equal(resumed.session.id, "session-hook-abc");
+  assert.equal(resumed.unconfirmed, true);
+  assert.equal(resumed.history[0].unconfirmed, true);
+  assert.deepEqual(resumed.hook_drafts, [], "the draft being read is not also listed as pending");
+  assert.match(resumed.briefing, /UNCONFIRMED HOOK DRAFT \(session-hook-abc\) — the PreCompact hook distilled this/);
+
+  // Confirming keeps what the agent knows and fills the rest from the draft.
+  const confirmed = await registry.handlers.get("save_session")({
+    project_path: projectRoot,
+    confirm_hook_draft: true,
+    next_step: "Wire the limiter in server.ts and run the contract tests."
+  });
+  assert.deepEqual(confirmed.confirmed_draft, { id: "session-hook-abc", discarded: true });
+  assert.equal(await fs.access(draftPath).then(() => true, () => false), false);
+  assert.match(confirmed.markdown, /Rate limit the public API/);
+  assert.match(confirmed.markdown, /src\/middleware\.ts/);
+
+  const after = await registry.handlers.get("resume_session")({ project_path: projectRoot });
+  assert.equal(after.session.id, confirmed.session_id);
+  assert.equal(after.unconfirmed, false);
+  assert.equal(after.session.confirmed_from, "session-hook-abc");
+  assert.deepEqual(after.hook_drafts, []);
+  assert.match(after.briefing, /Wire the limiter in server\.ts/);
+  assert.doesNotMatch(after.briefing, /UNCONFIRMED/);
+
+  // Nothing left to confirm: the handoff is still saved, and says so.
+  const nothing = await registry.handlers.get("save_session")({
+    project_path: projectRoot,
+    confirm_hook_draft: true,
+    building: "Second pass over the limiter, this time with the health check excluded.",
+    next_step: "Add the exclusion test."
+  });
+  assert.equal(nothing.confirmed_draft, null);
+  assert.match(nothing.next_step, /No unconfirmed hook draft was found/);
+  await assert.rejects(registry.handlers.get("save_session")({ project_path: projectRoot, confirm_hook_draft: true, draft_session_id: "session-hook-gone", topic: "x" }), /Unknown session/);
+  await assert.rejects(registry.handlers.get("save_session")({ project_path: projectRoot, confirm_hook_draft: true, draft_session_id: confirmed.session_id, topic: "x" }), /is not an unconfirmed hook draft/);
+});
+
 test("a handoff saved in a task worktree resumes from the main checkout", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "session-tools-worktree-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

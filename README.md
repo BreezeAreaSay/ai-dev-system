@@ -354,6 +354,12 @@ the last handoff and open tasks at session start, distil the transcript into a
 session record at session end, and advise on compaction. Any hook error exits
 zero, so a broken hook never wedges the agent.
 
+What the session-end hook captures is a draft, not a handoff: its fields are
+heuristics over the transcript, so `resume_session` shows such a record flagged
+unconfirmed, and `save_session` with `confirm_hook_draft: true` is what turns it
+into a real one — your fields win, the draft fills the rest, and the draft is
+dropped.
+
 Three profiles:
 
 - `minimal` — the command and file guard plus session capture. Nothing else runs.

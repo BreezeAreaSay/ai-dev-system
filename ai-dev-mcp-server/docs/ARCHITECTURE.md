@@ -102,25 +102,43 @@ Providers must be cheap, read-only, and must not throw. A provider that fails is
 
 `hooks/*.mjs` are not part of the server process. `install_agent_hooks` copies them into
 `<project>/.ai-dev/hooks/` and registers them with the agent — `.claude/settings.json` for Claude
-Code, `.cursor/hooks.json` (version 1) for Cursor — merging into whatever is already there and
+Code, `.cursor/hooks.json` for Cursor — merging into whatever is already there and
 replacing only previous AI Dev entries. The agent then spawns each script per event, with the event
 JSON on stdin.
+
+The Cursor side is a versioned adapter: `CURSOR_HOOKS_CONTRACT` (in `core/agent-hooks.mjs`) pins the
+`hooks.json` format version, the event names, the deny-response shape, the date all three were last
+checked, and the sources they were checked against; `cursorHooksDocument(profile, { version })`
+picks a builder per format version and refuses an unknown one, so a new Cursor format gets its own
+builder rather than a rewrite of the current one. What the merge cannot decide comes back as
+`warnings` from `install_agent_hooks` — a file that declares another format version, and events
+where a foreign hook sits ahead of ours, since Cursor runs the first entry of an event.
 
 | Script | Event | What it does |
 | --- | --- | --- |
 | `guard.mjs bash` | PreToolUse (Bash) | Blocks git-hook bypasses, destructive and publishing commands, and policy `block` rules. |
 | `guard.mjs file` | PreToolUse (Write/Edit) | Blocks secret-bearing paths, secrets in new content, and weakened linter or protected configuration. |
-| `compact-advisor.mjs` | PreToolUse (Edit/Write) | Suggests `/compact` from real context size in the transcript plus a per-session tool-call count. Never blocks. |
+| `compact-advisor.mjs` | PreToolUse (Edit/Write) | Suggests `/compact` from real context size — the `usage` of the newest assistant message in the transcript — plus a per-session tool-call count. Never blocks. |
 | `post-edit.mjs` | PostToolUse | Formats the edited file with the project's own formatter when one is installed locally — never installs anything, never uses `npx`. |
 | `session-start.mjs` | SessionStart | Injects the last handoff, open tasks, high-confidence instincts, and the installed rules index into the first turn. |
-| `session-end.mjs` | Stop, PreCompact | Distils the transcript into a session record for `resume_session`. |
+| `session-end.mjs` | Stop, PreCompact | Distils the transcript into an unconfirmed draft record (`confirmed: false`) for `resume_session`. |
 | `stop-check.mjs` | Stop | Cheap checks on git-modified files: leftover `console.log`/`debugger`, secrets, and a `verify_task` reminder while a task is active with uncommitted changes. |
 
 `.ai-dev/policy.json` is the knob: a `profile` (`minimal` — guard and session capture only,
-`standard`, `strict`), `allow_config_edits`, `format_on_edit`, the compaction thresholds, and a list
+`standard`, `strict`), `allow_config_edits`, `format_on_edit`, the compaction thresholds
+(`compact_tool_threshold`, `compact_tool_interval`, `compact_context_threshold` — absolute, `0`
+derives it from the window — `compact_context_thresholds.standard` / `.large`,
+`compact_context_window`, `compact_context_interval`), and a list
 of hookify-style `rules` (`{ id, event, pattern, action, message }`) that add project-specific
 `block` or `warn` patterns without touching the scripts. Hooks fail open: any error exits 0 so a
 broken hook never wedges the agent.
+
+What `session-end` writes is a draft, not a handoff: the fields come from heuristics over the
+transcript, so the record carries `confirmed: false` and every reader shows it with that caveat —
+`resume_session` (`unconfirmed: true`, plus the drafts still pending) and the `session-start`
+context injection. `save_session` with `confirm_hook_draft: true` promotes one: the agent's own
+fields win, the draft fills the rest, the saved record is marked `confirmed` with `confirmed_from`,
+and the draft file is removed.
 
 ### State roots
 
@@ -130,7 +148,8 @@ runtime state rather than knowledge:
 ```text
 ${AI_DEV_HOME}/state/
   tasks/<task-id>.json      task records (authoritative lifecycle state)
-  sessions/<repository-id>/ session handoffs, one file per save; hook-<id>.json is a hook capture
+  sessions/<repository-id>/ session handoffs, one file per save; hook-<id>.json is an unconfirmed
+                            hook capture until save_session(confirm_hook_draft) promotes it
   instincts.json            learned preferences with confidence and decay
   usage/events.jsonl        tool-call and token/cost ledger, pruned by size
   skill-outcomes.json       verification-bound routing outcomes

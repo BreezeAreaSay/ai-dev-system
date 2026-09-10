@@ -201,8 +201,12 @@ export async function runProcess({
   timeout.unref?.();
 
   const result = await new Promise((resolve, reject) => {
+    let exitInfo = { exitCode: null, signal: null };
     child.once("error", reject);
-    child.once("exit", (exitCode, signal) => resolve({ exitCode, signal }));
+    child.once("exit", (exitCode, signal) => { exitInfo = { exitCode, signal }; });
+    // Resolve on `close` (all stdio drained), not `exit`, so a fast-exiting
+    // child's output is never lost.
+    child.once("close", () => resolve(exitInfo));
   }).finally(() => clearTimeout(timeout));
 
   return {

@@ -1,6 +1,16 @@
 import crypto from "node:crypto";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import { runProcess } from "./process-runner.mjs";
+
+const SKIP_DIRS = new Set([
+  "node_modules", ".git", "dist", "build", "out", "coverage",
+  ".next", ".nuxt", ".svelte-kit", ".turbo", ".cache",
+  ".venv", "venv", "__pycache__", ".pytest_cache", ".mypy_cache", "target"
+]);
+const DIRTY_CONTENT_MAX_FILES = 500;
+const DIRTY_CONTENT_MAX_BYTES = 5 * 1024 * 1024;
+const FILESYSTEM_WALK_MAX_FILES = 2000;
 
 function hash(value) {
   return crypto.createHash("sha256").update(String(value)).digest("hex");
@@ -21,23 +31,131 @@ async function git(projectRoot, args) {
 }
 
 /**
+ * A git porcelain path can be quoted and, for renames/copies, carry an
+ * `orig -> new` pair. Return the on-disk path that matters (the destination).
+ */
+function porcelainWorkingPath(entry) {
+  let raw = String(entry).trim();
+  const arrow = raw.indexOf(" -> ");
+  if (arrow >= 0) raw = raw.slice(arrow + 4);
+  if (raw.startsWith("\"") && raw.endsWith("\"")) raw = raw.slice(1, -1);
+  return raw;
+}
+
+/**
+ * Hash the *contents* of a fixed set of working-tree paths so that editing an
+ * already-dirty (or untracked) file changes the fingerprint even though
+ * `git status` output does not.
+ */
+async function hashFileSet(root, relativePaths) {
+  const digest = crypto.createHash("sha256");
+  const ordered = [...new Set(relativePaths.map(porcelainWorkingPath).filter(Boolean))].sort();
+  const truncated = ordered.length > DIRTY_CONTENT_MAX_FILES;
+  for (const relative of ordered.slice(0, DIRTY_CONTENT_MAX_FILES)) {
+    const absolute = path.join(root, relative);
+    let stat;
+    try {
+      stat = await fsp.lstat(absolute);
+    } catch {
+      digest.update(`${relative}\0missing\n`);
+      continue;
+    }
+    if (stat.isDirectory()) {
+      digest.update(`${relative}\0dir\n`);
+      continue;
+    }
+    if (!stat.isFile()) {
+      digest.update(`${relative}\0special\n`);
+      continue;
+    }
+    digest.update(`${relative}\0${stat.size}\0`);
+    if (stat.size <= DIRTY_CONTENT_MAX_BYTES) {
+      try {
+        digest.update(await fsp.readFile(absolute));
+      } catch {
+        digest.update(`unreadable:${stat.mtimeMs}`);
+      }
+    } else {
+      digest.update(`large:${stat.mtimeMs}`);
+    }
+    digest.update("\n");
+  }
+  return { hash: digest.digest("hex"), truncated };
+}
+
+/**
+ * Bounded recursive fingerprint of a non-git directory: `path\0size\0mtime` for
+ * every file outside the usual build/vendor directories, so a plain edit still
+ * moves the fingerprint.
+ */
+async function filesystemFingerprint(root) {
+  const digest = crypto.createHash("sha256");
+  let count = 0;
+  let truncated = false;
+
+  async function walk(directory) {
+    if (truncated) return;
+    let entries;
+    try {
+      entries = await fsp.readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => a.name.localeCompare(b.name));
+    for (const entry of entries) {
+      if (truncated) return;
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (SKIP_DIRS.has(entry.name)) continue;
+        await walk(absolute);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      let stat;
+      try {
+        stat = await fsp.stat(absolute);
+      } catch {
+        continue;
+      }
+      const relative = path.relative(root, absolute).replaceAll(path.sep, "/");
+      digest.update(`${relative}\0${stat.size}\0${stat.mtimeMs}\n`);
+      count += 1;
+      if (count >= FILESYSTEM_WALK_MAX_FILES) {
+        truncated = true;
+        return;
+      }
+    }
+  }
+
+  await walk(root);
+  return { hash: digest.digest("hex"), count, truncated };
+}
+
+/**
  * Snapshot a project's verification state. For a git repo this is HEAD + branch
- * + full porcelain status, hashed into a `fingerprint` (strength `"strong"`);
- * for a non-git directory only the path is fingerprinted (strength `"weak"`).
+ * + full porcelain status + the contents of every dirty/untracked file, hashed
+ * into a `fingerprint`. For a non-git directory it is a bounded recursive
+ * `path/size/mtime` walk. Strength is `"strong"` for a complete git snapshot,
+ * `"medium"` when the file set was truncated or the directory is non-git, and
+ * `"weak"` only when nothing could be fingerprinted.
  *
  * @param {string} projectRoot - Repository or directory path.
- * @returns {Promise<{ kind: "git" | "filesystem", project_root: string, git: boolean, head?: string, branch?: string, dirty?: boolean, dirty_files?: string[], status_hash?: string, fingerprint: string, captured_at: string, strength: "strong" | "weak" }>}
+ * @returns {Promise<{ kind: "git" | "filesystem", project_root: string, git: boolean, head?: string, branch?: string, dirty?: boolean, dirty_files?: string[], status_hash?: string, content_hash?: string, file_count?: number, fingerprint: string, captured_at: string, strength: "strong" | "medium" | "weak" }>}
  */
 export async function captureProjectState(projectRoot) {
   const rootResult = await git(projectRoot, ["rev-parse", "--show-toplevel"]);
   if (!rootResult.ok) {
+    const resolvedRoot = path.resolve(projectRoot);
+    const walk = await filesystemFingerprint(resolvedRoot);
     return {
       kind: "filesystem",
-      project_root: path.resolve(projectRoot),
+      project_root: resolvedRoot,
       git: false,
-      fingerprint: hash(`filesystem:${path.resolve(projectRoot)}`),
+      file_count: walk.count,
+      content_hash: walk.hash,
+      fingerprint: hash(`filesystem:${resolvedRoot}\n${walk.hash}`),
       captured_at: new Date().toISOString(),
-      strength: "weak"
+      strength: walk.count > 0 ? "medium" : "weak"
     };
   }
   const gitRoot = rootResult.stdout.trim();
@@ -51,6 +169,7 @@ export async function captureProjectState(projectRoot) {
     ? statusText.split("\n").map((line) => line.slice(3).trim()).filter(Boolean)
     : [];
   const headValue = head.ok ? head.stdout.trim() : "";
+  const dirtyContent = await hashFileSet(gitRoot, dirtyFiles);
   return {
     kind: "git",
     project_root: gitRoot,
@@ -60,9 +179,10 @@ export async function captureProjectState(projectRoot) {
     dirty: dirtyFiles.length > 0,
     dirty_files: dirtyFiles,
     status_hash: hash(statusText),
-    fingerprint: hash(`${headValue}\n${statusText}`),
+    content_hash: dirtyContent.hash,
+    fingerprint: hash(`${headValue}\n${statusText}\n${dirtyContent.hash}`),
     captured_at: new Date().toISOString(),
-    strength: "strong"
+    strength: dirtyContent.truncated ? "medium" : "strong"
   };
 }
 

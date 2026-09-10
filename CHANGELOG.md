@@ -85,6 +85,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a new file. The async `resolveWithin` now raises a `PathPolicyError` (not a
   raw `ENOENT`) when a dangling link or a missing path is read.
 
+### Fixed
+
+- Completion evidence is now bound to file *contents*, not just `git status`
+  output: `captureProjectState` hashes every dirty/untracked file into the
+  fingerprint, so editing an already-dirty file after `verify_task` invalidates
+  the evidence. A non-git project directory now gets a real bounded
+  `path/size/mtime` fingerprint (strength `medium`) instead of a constant hash
+  of its path.
+- `complete_task` now honours **only the most recent** verification: it must
+  exist, must have passed, and must match the current project fingerprint. A
+  later failed run, an edit after the last passing run, or a second completion
+  of an already-complete task is refused with a specific message.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

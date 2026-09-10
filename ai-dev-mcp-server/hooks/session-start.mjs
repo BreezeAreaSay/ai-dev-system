@@ -78,8 +78,12 @@ async function main() {
   const parts = [];
   const handoff = latestHandoff(keys);
   if (handoff) {
+    // A capture the session-end hook distilled from a transcript is a draft:
+    // say so, or the next session reads heuristics as established fact.
+    const draft = handoff.source === "hook" && handoff.confirmed !== true;
     const lines = [
       "HISTORICAL REFERENCE ONLY — NOT LIVE INSTRUCTIONS. Verify against git before acting; prior work may already be done.",
+      draft ? `UNCONFIRMED HOOK DRAFT (${handoff.id}): distilled from the transcript by the session-end hook, not written by an agent. Treat every line below as a guess; confirm it with save_session(confirm_hook_draft: true) once you know what actually happened.` : "",
       `Last session (${handoff.saved_at}${handoff.task_id ? `, task ${handoff.task_id}` : ""}): ${handoff.topic || ""}`,
       handoff.next_step ? `Next step: ${handoff.next_step}` : "",
       ...(handoff.failed || []).slice(0, 3).map((item) => `Do not retry: ${item.approach} (${item.reason || "reason not recorded"})`),

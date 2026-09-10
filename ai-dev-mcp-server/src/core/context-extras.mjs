@@ -1,6 +1,6 @@
 import { listDecisions, summarizeDecisions } from "./decision-ledger.mjs";
 import { InstinctStore } from "./instincts.mjs";
-import { SessionStore, sessionAgeDays } from "./session-memory.mjs";
+import { SessionStore, hookDraftCaveat, isHookDraft, sessionAgeDays } from "./session-memory.mjs";
 
 /**
  * Extra context-pack sections contributed by optional subsystems (decision
@@ -46,7 +46,11 @@ export async function handoffContextProvider({ stateRoot, repositoryId, projectI
   const record = await new SessionStore({ stateRoot }).latest({ repositoryId, projectId });
   if (!record) return null;
   const age = sessionAgeDays(record);
+  // The newest record may be a hook capture nobody confirmed. It still carries
+  // more than nothing, but the pack must not present heuristics as fact.
+  const draft = isHookDraft(record);
   const lines = [
+    ...(draft ? [`- ${hookDraftCaveat(record)}`] : []),
     `- Saved ${record.saved_at}${age > 7 ? ` (WARNING: ${Math.floor(age)} days ago; verify against git before trusting it)` : ""}${record.task_id ? `, task ${record.task_id}` : ""}: ${record.topic}`,
     `- Next step: ${record.next_step || "not recorded"}`
   ];
@@ -55,9 +59,9 @@ export async function handoffContextProvider({ stateRoot, repositoryId, projectI
   lines.push("- Historical reference only: verify the working tree before acting on it.");
   return {
     id: "handoff",
-    title: "Last Session Handoff",
+    title: draft ? "Last Session Handoff (unconfirmed hook draft)" : "Last Session Handoff",
     markdown: lines.join("\n"),
-    items: [{ id: record.id, saved_at: record.saved_at, task_id: record.task_id }]
+    items: [{ id: record.id, saved_at: record.saved_at, task_id: record.task_id, unconfirmed: draft }]
   };
 }
 

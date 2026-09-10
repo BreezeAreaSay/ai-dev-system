@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   SessionStore,
   estimateContextBudget,
+  isHookDraft,
   normalizeSessionRecord,
   renderHandoffMarkdown,
   renderResumeBriefing,
@@ -93,6 +94,71 @@ test("session store saves, lists newest-first with substance filter, and writes 
   const projection = await writeHandoffProjection(root, real.record);
   assert.equal(projection, ".ai-dev/context/handoff.md");
   assert.match(await fs.readFile(path.join(root, ".ai-dev", "context", "handoff.md"), "utf8"), /Wire the cookie/);
+});
+
+test("hook captures are drafts: flagged, briefed with the caveat, and dropped once confirmed", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "session-memory-drafts-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const store = new SessionStore({ stateRoot: path.join(root, "state") });
+
+  // What the session-end hook writes: a transcript distillation nobody checked.
+  const draftPath = path.join(root, "state", "sessions", "project-a", "hook-abc.json");
+  await fs.mkdir(path.dirname(draftPath), { recursive: true });
+  await fs.writeFile(draftPath, JSON.stringify({
+    schema_version: 1,
+    id: "session-hook-abc",
+    saved_at: "2026-01-03T00:00:00.000Z",
+    project_id: "project-a",
+    project_path: root,
+    source: "hook",
+    confirmed: false,
+    captured_by: "stop",
+    topic: "Add login validation",
+    building: "Requests in this session (2):\n- Add login validation\n- Now add tests",
+    files: [{ path: "src/login.js", status: "in_progress", notes: "touched this session (hook capture)" }],
+    next_step: ""
+  }, null, 2));
+
+  assert.equal(isHookDraft({ source: "hook" }), true, "a capture from before the flag existed is a draft too");
+  assert.equal(isHookDraft({ source: "hook", confirmed: true }), false);
+  assert.equal(isHookDraft({ source: "agent" }), false);
+  assert.equal(isHookDraft(null), false);
+
+  const [draft] = await store.drafts("project-a");
+  assert.equal(draft.id, "session-hook-abc");
+  assert.equal(draft.unconfirmed, true);
+  // A draft can still be the newest thing there is, so resume shows it — with
+  // the caveat, and without inventing a next step it cannot know.
+  const briefing = renderResumeBriefing({ record: draft, now: "2026-01-03T01:00:00.000Z" });
+  assert.match(briefing, /SESSION DRAFT:/);
+  assert.match(briefing, /UNCONFIRMED HOOK DRAFT \(session-hook-abc\) — the Stop hook distilled this from the transcript/);
+  assert.match(briefing, /NEXT STEP:\nNone recorded — the hook cannot know it/);
+  assert.match(briefing, /This is a draft, not a handoff\./);
+
+  // Other drafts are listed so the agent knows what is waiting to be confirmed.
+  const listed = renderResumeBriefing({ record: null, drafts: [draft] });
+  assert.match(listed, /UNCONFIRMED HOOK DRAFTS \(not handoffs; confirm or ignore\):\n- session-hook-abc \(2026-01-03T00:00:00.000Z\) Add login validation/);
+
+  const confirmed = await store.save({
+    projectId: "project-a",
+    projectPath: root,
+    topic: draft.topic,
+    building: draft.building,
+    next_step: "Add the negative-path tests for the login validator.",
+    confirmedFrom: draft.id,
+    now: "2026-01-03T02:00:00.000Z"
+  });
+  assert.equal(confirmed.record.confirmed, true, "agent-written records are confirmed by definition");
+  assert.equal(confirmed.record.confirmed_from, "session-hook-abc");
+  assert.equal(isHookDraft(confirmed.record), false);
+  assert.doesNotMatch(renderResumeBriefing({ record: confirmed.record, now: "2026-01-03T02:00:00.000Z" }), /UNCONFIRMED/);
+
+  assert.equal(await store.discardDraft(draft), true);
+  assert.deepEqual(await store.drafts("project-a"), []);
+  assert.equal(await fs.access(draftPath).then(() => true, () => false), false);
+  assert.equal(await store.discardDraft(draft), false, "discarding twice is a no-op");
+  assert.equal(await store.discardDraft(confirmed.record), false, "a real handoff is never discarded as a draft");
+  assert.equal(await store.discardDraft({ source: "hook", path: path.join(root, "elsewhere.json") }), false, "only files under the sessions tree");
 });
 
 test("handoffs are keyed by repository, so a worktree and its main checkout share one memory", async (t) => {

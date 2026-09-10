@@ -22,8 +22,16 @@ export function defaultPolicy(profile = "standard") {
     profile: HOOK_PROFILES.includes(profile) ? profile : "standard",
     allow_config_edits: false,
     format_on_edit: true,
+    // compact-advisor knobs. The context signal is the newest assistant usage
+    // record in the transcript; `compact_context_threshold` pins the token
+    // count to advise at, 0 derives it from the window (detected, or pinned
+    // with `compact_context_window`). `compact_context_interval` is how many
+    // tokens must pass before the same advice repeats.
     compact_tool_threshold: 50,
+    compact_tool_interval: 25,
     compact_context_threshold: 0,
+    compact_context_thresholds: { standard: 160000, large: 250000 },
+    compact_context_window: 0,
     compact_context_interval: 60000,
     allow_commands: [],
     rules: [
@@ -102,13 +110,71 @@ export function claudeHookEntries(profile = "standard") {
   return hooks;
 }
 
+/** The `.cursor/hooks.json` format this adapter writes by default. */
+export const CURSOR_HOOKS_FORMAT_VERSION = 1;
+
 /**
- * Cursor hook registrations (`.cursor/hooks.json`, version 1).
+ * The Cursor hooks contract this adapter targets.
  *
- * @param {string} profile
- * @returns {object}
+ * `verified_on` is the date the document version, the event names, and the
+ * blocking response shape below were reconstructed from secondary sources
+ * (`sources`), not from a live Cursor or from cursor.com, which the sandbox this
+ * ran in cannot reach. Confidence is not uniform, so `verification` records it
+ * claim by claim: `"version": 1` and the deny shape are corroborated, the event
+ * names are NOT. The published schema of the source package allows six events
+ * (afterFileEdit, beforeMCPExecution, beforeReadFile, beforeShellExecution,
+ * beforeSubmitPrompt, stop) with `additionalProperties: false`, and never
+ * mentions sessionStart, sessionEnd or preCompact — the three this adapter
+ * writes for session memory. Either that package lags Cursor 3.x, or those
+ * three registrations are inert and Cursor-side session memory does not run.
+ * Settle it against a real Cursor before trusting the memory story there.
+ * When the format does move, add a builder to {@link CURSOR_HOOKS_BUILDERS} for
+ * the new version and pin it here — do not rewrite the version-1 one, since
+ * projects running an older Cursor still read what it writes.
  */
-export function cursorHooksDocument(profile = "standard") {
+export const CURSOR_HOOKS_CONTRACT = {
+  version: CURSOR_HOOKS_FORMAT_VERSION,
+  verified_on: "2026-09-10",
+  // Per claim, because the check could not reach Cursor itself:
+  //   corroborated  - two independent secondary sources agree
+  //   unverified    - asserted by the port this came from, contradicted or
+  //                   simply absent in the sources that could be read
+  verification: {
+    version: "corroborated",
+    deny_response: "corroborated",
+    events: "unverified: sessionStart, sessionEnd and preCompact appear in no readable source; the cursor-hooks schema lists six events and forbids the rest",
+    limits: "unverified: none of the readable sources state the first-entry-wins rule or the cloud-agent restriction"
+  },
+  sources: [
+    "https://cursor.com/docs/hooks",
+    "https://github.com/johnlindquist/cursor-hooks",
+    "https://github.com/affaan-m/ECC/issues/2419"
+  ],
+  // Cursor event -> the Claude Code event the same script is registered on.
+  events: {
+    beforeShellExecution: "PreToolUse:Bash",
+    afterFileEdit: "PostToolUse:Write|Edit|MultiEdit",
+    // UNVERIFIED: absent from the cursor-hooks schema, which forbids unknown
+    // keys. If Cursor really lacks them, session memory never runs there and
+    // the capture belongs on `stop`, which is a documented event.
+    sessionStart: "SessionStart",
+    sessionEnd: "Stop (transcript capture)",
+    preCompact: "PreCompact",
+    stop: "Stop (open-work checks)"
+  },
+  // Only these answer with a permission decision; the rest are notifications
+  // whose stdout Cursor ignores.
+  blocking_events: ["beforeShellExecution"],
+  deny_response: ["permission", "userMessage", "agentMessage"],
+  limits: [
+    "UNVERIFIED: Cursor is said to run the first entry registered for an event, so a foreign hook ahead of ours would shadow it. The warning this raises is cheap either way.",
+    "Cursor has no before-write event in this format: the file guard (guard.mjs file) stays Claude Code only.",
+    "Cursor payloads carry conversation_id, not transcript_path, so session-end captures nothing there until they do.",
+    "UNVERIFIED: cloud agents are said to receive neither sessionStart/sessionEnd nor stop, leaving only command hooks."
+  ]
+};
+
+function cursorHooksV1(profile) {
   const full = profile !== "minimal";
   const entry = (script, ...args) => ({ command: ["node", `${HOOKS_RELATIVE_DIR}/${script}`, ...args, "--cursor"].join(" ") });
   const hooks = {
@@ -122,6 +188,25 @@ export function cursorHooksDocument(profile = "standard") {
     hooks.stop = [entry("stop-check.mjs")];
   }
   return { version: 1, hooks };
+}
+
+/** One builder per `.cursor/hooks.json` format version. */
+const CURSOR_HOOKS_BUILDERS = new Map([[1, cursorHooksV1]]);
+
+export const CURSOR_HOOKS_FORMATS = [...CURSOR_HOOKS_BUILDERS.keys()];
+
+/**
+ * Cursor hook registrations for a profile, in a given `.cursor/hooks.json`
+ * format version.
+ *
+ * @param {string} profile
+ * @param {{ version?: number }} [options]
+ * @returns {object}
+ */
+export function cursorHooksDocument(profile = "standard", { version = CURSOR_HOOKS_FORMAT_VERSION } = {}) {
+  const build = CURSOR_HOOKS_BUILDERS.get(Number(version));
+  if (!build) throw new Error(`Unknown .cursor/hooks.json format version: ${version}. Known: ${CURSOR_HOOKS_FORMATS.join(", ")}`);
+  return build(HOOK_PROFILES.includes(profile) ? profile : "standard");
 }
 
 function isOurs(entry) {
@@ -152,14 +237,16 @@ export function mergeClaudeSettings(current, entries) {
 }
 
 /**
- * Merge our registrations into an existing Cursor hooks document.
+ * Merge our registrations into an existing Cursor hooks document. Foreign
+ * entries keep their place; the document is stamped with the format version we
+ * generated for, since that is what our entries speak.
  *
  * @param {object} current
  * @param {object} ours - From {@link cursorHooksDocument}.
  * @returns {object}
  */
 export function mergeCursorHooks(current, ours) {
-  const document = current && typeof current === "object" && !Array.isArray(current) ? structuredClone(current) : { version: 1 };
+  const document = current && typeof current === "object" && !Array.isArray(current) ? structuredClone(current) : {};
   const hooks = document.hooks && typeof document.hooks === "object" ? { ...document.hooks } : {};
   for (const event of Object.keys(hooks)) {
     if (Array.isArray(hooks[event])) hooks[event] = hooks[event].filter((entry) => !isOurs(entry));
@@ -168,7 +255,31 @@ export function mergeCursorHooks(current, ours) {
   for (const [event, list] of Object.entries(ours.hooks)) {
     hooks[event] = [...(hooks[event] ?? []), ...list];
   }
-  return { ...document, version: document.version || 1, hooks };
+  return { ...document, version: ours.version || CURSOR_HOOKS_FORMAT_VERSION, hooks };
+}
+
+/**
+ * What the merge could not decide for the user: a document written for another
+ * format version, and events where a foreign hook runs ahead of ours (Cursor
+ * runs the first entry of an event, so that one shadows the guard).
+ *
+ * @param {object | null} current
+ * @param {object} ours - From {@link cursorHooksDocument}.
+ * @returns {string[]}
+ */
+export function cursorHookWarnings(current, ours) {
+  const warnings = [];
+  const declared = Number(current?.version);
+  if (Number.isFinite(declared) && declared !== ours.version) {
+    warnings.push(`.cursor/hooks.json declared format version ${declared}; the installed entries use version ${ours.version}. Re-check Cursor's hooks reference before trusting the merged file.`);
+  }
+  for (const event of Object.keys(ours.hooks)) {
+    const foreign = (Array.isArray(current?.hooks?.[event]) ? current.hooks[event] : []).filter((entry) => !isOurs(entry));
+    if (foreign.length) {
+      warnings.push(`.cursor/hooks.json: ${event} already lists ${foreign.length} foreign hook(s) before ours. Cursor runs the first entry of an event, so reorder by hand if the AI Dev hook must run.`);
+    }
+  }
+  return warnings;
 }
 
 async function readJson(target) {
@@ -193,10 +304,10 @@ async function readText(target) {
  * Install the hook scripts, patterns, policy, and harness registrations into
  * a repository.
  *
- * @param {{ projectRoot: string, hooksSourceDir: string, targets?: string[], profile?: string, overwrite?: boolean, dryRun?: boolean }} input
- * @returns {Promise<{ profile: string, targets: string[], written: string[], updated: string[], skipped: string[], planned: string[], backups: string[] }>}
+ * @param {{ projectRoot: string, hooksSourceDir: string, targets?: string[], profile?: string, overwrite?: boolean, dryRun?: boolean, cursorFormatVersion?: number }} input
+ * @returns {Promise<{ profile: string, targets: string[], written: string[], updated: string[], skipped: string[], planned: string[], backups: string[], warnings: string[], cursor_format_version: number }>}
  */
-export async function installAgentHooks({ projectRoot, hooksSourceDir, targets = ["claude"], profile = "standard", overwrite = false, dryRun = false }) {
+export async function installAgentHooks({ projectRoot, hooksSourceDir, targets = ["claude"], profile = "standard", overwrite = false, dryRun = false, cursorFormatVersion = CURSOR_HOOKS_FORMAT_VERSION }) {
   if (!HOOK_PROFILES.includes(profile)) throw new Error(`Unknown hook profile: ${profile}. Known: ${HOOK_PROFILES.join(", ")}`);
   for (const target of targets) {
     if (!HOOK_TARGETS.includes(target)) throw new Error(`Unknown hooks target: ${target}. Known: ${HOOK_TARGETS.join(", ")}`);
@@ -207,6 +318,7 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
   const skipped = [];
   const planned = [];
   const backups = [];
+  const warnings = [];
 
   async function writeManaged(relativePath, content) {
     const absolute = path.join(root, ...relativePath.split("/"));
@@ -271,11 +383,12 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
   if (targets.includes("cursor")) {
     const cursorPath = path.join(root, ".cursor", "hooks.json");
     const current = await readJson(cursorPath);
-    const next = mergeCursorHooks(current, cursorHooksDocument(profile));
-    await writeManaged(".cursor/hooks.json", `${JSON.stringify(next, null, 2)}\n`);
+    const ours = cursorHooksDocument(profile, { version: cursorFormatVersion });
+    warnings.push(...cursorHookWarnings(current, ours));
+    await writeManaged(".cursor/hooks.json", `${JSON.stringify(mergeCursorHooks(current, ours), null, 2)}\n`);
   }
 
-  return { profile, targets, written, updated, skipped, planned, backups };
+  return { profile, targets, written, updated, skipped, planned, backups, warnings, cursor_format_version: Number(cursorFormatVersion) };
 }
 
 /**
@@ -300,6 +413,7 @@ export async function agentHooksStatus(projectRoot) {
   const claude = await readJson(path.join(root, ".claude", "settings.json")).catch(() => null);
   const cursor = await readJson(path.join(root, ".cursor", "hooks.json")).catch(() => null);
   const count = (document) => Object.values(document?.hooks ?? {}).flat().filter(isOurs).length;
+  const cursorVersion = cursor === null ? null : Number(cursor?.version) || null;
   return {
     project_path: root,
     hooks_dir: HOOKS_RELATIVE_DIR,
@@ -308,6 +422,11 @@ export async function agentHooksStatus(projectRoot) {
     profile: policy?.profile ?? null,
     policy_rules: Array.isArray(policy?.rules) ? policy.rules.length : 0,
     claude_entries: count(claude),
-    cursor_entries: count(cursor)
+    cursor_entries: count(cursor),
+    cursor_format_version: cursorVersion,
+    // A file written for a format this adapter does not build is the signal to
+    // add a builder, not to overwrite it.
+    cursor_format_supported: cursorVersion === null ? null : CURSOR_HOOKS_FORMATS.includes(cursorVersion),
+    cursor_contract: CURSOR_HOOKS_CONTRACT
   };
 }

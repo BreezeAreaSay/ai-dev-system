@@ -334,5 +334,73 @@ First tagged release.
   non-Windows host is no longer mangled; the installer tests pin `platform`
   explicitly instead of relying on `process.platform`.
 
+### Changed
+
+- The `.cursor/hooks.json` adapter is versioned and its contract is pinned.
+  `CURSOR_HOOKS_CONTRACT` records the format version the adapter writes, the
+  date it was checked, the sources it was checked against, and the limits that
+  follow from it; `cursorHooksDocument(profile, { version })` dispatches to a
+  builder per format version and refuses an unknown one, so the next Cursor
+  format gets its own builder instead of a silent rewrite of this one.
+
+  What the 2026-09-10 check actually established, since `cursor.com` is
+  unreachable from the sandbox this ran in and no live Cursor was available:
+  the format version and the deny shape are **corroborated** — two independent
+  secondary sources agree that Cursor declares `"version": 1` and that a
+  blocking hook answers `{"permission":"deny"}` with optional `userMessage` /
+  `agentMessage`. The **event names are not**. The JSON schema published by the
+  source package (`johnlindquist/cursor-hooks`) allows exactly six events —
+  `afterFileEdit`, `beforeMCPExecution`, `beforeReadFile`,
+  `beforeShellExecution`, `beforeSubmitPrompt`, `stop` — with
+  `additionalProperties: false`, and mentions `sessionStart`, `sessionEnd` and
+  `preCompact` nowhere. Those three are exactly what this adapter registers for
+  session memory. Either that package (v0.1.0, last touched 2025-10) lags
+  Cursor 3.x, or the three registrations are inert and Cursor-side session
+  memory never runs — which would also make the unconfirmed-draft handling
+  below dead on Cursor, since no draft would ever be captured. `stop` is a
+  documented event and is the obvious home for the capture if it comes to that.
+  This is a reconstruction from secondary sources, not a verification: settle it
+  against a real Cursor before trusting the Cursor memory story.
+  `CURSOR_HOOKS_CONTRACT.verification` records the same, claim by claim, so the
+  distinction survives in the code and not just here. The tests pin what the
+  adapter writes, so a change still fails CI rather than the user's install.
+- `install_agent_hooks` reports what the merge could not decide instead of
+  writing over it: a `.cursor/hooks.json` that declares another format version,
+  and events where a foreign hook is registered ahead of ours (on the
+  unverified premise that Cursor runs the first entry of an event, so that one
+  would shadow the guard; the warning costs nothing either way). `agent_hooks_status`
+  reports the installed file's `cursor_format_version` and whether this adapter
+  builds it.
+- Hook-captured sessions are drafts, not handoffs. `session-end.mjs` writes
+  `confirmed: false`, and every reader says so: `resume_session` returns
+  `unconfirmed: true` plus the drafts still waiting, its briefing opens with
+  "UNCONFIRMED HOOK DRAFT — the Stop/PreCompact hook distilled this from the
+  transcript" and does not invent a next step the hook cannot know, and the
+  `session-start` context injection carries the same caveat — as does the
+  compiled context pack, whose handoff section is titled "unconfirmed hook
+  draft" when the newest record is one. `save_session` with
+  `confirm_hook_draft: true` promotes one: the agent's fields win, the draft
+  fills the rest, the stored record is marked `confirmed` with `confirmed_from`,
+  and the draft file is deleted so nothing is offered as unconfirmed twice.
+  Records written before the flag existed are treated as drafts — they came from
+  the same hook.
+
+### Fixed
+
+- `compact-advisor.mjs` reads the context size from the newest **assistant**
+  message in the transcript. It scanned for any entry carrying a `usage` field
+  and took the first one it found from the end, so a subagent's turn
+  (`isSidechain: true`, billed against its own window) or a non-assistant record
+  could set the number the advice was based on — and the tail slice's first,
+  half-read line was parsed as if it were whole. Parsing moved into
+  `hooks/lib.mjs` (`latestAssistantUsage`, `contextWindowFor`,
+  `compactSettings`, `contextThresholdFor`) and is unit-tested against a
+  transcript fixture. Every threshold is now settable in `.ai-dev/policy.json`:
+  `compact_tool_threshold`, `compact_tool_interval`,
+  `compact_context_threshold` (absolute; 0 derives it from the window),
+  `compact_context_thresholds.standard` / `.large`, `compact_context_window`
+  and `compact_context_interval`, each falling back to its default when the
+  value is missing or not a positive number.
+
 [Unreleased]: https://github.com/stonebridgeway/ai-dev-system/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/stonebridgeway/ai-dev-system/releases/tag/v1.0.0

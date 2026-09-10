@@ -15,10 +15,10 @@
 | --- | --- | --- |
 | `guard.mjs bash` | `PreToolUse: Bash` | блокирует `--no-verify` и `-c core.hooksPath`, `git reset --hard`/`checkout --`/`restore .`/`push --force`, `rm -rf` вне проекта, destructive SQL, `dd`/`mkfs`, `chmod 777`, `curl … \| sh`, `docker prune`, `kubectl delete`, `npm publish` и т.п.; плюс правила из `policy.json` |
 | `guard.mjs file` | `PreToolUse: Write\|Edit\|MultiEdit` | блокирует запись секретных файлов и секретов в содержимом, защищает существующие конфиги (`package.json`, lock-файлы, `tsconfig`, CI, Dockerfile) при `allow_config_edits=false`, предупреждает о файлах > 800 строк и черновиках в корне |
-| `compact-advisor.mjs` | `PreToolUse: Edit\|Write` | считает вызовы инструментов и оценивает контекст; советует сжатие на границе фазы |
+| `compact-advisor.mjs` | `PreToolUse: Edit\|Write` | считает вызовы инструментов и берёт размер контекста из `usage` последнего сообщения `assistant` в транскрипте; советует сжатие на границе фазы. Все пороги — из `policy.json` |
 | `post-edit.mjs` | `PostToolUse: Write\|Edit` | локальный форматтер (prettier/biome/ruff/black/gofmt/rustfmt) только если он есть в проекте |
 | `session-start.mjs` | `SessionStart` | инжектит handoff, открытые задачи, инстинкты и индекс правил (до 8000 символов) |
-| `session-end.mjs` | `Stop`, `PreCompact` (`--compact`) | извлекает из транскрипта черновик handoff в `state/sessions/<project_id>/hook-<session>.json` |
+| `session-end.mjs` | `Stop`, `PreCompact` (`--compact`) | извлекает из транскрипта черновик handoff в `state/sessions/<project_id>/hook-<session>.json` с пометкой `confirmed: false` |
 | `stop-check.mjs` | `Stop` | напоминает про незакрытую задачу и изменённые файлы без `verify_task` |
 
 Профили: `minimal` (guard + session-end), `standard` (всё выше), `strict` (то же, но правила
@@ -29,6 +29,45 @@ policy строже). Выход хука: код 2 с текстом причи
 
 Скрипты вычисляют `project_id` так же, как сервер (`project-<sha256("git:"+realpath)[:20]>`),
 поэтому видят те же файлы состояния в `~/.ai-dev/state`.
+
+### Черновик против handoff (PLAN 2.6)
+
+`session-end` пишет не handoff, а черновик: всё в нём — эвристики по транскрипту, никто их не
+проверял. Поэтому запись несёт `confirmed: false`, и каждый читатель это проговаривает:
+`resume_session` возвращает `unconfirmed: true` и список неподтверждённых черновиков, брифинг
+начинается с «UNCONFIRMED HOOK DRAFT» и не выдумывает `next_step`, инжект `session-start` несёт
+ту же оговорку. `save_session` с `confirm_hook_draft: true` превращает черновик в полноценную
+запись: поля агента побеждают, остальное берётся из черновика, сохранённая запись помечается
+`confirmed` и `confirmed_from`, файл черновика удаляется.
+
+### Контракт Cursor (PLAN 2.5)
+
+`.cursor/hooks.json` — версионированный документ, поэтому версионирован и адаптер:
+`CURSOR_HOOKS_CONTRACT` в `src/core/agent-hooks.mjs` фиксирует версию формата, дату сверки,
+источники и следствия контракта, а `cursorHooksDocument(profile, { version })` выбирает сборщик
+по версии и отказывается собирать незнакомую — новый формат Cursor получит свой сборщик, а не
+молчаливую переписку старого.
+
+Сверка 2026-09-10: Cursor 3.x по-прежнему требует `"version": 1`, имена событий
+(`beforeShellExecution`, `afterFileEdit`, `sessionStart`, `sessionEnd`, `preCompact`, `stop`)
+и формат отказа `{"permission":"deny"}` с необязательными `userMessage` / `agentMessage`
+совпадают с тем, что писал адаптер. Сверялось по опубликованной документации Cursor и двум
+независимым её изложениям (см. `CURSOR_HOOKS_CONTRACT.sources`), не на живом Cursor: домен
+`cursor.com` недоступен из песочницы, где это выполнялось. Тест пинит версию, набор событий и
+форму отказа — расхождение теперь роняет CI, а не установку у пользователя.
+
+Что из контракта следует и записано в `CURSOR_HOOKS_CONTRACT.limits`:
+
+- Cursor выполняет первую запись события, поэтому чужой хук перед нашим его затеняет:
+  `install_agent_hooks` возвращает это как `warnings`, а не переставляет чужие записи молча.
+- В формате 1 нет события «перед записью файла», поэтому `guard.mjs file` остаётся только
+  для Claude Code.
+- В payload Cursor приходит `conversation_id`, а не `transcript_path`, поэтому `session-end`
+  там пока ничего не захватывает.
+- Cloud-агенты не получают ни `sessionStart`/`sessionEnd`, ни `stop`.
+
+> Листинги ниже — снимок исходного порта. Код с тех пор менялся (общая память worktree-ов,
+> пункты 2.5–2.7 плана); истина — файлы в репозитории.
 
 ## Новые файлы: скрипты хуков (`ai-dev-mcp-server/hooks/`)
 

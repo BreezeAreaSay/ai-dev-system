@@ -26,7 +26,7 @@
 
 ## Новые файлы
 
-**Файл: `ai-dev-mcp-server/src/core/change-hygiene.mjs`** (424 строк)
+**Файл: `ai-dev-mcp-server/src/core/change-hygiene.mjs`** (442 строк)
 
 ```js
 import fs from "node:fs/promises";
@@ -297,16 +297,34 @@ export async function collectChangeSet(projectRoot, { baseRef = "HEAD", maxFiles
   };
 }
 
-function finding(severity, code, filePath, line, message, extra = {}) {
-  return { severity, code, path: filePath, line, message, ...extra };
+/**
+ * One hygiene finding in the single shape every consumer speaks — the tool
+ * response, the Markdown projection, the docs and the `verification-loop`
+ * skill: `{ rule, severity, file, line, message, excerpt }`. `excerpt` is
+ * always present (empty when the finding is about the file, not a line);
+ * aggregate findings may add a `files` list after it.
+ *
+ * @param {"block" | "warn" | "info"} severity
+ * @param {string} rule - Rule id, for example `console_log` or `secret:jwt`.
+ * @param {string} file - Repository-relative path; empty for change-set-wide findings.
+ * @param {number} line - 1-based line in the new file; 0 when not line-bound.
+ * @param {string} message
+ * @param {object} [extra]
+ * @returns {{ rule: string, severity: string, file: string, line: number, message: string, excerpt: string }}
+ */
+function finding(severity, rule, file, line, message, extra = {}) {
+  return { rule, severity, file, line, message, excerpt: "", ...extra };
 }
+
+/** The keys every finding carries, in order. Exported for the schema test. */
+export const FINDING_FIELDS = Object.freeze(["rule", "severity", "file", "line", "message", "excerpt"]);
 
 /**
  * Run every hygiene rule over a change set produced by {@link collectChangeSet}.
  *
  * @param {ReturnType<typeof collectChangeSet> extends Promise<infer T> ? T : never} changeSet
  * @param {{ projectRoot?: string, lineCounts?: Record<string, number> }} [options]
- * @returns {{ status: "pass" | "warn" | "block", findings: object[], summary: object }}
+ * @returns {{ status: "pass" | "warn" | "block", findings: Array<{ rule: string, severity: string, file: string, line: number, message: string, excerpt: string }>, summary: object }}
  */
 export function analyzeChangeSet(changeSet, { lineCounts = {} } = {}) {
   const findings = [];
@@ -380,7 +398,7 @@ export function analyzeChangeSet(changeSet, { lineCounts = {} } = {}) {
     status,
     findings: findings.sort((left, right) => (
       ["block", "warn", "info"].indexOf(left.severity) - ["block", "warn", "info"].indexOf(right.severity)
-      || left.path.localeCompare(right.path)
+      || left.file.localeCompare(right.file)
       || left.line - right.line
     )),
     summary: {
@@ -399,7 +417,7 @@ export function analyzeChangeSet(changeSet, { lineCounts = {} } = {}) {
  *
  * @param {string} projectRoot
  * @param {{ baseRef?: string, maxFiles?: number }} [options]
- * @returns {Promise<{ status: string, findings: object[], summary: object, base_ref: string, git: boolean, files: string[] }>}
+ * @returns {Promise<{ status: string, findings: Array<{ rule: string, severity: string, file: string, line: number, message: string, excerpt: string }>, summary: object, base_ref: string, git: boolean, files: string[] }>}
  */
 export async function verifyChangeHygiene(projectRoot, options = {}) {
   const root = path.resolve(projectRoot);
@@ -433,7 +451,7 @@ export async function verifyChangeHygiene(projectRoot, options = {}) {
 /**
  * Markdown projection for reports and task notes.
  *
- * @param {{ status: string, findings: object[], summary: object }} result
+ * @param {{ status: string, findings: Array<{ rule: string, severity: string, file: string, line: number, message: string }>, summary: object }} result
  * @returns {string}
  */
 export function renderChangeHygieneMarkdown(result) {
@@ -448,14 +466,14 @@ export function renderChangeHygieneMarkdown(result) {
     return lines.join("\n");
   }
   for (const item of result.findings) {
-    const location = item.path ? `\`${item.path}${item.line ? `:${item.line}` : ""}\` ` : "";
-    lines.push(`- [${item.severity}] ${item.code}: ${location}${item.message}`);
+    const location = item.file ? `\`${item.file}${item.line ? `:${item.line}` : ""}\` ` : "";
+    lines.push(`- [${item.severity}] ${item.rule}: ${location}${item.message}`);
   }
   return lines.join("\n");
 }
 ```
 
-**Файл: `ai-dev-mcp-server/src/core/change-hygiene.test.mjs`** (161 строк)
+**Файл: `ai-dev-mcp-server/src/core/change-hygiene.test.mjs`** (210 строк)
 
 ```js
 import assert from "node:assert/strict";
@@ -465,6 +483,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import {
+  FINDING_FIELDS,
   analyzeChangeSet,
   collectChangeSet,
   findSecretsInLine,
@@ -558,13 +577,13 @@ test("analyzeChangeSet reports leftovers, secrets, protected configs, and missin
       ] }
     ]
   }, { lineCounts: { "src/service.ts": 950 } });
-  const codes = new Set(result.findings.map((item) => item.code));
+  const rules = new Set(result.findings.map((item) => item.rule));
   for (const expected of [
     "console_log", "debugger_statement", "empty_catch", "todo_without_reference", "secret:github_token",
     "merge_conflict_marker", "test_only", "protected_config_changed", "secret_file_in_change_set",
     "bare_except_pass", "breakpoint_call", "large_file", "sources_without_matching_test"
   ]) {
-    assert.ok(codes.has(expected), `missing finding ${expected}`);
+    assert.ok(rules.has(expected), `missing finding ${expected}`);
   }
   assert.equal(result.status, "block");
   assert.equal(result.findings[0].severity, "block");
@@ -573,13 +592,61 @@ test("analyzeChangeSet reports leftovers, secrets, protected configs, and missin
 
   const clean = analyzeChangeSet({ files: [{ path: "src/ok.ts", kind: "modified", added: [{ line: 1, text: "export const ok = true;" }] }] });
   assert.equal(clean.status, "warn");
-  assert.deepEqual(clean.findings.map((item) => item.code), ["no_test_changes"]);
+  assert.deepEqual(clean.findings.map((item) => item.rule), ["no_test_changes"]);
   const withTests = analyzeChangeSet({ files: [
     { path: "src/ok.ts", kind: "modified", added: [{ line: 1, text: "export const ok = true;" }] },
     { path: "src/ok.test.ts", kind: "modified", added: [{ line: 1, text: "test(\"ok\", () => {});" }] }
   ] });
   assert.equal(withTests.status, "pass");
   assert.equal(renderChangeHygieneMarkdown(withTests).includes("No hygiene findings"), true);
+});
+
+test("every finding uses the documented { rule, severity, file, line, message, excerpt } shape", () => {
+  const result = analyzeChangeSet({
+    files: [
+      { path: "src/service.ts", kind: "modified", added: [
+        { line: 4, text: "console.log(\"debug\");" },
+        { line: 5, text: `const token = "${fakeGithubToken}";` },
+        { line: 6, text: "<<<<<<< HEAD" }
+      ] },
+      { path: ".eslintrc.json", kind: "modified", added: [{ line: 1, text: "{ \"rules\": {} }" }] },
+      { path: ".env", kind: "untracked", added: [], skipped: "secret file" }
+    ]
+  }, { lineCounts: { "src/service.ts": 950 } });
+
+  assert.ok(result.findings.length >= 6);
+  const severities = new Set(["block", "warn", "info"]);
+  for (const item of result.findings) {
+    assert.deepEqual(Object.keys(item).slice(0, FINDING_FIELDS.length), [...FINDING_FIELDS],
+      `finding ${item.rule ?? "?"} must start with the canonical fields`);
+    assert.equal(typeof item.rule, "string");
+    assert.ok(item.rule.length > 0);
+    assert.ok(severities.has(item.severity), `unknown severity ${item.severity}`);
+    assert.equal(typeof item.file, "string");
+    assert.equal(typeof item.line, "number");
+    assert.ok(Number.isInteger(item.line) && item.line >= 0);
+    assert.equal(typeof item.message, "string");
+    assert.ok(item.message.length > 0);
+    assert.equal(typeof item.excerpt, "string");
+    for (const legacy of ["code", "path"]) {
+      assert.equal(legacy in item, false, `finding ${item.rule} still carries the old field ${legacy}`);
+    }
+    for (const key of Object.keys(item).slice(FINDING_FIELDS.length)) {
+      assert.ok(["files"].includes(key), `unexpected extra finding field ${key}`);
+    }
+  }
+
+  const lineBound = result.findings.find((item) => item.rule === "console_log");
+  assert.equal(lineBound.file, "src/service.ts");
+  assert.equal(lineBound.line, 4);
+  assert.equal(lineBound.excerpt, "console.log(\"debug\");");
+  const fileBound = result.findings.find((item) => item.rule === "secret_file_in_change_set");
+  assert.equal(fileBound.file, ".env");
+  assert.equal(fileBound.line, 0);
+  assert.equal(fileBound.excerpt, "");
+  const changeSetWide = result.findings.find((item) => item.rule === "no_test_changes");
+  assert.equal(changeSetWide.file, "");
+  assert.deepEqual(changeSetWide.files, ["src/service.ts"]);
 });
 
 test("collectChangeSet and verifyChangeHygiene use git added lines and untracked files", async (t) => {
@@ -598,10 +665,10 @@ test("collectChangeSet and verifyChangeHygiene use git added lines and untracked
 
   const result = await verifyChangeHygiene(root);
   assert.equal(result.status, "block");
-  const codes = result.findings.map((item) => item.code);
-  assert.ok(codes.includes("secret:aws_access_key"));
-  assert.ok(codes.includes("secret_file_in_change_set"));
-  assert.ok(codes.includes("console_log"));
+  const rules = result.findings.map((item) => item.rule);
+  assert.ok(rules.includes("secret:aws_access_key"));
+  assert.ok(rules.includes("secret_file_in_change_set"));
+  assert.ok(rules.includes("console_log"));
   assert.deepEqual(result.files, [".env", "src/app.js", "src/new.js"]);
 
   // Committed work compared against an explicit base ref is still covered.
@@ -611,7 +678,7 @@ test("collectChangeSet and verifyChangeHygiene use git added lines and untracked
   const head = await verifyChangeHygiene(root);
   assert.equal(head.findings.length, 0, "nothing uncommitted");
   const branch = await verifyChangeHygiene(root, { baseRef: "HEAD~1" });
-  assert.ok(branch.findings.some((item) => item.code === "secret:aws_access_key"));
+  assert.ok(branch.findings.some((item) => item.rule === "secret:aws_access_key"));
 
   const plain = await fs.mkdtemp(path.join(os.tmpdir(), "change-hygiene-plain-"));
   t.after(() => fs.rm(plain, { recursive: true, force: true }));
@@ -642,7 +709,7 @@ export function createHygieneTools(host) {
     definitions: [
       {
         name: "verify_change_hygiene",
-        description: "Scan the current change set (uncommitted work, or everything since base_ref) for secrets, debug leftovers, focused or skipped tests, merge-conflict markers, weakened lint configs, oversized files, and source changes without test changes. Returns block/warn/info findings with file and line.",
+        description: "Scan the current change set (uncommitted work, or everything since base_ref) for secrets, debug leftovers, focused or skipped tests, merge-conflict markers, weakened lint configs, oversized files, and source changes without test changes. Each finding is { rule, severity, file, line, message, excerpt } with severity block, warn, or info.",
         inputSchema: {
           type: "object",
           properties: {
@@ -699,7 +766,7 @@ export function createHygieneTools(host) {
 }
 ```
 
-**Файл: `ai-dev-mcp-server/src/extensions/hygiene.test.mjs`** (54 строк)
+**Файл: `ai-dev-mcp-server/src/extensions/hygiene.test.mjs`** (61 строк)
 
 ```js
 import assert from "node:assert/strict";
@@ -708,6 +775,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { FINDING_FIELDS } from "../core/change-hygiene.mjs";
 import { TaskStore } from "../core/task-lifecycle.mjs";
 import { createExtensionTools } from "../tool-extensions.mjs";
 import { createHygieneTools } from "./hygiene.mjs";
@@ -747,8 +815,14 @@ test("verify_change_hygiene scans a task project and can checkpoint the summary"
   await fs.writeFile(path.join(projectRoot, "src", "index.js"), "export const a = 1;\nconsole.log(a);\n");
   const dirty = await registry.handlers.get("verify_change_hygiene")({ task_id: task.id, record_checkpoint: true });
   assert.equal(dirty.status, "warn");
-  assert.ok(dirty.findings.some((item) => item.code === "console_log"));
-  assert.ok(dirty.findings.some((item) => item.code === "no_test_changes"));
+  const leftover = dirty.findings.find((item) => item.rule === "console_log");
+  // The response schema every consumer reads: docs, the verification-loop skill, task notes.
+  assert.deepEqual(Object.keys(leftover), [...FINDING_FIELDS]);
+  assert.equal(leftover.file, "src/index.js");
+  assert.equal(leftover.line, 2);
+  assert.equal(leftover.severity, "warn");
+  assert.equal(leftover.excerpt, "console.log(a);");
+  assert.ok(dirty.findings.some((item) => item.rule === "no_test_changes"));
   assert.equal(dirty.checkpoint.checkpoints, 1);
   assert.match(dirty.markdown, /console_log/);
   const updated = await taskStore.read(task.id);
@@ -851,7 +925,10 @@ node scripts/lifecycle-smoke.mjs   # verify_task теперь содержит c
 { "tool": "verify_change_hygiene", "args": { "project_path": "/repo", "base_ref": "main" } }
 ```
 
-Ответ: `{ status: "pass"|"warn"|"block", findings: [{ severity, rule, file, line, message, excerpt }], summary, files }`.
+Ответ: `{ status: "pass"|"warn"|"block", findings: [{ rule, severity, file, line, message, excerpt }], summary, files }`.
+Поля находки всегда те же шесть; `excerpt` пуст, когда находка про файл, а не про строку, а находки
+обо всём change set (`no_test_changes`, `sources_without_matching_test`) дополнительно несут `files`.
+Одну и ту же форму читают документация, скилл `verification-loop` и Markdown-проекция.
 С `task_id` и `record_checkpoint=true` результат записывается как checkpoint задачи.
 
 ## Для Argentum

@@ -13,7 +13,7 @@ export function createHygieneTools(host) {
     definitions: [
       {
         name: "verify_change_hygiene",
-        description: "Scan the current change set (uncommitted work, or everything since base_ref) for secrets, debug leftovers, focused or skipped tests, merge-conflict markers, weakened lint configs, oversized files, and source changes without test changes. Returns block/warn/info findings with file and line.",
+        description: "Scan the current change set (uncommitted work, or everything since base_ref) for secrets, debug leftovers, focused or skipped tests, merge-conflict markers, weakened lint configs, oversized files, and source changes without test changes. Each finding is { rule, severity, file, line, message, excerpt } with severity block, warn, or info.",
         inputSchema: {
           type: "object",
           properties: {

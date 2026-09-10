@@ -201,6 +201,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a failed model load is rejected immediately instead of after the request
   timeout, and idle workers are reaped after ten minutes.
 
+### Fixed
+
+- `verify_change_hygiene` findings now use one shape everywhere:
+  `{ rule, severity, file, line, message, excerpt }`. The tool returned `code`
+  and `path` while the docs and the `verification-loop` skill spoke of `rule`
+  and `file`, so an agent following the skill read `undefined`. `excerpt` is
+  always present, a schema test pins the field list, and the docs, the tool
+  description and the skill were corrected.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

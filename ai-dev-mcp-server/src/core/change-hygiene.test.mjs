@@ -4,16 +4,158 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { analyzeChangeSet, collectChangeSet, findSecretsInLine, parseAddedLines, verifyChangeHygiene } from "./change-hygiene.mjs";
+import {
+  analyzeChangeSet,
+  collectChangeSet,
+  findSecretsInLine,
+  parseAddedLines,
+  renderChangeHygieneMarkdown,
+  verifyChangeHygiene
+} from "./change-hygiene.mjs";
 
-const aws = ["AKIA", "IOSFODNN7EXAMPL", "E"].join("");
-const git = (cwd, args) => { const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", windowsHide: true, shell: false }); if (result.status !== 0) throw new Error(result.stderr); };
-test("scans added lines without exposing secret values", async (t) => {
-  assert.equal(findSecretsInLine(`const key = "${aws}"`).at(0).id, "aws_access_key");
+// Fixture secrets are assembled at runtime so the repository's own secret scan
+// never sees a literal token in this file.
+const fakeAwsKey = ["AKIA", "IOSFODNN7EXAMPL", "E"].join("");
+const fakeGithubToken = ["ghp_", "a".repeat(36)].join("");
+const fakeAssignment = ["password", " = ", "\"correct-horse-battery-staple\""].join("");
+
+function runGit(cwd, args) {
+  const result = spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", windowsHide: true, shell: false });
+  if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr}`);
+  return result.stdout;
+}
+
+async function gitFixture(t) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "change-hygiene-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  await fs.mkdir(path.join(root, "src"), { recursive: true });
+  await fs.writeFile(path.join(root, "src", "app.js"), "export const app = 1;\nexport const two = 2;\n");
+  await fs.writeFile(path.join(root, "README.md"), "# fixture\n");
+  runGit(root, ["init", "-q"]);
+  runGit(root, ["add", "."]);
+  runGit(root, ["-c", "user.name=Hygiene", "-c", "user.email=hygiene@example.invalid", "commit", "-q", "-m", "init"]);
+  return root;
+}
+
+test("findSecretsInLine detects real secrets and ignores placeholders", () => {
+  assert.deepEqual(findSecretsInLine(`const key = "${fakeAwsKey}";`).map((hit) => hit.id), ["aws_access_key"]);
+  assert.deepEqual(findSecretsInLine(`Authorization: token ${fakeGithubToken}`).map((hit) => hit.id), ["github_token"]);
+  assert.equal(findSecretsInLine(fakeAssignment).length, 1);
+  assert.equal(findSecretsInLine(fakeAssignment)[0].masked.includes("correct-horse"), false);
   assert.equal(findSecretsInLine("password = process.env.PASSWORD").length, 0);
-  assert.deepEqual([...parseAddedLines("diff --git a/a b/a\n+++ b/a\n@@ -1 +2,1 @@\n+x\n")][0][1], [{ line: 2, text: "x" }]);
-  const analysis = analyzeChangeSet({ files: [{ path: "src/a.ts", added: [{ line: 1, text: "console.log('x')" }, { line: 2, text: "debugger" }] }, { path: "src/a.test.ts", added: [] }] });
-  assert.equal(analysis.status, "block"); assert.ok(analysis.findings.some((item) => item.code === "console_log"));
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "hygiene-")); t.after(() => fs.rm(root, { recursive: true, force: true })); await fs.mkdir(path.join(root, "src")); await fs.writeFile(path.join(root, "src", "a.js"), "export const a = 1;\n"); git(root, ["init", "-q"]); git(root, ["add", "."]); git(root, ["-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-qm", "init"]); await fs.writeFile(path.join(root, "src", "a.js"), `export const token = "${aws}";\n`);
-  assert.equal((await collectChangeSet(root)).git, true); assert.equal((await verifyChangeHygiene(root)).status, "block");
+  assert.equal(findSecretsInLine("api_key: \"<your-api-key>\"").length, 0);
+  assert.equal(findSecretsInLine("token = \"REPLACE_ME\"").length, 0);
+  assert.equal(findSecretsInLine("secret: \"${SECRET}\"").length, 0);
+});
+
+test("parseAddedLines tracks new-file line numbers across hunks and skips deletions", () => {
+  const diff = [
+    "diff --git a/src/a.js b/src/a.js",
+    "--- a/src/a.js",
+    "+++ b/src/a.js",
+    "@@ -1,0 +2,2 @@",
+    "+added two",
+    "+added three",
+    "@@ -10 +12 @@",
+    "-old",
+    "+replacement",
+    "diff --git a/gone.js b/gone.js",
+    "--- a/gone.js",
+    "+++ /dev/null",
+    "@@ -1 +0,0 @@",
+    "-bye",
+    "diff --git a/img.png b/img.png",
+    "Binary files differ",
+    ""
+  ].join("\n");
+  const parsed = parseAddedLines(diff);
+  assert.deepEqual([...parsed.keys()], ["src/a.js"]);
+  assert.deepEqual(parsed.get("src/a.js"), [
+    { line: 2, text: "added two" },
+    { line: 3, text: "added three" },
+    { line: 12, text: "replacement" }
+  ]);
+});
+
+test("analyzeChangeSet reports leftovers, secrets, protected configs, and missing tests", () => {
+  const result = analyzeChangeSet({
+    files: [
+      { path: "src/service.ts", kind: "modified", added: [
+        { line: 3, text: "  console.log(\"debug\")" },
+        { line: 4, text: "  debugger" },
+        { line: 5, text: "  } catch (error) {}" },
+        { line: 6, text: "  // TODO clean this up" },
+        { line: 7, text: `  const secret = "${fakeGithubToken}";` },
+        { line: 8, text: "<<<<<<< HEAD" }
+      ] },
+      { path: "src/service.test.ts", kind: "untracked", added: [{ line: 1, text: "it.only(\"works\", () => {})" }] },
+      { path: ".eslintrc.json", kind: "modified", added: [{ line: 1, text: "{ \"rules\": {} }" }] },
+      { path: ".env", kind: "untracked", added: [], skipped: "secret file" },
+      { path: "src/handler.py", kind: "modified", added: [
+        { line: 1, text: "except Exception:" },
+        { line: 2, text: "    pass" },
+        { line: 3, text: "breakpoint()" }
+      ] }
+    ]
+  }, { lineCounts: { "src/service.ts": 950 } });
+  const codes = new Set(result.findings.map((item) => item.code));
+  for (const expected of [
+    "console_log", "debugger_statement", "empty_catch", "todo_without_reference", "secret:github_token",
+    "merge_conflict_marker", "test_only", "protected_config_changed", "secret_file_in_change_set",
+    "bare_except_pass", "breakpoint_call", "large_file", "sources_without_matching_test"
+  ]) {
+    assert.ok(codes.has(expected), `missing finding ${expected}`);
+  }
+  assert.equal(result.status, "block");
+  assert.equal(result.findings[0].severity, "block");
+  assert.ok(result.summary.block >= 5);
+  assert.match(renderChangeHygieneMarkdown(result), /\[block\] merge_conflict_marker: `src\/service\.ts:8`/);
+
+  const clean = analyzeChangeSet({ files: [{ path: "src/ok.ts", kind: "modified", added: [{ line: 1, text: "export const ok = true;" }] }] });
+  assert.equal(clean.status, "warn");
+  assert.deepEqual(clean.findings.map((item) => item.code), ["no_test_changes"]);
+  const withTests = analyzeChangeSet({ files: [
+    { path: "src/ok.ts", kind: "modified", added: [{ line: 1, text: "export const ok = true;" }] },
+    { path: "src/ok.test.ts", kind: "modified", added: [{ line: 1, text: "test(\"ok\", () => {});" }] }
+  ] });
+  assert.equal(withTests.status, "pass");
+  assert.equal(renderChangeHygieneMarkdown(withTests).includes("No hygiene findings"), true);
+});
+
+test("collectChangeSet and verifyChangeHygiene use git added lines and untracked files", async (t) => {
+  const root = await gitFixture(t);
+  await fs.writeFile(path.join(root, "src", "app.js"), "export const app = 1;\nconsole.log(\"x\");\nexport const two = 2;\n");
+  await fs.writeFile(path.join(root, "src", "new.js"), `export const token = "${fakeAwsKey}";\n`);
+  await fs.writeFile(path.join(root, ".env"), "SECRET=1\n");
+
+  const changeSet = await collectChangeSet(root);
+  assert.equal(changeSet.git, true);
+  assert.deepEqual(changeSet.files.map((file) => `${file.kind}:${file.path}`), [
+    "untracked:.env", "modified:src/app.js", "untracked:src/new.js"
+  ]);
+  assert.deepEqual(changeSet.files[1].added, [{ line: 2, text: "console.log(\"x\");" }]);
+  assert.equal(changeSet.files[0].skipped, "secret file");
+
+  const result = await verifyChangeHygiene(root);
+  assert.equal(result.status, "block");
+  const codes = result.findings.map((item) => item.code);
+  assert.ok(codes.includes("secret:aws_access_key"));
+  assert.ok(codes.includes("secret_file_in_change_set"));
+  assert.ok(codes.includes("console_log"));
+  assert.deepEqual(result.files, [".env", "src/app.js", "src/new.js"]);
+
+  // Committed work compared against an explicit base ref is still covered.
+  await fs.rm(path.join(root, ".env"));
+  runGit(root, ["add", "."]);
+  runGit(root, ["-c", "user.name=Hygiene", "-c", "user.email=hygiene@example.invalid", "commit", "-q", "-m", "feat: work"]);
+  const head = await verifyChangeHygiene(root);
+  assert.equal(head.findings.length, 0, "nothing uncommitted");
+  const branch = await verifyChangeHygiene(root, { baseRef: "HEAD~1" });
+  assert.ok(branch.findings.some((item) => item.code === "secret:aws_access_key"));
+
+  const plain = await fs.mkdtemp(path.join(os.tmpdir(), "change-hygiene-plain-"));
+  t.after(() => fs.rm(plain, { recursive: true, force: true }));
+  const nonGit = await verifyChangeHygiene(plain);
+  assert.equal(nonGit.git, false);
+  assert.equal(nonGit.status, "pass");
 });

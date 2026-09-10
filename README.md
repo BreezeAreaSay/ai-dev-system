@@ -19,6 +19,8 @@ for all of these clients.
 - hybrid search: SQLite FTS, sparse retrieval, and an optional local BGE-M3 model;
 - a task lifecycle: `begin_task`, `checkpoint_task`, `verify_task`, `complete_task`;
 - a quality gate, security checks, and Frontend QA with Playwright / Chromium;
+- [memory across sessions](#memory-and-learning): handoffs, decisions, and learned instincts;
+- [agent hooks](#hooks) for Claude Code and Cursor that guard commands and file writes;
 - a Docker image for teams: no personal vault, passwords, tokens, projects, or task history.
 
 ## Requirements
@@ -295,6 +297,89 @@ Use the ai-dev MCP server. Begin a task for /workspace/my-project:
 add CSV export for the report, cover the change with tests, and run verify_task.
 ```
 
+## Memory and learning
+
+The server keeps three kinds of memory so a new session does not start from
+nothing. All of it is text you can read, and none of it is written without an
+explicit call.
+
+| Tool | What it stores | Where |
+| --- | --- | --- |
+| `save_session` | A structured handoff: what you are building, what worked with evidence, what failed and why, file states, blockers, and the exact next step. | `~/.ai-dev/state/sessions/`, projected to `.ai-dev/context/handoff.md` |
+| `resume_session` | Nothing — it reads the latest handoff back as a briefing: what not to retry, blockers, next step, open tasks, git state, and relevant instincts. | — |
+| `record_decision` | A numbered ADR: title, context, decision, alternatives, consequences. | `.ai-dev/decisions/`, versioned with the code |
+| `record_instinct` | One learned behaviour as "when *trigger*, *action*", with a confidence that rises on repeat observation and decays with time. | `~/.ai-dev/state/instincts.json` |
+| `context_budget_status` | Nothing — it estimates a task's static context against the model window and says when compacting is safe. | — |
+
+Decisions, the newest handoff, and instincts above 70% confidence are folded
+into the context pack that `begin_task` compiles, so the next session sees them
+without asking. Sessions and instincts live in your home directory (per user);
+decisions live in the repository (per project, reviewable in a pull request).
+
+The `learn_from_task` prompt closes the loop: run it after finishing a task and
+the agent reviews the work, records durable patterns as instincts, architectural
+choices as decisions, and a handoff if the work continues elsewhere. It is
+deliberately conservative — single occurrences, code, and secrets do not belong
+in long-term memory.
+
+`list_instincts` shows what has been learned, `update_instinct` confirms or
+retires one, and `evolve_instincts` clusters mature instincts into skill drafts
+and promotes those seen across several projects to global scope.
+
+## Hooks
+
+`install_agent_hooks` wires the server's guard rails into the agent itself, so
+they apply to every action rather than only to the tools the agent chooses to
+call:
+
+```text
+Use the ai-dev MCP server. Call install_agent_hooks for /workspace/my-project
+with targets ["claude"] and profile "standard".
+```
+
+It writes self-contained scripts into `.ai-dev/hooks/`, a policy file at
+`.ai-dev/policy.json`, and registrations into `.claude/settings.json` (Claude
+Code) and/or `.cursor/hooks.json` (Cursor). Existing settings are merged, not
+replaced: only previous AI Dev entries are rewritten. Re-running refreshes the
+scripts and keeps your policy rules. `agent_hooks_status` reports what is
+installed.
+
+The hooks block a command before it runs (git-hook bypasses, destructive and
+publishing commands), block a write before it lands (secret-bearing paths,
+secrets in content, weakened linter configuration), format edited files, inject
+the last handoff and open tasks at session start, distil the transcript into a
+session record at session end, and advise on compaction. Any hook error exits
+zero, so a broken hook never wedges the agent.
+
+Three profiles:
+
+- `minimal` — the command and file guard plus session capture. Nothing else runs.
+- `standard` — the default: everything above, including formatting, session
+  start injection, the compaction advisor, and the end-of-response check.
+- `strict` — the same set plus extra review warnings before `git push` and
+  `git commit --amend`.
+
+`.ai-dev/policy.json` is where you tune it without touching the scripts:
+`allow_config_edits`, `format_on_edit`, compaction thresholds, and a list of
+your own rules:
+
+```json
+{
+  "profile": "standard",
+  "rules": [
+    {
+      "id": "block-prod-migrations",
+      "event": "bash",
+      "pattern": "(migrate|migration).*(--prod|production)",
+      "action": "block",
+      "message": "Production migrations need explicit human approval."
+    }
+  ]
+}
+```
+
+`event` is `bash`, `file`, or `all`; `action` is `block` or `warn`.
+
 ## Local data and security
 
 The image contains only the audited public seed: rules, prompts, quality gates,
@@ -411,6 +496,10 @@ Compose, macOS / Linux, BGE-M3, and GHCR details: [docker/README.md](docker/READ
 Architecture and the full tool list: [ai-dev-mcp-server/README.md](ai-dev-mcp-server/README.md).
 
 ## Contributing
+
+The improvement plan and the ECC-derived upgrade notes (rationale, wiring, tool examples) live in
+[docs/ecc-upgrades/](docs/ecc-upgrades/README.md); start with [PLAN.md](docs/ecc-upgrades/PLAN.md).
+
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, how the test
 suite is split between a standalone checkout and a full vault, and the checks CI

@@ -16,9 +16,11 @@
 4. `core/`: path policy, atomic storage, command policy, process execution, canonical project
    identity, context compilation, task state, routing, outcome analytics, overlays, dashboard,
    frontend quality, and runtime distribution.
-5. `09-mcp/search-index`: FTS and BGE-M3 hybrid retrieval.
-6. Obsidian: human-readable knowledge, generated project cards, workflows, and reports.
-7. `${AI_DEV_HOME}/state` (default `~/.ai-dev/state`): runtime task state and evidence that should not clutter the vault.
+5. `extensions/`: capabilities registered from outside `mcp-stdio.mjs` (see below).
+6. `hooks/`: standalone scripts run by the *agent*, not by the server (see below).
+7. `09-mcp/search-index`: FTS and BGE-M3 hybrid retrieval.
+8. Obsidian: human-readable knowledge, generated project cards, workflows, and reports.
+9. `${AI_DEV_HOME}/state` (default `~/.ai-dev/state`): runtime task state and evidence that should not clutter the vault.
 
 Archify is a local, vendored diagram capability. Its nine typed MCP tools and
 artifact/evidence contract are documented in [ARCHIFY.md](ARCHIFY.md).
@@ -52,6 +54,87 @@ concept manifest
 
 The MCP server never claims external image-tool execution. It creates and validates manifests; the
 client performs generation and visual inspection.
+
+### Extensions
+
+`src/mcp-stdio.mjs` is capped at 10,600 lines by the static quality gate, so a new capability is
+not written into it. `src/tool-extensions.mjs` holds a registry of factories; each module under
+`src/extensions/` exports one:
+
+```js
+createXxxTools(host) -> { definitions, handlers, readOnly }
+```
+
+`host` is assembled once by `mcp-stdio.mjs` and carries the shared runtime services an extension is
+allowed to touch — `taskStore`, `usageLedger`, `sessionStore`, `instinctStore`, project identity and
+project-file helpers, and `callTool` for composing existing tools. The dependency runs one way:
+extensions never import `mcp-stdio.mjs`, which would both cycle and couple pure logic to the vault.
+Duplicate tool names and definitions without a handler throw at startup, so a broken extension can
+never reach a client.
+
+Registered today: `decisions`, `hooks`, `hygiene`, `instincts`, `plans`, `rules`, `sessions`,
+`usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
+`change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `rules-library.mjs`, `rules-catalog.mjs`,
+`session-memory.mjs`, `usage-ledger.mjs`, `task-worktrees.mjs`); the extension is the MCP surface
+over it.
+
+### Context extras
+
+`core/context-extras.mjs` lets an optional subsystem contribute a section to the compiled context
+pack without the context compiler knowing it exists. A provider takes the same input and returns
+`null` or `{ id, title, markdown, items }`:
+
+- `decisions` — recent records from `<projectRoot>/.ai-dev/decisions`.
+- `handoff` — the newest substantive session: next step, blockers, and approaches that already
+  failed, tagged with their age so a stale handoff is not trusted blindly.
+- `instincts` — learned preferences that pass the relevance filter for this project and task.
+
+Providers must be cheap, read-only, and must not throw. A provider that fails is reported as an
+`unknown` entry in the pack instead of failing `begin_task`.
+
+### Hooks
+
+`hooks/*.mjs` are not part of the server process. `install_agent_hooks` copies them into
+`<project>/.ai-dev/hooks/` and registers them with the agent — `.claude/settings.json` for Claude
+Code, `.cursor/hooks.json` (version 1) for Cursor — merging into whatever is already there and
+replacing only previous AI Dev entries. The agent then spawns each script per event, with the event
+JSON on stdin.
+
+| Script | Event | What it does |
+| --- | --- | --- |
+| `guard.mjs bash` | PreToolUse (Bash) | Blocks git-hook bypasses, destructive and publishing commands, and policy `block` rules. |
+| `guard.mjs file` | PreToolUse (Write/Edit) | Blocks secret-bearing paths, secrets in new content, and weakened linter or protected configuration. |
+| `compact-advisor.mjs` | PreToolUse (Edit/Write) | Suggests `/compact` from real context size in the transcript plus a per-session tool-call count. Never blocks. |
+| `post-edit.mjs` | PostToolUse | Formats the edited file with the project's own formatter when one is installed locally — never installs anything, never uses `npx`. |
+| `session-start.mjs` | SessionStart | Injects the last handoff, open tasks, high-confidence instincts, and the installed rules index into the first turn. |
+| `session-end.mjs` | Stop, PreCompact | Distils the transcript into a session record for `resume_session`. |
+| `stop-check.mjs` | Stop | Cheap checks on git-modified files: leftover `console.log`/`debugger`, secrets, and a `verify_task` reminder while a task is active with uncommitted changes. |
+
+`.ai-dev/policy.json` is the knob: a `profile` (`minimal` — guard and session capture only,
+`standard`, `strict`), `allow_config_edits`, `format_on_edit`, the compaction thresholds, and a list
+of hookify-style `rules` (`{ id, event, pattern, action, message }`) that add project-specific
+`block` or `warn` patterns without touching the scripts. Hooks fail open: any error exits 0 so a
+broken hook never wedges the agent.
+
+### State roots
+
+`${AI_DEV_HOME}/state` (`AI_DEV_STATE_ROOT`, default `~/.ai-dev/state`) holds everything that is
+runtime state rather than knowledge:
+
+```text
+${AI_DEV_HOME}/state/
+  tasks/<task-id>.json      task records (authoritative lifecycle state)
+  sessions/<project-id>/    session handoffs, one file per save; hook-<id>.json is a hook capture
+  instincts.json            learned preferences with confidence and decay
+  usage/events.jsonl        tool-call and token/cost ledger, pruned by size
+  skill-outcomes.json       verification-bound routing outcomes
+  pilots.json               pilot reviews
+  archify-receipts/         server-owned receipts keyed by artifact SHA-256
+```
+
+Three levels, deliberately kept apart: the vault is shared knowledge, this tree is per-user runtime
+state, and `<project>/.ai-dev/` (decisions, plans, context packs, rules, hooks, policy) is per-repository
+and belongs in the repository's own history.
 
 ## Request Path
 
@@ -96,6 +179,43 @@ source of truth.
 
 ## Task And Quality State
 
+A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative lifecycle state:
+
+```jsonc
+{
+  "schema_version": 1,
+  "id": "task-<timestamp>-<hash>",
+  "status": "active | complete",   // "complete" only through complete_task
+  "task": "...",
+  "project": { "id", "repository_id", "name", "path", "aliases", "types", "stack", "components" },
+  "risk": "low | medium | high",
+  "plan_policy": {
+    "complexity": "small | medium | large",
+    "score": 0,
+    "plan_required": false,
+    "reasons": ["..."],
+    "suggested_effort": "low | medium | high",
+    "suggested_model_tier": "fast | balanced | deep"
+  },
+  "plan": null,
+  "acceptance_criteria": [{ "id": "AC-1", "text": "...", "status": "pending", "evidence": [], "note": "" }],
+  "skills": ["..."],
+  "context": {
+    "worktree": { "path", "branch", "base_ref", "main_root", "created", "removed_at?" }
+  },
+  "baseline": { /* project fingerprint at begin_task */ },
+  "checkpoints": [],
+  "verifications": [],
+  "completion": null
+}
+```
+
+- `plan_policy` is computed at `begin_task` from complexity signals and risk. When it says
+  `plan_required`, the task gets an extra acceptance criterion that only `plan_task` can meet, so
+  the plan gate is enforced through the normal completion rules rather than a special case.
+- `context.worktree` is present only for a task opened with `begin_task_in_worktree`. It records
+  where the isolated checkout lives and which branch it is on; `complete_task` uses it to point at
+  the merge or PR, and `remove_task_worktree` stamps `removed_at` instead of deleting the field.
 - Task records contain acceptance criteria, checkpoints, verification evidence, and source-state fingerprints.
 - Completion rejects stale evidence and unresolved criteria.
 - Skill structure scores measure document readiness only.

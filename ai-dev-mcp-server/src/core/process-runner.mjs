@@ -200,6 +200,8 @@ export async function runProcess({
   }, Math.max(1, timeoutMs));
   timeout.unref?.();
 
+  // `close` guarantees stdout/stderr have fully drained; `exit` can occur
+  // while final chunks are still in flight.
   const result = await new Promise((resolve, reject) => {
     let exitInfo = { exitCode: null, signal: null };
     child.once("error", reject);

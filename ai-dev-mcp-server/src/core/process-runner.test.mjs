@@ -74,3 +74,18 @@ test("pnpm adapters expose bundled Node and disable dependency auto-install", ()
   );
   assert.equal(environment.pnpm_config_verify_deps_before_run, "false");
 });
+
+test("runProcess captures complete output from a child that exits after a large write", async () => {
+  const script = "const chunk = 'x'.repeat(1024); for (let i = 0; i < 300; i += 1) process.stdout.write(chunk); process.stdout.write('END\\n');";
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const result = await runProcess({
+      executable: process.execPath,
+      args: ["-e", script],
+      cwd: process.cwd(),
+      timeoutMs: 10000
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.stdout.length, 300 * 1024 + 4, `attempt ${attempt}: output was truncated`);
+    assert.ok(result.stdout.endsWith("END\n"));
+  }
+});

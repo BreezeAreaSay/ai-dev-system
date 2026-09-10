@@ -1,0 +1,8 @@
+const rule = (id, title, content) => ({ id, title, content });
+export const COMMON_RULES = [
+  rule("coding-style", "Coding style", "# Coding style\n\nKeep changes focused and readable."), rule("testing", "Testing", "# Testing\n\nAdd focused regression coverage."), rule("security", "Security", "# Security\n\nNever commit secrets."), rule("git", "Git", "# Git\n\nDo not use --no-verify."), rule("verification", "Verification", "# Verification\n\nRun relevant checks before completion.")
+];
+export const RULE_PACKS = [
+  {id:"typescript",title:"TypeScript / JavaScript",paths:["**/*.ts","**/*.tsx","**/*.js","**/*.mjs"],stacks:["Node.js","TypeScript","JavaScript"]}, {id:"react",title:"React",paths:["**/*.tsx","**/*.jsx"],stacks:["React","Next.js"]}, {id:"web",title:"Web frontend",paths:["**/*.html","**/*.css","**/*.vue"],stacks:["frontend","Vue","Tailwind CSS"]}, {id:"python",title:"Python",paths:["**/*.py","**/*.pyi"],stacks:["Python","FastAPI"]}, {id:"docker",title:"Docker",paths:["Dockerfile","**/Dockerfile","docker-compose*.yml"],stacks:["Docker"]}, {id:"golang",title:"Go",paths:["**/*.go"],stacks:["Go"]}, {id:"rust",title:"Rust",paths:["**/*.rs"],stacks:["Rust"]}, {id:"java",title:"Java / JVM",paths:["**/*.java","**/*.kt"],stacks:["Java/JVM","Java","Kotlin"]}
+].map(pack => ({...pack, content:`# ${pack.title}\n\nApply these rules to ${pack.paths.join(", ")}.\n\nKeep scope small, validate inputs, and test changed behavior.`}));
+export function packsForStack(stack = [], projectTypes = []) { const values=new Set([...stack,...projectTypes].map(x=>String(x).toLowerCase())); const ids=[]; for(const p of RULE_PACKS) if(p.stacks.some(x=>values.has(x.toLowerCase()))) ids.push(p.id); return ids; }

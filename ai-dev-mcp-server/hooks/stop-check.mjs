@@ -1,0 +1,2 @@
+#!/usr/bin/env node
+import { emitContext,git,hooksDisabled,normalizeInput,projectRootOf,readStdin } from "./lib.mjs"; async function main(){const {raw}=await readStdin();if(hooksDisabled("stop:check"))return;const root=projectRootOf(normalizeInput(raw).cwd),dirty=git(root,["status","--porcelain"]).split("\n").filter(Boolean).length;if(dirty)emitContext("Stop","[ai-dev] Working tree has changes. Before ending, checkpoint and verify the active task.");}main();

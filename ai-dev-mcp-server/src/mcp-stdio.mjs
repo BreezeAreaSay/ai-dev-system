@@ -53,6 +53,9 @@ import {
   compileContextPack,
   contextPackFreshness
 } from "./core/context-compiler.mjs";
+import { loadContextExtras } from "./core/context-extras.mjs";
+import { verifyChangeHygiene } from "./core/change-hygiene.mjs";
+import { withPlanGateWarning } from "./core/task-plans.mjs";
 import {
   DIAGRAM_REQUEST_PATTERN,
   prioritizeRoutedRecommendations,
@@ -87,6 +90,8 @@ import {
   captureProjectState
 } from "./core/evidence.mjs";
 import { TaskStore } from "./core/task-lifecycle.mjs";
+import { SessionStore } from "./core/session-memory.mjs";
+import { InstinctStore } from "./core/instincts.mjs";
 import {
   applySkillOutcome,
   SkillOutcomeStore
@@ -144,6 +149,8 @@ import {
 } from "./core/reference-factory.mjs";
 import { buildToolDefinitions } from "./tool-definitions.mjs";
 import { autoCommands } from "./auto-commands.mjs";
+import { createExtensionTools } from "./tool-extensions.mjs";
+import { UsageLedger } from "./core/usage-ledger.mjs";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const packageVersion = (() => {
@@ -262,6 +269,9 @@ const taskStateRoot = path.resolve(
   aiDevRuntimePath("AI_DEV_STATE_ROOT", ["state"], ["state", "ai-dev-system"])
 );
 const taskStore = new TaskStore({ stateRoot: taskStateRoot });
+const usageLedger = new UsageLedger({ stateRoot: taskStateRoot });
+const sessionStore = new SessionStore({ stateRoot: taskStateRoot });
+const instinctStore = new InstinctStore({ stateRoot: taskStateRoot });
 const skillOutcomeStore = new SkillOutcomeStore({ stateRoot: taskStateRoot });
 const pilotStore = new PilotStore({ stateRoot: taskStateRoot });
 const bgeM3EmbedCliPath = path.join(embeddingsDir, "bge_m3_embed.py");
@@ -8167,6 +8177,7 @@ async function buildProjectContextPack({
     projectBrief: brief,
     projectMap,
     qualityGate,
+    extras: await loadContextExtras({ projectRoot: identity.project_root, stateRoot: taskStateRoot, projectId: identity.project_id, task, stack: detected.stack }),
     maxSourceFiles,
     maxChars
   });
@@ -8292,6 +8303,7 @@ async function beginTask({
     projectBrief: brief,
     projectMap,
     qualityGate,
+    extras: await loadContextExtras({ projectRoot, stateRoot: taskStateRoot, projectId: identity.project_id, task, stack: detected.stack }),
     maxSourceFiles: 12,
     maxChars: 20_000
   });
@@ -8459,12 +8471,12 @@ async function checkpointTask({
   criteria = [],
   notes = ""
 }) {
-  return taskStore.checkpoint(task_id, {
+  return withPlanGateWarning(await taskStore.checkpoint(task_id, {
     summary,
     changedFiles: changed_files,
     criteria,
     notes
-  });
+  }), changed_files);
 }
 
 function verificationPassed(checks) {
@@ -8474,6 +8486,7 @@ function verificationPassed(checks) {
     if (item.type === "frontend_qa") return item.result?.gate === "pass";
     if (item.type === "frontend_product") return item.result?.ok === true;
     if (item.type === "archify_deliver" || item.type === "archify_visual_check") return item.result?.ok === true;
+    if (item.type === "change_hygiene") return item.result?.status !== "block";
     return false;
   });
 }
@@ -8504,6 +8517,8 @@ async function verifyTask({
   quality_labels = [],
   run_frontend = false,
   frontend_options = {},
+  run_hygiene = true,
+  hygiene_base_ref = "HEAD",
   evidence = []
 }) {
   const record = await taskStore.read(task_id);
@@ -8601,6 +8616,8 @@ async function verifyTask({
       }
     }
   }
+
+  if (run_hygiene) checks.push({ type: "change_hygiene", result: await verifyChangeHygiene(projectRoot, { baseRef: hygiene_base_ref }) });
 
   const projectState = await captureProjectState(projectRoot);
   const passed = verificationPassed(checks);
@@ -8745,10 +8762,18 @@ async function completeTask({
       overwrite: true
     });
   }
-  return { task: record, report, skill_outcomes: skillOutcomes };
+  const worktree = record.context?.worktree && !record.context.worktree.removed_at ? record.context.worktree : null;
+  return { task: record, report, skill_outcomes: skillOutcomes, ...(worktree ? { worktree, next_step: `Merge or open a PR from ${worktree.branch}, then call remove_task_worktree.` } : {}) };
 }
 
-const tools = buildToolDefinitions({
+const extensions = createExtensionTools({
+  vaultRoot, taskStateRoot, taskStore, skillOutcomeStore, sessionStore, instinctStore, usageLedger, callTool,
+  resolveProjectIdentity, detectProject, captureProjectState, readProjectTextIfExists,
+  writeProjectFile, safeProjectFile, safeProjectRoot, writeKnowledgeNote, appendKnowledgeNote,
+  markSearchIndexDirty
+});
+const extensionReadOnlyTools = extensions.readOnly;
+const tools = [...buildToolDefinitions({
   CONCEPT_JURY_DIMENSIONS,
   FRONTEND_PRODUCT_MODES,
   PILOT_DIMENSIONS,
@@ -8758,7 +8783,7 @@ const tools = buildToolDefinitions({
   REFERENCE_FACTORY_SURFACES,
   UI_UX_PRO_MAX_DOMAINS,
   UI_UX_PRO_MAX_STACKS
-});
+}), ...extensions.definitions];
 
 async function searchKnowledge({ query, limit = 10 }) {
   const files = await listMarkdownFiles(vaultRoot);
@@ -10314,6 +10339,8 @@ async function callTool(name, args) {
   if (name === "complete_task") return textContent(await completeTask(args));
   if (name === "write_knowledge_note") return textContent(await writeKnowledgeNote(args));
   if (name === "append_knowledge_note") return textContent(await appendKnowledgeNote(args));
+  const extension = extensions.handlers.get(name);
+  if (extension) return textContent(await extension(args));
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -10410,6 +10437,8 @@ export function startLegacyServer() {
 export {
   assertNotProtectedProjectRoot,
   callTool,
+  extensionReadOnlyTools,
+  usageLedger,
   resolveTaskProjectRoot,
   safeProjectRoot,
   shutdownBgeWorkers,

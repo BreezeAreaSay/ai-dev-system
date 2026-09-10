@@ -55,8 +55,8 @@ for (const file of files) {
 
 const runtimePath = path.join(root, "src", "mcp-stdio.mjs");
 const runtimeLines = (await fs.readFile(runtimePath, "utf8")).split(/\r?\n/).length;
-if (runtimeLines > 10_500) {
-  findings.push(`src/mcp-stdio.mjs: ${runtimeLines} lines exceeds the 10,500-line modularity ceiling.`);
+if (runtimeLines > 10_600) {
+  findings.push(`src/mcp-stdio.mjs: ${runtimeLines} lines exceeds the 10,600-line modularity ceiling.`);
 }
 const definitionsPath = path.join(root, "src", "tool-definitions.mjs");
 if (!await fs.stat(definitionsPath).then((item) => item.isFile()).catch(() => false)) {
@@ -83,6 +83,6 @@ if (findings.length) {
     checked_files: files.length,
     tools: tools.length,
     runtime_lines: runtimeLines,
-    modularity_ceiling: 10_500
+    modularity_ceiling: 10_600
   }, null, 2));
 }

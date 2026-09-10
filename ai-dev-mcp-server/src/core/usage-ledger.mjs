@@ -23,8 +23,9 @@ function round(value, digits = 6) {
  * Append-only JSONL ledger of MCP tool calls and client-reported model usage
  * (`~/.ai-dev/state/usage/events.jsonl`). The MCP server cannot see model
  * tokens itself; the client (or an orchestrator such as a session runner) posts
- * them through `record_usage`, while tool calls are recorded automatically by
- * the server transport.
+ * them through `record_usage`, while tool calls are recorded by the tool
+ * dispatcher (`callTool` in `mcp-stdio.mjs`) whichever caller invoked it: the
+ * MCP transport, the CLI, a smoke script, or a tool composed from other tools.
  */
 export class UsageLedger {
   constructor({ stateRoot, maxBytes = MAX_LEDGER_BYTES, keepLines = KEEP_LINES_AFTER_PRUNE }) {
@@ -45,6 +46,17 @@ export class UsageLedger {
       });
     await this.queue;
     return event;
+  }
+
+  /**
+   * Wait for every queued append to reach disk. Callers that record a tool call
+   * without awaiting it (the tool dispatcher) use this to settle the ledger
+   * before reading it back.
+   *
+   * @returns {Promise<void>}
+   */
+  async flush() {
+    await this.queue.catch(() => undefined);
   }
 
   async pruneIfNeeded() {

@@ -86,7 +86,7 @@ import {
   captureProjectState
 } from "./core/evidence.mjs";
 import { TaskStore } from "./core/task-lifecycle.mjs";
-import { UsageLedger } from "./core/usage-ledger.mjs";
+import { UsageLedger, usageHintsFromArgs } from "./core/usage-ledger.mjs";
 import { SessionStore } from "./core/session-memory.mjs";
 import { InstinctStore } from "./core/instincts.mjs";
 import {
@@ -9616,7 +9616,7 @@ async function recommendSkillsProjectAware({
   return prioritizeRoutedRecommendations(rankedRecommendations, deterministicRoute, safeLimit);
 }
 
-async function callTool(name, args) {
+async function dispatchTool(name, args) {
   if (name === "search_knowledge") return textContent(await searchKnowledge(args));
   if (name === "read_knowledge") return textContent(await readText(args.path));
   if (name === "search_skills") return textContent(await searchSkills(args));
@@ -9711,6 +9711,47 @@ async function callTool(name, args) {
   const extension = extensions.handlers.get(name);
   if (extension) return textContent(await extension(args));
   throw new Error(`Unknown tool: ${name}`);
+}
+
+/**
+ * Run one tool and record it in the usage ledger.
+ *
+ * Every caller goes through here — the MCP server transport (`server.mjs`),
+ * the legacy stdio loop below, `scripts/ai-dev.mjs`, the smoke scripts, and
+ * tools composed from other tools through the extension host — so
+ * `usage_report` counts the work the system actually did instead of only the
+ * calls that happened to arrive over MCP. The transport records nothing of its
+ * own; it passes its own overhead as `transportMs` and that is all it adds.
+ *
+ * A composed call (for example `begin_task_in_worktree` calling `begin_task`)
+ * is one ledger entry per tool that ran, never the same call twice.
+ *
+ * The ledger write is deliberately not awaited: it rewrites an append-only
+ * JSONL file, and no tool result should wait for it. Nothing calls
+ * `process.exit()` around a tool call, so the pending write still lands.
+ *
+ * @param {string} name - Tool name.
+ * @param {object} args - Tool arguments.
+ * @param {{ transportMs?: number }} [context] - Transport overhead to add to the recorded duration.
+ * @returns {Promise<{ content: Array<{ type: string, text: string }> }>}
+ */
+async function callTool(name, args, { transportMs = 0 } = {}) {
+  const startedAt = Date.now();
+  const overhead = Math.max(0, Number(transportMs) || 0);
+  const hints = usageHintsFromArgs(args);
+  const record = (ok, error = "") => {
+    usageLedger
+      .recordToolCall({ tool: name, ok, durationMs: Date.now() - startedAt + overhead, error, ...hints })
+      .catch(() => undefined);
+  };
+  try {
+    const result = await dispatchTool(name, args);
+    record(true);
+    return result;
+  } catch (error) {
+    record(false, error instanceof Error ? error.message : String(error));
+    throw error;
+  }
 }
 
 async function handle(message) {

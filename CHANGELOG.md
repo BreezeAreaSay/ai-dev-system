@@ -219,6 +219,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   recorded". `why` is now normalized into `reason`; the examples and the file
   states in them (`status`, not `state`) match the schema.
 
+### Fixed
+
+- `usage_report` counts every tool call, not only the ones that arrived over
+  MCP. Recording moved from the `server.mjs` transport into `callTool` itself,
+  so calls from `scripts/ai-dev.mjs`, the smoke scripts and tools composed from
+  other tools are in the ledger too; the transport only passes its own overhead
+  as `transportMs`. One call is still exactly one event — pinned by a test that
+  compares a direct call, a call through the transport, and a failure.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

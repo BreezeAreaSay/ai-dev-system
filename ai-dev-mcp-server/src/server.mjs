@@ -56,8 +56,6 @@ const READ_ONLY_TOOLS = new Set([
   "run_search_eval",
   "embed_texts",
   "embedding_status",
-  "system_health_check",
-  "system_dashboard_status",
   "runtime_distribution_status",
   "search_projects",
   "search_notes",

@@ -67,16 +67,22 @@ createXxxTools(host) -> { definitions, handlers, readOnly }
 
 `host` is assembled once by `mcp-stdio.mjs` and carries the shared runtime services an extension is
 allowed to touch — `taskStore`, `usageLedger`, `sessionStore`, `instinctStore`, project identity and
-project-file helpers, and `callTool` for composing existing tools. The dependency runs one way:
-extensions never import `mcp-stdio.mjs`, which would both cycle and couple pure logic to the vault.
-Duplicate tool names and definitions without a handler throw at startup, so a broken extension can
-never reach a client.
+project-file helpers, the vault layout (`vaultPaths`) and its readers and writers, the live status
+sources (search index, embedding backend, registries), and `callTool` for composing existing tools.
+The dependency runs one way: extensions never import `mcp-stdio.mjs`, which would both cycle and
+couple pure logic to the vault. Duplicate tool names and definitions without a handler throw at
+startup, so a broken extension can never reach a client.
 
 Registered today: `decisions`, `hooks`, `hygiene`, `instincts`, `plans`, `rules`, `sessions`,
-`usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
-`change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `rules-library.mjs`, `rules-catalog.mjs`,
-`session-memory.mjs`, `usage-ledger.mjs`, `task-worktrees.mjs`); the extension is the MCP surface
-over it.
+`system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`,
+`agent-hooks.mjs`, `change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `rules-library.mjs`,
+`rules-catalog.mjs`, `session-memory.mjs`, `system-health.mjs`, `system-dashboard.mjs`,
+`usage-ledger.mjs`, `task-worktrees.mjs`); the extension is the MCP surface over it.
+
+`system` is the first of the extractions from `mcp-stdio.mjs` rather than a new capability:
+`system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status` moved out with their
+definitions. Its checks fetch through `host` and hand the raw status objects to pure evaluators in
+`core/system-health.mjs`, which also assembles the dashboard snapshot.
 
 ### Context extras
 

@@ -8453,11 +8453,17 @@ async function validateArchifyDeliveryEvidence(entries, projectRoot) {
   for (const entry of entries) {
     if (entry?.kind === "archify_visual_check") {
       const htmlPath = archifyProjectPath(projectRoot, entry.html_path, "html_path");
-      checks.push({ type: "archify_visual_check", result: validateArchifyVisualCheckEvidence(entry, htmlPath) });
+      checks.push({
+        type: "archify_visual_check",
+        result: await validateArchifyVisualCheckEvidence(entry, htmlPath, { receiptsDir: archifyReceiptsRoot })
+      });
       continue;
     }
     const htmlPath = archifyProjectPath(projectRoot, entry.html_path, "html_path");
-    checks.push({ type: "archify_deliver", result: await validateArchifyDeliveryReceipt(entry, htmlPath) });
+    checks.push({
+      type: "archify_deliver",
+      result: await validateArchifyDeliveryReceipt(entry, htmlPath, { receiptsDir: archifyReceiptsRoot })
+    });
   }
   return checks;
 }

@@ -39,7 +39,8 @@ Node 22, но `engines` в `package.json` не трогался: `>=24` оста
 `BreezeAreaSay/ArgentumWorkspace`, каталог `ai-dev-system-upgrades/patches/`.
 
 Что делать дальше, описано в [PLAN.md](PLAN.md); полный разбор ECC против этого проекта, с
-43 кандидатами на перенос, в [ECC-GAP-ANALYSIS.md](ECC-GAP-ANALYSIS.md).
+43 кандидатами на перенос, в [ECC-GAP-ANALYSIS.md](ECC-GAP-ANALYSIS.md); готовые промпты для
+сессий по каждому этапу плана — в [PROMPTS.md](PROMPTS.md).
 
 ## Содержание
 

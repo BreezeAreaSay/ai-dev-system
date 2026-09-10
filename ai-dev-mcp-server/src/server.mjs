@@ -228,6 +228,22 @@ const PROMPTS = [
     ].filter(Boolean).join("\n")
   },
   {
+    name: "learn_from_task",
+    title: "Извлеки уроки из задачи",
+    description: "After a task, turn corrections, resolved errors, repeated workflows, and decisions into durable memory: instincts, decisions, and a session handoff.",
+    arguments: [
+      { name: "project_path", description: "Absolute repository path.", required: true },
+      { name: "task_id", description: "Task lifecycle id to learn from (optional).", required: false }
+    ],
+    render: ({ project_path, task_id = "" }) => [
+      `Проект: ${project_path}${task_id ? `, задача: ${task_id}` : ""}`,
+      "Просмотри ход работы и выдели: исправления пользователя, ошибки, которые решались одинаково дважды и больше, повторяющиеся последовательности действий, архитектурные решения.",
+      "Для каждого устойчивого паттерна (3+ наблюдения или явное исправление) вызови record_instinct с коротким trigger/action, domain и note без кода и секретов; scope=project по умолчанию, global только для универсальных практик.",
+      "Архитектурные выборы запиши через record_decision. Если задача продолжится в другой сессии, сохрани handoff через save_session с точным next_step и списком неудачных подходов.",
+      "Не создавай инстинкты из единичных случаев и не дублируй уже существующие: сначала list_instincts, потом update_instinct action=confirm для совпадений."
+    ].join("\n")
+  },
+  {
     name: "refresh_project_context",
     title: "Обнови память проекта",
     description: "Refresh project map, brief, Obsidian card, and search index after meaningful changes.",
@@ -405,11 +421,12 @@ export function createAiDevServer() {
       return result;
     } catch (error) {
       await reportProgress(extra, 1, 1, `Failed ${name}`).catch(() => undefined);
-      usageLedger.recordToolCall({ tool: name, ok: false, durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error), ...hints }).catch(() => undefined);
+      const message = error instanceof Error ? error.message : String(error);
+      usageLedger.recordToolCall({ tool: name, ok: false, durationMs: Date.now() - startedAt, error: message, ...hints }).catch(() => undefined);
       return {
         content: [{
           type: "text",
-          text: error instanceof Error ? error.message : String(error)
+          text: message
         }],
         isError: true
       };

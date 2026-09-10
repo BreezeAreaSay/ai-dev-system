@@ -389,6 +389,11 @@ npm run docker:smoke -- --image ai-dev-system:local
 Подробности по Compose, macOS/Linux, BGE-M3 и GHCR: [docker/README.md](docker/README.md).
 Архитектура и полный список инструментов: [ai-dev-mcp-server/README.md](ai-dev-mcp-server/README.md).
 
+## План развития
+
+План развития и заметки по апгрейдам на основе ECC (обоснование, подключение, примеры вызова инструментов) лежат в
+[docs/ecc-upgrades/](docs/ecc-upgrades/README.md); начинать с [PLAN.md](docs/ecc-upgrades/PLAN.md).
+
 ## Лицензии
 
 Смотрите [LICENSE](LICENSE) и [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

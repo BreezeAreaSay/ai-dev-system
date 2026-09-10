@@ -90,6 +90,7 @@ import {
   captureProjectState
 } from "./core/evidence.mjs";
 import { TaskStore } from "./core/task-lifecycle.mjs";
+import { UsageLedger } from "./core/usage-ledger.mjs";
 import { SessionStore } from "./core/session-memory.mjs";
 import { InstinctStore } from "./core/instincts.mjs";
 import {
@@ -150,7 +151,6 @@ import {
 import { buildToolDefinitions } from "./tool-definitions.mjs";
 import { autoCommands } from "./auto-commands.mjs";
 import { createExtensionTools } from "./tool-extensions.mjs";
-import { UsageLedger } from "./core/usage-ledger.mjs";
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const packageVersion = (() => {
@@ -8618,7 +8618,6 @@ async function verifyTask({
   }
 
   if (run_hygiene) checks.push({ type: "change_hygiene", result: await verifyChangeHygiene(projectRoot, { baseRef: hygiene_base_ref }) });
-
   const projectState = await captureProjectState(projectRoot);
   const passed = verificationPassed(checks);
   const verification = {
@@ -8766,8 +8765,11 @@ async function completeTask({
   return { task: record, report, skill_outcomes: skillOutcomes, ...(worktree ? { worktree, next_step: `Merge or open a PR from ${worktree.branch}, then call remove_task_worktree.` } : {}) };
 }
 
+// Extension tools live in src/extensions/* and receive shared runtime services
+// through this host object (see src/tool-extensions.mjs).
 const extensions = createExtensionTools({
-  vaultRoot, taskStateRoot, taskStore, skillOutcomeStore, sessionStore, instinctStore, usageLedger, callTool,
+  vaultRoot, taskStateRoot, taskStore, skillOutcomeStore, usageLedger, sessionStore, instinctStore, callTool,
+  serverRoot: path.resolve(serverDir, ".."),
   resolveProjectIdentity, detectProject, captureProjectState, readProjectTextIfExists,
   writeProjectFile, safeProjectFile, safeProjectRoot, writeKnowledgeNote, appendKnowledgeNote,
   markSearchIndexDirty
@@ -10438,11 +10440,11 @@ export {
   assertNotProtectedProjectRoot,
   callTool,
   extensionReadOnlyTools,
-  usageLedger,
   resolveTaskProjectRoot,
   safeProjectRoot,
   shutdownBgeWorkers,
   tools,
+  usageLedger,
   vaultRoot
 };
 

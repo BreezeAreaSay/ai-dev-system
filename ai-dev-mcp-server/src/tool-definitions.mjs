@@ -1690,7 +1690,7 @@ export function buildToolDefinitions({
         run_frontend: { type: "boolean", default: false },
         frontend_options: { type: "object", additionalProperties: true, default: {} },
         run_hygiene: { type: "boolean", default: true, description: "Scan added lines for secrets, debug leftovers, focused/skipped tests, conflict markers, weakened lint configs, and missing test changes. A block finding fails verification." },
-        hygiene_base_ref: { type: "string", default: "HEAD", description: "Git ref the hygiene scan diffs against; use the branch base to include committed work." },
+        hygiene_base_ref: { type: "string", default: "HEAD", description: "Git ref the hygiene scan diffs against; use the branch base (for example main) to include committed work." },
         evidence: ARCHIFY_EVIDENCE_SCHEMA
       },
       required: ["task_id"]

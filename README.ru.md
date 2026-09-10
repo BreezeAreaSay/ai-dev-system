@@ -367,6 +367,9 @@ tap и обновлению релизов находятся в [packaging/READ
 
 ## Проверка и диагностика
 
+План развития и заметки по апгрейдам на основе ECC (обоснование, подключение, примеры вызова инструментов) лежат в
+[docs/ecc-upgrades/](docs/ecc-upgrades/README.md); начинать с [PLAN.md](docs/ecc-upgrades/PLAN.md).
+
 Перед выпуском из `ai-dev-mcp-server` выполните:
 
 ```powershell

@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { atomicWriteJson } from "./atomic-files.mjs";
+import { memoryScopeKeys } from "./project-identity.mjs";
 
 /**
  * Instincts: atomic learned behaviors ("when <trigger>, <action>") with a
@@ -108,6 +109,38 @@ function emptyStore() {
   return { schema_version: STORE_SCHEMA_VERSION, updated_at: null, instincts: [] };
 }
 
+/**
+ * Project-scoped instincts are visible to a scope when either key matches: the
+ * repository id every worktree of one clone shares, or the project id the
+ * instinct was recorded under before repository ids existed.
+ */
+function inScope(item, keys) {
+  return keys.includes(item.repository_id) || keys.includes(item.project_id);
+}
+
+/** The key a stored instinct is filed under, newest scheme first. */
+function scopeKeyOf(item) {
+  return item.repository_id || item.project_id || "";
+}
+
+/**
+ * First write under a repository id adopts the instincts an older project id
+ * recorded, so memory written before worktrees were unified stays visible.
+ */
+function migrateScope(store, [primary, ...legacy]) {
+  if (!primary || !legacy.length) return;
+  for (const item of store.instincts) {
+    if (item.scope !== "project" || item.repository_id) continue;
+    if (legacy.includes(item.project_id)) item.repository_id = primary;
+  }
+}
+
+/**
+ * Instincts are scoped by repository key (see
+ * {@link import("./project-identity.mjs").memoryScopeKeys}) so a worktree and
+ * its main checkout learn from each other; every reader takes both
+ * `repositoryId` and `projectId` and matches either.
+ */
 export class InstinctStore {
   constructor({ stateRoot }) {
     this.stateRoot = path.resolve(stateRoot);
@@ -142,7 +175,7 @@ export class InstinctStore {
    * Record an observation. Merges into an existing instinct with the same id
    * or a near-identical trigger/action; otherwise creates a new one.
    *
-   * @param {{ trigger: string, action: string, domain?: string, scope?: string, projectId?: string, projectName?: string, source?: string, note?: string, taskId?: string, confidence?: number, observations?: number, stack?: string[], now?: string }} input
+   * @param {{ trigger: string, action: string, domain?: string, scope?: string, repositoryId?: string, projectId?: string, projectName?: string, source?: string, note?: string, taskId?: string, confidence?: number, observations?: number, stack?: string[], now?: string }} input
    * @returns {Promise<{ instinct: object, created: boolean }>}
    */
   async record(input) {
@@ -153,14 +186,16 @@ export class InstinctStore {
     const scope = INSTINCT_SCOPES.includes(input.scope) ? input.scope : "project";
     const source = INSTINCT_SOURCES.includes(input.source) ? input.source : "agent";
     if (scope === "project" && !input.projectId) throw new Error("projectId is required for project-scoped instincts.");
+    const keys = memoryScopeKeys(input);
     const now = input.now || new Date().toISOString();
     let result;
     await this.update((store) => {
+      migrateScope(store, keys);
       const id = instinctId(trigger, action);
       const candidate = { trigger, action };
       const existing = store.instincts.find((item) => item.status !== "retired" && (
         (item.id === id || similar(item, candidate))
-        && (item.scope === "global" || scope === "global" || item.project_id === input.projectId)
+        && (item.scope === "global" || scope === "global" || inScope(item, keys))
       ));
       const evidence = { at: now, kind: "observe", note: normalize(input.note), task_id: String(input.taskId || ""), source };
       if (existing) {
@@ -181,6 +216,7 @@ export class InstinctStore {
         action,
         domain,
         scope,
+        repository_id: scope === "project" ? String(input.repositoryId || "") : "",
         project_id: scope === "project" ? String(input.projectId) : "",
         project_name: scope === "project" ? String(input.projectName || "") : "",
         confidence: round(clamp(Number.isFinite(Number(input.confidence)) && input.confidence !== undefined ? Number(input.confidence) : initialConfidence(observations))),
@@ -219,6 +255,7 @@ export class InstinctStore {
       } else if (kind === "promote") {
         if (instinct.scope === "global") throw new Error(`Instinct ${id} is already global.`);
         instinct.scope = "global";
+        instinct.repository_id = "";
         instinct.project_id = "";
         instinct.project_name = "";
       } else {
@@ -237,14 +274,15 @@ export class InstinctStore {
    *
    * Retired and promoted instincts are hidden unless `includeRetired` is set.
    *
-   * @param {{ projectId?: string, scope?: string, domain?: string, minConfidence?: number, includeRetired?: boolean, now?: string }} [filter]
+   * @param {{ repositoryId?: string, projectId?: string, scope?: string, domain?: string, minConfidence?: number, includeRetired?: boolean, now?: string }} [filter]
    * @returns {Promise<object[]>}
    */
-  async list({ projectId = "", scope = "", domain = "", minConfidence = 0, includeRetired = false, now = new Date().toISOString() } = {}) {
+  async list({ repositoryId = "", projectId = "", scope = "", domain = "", minConfidence = 0, includeRetired = false, now = new Date().toISOString() } = {}) {
     const store = await this.read();
+    const keys = memoryScopeKeys({ repositoryId, projectId });
     return store.instincts
       .filter((item) => includeRetired || item.status === "active")
-      .filter((item) => !projectId || item.scope === "global" || item.project_id === projectId)
+      .filter((item) => !keys.length || item.scope === "global" || inScope(item, keys))
       .filter((item) => !scope || item.scope === scope)
       .filter((item) => !domain || item.domain === domain)
       .map((item) => ({ ...item, effective_confidence: effectiveConfidence(item, now) }))
@@ -257,11 +295,11 @@ export class InstinctStore {
    * threshold, ranked by confidence plus project-scope, stack, and task
    * relevance boosts (ECC instinct-relevance).
    *
-   * @param {{ projectId?: string, stack?: string[], task?: string, threshold?: number, limit?: number, now?: string }} input
+   * @param {{ repositoryId?: string, projectId?: string, stack?: string[], task?: string, threshold?: number, limit?: number, now?: string }} input
    * @returns {Promise<{ instincts: object[], markdown: string }>}
    */
-  async rankForContext({ projectId = "", stack = [], task = "", threshold = DEFAULT_INJECT_THRESHOLD, limit = DEFAULT_MAX_INJECTED, now = new Date().toISOString() } = {}) {
-    const candidates = await this.list({ projectId, minConfidence: threshold, now });
+  async rankForContext({ repositoryId = "", projectId = "", stack = [], task = "", threshold = DEFAULT_INJECT_THRESHOLD, limit = DEFAULT_MAX_INJECTED, now = new Date().toISOString() } = {}) {
+    const candidates = await this.list({ repositoryId, projectId, minConfidence: threshold, now });
     const stackTokens = new Set((stack ?? []).flatMap((label) => [...tokens(label)]));
     const taskTokens = tokens(task);
     const ranked = candidates.map((item) => {
@@ -278,7 +316,7 @@ export class InstinctStore {
   }
 
   /**
-   * Project-scoped instincts seen in two or more projects with average
+   * Project-scoped instincts seen in two or more repositories with average
    * confidence >= 0.8 are candidates for global promotion.
    *
    * @returns {Promise<Array<{ id: string, projects: number, average_confidence: number, domain: string }>>}
@@ -294,7 +332,7 @@ export class InstinctStore {
     }
     const candidates = [];
     for (const [id, items] of groups) {
-      const projects = new Set(items.map((item) => item.project_id)).size;
+      const projects = new Set(items.map(scopeKeyOf)).size;
       const average = items.reduce((sum, item) => sum + item.confidence, 0) / items.length;
       if (projects >= 2 && average >= 0.8) {
         candidates.push({ id, projects, average_confidence: round(average), domain: items[0].domain, trigger: items[0].trigger, action: items[0].action });
@@ -307,11 +345,11 @@ export class InstinctStore {
    * Cluster active instincts by domain and shared vocabulary; clusters of
    * `minSize` or more become skill-draft candidates (ECC /evolve).
    *
-   * @param {{ projectId?: string, minSize?: number }} [input]
+   * @param {{ repositoryId?: string, projectId?: string, minSize?: number }} [input]
    * @returns {Promise<Array<{ key: string, domain: string, scope: string, instincts: object[], skill_name: string }>>}
    */
-  async clusters({ projectId = "", minSize = 3 } = {}) {
-    const items = await this.list({ projectId });
+  async clusters({ repositoryId = "", projectId = "", minSize = 3 } = {}) {
+    const items = await this.list({ repositoryId, projectId });
     const groups = new Map();
     for (const item of items) {
       const key = `${item.scope}:${item.domain}`;
@@ -342,8 +380,8 @@ export class InstinctStore {
     });
   }
 
-  async exportInstincts({ scope = "", domain = "", minConfidence = 0.5, projectId = "", now = new Date().toISOString() } = {}) {
-    const items = await this.list({ projectId, scope, domain, minConfidence, now });
+  async exportInstincts({ scope = "", domain = "", minConfidence = 0.5, repositoryId = "", projectId = "", now = new Date().toISOString() } = {}) {
+    const items = await this.list({ repositoryId, projectId, scope, domain, minConfidence, now });
     return {
       schema_version: STORE_SCHEMA_VERSION,
       exported_at: new Date().toISOString(),
@@ -351,7 +389,7 @@ export class InstinctStore {
     };
   }
 
-  async importInstincts(entries, { scope = "", projectId = "", projectName = "" } = {}) {
+  async importInstincts(entries, { scope = "", repositoryId = "", projectId = "", projectName = "" } = {}) {
     const results = [];
     for (const entry of Array.isArray(entries) ? entries : []) {
       const targetScope = scope || entry.scope || "global";
@@ -360,6 +398,7 @@ export class InstinctStore {
         action: entry.action,
         domain: entry.domain,
         scope: targetScope,
+        repositoryId: targetScope === "project" ? repositoryId || entry.repository_id : "",
         projectId: targetScope === "project" ? projectId || entry.project_id : "",
         projectName: targetScope === "project" ? projectName || entry.project_name : "",
         confidence: Number.isFinite(Number(entry.confidence)) ? Math.min(0.7, Number(entry.confidence)) : undefined,

@@ -88,28 +88,108 @@ export function git(cwd, args) {
   }
 }
 
+function realpathOf(target) {
+  try {
+    return fs.realpathSync.native(target);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+function normalizeKey(value) {
+  const resolved = path.resolve(value).replaceAll("\\", "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+function hashKey(key) {
+  return crypto.createHash("sha256").update(process.platform === "win32" ? key.toLowerCase() : key).digest("hex").slice(0, 20);
+}
+
 export function projectRootOf(cwd) {
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
-  const root = top || cwd;
-  try {
-    return fs.realpathSync.native(root);
-  } catch {
-    return path.resolve(root);
-  }
+  return realpathOf(top || cwd);
 }
 
 /** Same derivation as the server's resolveProjectIdentity (core/project-identity.mjs). */
 export function projectIdOf(projectRoot, isGit = true) {
-  const resolved = path.resolve(projectRoot).replaceAll("\\", "/").replace(/\/+$/, "");
-  const normalized = process.platform === "win32" ? resolved.toLowerCase() : resolved;
-  const key = `${isGit ? "git" : "filesystem"}:${normalized}`;
-  return `project-${crypto.createHash("sha256").update(key).digest("hex").slice(0, 20)}`;
+  return `project-${hashKey(`${isGit ? "git" : "filesystem"}:${normalizeKey(projectRoot)}`)}`;
+}
+
+/**
+ * Same derivation as the server's repositoryId (core/project-identity.mjs): the
+ * clone's `--git-common-dir` (identical in every linked worktree) plus the
+ * project's path inside its own worktree. Empty outside Git.
+ */
+export function repositoryIdOf(projectRoot) {
+  const root = path.resolve(projectRoot);
+  const commonDir = git(root, ["rev-parse", "--git-common-dir"]);
+  if (!commonDir) return "";
+  const canonicalCommonDir = realpathOf(path.isAbsolute(commonDir) ? commonDir : path.resolve(root, commonDir));
+  const toplevel = git(root, ["rev-parse", "--show-toplevel"]);
+  const relative = path.relative(realpathOf(toplevel || root), realpathOf(root)).replaceAll("\\", "/");
+  const scope = !relative || relative.startsWith("..") ? "" : `#${relative}`;
+  return `repository-${hashKey(`git-common:${normalizeKey(canonicalCommonDir)}${scope}`)}`;
+}
+
+/**
+ * Read order for the memory a repository shares across its worktrees: the
+ * repository id first, then the project id records were written under before
+ * repository ids existed. Writers use the first key and migrate the rest.
+ */
+export function memoryKeysOf(projectRoot, isGit = true) {
+  const keys = [];
+  const repository = isGit ? repositoryIdOf(projectRoot) : "";
+  if (repository) keys.push(repository);
+  const project = projectIdOf(projectRoot, isGit);
+  if (!keys.includes(project)) keys.push(project);
+  return keys;
 }
 
 export function stateRoot() {
   if (process.env.AI_DEV_STATE_ROOT) return path.resolve(process.env.AI_DEV_STATE_ROOT);
   const home = process.env.AI_DEV_HOME || process.env.USERPROFILE || process.env.HOME || os.homedir();
   return path.join(home, ".ai-dev", "state");
+}
+
+/** Same sanitisation as the server's SessionStore.directoryFor. */
+export function sessionsDirectory(key) {
+  return path.join(stateRoot(), "sessions", String(key || "unknown").replace(/[^a-zA-Z0-9_.-]/g, "_"));
+}
+
+/**
+ * Move handoffs a legacy key wrote into the first key's directory, so the
+ * split between a worktree and its main checkout disappears on the first
+ * capture. Best effort: readers merge every key anyway.
+ */
+export function migrateSessions(keys) {
+  const [primary, ...legacy] = keys;
+  if (!primary || !legacy.length) return;
+  const target = sessionsDirectory(primary);
+  for (const key of legacy) {
+    const source = sessionsDirectory(key);
+    let names = [];
+    try {
+      names = fs.readdirSync(source).filter((name) => name.endsWith(".json"));
+    } catch {
+      continue;
+    }
+    if (!names.length) continue;
+    fs.mkdirSync(target, { recursive: true });
+    for (const name of names) {
+      const destination = path.join(target, name);
+      if (fs.existsSync(destination)) continue;
+      try {
+        fs.renameSync(path.join(source, name), destination);
+      } catch {
+        // Keep the legacy copy: every reader still merges both keys.
+      }
+    }
+    try {
+      fs.rmdirSync(source);
+    } catch {
+      // Records that could not move keep the directory alive.
+    }
+  }
 }
 
 export function readJson(target, fallback = null) {

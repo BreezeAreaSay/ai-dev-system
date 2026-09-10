@@ -7521,7 +7521,7 @@ async function buildProjectContextPack({
     projectBrief: brief,
     projectMap,
     qualityGate,
-    extras: await loadContextExtras({ projectRoot: identity.project_root, stateRoot: taskStateRoot, projectId: identity.project_id, task, stack: detected.stack }),
+    extras: await loadContextExtras({ projectRoot: identity.project_root, stateRoot: taskStateRoot, repositoryId: identity.repository_id, projectId: identity.project_id, task, stack: detected.stack }),
     maxSourceFiles,
     maxChars
   });
@@ -7647,7 +7647,7 @@ async function beginTask({
     projectBrief: brief,
     projectMap,
     qualityGate,
-    extras: await loadContextExtras({ projectRoot, stateRoot: taskStateRoot, projectId: identity.project_id, task, stack: detected.stack }),
+    extras: await loadContextExtras({ projectRoot, stateRoot: taskStateRoot, repositoryId: identity.repository_id, projectId: identity.project_id, task, stack: detected.stack }),
     maxSourceFiles: 12,
     maxChars: 20_000
   });

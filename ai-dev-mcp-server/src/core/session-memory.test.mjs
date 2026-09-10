@@ -85,6 +85,79 @@ test("session store saves, lists newest-first with substance filter, and writes 
   assert.match(await fs.readFile(path.join(root, ".ai-dev", "context", "handoff.md"), "utf8"), /Wire the cookie/);
 });
 
+test("handoffs are keyed by repository, so a worktree and its main checkout share one memory", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "session-memory-worktree-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const store = new SessionStore({ stateRoot: path.join(root, "state") });
+  // One clone, two working trees: same repository id, different project ids.
+  const checkout = { repository_id: "repository-1", project_id: "project-checkout" };
+  const worktree = { repository_id: "repository-1", project_id: "project-worktree" };
+
+  const fromWorktree = await store.save({
+    repositoryId: worktree.repository_id,
+    projectId: worktree.project_id,
+    projectPath: path.join(root, "worktrees", "task-one"),
+    building: "Rate limiting for the public API, middleware still unwired.",
+    next_step: "Wire the middleware and run the contract tests.",
+    now: "2026-01-01T00:00:00.000Z"
+  });
+  assert.equal(path.basename(path.dirname(fromWorktree.path)), "repository-1");
+  assert.equal((await store.latest(checkout)).id, fromWorktree.record.id, "the main checkout reads the worktree handoff");
+
+  const fromCheckout = await store.save({
+    repositoryId: checkout.repository_id,
+    projectId: checkout.project_id,
+    projectPath: root,
+    building: "Merged the rate limiter and started on the metrics endpoint.",
+    next_step: "Add the counter metric and run verify_task.",
+    now: "2026-01-02T00:00:00.000Z"
+  });
+  assert.equal((await store.latest(worktree)).id, fromCheckout.record.id, "the worktree reads the main checkout handoff");
+  assert.deepEqual(
+    (await store.list(worktree)).map((item) => item.id),
+    [fromCheckout.record.id, fromWorktree.record.id]
+  );
+
+  // Another clone of the same project keeps its own memory.
+  assert.equal(await store.latest({ repository_id: "repository-2", project_id: "project-other" }), null);
+});
+
+test("handoffs written under the old project key are read, then migrated by the first repository write", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "session-memory-migration-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const stateRoot = path.join(root, "state");
+  const store = new SessionStore({ stateRoot });
+  const scope = { repositoryId: "repository-1", projectId: "project-legacy" };
+
+  const legacy = await store.save({
+    projectId: scope.projectId,
+    projectPath: root,
+    building: "Legacy handoff written before repository ids existed.",
+    next_step: "Read this from the repository key without losing it.",
+    now: "2026-01-01T00:00:00.000Z"
+  });
+  assert.equal(path.basename(path.dirname(legacy.path)), "project-legacy");
+  assert.equal((await store.latest(scope)).id, legacy.record.id, "reading falls back to the project key");
+
+  const migrated = await store.save({
+    ...scope,
+    projectPath: root,
+    building: "First save under the repository key.",
+    next_step: "Confirm the legacy record moved across.",
+    now: "2026-01-02T00:00:00.000Z"
+  });
+  const directory = path.join(stateRoot, "sessions", "repository-1");
+  assert.deepEqual(
+    (await fs.readdir(directory)).sort(),
+    [path.basename(legacy.path), path.basename(migrated.path)].sort()
+  );
+  assert.deepEqual(await fs.readdir(path.join(stateRoot, "sessions")), ["repository-1"], "the legacy directory is gone");
+  assert.deepEqual(
+    (await store.list(scope)).map((item) => item.id),
+    [migrated.record.id, legacy.record.id]
+  );
+});
+
 test("estimateContextBudget reports static overhead and boundary compaction hints", () => {
   const healthy = estimateContextBudget({ contextPackChars: 20_000, skillChars: 12_000, rulesChars: 8_000, agentsChars: 4_000 });
   assert.equal(healthy.static_tokens, 11_000);

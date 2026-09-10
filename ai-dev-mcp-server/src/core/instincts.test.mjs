@@ -94,3 +94,50 @@ test("store records, merges similar observations, adjusts, ranks, promotes, and 
   assert.ok(imported.every((item) => item.instinct.confidence <= 0.7), "imports are capped at 0.7");
   assert.equal(renderInstinctsMarkdown([]), "");
 });
+
+test("instincts are scoped by repository, so a worktree and its main checkout learn from each other", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "instincts-worktree-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const store = new InstinctStore({ stateRoot: root });
+  const checkout = { repositoryId: "repository-1", projectId: "project-checkout" };
+  const worktree = { repositoryId: "repository-1", projectId: "project-worktree" };
+
+  const recorded = await store.record({
+    ...worktree,
+    projectName: "app",
+    trigger: "when a migration fails",
+    action: "Re-run it against a scratch database first",
+    domain: "debugging",
+    confidence: 0.8,
+    now: "2026-01-01T00:00:00.000Z"
+  });
+  assert.equal(recorded.instinct.repository_id, "repository-1");
+  assert.deepEqual((await store.list(checkout)).map((item) => item.id), [recorded.instinct.id], "visible from the main checkout");
+  const ranked = await store.rankForContext({ ...checkout, task: "Fix the failed migration", now: "2026-01-01T12:00:00.000Z" });
+  assert.equal(ranked.instincts[0].id, recorded.instinct.id);
+
+  // The same observation from the main checkout reinforces it instead of forking a copy.
+  const again = await store.record({ ...checkout, trigger: "when a migration fails", action: "Re-run it against a scratch database first", now: "2026-01-02T00:00:00.000Z" });
+  assert.equal(again.created, false);
+  assert.equal((await store.list(worktree)).length, 1);
+  assert.equal((await store.list({ repositoryId: "repository-2", projectId: "project-other" })).length, 0, "another clone keeps its own memory");
+});
+
+test("instincts written under the old project key are read, then adopted by the first repository write", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "instincts-migration-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const store = new InstinctStore({ stateRoot: root });
+
+  const legacy = await store.record({ projectId: "project-legacy", trigger: "when touching the parser", action: "Add a fixture first", domain: "testing", confidence: 0.75, now: "2026-01-01T00:00:00.000Z" });
+  assert.equal(legacy.instinct.repository_id, "", "outside a clone the project id stays the only key");
+
+  const scope = { repositoryId: "repository-1", projectId: "project-legacy" };
+  const store2 = new InstinctStore({ stateRoot: root });
+  assert.deepEqual((await store2.list(scope)).map((item) => item.id), [legacy.instinct.id], "reading falls back to the project key");
+
+  await store2.record({ ...scope, trigger: "when releasing", action: "Tag after the gate passes", domain: "workflow", confidence: 0.75, now: "2026-01-02T00:00:00.000Z" });
+  const stored = JSON.parse(await fs.readFile(path.join(root, "instincts.json"), "utf8"));
+  assert.equal(stored.instincts.find((item) => item.id === legacy.instinct.id).repository_id, "repository-1", "the first repository write adopts it");
+  // A worktree of the same clone now sees the migrated instinct too.
+  assert.equal((await store2.list({ repositoryId: "repository-1", projectId: "project-worktree" })).length, 2);
+});

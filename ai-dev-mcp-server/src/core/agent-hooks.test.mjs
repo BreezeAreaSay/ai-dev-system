@@ -179,7 +179,8 @@ test("session hooks capture transcripts, inject handoffs and instincts, and advi
 
   const { resolveProjectIdentity } = await import("./project-identity.mjs");
   const identity = await resolveProjectIdentity(projectRoot);
-  assert.equal(projectDir, identity.project_id, "hook and server derive the same project id");
+  assert.equal(projectDir, identity.repository_id, "hook and server derive the same repository id");
+  assert.equal(record.project_id, identity.project_id, "hook and server derive the same project id");
 
   await fs.writeFile(path.join(stateRoot, "instincts.json"), JSON.stringify({ instincts: [
     { id: "a", trigger: "when writing tests", action: "use table-driven cases", scope: "project", project_id: identity.project_id, confidence: 0.8, status: "active" },
@@ -209,4 +210,33 @@ test("session hooks capture transcripts, inject handoffs and instincts, and advi
   assert.match(stop.stderr, /Task task-20260101T000000-abcdef12 is active/);
   const formatted = runHook(projectRoot, "post-edit.mjs", [], { tool_input: { file_path: "src.js" } });
   assert.equal(formatted.status, 0);
+});
+
+test("hook memory is keyed by repository, so a worktree capture reaches the main checkout", async (t) => {
+  const { projectRoot } = await fixture(t);
+  await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], profile: "standard" });
+  const stateRoot = path.join(path.dirname(projectRoot), "state");
+  const worktree = path.join(path.dirname(projectRoot), "worktrees", "task-one");
+  runGit(projectRoot, ["worktree", "add", "-q", "-b", "task/one", worktree]);
+  const transcript = path.join(path.dirname(projectRoot), "worktree-transcript.jsonl");
+  await fs.writeFile(transcript, [
+    JSON.stringify({ type: "user", message: { role: "user", content: "Add rate limiting to the public API" } }),
+    JSON.stringify({ type: "user", message: { role: "user", content: "Now exclude the health check" } }),
+    ""
+  ].join("\n"));
+
+  // The agent works inside the task worktree; the hook runs from there.
+  const ended = runHook(projectRoot, "session-end.mjs", [], { session_id: "wt1", transcript_path: transcript, cwd: worktree });
+  assert.equal(ended.status, 0);
+  const { resolveProjectIdentity } = await import("./project-identity.mjs");
+  const [main, linked] = await Promise.all([resolveProjectIdentity(projectRoot), resolveProjectIdentity(worktree)]);
+  assert.notEqual(linked.project_id, main.project_id);
+  const record = JSON.parse(await fs.readFile(path.join(stateRoot, "sessions", main.repository_id, "hook-wt1.json"), "utf8"));
+  assert.equal(record.repository_id, main.repository_id);
+  assert.equal(record.project_id, linked.project_id, "the record still says which working tree it came from");
+
+  // SessionStart in the main checkout reads it back.
+  const started = runHook(projectRoot, "session-start.mjs", [], { hook_event_name: "SessionStart", source: "startup" });
+  assert.equal(started.status, 0);
+  assert.match(JSON.parse(started.stdout).hookSpecificOutput.additionalContext, /Add rate limiting to the public API/);
 });

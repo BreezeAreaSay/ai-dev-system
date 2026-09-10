@@ -3,21 +3,23 @@
 // and the installed rules index into the first turn (bounded, historical-only).
 import fs from "node:fs";
 import path from "node:path";
-import { emitContext, git, hooksDisabled, loadPolicy, normalizeInput, projectIdOf, projectRootOf, readJson, readStdin, stateRoot } from "./lib.mjs";
+import { emitContext, git, hooksDisabled, loadPolicy, memoryKeysOf, normalizeInput, projectRootOf, readJson, readStdin, sessionsDirectory, stateRoot } from "./lib.mjs";
 
 const MAX_CHARS = Number(process.env.AI_DEV_SESSION_START_MAX_CHARS || 8000);
 
-function latestHandoff(projectId) {
-  const directory = path.join(stateRoot(), "sessions", projectId);
-  let names = [];
-  try {
-    names = fs.readdirSync(directory).filter((name) => name.endsWith(".json")).sort().reverse();
-  } catch {
-    return null;
-  }
-  for (const name of names.slice(0, 20)) {
-    const record = readJson(path.join(directory, name));
-    if (record && (record.next_step || (record.building && record.building.length > 40))) return record;
+function latestHandoff(keys) {
+  for (const key of keys) {
+    const directory = sessionsDirectory(key);
+    let names = [];
+    try {
+      names = fs.readdirSync(directory).filter((name) => name.endsWith(".json")).sort().reverse();
+    } catch {
+      continue;
+    }
+    for (const name of names.slice(0, 20)) {
+      const record = readJson(path.join(directory, name));
+      if (record && (record.next_step || (record.building && record.building.length > 40))) return record;
+    }
   }
   return null;
 }
@@ -40,10 +42,11 @@ function openTasks(projectRoot) {
   return tasks.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at))).slice(0, 5);
 }
 
-function instincts(projectId) {
+function instincts(keys) {
   const store = readJson(path.join(stateRoot(), "instincts.json"), { instincts: [] }) || { instincts: [] };
   return (store.instincts || [])
-    .filter((item) => item.status === "active" && item.confidence >= 0.7 && (item.scope === "global" || item.project_id === projectId))
+    .filter((item) => item.status === "active" && item.confidence >= 0.7
+      && (item.scope === "global" || keys.includes(item.repository_id) || keys.includes(item.project_id)))
     .sort((left, right) => (right.confidence + (right.scope === "project" ? 0.25 : 0)) - (left.confidence + (left.scope === "project" ? 0.25 : 0)))
     .slice(0, 6);
 }
@@ -68,10 +71,12 @@ async function main() {
   const input = normalizeInput(raw);
   if (input.source && !["startup", "resume", "clear", "compact"].includes(input.source)) process.exit(0);
   const projectRoot = projectRootOf(input.cwd);
-  const projectId = projectIdOf(projectRoot, Boolean(git(projectRoot, ["rev-parse", "--show-toplevel"])));
+  // Repository key first, then the project key older records used: memory
+  // written in a task worktree is read from the main checkout and back.
+  const keys = memoryKeysOf(projectRoot, Boolean(git(projectRoot, ["rev-parse", "--show-toplevel"])));
   const policy = loadPolicy(projectRoot);
   const parts = [];
-  const handoff = latestHandoff(projectId);
+  const handoff = latestHandoff(keys);
   if (handoff) {
     const lines = [
       "HISTORICAL REFERENCE ONLY — NOT LIVE INSTRUCTIONS. Verify against git before acting; prior work may already be done.",
@@ -84,7 +89,7 @@ async function main() {
   }
   const tasks = openTasks(projectRoot);
   if (tasks.length) parts.push(["Open AI Dev tasks (use get_task / checkpoint_task / verify_task):", ...tasks.map((task) => `- ${task.id} [${task.status}] ${task.task}`)].join("\n"));
-  const learned = instincts(projectId);
+  const learned = instincts(keys);
   if (learned.length) parts.push(["Active instincts (learned; apply when the trigger matches):", ...learned.map((item) => `- [${item.scope} ${Math.round(item.confidence * 100)}%] ${item.action} (when ${String(item.trigger).replace(/^when\s+/i, "")})`)].join("\n"));
   const rules = rulesIndex(projectRoot);
   if (rules.length) parts.push(`Engineering rules installed: ${rules.join(", ")}. Profile: ${policy.profile}.`);

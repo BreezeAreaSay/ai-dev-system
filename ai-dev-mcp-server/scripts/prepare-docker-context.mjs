@@ -9,7 +9,8 @@ import {
   auditDistributionTree,
   copyDistributionFile,
   copyDistributionTree,
-  distributionContentFingerprint
+  distributionContentFingerprint,
+  ownerUsername
 } from "../src/core/public-distribution.mjs";
 import { isDirectExecution } from "../src/core/direct-execution.mjs";
 
@@ -130,7 +131,7 @@ async function createDockerContext({ output }) {
 
     const forbiddenTerms = [
       os.homedir(),
-      ...(process.env.CI ? [] : [os.userInfo().username])
+      ...(process.env.CI ? [] : [ownerUsername()])
     ];
     const initialAudit = assertCleanDistribution(
       await auditDistributionTree(stage, { forbiddenTerms }),

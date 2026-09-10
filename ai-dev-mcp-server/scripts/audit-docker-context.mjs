@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import {
   assertCleanDistribution,
   auditDistributionTree,
-  distributionContentFingerprint
+  distributionContentFingerprint,
+  ownerUsername
 } from "../src/core/public-distribution.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -25,7 +26,7 @@ const audit = assertCleanDistribution(
   await auditDistributionTree(target, {
     forbiddenTerms: [
       os.homedir(),
-      ...(process.env.CI ? [] : [os.userInfo().username])
+      ...(process.env.CI ? [] : [ownerUsername()])
     ]
   }),
   "Docker build context"

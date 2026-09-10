@@ -6,7 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   assertCleanDistribution,
-  auditDistributionTree
+  auditDistributionTree,
+  ownerUsername
 } from "../src/core/public-distribution.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -79,7 +80,7 @@ requireText(formula, /launcher\.chmod 0755/, "Homebrew formula");
 
 const packagingAudit = assertCleanDistribution(
   await auditDistributionTree(path.join(repositoryRoot, "packaging"), {
-    forbiddenTerms: [os.homedir(), os.userInfo().username]
+    forbiddenTerms: [os.homedir(), ownerUsername()]
   }),
   "Packaging assets"
 );

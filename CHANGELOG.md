@@ -56,6 +56,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.venv`, `node_modules`, …) while copying, so a stray directory left behind by
   a local tool run can no longer fail the Docker context privacy audit.
 
+### Fixed
+
+- Privacy-audit term gathering no longer aborts when `os.userInfo()` throws.
+  `ownerUsername()` falls back to `USER` / `USERNAME` / `LOGNAME`, so
+  `bootstrap.sh --build-local` (which runs the context scripts inside
+  `docker run --user "$uid:$gid"`) works on macOS and on any Linux host whose
+  uid is not the image's baked-in `1000`.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

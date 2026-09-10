@@ -228,6 +228,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as `transportMs`. One call is still exactly one event — pinned by a test that
   compares a direct call, a call through the transport, and a failure.
 
+### Added
+
+- `install_project_rules` target `claude-md`: instead of copying the rules into
+  `.claude/rules`, it writes an `## Engineering Rules` section into `CLAUDE.md`
+  that imports the canonical files with `@.ai-dev/rules/common/<rule>.md`, which
+  Claude Code expands at session start. One line per file, because an import is
+  a path and not a glob; path-scoped packs stay listed as plain paths. The
+  target is opt-in — it replaces the `claude` target rather than adding to it,
+  and asking for both returns a warning.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

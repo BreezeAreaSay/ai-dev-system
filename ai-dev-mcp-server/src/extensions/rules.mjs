@@ -1,4 +1,5 @@
 import {
+  DEFAULT_RULE_TARGETS,
   RULE_TARGETS,
   RULES_RELATIVE_DIR,
   describeRuleCatalog,
@@ -28,13 +29,13 @@ export function createRulesTools(host) {
       },
       {
         name: "install_project_rules",
-        description: "Install engineering rules into a repository: canonical .ai-dev/rules (common + packs chosen from the detected stack), Claude Code .claude/rules projections with paths frontmatter, Cursor .cursor/rules .mdc files, and an Engineering Rules section in AGENTS.md. Existing hand-edited files are kept unless overwrite=true.",
+        description: "Install engineering rules into a repository: canonical .ai-dev/rules (common + packs chosen from the detected stack), Claude Code .claude/rules projections with paths frontmatter, Cursor .cursor/rules .mdc files, and an Engineering Rules section in AGENTS.md. The opt-in claude-md target writes @-imports of the common rules into CLAUDE.md instead of copying them into .claude/rules; use it instead of the claude target, not alongside it. Existing hand-edited files are kept unless overwrite=true.",
         inputSchema: {
           type: "object",
           properties: {
             project_path: { type: "string" },
             packs: { type: "array", items: { type: "string" }, default: [], description: "Explicit pack ids; auto-detected from the stack when empty." },
-            targets: { type: "array", items: { type: "string", enum: RULE_TARGETS }, default: RULE_TARGETS },
+            targets: { type: "array", items: { type: "string", enum: RULE_TARGETS }, default: DEFAULT_RULE_TARGETS, description: "ai-dev (canonical), claude (.claude/rules copies), claude-md (@-imports in CLAUDE.md; use instead of claude), cursor, agents-md." },
             overwrite: { type: "boolean", default: false },
             dry_run: { type: "boolean", default: false }
           },
@@ -56,7 +57,7 @@ export function createRulesTools(host) {
             packs: packsForStack(project.stack ?? [], project.project_types ?? [])
           };
         }
-        return { ...catalog, targets: RULE_TARGETS, canonical_dir: RULES_RELATIVE_DIR, detected };
+        return { ...catalog, targets: RULE_TARGETS, default_targets: DEFAULT_RULE_TARGETS, canonical_dir: RULES_RELATIVE_DIR, detected };
       },
       async install_project_rules(args) {
         const identity = await host.resolveProjectIdentity(args.project_path);
@@ -66,18 +67,22 @@ export function createRulesTools(host) {
           stack: project.stack ?? [],
           projectTypes: project.project_types ?? [],
           packs: args.packs?.length ? args.packs : undefined,
-          targets: args.targets?.length ? args.targets : RULE_TARGETS,
+          targets: args.targets?.length ? args.targets : DEFAULT_RULE_TARGETS,
           overwrite: Boolean(args.overwrite),
           dryRun: Boolean(args.dry_run)
         });
         if (!args.dry_run && (result.written.length || result.updated.length)) {
           host.markSearchIndexDirty?.("project rules installed");
         }
+        const doubled = result.targets.includes("claude") && result.targets.includes("claude-md");
         return {
           action: args.dry_run ? "rules_planned" : "rules_installed",
           project_path: identity.project_root,
           detected_stack: project.stack ?? [],
           ...result,
+          warnings: doubled
+            ? ["claude and claude-md both load the common rules: .claude/rules copies them, CLAUDE.md imports them. Keep one."]
+            : [],
           next_step: args.dry_run
             ? "Re-run without dry_run to write the files."
             : `Commit ${RULES_RELATIVE_DIR} (and the harness projections you use) so every agent session loads the same rules.`

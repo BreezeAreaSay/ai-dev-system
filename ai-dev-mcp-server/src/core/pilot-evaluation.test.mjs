@@ -71,3 +71,20 @@ test("pilot store records baseline and honest human review", async (t) => {
   assert.equal(status.summary.human_confirmed, 1);
   assert.equal(status.summary.first_pass_accepted, 0);
 });
+
+test("a failed update does not poison the pilot queue", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-pilot-queue-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const store = new PilotStore({ stateRoot: root });
+
+  await assert.rejects(
+    store.update(() => { throw new Error("boom"); }),
+    /boom/
+  );
+
+  const next = await store.update((current) => {
+    current.pilots.push({ id: "after-failure" });
+    return current;
+  });
+  assert.equal(next.pilots.at(-1).id, "after-failure");
+});

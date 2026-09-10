@@ -124,6 +124,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the recorded numbers. A forged evidence entry with no matching receipt fails
   the check.
 
+### Fixed
+
+- The skill-outcome and pilot stores no longer strand every future write after a
+  single failed `update` (for example a transiently corrupt state file): the
+  internal serialisation chain is always recovered, while the failing caller
+  still sees the real error.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

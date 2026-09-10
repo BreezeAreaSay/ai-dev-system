@@ -114,3 +114,20 @@ test("outcome store keeps idempotent attempts but scores one completed task", as
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("a failed update does not poison the store queue", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-outcomes-queue-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const store = new SkillOutcomeStore({ stateRoot: root });
+
+  await assert.rejects(
+    store.update(() => { throw new Error("boom"); }),
+    /boom/
+  );
+
+  const next = await store.update((current) => {
+    current.attempts.push({ id: "after-failure" });
+    return current;
+  });
+  assert.equal(next.attempts.at(-1).id, "after-failure");
+});

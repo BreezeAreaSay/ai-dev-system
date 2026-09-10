@@ -117,17 +117,34 @@ export const CURSOR_HOOKS_FORMAT_VERSION = 1;
  * The Cursor hooks contract this adapter targets.
  *
  * `verified_on` is the date the document version, the event names, and the
- * blocking response shape below were last checked against Cursor's published
- * hooks reference (`sources`). Cursor 3.x still declares `"version": 1` and
- * still answers a blocking hook with `{"permission":"allow"|"deny"|"ask"}` plus
- * an optional `userMessage` / `agentMessage`, so the format has not moved under
- * us. When it does, add a builder to {@link CURSOR_HOOKS_BUILDERS} for the new
- * version and pin it here — do not rewrite the version-1 one, since projects
- * running an older Cursor still read what it writes.
+ * blocking response shape below were reconstructed from secondary sources
+ * (`sources`), not from a live Cursor or from cursor.com, which the sandbox this
+ * ran in cannot reach. Confidence is not uniform, so `verification` records it
+ * claim by claim: `"version": 1` and the deny shape are corroborated, the event
+ * names are NOT. The published schema of the source package allows six events
+ * (afterFileEdit, beforeMCPExecution, beforeReadFile, beforeShellExecution,
+ * beforeSubmitPrompt, stop) with `additionalProperties: false`, and never
+ * mentions sessionStart, sessionEnd or preCompact — the three this adapter
+ * writes for session memory. Either that package lags Cursor 3.x, or those
+ * three registrations are inert and Cursor-side session memory does not run.
+ * Settle it against a real Cursor before trusting the memory story there.
+ * When the format does move, add a builder to {@link CURSOR_HOOKS_BUILDERS} for
+ * the new version and pin it here — do not rewrite the version-1 one, since
+ * projects running an older Cursor still read what it writes.
  */
 export const CURSOR_HOOKS_CONTRACT = {
   version: CURSOR_HOOKS_FORMAT_VERSION,
   verified_on: "2026-09-10",
+  // Per claim, because the check could not reach Cursor itself:
+  //   corroborated  - two independent secondary sources agree
+  //   unverified    - asserted by the port this came from, contradicted or
+  //                   simply absent in the sources that could be read
+  verification: {
+    version: "corroborated",
+    deny_response: "corroborated",
+    events: "unverified: sessionStart, sessionEnd and preCompact appear in no readable source; the cursor-hooks schema lists six events and forbids the rest",
+    limits: "unverified: none of the readable sources state the first-entry-wins rule or the cloud-agent restriction"
+  },
   sources: [
     "https://cursor.com/docs/hooks",
     "https://github.com/johnlindquist/cursor-hooks",
@@ -137,6 +154,9 @@ export const CURSOR_HOOKS_CONTRACT = {
   events: {
     beforeShellExecution: "PreToolUse:Bash",
     afterFileEdit: "PostToolUse:Write|Edit|MultiEdit",
+    // UNVERIFIED: absent from the cursor-hooks schema, which forbids unknown
+    // keys. If Cursor really lacks them, session memory never runs there and
+    // the capture belongs on `stop`, which is a documented event.
     sessionStart: "SessionStart",
     sessionEnd: "Stop (transcript capture)",
     preCompact: "PreCompact",
@@ -147,10 +167,10 @@ export const CURSOR_HOOKS_CONTRACT = {
   blocking_events: ["beforeShellExecution"],
   deny_response: ["permission", "userMessage", "agentMessage"],
   limits: [
-    "Cursor runs the first entry registered for an event, so a foreign hook ahead of ours shadows it.",
+    "UNVERIFIED: Cursor is said to run the first entry registered for an event, so a foreign hook ahead of ours would shadow it. The warning this raises is cheap either way.",
     "Cursor has no before-write event in this format: the file guard (guard.mjs file) stays Claude Code only.",
     "Cursor payloads carry conversation_id, not transcript_path, so session-end captures nothing there until they do.",
-    "Cloud agents receive neither sessionStart/sessionEnd nor stop; only command hooks run."
+    "UNVERIFIED: cloud agents are said to receive neither sessionStart/sessionEnd nor stop, leaving only command hooks."
   ]
 };
 

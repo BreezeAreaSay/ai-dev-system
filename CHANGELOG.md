@@ -341,19 +341,34 @@ First tagged release.
   date it was checked, the sources it was checked against, and the limits that
   follow from it; `cursorHooksDocument(profile, { version })` dispatches to a
   builder per format version and refuses an unknown one, so the next Cursor
-  format gets its own builder instead of a silent rewrite of this one. Re-checked
-  on 2026-09-10: Cursor 3.x still declares `"version": 1`, still spells the
-  events `beforeShellExecution` / `afterFileEdit` / `sessionStart` /
-  `sessionEnd` / `preCompact` / `stop`, and still blocks on
-  `{"permission":"deny"}` with optional `userMessage` / `agentMessage` — the
-  registrations were already right, and a test now pins all three so a change
-  fails CI rather than the user's install. (Checked against Cursor's published
-  hooks reference and two independent transcriptions of it, not against a live
-  Cursor: `cursor.com` is unreachable from the sandbox this ran in.)
+  format gets its own builder instead of a silent rewrite of this one.
+
+  What the 2026-09-10 check actually established, since `cursor.com` is
+  unreachable from the sandbox this ran in and no live Cursor was available:
+  the format version and the deny shape are **corroborated** — two independent
+  secondary sources agree that Cursor declares `"version": 1` and that a
+  blocking hook answers `{"permission":"deny"}` with optional `userMessage` /
+  `agentMessage`. The **event names are not**. The JSON schema published by the
+  source package (`johnlindquist/cursor-hooks`) allows exactly six events —
+  `afterFileEdit`, `beforeMCPExecution`, `beforeReadFile`,
+  `beforeShellExecution`, `beforeSubmitPrompt`, `stop` — with
+  `additionalProperties: false`, and mentions `sessionStart`, `sessionEnd` and
+  `preCompact` nowhere. Those three are exactly what this adapter registers for
+  session memory. Either that package (v0.1.0, last touched 2025-10) lags
+  Cursor 3.x, or the three registrations are inert and Cursor-side session
+  memory never runs — which would also make the unconfirmed-draft handling
+  below dead on Cursor, since no draft would ever be captured. `stop` is a
+  documented event and is the obvious home for the capture if it comes to that.
+  This is a reconstruction from secondary sources, not a verification: settle it
+  against a real Cursor before trusting the Cursor memory story.
+  `CURSOR_HOOKS_CONTRACT.verification` records the same, claim by claim, so the
+  distinction survives in the code and not just here. The tests pin what the
+  adapter writes, so a change still fails CI rather than the user's install.
 - `install_agent_hooks` reports what the merge could not decide instead of
   writing over it: a `.cursor/hooks.json` that declares another format version,
-  and events where a foreign hook is registered ahead of ours — Cursor runs the
-  first entry of an event, so that one shadows the guard. `agent_hooks_status`
+  and events where a foreign hook is registered ahead of ours (on the
+  unverified premise that Cursor runs the first entry of an event, so that one
+  would shadow the guard; the warning costs nothing either way). `agent_hooks_status`
   reports the installed file's `cursor_format_version` and whether this adapter
   builds it.
 - Hook-captured sessions are drafts, not handoffs. `session-end.mjs` writes

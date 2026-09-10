@@ -43,9 +43,9 @@ test("the nearest package boundary wins over a parent Git worktree", async (t) =
   assert.equal(initialized.ok, true);
 
   const identity = await resolveProjectIdentity(nested);
-  assert.equal(identity.project_root, nested);
+  assert.equal(identity.project_root, await fs.realpath(nested));
   assert.equal(identity.git.detected, true);
-  assert.equal(identity.git.root, root);
+  assert.equal(identity.git.root, await fs.realpath(root));
 });
 
 test("the nearest nested Git boundary wins over a parent package", async (t) => {
@@ -60,8 +60,9 @@ test("the nearest nested Git boundary wins over a parent package", async (t) => 
   assert.equal(initialized.ok, true);
 
   const identity = await resolveProjectIdentity(nested);
-  assert.equal(identity.project_root, nested);
-  assert.equal(identity.git.root, nested);
+  const canonicalNested = await fs.realpath(nested);
+  assert.equal(identity.project_root, canonicalNested);
+  assert.equal(identity.git.root, canonicalNested);
 });
 
 test("the configured runtime-state .ai-dev is not treated as a project boundary", async (t) => {

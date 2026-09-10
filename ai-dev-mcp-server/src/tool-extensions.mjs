@@ -1,8 +1,8 @@
 /**
  * Extension registry for MCP tools that live outside `mcp-stdio.mjs`.
  *
- * `mcp-stdio.mjs` is capped by the static quality gate (10,500 lines), so new
- * capabilities are added as extension modules under `src/extensions/`. Each
+ * `mcp-stdio.mjs` is capped by the static quality gate, so new capabilities are
+ * added as extension modules under `src/extensions/`. Each
  * module exports a factory `createXxxTools(host)` that returns:
  *
  * ```js

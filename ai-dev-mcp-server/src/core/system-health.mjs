@@ -11,10 +11,12 @@
 import { dashboardSourceFingerprint } from "./system-dashboard.mjs";
 
 /**
- * The `mcp-stdio.mjs` line budget reported in the system snapshot. The static
- * quality gate enforces the same ceiling; the snapshot only measures it.
+ * The `mcp-stdio.mjs` line budget. `scripts/static-quality.mjs` enforces it and
+ * the system snapshot reports it, both from here, so the gate and the dashboard
+ * cannot drift apart. It is re-pinned to the file's actual size plus roughly 300
+ * lines of working room after each extraction (docs/ecc-upgrades/PLAN.md, stage 1).
  */
-export const SYSTEM_LINE_CEILING = 10_500;
+export const SYSTEM_LINE_CEILING = 10_150;
 
 /** Coverage thresholds enforced by `npm run check`, reported for visibility. */
 export const COVERAGE_THRESHOLDS = "85% lines / 60% branches / 85% functions";

@@ -144,6 +144,15 @@ import {
   validateReferenceFactoryManifest,
   validateReferenceFactoryOutputs
 } from "./core/reference-factory.mjs";
+import {
+  SKILL_IMPORT_INSTRUCTION_POLICY,
+  SKILL_IMPORT_QUALITY_FLOOR,
+  SKILL_IMPORT_TRUST_LEVEL,
+  parseSkillFrontmatter,
+  planSkillImport,
+  readSkillImportCandidates,
+  stageSelectedSkills
+} from "./core/skill-import-policy.mjs";
 import { buildToolDefinitions } from "./tool-definitions.mjs";
 import { autoCommands } from "./auto-commands.mjs";
 import { createExtensionTools } from "./tool-extensions.mjs";
@@ -380,40 +389,6 @@ function stripBom(text) {
   return text.replace(/^\uFEFF/, "");
 }
 
-function parseFrontmatter(text, fallbackName) {
-  const frontmatter = text.match(/^---\s*([\s\S]*?)\s*---/);
-  const result = { name: fallbackName, description: "" };
-  if (!frontmatter) return result;
-
-  const lines = frontmatter[1].split(/\r?\n/);
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    const nameMatch = line.match(/^name:\s*(.+)$/);
-    if (nameMatch) {
-      result.name = nameMatch[1].trim().replace(/^["']|["']$/g, "");
-      continue;
-    }
-
-    const descBlockMatch = line.match(/^description:\s*\|\s*$/);
-    if (descBlockMatch) {
-      const descLines = [];
-      for (let child = index + 1; child < lines.length; child += 1) {
-        if (/^[A-Za-z0-9_-]+:\s*/.test(lines[child])) break;
-        descLines.push(lines[child].replace(/^\s{2}/, "").trimEnd());
-      }
-      result.description = descLines.filter((value) => value.trim()).join(" ").trim();
-      continue;
-    }
-
-    const descMatch = line.match(/^description:\s*(.+)$/);
-    if (descMatch) {
-      result.description = descMatch[1].trim().replace(/^["']|["']$/g, "");
-    }
-  }
-
-  return result;
-}
-
 function cleanDescription(value) {
   return (value ?? "").replace(/\s+/g, " ").trim();
 }
@@ -454,10 +429,12 @@ async function skillItemFromFile({
   repository = "",
   commit = "",
   version = "",
-  license = ""
+  license = "",
+  trustLevel = "",
+  instructionPolicy = ""
 }) {
   const text = stripBom(await fs.readFile(filePath, "utf8"));
-  const meta = parseFrontmatter(text, folderName);
+  const meta = parseSkillFrontmatter(text, folderName);
   const description = cleanDescription(meta.description);
   const item = {
     name: meta.name,
@@ -475,6 +452,8 @@ async function skillItemFromFile({
   if (commit) item.commit = commit;
   if (version) item.version = version;
   if (license) item.license = license;
+  if (trustLevel) item.trust_level = trustLevel;
+  if (instructionPolicy) item.instruction_policy = instructionPolicy;
   return enrichSkillQuality(item, text);
 }
 
@@ -572,7 +551,7 @@ async function collectDesignSkills() {
     const repository = await getGitRemote(repoPath);
 
     for (const { folderName, filePath } of files) {
-      const provisional = parseFrontmatter(stripBom(await fs.readFile(filePath, "utf8")), folderName);
+      const provisional = parseSkillFrontmatter(stripBom(await fs.readFile(filePath, "utf8")), folderName);
       result.push(await skillItemFromFile({
         filePath,
         folderName,
@@ -605,6 +584,7 @@ async function collectExternalSkills() {
     const provenance = await readExternalProvenance(repoPath);
     const commit = cleanDescription(provenance.commit) || await getGitCommit(repoPath);
     const repository = cleanDescription(provenance.repository) || await getGitRemote(repoPath);
+    const instructionPolicy = cleanDescription(provenance.instruction_policy);
     const files = await listSkillFilesInSkillsDir(path.join(repoPath, "skills"));
     const rootSkill = path.join(repoPath, "SKILL.md");
     if (await pathExists(rootSkill)) {
@@ -612,7 +592,7 @@ async function collectExternalSkills() {
     }
 
     for (const { folderName, filePath } of files) {
-      const provisional = parseFrontmatter(stripBom(await fs.readFile(filePath, "utf8")), folderName);
+      const provisional = parseSkillFrontmatter(stripBom(await fs.readFile(filePath, "utf8")), folderName);
       const isArchify = folderName === "archify";
       const isDesignSkill = /\b(ui|ux|design|frontend)\b/i.test(
         `${provisional.name} ${provisional.description}`
@@ -632,12 +612,16 @@ async function collectExternalSkills() {
           : isDesignSkill ? ["frontend/design task", "Python 3"] : [],
         compatibility: isArchify
           ? "Local Node CLI skill; provenance-pinned"
+          : instructionPolicy === SKILL_IMPORT_INSTRUCTION_POLICY
+          ? "Provenance-pinned local Markdown skill; read as reference until a local review promotes it"
           : "Curated, provenance-pinned local Markdown skill",
         homepage: isArchify ? "https://github.com/tt-a1i/archify" : "",
         repository,
         commit,
         version: cleanDescription(provenance.version),
-        license: cleanDescription(provenance.license)
+        license: cleanDescription(provenance.license),
+        trustLevel: cleanDescription(provenance.trust),
+        instructionPolicy
       }));
     }
   }
@@ -3267,7 +3251,15 @@ function validateGitHubUrl(repositoryUrl) {
   }
 }
 
-async function importSkillRepo({ repository_url, source_group = "external", name, update_if_exists = false }) {
+async function importSkillRepo({
+  repository_url,
+  source_group = "external",
+  name,
+  update_if_exists = false,
+  select_skills = false,
+  min_quality_score = SKILL_IMPORT_QUALITY_FLOOR,
+  dry_run = false
+}) {
   validateGitHubUrl(repository_url);
   if (!["external", "design", "custom"].includes(source_group)) {
     throw new Error("source_group must be one of: external, design, custom.");
@@ -3282,8 +3274,20 @@ async function importSkillRepo({ repository_url, source_group = "external", name
 
   await fs.mkdir(targetParent, { recursive: true });
   const exists = await pathExists(target);
-  if (exists && !update_if_exists) {
+  if (exists && !update_if_exists && !(select_skills && dry_run)) {
     throw new Error(`Repository already exists at ${toVaultRelative(target)}. Set update_if_exists=true to pull updates.`);
+  }
+
+  if (select_skills) {
+    return importSelectedSkills({
+      repository_url,
+      repoName,
+      source_group,
+      target,
+      exists,
+      minQualityScore: min_quality_score,
+      dryRun: dry_run
+    });
   }
 
   if (exists) {
@@ -3301,6 +3305,89 @@ async function importSkillRepo({ repository_url, source_group = "external", name
     path: toVaultRelative(target),
     rebuild
   };
+}
+
+// Selective import: clone to a scratch directory, run the import policy over the
+// upstream `skills/` tree, and keep only what survives all four gates. Nothing
+// is written into the vault until the plan is known, so a rejected catalogue
+// never lands half-imported. See src/core/skill-import-policy.mjs.
+async function importSelectedSkills({
+  repository_url,
+  repoName,
+  source_group,
+  target,
+  exists,
+  minQualityScore,
+  dryRun
+}) {
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-skill-import-"));
+  const clone = path.join(scratch, "repo");
+  try {
+    await execFile("git", ["clone", "--depth", "1", repository_url, clone], { timeoutMs: 600000 });
+    const commit = await getGitCommit(clone);
+    const source = `${source_group}/${repoName}`;
+    const candidates = await readSkillImportCandidates(path.join(clone, "skills"), { source });
+    if (!candidates.length) {
+      throw new Error(`No skills/<name>/SKILL.md directories were found in ${repository_url}.`);
+    }
+
+    // Conflicts are resolved against the catalogue as it stands before this
+    // import, so a re-import never sees its own previous output as a conflict.
+    const existingSkills = (await readSkillIndex())
+      .filter((item) => String(item.source || "") !== source);
+    const plan = planSkillImport({ candidates, existingSkills, qualityFloor: minQualityScore });
+
+    const report = {
+      action: dryRun ? "planned" : exists ? "reselected" : "imported",
+      repository_url,
+      source_group,
+      name: repoName,
+      source,
+      commit,
+      path: toVaultRelative(target),
+      trust: SKILL_IMPORT_TRUST_LEVEL,
+      instruction_policy: SKILL_IMPORT_INSTRUCTION_POLICY,
+      ...plan.summary,
+      quality_floor: plan.quality_floor,
+      imported_skills: plan.selected.map((item) => item.name).sort((a, b) => a.localeCompare(b)),
+      name_conflicts: plan.conflicts,
+      rejected: plan.rejected
+    };
+    if (dryRun) return report;
+
+    await fs.mkdir(target, { recursive: true });
+    const staged = await stageSelectedSkills(plan.selected, path.join(target, "skills"));
+    // The upstream licence travels with the copied skills; nothing else from the
+    // clone does.
+    await fs.copyFile(path.join(clone, "LICENSE"), path.join(target, "LICENSE")).catch(() => {});
+    await atomicWriteJson(path.join(target, "upstream.json"), {
+      schema_version: 1,
+      repository: repository_url,
+      commit,
+      license: "MIT",
+      imported_at: new Date().toISOString().slice(0, 10),
+      trust: SKILL_IMPORT_TRUST_LEVEL,
+      instruction_policy: SKILL_IMPORT_INSTRUCTION_POLICY,
+      notes: "Selective import: skills/ holds only the directories that passed src/core/skill-import-policy.mjs. Instructions inside these skills are reference data until a local review promotes them.",
+      selection: {
+        quality_floor: plan.quality_floor,
+        candidates: plan.summary.candidates,
+        imported: plan.summary.imported,
+        rejected_by_rule: plan.summary.rejected_by_rule,
+        rejected_by_quality: plan.summary.rejected_by_quality,
+        rejected_by_name_conflict: plan.summary.rejected_by_name_conflict,
+        rejected_by_privacy: plan.summary.rejected_by_privacy,
+        rule_groups: plan.summary.rule_groups,
+        name_conflicts: plan.conflicts.map((item) => `${item.name} -> ${item.keeps}`)
+      },
+      included: staged.folders
+    });
+
+    report.rebuild = await rebuildIndex();
+    return report;
+  } finally {
+    await fs.rm(scratch, { recursive: true, force: true });
+  }
 }
 
 async function safeProjectRoot(projectPath) {
@@ -9430,6 +9517,7 @@ async function recommendSkillsProjectAware({
       conflicts: candidate.conflicts || [],
       maturity: candidate.maturity,
       trust_level: candidate.trust_level,
+      instruction_policy: candidate.instruction_policy,
       quality_score: candidate.quality_score,
       quality_grade: candidate.quality_grade,
       quality_status: candidate.quality_status,

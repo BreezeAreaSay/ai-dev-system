@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ARCHIFY_TYPES, archifyCliPath, runArchify } from "./archify.mjs";
+import { storeDeliveryReceipt, storeVisualCheckReceipt } from "./archify-receipt.mjs";
 import { atomicWriteFile } from "./atomic-files.mjs";
 import { isPathInside } from "./path-policy.mjs";
 
@@ -11,6 +13,7 @@ import { isPathInside } from "./path-policy.mjs";
  * @param {{
  *   vaultRoot: string,
  *   archifyArtifactsRoot: string,
+ *   archifyReceiptsRoot: string,
  *   safeProjectRoot: (p: string) => Promise<string>,
  *   safeProjectFile: (root: string, rel: string) => string,
  *   slugPart: (value: string, fallback?: string) => string,
@@ -20,6 +23,7 @@ import { isPathInside } from "./path-policy.mjs";
 export function createArchifyTools({
   vaultRoot,
   archifyArtifactsRoot,
+  archifyReceiptsRoot,
   safeProjectRoot,
   safeProjectFile,
   slugPart,
@@ -195,6 +199,19 @@ export function createArchifyTools({
           check_count: receipt.validation?.checkCount
         }
       : null;
+    // Record a server-owned receipt so verify_task can trust the numbers.
+    if (evidence?.artifact_sha256) {
+      await storeDeliveryReceipt(archifyReceiptsRoot, {
+        artifact_sha256: evidence.artifact_sha256,
+        spec_sha256: evidence.spec_sha256,
+        quality: evidence.quality,
+        errors: evidence.errors,
+        warnings: evidence.warnings,
+        checks_passed: evidence.checks_passed,
+        check_count: evidence.check_count,
+        html_path: outputPath
+      });
+    }
     return { ...response, receipt, evidence, report_path: reportPath };
   }
 
@@ -213,6 +230,14 @@ export function createArchifyTools({
           containment_status: visualCheck.containment?.status
         }
       : null;
+    if (evidence && response.status === "success") {
+      const bytes = await fs.readFile(artifactPath);
+      await storeVisualCheckReceipt(archifyReceiptsRoot, {
+        artifact_sha256: createHash("sha256").update(bytes).digest("hex"),
+        containment_status: evidence.containment_status,
+        status: evidence.status
+      });
+    }
     return { ...response, evidence, ...(visualCheck ? { visual_check: visualCheck } : {}) };
   }
 

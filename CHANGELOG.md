@@ -114,6 +114,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "dirty" reason raised while a rebuild is running is no longer cleared, so
   the next search still rebuilds.
 
+### Fixed
+
+- `verify_task` no longer trusts client-supplied Archify quality numbers. Every
+  real `archify_deliver` / `archify_visual_check` run now writes a server-owned
+  receipt (keyed by the artifact's SHA-256) under
+  `~/.ai-dev/state/archify-receipts`; delivery-criterion validation hashes the
+  file on disk, looks up that receipt, and evaluates the showcase bar against
+  the recorded numbers. A forged evidence entry with no matching receipt fails
+  the check.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

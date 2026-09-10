@@ -254,6 +254,9 @@ const frontendQaArtifactsRoot = path.resolve(
 const archifyArtifactsRoot = path.resolve(
   aiDevRuntimePath("AI_DEV_ARCHIFY_ARTIFACT_ROOT", ["artifacts", "archify"])
 );
+const archifyReceiptsRoot = path.resolve(
+  aiDevRuntimePath("AI_DEV_ARCHIFY_RECEIPTS_ROOT", ["state", "archify-receipts"])
+);
 const taskStateRoot = path.resolve(
   aiDevRuntimePath("AI_DEV_STATE_ROOT", ["state"], ["state", "ai-dev-system"])
 );
@@ -7673,7 +7676,15 @@ const {
   archifyCompare,
   archifyMigrate,
   archifyBrands
-} = createArchifyTools({ vaultRoot, archifyArtifactsRoot, safeProjectRoot, safeProjectFile, slugPart, readJsonIfExists });
+} = createArchifyTools({
+  vaultRoot,
+  archifyArtifactsRoot,
+  archifyReceiptsRoot,
+  safeProjectRoot,
+  safeProjectFile,
+  slugPart,
+  readJsonIfExists
+});
 function frontendQaVisualArtifacts(result) {
   const artifacts = [];
   const add = (artifactPath, type, context = {}) => {

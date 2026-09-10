@@ -273,6 +273,15 @@ export async function copyDistributionTree(source, target, { exclude = () => fal
       const absoluteSource = path.join(currentSource, entry.name);
       const relative = normalizedRelativePath(path.relative(sourceRoot, absoluteSource));
       if (exclude(relative, entry)) continue;
+      // Never carry runtime junk (`__pycache__`, `.venv`, `node_modules`, `.git`,
+      // …) into the distribution: a stray directory left behind by a local tool
+      // run must not fail the privacy audit that follows. The one pinned,
+      // provenance-reviewed vendored tree is exempt.
+      if (
+        entry.isDirectory()
+        && FORBIDDEN_DIRECTORY_NAMES.has(entry.name.toLowerCase())
+        && !isApprovedVendoredDependencyPath(relative)
+      ) continue;
       const absoluteTarget = path.join(currentTarget, entry.name);
       if (entry.isSymbolicLink()) {
         throw new Error(`Refusing to copy symbolic link into public distribution: ${relative}`);

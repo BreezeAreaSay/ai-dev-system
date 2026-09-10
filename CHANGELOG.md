@@ -34,6 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `npm run docker:audit` now prints a clear "run `npm run docker:prepare` first"
   message when the build context is missing, instead of an `ENOENT` stack trace.
 
+### Fixed
+
+- The test suite is isolated from the developer's real `~/.ai-dev` tree: every
+  `node --test` run loads `test/setup.mjs`, which pins the `AI_DEV_*` runtime
+  roots (task/skill/pilot state, search index, Frontend QA and Archify
+  artifacts, model dir) to a throwaway temp directory and exports
+  `PYTHONDONTWRITEBYTECODE=1`.
+- Python helpers (`search_cli.py`, `bge_m3_worker.py`, `bge_m3_embed.py`, the
+  UI/UX Pro Max search script) run with `-B`, so `query_ui_ux_knowledge` and
+  friends no longer drop `__pycache__/*.pyc` into the checked-in public seed and
+  break the next `npm run docker:prepare`.
+- `copyDistributionTree` skips forbidden runtime directories (`__pycache__`,
+  `.venv`, `node_modules`, …) while copying, so a stray directory left behind by
+  a local tool run can no longer fail the Docker context privacy audit.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

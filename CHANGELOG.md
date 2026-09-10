@@ -259,6 +259,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Temp-directory cleanup in those tests retries, because Windows holds handles
   on freshly written git objects for a moment.
 
+### Fixed
+
+- Intermittent failure in `src/extensions/system.test.mjs` (roughly two runs in
+  ten under load): the fixture wrote the skill-routing report before the eval
+  cases it is compared against, so whenever the two writes landed in different
+  milliseconds the `skill_routing_benchmark` check called the report stale, that
+  critical check failed, and the health status came out `fail` instead of
+  `degraded`. The cases are written first now.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

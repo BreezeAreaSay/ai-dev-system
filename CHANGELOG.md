@@ -238,6 +238,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target is opt-in — it replaces the `claude` target rather than adding to it,
   and asking for both returns a warning.
 
+### Fixed
+
+- The agent hook tests run in the Windows CI job, and the hooks work there. The
+  pack runs on the developer's machine, so Windows is a first-class target:
+  `.github/workflows/ci.yml` gained an "Agent hook tests" step
+  (`src/core/agent-hooks.test.mjs` and `src/extensions/hooks.test.mjs`), and
+  three Windows-only path bugs are fixed rather than skipped.
+  - `projectRootOf` resolves the root with `fs.realpathSync` instead of
+    `fs.realpathSync.native`. The server resolves it with `fs.realpath`, and the
+    native variant additionally expands 8.3 short names on Windows
+    (`RUNNER~1` → `runneradmin`), so hook and server keyed two different
+    `project_id`s for the same repository — the hook's handoffs and instincts
+    landed where the server never looked.
+  - Project paths are compared with a new `samePath` helper (case- and
+    separator-insensitive on Windows), so `session-start` and `stop-check` find
+    the project's open tasks.
+  - `session-end` writes repository-relative paths with `/` separators, so a
+    captured handoff lists `src/login.js`, not `src\login.js`.
+  Temp-directory cleanup in those tests retries, because Windows holds handles
+  on freshly written git objects for a moment.
+
 ## [1.0.0] - 2026-09-01
 
 First tagged release.

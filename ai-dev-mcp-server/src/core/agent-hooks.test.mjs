@@ -37,8 +37,14 @@ function runHook(projectRoot, script, args, payload, env = {}) {
 }
 
 async function fixture(t) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-hooks-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const created = await fs.mkdtemp(path.join(os.tmpdir(), "agent-hooks-"));
+  // Windows keeps handles on freshly written git objects for a moment, so give
+  // the cleanup a few attempts instead of failing the test in its `after` hook.
+  t.after(() => fs.rm(created, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  // The hooks resolve the project root with realpath, so the fixture must hand
+  // out resolved paths too: the state root the test reads has to be the one the
+  // hook writes to (macOS /var -> /private/var, Windows junctions).
+  const root = await fs.realpath(created);
   const projectRoot = path.join(root, "project");
   await fs.mkdir(projectRoot, { recursive: true });
   await fs.writeFile(path.join(projectRoot, "index.js"), "export const a = 1;\n");
@@ -90,6 +96,30 @@ test("installer writes hooks, patterns, policy, and merges harness registrations
   assert.equal(status.claude_entries, 4);
   await assert.rejects(installAgentHooks({ projectRoot, hooksSourceDir, profile: "turbo" }), /Unknown hook profile/);
   await assert.rejects(installAgentHooks({ projectRoot, hooksSourceDir, targets: ["vim"] }), /Unknown hooks target/);
+});
+
+test("hook path helpers are platform-agnostic", async (t) => {
+  const { normalizePath, projectIdOf, relativePosix, samePath } = await import("../../hooks/lib.mjs");
+  const { projectRoot } = await fixture(t);
+
+  // Records written by a hook are read back by the server and by session-start:
+  // relative paths are POSIX on every platform, never `src\\login.js`.
+  assert.equal(relativePosix(projectRoot, path.join(projectRoot, "src", "login.js")), "src/login.js");
+  assert.equal(relativePosix(projectRoot, projectRoot), "");
+
+  // Task records store the path the server saw; the hook compares it to its own
+  // resolved root, which on Windows may differ in case and separators.
+  assert.equal(samePath(projectRoot, `${projectRoot}${path.sep}`), true);
+  assert.equal(samePath(projectRoot, path.join(projectRoot, "src")), false);
+  assert.equal(samePath("", projectRoot), false);
+  assert.equal(samePath(projectRoot, undefined), false);
+  assert.equal(normalizePath(projectRoot).includes("\\"), false);
+  if (process.platform === "win32") {
+    assert.equal(samePath("C:\\Repos\\App", "c:/repos/app"), true);
+    assert.equal(projectIdOf("C:\\Repos\\App"), projectIdOf("c:/repos/app/"));
+  } else {
+    assert.equal(samePath("/repos/App", "/repos/app"), false);
+  }
 });
 
 test("pure helpers: patterns, entries, merges", () => {

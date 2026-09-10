@@ -9,7 +9,7 @@ import { createHookTools } from "./hooks.mjs";
 
 test("hook tools install and report agent hooks through the host", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "hook-tools-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const projectRoot = path.join(root, "project");
   await fs.mkdir(projectRoot);
   const host = {

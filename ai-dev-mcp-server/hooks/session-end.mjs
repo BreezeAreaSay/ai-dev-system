@@ -4,7 +4,7 @@
 // SessionStart have something even when the agent forgot to call save_session.
 import fs from "node:fs";
 import path from "node:path";
-import { git, hooksDisabled, normalizeInput, projectIdOf, projectRootOf, readStdin, stateRoot } from "./lib.mjs";
+import { git, hooksDisabled, normalizeInput, projectIdOf, projectRootOf, readStdin, relativePosix, stateRoot } from "./lib.mjs";
 
 const MAX_TRANSCRIPT_BYTES = 16 * 1024 * 1024;
 
@@ -86,7 +86,9 @@ async function main() {
     worked: [],
     failed: [],
     untried: [],
-    files: summary.files.map((filePath) => ({ path: path.isAbsolute(filePath) ? path.relative(projectRoot, filePath) : filePath, status: "in_progress", notes: "touched this session (hook capture)" })),
+    // Repository-relative and POSIX-separated: the record is read back by the
+    // server and by session-start on any platform.
+    files: summary.files.map((filePath) => ({ path: path.isAbsolute(filePath) ? relativePosix(projectRoot, filePath) : String(filePath).replaceAll("\\", "/"), status: "in_progress", notes: "touched this session (hook capture)" })),
     decisions: [],
     blockers: [],
     next_step: "",

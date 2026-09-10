@@ -5,7 +5,7 @@
 // nothing blocks.
 import fs from "node:fs";
 import path from "node:path";
-import { compileRegex, git, hooksDisabled, loadPolicy, log, normalizeInput, profileAllows, projectRootOf, readJson, readStdin, stateRoot } from "./lib.mjs";
+import { compileRegex, git, hooksDisabled, loadPolicy, log, normalizeInput, profileAllows, projectRootOf, readJson, readStdin, samePath, stateRoot } from "./lib.mjs";
 
 const EXCLUDED = [/\.(test|spec)\.[cm]?[jt]sx?$/, /(^|\/)(tests?|__tests__|__mocks__|scripts|docs)\//, /\.config\.[cm]?[jt]s$/];
 
@@ -24,7 +24,7 @@ function activeTaskFor(projectRoot) {
   }
   for (const name of names) {
     const record = readJson(path.join(directory, name));
-    if (record && ["active", "verified"].includes(record.status) && path.resolve(String(record.project?.path || "")) === projectRoot) return record;
+    if (record && ["active", "verified"].includes(record.status) && samePath(record.project?.path, projectRoot)) return record;
   }
   return null;
 }

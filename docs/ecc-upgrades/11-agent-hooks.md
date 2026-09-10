@@ -32,7 +32,7 @@ policy строже). Выход хука: код 2 с текстом причи
 
 ## Новые файлы: скрипты хуков (`ai-dev-mcp-server/hooks/`)
 
-**Файл: `ai-dev-mcp-server/hooks/lib.mjs`** (186 строк)
+**Файл: `ai-dev-mcp-server/hooks/lib.mjs`** (206 строк)
 
 ```js
 // Shared helpers for the AI Dev System agent hooks. Zero dependencies: these
@@ -129,17 +129,37 @@ export function projectRootOf(cwd) {
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
   const root = top || cwd;
   try {
-    return fs.realpathSync.native(root);
+    // fs.realpathSync, not realpathSync.native: the server resolves the root
+    // with fs.realpath (core/project-identity.mjs), and on Windows the native
+    // variant additionally expands 8.3 short names (RUNNER~1 -> runneradmin).
+    // Two spellings of the same directory would key two different project ids,
+    // so the hook and the server must resolve it the same way.
+    return fs.realpathSync(root);
   } catch {
     return path.resolve(root);
   }
 }
 
+/** Same normalization as the server's project identity: POSIX separators, case-folded on Windows. */
+export function normalizePath(value) {
+  const resolved = path.resolve(String(value ?? "")).replaceAll("\\", "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+/** Compare two paths the way the platform does: Windows ignores case and separator style. */
+export function samePath(left, right) {
+  if (!left || !right) return false;
+  return normalizePath(left) === normalizePath(right);
+}
+
+/** Repository-relative path with POSIX separators, whatever the platform. */
+export function relativePosix(fromRoot, target) {
+  return path.relative(fromRoot, target).replaceAll("\\", "/");
+}
+
 /** Same derivation as the server's resolveProjectIdentity (core/project-identity.mjs). */
 export function projectIdOf(projectRoot, isGit = true) {
-  const resolved = path.resolve(projectRoot).replaceAll("\\", "/").replace(/\/+$/, "");
-  const normalized = process.platform === "win32" ? resolved.toLowerCase() : resolved;
-  const key = `${isGit ? "git" : "filesystem"}:${normalized}`;
+  const key = `${isGit ? "git" : "filesystem"}:${normalizePath(projectRoot)}`;
   return `project-${crypto.createHash("sha256").update(key).digest("hex").slice(0, 20)}`;
 }
 
@@ -531,7 +551,7 @@ main().catch((error) => {
 // and the installed rules index into the first turn (bounded, historical-only).
 import fs from "node:fs";
 import path from "node:path";
-import { emitContext, git, hooksDisabled, loadPolicy, normalizeInput, projectIdOf, projectRootOf, readJson, readStdin, stateRoot } from "./lib.mjs";
+import { emitContext, git, hooksDisabled, loadPolicy, normalizeInput, projectIdOf, projectRootOf, readJson, readStdin, samePath, stateRoot } from "./lib.mjs";
 
 const MAX_CHARS = Number(process.env.AI_DEV_SESSION_START_MAX_CHARS || 8000);
 
@@ -562,7 +582,7 @@ function openTasks(projectRoot) {
   for (const name of names) {
     const record = readJson(path.join(directory, name));
     if (!record || !["active", "verified"].includes(record.status)) continue;
-    if (path.resolve(String(record.project?.path || "")) !== projectRoot) continue;
+    if (!samePath(record.project?.path, projectRoot)) continue;
     tasks.push(record);
   }
   return tasks.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at))).slice(0, 5);
@@ -631,7 +651,7 @@ main().catch((error) => {
 });
 ```
 
-**Файл: `ai-dev-mcp-server/hooks/session-end.mjs`** (107 строк)
+**Файл: `ai-dev-mcp-server/hooks/session-end.mjs`** (109 строк)
 
 ```js
 #!/usr/bin/env node
@@ -640,7 +660,7 @@ main().catch((error) => {
 // SessionStart have something even when the agent forgot to call save_session.
 import fs from "node:fs";
 import path from "node:path";
-import { git, hooksDisabled, normalizeInput, projectIdOf, projectRootOf, readStdin, stateRoot } from "./lib.mjs";
+import { git, hooksDisabled, normalizeInput, projectIdOf, projectRootOf, readStdin, relativePosix, stateRoot } from "./lib.mjs";
 
 const MAX_TRANSCRIPT_BYTES = 16 * 1024 * 1024;
 
@@ -722,7 +742,9 @@ async function main() {
     worked: [],
     failed: [],
     untried: [],
-    files: summary.files.map((filePath) => ({ path: path.isAbsolute(filePath) ? path.relative(projectRoot, filePath) : filePath, status: "in_progress", notes: "touched this session (hook capture)" })),
+    // Repository-relative and POSIX-separated: the record is read back by the
+    // server and by session-start on any platform.
+    files: summary.files.map((filePath) => ({ path: path.isAbsolute(filePath) ? relativePosix(projectRoot, filePath) : String(filePath).replaceAll("\\", "/"), status: "in_progress", notes: "touched this session (hook capture)" })),
     decisions: [],
     blockers: [],
     next_step: "",
@@ -862,7 +884,7 @@ main().catch((error) => {
 // nothing blocks.
 import fs from "node:fs";
 import path from "node:path";
-import { compileRegex, git, hooksDisabled, loadPolicy, log, normalizeInput, profileAllows, projectRootOf, readJson, readStdin, stateRoot } from "./lib.mjs";
+import { compileRegex, git, hooksDisabled, loadPolicy, log, normalizeInput, profileAllows, projectRootOf, readJson, readStdin, samePath, stateRoot } from "./lib.mjs";
 
 const EXCLUDED = [/\.(test|spec)\.[cm]?[jt]sx?$/, /(^|\/)(tests?|__tests__|__mocks__|scripts|docs)\//, /\.config\.[cm]?[jt]s$/];
 
@@ -881,7 +903,7 @@ function activeTaskFor(projectRoot) {
   }
   for (const name of names) {
     const record = readJson(path.join(directory, name));
-    if (record && ["active", "verified"].includes(record.status) && path.resolve(String(record.project?.path || "")) === projectRoot) return record;
+    if (record && ["active", "verified"].includes(record.status) && samePath(record.project?.path, projectRoot)) return record;
   }
   return null;
 }
@@ -1245,7 +1267,7 @@ export async function agentHooksStatus(projectRoot) {
 }
 ```
 
-**Файл: `ai-dev-mcp-server/src/core/agent-hooks.test.mjs`** (212 строк)
+**Файл: `ai-dev-mcp-server/src/core/agent-hooks.test.mjs`** (242 строк)
 
 ```js
 import assert from "node:assert/strict";
@@ -1287,8 +1309,14 @@ function runHook(projectRoot, script, args, payload, env = {}) {
 }
 
 async function fixture(t) {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-hooks-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const created = await fs.mkdtemp(path.join(os.tmpdir(), "agent-hooks-"));
+  // Windows keeps handles on freshly written git objects for a moment, so give
+  // the cleanup a few attempts instead of failing the test in its `after` hook.
+  t.after(() => fs.rm(created, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  // The hooks resolve the project root with realpath, so the fixture must hand
+  // out resolved paths too: the state root the test reads has to be the one the
+  // hook writes to (macOS /var -> /private/var, Windows junctions).
+  const root = await fs.realpath(created);
   const projectRoot = path.join(root, "project");
   await fs.mkdir(projectRoot, { recursive: true });
   await fs.writeFile(path.join(projectRoot, "index.js"), "export const a = 1;\n");
@@ -1340,6 +1368,30 @@ test("installer writes hooks, patterns, policy, and merges harness registrations
   assert.equal(status.claude_entries, 4);
   await assert.rejects(installAgentHooks({ projectRoot, hooksSourceDir, profile: "turbo" }), /Unknown hook profile/);
   await assert.rejects(installAgentHooks({ projectRoot, hooksSourceDir, targets: ["vim"] }), /Unknown hooks target/);
+});
+
+test("hook path helpers are platform-agnostic", async (t) => {
+  const { normalizePath, projectIdOf, relativePosix, samePath } = await import("../../hooks/lib.mjs");
+  const { projectRoot } = await fixture(t);
+
+  // Records written by a hook are read back by the server and by session-start:
+  // relative paths are POSIX on every platform, never `src\\login.js`.
+  assert.equal(relativePosix(projectRoot, path.join(projectRoot, "src", "login.js")), "src/login.js");
+  assert.equal(relativePosix(projectRoot, projectRoot), "");
+
+  // Task records store the path the server saw; the hook compares it to its own
+  // resolved root, which on Windows may differ in case and separators.
+  assert.equal(samePath(projectRoot, `${projectRoot}${path.sep}`), true);
+  assert.equal(samePath(projectRoot, path.join(projectRoot, "src")), false);
+  assert.equal(samePath("", projectRoot), false);
+  assert.equal(samePath(projectRoot, undefined), false);
+  assert.equal(normalizePath(projectRoot).includes("\\"), false);
+  if (process.platform === "win32") {
+    assert.equal(samePath("C:\\Repos\\App", "c:/repos/app"), true);
+    assert.equal(projectIdOf("C:\\Repos\\App"), projectIdOf("c:/repos/app/"));
+  } else {
+    assert.equal(samePath("/repos/App", "/repos/app"), false);
+  }
 });
 
 test("pure helpers: patterns, entries, merges", () => {
@@ -1558,7 +1610,7 @@ import { createHookTools } from "./hooks.mjs";
 
 test("hook tools install and report agent hooks through the host", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "hook-tools-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
   const projectRoot = path.join(root, "project");
   await fs.mkdir(projectRoot);
   const host = {
@@ -1643,10 +1695,25 @@ index 01763ff..97d1b37 100644
 
 ```bash
 cd ai-dev-mcp-server
-node --test src/core/agent-hooks.test.mjs src/extensions/hooks.test.mjs
+node --import ./test/setup.mjs --test src/core/agent-hooks.test.mjs src/extensions/hooks.test.mjs
 node scripts/static-quality.mjs      # в тексте хуков нет литералов eval(/new Function
 echo '{"tool_name":"Bash","tool_input":{"command":"git commit --no-verify -m x"},"cwd":"'$PWD'"}' | node hooks/guard.mjs bash; echo "exit=$?"
 ```
+
+Те же два файла запускаются шагом «Agent hook tests» в Windows-job CI (пункт 2.10 плана):
+хуки живут на машине разработчика, поэтому Windows для них — основная платформа, а не
+экзотика. Что для этого починено:
+
+- `projectRootOf` резолвит корень через `fs.realpathSync`, а не `fs.realpathSync.native`:
+  сервер (`core/project-identity.mjs`) использует `fs.realpath`, а на Windows native-вариант
+  дополнительно раскрывает короткие имена 8.3 (`RUNNER~1` → `runneradmin`). Разные написания
+  одного каталога дали бы разные `project_id`, и хук писал бы память мимо сервера.
+- `samePath` сравнивает пути так, как это делает платформа (на Windows — без учёта регистра и
+  вида разделителя): по нему `session-start` и `stop-check` находят задачи проекта.
+- `relativePosix` приводит пути в записи `session-end` к `/`, поэтому в handoff попадает
+  `src/login.js`, а не `src\login.js`.
+- Уборка временных каталогов в тестах идёт с `maxRetries`: Windows какое-то время держит
+  дескрипторы свежесозданных объектов git.
 
 ## Использование
 

@@ -92,17 +92,37 @@ export function projectRootOf(cwd) {
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
   const root = top || cwd;
   try {
-    return fs.realpathSync.native(root);
+    // fs.realpathSync, not realpathSync.native: the server resolves the root
+    // with fs.realpath (core/project-identity.mjs), and on Windows the native
+    // variant additionally expands 8.3 short names (RUNNER~1 -> runneradmin).
+    // Two spellings of the same directory would key two different project ids,
+    // so the hook and the server must resolve it the same way.
+    return fs.realpathSync(root);
   } catch {
     return path.resolve(root);
   }
 }
 
+/** Same normalization as the server's project identity: POSIX separators, case-folded on Windows. */
+export function normalizePath(value) {
+  const resolved = path.resolve(String(value ?? "")).replaceAll("\\", "/").replace(/\/+$/, "");
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+/** Compare two paths the way the platform does: Windows ignores case and separator style. */
+export function samePath(left, right) {
+  if (!left || !right) return false;
+  return normalizePath(left) === normalizePath(right);
+}
+
+/** Repository-relative path with POSIX separators, whatever the platform. */
+export function relativePosix(fromRoot, target) {
+  return path.relative(fromRoot, target).replaceAll("\\", "/");
+}
+
 /** Same derivation as the server's resolveProjectIdentity (core/project-identity.mjs). */
 export function projectIdOf(projectRoot, isGit = true) {
-  const resolved = path.resolve(projectRoot).replaceAll("\\", "/").replace(/\/+$/, "");
-  const normalized = process.platform === "win32" ? resolved.toLowerCase() : resolved;
-  const key = `${isGit ? "git" : "filesystem"}:${normalized}`;
+  const key = `${isGit ? "git" : "filesystem"}:${normalizePath(projectRoot)}`;
   return `project-${crypto.createHash("sha256").update(key).digest("hex").slice(0, 20)}`;
 }
 

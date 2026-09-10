@@ -3,7 +3,7 @@
 // and the installed rules index into the first turn (bounded, historical-only).
 import fs from "node:fs";
 import path from "node:path";
-import { emitContext, git, hooksDisabled, loadPolicy, normalizeInput, projectIdOf, projectRootOf, readJson, readStdin, stateRoot } from "./lib.mjs";
+import { emitContext, git, hooksDisabled, loadPolicy, normalizeInput, projectIdOf, projectRootOf, readJson, readStdin, samePath, stateRoot } from "./lib.mjs";
 
 const MAX_CHARS = Number(process.env.AI_DEV_SESSION_START_MAX_CHARS || 8000);
 
@@ -34,7 +34,7 @@ function openTasks(projectRoot) {
   for (const name of names) {
     const record = readJson(path.join(directory, name));
     if (!record || !["active", "verified"].includes(record.status)) continue;
-    if (path.resolve(String(record.project?.path || "")) !== projectRoot) continue;
+    if (!samePath(record.project?.path, projectRoot)) continue;
     tasks.push(record);
   }
   return tasks.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at))).slice(0, 5);

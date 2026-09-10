@@ -67,10 +67,15 @@ async function createFixture(t) {
     total_skills: 2, linked_unique_skills: 2, page_size: 80, batch_pages: 1, group_hubs: 1, bucket_hubs: 1,
     root_note: "all-skills.md"
   });
+  await writeJsonFile(safePath(VAULT_PATHS.skillRoutingEvalCases), { cases: [] });
   await writeJsonFile(safePath(VAULT_PATHS.skillRoutingReport), {
     status: "pass", summary: { passed: 3, total: 3, failed: 0 }, generated_at: "2026-02-01T00:00:00.000Z"
   });
-  await writeJsonFile(safePath(VAULT_PATHS.skillRoutingEvalCases), { cases: [] });
+  // The benchmark counts as fresh only while the report's mtime is at or above
+  // every input's. Writing the report first left the two a millisecond apart
+  // under load, which failed the check and flipped the whole run to "fail".
+  const reportFreshAt = new Date(Date.now() + 60_000);
+  await fs.utimes(safePath(VAULT_PATHS.skillRoutingReport), reportFreshAt, reportFreshAt);
   await fs.mkdir(safePath(VAULT_PATHS.skillGraphPages), { recursive: true });
   for (const name of ["all-skills.md", "group.md", "bucket.md", "page-1.md"]) {
     await fs.writeFile(path.join(safePath(VAULT_PATHS.skillGraphPages), name), "# page\n", "utf8");

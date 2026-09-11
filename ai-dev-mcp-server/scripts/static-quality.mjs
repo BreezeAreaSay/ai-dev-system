@@ -4,8 +4,8 @@ import process from "node:process";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 // The `src/mcp-stdio.mjs` line budget. It lives in src/core so the System
-// Dashboard reports the ceiling this gate enforces: the file shrinks one
-// extraction at a time (docs/ecc-upgrades/PLAN.md, stage 1) and the ceiling is
+// Dashboard reports the ceiling this gate enforces: the file shrank one
+// extraction at a time (docs/ecc-upgrades/PLAN.md, stage 1) and the ceiling was
 // re-pinned to its actual size plus roughly 300 lines of working room after each
 // step, so the file can be edited but not re-grown.
 import { SYSTEM_LINE_CEILING } from "../src/core/system-health.mjs";
@@ -19,10 +19,15 @@ const skipDirectories = new Set(["node_modules", ".git", "coverage"]);
 const MODULE_LINE_CEILING = 800;
 
 // Modules that were already over the ceiling when the rule landed. Each is
-// pinned at its current size: it may shrink, never grow, and its entry has to be
-// dropped once it is back under the ceiling. Both are the frontend pair that
-// stage 1.3 of the plan splits when the frontend tools leave `mcp-stdio.mjs`;
-// splitting them here would have mixed a refactor into a lint change.
+// pinned at its current size: it may shrink, never grow, its entry has to be
+// dropped once it is back under the ceiling, and a module that disappears takes
+// its entry with it. All four conditions are enforced below.
+//
+// Both are the frontend pair. Stage 1.3 moved the frontend tools out of
+// `mcp-stdio.mjs` on top of these two rather than into them, so neither shrank:
+// what left the main module was orchestration, and what these hold is the
+// product state machine and the reference manifest logic. Splitting them is its
+// own piece of work, not a side effect of an extraction.
 const MODULE_LINE_EXCEPTIONS = new Map([
   ["src/core/frontend-product-quality.mjs", 1222],
   ["src/core/reference-factory.mjs", 812]

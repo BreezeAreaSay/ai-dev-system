@@ -173,6 +173,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The main module's line ceiling dropped to match what the extractions left
+  (stage 1.7, which closes stage 1). `SYSTEM_LINE_CEILING` in
+  `core/system-health.mjs` — the one place the gate and the System Dashboard
+  both read — went from 10,150 to 5,076: the file's actual 4,776 lines plus 300
+  of working room. The ratchet holds in one direction, so `mcp-stdio.mjs` can be
+  edited but not re-grown; new capabilities belong in `src/extensions/`.
+  - All five line-budget rules were verified by breaking each one deliberately
+    against a throwaway module and reverting: an unpinned module over 800 lines,
+    a pinned module grown past its allowance, a pinned module back under the
+    ceiling, a `MODULE_LINE_EXCEPTIONS` entry whose module is gone, and the main
+    module over its own ceiling. Both real pinned entries stayed:
+    `core/frontend-product-quality.mjs` (1,222) and `core/reference-factory.mjs`
+    (812) are still over the ceiling, and the comment claiming stage 1.3 would
+    split them was corrected — that step built on top of them rather than out of
+    them.
+  - A system-health fixture pinned at a literal 9,800 lines became
+    `SYSTEM_LINE_CEILING - 350`, so it keeps meaning "inside its budget" whatever
+    the ceiling is.
+- The task lifecycle moved out of `mcp-stdio.mjs` (stage 1.6 of the modularity
+  plan, the last extraction step). `begin_task`, `checkpoint_task`, `verify_task`
+  and `complete_task` became `src/extensions/lifecycle.mjs`, and the judgements
+  under them became two tested modules in `src/core`: `task-verification.mjs`
+  (whether a run passed, and which acceptance criteria it is evidence for) and
+  `task-completion.mjs` (the completion note and what is left to do with the
+  branch). Everything the four tools drive — the completion-claims linter, the
+  plan gate, change hygiene, the context pack and its extras, evidence binding,
+  skill outcomes, the Archify receipt store and the project-card writers —
+  arrives through the extension host, and the four sibling tools they call
+  (`recommend_skills`, `run_quality_gate`, `run_frontend_qa`,
+  `prepare_pull_request`) arrive as host wrappers over the registry rather than
+  through `callTool`, so a composed run still records one usage-ledger entry for
+  the tool the client asked for and none for the work it delegated. Tool
+  behaviour, response bytes, generated project and vault files, the task and
+  usage state on disk, and the 116-tool list are unchanged; `mcp-stdio.mjs` lost
+  a further 458 lines (5,233 → 4,775), which leaves it 5,243 lines below the
+  10,018 it started at and past the plan's target of under 6,000.
+  - `ARCHIFY_EVIDENCE_SCHEMA` left `tool-definitions.mjs` with the two tools
+    that used it, so no tool definition is now shared across the two files.
+- Project work moved out of `mcp-stdio.mjs` (stage 1.5 of the modularity plan).
+  `run_quality_gate` became `src/extensions/projects.mjs`, and the pure half of
+  project handling became four tested modules under `src/core`:
+  `project-detection.mjs` (`detectProject` over an injected filesystem),
+  `project-cards.mjs` (the registry card renderer and its section reader),
+  `project-markdown.mjs` (the tables, bullet lists and section readers every
+  generated project document shares) and `quality-gate-runner.mjs` (parsing a
+  gate file, choosing what to run, and the verdict over a run). `detectProject`
+  is a service rather than a tool — `begin_task`, `compile_project_context`, the
+  card writers and four extensions call it — so it stays on the extension host;
+  `mcp-stdio.mjs` binds it to the real filesystem and nothing else. Tool
+  behaviour, response bytes, generated project and vault files, and the 116-tool
+  list are unchanged; `mcp-stdio.mjs` lost a further 1,191 lines (6,424 → 5,233).
+  - `detectProject` reads its filesystem through injected functions, so stack
+    detection, the command fallbacks and the risk rules are now tested against a
+    fixture tree instead of a repository on disk.
+  - Two symbols no longer referenced by anything went with the move: a second
+    `markdownList` and `buildProjectCardMd`, the flat card renderer that
+    `buildRichProjectCardMd` replaced.
+- Search moved out of `mcp-stdio.mjs` (stage 1.4 of the modularity plan). All
+  thirteen search tools became `src/extensions/search.mjs`, over four modules in
+  `src/core`: two services — `search-index.mjs` (the sqlite index, its freshness
+  and the hybrid merge) and `embedding-workers.mjs` (the BGE-M3 worker pool and
+  the one-shot fallback) — and two pure ones, `search-runtime.mjs` (presets,
+  weight normalization, score explanations) and `search-eval.mjs` (the
+  golden-case verdicts and ranking metrics). `csvValue` joined
+  `core/text-format.mjs`. Both services are built once by `mcp-stdio.mjs` and
+  shared: the system extension's health checks and every writer that calls
+  `markSearchIndexDirty` reach them through the host. Tool behaviour, response
+  bytes, generated vault files and the 116-tool list are unchanged;
+  `mcp-stdio.mjs` lost a further 1,354 lines (7,778 → 6,424).
+  - Both services take their process launchers as dependencies, so the worker
+    protocol, the index freshness logic and the hybrid merge are now tested
+    against stubs instead of a Python runtime and a 1024-dimension model.
+- Frontend tools moved out of `mcp-stdio.mjs` (stage 1.3 of the modularity plan).
+  Six tools left with their definitions, split by what they are for:
+  `src/extensions/frontend-design.mjs` carries the Reference Factory
+  (`plan_frontend_references`, `register_frontend_references`) and
+  `generate_ui_ux_design_system`; `src/extensions/frontend-qa.mjs` carries
+  `run_frontend_qa`, `run_visual_reference_qa` and `record_visual_review`. Their
+  pure half became two tested modules under `src/core`:
+  `reference-factory-artifacts.mjs` (manifest file paths, the registry entry, PNG
+  structure and the artifact verdicts) and `frontend-qa-report.mjs` (the runner's
+  input contract, the Markdown report, the review artifact list and the strict
+  visual verdict). `mdCell` joined `core/text-format.mjs`. The frontend product
+  state readers stay in `mcp-stdio.mjs` and reach the extensions through the
+  host, because `compile_project_context`, `verify_task` and the product tools
+  that have not been extracted yet all read them. Tool behaviour, response bytes,
+  generated project and vault files, and the 116-tool list are unchanged;
+  `mcp-stdio.mjs` lost a further 1,048 lines (8,826 → 7,778).
+  - `run_frontend_qa`, `run_visual_reference_qa` and `record_visual_review` now
+    have tests in a standalone checkout: the extension is driven against a
+    deterministic stand-in for the browser runner, so the orchestration around
+    Playwright is covered where the live-browser test is skipped.
+- Skill registry tools moved out of `mcp-stdio.mjs` (stage 1.2 of the modularity
+  plan). `rebuild_index`, `validate_skill_library` and `recommend_skills` are now
+  one extension, `src/extensions/skills.mjs`, reaching the vault, the collectors
+  and the embedding backend through the extension `host`; their definitions moved
+  with them out of `tool-definitions.mjs`. The pure half became five tested
+  modules under `src/core`: `skill-catalog.mjs` (generated-note paths and the
+  item predicates), `skill-cards.mjs` (card rendering), `skill-registry-docs.mjs`
+  (registry files and their Markdown), `skill-quality-report.mjs` (the validation
+  verdict and its dashboard), `skill-recommendation.mjs` (task intent and
+  ranking), plus `text-format.mjs` for the text primitives they share.
+  `applySkillOverlays` joined `src/core/skill-overlays.mjs`. Tool behaviour,
+  response bytes, generated vault files and the 116-tool list are unchanged;
+  `mcp-stdio.mjs` lost 1,192 lines (10,018 → 8,826).
 - Session and instinct memory is shared across the worktrees of one clone.
   `repository_id` is now derived from `git rev-parse --git-common-dir` (plus the
   project's path inside its worktree), which is identical in the main checkout

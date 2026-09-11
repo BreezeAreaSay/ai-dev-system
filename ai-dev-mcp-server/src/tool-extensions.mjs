@@ -21,26 +21,38 @@
  */
 
 import { createDecisionTools } from "./extensions/decisions.mjs";
+import { createFrontendDesignTools } from "./extensions/frontend-design.mjs";
+import { createFrontendQaTools } from "./extensions/frontend-qa.mjs";
 import { createHookTools } from "./extensions/hooks.mjs";
 import { createHygieneTools } from "./extensions/hygiene.mjs";
 import { createInstinctTools } from "./extensions/instincts.mjs";
+import { createLifecycleTools } from "./extensions/lifecycle.mjs";
 import { createPlanTools } from "./extensions/plans.mjs";
+import { createProjectTools } from "./extensions/projects.mjs";
 import { createPullRequestTools } from "./extensions/pull-requests.mjs";
 import { createRulesTools } from "./extensions/rules.mjs";
+import { createSearchTools } from "./extensions/search.mjs";
 import { createSessionTools } from "./extensions/sessions.mjs";
+import { createSkillTools } from "./extensions/skills.mjs";
 import { createSystemTools } from "./extensions/system.mjs";
 import { createUsageTools } from "./extensions/usage.mjs";
 import { createWorktreeTools } from "./extensions/worktrees.mjs";
 
 export const EXTENSION_FACTORIES = [
   createDecisionTools,
+  createFrontendDesignTools,
+  createFrontendQaTools,
   createHookTools,
   createHygieneTools,
   createInstinctTools,
+  createLifecycleTools,
   createPlanTools,
+  createProjectTools,
   createPullRequestTools,
   createRulesTools,
+  createSearchTools,
   createSessionTools,
+  createSkillTools,
   createSystemTools,
   createUsageTools,
   createWorktreeTools

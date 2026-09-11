@@ -73,14 +73,28 @@ The dependency runs one way: extensions never import `mcp-stdio.mjs`, which woul
 couple pure logic to the vault. Duplicate tool names and definitions without a handler throw at
 startup, so a broken extension can never reach a client.
 
-Registered today: `decisions`, `hooks`, `hygiene`, `instincts`, `plans`, `pull-requests`,
-`rules`, `sessions`, `system`, `usage`, `worktrees`. Pure logic stays in `core/`
-(`decision-ledger.mjs`, `agent-hooks.mjs`, `change-hygiene.mjs`, `instincts.mjs`,
-`task-plans.mjs`, `pull-request.mjs`, `pr-template.mjs`, `rules-library.mjs`,
-`rules-catalog.mjs`, `session-memory.mjs`, `system-health.mjs`, `system-dashboard.mjs`,
-`usage-ledger.mjs`, `task-worktrees.mjs`); the extension is the MCP surface over it.
-`core/completion-claims.mjs` has no extension of its own: the task lifecycle in `mcp-stdio.mjs`
-is its only caller.
+Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygiene`,
+`instincts`, `lifecycle`, `plans`, `projects`, `pull-requests`, `rules`, `search`, `sessions`,
+`skills`, `system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
+`change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `pull-request.mjs`,
+`pr-template.mjs`, `rules-library.mjs`, `rules-catalog.mjs`, `session-memory.mjs`,
+`skill-catalog.mjs`, `skill-cards.mjs`, `skill-registry-docs.mjs`,
+`skill-quality-report.mjs`, `skill-recommendation.mjs`, `frontend-product-quality.mjs`,
+`reference-factory.mjs`, `reference-factory-artifacts.mjs`, `frontend-qa-report.mjs`,
+`search-runtime.mjs`, `search-eval.mjs`, `project-cards.mjs`, `project-markdown.mjs`,
+`quality-gate-runner.mjs`, `task-verification.mjs`, `task-completion.mjs`,
+`system-health.mjs`, `system-dashboard.mjs`, `text-format.mjs`, `usage-ledger.mjs`,
+`task-worktrees.mjs`); the extension is the MCP surface over it.
+
+`core/` is not only pure logic. A handful of modules there are services: they run processes
+or own state, but know nothing about MCP and take everything environment-specific as a
+dependency. `process-runner.mjs` and `input-process-runner.mjs` were the first; stage 1.4
+added `search-index.mjs` and `embedding-workers.mjs`, and stage 1.5 `project-detection.mjs`.
+The rule they follow is that the launcher, the paths and the collaborators arrive as
+arguments, so the module is testable against a stub rather than against an installed
+toolchain.
+`core/completion-claims.mjs` has no extension of its own: the `lifecycle` extension is its only
+caller.
 
 `pull-requests` is the one extension that reads from every other: `prepare_pull_request`
 projects a task record, its verifications, its decisions and its plan onto the repository diff
@@ -89,10 +103,117 @@ there is one (`core/pr-template.mjs` discovers, parses and fills it), and it sto
 `git push` and `gh pr create` are returned as commands, never executed, so publishing stays a
 human decision. `complete_task` prepares the same file and links it from `next_step`.
 
-`system` is the first of the extractions from `mcp-stdio.mjs` rather than a new capability:
-`system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status` moved out with their
-definitions. Its checks fetch through `host` and hand the raw status objects to pure evaluators in
+`system`, `skills`, `frontend-design`, `frontend-qa`, `search`, `projects` and `lifecycle` are
+extractions from `mcp-stdio.mjs` rather than new capabilities; each moved out with its
+definitions and each splits the same way, I/O in the extension and judgement in `core/`. Those
+six steps took the main module from 10,018 lines to 4,775.
+
+`system` carries `system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status`.
+Its checks fetch through `host` and hand the raw status objects to pure evaluators in
 `core/system-health.mjs`, which also assembles the dashboard snapshot.
+
+`skills` carries `rebuild_index`, `validate_skill_library` and `recommend_skills` — the generated
+skill catalog end to end. The extension reads the vault, the skill sources and the embedding
+backend; the renders and verdicts are `core/skill-cards.mjs` (cards),
+`core/skill-registry-docs.mjs` (registry files and their Markdown),
+`core/skill-quality-report.mjs` (the validation report and its dashboard) and
+`core/skill-recommendation.mjs` (task intent, filtering and ranking), over the shared vocabulary in
+`core/skill-catalog.mjs`. Two things stayed behind deliberately: the skill collectors and the
+taxonomy/card writers, because `import_skill_repo`, `rebuild_skill_taxonomy` and `sync_skill_cards`
+share them, and `projectRecommendationContext`, which is project-card I/O. Both reach the extension
+through `host`. The traffic runs the other way too — `import_skill_repo` and the overlay tools call
+`rebuild_index`, and `begin_task` calls `recommend_skills` — and both go through
+`extensions.handlers`, so the tool stays the single implementation.
+
+`frontend-design` and `frontend-qa` are one capability cut in two, because the Frontend Product
+Quality surface is larger than one 800-line module. `frontend-design` carries the inputs a product
+is built from: the Reference Factory (`plan_frontend_references` mints a manifest of image jobs,
+`register_frontend_references` accepts the generated PNGs only against per-artifact inspection
+evidence) and `generate_ui_ux_design_system`. `frontend-qa` carries the evidence that the built
+thing works: `run_frontend_qa` drives the browser runner, `run_visual_reference_qa` is the strict
+form of it behind the implementation gate, and `record_visual_review` records an independent
+reviewer's verdict and hashes every artifact as it is reviewed.
+
+What did not move is the frontend product state itself. `readFrontendProductState`,
+`frontendProductDocumentHashes`, `frontendReviewArtifactsCurrent` and the reference validators stay
+in `mcp-stdio.mjs` and reach the extensions through `host`, because `compile_project_context`,
+`verify_task`, `frontend_product_gate` and the rest of the product state machine read them too.
+`verify_task` calls `run_frontend_qa` back through `extensions.handlers`, so the tool stays the
+single implementation of a browser run.
+
+Their pure halves are `core/reference-factory-artifacts.mjs` (where a manifest's files live, what a
+registry entry looks like, PNG structure, and whether an artifact is one a reviewer could have
+inspected) and `core/frontend-qa-report.mjs` (the runner's stdin contract, the Markdown report, the
+artifact list a review has to cover, and the strict verdict). `core/frontend-product-quality.mjs`
+and `core/reference-factory.mjs` already held the state machine and the manifest logic and were not
+touched: both are pinned in the static gate's `MODULE_LINE_EXCEPTIONS` and may only shrink.
+
+`search` is the MCP surface over three layers. `core/search-index.mjs` owns the sqlite index:
+when to rebuild it (writers call `markDirty`, the next query rebuilds once, concurrent queries
+share that rebuild), what to ask the Python helper, and what to do with the answer — the dense
+query vector is embedded in-process and handed over as a file, results are reranked against the
+golden cases, and deterministic intent routing can place a routed workflow skill above
+everything the index found. `core/embedding-workers.mjs` owns the BGE-M3 pool: one long-lived
+worker per model/device pair, newline-delimited JSON over stdin/stdout, and a one-shot fallback.
+`core/search-runtime.mjs` and `core/search-eval.mjs` are pure: the presets an agent actually
+names (`code`, `docs`, `skills`, …), weight normalization, the per-result score explanation, and
+the golden-case verdicts and ranking metrics.
+
+Both services are created once in `mcp-stdio.mjs` and handed to the host as `search` and
+`embeddings`, because they are shared rather than owned by the extension: the system extension's
+health checks query them, fourteen writers across the runtime call `markSearchIndexDirty`, and
+`prepare_project` rebuilds the index directly. The reverse direction goes through
+`extensions.handlers`, as everywhere else.
+
+`projects` carries one tool, `run_quality_gate`: the only place the server executes commands a
+project wrote down for itself. Reading the gate file, choosing what to run and judging the run
+are pure, in `core/quality-gate-runner.mjs` — a gate file is prose an agent edits, so its
+commands are parsed out of bullets and tables rather than configured, and the verdict keeps the
+three kinds of nothing-happened apart (`no_commands`, `blocked`, `no_commands_run`). The
+extension resolves each command's working directory, runs it under the command policy, and
+writes the result back onto the project's registry card. `verify_task` runs the gate as one of
+its checks and reaches it through `extensions.handlers`, so the tool stays the single
+implementation.
+
+What did not move is `detectProject`, and deliberately: it is a service, not a tool. `begin_task`,
+`compile_project_context`, the card writers and the `frontend-qa`, `rules`, `sessions` and
+`instincts` extensions all ask it what a repository is, which is eleven callers inside
+`mcp-stdio.mjs` and four outside it. It lives in `core/project-detection.mjs` over an injected
+filesystem — `pathExists`, the JSON and text readers, `stat`, the path guard and the deep
+`analyzeProject` pass all arrive as arguments — and `mcp-stdio.mjs` binds it to the real one and
+puts it on the host. The shallow pass
+reads the manifests at the root, the deep pass walks the tree, and the deep result wins where they
+disagree, because a monorepo's real commands live in its packages.
+
+The project registry card splits the same way. `core/project-cards.mjs` renders it from facts that
+arrive already gathered, which is what makes it safe to re-render: the sections an agent owns —
+architecture notes, active tasks, risks, improvements, notes, the last gate and QA runs — are
+carried over from the card as it stands and generated only when it has none.
+`core/project-markdown.mjs` holds what the card shares with `AGENTS.md`, the project map, the
+project brief and the gate file: the command and component tables, the documentation and
+environment sections, the section readers and the project slug.
+
+`lifecycle` carries the arc every other tool is arranged around: `begin_task` opens a bounded
+task against a compiled context pack and at most three routed skills, `checkpoint_task` records
+progress against its acceptance criteria, `verify_task` runs the checks that could prove the work,
+and `complete_task` closes it and writes down what happened.
+
+It is the extension with the most connections, and all of them run through `host`: the task store
+and the skill-outcome store, project identity and detection, project-state capture, the frontend
+product state, the Archify receipt store, the project-card writers and the knowledge-note writer.
+The four sibling tools it drives — `recommend_skills` for routing, `run_quality_gate` and
+`run_frontend_qa` as verification checks, `prepare_pull_request` at completion — arrive the same
+way, as host wrappers over `extensions.handlers`. That is deliberate rather than incidental:
+reaching them through `callTool` instead would record a second usage-ledger entry for work the
+client never asked for, so a composed run would be counted twice.
+
+Its judgements are pure. `core/task-verification.mjs` decides whether a run passed (an empty run
+never does, and an unknown check type fails closed) and which acceptance criteria that passing run
+is evidence for — criteria are matched on the text `begin_task` wrote, which is why those rules
+read like prose. `core/task-completion.mjs` renders the completion note and says what is left to do
+with the branch. The refusals stay in the extension because they are about order rather than
+judgement: a rationalized report is refused by `core/completion-claims.mjs` before anything is
+written, and a completed task is refused re-verification before any runner starts.
 
 ### Context extras
 
@@ -307,17 +428,20 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
 
 `scripts/static-quality.mjs` enforces two ceilings:
 
-- `src/mcp-stdio.mjs` may not exceed `SYSTEM_LINE_CEILING` (10,150 today), which lives in
+- `src/mcp-stdio.mjs` may not exceed `SYSTEM_LINE_CEILING` (5,076 today), which lives in
   `core/system-health.mjs` so the System Dashboard reports the ceiling the gate enforces. The file
-  shrinks one extraction at a time (docs/ecc-upgrades/PLAN.md, stage 1) and the ceiling is re-pinned
-  to its actual size plus roughly 300 lines of working room after each step, so it can be edited but
-  not re-grown.
+  shrank one extraction at a time (docs/ecc-upgrades/PLAN.md, stage 1: 10,018 lines to 4,776 across
+  six steps) and the ceiling was re-pinned to its actual size plus roughly 300 lines of working room
+  after each step, so it can be edited but not re-grown. New capabilities go into `src/extensions/`,
+  so the budget only has to cover editing what is left.
 - Every module under `src/core/` and `src/extensions/` stays within `MODULE_LINE_CEILING` (800) —
   the same soft ceiling `COMMON_RULES` puts on user projects.
 
 `MODULE_LINE_EXCEPTIONS` carries the modules that were already over the ceiling when the rule
-landed. An entry pins a module at its current size: it may shrink, never grow, and the gate demands
-the entry be dropped once the module is back under the ceiling or gone.
+landed — `core/frontend-product-quality.mjs` at 1,222 lines and `core/reference-factory.mjs` at 812.
+An entry pins a module at its current size: it may shrink, never grow, and the gate demands the
+entry be dropped once the module is back under the ceiling or gone. All four of those conditions
+reject, each verified by breaking it deliberately against a throwaway module and reverting.
 
 ## Operations And Distribution
 

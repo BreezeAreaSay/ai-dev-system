@@ -45,12 +45,23 @@ const GENERATED_PREFIXES = [
   "03-skills-catalog/groups/"
 ];
 
+// Dashboards rendered on demand by `validate_skill_library` and
+// `rebuild_system_dashboard`. Like the registries they are output, not seed
+// content, so running either tool in a checkout must not read as seed drift.
+const GENERATED_FILES = [
+  "03-skills-catalog/Skill Quality Dashboard.md",
+  "01-system/System Dashboard.md",
+  "01-system/system-dashboard.json"
+];
+
 /**
  * @param {string} relativePath - Seed-relative path with forward slashes.
  * @returns {boolean} True for the manifest itself and for generated output.
  */
 function skipped(relativePath) {
-  return relativePath === manifestName || GENERATED_PREFIXES.some((prefix) => relativePath.startsWith(prefix));
+  return relativePath === manifestName
+    || GENERATED_FILES.includes(relativePath)
+    || GENERATED_PREFIXES.some((prefix) => relativePath.startsWith(prefix));
 }
 
 /**

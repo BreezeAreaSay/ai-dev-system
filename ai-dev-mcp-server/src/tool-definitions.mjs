@@ -684,14 +684,17 @@ export function buildToolDefinitions({
   },
   {
     name: "import_skill_repo",
-    description: "Clone or update a GitHub skill repository into the vault and rebuild the skill index.",
+    description: "Clone or update a GitHub skill repository into the vault and rebuild the skill index. With select_skills, import only the skills/<name> directories that pass the import policy: taxonomy exclusions, a name already owned by a local skill, the public-seed privacy audit, and a minimum quality score.",
     inputSchema: {
       type: "object",
       properties: {
         repository_url: { type: "string" },
         source_group: { type: "string", default: "external" },
         name: { type: "string" },
-        update_if_exists: { type: "boolean", default: false }
+        update_if_exists: { type: "boolean", default: false },
+        select_skills: { type: "boolean", default: false },
+        min_quality_score: { type: "number", default: 75 },
+        dry_run: { type: "boolean", default: false }
       },
       required: ["repository_url"]
     }

@@ -74,7 +74,7 @@ for permission per call can let them through without prompting.
 | `run_skill_routing_eval` | no | — | Run bilingual golden intent-routing cases, enforce a maximum of three selected skills, and report missing or forbidden skill selections. |
 | `skill_outcome_status` | yes | — | Inspect verification-bound real task outcomes and empirical validation thresholds for routed custom skills. |
 | `rebuild_skill_outcomes` | no | — | Rebuild terminal Skill Outcome Analytics v2 records from completed task lifecycle files while preserving verification-attempt history. |
-| `import_skill_repo` | no | `repository_url` | Clone or update a GitHub skill repository into the vault and rebuild the skill index. |
+| `import_skill_repo` | no | `repository_url` | Clone or update a GitHub skill repository into the vault and rebuild the skill index. With select_skills, import only the skills/<name> directories that pass the import policy: taxonomy exclusions, a name already owned by a local skill, the public-seed privacy audit, and a minimum quality score. |
 
 ## Projects and context
 

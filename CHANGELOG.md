@@ -62,6 +62,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bootstrap.ps1 -Plan`, exercises the client installer's win32 path handling,
   and runs the core unit suite. The Windows install path had no CI coverage
   before.
+- **Selective skill import** (`import_skill_repo` with `select_skills: true`,
+  `src/core/skill-import-policy.mjs`): imports only the `skills/<name>`
+  directories of an upstream catalogue that pass four gates — taxonomy
+  exclusions with a cited reason, a name already owned by a local skill (ours
+  wins), the public-seed privacy audit, and a minimum quality score
+  (`min_quality_score`, default 75). `dry_run: true` reports the plan without
+  writing. The result and the generated `upstream.json` record how many skills
+  were imported and why each of the rest was left out.
+- **ECC skill catalogue** as `external/ecc` (`docs/ecc-upgrades/PLAN.md`, item
+  3.1): 101 of ECC's 291 skills (MIT, pinned to a commit), among them
+  `tdd-workflow`, `api-design`, `contract-first`, `hexagonal-architecture`,
+  `intent-driven-development`, `database-migrations`, `error-handling`,
+  `production-audit` and the language `*-patterns` / `*-testing` families. They
+  carry `trust_level: known-upstream` and `instruction_policy:
+  data-until-review`, declared in `upstream.json` and reported by
+  `recommend_skills`: their text is reference material until someone reviews it,
+  not instructions to follow on sight. 190 skills were left out — 168 by
+  taxonomy rule, 17 below the quality floor, 4 for a privacy-audit finding, and
+  ECC's `verification-loop`, whose name our custom skill already owns.
 
 ### Fixed
 

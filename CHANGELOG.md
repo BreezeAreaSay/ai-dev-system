@@ -470,7 +470,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cases it is compared against, so whenever the two writes landed in different
   milliseconds the `skill_routing_benchmark` check called the report stale, that
   critical check failed, and the health status came out `fail` instead of
-  `degraded`. The cases are written first now.
+  `degraded`. The cases are written first now, and the report's mtime is
+  pinned a minute ahead of them — ordering alone still left the two writes in
+  the same millisecond on an idle machine.
 
 ## [1.0.0] - 2026-09-01
 

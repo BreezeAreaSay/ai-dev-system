@@ -67,15 +67,17 @@ async function createFixture(t) {
     total_skills: 2, linked_unique_skills: 2, page_size: 80, batch_pages: 1, group_hubs: 1, bucket_hubs: 1,
     root_note: "all-skills.md"
   });
-  // Order matters: the skill_routing_benchmark check compares mtimes and calls a
-  // report older than its inputs stale, which fails a critical check and turns
-  // the whole health status into "fail". Write the eval cases first so the
-  // report is never older than them, however the scheduler spaces the writes
-  // out (this was an intermittent failure under a loaded test run).
+  // The skill_routing_benchmark check calls a report older than its inputs
+  // stale, which fails a critical check and turns the whole health status into
+  // "fail". Two things keep the fixture out of that state: the eval cases are
+  // written first, and the report's mtime is pinned a minute ahead — ordering
+  // alone still left the two in the same millisecond under a loaded test run.
   await writeJsonFile(safePath(VAULT_PATHS.skillRoutingEvalCases), { cases: [] });
   await writeJsonFile(safePath(VAULT_PATHS.skillRoutingReport), {
     status: "pass", summary: { passed: 3, total: 3, failed: 0 }, generated_at: "2026-02-01T00:00:00.000Z"
   });
+  const reportFreshAt = new Date(Date.now() + 60_000);
+  await fs.utimes(safePath(VAULT_PATHS.skillRoutingReport), reportFreshAt, reportFreshAt);
   await fs.mkdir(safePath(VAULT_PATHS.skillGraphPages), { recursive: true });
   for (const name of ["all-skills.md", "group.md", "bucket.md", "page-1.md"]) {
     await fs.writeFile(path.join(safePath(VAULT_PATHS.skillGraphPages), name), "# page\n", "utf8");

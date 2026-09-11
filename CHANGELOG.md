@@ -173,6 +173,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Search moved out of `mcp-stdio.mjs` (stage 1.4 of the modularity plan). All
+  thirteen search tools became `src/extensions/search.mjs`, over four modules in
+  `src/core`: two services — `search-index.mjs` (the sqlite index, its freshness
+  and the hybrid merge) and `embedding-workers.mjs` (the BGE-M3 worker pool and
+  the one-shot fallback) — and two pure ones, `search-runtime.mjs` (presets,
+  weight normalization, score explanations) and `search-eval.mjs` (the
+  golden-case verdicts and ranking metrics). `csvValue` joined
+  `core/text-format.mjs`. Both services are built once by `mcp-stdio.mjs` and
+  shared: the system extension's health checks and every writer that calls
+  `markSearchIndexDirty` reach them through the host. Tool behaviour, response
+  bytes, generated vault files and the 116-tool list are unchanged;
+  `mcp-stdio.mjs` lost a further 1,354 lines (7,778 → 6,424).
+  - Both services take their process launchers as dependencies, so the worker
+    protocol, the index freshness logic and the hybrid merge are now tested
+    against stubs instead of a Python runtime and a 1024-dimension model.
 - Frontend tools moved out of `mcp-stdio.mjs` (stage 1.3 of the modularity plan).
   Six tools left with their definitions, split by what they are for:
   `src/extensions/frontend-design.mjs` carries the Reference Factory

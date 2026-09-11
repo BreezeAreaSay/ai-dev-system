@@ -29,6 +29,7 @@ import { createInstinctTools } from "./extensions/instincts.mjs";
 import { createPlanTools } from "./extensions/plans.mjs";
 import { createPullRequestTools } from "./extensions/pull-requests.mjs";
 import { createRulesTools } from "./extensions/rules.mjs";
+import { createSearchTools } from "./extensions/search.mjs";
 import { createSessionTools } from "./extensions/sessions.mjs";
 import { createSkillTools } from "./extensions/skills.mjs";
 import { createSystemTools } from "./extensions/system.mjs";
@@ -45,6 +46,7 @@ export const EXTENSION_FACTORIES = [
   createPlanTools,
   createPullRequestTools,
   createRulesTools,
+  createSearchTools,
   createSessionTools,
   createSkillTools,
   createSystemTools,

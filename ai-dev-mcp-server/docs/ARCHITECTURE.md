@@ -74,15 +74,23 @@ couple pure logic to the vault. Duplicate tool names and definitions without a h
 startup, so a broken extension can never reach a client.
 
 Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygiene`,
-`instincts`, `plans`, `pull-requests`, `rules`, `sessions`, `skills`, `system`, `usage`,
-`worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
+`instincts`, `plans`, `pull-requests`, `rules`, `search`, `sessions`, `skills`, `system`,
+`usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
 `change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `pull-request.mjs`,
 `pr-template.mjs`, `rules-library.mjs`, `rules-catalog.mjs`, `session-memory.mjs`,
 `skill-catalog.mjs`, `skill-cards.mjs`, `skill-registry-docs.mjs`,
 `skill-quality-report.mjs`, `skill-recommendation.mjs`, `frontend-product-quality.mjs`,
 `reference-factory.mjs`, `reference-factory-artifacts.mjs`, `frontend-qa-report.mjs`,
-`system-health.mjs`, `system-dashboard.mjs`, `text-format.mjs`, `usage-ledger.mjs`,
-`task-worktrees.mjs`); the extension is the MCP surface over it.
+`search-runtime.mjs`, `search-eval.mjs`, `system-health.mjs`, `system-dashboard.mjs`,
+`text-format.mjs`, `usage-ledger.mjs`, `task-worktrees.mjs`); the extension is the MCP
+surface over it.
+
+`core/` is not only pure logic. A handful of modules there are services: they run processes
+or own state, but know nothing about MCP and take everything environment-specific as a
+dependency. `process-runner.mjs` and `input-process-runner.mjs` were the first; stage 1.4
+added `search-index.mjs` and `embedding-workers.mjs`. The rule they follow is that the
+launcher, the paths and the collaborators arrive as arguments, so the module is testable
+against a stub rather than against an installed toolchain.
 `core/completion-claims.mjs` has no extension of its own: the task lifecycle in `mcp-stdio.mjs`
 is its only caller.
 
@@ -93,9 +101,9 @@ there is one (`core/pr-template.mjs` discovers, parses and fills it), and it sto
 `git push` and `gh pr create` are returned as commands, never executed, so publishing stays a
 human decision. `complete_task` prepares the same file and links it from `next_step`.
 
-`system`, `skills`, `frontend-design` and `frontend-qa` are extractions from `mcp-stdio.mjs`
-rather than new capabilities; each moved out with its definitions and each splits the same way,
-I/O in the extension and judgement in `core/`.
+`system`, `skills`, `frontend-design`, `frontend-qa` and `search` are extractions from
+`mcp-stdio.mjs` rather than new capabilities; each moved out with its definitions and each
+splits the same way, I/O in the extension and judgement in `core/`.
 
 `system` carries `system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status`.
 Its checks fetch through `host` and hand the raw status objects to pure evaluators in
@@ -136,6 +144,23 @@ inspected) and `core/frontend-qa-report.mjs` (the runner's stdin contract, the M
 artifact list a review has to cover, and the strict verdict). `core/frontend-product-quality.mjs`
 and `core/reference-factory.mjs` already held the state machine and the manifest logic and were not
 touched: both are pinned in the static gate's `MODULE_LINE_EXCEPTIONS` and may only shrink.
+
+`search` is the MCP surface over three layers. `core/search-index.mjs` owns the sqlite index:
+when to rebuild it (writers call `markDirty`, the next query rebuilds once, concurrent queries
+share that rebuild), what to ask the Python helper, and what to do with the answer — the dense
+query vector is embedded in-process and handed over as a file, results are reranked against the
+golden cases, and deterministic intent routing can place a routed workflow skill above
+everything the index found. `core/embedding-workers.mjs` owns the BGE-M3 pool: one long-lived
+worker per model/device pair, newline-delimited JSON over stdin/stdout, and a one-shot fallback.
+`core/search-runtime.mjs` and `core/search-eval.mjs` are pure: the presets an agent actually
+names (`code`, `docs`, `skills`, …), weight normalization, the per-result score explanation, and
+the golden-case verdicts and ranking metrics.
+
+Both services are created once in `mcp-stdio.mjs` and handed to the host as `search` and
+`embeddings`, because they are shared rather than owned by the extension: the system extension's
+health checks query them, fourteen writers across the runtime call `markSearchIndexDirty`, and
+`prepare_project` rebuilds the index directly. The reverse direction goes through
+`extensions.handlers`, as everywhere else.
 
 ### Context extras
 

@@ -50,6 +50,15 @@ export function mdCell(value) {
 }
 
 /**
+ * Flatten a list-or-string argument into the comma-separated form the search
+ * helpers take on the command line.
+ */
+export function csvValue(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join(",");
+  return String(value ?? "");
+}
+
+/**
  * Render a titled Markdown table.
  *
  * @param {string} title - Heading placed above the table.

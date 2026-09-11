@@ -23,6 +23,7 @@ import {
 } from "./core/atomic-files.mjs";
 import {
   cleanDescription,
+  csvValue,
   scoreText,
   shorten,
   slugPart,
@@ -49,6 +50,9 @@ import {
   taskLooksFrontendProduct,
   taskLooksLandingConversion
 } from "./core/skill-recommendation.mjs";
+import { listSearchPresets } from "./core/search-runtime.mjs";
+import { createSearchIndexRuntime } from "./core/search-index.mjs";
+import { createEmbeddingRuntime } from "./core/embedding-workers.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
 import {
   commandRiskReason,
@@ -283,12 +287,51 @@ const bgeM3WorkerCliPath = path.join(embeddingsDir, "bge_m3_worker.py");
 const defaultBgeM3ModelDir = path.resolve(
   aiDevRuntimePath("BGE_M3_MODEL_DIR", ["models", "bge-m3"])
 );
-const searchFreshnessCacheMs = 1000;
-let searchIndexRefreshPromise = null;
-let searchIndexDirtyReason = "";
-let searchIndexLastStatus = null;
-let searchIndexLastStatusAt = 0;
 let searchHardNegativeCache = null;
+
+/**
+ * The search services, built once and shared.
+ *
+ * They are services rather than tools: `src/extensions/search.mjs` is their MCP
+ * surface, the system extension's health checks read them, and writers all over
+ * this module call `markSearchIndexDirty` so the next query rebuilds the index.
+ * Both are created here because only this module knows where the vault, the
+ * cache directory and the Python runtimes are.
+ */
+const embeddingRuntime = createEmbeddingRuntime({
+  embedCliPath: bgeM3EmbedCliPath,
+  workerCliPath: bgeM3WorkerCliPath,
+  defaultModelDir: defaultBgeM3ModelDir,
+  searchIndexDir,
+  searchIndexPath,
+  vaultRoot,
+  pythonCommand: () => embeddingPythonCommand(),
+  pathExists: (target) => pathExists(target),
+  fileStatus: (target) => fileStatus(target),
+  execFile: (command, args, options) => execFile(command, args, options)
+});
+const searchRuntime = createSearchIndexRuntime({
+  vaultRoot,
+  searchCliPath,
+  searchIndexDir,
+  searchIndexPath,
+  defaultModelDir: defaultBgeM3ModelDir,
+  pythonCommand: () => pythonCommand(),
+  embeddingPythonCommand: () => embeddingPythonCommand(),
+  pathExists: (target) => pathExists(target),
+  execFile: (command, args, options) => execFile(command, args, options),
+  embedQuery: (payload, options) => embeddingRuntime.request(payload, options),
+  hardNegativeRules: () => activeSearchHardNegativeRules(),
+  readSkillIndex: () => readSkillIndex(),
+  ranking: {
+    repairSearchMojibake,
+    prioritizeKnowledgeResults,
+    rerankSearchResults,
+    isSkillCatalogQuery,
+    routeSkills
+  }
+});
+const shutdownBgeWorkers = () => embeddingRuntime.shutdown();
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -624,10 +667,48 @@ async function writeText(relativePath, value) {
   await atomicWriteFile(target, value, "utf8");
 }
 
+// The golden-case file: read here rather than in the search extension because
+// the reranker's hard-negative rules are derived from it on every hybrid query,
+// and the system extension reports on it too.
+function resolveSearchEvalCasesPath(casesPath = "") {
+  if (!casesPath) return searchEvalCasesPath;
+  const resolved = path.resolve(path.isAbsolute(casesPath) ? casesPath : safePath(casesPath));
+  const normalizedRoot = path.resolve(vaultRoot).toLowerCase();
+  const normalizedTarget = resolved.toLowerCase();
+  if (normalizedTarget !== normalizedRoot && !normalizedTarget.startsWith(`${normalizedRoot}${path.sep}`)) {
+    throw new Error(`Search eval cases path escapes vault root: ${casesPath}`);
+  }
+  return resolved;
+}
+
+async function readSearchEvalCases(casesPath = "") {
+  const resolved = resolveSearchEvalCasesPath(casesPath);
+  const raw = await fs.readFile(resolved, "utf8");
+  const parsed = JSON.parse(stripBom(raw));
+  const cases = Array.isArray(parsed) ? parsed : parsed.cases;
+  if (!Array.isArray(cases)) {
+    throw new Error("Search eval cases file must be an array or an object with a cases array.");
+  }
+  return {
+    path: path.relative(vaultRoot, resolved).replaceAll("\\", "/"),
+    schema_version: Array.isArray(parsed) ? 1 : (parsed.schema_version ?? 1),
+    description: Array.isArray(parsed) ? "" : (parsed.description || ""),
+    cases
+  };
+}
+
+async function activeSearchHardNegativeRules() {
+  const stats = await fs.stat(searchEvalCasesPath).catch(() => null);
+  const modified = stats?.mtimeMs || 0;
+  if (searchHardNegativeCache?.modified === modified) return searchHardNegativeCache.rules;
+  const parsed = await readSearchEvalCases().catch(() => ({ cases: [] }));
+  const rules = hardNegativeRulesFromCases(parsed.cases);
+  searchHardNegativeCache = { modified, rules };
+  return rules;
+}
+
 function markSearchIndexDirty(reason = "source changed") {
-  searchIndexDirtyReason = String(reason || "source changed");
-  searchIndexLastStatus = null;
-  searchIndexLastStatusAt = 0;
+  searchRuntime.markDirty(reason);
 }
 
 async function writeKnowledgeNote({ path: notePath, content, overwrite = false }) {
@@ -1724,19 +1805,6 @@ function embeddingPythonCommand() {
     : path.join(embeddingsDir, ".venv", "bin", "python");
 }
 
-async function runSearchCli(args, { timeoutMs = 600000, command = pythonCommand() } = {}) {
-  if (!(await pathExists(searchCliPath))) {
-    throw new Error(`Search helper not found: ${searchCliPath}`);
-  }
-
-  const output = await execFile(command, [searchCliPath, ...args], { timeoutMs });
-  try {
-    return JSON.parse(stripBom(output.stdout));
-  } catch (err) {
-    throw new Error(`Search helper returned invalid JSON: ${err instanceof Error ? err.message : String(err)}\n${output.stdout}`);
-  }
-}
-
 async function runUiUxProMax(args, { json = false } = {}) {
   if (!(await pathExists(uiUxProMaxSearchPath))) {
     throw new Error(`UI UX Pro Max helper not found: ${uiUxProMaxSearchPath}`);
@@ -1799,222 +1867,6 @@ async function queryUiUxKnowledge(input = {}) {
   };
 }
 
-function csvValue(value) {
-  if (Array.isArray(value)) return value.filter(Boolean).join(",");
-  return String(value ?? "");
-}
-
-async function searchIndexStatus({ include_external_project_files = true } = {}) {
-  const args = [
-    "status",
-    "--vault-root",
-    vaultRoot,
-    "--index-path",
-    searchIndexPath
-  ];
-  if (include_external_project_files) args.push("--include-external-project-files");
-  const status = await runSearchCli(args, { timeoutMs: 120000, command: pythonCommand() });
-  status.dirty_reason = searchIndexDirtyReason;
-  return status;
-}
-
-async function rebuildSearchIndex({
-  include_external_project_files = true,
-  dense_embeddings = false,
-  dense_model_dir = process.env.BGE_M3_MODEL_DIR || defaultBgeM3ModelDir,
-  dense_device = process.env.BGE_M3_DEVICE || "cpu",
-  dense_batch_size = 8,
-  dense_text_limit = 1200,
-  dense_include_membrane = false,
-  dense_incremental = true,
-  preserve_dense = true
-} = {}) {
-  await fs.mkdir(searchIndexDir, { recursive: true });
-  const args = [
-    "rebuild",
-    "--vault-root",
-    vaultRoot,
-    "--index-path",
-    searchIndexPath
-  ];
-  if (include_external_project_files) args.push("--include-external-project-files");
-  if (!dense_embeddings && preserve_dense) args.push("--preserve-dense");
-  if (dense_embeddings) {
-    args.push(
-      "--dense-embeddings",
-      "--dense-model-dir",
-      path.resolve(String(dense_model_dir || defaultBgeM3ModelDir)),
-      "--dense-device",
-      String(dense_device || "cpu"),
-      "--dense-batch-size",
-      String(Math.max(1, Math.min(Number(dense_batch_size) || 8, 32))),
-      "--dense-text-limit",
-      String(Math.max(300, Math.min(Number(dense_text_limit) || 1200, 12000)))
-    );
-    if (dense_include_membrane) args.push("--dense-include-membrane");
-    if (dense_incremental === false) args.push("--no-dense-incremental");
-  }
-  const rebuilt = await runSearchCli(args, {
-    timeoutMs: dense_embeddings ? 3600000 : 600000,
-    command: dense_embeddings ? embeddingPythonCommand() : pythonCommand()
-  });
-  searchIndexDirtyReason = "";
-  searchIndexLastStatus = null;
-  searchIndexLastStatusAt = 0;
-  return rebuilt;
-}
-
-const bgeWorkerStates = new Map();
-let bgeWorkerRequestSeq = 0;
-
-function workerKey(modelDir, device) {
-  return `${path.resolve(String(modelDir || defaultBgeM3ModelDir))}\x1f${String(device || "cpu")}`;
-}
-
-function rejectWorkerPending(state, message) {
-  for (const pending of state.pending.values()) {
-    clearTimeout(pending.timer);
-    pending.reject(new Error(message));
-  }
-  state.pending.clear();
-}
-
-async function getBgeWorker({ model_dir = process.env.BGE_M3_MODEL_DIR || defaultBgeM3ModelDir, device = process.env.BGE_M3_DEVICE || "cpu" } = {}) {
-  if (!(await pathExists(bgeM3WorkerCliPath))) {
-    throw new Error(`BGE-M3 worker not found: ${bgeM3WorkerCliPath}`);
-  }
-  const python = embeddingPythonCommand();
-  if (!(await pathExists(python))) {
-    throw new Error(`BGE-M3 Python runtime not found: ${python}`);
-  }
-
-  const resolvedModelDir = path.resolve(String(model_dir || defaultBgeM3ModelDir));
-  const selectedDevice = String(device || "cpu");
-  const key = workerKey(resolvedModelDir, selectedDevice);
-  const existing = bgeWorkerStates.get(key);
-  if (existing && !existing.exited) return existing;
-
-  const child = spawn(python, [
-    bgeM3WorkerCliPath,
-    "--model-dir",
-    resolvedModelDir,
-    "--device",
-    selectedDevice
-  ], { windowsHide: true });
-
-  const state = {
-    key,
-    child,
-    pending: new Map(),
-    buffer: "",
-    stderr: "",
-    ready: false,
-    exited: false,
-    model_dir: resolvedModelDir,
-    device: selectedDevice
-  };
-  bgeWorkerStates.set(key, state);
-
-  child.stdout.on("data", (chunk) => {
-    state.buffer += chunk.toString();
-    let index;
-    while ((index = state.buffer.indexOf("\n")) >= 0) {
-      const line = state.buffer.slice(0, index).trim();
-      state.buffer = state.buffer.slice(index + 1);
-      if (!line) continue;
-      let message;
-      try {
-        message = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      if (message.type === "ready") {
-        state.ready = Boolean(message.ok);
-        state.ready_message = message;
-        continue;
-      }
-      const id = message.id;
-      if (id === undefined || id === null || !state.pending.has(id)) continue;
-      const pending = state.pending.get(id);
-      state.pending.delete(id);
-      clearTimeout(pending.timer);
-      if (message.ok === false) {
-        pending.reject(new Error(message.error || "BGE-M3 worker request failed."));
-      } else {
-        pending.resolve(message);
-      }
-    }
-  });
-
-  child.stderr.on("data", (chunk) => {
-    state.stderr = `${state.stderr}${chunk.toString()}`.slice(-8000);
-  });
-  child.on("error", (err) => {
-    state.exited = true;
-    rejectWorkerPending(state, err.message);
-    bgeWorkerStates.delete(key);
-  });
-  child.on("close", (code) => {
-    state.exited = true;
-    rejectWorkerPending(state, `BGE-M3 worker exited with code ${code}. ${state.stderr}`.trim());
-    bgeWorkerStates.delete(key);
-  });
-
-  return state;
-}
-
-async function requestBgeWorker(payload, { timeoutMs = 180000 } = {}) {
-  const state = await getBgeWorker({
-    model_dir: payload.model_dir,
-    device: payload.device
-  });
-  if (!state.child.stdin.writable) {
-    throw new Error("BGE-M3 worker stdin is closed.");
-  }
-  const id = ++bgeWorkerRequestSeq;
-  const request = {
-    id,
-    method: payload.method || "embed",
-    texts: payload.texts,
-    text: payload.text,
-    prefix: payload.prefix || "",
-    normalize: payload.normalize !== false,
-    batch_size: Math.max(1, Math.min(Number(payload.batch_size) || 8, 64)),
-    precision: Math.max(2, Math.min(Number(payload.precision) || 6, 10)),
-    include_embeddings: payload.include_embeddings !== false
-  };
-
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      state.pending.delete(id);
-      reject(new Error(`BGE-M3 worker request timed out after ${timeoutMs}ms.`));
-    }, timeoutMs);
-    state.pending.set(id, { resolve, reject, timer });
-    state.child.stdin.write(`${JSON.stringify(request)}\n`, "utf8", (err) => {
-      if (err) {
-        state.pending.delete(id);
-        clearTimeout(timer);
-        reject(err);
-      }
-    });
-  });
-}
-
-function shutdownBgeWorkers() {
-  for (const state of bgeWorkerStates.values()) {
-    try {
-      if (!state.exited && state.child.stdin.writable) {
-        state.child.stdin.write(`${JSON.stringify({ id: ++bgeWorkerRequestSeq, method: "shutdown" })}\n`);
-      }
-      state.child.kill();
-    } catch {
-      // best effort on process shutdown
-    }
-  }
-  bgeWorkerStates.clear();
-}
-
-
 async function fileStatus(target) {
   try {
     const stat = await fs.stat(target);
@@ -2033,51 +1885,6 @@ async function fileStatus(target) {
   }
 }
 
-async function embeddingStatus({
-  model_dir = process.env.BGE_M3_MODEL_DIR || defaultBgeM3ModelDir,
-  device = process.env.BGE_M3_DEVICE || "cpu"
-} = {}) {
-  const resolvedModelDir = path.resolve(String(model_dir || defaultBgeM3ModelDir));
-  const python = embeddingPythonCommand();
-  const workerStates = [...bgeWorkerStates.values()].map((state) => ({
-    key: state.key,
-    pid: state.child.pid,
-    ready: Boolean(state.ready),
-    exited: Boolean(state.exited),
-    pending_requests: state.pending.size,
-    model_dir: state.model_dir,
-    device: state.device,
-    stderr_tail: state.stderr || ""
-  }));
-  return {
-    backend: "bge-m3-local",
-    dense_model: "BAAI/bge-m3",
-    dense_dimensions: 1024,
-    configured_device: String(device || "cpu"),
-    paths: {
-      vault_root: vaultRoot,
-      search_index: searchIndexPath,
-      embeddings_python: python,
-      embed_helper: bgeM3EmbedCliPath,
-      worker_helper: bgeM3WorkerCliPath,
-      model_dir: resolvedModelDir
-    },
-    availability: {
-      search_index: await fileStatus(searchIndexPath),
-      embeddings_python: await fileStatus(python),
-      embed_helper: await fileStatus(bgeM3EmbedCliPath),
-      worker_helper: await fileStatus(bgeM3WorkerCliPath),
-      model_dir: await fileStatus(resolvedModelDir),
-      model_file: await fileStatus(path.join(resolvedModelDir, "pytorch_model.bin")),
-      modules_file: await fileStatus(path.join(resolvedModelDir, "modules.json"))
-    },
-    workers: {
-      count: workerStates.length,
-      states: workerStates
-    }
-  };
-}
-
 async function frontendQaEnvironmentStatus() {
   if (!(await pathExists(frontendQaRunnerPath))) {
     return { status: "unavailable", playwright_available: false, chromium_available: false, browser_launch_ok: false };
@@ -2093,325 +1900,6 @@ async function frontendQaEnvironmentStatus() {
     }
   );
   return JSON.parse(output.stdout);
-}
-
-async function embedTexts({
-  texts,
-  text,
-  prefix = "",
-  normalize = true,
-  batch_size = 8,
-  precision = 6,
-  include_embeddings = true,
-  model_dir = process.env.BGE_M3_MODEL_DIR || defaultBgeM3ModelDir,
-  device = process.env.BGE_M3_DEVICE || "cpu",
-  timeout_ms = 180000,
-  use_worker = true
-} = {}) {
-  if (!(await pathExists(bgeM3EmbedCliPath))) {
-    throw new Error(`BGE-M3 helper not found: ${bgeM3EmbedCliPath}`);
-  }
-
-  const python = embeddingPythonCommand();
-  if (!(await pathExists(python))) {
-    throw new Error(`BGE-M3 Python runtime not found: ${python}`);
-  }
-
-  const inputTexts = Array.isArray(texts)
-    ? texts
-    : (typeof text === "string" && text ? [text] : []);
-  const cleanTexts = inputTexts.map((value) => String(value ?? "").trim()).filter(Boolean);
-  if (!cleanTexts.length) {
-    throw new Error("texts or text is required.");
-  }
-  if (cleanTexts.length > 32) {
-    throw new Error("embed_texts accepts at most 32 texts per call.");
-  }
-  for (const value of cleanTexts) {
-    if (value.length > 12000) {
-      throw new Error("Each text must be 12000 characters or less.");
-    }
-  }
-
-  const request = {
-    texts: cleanTexts,
-    prefix: String(prefix ?? ""),
-    normalize: Boolean(normalize),
-    batch_size: Math.max(1, Math.min(Number(batch_size) || 8, 32)),
-    precision: Math.max(2, Math.min(Number(precision) || 6, 10)),
-    include_embeddings: Boolean(include_embeddings),
-    model_dir,
-    device
-  };
-
-  if (use_worker) {
-    return requestBgeWorker(request, {
-      timeoutMs: Math.max(30000, Math.min(Number(timeout_ms) || 180000, 600000))
-    });
-  }
-
-  const requestPath = path.join(searchIndexDir, `.bge-m3-request-${process.pid}-${Date.now()}.json`);
-  await fs.mkdir(searchIndexDir, { recursive: true });
-  await atomicWriteJson(requestPath, request, { spaces: 0 });
-  try {
-    const output = await execFile(python, [
-      bgeM3EmbedCliPath,
-      "--model-dir",
-      path.resolve(String(model_dir || defaultBgeM3ModelDir)),
-      "--device",
-      String(device || "cpu"),
-      "embed",
-      "--input-json",
-      requestPath,
-      "--precision",
-      String(Math.max(2, Math.min(Number(precision) || 6, 10)))
-    ], {
-      timeoutMs: Math.max(30000, Math.min(Number(timeout_ms) || 180000, 600000))
-    });
-    const parsed = JSON.parse(stripBom(output.stdout));
-    if (!include_embeddings && parsed.embeddings) {
-      parsed.embedding_preview = parsed.embeddings.map((row) => row.slice(0, 8));
-      delete parsed.embeddings;
-    }
-    parsed.backend = "bge-m3-local";
-    return parsed;
-  } finally {
-    await fs.rm(requestPath, { force: true }).catch(() => {});
-  }
-}
-
-async function ensureSearchIndex({ force_check = false } = {}) {
-  if (searchIndexRefreshPromise) return searchIndexRefreshPromise;
-
-  const now = Date.now();
-  if (
-    !force_check &&
-    !searchIndexDirtyReason &&
-    searchIndexLastStatus &&
-    now - searchIndexLastStatusAt < searchFreshnessCacheMs
-  ) {
-    return { action: "current", status: searchIndexLastStatus };
-  }
-
-  const status = await searchIndexStatus({ include_external_project_files: true });
-  searchIndexLastStatus = status;
-  searchIndexLastStatusAt = Date.now();
-  if (!status.stale && !searchIndexDirtyReason) {
-    return { action: "current", status };
-  }
-
-  searchIndexRefreshPromise = (async () => {
-    const rebuild = await rebuildSearchIndex({
-      include_external_project_files: true,
-      dense_embeddings: false,
-      preserve_dense: true
-    });
-    const refreshed = await searchIndexStatus({ include_external_project_files: true });
-    searchIndexLastStatus = refreshed;
-    searchIndexLastStatusAt = Date.now();
-    searchIndexDirtyReason = "";
-    return { action: "rebuilt", previous_status: status, rebuild, status: refreshed };
-  })();
-
-  try {
-    return await searchIndexRefreshPromise;
-  } finally {
-    searchIndexRefreshPromise = null;
-  }
-}
-
-async function searchIndex({
-  query,
-  scope = "all",
-  limit = 10,
-  project = "",
-  source = "",
-  categories = "",
-  folders = "",
-  ensure_fresh = true
-}) {
-  if (!query || typeof query !== "string") {
-    throw new Error("query is required.");
-  }
-  if (ensure_fresh) await ensureSearchIndex();
-  return runSearchCli([
-    "search",
-    "--index-path",
-    searchIndexPath,
-    "--query",
-    query,
-    "--scope",
-    scope || "all",
-    "--limit",
-    String(Math.max(1, Math.min(Number(limit) || 10, 50))),
-    "--project",
-    project || "",
-    "--source",
-    csvValue(source),
-    "--categories",
-    csvValue(categories),
-    "--folders",
-    csvValue(folders)
-  ], { timeoutMs: 120000 });
-}
-
-async function activeSearchHardNegativeRules() {
-  const stats = await fs.stat(searchEvalCasesPath).catch(() => null);
-  const modified = stats?.mtimeMs || 0;
-  if (searchHardNegativeCache?.modified === modified) return searchHardNegativeCache.rules;
-  const parsed = await readSearchEvalCases().catch(() => ({ cases: [] }));
-  const rules = hardNegativeRulesFromCases(parsed.cases);
-  searchHardNegativeCache = { modified, rules };
-  return rules;
-}
-
-async function hybridSearchIndex({
-  query,
-  scope = "all",
-  limit = 10,
-  project = "",
-  source = "",
-  categories = "",
-  folders = "",
-  semantic_weight = 0.20,
-  keyword_weight = 0.45,
-  dense_weight = 0.35,
-  dense_model_dir = process.env.BGE_M3_MODEL_DIR || defaultBgeM3ModelDir,
-  dense_device = process.env.BGE_M3_DEVICE || "cpu",
-  intent_routing = false,
-  rerank = true,
-  preset_name = "",
-  ensure_fresh = true
-}) {
-  if (!query || typeof query !== "string") {
-    throw new Error("query is required.");
-  }
-  const normalizedQuery = repairSearchMojibake(query);
-  const requestedLimit = Math.max(1, Math.min(Number(limit) || 10, 50));
-  const selectedDenseWeight = Number.isFinite(Number(dense_weight)) ? Number(dense_weight) : 0.35;
-  if (ensure_fresh) await ensureSearchIndex();
-
-  let denseQueryVectorPath = "";
-  if (selectedDenseWeight > 0) {
-    const denseQuery = await requestBgeWorker({
-      texts: [normalizedQuery],
-      prefix: "query: ",
-      normalize: true,
-      batch_size: 1,
-      precision: 8,
-      include_embeddings: true,
-      model_dir: dense_model_dir,
-      device: dense_device
-    }, { timeoutMs: 300000 });
-    const vector = denseQuery.embeddings?.[0];
-    if (Array.isArray(vector) && vector.length) {
-      await fs.mkdir(searchIndexDir, { recursive: true });
-      denseQueryVectorPath = path.join(searchIndexDir, `.dense-query-${process.pid}-${Date.now()}.json`);
-      await atomicWriteJson(denseQueryVectorPath, vector, { spaces: 0 });
-    }
-  }
-
-  const args = [
-    "hybrid",
-    "--index-path",
-    searchIndexPath,
-    "--query",
-    normalizedQuery,
-    "--scope",
-    scope || "all",
-    "--limit",
-    "50",
-    "--project",
-    project || "",
-    "--source",
-    csvValue(source),
-    "--categories",
-    csvValue(categories),
-    "--folders",
-    csvValue(folders),
-    "--semantic-weight",
-    String(Number.isFinite(Number(semantic_weight)) ? Number(semantic_weight) : 0.20),
-    "--keyword-weight",
-    String(Number.isFinite(Number(keyword_weight)) ? Number(keyword_weight) : 0.45),
-    "--dense-weight",
-    String(selectedDenseWeight),
-    "--dense-model-dir",
-    path.resolve(String(dense_model_dir || defaultBgeM3ModelDir)),
-    "--dense-device",
-    String(dense_device || "cpu")
-  ];
-  if (denseQueryVectorPath) {
-    args.push("--dense-query-vector-path", denseQueryVectorPath);
-  }
-
-  try {
-    const results = await runSearchCli(args, {
-      timeoutMs: selectedDenseWeight > 0 ? 300000 : 120000,
-      command: pythonCommand()
-    });
-    let ranked = results;
-    if (
-      intent_routing
-      && ["all", "knowledge"].includes(String(scope || "all"))
-      && !project
-      && !csvValue(folders)
-      && !csvValue(source)
-    ) {
-      ranked = prioritizeKnowledgeResults(normalizedQuery, ranked);
-    }
-    if (rerank) {
-      ranked = rerankSearchResults(normalizedQuery, ranked, {
-        scope,
-        preset: preset_name,
-        hardNegativeRules: await activeSearchHardNegativeRules()
-      });
-    }
-    if (!intent_routing || !["all", "skills"].includes(String(scope || "all"))) {
-      return ranked.slice(0, requestedLimit);
-    }
-    if (project || csvValue(folders)) return ranked.slice(0, requestedLimit);
-    if (isSkillCatalogQuery(normalizedQuery)) return ranked.slice(0, requestedLimit);
-    const selectedSources = new Set(csvValue(source).split(",").map((item) => item.trim().toLowerCase()).filter(Boolean));
-    if (selectedSources.size && !selectedSources.has("custom")) return ranked.slice(0, requestedLimit);
-
-    const route = routeSkills({ task: normalizedQuery, maxSkills: 3 });
-    const registry = await readSkillIndex();
-    const customByName = new Map(
-      registry
-        .filter((item) => item.source === "custom")
-        .map((item) => [String(item.name || "").toLowerCase(), item])
-    );
-    const routed = route.skills
-      .map((selection, index) => {
-        const item = customByName.get(String(selection.name || "").toLowerCase());
-        if (!item) return null;
-        return {
-          scope: "skills",
-          title: item.name,
-          path: item.path,
-          source: item.source,
-          categories: Array.isArray(item.categories) ? item.categories.join(", ") : String(item.categories || ""),
-          score: Number((2 - index * 0.01).toFixed(6)),
-          keyword_score: 0,
-          semantic_score: 0,
-          dense_score: 0,
-          mode: "routed-hybrid",
-          preview: item.description || item.use_when || "",
-          routing_role: selection.role,
-          routing_reason: selection.reason,
-          routing_rule: selection.rule,
-          retrieval_stage: "deterministic-intent-router"
-        };
-      })
-      .filter(Boolean);
-    const routedNames = new Set(routed.map((item) => item.title.toLowerCase()));
-    return [...routed, ...ranked.filter((item) => !routedNames.has(String(item.title || "").toLowerCase()))]
-      .slice(0, requestedLimit);
-  } finally {
-    if (denseQueryVectorPath) {
-      await fs.rm(denseQueryVectorPath, { force: true }).catch(() => {});
-    }
-  }
 }
 
 function sanitizeRepoName(repositoryUrl, requestedName) {
@@ -4242,7 +3730,7 @@ async function prepareProject({
 
   let search_index = null;
   if (rebuild_search) {
-    search_index = await rebuildSearchIndex({ include_external_project_files: true });
+    search_index = await searchRuntime.rebuild({ include_external_project_files: true });
   }
 
   return {
@@ -5315,7 +4803,7 @@ async function refreshProjectMemory({
 
   let search_index = null;
   if (rebuild_search) {
-    search_index = await rebuildSearchIndex({ include_external_project_files: true });
+    search_index = await searchRuntime.rebuild({ include_external_project_files: true });
   }
 
   return {
@@ -6524,14 +6012,25 @@ const extensions = createExtensionTools({
   safePath, fileStatus, pathExists, readJsonIfExists, writeJson, writeText, listMarkdownFiles,
   readSkillIndex, readSkillGroupsIndex, readSkillCardsIndex, readSkillOverlayDocument,
   readSearchEvalCases, projectSummaries, listProjects, listAutoCommands, listSearchPresets,
-  searchIndexStatus, rebuildSearchIndex, searchIndex, hybridSearchIndex, runSearchEval,
-  embeddingStatus, frontendQaEnvironmentStatus,
+  frontendQaEnvironmentStatus,
+  // The search services. `search` and `embeddings` are what the search extension
+  // drives; the named wrappers below are what the system extension's health
+  // checks ask for, and `runSearchEval` is the search extension's own tool
+  // reached the same way `prepare_pull_request` is.
+  search: searchRuntime, embeddings: embeddingRuntime,
+  searchIndexStatus: (args) => searchRuntime.status(args),
+  rebuildSearchIndex: (args) => searchRuntime.rebuild(args),
+  searchIndex: (args) => searchRuntime.search(args),
+  hybridSearchIndex: (args) => searchRuntime.hybridSearch(args),
+  embeddingStatus: (args) => embeddingRuntime.status(args),
+  runSearchEval: (args) => extensions.handlers.get("run_search_eval")(args),
   // Skill sources and the writers that turn them into the generated catalog.
   // `rebuild_index` owns the catalog but not the collectors: `import_skill_repo`,
   // `rebuild_skill_taxonomy` and `sync_skill_cards` still live here and share them.
   skillCatalogRoot, skillSourcesRoot: sourcesRoot, skillRegistryDir: registryDir,
   collectCustomSkills, collectDesignSkills, collectMembraneSkills, collectExternalSkills,
-  writeSkillTaxonomyArtifacts, syncSkillCards, embedTexts, projectRecommendationContext,
+  writeSkillTaxonomyArtifacts, syncSkillCards, projectRecommendationContext,
+  embedTexts: (args) => embeddingRuntime.embedTexts(args),
   // Frontend product state and project-card writers. The state readers stay here
   // because `compile_project_context`, `verify_task` and the product tools that
   // have not been extracted yet all read them; the frontend extensions reach
@@ -6578,846 +6077,6 @@ async function searchKnowledge({ query, limit = 10 }) {
     }
   }
   return matches.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, limit);
-}
-
-async function searchAll({
-  query,
-  scope = "all",
-  limit = 10,
-  project = "",
-  source = "",
-  categories = "",
-  folders = ""
-}) {
-  return searchIndex({ query, scope, limit, project, source, categories, folders });
-}
-
-const SEARCH_PRESETS = Object.freeze({
-  balanced: {
-    description: "Default hybrid search for mixed knowledge, project, and skill lookup.",
-    use_when: "General AI Dev System lookup when the target source is not obvious.",
-    scope: "all",
-    limit: 10,
-    keyword_weight: 0.45,
-    semantic_weight: 0.20,
-    dense_weight: 0.35
-  },
-  code: {
-    description: "Code and repository lookup biased toward exact names, paths, commands, symbols, and project files.",
-    use_when: "Finding AGENTS.md, project maps, commands, filenames, stack notes, or repo-local AI-dev files.",
-    scope: "all",
-    limit: 10,
-    keyword_weight: 0.65,
-    semantic_weight: 0.15,
-    dense_weight: 0.20,
-    intent_routing: true
-  },
-  docs: {
-    description: "Knowledge-base lookup biased toward meaning and explanatory notes.",
-    use_when: "Finding architecture notes, runbooks, system docs, decisions, or conceptual explanations.",
-    scope: "knowledge",
-    limit: 8,
-    keyword_weight: 0.25,
-    semantic_weight: 0.25,
-    dense_weight: 0.50,
-    intent_routing: true
-  },
-  skills: {
-    description: "Skill registry lookup for choosing or reading task-specific skills.",
-    use_when: "Finding relevant custom, design, Membrane, or integration skills.",
-    scope: "skills",
-    limit: 10,
-    keyword_weight: 0.35,
-    semantic_weight: 0.25,
-    dense_weight: 0.40,
-    intent_routing: true
-  },
-  projects: {
-    description: "Project registry lookup biased toward registered project cards and project context.",
-    use_when: "Finding a project, its stack, quality status, risks, active tasks, or recommended skills.",
-    scope: "projects",
-    limit: 8,
-    keyword_weight: 0.50,
-    semantic_weight: 0.20,
-    dense_weight: 0.30
-  },
-  debug: {
-    description: "Bug/debug lookup biased toward exact errors, commands, failing checks, and known investigation workflows.",
-    use_when: "Investigating failures, stack traces, regressions, CI issues, or quality gate problems.",
-    scope: "all",
-    limit: 10,
-    keyword_weight: 0.60,
-    semantic_weight: 0.20,
-    dense_weight: 0.20,
-    intent_routing: true
-  },
-  frontend: {
-    description: "Frontend/design lookup biased toward visual intent and design workflow meaning.",
-    use_when: "Finding UI, UX, redesign, landing page, responsive, browser-check, or design-taste guidance.",
-    scope: "all",
-    limit: 10,
-    keyword_weight: 0.25,
-    semantic_weight: 0.25,
-    dense_weight: 0.50,
-    intent_routing: true
-  },
-  quality: {
-    description: "Quality-gate lookup for verification, tests, review standards, and safety checks.",
-    use_when: "Finding checks, quality gates, review rules, test strategy, or verification commands.",
-    scope: "quality",
-    limit: 8,
-    keyword_weight: 0.45,
-    semantic_weight: 0.25,
-    dense_weight: 0.30
-  }
-});
-
-const SEARCH_PRESET_ALIASES = Object.freeze({
-  default: "balanced",
-  all: "balanced",
-  general: "balanced",
-  repo: "code",
-  repository: "code",
-  command: "code",
-  commands: "code",
-  symbol: "code",
-  symbols: "code",
-  knowledge: "docs",
-  doc: "docs",
-  document: "docs",
-  documentation: "docs",
-  note: "docs",
-  notes: "docs",
-  skill: "skills",
-  project: "projects",
-  registry: "projects",
-  bug: "debug",
-  bugs: "debug",
-  error: "debug",
-  failure: "debug",
-  ci: "debug",
-  design: "frontend",
-  ui: "frontend",
-  ux: "frontend",
-  front: "frontend",
-  review: "quality",
-  tests: "quality",
-  test: "quality",
-  gate: "quality"
-});
-
-function searchPresetName(value = "balanced") {
-  const normalized = String(value || "balanced").toLowerCase().trim().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
-  return SEARCH_PRESET_ALIASES[normalized] || normalized || "balanced";
-}
-
-function getSearchPreset(value = "balanced") {
-  const name = searchPresetName(value);
-  const preset = SEARCH_PRESETS[name];
-  if (!preset) {
-    throw new Error(`Unknown search preset: ${value}. Use list_search_presets to see valid presets.`);
-  }
-  return { name, ...preset };
-}
-
-function listSearchPresets() {
-  const aliasesByPreset = new Map();
-  for (const [alias, name] of Object.entries(SEARCH_PRESET_ALIASES)) {
-    if (!aliasesByPreset.has(name)) aliasesByPreset.set(name, []);
-    aliasesByPreset.get(name).push(alias);
-  }
-  return Object.entries(SEARCH_PRESETS).map(([name, preset]) => ({
-    name,
-    aliases: aliasesByPreset.get(name) || [],
-    ...preset,
-    weights: {
-      keyword: preset.keyword_weight,
-      semantic: preset.semantic_weight,
-      dense: preset.dense_weight
-    }
-  }));
-}
-
-function optionProvided(options, key) {
-  return Object.prototype.hasOwnProperty.call(options, key) && options[key] !== undefined && options[key] !== null && options[key] !== "";
-}
-
-function presetOption(options, key, fallback) {
-  return optionProvided(options, key) ? options[key] : fallback;
-}
-
-function resolveSearchPresetArgs(options = {}, { defaultLimit = 10 } = {}) {
-  const preset = getSearchPreset(options.preset || "balanced");
-  const limitFallback = preset.limit || defaultLimit;
-  const limit = Math.max(1, Math.min(Number(presetOption(options, "limit", limitFallback)) || limitFallback, 50));
-  return {
-    preset,
-    search: {
-      query: options.query,
-      scope: presetOption(options, "scope", preset.scope || "all"),
-      limit,
-      project: presetOption(options, "project", ""),
-      source: presetOption(options, "source", ""),
-      categories: presetOption(options, "categories", ""),
-      folders: presetOption(options, "folders", ""),
-      semantic_weight: Number(presetOption(options, "semantic_weight", preset.semantic_weight ?? 0.20)),
-      keyword_weight: Number(presetOption(options, "keyword_weight", preset.keyword_weight ?? 0.45)),
-      dense_weight: Number(presetOption(options, "dense_weight", preset.dense_weight ?? 0.35)),
-      dense_model_dir: presetOption(options, "dense_model_dir", undefined),
-      dense_device: presetOption(options, "dense_device", "cpu"),
-      intent_routing: Boolean(presetOption(options, "intent_routing", preset.intent_routing ?? false)),
-      rerank: Boolean(presetOption(options, "rerank", true)),
-      preset_name: preset.name
-    }
-  };
-}
-
-function appliedSearchPresetSummary(resolved) {
-  const weights = normalizedSearchWeights(resolved.search);
-  return {
-    preset: {
-      name: resolved.preset.name,
-      description: resolved.preset.description,
-      use_when: resolved.preset.use_when
-    },
-    scope: resolved.search.scope,
-    limit: resolved.search.limit,
-    filters: {
-      project: resolved.search.project || "",
-      source: resolved.search.source || "",
-      categories: csvValue(resolved.search.categories),
-      folders: csvValue(resolved.search.folders)
-    },
-    weights: {
-      requested: {
-        keyword: clampSearchWeight(resolved.search.keyword_weight, 0.45),
-        semantic: clampSearchWeight(resolved.search.semantic_weight, 0.20),
-        dense: clampSearchWeight(resolved.search.dense_weight, 0.35)
-      },
-      normalized: {
-        keyword: roundSearchNumber(weights.keyword),
-        semantic: roundSearchNumber(weights.semantic),
-        dense: roundSearchNumber(weights.dense)
-      }
-    },
-    reranker: {
-      enabled: resolved.search.rerank !== false,
-      version: 2,
-      hard_negative_rules: "golden cases plus domain conflicts"
-    }
-  };
-}
-
-async function hybridSearch(options = {}) {
-  const resolved = resolveSearchPresetArgs(options, { defaultLimit: 10 });
-  return hybridSearchIndex(resolved.search);
-}
-
-function clampSearchWeight(value, fallback) {
-  const number = Number(value);
-  if (!Number.isFinite(number)) return fallback;
-  return Math.max(0, Math.min(number, 1));
-}
-
-function normalizedSearchWeights({ keyword_weight = 0.45, semantic_weight = 0.20, dense_weight = 0.35 } = {}) {
-  let keyword = clampSearchWeight(keyword_weight, 0.45);
-  let semantic = clampSearchWeight(semantic_weight, 0.20);
-  let dense = clampSearchWeight(dense_weight, 0.35);
-  let total = keyword + semantic + dense;
-  if (total <= 0) {
-    keyword = 0.45;
-    semantic = 0.20;
-    dense = 0.35;
-    total = keyword + semantic + dense;
-  }
-  return {
-    keyword: keyword / total,
-    semantic: semantic / total,
-    dense: dense / total
-  };
-}
-
-function roundSearchNumber(value, digits = 6) {
-  const number = Number(value) || 0;
-  const factor = 10 ** digits;
-  return Math.round(number * factor) / factor;
-}
-
-function explainSearchProfile(result) {
-  const parts = [
-    { name: "keyword", score: Number(result.keyword_score) || 0 },
-    { name: "semantic", score: Number(result.semantic_score) || 0 },
-    { name: "dense", score: Number(result.dense_score) || 0 }
-  ].sort((a, b) => b.score - a.score);
-  const top = parts[0];
-  if (!top || top.score <= 0) return "weak match; result is mostly from boosts or fallback scoring";
-  if (top.name === "keyword") return "keyword/FTS match is the strongest signal";
-  if (top.name === "dense") return "dense BGE-M3 meaning match is the strongest signal";
-  return "local sparse semantic match is the strongest signal";
-}
-
-function explainScoreAdjustment(value) {
-  if (value >= 0.03) return "positive adjustment from lexical boost or vault-note preference";
-  if (value <= -0.03) return "negative adjustment from source penalty or other ranking guardrail";
-  return "close to pure weighted score";
-}
-
-function explainSearchResult(result, index, weights) {
-  const keywordRaw = Number(result.keyword_score) || 0;
-  const semanticRaw = Number(result.semantic_score) || 0;
-  const denseRaw = Number(result.dense_score) || 0;
-  const keywordContribution = keywordRaw * weights.keyword;
-  const semanticContribution = semanticRaw * weights.semantic;
-  const denseContribution = denseRaw * weights.dense;
-  const weightedScore = keywordContribution + semanticContribution + denseContribution;
-  const adjustment = (Number(result.score) || 0) - weightedScore;
-  return {
-    rank: index + 1,
-    title: result.title,
-    path: result.path,
-    scope: result.scope,
-    source: result.source,
-    score: result.score,
-    original_rank: result.original_rank,
-    original_score: result.original_score,
-    rerank_adjustment: result.rerank_adjustment,
-    rerank_reasons: result.rerank_reasons || [],
-    hard_negative: Boolean(result.hard_negative),
-    hard_negative_reasons: result.hard_negative_reasons || [],
-    weighted_score_before_adjustments: roundSearchNumber(weightedScore),
-    score_adjustment: roundSearchNumber(adjustment),
-    score_parts: {
-      keyword: {
-        raw: roundSearchNumber(keywordRaw),
-        weight: roundSearchNumber(weights.keyword),
-        contribution: roundSearchNumber(keywordContribution)
-      },
-      semantic: {
-        raw: roundSearchNumber(semanticRaw),
-        weight: roundSearchNumber(weights.semantic),
-        contribution: roundSearchNumber(semanticContribution)
-      },
-      dense: {
-        raw: roundSearchNumber(denseRaw),
-        weight: roundSearchNumber(weights.dense),
-        contribution: roundSearchNumber(denseContribution)
-      }
-    },
-    likely_reason: explainSearchProfile(result),
-    adjustment_note: explainScoreAdjustment(adjustment),
-    preview: result.preview
-  };
-}
-
-function explainSearchTuningNotes(results, weights) {
-  const notes = [];
-  const hasDense = results.some((item) => Number(item.dense_score) > 0);
-  const hasKeyword = results.some((item) => Number(item.keyword_score) > 0);
-  if (!hasDense && weights.dense > 0) {
-    notes.push("Dense weight is enabled, but returned results have no dense score. Rebuild the index with dense_embeddings=true or check the dense backend.");
-  }
-  if (!hasKeyword) {
-    notes.push("Keyword score is zero for these results; the query is being answered mostly by semantic meaning rather than exact terms.");
-  }
-  if (results.length >= 2 && Number(results[0].score) - Number(results[1].score) < 0.03) {
-    notes.push("Top results are close; read the first few before choosing context.");
-  }
-  if (!notes.length) {
-    notes.push("Ranking signals look healthy: at least one exact, sparse, or dense signal is contributing to the returned results.");
-  }
-  return notes;
-}
-
-async function presetSearch(options = {}) {
-  const explain = Boolean(options.explain);
-  const resolved = resolveSearchPresetArgs(options, { defaultLimit: 10 });
-  const results = await hybridSearchIndex(resolved.search);
-  const weights = normalizedSearchWeights(resolved.search);
-  return {
-    query: resolved.search.query,
-    result_count: results.length,
-    applied: appliedSearchPresetSummary(resolved),
-    tuning_notes: explain ? explainSearchTuningNotes(results, weights) : undefined,
-    results: explain
-      ? results.map((item, index) => explainSearchResult(item, index, weights))
-      : results
-  };
-}
-
-function resolveSearchEvalCasesPath(casesPath = "") {
-  if (!casesPath) return searchEvalCasesPath;
-  const resolved = path.resolve(path.isAbsolute(casesPath) ? casesPath : safePath(casesPath));
-  const normalizedRoot = path.resolve(vaultRoot).toLowerCase();
-  const normalizedTarget = resolved.toLowerCase();
-  if (normalizedTarget !== normalizedRoot && !normalizedTarget.startsWith(`${normalizedRoot}${path.sep}`)) {
-    throw new Error(`Search eval cases path escapes vault root: ${casesPath}`);
-  }
-  return resolved;
-}
-
-async function readSearchEvalCases(casesPath = "") {
-  const resolved = resolveSearchEvalCasesPath(casesPath);
-  const raw = await fs.readFile(resolved, "utf8");
-  const parsed = JSON.parse(stripBom(raw));
-  const cases = Array.isArray(parsed) ? parsed : parsed.cases;
-  if (!Array.isArray(cases)) {
-    throw new Error("Search eval cases file must be an array or an object with a cases array.");
-  }
-  return {
-    path: path.relative(vaultRoot, resolved).replaceAll("\\", "/"),
-    schema_version: Array.isArray(parsed) ? 1 : (parsed.schema_version ?? 1),
-    description: Array.isArray(parsed) ? "" : (parsed.description || ""),
-    cases
-  };
-}
-
-function searchEvalNormalize(value) {
-  return String(value ?? "").toLowerCase().trim();
-}
-
-function searchEvalFieldMatches(actual, expected, { exact = false } = {}) {
-  if (expected === undefined || expected === null || expected === "") {
-    return { checked: false, ok: true };
-  }
-  const actualText = searchEvalNormalize(actual);
-  const expectedValues = Array.isArray(expected) ? expected : [expected];
-  const ok = expectedValues.some((value) => {
-    if (value && typeof value === "object") {
-      if (Object.prototype.hasOwnProperty.call(value, "equals")) {
-        return actualText === searchEvalNormalize(value.equals);
-      }
-      if (Object.prototype.hasOwnProperty.call(value, "contains")) {
-        return actualText.includes(searchEvalNormalize(value.contains));
-      }
-      if (Object.prototype.hasOwnProperty.call(value, "regex")) {
-        try {
-          return new RegExp(String(value.regex), "i").test(String(actual ?? ""));
-        } catch {
-          return false;
-        }
-      }
-    }
-    return exact ? actualText === searchEvalNormalize(value) : actualText.includes(searchEvalNormalize(value));
-  });
-  return { checked: true, ok, actual, expected };
-}
-
-function searchEvalResultText(result) {
-  return [
-    result.title,
-    result.path,
-    result.scope,
-    result.source,
-    result.categories,
-    result.preview
-  ].map((value) => String(value ?? "")).join("\n");
-}
-
-function searchEvalResultMatches(result, expectation = {}) {
-  const checks = [];
-  const fieldSpecs = [
-    ["title", false],
-    ["path", false],
-    ["scope", true],
-    ["source", false],
-    ["categories", false],
-    ["preview", false]
-  ];
-
-  for (const [field, exact] of fieldSpecs) {
-    const check = searchEvalFieldMatches(result[field], expectation[field], { exact });
-    if (check.checked) checks.push({ field, ...check });
-  }
-
-  const textCheck = searchEvalFieldMatches(searchEvalResultText(result), expectation.text, { exact: false });
-  if (textCheck.checked) checks.push({ field: "text", ...textCheck });
-
-  if (!checks.length) {
-    return {
-      matched: false,
-      checks: [{ field: "expectation", ok: false, actual: "", expected: "at least one match criterion" }]
-    };
-  }
-
-  return {
-    matched: checks.every((check) => check.ok),
-    checks
-  };
-}
-
-function searchEvalExpectationLabel(expectation = {}) {
-  const fields = ["title", "path", "scope", "source", "categories", "text"];
-  const parts = [];
-  for (const field of fields) {
-    if (expectation[field] !== undefined && expectation[field] !== null && expectation[field] !== "") {
-      parts.push(`${field}=${JSON.stringify(expectation[field])}`);
-    }
-  }
-  return parts.join(", ") || "empty expectation";
-}
-
-function normalizeSearchEvalExpectations(value) {
-  if (!value) return [];
-  if (Array.isArray(value)) return value.filter((item) => item && typeof item === "object");
-  if (value && typeof value === "object") return [value];
-  return [];
-}
-
-function searchEvalGroups(testCase) {
-  const topKDefault = Math.max(1, Math.min(Number(testCase.top_k || testCase.limit || 5) || 5, 50));
-  const groups = [];
-  const required = [
-    ...normalizeSearchEvalExpectations(testCase.expected),
-    ...normalizeSearchEvalExpectations(testCase.expect_all)
-  ];
-
-  for (const expectation of required) {
-    const alternatives = Array.isArray(expectation.any)
-      ? expectation.any.filter((item) => item && typeof item === "object")
-      : [expectation];
-    groups.push({
-      mode: "required",
-      top_k: Math.max(1, Math.min(Number(expectation.top_k || topKDefault) || topKDefault, 50)),
-      any: alternatives
-    });
-  }
-
-  const anyExpectations = [
-    ...normalizeSearchEvalExpectations(testCase.expected_any),
-    ...normalizeSearchEvalExpectations(testCase.expect_any)
-  ];
-  if (anyExpectations.length) {
-    groups.push({
-      mode: "one_of",
-      top_k: topKDefault,
-      any: anyExpectations
-    });
-  }
-
-  return groups;
-}
-
-function summarizeSearchEvalResult(result, index) {
-  return {
-    rank: index + 1,
-    title: result.title,
-    path: result.path,
-    scope: result.scope,
-    source: result.source,
-    categories: result.categories,
-    score: result.score,
-    original_rank: result.original_rank,
-    original_score: result.original_score,
-    rerank_adjustment: result.rerank_adjustment,
-    rerank_reasons: result.rerank_reasons || [],
-    hard_negative: Boolean(result.hard_negative),
-    hard_negative_reasons: result.hard_negative_reasons || [],
-    keyword_score: result.keyword_score,
-    semantic_score: result.semantic_score,
-    dense_score: result.dense_score,
-    duplicate_count: result.duplicate_count || 0
-  };
-}
-
-function findSearchEvalMatch(results, expectations, topK) {
-  const candidates = results.slice(0, topK);
-  const inspected = [];
-  for (let index = 0; index < candidates.length; index += 1) {
-    const result = candidates[index];
-    for (const expectation of expectations) {
-      const match = searchEvalResultMatches(result, expectation);
-      if (match.matched) {
-        return {
-          matched: true,
-          rank: index + 1,
-          expectation: searchEvalExpectationLabel(expectation),
-          result: summarizeSearchEvalResult(result, index),
-          checks: match.checks
-        };
-      }
-      inspected.push({
-        rank: index + 1,
-        expectation: searchEvalExpectationLabel(expectation),
-        checks: match.checks
-      });
-    }
-  }
-  return {
-    matched: false,
-    rank: null,
-    expectation: expectations.map(searchEvalExpectationLabel).join(" OR "),
-    inspected: inspected.slice(0, 8)
-  };
-}
-
-function searchEvalEntityKey(result) {
-  const resultPath = String(result?.path || "").replaceAll("\\", "/").toLowerCase();
-  const title = String(result?.title || "").trim().toLowerCase();
-  const isSkillEntity = result?.scope === "skills" && (
-    resultPath.startsWith("03-skills-catalog/cards/")
-    || (resultPath.includes("/sources/") && resultPath.endsWith("/skill.md"))
-  );
-  return isSkillEntity ? `skill:${title}` : `path:${resultPath}`;
-}
-
-function visibleSearchDuplicates(results) {
-  const counts = new Map();
-  for (const result of results) {
-    const key = searchEvalEntityKey(result);
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  return [...counts.entries()]
-    .filter(([, count]) => count > 1)
-    .map(([entity, count]) => ({ entity, count }));
-}
-
-function searchEvalNdcg(checks) {
-  if (!checks.length) return 0;
-  const dcg = checks.reduce((sum, check) => (
-    check.matched && Number.isFinite(Number(check.rank))
-      ? sum + (1 / Math.log2(Number(check.rank) + 1))
-      : sum
-  ), 0);
-  const ideal = checks.reduce((sum, _check, index) => sum + (1 / Math.log2(index + 2)), 0);
-  return ideal > 0 ? dcg / ideal : 0;
-}
-
-function evaluateSearchEvalCase(testCase, results) {
-  const groups = searchEvalGroups(testCase);
-  const topResults = results.slice(0, Math.min(results.length, 5)).map(summarizeSearchEvalResult);
-  if (!groups.length) {
-    return {
-      status: "skipped",
-      reason: "No expected, expect_all, expected_any, or expect_any match criteria configured.",
-      checks: [],
-      top_results: topResults
-    };
-  }
-
-  const checks = groups.map((group) => ({
-    mode: group.mode,
-    top_k: group.top_k,
-    ...findSearchEvalMatch(results, group.any, group.top_k)
-  }));
-  const failed = checks.filter((check) => !check.matched);
-  const negativeExpectations = normalizeSearchEvalExpectations(testCase.must_not);
-  const negativeTopK = Math.max(1, Math.min(Number(testCase.negative_top_k || testCase.top_k || 5) || 5, 50));
-  const negativeMatches = negativeExpectations
-    .map((expectation) => findSearchEvalMatch(results, [expectation], negativeTopK))
-    .filter((item) => item.matched);
-  const duplicates = visibleSearchDuplicates(results);
-  const maxVisibleDuplicates = Math.max(0, Number(testCase.max_visible_duplicates) || 0);
-  const duplicateViolation = duplicates.reduce((sum, item) => sum + item.count - 1, 0) > maxVisibleDuplicates;
-  const matchedRank = checks
-    .filter((check) => check.matched && Number.isFinite(Number(check.rank)))
-    .reduce((best, check) => Math.min(best, Number(check.rank)), Number.POSITIVE_INFINITY);
-  const finiteRank = Number.isFinite(matchedRank) ? matchedRank : null;
-  return {
-    status: failed.length || negativeMatches.length || duplicateViolation ? "fail" : "pass",
-    matched_rank: finiteRank,
-    reciprocal_rank: finiteRank ? 1 / finiteRank : 0,
-    top_1: finiteRank === 1,
-    ndcg: searchEvalNdcg(checks),
-    checks,
-    negative_checks: {
-      configured: negativeExpectations.length,
-      violations: negativeMatches
-    },
-    duplicate_checks: {
-      visible_duplicates: duplicates,
-      visible_duplicate_count: duplicates.reduce((sum, item) => sum + item.count - 1, 0),
-      max_visible_duplicates: maxVisibleDuplicates,
-      collapsed_duplicate_count: results.reduce((sum, item) => sum + Number(item.duplicate_count || 0), 0)
-    },
-    top_results: topResults
-  };
-}
-
-function searchEvalStatus(summary) {
-  if (summary.total <= 0) return "fail";
-  if (summary.failed > 0) return "fail";
-  if (summary.skipped > 0) return "degraded";
-  return "ok";
-}
-
-function searchEvalRecommendations(summary, includeDense) {
-  const recommendations = [];
-  if (summary.total <= 0) {
-    recommendations.push("Add or unfilter search eval cases before trusting search quality.");
-  }
-  if (summary.failed > 0) {
-    recommendations.push("For failed cases, run explain_search with the same query/preset and compare top results against the expected context.");
-    recommendations.push("If expected notes are missing from top results, rebuild_search_index and then tune preset weights or case expectations.");
-  }
-  if (summary.metrics?.negative_violations > 0) {
-    recommendations.push("Inspect must_not violations: irrelevant or unsafe sources are ranking above the allowed boundary.");
-  }
-  if (summary.metrics?.visible_duplicate_count > 0) {
-    recommendations.push("Canonical result collapsing regressed; inspect duplicate skill cards and source documents.");
-  }
-  if (!includeDense) {
-    recommendations.push("This run disabled dense BGE-M3 scoring; run again with include_dense=true for the full production path.");
-  }
-  if (!recommendations.length) {
-    recommendations.push("Golden search cases passed; keep adding cases when new workflows, skills, and project patterns appear.");
-  }
-  return recommendations;
-}
-
-async function runSearchEval(options = {}) {
-  const includeDense = options.include_dense !== false;
-  const casesFile = await readSearchEvalCases(options.cases_path || "");
-  const selectedIds = new Set(searchEvalList(options.case_ids));
-  const selectedPresets = new Set(searchEvalList(options.presets).map(searchPresetName));
-  const maxCases = Math.max(1, Math.min(Number(options.max_cases) || 50, 200));
-  let cases = casesFile.cases;
-  if (selectedIds.size) {
-    cases = cases.filter((testCase) => selectedIds.has(String(testCase.id || "")));
-  }
-  if (selectedPresets.size) {
-    cases = cases.filter((testCase) => selectedPresets.has(searchPresetName(testCase.preset || "balanced")));
-  }
-  cases = cases.slice(0, maxCases);
-
-  const caseResults = [];
-  for (const testCase of cases) {
-    const startedAt = Date.now();
-    const id = String(testCase.id || testCase.query || "unnamed-case");
-    try {
-      if (!testCase.query || typeof testCase.query !== "string") {
-        caseResults.push({
-          id,
-          status: "fail",
-          error: "Case query is required.",
-          duration_ms: Date.now() - startedAt
-        });
-        if (options.fail_fast) break;
-        continue;
-      }
-
-      const resolved = resolveSearchPresetArgs({
-        ...testCase,
-        rerank: optionProvided(options, "rerank") ? options.rerank : testCase.rerank,
-        dense_model_dir: optionProvided(options, "dense_model_dir") ? options.dense_model_dir : testCase.dense_model_dir,
-        dense_device: optionProvided(options, "dense_device") ? options.dense_device : testCase.dense_device
-      }, { defaultLimit: 10 });
-      if (!includeDense && !optionProvided(testCase, "dense_weight")) {
-        resolved.search.dense_weight = 0;
-      }
-
-      const results = await hybridSearchIndex(resolved.search);
-      const evaluation = evaluateSearchEvalCase(testCase, results);
-      caseResults.push({
-        id,
-        status: evaluation.status,
-        query: resolved.search.query,
-        preset: resolved.preset.name,
-        applied: appliedSearchPresetSummary(resolved),
-        result_count: results.length,
-        duration_ms: Date.now() - startedAt,
-        ...evaluation
-      });
-      if (options.fail_fast && evaluation.status === "fail") break;
-    } catch (err) {
-      caseResults.push({
-        id,
-        status: "fail",
-        query: testCase.query || "",
-        preset: searchPresetName(testCase.preset || "balanced"),
-        error: err.message,
-        duration_ms: Date.now() - startedAt
-      });
-      if (options.fail_fast) break;
-    }
-  }
-
-  const summary = {
-    total: caseResults.length,
-    passed: caseResults.filter((item) => item.status === "pass").length,
-    failed: caseResults.filter((item) => item.status === "fail").length,
-    skipped: caseResults.filter((item) => item.status === "skipped").length
-  };
-  const scoredCases = caseResults.filter((item) => item.status !== "skipped");
-  summary.metrics = {
-    mean_reciprocal_rank: scoredCases.length
-      ? scoredCases.reduce((sum, item) => sum + Number(item.reciprocal_rank || 0), 0) / scoredCases.length
-      : 0,
-    top_1_accuracy: scoredCases.length
-      ? scoredCases.filter((item) => item.top_1).length / scoredCases.length
-      : 0,
-    mean_ndcg: scoredCases.length
-      ? scoredCases.reduce((sum, item) => sum + Number(item.ndcg || 0), 0) / scoredCases.length
-      : 0,
-    negative_violations: scoredCases.reduce((sum, item) => sum + Number(item.negative_checks?.violations?.length || 0), 0),
-    visible_duplicate_count: scoredCases.reduce((sum, item) => sum + Number(item.duplicate_checks?.visible_duplicate_count || 0), 0),
-    collapsed_duplicate_count: scoredCases.reduce((sum, item) => sum + Number(item.duplicate_checks?.collapsed_duplicate_count || 0), 0)
-  };
-
-  return {
-    status: searchEvalStatus(summary),
-    cases_path: casesFile.path,
-    schema_version: casesFile.schema_version,
-    description: casesFile.description,
-    include_dense: includeDense,
-    reranker_enabled: options.rerank !== false,
-    filters: {
-      case_ids: [...selectedIds],
-      presets: [...selectedPresets],
-      max_cases: maxCases
-    },
-    summary,
-    recommendations: searchEvalRecommendations(summary, includeDense),
-    cases: caseResults
-  };
-}
-
-async function explainSearch(options = {}) {
-  const resolved = resolveSearchPresetArgs(options, { defaultLimit: 5 });
-  resolved.search.limit = Math.max(1, Math.min(Number(resolved.search.limit) || 5, 20));
-  const results = await hybridSearchIndex(resolved.search);
-  const weights = normalizedSearchWeights(resolved.search);
-  return {
-    query: resolved.search.query,
-    scope: resolved.search.scope,
-    result_count: results.length,
-    applied: appliedSearchPresetSummary(resolved),
-    weights: appliedSearchPresetSummary(resolved).weights,
-    notes: [
-      "weighted_score_before_adjustments is computed from returned component scores and normalized weights.",
-      "score_adjustment captures lexical boosts, vault-note preference, and source penalties applied inside the search helper."
-    ],
-    tuning_notes: explainSearchTuningNotes(results, weights),
-    results: results.map((item, index) => explainSearchResult(item, index, weights))
-  };
-}
-
-async function searchProjects({ query, project = "", limit = 10 }) {
-  return searchIndex({ query, scope: "projects", project, limit });
-}
-
-async function searchNotes({ query, folders = "", limit = 10, scope = "knowledge" }) {
-  const selectedFolders = csvValue(folders);
-  return searchIndex({
-    query,
-    scope: selectedFolders ? "all" : scope,
-    folders: selectedFolders,
-    limit
-  });
-}
-
-async function searchSkillRegistry({
-  query,
-  source = "",
-  categories = "",
-  limit = 10
-}) {
-  return searchIndex({
-    query,
-    scope: "skills",
-    source,
-    categories,
-    limit
-  });
 }
 
 async function projectRecommendationContext({ project, project_path } = {}) {
@@ -7563,21 +6222,8 @@ async function dispatchTool(name, args) {
   if (name === "list_skill_cards") return textContent(await listSkillCards(args));
   if (name === "search_skill_cards") return textContent(await searchSkillCards(args));
   if (name === "read_skill_card") return textContent(await readSkillCard(args));
-  if (name === "search_index_status") return textContent(await searchIndexStatus(args));
-  if (name === "rebuild_search_index") return textContent(await rebuildSearchIndex(args));
-  if (name === "search_all") return textContent(await searchAll(args));
-  if (name === "hybrid_search") return textContent(await hybridSearch(args));
-  if (name === "list_search_presets") return textContent(listSearchPresets());
-  if (name === "preset_search") return textContent(await presetSearch(args));
-  if (name === "explain_search") return textContent(await explainSearch(args));
-  if (name === "run_search_eval") return textContent(await runSearchEval(args));
-  if (name === "embed_texts") return textContent(await embedTexts(args));
-  if (name === "embedding_status") return textContent(await embeddingStatus(args));
   if (name === "prepare_runtime_distribution") return textContent(await prepareRuntimeDistribution(args));
   if (name === "runtime_distribution_status") return textContent(await runtimeDistributionStatus(args));
-  if (name === "search_projects") return textContent(await searchProjects(args));
-  if (name === "search_notes") return textContent(await searchNotes(args));
-  if (name === "search_skill_registry") return textContent(await searchSkillRegistry(args));
   if (name === "import_skill_repo") return textContent(await importSkillRepo(args));
   if (name === "bootstrap_project") return textContent(await bootstrapProject(args));
   if (name === "prepare_project") return textContent(await prepareProject(args));

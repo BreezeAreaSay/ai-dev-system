@@ -405,7 +405,13 @@ test("cost capture sums a transcript into the usage ledger, once per message", a
   const stateRoot = path.join(root, "state");
   const transcript = path.join(root, "cost-transcript.jsonl");
   const ledgerPath = path.join(stateRoot, "usage", "events.jsonl");
-  const usage = { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 6000 };
+  const usage = {
+    input_tokens: 1000,
+    output_tokens: 200,
+    cache_read_input_tokens: 40_000,
+    cache_creation_input_tokens: 6000,
+    cache_creation: { ephemeral_5m_input_tokens: 4000, ephemeral_1h_input_tokens: 2000 }
+  };
   const assistant = (id, model, entry = {}) => JSON.stringify({ type: "assistant", message: { id, role: "assistant", model, usage }, ...entry });
   await fs.writeFile(transcript, [
     JSON.stringify({ type: "user", message: { role: "user", content: "Add login validation" } }),
@@ -426,6 +432,7 @@ test("cost capture sums a transcript into the usage ledger, once per message", a
   assert.equal(captured.input_tokens, 1000);
   assert.equal(captured.cache_read_tokens, 40_000);
   assert.equal(captured.cache_creation_tokens, 6000);
+  assert.equal(captured.cache_creation_1h_tokens, 2000, "the hour-long writes are kept apart: they cost 2x input, not 1.25x");
   assert.equal(captured.turns, 1);
   assert.equal(captured.source, "hook:cost-capture");
   assert.equal(captured.session_id, "cost1");
@@ -447,12 +454,14 @@ test("cost capture sums a transcript into the usage ledger, once per message", a
   assert.equal(all[1].model, "claude-opus-5[1m]", "a subagent's tokens are billed to the same account");
 
   // What the hook wrote is what the server reads, priced from the published
-  // table: Sonnet 5 ($2 / $10 per MTok, cache 2.50 / 0.20) costs 0.027 for this
-  // turn and Opus 5 ($5 / $25, cache 6.25 / 0.50) costs 0.0675.
+  // table. Each turn writes 4,000 tokens to the five-minute cache and 2,000 to
+  // the hour-long one: Sonnet 5 ($2 / $10 per MTok, cache 2.50 / 4.00 / 0.20)
+  // costs 0.03 and Opus 5 ($5 / $25, cache 6.25 / 10.00 / 0.50) costs 0.075.
   const report = await new UsageLedger({ stateRoot }).report({ projectPath: projectRoot });
   assert.equal(report.usage.events, 2);
   assert.equal(report.usage.cache_read_tokens, 80_000);
-  assert.equal(report.usage.cost_usd, 0.0945);
+  assert.equal(report.usage.cache_creation_1h_tokens, 4000);
+  assert.equal(report.usage.cost_usd, 0.105);
   assert.equal(report.usage.reported_cost_usd, 0);
   assert.deepEqual(report.rates.unpriced_models, []);
   assert.equal(report.tasks[0].task_id, "task-20260101T000000-abcdef12");
@@ -477,7 +486,10 @@ test("cost capture reads a real transcript in whole lines, chunk by chunk", asyn
   assert.deepEqual(all.models.map((row) => row.model), ["claude-sonnet-5", "claude-opus-5[1m]"]);
   // Two assistant turns on Sonnet, and the subagent turn the compaction advisor
   // ignores — it is another context window, but the same bill.
-  assert.deepEqual(all.models[0], { model: "claude-sonnet-5", messages: 2, input_tokens: 2004, output_tokens: 508, cache_read_tokens: 214_000, cache_creation_tokens: 14_100 });
+  // cache_creation_1h_tokens is the share of cache_creation_tokens written with
+  // an hour's TTL: 5,000 of msg_02's 8,000, and nothing on the turn whose usage
+  // carries no breakdown.
+  assert.deepEqual(all.models[0], { model: "claude-sonnet-5", messages: 2, input_tokens: 2004, output_tokens: 508, cache_read_tokens: 214_000, cache_creation_tokens: 14_100, cache_creation_1h_tokens: 5000 });
   assert.equal(all.models[1].input_tokens, 900_000);
   assert.equal(all.offset, (await fs.stat(transcript)).size);
   assert.deepEqual(sumAssistantUsage(transcript, { fromOffset: all.offset }), { offset: all.offset, messages: 0, models: [] });

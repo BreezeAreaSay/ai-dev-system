@@ -66,6 +66,7 @@ async function main() {
     output_tokens: row.output_tokens,
     cache_read_tokens: row.cache_read_tokens,
     cache_creation_tokens: row.cache_creation_tokens,
+    cache_creation_1h_tokens: row.cache_creation_1h_tokens,
     // Priced by the server from the rate table, not here: see the header.
     cost_usd: 0,
     duration_ms: 0,

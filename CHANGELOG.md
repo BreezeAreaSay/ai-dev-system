@@ -86,7 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`cost-capture.mjs`**, an eighth hook, registered on `Stop` at every
     profile. It sums the `usage` of the assistant messages a transcript gained
     since the last run — subagent turns included, since they are billed the
-    same — and appends one `kind: "usage"` event per model to the usage ledger,
+    same — splits the cache writes by TTL, and appends one `kind: "usage"`
+    event per model to the usage ledger,
     writing the file directly so it works while the server runs in Docker. A
     byte cursor per session (`state/usage/sessions/<session>.json`) keeps the
     same message from being billed twice however often `Stop` fires, and a
@@ -95,8 +96,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     tokens per model, read from Anthropic's pricing page on the date recorded
     in `RATE_TABLE_SOURCE`, with the cache multipliers (5-minute write 1.25x,
     1-hour write 2x, read 0.1x) filling the rows that do not state their own.
-    Prices change, so `model_rates` in `.ai-dev/policy.json` overrides or adds
-    any row per project.
+    A turn's `cache_creation_1h_tokens` — the share of its cache writes made
+    with an hour's TTL, which the transcript reports under `cache_creation` and
+    `record_usage` now accepts — is priced at the 1-hour rate and the rest at
+    the 5-minute one. Prices change, so `model_rates` in `.ai-dev/policy.json`
+    overrides or adds any row per project.
   - **`usage_report`** now returns the `today` / `yesterday` / `last_7_days`
     slices alongside the per-model and per-task totals, and estimates cost from
     the rate table wherever the client reported none — a reported cost still

@@ -80,10 +80,25 @@ test("usage_report prices unpriced events, with the project's own rates when it 
   assert.deepEqual(published.rates.overrides, []);
   assert.equal(published.rates.policy_path, null);
 
+  // A turn that wrote to both caches: the hour-long share is billed at 2x the
+  // base input price ($10 per million for Claude Opus 5), the rest at 1.25x
+  // ($6.25). 200K at $6.25 plus 100K at $10 is 2.25 on top of the 5 above.
+  await registry.handlers.get("record_usage")({
+    project_path: projectRoot,
+    model: "claude-opus-5",
+    cache_creation_tokens: 300_000,
+    cache_creation_1h_tokens: 100_000,
+    input_tokens: 0,
+    source: "hook:cost-capture"
+  });
+  const cached = await report();
+  assert.equal(cached.usage.cache_creation_1h_tokens, 100_000);
+  assert.equal(cached.usage.cost_usd, 7.25);
+
   // Prices move, so the project can correct one without waiting for a release.
   await fs.writeFile(path.join(projectRoot, ".ai-dev", "policy.json"), JSON.stringify({ profile: "standard", model_rates: { "claude-opus-5": { input: 7, output: 30 } } }));
   const overridden = await report();
-  assert.equal(overridden.usage.cost_usd, 7);
+  assert.equal(overridden.usage.cost_usd, 10.15, "input at $7, cache writes at $8.75 and $14");
   assert.deepEqual(overridden.rates.overrides, ["claude-opus-5"]);
   assert.equal(overridden.rates.policy_path, ".ai-dev/policy.json");
   assert.equal(overridden.models[0].rate_usd_per_mtok.input, 7);
@@ -91,6 +106,6 @@ test("usage_report prices unpriced events, with the project's own rates when it 
   // A policy nobody can parse must not take the report down with it.
   await fs.writeFile(path.join(projectRoot, ".ai-dev", "policy.json"), "{ not json");
   const broken = await report();
-  assert.equal(broken.usage.cost_usd, 5);
+  assert.equal(broken.usage.cost_usd, 7.25);
   assert.match(broken.rates.warning, /not valid JSON/);
 });

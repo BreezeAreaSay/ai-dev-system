@@ -134,7 +134,7 @@ export function resolveModelRates(model, table = RATE_TABLE) {
  * only where the client reported none: a client-reported cost is what was
  * actually billed, an estimate is arithmetic over published prices.
  *
- * @param {{ model?: string, inputTokens?: number, outputTokens?: number, cacheReadTokens?: number, cacheCreationTokens?: number }} usage
+ * @param {{ model?: string, inputTokens?: number, outputTokens?: number, cacheReadTokens?: number, cacheCreationTokens?: number, cacheCreation1hTokens?: number }} usage
  * @param {Record<string, object>} [table]
  * @returns {number | null}
  */
@@ -142,10 +142,17 @@ export function estimateCostUsd(usage = {}, table = RATE_TABLE) {
   const rates = resolveModelRates(usage.model, table);
   if (!rates) return null;
   const priced = (tokens, perMillion) => (Math.max(0, finiteOrNull(tokens) ?? 0) / 1_000_000) * perMillion;
+  // `cache_creation_input_tokens` is the sum of both TTLs, so the hour-long
+  // share is billed at 2x input and the rest at 1.25x. Taking the larger of the
+  // two figures as the total also prices a caller that reported only the
+  // hour-long one, instead of silently dropping it.
+  const oneHour = Math.max(0, finiteOrNull(usage.cacheCreation1hTokens) ?? 0);
+  const created = Math.max(oneHour, Math.max(0, finiteOrNull(usage.cacheCreationTokens) ?? 0));
   return round(
     priced(usage.inputTokens, rates.input)
     + priced(usage.outputTokens, rates.output)
-    + priced(usage.cacheCreationTokens, rates.cache_write)
+    + priced(created - oneHour, rates.cache_write)
+    + priced(oneHour, rates.cache_write_1h)
     + priced(usage.cacheReadTokens, rates.cache_read)
   );
 }
@@ -204,7 +211,8 @@ function costOf(event, rates) {
     inputTokens: event.input_tokens,
     outputTokens: event.output_tokens,
     cacheReadTokens: event.cache_read_tokens,
-    cacheCreationTokens: event.cache_creation_tokens
+    cacheCreationTokens: event.cache_creation_tokens,
+    cacheCreation1hTokens: event.cache_creation_1h_tokens
   }, rates);
   return { reported: 0, estimated: estimated ?? 0, unpriced: estimated === null };
 }
@@ -224,6 +232,7 @@ function emptyUsage(extra = {}) {
     output_tokens: 0,
     cache_read_tokens: 0,
     cache_creation_tokens: 0,
+    cache_creation_1h_tokens: 0,
     cost_usd: 0,
     reported_cost_usd: 0,
     estimated_cost_usd: 0,
@@ -275,7 +284,7 @@ function accumulate(events, rates) {
       const model = models.get(event.model) ?? emptyUsage({ model: event.model, rate_usd_per_mtok: modelRateRow(event.model, rates) });
       for (const row of [usage, model, ...(event.task_id ? [taskRow(event.task_id)] : [])]) {
         row.events += 1;
-        for (const key of ["input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "duration_ms", "turns"]) {
+        for (const key of ["input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "cache_creation_1h_tokens", "duration_ms", "turns"]) {
           row[key] += Number(event[key]) || 0;
         }
         row.reported_cost_usd += cost.reported;
@@ -359,7 +368,7 @@ export class UsageLedger {
   /**
    * Record model usage reported by the client for a turn, task, or session.
    *
-   * @param {{ model?: string, inputTokens?: number, outputTokens?: number, cacheReadTokens?: number, cacheCreationTokens?: number, costUsd?: number, durationMs?: number, turns?: number, taskId?: string, projectPath?: string, sessionId?: string, source?: string, note?: string }} input
+   * @param {{ model?: string, inputTokens?: number, outputTokens?: number, cacheReadTokens?: number, cacheCreationTokens?: number, cacheCreation1hTokens?: number, costUsd?: number, durationMs?: number, turns?: number, taskId?: string, projectPath?: string, sessionId?: string, source?: string, note?: string }} input
    */
   async recordUsage(input = {}) {
     const inputTokens = finiteOrNull(input.inputTokens);
@@ -375,6 +384,7 @@ export class UsageLedger {
       output_tokens: outputTokens ?? 0,
       cache_read_tokens: finiteOrNull(input.cacheReadTokens) ?? 0,
       cache_creation_tokens: finiteOrNull(input.cacheCreationTokens) ?? 0,
+      cache_creation_1h_tokens: finiteOrNull(input.cacheCreation1hTokens) ?? 0,
       cost_usd: finiteOrNull(input.costUsd) ?? 0,
       duration_ms: Math.max(0, Math.round(finiteOrNull(input.durationMs) ?? 0)),
       turns: Math.max(0, Math.round(finiteOrNull(input.turns) ?? 0)),
@@ -450,6 +460,7 @@ export class UsageLedger {
         output_tokens: totals.output_tokens,
         cache_read_tokens: totals.cache_read_tokens,
         cache_creation_tokens: totals.cache_creation_tokens,
+        cache_creation_1h_tokens: totals.cache_creation_1h_tokens,
         cost_usd: totals.cost_usd,
         reported_cost_usd: totals.reported_cost_usd,
         estimated_cost_usd: totals.estimated_cost_usd

@@ -278,11 +278,13 @@ What `cost-capture` writes is tokens, not money. A Claude Code transcript is app
 the hook keeps a byte cursor per session (`state/usage/sessions/<session>.json`), reads only what
 arrived since the last Stop, sums `usage` per model over the assistant messages in it — subagent
 turns included, since they are billed the same — and appends one `kind: "usage"` event per model to
-`state/usage/events.jsonl`. It writes the file directly rather than calling `record_usage`, because
+`state/usage/events.jsonl`. Cache writes are split by TTL: `cache_creation_input_tokens` covers both,
+so the hour-long share (`cache_creation.ephemeral_1h_input_tokens`) is carried separately and priced
+at its own rate. It writes the file directly rather than calling `record_usage`, because
 the server may be in Docker while the hook runs on the developer's machine. Prices live in
 `core/usage-ledger.mjs` (`RATE_TABLE`, read from Anthropic's pricing page on the date in
-`RATE_TABLE_SOURCE`, with the cache multipliers — write 1.25x, read 0.1x — filling the rows that do
-not state them) and are applied by `usage_report` at read time, so a price change re-prices history
+`RATE_TABLE_SOURCE`, with the cache multipliers — 5-minute write 1.25x, 1-hour write 2x, read 0.1x —
+filling the rows that do not state them) and are applied by `usage_report` at read time, so a price change re-prices history
 instead of freezing a stale number into the ledger. A model the table does not know is reported
 under `rates.unpriced_models` rather than counted as free.
 

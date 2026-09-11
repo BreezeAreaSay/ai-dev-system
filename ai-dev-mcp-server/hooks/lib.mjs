@@ -546,12 +546,15 @@ export function sumAssistantUsage(transcriptPath, { fromOffset = 0, chunkBytes =
       seen.add(id);
     }
     const model = String(entry.message?.model || entry.model || "unknown");
-    const row = models.get(model) ?? { model, messages: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0 };
+    const row = models.get(model) ?? { model, messages: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, cache_creation_1h_tokens: 0 };
     row.messages += 1;
     row.input_tokens += Number(usage.input_tokens) || 0;
     row.output_tokens += Number(usage.output_tokens) || 0;
     row.cache_read_tokens += Number(usage.cache_read_input_tokens) || 0;
     row.cache_creation_tokens += Number(usage.cache_creation_input_tokens) || 0;
+    // `cache_creation_input_tokens` covers both TTLs; the hour-long share is
+    // billed at 2x input rather than 1.25x, so it is carried separately.
+    row.cache_creation_1h_tokens += Number(usage.cache_creation?.ephemeral_1h_input_tokens) || 0;
     models.set(model, row);
     messages += 1;
   }

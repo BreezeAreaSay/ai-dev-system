@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   CACHE_READ_MULTIPLIER,
+  CACHE_WRITE_1H_MULTIPLIER,
   CACHE_WRITE_MULTIPLIER,
   RATE_TABLE,
   RATE_TABLE_SOURCE,
@@ -96,7 +97,7 @@ test("cost estimation prices a turn from the rate table", () => {
   // one (as Claude Fable 5.1 does for cache reads) keeps its own number.
   const derived = resolveModelRates("model-b", FIXTURE_RATES);
   assert.equal(derived.cache_write, 4 * CACHE_WRITE_MULTIPLIER);
-  assert.equal(derived.cache_write_1h, 8);
+  assert.equal(derived.cache_write_1h, 4 * CACHE_WRITE_1H_MULTIPLIER);
   assert.equal(derived.cache_read, 4 * CACHE_READ_MULTIPLIER);
   assert.equal(resolveModelRates("model-a", FIXTURE_RATES).cache_read, 0.5);
 
@@ -111,6 +112,24 @@ test("cost estimation prices a turn from the rate table", () => {
   }, FIXTURE_RATES), 64.5);
   assert.equal(estimateCostUsd({ model: "model-b", inputTokens: 250_000 }, FIXTURE_RATES), 1);
   assert.equal(estimateCostUsd({ model: "model-b", inputTokens: -5, outputTokens: "nonsense" }, FIXTURE_RATES), 0);
+
+  // Cache writes come in two TTLs and two prices. `cacheCreationTokens` is the
+  // total, so 300K of it written for an hour costs 300K x $20 + 700K x $12.50.
+  assert.equal(estimateCostUsd({
+    model: "model-a",
+    cacheCreationTokens: 1_000_000,
+    cacheCreation1hTokens: 300_000
+  }, FIXTURE_RATES), 14.75);
+  assert.equal(
+    estimateCostUsd({ model: "model-a", cacheCreationTokens: 1_000_000 }, FIXTURE_RATES),
+    12.5,
+    "a turn that reports no hour-long share is all five-minute writes"
+  );
+  assert.equal(
+    estimateCostUsd({ model: "model-a", cacheCreation1hTokens: 1_000_000 }, FIXTURE_RATES),
+    20,
+    "an hour-long share without a total is priced, not dropped"
+  );
 
   // An unknown model stays unpriced: a report that names it is honest, a report
   // that charges it at a neighbour's price is not.
@@ -165,6 +184,7 @@ test("the published rate table is the one that was read from the pricing page", 
   assert.equal(resolveModelRates("claude-sonnet-5").output, 10);
   assert.equal(resolveModelRates("claude-haiku-4-5-20251001").input, 1);
   assert.equal(estimateCostUsd({ model: "claude-opus-5", inputTokens: 1_000_000, outputTokens: 1_000_000 }), 30);
+  assert.equal(opus.cache_write_1h, 10, "an hour-long cache write costs 2x the base input price");
 });
 
 test("the report slices today, yesterday and the last seven days, and prices what the client did not", async (t) => {

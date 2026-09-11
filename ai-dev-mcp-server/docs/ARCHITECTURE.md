@@ -428,17 +428,20 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
 
 `scripts/static-quality.mjs` enforces two ceilings:
 
-- `src/mcp-stdio.mjs` may not exceed `SYSTEM_LINE_CEILING` (10,150 today), which lives in
+- `src/mcp-stdio.mjs` may not exceed `SYSTEM_LINE_CEILING` (5,076 today), which lives in
   `core/system-health.mjs` so the System Dashboard reports the ceiling the gate enforces. The file
-  shrinks one extraction at a time (docs/ecc-upgrades/PLAN.md, stage 1) and the ceiling is re-pinned
-  to its actual size plus roughly 300 lines of working room after each step, so it can be edited but
-  not re-grown.
+  shrank one extraction at a time (docs/ecc-upgrades/PLAN.md, stage 1: 10,018 lines to 4,776 across
+  six steps) and the ceiling was re-pinned to its actual size plus roughly 300 lines of working room
+  after each step, so it can be edited but not re-grown. New capabilities go into `src/extensions/`,
+  so the budget only has to cover editing what is left.
 - Every module under `src/core/` and `src/extensions/` stays within `MODULE_LINE_CEILING` (800) —
   the same soft ceiling `COMMON_RULES` puts on user projects.
 
 `MODULE_LINE_EXCEPTIONS` carries the modules that were already over the ceiling when the rule
-landed. An entry pins a module at its current size: it may shrink, never grow, and the gate demands
-the entry be dropped once the module is back under the ceiling or gone.
+landed — `core/frontend-product-quality.mjs` at 1,222 lines and `core/reference-factory.mjs` at 812.
+An entry pins a module at its current size: it may shrink, never grow, and the gate demands the
+entry be dropped once the module is back under the ceiling or gone. All four of those conditions
+reject, each verified by breaking it deliberately against a throwaway module and reverting.
 
 ## Operations And Distribution
 

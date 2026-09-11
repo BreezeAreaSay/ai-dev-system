@@ -173,6 +173,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The main module's line ceiling dropped to match what the extractions left
+  (stage 1.7, which closes stage 1). `SYSTEM_LINE_CEILING` in
+  `core/system-health.mjs` — the one place the gate and the System Dashboard
+  both read — went from 10,150 to 5,076: the file's actual 4,776 lines plus 300
+  of working room. The ratchet holds in one direction, so `mcp-stdio.mjs` can be
+  edited but not re-grown; new capabilities belong in `src/extensions/`.
+  - All five line-budget rules were verified by breaking each one deliberately
+    against a throwaway module and reverting: an unpinned module over 800 lines,
+    a pinned module grown past its allowance, a pinned module back under the
+    ceiling, a `MODULE_LINE_EXCEPTIONS` entry whose module is gone, and the main
+    module over its own ceiling. Both real pinned entries stayed:
+    `core/frontend-product-quality.mjs` (1,222) and `core/reference-factory.mjs`
+    (812) are still over the ceiling, and the comment claiming stage 1.3 would
+    split them was corrected — that step built on top of them rather than out of
+    them.
+  - A system-health fixture pinned at a literal 9,800 lines became
+    `SYSTEM_LINE_CEILING - 350`, so it keeps meaning "inside its budget" whatever
+    the ceiling is.
 - The task lifecycle moved out of `mcp-stdio.mjs` (stage 1.6 of the modularity
   plan, the last extraction step). `begin_task`, `checkpoint_task`, `verify_task`
   and `complete_task` became `src/extensions/lifecycle.mjs`, and the judgements

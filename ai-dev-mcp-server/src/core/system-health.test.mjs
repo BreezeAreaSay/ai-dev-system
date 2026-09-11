@@ -402,7 +402,7 @@ function snapshotInput(overrides = {}) {
     pilots: { summary: { total: 4, active: 1, human_confirmed: 2 } },
     overlaySummary: { source_policies: 4, specific_overlays: 1, orphan_overlays: ["ghost"] },
     searchEvalCases: 45,
-    runtimeLines: 9800,
+    runtimeLines: SYSTEM_LINE_CEILING - 350,
     generatedAt: "2026-02-03T00:00:00.000Z",
     ...overrides
   };
@@ -433,7 +433,7 @@ test("system snapshot summarizes live state and renders through the dashboard", 
   assert.deepEqual(snapshot.runtime, {
     server_ready: true,
     modular: true,
-    main_lines: 9800,
+    main_lines: SYSTEM_LINE_CEILING - 350,
     line_ceiling: SYSTEM_LINE_CEILING,
     coverage_thresholds: COVERAGE_THRESHOLDS
   });

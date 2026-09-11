@@ -13,10 +13,16 @@ import { dashboardSourceFingerprint } from "./system-dashboard.mjs";
 /**
  * The `mcp-stdio.mjs` line budget. `scripts/static-quality.mjs` enforces it and
  * the system snapshot reports it, both from here, so the gate and the dashboard
- * cannot drift apart. It is re-pinned to the file's actual size plus roughly 300
- * lines of working room after each extraction (docs/ecc-upgrades/PLAN.md, stage 1).
+ * cannot drift apart.
+ *
+ * It is a ratchet: the file's actual size plus roughly 300 lines of working
+ * room, re-pinned downwards after each extraction and never upwards. Stage 1 of
+ * docs/ecc-upgrades/PLAN.md took the file from 10,018 lines to 4,776 across six
+ * steps; this is that size plus the working room. New capabilities go into
+ * `src/extensions/` rather than here, so the budget only has to cover editing
+ * what is left.
  */
-export const SYSTEM_LINE_CEILING = 10_150;
+export const SYSTEM_LINE_CEILING = 5_076;
 
 /** Coverage thresholds enforced by `npm run check`, reported for visibility. */
 export const COVERAGE_THRESHOLDS = "85% lines / 60% branches / 85% functions";

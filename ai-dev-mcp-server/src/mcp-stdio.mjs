@@ -8157,11 +8157,35 @@ function taskCompletionMarkdown(record) {
   return `${lines.join("\n")}\n`;
 }
 
+/**
+ * Turn a finished task's evidence into a pull request description. Completion
+ * is the moment every input exists — criteria, checkpoints, the passing
+ * verification, the decisions — so the text is prepared here and only linked
+ * from `next_step`; nothing is pushed and no pull request is opened.
+ */
+async function preparePullRequestForTask(taskId) {
+  try {
+    const prepared = await extensions.handlers.get("prepare_pull_request")({ task_id: taskId });
+    return {
+      path: prepared.path,
+      title: prepared.title,
+      base_ref: prepared.base_ref,
+      branch: prepared.branch,
+      template: prepared.template?.path || "",
+      outstanding: prepared.outstanding,
+      commands: prepared.commands
+    };
+  } catch (error) {
+    return { path: "", error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 async function completeTask({
   task_id,
   summary,
   allow_waived = false,
   write_report = true,
+  prepare_pull_request = true,
   evidence = []
 }) {
   if (evidence.length) await verifyTask({ task_id, run_quality: false, run_frontend: false, evidence });
@@ -8193,7 +8217,22 @@ async function completeTask({
     });
   }
   const worktree = record.context?.worktree && !record.context.worktree.removed_at ? record.context.worktree : null;
-  return { task: record, report, skill_outcomes: skillOutcomes, ...(worktree ? { worktree, next_step: `Merge or open a PR from ${worktree.branch}, then call remove_task_worktree.` } : {}) };
+  const pullRequest = prepare_pull_request && projectState.git ? await preparePullRequestForTask(record.id) : null;
+  const nextSteps = [];
+  if (pullRequest?.path) {
+    nextSteps.push(`The pull request description is prepared in ${pullRequest.path}; review it, then push the branch and open the pull request with the commands it lists.`);
+  } else if (projectState.git) {
+    nextSteps.push("Call prepare_pull_request to build the pull request description from this task's evidence.");
+  }
+  if (worktree) nextSteps.push(`Merge or open a PR from ${worktree.branch}, then call remove_task_worktree.`);
+  return {
+    task: record,
+    report,
+    skill_outcomes: skillOutcomes,
+    ...(pullRequest ? { pull_request: pullRequest } : {}),
+    ...(worktree ? { worktree } : {}),
+    ...(nextSteps.length ? { next_step: nextSteps.join(" ") } : {})
+  };
 }
 
 // Extension tools live in src/extensions/* and receive shared runtime services

@@ -140,6 +140,15 @@ try {
     write_report: false
   });
   assert.equal(completed.task.status, "complete");
+  // Completion prepares the pull request text from the task's own evidence and
+  // links it; it must exist on disk and say nothing was pushed.
+  assert.equal(completed.pull_request.path, `.ai-dev/pr/${begun.id}.md`);
+  assert.match(completed.next_step, /\.ai-dev\/pr\//);
+  const pullRequestBody = await fs.readFile(path.join(projectRoot, ".ai-dev", "pr", `${begun.id}.md`), "utf8");
+  assert.match(pullRequestBody, /## Summary/);
+  assert.match(pullRequestBody, /## Acceptance criteria/);
+  assert.match(pullRequestBody, /## Verification/);
+  assert.match(completed.pull_request.commands[0], /^git push -u origin /);
   const outcomes = await call("skill_outcome_status", {});
   assert.equal(outcomes.events, 1);
   process.stdout.write(`${JSON.stringify({
@@ -148,6 +157,7 @@ try {
     routed_skills: begun.skills.map((item) => item.name),
     quality_status: verified.verification.checks[0].result.status,
     task_status: completed.task.status,
+    pull_request: completed.pull_request.path,
     outcome_events: outcomes.events
   }, null, 2)}\n`);
 } catch (error) {

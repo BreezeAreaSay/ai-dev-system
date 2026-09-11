@@ -104,6 +104,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `rates.unpriced_models` instead of counted as free. Pricing happens at read
     time, so a price change re-prices history rather than freezing a stale
     number into the ledger.
+- **`prepare_pull_request`**, a new tool in `src/extensions/pull-requests.mjs`,
+  writes the pull request description a task has already earned. It reads the
+  task record — goal, acceptance criteria with their status and evidence,
+  checkpoints, the latest `verify_task` run and the checks it executed,
+  recorded decisions, the plan — and the repository diff against the base
+  branch, then writes `.ai-dev/pr/<task_id>.md` and returns the text.
+  - The repository's own template is filled, not ignored:
+    `.github/pull_request_template.md` and the usual variants (including a
+    `PULL_REQUEST_TEMPLATE/` directory) are discovered, each heading it
+    recognises receives the matching evidence, headings that belong to the
+    author — a checklist, a "type of change" list, screenshots — keep their
+    text, and generated sections that matched no heading are appended so no
+    evidence is dropped.
+  - Changed files are listed by group (tests, CI, docs, configuration, assets,
+    source) with their status, alongside the commits on top of the base and the
+    checks that ran — including the ones that did not.
+  - Acceptance criteria that are not met, a failed or missing verification and
+    blocking hygiene findings go into an "Outstanding" section, so an unfinished
+    change cannot look finished.
+  - It pushes nothing and opens nothing: `git push -u` and
+    `gh pr create --body-file` come back as text for a human to run.
+  - `complete_task` prepares the same file at completion and links it from
+    `next_step` (`prepare_pull_request: false` opts out).
 
 ### Fixed
 

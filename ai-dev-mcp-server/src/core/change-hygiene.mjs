@@ -56,7 +56,12 @@ const CONFIG_BASENAME = /^(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn
 const MAX_FILE_BYTES = 512 * 1024;
 const LARGE_FILE_LINES = 800;
 /** Generated caches and QA artifacts are never part of the reviewed change set. */
-const IGNORED_CHANGE_PATH = /(^|\/)\.ai-dev\/(context|frontend-qa|frontend-qa-baselines|artifacts)\//i;
+/**
+ * Server-generated project paths: compiled context, Frontend QA artifacts and
+ * prepared pull-request text are outputs of this system, not part of the change
+ * under review. Exported so every consumer of a change set skips the same paths.
+ */
+export const IGNORED_CHANGE_PATH = /(^|\/)\.ai-dev\/(context|frontend-qa|frontend-qa-baselines|artifacts|pr)\//i;
 
 const LEFTOVER_PATTERNS = Object.freeze([
   { id: "merge_conflict_marker", severity: "block", pattern: /^(?:<{7}|>{7})(?:\s|$)/, message: "Merge conflict marker left in the file." },

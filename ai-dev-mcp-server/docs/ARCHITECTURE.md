@@ -73,11 +73,19 @@ The dependency runs one way: extensions never import `mcp-stdio.mjs`, which woul
 couple pure logic to the vault. Duplicate tool names and definitions without a handler throw at
 startup, so a broken extension can never reach a client.
 
-Registered today: `decisions`, `hooks`, `hygiene`, `instincts`, `plans`, `rules`, `sessions`,
-`system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`,
-`agent-hooks.mjs`, `change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `rules-library.mjs`,
+Registered today: `decisions`, `hooks`, `hygiene`, `instincts`, `plans`, `pull-requests`,
+`rules`, `sessions`, `system`, `usage`, `worktrees`. Pure logic stays in `core/`
+(`decision-ledger.mjs`, `agent-hooks.mjs`, `change-hygiene.mjs`, `instincts.mjs`,
+`task-plans.mjs`, `pull-request.mjs`, `pr-template.mjs`, `rules-library.mjs`,
 `rules-catalog.mjs`, `session-memory.mjs`, `system-health.mjs`, `system-dashboard.mjs`,
 `usage-ledger.mjs`, `task-worktrees.mjs`); the extension is the MCP surface over it.
+
+`pull-requests` is the one extension that reads from every other: `prepare_pull_request`
+projects a task record, its verifications, its decisions and its plan onto the repository diff
+and writes `.ai-dev/pr/<task_id>.md`. It fills the repository's own pull request template when
+there is one (`core/pr-template.mjs` discovers, parses and fills it), and it stops at text —
+`git push` and `gh pr create` are returned as commands, never executed, so publishing stays a
+human decision. `complete_task` prepares the same file and links it from `next_step`.
 
 `system` is the first of the extractions from `mcp-stdio.mjs` rather than a new capability:
 `system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status` moved out with their

@@ -47,6 +47,9 @@ Node 22, но `engines` в `package.json` не трогался: `>=24` оста
 Патчи `git format-patch` для переноса в другой checkout лежат в репозитории
 `BreezeAreaSay/ArgentumWorkspace`, каталог `ai-dev-system-upgrades/patches/`.
 
+Открытые долги и незакрытые вопросы собраны в [DEBTS.md](DEBTS.md): всё, что осталось
+недоделанным или непроверенным по ходу работ, чинится одним заходом в конце.
+
 Что делать дальше, описано в [PLAN.md](PLAN.md); полный разбор ECC против этого проекта, с
 43 кандидатами на перенос, в [ECC-GAP-ANALYSIS.md](ECC-GAP-ANALYSIS.md); готовые промпты для
 сессий по каждому этапу плана — в [PROMPTS.md](PROMPTS.md).

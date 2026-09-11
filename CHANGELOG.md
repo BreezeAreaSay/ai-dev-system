@@ -173,6 +173,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Frontend tools moved out of `mcp-stdio.mjs` (stage 1.3 of the modularity plan).
+  Six tools left with their definitions, split by what they are for:
+  `src/extensions/frontend-design.mjs` carries the Reference Factory
+  (`plan_frontend_references`, `register_frontend_references`) and
+  `generate_ui_ux_design_system`; `src/extensions/frontend-qa.mjs` carries
+  `run_frontend_qa`, `run_visual_reference_qa` and `record_visual_review`. Their
+  pure half became two tested modules under `src/core`:
+  `reference-factory-artifacts.mjs` (manifest file paths, the registry entry, PNG
+  structure and the artifact verdicts) and `frontend-qa-report.mjs` (the runner's
+  input contract, the Markdown report, the review artifact list and the strict
+  visual verdict). `mdCell` joined `core/text-format.mjs`. The frontend product
+  state readers stay in `mcp-stdio.mjs` and reach the extensions through the
+  host, because `compile_project_context`, `verify_task` and the product tools
+  that have not been extracted yet all read them. Tool behaviour, response bytes,
+  generated project and vault files, and the 116-tool list are unchanged;
+  `mcp-stdio.mjs` lost a further 1,048 lines (8,826 → 7,778).
+  - `run_frontend_qa`, `run_visual_reference_qa` and `record_visual_review` now
+    have tests in a standalone checkout: the extension is driven against a
+    deterministic stand-in for the browser runner, so the orchestration around
+    Playwright is covered where the live-browser test is skipped.
 - Skill registry tools moved out of `mcp-stdio.mjs` (stage 1.2 of the modularity
   plan). `rebuild_index`, `validate_skill_library` and `recommend_skills` are now
   one extension, `src/extensions/skills.mjs`, reaching the vault, the collectors

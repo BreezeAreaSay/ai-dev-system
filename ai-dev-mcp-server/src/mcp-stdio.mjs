@@ -13,15 +13,9 @@ import {
   SKILL_TAXONOMY_SCHEMA_VERSION,
   canonicalSkillGroup,
   classifySkill,
-  inferTaskSkillGroups,
   summarizeSkillTaxonomy
 } from "./skill-taxonomy.mjs";
-import {
-  SKILL_SCHEMA_VERSION,
-  analyzeDuplicateSkills,
-  enrichSkillQuality,
-  summarizeSkillQuality
-} from "./skill-quality.mjs";
+import { enrichSkillQuality } from "./skill-quality.mjs";
 import {
   atomicAppendFile,
   atomicWriteFile,
@@ -89,13 +83,7 @@ import {
 } from "./core/completion-claims.mjs";
 import { POLICY_RELATIVE_PATH } from "./core/agent-hooks.mjs";
 import { withPlanGateWarning } from "./core/task-plans.mjs";
-import {
-  DIAGRAM_REQUEST_PATTERN,
-  prioritizeRoutedRecommendations,
-  routeSkills,
-  taskRequiresFrontendProductWorkflow
-} from "./core/skill-router.mjs";
-import { INTENT } from "./core/intent-patterns.mjs";
+import { routeSkills } from "./core/skill-router.mjs";
 import { prioritizeKnowledgeResults } from "./core/knowledge-router.mjs";
 import {
   hardNegativeRulesFromCases,
@@ -122,10 +110,7 @@ import { TaskStore } from "./core/task-lifecycle.mjs";
 import { UsageLedger, usageHintsFromArgs } from "./core/usage-ledger.mjs";
 import { SessionStore } from "./core/session-memory.mjs";
 import { InstinctStore } from "./core/instincts.mjs";
-import {
-  applySkillOutcome,
-  SkillOutcomeStore
-} from "./core/skill-outcomes.mjs";
+import { SkillOutcomeStore } from "./core/skill-outcomes.mjs";
 import {
   PILOT_DIMENSIONS,
   PILOT_TASK_TYPES,
@@ -140,8 +125,6 @@ import {
   validateSkillOverlayDocument
 } from "./core/skill-overlays.mjs";
 import {
-  buildUiUxDesignJsonArgs,
-  buildUiUxDesignMarkdownArgs,
   buildUiUxKnowledgeArgs,
   UI_UX_PRO_MAX_DOMAINS,
   UI_UX_PRO_MAX_STACKS
@@ -150,7 +133,6 @@ import {
   CONCEPT_JURY_DIMENSIONS,
   FRONTEND_PRODUCT_MODES,
   FRONTEND_PRODUCT_PATHS,
-  PRODUCT_DESIGN_SCORECARD_DIMENSIONS,
   approveDesignSystemState,
   approveDirectionState,
   buildFrontendProductFiles,
@@ -160,23 +142,8 @@ import {
   selectFrontendProductSkills,
   validateFrontendDirections,
   validateFrontendProductContext,
-  validateFrontendReferences,
-  validateProductDesignScorecard
+  validateFrontendReferences
 } from "./core/frontend-product-quality.mjs";
-import {
-  findNearDuplicateImages,
-  pngDifferenceHash
-} from "./core/png-perceptual.mjs";
-import {
-  REFERENCE_FACTORY_GENERATORS,
-  REFERENCE_FACTORY_SURFACES,
-  buildReferenceFactoryRegistration,
-  createReferenceFactoryManifest,
-  renderReferenceFactoryPlan,
-  updateReferenceFactoryManifest,
-  validateReferenceFactoryManifest,
-  validateReferenceFactoryOutputs
-} from "./core/reference-factory.mjs";
 import {
   SKILL_IMPORT_INSTRUCTION_POLICY,
   SKILL_IMPORT_QUALITY_FLOOR,
@@ -1829,94 +1796,6 @@ async function queryUiUxKnowledge(input = {}) {
     request: command.normalized,
     result,
     guardrail: "Use these records as design evidence; repository conventions and observed UI remain authoritative."
-  };
-}
-
-async function generateUiUxDesignSystem({
-  query,
-  project_name = "",
-  variance,
-  motion,
-  density,
-  project_path = "",
-  persist = false,
-  overwrite = false
-} = {}) {
-  let projectRoot = null;
-  let target = null;
-  let existed = false;
-  const request = { query, project_name, variance, motion, density };
-
-  if (persist) {
-    projectRoot = await safeProjectRoot(project_path);
-    if (!request.project_name) request.project_name = path.basename(projectRoot);
-    target = safeProjectFile(projectRoot, ".ai-dev/frontend/design-system.md");
-    existed = await pathExists(target);
-    if (existed && !overwrite) {
-      throw new Error(
-        "Design system already exists. Set overwrite=true to replace "
-        + ".ai-dev/frontend/design-system.md."
-      );
-    }
-  }
-
-  const jsonCommand = buildUiUxDesignJsonArgs(request);
-  const markdownCommand = buildUiUxDesignMarkdownArgs(request);
-  const [result, markdown] = await Promise.all([
-    runUiUxProMax(jsonCommand.args, { json: true }),
-    runUiUxProMax(markdownCommand.args)
-  ]);
-  const source = await uiUxProMaxSource();
-  let persistence = null;
-
-  if (persist) {
-    const document = [
-      "# UI UX Design System Draft",
-      "",
-      "> Generated from a curated local dataset. This is a recommendation, not visual approval.",
-      "> Reconcile it with the product, approved brand, repository conventions, and observed UI.",
-      "",
-      "## Provenance",
-      "",
-      `- Source: ${source.repository}`,
-      `- Commit: \`${source.commit}\``,
-      `- Version: \`${source.version}\``,
-      `- Generated: ${new Date().toISOString()}`,
-      "",
-      "## Request",
-      "",
-      "```json",
-      JSON.stringify(jsonCommand.normalized, null, 2),
-      "```",
-      "",
-      markdown.trim(),
-      "",
-      "## Approval State",
-      "",
-      "- [ ] Product constraints reviewed",
-      "- [ ] Brand and existing design tokens reconciled",
-      "- [ ] Contrast and interaction states verified in the rendered UI",
-      "- [ ] Desktop and mobile screenshots inspected",
-      ""
-    ].join("\n");
-    await atomicWriteFile(target, document, "utf8");
-    markSearchIndexDirty(`project design system written: ${target}`);
-    persistence = {
-      action: existed ? "overwritten" : "created",
-      project_path: projectRoot,
-      path: ".ai-dev/frontend/design-system.md",
-      bytes: Buffer.byteLength(document, "utf8")
-    };
-  }
-
-  return {
-    action: "generated",
-    source,
-    request: jsonCommand.normalized,
-    design_system: result.design_system ?? result,
-    markdown: truncateOutput(markdown, 20000),
-    persistence,
-    guardrail: "Implementation and browser-based visual QA are still required."
   };
 }
 
@@ -3890,468 +3769,6 @@ async function materializeApprovedVisualBaselines(projectRoot, references) {
   return copied;
 }
 
-function referenceFactoryManifestRelativePath(manifestId) {
-  if (!/^rf-\d{14}-[a-f0-9]{10}$/.test(String(manifestId || ""))) {
-    throw new Error("Invalid Reference Factory manifest id.");
-  }
-  return `${FRONTEND_PRODUCT_PATHS.referenceFactoryManifests}/${manifestId}.json`;
-}
-
-function referenceFactoryPlanRelativePath(manifestId) {
-  if (!/^rf-\d{14}-[a-f0-9]{10}$/.test(String(manifestId || ""))) {
-    throw new Error("Invalid Reference Factory manifest id.");
-  }
-  return `${FRONTEND_PRODUCT_PATHS.referenceFactoryPlans}/${manifestId}.md`;
-}
-
-async function readReferenceFactoryManifest(projectRoot, manifestId) {
-  const relativePath = referenceFactoryManifestRelativePath(manifestId);
-  const manifest = await readJsonIfExists(safeProjectFile(projectRoot, relativePath));
-  if (!manifest) throw new Error(`Reference Factory manifest not found: ${manifestId}.`);
-  return { manifest, relativePath };
-}
-
-function inspectPngStructure(buffer) {
-  const errors = [];
-  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
-  if (buffer.length < 33 || !buffer.subarray(0, 8).equals(signature)) {
-    return { width: 0, height: 0, errors: ["File is not a PNG image."] };
-  }
-  let offset = 8;
-  let width = 0;
-  let height = 0;
-  let hasIdat = false;
-  let hasIend = false;
-  let chunkIndex = 0;
-  while (offset + 12 <= buffer.length) {
-    const length = buffer.readUInt32BE(offset);
-    const typeStart = offset + 4;
-    const dataStart = offset + 8;
-    const next = dataStart + length + 4;
-    if (next > buffer.length) {
-      errors.push("PNG chunk exceeds file length.");
-      break;
-    }
-    const type = buffer.toString("ascii", typeStart, typeStart + 4);
-    if (chunkIndex === 0 && type !== "IHDR") errors.push("PNG must start with IHDR.");
-    if (type === "IHDR") {
-      if (length !== 13) errors.push("PNG IHDR has an invalid length.");
-      if (length >= 8) {
-        width = buffer.readUInt32BE(dataStart);
-        height = buffer.readUInt32BE(dataStart + 4);
-      }
-    }
-    if (type === "IDAT") hasIdat = true;
-    if (type === "IEND") {
-      hasIend = true;
-      break;
-    }
-    offset = next;
-    chunkIndex += 1;
-  }
-  if (!width || !height) errors.push("PNG dimensions are missing or invalid.");
-  if (!hasIdat) errors.push("PNG has no image-data chunk.");
-  if (!hasIend) errors.push("PNG has no end chunk.");
-  return { width, height, errors };
-}
-
-async function inspectReferenceFactoryPng(projectRoot, artifact) {
-  const target = safeProjectFile(projectRoot, artifact.output_path);
-  const generatedRoot = safeProjectFile(projectRoot, FRONTEND_PRODUCT_PATHS.generatedReferences);
-  if (!isPathInside(generatedRoot, target)) {
-    return { errors: [`Artifact "${artifact.id}" is outside the generated-reference directory.`] };
-  }
-  if (!(await pathExists(target))) {
-    return { errors: [`Generated PNG does not exist: ${artifact.output_path}.`] };
-  }
-  const buffer = await fs.readFile(target);
-  const structure = inspectPngStructure(buffer);
-  const errors = structure.errors.map((item) => `Artifact "${artifact.id}": ${item}`);
-  if (buffer.length < 256) {
-    errors.push(`Artifact "${artifact.id}" is implausibly small for an inspectable reference.`);
-  }
-  const portrait = structure.height > structure.width;
-  if (artifact.orientation === "portrait" && !portrait) {
-    errors.push(`Artifact "${artifact.id}" must be portrait.`);
-  }
-  if (artifact.orientation === "landscape" && portrait) {
-    errors.push(`Artifact "${artifact.id}" must be landscape.`);
-  }
-  const minimumWidth = artifact.orientation === "portrait" ? 320 : 800;
-  const minimumHeight = artifact.orientation === "portrait" ? 568 : 450;
-  if (structure.width < minimumWidth || structure.height < minimumHeight) {
-    errors.push(
-      `Artifact "${artifact.id}" is too small: ${structure.width}x${structure.height}; ` +
-      `minimum ${minimumWidth}x${minimumHeight}.`
-    );
-  }
-  return {
-    path: artifact.output_path,
-    width: structure.width,
-    height: structure.height,
-    size_bytes: buffer.length,
-    sha256: sha256(buffer),
-    perceptual_hash: (() => {
-      try {
-        return pngDifferenceHash(buffer);
-      } catch (error) {
-        errors.push(`Artifact "${artifact.id}": ${String(error.message || error)}`);
-        return "";
-      }
-    })(),
-    errors
-  };
-}
-
-function referenceFactoryEntry(manifest, manifestPath, planPath, status = "planned") {
-  return {
-    manifest_id: manifest.id,
-    manifest_path: manifestPath,
-    plan_path: planPath,
-    manifest_fingerprint: manifest.manifest_fingerprint,
-    context_fingerprint: manifest.context_fingerprint,
-    approved_direction_id: manifest.approved_direction_id,
-    surface: manifest.surface,
-    generator: manifest.generator,
-    artifact_count: manifest.artifacts.length,
-    status,
-    updated_at: new Date().toISOString()
-  };
-}
-
-async function planFrontendReferences({
-  project_path,
-  task = "",
-  stage = "auto",
-  surface = "",
-  generator = "imagegen",
-  direction_count = 3,
-  artifact_budget = 32
-}) {
-  const projectRoot = await safeProjectRoot(project_path);
-  const state = await readFrontendProductState(projectRoot);
-  let conceptManifest = null;
-  if ((stage === "coverage" || (stage === "auto" && state.approvals?.direction))) {
-    const conceptManifestId = state.reference_factory?.concepts?.manifest_id;
-    if (conceptManifestId) {
-      conceptManifest = (await readReferenceFactoryManifest(projectRoot, conceptManifestId)).manifest;
-    }
-  }
-
-  let manifest;
-  try {
-    manifest = createReferenceFactoryManifest({
-      state,
-      task,
-      stage,
-      surface,
-      generator,
-      directionCount: Number(direction_count),
-      artifactBudget: Number(artifact_budget),
-      conceptManifest
-    });
-  } catch (error) {
-    return {
-      action: "rejected",
-      project_path: projectRoot,
-      errors: String(error.message || error).split("\n").filter(Boolean)
-    };
-  }
-  const manifestErrors = validateReferenceFactoryManifest(manifest, { state });
-  if (manifestErrors.length) {
-    return { action: "rejected", project_path: projectRoot, errors: manifestErrors };
-  }
-
-  const manifestPath = referenceFactoryManifestRelativePath(manifest.id);
-  const planPath = referenceFactoryPlanRelativePath(manifest.id);
-  await fs.mkdir(
-    safeProjectFile(projectRoot, `${FRONTEND_PRODUCT_PATHS.generatedReferences}/${manifest.id}`),
-    { recursive: true }
-  );
-  await atomicWriteJson(safeProjectFile(projectRoot, manifestPath), manifest);
-  await atomicWriteFile(
-    safeProjectFile(projectRoot, planPath),
-    renderReferenceFactoryPlan(manifest),
-    "utf8"
-  );
-
-  const factory = {
-    schema_version: 1,
-    ...(state.reference_factory || {}),
-    surface: manifest.surface,
-    selected_skills: manifest.selected_skills,
-    [manifest.stage]: referenceFactoryEntry(manifest, manifestPath, planPath)
-  };
-  const resetForConcepts = manifest.stage === "concepts"
-    ? {
-      phase: "brief",
-      directions: [],
-      references: (state.references || []).filter((reference) => (
-        reference.generation?.factory_schema_version !== 1
-      )),
-      approvals: { direction: null, design_system: null },
-      concept_jury: null,
-      latest_visual_run: null,
-      visual_reviews: []
-    }
-    : {
-      phase: "direction-approved",
-      approvals: {
-        ...(state.approvals || {}),
-        design_system: null
-      },
-      latest_visual_run: null,
-      visual_reviews: []
-    };
-  const saved = await writeFrontendProductState(projectRoot, {
-    ...state,
-    ...resetForConcepts,
-    selected_skills: manifest.selected_skills,
-    reference_factory: factory
-  });
-  markSearchIndexDirty(`reference factory planned: ${manifestPath}`);
-  return {
-    action: "frontend_references_planned",
-    project_path: projectRoot,
-    phase: saved.phase,
-    stage: manifest.stage,
-    manifest_id: manifest.id,
-    manifest_path: manifestPath,
-    plan_path: planPath,
-    surface: manifest.surface,
-    generator: manifest.generator,
-    selected_skills: manifest.selected_skills,
-    artifact_count: manifest.artifacts.length,
-    artifact_jobs: manifest.artifacts.map((artifact) => ({
-      artifact_id: artifact.id,
-      direction_id: artifact.direction_id,
-      output_path: artifact.output_path,
-      width: artifact.width,
-      height: artifact.height,
-      prompt: artifact.prompt,
-      prompt_sha256: artifact.prompt_sha256,
-      negative_prompt: artifact.negative_prompt
-    })),
-    tool_handoff: manifest.generator === "figma"
-      ? "Create each frame in Figma, export every planned artifact as PNG, inspect it, then call register_frontend_references."
-      : "Call ImageGen for every artifact job, save each PNG at output_path, inspect it with view_image, then call register_frontend_references.",
-    next_step: "Generate every planned artifact and register only visually inspected outputs."
-  };
-}
-
-async function registerFrontendReferences({
-  project_path,
-  manifest_id,
-  outputs = []
-}) {
-  const projectRoot = await safeProjectRoot(project_path);
-  const state = await readFrontendProductState(projectRoot);
-  const { manifest, relativePath: manifestPath } = await readReferenceFactoryManifest(
-    projectRoot,
-    manifest_id
-  );
-  const errors = [
-    ...validateReferenceFactoryManifest(manifest, { state }),
-    ...validateReferenceFactoryOutputs(manifest, outputs)
-  ];
-  if (state.reference_factory?.[manifest.stage]?.manifest_id !== manifest.id) {
-    errors.push("Reference Factory manifest is not the active plan for this stage.");
-  }
-  if (errors.length) {
-    return {
-      action: "rejected",
-      project_path: projectRoot,
-      manifest_id,
-      errors: [...new Set(errors)]
-    };
-  }
-  const fileMetadata = {};
-  const seenHashes = new Map();
-  for (const artifact of manifest.artifacts || []) {
-    const metadata = await inspectReferenceFactoryPng(projectRoot, artifact);
-    fileMetadata[artifact.id] = metadata;
-    errors.push(...(metadata.errors || []));
-    if (metadata.sha256) {
-      const previous = seenHashes.get(metadata.sha256);
-      if (previous) {
-        errors.push(
-          `Artifacts "${previous}" and "${artifact.id}" are byte-identical; distinct jobs require distinct inspected images.`
-        );
-      } else {
-        seenHashes.set(metadata.sha256, artifact.id);
-      }
-    }
-  }
-  if (manifest.stage === "concepts") {
-    const artifactsById = new Map((manifest.artifacts || []).map((artifact) => [artifact.id, artifact]));
-    const nearDuplicates = findNearDuplicateImages(
-      Object.entries(fileMetadata).map(([id, metadata]) => ({
-        id,
-        direction_id: artifactsById.get(id)?.direction_id,
-        comparison_group: [
-          artifactsById.get(id)?.scope,
-          artifactsById.get(id)?.viewport,
-          artifactsById.get(id)?.state,
-          artifactsById.get(id)?.orientation
-        ].join("|"),
-        perceptual_hash: metadata.perceptual_hash
-      })),
-      {
-        maximumDistance: 6,
-        comparable: (left, right) => (
-          left.direction_id !== right.direction_id &&
-          left.comparison_group === right.comparison_group
-        )
-      }
-    );
-    for (const duplicate of nearDuplicates) {
-      errors.push(
-        `Artifacts "${duplicate.left_id}" and "${duplicate.right_id}" are perceptually near-identical ` +
-        `(distance ${duplicate.distance}/${128}); visual directions must differ in composition, not only styling.`
-      );
-    }
-  }
-  if (errors.length) {
-    return {
-      action: "rejected",
-      project_path: projectRoot,
-      manifest_id,
-      errors: [...new Set(errors)]
-    };
-  }
-
-  const registration = buildReferenceFactoryRegistration(manifest, outputs, fileMetadata);
-  let saved;
-  if (manifest.stage === "concepts") {
-    const retained = (state.references || []).filter((reference) => (
-      reference.generation?.factory_schema_version !== 1
-    ));
-    const brief = await updateFrontendProductBrief({
-      project_path: projectRoot,
-      context: state.context,
-      references: [...retained, ...registration.references],
-      anti_slop_exceptions: state.anti_slop_exceptions || []
-    });
-    if (brief.blockers.length) {
-      return {
-        action: "rejected",
-        project_path: projectRoot,
-        manifest_id,
-        errors: brief.blockers
-      };
-    }
-    const directions = await recordFrontendDirections({
-      project_path: projectRoot,
-      directions: registration.directions
-    });
-    if (directions.action === "rejected") return directions;
-    saved = await readFrontendProductState(projectRoot);
-  } else {
-    if (manifest.approved_direction_id !== state.approvals?.direction?.direction_id) {
-      return {
-        action: "rejected",
-        project_path: projectRoot,
-        manifest_id,
-        errors: ["Coverage manifest no longer matches the approved direction."]
-      };
-    }
-    const retained = (state.references || []).filter((reference) => !(
-      reference.role === "baseline" &&
-      reference.direction_id === manifest.approved_direction_id &&
-      reference.generation?.factory_schema_version === 1
-    ));
-    const references = [...retained, ...registration.references].map(normalizeFrontendProductReference);
-    const referenceErrors = [
-      ...validateFrontendReferences(references),
-      ...await validateFrontendReferenceFiles(projectRoot, references, state.directions)
-    ];
-    if (referenceErrors.length) {
-      return {
-        action: "rejected",
-        project_path: projectRoot,
-        manifest_id,
-        errors: referenceErrors
-      };
-    }
-    saved = await writeFrontendProductState(projectRoot, {
-      ...state,
-      phase: "direction-approved",
-      references,
-      approvals: {
-        ...(state.approvals || {}),
-        design_system: null
-      },
-      latest_visual_run: null,
-      visual_reviews: []
-    });
-  }
-
-  const registeredAt = new Date().toISOString();
-  const registeredManifest = updateReferenceFactoryManifest(manifest, {
-    status: "registered",
-    registered_at: registeredAt,
-    updated_at: registeredAt,
-    outputs: manifest.artifacts.map((artifact) => ({
-      artifact_id: artifact.id,
-      path: artifact.output_path,
-      prompt_sha256: artifact.prompt_sha256,
-      file_sha256: fileMetadata[artifact.id].sha256,
-      perceptual_hash: fileMetadata[artifact.id].perceptual_hash,
-      width: fileMetadata[artifact.id].width,
-      height: fileMetadata[artifact.id].height,
-      inspection: outputs.find((item) => item.artifact_id === artifact.id)?.inspection
-    }))
-  });
-  await atomicWriteJson(safeProjectFile(projectRoot, manifestPath), registeredManifest);
-  const planPath = referenceFactoryPlanRelativePath(manifest.id);
-  const factory = {
-    schema_version: 1,
-    ...(saved.reference_factory || {}),
-    surface: manifest.surface,
-    generator: manifest.generator,
-    selected_skills: manifest.selected_skills,
-    [manifest.stage]: {
-      ...referenceFactoryEntry(
-        registeredManifest,
-        manifestPath,
-        planPath,
-        "registered"
-      ),
-      registered_at: registeredAt
-    }
-  };
-  saved = await writeFrontendProductState(projectRoot, {
-    ...saved,
-    reference_factory: factory
-  });
-  markSearchIndexDirty(`reference factory registered: ${manifestPath}`);
-  return {
-    action: manifest.stage === "concepts"
-      ? "frontend_reference_concepts_registered"
-      : "frontend_reference_coverage_registered",
-    project_path: projectRoot,
-    manifest_id,
-    stage: manifest.stage,
-    phase: saved.phase,
-    references_registered: registration.references.map((item) => item.id),
-    directions_registered: registration.directions.map((item) => item.id),
-    file_evidence: Object.fromEntries(Object.entries(fileMetadata).map(([id, metadata]) => [
-      id,
-      {
-        path: metadata.path,
-        width: metadata.width,
-        height: metadata.height,
-        size_bytes: metadata.size_bytes,
-        sha256: metadata.sha256,
-        perceptual_hash: metadata.perceptual_hash
-      }
-    ])),
-    next_step: manifest.stage === "concepts"
-      ? "Run an independent Concept Jury, approve its recommended direction, then plan stage=coverage."
-      : "Complete the design system, UI inventory, and visual acceptance documents, then approve the design system."
-  };
-}
-
 async function referenceFactoryStatus({ project_path }) {
   const projectRoot = await safeProjectRoot(project_path);
   const state = await readFrontendProductState(projectRoot, { required: false });
@@ -6202,233 +5619,6 @@ async function runQualityGate({
   return result;
 }
 
-function frontendQaDevCommand(detected, explicitCommand) {
-  const explicit = String(explicitCommand ?? "").trim();
-  if (explicit) return explicit;
-  const dev = detected.commands?.find((item) => item.label === "Dev" && item.command && item.command !== "Not detected");
-  return dev?.command || "";
-}
-
-function frontendQaReportMarkdown(result) {
-  if (result.markdown && typeof result.markdown === "string") return result.markdown;
-  const lines = [
-    "# Frontend QA Report",
-    "",
-    `Generated: ${result.started_at || new Date().toISOString()}`,
-    `Gate: ${result.gate || "warn"}`,
-    `Status: ${result.status || "unknown"}`,
-    `Project path: \`${result.project_path || ""}\``,
-    result.base_url ? `Base URL: ${result.base_url}` : "",
-    result.dev_command ? `Dev command: \`${result.dev_command}\`` : ""
-  ].filter(Boolean);
-
-  if (result.setup_warnings?.length) {
-    lines.push("", "## Setup Warnings", "");
-    for (const item of result.setup_warnings) lines.push(`- ${item}`);
-  }
-  if (result.results?.length) {
-    lines.push("", "## Results", "", "| Route | Viewport | Status | Screenshot |", "| --- | --- | --- | --- |");
-    for (const item of result.results) {
-      lines.push(`| ${mdCell(item.route)} | ${mdCell(item.viewport?.name || "")} | ${mdCell(item.status)} | ${mdCell(item.screenshot || "")} |`);
-    }
-  }
-  if (!result.results?.length) {
-    lines.push("", "## Results", "", "- No browser checks were run.");
-  }
-  return lines.join("\n");
-}
-
-async function runFrontendQa(rawOptions = {}) {
-  const projectRoot = await safeProjectRoot(rawOptions.project_path);
-  const requestedConfigPath = String(rawOptions.config_path || ".ai-dev/frontend-qa.json");
-  let projectConfig = {};
-  let loadedConfigPath = "";
-  if (rawOptions.load_project_config !== false) {
-    const candidate = safeProjectFile(projectRoot, requestedConfigPath);
-    if (await pathExists(candidate)) {
-      projectConfig = JSON.parse(stripBom(await fs.readFile(candidate, "utf8")));
-      if (!projectConfig || typeof projectConfig !== "object" || Array.isArray(projectConfig)) {
-        throw new Error(`Frontend QA config must be a JSON object: ${candidate}`);
-      }
-      loadedConfigPath = candidate;
-    }
-  }
-  const options = { ...projectConfig, ...rawOptions };
-  const {
-    project_name,
-    app_subdir = "",
-    url = "",
-    dev_command = "",
-    start_dev_server = true,
-    routes = ["/"],
-    viewports = [],
-    scenarios = [],
-    check_console = true,
-    check_overflow = true,
-    check_accessibility_basic = true,
-    check_accessibility_axe = true,
-    check_anti_slop = false,
-    anti_slop_exceptions = [],
-    required_states = [],
-    check_visual_regression = true,
-    visual_baseline_dir = "",
-    update_visual_baselines = false,
-    max_pixel_diff_ratio = 0.01,
-    scenario_timeout_ms = 10000,
-    take_screenshots = true,
-    screenshot_dir = "",
-    artifact_location = "system",
-    allowed_http_errors = [],
-    write_report = true,
-    update_registry = true,
-    register_if_missing = false,
-    server_ready_timeout_ms = 60000,
-    navigation_timeout_ms = 30000,
-    timeout_ms = 300000
-  } = options;
-  if (!(await pathExists(frontendQaRunnerPath))) {
-    throw new Error(`Frontend QA runner not found: ${frontendQaRunnerPath}`);
-  }
-
-  if (!["system", "project"].includes(artifact_location)) {
-    throw new Error("artifact_location must be system or project.");
-  }
-  const workingDirectory = await safeProjectSubdir(projectRoot, app_subdir);
-  let registeredCard = null;
-  try {
-    registeredCard = await findProjectCard(projectRoot);
-  } catch {
-    registeredCard = null;
-  }
-  const resolvedProjectName = project_name || registeredCard?.name || path.basename(projectRoot);
-  const detected = await detectProject(workingDirectory, resolvedProjectName);
-  const resolvedDevCommand = frontendQaDevCommand(detected, dev_command);
-  const runId = new Date().toISOString().replace(/[:.]/g, "-");
-  const systemArtifactDir = path.join(frontendQaArtifactsRoot, slugPart(resolvedProjectName, "project"), runId);
-  const input = {
-    project_path: projectRoot,
-    app_subdir,
-    url,
-    dev_command: resolvedDevCommand,
-    start_dev_server,
-    routes,
-    viewports,
-    scenarios,
-    check_console,
-    check_overflow,
-    check_accessibility_basic,
-    check_accessibility_axe,
-    check_anti_slop,
-    anti_slop_exceptions,
-    required_states,
-    check_visual_regression,
-    visual_baseline_dir,
-    update_visual_baselines,
-    max_pixel_diff_ratio,
-    scenario_timeout_ms,
-    load_project_config: false,
-    config_path: requestedConfigPath,
-    loaded_config_path: loadedConfigPath,
-    take_screenshots,
-    screenshot_dir: artifact_location === "project" ? screenshot_dir : "",
-    artifact_dir: artifact_location === "system" ? systemArtifactDir : "",
-    allowed_http_errors,
-    server_ready_timeout_ms,
-    navigation_timeout_ms
-  };
-
-  let result = null;
-  try {
-    const output = await execFileWithInput(
-      process.execPath,
-      [frontendQaRunnerPath],
-      JSON.stringify(input),
-      {
-        cwd: projectRoot,
-        timeoutMs: Math.max(10000, Math.min(Number(timeout_ms) || 300000, 20 * 60 * 1000)),
-        env: { AI_DEV_FRONTEND_QA_ARTIFACT_ROOT: frontendQaArtifactsRoot }
-      }
-    );
-    result = JSON.parse(output.stdout);
-    if (output.stderr?.trim()) {
-      result.setup_warnings = [
-        ...(result.setup_warnings || []),
-        `Runner stderr: ${truncateOutput(output.stderr, 1200)}`
-      ];
-      if (result.gate === "pass") result.gate = "warn";
-    }
-  } catch (err) {
-    result = {
-      gate: "block",
-      status: "runner_failed",
-      started_at: new Date().toISOString(),
-      finished_at: new Date().toISOString(),
-      project_path: projectRoot,
-      base_url: url,
-      dev_command: resolvedDevCommand,
-      routes,
-      viewports,
-      screenshots: [],
-      setup_warnings: [err instanceof Error ? err.message : String(err)],
-      results: []
-    };
-  }
-
-  result.project_name = resolvedProjectName;
-  result.detected_stack = detected.stack;
-  result.app_subdir = app_subdir;
-  result.artifact_location = artifact_location;
-  result.dev_command = result.dev_command || resolvedDevCommand;
-  result.markdown = frontendQaReportMarkdown(result);
-
-  if (write_report) {
-    if (artifact_location === "system") {
-      const reportPath = path.join(systemArtifactDir, "frontend-qa-report.md");
-      await atomicWriteFile(
-        reportPath,
-        result.markdown.endsWith("\n") ? result.markdown : `${result.markdown}\n`,
-        "utf8"
-      );
-      result.report_file = reportPath;
-    } else {
-      result.report_file = await writeProjectFile(projectRoot, ".ai-dev/frontend-qa-report.md", result.markdown, true);
-    }
-  }
-
-  if (update_registry) {
-    try {
-      const card = registeredCard || await findProjectCard(projectRoot);
-      const report = await updateProjectCard({
-        name: card.name,
-        section: "Last Frontend QA Run",
-        mode: "replace",
-        content: result.markdown,
-        update_index: false
-      });
-      const synced = await syncProjectCard({
-        project_path: projectRoot,
-        create_if_missing: false,
-        update_index: true
-      });
-      result.registry = { report, synced };
-    } catch (err) {
-      if (!register_if_missing) {
-        result.registry = { action: "skipped", reason: err instanceof Error ? err.message : String(err) };
-      } else {
-        result.registry = await registerProject({
-          project_path: projectRoot,
-          status: "registered via run_frontend_qa",
-          description: "Registered automatically while running frontend QA.",
-          notes: result.markdown,
-          overwrite: false
-        });
-      }
-    }
-  }
-
-  return result;
-}
-
 const {
   archifyProjectPath,
   archifyDoctor,
@@ -6449,140 +5639,6 @@ const {
   slugPart,
   readJsonIfExists
 });
-function frontendQaVisualArtifacts(result) {
-  const artifacts = [];
-  const add = (artifactPath, type, context = {}) => {
-    const value = String(artifactPath || "").trim();
-    if (!value) return;
-    artifacts.push({ path: value, type, ...context });
-  };
-  for (const item of result.results || []) {
-    const context = {
-      route: item.route,
-      viewport: item.viewport?.name || "",
-      state: "default"
-    };
-    add(item.screenshot, "screenshot", context);
-    add(item.visual?.baseline, "baseline", context);
-    add(item.visual?.diff, "diff", context);
-    for (const scenario of item.scenarios || []) {
-      const scenarioContext = {
-        route: item.route,
-        viewport: item.viewport?.name || "",
-        state: scenario.state || scenario.name || ""
-      };
-      add(scenario.screenshot, "screenshot", scenarioContext);
-      add(scenario.visual?.baseline, "baseline", scenarioContext);
-      add(scenario.visual?.diff, "diff", scenarioContext);
-    }
-  }
-  const seen = new Set();
-  return artifacts.filter((artifact) => {
-    const key = `${artifact.type}:${artifact.path}`;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function frontendQaHasDesktopAndMobile(result) {
-  const viewports = result.viewports || [];
-  const names = viewports.map((item) => String(item.name || "").toLowerCase());
-  return (
-    (names.some((name) => name.includes("desktop")) && names.some((name) => name.includes("mobile"))) ||
-    (viewports.some((item) => Number(item.width) >= 768) && viewports.some((item) => Number(item.width) < 768))
-  );
-}
-
-async function runVisualReferenceQa(rawOptions = {}) {
-  const projectRoot = await safeProjectRoot(rawOptions.project_path);
-  const state = await readFrontendProductState(projectRoot);
-  const documentHashes = await frontendProductDocumentHashes(projectRoot).catch(() => ({}));
-  const implementationGate = evaluateFrontendProductGate(state, {
-    gate: "implementation",
-    currentDocumentHashes: documentHashes
-  });
-  if (!implementationGate.ok) {
-    return {
-      action: "rejected",
-      project_path: projectRoot,
-      reason: "implementation_gate_failed",
-      implementation_gate: implementationGate
-    };
-  }
-
-  const requiredStates = state.context?.required_states || [];
-  const result = await runFrontendQa({
-    ...rawOptions,
-    project_path: projectRoot,
-    check_console: true,
-    check_overflow: true,
-    check_accessibility_basic: true,
-    check_accessibility_axe: true,
-    check_anti_slop: true,
-    anti_slop_exceptions: state.anti_slop_exceptions || [],
-    required_states: requiredStates,
-    check_visual_regression: true,
-    visual_baseline_dir: FRONTEND_PRODUCT_PATHS.approvedReferences,
-    update_visual_baselines: false,
-    take_screenshots: true,
-    update_registry: false,
-    register_if_missing: false
-  });
-  const runId = `visual-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-  const artifacts = frontendQaVisualArtifacts(result);
-  const desktopAndMobile = frontendQaHasDesktopAndMobile(result);
-  const requiredStatesCovered = result.state_coverage?.complete === true;
-  const baselinesComplete = result.visual_baselines_complete === true;
-  const technicalPassed = result.gate === "pass" &&
-    desktopAndMobile &&
-    requiredStatesCovered &&
-    baselinesComplete &&
-    Number(result.unwaived_anti_slop_findings || 0) === 0;
-  const visualRun = {
-    run_id: runId,
-    status: technicalPassed ? "awaiting_review" : "failed",
-    technical_status: technicalPassed ? "passed" : "failed",
-    strict: true,
-    desktop_and_mobile: desktopAndMobile,
-    required_states_covered: requiredStatesCovered,
-    baselines_complete: baselinesComplete,
-    unwaived_anti_slop_findings: Number(result.unwaived_anti_slop_findings || 0),
-    required_states: requiredStates,
-    state_coverage: result.state_coverage || null,
-    artifacts,
-    report_file: result.report_file || "",
-    artifact_dir: result.artifact_dir || "",
-    qa_started_at: result.started_at,
-    qa_finished_at: result.finished_at,
-    recorded_at: new Date().toISOString()
-  };
-  const saved = await writeFrontendProductState(projectRoot, {
-    ...state,
-    phase: technicalPassed ? "visual-review" : "visual-qa-failed",
-    latest_visual_run: visualRun,
-    visual_reviews: []
-  });
-  return {
-    action: technicalPassed ? "awaiting_visual_review" : "visual_qa_failed",
-    project_path: projectRoot,
-    run_id: runId,
-    phase: saved.phase,
-    technical_passed: technicalPassed,
-    strict_checks: {
-      desktop_and_mobile: desktopAndMobile,
-      required_states_covered: requiredStatesCovered,
-      baselines_complete: baselinesComplete,
-      unwaived_anti_slop_findings: visualRun.unwaived_anti_slop_findings
-    },
-    required_review_artifacts: artifacts,
-    qa: result,
-    next_step: technicalPassed
-      ? "Inspect every listed artifact and call record_visual_review with the ten-dimension scorecard."
-      : "Fix the blocking evidence, preserve approved baselines, and rerun strict visual QA."
-  };
-}
-
 function resolveFrontendReviewArtifact(projectRoot, artifactPath) {
   const value = String(artifactPath || "").trim();
   if (!value) throw new Error("Visual review artifact path is required.");
@@ -6637,111 +5693,6 @@ async function frontendReviewArtifactsCurrent(projectRoot, state) {
     current: changed.length === 0,
     checked: (review.artifacts || []).length,
     changed
-  };
-}
-
-async function recordVisualReview({
-  project_path,
-  reviewer,
-  reviewer_role = "",
-  inspections = [],
-  scorecard
-}) {
-  const projectRoot = await resolveTaskProjectRoot(project_path);
-  const state = await readFrontendProductState(projectRoot);
-  const run = state.latest_visual_run;
-  const errors = [];
-  if (!run) errors.push("No strict Visual Reference QA run exists.");
-  else if (run.status !== "awaiting_review") {
-    errors.push(`Latest Visual Reference QA status is ${run.status}; expected awaiting_review.`);
-  }
-  const reviewerName = String(reviewer || "").trim();
-  if (!String(state.implementer || "").trim()) {
-    errors.push("Frontend product state must name the implementer before independent review.");
-  }
-  if (!reviewerName) errors.push("Visual review requires a reviewer.");
-  if (
-    reviewerName &&
-    String(state.implementer || "").trim() &&
-    reviewerName.toLowerCase() === String(state.implementer).trim().toLowerCase()
-  ) {
-    errors.push("Visual reviewer must be independent from the implementer.");
-  }
-  errors.push(...validateProductDesignScorecard(scorecard));
-
-  const inspectionMap = new Map((inspections || []).map((inspection) => [
-    String(inspection?.path || "").replaceAll("\\", "/").toLowerCase(),
-    inspection
-  ]));
-  const reviewedArtifacts = [];
-  for (const artifact of run?.artifacts || []) {
-    const key = String(artifact.path).replaceAll("\\", "/").toLowerCase();
-    const inspection = inspectionMap.get(key);
-    if (!inspection) {
-      errors.push(`Missing visual inspection for artifact: ${artifact.path}.`);
-      continue;
-    }
-    if (!["browser", "view_image", "human"].includes(String(inspection.inspection_method || ""))) {
-      errors.push(`Unsupported inspection method for ${artifact.path}.`);
-    }
-    if (String(inspection.observations || "").trim().length < 10) {
-      errors.push(`Visual inspection needs concrete observations for ${artifact.path}.`);
-    }
-    try {
-      const absolute = resolveFrontendReviewArtifact(projectRoot, artifact.path);
-      const content = await fs.readFile(absolute);
-      reviewedArtifacts.push({
-        ...artifact,
-        absolute_path: absolute,
-        sha256: sha256(content),
-        inspection_method: String(inspection.inspection_method || ""),
-        observations: String(inspection.observations || "").trim()
-      });
-    } catch (error) {
-      errors.push(`Could not hash reviewed artifact ${artifact.path}: ${error.message}`);
-    }
-  }
-  if (errors.length) {
-    return {
-      action: "rejected",
-      project_path: projectRoot,
-      run_id: run?.run_id || "",
-      errors
-    };
-  }
-
-  const review = {
-    review_id: `visual-review-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
-    run_id: run.run_id,
-    reviewer: reviewerName,
-    reviewer_role: String(reviewer_role || "").trim(),
-    independent: true,
-    artifact_hashes_current: true,
-    artifacts: reviewedArtifacts,
-    scorecard,
-    reviewed_at: new Date().toISOString()
-  };
-  const saved = await writeFrontendProductState(projectRoot, {
-    ...state,
-    phase: "handoff-ready",
-    latest_visual_run: {
-      ...run,
-      status: "passed",
-      reviewed_at: review.reviewed_at,
-      review_id: review.review_id
-    },
-    visual_reviews: [...(state.visual_reviews || []), review]
-  });
-  const documentHashes = await frontendProductDocumentHashes(projectRoot);
-  return {
-    action: "visual_review_recorded",
-    project_path: projectRoot,
-    phase: saved.phase,
-    review,
-    handoff_gate: evaluateFrontendProductGate(saved, {
-      gate: "handoff",
-      currentDocumentHashes: documentHashes
-    })
   };
 }
 
@@ -7580,14 +6531,26 @@ const extensions = createExtensionTools({
   // `rebuild_skill_taxonomy` and `sync_skill_cards` still live here and share them.
   skillCatalogRoot, skillSourcesRoot: sourcesRoot, skillRegistryDir: registryDir,
   collectCustomSkills, collectDesignSkills, collectMembraneSkills, collectExternalSkills,
-  writeSkillTaxonomyArtifacts, syncSkillCards, embedTexts, projectRecommendationContext
+  writeSkillTaxonomyArtifacts, syncSkillCards, embedTexts, projectRecommendationContext,
+  // Frontend product state and project-card writers. The state readers stay here
+  // because `compile_project_context`, `verify_task` and the product tools that
+  // have not been extracted yet all read them; the frontend extensions reach
+  // them through this host rather than the other way round.
+  readFrontendProductState, writeFrontendProductState, frontendProductDocumentHashes,
+  normalizeFrontendProductReference, validateFrontendReferenceFiles,
+  updateFrontendProductBrief, recordFrontendDirections, resolveFrontendReviewArtifact,
+  findProjectCard, updateProjectCard, syncProjectCard, registerProject,
+  safeProjectSubdir, resolveTaskProjectRoot, runUiUxProMax, uiUxProMaxSource,
+  sha256, truncateOutput
 });
-// Two skill tools are called by the runtime itself, not only over MCP:
+// Three extension tools are called by the runtime itself, not only over MCP:
 // `import_skill_repo` and the overlay tools rebuild the registry after writing
-// to the vault, and `begin_task` routes skills for the task it opens. They
-// reach the extension the same way `prepare_pull_request` is reached, so the
-// tool stays the single implementation.
+// to the vault, `begin_task` routes skills for the task it opens, and
+// `verify_task` runs Frontend QA as one of its checks. They reach the extension
+// the same way `prepare_pull_request` is reached, so each tool stays the single
+// implementation.
 const rebuildIndex = (args = {}) => extensions.handlers.get("rebuild_index")(args);
+const runFrontendQa = (args) => extensions.handlers.get("run_frontend_qa")(args);
 const recommendSkillsProjectAware = (args) => extensions.handlers.get("recommend_skills")(args);
 const extensionReadOnlyTools = extensions.readOnly;
 const tools = [...buildToolDefinitions({
@@ -7595,9 +6558,6 @@ const tools = [...buildToolDefinitions({
   FRONTEND_PRODUCT_MODES,
   PILOT_DIMENSIONS,
   PILOT_TASK_TYPES,
-  PRODUCT_DESIGN_SCORECARD_DIMENSIONS,
-  REFERENCE_FACTORY_GENERATORS,
-  REFERENCE_FACTORY_SURFACES,
   UI_UX_PRO_MAX_DOMAINS,
   UI_UX_PRO_MAX_STACKS
 }), ...extensions.definitions];
@@ -8592,9 +7552,6 @@ async function dispatchTool(name, args) {
   if (name === "search_skills") return textContent(await searchSkills(args));
   if (name === "read_skill") return textContent(await readSkill(args));
   if (name === "query_ui_ux_knowledge") return textContent(await queryUiUxKnowledge(args));
-  if (name === "generate_ui_ux_design_system") {
-    return textContent(await generateUiUxDesignSystem(args));
-  }
   if (name === "list_skill_groups") return textContent(await listSkillGroups(args));
   if (name === "browse_skill_group") return textContent(await browseSkillGroup(args));
   if (name === "rebuild_skill_taxonomy") return textContent(await rebuildSkillTaxonomy(args));
@@ -8625,8 +7582,6 @@ async function dispatchTool(name, args) {
   if (name === "bootstrap_project") return textContent(await bootstrapProject(args));
   if (name === "prepare_project") return textContent(await prepareProject(args));
   if (name === "frontend_product_builder") return textContent(await frontendProductBuilder(args));
-  if (name === "plan_frontend_references") return textContent(await planFrontendReferences(args));
-  if (name === "register_frontend_references") return textContent(await registerFrontendReferences(args));
   if (name === "reference_factory_status") return textContent(await referenceFactoryStatus(args));
   if (name === "prepare_frontend_product") return textContent(await prepareFrontendProduct(args));
   if (name === "update_frontend_product_brief") return textContent(await updateFrontendProductBrief(args));
@@ -8635,8 +7590,6 @@ async function dispatchTool(name, args) {
   if (name === "approve_frontend_direction") return textContent(await approveFrontendDirection(args));
   if (name === "approve_frontend_design_system") return textContent(await approveFrontendDesignSystem(args));
   if (name === "frontend_product_gate") return textContent(await frontendProductGate(args));
-  if (name === "run_visual_reference_qa") return textContent(await runVisualReferenceQa(args));
-  if (name === "record_visual_review") return textContent(await recordVisualReview(args));
   if (name === "list_auto_commands") return textContent(listAutoCommands());
   if (name === "match_auto_command") return textContent(matchAutoCommand(args));
   if (name === "read_auto_command") return textContent(readAutoCommand(args));
@@ -8649,7 +7602,6 @@ async function dispatchTool(name, args) {
   if (name === "refresh_project_map") return textContent(await refreshProjectMap(args));
   if (name === "refresh_project_memory") return textContent(await refreshProjectMemory(args));
   if (name === "run_quality_gate") return textContent(await runQualityGate(args));
-  if (name === "run_frontend_qa") return textContent(await runFrontendQa(args));
   if (name === "archify_doctor") return textContent(await archifyDoctor(args));
   if (name === "archify_guide") return textContent(await archifyGuide(args));
   if (name === "archify_validate") return textContent(await archifyValidate(args));

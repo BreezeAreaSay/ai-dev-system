@@ -73,12 +73,14 @@ The dependency runs one way: extensions never import `mcp-stdio.mjs`, which woul
 couple pure logic to the vault. Duplicate tool names and definitions without a handler throw at
 startup, so a broken extension can never reach a client.
 
-Registered today: `decisions`, `hooks`, `hygiene`, `instincts`, `plans`, `pull-requests`,
-`rules`, `sessions`, `skills`, `system`, `usage`, `worktrees`. Pure logic stays in `core/`
-(`decision-ledger.mjs`, `agent-hooks.mjs`, `change-hygiene.mjs`, `instincts.mjs`,
-`task-plans.mjs`, `pull-request.mjs`, `pr-template.mjs`, `rules-library.mjs`,
-`rules-catalog.mjs`, `session-memory.mjs`, `skill-catalog.mjs`, `skill-cards.mjs`,
-`skill-registry-docs.mjs`, `skill-quality-report.mjs`, `skill-recommendation.mjs`,
+Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygiene`,
+`instincts`, `plans`, `pull-requests`, `rules`, `sessions`, `skills`, `system`, `usage`,
+`worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
+`change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `pull-request.mjs`,
+`pr-template.mjs`, `rules-library.mjs`, `rules-catalog.mjs`, `session-memory.mjs`,
+`skill-catalog.mjs`, `skill-cards.mjs`, `skill-registry-docs.mjs`,
+`skill-quality-report.mjs`, `skill-recommendation.mjs`, `frontend-product-quality.mjs`,
+`reference-factory.mjs`, `reference-factory-artifacts.mjs`, `frontend-qa-report.mjs`,
 `system-health.mjs`, `system-dashboard.mjs`, `text-format.mjs`, `usage-ledger.mjs`,
 `task-worktrees.mjs`); the extension is the MCP surface over it.
 `core/completion-claims.mjs` has no extension of its own: the task lifecycle in `mcp-stdio.mjs`
@@ -91,9 +93,9 @@ there is one (`core/pr-template.mjs` discovers, parses and fills it), and it sto
 `git push` and `gh pr create` are returned as commands, never executed, so publishing stays a
 human decision. `complete_task` prepares the same file and links it from `next_step`.
 
-`system` and `skills` are extractions from `mcp-stdio.mjs` rather than new capabilities; both moved
-out with their definitions and both split the same way, I/O in the extension and judgement in
-`core/`.
+`system`, `skills`, `frontend-design` and `frontend-qa` are extractions from `mcp-stdio.mjs`
+rather than new capabilities; each moved out with its definitions and each splits the same way,
+I/O in the extension and judgement in `core/`.
 
 `system` carries `system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status`.
 Its checks fetch through `host` and hand the raw status objects to pure evaluators in
@@ -111,6 +113,29 @@ share them, and `projectRecommendationContext`, which is project-card I/O. Both 
 through `host`. The traffic runs the other way too — `import_skill_repo` and the overlay tools call
 `rebuild_index`, and `begin_task` calls `recommend_skills` — and both go through
 `extensions.handlers`, so the tool stays the single implementation.
+
+`frontend-design` and `frontend-qa` are one capability cut in two, because the Frontend Product
+Quality surface is larger than one 800-line module. `frontend-design` carries the inputs a product
+is built from: the Reference Factory (`plan_frontend_references` mints a manifest of image jobs,
+`register_frontend_references` accepts the generated PNGs only against per-artifact inspection
+evidence) and `generate_ui_ux_design_system`. `frontend-qa` carries the evidence that the built
+thing works: `run_frontend_qa` drives the browser runner, `run_visual_reference_qa` is the strict
+form of it behind the implementation gate, and `record_visual_review` records an independent
+reviewer's verdict and hashes every artifact as it is reviewed.
+
+What did not move is the frontend product state itself. `readFrontendProductState`,
+`frontendProductDocumentHashes`, `frontendReviewArtifactsCurrent` and the reference validators stay
+in `mcp-stdio.mjs` and reach the extensions through `host`, because `compile_project_context`,
+`verify_task`, `frontend_product_gate` and the rest of the product state machine read them too.
+`verify_task` calls `run_frontend_qa` back through `extensions.handlers`, so the tool stays the
+single implementation of a browser run.
+
+Their pure halves are `core/reference-factory-artifacts.mjs` (where a manifest's files live, what a
+registry entry looks like, PNG structure, and whether an artifact is one a reviewer could have
+inspected) and `core/frontend-qa-report.mjs` (the runner's stdin contract, the Markdown report, the
+artifact list a review has to cover, and the strict verdict). `core/frontend-product-quality.mjs`
+and `core/reference-factory.mjs` already held the state machine and the manifest logic and were not
+touched: both are pinned in the static gate's `MODULE_LINE_EXCEPTIONS` and may only shrink.
 
 ### Context extras
 

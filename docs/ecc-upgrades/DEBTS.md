@@ -114,8 +114,16 @@ Windows проверены только юнит-тестами и симуля�
 `buildProjectCardMd` (55 строк, рендер карточки проекта). Второй уезжает в шаге 1.5 вместе
 с `buildRichProjectCardMd`, там и проверить, нужен ли он вообще.
 
+Дополнение из шага 1.3: сам вынос порождает новые мёртвые импорты, и в шаге 1.2 я проверил
+только те имена, которые переносил руками. После него в главном модуле осталось девять мёртвых
+импортов (`inferTaskSkillGroups`, `SKILL_SCHEMA_VERSION`, `analyzeDuplicateSkills`,
+`summarizeSkillQuality`, `DIAGRAM_REQUEST_PATTERN`, `prioritizeRoutedRecommendations`,
+`taskRequiresFrontendProductWorkflow`, `INTENT`, `applySkillOutcome`); они убраны в 1.3 вместе
+с четырнадцатью, которые оставил уже сам фронтенд. Правильная проверка — не список
+перенесённых имён, а весь блок импортов.
+
 **Проверка.** `grep` по именам в `src/mcp-stdio.mjs` даёт по одному вхождению только для
-двух перечисленных выше; для `INTEGRATION_SUBGROUPS` и `evaluateSkillQuality` — ни одного.
+двух перечисленных выше; для всех остальных перечисленных здесь — ни одного.
 
 ---
 

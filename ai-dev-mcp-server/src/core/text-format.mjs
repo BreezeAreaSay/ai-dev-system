@@ -42,6 +42,14 @@ export function yamlString(value) {
 }
 
 /**
+ * Escape one value for a Markdown table cell: pipes escaped so they cannot end
+ * the cell, newlines folded so they cannot end the row.
+ */
+export function mdCell(value) {
+  return String(value ?? "").replaceAll("|", "\\|").replace(/\r?\n/g, " ");
+}
+
+/**
  * Render a titled Markdown table.
  *
  * @param {string} title - Heading placed above the table.

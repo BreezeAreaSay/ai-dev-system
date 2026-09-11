@@ -47,7 +47,6 @@ import {
 import {
   projectFiltersMembrane,
   taskLooksBetaFrontend,
-  taskLooksFrontendProduct,
   taskLooksLandingConversion
 } from "./core/skill-recommendation.mjs";
 import { listSearchPresets } from "./core/search-runtime.mjs";
@@ -59,11 +58,6 @@ import {
   resolveWithinSync
 } from "./core/path-policy.mjs";
 import { createArchifyTools } from "./core/archify-tools.mjs";
-import {
-  archifyDeliveryReceiptMarkdown,
-  validateArchifyDeliveryReceipt,
-  validateArchifyVisualCheckEvidence
-} from "./core/archify-receipt.mjs";
 import { analyzeProject } from "./core/project-intelligence.mjs";
 import { createProjectDetector } from "./core/project-detection.mjs";
 import { renderProjectCardMd } from "./core/project-cards.mjs";
@@ -90,15 +84,6 @@ import {
   contextPackFreshness
 } from "./core/context-compiler.mjs";
 import { loadContextExtras } from "./core/context-extras.mjs";
-import { verifyChangeHygiene } from "./core/change-hygiene.mjs";
-import {
-  completionClaimFailure,
-  completionClaimSignals,
-  lintCompletionClaims,
-  parseCompletionClaimPolicy
-} from "./core/completion-claims.mjs";
-import { POLICY_RELATIVE_PATH } from "./core/agent-hooks.mjs";
-import { withPlanGateWarning } from "./core/task-plans.mjs";
 import { routeSkills } from "./core/skill-router.mjs";
 import { prioritizeKnowledgeResults } from "./core/knowledge-router.mjs";
 import {
@@ -118,10 +103,7 @@ import {
   evaluateSkillRoutingSuite,
   readSkillRoutingCases
 } from "./core/skill-routing-eval.mjs";
-import {
-  bindEvidence,
-  captureProjectState
-} from "./core/evidence.mjs";
+import { captureProjectState } from "./core/evidence.mjs";
 import { TaskStore } from "./core/task-lifecycle.mjs";
 import { UsageLedger, usageHintsFromArgs } from "./core/usage-ledger.mjs";
 import { SessionStore } from "./core/session-memory.mjs";
@@ -4222,86 +4204,6 @@ async function projectContextStatus({ project_path }) {
   };
 }
 
-async function beginTask({
-  project_path,
-  task,
-  project_name = "",
-  acceptance_criteria = []
-}) {
-  const identity = await resolveProjectIdentity(project_path);
-  const projectRoot = identity.project_root;
-  const detected = {
-    ...await detectProject(projectRoot, project_name),
-    project_id: identity.project_id,
-    repository_id: identity.repository_id,
-    canonical_project_path: identity.canonical_path,
-    project_aliases: identity.aliases
-  };
-  const [skills, baseline, agents, brief, projectMap, qualityGate] = await Promise.all([
-    recommendSkillsProjectAware({
-      task,
-      project_path: projectRoot,
-      limit: 3,
-      membrane_policy: "exclude"
-    }),
-    captureProjectState(projectRoot),
-    readProjectTextIfExists(projectRoot, "AGENTS.md"),
-    readProjectTextIfExists(projectRoot, ".ai-dev/project-brief.md"),
-    readProjectTextIfExists(projectRoot, ".ai-dev/project-map.md"),
-    readProjectTextIfExists(projectRoot, ".ai-dev/quality-gate.md")
-  ]);
-  const contextPack = await compileContextPack({
-    projectRoot,
-    task,
-    project: detected,
-    identity,
-    acceptanceCriteria: acceptance_criteria,
-    skills,
-    projectState: baseline,
-    agentRules: agents,
-    projectBrief: brief,
-    projectMap,
-    qualityGate,
-    extras: await loadContextExtras({ projectRoot, stateRoot: taskStateRoot, repositoryId: identity.repository_id, projectId: identity.project_id, task, stack: detected.stack }),
-    maxSourceFiles: 12,
-    maxChars: 20_000
-  });
-  const record = await taskStore.begin({
-    task,
-    project: detected,
-    skills,
-    acceptanceCriteria: acceptance_criteria,
-    baseline,
-    context: {
-      bounded: true,
-      context_pack_id: contextPack.id,
-      compiled_context: contextPack.markdown,
-      selected_files: contextPack.selected_files.map((file) => ({
-        path: file.path,
-        score: file.score,
-        reasons: file.reasons,
-        sha256: file.sha256
-      })),
-      context_unknowns: contextPack.unknowns,
-      project_brief_path: ".ai-dev/project-brief.md",
-      project_map_path: ".ai-dev/project-map.md",
-      quality_gate_path: ".ai-dev/quality-gate.md",
-      components: detected.components ?? [],
-      architecture: detected.architecture ?? {},
-      project_identity: identity
-    }
-  });
-  return {
-    ...record,
-    next_actions: [
-      "Confirm or refine acceptance criteria with checkpoint_task before broad implementation.",
-      "Use the compiled context pack, then read only routed skills and direct dependencies of selected files.",
-      "After edits, checkpoint changed files, then run verify_task.",
-      "Call complete_task only after every acceptance criterion is met or explicitly waived."
-    ]
-  };
-}
-
 async function getTask({ task_id }) {
   return taskStore.read(task_id);
 }
@@ -4423,371 +4325,6 @@ async function projectPilotStatus({ pilot_id = "", project_path = "" } = {}) {
   return pilotStore.status({ id: pilot_id, projectId });
 }
 
-/**
- * Hold a report to the evidence behind it: a rationalization ("pre-existing
- * issue", "skipping tests for now", "should work") is refused when the check
- * that would have settled it did not pass. Throws with the reason and the ways
- * out; returns the lint result so a non-blocking finding stays visible.
- *
- * @param {object} record - Task record the report belongs to.
- * @param {{ summary?: string, notes?: string, projectState?: object }} report
- * @returns {Promise<object>} `lintCompletionClaims` result.
- */
-async function auditCompletionClaims(record, { summary = "", notes = "", projectState = null } = {}) {
-  const result = lintCompletionClaims({
-    summary,
-    notes,
-    signals: completionClaimSignals(record, { projectState }),
-    policy: parseCompletionClaimPolicy(await readProjectTextIfExists(record.project.path, POLICY_RELATIVE_PATH).catch(() => ""))
-  });
-  if (result.status === "blocked") throw new Error(completionClaimFailure(result));
-  return result;
-}
-
-async function checkpointTask({
-  task_id,
-  summary,
-  changed_files = [],
-  criteria = [],
-  notes = ""
-}) {
-  const completionClaims = await auditCompletionClaims(await taskStore.read(task_id), { summary, notes });
-  const record = withPlanGateWarning(await taskStore.checkpoint(task_id, {
-    summary,
-    changedFiles: changed_files,
-    criteria,
-    notes
-  }), changed_files);
-  return { ...record, completion_claims: completionClaims };
-}
-
-function verificationPassed(checks) {
-  if (!checks.length) return false;
-  return checks.every((item) => {
-    if (item.type === "quality_gate") return item.result?.status === "passed";
-    if (item.type === "frontend_qa") return item.result?.gate === "pass";
-    if (item.type === "frontend_product") return item.result?.ok === true;
-    if (item.type === "archify_deliver" || item.type === "archify_visual_check") return item.result?.ok === true;
-    if (item.type === "change_hygiene") return item.result?.status !== "block";
-    return false;
-  });
-}
-async function validateArchifyDeliveryEvidence(entries, projectRoot) {
-  if (!Array.isArray(entries)) throw new Error("evidence must be an array.");
-  const checks = [];
-  for (const entry of entries) {
-    if (entry?.kind === "archify_visual_check") {
-      const htmlPath = archifyProjectPath(projectRoot, entry.html_path, "html_path");
-      checks.push({
-        type: "archify_visual_check",
-        result: await validateArchifyVisualCheckEvidence(entry, htmlPath, { receiptsDir: archifyReceiptsRoot })
-      });
-      continue;
-    }
-    const htmlPath = archifyProjectPath(projectRoot, entry.html_path, "html_path");
-    checks.push({
-      type: "archify_deliver",
-      result: await validateArchifyDeliveryReceipt(entry, htmlPath, { receiptsDir: archifyReceiptsRoot })
-    });
-  }
-  return checks;
-}
-
-async function verifyTask({
-  task_id,
-  run_quality = true,
-  quality_labels = [],
-  run_frontend = false,
-  frontend_options = {},
-  run_hygiene = true,
-  hygiene_base_ref = "HEAD",
-  evidence = []
-}) {
-  const record = await taskStore.read(task_id);
-  if (record.status === "complete") throw new Error("Completed task cannot be verified again.");
-  const projectIdentity = await resolveProjectIdentity(record.project.path);
-  const projectRoot = projectIdentity.project_root;
-  const checks = [];
-  checks.push(...await validateArchifyDeliveryEvidence(evidence, projectRoot));
-
-  if (run_quality) {
-    try {
-      checks.push({
-        type: "quality_gate",
-        result: await runQualityGate({
-          project_path: projectRoot,
-          labels: quality_labels,
-          dry_run: false,
-          update_registry: false,
-          register_if_missing: false
-        })
-      });
-    } catch (error) {
-      checks.push({
-        type: "quality_gate",
-        result: {
-          status: "unavailable",
-          error: error instanceof Error ? error.message : String(error)
-        }
-      });
-    }
-  }
-
-  if (run_frontend) {
-    if (!record.project.types.includes("frontend")) {
-      checks.push({
-        type: "frontend_qa",
-        result: {
-          gate: "block",
-          status: "not_frontend",
-          error: "Task project is not detected as frontend."
-        }
-      });
-    } else {
-      try {
-        checks.push({
-          type: "frontend_qa",
-          result: await runFrontendQa({
-            ...frontend_options,
-            project_path: projectRoot,
-            project_name: record.project.name,
-            update_registry: false,
-            register_if_missing: false
-          })
-        });
-      } catch (error) {
-        checks.push({
-          type: "frontend_qa",
-          result: {
-            gate: "block",
-            status: "unavailable",
-            error: error instanceof Error ? error.message : String(error)
-          }
-        });
-      }
-    }
-  }
-
-  if (record.project.types.includes("frontend")) {
-    const productState = await readFrontendProductState(projectRoot, { required: false });
-    const frontendProductTask = taskLooksFrontendProduct(record.task);
-    if (frontendProductTask) {
-      if (!productState) {
-        checks.push({
-          type: "frontend_product",
-          result: {
-            ok: false,
-            gate: "handoff",
-            blockers: ["Frontend Product Quality v2 is not prepared for this visual task."]
-          }
-        });
-      } else {
-        const hashes = await frontendProductDocumentHashes(projectRoot).catch(() => ({}));
-        const artifactStatus = await frontendReviewArtifactsCurrent(projectRoot, productState);
-        checks.push({
-          type: "frontend_product",
-          result: {
-            ...evaluateFrontendProductGate(productState, {
-              gate: "handoff",
-              currentDocumentHashes: hashes,
-              reviewArtifactsCurrent: artifactStatus.current
-            }),
-            reviewed_artifacts: artifactStatus
-          }
-        });
-      }
-    }
-  }
-
-  if (run_hygiene) checks.push({ type: "change_hygiene", result: await verifyChangeHygiene(projectRoot, { baseRef: hygiene_base_ref }) });
-  const projectState = await captureProjectState(projectRoot);
-  const passed = verificationPassed(checks);
-  const verification = {
-    id: `verification-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
-    at: new Date().toISOString(),
-    passed,
-    checks,
-    evidence: bindEvidence({
-      type: "task-verification",
-      result: { status: passed ? "passed" : "failed" },
-      projectState,
-      details: {
-        checks: checks.map((item) => ({
-          type: item.type,
-          status: item.result?.status || item.result?.gate || "unknown"
-        }))
-      }
-    })
-  };
-  let updated = await taskStore.addVerification(task_id, verification);
-  const skillOutcomes = await skillOutcomeStore.recordVerification({
-    task: updated,
-    verification,
-    projectState,
-    projectIdentity
-  });
-
-  if (passed) {
-    const criteria = [];
-    for (const item of updated.acceptance_criteria) {
-      if (/automated checks pass/i.test(item.text)) {
-        criteria.push({ id: item.id, status: "met", evidence: [verification.id] });
-      }
-      if (run_frontend && /changed ui is checked/i.test(item.text)) {
-        criteria.push({ id: item.id, status: "met", evidence: [verification.id] });
-      }
-      if (/design-first implementation gate|strict visual reference qa/i.test(item.text)) {
-        criteria.push({ id: item.id, status: "met", evidence: [verification.id] });
-      }
-      if (/diagram is delivered via archify_deliver/i.test(item.text)) {
-        const deliver = checks.find((check) => check.type === "archify_deliver");
-        const visual = checks.find((check) => check.type === "archify_visual_check");
-        const visualOk = !visual || visual.result?.ok === true;
-        if (deliver?.result?.ok === true && visualOk) {
-          criteria.push({ id: item.id, status: "met", evidence: [verification.id] });
-        }
-      }
-    }
-    if (criteria.length) {
-      updated = await taskStore.checkpoint(task_id, {
-        summary: "Automated verification passed.",
-        criteria,
-        notes: `Evidence: ${verification.id}`
-      });
-    }
-  }
-  if (checks.some((check) => check.type === "archify_deliver")) {
-    try {
-      const card = await findProjectCard(projectRoot);
-      const report = await updateProjectCard({ name: card.name, section: "Archify Diagram Deliveries", mode: "replace", content: archifyDeliveryReceiptMarkdown(checks.filter((check) => check.type === "archify_deliver").map((check) => check.result)), update_index: false });
-      const synced = await syncProjectCard({ project_path: projectRoot, create_if_missing: false, update_index: true });
-      verification.registry = { report, synced };
-    } catch (error) {
-      verification.registry = { action: "skipped", reason: error instanceof Error ? error.message : String(error) };
-    }
-  }
-  return {
-    task: updated,
-    verification,
-    skill_outcomes: skillOutcomes,
-    current_project_state: projectState
-  };
-}
-
-function taskCompletionMarkdown(record) {
-  const lines = [
-    "---",
-    `task_id: ${record.id}`,
-    `project: ${JSON.stringify(record.project.name)}`,
-    `status: ${record.status}`,
-    `completed_at: ${record.completion?.at || ""}`,
-    "---",
-    "",
-    `# ${record.task}`,
-    "",
-    `Project: \`${record.project.path}\``,
-    "",
-    `Risk: ${record.risk}`,
-    "",
-    "## Completion",
-    "",
-    record.completion?.summary || "",
-    "",
-    "## Acceptance Criteria",
-    ""
-  ];
-  for (const item of record.acceptance_criteria) {
-    lines.push(`- [${item.status === "met" ? "x" : " "}] ${item.id}: ${item.text}${item.note ? ` (${item.note})` : ""}`);
-  }
-  lines.push("", "## Skills", "");
-  for (const item of record.skills) lines.push(`- ${item.name} (${item.routing_role || item.role || "routed"})`);
-  lines.push("", "## Verification", "");
-  for (const item of record.verifications) {
-    lines.push(`- ${item.id}: ${item.passed ? "passed" : "failed"} at ${item.at}`);
-  }
-  return `${lines.join("\n")}\n`;
-}
-
-/**
- * Turn a finished task's evidence into a pull request description. Completion
- * is the moment every input exists — criteria, checkpoints, the passing
- * verification, the decisions — so the text is prepared here and only linked
- * from `next_step`; nothing is pushed and no pull request is opened.
- */
-async function preparePullRequestForTask(taskId) {
-  try {
-    const prepared = await extensions.handlers.get("prepare_pull_request")({ task_id: taskId });
-    return {
-      path: prepared.path,
-      title: prepared.title,
-      base_ref: prepared.base_ref,
-      branch: prepared.branch,
-      template: prepared.template?.path || "",
-      outstanding: prepared.outstanding,
-      commands: prepared.commands
-    };
-  } catch (error) {
-    return { path: "", error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-async function completeTask({
-  task_id,
-  summary,
-  allow_waived = false,
-  write_report = true,
-  prepare_pull_request = true,
-  evidence = []
-}) {
-  if (evidence.length) await verifyTask({ task_id, run_quality: false, run_frontend: false, evidence });
-  const existing = await taskStore.read(task_id);
-  const projectIdentity = await resolveProjectIdentity(existing.project.path);
-  const projectRoot = projectIdentity.project_root;
-  const projectState = await captureProjectState(projectRoot);
-  const completionClaims = await auditCompletionClaims(existing, { summary, projectState });
-  const record = await taskStore.complete(task_id, {
-    summary,
-    projectState,
-    allowWaived: allow_waived
-  });
-  const completionVerificationIds = new Set(record.completion?.verification_ids || []);
-  const finalVerification = [...record.verifications]
-    .reverse()
-    .find((item) => completionVerificationIds.has(item.id) && item.passed);
-  const skillOutcomes = await skillOutcomeStore.recordCompletion({
-    task: record,
-    verification: finalVerification,
-    projectState,
-    projectIdentity
-  });
-  let report = null;
-  if (write_report) {
-    report = await writeKnowledgeNote({
-      path: `02-knowledge/Task Runs/${record.id}.md`,
-      content: taskCompletionMarkdown(record),
-      overwrite: true
-    });
-  }
-  const worktree = record.context?.worktree && !record.context.worktree.removed_at ? record.context.worktree : null;
-  const pullRequest = prepare_pull_request && projectState.git ? await preparePullRequestForTask(record.id) : null;
-  const nextSteps = [];
-  if (pullRequest?.path) {
-    nextSteps.push(`The pull request description is prepared in ${pullRequest.path}; review it, then push the branch and open the pull request with the commands it lists.`);
-  } else if (projectState.git) {
-    nextSteps.push("Call prepare_pull_request to build the pull request description from this task's evidence.");
-  }
-  if (worktree) nextSteps.push(`Merge or open a PR from ${worktree.branch}, then call remove_task_worktree.`);
-  return {
-    task: record,
-    report,
-    skill_outcomes: skillOutcomes,
-    completion_claims: completionClaims,
-    ...(pullRequest ? { pull_request: pullRequest } : {}),
-    ...(worktree ? { worktree } : {}),
-    ...(nextSteps.length ? { next_step: nextSteps.join(" ") } : {})
-  };
-}
-
 // Extension tools live in src/extensions/* and receive shared runtime services
 // through this host object (see src/tool-extensions.mjs).
 const extensions = createExtensionTools({
@@ -4833,6 +4370,13 @@ const extensions = createExtensionTools({
   hybridSearchIndex: (args) => searchRuntime.hybridSearch(args),
   embeddingStatus: (args) => embeddingRuntime.status(args),
   runSearchEval: (args) => extensions.handlers.get("run_search_eval")(args),
+  // The sibling tools the lifecycle extension drives. Reached through the
+  // registry rather than `callTool`, so a composed run records one ledger entry
+  // for the tool the client asked for and none for the work it delegated.
+  recommendSkills: (args) => extensions.handlers.get("recommend_skills")(args),
+  runQualityGate: (args) => extensions.handlers.get("run_quality_gate")(args),
+  runFrontendQa: (args) => extensions.handlers.get("run_frontend_qa")(args),
+  preparePullRequest: (args) => extensions.handlers.get("prepare_pull_request")(args),
   // Skill sources and the writers that turn them into the generated catalog.
   // `rebuild_index` owns the catalog but not the collectors: `import_skill_repo`,
   // `rebuild_skill_taxonomy` and `sync_skill_cards` still live here and share them.
@@ -4845,21 +4389,23 @@ const extensions = createExtensionTools({
   // have not been extracted yet all read them; the frontend extensions reach
   // them through this host rather than the other way round.
   readFrontendProductState, writeFrontendProductState, frontendProductDocumentHashes,
+  frontendReviewArtifactsCurrent,
   normalizeFrontendProductReference, validateFrontendReferenceFiles,
   updateFrontendProductBrief, recordFrontendDirections, resolveFrontendReviewArtifact,
   findProjectCard, updateProjectCard, syncProjectCard, registerProject,
   safeProjectSubdir, resolveTaskProjectRoot, runUiUxProMax, uiUxProMaxSource,
+  // The Archify receipt store, which `verify_task` reads to check that a
+  // delivery claim is backed by a receipt the renderer itself wrote.
+  archifyProjectPath, archifyReceiptsRoot,
   sha256, truncateOutput
 });
-// Four extension tools are called by the runtime itself, not only over MCP:
+// Two extension tools are called by the runtime itself, not only over MCP:
 // `import_skill_repo` and the overlay tools rebuild the registry after writing
-// to the vault, `begin_task` routes skills for the task it opens, and
-// `verify_task` runs Frontend QA and the project's quality gate as two of its
-// checks. They reach the extension the same way `prepare_pull_request` is
-// reached, so each tool stays the single implementation.
+// to the vault, and `compile_project_context` routes skills for the pack it
+// compiles. They reach the extension the same way `prepare_pull_request` is
+// reached, so each tool stays the single implementation. The lifecycle tools
+// reach their siblings the same way, through the host wrappers above.
 const rebuildIndex = (args = {}) => extensions.handlers.get("rebuild_index")(args);
-const runFrontendQa = (args) => extensions.handlers.get("run_frontend_qa")(args);
-const runQualityGate = (args) => extensions.handlers.get("run_quality_gate")(args);
 const recommendSkillsProjectAware = (args) => extensions.handlers.get("recommend_skills")(args);
 const extensionReadOnlyTools = extensions.readOnly;
 const tools = [...buildToolDefinitions({
@@ -5069,7 +4615,6 @@ async function dispatchTool(name, args) {
   if (name === "analyze_project") return textContent(await analyzeProjectTool(args));
   if (name === "compile_project_context") return textContent(await compileProjectContext(args));
   if (name === "project_context_status") return textContent(await projectContextStatus(args));
-  if (name === "begin_task") return textContent(await beginTask(args));
   if (name === "get_task") return textContent(await getTask(args));
   if (name === "list_tasks") return textContent(await listTasks(args));
   if (name === "skill_outcome_status") return textContent(await skillOutcomeStatus());
@@ -5077,9 +4622,6 @@ async function dispatchTool(name, args) {
   if (name === "start_project_pilot") return textContent(await startProjectPilot(args));
   if (name === "record_project_pilot_review") return textContent(await recordProjectPilotReview(args));
   if (name === "project_pilot_status") return textContent(await projectPilotStatus(args));
-  if (name === "checkpoint_task") return textContent(await checkpointTask(args));
-  if (name === "verify_task") return textContent(await verifyTask(args));
-  if (name === "complete_task") return textContent(await completeTask(args));
   if (name === "write_knowledge_note") return textContent(await writeKnowledgeNote(args));
   if (name === "append_knowledge_note") return textContent(await appendKnowledgeNote(args));
   const extension = extensions.handlers.get(name);

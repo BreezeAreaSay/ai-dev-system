@@ -74,17 +74,17 @@ couple pure logic to the vault. Duplicate tool names and definitions without a h
 startup, so a broken extension can never reach a client.
 
 Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygiene`,
-`instincts`, `plans`, `projects`, `pull-requests`, `rules`, `search`, `sessions`, `skills`,
-`system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
+`instincts`, `lifecycle`, `plans`, `projects`, `pull-requests`, `rules`, `search`, `sessions`,
+`skills`, `system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
 `change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `pull-request.mjs`,
 `pr-template.mjs`, `rules-library.mjs`, `rules-catalog.mjs`, `session-memory.mjs`,
 `skill-catalog.mjs`, `skill-cards.mjs`, `skill-registry-docs.mjs`,
 `skill-quality-report.mjs`, `skill-recommendation.mjs`, `frontend-product-quality.mjs`,
 `reference-factory.mjs`, `reference-factory-artifacts.mjs`, `frontend-qa-report.mjs`,
 `search-runtime.mjs`, `search-eval.mjs`, `project-cards.mjs`, `project-markdown.mjs`,
-`quality-gate-runner.mjs`, `system-health.mjs`, `system-dashboard.mjs`,
-`text-format.mjs`, `usage-ledger.mjs`, `task-worktrees.mjs`); the extension is the MCP
-surface over it.
+`quality-gate-runner.mjs`, `task-verification.mjs`, `task-completion.mjs`,
+`system-health.mjs`, `system-dashboard.mjs`, `text-format.mjs`, `usage-ledger.mjs`,
+`task-worktrees.mjs`); the extension is the MCP surface over it.
 
 `core/` is not only pure logic. A handful of modules there are services: they run processes
 or own state, but know nothing about MCP and take everything environment-specific as a
@@ -93,8 +93,8 @@ added `search-index.mjs` and `embedding-workers.mjs`, and stage 1.5 `project-det
 The rule they follow is that the launcher, the paths and the collaborators arrive as
 arguments, so the module is testable against a stub rather than against an installed
 toolchain.
-`core/completion-claims.mjs` has no extension of its own: the task lifecycle in `mcp-stdio.mjs`
-is its only caller.
+`core/completion-claims.mjs` has no extension of its own: the `lifecycle` extension is its only
+caller.
 
 `pull-requests` is the one extension that reads from every other: `prepare_pull_request`
 projects a task record, its verifications, its decisions and its plan onto the repository diff
@@ -103,9 +103,10 @@ there is one (`core/pr-template.mjs` discovers, parses and fills it), and it sto
 `git push` and `gh pr create` are returned as commands, never executed, so publishing stays a
 human decision. `complete_task` prepares the same file and links it from `next_step`.
 
-`system`, `skills`, `frontend-design`, `frontend-qa`, `search` and `projects` are extractions
-from `mcp-stdio.mjs` rather than new capabilities; each moved out with its definitions and each
-splits the same way, I/O in the extension and judgement in `core/`.
+`system`, `skills`, `frontend-design`, `frontend-qa`, `search`, `projects` and `lifecycle` are
+extractions from `mcp-stdio.mjs` rather than new capabilities; each moved out with its
+definitions and each splits the same way, I/O in the extension and judgement in `core/`. Those
+six steps took the main module from 10,018 lines to 4,775.
 
 `system` carries `system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status`.
 Its checks fetch through `host` and hand the raw status objects to pure evaluators in
@@ -191,6 +192,28 @@ carried over from the card as it stands and generated only when it has none.
 `core/project-markdown.mjs` holds what the card shares with `AGENTS.md`, the project map, the
 project brief and the gate file: the command and component tables, the documentation and
 environment sections, the section readers and the project slug.
+
+`lifecycle` carries the arc every other tool is arranged around: `begin_task` opens a bounded
+task against a compiled context pack and at most three routed skills, `checkpoint_task` records
+progress against its acceptance criteria, `verify_task` runs the checks that could prove the work,
+and `complete_task` closes it and writes down what happened.
+
+It is the extension with the most connections, and all of them run through `host`: the task store
+and the skill-outcome store, project identity and detection, project-state capture, the frontend
+product state, the Archify receipt store, the project-card writers and the knowledge-note writer.
+The four sibling tools it drives — `recommend_skills` for routing, `run_quality_gate` and
+`run_frontend_qa` as verification checks, `prepare_pull_request` at completion — arrive the same
+way, as host wrappers over `extensions.handlers`. That is deliberate rather than incidental:
+reaching them through `callTool` instead would record a second usage-ledger entry for work the
+client never asked for, so a composed run would be counted twice.
+
+Its judgements are pure. `core/task-verification.mjs` decides whether a run passed (an empty run
+never does, and an unknown check type fails closed) and which acceptance criteria that passing run
+is evidence for — criteria are matched on the text `begin_task` wrote, which is why those rules
+read like prose. `core/task-completion.mjs` renders the completion note and says what is left to do
+with the branch. The refusals stay in the extension because they are about order rather than
+judgement: a rationalized report is refused by `core/completion-claims.mjs` before anything is
+written, and a completed task is refused re-verification before any runner starts.
 
 ### Context extras
 

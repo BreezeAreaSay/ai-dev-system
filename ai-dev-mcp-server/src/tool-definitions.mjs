@@ -8,28 +8,6 @@ export function buildToolDefinitions({
   UI_UX_PRO_MAX_DOMAINS,
   UI_UX_PRO_MAX_STACKS
 }) {
-  const ARCHIFY_EVIDENCE_SCHEMA = {
-    type: "array",
-    default: [],
-    description: "Archify deliverables backing acceptance criteria. Pass the `evidence` object returned by archify_deliver / archify_visual_check verbatim.",
-    items: {
-      type: "object",
-      properties: {
-        kind: { type: "string", enum: ["archify_deliver", "archify_visual_check"] },
-        html_path: { type: "string" },
-        spec_sha256: { type: "string" },
-        artifact_sha256: { type: "string" },
-        quality: { type: "string" },
-        errors: { type: "number" },
-        warnings: { type: "number" },
-        checks_passed: { type: "number" },
-        check_count: { type: "number" },
-        status: { type: "string" },
-        containment_status: { type: "string" }
-      },
-      required: ["kind", "html_path"]
-    }
-  };
   return [
   {
     name: "search_knowledge",
@@ -807,24 +785,6 @@ export function buildToolDefinitions({
     }
   },
   {
-    name: "begin_task",
-    description: "Start a bounded engineering task with a compiled task-specific context pack, at most three routed skills, explicit acceptance criteria, risk, and a Git-bound baseline.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        project_path: { type: "string" },
-        project_name: { type: "string" },
-        task: { type: "string" },
-        acceptance_criteria: {
-          type: "array",
-          items: { type: "string" },
-          default: []
-        }
-      },
-      required: ["project_path", "task"]
-    }
-  },
-  {
     name: "get_task",
     description: "Read one task lifecycle record by id.",
     inputSchema: {
@@ -948,72 +908,6 @@ export function buildToolDefinitions({
         pilot_id: { type: "string" },
         project_path: { type: "string" }
       }
-    }
-  },
-  {
-    name: "checkpoint_task",
-    description: "Record implementation progress, changed files, and acceptance-criterion evidence before verification. The summary and notes are linted for rationalizations (\"pre-existing issue\", \"skipping tests for now\", \"should work\"): one whose check did not pass is refused unless .ai-dev/policy.json waives that rule and the report states the reason.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        task_id: { type: "string" },
-        summary: { type: "string" },
-        changed_files: {
-          type: "array",
-          items: { type: "string" },
-          default: []
-        },
-        criteria: {
-          type: "array",
-          default: [],
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string" },
-              status: { type: "string", enum: ["pending", "met", "blocked", "waived"] },
-              note: { type: "string" },
-              evidence: { type: "array", items: { type: "string" } }
-            },
-            required: ["id", "status"]
-          }
-        },
-        notes: { type: "string" }
-      },
-      required: ["task_id", "summary"]
-    }
-  },
-  {
-    name: "verify_task",
-    description: "Run the project quality gate and optional Frontend QA, then bind machine-readable evidence to the current Git state.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        task_id: { type: "string" },
-        run_quality: { type: "boolean", default: true },
-        quality_labels: { type: "array", items: { type: "string" }, default: [] },
-        run_frontend: { type: "boolean", default: false },
-        frontend_options: { type: "object", additionalProperties: true, default: {} },
-        run_hygiene: { type: "boolean", default: true, description: "Scan added lines for secrets, debug leftovers, focused/skipped tests, conflict markers, weakened lint configs, and missing test changes. A block finding fails verification." },
-        hygiene_base_ref: { type: "string", default: "HEAD", description: "Git ref the hygiene scan diffs against; use the branch base (for example main) to include committed work." },
-        evidence: ARCHIFY_EVIDENCE_SCHEMA
-      },
-      required: ["task_id"]
-    }
-  },
-  {
-    name: "complete_task",
-    description: "Complete a task only when all acceptance criteria are resolved and passing verification matches the current project state. The summary is linted for rationalizations that no passing check backs (see checkpoint_task).",
-    inputSchema: {
-      type: "object",
-      properties: {
-        task_id: { type: "string" },
-        summary: { type: "string" },
-        allow_waived: { type: "boolean", default: false },
-        write_report: { type: "boolean", default: true },
-        prepare_pull_request: { type: "boolean", default: true, description: "Also build the pull request description from the task evidence into .ai-dev/pr/<task_id>.md and link it from next_step." },
-        evidence: ARCHIFY_EVIDENCE_SCHEMA
-      },
-      required: ["task_id", "summary"]
     }
   },
   {

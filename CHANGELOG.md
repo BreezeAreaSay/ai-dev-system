@@ -173,6 +173,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The task lifecycle moved out of `mcp-stdio.mjs` (stage 1.6 of the modularity
+  plan, the last extraction step). `begin_task`, `checkpoint_task`, `verify_task`
+  and `complete_task` became `src/extensions/lifecycle.mjs`, and the judgements
+  under them became two tested modules in `src/core`: `task-verification.mjs`
+  (whether a run passed, and which acceptance criteria it is evidence for) and
+  `task-completion.mjs` (the completion note and what is left to do with the
+  branch). Everything the four tools drive — the completion-claims linter, the
+  plan gate, change hygiene, the context pack and its extras, evidence binding,
+  skill outcomes, the Archify receipt store and the project-card writers —
+  arrives through the extension host, and the four sibling tools they call
+  (`recommend_skills`, `run_quality_gate`, `run_frontend_qa`,
+  `prepare_pull_request`) arrive as host wrappers over the registry rather than
+  through `callTool`, so a composed run still records one usage-ledger entry for
+  the tool the client asked for and none for the work it delegated. Tool
+  behaviour, response bytes, generated project and vault files, the task and
+  usage state on disk, and the 116-tool list are unchanged; `mcp-stdio.mjs` lost
+  a further 1,649 lines (6,424 → 4,775 — 5,243 fewer than the 10,018 it started
+  at, and past the plan's target of under 6,000).
+  - `ARCHIFY_EVIDENCE_SCHEMA` left `tool-definitions.mjs` with the two tools
+    that used it, so no tool definition is now shared across the two files.
 - Project work moved out of `mcp-stdio.mjs` (stage 1.5 of the modularity plan).
   `run_quality_gate` became `src/extensions/projects.mjs`, and the pure half of
   project handling became four tested modules under `src/core`:

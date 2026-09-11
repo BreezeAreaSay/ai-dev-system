@@ -26,6 +26,7 @@ import { createFrontendQaTools } from "./extensions/frontend-qa.mjs";
 import { createHookTools } from "./extensions/hooks.mjs";
 import { createHygieneTools } from "./extensions/hygiene.mjs";
 import { createInstinctTools } from "./extensions/instincts.mjs";
+import { createLifecycleTools } from "./extensions/lifecycle.mjs";
 import { createPlanTools } from "./extensions/plans.mjs";
 import { createProjectTools } from "./extensions/projects.mjs";
 import { createPullRequestTools } from "./extensions/pull-requests.mjs";
@@ -44,6 +45,7 @@ export const EXTENSION_FACTORIES = [
   createHookTools,
   createHygieneTools,
   createInstinctTools,
+  createLifecycleTools,
   createPlanTools,
   createProjectTools,
   createPullRequestTools,

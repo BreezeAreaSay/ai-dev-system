@@ -19,9 +19,10 @@
 | `post-edit.mjs` | `PostToolUse: Write\|Edit` | локальный форматтер (prettier/biome/ruff/black/gofmt/rustfmt) только если он есть в проекте |
 | `session-start.mjs` | `SessionStart` | инжектит handoff, открытые задачи, инстинкты и индекс правил (до 8000 символов) |
 | `session-end.mjs` | `Stop`, `PreCompact` (`--compact`) | извлекает из транскрипта черновик handoff в `state/sessions/<project_id>/hook-<session>.json` с пометкой `confirmed: false` |
+| `cost-capture.mjs` | `Stop` | суммирует `usage` сообщений ассистента, появившихся с прошлого запуска (курсор — байтовое смещение в `state/usage/sessions/<session>.json`), и дописывает события в usage ledger по моделям; цены подставляет `usage_report` (пункт 3.15 плана, см. [03-usage-ledger.md](03-usage-ledger.md)) |
 | `stop-check.mjs` | `Stop` | напоминает про незакрытую задачу и изменённые файлы без `verify_task` |
 
-Профили: `minimal` (guard + session-end), `standard` (всё выше), `strict` (то же, но правила
+Профили: `minimal` (guard + session-end + cost-capture), `standard` (всё выше), `strict` (то же, но правила
 policy строже). Выход хука: код 2 с текстом причины для Claude Code либо JSON
 `{"permission":"deny"}` для Cursor (`--cursor`). `.ai-dev/policy.json` — аналог `hookify`:
 пользовательские regex-правила по событиям `bash`/`file` с действием `warn`/`block`, флаги

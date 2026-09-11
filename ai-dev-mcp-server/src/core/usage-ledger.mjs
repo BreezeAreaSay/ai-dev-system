@@ -20,6 +20,275 @@ function round(value, digits = 6) {
 }
 
 /**
+ * Where the prices below come from, and when they were read. Prices change, so
+ * the table is data: `.ai-dev/policy.json` can override any row (see
+ * {@link mergeRateTable}) without waiting for a release.
+ */
+export const RATE_TABLE_SOURCE = {
+  url: "https://platform.claude.com/docs/en/about-claude/pricing",
+  checked_on: "2026-09-11"
+};
+
+/**
+ * Prompt-caching multipliers on the base input price, from the same page:
+ * a 5-minute cache write costs 1.25x, a 1-hour write 2x, and a cache hit 0.1x.
+ * A model whose published cache price is not the multiplier (Claude Fable 5.1
+ * and Claude Mythos 5.1 read cache at 0.025x) carries that price explicitly in
+ * {@link RATE_TABLE}; for every other row the derived number is the published
+ * one.
+ */
+export const CACHE_WRITE_MULTIPLIER = 1.25;
+export const CACHE_WRITE_1H_MULTIPLIER = 2;
+export const CACHE_READ_MULTIPLIER = 0.1;
+
+/**
+ * USD per million tokens, keyed by Claude API model id. `input` and `output`
+ * are the published base prices; `cache_write` (5-minute TTL) and `cache_read`
+ * are derived from the multipliers above unless a row states them.
+ *
+ * Read from {@link RATE_TABLE_SOURCE} on the date recorded there. Retired
+ * models are listed because a ledger keeps old events: a report over last
+ * month must still be able to price them.
+ */
+export const RATE_TABLE = {
+  "claude-fable-5-1": { input: 10, output: 50, cache_read: 0.25 },
+  "claude-mythos-5-1": { input: 10, output: 50, cache_read: 0.25 },
+  "claude-fable-5": { input: 10, output: 50 },
+  "claude-mythos-5": { input: 10, output: 50 },
+  "claude-opus-5": { input: 5, output: 25 },
+  "claude-opus-4-8": { input: 5, output: 25 },
+  "claude-opus-4-7": { input: 5, output: 25 },
+  "claude-opus-4-6": { input: 5, output: 25 },
+  "claude-opus-4-5": { input: 5, output: 25 },
+  "claude-opus-4-1": { input: 15, output: 75 },
+  "claude-opus-4": { input: 15, output: 75 },
+  "claude-sonnet-5": { input: 2, output: 10 },
+  "claude-sonnet-4-6": { input: 3, output: 15 },
+  "claude-sonnet-4-5": { input: 3, output: 15 },
+  "claude-sonnet-4": { input: 3, output: 15 },
+  "claude-haiku-4-5": { input: 1, output: 5 },
+  "claude-haiku-3-5": { input: 0.8, output: 4 }
+};
+
+function positivePrice(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : null;
+}
+
+/** Fill the cache prices a row leaves to the multipliers. */
+function completeRates(entry) {
+  const input = positivePrice(entry?.input);
+  const output = positivePrice(entry?.output);
+  if (input === null || output === null) return null;
+  return {
+    input,
+    output,
+    cache_write: positivePrice(entry?.cache_write) ?? round(input * CACHE_WRITE_MULTIPLIER),
+    cache_write_1h: positivePrice(entry?.cache_write_1h) ?? round(input * CACHE_WRITE_1H_MULTIPLIER),
+    cache_read: positivePrice(entry?.cache_read) ?? round(input * CACHE_READ_MULTIPLIER)
+  };
+}
+
+/**
+ * The model id as the rate table spells it. Transcripts and runners report the
+ * same model in several dialects: a context-window suffix (`claude-opus-5[1m]`),
+ * a Bedrock vendor or region prefix (`us.anthropic.claude-opus-5`), a Vertex
+ * `@`-separated snapshot (`claude-opus-4-5@20251101`).
+ *
+ * @param {string} model
+ * @returns {string}
+ */
+export function normalizeModelId(model) {
+  return String(model || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\[[^\]]*\]/g, "")
+    .replace(/^(?:[a-z]{2,6}\.)?anthropic\./, "")
+    .replace("@", "-")
+    .replace(/-v\d+:\d+$/, "");
+}
+
+/**
+ * Prices for a model, or null when the table does not know it. A dated snapshot
+ * (`claude-haiku-4-5-20251001`) falls back to its dateless row; anything else
+ * unknown stays unpriced on purpose — a report that says "these models have no
+ * rate" is honest, a report that guesses a neighbouring model's price is not.
+ *
+ * @param {string} model
+ * @param {Record<string, object>} [table]
+ * @returns {{ model: string, matched: string, input: number, output: number, cache_write: number, cache_write_1h: number, cache_read: number } | null}
+ */
+export function resolveModelRates(model, table = RATE_TABLE) {
+  const normalized = normalizeModelId(model);
+  if (!normalized) return null;
+  const candidates = [normalized, normalized.replace(/-\d{8}$/, "")];
+  for (const candidate of candidates) {
+    const rates = completeRates(table?.[candidate]);
+    if (rates) return { model: normalized, matched: candidate, ...rates };
+  }
+  return null;
+}
+
+/**
+ * What a turn cost at list prices, or null when the model has no rate. Used
+ * only where the client reported none: a client-reported cost is what was
+ * actually billed, an estimate is arithmetic over published prices.
+ *
+ * @param {{ model?: string, inputTokens?: number, outputTokens?: number, cacheReadTokens?: number, cacheCreationTokens?: number }} usage
+ * @param {Record<string, object>} [table]
+ * @returns {number | null}
+ */
+export function estimateCostUsd(usage = {}, table = RATE_TABLE) {
+  const rates = resolveModelRates(usage.model, table);
+  if (!rates) return null;
+  const priced = (tokens, perMillion) => (Math.max(0, finiteOrNull(tokens) ?? 0) / 1_000_000) * perMillion;
+  return round(
+    priced(usage.inputTokens, rates.input)
+    + priced(usage.outputTokens, rates.output)
+    + priced(usage.cacheCreationTokens, rates.cache_write)
+    + priced(usage.cacheReadTokens, rates.cache_read)
+  );
+}
+
+/**
+ * The built-in table with per-model overrides applied, for the projects whose
+ * `.ai-dev/policy.json` carries a `model_rates` block. An override may correct
+ * a price that moved or add a model the table has never heard of; a row without
+ * usable `input`/`output` numbers is ignored rather than half-applied.
+ *
+ * @param {Record<string, object>} overrides
+ * @param {Record<string, object>} [base]
+ * @returns {{ table: Record<string, object>, applied: string[], rejected: string[] }}
+ */
+export function mergeRateTable(overrides, base = RATE_TABLE) {
+  const table = { ...base };
+  const applied = [];
+  const rejected = [];
+  for (const [model, entry] of Object.entries(overrides && typeof overrides === "object" ? overrides : {})) {
+    const key = normalizeModelId(model);
+    const merged = completeRates({ ...(entry && typeof entry === "object" ? entry : {}) });
+    if (!key || !merged) {
+      rejected.push(String(model));
+      continue;
+    }
+    table[key] = merged;
+    applied.push(key);
+  }
+  return { table, applied: applied.sort(), rejected: rejected.sort() };
+}
+
+/** Local midnight `daysAgo` days before `now`: the boundaries of a developer's day. */
+function dayBoundary(now, daysAgo = 0) {
+  const start = new Date(now);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - daysAgo);
+  return start;
+}
+
+function withinWindow(event, from, to) {
+  const at = Date.parse(event?.at);
+  if (!Number.isFinite(at)) return false;
+  return at >= from.getTime() && (to === null || at < to.getTime());
+}
+
+/**
+ * One usage event's cost, split into what the client reported and what the rate
+ * table estimates. A reported cost is what was billed, so it always wins; an
+ * event whose model has no rate is counted as unpriced rather than as free.
+ */
+function costOf(event, rates) {
+  const reported = finiteOrNull(event.cost_usd) ?? 0;
+  if (reported > 0) return { reported, estimated: 0, unpriced: false };
+  const estimated = estimateCostUsd({
+    model: event.model,
+    inputTokens: event.input_tokens,
+    outputTokens: event.output_tokens,
+    cacheReadTokens: event.cache_read_tokens,
+    cacheCreationTokens: event.cache_creation_tokens
+  }, rates);
+  return { reported: 0, estimated: estimated ?? 0, unpriced: estimated === null };
+}
+
+/** The prices a model row was costed at, or null when the table has no rate for it. */
+function modelRateRow(model, rates) {
+  const resolved = resolveModelRates(model, rates);
+  if (!resolved) return null;
+  const { model: _normalized, ...prices } = resolved;
+  return prices;
+}
+
+function emptyUsage(extra = {}) {
+  return {
+    events: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    cache_read_tokens: 0,
+    cache_creation_tokens: 0,
+    cost_usd: 0,
+    reported_cost_usd: 0,
+    estimated_cost_usd: 0,
+    duration_ms: 0,
+    turns: 0,
+    ...extra
+  };
+}
+
+function roundCosts(row) {
+  return {
+    ...row,
+    cost_usd: round(row.cost_usd, 4),
+    reported_cost_usd: round(row.reported_cost_usd, 4),
+    estimated_cost_usd: round(row.estimated_cost_usd, 4)
+  };
+}
+
+/** Fold a set of ledger events into per-tool, per-task, per-model and total rows. */
+function accumulate(events, rates) {
+  const tools = new Map();
+  const tasks = new Map();
+  const models = new Map();
+  const unpriced = new Set();
+  const usage = emptyUsage();
+  let toolCalls = 0;
+  const taskRow = (taskId) => {
+    const row = tasks.get(taskId) ?? emptyUsage({ task_id: taskId, tool_calls: 0, tool_failures: 0 });
+    tasks.set(taskId, row);
+    return row;
+  };
+  for (const event of events) {
+    if (event.kind === "tool_call") {
+      toolCalls += 1;
+      const entry = tools.get(event.tool) ?? { tool: event.tool, calls: 0, failures: 0, total_ms: 0, max_ms: 0 };
+      entry.calls += 1;
+      if (!event.ok) entry.failures += 1;
+      entry.total_ms += Number(event.duration_ms) || 0;
+      entry.max_ms = Math.max(entry.max_ms, Number(event.duration_ms) || 0);
+      tools.set(event.tool, entry);
+      if (event.task_id) {
+        const task = taskRow(event.task_id);
+        task.tool_calls += 1;
+        if (!event.ok) task.tool_failures += 1;
+      }
+    } else if (event.kind === "usage") {
+      const cost = costOf(event, rates);
+      if (cost.unpriced) unpriced.add(String(event.model || "unknown"));
+      const model = models.get(event.model) ?? emptyUsage({ model: event.model, rate_usd_per_mtok: modelRateRow(event.model, rates) });
+      for (const row of [usage, model, ...(event.task_id ? [taskRow(event.task_id)] : [])]) {
+        row.events += 1;
+        for (const key of ["input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "duration_ms", "turns"]) {
+          row[key] += Number(event[key]) || 0;
+        }
+        row.reported_cost_usd += cost.reported;
+        row.estimated_cost_usd += cost.estimated;
+        row.cost_usd += cost.reported + cost.estimated;
+      }
+      models.set(event.model, model);
+    }
+  }
+  return { tools, tasks, models, usage, unpriced, toolCalls };
+}
+
+/**
  * Append-only JSONL ledger of MCP tool calls and client-reported model usage
  * (`~/.ai-dev/state/usage/events.jsonl`). The MCP server cannot see model
  * tokens itself; the client (or an orchestrator such as a session runner) posts
@@ -135,13 +404,19 @@ export class UsageLedger {
 
   /**
    * Aggregate the ledger: per-tool call counts, failures, and latency; per-task
-   * token and cost totals; and overall model usage, optionally filtered by
-   * project path, task id, or a start timestamp.
+   * token and cost totals; per-model usage; and the today / yesterday / last
+   * seven days slices, optionally filtered by project path, task id, or a start
+   * timestamp.
    *
-   * @param {{ projectPath?: string, taskId?: string, since?: string, limitTools?: number }} [filter]
+   * Cost comes from the client where the client reported one and from the rate
+   * table everywhere else — the hook that reads transcripts records tokens
+   * only, so that a change of prices re-prices history instead of freezing a
+   * stale number into the ledger.
+   *
+   * @param {{ projectPath?: string, taskId?: string, since?: string, limitTools?: number, rates?: Record<string, object>, now?: Date }} [filter]
    * @returns {Promise<object>} Report.
    */
-  async report({ projectPath = "", taskId = "", since = "", limitTools = 15 } = {}) {
+  async report({ projectPath = "", taskId = "", since = "", limitTools = 15, rates = RATE_TABLE, now = new Date() } = {}) {
     const events = (await this.readEvents()).filter((event) => {
       if (taskId && event.task_id !== taskId) return false;
       if (projectPath && event.project_path && path.resolve(event.project_path) !== path.resolve(projectPath)) return false;
@@ -149,44 +424,7 @@ export class UsageLedger {
       if (since && String(event.at || "") < since) return false;
       return true;
     });
-    const tools = new Map();
-    const tasks = new Map();
-    const usage = { events: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, cost_usd: 0, duration_ms: 0, turns: 0 };
-    const models = new Map();
-    for (const event of events) {
-      if (event.kind === "tool_call") {
-        const entry = tools.get(event.tool) ?? { tool: event.tool, calls: 0, failures: 0, total_ms: 0, max_ms: 0 };
-        entry.calls += 1;
-        if (!event.ok) entry.failures += 1;
-        entry.total_ms += Number(event.duration_ms) || 0;
-        entry.max_ms = Math.max(entry.max_ms, Number(event.duration_ms) || 0);
-        tools.set(event.tool, entry);
-        if (event.task_id) {
-          const task = tasks.get(event.task_id) ?? { task_id: event.task_id, tool_calls: 0, tool_failures: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
-          task.tool_calls += 1;
-          if (!event.ok) task.tool_failures += 1;
-          tasks.set(event.task_id, task);
-        }
-      } else if (event.kind === "usage") {
-        usage.events += 1;
-        for (const key of ["input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "cost_usd", "duration_ms", "turns"]) {
-          usage[key] += Number(event[key]) || 0;
-        }
-        const model = models.get(event.model) ?? { model: event.model, events: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
-        model.events += 1;
-        model.input_tokens += Number(event.input_tokens) || 0;
-        model.output_tokens += Number(event.output_tokens) || 0;
-        model.cost_usd += Number(event.cost_usd) || 0;
-        models.set(event.model, model);
-        if (event.task_id) {
-          const task = tasks.get(event.task_id) ?? { task_id: event.task_id, tool_calls: 0, tool_failures: 0, input_tokens: 0, output_tokens: 0, cost_usd: 0 };
-          task.input_tokens += Number(event.input_tokens) || 0;
-          task.output_tokens += Number(event.output_tokens) || 0;
-          task.cost_usd += Number(event.cost_usd) || 0;
-          tasks.set(event.task_id, task);
-        }
-      }
-    }
+    const { tools, tasks, models, usage, unpriced, toolCalls } = accumulate(events, rates);
     const toolRows = [...tools.values()]
       .map((item) => ({
         ...item,
@@ -195,16 +433,44 @@ export class UsageLedger {
       }))
       .sort((left, right) => right.calls - left.calls || left.tool.localeCompare(right.tool))
       .slice(0, Math.max(1, Math.min(Number(limitTools) || 15, 200)));
+    // Day boundaries are local ones: "today" is the developer's day, not UTC's.
+    const period = (fromDays, toDays = null) => {
+      const from = dayBoundary(now, fromDays);
+      const to = toDays === null ? null : dayBoundary(now, toDays);
+      const slice = events.filter((event) => withinWindow(event, from, to));
+      const summary = accumulate(slice, rates);
+      const totals = roundCosts(summary.usage);
+      return {
+        since: from.toISOString(),
+        until: to ? to.toISOString() : null,
+        events: slice.length,
+        tool_calls: summary.toolCalls,
+        usage_events: totals.events,
+        input_tokens: totals.input_tokens,
+        output_tokens: totals.output_tokens,
+        cache_read_tokens: totals.cache_read_tokens,
+        cache_creation_tokens: totals.cache_creation_tokens,
+        cost_usd: totals.cost_usd,
+        reported_cost_usd: totals.reported_cost_usd,
+        estimated_cost_usd: totals.estimated_cost_usd
+      };
+    };
     return {
       ledger_path: this.filePath,
       events: events.length,
       filter: { project_path: projectPath || null, task_id: taskId || null, since: since || null },
-      tool_calls: events.filter((event) => event.kind === "tool_call").length,
+      tool_calls: toolCalls,
       tools: toolRows,
       slowest_tools: [...tools.values()].sort((left, right) => right.max_ms - left.max_ms).slice(0, 5).map((item) => ({ tool: item.tool, max_ms: item.max_ms })),
-      usage: { ...usage, cost_usd: round(usage.cost_usd, 4) },
-      models: [...models.values()].map((item) => ({ ...item, cost_usd: round(item.cost_usd, 4) })),
-      tasks: [...tasks.values()].map((item) => ({ ...item, cost_usd: round(item.cost_usd, 4) }))
+      usage: roundCosts(usage),
+      periods: { today: period(0), yesterday: period(1, 0), last_7_days: period(6) },
+      models: [...models.values()].map((item) => roundCosts(item)).sort((left, right) => right.cost_usd - left.cost_usd || left.model.localeCompare(right.model)),
+      rates: {
+        source: RATE_TABLE_SOURCE,
+        priced_models: Object.keys(rates).length,
+        unpriced_models: [...unpriced].sort()
+      },
+      tasks: [...tasks.values()].map((item) => roundCosts(item))
         .sort((left, right) => right.cost_usd - left.cost_usd || right.tool_calls - left.tool_calls)
         .slice(0, 50)
     };

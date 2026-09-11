@@ -122,13 +122,15 @@ where a foreign hook sits ahead of ours, since Cursor runs the first entry of an
 | `post-edit.mjs` | PostToolUse | Formats the edited file with the project's own formatter when one is installed locally — never installs anything, never uses `npx`. |
 | `session-start.mjs` | SessionStart | Injects the last handoff, open tasks, high-confidence instincts, and the installed rules index into the first turn. |
 | `session-end.mjs` | Stop, PreCompact | Distils the transcript into an unconfirmed draft record (`confirmed: false`) for `resume_session`. |
+| `cost-capture.mjs` | Stop | Sums the `usage` of the assistant messages the transcript gained since the last run and appends them to the usage ledger, per model. Tokens only — the report prices them. |
 | `stop-check.mjs` | Stop | Cheap checks on git-modified files: leftover `console.log`/`debugger`, secrets, and a `verify_task` reminder while a task is active with uncommitted changes. |
 
 `.ai-dev/policy.json` is the knob: a `profile` (`minimal` — guard and session capture only,
 `standard`, `strict`), `allow_config_edits`, `format_on_edit`, the compaction thresholds
 (`compact_tool_threshold`, `compact_tool_interval`, `compact_context_threshold` — absolute, `0`
 derives it from the window — `compact_context_thresholds.standard` / `.large`,
-`compact_context_window`, `compact_context_interval`), and a list
+`compact_context_window`, `compact_context_interval`), `model_rates` (per-model price overrides
+for the usage report, in USD per million tokens), and a list
 of hookify-style `rules` (`{ id, event, pattern, action, message }`) that add project-specific
 `block` or `warn` patterns without touching the scripts. Hooks fail open: any error exits 0 so a
 broken hook never wedges the agent.
@@ -139,6 +141,18 @@ transcript, so the record carries `confirmed: false` and every reader shows it w
 context injection. `save_session` with `confirm_hook_draft: true` promotes one: the agent's own
 fields win, the draft fills the rest, the saved record is marked `confirmed` with `confirmed_from`,
 and the draft file is removed.
+
+What `cost-capture` writes is tokens, not money. A Claude Code transcript is append-only JSONL, so
+the hook keeps a byte cursor per session (`state/usage/sessions/<session>.json`), reads only what
+arrived since the last Stop, sums `usage` per model over the assistant messages in it — subagent
+turns included, since they are billed the same — and appends one `kind: "usage"` event per model to
+`state/usage/events.jsonl`. It writes the file directly rather than calling `record_usage`, because
+the server may be in Docker while the hook runs on the developer's machine. Prices live in
+`core/usage-ledger.mjs` (`RATE_TABLE`, read from Anthropic's pricing page on the date in
+`RATE_TABLE_SOURCE`, with the cache multipliers — write 1.25x, read 0.1x — filling the rows that do
+not state them) and are applied by `usage_report` at read time, so a price change re-prices history
+instead of freezing a stale number into the ledger. A model the table does not know is reported
+under `rates.unpriced_models` rather than counted as free.
 
 ### State roots
 
@@ -152,6 +166,7 @@ ${AI_DEV_HOME}/state/
                             hook capture until save_session(confirm_hook_draft) promotes it
   instincts.json            learned preferences with confidence and decay
   usage/events.jsonl        tool-call and token/cost ledger, pruned by size
+  usage/sessions/<id>.json  how far cost-capture has read each session's transcript
   skill-outcomes.json       verification-bound routing outcomes
   pilots.json               pilot reviews
   archify-receipts/         server-owned receipts keyed by artifact SHA-256

@@ -5,28 +5,13 @@
 // nothing blocks.
 import fs from "node:fs";
 import path from "node:path";
-import { compileRegex, git, hooksDisabled, loadPolicy, log, normalizeInput, profileAllows, projectRootOf, readJson, readStdin, samePath, stateRoot } from "./lib.mjs";
+import { activeTaskFor, compileRegex, git, hooksDisabled, loadPolicy, log, normalizeInput, profileAllows, projectRootOf, readStdin } from "./lib.mjs";
 
 const EXCLUDED = [/\.(test|spec)\.[cm]?[jt]sx?$/, /(^|\/)(tests?|__tests__|__mocks__|scripts|docs)\//, /\.config\.[cm]?[jt]s$/];
 
 function modifiedFiles(projectRoot) {
   const status = git(projectRoot, ["status", "--porcelain=v1", "--untracked-files=all"]);
   return status.split("\n").filter(Boolean).map((line) => line.slice(3).trim().replace(/^"|"$/g, "").split(" -> ").at(-1));
-}
-
-function activeTaskFor(projectRoot) {
-  const directory = path.join(stateRoot(), "tasks");
-  let names = [];
-  try {
-    names = fs.readdirSync(directory).filter((name) => name.endsWith(".json"));
-  } catch {
-    return null;
-  }
-  for (const name of names) {
-    const record = readJson(path.join(directory, name));
-    if (record && ["active", "verified"].includes(record.status) && samePath(record.project?.path, projectRoot)) return record;
-  }
-  return null;
 }
 
 async function main() {

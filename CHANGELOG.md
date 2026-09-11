@@ -62,6 +62,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bootstrap.ps1 -Plan`, exercises the client installer's win32 path handling,
   and runs the core unit suite. The Windows install path had no CI coverage
   before.
+- Cost capture and a model rate table, so a session's spend is visible without
+  the client reporting anything:
+  - **`cost-capture.mjs`**, an eighth hook, registered on `Stop` at every
+    profile. It sums the `usage` of the assistant messages a transcript gained
+    since the last run — subagent turns included, since they are billed the
+    same — and appends one `kind: "usage"` event per model to the usage ledger,
+    writing the file directly so it works while the server runs in Docker. A
+    byte cursor per session (`state/usage/sessions/<session>.json`) keeps the
+    same message from being billed twice however often `Stop` fires, and a
+    transcript that shrank is read from the top again.
+  - **`RATE_TABLE`** in `core/usage-ledger.mjs`: published USD per million
+    tokens per model, read from Anthropic's pricing page on the date recorded
+    in `RATE_TABLE_SOURCE`, with the cache multipliers (5-minute write 1.25x,
+    1-hour write 2x, read 0.1x) filling the rows that do not state their own.
+    Prices change, so `model_rates` in `.ai-dev/policy.json` overrides or adds
+    any row per project.
+  - **`usage_report`** now returns the `today` / `yesterday` / `last_7_days`
+    slices alongside the per-model and per-task totals, and estimates cost from
+    the rate table wherever the client reported none — a reported cost still
+    wins, and a model the table does not know is listed under
+    `rates.unpriced_models` instead of counted as free. Pricing happens at read
+    time, so a price change re-prices history rather than freezing a stale
+    number into the ledger.
 
 ### Fixed
 

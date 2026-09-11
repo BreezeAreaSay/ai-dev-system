@@ -351,8 +351,8 @@ The hooks block a command before it runs (git-hook bypasses, destructive and
 publishing commands), block a write before it lands (secret-bearing paths,
 secrets in content, weakened linter configuration), format edited files, inject
 the last handoff and open tasks at session start, distil the transcript into a
-session record at session end, and advise on compaction. Any hook error exits
-zero, so a broken hook never wedges the agent.
+session record at session end, record what each turn spent, and advise on
+compaction. Any hook error exits zero, so a broken hook never wedges the agent.
 
 What the session-end hook captures is a draft, not a handoff: its fields are
 heuristics over the transcript, so `resume_session` shows such a record flagged
@@ -360,17 +360,27 @@ unconfirmed, and `save_session` with `confirm_hook_draft: true` is what turns it
 into a real one — your fields win, the draft fills the rest, and the draft is
 dropped.
 
+The cost-capture hook reads the same transcript for a different reason: after
+every response it sums the tokens of the assistant messages that arrived since
+the last one and appends them to the usage ledger, per model. It records tokens,
+not money — `usage_report` prices them at read time from published Anthropic
+rates and shows today, yesterday, the last seven days, and the per-model and
+per-task totals. Prices move, so `model_rates` in `.ai-dev/policy.json`
+overrides any of them (USD per million tokens), and a model with no rate is
+listed as unpriced rather than counted as free.
+
 Three profiles:
 
-- `minimal` — the command and file guard plus session capture. Nothing else runs.
+- `minimal` — the command and file guard, session capture and cost capture.
+  Nothing else runs.
 - `standard` — the default: everything above, including formatting, session
   start injection, the compaction advisor, and the end-of-response check.
 - `strict` — the same set plus extra review warnings before `git push` and
   `git commit --amend`.
 
 `.ai-dev/policy.json` is where you tune it without touching the scripts:
-`allow_config_edits`, `format_on_edit`, compaction thresholds, and a list of
-your own rules:
+`allow_config_edits`, `format_on_edit`, compaction thresholds, `model_rates`,
+and a list of your own rules:
 
 ```json
 {

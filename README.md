@@ -17,7 +17,8 @@ for all of these clients.
 - a local Node.js MCP server;
 - a knowledge base, project context, and a managed skill library;
 - hybrid search: SQLite FTS, sparse retrieval, and an optional local BGE-M3 model;
-- a task lifecycle: `begin_task`, `checkpoint_task`, `verify_task`, `complete_task`;
+- a task lifecycle: `begin_task`, `checkpoint_task`, `verify_task`, `complete_task`,
+  and a pull request description built from the evidence it collected;
 - a quality gate, security checks, and Frontend QA with Playwright / Chromium;
 - [memory across sessions](#memory-and-learning): handoffs, decisions, and learned instincts;
 - [agent hooks](#hooks) for Claude Code and Cursor that guard commands and file writes;
@@ -289,6 +290,12 @@ with `/workspace`; for example, call `begin_task` with `/workspace/my-project`.
    context, and loads no more than three routed skills.
 4. After changing code the agent records progress with `checkpoint_task`, runs
    `verify_task`, and only calls `complete_task` with current evidence.
+5. `complete_task` writes the pull request description from that evidence into
+   `.ai-dev/pr/<task_id>.md` — goal, acceptance criteria with their status,
+   changed files by group, the checks that ran, decisions, and whatever is still
+   outstanding — filling the repository's own pull request template when it has
+   one. `prepare_pull_request` builds the same text at any point. Neither pushes
+   the branch nor opens the pull request: both commands are returned as text.
 
 Example request to the agent:
 

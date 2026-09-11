@@ -106,6 +106,7 @@ const GROUPS = [
       "run_quality_gate",
       "verify_task",
       "complete_task",
+      "prepare_pull_request",
       "start_project_pilot",
       "record_project_pilot_review",
       "project_pilot_status"

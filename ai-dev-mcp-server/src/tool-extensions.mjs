@@ -25,6 +25,7 @@ import { createHookTools } from "./extensions/hooks.mjs";
 import { createHygieneTools } from "./extensions/hygiene.mjs";
 import { createInstinctTools } from "./extensions/instincts.mjs";
 import { createPlanTools } from "./extensions/plans.mjs";
+import { createPullRequestTools } from "./extensions/pull-requests.mjs";
 import { createRulesTools } from "./extensions/rules.mjs";
 import { createSessionTools } from "./extensions/sessions.mjs";
 import { createSystemTools } from "./extensions/system.mjs";
@@ -37,6 +38,7 @@ export const EXTENSION_FACTORIES = [
   createHygieneTools,
   createInstinctTools,
   createPlanTools,
+  createPullRequestTools,
   createRulesTools,
   createSessionTools,
   createSystemTools,

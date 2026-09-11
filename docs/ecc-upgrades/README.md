@@ -34,6 +34,7 @@ Node 22, но `engines` в `package.json` не трогался: `>=24` оста
 | № | Файл | Пункт плана | Что даёт |
 | --- | --- | --- | --- |
 | 13 | [13-ecc-skill-catalog.md](13-ecc-skill-catalog.md) | 3.1 | Выборочный импорт каталога скиллов ECC как `external/ecc`: четыре ворот отбора, группы исключений с цитатами разбора, `trust: known-upstream` |
+| 14 | [14-pull-request-preparation.md](14-pull-request-preparation.md) | 3.16 | `prepare_pull_request`: описание PR из доказательств задачи, заполнение шаблона репозитория, секция «осталось», ссылка из `complete_task` |
 
 ## Как читать этот каталог
 

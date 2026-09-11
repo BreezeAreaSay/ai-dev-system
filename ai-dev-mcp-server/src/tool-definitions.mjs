@@ -1672,6 +1672,7 @@ export function buildToolDefinitions({
         summary: { type: "string" },
         allow_waived: { type: "boolean", default: false },
         write_report: { type: "boolean", default: true },
+        prepare_pull_request: { type: "boolean", default: true, description: "Also build the pull request description from the task evidence into .ai-dev/pr/<task_id>.md and link it from next_step." },
         evidence: ARCHIFY_EVIDENCE_SCHEMA
       },
       required: ["task_id", "summary"]

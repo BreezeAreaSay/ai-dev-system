@@ -37,7 +37,6 @@ const READ_ONLY_TOOLS = new Set([
   "read_knowledge",
   "search_skills",
   "read_skill",
-  "recommend_skills",
   "query_ui_ux_knowledge",
   "list_skill_groups",
   "browse_skill_group",

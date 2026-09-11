@@ -74,11 +74,13 @@ couple pure logic to the vault. Duplicate tool names and definitions without a h
 startup, so a broken extension can never reach a client.
 
 Registered today: `decisions`, `hooks`, `hygiene`, `instincts`, `plans`, `pull-requests`,
-`rules`, `sessions`, `system`, `usage`, `worktrees`. Pure logic stays in `core/`
+`rules`, `sessions`, `skills`, `system`, `usage`, `worktrees`. Pure logic stays in `core/`
 (`decision-ledger.mjs`, `agent-hooks.mjs`, `change-hygiene.mjs`, `instincts.mjs`,
 `task-plans.mjs`, `pull-request.mjs`, `pr-template.mjs`, `rules-library.mjs`,
-`rules-catalog.mjs`, `session-memory.mjs`, `system-health.mjs`, `system-dashboard.mjs`,
-`usage-ledger.mjs`, `task-worktrees.mjs`); the extension is the MCP surface over it.
+`rules-catalog.mjs`, `session-memory.mjs`, `skill-catalog.mjs`, `skill-cards.mjs`,
+`skill-registry-docs.mjs`, `skill-quality-report.mjs`, `skill-recommendation.mjs`,
+`system-health.mjs`, `system-dashboard.mjs`, `text-format.mjs`, `usage-ledger.mjs`,
+`task-worktrees.mjs`); the extension is the MCP surface over it.
 `core/completion-claims.mjs` has no extension of its own: the task lifecycle in `mcp-stdio.mjs`
 is its only caller.
 
@@ -89,10 +91,26 @@ there is one (`core/pr-template.mjs` discovers, parses and fills it), and it sto
 `git push` and `gh pr create` are returned as commands, never executed, so publishing stays a
 human decision. `complete_task` prepares the same file and links it from `next_step`.
 
-`system` is the first of the extractions from `mcp-stdio.mjs` rather than a new capability:
-`system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status` moved out with their
-definitions. Its checks fetch through `host` and hand the raw status objects to pure evaluators in
+`system` and `skills` are extractions from `mcp-stdio.mjs` rather than new capabilities; both moved
+out with their definitions and both split the same way, I/O in the extension and judgement in
+`core/`.
+
+`system` carries `system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status`.
+Its checks fetch through `host` and hand the raw status objects to pure evaluators in
 `core/system-health.mjs`, which also assembles the dashboard snapshot.
+
+`skills` carries `rebuild_index`, `validate_skill_library` and `recommend_skills` — the generated
+skill catalog end to end. The extension reads the vault, the skill sources and the embedding
+backend; the renders and verdicts are `core/skill-cards.mjs` (cards),
+`core/skill-registry-docs.mjs` (registry files and their Markdown),
+`core/skill-quality-report.mjs` (the validation report and its dashboard) and
+`core/skill-recommendation.mjs` (task intent, filtering and ranking), over the shared vocabulary in
+`core/skill-catalog.mjs`. Two things stayed behind deliberately: the skill collectors and the
+taxonomy/card writers, because `import_skill_repo`, `rebuild_skill_taxonomy` and `sync_skill_cards`
+share them, and `projectRecommendationContext`, which is project-card I/O. Both reach the extension
+through `host`. The traffic runs the other way too — `import_skill_repo` and the overlay tools call
+`rebuild_index`, and `begin_task` calls `recommend_skills` — and both go through
+`extensions.handlers`, so the tool stays the single implementation.
 
 ### Context extras
 

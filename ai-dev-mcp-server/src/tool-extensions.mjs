@@ -28,6 +28,7 @@ import { createPlanTools } from "./extensions/plans.mjs";
 import { createPullRequestTools } from "./extensions/pull-requests.mjs";
 import { createRulesTools } from "./extensions/rules.mjs";
 import { createSessionTools } from "./extensions/sessions.mjs";
+import { createSkillTools } from "./extensions/skills.mjs";
 import { createSystemTools } from "./extensions/system.mjs";
 import { createUsageTools } from "./extensions/usage.mjs";
 import { createWorktreeTools } from "./extensions/worktrees.mjs";
@@ -41,6 +42,7 @@ export const EXTENSION_FACTORIES = [
   createPullRequestTools,
   createRulesTools,
   createSessionTools,
+  createSkillTools,
   createSystemTools,
   createUsageTools,
   createWorktreeTools

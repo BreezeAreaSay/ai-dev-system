@@ -9,7 +9,6 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { execFileWithInput } from "./core/input-process-runner.mjs";
 import {
-  INTEGRATION_SUBGROUPS,
   SKILL_GROUPS,
   SKILL_TAXONOMY_SCHEMA_VERSION,
   canonicalSkillGroup,
@@ -21,7 +20,6 @@ import {
   SKILL_SCHEMA_VERSION,
   analyzeDuplicateSkills,
   enrichSkillQuality,
-  evaluateSkillQuality,
   summarizeSkillQuality
 } from "./skill-quality.mjs";
 import {
@@ -29,6 +27,34 @@ import {
   atomicWriteFile,
   atomicWriteJson
 } from "./core/atomic-files.mjs";
+import {
+  cleanDescription,
+  scoreText,
+  shorten,
+  slugPart,
+  stripBom,
+  toStringList as searchEvalList,
+  yamlString
+} from "./core/text-format.mjs";
+import {
+  findSkillItem,
+  groupWikiLink,
+  isDesignSkill,
+  isMembraneSkill,
+  skillCardPath,
+  skillGroupNotePath
+} from "./core/skill-catalog.mjs";
+import {
+  renderSkillCard,
+  skillCardPublic,
+  skillCardsMarkdownIndex
+} from "./core/skill-cards.mjs";
+import {
+  projectFiltersMembrane,
+  taskLooksBetaFrontend,
+  taskLooksFrontendProduct,
+  taskLooksLandingConversion
+} from "./core/skill-recommendation.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
 import {
   commandRiskReason,
@@ -106,7 +132,7 @@ import {
   PilotStore
 } from "./core/pilot-evaluation.mjs";
 import {
-  applySkillOverlay,
+  applySkillOverlays,
   createSkillOverlayDocument,
   skillOverlayKey,
   summarizeSkillOverlays,
@@ -224,7 +250,6 @@ const skillIndexPath = path.join(
 const skillCatalogRoot = path.join(vaultRoot, "03-skills-catalog");
 const sourcesRoot = path.join(skillCatalogRoot, "sources");
 const registryDir = path.join(skillCatalogRoot, "registries");
-const skillCardsRelativeDir = "03-skills-catalog/cards";
 const skillCardsIndexRelativePath = "03-skills-catalog/registries/skill-cards.index.json";
 const skillCardsCatalogRelativePath = "03-skills-catalog/registries/SKILL_CARDS.md";
 const skillGroupsRelativeDir = "03-skills-catalog/groups";
@@ -392,24 +417,10 @@ function toSkillCatalogRelative(absolutePath) {
   return path.relative(skillCatalogRoot, absolutePath).replaceAll("\\", "/");
 }
 
-function stripBom(text) {
-  return text.replace(/^\uFEFF/, "");
-}
-
-function cleanDescription(value) {
-  return (value ?? "").replace(/\s+/g, " ").trim();
-}
-
 function inferUseWhen(description) {
   const cleaned = cleanDescription(description);
   const useMatch = cleaned.match(/Use when\s+(.+)$/i);
   return useMatch ? useMatch[1].replace(/\.$/, "").trim() : cleaned;
-}
-
-function shorten(value, max) {
-  const cleaned = cleanDescription(value).replaceAll("|", "/");
-  if (cleaned.length <= max) return cleaned;
-  return `${cleaned.slice(0, max - 3)}...`;
 }
 
 function inferDesignSkillType(name) {
@@ -689,22 +700,10 @@ async function appendKnowledgeNote({ path: notePath, content, heading }) {
   };
 }
 
-function slugPart(value, fallback = "item") {
-  const slug = String(value || fallback)
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return (slug || fallback).slice(0, 90);
-}
-
 function markdownList(values, fallback = "None recorded.") {
   const list = Array.isArray(values) ? values.filter(Boolean) : [];
   if (!list.length) return fallback;
   return list.map((value) => `- ${String(value).replace(/\r?\n/g, " ").trim()}`).join("\n");
-}
-
-function skillGroupNotePath(groupId) {
-  return `${skillGroupsRelativeDir}/${groupId}.md`;
 }
 
 function skillWikiLink(item) {
@@ -712,11 +711,6 @@ function skillWikiLink(item) {
     ? `03-skills-catalog/${String(item.path || "").replace(/\.md$/i, "")}`
     : skillCardPath(item).replace(/\.md$/i, "");
   return `[[${target}|${item.name}]]`;
-}
-
-function groupWikiLink(groupId, label = "") {
-  const group = SKILL_GROUPS.find((item) => item.id === groupId);
-  return `[[${skillGroupNotePath(groupId).replace(/\.md$/i, "")}|${label || group?.label || groupId}]]`;
 }
 
 function skillSourceWikiTarget(item) {
@@ -1167,230 +1161,6 @@ async function writeSkillTaxonomyArtifacts(items) {
   return { schema_version: SKILL_TAXONOMY_SCHEMA_VERSION, total: items.length, groups, visual_graph: visualGraph };
 }
 
-function skillCardPath(item) {
-  return `${skillCardsRelativeDir}/${slugPart(item.source, "source")}/${slugPart(item.name, "skill")}.md`;
-}
-
-function skillCardPolicy(item) {
-  if (isMembraneSkill(item)) {
-    return {
-      role: "External application integration skill.",
-      use: "Use only when the task explicitly involves this external app or API.",
-      avoid: "Do not use for normal repository coding, architecture work, or generic debugging unless the app is part of the task."
-    };
-  }
-  if (item.source === "custom") {
-    return {
-      role: "Primary AI development workflow skill.",
-      use: "Use as a workflow guide before editing code or updating the knowledge base.",
-      avoid: "Do not stack too many workflow skills at once; choose the one that matches the current intent."
-    };
-  }
-  if (String(item.type || "").includes("image-generation")) {
-    return {
-      role: "Visual reference generation skill.",
-      use: "Use when the deliverable needs generated visual references, brand boards, or mockups.",
-      avoid: "Do not use when the user only asked for code changes and no visual reference is needed."
-    };
-  }
-  if (String(item.type || "").includes("output-control")) {
-    return {
-      role: "Completion and output-control support skill.",
-      use: "Use when the main risk is incomplete, truncated, or placeholder-heavy output.",
-      avoid: "Do not use as a default coding workflow; pair it only with tasks where completeness is the bottleneck."
-    };
-  }
-  if (isDesignSkill(item)) {
-    return {
-      role: "Frontend/design quality skill.",
-      use: "Use for visually important UI, UX, landing pages, redesigns, and design-system work.",
-      avoid: "Do not use for backend-only work unless the task has a visible product surface."
-    };
-  }
-  return {
-    role: "Skill from the local skill catalog.",
-    use: "Use when the task matches the skill description and source.",
-    avoid: "Do not use when a narrower custom workflow skill fits better."
-  };
-}
-
-function renderSkillCard(item) {
-  const policy = skillCardPolicy(item);
-  const cardPath = skillCardPath(item);
-  const generatedAt = new Date().toISOString();
-  const categories = Array.isArray(item.categories) ? item.categories : [];
-  const requires = Array.isArray(item.requires) ? item.requires : [];
-  const tags = [
-    "skill-card",
-    item.primary_group ? `skill-group/${item.primary_group}` : "",
-    item.maturity ? `skill-maturity/${item.maturity}` : "",
-    item.quality_status ? `skill-quality/${item.quality_status}` : "",
-    item.source,
-    item.type,
-    ...categories
-  ].filter(Boolean).map((value) => String(value).replace(/\s+/g, "-"));
-
-  return `---
-card_kind: "skill-card"
-name: ${yamlString(item.name)}
-source: ${yamlString(item.source)}
-type: ${yamlString(item.type)}
-primary_group: ${yamlString(item.primary_group || "unclassified")}
-subgroups: ${JSON.stringify(item.subgroups || [])}
-task_types: ${JSON.stringify(item.task_types || [])}
-platforms: ${JSON.stringify(item.platforms || [])}
-related_skills: ${JSON.stringify(item.related_skills || [])}
-frameworks: ${JSON.stringify(item.frameworks || [])}
-languages: ${JSON.stringify(item.languages || [])}
-conflicts: ${JSON.stringify(item.conflicts || [])}
-maturity: ${yamlString(item.maturity || "draft")}
-trust_level: ${yamlString(item.trust_level || "unverified")}
-quality_score: ${Number(item.quality_score || 0)}
-quality_grade: ${yamlString(item.quality_grade || "F")}
-quality_status: ${yamlString(item.quality_status || "fail")}
-skill_schema_version: ${Number(item.skill_schema_version || 0)}
-skill_path: ${yamlString(`03-skills-catalog/${item.path}`)}
-card_path: ${yamlString(cardPath)}
-generated_at: ${yamlString(generatedAt)}
-categories: ${JSON.stringify(categories)}
-tags: ${JSON.stringify(tags)}
----
-
-# ${item.name}
-
-## Purpose
-
-${policy.role}
-
-${cleanDescription(item.description || item.use_when || "No description recorded.")}
-
-## Use When
-
-${cleanDescription(item.use_when || policy.use)}
-
-## Do Not Use When
-
-${policy.avoid}
-
-## Routing
-
-- Source: \`${item.source}\`
-- Type: \`${item.type || "unknown"}\`
-- Group: ${groupWikiLink(item.primary_group || "unclassified", item.primary_group_label || item.primary_group || "Unclassified")}
-- Subgroups: ${(item.subgroups || []).length ? item.subgroups.map((value) => `\`${value}\``).join(", ") : "none"}
-- Task types: ${(item.task_types || []).length ? item.task_types.map((value) => `\`${value}\``).join(", ") : "none"}
-- Categories: ${categories.length ? categories.map((value) => `\`${value}\``).join(", ") : "none"}
-- Requires: ${requires.length ? requires.map((value) => `\`${value}\``).join(", ") : "none"}
-- Compatibility: ${item.compatibility || "not recorded"}
-
-## Quality
-
-- Maturity: \`${item.maturity || "draft"}\`
-- Trust: \`${item.trust_level || "unverified"}\`
-- Score: **${Number(item.quality_score || 0)}/100** (${item.quality_grade || "F"}, \`${item.quality_status || "fail"}\`)
-- Profile: \`${item.quality_profile || "unknown"}\`
-- Frameworks: ${(item.frameworks || []).length ? item.frameworks.map((value) => `\`${value}\``).join(", ") : "none detected"}
-- Languages: ${(item.languages || []).length ? item.languages.map((value) => `\`${value}\``).join(", ") : "none detected"}
-- Conflicts: ${(item.conflicts || []).length ? item.conflicts.map((value) => `\`${value}\``).join(", ") : "none recorded"}
-
-Trust records provenance and validation status; it is not an absolute security guarantee.
-
-## Related Skills
-
-${(item.related_skills || []).length ? item.related_skills.map((value) => `- \`${value}\``).join("\n") : "None recorded."}
-
-## Agent Workflow
-
-1. Start with this card when choosing whether the skill fits the task.
-2. If it fits, call \`read_skill\` for the full skill instructions.
-3. Combine it with project context, AGENTS.md, project-map, and quality-gate before editing code.
-4. After important work, update durable project or knowledge notes when useful.
-
-## MCP Commands
-
-\`\`\`json
-{
-  "tool": "read_skill",
-  "arguments": {
-    "name": "${item.name}",
-    "source": "${item.source}"
-  }
-}
-\`\`\`
-
-## Source
-
-- Skill file: \`03-skills-catalog/${item.path}\`
-- Card file: \`${cardPath}\`
-- Homepage: ${item.homepage || "not recorded"}
-- Repository: ${item.repository || "not recorded"}
-`;
-}
-
-function skillCardsMarkdownIndex(cards) {
-  const bySource = countBy(cards, (card) => card.source);
-  const byGroup = countBy(cards, (card) => card.primary_group || "unclassified");
-  const output = [
-    "# Skill Cards",
-    "",
-    "Autogenerated index of AI Dev System skill cards.",
-    "",
-    `Total cards: ${cards.length}`,
-    "",
-    "## By Source",
-    "",
-    "| Source | Cards |",
-    "|---|---|"
-  ];
-  for (const [source, count] of Object.entries(bySource).sort((a, b) => a[0].localeCompare(b[0]))) {
-    output.push(`| ${source} | ${count} |`);
-  }
-  output.push("", "## By Group", "", "| Group | Cards |", "|---|---:|");
-  for (const [group, count] of Object.entries(byGroup).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
-    output.push(`| ${groupWikiLink(group)} | ${count} |`);
-  }
-  output.push(
-    "",
-    "## Cards",
-    "",
-    "| Skill | Group | Quality | Maturity | Source | Type | Use when | Card |",
-    "|---|---|---:|---|---|---|---|---|"
-  );
-  for (const card of cards) {
-    output.push(`| ${card.name} | ${card.primary_group || "unclassified"} | ${card.quality_score || 0} | ${card.maturity || "draft"} | ${card.source} | ${card.type || ""} | ${shorten(card.use_when || card.description || "", 160)} | \`${card.card_path}\` |`);
-  }
-  output.push("");
-  return output.join("\n");
-}
-
-function skillCardPublic(item) {
-  return {
-    name: item.name,
-    source: item.source,
-    type: item.type,
-    categories: item.categories,
-    primary_group: item.primary_group,
-    primary_group_label: item.primary_group_label,
-    subgroups: item.subgroups || [],
-    task_types: item.task_types || [],
-    platforms: item.platforms || [],
-    related_skills: item.related_skills || [],
-    frameworks: item.frameworks || [],
-    languages: item.languages || [],
-    conflicts: item.conflicts || [],
-    maturity: item.maturity,
-    trust_level: item.trust_level,
-    quality_score: item.quality_score,
-    quality_grade: item.quality_grade,
-    quality_status: item.quality_status,
-    skill_schema_version: item.skill_schema_version,
-    use_when: item.use_when,
-    skill_path: item.skill_path,
-    card_path: item.card_path,
-    generated_at: item.generated_at
-  };
-}
-
 async function readSkillCardsIndex({ syncIfMissing = false } = {}) {
   const target = safePath(skillCardsIndexRelativePath);
   if (!(await pathExists(target))) {
@@ -1534,17 +1304,6 @@ async function searchSkillCards(options = {}) {
   return listSkillCards(options);
 }
 
-function markdownTable(title, rows, columns) {
-  const output = [`# ${title}`, ""];
-  output.push(`| ${columns.map((column) => column.title).join(" | ")} |`);
-  output.push(`| ${columns.map(() => "---").join(" | ")} |`);
-  for (const row of rows) {
-    output.push(`| ${columns.map((column) => column.value(row)).join(" | ")} |`);
-  }
-  output.push("");
-  return output.join("\n");
-}
-
 async function readSkillOverlayDocument({ create = true } = {}) {
   const target = safePath(skillOverlaysRelativePath);
   const existing = await readJsonIfExists(target);
@@ -1552,124 +1311,6 @@ async function readSkillOverlayDocument({ create = true } = {}) {
   const document = createSkillOverlayDocument();
   if (create) await atomicWriteJson(target, document);
   return document;
-}
-
-function applySkillOverlays(items, document) {
-  return items.map((item) => {
-    const overlaid = applySkillOverlay(item, document);
-    const group = SKILL_GROUPS.find((candidate) => candidate.id === overlaid.primary_group);
-    return group
-      ? {
-        ...overlaid,
-        primary_group_label: group.label,
-        related_groups: group.related_groups
-      }
-      : overlaid;
-  });
-}
-
-async function rebuildIndex() {
-  await fs.mkdir(registryDir, { recursive: true });
-
-  const [outcomeStatus, overlays] = await Promise.all([
-    skillOutcomeStore.status(),
-    readSkillOverlayDocument()
-  ]);
-  const custom = applySkillOverlays((await collectCustomSkills())
-    .map((item) => applySkillOutcome(item, outcomeStatus.summaries[item.name]))
-    .map(classifySkill), overlays);
-  const design = applySkillOverlays((await collectDesignSkills()).map(classifySkill), overlays);
-  const membrane = applySkillOverlays((await collectMembraneSkills()).map(classifySkill), overlays);
-  const external = applySkillOverlays((await collectExternalSkills()).map(classifySkill), overlays);
-  const combined = [...custom, ...design, ...external, ...membrane];
-
-  await writeJson("03-skills-catalog/registries/custom.skills.index.json", custom);
-  await writeJson("03-skills-catalog/registries/design.skills.index.json", design);
-  await writeJson("03-skills-catalog/registries/membrane.skills.index.json", membrane);
-  await writeJson("03-skills-catalog/registries/external.skills.index.json", external);
-  await writeJson("03-skills-catalog/registries/skills.index.json", combined);
-  await writeText("03-skills-catalog/registries/skills.names.txt", `${combined.map((item) => item.name).join("\n")}\n`);
-  const taxonomy = await writeSkillTaxonomyArtifacts(combined);
-
-  const customMarkdown = markdownTable("Custom Workflow Skills", custom, [
-    { title: "Skill", value: (item) => item.name },
-    { title: "Use when", value: (item) => shorten(item.use_when, 220) },
-    { title: "File", value: (item) => `\`${item.path}\`` }
-  ]);
-  await writeText("03-skills-catalog/registries/CUSTOM_WORKFLOW_SKILLS.md", customMarkdown);
-
-  const designMarkdown = [
-    "# Design Skills",
-    "",
-    "Autogenerated index of design-oriented skills.",
-    "",
-    markdownTable("Design Taste Skills", design, [
-      { title: "Skill", value: (item) => item.name },
-      { title: "Source", value: (item) => item.source },
-      { title: "Type", value: (item) => item.type },
-      { title: "Use when", value: (item) => shorten(item.use_when, 220) },
-      { title: "File", value: (item) => `\`${item.path}\`` }
-    ])
-  ].join("\n");
-  await writeText("03-skills-catalog/registries/DESIGN_TASTE_SKILLS.md", designMarkdown);
-
-  const membraneMarkdown = [
-    "# All Membrane Skills",
-    "",
-    "Autogenerated index of all Membrane application skills currently stored in this vault.",
-    "",
-    `Total skills: ${membrane.length}`,
-    "",
-    markdownTable("Membrane Skills", membrane, [
-      { title: "Skill", value: (item) => item.name },
-      { title: "Subgroup", value: (item) => (item.subgroups || []).join(", ") },
-      { title: "Use when", value: (item) => shorten(item.use_when, 180) },
-      { title: "File", value: (item) => `\`${item.path}\`` }
-    ])
-  ].join("\n");
-  await writeText("03-skills-catalog/registries/ALL_MEMBRANE_SKILLS.md", membraneMarkdown);
-
-  const externalMarkdown = markdownTable("External Imported Skills", external, [
-    { title: "Skill", value: (item) => item.name },
-    { title: "Source", value: (item) => item.source },
-    { title: "Use when", value: (item) => shorten(item.use_when, 220) },
-    { title: "File", value: (item) => `\`${item.path}\`` }
-  ]);
-  await writeText("03-skills-catalog/registries/EXTERNAL_SKILLS.md", externalMarkdown);
-  const skillCards = await syncSkillCards({ include_membrane: false });
-  markSearchIndexDirty("skill registry rebuilt");
-
-  return {
-    total: combined.length,
-    custom: custom.length,
-    design: design.length,
-    external: external.length,
-    membrane: membrane.length,
-    skill_cards: skillCards.total,
-    taxonomy_schema_version: taxonomy.schema_version,
-    skill_groups: taxonomy.groups.map((group) => ({ id: group.id, count: group.count })),
-    visual_graph: {
-      linked_unique_skills: taxonomy.visual_graph.linked_unique_skills,
-      batch_pages: taxonomy.visual_graph.batch_pages,
-      group_hubs: taxonomy.visual_graph.group_hubs,
-      bucket_hubs: taxonomy.visual_graph.bucket_hubs,
-      page_size: taxonomy.visual_graph.page_size
-    },
-    files: {
-      combined: "03-skills-catalog/registries/skills.index.json",
-      names: "03-skills-catalog/registries/skills.names.txt",
-      custom: "03-skills-catalog/registries/CUSTOM_WORKFLOW_SKILLS.md",
-      design: "03-skills-catalog/registries/DESIGN_TASTE_SKILLS.md",
-      external: "03-skills-catalog/registries/EXTERNAL_SKILLS.md",
-      membrane: "03-skills-catalog/registries/ALL_MEMBRANE_SKILLS.md",
-      skill_groups_index: skillGroupsIndexRelativePath,
-      skill_graph_index: skillGraphIndexRelativePath,
-      skills_map: skillsMapRelativePath,
-      complete_skill_graph: taxonomy.visual_graph.root_note,
-      skill_cards_index: skillCards.index_path,
-      skill_cards_catalog: skillCards.catalog_path
-    }
-  };
 }
 
 async function rebuildSkillTaxonomy({ sync_cards = true } = {}) {
@@ -1713,357 +1354,6 @@ async function rebuildSkillTaxonomy({ sync_cards = true } = {}) {
       page_size: taxonomy.visual_graph.page_size
     },
     skill_cards: cards?.total
-  };
-}
-
-async function readSkillMarkdownForItem(item) {
-  const target = path.resolve(skillCatalogRoot, String(item.path || ""));
-  const sourceRoot = path.resolve(sourcesRoot);
-  if (!isPathInside(sourceRoot, target, { allowRoot: false })) {
-    throw new Error(`Skill path is outside the sources root: ${item.path}`);
-  }
-  return stripBom(await fs.readFile(target, "utf8"));
-}
-
-function dotProduct(left, right) {
-  const length = Math.min(left?.length || 0, right?.length || 0);
-  let total = 0;
-  for (let index = 0; index < length; index += 1) total += Number(left[index] || 0) * Number(right[index] || 0);
-  return total;
-}
-
-async function refineDuplicatePairsWithBge(pairs, records) {
-  if (!pairs.length) return { evaluated: 0, pairs: [] };
-  const byPath = new Map(records.map((record) => [record.item.path, record]));
-  const selectedPairs = [];
-  const selectedPaths = new Set();
-  for (const pair of pairs) {
-    const additions = [pair.left.path, pair.right.path].filter((value) => !selectedPaths.has(value));
-    if (selectedPaths.size + additions.length > 32) continue;
-    selectedPairs.push(pair);
-    for (const value of additions) selectedPaths.add(value);
-  }
-  const paths = [...selectedPaths];
-  if (!paths.length) return { evaluated: 0, pairs: [] };
-  const embedded = await embedTexts({
-    texts: paths.map((skillPath) => {
-      const record = byPath.get(skillPath);
-      return `Skill: ${record?.item?.name || skillPath}\n${String(record?.markdown || "").slice(0, 10000)}`;
-    }),
-    prefix: "passage: ",
-    include_embeddings: true,
-    timeout_ms: 600000
-  });
-  const vectors = new Map(paths.map((skillPath, index) => [skillPath, embedded.embeddings?.[index] || []]));
-  return {
-    evaluated: selectedPairs.length,
-    pairs: selectedPairs.map((pair) => {
-      const denseSimilarity = dotProduct(vectors.get(pair.left.path), vectors.get(pair.right.path));
-      return {
-        ...pair,
-        dense_similarity: Number(denseSimilarity.toFixed(4)),
-        semantic_confirmed: denseSimilarity >= 0.9
-      };
-    })
-  };
-}
-
-function renderSkillQualityDashboard(report) {
-  const summary = report.summary;
-  const importantRows = report.important_skills.map((item) =>
-    `| ${item.name} | ${item.primary_group} | ${item.maturity} | ${item.validation_status} | ${item.empirical_status} | ${item.trust_level} | ${item.structure_score} | ${item.structure_status} |`
-  );
-  const issueRows = report.issues.slice(0, 40).map((issue) =>
-    `| ${issue.severity} | ${issue.skill} | ${issue.code} | ${String(issue.message || "").replaceAll("|", "/")} |`
-  );
-  const domainRows = Object.entries(report.by_group)
-    .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))
-    .map(([group, data]) => `| ${groupWikiLink(group)} | ${data.count} | ${data.average_score} | ${data.pass} | ${data.warn} | ${data.fail} |`);
-  const findingRows = Object.entries(summary.finding_counts || {})
-    .slice(0, 20)
-    .map(([code, count]) => `| ${code} | ${count} |`);
-  return `---
-tags: ["skill-quality", "skill-dashboard"]
-skill_schema_version: ${report.schema_version}
-generated_at: ${JSON.stringify(report.generated_at)}
----
-
-# Skill Quality Dashboard
-
-Machine-generated quality view for the complete skill library. Trust describes provenance, not an absolute security guarantee.
-
-## Summary
-
-| Metric | Value |
-|---|---:|
-| Skills | ${summary.total} |
-| Schema v2 | ${summary.schema_current} |
-| Average score | ${summary.average_score} |
-| Pass | ${summary.by_status.pass || 0} |
-| Warn | ${summary.by_status.warn || 0} |
-| Fail | ${summary.by_status.fail || 0} |
-| Important structurally ready | ${summary.important_structure_ready}/${summary.important_skills} |
-| Important empirically validated | ${summary.important_empirical_ready}/${summary.important_skills} |
-| Provisional validation | ${summary.by_validation_status.provisional || 0} |
-| Issues | ${report.issues_total} |
-| Exact duplicate groups | ${report.duplicates.exact.length} |
-| Near duplicate candidates | ${report.duplicates.near_total} |
-| Overlay source policies | ${report.overlays?.source_policies || 0} |
-| Specific skill overlays | ${report.overlays?.specific_overlays || 0} |
-| Orphan overlays | ${report.overlays?.orphan_overlays?.length || 0} |
-
-## Finding Counts
-
-| Finding | Skills |
-|---|---:|
-${findingRows.length ? findingRows.join("\n") : "| none | 0 |"}
-
-## Domains
-
-| Domain | Skills | Average | Pass | Warn | Fail |
-|---|---:|---:|---:|---:|---:|
-${domainRows.join("\n")}
-
-## Important Skills
-
-| Skill | Group | Maturity | Validation | Empirical | Trust | Structure | Status |
-|---|---|---|---|---|---|---:|---|
-${importantRows.join("\n")}
-
-## Top Issues
-
-| Severity | Skill | Code | Message |
-|---|---|---|---|
-${issueRows.length ? issueRows.join("\n") : "| info | - | none | No issues for the selected validation scope. |"}
-
-## Duplicate Policy
-
-${report.duplicates.membrane_policy}
-
-## Files
-
-- Machine report: \`${skillQualityIndexRelativePath}\`
-- Normalization overlays: \`${skillOverlaysRelativePath}\`
-- Skill taxonomy: [[Skill Taxonomy]]
-- Complete graph: [[groups/all-skills/Index|Complete Skill Graph]]
-`;
-}
-
-async function validateSkillLibrary({
-  source = "",
-  group = "",
-  min_score = 0,
-  include_duplicates = true,
-  include_semantic_duplicates = false,
-  duplicate_threshold = 0.82,
-  max_issues = 200,
-  write_report = true,
-  refresh_registry = false
-} = {}) {
-  if (refresh_registry) await rebuildIndex();
-  const current = await readSkillIndex();
-  const overlays = await readSkillOverlayDocument();
-  const selectedGroup = group ? canonicalSkillGroup(group) : "";
-  const records = [];
-  const readErrors = [];
-  for (const original of current) {
-    if (source && !String(original.source || "").includes(String(source))) continue;
-    if (selectedGroup && original.primary_group !== selectedGroup) continue;
-    try {
-      const markdown = await readSkillMarkdownForItem(original);
-      const enriched = applySkillOverlays([
-        classifySkill(enrichSkillQuality(original, markdown))
-      ], overlays)[0];
-      if (Number(enriched.quality_score || 0) < Number(min_score || 0)) continue;
-      records.push({ item: enriched, markdown });
-    } catch (error) {
-      readErrors.push({
-        severity: "error",
-        skill: original.name,
-        source: original.source,
-        path: original.path,
-        code: "source-read-failed",
-        message: error instanceof Error ? error.message : String(error)
-      });
-    }
-  }
-  const items = records.map((record) => record.item);
-  const names = new Set(current.map((item) => String(item.name || "").toLowerCase()));
-  const relationshipIssues = [];
-  for (const item of items) {
-    for (const related of item.related_skills || []) {
-      if (!names.has(String(related).toLowerCase())) {
-        relationshipIssues.push({
-          severity: "warn",
-          skill: item.name,
-          source: item.source,
-          path: item.path,
-          code: "missing-related-skill",
-          message: `Related skill does not exist in the registry: ${related}`
-        });
-      }
-    }
-    for (const conflict of item.conflicts || []) {
-      if (!String(conflict).startsWith("policy:") && !names.has(String(conflict).toLowerCase())) {
-        relationshipIssues.push({
-          severity: "error",
-          skill: item.name,
-          source: item.source,
-          path: item.path,
-          code: "missing-conflict-target",
-          message: `Conflict target does not exist in the registry: ${conflict}`
-        });
-      }
-    }
-  }
-  const qualityIssues = items.flatMap((item) => (item.quality_findings || []).map((finding) => ({
-    ...finding,
-    skill: item.name,
-    source: item.source,
-    path: item.path,
-    score: item.quality_score
-  })));
-  const overlayErrors = validateSkillOverlayDocument(overlays, {
-    knownGroups: SKILL_GROUPS.map((item) => item.id),
-    knownSkills: current.map((item) => skillOverlayKey(item.source, item.name))
-  }).map((message) => ({
-    severity: "error",
-    skill: "skill-overlays",
-    source: "local-overlay",
-    path: skillOverlaysRelativePath,
-    code: "invalid-skill-overlay",
-    message
-  }));
-  const allIssues = [...readErrors, ...overlayErrors, ...relationshipIssues, ...qualityIssues]
-    .sort((a, b) => {
-      const priority = { error: 0, warn: 1, info: 2 };
-      return (priority[a.severity] ?? 3) - (priority[b.severity] ?? 3)
-        || Number(a.score || 0) - Number(b.score || 0)
-        || String(a.skill || "").localeCompare(String(b.skill || ""));
-    });
-  let duplicates = {
-    exact: [], near: [], near_total: 0, compared_non_integration_skills: 0,
-    membrane_policy: "Duplicate analysis disabled."
-  };
-  if (include_duplicates) {
-    duplicates = analyzeDuplicateSkills(records, {
-      threshold: Math.max(0.5, Math.min(Number(duplicate_threshold) || 0.82, 0.99)),
-      max_pairs: 100
-    });
-    if (include_semantic_duplicates && duplicates.near.length) {
-      const semantic = await refineDuplicatePairsWithBge(duplicates.near, records);
-      duplicates.semantic_evaluated = semantic.evaluated;
-      duplicates.near = semantic.pairs;
-    } else {
-      duplicates.semantic_evaluated = 0;
-    }
-  }
-  const summary = summarizeSkillQuality(items);
-  const byGroup = {};
-  for (const taxonomyGroup of SKILL_GROUPS) {
-    const members = items.filter((item) => item.primary_group === taxonomyGroup.id);
-    if (!members.length) continue;
-    byGroup[taxonomyGroup.id] = {
-      count: members.length,
-      average_score: Number((members.reduce((total, item) => total + item.quality_score, 0) / members.length).toFixed(2)),
-      pass: members.filter((item) => item.quality_status === "pass").length,
-      warn: members.filter((item) => item.quality_status === "warn").length,
-      fail: members.filter((item) => item.quality_status === "fail").length
-    };
-  }
-  const report = {
-    action: "validated",
-    generated_at: new Date().toISOString(),
-    schema_version: SKILL_SCHEMA_VERSION,
-    filters: { source, group: selectedGroup, min_score: Number(min_score || 0) },
-    summary,
-    source_read_errors: readErrors.length,
-    overlays: summarizeSkillOverlays(overlays, current),
-    by_group: byGroup,
-    important_skills: items.filter((item) => item.source === "custom").map((item) => ({
-      name: item.name,
-      primary_group: item.primary_group,
-      maturity: item.maturity,
-      trust_level: item.trust_level,
-      structure_score: item.structure_score,
-      structure_status: item.structure_status,
-      empirical_status: item.empirical_status,
-      validation_status: item.validation_status,
-      quality_basis: item.quality_basis,
-      quality_score: item.quality_score,
-      quality_grade: item.quality_grade,
-      quality_status: item.quality_status,
-      frameworks: item.frameworks || [],
-      conflicts: item.conflicts || [],
-      path: item.path
-    })),
-    issues_total: allIssues.length,
-    issue_counts: countBy(allIssues, (issue) => issue.severity || "unknown"),
-    issues: allIssues.slice(0, Math.max(1, Math.min(Number(max_issues) || 200, 1000))),
-    duplicates,
-    skills: items.map((item) => ({
-      name: item.name,
-      source: item.source,
-      path: item.path,
-      primary_group: item.primary_group,
-      maturity: item.maturity,
-      trust_level: item.trust_level,
-      quality_profile: item.quality_profile,
-      structure_score: item.structure_score,
-      structure_grade: item.structure_grade,
-      structure_status: item.structure_status,
-      quality_score: item.quality_score,
-      quality_grade: item.quality_grade,
-      quality_status: item.quality_status,
-      quality_basis: item.quality_basis,
-      empirical_score: item.empirical_score,
-      empirical_status: item.empirical_status,
-      validation_status: item.validation_status,
-      validation_evidence: item.validation_evidence,
-      quality_breakdown: item.quality_breakdown,
-      quality_findings: item.quality_findings,
-      frameworks: item.frameworks || [],
-      languages: item.languages || [],
-      conflicts: item.conflicts || [],
-      requires: item.requires || [],
-      content_hash: item.content_hash,
-      skill_schema_version: item.skill_schema_version
-    })),
-    recommendations: []
-  };
-  if (summary.schema_current !== summary.total) report.recommendations.push("Run rebuild_index to persist Schema v2 metadata for every skill.");
-  if (summary.important_failures.length) report.recommendations.push(`Fix failing important skills: ${summary.important_failures.join(", ")}.`);
-  if (summary.important_empirical_ready < summary.important_skills) {
-    report.recommendations.push("Structural quality is not proof of real task success. Run routing benchmarks and collect task verification outcomes before promoting custom skills to validated.");
-  }
-  if ((report.issue_counts.error || 0) > 0) report.recommendations.push(`Review ${report.issue_counts.error} schema or relationship error(s) listed in the quality report.`);
-  if ((summary.finding_counts?.["generic-integration-description"] || 0) > 0) {
-    report.recommendations.push(`${summary.finding_counts["generic-integration-description"]} integration skill(s) use generic routing descriptions; prefer specific catalog entries when scores are otherwise close.`);
-  }
-  if (duplicates.exact.length) report.recommendations.push("Review exact duplicate groups and keep one authoritative source when appropriate.");
-  if (duplicates.near_total) report.recommendations.push("Review near-duplicate candidates before deleting or merging any skill.");
-  if (!report.recommendations.length) report.recommendations.push("Skill library quality checks passed for the selected scope.");
-  if (write_report) {
-    await writeJson(skillQualityIndexRelativePath, report);
-    await writeText(skillQualityDashboardRelativePath, renderSkillQualityDashboard(report));
-    markSearchIndexDirty("skill quality report updated");
-  }
-  return {
-    action: report.action,
-    generated_at: report.generated_at,
-    schema_version: report.schema_version,
-    filters: report.filters,
-    summary: report.summary,
-    source_read_errors: report.source_read_errors,
-    by_group: report.by_group,
-    important_skills: report.important_skills,
-    issues_total: report.issues_total,
-    issue_counts: report.issue_counts,
-    issues: report.issues.slice(0, 20),
-    duplicates: report.duplicates,
-    recommendations: report.recommendations,
-    report_path: write_report ? skillQualityIndexRelativePath : null,
-    dashboard_path: write_report ? skillQualityDashboardRelativePath : null
   };
 }
 
@@ -5559,10 +4849,6 @@ async function prepareProject({
   };
 }
 
-function yamlString(value) {
-  return JSON.stringify(String(value ?? ""));
-}
-
 function projectSlug(value) {
   const raw = String(value ?? "").trim();
   const slug = raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
@@ -7482,19 +6768,6 @@ async function listMarkdownFiles(root) {
   return results;
 }
 
-function scoreText(query, fields) {
-  const q = query.toLowerCase().trim();
-  if (!q) return 0;
-  const terms = q.split(/\s+/).filter(Boolean);
-  const text = fields.join(" ").toLowerCase();
-  let score = 0;
-  for (const term of terms) {
-    if (text.includes(term)) score += 1;
-  }
-  if (fields.some((field) => field.toLowerCase().includes(q))) score += 3;
-  return score;
-}
-
 function autoCommandPublic(command) {
   return {
     name: command.name,
@@ -8290,6 +7563,7 @@ const extensions = createExtensionTools({
     skillQualityDashboard: skillQualityDashboardRelativePath,
     skillRoutingReport: skillRoutingReportRelativePath,
     skillRoutingEvalCases: skillRoutingEvalRelativePath,
+    skillOverlays: skillOverlaysRelativePath,
     systemDashboard: systemDashboardRelativePath,
     systemDashboardState: systemDashboardStateRelativePath
   },
@@ -8300,8 +7574,21 @@ const extensions = createExtensionTools({
   readSkillIndex, readSkillGroupsIndex, readSkillCardsIndex, readSkillOverlayDocument,
   readSearchEvalCases, projectSummaries, listProjects, listAutoCommands, listSearchPresets,
   searchIndexStatus, rebuildSearchIndex, searchIndex, hybridSearchIndex, runSearchEval,
-  embeddingStatus, frontendQaEnvironmentStatus
+  embeddingStatus, frontendQaEnvironmentStatus,
+  // Skill sources and the writers that turn them into the generated catalog.
+  // `rebuild_index` owns the catalog but not the collectors: `import_skill_repo`,
+  // `rebuild_skill_taxonomy` and `sync_skill_cards` still live here and share them.
+  skillCatalogRoot, skillSourcesRoot: sourcesRoot, skillRegistryDir: registryDir,
+  collectCustomSkills, collectDesignSkills, collectMembraneSkills, collectExternalSkills,
+  writeSkillTaxonomyArtifacts, syncSkillCards, embedTexts, projectRecommendationContext
 });
+// Two skill tools are called by the runtime itself, not only over MCP:
+// `import_skill_repo` and the overlay tools rebuild the registry after writing
+// to the vault, and `begin_task` routes skills for the task it opens. They
+// reach the extension the same way `prepare_pull_request` is reached, so the
+// tool stays the single implementation.
+const rebuildIndex = (args = {}) => extensions.handlers.get("rebuild_index")(args);
+const recommendSkillsProjectAware = (args) => extensions.handlers.get("recommend_skills")(args);
 const extensionReadOnlyTools = extensions.readOnly;
 const tools = [...buildToolDefinitions({
   CONCEPT_JURY_DIMENSIONS,
@@ -8722,12 +8009,6 @@ async function readSearchEvalCases(casesPath = "") {
     description: Array.isArray(parsed) ? "" : (parsed.description || ""),
     cases
   };
-}
-
-function searchEvalList(value) {
-  if (Array.isArray(value)) return value.map((item) => String(item ?? "").trim()).filter(Boolean);
-  if (value === undefined || value === null || value === "") return [];
-  return String(value).split(",").map((item) => item.trim()).filter(Boolean);
 }
 
 function searchEvalNormalize(value) {
@@ -9179,84 +8460,6 @@ async function searchSkillRegistry({
   });
 }
 
-function skillKey(item) {
-  return `${item.source}:${item.name}`.toLowerCase();
-}
-
-function findSkillItem(items, name, source = "") {
-  const normalized = String(name ?? "").toLowerCase().trim();
-  const normalizedSource = String(source ?? "").toLowerCase().trim();
-  return items.find((item) => {
-    const nameMatches = item.name.toLowerCase() === normalized;
-    const sourceMatches = !normalizedSource || item.source.toLowerCase().includes(normalizedSource);
-    return nameMatches && sourceMatches;
-  });
-}
-
-function isMembraneSkill(item) {
-  return String(item.source ?? "").toLowerCase().includes("membrane");
-}
-
-function isDesignSkill(item) {
-  return String(item.source ?? "").toLowerCase().includes("design/") || (item.categories ?? []).some((category) => /design|frontend|ui|ux/i.test(category));
-}
-
-function isVisualHeavySkill(item) {
-  return /imagegen|image-to-code|brandkit|logo|identity/i.test(`${item.name} ${item.description ?? ""} ${item.use_when ?? ""}`);
-}
-
-function taskLooksVisual(task) {
-  return /(ui|ux|frontend|design|figma|responsive|landing|website|portfolio|mockup|image|visual|brand|logo|redesign|сайт|дизайн|интерфейс|лендинг|бренд|логотип|мокап)/i.test(task);
-}
-
-function taskLooksMembraneIntegration(task) {
-  return /(membrane|app skill|application skill|connector|oauth|webhook|crm|gmail|google sheets|google drive|notion|slack|discord|linear|jira|hubspot|salesforce|shopify|stripe|интеграц|вебхук|коннектор)/i.test(task);
-}
-
-function taskLooksBackend(task) {
-  return /(api|backend|database|queue|worker|celery|fastapi|sqlalchemy|postgres|redis|bot|telegram|llm|vision|server|бэкенд|сервер|бот|очеред|база данных)/i.test(task);
-}
-
-function taskLooksQuality(task) {
-  return /(test|lint|typecheck|quality|gate|ci|coverage|security scan|ruff|pytest|провер|тест|качество|линт|тайпчек|безопасн)/i.test(task);
-}
-
-function taskLooksFrontendProduct(task) {
-  return taskRequiresFrontendProductWorkflow(task);
-}
-
-function taskLooksBetaFrontend(task) {
-  const frontendSignal = /(frontend|front-end|ui|ux|react|next\.js|vue|svelte|vite|tailwind|layout|component|screen|css|button|form|modal|интерфейс|фронт|верстк|экран|компонент|кнопк|форм|модал)/i.test(task);
-  const supportSignal = /(beta|staging|support|maintain|maintenance|existing app|admin panel|dashboard|responsive bug|layout bug|ui bug|frontend bug|small fix|polish ticket|бета|стейдж|поддерж|саппорт|админ|панел|дашборд|адаптив|поправ|почин|баг)/i.test(task);
-  return frontendSignal && supportSignal;
-}
-
-function taskLooksFrontendGate(task) {
-  const frontendSignal = /(frontend|front-end|ui|ux|browser|visual|responsive|accessibility|a11y|wcag|web vitals|layout|form|screen|component|интерфейс|фронт|верстк|дизайн|адаптив|доступн|браузер|форм|экран|компонент)/i.test(task);
-  const gateSignal = /(quality gate|qa|check|verify|verification|review|test|lint|build|handoff|release|ship|провер|качество|гейт|тест|релиз|сдач|ревью)/i.test(task);
-  return frontendSignal && gateSignal;
-}
-
-function taskLooksLandingConversion(task) {
-  return /(landing|landing page|conversion|cro|cta|hero|pricing|marketing page|sales page|lead[- ]?gen|waitlist|signup|offer|funnel|copywriting|лендинг|ленд|конверс|оффер|продающ|заявк|герой|хиро|тариф|прайс|лид|вейтлист|подпис|регистрац)/i.test(task);
-}
-
-function projectLooksFrontend(context) {
-  return /(react|next\.js|vue|svelte|vite|tailwind|frontend|ui|ux)/i.test(context.context_text);
-}
-
-function projectStackLooksFrontend(context) {
-  return /(react|next\.js|vue|svelte|vite|tailwind|frontend|ui|ux)/i.test((context.stack ?? []).join(" "));
-}
-
-function projectLooksBackend(context) {
-  return /(python|fastapi|sqlalchemy|alembic|postgres|redis|celery|aiogram|docker|backend|api|worker|queue|bot)/i.test(context.context_text);
-}
-
-function projectFiltersMembrane(context) {
-  return /membrane\/app skills.*noisy|filter.*membrane|membrane.*noisy/i.test(context.card_text);
-}
-
 async function projectRecommendationContext({ project, project_path } = {}) {
   const identifier = project_path || project;
   if (!identifier) {
@@ -9331,64 +8534,6 @@ async function projectRecommendationContext({ project, project_path } = {}) {
   };
 }
 
-function membraneAllowed({ task, context, membranePolicy, includeMembrane }) {
-  if (includeMembrane || membranePolicy === "include") return true;
-  if (membranePolicy === "exclude") return false;
-  if (context?.membrane_noisy) return false;
-  return taskLooksMembraneIntegration(task);
-}
-
-function shouldSkipRecommendedSkill(item, { task, context, membranePolicy, includeMembrane }) {
-  if (item.routing_priority === "disabled") {
-    return "Skill is disabled by the local normalization overlay.";
-  }
-  if (isMembraneSkill(item) && !membraneAllowed({ task, context, membranePolicy, includeMembrane })) {
-    return "Membrane/app skills are filtered unless the task explicitly asks for app integrations or membrane_policy=include.";
-  }
-  if (item.name === "knowledge-curator" && !/(knowledge|obsidian|notes|vault|memory|handoff|brief|project-map|база знаний|заметк|памят|контекст)/i.test(task)) {
-    return "Knowledge workflow filtered because the task is not a durable-knowledge update.";
-  }
-  if (item.name === "repo-onboarding" && !/(repo|repository|onboard|bootstrap|prepare|AGENTS|project map|подготов|оформ|проект|агент|ии|репозитор|изучи проект|изучить проект)/i.test(task)) {
-    return "Repository onboarding workflow filtered because the task is not repository preparation or discovery.";
-  }
-  if (item.name === "frontend-polisher" && !taskLooksVisual(task) && !projectStackLooksFrontend(context)) {
-    return "Frontend workflow filtered because neither task nor project is frontend/design oriented.";
-  }
-  if (isVisualHeavySkill(item) && !taskLooksVisual(task)) {
-    return "Visual/image-heavy skill filtered because the task is not visual/design related.";
-  }
-  if (isDesignSkill(item) && !taskLooksVisual(task) && !projectStackLooksFrontend(context)) {
-    return "Design/frontend skill filtered because neither task nor project is frontend/design oriented.";
-  }
-  return "";
-}
-
-function projectRecommendedSkillRank(name, task, context) {
-  const normalized = String(name ?? "").toLowerCase();
-  const featureLike = /(new feature|implement|add|build|feature|созда|добав|реализ|фич)/i.test(task) || taskLooksBackend(task) || projectLooksBackend(context);
-  const bugLike = /(bug|error|fail|fix|debug|regression|flaky|retry|слом|ошиб|почин|баг|\bci\b)/i.test(task);
-  const reviewLike = /(review|\bpr\b|diff|pull request|patch|audit|проверь|ревью)/i.test(task) || taskLooksQuality(task);
-  const repoLike = /(repo|repository|onboard|bootstrap|prepare|AGENTS|project map|подготов|оформ|проект|агент|ии|репозитор)/i.test(task);
-  const knowledgeLike = /(knowledge|obsidian|notes|vault|memory|handoff|brief|project-map|база знаний|заметк|памят|контекст)/i.test(task);
-
-  const betaFrontendLike = taskLooksBetaFrontend(task) || (projectStackLooksFrontend(context) && (featureLike || bugLike));
-  const frontendGateLike = taskLooksFrontendGate(task) || (taskLooksQuality(task) && (taskLooksVisual(task) || projectStackLooksFrontend(context)));
-  const landingConversionLike = taskLooksLandingConversion(task);
-  const frontendProductLike = taskLooksFrontendProduct(task);
-
-  if (normalized === "frontend-product-builder" && frontendProductLike) return 180;
-  if (normalized === "feature-builder" && featureLike) return 108;
-  if (normalized === "bugfix-investigator" && bugLike) return 108;
-  if (normalized === "code-reviewer" && reviewLike) return 108;
-  if (normalized === "repo-onboarding" && repoLike) return 108;
-  if (normalized === "frontend-polisher" && (taskLooksVisual(task) || projectStackLooksFrontend(context))) return 108;
-  if (normalized === "beta-frontend-maintainer" && betaFrontendLike) return 116;
-  if (normalized === "frontend-quality-gate" && frontendGateLike) return 116;
-  if (normalized === "landing-conversion-reviewer" && landingConversionLike) return 116;
-  if (normalized === "knowledge-curator" && knowledgeLike) return 108;
-  return 0;
-}
-
 async function searchSkills({
   query, limit = 10, source, group = "", subgroup = "", maturity = "", trust_level = "",
   quality_status = "", min_quality = 0
@@ -9441,346 +8586,11 @@ async function readSkill({ name, source }) {
   return readText(path.join("03-skills-catalog", item.path));
 }
 
-async function recommendSkills({ task, limit = 8 }) {
-  const recommendations = [];
-  const add = (name, source, reason) => recommendations.push({ name, source, reason });
-
-  if (taskLooksFrontendProduct(task)) {
-    add("frontend-product-builder", "custom", "task requires the design-first frontend product workflow");
-  }
-  if (taskLooksBetaFrontend(task)) {
-    add("beta-frontend-maintainer", "custom", "task is existing beta/frontend maintenance");
-  }
-  if (taskLooksFrontendGate(task)) {
-    add("frontend-quality-gate", "custom", "task asks to verify frontend quality before handoff");
-  }
-  if (taskLooksLandingConversion(task)) {
-    add("landing-conversion-reviewer", "custom", "task asks for landing page conversion review");
-  }
-
-  if (/(new feature|implement|add|build|созда|добав|реализ)/i.test(task)) {
-    add("feature-builder", "custom", "task changes product behavior");
-  }
-  if (/(bug|error|fail|fix|слом|ошиб|почин|\bci\b)/i.test(task)) {
-    add("bugfix-investigator", "custom", "task requires root-cause investigation");
-  }
-  if (/(review|\bpr\b|diff|pull request|ревью)/i.test(task)) {
-    add("code-reviewer", "custom", "task asks for review or risk assessment");
-  }
-  if (/(ui|ux|frontend|figma|responsive|дизайн|интерфейс)/i.test(task)) {
-    add("frontend-polisher", "custom", "task touches frontend quality or design");
-  }
-  if (/(website|landing|portfolio|marketing site|premium site|premium|сайт|ленд|премиаль|портфолио)/i.test(task)) {
-    add("design-taste-frontend", "design/taste-skill", "task asks for a visually important website or landing page");
-  }
-  if (/(image.?to.?code|reference image|generate.*image|visual reference|mockup|референс|мокап)/i.test(task)) {
-    add("image-to-code", "design/taste-skill", "task benefits from image-first design analysis before coding");
-  }
-  if (/(redesign|upgrade.*ui|улучш.*дизайн|редизайн)/i.test(task)) {
-    add("redesign-existing-projects", "design/taste-skill", "task is an existing UI redesign");
-  }
-  if (/(brand|logo|identity|brand kit|бренд|логотип|айдентик)/i.test(task)) {
-    add("brandkit", "design/taste-skill", "task asks for brand identity or brand-kit generation");
-  }
-  if (/(knowledge|obsidian|notes|vault|база знаний|заметк)/i.test(task)) {
-    add("knowledge-curator", "custom", "task updates durable knowledge");
-  }
-
-  const skillMatches = await searchSkills({ query: task, limit });
-  const seen = new Set();
-  return [...recommendations, ...skillMatches.map((item) => ({
-    name: item.name,
-    source: item.source,
-    reason: item.use_when || item.description || "registry match"
-  }))]
-    .filter((item) => {
-      const key = `${item.source}:${item.name}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, limit);
-}
-
-function skillQualityRankAdjustment(item) {
-  if (!item || item.skill_schema_version !== SKILL_SCHEMA_VERSION) return 0;
-  if (item.maturity === "deprecated") return -100;
-  if (item.quality_status === "fail") return -30;
-  let adjustment = Math.max(-8, Math.min(8, Math.round((Number(item.quality_score || 0) - 75) / 3)));
-  if (["validated", "production"].includes(item.maturity)) adjustment += 4;
-  else if (item.maturity === "reviewed") adjustment += 2;
-  if (["trusted-local", "pinned-upstream"].includes(item.trust_level)) adjustment += 2;
-  if (item.routing_priority === "high") adjustment += 4;
-  if (item.routing_priority === "low") adjustment -= 6;
-  if (item.routing_priority === "disabled") adjustment -= 100;
-  return adjustment;
-}
-
-async function recommendSkillsProjectAware({
-  task,
-  limit = 8,
-  project,
-  project_path,
-  membrane_policy = "auto",
-  include_membrane = false,
-  preferred_groups = []
-}) {
-  if (!task || typeof task !== "string") {
-    throw new Error("task is required.");
-  }
-  if (!["auto", "include", "exclude"].includes(membrane_policy)) {
-    throw new Error("membrane_policy must be auto, include, or exclude.");
-  }
-
-  const items = await readSkillIndex();
-  const skillCardsByKey = new Map((await readSkillCardsIndex({ syncIfMissing: false })).map((card) => [skillKey(card), card]));
-  const context = await projectRecommendationContext({ project, project_path });
-  const inferredGroups = inferTaskSkillGroups(task, context.context_text);
-  const requestedGroups = searchEvalList(preferred_groups)
-    .map(canonicalSkillGroup)
-    .filter(Boolean);
-  const routedGroups = [...new Set([...requestedGroups, ...inferredGroups])];
-  const routedGroupSet = new Set(routedGroups);
-  const deterministicRoute = routeSkills({
-    task,
-    projectTypes: context.project_types ?? [],
-    stack: context.stack ?? [],
-    maxSkills: 3
-  });
-  const recommendations = new Map();
-  const safeLimit = Math.max(1, Math.min(Number(limit) || 3, 3));
-  const visualTask = taskLooksVisual(task);
-  const backendTask = taskLooksBackend(task);
-  const qualityTask = taskLooksQuality(task);
-  const betaFrontendTask = taskLooksBetaFrontend(task);
-  const frontendGateTask = taskLooksFrontendGate(task);
-  const landingConversionTask = taskLooksLandingConversion(task);
-  const frontendProductTask = taskLooksFrontendProduct(task);
-  const frontendProject = projectStackLooksFrontend(context);
-  const backendProject = projectLooksBackend(context);
-
-  const upsert = ({ name, source = "", reason, rank = 50, evidence = [], item }) => {
-    const skill = item ?? findSkillItem(items, name, source);
-    const candidate = skill ?? { name, source, categories: [], description: "", use_when: "" };
-    const skipReason = skill ? shouldSkipRecommendedSkill(candidate, {
-      task,
-      context,
-      membranePolicy: membrane_policy,
-      includeMembrane: include_membrane
-    }) : "";
-    if (skipReason) return;
-    if (candidate.maturity === "deprecated") return;
-
-    const key = skillKey(candidate);
-    const entry = {
-      name: candidate.name,
-      source: candidate.source,
-      type: candidate.type,
-      categories: candidate.categories,
-      primary_group: candidate.primary_group,
-      primary_group_label: candidate.primary_group_label,
-      subgroups: candidate.subgroups || [],
-      task_types: candidate.task_types || [],
-      platforms: candidate.platforms || [],
-      related_skills: candidate.related_skills || [],
-      frameworks: candidate.frameworks || [],
-      languages: candidate.languages || [],
-      conflicts: candidate.conflicts || [],
-      maturity: candidate.maturity,
-      trust_level: candidate.trust_level,
-      instruction_policy: candidate.instruction_policy,
-      quality_score: candidate.quality_score,
-      quality_grade: candidate.quality_grade,
-      quality_status: candidate.quality_status,
-      routed_groups: routedGroups,
-      reason,
-      use_when: candidate.use_when || candidate.description || "",
-      path: candidate.path,
-      card_path: skillCardsByKey.get(key)?.card_path,
-      score: rank + skillQualityRankAdjustment(candidate),
-      project: context.available ? context.name : undefined,
-      evidence
-    };
-    const existing = recommendations.get(key);
-    if (!existing || existing.score < entry.score) {
-      recommendations.set(key, entry);
-    }
-  };
-
-  const addNamed = (name, source, reason, rank, evidence = []) => upsert({ name, source, reason, rank, evidence });
-
-  deterministicRoute.skills.forEach((item, index) => {
-    addNamed(
-      item.name,
-      item.source,
-      item.reason,
-      220 - index,
-      [`routing:${item.role}`, `rule:${item.rule}`]
-    );
-  });
-
-  if (frontendProductTask) {
-    addNamed(
-      "frontend-product-builder",
-      "custom",
-      "frontend product work must pass the design-first state machine",
-      190,
-      ["design-first", "visual approval", "independent review"]
-    );
-  }
-
-  if (INTENT.repository.test(task)) {
-    addNamed("repo-onboarding", "custom", "task asks to understand or prepare repository context", 145);
-  }
-  if (/(new feature|implement|add|build|feature|созда|добав|реализ|фич)/i.test(task)) {
-    addNamed("feature-builder", "custom", "task changes product or developer behavior", 140);
-  }
-  if (/(bug|error|fail|fix|debug|regression|flaky|слом|ошиб|почин|баг|\bci\b)/i.test(task)) {
-    addNamed("bugfix-investigator", "custom", "task requires root-cause investigation", 150);
-  }
-  if (/(review|\bpr\b|diff|pull request|patch|audit|проверь|ревью)/i.test(task)) {
-    addNamed("code-reviewer", "custom", "task asks for review or risk assessment", 145);
-  }
-  if (betaFrontendTask || (frontendProject && /(support|maintain|small fix|bug|responsive|layout|component|screen|поддерж|поправ|почин|баг|адаптив|экран|компонент)/i.test(task))) {
-    addNamed("beta-frontend-maintainer", "custom", "existing frontend task should use minimal safe diffs and browser-aware verification", 146);
-  }
-  if (frontendGateTask || (qualityTask && (visualTask || frontendProject))) {
-    addNamed("frontend-quality-gate", "custom", "frontend changes need responsive, accessibility, browser, and handoff verification", 148);
-  }
-  if (landingConversionTask) {
-    addNamed("landing-conversion-reviewer", "custom", "landing or marketing page should be checked for clarity, trust, CTA, and conversion flow", 150);
-  }
-  if (visualTask || frontendProject) {
-    addNamed("frontend-polisher", "custom", frontendProject ? "project or task is frontend/UI oriented" : "task touches frontend quality or design", 128);
-  }
-  if (DIAGRAM_REQUEST_PATTERN.test(task)) {
-    addNamed("archify", "external/archify", "task asks for a validated technical diagram or Mermaid conversion", 170, ["diagram intent"]);
-  }
-  if (/(website|landing|portfolio|marketing site|premium site|premium|сайт|лендинг|портфолио)/i.test(task)) {
-    addNamed("design-taste-frontend", "design/taste-skill", "task asks for a visually important website or landing page", 132);
-  }
-  if (/(image.?to.?code|reference image|generate.*image|visual reference|mockup|референс|мокап)/i.test(task)) {
-    addNamed("image-to-code", "design/taste-skill", "task benefits from image-first design analysis before coding", 132);
-  }
-  if (/(redesign|upgrade.*ui|улучш.*дизайн|редизайн)/i.test(task)) {
-    addNamed("redesign-existing-projects", "design/taste-skill", "task is an existing UI redesign", 132);
-  }
-  if (/(brand|logo|identity|brand kit|бренд|логотип|айдентик)/i.test(task)) {
-    addNamed("brandkit", "design/taste-skill", "task asks for brand identity or brand-kit generation", 132);
-  }
-  if (/(knowledge|obsidian|notes|vault|memory|handoff|brief|project-map|база знаний|заметк|памят|контекст)/i.test(task)) {
-    addNamed("knowledge-curator", "custom", "task updates durable knowledge", 135);
-  }
-  if (qualityTask) {
-    addNamed("code-reviewer", "custom", "quality-gate or verification work benefits from risk review", 134, ["quality gate"]);
-  }
-  if ((backendTask || backendProject) && !visualTask) {
-    addNamed("backend-api-engineer", "custom", "backend or API work needs contract, data, failure, and operability checks", 146, context.stack);
-    addNamed("feature-builder", "custom", "backend/project implementation should follow repository architecture and tests", 118, context.stack);
-  }
-  if (/(api contract|openapi|graphql|protobuf|webhook|endpoint|response schema|request schema|backward compatib|контракт.*api|эндпоинт|вебхук)/i.test(task)) {
-    addNamed("api-contract-reviewer", "custom", "task changes or reviews a consumer-facing API contract", 152);
-  }
-  if (/(database migration|schema migration|alembic|migration|backfill|schema change|миграц|схем.*баз|бэкфил)/i.test(task)) {
-    addNamed("database-migration-guardian", "custom", "schema or data evolution needs compatibility, lock, rollback, and recovery checks", 158);
-  }
-  if (/(ci\/cd|deployment|deploy|release|rollback|github actions|gitlab ci|pipeline|деплой|релиз|откат)/i.test(task)) {
-    addNamed("devops-release-engineer", "custom", "task changes build, release, deployment, or rollback behavior", 152);
-  }
-  if (INTENT.container.test(task)) {
-    addNamed("container-deployment-reviewer", "custom", "container build or runtime behavior needs reproducibility and safety review", 154);
-  }
-  if (/(application security|security review|threat model|authorization|authentication|permission|vulnerab|csrf|xss|ssrf|безопасн|авториз|уязвим)/i.test(task)) {
-    addNamed("application-security-reviewer", "custom", "task touches an application security boundary or requests threat review", 156);
-  }
-  if (/(secret|credential|dependency audit|supply chain|lockfile|npm audit|pip-audit|snyk|sbom|секрет|зависимост|утечк.*ключ)/i.test(task)) {
-    addNamed("secrets-dependencies-auditor", "custom", "task concerns credential exposure or dependency supply-chain risk", 156);
-  }
-  if (/(data pipeline|etl|elt|ingestion|streaming|backfill|lineage|data quality|пайплайн.*дан|импорт.*дан|качеств.*дан)/i.test(task)) {
-    addNamed("data-pipeline-engineer", "custom", "task changes a data contract, pipeline, lineage, or recovery flow", 154);
-  }
-  if (/(llm|rag|embedding|vector search|prompt|tool calling|structured output|model provider|openai|anthropic|нейросет|эмбеддинг|промпт)/i.test(task)) {
-    addNamed("llm-integration-engineer", "custom", "task integrates probabilistic model behavior and needs evaluation, safety, cost, and fallback controls", 156);
-  }
-
-  for (const recommended of context.recommended_skills ?? []) {
-    const cleaned = recommended.replaceAll("`", "").split(/\s+-\s+|:/)[0].trim();
-    if (!cleaned) continue;
-    const rank = projectRecommendedSkillRank(cleaned, task, context);
-    if (rank > 0) {
-      addNamed(cleaned, "", "project card recommends this skill for this task/project", rank, ["project card"]);
-    }
-  }
-
-  const rankingQuery = [
-    task,
-    context.stack?.length ? `Stack: ${context.stack.join(" ")}` : ""
-  ].filter(Boolean).join("\n").slice(0, 4000);
-
-  const groupFirstCandidates = routedGroups.length
-    ? items.filter((item) => item.source === "custom" || routedGroupSet.has(item.primary_group) || String(task).toLowerCase().includes(String(item.name || "").toLowerCase()))
-    : items;
-
-  const automaticMatches = groupFirstCandidates
-    .map((item) => {
-      const scoringQuery = isMembraneSkill(item) ? task : rankingQuery;
-      const membrane = isMembraneSkill(item);
-      let score = scoreText(scoringQuery, [
-        item.name,
-        membrane ? "" : item.source,
-        membrane ? "" : item.type,
-        (item.subgroups ?? []).join(" "),
-        (item.task_types ?? []).join(" "),
-        (item.platforms ?? []).join(" "),
-        (item.frameworks ?? []).join(" "),
-        (item.languages ?? []).join(" "),
-        membrane ? "" : (item.categories ?? []).join(" "),
-        item.description ?? "",
-        item.use_when ?? "",
-        membrane ? "" : (item.requires ?? []).join(" ")
-      ]);
-      const exactName = String(item.name || "").length > 1 && String(task).toLowerCase().includes(String(item.name).toLowerCase());
-      if (exactName) score += 24;
-      if (item.source === "custom") score += 4;
-      if (score > 0 && routedGroupSet.has(item.primary_group)) score += 6;
-      score += skillQualityRankAdjustment(item);
-      if (membrane && !exactName && score < 12) score = 0;
-      if (item.source === "custom" && score < 10) score = 0;
-      if (isDesignSkill(item) && (visualTask || frontendProject)) score += 3;
-      if (isMembraneSkill(item) && !membraneAllowed({ task, context, membranePolicy: membrane_policy, includeMembrane: include_membrane })) score = 0;
-      if (isVisualHeavySkill(item) && !visualTask) score = Math.max(0, score - 5);
-      return { item, score };
-    })
-    .filter(({ score }) => score > 0)
-    .sort((a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name))
-    .slice(0, Math.max(safeLimit * 6, 40));
-
-  for (const { item, score } of automaticMatches) {
-    upsert({
-      item,
-      reason: item.use_when || item.description || "registry match with project context",
-      rank: 60 + score,
-      evidence: context.available ? ["task", "project context"] : ["task"]
-    });
-  }
-
-  const rankedRecommendations = [...recommendations.values()]
-    .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
-    .map((item) => {
-      const cleaned = { ...item };
-      if (!cleaned.project) delete cleaned.project;
-      if (!cleaned.evidence?.length) delete cleaned.evidence;
-      return cleaned;
-    });
-  return prioritizeRoutedRecommendations(rankedRecommendations, deterministicRoute, safeLimit);
-}
-
 async function dispatchTool(name, args) {
   if (name === "search_knowledge") return textContent(await searchKnowledge(args));
   if (name === "read_knowledge") return textContent(await readText(args.path));
   if (name === "search_skills") return textContent(await searchSkills(args));
   if (name === "read_skill") return textContent(await readSkill(args));
-  if (name === "recommend_skills") return textContent(await recommendSkillsProjectAware(args));
   if (name === "query_ui_ux_knowledge") return textContent(await queryUiUxKnowledge(args));
   if (name === "generate_ui_ux_design_system") {
     return textContent(await generateUiUxDesignSystem(args));
@@ -9788,7 +8598,6 @@ async function dispatchTool(name, args) {
   if (name === "list_skill_groups") return textContent(await listSkillGroups(args));
   if (name === "browse_skill_group") return textContent(await browseSkillGroup(args));
   if (name === "rebuild_skill_taxonomy") return textContent(await rebuildSkillTaxonomy(args));
-  if (name === "validate_skill_library") return textContent(await validateSkillLibrary(args));
   if (name === "sync_skill_overlays") return textContent(await syncSkillOverlays(args));
   if (name === "list_skill_overlays") return textContent(await listSkillOverlays(args));
   if (name === "upsert_skill_overlay") return textContent(await upsertSkillOverlayRecord(args));
@@ -9812,7 +8621,6 @@ async function dispatchTool(name, args) {
   if (name === "search_projects") return textContent(await searchProjects(args));
   if (name === "search_notes") return textContent(await searchNotes(args));
   if (name === "search_skill_registry") return textContent(await searchSkillRegistry(args));
-  if (name === "rebuild_index") return textContent(await rebuildIndex(args));
   if (name === "import_skill_repo") return textContent(await importSkillRepo(args));
   if (name === "bootstrap_project") return textContent(await bootstrapProject(args));
   if (name === "prepare_project") return textContent(await prepareProject(args));

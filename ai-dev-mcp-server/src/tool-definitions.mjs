@@ -87,28 +87,6 @@ export function buildToolDefinitions({
     }
   },
   {
-    name: "recommend_skills",
-    description: "Recommend a minimal project-aware set of skills for a development, design, integration, review, or quality task.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        task: { type: "string" },
-        limit: { type: "number", default: 3, maximum: 3 },
-        project: { type: "string" },
-        project_path: { type: "string" },
-        membrane_policy: { type: "string", default: "auto" },
-        include_membrane: { type: "boolean", default: false },
-        preferred_groups: {
-          type: "array",
-          items: { type: "string" },
-          default: [],
-          description: "Optional preferred taxonomy groups. Automatic task-based group routing is still applied."
-        }
-      },
-      required: ["task"]
-    }
-  },
-  {
     name: "query_ui_ux_knowledge",
     description: "Query the pinned local UI UX Pro Max dataset for focused product, UX, style, color, typography, chart, icon, motion, web, or stack guidance. Results are recommendations, not visual proof.",
     inputSchema: {
@@ -203,24 +181,6 @@ export function buildToolDefinitions({
       type: "object",
       properties: {
         sync_cards: { type: "boolean", default: true }
-      }
-    }
-  },
-  {
-    name: "validate_skill_library",
-    description: "Validate source SKILL.md files with Schema v2, source-aware quality scoring, relationship checks, and duplicate analysis; optionally write the Obsidian quality dashboard.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        source: { type: "string", description: "Optional source substring such as custom or membrane." },
-        group: { type: "string", description: "Optional taxonomy group or alias." },
-        min_score: { type: "number", default: 0 },
-        include_duplicates: { type: "boolean", default: true },
-        include_semantic_duplicates: { type: "boolean", default: false, description: "Use BGE-M3 only to refine lexically suspicious non-Membrane pairs." },
-        duplicate_threshold: { type: "number", default: 0.82 },
-        max_issues: { type: "number", default: 200 },
-        write_report: { type: "boolean", default: true },
-        refresh_registry: { type: "boolean", default: false }
       }
     }
   },
@@ -672,14 +632,6 @@ export function buildToolDefinitions({
         limit: { type: "number", default: 10 }
       },
       required: ["query"]
-    }
-  },
-  {
-    name: "rebuild_index",
-    description: "Rebuild machine-readable and Markdown skill registries from skills stored in the vault.",
-    inputSchema: {
-      type: "object",
-      properties: {}
     }
   },
   {

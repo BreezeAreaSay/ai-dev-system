@@ -173,6 +173,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Skill registry tools moved out of `mcp-stdio.mjs` (stage 1.2 of the modularity
+  plan). `rebuild_index`, `validate_skill_library` and `recommend_skills` are now
+  one extension, `src/extensions/skills.mjs`, reaching the vault, the collectors
+  and the embedding backend through the extension `host`; their definitions moved
+  with them out of `tool-definitions.mjs`. The pure half became five tested
+  modules under `src/core`: `skill-catalog.mjs` (generated-note paths and the
+  item predicates), `skill-cards.mjs` (card rendering), `skill-registry-docs.mjs`
+  (registry files and their Markdown), `skill-quality-report.mjs` (the validation
+  verdict and its dashboard), `skill-recommendation.mjs` (task intent and
+  ranking), plus `text-format.mjs` for the text primitives they share.
+  `applySkillOverlays` joined `src/core/skill-overlays.mjs`. Tool behaviour,
+  response bytes, generated vault files and the 116-tool list are unchanged;
+  `mcp-stdio.mjs` lost 1,192 lines (10,018 → 8,826).
 - Session and instinct memory is shared across the worktrees of one clone.
   `repository_id` is now derived from `git rev-parse --git-common-dir` (plus the
   project's path inside its worktree), which is identical in the main checkout

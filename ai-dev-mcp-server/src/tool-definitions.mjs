@@ -1614,7 +1614,7 @@ export function buildToolDefinitions({
   },
   {
     name: "checkpoint_task",
-    description: "Record implementation progress, changed files, and acceptance-criterion evidence before verification.",
+    description: "Record implementation progress, changed files, and acceptance-criterion evidence before verification. The summary and notes are linted for rationalizations (\"pre-existing issue\", \"skipping tests for now\", \"should work\"): one whose check did not pass is refused unless .ai-dev/policy.json waives that rule and the report states the reason.",
     inputSchema: {
       type: "object",
       properties: {
@@ -1664,7 +1664,7 @@ export function buildToolDefinitions({
   },
   {
     name: "complete_task",
-    description: "Complete a task only when all acceptance criteria are resolved and passing verification matches the current project state.",
+    description: "Complete a task only when all acceptance criteria are resolved and passing verification matches the current project state. The summary is linted for rationalizations that no passing check backs (see checkpoint_task).",
     inputSchema: {
       type: "object",
       properties: {

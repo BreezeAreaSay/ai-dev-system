@@ -43,3 +43,5 @@ Include the `verify_task` verification id and the skipped checks with their reas
 ## Verification
 
 The loop is complete when `verify_task` returns `passed: true` for the current source-state fingerprint and every acceptance criterion is `met` or explicitly waived with a reason.
+
+Then score the work with the `self-evaluation` skill before `complete_task`: the report itself is linted, and a rationalization no passing check backs is refused.

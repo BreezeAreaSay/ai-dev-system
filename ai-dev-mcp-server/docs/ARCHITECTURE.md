@@ -79,6 +79,8 @@ Registered today: `decisions`, `hooks`, `hygiene`, `instincts`, `plans`, `pull-r
 `task-plans.mjs`, `pull-request.mjs`, `pr-template.mjs`, `rules-library.mjs`,
 `rules-catalog.mjs`, `session-memory.mjs`, `system-health.mjs`, `system-dashboard.mjs`,
 `usage-ledger.mjs`, `task-worktrees.mjs`); the extension is the MCP surface over it.
+`core/completion-claims.mjs` has no extension of its own: the task lifecycle in `mcp-stdio.mjs`
+is its only caller.
 
 `pull-requests` is the one extension that reads from every other: `prepare_pull_request`
 projects a task record, its verifications, its decisions and its plan onto the repository diff
@@ -138,7 +140,8 @@ where a foreign hook sits ahead of ours, since Cursor runs the first entry of an
 (`compact_tool_threshold`, `compact_tool_interval`, `compact_context_threshold` — absolute, `0`
 derives it from the window — `compact_context_thresholds.standard` / `.large`,
 `compact_context_window`, `compact_context_interval`), `model_rates` (per-model price overrides
-for the usage report, in USD per million tokens), and a list
+for the usage report, in USD per million tokens), `completion_claims` (the completion-statement
+linter: `enabled`, and `waivers` of `{ rule, reason, expires? }` where the reason is real), and a list
 of hookify-style `rules` (`{ id, event, pattern, action, message }`) that add project-specific
 `block` or `warn` patterns without touching the scripts. Hooks fail open: any error exits 0 so a
 broken hook never wedges the agent.
@@ -275,6 +278,14 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
   the merge or PR, and `remove_task_worktree` stamps `removed_at` instead of deleting the field.
 - Task records contain acceptance criteria, checkpoints, verification evidence, and source-state fingerprints.
 - Completion rejects stale evidence and unresolved criteria.
+- The report is held to the same standard as the code. `core/completion-claims.mjs` lints the
+  `summary` and `notes` of `checkpoint_task` and `complete_task` against the gate signals of the
+  latest verification: a rationalization (`pre-existing issue`, `skipping tests for now`, `should
+  work`, `works on my machine`, `flaky`) whose gate did not pass — or never ran — is refused with
+  the rule, the gate and the way out; over a passing gate the same wording is only a `warn` in the
+  response's `completion_claims`. The rule table is data, and `.ai-dev/policy.json` turns it off
+  (`completion_claims.enabled: false`) or waives one rule where the reason is real, which also
+  requires the report to state that reason.
 - Skill structure scores measure document readiness only.
 - Routing benchmarks measure selection behavior only.
 - `${AI_DEV_HOME}/state/skill-outcomes.json` records verification-bound task outcomes.

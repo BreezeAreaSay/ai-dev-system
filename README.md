@@ -18,7 +18,8 @@ for all of these clients.
 - a knowledge base, project context, and a managed skill library;
 - hybrid search: SQLite FTS, sparse retrieval, and an optional local BGE-M3 model;
 - a task lifecycle: `begin_task`, `checkpoint_task`, `verify_task`, `complete_task`,
-  and a pull request description built from the evidence it collected;
+  a completion-statement linter that refuses a report the checks do not back, and a
+  pull request description built from the evidence it collected;
 - a quality gate, security checks, and Frontend QA with Playwright / Chromium;
 - [memory across sessions](#memory-and-learning): handoffs, decisions, and learned instincts;
 - [agent hooks](#hooks) for Claude Code and Cursor that guard commands and file writes;
@@ -290,7 +291,12 @@ with `/workspace`; for example, call `begin_task` with `/workspace/my-project`.
    context, and loads no more than three routed skills.
 4. After changing code the agent records progress with `checkpoint_task`, runs
    `verify_task`, and only calls `complete_task` with current evidence.
-5. `complete_task` writes the pull request description from that evidence into
+5. Both report tools lint what they are told. A rationalization the checks do not
+   back — "pre-existing issue", "skipping tests for now", "should work", "works on
+   my machine" — is refused with the rule, the check behind it and what is missing;
+   `.ai-dev/policy.json` turns the linter off or waives one rule where the reason is
+   real and written into the report.
+6. `complete_task` writes the pull request description from that evidence into
    `.ai-dev/pr/<task_id>.md` — goal, acceptance criteria with their status,
    changed files by group, the checks that ran, decisions, and whatever is still
    outstanding — filling the repository's own pull request template when it has
@@ -387,7 +393,8 @@ Three profiles:
 
 `.ai-dev/policy.json` is where you tune it without touching the scripts:
 `allow_config_edits`, `format_on_edit`, compaction thresholds, `model_rates`,
-and a list of your own rules:
+`completion_claims` (the completion-statement linter: `enabled`, and `waivers` of
+`{ rule, reason, expires }`), and a list of your own rules:
 
 ```json
 {

@@ -69,6 +69,12 @@ Never use `dry_run`, skipped checks, stale evidence, or a merely generated repor
 
 ## Complete
 
+Score the work with the `self-evaluation` skill before calling `complete_task`: five axes with
+quoted evidence, every sentence of the report checked against what proves it, and the post-action
+for the resulting band. Both `checkpoint_task` and `complete_task` lint the text they receive, so a
+rationalization whose check did not pass ("pre-existing issue", "skipping tests for now", "should
+work") is refused; the refusal names the rule, the check behind it, and what is missing.
+
 Call `complete_task` only when every acceptance criterion is `met`, or an explicitly approved waiver
 has a concrete reason. If completion is rejected, keep the task active, resolve the reported gap, and
 verify again.

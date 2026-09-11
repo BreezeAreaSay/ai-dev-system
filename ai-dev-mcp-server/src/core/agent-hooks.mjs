@@ -40,6 +40,13 @@ export function defaultPolicy(profile = "standard") {
     // table has never heard of. Cache prices left out are derived from the
     // multipliers (write 1.25x, read 0.1x).
     model_rates: {},
+    // Completion-statement linter (src/core/completion-claims.mjs). It refuses
+    // a `checkpoint_task` / `complete_task` report that rationalizes past a
+    // check that did not pass. `enabled: false` turns it off wholesale; a
+    // waiver turns off one rule where the reason is real, and only when the
+    // report states that reason too:
+    // { "rule": "tests_deferred", "reason": "…", "expires": "2026-12-31" }.
+    completion_claims: { enabled: true, waivers: [] },
     allow_commands: [],
     rules: [
       {

@@ -3,7 +3,7 @@ import path from "node:path";
 import { atomicWriteFile } from "./atomic-files.mjs";
 import { PROTECTED_CONFIG_FILES, SECRET_FILE_PATTERN, SECRET_PATTERNS } from "./change-hygiene.mjs";
 
-export const HOOK_FILES = ["lib.mjs", "guard.mjs", "post-edit.mjs", "session-start.mjs", "session-end.mjs", "compact-advisor.mjs", "stop-check.mjs"];
+export const HOOK_FILES = ["lib.mjs", "guard.mjs", "post-edit.mjs", "session-start.mjs", "session-end.mjs", "cost-capture.mjs", "compact-advisor.mjs", "stop-check.mjs"];
 export const HOOK_TARGETS = ["claude", "cursor"];
 export const HOOK_PROFILES = ["minimal", "standard", "strict"];
 export const HOOKS_RELATIVE_DIR = ".ai-dev/hooks";
@@ -33,6 +33,13 @@ export function defaultPolicy(profile = "standard") {
     compact_context_thresholds: { standard: 160000, large: 250000 },
     compact_context_window: 0,
     compact_context_interval: 60000,
+    // Per-model price overrides for the usage report, in USD per million tokens:
+    // { "claude-opus-5": { "input": 5, "output": 25, "cache_write": 6.25,
+    // "cache_read": 0.5 } }. Published prices ship in src/core/usage-ledger.mjs;
+    // this is where a project corrects one that moved, or prices a model the
+    // table has never heard of. Cache prices left out are derived from the
+    // multipliers (write 1.25x, read 0.1x).
+    model_rates: {},
     allow_commands: [],
     rules: [
       {
@@ -98,7 +105,10 @@ export function claudeHookEntries(profile = "standard") {
       { matcher: "Bash", hooks: [{ ...command("guard.mjs", "bash"), timeout: 10 }] },
       { matcher: "Write|Edit|MultiEdit", hooks: [{ ...command("guard.mjs", "file"), timeout: 10 }] }
     ],
-    Stop: [{ hooks: [{ ...command("session-end.mjs"), timeout: 30 }] }],
+    // Cost capture runs at every profile: it is a few milliseconds of reading
+    // the transcript tail, and a session nobody measured is a session nobody
+    // can price afterwards.
+    Stop: [{ hooks: [{ ...command("session-end.mjs"), timeout: 30 }, { ...command("cost-capture.mjs"), timeout: 20 }] }],
     PreCompact: [{ hooks: [{ ...command("session-end.mjs", "--compact"), timeout: 30 }] }]
   };
   if (full) {
@@ -169,7 +179,7 @@ export const CURSOR_HOOKS_CONTRACT = {
   limits: [
     "UNVERIFIED: Cursor is said to run the first entry registered for an event, so a foreign hook ahead of ours would shadow it. The warning this raises is cheap either way.",
     "Cursor has no before-write event in this format: the file guard (guard.mjs file) stays Claude Code only.",
-    "Cursor payloads carry conversation_id, not transcript_path, so session-end captures nothing there until they do.",
+    "Cursor payloads carry conversation_id, not transcript_path, so neither session-end nor cost-capture captures anything there until they do; cost-capture is registered for Claude Code only.",
     "UNVERIFIED: cloud agents are said to receive neither sessionStart/sessionEnd nor stop, leaving only command hooks."
   ]
 };

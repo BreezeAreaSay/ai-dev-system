@@ -411,3 +411,153 @@ export function shellSegments(command) {
 export function tokensOf(segment) {
   return segment.split(/\s+/).filter(Boolean);
 }
+
+/** The task a project is working on right now, or null. Shared by stop-check and cost-capture. */
+export function activeTaskFor(projectRoot) {
+  const directory = path.join(stateRoot(), "tasks");
+  let names = [];
+  try {
+    names = fs.readdirSync(directory).filter((name) => name.endsWith(".json"));
+  } catch {
+    return null;
+  }
+  for (const name of names) {
+    const record = readJson(path.join(directory, name));
+    if (record && ["active", "verified"].includes(record.status) && samePath(record.project?.path, projectRoot)) return record;
+  }
+  return null;
+}
+
+/** The usage ledger the server reads (`src/core/usage-ledger.mjs`). */
+export function usageLedgerPath() {
+  return path.join(stateRoot(), "usage", "events.jsonl");
+}
+
+/** Same self-limiting as UsageLedger: 8 MB, then keep the newest 20 000 lines. */
+export const USAGE_LEDGER_MAX_BYTES = 8 * 1024 * 1024;
+export const USAGE_LEDGER_KEEP_LINES = 20_000;
+
+function pruneUsageLedger(target) {
+  let size = 0;
+  try {
+    size = fs.statSync(target).size;
+  } catch {
+    return;
+  }
+  if (size <= USAGE_LEDGER_MAX_BYTES) return;
+  try {
+    const kept = fs.readFileSync(target, "utf8").split("\n").filter(Boolean).slice(-USAGE_LEDGER_KEEP_LINES);
+    const temp = `${target}.${process.pid}.tmp`;
+    fs.writeFileSync(temp, `${kept.join("\n")}\n`, "utf8");
+    fs.renameSync(temp, target);
+  } catch {
+    // Pruning is best-effort: an oversized ledger still works.
+  }
+}
+
+/**
+ * Append events to the usage ledger. The hook writes the file directly rather
+ * than calling `record_usage`, because the server may be running in Docker while
+ * the hook runs on the developer's machine — and because a Stop hook must not
+ * depend on an MCP round trip. Lines are appended with O_APPEND (one write per
+ * call, no read-modify-write) so a concurrent server append cannot be clobbered.
+ *
+ * @param {object[]} events
+ * @returns {boolean} Whether anything was written.
+ */
+export function appendUsageEvents(events) {
+  const payload = (events || []).map((event) => `${JSON.stringify(event)}\n`).join("");
+  if (!payload) return false;
+  const target = usageLedgerPath();
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.appendFileSync(target, payload, "utf8");
+  pruneUsageLedger(target);
+  return true;
+}
+
+/** How much transcript one cost-capture run reads; the rest waits for the next Stop. */
+export const TRANSCRIPT_CHUNK_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Sum `usage` over the assistant messages a transcript gained since `fromOffset`,
+ * grouped by model.
+ *
+ * The transcript is append-only JSONL, so the byte offset of the last complete
+ * line is a cursor: the next run starts there and the same message is never
+ * billed twice. Only whole lines are consumed (a UTF-8 sequence never contains
+ * `\n`, so cutting at a newline is safe), and at most one chunk per run.
+ *
+ * Sidechain entries are included: a subagent's tokens are billed to the same
+ * account, even though they live in their own context window — which is why
+ * `latestAssistantUsage`, whose question is "how full is this window", skips
+ * them and this does not. Repeated `message.id`s within a chunk are counted
+ * once: one API response can be written out as several transcript lines that
+ * each carry the same usage record.
+ *
+ * @param {string} transcriptPath
+ * @param {{ fromOffset?: number, chunkBytes?: number }} [options]
+ * @returns {{ offset: number, messages: number, models: object[] }}
+ */
+export function sumAssistantUsage(transcriptPath, { fromOffset = 0, chunkBytes = TRANSCRIPT_CHUNK_BYTES } = {}) {
+  const empty = { offset: Math.max(0, Number(fromOffset) || 0), messages: 0, models: [] };
+  if (!transcriptPath) return empty;
+  let text = "";
+  let start = empty.offset;
+  try {
+    const fd = fs.openSync(transcriptPath, "r");
+    try {
+      const size = fs.fstatSync(fd).size;
+      // A transcript that shrank is a different transcript (a fresh file under a
+      // reused session id): read it from the top rather than skipping its start.
+      if (size < start) start = 0;
+      if (size === start) return { ...empty, offset: start };
+      const length = Math.min(size - start, Math.max(1024, chunkBytes));
+      const buffer = Buffer.alloc(length);
+      fs.readSync(fd, buffer, 0, length, start);
+      const lastNewline = buffer.lastIndexOf(0x0a);
+      if (lastNewline < 0) return { ...empty, offset: start };
+      const consumed = buffer.subarray(0, lastNewline + 1);
+      text = consumed.toString("utf8");
+      start += consumed.length;
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return empty;
+  }
+  const models = new Map();
+  const seen = new Set();
+  let messages = 0;
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const isAssistant = entry?.type === "assistant" || entry?.message?.role === "assistant" || entry?.role === "assistant";
+    if (!isAssistant) continue;
+    const usage = entry.message?.usage || entry.usage;
+    if (!usage || typeof usage !== "object") continue;
+    const id = entry.message?.id || entry.id || "";
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    const model = String(entry.message?.model || entry.model || "unknown");
+    const row = models.get(model) ?? { model, messages: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0 };
+    row.messages += 1;
+    row.input_tokens += Number(usage.input_tokens) || 0;
+    row.output_tokens += Number(usage.output_tokens) || 0;
+    row.cache_read_tokens += Number(usage.cache_read_input_tokens) || 0;
+    row.cache_creation_tokens += Number(usage.cache_creation_input_tokens) || 0;
+    models.set(model, row);
+    messages += 1;
+  }
+  return {
+    offset: start,
+    messages,
+    models: [...models.values()].filter((row) => row.input_tokens || row.output_tokens || row.cache_read_tokens || row.cache_creation_tokens)
+  };
+}

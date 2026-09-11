@@ -1,9 +1,13 @@
+import { POLICY_RELATIVE_PATH } from "../core/agent-hooks.mjs";
+import { RATE_TABLE, mergeRateTable } from "../core/usage-ledger.mjs";
+
 /**
- * Usage ledger tools: clients report model usage per turn/task, and
- * `usage_report` aggregates it together with the automatically recorded MCP
- * tool-call telemetry.
+ * Usage ledger tools: clients report model usage per turn/task, the
+ * `cost-capture` hook records what a session spent straight from the
+ * transcript, and `usage_report` aggregates both together with the
+ * automatically recorded MCP tool-call telemetry.
  *
- * @param {{ usageLedger: import("../core/usage-ledger.mjs").UsageLedger, resolveProjectIdentity: Function, taskStore: { read: Function } }} host
+ * @param {{ usageLedger: import("../core/usage-ledger.mjs").UsageLedger, resolveProjectIdentity: Function, taskStore: { read: Function }, readProjectTextIfExists: Function }} host
  */
 export function createUsageTools(host) {
   async function scope({ project_path = "", task_id = "" }) {
@@ -15,6 +19,26 @@ export function createUsageTools(host) {
       return { taskId: "", projectPath: (await host.resolveProjectIdentity(project_path)).project_root };
     }
     return { taskId: "", projectPath: "" };
+  }
+
+  /**
+   * Published prices, with this project's `.ai-dev/policy.json` overrides on
+   * top. Prices move; a project should not have to wait for a release to price
+   * its own usage correctly.
+   */
+  async function rateTableFor(projectPath) {
+    if (!projectPath) return { table: RATE_TABLE, overrides: [], rejected: [], policy_path: null };
+    const text = await host.readProjectTextIfExists(projectPath, POLICY_RELATIVE_PATH);
+    let policy = null;
+    if (text) {
+      try {
+        policy = JSON.parse(text);
+      } catch {
+        return { table: RATE_TABLE, overrides: [], rejected: [], policy_path: POLICY_RELATIVE_PATH, warning: `${POLICY_RELATIVE_PATH} is not valid JSON; published prices were used.` };
+      }
+    }
+    const merged = mergeRateTable(policy?.model_rates, RATE_TABLE);
+    return { table: merged.table, overrides: merged.applied, rejected: merged.rejected, policy_path: policy ? POLICY_RELATIVE_PATH : null };
   }
 
   return {
@@ -43,7 +67,7 @@ export function createUsageTools(host) {
       },
       {
         name: "usage_report",
-        description: "Aggregate recorded tool calls and model usage: per-tool call counts, failure rates and latency, per-task tokens and cost, and per-model totals. Filter by project, task, or start time.",
+        description: "Aggregate recorded tool calls and model usage: per-tool call counts, failure rates and latency, per-task tokens and cost, per-model totals, and the today / yesterday / last-seven-days slices. Cost is what the client reported where it reported one, and an estimate from the published rate table (overridable per project in .ai-dev/policy.json) everywhere else. Filter by project, task, or start time.",
         inputSchema: {
           type: "object",
           properties: {
@@ -77,12 +101,15 @@ export function createUsageTools(host) {
       },
       async usage_report(args) {
         const scoped = await scope(args);
-        return host.usageLedger.report({
+        const { table, ...rateInfo } = await rateTableFor(scoped.projectPath);
+        const report = await host.usageLedger.report({
           projectPath: scoped.projectPath,
           taskId: scoped.taskId,
           since: args.since,
-          limitTools: args.limit_tools
+          limitTools: args.limit_tools,
+          rates: table
         });
+        return { ...report, rates: { ...report.rates, ...rateInfo } };
       }
     },
     readOnly: ["usage_report"]

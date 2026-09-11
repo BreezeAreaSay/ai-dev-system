@@ -84,7 +84,7 @@ test("installer writes hooks, patterns, policy, and merges harness registrations
   assert.equal(settings.hooks.PreToolUse[0].hooks[0].command, "node my-own-hook.js", "foreign entries are preserved");
   assert.ok(settings.hooks.PreToolUse.some((entry) => entry.hooks[0].command === "node .ai-dev/hooks/guard.mjs bash"));
   assert.ok(settings.hooks.SessionStart);
-  assert.ok(settings.hooks.Stop[0].hooks.length === 2);
+  assert.deepEqual(settings.hooks.Stop[0].hooks.map((hook) => hook.command), [".ai-dev/hooks/session-end.mjs", ".ai-dev/hooks/cost-capture.mjs", ".ai-dev/hooks/stop-check.mjs"].map((script) => `node ${script}`));
   const cursor = JSON.parse(await fs.readFile(path.join(projectRoot, ".cursor", "hooks.json"), "utf8"));
   assert.equal(cursor.hooks.beforeShellExecution[0].command, "node .ai-dev/hooks/guard.mjs bash --cursor");
 
@@ -394,4 +394,104 @@ test("hook memory is keyed by repository, so a worktree capture reaches the main
   const started = runHook(projectRoot, "session-start.mjs", [], { hook_event_name: "SessionStart", source: "startup" });
   assert.equal(started.status, 0);
   assert.match(JSON.parse(started.stdout).hookSpecificOutput.additionalContext, /Add rate limiting to the public API/);
+});
+
+test("cost capture sums a transcript into the usage ledger, once per message", async (t) => {
+  const { UsageLedger } = await import("./usage-ledger.mjs");
+  const { root, projectRoot } = await fixture(t);
+  // Cost capture is a minimal-profile hook: a session nobody measured cannot be
+  // priced afterwards.
+  await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], profile: "minimal" });
+  const stateRoot = path.join(root, "state");
+  const transcript = path.join(root, "cost-transcript.jsonl");
+  const ledgerPath = path.join(stateRoot, "usage", "events.jsonl");
+  const usage = { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 40_000, cache_creation_input_tokens: 6000 };
+  const assistant = (id, model, entry = {}) => JSON.stringify({ type: "assistant", message: { id, role: "assistant", model, usage }, ...entry });
+  await fs.writeFile(transcript, [
+    JSON.stringify({ type: "user", message: { role: "user", content: "Add login validation" } }),
+    assistant("msg_1", "claude-sonnet-5"),
+    // One API response written out as two transcript lines: billed once.
+    assistant("msg_1", "claude-sonnet-5"),
+    ""
+  ].join("\n"));
+  await fs.mkdir(path.join(stateRoot, "tasks"), { recursive: true });
+  await fs.writeFile(path.join(stateRoot, "tasks", "task-20260101T000000-abcdef12.json"), JSON.stringify({ id: "task-20260101T000000-abcdef12", status: "active", task: "Finish login", project: { path: projectRoot }, updated_at: "2026-01-01" }));
+  const events = async () => (await fs.readFile(ledgerPath, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+
+  const first = runHook(projectRoot, "cost-capture.mjs", [], { session_id: "cost1", transcript_path: transcript });
+  assert.equal(first.status, 0, first.stderr);
+  const [captured] = await events();
+  assert.equal(captured.kind, "usage");
+  assert.equal(captured.model, "claude-sonnet-5");
+  assert.equal(captured.input_tokens, 1000);
+  assert.equal(captured.cache_read_tokens, 40_000);
+  assert.equal(captured.cache_creation_tokens, 6000);
+  assert.equal(captured.turns, 1);
+  assert.equal(captured.source, "hook:cost-capture");
+  assert.equal(captured.session_id, "cost1");
+  const { samePath } = await import("../../hooks/lib.mjs");
+  assert.ok(samePath(captured.project_path, projectRoot), `${captured.project_path} is not ${projectRoot}`);
+  assert.equal(captured.task_id, "task-20260101T000000-abcdef12", "spend lands on the task that is open");
+  // The hook records tokens; the rate table prices them at read time.
+  assert.equal(captured.cost_usd, 0);
+
+  // Stop fires after every turn, so a re-run with nothing new must add nothing.
+  runHook(projectRoot, "cost-capture.mjs", [], { session_id: "cost1", transcript_path: transcript });
+  assert.equal((await events()).length, 1, "the transcript cursor stops the same turn being billed twice");
+
+  // Only the delta is billed: a second model appears, the first is not re-read.
+  await fs.appendFile(transcript, `${assistant("msg_2", "claude-opus-5[1m]", { isSidechain: true })}\n`);
+  runHook(projectRoot, "cost-capture.mjs", [], { session_id: "cost1", transcript_path: transcript });
+  const all = await events();
+  assert.equal(all.length, 2);
+  assert.equal(all[1].model, "claude-opus-5[1m]", "a subagent's tokens are billed to the same account");
+
+  // What the hook wrote is what the server reads, priced from the published
+  // table: Sonnet 5 ($2 / $10 per MTok, cache 2.50 / 0.20) costs 0.027 for this
+  // turn and Opus 5 ($5 / $25, cache 6.25 / 0.50) costs 0.0675.
+  const report = await new UsageLedger({ stateRoot }).report({ projectPath: projectRoot });
+  assert.equal(report.usage.events, 2);
+  assert.equal(report.usage.cache_read_tokens, 80_000);
+  assert.equal(report.usage.cost_usd, 0.0945);
+  assert.equal(report.usage.reported_cost_usd, 0);
+  assert.deepEqual(report.rates.unpriced_models, []);
+  assert.equal(report.tasks[0].task_id, "task-20260101T000000-abcdef12");
+  assert.equal(report.periods.today.usage_events, 2);
+
+  // A transcript that was replaced under a reused session id is read from the
+  // top rather than from a cursor that points into the middle of it.
+  await fs.writeFile(transcript, `${assistant("msg_3", "claude-sonnet-5")}\n`);
+  runHook(projectRoot, "cost-capture.mjs", [], { session_id: "cost1", transcript_path: transcript });
+  assert.equal((await events()).length, 3);
+  // Cursor sends a conversation id and no transcript: nothing to read, no event.
+  runHook(projectRoot, "cost-capture.mjs", ["--cursor"], { conversation_id: "cost1" });
+  assert.equal((await events()).length, 3);
+});
+
+test("cost capture reads a real transcript in whole lines, chunk by chunk", async () => {
+  const { sumAssistantUsage } = await import("../../hooks/lib.mjs");
+  const transcript = path.join(fixturesDir, "claude-transcript.jsonl");
+
+  const all = sumAssistantUsage(transcript);
+  assert.equal(all.messages, 3);
+  assert.deepEqual(all.models.map((row) => row.model), ["claude-sonnet-5", "claude-opus-5[1m]"]);
+  // Two assistant turns on Sonnet, and the subagent turn the compaction advisor
+  // ignores — it is another context window, but the same bill.
+  assert.deepEqual(all.models[0], { model: "claude-sonnet-5", messages: 2, input_tokens: 2004, output_tokens: 508, cache_read_tokens: 214_000, cache_creation_tokens: 14_100 });
+  assert.equal(all.models[1].input_tokens, 900_000);
+  assert.equal(all.offset, (await fs.stat(transcript)).size);
+  assert.deepEqual(sumAssistantUsage(transcript, { fromOffset: all.offset }), { offset: all.offset, messages: 0, models: [] });
+
+  // A chunk that lands mid-line stops at the last newline; the next run resumes
+  // exactly there, so the two halves add up to the whole and no line is split.
+  const head = sumAssistantUsage(transcript, { chunkBytes: 1024 });
+  assert.ok(head.offset > 0 && head.offset < all.offset, `unexpected chunk boundary ${head.offset}`);
+  const tail = sumAssistantUsage(transcript, { fromOffset: head.offset });
+  assert.equal(tail.offset, all.offset);
+  assert.equal(head.messages + tail.messages, all.messages);
+  const sonnetInput = [head, tail].flatMap((part) => part.models).filter((row) => row.model === "claude-sonnet-5").reduce((sum, row) => sum + row.input_tokens, 0);
+  assert.equal(sonnetInput, 2004);
+
+  assert.deepEqual(sumAssistantUsage(""), { offset: 0, messages: 0, models: [] });
+  assert.deepEqual(sumAssistantUsage(path.join(fixturesDir, "does-not-exist.jsonl"), { fromOffset: 12 }), { offset: 12, messages: 0, models: [] });
 });

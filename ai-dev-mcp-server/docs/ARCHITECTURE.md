@@ -74,23 +74,25 @@ couple pure logic to the vault. Duplicate tool names and definitions without a h
 startup, so a broken extension can never reach a client.
 
 Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygiene`,
-`instincts`, `plans`, `pull-requests`, `rules`, `search`, `sessions`, `skills`, `system`,
-`usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
+`instincts`, `plans`, `projects`, `pull-requests`, `rules`, `search`, `sessions`, `skills`,
+`system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
 `change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `pull-request.mjs`,
 `pr-template.mjs`, `rules-library.mjs`, `rules-catalog.mjs`, `session-memory.mjs`,
 `skill-catalog.mjs`, `skill-cards.mjs`, `skill-registry-docs.mjs`,
 `skill-quality-report.mjs`, `skill-recommendation.mjs`, `frontend-product-quality.mjs`,
 `reference-factory.mjs`, `reference-factory-artifacts.mjs`, `frontend-qa-report.mjs`,
-`search-runtime.mjs`, `search-eval.mjs`, `system-health.mjs`, `system-dashboard.mjs`,
+`search-runtime.mjs`, `search-eval.mjs`, `project-cards.mjs`, `project-markdown.mjs`,
+`quality-gate-runner.mjs`, `system-health.mjs`, `system-dashboard.mjs`,
 `text-format.mjs`, `usage-ledger.mjs`, `task-worktrees.mjs`); the extension is the MCP
 surface over it.
 
 `core/` is not only pure logic. A handful of modules there are services: they run processes
 or own state, but know nothing about MCP and take everything environment-specific as a
 dependency. `process-runner.mjs` and `input-process-runner.mjs` were the first; stage 1.4
-added `search-index.mjs` and `embedding-workers.mjs`. The rule they follow is that the
-launcher, the paths and the collaborators arrive as arguments, so the module is testable
-against a stub rather than against an installed toolchain.
+added `search-index.mjs` and `embedding-workers.mjs`, and stage 1.5 `project-detection.mjs`.
+The rule they follow is that the launcher, the paths and the collaborators arrive as
+arguments, so the module is testable against a stub rather than against an installed
+toolchain.
 `core/completion-claims.mjs` has no extension of its own: the task lifecycle in `mcp-stdio.mjs`
 is its only caller.
 
@@ -101,8 +103,8 @@ there is one (`core/pr-template.mjs` discovers, parses and fills it), and it sto
 `git push` and `gh pr create` are returned as commands, never executed, so publishing stays a
 human decision. `complete_task` prepares the same file and links it from `next_step`.
 
-`system`, `skills`, `frontend-design`, `frontend-qa` and `search` are extractions from
-`mcp-stdio.mjs` rather than new capabilities; each moved out with its definitions and each
+`system`, `skills`, `frontend-design`, `frontend-qa`, `search` and `projects` are extractions
+from `mcp-stdio.mjs` rather than new capabilities; each moved out with its definitions and each
 splits the same way, I/O in the extension and judgement in `core/`.
 
 `system` carries `system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status`.
@@ -161,6 +163,34 @@ Both services are created once in `mcp-stdio.mjs` and handed to the host as `sea
 health checks query them, fourteen writers across the runtime call `markSearchIndexDirty`, and
 `prepare_project` rebuilds the index directly. The reverse direction goes through
 `extensions.handlers`, as everywhere else.
+
+`projects` carries one tool, `run_quality_gate`: the only place the server executes commands a
+project wrote down for itself. Reading the gate file, choosing what to run and judging the run
+are pure, in `core/quality-gate-runner.mjs` — a gate file is prose an agent edits, so its
+commands are parsed out of bullets and tables rather than configured, and the verdict keeps the
+three kinds of nothing-happened apart (`no_commands`, `blocked`, `no_commands_run`). The
+extension resolves each command's working directory, runs it under the command policy, and
+writes the result back onto the project's registry card. `verify_task` runs the gate as one of
+its checks and reaches it through `extensions.handlers`, so the tool stays the single
+implementation.
+
+What did not move is `detectProject`, and deliberately: it is a service, not a tool. `begin_task`,
+`compile_project_context`, the card writers and the `frontend-qa`, `rules`, `sessions` and
+`instincts` extensions all ask it what a repository is, which is eleven callers inside
+`mcp-stdio.mjs` and four outside it. It lives in `core/project-detection.mjs` over an injected
+filesystem — `pathExists`, the JSON and text readers, `stat`, the path guard and the deep
+`analyzeProject` pass all arrive as arguments — and `mcp-stdio.mjs` binds it to the real one and
+puts it on the host. The shallow pass
+reads the manifests at the root, the deep pass walks the tree, and the deep result wins where they
+disagree, because a monorepo's real commands live in its packages.
+
+The project registry card splits the same way. `core/project-cards.mjs` renders it from facts that
+arrive already gathered, which is what makes it safe to re-render: the sections an agent owns —
+architecture notes, active tasks, risks, improvements, notes, the last gate and QA runs — are
+carried over from the card as it stands and generated only when it has none.
+`core/project-markdown.mjs` holds what the card shares with `AGENTS.md`, the project map, the
+project brief and the gate file: the command and component tables, the documentation and
+environment sections, the section readers and the project slug.
 
 ### Context extras
 

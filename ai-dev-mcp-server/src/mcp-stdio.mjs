@@ -24,12 +24,12 @@ import {
 import {
   cleanDescription,
   csvValue,
+  mdCell,
   scoreText,
   shorten,
   slugPart,
   stripBom,
-  toStringList as searchEvalList,
-  yamlString
+  toStringList as searchEvalList
 } from "./core/text-format.mjs";
 import {
   findSkillItem,
@@ -55,22 +55,34 @@ import { createSearchIndexRuntime } from "./core/search-index.mjs";
 import { createEmbeddingRuntime } from "./core/embedding-workers.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
 import {
-  commandRiskReason,
-  parseSafeCommand
-} from "./core/command-policy.mjs";
-import {
   isPathInside,
   resolveWithinSync
 } from "./core/path-policy.mjs";
-import { runPolicyCommand } from "./core/process-runner.mjs";
 import { createArchifyTools } from "./core/archify-tools.mjs";
-import { validateArchifyDiagramSpecs } from "./core/archify-quality-gate.mjs";
 import {
   archifyDeliveryReceiptMarkdown,
   validateArchifyDeliveryReceipt,
   validateArchifyVisualCheckEvidence
 } from "./core/archify-receipt.mjs";
 import { analyzeProject } from "./core/project-intelligence.mjs";
+import { createProjectDetector } from "./core/project-detection.mjs";
+import { renderProjectCardMd } from "./core/project-cards.mjs";
+import {
+  architectureMarkdown,
+  asBulletList,
+  bulletValues,
+  commandsTable,
+  componentsTable,
+  dangerousScriptsMarkdown,
+  documentationMarkdown,
+  environmentMarkdown,
+  extractMarkdownSection,
+  firstHeading,
+  parseSimpleFrontmatterFields,
+  projectSlug,
+  recommendedSkillsMarkdown,
+  scriptsTable
+} from "./core/project-markdown.mjs";
 import { configureRuntimeStateRoot, resolveProjectIdentity } from "./core/project-identity.mjs";
 import { resolveRuntimeHome } from "./core/runtime-home.mjs";
 import {
@@ -746,12 +758,6 @@ async function appendKnowledgeNote({ path: notePath, content, heading }) {
     path: toVaultRelative(target),
     bytes: Buffer.byteLength(parts.join(""), "utf8")
   };
-}
-
-function markdownList(values, fallback = "None recorded.") {
-  const list = Array.isArray(values) ? values.filter(Boolean) : [];
-  if (!list.length) return fallback;
-  return list.map((value) => `- ${String(value).replace(/\r?\n/g, " ").trim()}`).join("\n");
 }
 
 function skillWikiLink(item) {
@@ -2147,359 +2153,24 @@ function isPlainObject(value) {
   return value && typeof value === "object" && !Array.isArray(value);
 }
 
-function mdCell(value) {
-  return String(value ?? "").replaceAll("|", "\\|").replace(/\r?\n/g, " ");
-}
-
-function asBulletList(items, fallback = "Not detected.") {
-  if (!items.length) return `- ${fallback}`;
-  return items.map((item) => `- ${item}`).join("\n");
-}
-
-function inferPackageManager(projectRoot, packageJson) {
-  const candidates = [
-    ["pnpm-lock.yaml", "pnpm"],
-    ["yarn.lock", "yarn"],
-    ["bun.lockb", "bun"],
-    ["bun.lock", "bun"],
-    ["package-lock.json", "npm"]
-  ];
-  return Promise.all(candidates.map(([file]) => pathExists(path.join(projectRoot, file))))
-    .then((matches) => {
-      const matchIndex = matches.findIndex(Boolean);
-      if (matchIndex >= 0) return candidates[matchIndex][1];
-      return packageJson ? "npm" : "";
-    });
-}
-
-function packageRunCommand(packageManager, scriptName) {
-  if (!scriptName) return "";
-  if (packageManager === "pnpm") return `pnpm ${scriptName}`;
-  if (packageManager === "yarn") return `yarn ${scriptName}`;
-  if (packageManager === "bun") return `bun run ${scriptName}`;
-  return `npm run ${scriptName}`;
-}
-
-function firstScript(scripts, names) {
-  return names.find((name) => Object.hasOwn(scripts, name)) ?? "";
-}
-
-function commandRow(label, command, source = "") {
-  return { label, command: command || "Not detected", source: source || (command ? "detected" : "missing") };
-}
-
 async function readProjectTextIfExists(projectRoot, relativePath) {
   const target = safeProjectFile(projectRoot, relativePath);
   if (!(await pathExists(target))) return "";
   return stripBom(await fs.readFile(target, "utf8").catch(() => ""));
 }
 
-
-async function detectProject(projectRoot, requestedName) {
-  const exists = (relativePath) => pathExists(path.join(projectRoot, relativePath));
-  const packageJsonPath = path.join(projectRoot, "package.json");
-  const packageJson = await readJsonIfExists(packageJsonPath);
-  const scripts = isPlainObject(packageJson?.scripts) ? packageJson.scripts : {};
-  const dependencies = {
-    ...(isPlainObject(packageJson?.dependencies) ? packageJson.dependencies : {}),
-    ...(isPlainObject(packageJson?.devDependencies) ? packageJson.devDependencies : {})
-  };
-  const packageManager = await inferPackageManager(projectRoot, packageJson);
-  const pyprojectText = await readProjectTextIfExists(projectRoot, "pyproject.toml");
-  const requirementsText = await readProjectTextIfExists(projectRoot, "requirements.txt");
-  const pythonMetadataText = `${pyprojectText}\n${requirementsText}`.toLowerCase();
-  const dependencyText = `${Object.keys(dependencies).join(" ")}\n${pythonMetadataText}`.toLowerCase();
-
-  const stack = [];
-  const markers = [];
-  const addStack = (name) => {
-    if (!stack.includes(name)) stack.push(name);
-  };
-  const addMarker = async (file, label = file) => {
-    if (await exists(file)) markers.push(label);
-  };
-
-  if (packageJson) addStack("Node.js");
-  if (dependencies.typescript || await exists("tsconfig.json")) addStack("TypeScript");
-  if (dependencies.next) addStack("Next.js");
-  if (dependencies.react) addStack("React");
-  if (dependencies.vue) addStack("Vue");
-  if (dependencies.svelte) addStack("Svelte");
-  if (dependencies.vite) addStack("Vite");
-  if (dependencies.tailwindcss || await exists("tailwind.config.js") || await exists("tailwind.config.ts")) addStack("Tailwind CSS");
-  if (dependencies["react-native"] || dependencies.expo || await exists("app.json") || await exists("eas.json")) addStack("React Native/Expo");
-  if (dependencies["@capacitor/core"] || dependencies.ionic) addStack("Capacitor/Ionic");
-  if (await exists("pyproject.toml") || await exists("requirements.txt") || await exists("Pipfile") || await exists("poetry.lock") || await exists("uv.lock")) addStack("Python");
-  if (/fastapi/.test(pythonMetadataText)) addStack("FastAPI");
-  if (/flask/.test(pythonMetadataText)) addStack("Flask");
-  if (/django/.test(pythonMetadataText)) addStack("Django");
-  if (/sqlalchemy/.test(pythonMetadataText)) addStack("SQLAlchemy");
-  if (/alembic/.test(pythonMetadataText)) addStack("Alembic");
-  if (/postgres|psycopg|asyncpg/.test(pythonMetadataText)) addStack("PostgreSQL");
-  if (/redis/.test(pythonMetadataText)) addStack("Redis");
-  if (/celery/.test(pythonMetadataText)) addStack("Celery");
-  if (/aiogram/.test(pythonMetadataText)) addStack("aiogram");
-  if (/python-telegram-bot|pytelegrambotapi|telebot|discord.py/.test(pythonMetadataText)) addStack("Bot framework");
-  if (/openai/.test(pythonMetadataText)) addStack("OpenAI-compatible LLM");
-  if (/pytest/.test(pythonMetadataText)) addStack("pytest");
-  if (/\b(express|koa|fastify|hapi|nestjs|@nestjs\/core)\b/.test(dependencyText)) addStack("Node API");
-  if (/\b(telegraf|grammy|node-telegram-bot-api|discord.js|slack-bolt)\b/.test(dependencyText)) addStack("Bot framework");
-  if (await exists("pubspec.yaml")) addStack("Flutter/Dart");
-  if (await exists("go.mod")) addStack("Go");
-  if (await exists("Cargo.toml")) addStack("Rust");
-  if (await exists("composer.json")) addStack("PHP");
-  if (await exists("pom.xml") || await exists("build.gradle") || await exists("build.gradle.kts")) addStack("Java/JVM");
-  if (await exists("Dockerfile") || await exists("docker-compose.yml") || await exists("compose.yml")) addStack("Docker");
-  if (await exists("docker-compose.yml") || await exists("compose.yml")) addStack("Docker Compose");
-  if (await exists(".github/workflows")) addStack("GitHub Actions");
-
-  await addMarker("README.md");
-  await addMarker("docs", "docs/");
-  await addMarker("CONTRIBUTING.md");
-  await addMarker("CHANGELOG.md");
-  await addMarker(".env.example");
-  await addMarker("package.json");
-  await addMarker("tsconfig.json");
-  await addMarker("vite.config.ts");
-  await addMarker("vite.config.js");
-  await addMarker("next.config.js");
-  await addMarker("next.config.mjs");
-  await addMarker("tailwind.config.ts");
-  await addMarker("tailwind.config.js");
-  await addMarker("pyproject.toml");
-  await addMarker("requirements.txt");
-  await addMarker("pubspec.yaml");
-  await addMarker("app.json");
-  await addMarker("eas.json");
-  await addMarker("android", "android/");
-  await addMarker("ios", "ios/");
-  await addMarker("go.mod");
-  await addMarker("Cargo.toml");
-  await addMarker("Dockerfile");
-  await addMarker(".github/workflows", "GitHub Actions");
-  await addMarker("src", "src/");
-  await addMarker("app", "app/");
-  await addMarker("pages", "pages/");
-  await addMarker("components", "components/");
-  await addMarker("tests", "tests/");
-
-  const installCommand = packageJson
-    ? `${packageManager || "npm"} install`
-    : (await exists("uv.lock") ? "uv sync" : await exists("requirements.txt") ? "python -m pip install -r requirements.txt" : "");
-  const devScript = firstScript(scripts, ["dev", "start", "serve"]);
-  const testScript = firstScript(scripts, ["test", "test:unit", "test:e2e"]);
-  const lintScript = firstScript(scripts, ["lint", "lint:fix"]);
-  const typecheckScript = firstScript(scripts, ["typecheck", "type-check", "check-types", "tsc"]);
-  const buildScript = firstScript(scripts, ["build", "compile"]);
-  const pythonCheckCommand = await exists("scripts/check.py")
-    ? (await exists(".venv/Scripts/python.exe") ? ".\\.venv\\Scripts\\python.exe scripts\\check.py" : "python scripts/check.py")
-    : "";
-  const pythonTestFallback = pythonCheckCommand || (await exists("pyproject.toml") || await exists("requirements.txt") ? "pytest" : "");
-
-  const commands = [
-    commandRow("Install", installCommand, installCommand ? "project files" : "missing"),
-    commandRow("Dev", packageRunCommand(packageManager, devScript), devScript ? `package script: ${devScript}` : "missing"),
-    commandRow("Test", packageRunCommand(packageManager, testScript) || pythonTestFallback || (await exists("Cargo.toml") ? "cargo test" : ""), testScript ? `package script: ${testScript}` : pythonCheckCommand ? "scripts/check.py" : "fallback/missing"),
-    commandRow("Lint", packageRunCommand(packageManager, lintScript), lintScript ? `package script: ${lintScript}` : "missing"),
-    commandRow("Typecheck", packageRunCommand(packageManager, typecheckScript), typecheckScript ? `package script: ${typecheckScript}` : "missing"),
-    commandRow("Build", packageRunCommand(packageManager, buildScript) || (await exists("go.mod") ? "go build ./..." : await exists("Cargo.toml") ? "cargo build" : ""), buildScript ? `package script: ${buildScript}` : "fallback/missing")
-  ];
-
-  const frontendNames = new Set(["Next.js", "React", "Vue", "Svelte", "Vite", "Tailwind CSS"]);
-  const backendNames = new Set(["FastAPI", "Flask", "Django", "SQLAlchemy", "Alembic", "PostgreSQL", "Redis", "Celery", "Node API", "Go", "Rust", "Java/JVM", "PHP"]);
-  const mobileNames = new Set(["React Native/Expo", "Capacitor/Ionic", "Flutter/Dart"]);
-  const botNames = new Set(["aiogram", "Bot framework"]);
-  const apiNames = new Set(["FastAPI", "Flask", "Django", "Node API"]);
-  const isFrontend = stack.some((item) => frontendNames.has(item));
-  const isBackend = stack.some((item) => backendNames.has(item));
-  const isMobile = stack.some((item) => mobileNames.has(item));
-  const isBot = stack.some((item) => botNames.has(item));
-  const isApi = stack.some((item) => apiNames.has(item)) || await exists("api") || await exists("routes") || await exists("controllers");
-  const projectTypes = [
-    isFrontend ? "frontend" : "",
-    isBackend ? "backend" : "",
-    isMobile ? "mobile" : "",
-    isBot ? "bot" : "",
-    isApi ? "api" : ""
-  ].filter(Boolean);
-  const documentation = await projectDocumentationSnapshot(projectRoot);
-  const environment = await projectEnvironmentSnapshot(projectRoot);
-  const dangerousScripts = projectDangerousScripts(scripts);
-  const projectName = requestedName || packageJson?.name || path.basename(projectRoot);
-  const intelligence = await analyzeProject(projectRoot, { projectName, maxDepth: 4 });
-  for (const value of intelligence.stack) {
-    if (!stack.includes(value)) stack.push(value);
-  }
-  const deepTypes = intelligence.project_types.filter((item) => item !== "unknown");
-  for (const value of deepTypes) {
-    if (!projectTypes.includes(value)) projectTypes.push(value);
-  }
-  const mergedCommands = intelligence.commands.length
-    ? intelligence.commands
-    : commands;
-  const detected = {
-    project_name: projectName,
-    project_path: projectRoot,
-    package_manager: packageManager || "Not detected",
-    stack,
-    project_types: projectTypes.length ? projectTypes : ["unknown"],
-    scripts,
-    commands: mergedCommands,
-    markers: [...new Set([...markers, ...intelligence.components.map((item) => item.manifest)])],
-    documentation,
-    environment,
-    dangerous_scripts: dangerousScripts,
-    has_git: await exists(".git"),
-    is_frontend: isFrontend || intelligence.is_frontend,
-    is_backend: isBackend || intelligence.is_backend,
-    is_mobile: isMobile || intelligence.is_mobile,
-    is_bot: isBot || intelligence.is_bot,
-    is_api: isApi || intelligence.is_api,
-    components: intelligence.components,
-    architecture: intelligence.architecture,
-    workspace: intelligence.workspace,
-    component_quality: intelligence.quality
-  };
-  detected.quality_gaps = projectQualityGaps(detected);
-  detected.risk_signals = projectRiskSignals(detected);
-  detected.recommended_next_commands = projectRecommendedNextCommands(detected);
-  return {
-    ...detected
-  };
-}
-
-async function projectDocumentationSnapshot(projectRoot) {
-  const candidates = [
-    ["README.md", "README"],
-    ["docs", "docs/"],
-    ["CONTRIBUTING.md", "CONTRIBUTING"],
-    ["CHANGELOG.md", "CHANGELOG"],
-    [".github", ".github/"],
-    [".github/workflows", "GitHub Actions"]
-  ];
-  const files = [];
-  for (const [relativePath, label] of candidates) {
-    const target = safeProjectFile(projectRoot, relativePath);
-    const stats = await fs.stat(target).catch(() => null);
-    files.push({
-      path: relativePath,
-      label,
-      exists: Boolean(stats),
-      type: stats?.isDirectory() ? "directory" : stats?.isFile() ? "file" : "missing"
-    });
-  }
-  return {
-    files,
-    has_readme: files.some((item) => item.path.toLowerCase() === "readme.md" && item.exists),
-    has_docs: files.some((item) => item.path.toLowerCase() === "docs" && item.exists),
-    missing: files.filter((item) => !item.exists).map((item) => item.path)
-  };
-}
-
-async function projectEnvironmentSnapshot(projectRoot) {
-  const candidates = [
-    ".env",
-    ".env.local",
-    ".env.development",
-    ".env.production",
-    ".env.example",
-    ".env.sample",
-    "env.example",
-    "example.env"
-  ];
-  const files = [];
-  for (const relativePath of candidates) {
-    const target = safeProjectFile(projectRoot, relativePath);
-    const stats = await fs.stat(target).catch(() => null);
-    if (!stats?.isFile()) continue;
-    const isExample = /example|sample/i.test(relativePath);
-    files.push({
-      path: relativePath,
-      type: isExample ? "example" : "local",
-      risk: isExample ? "low" : "high"
-    });
-  }
-  return {
-    files,
-    has_example: files.some((item) => item.type === "example"),
-    local_secret_files: files.filter((item) => item.type === "local").map((item) => item.path)
-  };
-}
-
-function projectDangerousScripts(scripts) {
-  return Object.entries(scripts || {})
-    .map(([name, command]) => {
-      const reason = projectCommandRiskReason(command, name);
-      return reason ? { name, command: String(command), reason } : null;
-    })
-    .filter(Boolean);
-}
-
-function projectCommandRiskReason(command, name = "") {
-  const baseReason = commandRiskReason(command);
-  if (baseReason) return baseReason;
-  const combined = `${name} ${command}`.toLowerCase();
-  const risky = [
-    { pattern: /\bdeploy|publish|release\b/, reason: "deployment or release script" },
-    { pattern: /\bmigrate|migration|rollback|seed\b/, reason: "database mutation script" },
-    { pattern: /\bstripe|payment|charge|invoice\b/, reason: "payment side effects" },
-    { pattern: /\btelegram|discord|slack|mail|email|send\b/, reason: "external notification side effects" },
-    { pattern: /\bopenai|anthropic|llm|vision|api[_-]?call\b/, reason: "external API or paid model side effects" },
-    { pattern: /\bprod|production\b/, reason: "production environment script" }
-  ];
-  return risky.find((item) => item.pattern.test(combined))?.reason || "";
-}
-
-function projectQualityGaps(detected) {
-  const missing = commandsByStatus(detected.commands).missing
-    .filter((item) => ["Test", "Lint", "Typecheck", "Build"].includes(item.label))
-    .map((item) => `${item.label} command is not detected.`);
-  if (detected.is_frontend && !commandsByStatus(detected.commands).detected.some((item) => item.label === "Build")) {
-    missing.push("Frontend project has no detected build command.");
-  }
-  if (!detected.documentation?.has_readme) missing.push("README.md is not detected.");
-  if (!detected.environment?.has_example && detected.environment?.local_secret_files?.length) {
-    missing.push("Local env files exist but no env example file was detected.");
-  }
-  return [...new Set(missing)];
-}
-
-function projectRiskSignals(detected) {
-  const risks = [];
-  if (!detected.has_git) risks.push("Git repository was not detected at this root.");
-  for (const item of detected.dangerous_scripts || []) {
-    risks.push(`Script \`${item.name}\` may be unsafe for automatic runs: ${item.reason}.`);
-  }
-  for (const file of detected.environment?.local_secret_files || []) {
-    risks.push(`Local env file \`${file}\` exists; never copy secrets into Obsidian or chat.`);
-  }
-  if ((detected.is_bot || detected.is_api) && detected.environment?.local_secret_files?.length) {
-    risks.push("Bot/API project likely depends on external credentials; smoke checks may call real services.");
-  }
-  if (!detected.quality_gaps?.length && !risks.length) return [];
-  return [...new Set(risks)];
-}
-
-function projectRecommendedNextCommands(detected) {
-  const commands = [
-    "начни новую фичу: <описание>",
-    "найди баг: <симптом или ошибка>",
-    "сделай ревью",
-    "обнови память проекта"
-  ];
-  if (detected.is_frontend) commands.splice(2, 0, "улучши frontend/design: <экран или компонент>");
-  if (detected.quality_gaps?.length || detected.risk_signals?.length) commands.push("обнови базу знаний");
-  if (detected.is_frontend) {
-    commands.splice(
-      2,
-      0,
-      "поддержи frontend/beta: <экран или компонент>",
-      "проверь frontend quality gate",
-      "проверь лендинг/конверсию: <страница>"
-    );
-  }
-  return [...new Set(commands)];
-}
+// `detectProject` answers "what is this repository" for the whole server:
+// `begin_task`, `compile_project_context`, the project card writers and four
+// extensions all call it. The detector itself is in `src/core`, over an
+// injected filesystem; this is the one binding to the real one.
+const { detectProject } = createProjectDetector({
+  pathExists,
+  readJsonIfExists,
+  readProjectText: readProjectTextIfExists,
+  safeProjectFile,
+  stat: (target) => fs.stat(target).catch(() => null),
+  analyzeProject
+});
 
 async function projectTree(projectRoot, { maxDepth = 2, maxEntries = 160 } = {}) {
   const skip = new Set([
@@ -2546,45 +2217,6 @@ async function projectTree(projectRoot, { maxDepth = 2, maxEntries = 160 } = {})
   await walk(projectRoot, 0);
   if (lines.length >= maxEntries) lines.push("- ...truncated");
   return lines.join("\n") || "- Empty project directory";
-}
-
-function commandsTable(commands) {
-  return [
-    "| Task | Component | CWD | Command | Source |",
-    "| --- | --- | --- | --- | --- |",
-    ...commands.map((item) => `| ${mdCell(item.label)} | ${mdCell(item.component || "")} | ${mdCell(item.cwd || ".")} | ${mdCell(item.command)} | ${mdCell(item.source)} |`)
-  ].join("\n");
-}
-
-function componentsTable(components = []) {
-  if (!components.length) return "No project components detected.";
-  return [
-    "| Component | Path | Ecosystem | Types | Stack |",
-    "| --- | --- | --- | --- | --- |",
-    ...components.map((item) => `| ${mdCell(item.name)} | ${mdCell(item.path)} | ${mdCell(item.ecosystem)} | ${mdCell((item.project_types || []).join(", "))} | ${mdCell((item.stack || []).join(", "))} |`)
-  ].join("\n");
-}
-
-function architectureMarkdown(architecture = {}) {
-  const row = (label, values) => `- ${label}: ${(values || []).length ? values.map((item) => `\`${item}\``).join(", ") : "not detected"}`;
-  return [
-    row("Source roots", architecture.source_roots),
-    row("Test roots", architecture.test_roots),
-    row("Entrypoints", architecture.entrypoints),
-    row("API surfaces", architecture.api_surfaces),
-    row("Data and migrations", architecture.data_paths),
-    row("CI workflows", architecture.ci)
-  ].join("\n");
-}
-
-function scriptsTable(scripts) {
-  const entries = Object.entries(scripts);
-  if (!entries.length) return "No package scripts detected.";
-  return [
-    "| Script | Command |",
-    "| --- | --- |",
-    ...entries.map(([name, command]) => `| ${mdCell(name)} | ${mdCell(command)} |`)
-  ].join("\n");
 }
 
 function autoCommandTable() {
@@ -2784,38 +2416,6 @@ ${asBulletList(detected.recommended_next_commands)}
 ${tree}
 \`\`\`
 `;
-}
-
-function documentationMarkdown(detected) {
-  const files = detected.documentation?.files || [];
-  if (!files.length) return "- Documentation scan not available.";
-  return [
-    "| Item | Status | Type |",
-    "| --- | --- | --- |",
-    ...files.map((item) => `| ${mdCell(item.path)} | ${item.exists ? "present" : "missing"} | ${mdCell(item.type)} |`)
-  ].join("\n");
-}
-
-function environmentMarkdown(detected) {
-  const env = detected.environment || { files: [], local_secret_files: [] };
-  const lines = [];
-  if (!env.files.length) {
-    lines.push("- No `.env*` files detected by the lightweight scan.");
-  } else {
-    for (const file of env.files) {
-      lines.push(`- \`${file.path}\`: ${file.type === "example" ? "example/template file" : "local secret-bearing file, do not copy contents into chat or Obsidian"}`);
-    }
-  }
-  if (env.local_secret_files?.length && !env.has_example) {
-    lines.push("- Local env files exist but no `.env.example`/sample file was detected.");
-  }
-  return lines.join("\n");
-}
-
-function dangerousScriptsMarkdown(detected) {
-  const scripts = detected.dangerous_scripts || [];
-  if (!scripts.length) return "- No package scripts were automatically flagged as side-effectful.";
-  return scripts.map((item) => `- \`${item.name}\`: ${item.reason}. Command: \`${item.command}\``).join("\n");
 }
 
 function buildProjectBriefMd(detected) {
@@ -3754,71 +3354,8 @@ async function prepareProject({
   };
 }
 
-function projectSlug(value) {
-  const raw = String(value ?? "").trim();
-  const slug = raw.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  if (slug) return slug.slice(0, 80);
-
-  let hash = 0;
-  for (const char of raw) {
-    hash = ((hash << 5) - hash + char.charCodeAt(0)) | 0;
-  }
-  return `project-${Math.abs(hash)}`;
-}
-
 function projectCardRelativePath(name) {
   return `${projectsRelativeDir}/${projectSlug(name)}.md`;
-}
-
-function parseSimpleFrontmatterFields(text) {
-  const match = text.match(/^---\s*([\s\S]*?)\s*---/);
-  if (!match) return {};
-
-  const fields = {};
-  for (const line of match[1].split(/\r?\n/)) {
-    const fieldMatch = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (!fieldMatch) continue;
-    const rawValue = fieldMatch[2].trim();
-    if (/^".*"$/.test(rawValue)) {
-      try {
-        fields[fieldMatch[1]] = JSON.parse(rawValue);
-        continue;
-      } catch {
-        // Fall through to simple stripping for non-JSON YAML-ish values.
-      }
-    }
-    fields[fieldMatch[1]] = rawValue.replace(/^["']|["']$/g, "");
-  }
-  return fields;
-}
-
-function firstHeading(text) {
-  const match = text.match(/^#\s+(.+)$/m);
-  return match ? match[1].trim() : "";
-}
-
-function extractMarkdownSection(text, sectionName) {
-  const lines = text.split(/\r?\n/);
-  const headingPattern = new RegExp(`^##\\s+${sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "i");
-  const start = lines.findIndex((line) => headingPattern.test(line.trim()));
-  if (start < 0) return "";
-
-  let end = lines.length;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (/^##\s+/.test(lines[index])) {
-      end = index;
-      break;
-    }
-  }
-  return lines.slice(start + 1, end).join("\n").trim();
-}
-
-function bulletValues(markdown) {
-  return markdown
-    .split(/\r?\n/)
-    .map((line) => line.match(/^-\s+(.+)$/)?.[1]?.trim())
-    .filter(Boolean)
-    .map((value) => value.replace(/^`|`$/g, ""));
 }
 
 function projectSummaryFromText(relativePath, text) {
@@ -3859,64 +3396,6 @@ function projectSummaryFromText(relativePath, text) {
   };
 }
 
-const projectCardKnownSections = [
-  "Registry Snapshot",
-  "Repository",
-  "Project Profile",
-  "Stack",
-  "Documentation",
-  "Environment And Secrets Risk",
-  "Commands",
-  "Package Scripts",
-  "Project Brief",
-  "Project Map",
-  "Quality Gate",
-  "Quality Gate Status",
-  "Frontend Product Quality",
-  "Quality Gaps",
-  "Risk Signals",
-  "Dangerous Or Side-Effectful Scripts",
-  "Recommended Skills",
-  "Skill Routing",
-  "Skill Routing Policy",
-  "Architecture Summary",
-  "Active Tasks",
-  "Risks And Weak Spots",
-  "Known Weak Spots",
-  "Next Practical Improvements",
-  "Recommended Next Commands",
-  "Last Project Map Refresh",
-  "Last Quality Gate Run",
-  "Notes",
-  "Agent Rule"
-];
-
-function extractProjectCardSection(text, sectionName) {
-  const lines = text.split(/\r?\n/);
-  const headingPattern = new RegExp(`^##\\s+${sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "i");
-  const start = lines.findIndex((line) => headingPattern.test(line.trim()));
-  if (start < 0) return "";
-
-  const nextSectionNames = sectionName.toLowerCase() === "last quality gate run"
-    ? ["Notes", "Agent Rule"]
-    : projectCardKnownSections.filter((name) => name.toLowerCase() !== sectionName.toLowerCase());
-  if (!nextSectionNames.length) {
-    return lines.slice(start + 1).join("\n").trim();
-  }
-  const nextKnownPattern = new RegExp(
-    `^##\\s+(${nextSectionNames.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\s*$`,
-    "i"
-  );
-  let end = lines.length;
-  for (let index = start + 1; index < lines.length; index += 1) {
-    if (nextKnownPattern.test(lines[index].trim())) {
-      end = index;
-      break;
-    }
-  }
-  return lines.slice(start + 1, end).join("\n").trim();
-}
-
 async function projectFileSnapshot(projectRoot, relativePath) {
   const target = safeProjectFile(projectRoot, relativePath);
   const stats = await fs.stat(target).catch(() => null);
@@ -3930,168 +3409,14 @@ async function projectFileSnapshot(projectRoot, relativePath) {
   };
 }
 
-function commandsByStatus(commands) {
-  return {
-    detected: commands.filter((item) => item.command && item.command !== "Not detected"),
-    missing: commands.filter((item) => !item.command || item.command === "Not detected")
-  };
-}
-
-function qualityStatusFromCard(text, fallbackText = "") {
-  const combined = `${text || ""}\n${fallbackText || ""}`;
-  if (!combined.trim()) return { status: "not run", updated: "" };
-  const status = (combined.match(/Status:\s*([^\r\n]+)/i)?.[1]?.trim() || "").replaceAll("`", "");
-  const updated = (combined.match(/Updated:\s*([^\r\n]+)/i)?.[1]?.trim() || "").replaceAll("`", "");
-  const inferredStatus = /all checks passed|checks passed|passed/i.test(combined)
-    ? "passed (reported manually)"
-    : "not run";
-  return {
-    status: status || inferredStatus,
-    updated
-  };
-}
-
-function recommendedSkillsForProject(detected) {
-  const skills = [
-    ["repo-onboarding", "Repository setup, AGENTS.md, project map, quality gate."],
-    ["feature-builder", "Feature implementation with repo patterns and tests."],
-    ["bugfix-investigator", "Bug, regression, failing test, or CI investigation."],
-    ["code-reviewer", "Risk review, missing tests, security/data/behavior checks."],
-    ["knowledge-curator", "Durable project notes and lessons."]
-  ];
-  if (detected.is_frontend) {
-    skills.splice(4, 0, ["frontend-product-builder", "Single design-first orchestrator for product context, references, approvals, implementation, and visual handoff."]);
-    skills.splice(5, 0, ["frontend-polisher", "Frontend/UI quality, states, responsiveness."]);
-    skills.splice(6, 0, ["beta-frontend-maintainer", "Existing beta frontend support with minimal safe diffs."]);
-    skills.splice(7, 0, ["frontend-quality-gate", "Technical UI QA plus strict visual-reference evidence."]);
-    skills.splice(8, 0, ["landing-conversion-reviewer", "Landing page clarity, trust, CTA, and conversion review."]);
-    skills.splice(9, 0, ["design-taste-frontend", "Visually important frontend/design work."]);
-  }
-  return skills;
-}
-
-function recommendedSkillsMarkdown(detected) {
-  return [
-    "| Skill | Use when |",
-    "| --- | --- |",
-    ...recommendedSkillsForProject(detected).map(([skill, reason]) => `| \`${skill}\` | ${mdCell(reason)} |`)
-  ].join("\n");
-}
-
-function generatedProjectRisks(detected, files) {
-  const risks = [];
-  const { missing } = commandsByStatus(detected.commands);
-  for (const item of missing) {
-    if (["Lint", "Typecheck", "Test", "Build"].includes(item.label)) {
-      risks.push(`${item.label} command is not detected.`);
-    }
-  }
-  if (!files.agents.exists) risks.push("Root `AGENTS.md` is missing.");
-  if (!files.project_brief?.exists) risks.push("`.ai-dev/project-brief.md` is missing.");
-  if (!files.project_map.exists) risks.push("`.ai-dev/project-map.md` is missing.");
-  if (!files.quality_gate.exists) risks.push("`.ai-dev/quality-gate.md` is missing.");
-  if (detected.is_frontend && !files.frontend_product?.exists) {
-    risks.push("Frontend Product Quality v2 state is missing.");
-  }
-  if (!detected.markers.includes("README.md")) risks.push("Repository README is not detected.");
-  if (!detected.has_git) risks.push("Git repository was not detected at this root.");
-  for (const item of detected.risk_signals || []) risks.push(item);
-  return risks.length ? asBulletList(risks) : "- No automatically detected registry risks.";
-}
-
-function generatedProjectImprovements(detected, files) {
-  const improvements = [];
-  if (!files.agents.exists || !files.project_brief?.exists || !files.project_map.exists || !files.quality_gate.exists) {
-    improvements.push("Run `bootstrap_project` to create missing agent-facing files.");
-  }
-  if (detected.is_frontend && !files.frontend_product?.exists) {
-    improvements.push("Run `prepare_frontend_product` before product UI or visual work.");
-  }
-  if (files.project_brief?.exists) {
-    improvements.push("Run `refresh_project_memory` after meaningful structure, command, risk, or documentation changes.");
-  }
-  if (files.project_map.exists) {
-    improvements.push("Run `refresh_project_map` after meaningful structure or command changes.");
-  }
-  if (!commandsByStatus(detected.commands).detected.some((item) => item.label === "Test")) {
-    improvements.push("Add or document a reliable test/check command.");
-  }
-  if (!commandsByStatus(detected.commands).detected.some((item) => item.label === "Lint")) {
-    improvements.push("Add or document a lint command when the project is ready.");
-  }
-  if (!commandsByStatus(detected.commands).detected.some((item) => item.label === "Typecheck")) {
-    improvements.push("Add or document a typecheck command when useful for this stack.");
-  }
-  if (!detected.documentation?.has_readme) {
-    improvements.push("Add a README.md with setup, run, test, and deployment notes.");
-  }
-  if (detected.environment?.local_secret_files?.length && !detected.environment?.has_example) {
-    improvements.push("Add an `.env.example` with safe placeholder values.");
-  }
-  return improvements.length ? improvements.map((item, index) => `${index + 1}. ${item}`).join("\n") : "No automatic improvements suggested.";
-}
-
-function registrySnapshotTable({
-  detected,
-  identity,
-  description,
-  status,
-  files,
-  qualityStatus,
-  frontendProductStatus,
-  activeTaskCount = 0
-}) {
-  return [
-    "| Field | Value |",
-    "| --- | --- |",
-    `| Status | ${mdCell(status)} |`,
-    `| Description | ${mdCell(description || "Not recorded.")} |`,
-    `| Project ID | \`${mdCell(identity.project_id)}\` |`,
-    `| Repository | \`${mdCell(detected.project_path)}\` |`,
-    `| Stack | ${mdCell(detected.stack.join(", ") || "Not detected")} |`,
-    `| Package manager | ${mdCell(detected.package_manager)} |`,
-    `| Project types | ${mdCell((detected.project_types || []).join(", ") || "unknown")} |`,
-    `| Project brief | ${files.project_brief.exists ? `present, modified ${files.project_brief.modified}` : "missing"} |`,
-    `| Project map | ${files.project_map.exists ? `present, modified ${files.project_map.modified}` : "missing"} |`,
-    `| Quality gate | ${files.quality_gate.exists ? `present, modified ${files.quality_gate.modified}` : "missing"} |`,
-    `| Last quality status | ${mdCell(qualityStatus.status)} |`,
-    `| Frontend product phase | ${mdCell(frontendProductStatus?.phase || (detected.is_frontend ? "not prepared" : "not applicable"))} |`,
-    `| Frontend handoff gate | ${mdCell(frontendProductStatus?.handoff?.ok ? "pass" : (frontendProductStatus?.handoff ? "block" : "not run"))} |`,
-    `| Active tasks | ${activeTaskCount} |`,
-    `| Updated | ${new Date().toISOString()} |`
-  ].join("\n");
-}
-
-function fencedCodeBlocks(markdown) {
-  const blocks = [];
-  const pattern = /```[A-Za-z0-9_-]*\s*([\s\S]*?)```/g;
-  let match = null;
-  while ((match = pattern.exec(markdown)) !== null) {
-    const body = match[1].trim();
-    if (body) blocks.push(body);
-  }
-  return blocks;
-}
-
-function qualityGateFileSummaryMarkdown(markdown) {
-  if (!markdown.trim()) return "";
-  const commands = fencedCodeBlocks(extractMarkdownSection(markdown, "Default Verification"))
-    .flatMap((block) => block.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))
-    .slice(0, 6);
-  const missingChecks = bulletValues(extractMarkdownSection(markdown, "Missing Checks"));
-  const lines = ["### Repo Quality Gate Summary", ""];
-  if (commands.length) {
-    lines.push("Default command candidates:", "");
-    for (const command of commands) lines.push(`- \`${command}\``);
-    lines.push("");
-  }
-  if (missingChecks.length) {
-    lines.push("Missing checks:", "");
-    for (const item of missingChecks) lines.push(`- ${item}`);
-  }
-  return lines.join("\n").trim();
-}
-
+/**
+ * Gather what a project card states, then render it.
+ *
+ * Identity, the agent-facing file snapshots, the Frontend Product Quality state
+ * and the project's own quality-gate file are all read here; the card itself is
+ * rendered by `renderProjectCardMd` in `src/core/project-cards.mjs`, which sees
+ * only the gathered facts.
+ */
 async function buildRichProjectCardMd(detected, {
   description = "",
   status = "registered",
@@ -4133,197 +3458,23 @@ async function buildRichProjectCardMd(detected, {
       reviewed_artifacts: artifactStatus
     };
   }
-  const lastQualityGateRun = extractProjectCardSection(existing_text, "Last Quality Gate Run");
-  const lastFrontendQaRun = extractProjectCardSection(existing_text, "Last Frontend QA Run");
-  const preservedQualityGateStatus = extractProjectCardSection(existing_text, "Quality Gate Status");
-  const preservedQualityGate = extractProjectCardSection(existing_text, "Quality Gate");
-  const qualityGateFileText = files.quality_gate.exists ? await readProjectTextIfExists(detected.project_path, ".ai-dev/quality-gate.md") : "";
-  const qualityStatus = qualityStatusFromCard(lastQualityGateRun, `${preservedQualityGate}\n${preservedQualityGateStatus}`);
-  const preservedArchitecture = extractProjectCardSection(existing_text, "Architecture Summary");
-  const preservedActiveTasks = extractProjectCardSection(existing_text, "Active Tasks");
-  const activeTasksMarkdown = preservedActiveTasks || "- No active tasks recorded.";
-  const activeTaskCount = bulletValues(activeTasksMarkdown)
-    .filter((item) => !/^no active tasks recorded\.?$/i.test(item))
-    .length;
-  const preservedRisks =
-    extractProjectCardSection(existing_text, "Risks And Weak Spots") ||
-    extractProjectCardSection(existing_text, "Known Weak Spots");
-  const preservedImprovements = extractProjectCardSection(existing_text, "Next Practical Improvements");
-  const preservedNotes = extractProjectCardSection(existing_text, "Notes");
-  const frontendProductPhase = frontendProductStatus?.phase ||
-    (detected.is_frontend ? "not prepared" : "not applicable");
-
-  const frontmatter = [
-    "---",
-    `project_name: ${yamlString(detected.project_name)}`,
-    `project_path: ${yamlString(detected.project_path)}`,
-    `project_id: ${yamlString(identity.project_id)}`,
-    `repository_id: ${yamlString(identity.repository_id || "")}`,
-    `canonical_path: ${yamlString(identity.canonical_path)}`,
-    `project_aliases: ${yamlString(JSON.stringify(identity.aliases))}`,
-    `status: ${yamlString(status)}`,
-    `description: ${yamlString(description)}`,
-    `updated: ${yamlString(now)}`,
-    `stack: ${yamlString(detected.stack.join(", "))}`,
-    `project_types: ${yamlString((detected.project_types || []).join(", "))}`,
-    `last_project_map_refresh: ${yamlString(files.project_map.modified || "")}`,
-    `quality_gate_status: ${yamlString(qualityStatus.status)}`,
-    `frontend_product_phase: ${yamlString(frontendProductPhase)}`,
-    "---"
-  ].join("\n");
-
-  return `${frontmatter}
-# ${detected.project_name}
-
-Status: ${status}
-
-## Registry Snapshot
-
-${registrySnapshotTable({ detected, identity, description, status, files, qualityStatus, frontendProductStatus, activeTaskCount })}
-
-## Repository
-
-- Project ID: \`${identity.project_id}\`
-- Canonical path: \`${identity.canonical_path}\`
-- Repository path: \`${detected.project_path}\`
-- Known aliases: ${identity.aliases.map((item) => `\`${item}\``).join(", ")}
-- Git repository detected: ${detected.has_git ? "yes" : "no"}
-- Agent files:
-  - \`AGENTS.md\`: ${files.agents.exists ? `present, modified ${files.agents.modified}` : "missing"}
-  - \`.ai-dev/README.md\`: ${files.readme.exists ? `present, modified ${files.readme.modified}` : "missing"}
-  - \`.ai-dev/project-brief.md\`: ${files.project_brief.exists ? `present, modified ${files.project_brief.modified}` : "missing"}
-  - \`.ai-dev/project-map.md\`: ${files.project_map.exists ? `present, modified ${files.project_map.modified}` : "missing"}
-  - \`.ai-dev/quality-gate.md\`: ${files.quality_gate.exists ? `present, modified ${files.quality_gate.modified}` : "missing"}
-  - \`${FRONTEND_PRODUCT_PATHS.state}\`: ${files.frontend_product.exists ? `present, modified ${files.frontend_product.modified}` : "missing"}
-
-## Project Profile
-
-- Types: ${detected.project_types.map((item) => `\`${item}\``).join(", ")}
-- Frontend: ${detected.is_frontend ? "yes" : "no"}
-- Backend: ${detected.is_backend ? "yes" : "no"}
-- Mobile: ${detected.is_mobile ? "yes" : "no"}
-- Bot: ${detected.is_bot ? "yes" : "no"}
-- API: ${detected.is_api ? "yes" : "no"}
-
-## Stack
-
-${asBulletList(detected.stack)}
-
-Package manager: \`${detected.package_manager}\`
-
-## Documentation
-
-${documentationMarkdown(detected)}
-
-## Environment And Secrets Risk
-
-${environmentMarkdown(detected)}
-
-## Commands
-
-${commandsTable(detected.commands)}
-
-## Package Scripts
-
-${scriptsTable(detected.scripts)}
-
-## Project Brief
-
-- Path: \`${path.join(detected.project_path, ".ai-dev", "project-brief.md")}\`
-- Exists: ${files.project_brief.exists ? "yes" : "no"}
-- Last refreshed: \`${files.project_brief.modified || "not recorded"}\`
-- Refresh command: \`refresh_project_memory\`
-
-## Project Map
-
-- Path: \`${path.join(detected.project_path, ".ai-dev", "project-map.md")}\`
-- Exists: ${files.project_map.exists ? "yes" : "no"}
-- Last refreshed: \`${files.project_map.modified || "not recorded"}\`
-- Refresh command: \`refresh_project_map\`
-
-## Quality Gate Status
-
-- Path: \`${path.join(detected.project_path, ".ai-dev", "quality-gate.md")}\`
-- Exists: ${files.quality_gate.exists ? "yes" : "no"}
-- Last run status: \`${qualityStatus.status}\`
-- Last run updated: \`${qualityStatus.updated || "not recorded"}\`
-- Runner: \`run_quality_gate\`
-${preservedQualityGate ? `
-### Existing Quality Notes
-
-${preservedQualityGate}
-` : ""}
-${qualityGateFileSummaryMarkdown(qualityGateFileText)}
-
-## Frontend Product Quality
-
-- Prepared: ${frontendProductState ? "yes" : "no"}
-- Phase: \`${frontendProductPhase}\`
-- Implementation gate: \`${frontendProductStatus ? (frontendProductStatus.implementation?.ok ? "pass" : "block") : (detected.is_frontend ? "not prepared" : "not applicable")}\`
-- Handoff gate: \`${frontendProductStatus ? (frontendProductStatus.handoff?.ok ? "pass" : "block") : (detected.is_frontend ? "not prepared" : "not applicable")}\`
-- State: \`${path.join(detected.project_path, FRONTEND_PRODUCT_PATHS.state)}\`
-- Builder: \`frontend_product_builder\`
-- Strict QA: \`run_visual_reference_qa\`
-
-## Quality Gaps
-
-${detected.quality_gaps.length ? asBulletList(detected.quality_gaps) : "- No automatic quality gaps detected."}
-
-## Risk Signals
-
-${detected.risk_signals.length ? asBulletList(detected.risk_signals) : "- No automatic risk signals detected."}
-
-## Dangerous Or Side-Effectful Scripts
-
-${dangerousScriptsMarkdown(detected)}
-
-## Recommended Skills
-
-${recommendedSkillsMarkdown(detected)}
-
-## Skill Routing Policy
-
-- Use \`recommend_skills\` with this project name or path before implementation work.
-- Use \`membrane_policy: "auto"\` for normal work.
-- Use \`membrane_policy: "exclude"\` when app skills are noisy.
-- Use \`membrane_policy: "include"\` only for explicit external app integrations.
-
-## Architecture Summary
-
-${preservedArchitecture || "Not recorded yet."}
-
-## Active Tasks
-
-${activeTasksMarkdown}
-
-## Risks And Weak Spots
-
-${preservedRisks || generatedProjectRisks(detected, files)}
-
-## Next Practical Improvements
-
-${preservedImprovements || generatedProjectImprovements(detected, files)}
-
-## Recommended Next Commands
-
-${asBulletList(detected.recommended_next_commands)}
-
-${lastQualityGateRun ? `## Last Quality Gate Run
-
-${lastQualityGateRun}
-
-` : ""}${lastFrontendQaRun ? `## Last Frontend QA Run
-
-${lastFrontendQaRun}
-
-` : ""}## Notes
-
-${preservedNotes || notes || "No durable notes recorded yet."}
-
-## Agent Rule
-
-When working on this project, read repo-local \`AGENTS.md\` first, then \`.ai-dev/project-map.md\`, then \`.ai-dev/quality-gate.md\`. Use \`recommend_skills\` and the project quality gate before finalizing development work.
-`;
+  const qualityGateFileText = files.quality_gate.exists
+    ? await readProjectTextIfExists(detected.project_path, ".ai-dev/quality-gate.md")
+    : "";
+  return renderProjectCardMd({
+    detected,
+    identity,
+    files,
+    frontendProductPrepared: Boolean(frontendProductState),
+    frontendProductStatus,
+    qualityGateFileText,
+    existingText: existing_text,
+    description,
+    status,
+    notes,
+    now,
+    updatedAt: new Date().toISOString()
+  });
 }
 
 async function projectSummaries({ dedupe = true } = {}) {
@@ -4472,65 +3623,6 @@ async function projectIdentity({ project_path }) {
 async function readProject({ name }) {
   const card = await findProjectCard(name);
   return fs.readFile(card.absolute_path, "utf8");
-}
-
-function buildProjectCardMd(detected, { description = "", status = "registered", notes = "" } = {}) {
-  const now = new Date().toISOString();
-  return `---
-project_name: ${yamlString(detected.project_name)}
-project_path: ${yamlString(detected.project_path)}
-status: ${yamlString(status)}
-description: ${yamlString(description)}
-updated: ${yamlString(now)}
----
-# ${detected.project_name}
-
-Status: ${status}
-
-## Repository
-
-- Repository path: \`${detected.project_path}\`
-- Project map: \`${path.join(detected.project_path, ".ai-dev", "project-map.md")}\`
-- Quality gate: \`${path.join(detected.project_path, ".ai-dev", "quality-gate.md")}\`
-
-## Stack
-
-${asBulletList(detected.stack)}
-
-Package manager: \`${detected.package_manager}\`
-
-## Commands
-
-${commandsTable(detected.commands)}
-
-## Architecture Summary
-
-Not recorded yet.
-
-## Quality Gate
-
-Read repo-local \`.ai-dev/quality-gate.md\` before running checks.
-
-## Recommended Skills
-
-- \`repo-onboarding\`
-- \`feature-builder\`
-- \`bugfix-investigator\`
-- \`code-reviewer\`
-- \`knowledge-curator\`
-
-## Known Weak Spots
-
-Not recorded yet.
-
-## Next Practical Improvements
-
-Not recorded yet.
-
-## Notes
-
-${notes || "No durable notes recorded yet."}
-`;
 }
 
 async function registerProject({
@@ -4822,289 +3914,6 @@ async function refreshProjectMemory({
     registry,
     search_index
   };
-}
-
-function normalizeQualityLabel(label) {
-  return String(label ?? "")
-    .replace(/\s*\[cwd=[^\]]+\]\s*$/i, "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9а-яё]+/gi, "");
-}
-
-function cleanQualityCommand(command) {
-  return String(command ?? "")
-    .trim()
-    .replace(/^`+|`+$/g, "")
-    .trim();
-}
-
-function parseQualityGateCommands(text) {
-  const commands = [];
-  const seen = new Set();
-  const add = (label, command, source, explicitCwd = "") => {
-    const cleaned = cleanQualityCommand(command);
-    if (!cleaned || /^not detected$/i.test(cleaned)) return;
-    const rawLabel = String(label || "Command").trim();
-    const cwdMatch = rawLabel.match(/\s*\[cwd=([^\]]+)\]\s*$/i);
-    const cwd = String(explicitCwd || cwdMatch?.[1] || "").trim().replaceAll("\\", "/");
-    const cleanLabel = rawLabel.replace(/\s*\[cwd=[^\]]+\]\s*$/i, "").trim();
-    const key = `${normalizeQualityLabel(cleanLabel)}:${cwd}:${cleaned}`;
-    if (seen.has(key)) return;
-    seen.add(key);
-    commands.push({
-      label: cleanLabel,
-      command: cleaned,
-      cwd,
-      source
-    });
-  };
-
-  for (const line of text.split(/\r?\n/)) {
-    const bulletMatch = line.match(/^\s*[-*]\s+([^:`]+):\s*`([^`]+)`/);
-    if (bulletMatch) {
-      add(bulletMatch[1], bulletMatch[2], "markdown bullet");
-      continue;
-    }
-
-    const bareBulletMatch = line.match(/^\s*[-*]\s+`([^`]+)`/);
-    if (bareBulletMatch) {
-      add("Command", bareBulletMatch[1], "markdown bullet");
-      continue;
-    }
-
-    if (/^\s*\|/.test(line) && !/^\s*\|\s*-+/.test(line)) {
-      const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
-      if (cells.length >= 2 && !/^task$/i.test(cells[0]) && !/^command$/i.test(cells[1])) {
-        add(cells[0], cells[1].replace(/^`|`$/g, ""), "markdown table", cells[2] || "");
-      }
-    }
-  }
-
-  return commands;
-}
-
-function shouldSkipQualityLabel(label) {
-  return /^(install|dev|serve|start|watch|preview|deploy|publish|release|migrate|migration|seed|smoke|manual|integration)$/i.test(String(label ?? "").trim());
-}
-
-function qualityCommandBlockReason(command) {
-  try {
-    parseSafeCommand(String(command ?? ""), { purpose: "quality" });
-    return "";
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error);
-  }
-}
-
-function selectQualityCommands(commands, labels, maxCommands) {
-  const normalizedLabels = Array.isArray(labels)
-    ? labels.map(normalizeQualityLabel).filter(Boolean)
-    : [];
-  const selected = [];
-  const skipped = [];
-
-  for (const item of commands) {
-    if (normalizedLabels.length && !normalizedLabels.includes(normalizeQualityLabel(item.label))) {
-      skipped.push({ ...item, reason: "label not selected" });
-      continue;
-    }
-    if (!normalizedLabels.length && shouldSkipQualityLabel(item.label)) {
-      skipped.push({ ...item, reason: "label skipped by default" });
-      continue;
-    }
-    if (selected.length >= maxCommands) {
-      skipped.push({ ...item, reason: "max_commands limit reached" });
-      continue;
-    }
-    selected.push(item);
-  }
-  return { selected, skipped };
-}
-
-function qualityGateReportMarkdown(result) {
-  const lines = [
-    `Updated: ${result.finished_at}`,
-    "",
-    `Status: ${result.status}`,
-    "",
-    `Project path: \`${result.project_path}\``,
-    "",
-    "## Commands",
-    "",
-    "| Label | CWD | Command | Status | Exit |",
-    "| --- | --- | --- | --- | --- |"
-  ];
-
-  for (const item of result.results) {
-    lines.push(`| ${mdCell(item.label)} | ${mdCell(item.cwd || ".")} | ${mdCell(item.command)} | ${mdCell(item.status)} | ${mdCell(item.exit_code ?? "")} |`);
-  }
-  if (!result.results.length) {
-    lines.push("| None | . |  | no commands run |  |");
-  }
-
-  if (result.blocked.length) {
-    lines.push("", "## Blocked Commands", "");
-    for (const item of result.blocked) {
-      lines.push(`- ${item.label}: \`${item.command}\` (${item.reason})`);
-    }
-  }
-
-  if (result.skipped.length) {
-    lines.push("", "## Skipped Commands", "");
-    for (const item of result.skipped) {
-      lines.push(`- ${item.label}: \`${item.command}\` (${item.reason})`);
-    }
-  }
-
-  if (result.diagram_specs?.enabled) {
-    lines.push("", "## Diagram Specifications", "", `Pattern: \`${result.diagram_specs.pattern}\``, "");
-    for (const item of result.diagram_specs.files) lines.push(`- ${item.status}: \`${item.path}\` (${item.type}; ${item.warnings || 0} warning(s))`);
-    if (!result.diagram_specs.files.length) lines.push("- No matching diagram specifications.");
-  }
-
-  return lines.join("\n");
-}
-
-async function runQualityGate({
-  project_path,
-  labels = [],
-  dry_run = false,
-  timeout_ms = 120000,
-  max_commands = 6,
-  diagram_specs = "",
-  continue_on_failure = true,
-  allow_unsafe_commands = false,
-  update_registry = true,
-  register_if_missing = false
-}) {
-  const projectRoot = await safeProjectRoot(project_path);
-  const gatePath = safeProjectFile(projectRoot, ".ai-dev/quality-gate.md");
-  if (!(await pathExists(gatePath))) {
-    throw new Error(`Quality gate file not found: ${path.join(projectRoot, ".ai-dev", "quality-gate.md")}`);
-  }
-
-  const startedAt = new Date().toISOString();
-  const gateText = stripBom(await fs.readFile(gatePath, "utf8"));
-  const parsed = parseQualityGateCommands(gateText);
-  const { selected, skipped } = selectQualityCommands(parsed, labels, Math.max(1, Math.min(Number(max_commands) || 6, 20)));
-  const results = [];
-  const blocked = [];
-
-  for (const item of selected) {
-    const blockReason = qualityCommandBlockReason(item.command);
-    if (blockReason) {
-      blocked.push({ ...item, reason: blockReason });
-      continue;
-    }
-
-    if (dry_run) {
-      results.push({
-        label: item.label,
-        command: item.command,
-        cwd: item.cwd || ".",
-        status: "dry_run",
-        exit_code: null,
-        stdout: "",
-        stderr: "",
-        timed_out: false
-      });
-      continue;
-    }
-
-    const commandRoot = await safeProjectSubdir(projectRoot, item.cwd || "");
-    const output = await runPolicyCommand({
-      command: item.command,
-      projectRoot: commandRoot,
-      purpose: "quality",
-      timeoutMs: Math.max(1000, Math.min(Number(timeout_ms) || 120000, 30 * 60 * 1000))
-    });
-    const status = output.timedOut ? "timed_out" : output.exitCode === 0 ? "passed" : "failed";
-    results.push({
-      label: item.label,
-      command: item.command,
-      cwd: item.cwd || ".",
-      command_adapter: output.command.adapter || output.command.kind,
-      execution_adapter: output.invocation?.adapter || "direct",
-      status,
-      exit_code: output.exitCode,
-      stdout: truncateOutput(output.stdout),
-      stderr: truncateOutput(output.stderr),
-      timed_out: output.timedOut,
-      output_truncated: output.truncated,
-      duration_ms: output.durationMs
-    });
-    if (!continue_on_failure && status !== "passed") break;
-  }
-
-  let diagramSpecs = { enabled: false };
-  if (diagram_specs) {
-    diagramSpecs = dry_run ? { enabled: true, pattern: String(diagram_specs), files: [], status: "dry_run" } : await validateArchifyDiagramSpecs({ vaultRoot, projectRoot, pattern: String(diagram_specs), timeoutMs: Math.max(1000, Math.min(Number(timeout_ms) || 120000, 30 * 60 * 1000)) });
-  }
-
-  const commandsFailed = results.some((item) => item.status === "failed" || item.status === "timed_out");
-  let status = "passed";
-  if (dry_run) status = "dry_run";
-  // A real command failure always outranks a diagram-spec warning.
-  else if (commandsFailed || diagramSpecs.status === "block") status = "failed";
-  else if (!parsed.length && !diagramSpecs.enabled) status = "no_commands";
-  else if (blocked.length && !results.length) status = "blocked";
-  else if (diagramSpecs.status === "warn") status = "warn";
-  else if (blocked.length) status = "passed_with_blocked";
-  else if (!results.length) status = "no_commands_run";
-
-  const result = {
-    project_path: projectRoot,
-    quality_gate_path: path.relative(projectRoot, gatePath).replaceAll("\\", "/"),
-    started_at: startedAt,
-    finished_at: new Date().toISOString(),
-    status,
-    parsed_commands: parsed,
-    selected_commands: selected,
-    results,
-    blocked,
-    skipped,
-    diagram_specs: diagramSpecs,
-    safety: {
-      execution: "argv",
-      shell: false,
-      unsafe_bypass_honored: false,
-      legacy_allow_unsafe_requested: Boolean(allow_unsafe_commands)
-    }
-  };
-
-  if (update_registry) {
-    try {
-      const card = await findProjectCard(projectRoot);
-      const report = await updateProjectCard({
-        name: card.name,
-        section: "Last Quality Gate Run",
-        mode: "replace",
-        content: qualityGateReportMarkdown(result),
-        update_index: false
-      });
-      const synced = await syncProjectCard({
-        project_path: projectRoot,
-        create_if_missing: false,
-        update_index: true
-      });
-      result.registry = { report, synced };
-    } catch (err) {
-      if (!register_if_missing) {
-        result.registry = { action: "skipped", reason: err instanceof Error ? err.message : String(err) };
-      } else {
-        result.registry = await registerProject({
-          project_path: projectRoot,
-          status: "registered via run_quality_gate",
-          description: "Registered automatically while running quality gate.",
-          notes: qualityGateReportMarkdown(result),
-          overwrite: false
-        });
-      }
-    }
-  }
-
-  return result;
 }
 
 const {
@@ -6042,14 +4851,15 @@ const extensions = createExtensionTools({
   safeProjectSubdir, resolveTaskProjectRoot, runUiUxProMax, uiUxProMaxSource,
   sha256, truncateOutput
 });
-// Three extension tools are called by the runtime itself, not only over MCP:
+// Four extension tools are called by the runtime itself, not only over MCP:
 // `import_skill_repo` and the overlay tools rebuild the registry after writing
 // to the vault, `begin_task` routes skills for the task it opens, and
-// `verify_task` runs Frontend QA as one of its checks. They reach the extension
-// the same way `prepare_pull_request` is reached, so each tool stays the single
-// implementation.
+// `verify_task` runs Frontend QA and the project's quality gate as two of its
+// checks. They reach the extension the same way `prepare_pull_request` is
+// reached, so each tool stays the single implementation.
 const rebuildIndex = (args = {}) => extensions.handlers.get("rebuild_index")(args);
 const runFrontendQa = (args) => extensions.handlers.get("run_frontend_qa")(args);
+const runQualityGate = (args) => extensions.handlers.get("run_quality_gate")(args);
 const recommendSkillsProjectAware = (args) => extensions.handlers.get("recommend_skills")(args);
 const extensionReadOnlyTools = extensions.readOnly;
 const tools = [...buildToolDefinitions({
@@ -6247,7 +5057,6 @@ async function dispatchTool(name, args) {
   if (name === "update_project_card") return textContent(await updateProjectCard(args));
   if (name === "refresh_project_map") return textContent(await refreshProjectMap(args));
   if (name === "refresh_project_memory") return textContent(await refreshProjectMemory(args));
-  if (name === "run_quality_gate") return textContent(await runQualityGate(args));
   if (name === "archify_doctor") return textContent(await archifyDoctor(args));
   if (name === "archify_guide") return textContent(await archifyGuide(args));
   if (name === "archify_validate") return textContent(await archifyValidate(args));

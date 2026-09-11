@@ -762,29 +762,6 @@ export function buildToolDefinitions({
     }
   },
   {
-    name: "run_quality_gate",
-    description: "Run safe verification commands from a project's .ai-dev/quality-gate.md and return a structured report.",
-    inputSchema: {
-      type: "object",
-      properties: {
-        project_path: { type: "string" },
-        labels: {
-          type: "array",
-          items: { type: "string" },
-          default: []
-        },
-        dry_run: { type: "boolean", default: false },
-        timeout_ms: { type: "number", default: 120000 },
-        max_commands: { type: "number", default: 6 },
-        diagram_specs: { type: "string", description: "Optional project-relative glob for Archify diagram specs; disabled when omitted." },
-        continue_on_failure: { type: "boolean", default: true },
-        update_registry: { type: "boolean", default: true },
-        register_if_missing: { type: "boolean", default: false }
-      },
-      required: ["project_path"]
-    }
-  },
-  {
     name: "analyze_project",
     description: "Analyze a repository or monorepo recursively and return components, stacks, commands, source/test roots, entry points, API/data surfaces, CI, and quality gaps.",
     inputSchema: {

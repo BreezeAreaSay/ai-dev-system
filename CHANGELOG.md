@@ -173,6 +173,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Project work moved out of `mcp-stdio.mjs` (stage 1.5 of the modularity plan).
+  `run_quality_gate` became `src/extensions/projects.mjs`, and the pure half of
+  project handling became four tested modules under `src/core`:
+  `project-detection.mjs` (`detectProject` over an injected filesystem),
+  `project-cards.mjs` (the registry card renderer and its section reader),
+  `project-markdown.mjs` (the tables, bullet lists and section readers every
+  generated project document shares) and `quality-gate-runner.mjs` (parsing a
+  gate file, choosing what to run, and the verdict over a run). `detectProject`
+  is a service rather than a tool — `begin_task`, `compile_project_context`, the
+  card writers and four extensions call it — so it stays on the extension host;
+  `mcp-stdio.mjs` binds it to the real filesystem and nothing else. Tool
+  behaviour, response bytes, generated project and vault files, and the 116-tool
+  list are unchanged; `mcp-stdio.mjs` lost a further 1,191 lines (6,424 → 5,233).
+  - `detectProject` reads its filesystem through injected functions, so stack
+    detection, the command fallbacks and the risk rules are now tested against a
+    fixture tree instead of a repository on disk.
+  - Two symbols no longer referenced by anything went with the move: a second
+    `markdownList` and `buildProjectCardMd`, the flat card renderer that
+    `buildRichProjectCardMd` replaced.
 - Search moved out of `mcp-stdio.mjs` (stage 1.4 of the modularity plan). All
   thirteen search tools became `src/extensions/search.mjs`, over four modules in
   `src/core`: two services — `search-index.mjs` (the sqlite index, its freshness

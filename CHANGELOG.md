@@ -207,8 +207,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the tool the client asked for and none for the work it delegated. Tool
   behaviour, response bytes, generated project and vault files, the task and
   usage state on disk, and the 116-tool list are unchanged; `mcp-stdio.mjs` lost
-  a further 1,649 lines (6,424 → 4,775 — 5,243 fewer than the 10,018 it started
-  at, and past the plan's target of under 6,000).
+  a further 458 lines (5,233 → 4,775), which leaves it 5,243 lines below the
+  10,018 it started at and past the plan's target of under 6,000.
   - `ARCHIFY_EVIDENCE_SCHEMA` left `tool-definitions.mjs` with the two tools
     that used it, so no tool definition is now shared across the two files.
 - Project work moved out of `mcp-stdio.mjs` (stage 1.5 of the modularity plan).

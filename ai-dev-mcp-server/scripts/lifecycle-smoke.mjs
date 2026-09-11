@@ -109,6 +109,21 @@ try {
     criteria: manualCriteria
   });
 
+  // The completion-statement linter, over the wire: a report that rationalizes
+  // past a check nobody ran is refused, and refusing it records nothing.
+  const rationalized = await client.callTool({
+    name: "checkpoint_task",
+    arguments: {
+      task_id: begun.id,
+      summary: "Implementation is done.",
+      notes: "Tests are failing but I'll fix them later."
+    }
+  });
+  assert.equal(rationalized.isError, true, "a rationalized checkpoint must be refused");
+  const refusal = rationalized.content?.map((item) => item.text || "").join("\n") ?? "";
+  assert.match(refusal, /tests_failing_deferred/);
+  assert.equal((await call("get_task", { task_id: begun.id })).checkpoints.length, 1);
+
   const verified = await call("verify_task", {
     task_id: begun.id,
     run_quality: true,

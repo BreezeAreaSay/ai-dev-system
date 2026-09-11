@@ -55,6 +55,13 @@ import {
 } from "./core/context-compiler.mjs";
 import { loadContextExtras } from "./core/context-extras.mjs";
 import { verifyChangeHygiene } from "./core/change-hygiene.mjs";
+import {
+  completionClaimFailure,
+  completionClaimSignals,
+  lintCompletionClaims,
+  parseCompletionClaimPolicy
+} from "./core/completion-claims.mjs";
+import { POLICY_RELATIVE_PATH } from "./core/agent-hooks.mjs";
 import { withPlanGateWarning } from "./core/task-plans.mjs";
 import {
   DIAGRAM_REQUEST_PATTERN,
@@ -7895,6 +7902,27 @@ async function projectPilotStatus({ pilot_id = "", project_path = "" } = {}) {
   return pilotStore.status({ id: pilot_id, projectId });
 }
 
+/**
+ * Hold a report to the evidence behind it: a rationalization ("pre-existing
+ * issue", "skipping tests for now", "should work") is refused when the check
+ * that would have settled it did not pass. Throws with the reason and the ways
+ * out; returns the lint result so a non-blocking finding stays visible.
+ *
+ * @param {object} record - Task record the report belongs to.
+ * @param {{ summary?: string, notes?: string, projectState?: object }} report
+ * @returns {Promise<object>} `lintCompletionClaims` result.
+ */
+async function auditCompletionClaims(record, { summary = "", notes = "", projectState = null } = {}) {
+  const result = lintCompletionClaims({
+    summary,
+    notes,
+    signals: completionClaimSignals(record, { projectState }),
+    policy: parseCompletionClaimPolicy(await readProjectTextIfExists(record.project.path, POLICY_RELATIVE_PATH).catch(() => ""))
+  });
+  if (result.status === "blocked") throw new Error(completionClaimFailure(result));
+  return result;
+}
+
 async function checkpointTask({
   task_id,
   summary,
@@ -7902,12 +7930,14 @@ async function checkpointTask({
   criteria = [],
   notes = ""
 }) {
-  return withPlanGateWarning(await taskStore.checkpoint(task_id, {
+  const completionClaims = await auditCompletionClaims(await taskStore.read(task_id), { summary, notes });
+  const record = withPlanGateWarning(await taskStore.checkpoint(task_id, {
     summary,
     changedFiles: changed_files,
     criteria,
     notes
   }), changed_files);
+  return { ...record, completion_claims: completionClaims };
 }
 
 function verificationPassed(checks) {
@@ -8193,6 +8223,7 @@ async function completeTask({
   const projectIdentity = await resolveProjectIdentity(existing.project.path);
   const projectRoot = projectIdentity.project_root;
   const projectState = await captureProjectState(projectRoot);
+  const completionClaims = await auditCompletionClaims(existing, { summary, projectState });
   const record = await taskStore.complete(task_id, {
     summary,
     projectState,
@@ -8229,6 +8260,7 @@ async function completeTask({
     task: record,
     report,
     skill_outcomes: skillOutcomes,
+    completion_claims: completionClaims,
     ...(pullRequest ? { pull_request: pullRequest } : {}),
     ...(worktree ? { worktree } : {}),
     ...(nextSteps.length ? { next_step: nextSteps.join(" ") } : {})

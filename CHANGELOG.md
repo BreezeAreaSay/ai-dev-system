@@ -127,6 +127,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `gh pr create --body-file` come back as text for a human to run.
   - `complete_task` prepares the same file at completion and links it from
     `next_step` (`prepare_pull_request: false` opts out).
+- **Completion-statement linter** (`src/core/completion-claims.mjs`): the
+  `summary` and `notes` of `checkpoint_task` and `complete_task` are now held to
+  the evidence behind them. Twelve rationalizations — "pre-existing issue",
+  "skipping tests for now", "tests are failing but I'll fix them later", "works
+  on my machine", "should work", "untested", "flaky", "disabled the lint rule",
+  an untracked TODO, "good enough for now", "didn't check the UI", "verified
+  manually" — each name the gate that would settle them (`quality_gate`,
+  `change_hygiene`, `frontend_qa`, or the latest `verify_task` run).
+  - A rationalization over a gate that did not pass, or never ran, is refused
+    before anything is recorded; the error names the rule, the gate, the quoted
+    phrase and the ways out. Over a passing gate the same wording is only a
+    warning, returned in the new `completion_claims` field of both tools.
+  - The rule table is data, and `.ai-dev/policy.json` is the knob:
+    `completion_claims.enabled: false` turns the linter off, and a waiver
+    (`{ rule, reason, expires? }`, `"*"` for all rules) turns off one rule where
+    the reason is real — it applies only when the report states that reason too.
+    An unknown rule, a reason under 20 characters, an unreadable date or invalid
+    JSON leaves the linter on and says so in `completion_claims.warnings`.
+  - New seed skill **`self-evaluation`** (quality score 100): five axes scored
+    with quoted evidence, a "claim → what backs it" table for eleven sentences
+    reports actually contain, and a post-action for each average band.
+    `ai-dev-orchestrator` and `verification-loop` route to it before
+    `complete_task`.
 
 ### Fixed
 

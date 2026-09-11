@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "policy": "explicit allowlist; no private vault zones or local runtime state",
-  "total_files": 1039,
-  "total_bytes": 18077191,
-  "content_fingerprint": "7661419899ffcb9d971193dc9777e3714242b8069eee333346f60e0dfa337875",
+  "total_files": 1040,
+  "total_bytes": 18083897,
+  "content_fingerprint": "3943408a26d7eae25195c84b251db44c447da16ccc595172e15f5e3ddf4a92c6",
   "files": [
     {
       "path": "01-system/Agent Rules.md",
@@ -37,8 +37,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/ai-dev-orchestrator/SKILL.md",
-      "bytes": 5061,
-      "sha256": "bac7f2688fab9324cbf36c7db283e87fde7bee3faab4e24732900ead3b874c18"
+      "bytes": 5542,
+      "sha256": "665a71617b1c2924ecdbcd1b84b072f7e37488b66534b7c394787fb70894dee1"
     },
     {
       "path": "03-skills-catalog/sources/custom/api-contract-reviewer/agents/openai.yaml",
@@ -216,14 +216,19 @@
       "sha256": "bb32fd3b82c8e8c0398422fc05b6a53d2d3f12e5fe663a6ad5f4c9f946f4dda2"
     },
     {
+      "path": "03-skills-catalog/sources/custom/self-evaluation/SKILL.md",
+      "bytes": 6061,
+      "sha256": "59678adb460e97cd1b1011e0d0b8b987e28ab540dfbdadbf4d735f2bbfb0bcb4"
+    },
+    {
       "path": "03-skills-catalog/sources/custom/silent-failure-hunter/SKILL.md",
       "bytes": 2647,
       "sha256": "190e6645384963e81d08b89783555287f4b60bbe0cd366346c2828d659793fb2"
     },
     {
       "path": "03-skills-catalog/sources/custom/verification-loop/SKILL.md",
-      "bytes": 2790,
-      "sha256": "ff5b2ea727d4c5649ace8babb17102acc110f136ec210e5ee8e121666d83618e"
+      "bytes": 2954,
+      "sha256": "73de19c36f9cf724e958f607401f35256dce5b0f7aaa731bbc429fddd67d977e"
     },
     {
       "path": "03-skills-catalog/sources/design/taste-skill/LICENSE",

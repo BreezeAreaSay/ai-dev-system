@@ -37,6 +37,7 @@ Node 22, но `engines` в `package.json` не трогался: `>=24` оста
 | 14 | [14-pull-request-preparation.md](14-pull-request-preparation.md) | 3.16 | `prepare_pull_request`: описание PR из доказательств задачи, заполнение шаблона репозитория, секция «осталось», ссылка из `complete_task` |
 | 15 | [15-completion-statement-linter.md](15-completion-statement-linter.md) | 3.17 | Линтер заявлений о завершении в `checkpoint_task` / `complete_task`: двенадцать рационализаций против сигналов проверок, waiver в `.ai-dev/policy.json`, seed-скилл `self-evaluation` |
 | 16 | [16-task-snapshots.md](16-task-snapshots.md) | 3.2 | Снимки рабочего дерева задачи в `refs/ai-dev/snapshots/<task_id>/<n>` и обратимый откат: `snapshot_task`, `list_task_snapshots`, `rollback_task`, автоснимок в `checkpoint_task`, удаление в `complete_task` |
+| 17 | [17-policy-rules-and-mcp-inventory.md](17-policy-rules-and-mcp-inventory.md) | 3.9, 3.10 | Правила guard без ручной правки JSON (`list_policy_rules`, `upsert_policy_rule`, `remove_policy_rule`: компиляция шаблона как в guard, дедуп, обязательный пример) и инвентарь MCP-серверов проекта (`list_mcp_servers`: шесть конфигов, транспорты, подстановки, секрет в открытом виде — находка `block`) |
 
 ## Как читать этот каталог
 

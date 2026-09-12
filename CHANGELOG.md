@@ -169,6 +169,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     new `snapshots` field. The entries stay on the record, marked, so the turns
     remain readable. Automatic snapshots are capped at 50 per task; ones taken
     by name are kept until the task closes.
+- **Guard rules without hand-edited JSON** (`src/core/policy-rules.mjs`):
+  `list_policy_rules`, `upsert_policy_rule` and `remove_policy_rule` edit the
+  `rules` block of `.ai-dev/policy.json` — the rules the installed guard enforces
+  on every command and file write.
+  - A rule is checked against what the guard actually does with it: the pattern
+    is compiled with the guard's own flags, and one that does not compile, an
+    event the guard never evaluates, an unknown `action`, or a quantified group
+    holding an unbounded quantifier (which would stall the guard on a long line)
+    is refused with the reason.
+  - A new rule, or a changed pattern, must fire on an `example` the caller
+    provides, and must not fire on an optional `counter_example`. The samples are
+    stored on the rule, so `list_policy_rules` re-runs them and reports a rule a
+    hand edit disarmed. A second rule matching the same text on the same event is
+    refused as a duplicate.
+  - Updates are patches (`{ id, enabled: false }` disables a rule), `dry_run`
+    checks without writing, and `agent_hooks_status` now lists every rule with
+    the guard's reading of it plus the problems in the file.
+- **MCP server inventory** (`src/core/mcp-inventory.mjs`,
+  `src/extensions/mcp-inventory.mjs`): `list_mcp_servers` reads every config a
+  client would load — `.mcp.json`, `.claude/settings.json` and
+  `settings.local.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
+  `.gemini/settings.json` and `.codex/config.toml` (through the new
+  `src/core/toml-lite.mjs`, a reader for the TOML subset those files use).
+  - One entry per server: the files that declare it, the transport, the
+    environment and editor substitutions with whether each variable is set, and
+    whether Claude Code starts it without asking.
+  - A credential written out in a config file is a `block` finding, masked out of
+    the command line and url the report echoes back. Plain HTTP to a remote
+    endpoint, an unpinned `npx -y` package, a shell-wrapped command, an entry no
+    client can start, `enableAllProjectMcpServers`, a config that cannot be
+    parsed, and one server name defined differently in two files are warnings.
+  - `include_user_scope` adds the user's own `~/.claude.json` (including its
+    per-project block), `~/.cursor/mcp.json`, `~/.gemini/settings.json` and
+    `~/.codex/config.toml`; it is off by default.
 
 ### Fixed
 

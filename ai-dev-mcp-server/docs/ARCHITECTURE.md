@@ -74,7 +74,7 @@ couple pure logic to the vault. Duplicate tool names and definitions without a h
 startup, so a broken extension can never reach a client.
 
 Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygiene`,
-`instincts`, `lifecycle`, `plans`, `projects`, `pull-requests`, `rules`, `search`, `sessions`,
+`instincts`, `lifecycle`, `mcp-inventory`, `plans`, `projects`, `pull-requests`, `rules`, `search`, `sessions`,
 `skills`, `snapshots`, `system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
 `change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `pull-request.mjs`,
 `pr-template.mjs`, `rules-library.mjs`, `rules-catalog.mjs`, `session-memory.mjs`,
@@ -84,7 +84,8 @@ Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygie
 `search-runtime.mjs`, `search-eval.mjs`, `project-cards.mjs`, `project-markdown.mjs`,
 `quality-gate-runner.mjs`, `task-verification.mjs`, `task-completion.mjs`,
 `system-health.mjs`, `system-dashboard.mjs`, `text-format.mjs`, `usage-ledger.mjs`,
-`task-worktrees.mjs`, `task-snapshots.mjs`); the extension is the MCP surface over it.
+`task-worktrees.mjs`, `task-snapshots.mjs`, `policy-rules.mjs`, `mcp-inventory.mjs`,
+`toml-lite.mjs`); the extension is the MCP surface over it.
 
 `core/` is not only pure logic. A handful of modules there are services: they run processes
 or own state, but know nothing about MCP and take everything environment-specific as a
@@ -95,6 +96,25 @@ arguments, so the module is testable against a stub rather than against an insta
 toolchain.
 `core/completion-claims.mjs` has no extension of its own: the `lifecycle` extension is its only
 caller.
+
+The `hooks` extension also owns the rules the installed guard enforces. `core/policy-rules.mjs`
+is the writing end of the `rules` block in `.ai-dev/policy.json`: it compiles a pattern the way
+`hooks/lib.mjs` compiles it, refuses one that cannot work (a pattern that does not compile, an
+event the guard never evaluates, a quantified group holding an unbounded quantifier), refuses a
+second rule that fires on the same text, and refuses a new pattern that does not match the
+example the caller provides. The example is stored on the rule, so `list_policy_rules` re-runs it
+and reports a rule a hand edit silently disarmed. Nothing here imports the hook pack: the hooks
+are copied into other repositories and must not depend on server code, so the compile flags and
+the match text are mirrored, and tests pin the mirror.
+
+`mcp-inventory` reads the other half of the harness: which MCP servers the repository wires into
+its agents. `core/mcp-inventory.mjs` reads `.mcp.json`, both Claude Code settings files,
+`.cursor/mcp.json`, `.vscode/mcp.json`, `.gemini/settings.json` and `.codex/config.toml` — the
+last through `core/toml-lite.mjs`, a reader for the TOML subset those files use, because a third
+dependency costs more review than the parser does. One entry per server names the files that
+declare it, the transport, the environment substitutions and whether they resolve, and Claude
+Code's approval state. A credential written out in a config file is a `block` finding, masked out
+of the command line the report echoes back.
 
 `snapshots` keeps a turn undoable. `core/task-snapshots.mjs` records the whole working tree of a
 task — tracked changes, staged or not, plus the files the agent created — as one commit object

@@ -168,8 +168,29 @@ match (a name the task happens to contain is not enough), an import that shadows
 is never offered, and a skill that declares an ecosystem loses points when neither the task nor
 the project mentions it — and is refused outright when the project has a stack and this is not it.
 
-A specialist is a reading suggestion, not an instruction: the context pack still hands over only
-the skill's name, source and reason, never its body.
+### Imported skills: what limits foreign text, and what does not
+
+Imported skills carry `trust: known-upstream` and `instruction_policy: data-until-review`. Both
+are **metadata, not a mechanism**: nothing in this server reads `instruction_policy` before doing
+or refusing anything, and changing it to `trusted` would change no behaviour. They are an
+inventory — they say the catalogue contains text nobody here has read — and a decision built on
+them is a decision built on a label (docs/ecc-upgrades/DEBTS.md, Д-7).
+
+What actually keeps a hundred imported texts out of an agent's context is the shape of the
+context pack:
+
+- `compileContextPack` (`core/context-compiler.mjs`) renders three things per routed skill —
+  name, source, and the reason it was routed. A skill's body is never inlined, whatever its
+  trust level.
+- The pack object carries the skill's `path`, so the agent can open it. That is the intended
+  boundary: an imported skill is a reading suggestion, and reading it is a deliberate act.
+- An import that shadows one of our skill names is never routed at all, and a routed imported
+  specialist gets its own slot beside the routed core rather than displacing part of it.
+- Quality scoring (`skillQualityRankAdjustment`) moves an imported skill's rank, not its
+  trustworthiness: `maturity: draft` and `quality_status: fail` push it down the list.
+
+So the protection is that foreign text does not arrive on its own, not a promise that it is
+harmless.
 
 `skills` carries `rebuild_index`, `validate_skill_library` and `recommend_skills` — the generated
 skill catalog end to end. The extension reads the vault, the skill sources and the embedding

@@ -5,6 +5,7 @@ import {
   declaredStackTerms,
   expandTaskVocabulary,
   specialistMatchScore,
+  splitSituationText,
   stackAlignment,
   taskConcepts
 } from "./task-vocabulary.mjs";
@@ -80,7 +81,46 @@ test("the score is carried by the text that says when to use a skill", () => {
   const nameOnly = specialistMatchScore({ name: "hexagonal-architecture", use_when: "", description: "" }, terms);
   assert.ok(nameOnly.score > 0);
   assert.equal(nameOnly.use_when_hits, 0);
-  assert.deepEqual(specialistMatchScore({}, terms), { score: 0, use_when_hits: 0, matched_terms: [] });
+  assert.deepEqual(specialistMatchScore({}, terms), { score: 0, use_when_hits: 0, matched_terms: [], excluded_terms: [] });
+});
+
+test("the half of use_when that says when not to use a skill counts against it", () => {
+  // Verbatim from the imported registry: one sentence for the situation, one
+  // for the situations the author excluded (docs/ecc-upgrades/DEBTS.md, Д-20).
+  const generalist = {
+    name: "intent-driven-development",
+    use_when: "a user asks to clarify a feature, define acceptance criteria, de-risk a security/data/migration/integration change, prepare implementation requirements for another agent, or make a complex request testable. Do not trigger for trivial edits, straightforward fixes, active debugging, code review, or implementation requests whose acceptance conditions are already clear unless the user explicitly invokes this skill",
+    description: ""
+  };
+  const split = splitSituationText(generalist.use_when);
+  assert.ok(split.wanted.includes("acceptance criteria"));
+  assert.equal(split.wanted.includes("code review"), false, "the exclusion is not part of what the skill is for");
+  assert.ok(split.excluded.includes("code review"));
+
+  // A term only the exclusion names is subtracted, and the skill loses the
+  // situation its author told it to stay out of.
+  const review = specialistMatchScore(generalist, expandTaskVocabulary("сделать ревью пулл-реквеста").terms);
+  assert.ok(review.excluded_terms.includes("review"), JSON.stringify(review));
+  assert.ok(review.score <= 0, `code review should not score for this skill, got ${review.score}`);
+  const debugging = specialistMatchScore(generalist, expandTaskVocabulary("починить баг").terms);
+  assert.ok(debugging.excluded_terms.includes("debugging"));
+  assert.ok(debugging.use_when_hits < 3, "and it cannot clear the situation-hit floor either");
+
+  // A term both halves name is the skill's own subject and keeps its points:
+  // "do not trigger for … implementation requests whose acceptance conditions
+  // are already clear" must not cancel a use_when about acceptance criteria.
+  const own = specialistMatchScore(generalist, ["acceptance", "criteria", "migration"]);
+  assert.deepEqual(own.excluded_terms, []);
+  assert.equal(own.score, 9);
+
+  // Function words in the exclusion decide nothing; a subject word does.
+  assert.deepEqual(
+    specialistMatchScore({ use_when: "for migrations. Do not use for the review and before that", description: "" }, ["and", "before", "review"]).excluded_terms,
+    ["review"]
+  );
+
+  // A skill with no exclusion is scored exactly as before.
+  assert.deepEqual(splitSituationText(TDD_WORKFLOW.use_when).excluded, "");
 });
 
 test("a skill's declared ecosystem is read from the task and the project, never from the translation", () => {

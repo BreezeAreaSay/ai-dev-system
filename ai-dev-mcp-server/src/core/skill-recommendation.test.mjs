@@ -491,6 +491,47 @@ test("a specialist has to answer the task's situation, and its ecosystem has to 
   assert.equal(pickTaskSpecialist({ task: "настроить разработку через тесты", items: [...base, { ...IMPORTED_TDD, routing_priority: "disabled" }], context: NO_PROJECT }), null);
 });
 
+test("a skill that says it is not for this situation does not get the slot", () => {
+  const base = [registryItem()];
+  // The real shape of the generalist that used to take the slot: a use_when
+  // that answers almost any task, with the situations it is not for listed in
+  // the same sentence (docs/ecc-upgrades/DEBTS.md, Д-20).
+  const generalist = {
+    ...IMPORTED_TDD,
+    name: "intent-driven-development",
+    path: "sources/external/ecc/skills/intent-driven-development/SKILL.md",
+    languages: [],
+    frameworks: [],
+    description: "Turn ambiguous or high-impact changes into scoped, verifiable acceptance criteria.",
+    use_when: "a user asks to clarify a feature, define acceptance criteria, de-risk a security/data/migration/integration change, or make a complex request testable. Do not trigger for trivial edits, straightforward fixes, active debugging, code review, or implementation requests whose acceptance conditions are already clear"
+  };
+  const databaseSkill = {
+    ...IMPORTED_TDD,
+    name: "database-migrations",
+    path: "sources/external/ecc/skills/database-migrations/SKILL.md",
+    languages: ["sql"],
+    frameworks: ["postgres"],
+    description: "Plan and review database schema migrations.",
+    use_when: "reviewing or writing a database migration: schema changes, indexes, backfills, and the rollback for each one"
+  };
+
+  // The two situations its author excluded.
+  assert.equal(pickTaskSpecialist({ task: "починить баг: тесты падают в ci", items: [...base, generalist], context: NO_PROJECT }), null);
+  const review = pickTaskSpecialist({
+    task: "сделать ревью пулл-реквеста с миграцией базы данных",
+    items: [...base, generalist, databaseSkill],
+    context: NO_PROJECT
+  });
+  assert.equal(review.item.name, "database-migrations", "the skill for the subject beats the one that excluded it");
+
+  // A skill that excludes nothing is unaffected: this is a rule about the
+  // author's own sentence, not a penalty for being general.
+  assert.equal(
+    pickTaskSpecialist({ task: "настроить разработку через тесты", items: [...base, IMPORTED_TDD], context: NO_PROJECT })?.item.name,
+    "tdd-workflow"
+  );
+});
+
 test("an imported skill mis-tagged as design is still reachable for the work it is about", () => {
   // `hexagonal-architecture` carries design/frontend/ui/ux categories from the
   // importer and is a backend architecture skill. Filed under its own

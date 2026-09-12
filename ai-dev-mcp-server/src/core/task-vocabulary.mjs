@@ -132,6 +132,52 @@ export function stackAlignment(item, ownTerms) {
 }
 
 /**
+ * The clauses of a "when to use this" text that say when *not* to.
+ *
+ * A skill author who writes "Do not trigger for … code review" has answered the
+ * routing question for that situation, and reading only the first half of the
+ * sentence turns the answer upside down (docs/ecc-upgrades/DEBTS.md, Д-20). The
+ * clause runs to the end of its sentence, which is where such a list ends.
+ *
+ * No `\b` on the Russian branch: word boundaries are ASCII-only in JavaScript.
+ */
+const EXCLUSION_CLAUSE = /(?:\bdo\s+not\b|\bdon't\b|\bnever\b|\bavoid\b)\s+(?:trigger|use|using|apply|applying|invoke|invoking|select|choose|route)\b[^.;\n]*|\bnot\s+(?:for|intended\s+for|meant\s+for|applicable\s+to)\b[^.;\n]*|\bskip\s+(?:this\s+skill\s+)?for\b[^.;\n]*|не\s+(?:применять|применяй|использовать|используй|вызывать|вызывай|подходит|годится)[^.;\n]*/gi;
+
+/**
+ * Words too ordinary to decide anything, in either half of a situation text.
+ *
+ * They matter only on the negative side: "do not trigger for … acceptance
+ * conditions **and** … **before** the change" would otherwise let the words
+ * "and" and "before" argue against a skill, and two of those cost more than a
+ * real subject term is worth.
+ */
+const FUNCTION_WORDS = new Set([
+  "and", "the", "for", "are", "but", "not", "its", "his", "her", "this", "that", "these", "those",
+  "with", "when", "where", "from", "into", "than", "then", "also", "already", "unless", "whose",
+  "other", "another", "any", "all", "you", "your", "our", "use", "used", "using", "make", "makes",
+  "made", "before", "after", "while", "which", "what", "who", "why", "how", "can", "may", "must",
+  "should", "would", "could", "each", "some", "such", "only", "just", "very", "get", "got", "has",
+  "have", "had", "was", "were", "been", "being", "does", "did", "done", "out", "off", "over",
+  "under", "more", "most", "less", "least", "even", "still", "yet", "per", "via", "about",
+  "для", "как", "что", "это", "так", "уже", "или", "если", "тоже", "ещё", "еще", "без", "при"
+]);
+
+/**
+ * A situation text split into what it is for and what it says it is not for.
+ *
+ * @param {string} text
+ * @returns {{ wanted: string, excluded: string }}
+ */
+export function splitSituationText(text) {
+  const source = String(text ?? "");
+  const excluded = source.match(EXCLUSION_CLAUSE) ?? [];
+  return {
+    wanted: source.replace(EXCLUSION_CLAUSE, " ").toLowerCase(),
+    excluded: excluded.join(" ").toLowerCase()
+  };
+}
+
+/**
  * How well a registry entry answers the expanded task, judged on the text that
  * says when to use it.
  *
@@ -142,12 +188,18 @@ export function stackAlignment(item, ownTerms) {
  * match — `reasons` stays empty unless the situation text matched, and callers
  * use that to refuse a name-only coincidence.
  *
+ * The half of that text that says when *not* to use the skill counts the same
+ * amount against it. It is the author's own sentence either way, and a skill
+ * whose `use_when` reads "do not trigger for … code review" should not be the
+ * pick for a code review — which is what happened while only the first half was
+ * read (Д-20).
+ *
  * @param {object} item - Registry entry.
  * @param {string[]} terms - From {@link expandTaskVocabulary}.
- * @returns {{ score: number, use_when_hits: number, matched_terms: string[] }}
+ * @returns {{ score: number, use_when_hits: number, matched_terms: string[], excluded_terms: string[] }}
  */
 export function specialistMatchScore(item, terms) {
-  const situation = `${item?.use_when ?? ""} ${item?.description ?? ""}`.toLowerCase();
+  const { wanted: situation, excluded } = splitSituationText(`${item?.use_when ?? ""} ${item?.description ?? ""}`);
   const taxonomy = [
     (item?.categories ?? []).join(" "),
     (item?.subgroups ?? []).join(" "),
@@ -157,6 +209,7 @@ export function specialistMatchScore(item, terms) {
   ].join(" ").toLowerCase();
   const name = String(item?.name ?? "").toLowerCase().replaceAll("-", " ");
   const matched = [];
+  const excludedTerms = [];
   let score = 0;
   let situationHits = 0;
   for (const term of terms) {
@@ -165,6 +218,17 @@ export function specialistMatchScore(item, terms) {
       score += 3;
       situationHits += 1;
       hit = true;
+    }
+    // Only a term the exclusion names and the rest of the text does not. These
+    // sentences share their nouns — "do not trigger for … implementation
+    // requests whose acceptance conditions are already clear" sits under a
+    // use_when about acceptance criteria — and subtracting a word that appears
+    // on both sides would cancel the skill on its own subject (Д-20).
+    if (!hit && !FUNCTION_WORDS.has(term) && excluded.includes(term)) {
+      score -= 3;
+      situationHits -= 1;
+      excludedTerms.push(term);
+      continue;
     }
     if (name.includes(term)) {
       score += 2;
@@ -176,5 +240,5 @@ export function specialistMatchScore(item, terms) {
     }
     if (hit) matched.push(term);
   }
-  return { score, use_when_hits: situationHits, matched_terms: matched };
+  return { score, use_when_hits: situationHits, matched_terms: matched, excluded_terms: excludedTerms };
 }

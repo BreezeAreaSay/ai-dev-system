@@ -409,6 +409,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Three tools crashed instead of stating their contract.** Called without
+  their argument, `search_knowledge`, `search_skills` and `read_skill` answered
+  "Cannot read properties of undefined (reading 'toLowerCase')" where every
+  other tool answers "query is required." Measured over the protocol: of 62
+  read-only tools, 23 answer with no arguments and 39 refuse with a sentence —
+  those three were the only ones that broke, and now there are none.
+
+- **The embedding worker's own reason was thrown away.** A worker that cannot
+  start says why once, on stdout, before anything is asked of it — "Model
+  directory does not exist: ~/.ai-dev/models/bge-m3" — and then exits. The pool
+  kept the message and reported only the exit code, so `embed_texts` and
+  `hybrid_search` failed with "BGE-M3 worker exited with code 1." and nothing
+  else, which is the least useful thing to tell someone who has just installed
+  the model. The reason is now carried into the rejection and into
+  `embedding_status.workers[].ready_error`.
+
+- **A source install wrote project cards into the repository.** With no vault of
+  its own, the runtime falls back to the bundled `docker/public-seed`, and
+  `prepare_project` writes a project card there — with the project's name and
+  its absolute path. The other generated seed paths are ignored by Git already;
+  `02-knowledge/Projects/` was missed, so a clone went dirty the first time
+  anyone prepared a project, and `git add -A` would have committed their
+  repository names into this one.
+
 - **A checkout without an Obsidian vault could not find its own helpers.** Four
   trees the server runs rather than reads — the SQLite search helper, the
   search-eval cases, the BGE-M3 embedding scripts and the Frontend QA runner —

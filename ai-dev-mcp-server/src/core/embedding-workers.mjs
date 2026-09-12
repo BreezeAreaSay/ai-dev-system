@@ -136,6 +136,7 @@ export function createEmbeddingRuntime({
       buffer: "",
       stderr: "",
       ready: false,
+      ready_error: "",
       exited: false,
       model_dir: resolvedModelDir,
       device: selectedDevice
@@ -158,6 +159,12 @@ export function createEmbeddingRuntime({
         if (message.type === "ready") {
           state.ready = Boolean(message.ok);
           state.ready_message = message;
+          // A worker that cannot start says why once, on stdout, before anything
+          // is asked of it — "Model directory does not exist: …". Keep it: what
+          // follows is an exit code and an empty stderr, and "BGE-M3 worker
+          // exited with code 1" tells a person who has just installed the model
+          // nothing at all.
+          state.ready_error = state.ready ? "" : String(message.error ?? "").trim();
           continue;
         }
         const id = message.id;
@@ -183,7 +190,8 @@ export function createEmbeddingRuntime({
     });
     child.on("close", (code) => {
       state.exited = true;
-      rejectWorkerPending(state, `BGE-M3 worker exited with code ${code}. ${state.stderr}`.trim());
+      const said = [state.ready_error, state.stderr].filter(Boolean).join(" ").trim();
+      rejectWorkerPending(state, `BGE-M3 worker exited with code ${code}. ${said}`.trim());
       workers.delete(key);
     });
 
@@ -325,6 +333,7 @@ export function createEmbeddingRuntime({
       key: state.key,
       pid: state.child.pid,
       ready: Boolean(state.ready),
+      ready_error: state.ready_error || "",
       exited: Boolean(state.exited),
       pending_requests: state.pending.size,
       model_dir: state.model_dir,

@@ -4441,6 +4441,7 @@ const tools = [...buildToolDefinitions({
 }), ...extensions.definitions];
 
 async function searchKnowledge({ query, limit = 10 }) {
+  if (!query || typeof query !== "string") throw new Error("query is required.");
   const files = await listMarkdownFiles(vaultRoot);
   const matches = [];
   for (const file of files) {
@@ -4536,6 +4537,7 @@ async function searchSkills({
   query, limit = 10, source, group = "", subgroup = "", maturity = "", trust_level = "",
   quality_status = "", min_quality = 0
 }) {
+  if (!query || typeof query !== "string") throw new Error("query is required.");
   const items = await readSkillIndex();
   const selectedGroup = group ? canonicalSkillGroup(group) : "";
   const selectedSubgroup = String(subgroup || "").toLowerCase().trim().replace(/[\s_]+/g, "-");
@@ -4573,6 +4575,7 @@ async function searchSkills({
 }
 
 async function readSkill({ name, source }) {
+  if (!name || typeof name !== "string") throw new Error("name is required.");
   const normalized = name.toLowerCase().trim();
   const items = await readSkillIndex();
   const item = items.find((entry) => {

@@ -38,6 +38,29 @@ import {
   overallHealthStatus
 } from "./system-health.mjs";
 
+test("a Frontend QA environment that is not ready says which piece is missing", () => {
+  const ready = evaluateFrontendQaEnvironment({
+    playwright_available: true, chromium_available: true, browser_launch_ok: true, playwright_source: "runner"
+  });
+  assert.equal(ready.status, "ok");
+  assert.match(ready.summary, /ready from runner/);
+
+  // The measured case: Playwright is installed, and the browser it wants is not
+  // where it looks. "Not fully ready" was all this used to say.
+  const noBrowser = evaluateFrontendQaEnvironment({
+    playwright_available: true,
+    chromium_available: false,
+    browser_launch_ok: false,
+    launch_error: "Chromium is not at /opt/pw-browsers/chromium-1243/chrome-linux64/chrome. Install it with `npx playwright install chromium`."
+  });
+  assert.equal(noBrowser.status, "warn");
+  assert.match(noBrowser.summary, /the Chromium binary is missing/);
+  assert.match(noBrowser.summary, /npx playwright install chromium/);
+
+  const noPlaywright = evaluateFrontendQaEnvironment({ playwright_available: false });
+  assert.match(noPlaywright.summary, /Playwright itself/);
+});
+
 test("required notes count what is missing, not what this layout cannot have", () => {
   const ok = evaluateRequiredNotes([
     { relative_path: "00-start-here.md", exists: false, source: "not-applicable" },

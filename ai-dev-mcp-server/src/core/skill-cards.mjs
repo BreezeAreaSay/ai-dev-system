@@ -76,6 +76,29 @@ export function skillCardPolicy(item) {
  *   to now; passing it keeps a test's output stable.
  * @returns {string} Markdown with YAML frontmatter.
  */
+/** The `generated_at` line of a rendered card, which changes on every render. */
+const CARD_STAMP = /^generated_at:.*$/m;
+
+/**
+ * Whether a card already on disk says the same thing as a freshly rendered one.
+ *
+ * Every render stamps `generated_at`, so writing a card that has not changed
+ * still moves its mtime — and 142 cards moving made the search index report
+ * itself stale seconds after it was built. Comparing the two without their
+ * stamps is what makes "write only when it changed" mean anything here, and it
+ * gives `generated_at` the meaning a reader expects: when this card last said
+ * something different.
+ *
+ * @param {string} previous - What is on disk, or "" when nothing is.
+ * @param {string} next - The freshly rendered card.
+ * @returns {boolean}
+ */
+export function skillCardUnchanged(previous, next) {
+  if (!previous) return false;
+  const strip = (card) => String(card ?? "").replace(CARD_STAMP, "generated_at: <stamp>");
+  return strip(previous) === strip(next);
+}
+
 export function renderSkillCard(item, generatedAt = new Date().toISOString()) {
   const policy = skillCardPolicy(item);
   const cardPath = skillCardPath(item);

@@ -4,6 +4,7 @@ import {
   renderSkillCard,
   skillCardPolicy,
   skillCardPublic,
+  skillCardUnchanged,
   skillCardsMarkdownIndex
 } from "./skill-cards.mjs";
 
@@ -107,4 +108,23 @@ test("the public projection keeps routing fields and drops the rest", () => {
   assert.equal("markdown" in projected, false);
   assert.equal("content_hash" in projected, false);
   assert.deepEqual(skillCardPublic({ name: "bare", source: "x" }).related_skills, []);
+});
+
+test("a card that says the same thing is not rewritten for its stamp alone", () => {
+  const item = {
+    name: "tdd-workflow", source: "external/ecc", type: "external-skill",
+    path: "sources/external/ecc/skills/tdd-workflow/SKILL.md",
+    description: "Test-driven development.", use_when: "writing a new feature",
+    categories: ["testing-quality"], maturity: "reviewed", quality_score: 91
+  };
+  const monday = renderSkillCard(item, "2026-02-01T00:00:00.000Z");
+  const tuesday = renderSkillCard(item, "2026-02-02T00:00:00.000Z");
+  assert.notEqual(monday, tuesday, "the stamp does move between renders");
+  assert.equal(skillCardUnchanged(monday, tuesday), true, "and it is the only thing that moved");
+
+  // A real change is a real change.
+  const edited = renderSkillCard({ ...item, description: "Test-driven development, strictly." }, "2026-02-02T00:00:00.000Z");
+  assert.equal(skillCardUnchanged(monday, edited), false);
+  // Nothing on disk is not "unchanged".
+  assert.equal(skillCardUnchanged("", monday), false);
 });

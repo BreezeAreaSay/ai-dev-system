@@ -19,6 +19,7 @@ import { enrichSkillQuality } from "./skill-quality.mjs";
 import {
   atomicAppendFile,
   atomicWriteFile,
+  atomicWriteIfChanged,
   atomicWriteJson
 } from "./core/atomic-files.mjs";
 import {
@@ -42,6 +43,7 @@ import {
 import {
   renderSkillCard,
   skillCardPublic,
+  skillCardUnchanged,
   skillCardsMarkdownIndex
 } from "./core/skill-cards.mjs";
 import {
@@ -1241,7 +1243,11 @@ async function syncSkillCards({
   const cards = [];
   for (const item of selected) {
     const cardPath = skillCardPath(item);
-    await writeText(cardPath, renderSkillCard(item));
+    const rendered = renderSkillCard(item);
+    // A card that says the same thing keeps its file, and its stamp: see
+    // `skillCardUnchanged` for why a moved mtime is not free here.
+    const onDisk = await readText(cardPath).catch(() => "");
+    if (!skillCardUnchanged(onDisk, rendered)) await writeText(cardPath, rendered);
     cards.push({
       name: item.name,
       source: item.source,

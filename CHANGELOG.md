@@ -424,6 +424,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A freshly built search index reported itself stale.** Every render of a
+  skill card stamps `generated_at`, so `rebuild_index` rewrote all 142 of them
+  whatever they said, their mtimes moved, and the index built seconds earlier
+  came back "stale: 142 changed". Cards are now compared without their stamp and
+  left alone when they say the same thing — which also gives `generated_at` the
+  meaning a reader expects: when this card last changed. Everything the vault
+  writes generated now goes through `atomicWriteIfChanged`, which the repository
+  had and nothing used. Measured: `rebuild_index` after a build leaves the index
+  fresh, 0 changed.
+
+- **"Playwright Chromium is not fully ready" never said what was missing.** The
+  runner knows which of the three pieces is absent, and when the browser binary
+  is simply not where Playwright looks it reported an empty `launch_error`. It
+  now names the path, says whether `PLAYWRIGHT_BROWSERS_PATH` points somewhere
+  else, and gives the install command; the health check repeats the reason
+  instead of "not fully ready".
+
 - **Nine tools refused a call that filled every required field.** A JSON Schema
   cannot say "project_path or task_id", so `record_decision`, `list_decisions`,
   `coverage_gaps`, `record_instinct` (project scope), `save_session` (topic or

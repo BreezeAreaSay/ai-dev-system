@@ -259,15 +259,23 @@ export function evaluateFrontendQaRunner({ runner, manifest, artifactsRoot }) {
 }
 
 /**
- * @param {{ playwright_available?: boolean, chromium_available?: boolean, browser_launch_ok?: boolean, playwright_source?: string }} status
+ * @param {{ playwright_available?: boolean, chromium_available?: boolean, browser_launch_ok?: boolean, playwright_source?: string, launch_error?: string }} status
  */
 export function evaluateFrontendQaEnvironment(status) {
   const ready = status.playwright_available && status.chromium_available && status.browser_launch_ok;
+  // "not fully ready" is true and useless. The runner knows which of the three
+  // pieces is missing and, for the usual case, where it looked for the browser.
+  const missing = [
+    status.playwright_available ? "" : "Playwright itself",
+    status.chromium_available ? "" : "the Chromium binary",
+    status.chromium_available && !status.browser_launch_ok ? "a browser that launches" : ""
+  ].filter(Boolean).join(" and ");
+  const because = String(status.launch_error || "").replace(/\s+/g, " ").trim();
   return {
     status: ready ? "ok" : "warn",
     summary: ready
       ? `Playwright Chromium is ready from ${status.playwright_source || "runner"}.`
-      : "Playwright Chromium is not fully ready.",
+      : `Frontend QA cannot run: ${missing || "its browser"} is missing.${because ? ` ${because}` : ""}`,
     details: status
   };
 }

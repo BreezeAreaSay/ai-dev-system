@@ -1,7 +1,11 @@
 import path from "node:path";
 import {
+  CLEANABLE_STATES,
+  STALE_AFTER_DAYS,
   TASK_BRANCH_PREFIX,
   WORKTREES_DIR,
+  WORKTREE_STATES,
+  cleanupTaskWorktrees,
   createTaskWorktree,
   listTaskWorktrees,
   removeTaskWorktree,
@@ -44,12 +48,28 @@ export function createWorktreeTools(host) {
       },
       {
         name: "list_task_worktrees",
-        description: "List task worktrees of a repository with branch, dirty state, and commits ahead of the main checkout.",
+        description: `List task worktrees of a repository with branch, dirty state, commits ahead of the main checkout, and the lifecycle state of each: ${WORKTREE_STATES.join(", ")}. orphan means git still registers a directory that is gone, dirty means uncommitted work lives only there, merged means every commit is already in the main checkout, stale means unmerged commits with nothing recent, active means leave it alone.`,
         inputSchema: {
           type: "object",
           properties: {
             project_path: { type: "string" },
-            include_status: { type: "boolean", default: true }
+            include_status: { type: "boolean", default: true, description: "Read dirty state, distance from the main checkout and the lifecycle state. Without it only the registration is listed." },
+            stale_after_days: { type: "number", default: STALE_AFTER_DAYS, description: "How old a worktree's newest commit may be before it reads as stale." }
+          },
+          required: ["project_path"]
+        }
+      },
+      {
+        name: "plan_worktree_cleanup",
+        description: `Plan which task worktrees can go, by lifecycle state, and carry the plan out only when dry_run is false. ${CLEANABLE_STATES.join(" and ")} worktrees are offered; stale ones only with include_stale, because a branch with no recent commits is also what one waiting on review looks like; dirty ones never — use remove_task_worktree with force to discard uncommitted work deliberately.`,
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string" },
+            dry_run: { type: "boolean", default: true, description: "Report the plan and remove nothing." },
+            include_stale: { type: "boolean", default: false, description: "Also offer worktrees with unmerged commits that have seen nothing recent." },
+            delete_branch: { type: "boolean", default: false, description: "Delete each removed worktree's task branch as well." },
+            stale_after_days: { type: "number", default: STALE_AFTER_DAYS }
           },
           required: ["project_path"]
         }
@@ -110,15 +130,50 @@ export function createWorktreeTools(host) {
       },
       async list_task_worktrees(args) {
         const identity = await host.resolveProjectIdentity(args.project_path);
+        const includeStatus = args.include_status !== false;
         const listed = await listTaskWorktrees({
           projectRoot: identity.project_root,
-          includeStatus: args.include_status !== false
+          includeStatus,
+          staleAfterDays: Number(args.stale_after_days) > 0 ? Number(args.stale_after_days) : undefined
         });
+        const byState = {};
+        for (const worktree of listed.worktrees) {
+          if (!worktree.state) continue;
+          byState[worktree.state] = (byState[worktree.state] ?? 0) + 1;
+        }
         return {
           ...listed,
           worktrees_dir: WORKTREES_DIR,
           branch_prefix: TASK_BRANCH_PREFIX,
-          count: listed.worktrees.length
+          count: listed.worktrees.length,
+          by_state: byState,
+          next_step: includeStatus
+            ? (byState.merged || byState.orphan
+              ? "plan_worktree_cleanup lists what can go and removes nothing until dry_run is false."
+              : "Nothing here is finished with; leave them.")
+            : "Pass include_status to read each worktree's lifecycle state."
+        };
+      },
+      async plan_worktree_cleanup(args) {
+        const identity = await host.resolveProjectIdentity(args.project_path);
+        const result = await cleanupTaskWorktrees({
+          projectRoot: identity.project_root,
+          dryRun: args.dry_run !== false,
+          includeStale: Boolean(args.include_stale),
+          deleteBranch: Boolean(args.delete_branch),
+          staleAfterDays: Number(args.stale_after_days) > 0 ? Number(args.stale_after_days) : undefined
+        });
+        return {
+          ...result,
+          worktrees_dir: WORKTREES_DIR,
+          branch_prefix: TASK_BRANCH_PREFIX,
+          next_step: result.dry_run
+            ? (result.remove.length
+              ? `Nothing was removed. Call again with dry_run: false to remove ${result.remove.length} worktree(s).`
+              : "Nothing can be cleaned up yet.")
+            : result.problems.length
+              ? "Some worktrees could not be removed; the problems list says which and why."
+              : `${result.removed.length} worktree(s) removed.`
         };
       },
       async remove_task_worktree(args) {

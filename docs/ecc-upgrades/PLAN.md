@@ -142,7 +142,7 @@ Reference Factory и жюри концепций (gan-*), `system_health_check` 
 | 3.21 | Монитор контекста, циклов и стоимости (`scripts/hooks/ecc-context-monitor.js`: пороги стоимости 5/10/50 USD, 20 файлов, 5 одинаковых вызовов подряд) | Расширение `compact-advisor.mjs`: предупреждения о зацикливании и стоимости из usage ledger; в Argentum те же пороги показывает воркспейс | 3 | S |
 | 3.22 | Скан конфигурации агентов проекта (`skills/security-scan`, AgentShield: авто-запуск в CLAUDE.md, `Bash(*)` в settings, `npx -y` и секреты в `mcp.json`) | Часть `list_mcp_servers` (3.10) и новая проверка `agent_config` в `verify_change_hygiene`; оценка A–F в карточке проекта | 3 | M |
 | 3.23 | Пробелы покрытия (`commands/test-coverage.md`, `agents/pr-test-analyzer.md`) | `coverage_gaps(project_path)`: разбор lcov / istanbul JSON / coverage.py XML / go cover, ранжированный список непокрытых функций в изменённых файлах | 3 | M |
-| 3.24 | Состояния worktree (`scripts/lib/worktree-lifecycle/lifecycle.js`: merged / stale / dirty / orphan) | Поля состояния в `list_task_worktrees` и `plan_worktree_cleanup(dry_run)` | 2 | S |
+| 3.24 | ~~Состояния worktree (`scripts/lib/worktree-lifecycle/lifecycle.js`: merged / stale / dirty / orphan)~~ **сделано** | Поля состояния в `list_task_worktrees` и `plan_worktree_cleanup(dry_run)` | 2 | S |
 
 Рекомендуемый порядок: 3.1, 3.9, 3.15, 3.16, 3.17 (дешёвые, сразу расширяют каталог,
 управляемость и качество завершения), затем 3.2 и 3.5 (нужны Argentum в фазах 0–1), потом

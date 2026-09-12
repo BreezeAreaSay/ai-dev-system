@@ -126,7 +126,7 @@ const GROUPS = [
   {
     title: "Task worktrees",
     when: "Running a task in isolation, so an unfinished change never sits in the user's main checkout.",
-    tools: ["begin_task_in_worktree", "list_task_worktrees", "remove_task_worktree"]
+    tools: ["begin_task_in_worktree", "list_task_worktrees", "plan_worktree_cleanup", "remove_task_worktree"]
   },
   {
     title: "Task snapshots",

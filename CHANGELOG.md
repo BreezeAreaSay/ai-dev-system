@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Worktree lifecycle states** (`list_task_worktrees`, `plan_worktree_cleanup`):
+  each task worktree is reported as `orphan` (git still registers a directory
+  that is gone), `dirty` (uncommitted work lives only there), `merged` (every
+  commit is already in the main checkout), `stale` (unmerged commits, nothing
+  recent) or `active`, decided worst case first so the state says whether
+  removing it costs anything. `plan_worktree_cleanup` offers the merged and
+  orphaned ones, offers stale ones only with `include_stale`, never offers dirty
+  ones, and removes nothing until `dry_run: false`.
+
 - **State housekeeping** (`prune_state`): retires instincts whose confidence
   fell under 0.3 and that have not been observed for 90 days, archives session
   handoffs and hook observation logs older than 90 days into an `archive/`

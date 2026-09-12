@@ -126,7 +126,7 @@ const GROUPS = [
   {
     title: "Task worktrees",
     when: "Running a task in isolation, so an unfinished change never sits in the user's main checkout.",
-    tools: ["begin_task_in_worktree", "list_task_worktrees", "remove_task_worktree"]
+    tools: ["begin_task_in_worktree", "list_task_worktrees", "plan_worktree_cleanup", "remove_task_worktree"]
   },
   {
     title: "Task snapshots",
@@ -136,7 +136,7 @@ const GROUPS = [
   {
     title: "Change hygiene and project rules",
     when: "Reviewing a diff before claiming it is done, and installing the engineering rules an agent should follow in this repository.",
-    tools: ["verify_change_hygiene", "list_rule_packs", "install_project_rules"]
+    tools: ["verify_change_hygiene", "run_security_scan", "list_rule_packs", "install_project_rules", "distill_project_rules"]
   },
   {
     title: "Memory and learning",
@@ -154,7 +154,8 @@ const GROUPS = [
       "update_instinct",
       "evolve_instincts",
       "export_instincts",
-      "import_instincts"
+      "import_instincts",
+      "prune_state"
     ]
   },
   {
@@ -165,7 +166,7 @@ const GROUPS = [
   {
     title: "Agent harness inventory",
     when: "Auditing which MCP servers this repository wires into its agents, over which transports, and whether any credential is sitting in a config file.",
-    tools: ["list_mcp_servers"]
+    tools: ["list_mcp_servers", "scan_agent_config"]
   },
   {
     title: "Usage and cost",

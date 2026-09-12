@@ -76,28 +76,38 @@ export const RATIONALIZATION_PATTERNS = Object.freeze([
     gate: "verification",
     claim: "The report offers a local run instead of a recorded one",
     proof: "Re-run the checks through verify_task so the evidence is bound to the current Git state.",
-    pattern: /\bworks?\s+(?:fine\s+|ok(?:ay)?\s+)?on\s+my\s+(?:machine|box|laptop|side|end)|\bworks?\s+(?:fine\s+|ok(?:ay)?\s+)?locally\b(?![^.\n]{0,30}\band\s+in\s+ci\b)|у\s+меня\s+(?:вс[её]\s+)?работает|локально\s+(?:вс[её]\s+)?(?:работает|проходит|зелен)/i
+    // "It works on my machine and in CI" is a person explaining that the two
+    // environments agree, which is the opposite of the excuse. Both halves of
+    // the pattern carry the same exemption (docs/ecc-upgrades/DEBTS.md, Д-10).
+    pattern: /\bworks?\s+(?:fine\s+|ok(?:ay)?\s+)?on\s+my\s+(?:machine|box|laptop|side|end)\b(?![^.\n]{0,40}\band\s+(?:in|on)\s+ci\b)|\bworks?\s+(?:fine\s+|ok(?:ay)?\s+)?locally\b(?![^.\n]{0,40}\band\s+(?:in|on)\s+ci\b)|у\s+меня\s+(?:вс[её]\s+)?работает|локально\s+(?:вс[её]\s+)?(?:работает|проходит|зелен)/i
   },
   {
     id: "unverified_claim",
     gate: "verification",
     claim: "The report hedges instead of reporting a result",
     proof: "Run the change and report what it did, not what it ought to do.",
-    pattern: /\b(?:should|ought\s+to)\s+(?:just\s+|now\s+)?work\b|\bi\s+(?:think|believe|assume|expect)\s+(?:that\s+)?(?:it|this|they)\s+(?:works?|is\s+(?:fine|correct|ok(?:ay)?)|are\s+(?:fine|correct|ok(?:ay)?))|\bprobably\s+(?:works?|fine|correct|ok(?:ay)?)|\b(?:presumably|likely)\s+(?:works?|fine|correct)|должно\s+(?:бы\s+)?(?:работать|заработать)|скорее\s+всего\s+(?:работает|вс[её]\s+хорошо)/i
+    pattern: /\b(?:should|ought\s+to)\s+(?:just\s+|now\s+)?(?:work\b|be\s+(?:fine|ok(?:ay)?|correct|enough)\b)|\bi\s+(?:think|believe|assume|expect)\s+(?:that\s+)?(?:it|this|they)\s+(?:works?|is\s+(?:fine|correct|ok(?:ay)?)|are\s+(?:fine|correct|ok(?:ay)?))|\bprobably\s+(?:works?|fine|correct|ok(?:ay)?)|\b(?:presumably|likely)\s+(?:works?|fine|correct)|должно\s+(?:бы\s+)?(?:работать|заработать)|скорее\s+всего\s+(?:работает|вс[её]\s+хорошо)/i
+  },
+  {
+    id: "inspection_only",
+    gate: "verification",
+    claim: "The report marks something met from reading the code",
+    proof: "Run it. A criterion is met by a recorded verify_task run; reading the diff is how the run is chosen, not a substitute for it.",
+    pattern: /\b(?:based\s+on|by|from|after)\s+(?:a\s+)?(?:code[-\s]?|visual\s+|manual\s+|static\s+)?(?:inspection|reading|review|analysis)\s+(?:alone|only)\b|\b(?:inspect(?:ing|ed)|read(?:ing)?|review(?:ing|ed))\s+the\s+(?:code|diff|source)\s+(?:alone|only)\b|\bwithout\s+(?:actually\s+)?running\s+(?:it|them|anything|the\s+code)\b|\b(?:verified|confirmed|marked[^.\n]{0,40}\bmet)\s+by\s+(?:just\s+)?read(?:ing)?\b|по\s+коду\s+видно|(?:просто\s+)?прочитал\s+код/i
   },
   {
     id: "untested_change",
     gate: "quality_gate",
     claim: "The report says the change was not tested",
     proof: "Run the project's tests through verify_task, or name the blocker as an unmet criterion.",
-    pattern: /\buntested\b|\b(?:not|never)\s+tested\b|\b(?:did\s*n[o']?t|have\s*n[o']?t|has\s*n[o']?t|could\s*n[o']?t|was\s+unable\s+to|unable\s+to)\s+(?:actually\s+)?(?:run\s+(?:the\s+)?tests?|test\s+(?:it|this|the)|verify\s+(?:it|this))|\bwithout\s+running\s+(?:the\s+)?tests?\b|не\s+(?:стал\s+)?(?:проверял|проверять|тестировал|запускал\s+тесты)/i
+    pattern: /\buntested\b|\b(?:not|never)\s+tested\b|\b(?:did\s*n[o']?t|have\s*n[o']?t|has\s*n[o']?t|could\s*n[o']?t|was\s+unable\s+to|unable\s+to)\s+(?:actually\s+)?(?:run\s+(?:the\s+)?(?:tests?|build|suite|checks?|gate|linter|type\s?check(?:er)?)|test\s+(?:it|this|the)|verify\s+(?:it|this))|\bwithout\s+running\s+(?:the\s+)?(?:tests?|build|suite|checks?)\b|не\s+(?:стал\s+)?(?:проверял|проверять|тестировал|запускал\s+тесты)/i
   },
   {
     id: "unrelated_or_flaky",
     gate: "verification",
     claim: "The report writes a failure off as unrelated or flaky",
     proof: "Prove it: re-run the check and record the passing run, or fix the flake.",
-    pattern: /\b(?:un|not\s+)related\s+to\s+(?:my|this|these|the)\s+chang|\bflak(?:y|e|es|iness)\b|\brandom(?:ly)?\s+fail(?:s|ing|ure)|\bjust\s+(?:a\s+)?(?:ci|infra(?:structure)?)\s+(?:issue|problem|noise)|не\s+связан[оаы]?\s+с\s+(?:мо[иё]|эт[иоа])|(?<![а-яё])флак(?:ует|и|овый)?(?![а-яё])/i
+    pattern: /\b(?:un|not\s+)related\s+to\s+(?:my|this|these|the|our)\s+(?:chang|task|work|patch|diff|pr\b|commit|ticket|featur|fix\b)|\bflak(?:y|e|es|iness)\b|\brandom(?:ly)?\s+fail(?:s|ing|ure)|\bjust\s+(?:a\s+)?(?:ci|infra(?:structure)?)\s+(?:issue|problem|noise)|не\s+связан[оаы]?\s+с\s+(?:мо[иё]|эт[иоа])|(?<![а-яё])флак(?:ует|и|овый)?(?![а-яё])/i
   },
   {
     id: "suppressed_check",

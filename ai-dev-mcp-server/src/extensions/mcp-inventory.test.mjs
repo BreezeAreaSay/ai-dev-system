@@ -9,9 +9,14 @@ import { createMcpInventoryTools } from "./mcp-inventory.mjs";
 
 const FIXTURE = fileURLToPath(new URL("../../test/fixtures/mcp-inventory/", import.meta.url));
 
-function registry() {
+function registry(overrides = {}) {
   return createExtensionTools(
-    { resolveProjectIdentity: async (projectPath) => ({ project_root: path.resolve(projectPath), project_id: "project-test" }) },
+    {
+      resolveProjectIdentity: async (projectPath) => ({ project_root: path.resolve(projectPath), project_id: "project-test" }),
+      findProjectCard: async () => { throw new Error("No project card registered."); },
+      updateProjectCard: async () => ({ updated: true }),
+      ...overrides
+    },
     [createMcpInventoryTools]
   );
 }
@@ -73,4 +78,42 @@ test("user-scope reading is off unless the caller asks for it", async (t) => {
   assert.equal(asked.user_scope, true);
   assert.equal(asked.sources.length, report.sources.length + 4);
   assert.equal(asked.servers.some((server) => server.name === "user-wide"), true);
+});
+
+
+test("scan_agent_config grades the harness and writes the grade into the project card", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "agent-config-tool-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  await fs.mkdir(path.join(root, ".claude"), { recursive: true });
+  await fs.writeFile(path.join(root, ".claude", "settings.json"), JSON.stringify({ permissions: { allow: ["Bash(*)"], deny: [] } }), "utf8");
+
+  const calls = [];
+  const tools = registry({
+    findProjectCard: async (name) => { calls.push(["findProjectCard", name]); return { name: "Atlas" }; },
+    updateProjectCard: async (args) => { calls.push(["updateProjectCard", args]); return { updated: true }; }
+  });
+  assert.deepEqual(tools.readOnly, ["list_mcp_servers"], "the scan writes to the card, so it is not read-only");
+
+  const scan = await tools.handlers.get("scan_agent_config")({ project_path: root });
+  assert.equal(scan.grade, "D");
+  assert.equal(scan.status, "block");
+  assert.ok(scan.findings.some((item) => item.rule === "settings_allow_any_command"));
+  assert.match(scan.next_step, /^Grade D: 1 setting\(s\) remove a check/);
+  const [, cardArgs] = calls.find(([name]) => name === "updateProjectCard");
+  assert.equal(cardArgs.name, "Atlas");
+  assert.equal(cardArgs.section, "Agent Configuration");
+  assert.equal(cardArgs.mode, "replace");
+  assert.match(cardArgs.content, /- Grade: \*\*D\*\*/);
+  assert.deepEqual(scan.card, { updated: true });
+
+  // A project with no card is not a reason to fail the scan.
+  const cardless = await registry().handlers.get("scan_agent_config")({ project_path: root });
+  assert.equal(cardless.grade, "D");
+  assert.equal(cardless.card.updated, false);
+  assert.match(cardless.card.error, /No project card registered/);
+
+  // And the card can be left alone entirely.
+  const untouched = registry({ updateProjectCard: async () => { throw new Error("must not be called"); } });
+  const quiet = await untouched.handlers.get("scan_agent_config")({ project_path: root, update_card: false });
+  assert.equal(quiet.card, null);
 });

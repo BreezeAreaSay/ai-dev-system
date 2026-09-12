@@ -9,6 +9,74 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Distilled project rules** (`distill_project_rules`): reads what a repository
+  already does — module system, Node built-in import style, Python import style,
+  source and test file naming, where tests live, which test runner, how failures
+  are raised, whether caught errors are acted on — and writes it to
+  `.ai-dev/rules/project.md` with `status: draft`. Every statement carries the
+  counts it came from, and a convention the repository splits on is reported as
+  split instead of being turned into a rule. It complements
+  `install_project_rules` rather than replacing it, and never writes over an
+  existing file: the answer distinguishes a draft (safe to regenerate) from one
+  whose `status: draft` line a person has removed (`src/core/rules-distill.mjs`).
+
+- **Import graph in the project map**: `.ai-dev/project-map.md` gained an
+  "Import graph" section — the modules most of the codebase depends on, every
+  import cycle, and the files nothing in the project imports. Read from
+  JavaScript/TypeScript and Python sources, resolving only to files inside the
+  repository, so a bare specifier is counted as an external dependency and never
+  becomes a node. The scan is lazy: the source files are fingerprinted by path,
+  size and mtime (a directory walk) and re-parsed only when that moves, so
+  `prepare_project`, `refresh_project_map` and `refresh_project_context`
+  re-render the map every time and re-read the tree only when it changed
+  (`src/core/import-graph.mjs`).
+
+- **Agent harness grading** (`scan_agent_config`): grades a repository's agent
+  configuration from A to F over five places nothing else reads together —
+  `CLAUDE.md` / `AGENTS.md` that run a command on load or tell the agent in
+  prose to stop asking, `.claude/settings.json` that pre-approves `Bash(*)` or
+  sets `defaultMode: bypassPermissions`, hook commands that splice a variable
+  into a shell, subagents with no `tools:` limit, and everything
+  `list_mcp_servers` already finds (folded in, not re-implemented). Findings use
+  the change-hygiene shape `{ rule, severity, file, line, message }`; a
+  `block` — a setting that removes a check rather than narrowing one — caps the
+  grade at D. The grade is written into the project card's new
+  "Agent Configuration" section, and credentials are masked with the same
+  function the MCP inventory uses (`src/core/agent-config-scan.mjs`).
+
+- **Worktree lifecycle states** (`list_task_worktrees`, `plan_worktree_cleanup`):
+  each task worktree is reported as `orphan` (git still registers a directory
+  that is gone), `dirty` (uncommitted work lives only there), `merged` (every
+  commit is already in the main checkout), `stale` (unmerged commits, nothing
+  recent) or `active`, decided worst case first so the state says whether
+  removing it costs anything. `plan_worktree_cleanup` offers the merged and
+  orphaned ones, offers stale ones only with `include_stale`, never offers dirty
+  ones, and removes nothing until `dry_run: false`.
+
+- **State housekeeping** (`prune_state`): retires instincts whose confidence
+  fell under 0.3 and that have not been observed for 90 days, archives session
+  handoffs and hook observation logs older than 90 days into an `archive/`
+  directory beside them (moved, never deleted, and a scope's newest handoff is
+  always kept), rotates the usage ledger down to its newest 20 000 events, and
+  deletes the snapshot refs of completed *and abandoned* tasks — a task that is
+  not complete and has not been updated for 30 days previously kept
+  `refs/ai-dev/snapshots/<task>/*` for good, and each live ref pins a whole tree.
+  Runs as a dry run unless `dry_run: false`, and reports each of the four areas
+  separately so one that fails does not stop the others
+  (`src/core/state-pruning.mjs`).
+
+- **Security scanners** (`run_security_scan`): adapters for `npm audit`,
+  `pip-audit`, `cargo audit`, `gitleaks`, `semgrep` and `trivy fs`. Each one
+  knows how to find its binary, whether this project is one it has anything to
+  say about, and how to read its output; every finding comes back as
+  `{ tool, kind, severity, file, line, message, rule }`. `verify_task` runs the
+  same scan as its `security_scan` check, next to `change_hygiene`: critical and
+  high dependency or secret findings fail verification, everything else is
+  reported. A scanner that is absent, inapplicable or needs a network this run
+  does not have is `skipped` with the reason, so it can neither fail nor delay a
+  verification (`src/core/security-scan.mjs`,
+  `src/core/security-scan-parsers.mjs`).
+
 - Twelve agent-workflow upgrades, ported from ECC (Everything Claude Code) and
   reshaped for this server. New capabilities, all reachable as MCP tools:
   - **Extension registry** (`src/tool-extensions.mjs`): tools now live in
@@ -340,6 +408,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `~/.codex/config.toml`; it is off by default.
 
 ### Fixed
+
+- **Imported skills could never be recommended.** All 101 skills imported from
+  ECC were in the index and none of them ever reached an answer:
+  `recommend_skills` returns three skills, deterministic routing fills all three
+  with our own, and an imported skill's English `use_when` shares no substring
+  with a Russian task. Routing now has reserved roles that do not consume the
+  three (`RESERVED_ROUTING_ROLES`): `capability` as before, and a new
+  `specialist` — one imported skill whose `use_when` answers the task's
+  situation, offered beside the routed core rather than instead of part of it.
+  The match runs through a new concept table (`src/core/task-vocabulary.mjs`)
+  that translates what a Russian task names into the terms an imported catalogue
+  is written in; it names concepts, never skills. A skill that declares an
+  ecosystem is penalised when neither task nor project mentions it, and refused
+  when the project has a stack and this is not it. Measured on eight typical
+  tasks: five ECC skills recommended where there were none, and every task keeps
+  the three skills it had.
+
+- **Retired models' prices are marked as unverified.** Six rows in the rate
+  table price models the published page no longer lists, so nothing re-checks
+  them. They stay — a ledger keeps old events and a report over last quarter has
+  to price what ran — but `usage_report` now keeps them out of the per-model
+  breakdown (`historical_models` instead of `models`, each with
+  `price_basis: "historical"`), reports `usage.historical_cost_usd` as the share
+  of the total that rests on them, and says so in `rates.notice`. The totals
+  still include them: dropping the cost would make them wrong the other way,
+  silently. `include_historical_models` folds them back in. Current models'
+  prices are untouched.
+
+- **`list_mcp_servers` parsed the whole of `~/.claude.json` to reach two keys.**
+  The same file holds Claude Code's conversation history for every project it
+  has opened — tens of megabytes on an active machine. It is now streamed and
+  only `mcpServers` and the current project's `projects[<path>].mcpServers` are
+  buffered (`src/core/json-subset.mjs`), so another project's history and
+  servers are never even recognised. Over two megabytes the report says what the
+  read cost instead of hiding it, and a file that does not start a JSON object
+  is reported unreadable rather than read as empty.
+
+- **A .NET, F# or Xcode project was invisible to the detector.** Those project
+  files are named after the product (`Atlas.csproj`), and the detector checked
+  paths rather than listing the root, so `C#/.NET` was inferred from five
+  conventional side files and `.csproj`, `.sln`, `.fsproj` and `.xcodeproj` were
+  never seen. `createProjectDetector` now takes an injected `readDirectory` and
+  reads the root's extensions. New stack labels with it: `F#`, `Perl` and
+  `ArkTS/HarmonyOS`, plus rule packs for `perl` and `fsharp` — `arkts` is
+  deliberately still unwritten, for the reason recorded in
+  docs/ecc-upgrades/DEBTS.md, Д-18.
+
+- **The static gate's size rules had no test.** Its five branches — a module
+  over the ceiling, a pinned module that grew, a pinned module back under the
+  ceiling, a pin for a module that no longer exists, and the main module over
+  its own ceiling — lived inside the walk over the tree and could only be
+  checked by breaking a real file and putting it back. They now live in
+  `src/core/line-budget.mjs` as `evaluateLineBudget`, the gate is the input and
+  output around them, and a test breaks each branch on its own input and reads
+  the real `src/core` and `src/extensions` for zero findings.
+
+- **The completion-statement linter blocked an honest report and missed three
+  excuses.** "It works on my machine and in CI: both run the same command" was
+  refused, because the "and in CI" exemption was only on the `locally` half of
+  the pattern; it is now on both. "unrelated to this task" walked through
+  because the rule required the word "change"; "should be fine" because the rule
+  knew only "should work"; "I did not run the build" because the rule knew only
+  "run the tests". A new `inspection_only` rule catches a criterion marked met
+  from reading the diff rather than running it. Measured on fifteen phrasings —
+  eight honest ones against a repository where nothing passed, seven excuses —
+  kept as a regression test.
+
+- **A rollback deleted files without saying which.** `rollback_task` brings the
+  working tree to a snapshot's state, so a file written after it goes — possibly
+  one a person wrote from another terminal. The answer now names every deleted
+  file in `removed_files`, names again in `removed_unfamiliar_files` those the
+  task has never snapshotted (the ones most likely not to be its work), and
+  carries a `warnings` line saying how many went and which undo snapshot brings
+  them back. Whose a file is cannot be told, and the answer does not claim to:
+  it states what is checkable, and refuses the split rather than guessing when a
+  snapshot's recorded file list was truncated.
+
+- **A single policy rule could take the guard out of service.** A pattern that
+  backtracks catastrophically — `(a|a)+$` needs 38.8 seconds against
+  twenty-eight characters — passed `upsert_policy_rule`, and after that the
+  guard stalled on every Bash command and every file write, because Node cannot
+  interrupt a match in progress. Policy-rule matching now runs in a worker
+  thread under a 250 ms budget with the input clamped to 4 KiB
+  (`src/core/regex-budget.mjs`, mirrored in `hooks/lib.mjs` for the hook pack):
+  a pattern that overstays is reported as unevaluated instead of never
+  answering. `upsert_policy_rule` additionally refuses such a pattern up front
+  by running it against input built from its own alphabet, so the refusal does
+  not depend on recognising a pattern shape.
 
 - The agent hook pack is now a working implementation rather than a condensed
   port. Three hooks did nothing at all before:

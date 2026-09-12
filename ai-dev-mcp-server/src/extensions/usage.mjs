@@ -67,14 +67,15 @@ export function createUsageTools(host) {
       },
       {
         name: "usage_report",
-        description: "Aggregate recorded tool calls and model usage: per-tool call counts, failure rates and latency, per-task tokens and cost, per-model totals, and the today / yesterday / last-seven-days slices. Cost is what the client reported where it reported one, and an estimate from the published rate table (overridable per project in .ai-dev/policy.json) everywhere else. Filter by project, task, or start time.",
+        description: "Aggregate recorded tool calls and model usage: per-tool call counts, failure rates and latency, per-task tokens and cost, per-model totals, and the today / yesterday / last-seven-days slices. Cost is what the client reported where it reported one, and an estimate from the published rate table (overridable per project in .ai-dev/policy.json) everywhere else. Models the price page no longer lists are priced from what it said while they were current: their cost stays in every total, usage.historical_cost_usd says how much of it that is, and they are reported under historical_models rather than models unless include_historical_models is set. Filter by project, task, or start time.",
         inputSchema: {
           type: "object",
           properties: {
             project_path: { type: "string" },
             task_id: { type: "string" },
             since: { type: "string", description: "ISO timestamp lower bound, for example 2026-09-01T00:00:00Z." },
-            limit_tools: { type: "number", default: 15 }
+            limit_tools: { type: "number", default: 15 },
+            include_historical_models: { type: "boolean", default: false, description: "Fold retired models back into the per-model breakdown. Their prices come from a page that no longer lists them and nothing re-verifies them, so by default they are reported separately." }
           }
         }
       }
@@ -107,6 +108,7 @@ export function createUsageTools(host) {
           taskId: scoped.taskId,
           since: args.since,
           limitTools: args.limit_tools,
+          includeHistoricalModels: Boolean(args.include_historical_models),
           rates: table
         });
         return { ...report, rates: { ...report.rates, ...rateInfo } };

@@ -131,7 +131,8 @@ export function createProjectDetector({
   readProjectText,
   safeProjectFile,
   stat,
-  analyzeProject
+  analyzeProject,
+  readDirectory = async () => []
 }) {
   const isPlainObject = (value) => value && typeof value === "object" && !Array.isArray(value);
 
@@ -280,11 +281,28 @@ export function createProjectDetector({
     if (/symfony\/framework-bundle/.test(composerText)) addStack("Symfony");
     if (await exists("Gemfile") || await exists("Rakefile") || await exists(".ruby-version")) addStack("Ruby");
     if (/\brails\b/.test(gemfileText) || await exists("config/application.rb")) addStack("Rails");
-    if (await exists("Package.swift")) addStack("Swift");
-    // Every .NET repository has a project or solution file, but those are named
-    // after the product, and the detector reads paths rather than listing them.
-    // These five are the conventional root files that are not.
-    if (await exists("global.json") || await exists("Directory.Build.props") || await exists("NuGet.config") || await exists("nuget.config") || await exists(".config/dotnet-tools.json")) addStack("C#/.NET");
+    // Extensions of the root entries. A .NET, F#, Swift or Xcode project is
+    // named after the product (`Atlas.csproj`), so checking paths cannot find
+    // it — the directory has to be listed (docs/ecc-upgrades/DEBTS.md, Д-19).
+    // `readDirectory` is injected so the detector still tests over a tree in
+    // memory.
+    const rootEntries = (await readDirectory(projectRoot).catch(() => [])) ?? [];
+    const hasExtension = (...extensions) => rootEntries.some((entry) => (
+      extensions.some((extension) => String(entry ?? "").toLowerCase().endsWith(extension))
+    ));
+
+    if (await exists("Package.swift") || hasExtension(".xcodeproj", ".xcworkspace")) addStack("Swift");
+    if (
+      await exists("global.json") || await exists("Directory.Build.props") || await exists("NuGet.config")
+      || await exists("nuget.config") || await exists(".config/dotnet-tools.json")
+      || hasExtension(".csproj", ".sln", ".slnx")
+    ) addStack("C#/.NET");
+    if (hasExtension(".fsproj") || await exists("paket.dependencies")) addStack("F#");
+    // Perl: a cpanfile or the classic Makefile.PL / Build.PL / dist.ini.
+    if (await exists("cpanfile") || await exists("Makefile.PL") || await exists("Build.PL") || await exists("dist.ini")) addStack("Perl");
+    // ArkTS is HarmonyOS: the DevEco toolchain writes `oh-package.json5` beside
+    // `build-profile.json5`, and `hvigorfile.ts` is its build entry.
+    if (await exists("oh-package.json5") || await exists("build-profile.json5") || await exists("hvigorfile.ts")) addStack("ArkTS/HarmonyOS");
     if (await exists("CMakeLists.txt") || await exists("meson.build") || await exists("configure.ac") || await exists("conanfile.txt") || await exists("vcpkg.json")) addStack("C/C++");
     if (await exists("pom.xml") || await exists("build.gradle") || await exists("build.gradle.kts")) addStack("Java/JVM");
     if (await exists("build.gradle.kts") || await exists("settings.gradle.kts")) addStack("Kotlin");

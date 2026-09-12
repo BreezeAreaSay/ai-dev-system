@@ -142,6 +142,56 @@ six steps took the main module from 10,018 lines to 4,775.
 Its checks fetch through `host` and hand the raw status objects to pure evaluators in
 `core/system-health.mjs`, which also assembles the dashboard snapshot.
 
+### Skill routing: three conventional slots plus reserved ones
+
+`recommend_skills` answers with at most three conventional skills — one workflow, plus domain and
+verification skills — chosen deterministically by `core/skill-router.mjs` from the task text. Those
+three are ours: they carry the verification contract the task lifecycle checks against, so nothing
+displaces them.
+
+Beside them sit the reserved roles (`RESERVED_ROUTING_ROLES`), which do not consume the three:
+
+- `capability` — an add-on tool such as Archify, matched by a routing rule. It is not an
+  alternative to a workflow skill, so it does not compete for a slot.
+- `specialist` — at most one imported skill (`external/*`, `design/*`), picked by
+  `pickTaskSpecialist` in `core/skill-recommendation.mjs`. It earns the slot the way its author
+  intended: by its `use_when` answering the task's situation. The 101 skills imported from ECC
+  could otherwise never appear at all, because our own three always fill the conventional slots
+  (docs/ecc-upgrades/DEBTS.md, Д-1).
+
+The specialist is matched through `core/task-vocabulary.mjs`, which translates the concepts a
+Russian task names into the English terms an imported catalogue is written in — "настроить
+разработку через тесты" and `tdd-workflow`'s "test-driven development" share no substring, so a
+plain text score was always zero. The table names concepts, never skills, so an import benefits
+from it without an entry being added. Three rules keep the offer honest: the situation text has to
+match (a name the task happens to contain is not enough), an import that shadows one of our names
+is never offered, and a skill that declares an ecosystem loses points when neither the task nor
+the project mentions it — and is refused outright when the project has a stack and this is not it.
+
+### Imported skills: what limits foreign text, and what does not
+
+Imported skills carry `trust: known-upstream` and `instruction_policy: data-until-review`. Both
+are **metadata, not a mechanism**: nothing in this server reads `instruction_policy` before doing
+or refusing anything, and changing it to `trusted` would change no behaviour. They are an
+inventory — they say the catalogue contains text nobody here has read — and a decision built on
+them is a decision built on a label (docs/ecc-upgrades/DEBTS.md, Д-7).
+
+What actually keeps a hundred imported texts out of an agent's context is the shape of the
+context pack:
+
+- `compileContextPack` (`core/context-compiler.mjs`) renders three things per routed skill —
+  name, source, and the reason it was routed. A skill's body is never inlined, whatever its
+  trust level.
+- The pack object carries the skill's `path`, so the agent can open it. That is the intended
+  boundary: an imported skill is a reading suggestion, and reading it is a deliberate act.
+- An import that shadows one of our skill names is never routed at all, and a routed imported
+  specialist gets its own slot beside the routed core rather than displacing part of it.
+- Quality scoring (`skillQualityRankAdjustment`) moves an imported skill's rank, not its
+  trustworthiness: `maturity: draft` and `quality_status: fail` push it down the list.
+
+So the protection is that foreign text does not arrive on its own, not a promise that it is
+harmless.
+
 `skills` carries `rebuild_index`, `validate_skill_library` and `recommend_skills` — the generated
 skill catalog end to end. The extension reads the vault, the skill sources and the embedding
 backend; the renders and verdicts are `core/skill-cards.mjs` (cards),

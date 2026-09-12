@@ -231,3 +231,63 @@ test("transports, substitutions and JSON-with-comments are read the way the clie
   assert.equal(JSON.parse(stripJsonComments("{\n// lead\n\"a\": \"it \\\" // still a string\"\n}")).a, "it \" // still a string");
   assert.equal(stripJsonComments("{\"a\": 1 /* unterminated").includes("unterminated"), false);
 });
+
+
+// Д-17. `~/.claude.json` declares the user's MCP servers and, in the same file,
+// keeps Claude Code's conversation history for every project it has opened.
+// Parsing it whole to reach two keys is the wrong amount of work; the file is
+// streamed and only those two keys are kept.
+test("a huge ~/.claude.json is read key by key, not parsed whole", async (t) => {
+  const root = await tempProject(t, {});
+  const home = await tempProject(t, {});
+  const claudeJson = {
+    numStartups: 200,
+    mcpServers: { global: { command: "node", args: ["global.mjs"] } },
+    projects: {
+      [root]: {
+        mcpServers: { "for-this-project": { type: "http", url: "https://tools.example.invalid/mcp" } },
+        history: Array.from({ length: 12_000 }, (_, index) => ({ display: `turn ${index}: {"looks":"like json"} and a "quote"`, pastedContents: {} }))
+      },
+      "/home/someone/else": {
+        mcpServers: { "another-project": { command: "node", args: ["other.mjs"] } },
+        history: Array.from({ length: 12_000 }, (_, index) => ({ display: `other ${index}` }))
+      }
+    }
+  };
+  const text = JSON.stringify(claudeJson, null, 2);
+  assert.ok(text.length > 2_000_000, `expected a large fixture, got ${text.length} bytes`);
+  await fs.writeFile(path.join(home, ".claude.json"), text, "utf8");
+
+  const report = await listMcpServers({ projectRoot: root, homeDir: home, env: {}, includeUserScope: true });
+  assert.deepEqual(report.servers.map((server) => server.name).sort(), ["for-this-project", "global"]);
+  assert.equal(
+    report.servers.some((server) => server.name === "another-project"),
+    false,
+    "another project's user-scope block is not this project's, and is never even buffered"
+  );
+  const source = report.sources.find((item) => item.path.endsWith(".claude.json"));
+  assert.equal(source.readable, true);
+  assert.equal(source.server_count, 2);
+  // The cost is named rather than hidden: the report says how much was streamed.
+  assert.ok(source.warnings.some((warning) => /MB streamed to read 2 key\(s\)/.test(warning)), JSON.stringify(source.warnings));
+  assert.ok(report.findings.some((item) => item.id === "config_parse_warning" && /MB streamed/.test(item.message)));
+});
+
+test("a ~/.claude.json that is not a JSON object is reported, not read as empty", async (t) => {
+  const root = await tempProject(t, {});
+  const home = await tempProject(t, {});
+  await fs.writeFile(path.join(home, ".claude.json"), "not json at all\n", "utf8");
+  const report = await listMcpServers({ projectRoot: root, homeDir: home, env: {}, includeUserScope: true });
+  const source = report.sources.find((item) => item.path.endsWith(".claude.json"));
+  assert.equal(source.readable, false);
+  assert.match(source.error, /the document starts with "n", not an object/);
+  assert.ok(report.findings.some((item) => item.id === "unreadable_config"));
+
+  // A file with no servers in it is readable and empty, which is not a finding.
+  await fs.writeFile(path.join(home, ".claude.json"), JSON.stringify({ numStartups: 3, tipsHistory: {} }), "utf8");
+  const quiet = await listMcpServers({ projectRoot: root, homeDir: home, env: {}, includeUserScope: true });
+  const quietSource = quiet.sources.find((item) => item.path.endsWith(".claude.json"));
+  assert.equal(quietSource.readable, true);
+  assert.equal(quietSource.server_count, 0);
+  assert.deepEqual(quietSource.warnings, []);
+});

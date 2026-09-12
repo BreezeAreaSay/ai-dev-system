@@ -16,6 +16,7 @@ import {
   upsertPolicyRule,
   verifyPolicyRule
 } from "./policy-rules.mjs";
+import { DEFAULT_MATCH_BUDGET_MS } from "./regex-budget.mjs";
 
 async function tempProject(t, policy) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "policy-rules-"));
@@ -266,9 +267,9 @@ test("a hand-edited rule that stopped working is reported instead of silently do
   assert.equal(listed.counts.broken, 5);
 });
 
-test("the rule reader answers for values it was never given", () => {
-  assert.deepEqual(verifyPolicyRule({}), { checked_as: "bash", fires_on_example: null, counter_example_matches: null });
-  const described = describePolicyRule(undefined);
+test("the rule reader answers for values it was never given", async () => {
+  assert.deepEqual(await verifyPolicyRule({}), { checked_as: "bash", fires_on_example: null, counter_example_matches: null, timed_out: false });
+  const described = await describePolicyRule(undefined);
   assert.equal(described.id, "");
   assert.equal(described.effective_action, "warn");
   assert.equal(compilePolicyPattern("[unclosed"), null);
@@ -345,4 +346,89 @@ test("a rule written here is the rule the installed guard enforces", async (t) =
   assert.equal(guard("bash", { command: "make deploy --env prod" }).status, 0, "enabled: false stops the guard evaluating it");
   await removePolicyRule({ projectRoot: root, id: "warn-inline-token" });
   assert.equal(guard("file", { file_path: "tests/auth.test.js", content: "const token = makeToken();" }).stdout.includes("warn-inline-token"), false);
+});
+
+
+// Д-16. `(a|a)+$` passes every structural check here — the quantifier is over an
+// alternation, not over another quantifier — and needs 38.8 seconds against
+// twenty-eight characters. Two ways in, so two defences: the tool refuses to
+// write it, and the guard refuses to spend more than the budget on it even when
+// the rule arrived by hand.
+const CATASTROPHIC_RULE = {
+  id: "catastrophic-pattern",
+  event: "bash",
+  pattern: "(a|a)+$",
+  action: "block",
+  message: "Only here to measure what the pattern costs.",
+  example: "aaa"
+};
+
+test("a pattern that backtracks catastrophically is refused, even though its own example matches fast", async (t) => {
+  const root = await tempProject(t, defaultPolicy("standard"));
+  const started = process.hrtime.bigint();
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: CATASTROPHIC_RULE }),
+    /backtracks catastrophically/
+  );
+  const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.ok(elapsed < 8000, `the refusal must not itself hang; took ${Math.round(elapsed)} ms`);
+  assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === CATASTROPHIC_RULE.id), []);
+
+  // The overlapping-class form from the same debt entry, which the nested
+  // quantifier heuristic also lets through.
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: { ...CATASTROPHIC_RULE, id: "overlapping-classes", pattern: "(\\w|\\d)+$", example: "abc" } }),
+    /backtracks catastrophically/
+  );
+});
+
+test("a hand-written catastrophic rule is reported by the reader instead of hanging it", async (t) => {
+  const root = await tempProject(t, { ...defaultPolicy("standard"), rules: [{ ...CATASTROPHIC_RULE, example: `${"a".repeat(40)}!` }] });
+  const started = process.hrtime.bigint();
+  const listed = await listPolicyRules(root);
+  const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.ok(elapsed < 8000, `listing must not hang on the rule; took ${Math.round(elapsed)} ms`);
+  const rule = listed.rules.find((entry) => entry.id === CATASTROPHIC_RULE.id);
+  assert.equal(rule.match_timed_out, true);
+  assert.match(rule.problems[0], new RegExp(`did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms`));
+  assert.equal(listed.counts.broken, 1);
+});
+
+test("the installed guard answers on a catastrophic rule instead of stalling on it", async (t) => {
+  const created = await fs.mkdtemp(path.join(os.tmpdir(), "policy-redos-"));
+  t.after(() => fs.rm(created, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  const root = await fs.realpath(created);
+  const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  await installAgentHooks({ projectRoot: root, hooksSourceDir: path.join(serverRoot, "hooks"), targets: ["claude"], profile: "standard" });
+  // Straight into the file, the way a hand edit or an older server would put it.
+  const policyPath = path.join(root, ".ai-dev", "policy.json");
+  const policy = JSON.parse(await fs.readFile(policyPath, "utf8"));
+  policy.rules.push(CATASTROPHIC_RULE);
+  await fs.writeFile(policyPath, `${JSON.stringify(policy, null, 2)}\n`, "utf8");
+
+  const started = process.hrtime.bigint();
+  const result = spawnSync(process.execPath, [path.join(root, ".ai-dev", "hooks", "guard.mjs"), "bash"], {
+    cwd: root,
+    input: JSON.stringify({ cwd: root, tool_input: { command: `echo ${"a".repeat(40)}!` } }),
+    encoding: "utf8",
+    env: { ...process.env, AI_DEV_STATE_ROOT: path.join(root, "state") },
+    timeout: 20_000
+  });
+  const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
+  assert.equal(result.status, 0, `the guard must answer, got status ${result.status}: ${result.stderr}`);
+  // Claude Code kills a hook at ten seconds. Without the budget this command
+  // never returns at all.
+  assert.ok(elapsed < 9000, `the guard must answer well inside the client's timeout; took ${Math.round(elapsed)} ms`);
+  assert.match(result.stdout, /policy:catastrophic-pattern\] this rule was not evaluated/);
+
+  // The honest default rules in the same policy still fire.
+  const blocked = spawnSync(process.execPath, [path.join(root, ".ai-dev", "hooks", "guard.mjs"), "bash"], {
+    cwd: root,
+    input: JSON.stringify({ cwd: root, tool_input: { command: "npm run migrate -- --prod" } }),
+    encoding: "utf8",
+    env: { ...process.env, AI_DEV_STATE_ROOT: path.join(root, "state") },
+    timeout: 20_000
+  });
+  assert.equal(blocked.status, 2);
+  assert.match(blocked.stderr, /policy:block-prod-migrations/);
 });

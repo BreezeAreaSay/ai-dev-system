@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
+import { Worker } from "node:worker_threads";
 
 export const MAX_STDIN = 1024 * 1024;
 export const PROFILES = ["minimal", "standard", "strict"];
@@ -372,6 +373,105 @@ export function compileRegex(source, flags = "i") {
   } catch {
     return null;
   }
+}
+
+/**
+ * How long one policy-rule match may take, and the longest input it is given.
+ *
+ * A pattern that backtracks catastrophically cannot be interrupted on this
+ * thread, and one such rule in `.ai-dev/policy.json` stalls the guard on every
+ * Bash command and every file write: `(a|a)+$` against twenty-eight characters
+ * takes 38.8 seconds (docs/ecc-upgrades/DEBTS.md, Д-16). The server refuses to
+ * write such a rule, but nothing stops a hand edit, so the guard never trusts
+ * the pattern either: it matches in a worker thread it can kill.
+ *
+ * The mirror of this in the server is src/core/regex-budget.mjs; the hook pack
+ * is copied into other repositories and cannot import it.
+ */
+export const POLICY_MATCH_BUDGET_MS = 250;
+export const POLICY_MATCH_MAX_INPUT = 4096;
+
+const MATCH_WORKER_SOURCE = `
+const { parentPort, workerData } = require("node:worker_threads");
+parentPort.postMessage({ ready: true });
+for (const job of workerData.jobs) {
+  let matched = null;
+  try {
+    matched = new RegExp(job.pattern, job.flags).test(job.haystack);
+  } catch {
+    matched = null;
+  }
+  parentPort.postMessage({ matched });
+}
+parentPort.postMessage({ done: true });
+`;
+
+function runMatchBatch(jobs, budgetMs) {
+  return new Promise((resolve) => {
+    const results = [];
+    let settled = false;
+    let timer = null;
+    let worker = null;
+    const finish = (timedOutAt) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (worker) worker.terminate();
+      resolve({ results, timedOutAt });
+    };
+    const arm = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => finish(results.length), budgetMs);
+    };
+    try {
+      worker = new Worker(MATCH_WORKER_SOURCE, { eval: true, workerData: { jobs } });
+    } catch {
+      finish(-1);
+      return;
+    }
+    worker.on("message", (message) => {
+      if (message && message.ready) return arm();
+      if (message && message.done) return finish(-1);
+      results.push(message && typeof message.matched === "boolean" ? message.matched : null);
+      return arm();
+    });
+    worker.on("error", () => finish(-1));
+    worker.on("exit", () => finish(-1));
+    arm();
+  });
+}
+
+/**
+ * Match `{ pattern, flags, haystack }` jobs, each under its own budget. A job
+ * that outlives the budget answers `null` — the guard reports it as a rule it
+ * could not evaluate rather than hanging on it — and the jobs behind it are run
+ * in a fresh worker, because killing the stuck one is the only way to stop it.
+ *
+ * @param {Array<{ pattern: string, flags?: string, haystack?: string }>} jobs
+ * @param {number} [budgetMs]
+ * @returns {Promise<Array<boolean | null>>}
+ */
+export async function matchWithBudget(jobs, budgetMs = POLICY_MATCH_BUDGET_MS) {
+  const list = Array.isArray(jobs) ? jobs : [];
+  if (!list.length) return [];
+  const prepared = list.map((job) => ({
+    pattern: String((job && job.pattern) || ""),
+    flags: String((job && job.flags) || "i"),
+    haystack: String((job && job.haystack) || "").slice(0, POLICY_MATCH_MAX_INPUT)
+  }));
+  const answers = new Array(prepared.length).fill(null);
+  let offset = 0;
+  while (offset < prepared.length) {
+    const { results, timedOutAt } = await runMatchBatch(prepared.slice(offset), budgetMs);
+    for (let index = 0; index < results.length && offset + index < prepared.length; index += 1) {
+      answers[offset + index] = results[index];
+    }
+    const stuck = timedOutAt >= 0 ? offset + timedOutAt : offset + results.length;
+    if (stuck >= prepared.length) break;
+    answers[stuck] = null;
+    offset = stuck + 1;
+  }
+  return answers;
 }
 
 /** Split a shell command into segments on unquoted ; | & and newlines, stripping quotes. */

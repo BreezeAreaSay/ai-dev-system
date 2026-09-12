@@ -10,7 +10,9 @@
  * The shape of the answer: deterministic routing rules (`skill-router.mjs`)
  * seed the candidates at the top ranks, intent patterns add named skills below
  * them, the registry is then scored for anything else that matches, and
- * `prioritizeRoutedRecommendations` trims the result to the routed core.
+ * `prioritizeRoutedRecommendations` trims the result to the routed core plus
+ * one reserved slot per reserved role — a capability add-on, and the imported
+ * specialist {@link pickTaskSpecialist} finds.
  */
 import { INTENT } from "./intent-patterns.mjs";
 import {
@@ -21,11 +23,13 @@ import {
 } from "./skill-router.mjs";
 import {
   findSkillItem,
+  isDesignFirstSkill,
   isDesignSkill,
   isMembraneSkill,
   isVisualHeavySkill,
   skillKey
 } from "./skill-catalog.mjs";
+import { declaredStackTerms, expandTaskVocabulary, specialistMatchScore, stackAlignment } from "./task-vocabulary.mjs";
 import { scoreText, toStringList } from "./text-format.mjs";
 import { canonicalSkillGroup, inferTaskSkillGroups } from "../skill-taxonomy.mjs";
 import { SKILL_SCHEMA_VERSION } from "../skill-quality.mjs";
@@ -125,7 +129,14 @@ export function shouldSkipRecommendedSkill(item, { task, context, membranePolicy
   if (isVisualHeavySkill(item) && !taskLooksVisual(task)) {
     return "Visual/image-heavy skill filtered because the task is not visual/design related.";
   }
-  if (isDesignSkill(item) && !taskLooksVisual(task) && !projectStackLooksFrontend(context)) {
+  // Our own skills' categories are written by hand and mean what they say. An
+  // imported catalogue's are produced by its auto-tagger: ECC files
+  // `hexagonal-architecture` under design, frontend, ui and ux, and it is a
+  // backend architecture skill. For those the veto reads `primary_group`, the
+  // one value the taxonomy settled on — read through `categories` every such
+  // skill was unreachable for any task that was not about design (Д-1).
+  const designVeto = item.source === "custom" ? isDesignSkill(item) : isDesignFirstSkill(item);
+  if (designVeto && !taskLooksVisual(task) && !projectStackLooksFrontend(context)) {
     return "Design/frontend skill filtered because neither task nor project is frontend/design oriented.";
   }
   return "";
@@ -178,6 +189,94 @@ export function skillQualityRankAdjustment(item) {
   if (item.routing_priority === "low") adjustment -= 6;
   if (item.routing_priority === "disabled") adjustment -= 100;
   return adjustment;
+}
+
+/**
+ * How much of the task's situation an imported skill has to answer before it is
+ * offered. Three terms found in `use_when` / description is the floor: one is a
+ * coincidence ("test" appears in half the catalogue), two is a theme, three is
+ * the situation.
+ */
+export const SPECIALIST_MIN_SITUATION_HITS = 3;
+
+/**
+ * The score a specialist has to reach after the ecosystem penalty. Without a
+ * floor the slot is always filled by whatever scraped three hits — a Laravel
+ * security skill for "audit our dependencies" — and an offer nobody should take
+ * is worse than an empty slot.
+ */
+export const SPECIALIST_MIN_SCORE = 18;
+
+/** What an imported skill loses for naming ecosystems that never came up. */
+export const SPECIALIST_FOREIGN_STACK_PENALTY = 8;
+
+/**
+ * What it loses on top when it names only one or two of them. A skill for nine
+ * ecosystems is a general one that happens to list them; a skill for Laravel is
+ * a Laravel skill, so being in the wrong ecosystem costs it more.
+ */
+export const SPECIALIST_NARROW_STACK_PENALTY = 2;
+
+/**
+ * The one imported skill that best answers this task, or `null`.
+ *
+ * This is the whole of the answer to Д-1. Our own skills are routed by name and
+ * fill all three conventional slots, so an imported skill could never appear —
+ * and it should not appear by displacing one, because the routed core carries
+ * the verification contract. It gets a slot of its own instead, and earns it the
+ * way a skill author intends: by its `use_when` answering the task's situation,
+ * matched through the bilingual expansion in `task-vocabulary.mjs` rather than
+ * by category, which is generated and shared by half the catalogue.
+ *
+ * Three things stop a bad offer. A name the task happens to contain is not
+ * enough — the situation text has to match. An imported skill that duplicates
+ * one of ours by name is never offered, so `import_skill_repo` cannot shadow a
+ * custom skill. And a skill that names an ecosystem is penalised when neither
+ * the task nor the project mentions it, and refused outright when the project
+ * has a stack and this is not it: `python-testing` is not the answer to a
+ * TypeScript repository's testing question.
+ *
+ * @param {object} input
+ * @param {string} input.task
+ * @param {object[]} input.items - The skill registry.
+ * @param {object} input.context - Project context.
+ * @param {string[]} [input.exclude] - Names already routed.
+ * @param {string} [input.membranePolicy]
+ * @param {boolean} [input.includeMembrane]
+ * @returns {{ item: object, score: number, concepts: string[], stack: string, matched_terms: string[] } | null}
+ */
+export function pickTaskSpecialist({ task, items, context, exclude = [], membranePolicy = "auto", includeMembrane = false }) {
+  const projectStack = context?.stack ?? [];
+  const { concepts, terms, own_terms: ownTerms } = expandTaskVocabulary(task, projectStack);
+  if (!concepts.length) return null;
+  const visualTask = taskLooksVisual(task);
+  const frontendProject = projectStackLooksFrontend(context ?? {});
+  const taken = new Set(exclude.map((name) => String(name ?? "")));
+  const ours = new Set((items ?? []).filter((item) => item?.source === "custom").map((item) => String(item?.name ?? "")));
+  let best = null;
+  for (const item of items ?? []) {
+    if (!item || item.source === "custom") continue;
+    if (taken.has(String(item.name ?? "")) || ours.has(String(item.name ?? ""))) continue;
+    if (item.maturity === "deprecated" || item.routing_priority === "disabled") continue;
+    if (isMembraneSkill(item) && !membraneAllowed({ task, context, membranePolicy, includeMembrane })) continue;
+    if (isVisualHeavySkill(item) && !visualTask) continue;
+    if (isDesignFirstSkill(item) && !visualTask && !frontendProject) continue;
+    const match = specialistMatchScore(item, terms);
+    if (match.use_when_hits < SPECIALIST_MIN_SITUATION_HITS) continue;
+    const stack = stackAlignment(item, ownTerms);
+    if (stack === "foreign" && projectStack.length) continue;
+    const narrow = declaredStackTerms(item).length <= 2;
+    const penalty = stack === "foreign"
+      ? SPECIALIST_FOREIGN_STACK_PENALTY + (narrow ? SPECIALIST_NARROW_STACK_PENALTY : 0)
+      : 0;
+    const score = match.score + skillQualityRankAdjustment(item) - penalty;
+    if (score < SPECIALIST_MIN_SCORE) continue;
+    const candidate = { item, score, concepts, stack, matched_terms: match.matched_terms };
+    if (!best || candidate.score > best.score || (candidate.score === best.score && item.name.localeCompare(best.item.name) < 0)) {
+      best = candidate;
+    }
+  }
+  return best;
 }
 
 /**
@@ -416,6 +515,7 @@ export function recommendSkillsFromRegistry({
       score += skillQualityRankAdjustment(item);
       if (membrane && !exactName && score < 12) score = 0;
       if (item.source === "custom" && score < 10) score = 0;
+      // A nudge, not a veto, so the looser `categories` signal is the right one here.
       if (isDesignSkill(item) && (visualTask || frontendProject)) score += 3;
       if (isMembraneSkill(item) && !membraneAllowed({ task, context, membranePolicy, includeMembrane })) score = 0;
       if (isVisualHeavySkill(item) && !visualTask) score = Math.max(0, score - 5);
@@ -434,6 +534,21 @@ export function recommendSkillsFromRegistry({
     });
   }
 
+  // The reserved specialist slot (Д-1). It is picked from what is left after
+  // the routed core, scored on `use_when` through the bilingual expansion, and
+  // appended by `prioritizeRoutedRecommendations` outside the three-skill cap.
+  const routedNames = deterministicRoute.skills.map((item) => item.name);
+  const specialist = pickTaskSpecialist({ task, items, context, exclude: routedNames, membranePolicy, includeMembrane });
+  if (specialist) {
+    addNamed(
+      specialist.item.name,
+      specialist.item.source,
+      specialist.item.use_when || specialist.item.description || "imported specialist matched by use_when",
+      110,
+      [`use_when match: ${specialist.concepts.join(", ")}`]
+    );
+  }
+
   const rankedRecommendations = [...recommendations.values()]
     .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
     .map((item) => {
@@ -442,5 +557,17 @@ export function recommendSkillsFromRegistry({
       if (!cleaned.evidence?.length) delete cleaned.evidence;
       return cleaned;
     });
-  return prioritizeRoutedRecommendations(rankedRecommendations, deterministicRoute, safeLimit);
+  const route = specialist
+    ? {
+      ...deterministicRoute,
+      skills: [...deterministicRoute.skills, {
+        name: specialist.item.name,
+        source: specialist.item.source,
+        role: "specialist",
+        reason: specialist.item.use_when || specialist.item.description || "imported specialist matched by use_when",
+        rule: `use-when:${specialist.concepts.join("/")}`
+      }]
+    }
+    : deterministicRoute;
+  return prioritizeRoutedRecommendations(rankedRecommendations, route, safeLimit);
 }

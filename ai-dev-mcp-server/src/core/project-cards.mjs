@@ -41,6 +41,7 @@ export const PROJECT_CARD_KNOWN_SECTIONS = [
   "Stack",
   "Documentation",
   "Environment And Secrets Risk",
+  "Agent Configuration",
   "Commands",
   "Package Scripts",
   "Project Brief",
@@ -285,6 +286,10 @@ export function renderProjectCardMd({
     extractProjectCardSection(existingText, "Known Weak Spots");
   const preservedImprovements = extractProjectCardSection(existingText, "Next Practical Improvements");
   const preservedNotes = extractProjectCardSection(existingText, "Notes");
+  // `scan_agent_config` (PLAN.md 3.22) writes the A-F grade here. It is
+  // preserved rather than generated, because re-rendering a card must not
+  // silently claim a grade nobody measured.
+  const preservedAgentConfig = extractProjectCardSection(existingText, "Agent Configuration");
   const frontendProductPhase = frontendProductStatus?.phase ||
     (detected.is_frontend ? "not prepared" : "not applicable");
 
@@ -353,6 +358,10 @@ ${documentationMarkdown(detected)}
 ## Environment And Secrets Risk
 
 ${environmentMarkdown(detected)}
+
+## Agent Configuration
+
+${preservedAgentConfig || "Not graded yet. Run `scan_agent_config` to grade what this repository lets an agent do without being asked."}
 
 ## Commands
 

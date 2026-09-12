@@ -42,13 +42,52 @@ export const CACHE_WRITE_1H_MULTIPLIER = 2;
 export const CACHE_READ_MULTIPLIER = 0.1;
 
 /**
+ * Models the published price page no longer lists, with the price this table
+ * carries for them.
+ *
+ * Their rows were read from {@link RATE_TABLE_SOURCE} while each model was
+ * current, and the page has since dropped them — so `checked_on` does not cover
+ * them and nothing re-verifies them (docs/ecc-upgrades/DEBTS.md, Д-8). They
+ * stay in the table because a ledger keeps old events and a report over last
+ * quarter has to price what actually ran; they are marked so a total that
+ * leans on them says so, and they are kept out of the per-model breakdown
+ * unless a caller asks for them.
+ */
+export const HISTORICAL_MODELS = Object.freeze([
+  "claude-opus-4-5",
+  "claude-opus-4-1",
+  "claude-opus-4",
+  "claude-sonnet-4-5",
+  "claude-sonnet-4",
+  "claude-haiku-3-5"
+]);
+
+/**
+ * Whether a model's price in this table is a historical one: read once, from a
+ * page that no longer carries it.
+ *
+ * A dated snapshot resolves to its dateless row, the same way
+ * {@link resolveModelRates} resolves it. The answer is about this table's own
+ * row, so a project that overrides the price in `.ai-dev/policy.json` still
+ * sees the mark — what it marks is where the default came from.
+ *
+ * @param {string} model - Any dialect {@link normalizeModelId} understands.
+ * @returns {boolean}
+ */
+export function isHistoricalModel(model) {
+  const normalized = normalizeModelId(model);
+  if (!normalized) return false;
+  return HISTORICAL_MODELS.includes(normalized) || HISTORICAL_MODELS.includes(normalized.replace(/-\d{8}$/, ""));
+}
+
+/**
  * USD per million tokens, keyed by Claude API model id. `input` and `output`
  * are the published base prices; `cache_write` (5-minute TTL) and `cache_read`
  * are derived from the multipliers above unless a row states them.
  *
- * Read from {@link RATE_TABLE_SOURCE} on the date recorded there. Retired
- * models are listed because a ledger keeps old events: a report over last
- * month must still be able to price them.
+ * Read from {@link RATE_TABLE_SOURCE} on the date recorded there. The rows in
+ * {@link HISTORICAL_MODELS} are the exception: the page no longer lists those
+ * models, so their prices are what it said while they were current.
  */
 export const RATE_TABLE = {
   "claude-fable-5-1": { input: 10, output: 50, cache_read: 0.25 },
@@ -227,6 +266,7 @@ function emptyUsage(extra = {}) {
     cost_usd: 0,
     reported_cost_usd: 0,
     estimated_cost_usd: 0,
+    historical_cost_usd: 0,
     duration_ms: 0,
     turns: 0,
     ...extra
@@ -238,7 +278,8 @@ function roundCosts(row) {
     ...row,
     cost_usd: round(row.cost_usd, 4),
     reported_cost_usd: round(row.reported_cost_usd, 4),
-    estimated_cost_usd: round(row.estimated_cost_usd, 4)
+    estimated_cost_usd: round(row.estimated_cost_usd, 4),
+    historical_cost_usd: round(row.historical_cost_usd, 4)
   };
 }
 
@@ -248,6 +289,7 @@ function accumulate(events, rates) {
   const tasks = new Map();
   const models = new Map();
   const unpriced = new Set();
+  const historicalModels = new Set();
   const usage = emptyUsage();
   let toolCalls = 0;
   const taskRow = (taskId) => {
@@ -272,7 +314,13 @@ function accumulate(events, rates) {
     } else if (event.kind === "usage") {
       const cost = costOf(event, rates);
       if (cost.unpriced) unpriced.add(String(event.model || "unknown"));
-      const model = models.get(event.model) ?? emptyUsage({ model: event.model, rate_usd_per_mtok: modelRateRow(event.model, rates) });
+      const historical = isHistoricalModel(event.model);
+      if (historical) historicalModels.add(normalizeModelId(event.model));
+      const model = models.get(event.model) ?? emptyUsage({
+        model: event.model,
+        rate_usd_per_mtok: modelRateRow(event.model, rates),
+        price_basis: historical ? "historical" : "published"
+      });
       for (const row of [usage, model, ...(event.task_id ? [taskRow(event.task_id)] : [])]) {
         row.events += 1;
         for (const key of ["input_tokens", "output_tokens", "cache_read_tokens", "cache_creation_tokens", "duration_ms", "turns"]) {
@@ -281,11 +329,13 @@ function accumulate(events, rates) {
         row.reported_cost_usd += cost.reported;
         row.estimated_cost_usd += cost.estimated;
         row.cost_usd += cost.reported + cost.estimated;
+        // What part of this total rests on a price nobody can re-check.
+        if (historical) row.historical_cost_usd += cost.reported + cost.estimated;
       }
       models.set(event.model, model);
     }
   }
-  return { tools, tasks, models, usage, unpriced, toolCalls };
+  return { tools, tasks, models, usage, unpriced, historicalModels, toolCalls };
 }
 
 /**
@@ -326,6 +376,39 @@ export class UsageLedger {
    */
   async flush() {
     await this.queue.catch(() => undefined);
+  }
+
+  /**
+   * What a rotation would remove, without touching the file. `prune_state`
+   * reports this in `dry_run` mode.
+   *
+   * @param {number} keepLines
+   * @returns {Promise<{ lines: number, kept: number, removed: number }>}
+   */
+  async rotationPlan(keepLines) {
+    const keep = Math.max(1, Number(keepLines) || this.keepLines);
+    const text = await fs.readFile(this.filePath, "utf8").catch(() => "");
+    const lines = text.split("\n").filter(Boolean).length;
+    const kept = Math.min(lines, keep);
+    return { lines, kept, removed: lines - kept };
+  }
+
+  /**
+   * Keep the newest `keepLines` events and drop the rest.
+   *
+   * {@link pruneIfNeeded} only fires when the file passes its byte ceiling, so
+   * a project that never reaches 8 MiB keeps every tool call it ever made. This
+   * is the rotation `prune_state` asks for on a schedule instead.
+   *
+   * @param {number} keepLines
+   * @returns {Promise<{ lines: number, kept: number, removed: number }>}
+   */
+  async rotate(keepLines) {
+    const plan = await this.rotationPlan(keepLines);
+    if (plan.removed <= 0) return plan;
+    const lines = (await fs.readFile(this.filePath, "utf8")).split("\n").filter(Boolean);
+    await atomicWriteFile(this.filePath, `${lines.slice(-plan.kept).join("\n")}\n`, "utf8");
+    return plan;
   }
 
   async pruneIfNeeded() {
@@ -416,7 +499,7 @@ export class UsageLedger {
    * @param {{ projectPath?: string, taskId?: string, since?: string, limitTools?: number, rates?: Record<string, object>, now?: Date }} [filter]
    * @returns {Promise<object>} Report.
    */
-  async report({ projectPath = "", taskId = "", since = "", limitTools = 15, rates = RATE_TABLE, now = new Date() } = {}) {
+  async report({ projectPath = "", taskId = "", since = "", limitTools = 15, rates = RATE_TABLE, includeHistoricalModels = false, now = new Date() } = {}) {
     const events = (await this.readEvents()).filter((event) => {
       if (taskId && event.task_id !== taskId) return false;
       if (projectPath && event.project_path && path.resolve(event.project_path) !== path.resolve(projectPath)) return false;
@@ -424,7 +507,7 @@ export class UsageLedger {
       if (since && String(event.at || "") < since) return false;
       return true;
     });
-    const { tools, tasks, models, usage, unpriced, toolCalls } = accumulate(events, rates);
+    const { tools, tasks, models, usage, unpriced, historicalModels, toolCalls } = accumulate(events, rates);
     const toolRows = [...tools.values()]
       .map((item) => ({
         ...item,
@@ -455,6 +538,18 @@ export class UsageLedger {
         estimated_cost_usd: totals.estimated_cost_usd
       };
     };
+    // The per-model breakdown leaves out the models whose prices cannot be
+    // re-checked, unless the caller asks for them. Their cost stays in every
+    // total — dropping it would make the total wrong in the other direction,
+    // silently — and `usage.historical_cost_usd` says how much of it that is.
+    const allModels = [...models.values()].map((item) => roundCosts(item))
+      .sort((left, right) => right.cost_usd - left.cost_usd || left.model.localeCompare(right.model));
+    const modelRows = includeHistoricalModels
+      ? { models: allModels }
+      : {
+        models: allModels.filter((row) => row.price_basis !== "historical"),
+        historical_models: allModels.filter((row) => row.price_basis === "historical")
+      };
     return {
       ledger_path: this.filePath,
       events: events.length,
@@ -464,11 +559,15 @@ export class UsageLedger {
       slowest_tools: [...tools.values()].sort((left, right) => right.max_ms - left.max_ms).slice(0, 5).map((item) => ({ tool: item.tool, max_ms: item.max_ms })),
       usage: roundCosts(usage),
       periods: { today: period(0), yesterday: period(1, 0), last_7_days: period(6) },
-      models: [...models.values()].map((item) => roundCosts(item)).sort((left, right) => right.cost_usd - left.cost_usd || left.model.localeCompare(right.model)),
+      ...modelRows,
       rates: {
         source: RATE_TABLE_SOURCE,
         priced_models: Object.keys(rates).length,
-        unpriced_models: [...unpriced].sort()
+        unpriced_models: [...unpriced].sort(),
+        historical_models: [...historicalModels].sort(),
+        ...(historicalModels.size ? {
+          notice: `${[...historicalModels].sort().join(", ")} ${historicalModels.size === 1 ? "is" : "are"} priced from rates ${RATE_TABLE_SOURCE.url} no longer lists: they were read while the model was current and are not re-verified. usage.historical_cost_usd is how much of the total rests on them.`
+        } : {})
       },
       tasks: [...tasks.values()].map((item) => roundCosts(item))
         .sort((left, right) => right.cost_usd - left.cost_usd || right.tool_calls - left.tool_calls)

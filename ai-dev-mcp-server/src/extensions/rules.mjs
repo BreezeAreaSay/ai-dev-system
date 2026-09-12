@@ -6,6 +6,7 @@ import {
   installProjectRules
 } from "../core/rules-library.mjs";
 import { packsForStack } from "../core/rules-catalog.mjs";
+import { PROJECT_RULES_PATH, distillProjectRules } from "../core/rules-distill.mjs";
 
 /**
  * Engineering rules tools: install always-on common rules plus stack packs into
@@ -41,9 +42,42 @@ export function createRulesTools(host) {
           },
           required: ["project_path"]
         }
+      },
+      {
+        name: "distill_project_rules",
+        description: `Read a repository's own conventions — module system, Node built-in import style, Python import style, source and test file naming, where tests live, which test runner, how failures are raised, whether caught errors are acted on — and write them to ${PROJECT_RULES_PATH} as a draft. Every statement carries the counts it came from, and a convention the repository splits on is reported as split rather than turned into a rule. This complements install_project_rules (which installs the rules this system holds); it does not replace it, and it never overwrites an existing file unless overwrite=true.`,
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string" },
+            max_files: { type: "number", default: 1500, description: "How many source files to read." },
+            overwrite: { type: "boolean", default: false, description: "Replace an existing draft. A file whose `status: draft` line is gone has been confirmed by a person; overwriting that discards their edits." },
+            dry_run: { type: "boolean", default: false, description: "Report the draft without writing it." }
+          },
+          required: ["project_path"]
+        }
       }
     ],
     handlers: {
+      async distill_project_rules(args) {
+        const identity = await host.resolveProjectIdentity(args.project_path);
+        const project = await host.detectProject(identity.project_root).catch(() => ({}));
+        const result = await distillProjectRules(identity.project_root, {
+          projectName: project.project_name ?? "",
+          maxFiles: Number(args.max_files) > 0 ? Number(args.max_files) : undefined,
+          overwrite: Boolean(args.overwrite),
+          dryRun: Boolean(args.dry_run)
+        });
+        if (["written", "updated"].includes(result.action)) host.markSearchIndexDirty?.("project rules distilled");
+        const nextStep = {
+          written: `Read ${PROJECT_RULES_PATH}, keep the lines that are real, then drop its \`status: draft\` line. Until then nothing loads it.`,
+          updated: `The draft was regenerated. Re-read ${PROJECT_RULES_PATH} before confirming it.`,
+          planned: "Nothing was written. Re-run without dry_run to write the draft.",
+          kept_draft: `${PROJECT_RULES_PATH} already holds a draft and was left alone. Pass overwrite=true to regenerate it.`,
+          kept_confirmed: `${PROJECT_RULES_PATH} no longer says \`status: draft\`, so someone has confirmed it. It was left alone; pass overwrite=true only if you mean to discard their edits.`
+        }[result.action];
+        return { ...result, project_path: identity.project_root, next_step: nextStep };
+      },
       async list_rule_packs(args) {
         const catalog = describeRuleCatalog();
         let detected = null;

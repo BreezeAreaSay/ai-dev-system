@@ -48,6 +48,15 @@ function detectorOver(files = {}, { analysis = {} } = {}) {
     analyzeProject: async (root, options) => {
       calls.push([root, options]);
       return analyzed;
+    },
+    // The real detector lists the root so it can see a project file named after
+    // the product (`Atlas.csproj`); the fixture lists the in-memory tree.
+    readDirectory: async (target) => {
+      const prefix = relative(target) ? `${relative(target)}/` : "";
+      return [...new Set(Object.keys(files)
+        .filter((name) => name.startsWith(prefix))
+        .map((name) => name.slice(prefix.length).split("/")[0])
+        .filter(Boolean))];
     }
   });
   return { ...detector, calls };
@@ -297,4 +306,42 @@ test("the stacks the newer rule packs are chosen by are detected from root files
   const ruby = detectorOver({ "Rakefile": "task :default" });
   const rubyStack = (await ruby.detectProject("/repo")).stack;
   assert.ok(rubyStack.includes("Ruby") && !rubyStack.includes("Rails"));
+});
+
+
+// Д-19 and Д-18. A .NET, F#, Swift or Xcode project file is named after the
+// product, so no list of paths can find it: the root has to be listed.
+test("a project file named after the product is found by listing the root", async () => {
+  const dotnet = detectorOver({ "Atlas.csproj": "<Project/>", "src/": "" });
+  assert.deepEqual((await dotnet.detectProject("/repo")).stack, ["C#/.NET"]);
+  assert.deepEqual((await detectorOver({ "Atlas.sln": "" }).detectProject("/repo")).stack, ["C#/.NET"]);
+  assert.deepEqual((await detectorOver({ "Atlas.slnx": "" }).detectProject("/repo")).stack, ["C#/.NET"]);
+  assert.deepEqual((await detectorOver({ "Atlas.fsproj": "" }).detectProject("/repo")).stack, ["F#"]);
+  assert.deepEqual((await detectorOver({ "paket.dependencies": "" }).detectProject("/repo")).stack, ["F#"]);
+  assert.deepEqual((await detectorOver({ "Atlas.xcodeproj/": "" }).detectProject("/repo")).stack, ["Swift"]);
+  // The five conventional root files still work, and a repository with both
+  // gets the label once.
+  assert.deepEqual((await detectorOver({ "global.json": "{}", "Atlas.csproj": "" }).detectProject("/repo")).stack, ["C#/.NET"]);
+  // A file that merely mentions the extension somewhere else is not a project.
+  assert.deepEqual((await detectorOver({ "docs/csproj-notes.md": "" }).detectProject("/repo")).stack, []);
+});
+
+test("Perl and ArkTS are labelled from their own manifests", async () => {
+  for (const marker of ["cpanfile", "Makefile.PL", "Build.PL", "dist.ini"]) {
+    assert.deepEqual((await detectorOver({ [marker]: "" }).detectProject("/repo")).stack, ["Perl"], marker);
+  }
+  for (const marker of ["oh-package.json5", "build-profile.json5", "hvigorfile.ts"]) {
+    assert.deepEqual((await detectorOver({ [marker]: "" }).detectProject("/repo")).stack, ["ArkTS/HarmonyOS"], marker);
+  }
+  // A directory listing that fails is not a detection failure.
+  const detector = createProjectDetector({
+    pathExists: async () => false,
+    readJsonIfExists: async () => null,
+    readProjectText: async () => "",
+    safeProjectFile: (root, rel) => `${root}/${rel}`,
+    stat: async () => null,
+    analyzeProject: async () => ({ stack: [], project_types: [], commands: [], components: [], architecture: {}, workspace: {}, quality: {} }),
+    readDirectory: async () => { throw new Error("EACCES"); }
+  });
+  assert.deepEqual((await detector.detectProject("/repo")).stack, []);
 });

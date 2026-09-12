@@ -566,6 +566,46 @@ Extends the Java/JVM rules where they overlap; Kotlin rules win on conflict.
 `
   },
   {
+    id: "perl",
+    title: "Perl",
+    paths: ["**/*.pl", "**/*.pm", "**/*.t", "**/cpanfile", "**/Makefile.PL", "**/Build.PL", "**/dist.ini", "**/lib/**"],
+    stacks: ["Perl"],
+    content: `# Perl Rules
+
+- \`use strict; use warnings;\` at the top of every file, and a \`package\` name that matches the path under \`lib/\`. A module without them is the file where a typo becomes a global.
+- Lexical variables only: \`my\`, never a package global for state. \`local\` is for temporarily overriding something that already exists (\`local $/\`, \`local $@\`), not for declaring.
+- Take references explicitly and dereference explicitly (\`@{ $ref }\`, \`$ref->{key}\`). Return a reference from a sub that returns a collection: a returned list flattens into its caller's arguments.
+- Check every system call that can fail — \`open ... or die\`, \`close\`, \`rename\` — and put \`$!\` in the message. Wrap a failing block in \`eval { }\` and test \`$@\` immediately, before anything else can reset it; \`Try::Tiny\` if it is available.
+- Never interpolate into a shell: list-form \`system @argv\` and \`open my $fh, "-|", @argv\`. Taint mode (\`-T\`) for anything that reads a request.
+- Declare dependencies in \`cpanfile\` with a minimum version, and keep the module's own version in one place. No \`require\`-at-runtime of something the manifest does not name.
+- Regular expressions: \`/x\` with comments once the pattern stops fitting on a line, \`\\A\` and \`\\z\` rather than \`^\` and \`$\` when the whole string is meant, and \`quotemeta\` for anything interpolated.
+
+## Verification
+
+- \`prove -lr t/\` (or \`make test\`) and \`perlcritic --severity 4 lib/\` before \`verify_task\`. New behaviour needs a \`.t\` file using \`Test::More\` with a plan or \`done_testing\`.
+`
+  },
+  {
+    id: "fsharp",
+    title: "F#",
+    paths: ["**/*.fs", "**/*.fsi", "**/*.fsx", "**/*.fsproj", "**/paket.dependencies", "**/Directory.Build.props"],
+    stacks: ["F#"],
+    content: `# F# Rules
+
+- File order in the \`.fsproj\` is the compilation order and therefore the dependency order: a file may only use what is above it. Adding a file means putting it in the right place in that list, not at the end.
+- Model with types, not with checks: a discriminated union for the states a value can be in, a record for data, \`option\` instead of null, and a single-case union rather than a bare \`string\` for an identifier.
+- \`Result<'T, 'Error>\` for a failure the caller is expected to handle; an exception for a bug or an unrecoverable condition. Do not mix the two in one function's signature.
+- Prefer immutable values and pure functions. \`mutable\` and \`ref\` are local optimizations, and a mutable module-level binding is shared state.
+- Handle every case explicitly: no incomplete matches, and no \`| _ ->\` catch-all that would silently swallow a new union case. Treat the incomplete-match warning as an error.
+- Do not return \`null\` from anything a C# caller may see without saying so, and do not pass \`option\` across an interop boundary: convert at the edge.
+- \`async\` computations are cold — they do nothing until started. Start them once, at the boundary, and \`Async.AwaitTask\` at the interop seam rather than blocking with \`.Result\`.
+
+## Verification
+
+- \`dotnet build --warnaserror\` and \`dotnet test\` before \`verify_task\`; \`dotnet fantomas --check\` when the project keeps a formatter. New behaviour needs a test (Expecto, xUnit or NUnit — whichever the solution already uses).
+`
+  },
+  {
     id: "docker",
     title: "Docker / Containers",
     paths: ["**/Dockerfile", "**/*.dockerfile", "**/docker-compose*.yml", "**/docker-compose*.yaml", "**/compose*.yml", "**/compose*.yaml"],

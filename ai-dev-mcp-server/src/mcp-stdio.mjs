@@ -77,6 +77,7 @@ import {
   recommendedSkillsMarkdown,
   scriptsTable
 } from "./core/project-markdown.mjs";
+import { loadImportGraph, renderImportGraphMarkdown } from "./core/import-graph.mjs";
 import { configureRuntimeStateRoot, resolveProjectIdentity } from "./core/project-identity.mjs";
 import { resolveRuntimeHome } from "./core/runtime-home.mjs";
 import {
@@ -2151,7 +2152,8 @@ const { detectProject } = createProjectDetector({
   readProjectText: readProjectTextIfExists,
   safeProjectFile,
   stat: (target) => fs.stat(target).catch(() => null),
-  analyzeProject
+  analyzeProject,
+  readDirectory: (target) => fs.readdir(target).catch(() => [])
 });
 
 async function projectTree(projectRoot, { maxDepth = 2, maxEntries = 160 } = {}) {
@@ -2333,6 +2335,9 @@ ${autoCommandsMarkdown()}
 
 async function buildProjectMapMd(detected) {
   const tree = await projectTree(detected.project_path);
+  // The graph is re-read only when the source files moved; the fingerprint
+  // costs a directory walk, the parse costs the whole tree (PLAN.md 3.8).
+  const importGraph = await loadImportGraph(detected.project_path).catch(() => null);
   return `# Project Map
 
 Generated: ${new Date().toISOString()}
@@ -2363,6 +2368,10 @@ ${architectureMarkdown(detected.architecture)}
 ## Important Files And Folders
 
 ${asBulletList(detected.markers)}
+
+## Import graph
+
+${renderImportGraphMarkdown(importGraph)}
 
 ## Documentation
 
@@ -4375,6 +4384,7 @@ const extensions = createExtensionTools({
   // for the tool the client asked for and none for the work it delegated.
   recommendSkills: (args) => extensions.handlers.get("recommend_skills")(args),
   runQualityGate: (args) => extensions.handlers.get("run_quality_gate")(args),
+  runSecurityScan: (args) => extensions.handlers.get("run_security_scan")(args),
   runFrontendQa: (args) => extensions.handlers.get("run_frontend_qa")(args),
   preparePullRequest: (args) => extensions.handlers.get("prepare_pull_request")(args),
   // Skill sources and the writers that turn them into the generated catalog.

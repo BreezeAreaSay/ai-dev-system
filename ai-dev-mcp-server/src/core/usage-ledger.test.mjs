@@ -8,7 +8,9 @@ import {
   CACHE_WRITE_MULTIPLIER,
   RATE_TABLE,
   RATE_TABLE_SOURCE,
+  HISTORICAL_MODELS,
   UsageLedger,
+  isHistoricalModel,
   estimateCostUsd,
   mergeRateTable,
   normalizeModelId,
@@ -226,4 +228,109 @@ test("the report slices today, yesterday and the last seven days, and prices wha
   assert.equal(report.tasks[0].tool_calls, 1);
   assert.equal(report.tasks[0].cost_usd, 18.01, "everything but the event that carries no task id");
   assert.equal(report.usage.cost_usd, 28.01);
+});
+
+
+// prune_state rotates the ledger on a schedule rather than waiting for the
+// byte ceiling, which a project that stays small never reaches.
+test("the ledger can be rotated to a line count, and says what a rotation would do", async (t) => {
+  const stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "usage-rotate-"));
+  t.after(() => fs.rm(stateRoot, { recursive: true, force: true }));
+  const ledger = new UsageLedger({ stateRoot });
+  for (let index = 0; index < 12; index += 1) {
+    await ledger.recordToolCall({ tool: `tool-${index}`, ok: true, durationMs: 1 });
+  }
+  await ledger.flush();
+
+  assert.deepEqual(await ledger.rotationPlan(5), { lines: 12, kept: 5, removed: 7 });
+  assert.deepEqual((await ledger.readEvents()).length, 12, "the plan changes nothing");
+
+  assert.deepEqual(await ledger.rotate(5), { lines: 12, kept: 5, removed: 7 });
+  const kept = await ledger.readEvents();
+  assert.deepEqual(kept.map((event) => event.tool), ["tool-7", "tool-8", "tool-9", "tool-10", "tool-11"]);
+
+  // A rotation that has nothing to remove leaves the file alone.
+  assert.deepEqual(await ledger.rotate(5), { lines: 5, kept: 5, removed: 0 });
+  assert.deepEqual((await ledger.readEvents()).length, 5);
+
+  // A ledger that was never written answers rather than throwing.
+  const empty = new UsageLedger({ stateRoot: path.join(stateRoot, "nowhere") });
+  assert.deepEqual(await empty.rotationPlan(10), { lines: 0, kept: 0, removed: 0 });
+  assert.deepEqual(await empty.rotate(10), { lines: 0, kept: 0, removed: 0 });
+});
+
+
+// Д-8. The prices of retired models were read from a page that no longer lists
+// them, so nothing re-verifies them. They stay in the table because a ledger
+// keeps old events, and they are marked so a total that rests on them says so.
+test("a model the price page no longer lists is priced, marked and reported apart", async (t) => {
+  const stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "usage-historical-"));
+  t.after(() => fs.rm(stateRoot, { recursive: true, force: true }));
+  const ledger = new UsageLedger({ stateRoot });
+  const project = path.join(stateRoot, "project");
+
+  await ledger.recordUsage({ model: "claude-opus-5", inputTokens: 1_000_000, outputTokens: 0, projectPath: project });
+  await ledger.recordUsage({ model: "claude-opus-4-1", inputTokens: 1_000_000, outputTokens: 0, projectPath: project });
+  await ledger.flush();
+
+  const report = await ledger.report({ projectPath: project });
+  // Every total still carries both: dropping the retired model's cost would
+  // make the total wrong in the other direction, and silently.
+  assert.equal(report.usage.cost_usd, 20, "5 for opus-5 plus 15 for opus-4-1");
+  assert.equal(report.usage.historical_cost_usd, 15, "and this much of it cannot be re-checked");
+
+  // The breakdown, though, does not mix a verified price with an unverifiable one.
+  assert.deepEqual(report.models.map((row) => row.model), ["claude-opus-5"]);
+  assert.deepEqual(report.models[0].price_basis, "published");
+  assert.deepEqual(report.historical_models.map((row) => row.model), ["claude-opus-4-1"]);
+  assert.equal(report.historical_models[0].price_basis, "historical");
+  assert.equal(report.historical_models[0].historical_cost_usd, 15);
+  assert.deepEqual(report.rates.historical_models, ["claude-opus-4-1"]);
+  assert.match(report.rates.notice, /^claude-opus-4-1 is priced from rates https:\/\/.* no longer lists/);
+  assert.match(report.rates.notice, /usage\.historical_cost_usd is how much of the total rests on them/);
+
+  // A caller who wants one list says so.
+  const folded = await ledger.report({ projectPath: project, includeHistoricalModels: true });
+  assert.deepEqual(folded.models.map((row) => row.model), ["claude-opus-4-1", "claude-opus-5"]);
+  assert.equal("historical_models" in folded, false);
+  assert.equal(folded.usage.historical_cost_usd, 15);
+});
+
+test("a report with no retired model says nothing about them", async (t) => {
+  const stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "usage-current-"));
+  t.after(() => fs.rm(stateRoot, { recursive: true, force: true }));
+  const ledger = new UsageLedger({ stateRoot });
+  const project = path.join(stateRoot, "project");
+  await ledger.recordUsage({ model: "claude-sonnet-5", inputTokens: 1_000_000, outputTokens: 0, projectPath: project });
+  await ledger.flush();
+  const report = await ledger.report({ projectPath: project });
+  assert.equal(report.usage.historical_cost_usd, 0);
+  assert.deepEqual(report.historical_models, []);
+  assert.deepEqual(report.rates.historical_models, []);
+  assert.equal("notice" in report.rates, false);
+});
+
+test("the historical list is exactly the models the price page dropped", () => {
+  assert.deepEqual(HISTORICAL_MODELS, [
+    "claude-opus-4-5",
+    "claude-opus-4-1",
+    "claude-opus-4",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4",
+    "claude-haiku-3-5"
+  ]);
+  for (const model of HISTORICAL_MODELS) {
+    assert.ok(RATE_TABLE[model], `${model} is marked historical but has no price`);
+    assert.equal(isHistoricalModel(model), true);
+  }
+  // The current models are not touched: their prices are the verified ones.
+  for (const model of ["claude-fable-5-1", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]) {
+    assert.equal(isHistoricalModel(model), false, model);
+  }
+  // Every dialect normalizeModelId understands lands on the same answer.
+  assert.equal(isHistoricalModel("us.anthropic.claude-opus-4-1"), true);
+  assert.equal(isHistoricalModel("claude-opus-4-5@20251101"), true);
+  assert.equal(isHistoricalModel("claude-opus-5[1m]"), false);
+  assert.equal(isHistoricalModel(""), false);
+  assert.equal(isHistoricalModel(undefined), false);
 });

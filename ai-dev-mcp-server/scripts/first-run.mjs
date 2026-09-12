@@ -98,9 +98,12 @@ const registriesDir = path.join(vaultRoot, "03-skills-catalog", "registries");
 const routingReportPath = path.join(registriesDir, "skill-routing-eval.json");
 
 // Asked once and read by both the plan and the report below: a status call
-// walks the vault.
+// walks the vault. A machine without a working Python helper cannot answer it,
+// and that is a reason to rebuild rather than to stop before the first step.
 const indexStatus = existsSync(searchIndexPath)
-  ? parseResult(await callTool("search_index_status", { include_external_project_files: true }))
+  ? await callTool("search_index_status", { include_external_project_files: true })
+    .then(parseResult)
+    .catch(() => null)
   : null;
 
 const present = {

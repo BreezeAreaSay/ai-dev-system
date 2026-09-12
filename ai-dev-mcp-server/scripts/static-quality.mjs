@@ -9,29 +9,19 @@ import { fileURLToPath } from "node:url";
 // re-pinned to its actual size plus roughly 300 lines of working room after each
 // step, so the file can be edited but not re-grown.
 import { SYSTEM_LINE_CEILING } from "../src/core/system-health.mjs";
+// The size rules themselves live in src/core so they can be tested without
+// breaking a real file on purpose and putting it back
+// (docs/ecc-upgrades/DEBTS.md, Д-12). This file is the input and output
+// around them.
+import {
+  MODULE_LINE_CEILING,
+  MODULE_LINE_EXCEPTIONS,
+  evaluateLineBudget
+} from "../src/core/line-budget.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const node = process.execPath;
 const skipDirectories = new Set(["node_modules", ".git", "coverage"]);
-
-// The same soft ceiling COMMON_RULES puts on user projects ("800 lines is the
-// soft ceiling", src/core/rules-catalog.mjs) applied to our own modules.
-const MODULE_LINE_CEILING = 800;
-
-// Modules that were already over the ceiling when the rule landed. Each is
-// pinned at its current size: it may shrink, never grow, its entry has to be
-// dropped once it is back under the ceiling, and a module that disappears takes
-// its entry with it. All four conditions are enforced below.
-//
-// Both are the frontend pair. Stage 1.3 moved the frontend tools out of
-// `mcp-stdio.mjs` on top of these two rather than into them, so neither shrank:
-// what left the main module was orchestration, and what these hold is the
-// product state machine and the reference manifest logic. Splitting them is its
-// own piece of work, not a side effect of an extraction.
-const MODULE_LINE_EXCEPTIONS = new Map([
-  ["src/core/frontend-product-quality.mjs", 1222],
-  ["src/core/reference-factory.mjs", 812]
-]);
 
 function countLines(source) {
   return source.split(/\r?\n/).length;
@@ -58,7 +48,7 @@ const files = [
   ...await sourceFiles(path.join(root, "scripts"))
 ];
 const findings = [];
-const seenExceptions = new Set();
+const modules = [];
 for (const file of files) {
   const relative = path.relative(root, file).replaceAll("\\", "/");
   const syntax = spawnSync(node, ["--check", file], {
@@ -82,33 +72,19 @@ for (const file of files) {
     findings.push(`${relative}: child_process.exec is forbidden; use argv-based execution.`);
   }
   if (relative.startsWith("src/core/") || relative.startsWith("src/extensions/")) {
-    const moduleLines = countLines(source);
-    const allowance = MODULE_LINE_EXCEPTIONS.get(relative);
-    if (allowance === undefined) {
-      if (moduleLines > MODULE_LINE_CEILING) {
-        findings.push(`${relative}: ${moduleLines} lines exceeds the ${MODULE_LINE_CEILING}-line module ceiling. Split it, or pin it in MODULE_LINE_EXCEPTIONS with a reason.`);
-      }
-    } else {
-      seenExceptions.add(relative);
-      if (moduleLines <= MODULE_LINE_CEILING) {
-        findings.push(`${relative}: ${moduleLines} lines is back under the ${MODULE_LINE_CEILING}-line ceiling; drop its MODULE_LINE_EXCEPTIONS entry.`);
-      } else if (moduleLines > allowance) {
-        findings.push(`${relative}: ${moduleLines} lines exceeds its pinned allowance of ${allowance}. A pinned module may only shrink.`);
-      }
-    }
-  }
-}
-for (const relative of MODULE_LINE_EXCEPTIONS.keys()) {
-  if (!seenExceptions.has(relative)) {
-    findings.push(`${relative}: MODULE_LINE_EXCEPTIONS names a module that no longer exists; drop the entry.`);
+    modules.push({ path: relative, lines: countLines(source) });
   }
 }
 
 const runtimePath = path.join(root, "src", "mcp-stdio.mjs");
 const runtimeLines = countLines(await fs.readFile(runtimePath, "utf8"));
-if (runtimeLines > SYSTEM_LINE_CEILING) {
-  findings.push(`src/mcp-stdio.mjs: ${runtimeLines} lines exceeds the ${SYSTEM_LINE_CEILING.toLocaleString("en-US")}-line modularity ceiling.`);
-}
+findings.push(...evaluateLineBudget({
+  modules,
+  runtime: { path: "src/mcp-stdio.mjs", lines: runtimeLines },
+  moduleCeiling: MODULE_LINE_CEILING,
+  systemCeiling: SYSTEM_LINE_CEILING
+}).map((finding) => finding.message));
+
 const definitionsPath = path.join(root, "src", "tool-definitions.mjs");
 if (!await fs.stat(definitionsPath).then((item) => item.isFile()).catch(() => false)) {
   findings.push("src/tool-definitions.mjs: extracted tool metadata module is missing.");
@@ -147,6 +123,6 @@ if (findings.length) {
     runtime_lines: runtimeLines,
     modularity_ceiling: SYSTEM_LINE_CEILING,
     module_line_ceiling: MODULE_LINE_CEILING,
-    pinned_modules: MODULE_LINE_EXCEPTIONS.size
+    pinned_modules: MODULE_LINE_EXCEPTIONS.length
   }, null, 2));
 }

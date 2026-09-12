@@ -425,6 +425,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tasks: five ECC skills recommended where there were none, and every task keeps
   the three skills it had.
 
+- **The static gate's size rules had no test.** Its five branches — a module
+  over the ceiling, a pinned module that grew, a pinned module back under the
+  ceiling, a pin for a module that no longer exists, and the main module over
+  its own ceiling — lived inside the walk over the tree and could only be
+  checked by breaking a real file and putting it back. They now live in
+  `src/core/line-budget.mjs` as `evaluateLineBudget`, the gate is the input and
+  output around them, and a test breaks each branch on its own input and reads
+  the real `src/core` and `src/extensions` for zero findings.
+
 - **The completion-statement linter blocked an honest report and missed three
   excuses.** "It works on my machine and in CI: both run the same command" was
   refused, because the "and in CI" exemption was only on the `locally` half of

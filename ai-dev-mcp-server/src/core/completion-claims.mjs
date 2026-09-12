@@ -48,6 +48,17 @@ export const CLAIM_GATES = Object.freeze({
  * narrow: an honest report of a red check ("3 tests fail in auth.test.ts, fixing
  * now") must pass, only the excuse must not. None of them carry the `g` flag,
  * so `exec` stays stateless.
+ *
+ * `exempt` is the other half of that narrowness: a wording that contains the
+ * excuse and says the opposite of it. It is tested against the sentence the
+ * match sits in, not the whole report, so an honest sentence cannot cover for
+ * an excuse three paragraphs later. Where the exemption is one short phrase it
+ * stays a lookahead inside the pattern ("works on my machine **and in CI**");
+ * where it is two independent facts, it is written out here.
+ *
+ * Both halves of a pattern carry the same rules in English and in Russian —
+ * agents report in both, and a rule that only exists in one language is a rule
+ * that can be walked around by switching keyboard layout (Д-26).
  */
 export const RATIONALIZATION_PATTERNS = Object.freeze([
   {
@@ -55,7 +66,11 @@ export const RATIONALIZATION_PATTERNS = Object.freeze([
     gate: "verification",
     claim: "The report calls a failure pre-existing",
     proof: "Show it on the base ref and record a passing verify_task for this change.",
-    pattern: /(?:pre[-\s]?existing|already\s+(?:broken|failing|red))[^.\n]{0,40}\b(?:issue|failure|failing|error|bug|test|problem|breakage)|\b(?:issue|failure|error|bug|test|problem)s?\b[^.\n]{0,20}\b(?:is|are|was|were)\s+(?:pre[-\s]?existing|already\s+(?:broken|failing|red))\b|\bnot\s+(?:caused|introduced)\s+by\s+(?:my|this|these|the)\s+chang|(?:сломано|падал[аои]?|не работал[аои]?)\s+(?:ещ[её]\s+)?(?:и\s+)?до\s+(?:меня|мо[иеё]|этих)/i
+    pattern: /(?:pre[-\s]?existing|already\s+(?:broken|failing|red))[^.\n]{0,40}\b(?:issue|failure|failing|error|bug|test|problem|breakage)|\b(?:issue|failure|error|bug|test|problem)s?\b[^.\n]{0,20}\b(?:is|are|was|were)\s+(?:pre[-\s]?existing|already\s+(?:broken|failing|red))\b|\bnot\s+(?:caused|introduced)\s+by\s+(?:my|this|these|the)\s+chang|(?:сломано|падал[аои]?|падени[яей]|не\s+работал[аои]?)[^.\n]{0,30}(?:ещ[её]\s+)?(?:и\s+)?до\s+(?:меня|мо[иеё]|этих|этой)/i,
+    // Where it failed, plus the fix carried over from where it was fixed. That
+    // is a report with two facts in it, and it is what this rule asks a report
+    // to do — refusing it taught the opposite lesson (Д-26).
+    exempt: /\b(?:on|in)\s+(?:main|master|trunk|develop|the\s+base(?:\s+branch)?|origin\/[\w./-]+)\b[^.\n]{0,120}\b(?:ported|cherry[-\s]?picked|back[-\s]?ported|brought\s+(?:in|over)|pulled\s+in|applied)\b|\b(?:ported|cherry[-\s]?picked|back[-\s]?ported|brought\s+(?:in|over)|pulled\s+in|applied)\b[^.\n]{0,120}\b(?:from|on|in)\s+(?:main|master|trunk|develop|the\s+base(?:\s+branch)?|pr\s*#?\d+|#\d+|origin\/[\w./-]+)\b|(?:на|в)\s+(?:main|master|мастере)[^.\n]{0,120}(?:перен[её]с|портировал|применил)|(?:перен[её]с|портировал|применил)[^.\n]{0,120}(?:из|с)\s+(?:pr|мастера|main|master)/i
   },
   {
     id: "tests_deferred",
@@ -86,21 +101,21 @@ export const RATIONALIZATION_PATTERNS = Object.freeze([
     gate: "verification",
     claim: "The report hedges instead of reporting a result",
     proof: "Run the change and report what it did, not what it ought to do.",
-    pattern: /\b(?:should|ought\s+to)\s+(?:just\s+|now\s+)?(?:work\b|be\s+(?:fine|ok(?:ay)?|correct|enough)\b)|\bi\s+(?:think|believe|assume|expect)\s+(?:that\s+)?(?:it|this|they)\s+(?:works?|is\s+(?:fine|correct|ok(?:ay)?)|are\s+(?:fine|correct|ok(?:ay)?))|\bprobably\s+(?:works?|fine|correct|ok(?:ay)?)|\b(?:presumably|likely)\s+(?:works?|fine|correct)|должно\s+(?:бы\s+)?(?:работать|заработать)|скорее\s+всего\s+(?:работает|вс[её]\s+хорошо)/i
+    pattern: /\b(?:should|ought\s+to)\s+(?:just\s+|now\s+)?(?:work\b|be\s+(?:fine|ok(?:ay)?|correct|enough)\b)|\bi\s+(?:think|believe|assume|expect)\s+(?:that\s+)?(?:it|this|they)\s+(?:works?|is\s+(?:fine|correct|ok(?:ay)?)|are\s+(?:fine|correct|ok(?:ay)?))|\bprobably\s+(?:works?|fine|correct|ok(?:ay)?)|\b(?:presumably|likely)\s+(?:works?|fine|correct)|должно\s+(?:бы\s+)?(?:работать|заработать)|скорее\s+всего\s+(?:работает|вс[её]\s+хорошо)|(?:наверное|видимо|похоже|думаю)[^.\n]{0,20}(?:вс[её]\s+)?(?:в\s+порядке|работает|хорошо|нормально|ок)/i
   },
   {
     id: "inspection_only",
     gate: "verification",
     claim: "The report marks something met from reading the code",
     proof: "Run it. A criterion is met by a recorded verify_task run; reading the diff is how the run is chosen, not a substitute for it.",
-    pattern: /\b(?:based\s+on|by|from|after)\s+(?:a\s+)?(?:code[-\s]?|visual\s+|manual\s+|static\s+)?(?:inspection|reading|review|analysis)\s+(?:alone|only)\b|\b(?:inspect(?:ing|ed)|read(?:ing)?|review(?:ing|ed))\s+the\s+(?:code|diff|source)\s+(?:alone|only)\b|\bwithout\s+(?:actually\s+)?running\s+(?:it|them|anything|the\s+code)\b|\b(?:verified|confirmed|marked[^.\n]{0,40}\bmet)\s+by\s+(?:just\s+)?read(?:ing)?\b|по\s+коду\s+видно|(?:просто\s+)?прочитал\s+код/i
+    pattern: /\b(?:based\s+on|by|from|after)\s+(?:a\s+)?(?:code[-\s]?|visual\s+|manual\s+|static\s+)?(?:inspection|reading|review|analysis)\s+(?:alone|only)\b|\b(?:inspect(?:ing|ed)|read(?:ing)?|review(?:ing|ed))\s+the\s+(?:code|diff|source)\s+(?:alone|only)\b|\bwithout\s+(?:actually\s+)?running\s+(?:it|them|anything|the\s+code)\b|\b(?:verified|confirmed|marked[^.\n]{0,40}\bmet)\s+by\s+(?:just\s+)?read(?:ing)?\b|по\s+коду\s+видно|(?:просто\s+)?прочитал\s+код|по\s+чтени[июя]\s+кода|(?:отметил|поставил|засчитал|пометил)[^.\n]{0,40}по\s+(?:чтению\s+кода|коду|диффу)|(?:убедился|проверил)[^.\n]{0,20}глазами/i
   },
   {
     id: "untested_change",
     gate: "quality_gate",
     claim: "The report says the change was not tested",
     proof: "Run the project's tests through verify_task, or name the blocker as an unmet criterion.",
-    pattern: /\buntested\b|\b(?:not|never)\s+tested\b|\b(?:did\s*n[o']?t|have\s*n[o']?t|has\s*n[o']?t|could\s*n[o']?t|was\s+unable\s+to|unable\s+to)\s+(?:actually\s+)?(?:run\s+(?:the\s+)?(?:tests?|build|suite|checks?|gate|linter|type\s?check(?:er)?)|test\s+(?:it|this|the)|verify\s+(?:it|this))|\bwithout\s+running\s+(?:the\s+)?(?:tests?|build|suite|checks?)\b|не\s+(?:стал\s+)?(?:проверял|проверять|тестировал|запускал\s+тесты)/i
+    pattern: /\buntested\b|\b(?:not|never)\s+tested\b|\b(?:did\s*n[o']?t|have\s*n[o']?t|has\s*n[o']?t|could\s*n[o']?t|was\s+unable\s+to|unable\s+to)\s+(?:actually\s+)?(?:run\s+(?:the\s+)?(?:tests?|build|suite|checks?|gate|linter|type\s?check(?:er)?)|test\s+(?:it|this|the)|verify\s+(?:it|this))|\bwithout\s+running\s+(?:the\s+)?(?:tests?|build|suite|checks?)\b|не\s+(?:стал\s+)?(?:проверял|проверять|тестировал|запускал\s+(?:тесты|сборку|проверки))|(?:тесты|сборку|проверки|линтер|гейт|чек)\s+(?:так\s+)?и?\s*не\s+(?:запускал|прогонял|гонял|стал\s+запускать)/i
   },
   {
     id: "unrelated_or_flaky",
@@ -275,6 +290,25 @@ function gateState(value) {
 }
 
 /**
+ * The sentence a match sits in: from the line or sentence boundary before it to
+ * the one after. An exemption is read here rather than over the whole report,
+ * so one honest sentence cannot cover for an excuse in the next paragraph.
+ *
+ * @param {string} text
+ * @param {RegExpExecArray} match
+ * @returns {string}
+ */
+function sentenceAround(text, match) {
+  const before = text.slice(0, match.index);
+  const start = Math.max(before.lastIndexOf("\n"), before.lastIndexOf(". "), before.lastIndexOf("! "), before.lastIndexOf("? ")) + 1;
+  const from = match.index + match[0].length;
+  const rest = text.slice(from);
+  const ends = [rest.indexOf("\n"), rest.indexOf(". "), rest.indexOf("! "), rest.indexOf("? ")].filter((index) => index >= 0);
+  const end = ends.length ? from + Math.min(...ends) + 1 : text.length;
+  return text.slice(start, end);
+}
+
+/**
  * @param {string} text
  * @param {RegExpExecArray} match
  * @returns {string}
@@ -332,6 +366,8 @@ export function lintCompletionClaims({
     for (const rule of RATIONALIZATION_PATTERNS) {
       const match = rule.pattern.exec(value);
       if (!match) continue;
+      // A wording that carries the excuse and says the opposite of it.
+      if (rule.exempt?.test(sentenceAround(value, match))) continue;
       const satisfied = signals?.[rule.gate] === true;
       const waiver = satisfied ? null : activeWaiver(resolved, rule.id, now);
       const waived = Boolean(waiver) && Boolean(reason);

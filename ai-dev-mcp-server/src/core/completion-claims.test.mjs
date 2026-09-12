@@ -270,7 +270,8 @@ test("the refusal text names the rule, the gate and the way out", () => {
 });
 
 
-// Д-10. The list was measured against fifteen phrasings it had never seen:
+// Д-10, then Д-26. The list was measured against fifteen phrasings it had never
+// seen, and ten more after that:
 // one honest report was blocked and three ordinary rationalizations walked
 // through. This is that measurement, kept as a test — eight honest phrasings
 // that must survive a repository where nothing passed, and seven excuses that
@@ -285,7 +286,10 @@ const HONEST_PHRASINGS = [
   "Coverage fell to 84%: the new branch in parseArgs has no test, recorded as a blocked criterion.",
   "I inspected the diff first and then ran the suite: 128 tests pass, 0 fail.",
   "Frontend QA ran with screenshots attached; the modal renders correctly at 375px.",
-  "TODO(PROJ-412): split the router once the migration lands."
+  "TODO(PROJ-412): split the router once the migration lands.",
+  // Д-26. Where it failed plus the fix carried over: two facts, not an excuse.
+  "This test was already failing on main, and I ported the fix from PR 12, so it is green here.",
+  "Падало на main в auth.test.ts; перенёс починку из PR 12, здесь зелено."
 ];
 
 const RATIONALIZED_PHRASINGS = [
@@ -297,11 +301,39 @@ const RATIONALIZED_PHRASINGS = [
   ["tests_failing_deferred", "Tests are still failing but this is fine to merge."],
   ["works_on_my_machine", "Works on my machine, ship it."],
   ["tests_deferred", "Skipping tests for now."],
-  ["pre_existing_failure", "This is a pre-existing failure in the vendor bundle."]
+  ["pre_existing_failure", "This is a pre-existing failure in the vendor bundle."],
+  // Д-26. The Russian halves: agents here report in Russian, and a rule that
+  // exists in one language is a rule you walk around by switching layout.
+  ["pre_existing_failure", "Эти падения были ещё до меня."],
+  ["inspection_only", "Поставил критерий выполненным по чтению кода."],
+  ["unverified_claim", "Наверное всё в порядке, сборку не запускал."],
+  ["untested_change", "Тесты не запускал, изменение мелкое."],
+  ["works_on_my_machine", "У меня всё работает."],
+  ["tests_deferred", "Пока без тестов, напишу позже."],
+  ["unrelated_or_flaky", "Падение не связано с моими правками."],
+  ["good_enough", "Пока сойдёт, потом причешем."]
 ];
 
-test("fifteen phrasings: the honest ones pass with every gate red, the excuses do not", () => {
-  assert.equal(HONEST_PHRASINGS.length + RATIONALIZED_PHRASINGS.length, 15);
+test("an exemption is read in the sentence it sits in, not across the report", () => {
+  const nothingRan = completionClaimSignals({});
+  // The honest sentence carries both facts, so the excuse in it is not one.
+  assert.deepEqual(
+    lintCompletionClaims({ summary: "This test was already failing on main, and I ported the fix from PR 12.", signals: nothingRan }).findings,
+    []
+  );
+  // An honest sentence does not cover for a bare excuse in the next one.
+  const mixed = lintCompletionClaims({
+    summary: "I ported the fix from PR 12 for the lockfile. Also, the remaining test failures are pre-existing.",
+    signals: nothingRan
+  });
+  assert.equal(mixed.status, "blocked");
+  assert.deepEqual(mixed.findings.map((item) => item.rule), ["pre_existing_failure"]);
+  // And naming the branch alone waives nothing: the fix has to have moved.
+  assert.equal(lintCompletionClaims({ summary: "The failure is pre-existing on main.", signals: nothingRan }).status, "blocked");
+});
+
+test("twenty-five phrasings: the honest ones pass with every gate red, the excuses do not", () => {
+  assert.equal(HONEST_PHRASINGS.length + RATIONALIZED_PHRASINGS.length, 25);
   // The hardest case for a false positive: nothing ran, so every gate is null
   // and any match is a block.
   const nothingRan = completionClaimSignals({});
@@ -320,7 +352,7 @@ test("fifteen phrasings: the honest ones pass with every gate red, the excuses d
   }
 });
 
-test("over a green gate the same fifteen are at most a warning", () => {
+test("over a green gate the same twenty-five are at most a warning", () => {
   // Every gate passed: a rationalization is then wording, not a substitute for
   // evidence, so nothing may refuse the report.
   const green = completionClaimSignals(record([

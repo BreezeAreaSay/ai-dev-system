@@ -14,7 +14,9 @@ import {
   emitContext,
   hooksDisabled,
   loadPolicy,
+  matchWithBudget,
   normalizeInput,
+  POLICY_MATCH_BUDGET_MS,
   profileAllows,
   projectRootOf,
   readStdin,
@@ -120,24 +122,43 @@ function destructiveRm(tokens) {
   return recursive && force ? "rm -rf deletes recursively without confirmation." : "";
 }
 
-function applyCustomRules(rules, event, text, filePath) {
+// Project rules from .ai-dev/policy.json, matched under a time budget.
+//
+// The budget is not an optimization. A pattern that backtracks catastrophically
+// holds this thread for as long as it takes — 38.8 seconds for `(a|a)+$` against
+// twenty-eight characters — and the client kills the hook at ten, so the write
+// or the command goes unchecked. `upsert_policy_rule` refuses such a pattern,
+// but policy.json is a file anyone can edit, so the guard does not rely on that:
+// every rule match runs in a worker thread that is killed when it overstays, and
+// a rule that overstays is reported instead of evaluated.
+async function applyCustomRules(rules, event, text, filePath) {
   const blocks = [];
   const warns = [];
+  const applicable = [];
   for (const rule of rules) {
     if (!rule || rule.enabled === false) continue;
     if (rule.event !== event && rule.event !== "all") continue;
-    const regex = compileRegex(String(rule.pattern || ""));
-    if (!regex) continue;
-    const haystack = event === "file" ? `${filePath}\n${text}` : text;
-    if (!regex.test(haystack)) continue;
-    const message = `[policy:${rule.id || rule.name || "rule"}] ${rule.message || "Matched a project policy rule."}`;
+    if (!compileRegex(String(rule.pattern || ""))) continue;
+    applicable.push(rule);
+  }
+  if (!applicable.length) return { blocks, warns };
+  const haystack = event === "file" ? `${filePath}\n${text}` : text;
+  const answers = await matchWithBudget(applicable.map((rule) => ({ pattern: String(rule.pattern || ""), flags: "i", haystack })));
+  applicable.forEach((rule, index) => {
+    const name = rule.id || rule.name || "rule";
+    if (answers[index] === null) {
+      warns.push(`[policy:${name}] this rule was not evaluated: matching its pattern took longer than ${POLICY_MATCH_BUDGET_MS} ms. Fix the pattern with upsert_policy_rule — until then the rule protects nothing.`);
+      return;
+    }
+    if (!answers[index]) return;
+    const message = `[policy:${name}] ${rule.message || "Matched a project policy rule."}`;
     if (rule.action === "block") blocks.push(message);
     else warns.push(message);
-  }
+  });
   return { blocks, warns };
 }
 
-function checkBash(input, policy) {
+async function checkBash(input, policy) {
   const command = input.command;
   if (!command.trim()) return { blocks: [], warns: [] };
   const blocks = [];
@@ -165,7 +186,7 @@ function checkBash(input, policy) {
       if (rule.pattern.test(text)) blocks.push(`BLOCKED (${rule.id}): ${rule.message} Confirm explicitly before running this.`);
     }
   }
-  const custom = applyCustomRules(policy.rules, "bash", command, "");
+  const custom = await applyCustomRules(policy.rules, "bash", command, "");
   return { blocks: [...blocks, ...custom.blocks], warns: [...warns, ...custom.warns] };
 }
 
@@ -187,7 +208,7 @@ function relativeTargets(input, projectRoot) {
     });
 }
 
-function checkFile(input, policy, projectRoot) {
+async function checkFile(input, policy, projectRoot) {
   const blocks = [];
   const warns = [];
   const targets = editTargets(input);
@@ -210,7 +231,7 @@ function checkFile(input, policy, projectRoot) {
     }
     if (target.content && target.content.split("\n").length > 800 && !/\.(test|spec)\./.test(base)) warns.push(`${relative} would exceed 800 lines; consider splitting it by feature.`);
     if (/^(NOTES|TODO|SCRATCH|TEMP|DRAFT|BRAINSTORM|SPIKE|DEBUG|WIP)\.(md|txt)$/.test(base) && !/(^|\/)(docs|\.ai-dev|\.claude|\.github)\//.test(relative)) warns.push(`${relative} looks like an ad-hoc scratch document; put durable notes in docs/ or record_decision / save_session instead.`);
-    const custom = applyCustomRules(policy.rules, "file", target.content, relative);
+    const custom = await applyCustomRules(policy.rules, "file", target.content, relative);
     blocks.push(...custom.blocks);
     warns.push(...custom.warns);
   }
@@ -226,7 +247,7 @@ async function main() {
   const projectRoot = projectRootOf(input.cwd);
   const policy = loadPolicy(projectRoot);
   if (truncated) block("BLOCKED: hook input exceeded 1 MiB; refusing to evaluate a truncated payload.");
-  const result = mode === "bash" ? checkBash(input, policy) : checkFile(input, policy, projectRoot);
+  const result = mode === "bash" ? await checkBash(input, policy) : await checkFile(input, policy, projectRoot);
   if (result.blocks.length) block([...new Set(result.blocks)].join("\n"));
   // Fact forcing runs after the hard rules: a command that is refused outright
   // is refused for its own reason, not for a missing rollback line.

@@ -21,6 +21,7 @@ import path from "node:path";
 import { POLICY_RELATIVE_PATH, defaultPolicy } from "./agent-hooks.mjs";
 import { atomicWriteFile } from "./atomic-files.mjs";
 import { findSecretsInLine } from "./change-hygiene.mjs";
+import { DEFAULT_MATCH_BUDGET_MS, matchWithBudget, riskyPatternProbes } from "./regex-budget.mjs";
 
 /** Hook events `guard.mjs` evaluates rules for. `all` fires on both. */
 export const POLICY_RULE_EVENTS = ["bash", "file", "all"];
@@ -142,41 +143,75 @@ function compileError(pattern) {
 }
 
 /**
- * Run the rule against the samples stored with it.
+ * Run the rules against the samples stored with them, under a time budget.
  *
- * @param {object} rule
- * @returns {{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string }}
+ * The budget is the point. A pattern that backtracks catastrophically cannot be
+ * interrupted in this thread (Node has no such switch), so every match runs in
+ * a worker that is killed when it overstays — see `regex-budget.mjs` and
+ * docs/ecc-upgrades/DEBTS.md, Д-16. One worker serves the whole batch, so
+ * listing a policy costs one thread, not one per rule.
+ *
+ * @param {object[]} rules
+ * @returns {Promise<Array<{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string, timed_out: boolean }>>}
  */
-export function verifyPolicyRule(rule) {
-  const regex = compilePolicyPattern(rule?.pattern ?? "");
-  const event = sampleEvent(rule ?? {});
-  const run = (text) => regex.test(policyHaystack(event, { text, file_path: rule?.example_path }));
-  const example = typeof rule?.example === "string" ? rule.example.slice(0, MAX_EXAMPLE_LENGTH) : "";
-  const counter = typeof rule?.counter_example === "string" ? rule.counter_example.slice(0, MAX_EXAMPLE_LENGTH) : "";
-  return {
-    checked_as: event,
-    fires_on_example: regex && example ? run(example) : null,
-    counter_example_matches: regex && counter ? run(counter) : null
-  };
+export async function verifyPolicyRules(rules) {
+  const list = Array.isArray(rules) ? rules : [];
+  const jobs = [];
+  const plan = list.map((rule) => {
+    const event = sampleEvent(rule ?? {});
+    const pattern = String(rule?.pattern ?? "");
+    const compiles = Boolean(compilePolicyPattern(pattern));
+    const slot = { checked_as: event, example: -1, counter: -1 };
+    for (const [field, key] of [["example", "example"], ["counter_example", "counter"]]) {
+      const value = typeof rule?.[field] === "string" ? rule[field].slice(0, MAX_EXAMPLE_LENGTH) : "";
+      if (!compiles || !value) continue;
+      slot[key] = jobs.length;
+      jobs.push({ pattern, flags: POLICY_RULE_REGEX_FLAGS, haystack: policyHaystack(event, { text: value, file_path: rule?.example_path }) });
+    }
+    return slot;
+  });
+  const answers = await matchWithBudget(jobs);
+  const read = (index) => (index === -1 ? null : answers[index]);
+  return plan.map((slot) => {
+    const example = read(slot.example);
+    const counter = read(slot.counter);
+    return {
+      checked_as: slot.checked_as,
+      fires_on_example: example ? example.matched : null,
+      counter_example_matches: counter ? counter.matched : null,
+      timed_out: Boolean(example?.timed_out || counter?.timed_out)
+    };
+  });
 }
 
 /**
- * One rule as a report: what the guard would do with it, and what is wrong with
- * it. `effective_action` is the guard's reading, which is `warn` for every
- * action it does not recognise.
+ * Run one rule against the samples stored with it.
  *
  * @param {object} rule
- * @returns {object}
+ * @returns {Promise<{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string, timed_out: boolean }>}
  */
-export function describePolicyRule(rule) {
-  const problems = policyRuleProblems(rule);
-  const verification = verifyPolicyRule(rule ?? {});
+export async function verifyPolicyRule(rule) {
+  const [verification] = await verifyPolicyRules([rule ?? {}]);
+  return verification;
+}
+
+// The problems a verification adds on top of the structural ones.
+function verificationProblems(verification) {
+  const problems = [];
+  if (verification.timed_out) {
+    problems.push(`Matching this pattern against its own sample did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms: it backtracks catastrophically, and the guard — which runs it on every Bash command and every file write — will abandon it instead of answering. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
+  }
   if (verification.fires_on_example === false) {
     problems.push("The example stored with the rule no longer matches: the pattern was narrowed, or the example was edited.");
   }
   if (verification.counter_example_matches === true) {
     problems.push("The counter-example stored with the rule now matches: the pattern grew broader than it was meant to be.");
   }
+  return problems;
+}
+
+// One rule as a report, given a verification that was already run.
+function describeVerifiedRule(rule, verification) {
   const enabled = rule?.enabled !== false;
   return {
     id: String(rule?.id ?? ""),
@@ -190,8 +225,35 @@ export function describePolicyRule(rule) {
     example_path: typeof rule?.example_path === "string" ? rule.example_path : "",
     counter_example: typeof rule?.counter_example === "string" ? rule.counter_example : "",
     fires_on_example: verification.fires_on_example,
-    problems
+    match_timed_out: verification.timed_out,
+    problems: [...policyRuleProblems(rule), ...verificationProblems(verification)]
   };
+}
+
+/**
+ * Every rule as a report: what the guard would do with it, and what is wrong
+ * with it. `effective_action` is the guard's reading, which is `warn` for every
+ * action it does not recognise.
+ *
+ * @param {object[]} rules
+ * @returns {Promise<object[]>}
+ */
+export async function describePolicyRules(rules) {
+  const list = Array.isArray(rules) ? rules : [];
+  const verifications = await verifyPolicyRules(list);
+  return list.map((rule, index) => describeVerifiedRule(rule, verifications[index]));
+}
+
+/**
+ * One rule as a report. {@link describePolicyRules} is the same thing for a
+ * whole policy, on one worker instead of one per rule.
+ *
+ * @param {object} rule
+ * @returns {Promise<object>}
+ */
+export async function describePolicyRule(rule) {
+  const [described] = await describePolicyRules([rule ?? {}]);
+  return described;
 }
 
 function policyPathOf(projectRoot) {
@@ -234,7 +296,7 @@ export async function listPolicyRules(projectRoot) {
   const problems = error ? [error] : [];
   if (!exists) problems.push(`${POLICY_RELATIVE_PATH} does not exist; install_agent_hooks writes it with the default rules.`);
   if (policy && !Array.isArray(policy.rules)) problems.push(`${POLICY_RELATIVE_PATH} has no "rules" array, so the guard evaluates no project rules.`);
-  const rules = (Array.isArray(policy?.rules) ? policy.rules : []).map(describePolicyRule);
+  const rules = await describePolicyRules(Array.isArray(policy?.rules) ? policy.rules : []);
   const enabled = rules.filter((rule) => rule.enabled);
   return {
     project_path: root,
@@ -315,6 +377,22 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false }) {
   }
   if (problems.length) throw new Error(`Rule "${merged.id}" would not work as written:\n- ${problems.join("\n- ")}`);
 
+  // The example a rule ships with says whether the rule fires; it says nothing
+  // about what the rule costs on input that *almost* matches, which is where
+  // backtracking explodes. So the pattern is also run against input built from
+  // its own alphabet, under the same budget the guard uses. `(a|a)+$` matches
+  // "aaa" in microseconds and needs 38.8 seconds for twenty-eight characters
+  // and a tail (docs/ecc-upgrades/DEBTS.md, Д-16): the probe is what separates
+  // the two, and it needs no list of shapes to recognise.
+  if (String(merged.pattern ?? "")) {
+    const probes = riskyPatternProbes(merged.pattern);
+    const costs = await matchWithBudget(probes.map((haystack) => ({ pattern: merged.pattern, flags: POLICY_RULE_REGEX_FLAGS, haystack })));
+    const overrun = costs.findIndex((cost) => cost.timed_out);
+    if (overrun !== -1) {
+      throw new Error(`Rule "${merged.id}" backtracks catastrophically: matching its pattern against ${probes[overrun].length} characters built from the pattern's own alphabet did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms. The guard runs this pattern on every Bash command and every file write, so one rule like this takes the whole hook pack out of service. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
+    }
+  }
+
   const duplicate = rules.find((entry, position) => position !== index && collides(entry, merged));
   if (duplicate) {
     throw new Error(`Rule "${duplicate.id}" already carries this pattern for the ${duplicate.event} event. Update that rule instead of adding a second one that fires on the same text.`);
@@ -324,7 +402,10 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false }) {
   if (patternChanged && !String(merged.example ?? "").trim()) {
     throw new Error(`Rule "${merged.id}" needs an example: pass rule.example with a snippet the pattern must match (for a file rule, rule.example_path names the path it applies to). A rule nobody proved fires is a rule that silently does nothing.`);
   }
-  const verification = verifyPolicyRule(merged);
+  const verification = await verifyPolicyRule(merged);
+  if (verification.timed_out) {
+    throw new Error(`Rule "${merged.id}" backtracks catastrophically on its own example: the match did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms. The guard runs this pattern on every Bash command and every file write, so a rule like this one takes the whole hook pack out of service. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
+  }
   if (verification.fires_on_example === false) {
     throw new Error(`Rule "${merged.id}" does not match its own example. The guard matches ${verification.checked_as === "file" ? "the file path, a newline, then the new content" : "the whole command line"} case-insensitively; check the escaping in the pattern.`);
   }
@@ -347,7 +428,7 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false }) {
   if (previous && changed.length === 0) {
     return {
       action: "unchanged", policy_path: POLICY_RELATIVE_PATH, created_policy: false, dry_run: Boolean(dryRun),
-      rule: describePolicyRule(merged), verification, warnings, changed_fields: [], rules_total: rules.length
+      rule: await describePolicyRule(merged), verification, warnings, changed_fields: [], rules_total: rules.length
     };
   }
   if (previous) rules[index] = merged;
@@ -358,7 +439,7 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false }) {
     policy_path: POLICY_RELATIVE_PATH,
     created_policy: !exists && !dryRun,
     dry_run: Boolean(dryRun),
-    rule: describePolicyRule(merged),
+    rule: await describePolicyRule(merged),
     verification,
     warnings,
     changed_fields: changed,
@@ -390,7 +471,7 @@ export async function removePolicyRule({ projectRoot, id }) {
   return {
     action: "removed",
     policy_path: POLICY_RELATIVE_PATH,
-    rule: describePolicyRule(removed),
+    rule: await describePolicyRule(removed),
     rules_total: rules.length
   };
 }

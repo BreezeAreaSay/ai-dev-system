@@ -341,6 +341,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A single policy rule could take the guard out of service.** A pattern that
+  backtracks catastrophically — `(a|a)+$` needs 38.8 seconds against
+  twenty-eight characters — passed `upsert_policy_rule`, and after that the
+  guard stalled on every Bash command and every file write, because Node cannot
+  interrupt a match in progress. Policy-rule matching now runs in a worker
+  thread under a 250 ms budget with the input clamped to 4 KiB
+  (`src/core/regex-budget.mjs`, mirrored in `hooks/lib.mjs` for the hook pack):
+  a pattern that overstays is reported as unevaluated instead of never
+  answering. `upsert_policy_rule` additionally refuses such a pattern up front
+  by running it against input built from its own alphabet, so the refusal does
+  not depend on recognising a pattern shape.
+
 - The agent hook pack is now a working implementation rather than a condensed
   port. Three hooks did nothing at all before:
   - **File guard.** In `guard.mjs` the `else` branch holding every file-mode

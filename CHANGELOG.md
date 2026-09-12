@@ -150,6 +150,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reports actually contain, and a post-action for each average band.
     `ai-dev-orchestrator` and `verification-loop` route to it before
     `complete_task`.
+- **Documentation freshness** (`docs_stale` in `verify_change_hygiene`): a
+  change set that moves the public interface — a new export, an `inputSchema`,
+  a command-line flag, in JavaScript, TypeScript, Python, Go, Rust, Java,
+  Kotlin, C#, Swift, PHP or a shell script — without touching a single document
+  is now a `warn` finding listing the files that did move.
+  - Only declarations count. A line inside an exported function does not widen
+    the interface, and a flag passed to someone else's program (`--no-color` to
+    `git`) is not a flag the project offers, so neither fires the rule.
+  - Tests, vendored trees (`node_modules/`, `vendor/`, `dist/`) and the
+    documentation itself are not read for interface signals; data files are
+    left out too, since a schema key in JSON is as often a fixture as a
+    contract. Any `.md`, `.mdx`, `.rst`, `.adoc`, `.txt` or file under `docs/`
+    answers the finding, `README.md` and `CHANGELOG.md` included.
+  - `summary` gained `interface_files` and `documentation_files`.
 - **Task snapshots and rollback** (`src/core/task-snapshots.mjs`,
   `src/extensions/snapshots.mjs`): `snapshot_task`, `list_task_snapshots` and
   `rollback_task` make an agent's turn undoable. A snapshot records the whole

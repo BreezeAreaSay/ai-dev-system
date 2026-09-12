@@ -153,7 +153,7 @@ for permission per call can let them through without prompting.
 
 | Tool | Read-only | Required arguments | What it does |
 | --- | --- | --- | --- |
-| `verify_change_hygiene` | no | — | Scan the current change set (uncommitted work, or everything since base_ref) for secrets, debug leftovers, focused or skipped tests, merge-conflict markers, weakened lint configs, oversized files, and source changes without test changes. Each finding is { rule, severity, file, line, message, excerpt } with severity block, warn, or info. |
+| `verify_change_hygiene` | no | — | Scan the current change set (uncommitted work, or everything since base_ref) for secrets, debug leftovers, focused or skipped tests, merge-conflict markers, weakened lint configs, oversized files, source changes without test changes, and public-interface changes (exports, tool schemas, CLI flags) with no documentation change. Each finding is { rule, severity, file, line, message, excerpt } with severity block, warn, or info. |
 | `list_rule_packs` | yes | — | List the engineering rules catalog: always-on common rules and per-stack packs with the file globs they apply to. |
 | `install_project_rules` | no | `project_path` | Install engineering rules into a repository: canonical .ai-dev/rules (common + packs chosen from the detected stack), Claude Code .claude/rules projections with paths frontmatter, Cursor .cursor/rules .mdc files, and an Engineering Rules section in AGENTS.md. The opt-in claude-md target writes @-imports of the common rules into CLAUDE.md instead of copying them into .claude/rules; use it instead of the claude target, not alongside it. Existing hand-edited files are kept unless overwrite=true. |
 

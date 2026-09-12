@@ -8,6 +8,7 @@ import {
   FINDING_FIELDS,
   analyzeChangeSet,
   collectChangeSet,
+  findInterfaceSignals,
   findSecretsInLine,
   parseAddedLines,
   renderChangeHygieneMarkdown,
@@ -114,10 +115,11 @@ test("analyzeChangeSet reports leftovers, secrets, protected configs, and missin
 
   const clean = analyzeChangeSet({ files: [{ path: "src/ok.ts", kind: "modified", added: [{ line: 1, text: "export const ok = true;" }] }] });
   assert.equal(clean.status, "warn");
-  assert.deepEqual(clean.findings.map((item) => item.rule), ["no_test_changes"]);
+  assert.deepEqual(clean.findings.map((item) => item.rule).sort(), ["docs_stale", "no_test_changes"]);
   const withTests = analyzeChangeSet({ files: [
     { path: "src/ok.ts", kind: "modified", added: [{ line: 1, text: "export const ok = true;" }] },
-    { path: "src/ok.test.ts", kind: "modified", added: [{ line: 1, text: "test(\"ok\", () => {});" }] }
+    { path: "src/ok.test.ts", kind: "modified", added: [{ line: 1, text: "test(\"ok\", () => {});" }] },
+    { path: "README.md", kind: "modified", added: [{ line: 9, text: "`ok` is exported for callers." }] }
   ] });
   assert.equal(withTests.status, "pass");
   assert.equal(renderChangeHygieneMarkdown(withTests).includes("No hygiene findings"), true);
@@ -207,4 +209,57 @@ test("collectChangeSet and verifyChangeHygiene use git added lines and untracked
   const nonGit = await verifyChangeHygiene(plain);
   assert.equal(nonGit.git, false);
   assert.equal(nonGit.status, "pass");
+});
+
+test("findInterfaceSignals separates declarations from ordinary code", () => {
+  assert.deepEqual(findInterfaceSignals("export function parse(input) {", "js"), ["export"]);
+  assert.deepEqual(findInterfaceSignals("export { parse };", "js"), ["export"]);
+  assert.deepEqual(findInterfaceSignals("module.exports = { parse };", "js"), ["export"]);
+  assert.deepEqual(findInterfaceSignals("def parse(text):", "py"), ["export"]);
+  assert.deepEqual(findInterfaceSignals("pub fn parse(text: &str) {", "rs"), ["export"]);
+  assert.deepEqual(findInterfaceSignals("func Parse(text string) error {", "go"), ["export"]);
+  assert.deepEqual(findInterfaceSignals("        inputSchema: { type: \"object\" },", "js"), ["tool_schema"]);
+  assert.deepEqual(findInterfaceSignals("  parser.add_argument(\"--strict\")", "py"), ["cli_flag"]);
+  assert.deepEqual(findInterfaceSignals("if (process.argv.includes(\"--check\")) {", "js"), ["cli_flag"]);
+
+  // A body line, a private helper and a flag passed to someone else's program
+  // are not the project's interface.
+  assert.deepEqual(findInterfaceSignals("  const parsed = parse(input);", "js"), []);
+  assert.deepEqual(findInterfaceSignals("def _helper(text):", "py"), []);
+  assert.deepEqual(findInterfaceSignals("    def method(self):", "py"), []);
+  assert.deepEqual(findInterfaceSignals("func parse(text string) error {", "go"), []);
+  assert.deepEqual(findInterfaceSignals("await git(root, [\"diff\", \"--no-color\"]);", "js"), []);
+});
+
+test("docs_stale fires when the public interface moves and no document follows", () => {
+  const stale = analyzeChangeSet({ files: [
+    { path: "src/api.ts", kind: "modified", added: [{ line: 3, text: "export function publish(payload) {" }] },
+    { path: "scripts/cli.mjs", kind: "modified", added: [{ line: 12, text: "if (args.includes(\"--dry-run\")) {" }] },
+    { path: "src/api.test.ts", kind: "modified", added: [{ line: 1, text: "test(\"publish\", () => {});" }] }
+  ] });
+  const finding = stale.findings.find((item) => item.rule === "docs_stale");
+  assert.equal(finding.severity, "warn");
+  assert.equal(finding.file, "");
+  assert.equal(finding.line, 0);
+  assert.match(finding.message, /exports, CLI flags/);
+  assert.deepEqual(finding.files, ["src/api.ts", "scripts/cli.mjs"]);
+  assert.equal(stale.summary.interface_files, 2);
+  assert.equal(stale.summary.documentation_files, 0);
+
+  const documented = analyzeChangeSet({ files: [
+    { path: "src/api.ts", kind: "modified", added: [{ line: 3, text: "export function publish(payload) {" }] },
+    { path: "src/api.test.ts", kind: "modified", added: [{ line: 1, text: "test(\"publish\", () => {});" }] },
+    { path: "docs/api.md", kind: "modified", added: [{ line: 20, text: "`publish(payload)` sends the payload." }] }
+  ] });
+  assert.equal(documented.findings.some((item) => item.rule === "docs_stale"), false);
+  assert.equal(documented.summary.documentation_files, 1);
+
+  // Tests, vendored trees and internal edits never carry the interface.
+  const internal = analyzeChangeSet({ files: [
+    { path: "src/api.test.ts", kind: "modified", added: [{ line: 1, text: "export const fixture = 1;" }] },
+    { path: "node_modules/dep/index.js", kind: "modified", added: [{ line: 1, text: "export const dep = 1;" }] },
+    { path: "src/api.ts", kind: "modified", added: [{ line: 9, text: "  return payload.id;" }] }
+  ] });
+  assert.equal(internal.findings.some((item) => item.rule === "docs_stale"), false);
+  assert.equal(internal.summary.interface_files, 0);
 });

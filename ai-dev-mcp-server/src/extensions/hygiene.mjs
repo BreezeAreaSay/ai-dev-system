@@ -3,8 +3,9 @@ import { renderChangeHygieneMarkdown, verifyChangeHygiene } from "../core/change
 /**
  * Change hygiene tool: a deterministic review of added lines (secrets, debug
  * leftovers, focused/skipped tests, conflict markers, protected config edits,
- * missing test changes). `verify_task` runs the same scan automatically; this
- * tool lets the agent run it early and often.
+ * missing test changes, documentation left behind by an interface change).
+ * `verify_task` runs the same scan automatically; this tool lets the agent run
+ * it early and often.
  *
  * @param {{ resolveProjectIdentity: Function, taskStore: { read: Function, checkpoint: Function } }} host
  */
@@ -13,7 +14,7 @@ export function createHygieneTools(host) {
     definitions: [
       {
         name: "verify_change_hygiene",
-        description: "Scan the current change set (uncommitted work, or everything since base_ref) for secrets, debug leftovers, focused or skipped tests, merge-conflict markers, weakened lint configs, oversized files, and source changes without test changes. Each finding is { rule, severity, file, line, message, excerpt } with severity block, warn, or info.",
+        description: "Scan the current change set (uncommitted work, or everything since base_ref) for secrets, debug leftovers, focused or skipped tests, merge-conflict markers, weakened lint configs, oversized files, source changes without test changes, and public-interface changes (exports, tool schemas, CLI flags) with no documentation change. Each finding is { rule, severity, file, line, message, excerpt } with severity block, warn, or info.",
         inputSchema: {
           type: "object",
           properties: {

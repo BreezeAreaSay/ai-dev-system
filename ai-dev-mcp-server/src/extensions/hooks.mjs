@@ -12,10 +12,11 @@ import {
 
 /**
  * Agent hooks tools: install deterministic client-side guards (Claude Code /
- * Cursor hooks) that complement the MCP server: block --no-verify and
- * destructive commands, protect secrets and linter configs, auto-format,
- * inject the last handoff on session start, capture session summaries, and
- * advise on strategic compaction.
+ * Cursor hooks, and git hooks through core.hooksPath) that complement the MCP
+ * server: block --no-verify and destructive commands, protect secrets and
+ * linter configs, auto-format, inject the last handoff on session start,
+ * capture session summaries, advise on strategic compaction, and hold a commit
+ * or a push to the same rules whoever makes it.
  *
  * @param {{ resolveProjectIdentity: Function, serverRoot: string, markSearchIndexDirty?: Function }} host
  */
@@ -24,7 +25,7 @@ export function createHookTools(host) {
     definitions: [
       {
         name: "install_agent_hooks",
-        description: "Install the AI Dev agent hooks into a repository: self-contained scripts under .ai-dev/hooks, a hookify-style .ai-dev/policy.json, and registrations in .claude/settings.json (Claude Code) and/or .cursor/hooks.json (Cursor). Re-running refreshes the scripts and keeps custom policy rules.",
+        description: "Install the AI Dev agent hooks into a repository: self-contained scripts under .ai-dev/hooks, a hookify-style .ai-dev/policy.json, and registrations in .claude/settings.json (Claude Code), .cursor/hooks.json (Cursor) and/or git hooks through core.hooksPath (target \"git\": pre-commit refuses a staged secret or conflict marker, pre-push reads the active task's latest verification). Re-running refreshes the scripts and keeps custom policy rules.",
         inputSchema: {
           type: "object",
           properties: {

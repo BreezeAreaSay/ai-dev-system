@@ -429,12 +429,22 @@ nothing, and it stops refusing after three refusals in one session rather than
 arguing. `fact_force` in the policy turns it on anywhere, or off under strict,
 and `exempt_globs` keeps it away from paths where it has nothing to ask.
 
+`targets: ["git"]` installs two more, for everyone rather than for one client:
+`install_agent_hooks` writes `.ai-dev/git-hooks/{pre-commit,pre-push}` and points
+`core.hooksPath` at them, so a commit made from an editor, a script or a terminal
+meets the same rules. `pre-commit` refuses a staged secret, merge-conflict
+marker, focused test or left-behind `debugger`; `pre-push` says when the active
+task has no verification or its latest one failed. A `core.hooksPath` someone
+else set is reported, never taken over, and every hook in `.git/hooks` that
+would stop running is named — git consults one hooks directory, not two.
+
 `.ai-dev/policy.json` is where you tune it without touching the scripts:
 `allow_config_edits`, `format_on_edit`, compaction thresholds, `model_rates`,
 `completion_claims` (the completion-statement linter: `enabled`, and `waivers` of
 `{ rule, reason, expires }`), `fact_force` (`enabled`, `files`, `bash`,
-`expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), and a list of
-your own rules:
+`expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), `git_hooks`
+(`pre_commit` and `pre_push`, each `block`, `warn` or `off`), and a list of your
+own rules:
 
 ```json
 {

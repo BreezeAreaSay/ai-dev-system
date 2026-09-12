@@ -414,11 +414,22 @@ instruction: "научи роутер разбирать вложенные пу
 `fact_force` в политике включает его где угодно и выключает в строгом профиле, а
 `exempt_globs` убирает его с путей, где спрашивать не о чем.
 
+`targets: ["git"]` ставит ещё два — не для одного клиента, а для всех:
+`install_agent_hooks` пишет `.ai-dev/git-hooks/{pre-commit,pre-push}` и
+направляет туда `core.hooksPath`, поэтому коммит из редактора, из скрипта и из
+терминала встречает одни и те же правила. `pre-commit` отклоняет застейдженный
+секрет, маркер конфликта, сфокусированный тест и забытый `debugger`; `pre-push`
+говорит, если у активной задачи нет верификации или последняя провалена. Чужой
+`core.hooksPath` не отбирается, а называется в предупреждении, как и каждый файл
+из `.git/hooks`, который перестанет запускаться: git смотрит в один каталог, а не
+в два.
+
 `.ai-dev/policy.json` — место для настройки без правки скриптов:
 `allow_config_edits`, `format_on_edit`, пороги сжатия, `model_rates`,
 `completion_claims` (линтер заявлений о завершении: `enabled` и `waivers` из
 `{ rule, reason, expires }`), `fact_force` (`enabled`, `files`, `bash`,
-`expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`) и ваши
+`expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), `git_hooks`
+(`pre_commit` и `pre_push`, каждый — `block`, `warn` или `off`) и ваши
 собственные правила:
 
 ```json

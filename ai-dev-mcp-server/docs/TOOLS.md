@@ -181,7 +181,7 @@ for permission per call can let them through without prompting.
 
 | Tool | Read-only | Required arguments | What it does |
 | --- | --- | --- | --- |
-| `install_agent_hooks` | no | `project_path` | Install the AI Dev agent hooks into a repository: self-contained scripts under .ai-dev/hooks, a hookify-style .ai-dev/policy.json, and registrations in .claude/settings.json (Claude Code) and/or .cursor/hooks.json (Cursor). Re-running refreshes the scripts and keeps custom policy rules. |
+| `install_agent_hooks` | no | `project_path` | Install the AI Dev agent hooks into a repository: self-contained scripts under .ai-dev/hooks, a hookify-style .ai-dev/policy.json, and registrations in .claude/settings.json (Claude Code), .cursor/hooks.json (Cursor) and/or git hooks through core.hooksPath (target "git": pre-commit refuses a staged secret or conflict marker, pre-push reads the active task's latest verification). Re-running refreshes the scripts and keeps custom policy rules. |
 | `agent_hooks_status` | yes | `project_path` | Report which AI Dev hooks, policy, and harness registrations are installed in a repository. |
 
 ## Usage and cost

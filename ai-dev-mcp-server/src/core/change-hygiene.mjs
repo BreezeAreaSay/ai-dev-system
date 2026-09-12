@@ -32,7 +32,8 @@ export const SECRET_PATTERNS = Object.freeze([
   }
 ]);
 
-const PLACEHOLDER_VALUE = /^(?:process\.env\.[A-Za-z0-9_]+|\$\{[^}]*\}|<[^<>]*>|\{\{[^}]*\}\}|REPLACE_?ME|CHANGE_?ME|YOUR[_-]?API[_-]?KEY|YOUR[_-]?KEY[_-]?HERE|YOUR[_-]?[A-Z_]*|API[_-]?KEY|SECRET|TOKEN|PASSWORD|KEY|TODO|TBD|FIXME|X{4,}|x{4,}|\*{4,}|\.{3,}|example|test|dummy|placeholder|changeme|redacted)$/i;
+/** Values that look like a secret but are a stand-in for one. Shared with the hooks through `patterns.json`. */
+export const PLACEHOLDER_VALUE = /^(?:process\.env\.[A-Za-z0-9_]+|\$\{[^}]*\}|<[^<>]*>|\{\{[^}]*\}\}|REPLACE_?ME|CHANGE_?ME|YOUR[_-]?API[_-]?KEY|YOUR[_-]?KEY[_-]?HERE|YOUR[_-]?[A-Z_]*|API[_-]?KEY|SECRET|TOKEN|PASSWORD|KEY|TODO|TBD|FIXME|X{4,}|x{4,}|\*{4,}|\.{3,}|example|test|dummy|placeholder|changeme|redacted)$/i;
 
 /** Files whose presence in a change set is itself a finding. */
 export const SECRET_FILE_PATTERN = /(^|\/)(\.env(?!\.(?:example|sample|template|dist)$)(?:\.[^/]+)?|[^/]*\.(?:pem|key|p12|pfx|jks|keystore)|id_rsa|id_ed25519|[^/]*secrets?\.(?:json|ya?ml|toml)|credentials(?:\.json)?)$/i;
@@ -68,7 +69,8 @@ const LARGE_FILE_LINES = 800;
  */
 export const IGNORED_CHANGE_PATH = /(^|\/)\.ai-dev\/(context|frontend-qa|frontend-qa-baselines|artifacts|pr)\//i;
 
-const LEFTOVER_PATTERNS = Object.freeze([
+/** Debug and merge leftovers, one line each. Exported for the hooks, which read them from `patterns.json`. */
+export const LEFTOVER_PATTERNS = Object.freeze([
   { id: "merge_conflict_marker", severity: "block", pattern: /^(?:<{7}|>{7})(?:\s|$)/, message: "Merge conflict marker left in the file." },
   { id: "test_only", severity: "block", pattern: /\b(?:describe|it|test|context)\.only\s*\(/, message: "A focused test (.only) would silently skip the rest of the suite.", languages: ["js"] },
   { id: "debugger_statement", severity: "block", pattern: /^\s*debugger\s*;?\s*$/, message: "debugger statement left in code.", languages: ["js"] },

@@ -265,6 +265,7 @@ where a foreign hook sits ahead of ours, since Cursor runs the first entry of an
 | `session-start.mjs` | SessionStart | Injects the last handoff, open tasks, high-confidence instincts, and the installed rules index into the first turn. |
 | `session-end.mjs` | Stop, PreCompact | Distils the transcript into an unconfirmed draft record (`confirmed: false`) for `resume_session`. |
 | `cost-capture.mjs` | Stop | Sums the `usage` of the assistant messages the transcript gained since the last run and appends them to the usage ledger, per model. Tokens only — the report prices them. |
+| `git-hooks.mjs` | git `pre-commit`, `pre-push` | Installed through `core.hooksPath` by `targets: ["git"]`, so they run for every client and for a human at a terminal. `pre-commit` refuses a staged secret, conflict marker, focused test or left-behind debugger; `pre-push` reports an active task with no verification or a failed one. |
 | `stop-check.mjs` | Stop | Cheap checks on git-modified files: leftover `console.log`/`debugger`, secrets, and a `verify_task` reminder while a task is active with uncommitted changes. |
 
 `.ai-dev/policy.json` is the knob: a `profile` (`minimal` — guard and session capture only,
@@ -275,7 +276,8 @@ derives it from the window — `compact_context_thresholds.standard` / `.large`,
 for the usage report, in USD per million tokens), `completion_claims` (the completion-statement
 linter: `enabled`, and `waivers` of `{ rule, reason, expires? }` where the reason is real),
 `fact_force` (the grounding gate: `enabled` — on by default under `strict` — `files`, `bash`,
-`expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), and a list
+`expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), `git_hooks` (`pre_commit` and
+`pre_push`, each `block`, `warn` or `off`), and a list
 of hookify-style `rules` (`{ id, event, pattern, action, message }`) that add project-specific
 `block` or `warn` patterns without touching the scripts. Hooks fail open: any error exits 0 so a
 broken hook never wedges the agent.

@@ -150,6 +150,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reports actually contain, and a post-action for each average band.
     `ai-dev-orchestrator` and `verification-loop` route to it before
     `complete_task`.
+- **Git hooks** (`install_agent_hooks` target `git`, `hooks/git-hooks.mjs`):
+  a `pre-commit` and a `pre-push` installed through `core.hooksPath`, so the
+  same rules apply to a client with no hook API and to a human at a terminal.
+  - `pre-commit` scans the staged diff for what change hygiene calls blocking —
+    a secret-bearing path, a secret in an added line, a merge-conflict marker, a
+    focused test, a left-behind `debugger` or `breakpoint()` — and refuses the
+    commit. `pre-push` reports when the active task has no verification or its
+    latest one failed. `git_hooks` in `.ai-dev/policy.json` sets each to
+    `block`, `warn` (the pre-push default) or `off`.
+  - The hooks read the server's own rules from `.ai-dev/hooks/patterns.json`,
+    which now also carries the leftover patterns and the placeholder pattern, so
+    `password = "correct-horse-battery"` is a finding and
+    `password = "REPLACE_ME"` is not.
+  - A `core.hooksPath` someone else set is reported, never taken over, and every
+    hook in `.git/hooks` that would stop running is named. `agent_hooks_status`
+    answers with `git_hooks`, `core_hooks_path` and `git_hooks_active`, the last
+    true only when the stubs exist *and* git points at them.
 - **Fact forcing** (`hooks/fact-force.mjs`, `fact_force` in
   `.ai-dev/policy.json`, on by default under the `strict` profile): the first
   edit of a file in a session is refused until the agent has put its grounding

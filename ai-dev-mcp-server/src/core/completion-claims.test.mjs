@@ -60,6 +60,7 @@ test("every rule fires on its own rationalization and names a real gate", () => 
     suppressed_check: "Disabled the lint rule for this file.",
     leftover_marker: "Left a TODO in the parser for the streaming case.",
     good_enough: "Good enough for now, we can polish later.",
+    inspection_only: "Marked the criterion met based on code inspection alone.",
     ui_unchecked: "Didn't check the UI, the change is CSS only.",
     manual_only: "Verified manually in the browser."
   };
@@ -266,4 +267,70 @@ test("the refusal text names the rule, the gate and the way out", () => {
   assert.match(message, /never ran/);
   assert.match(message, /verify_task/);
   assert.match(message, /"rule":"tests_failing_deferred"/);
+});
+
+
+// Д-10. The list was measured against fifteen phrasings it had never seen:
+// one honest report was blocked and three ordinary rationalizations walked
+// through. This is that measurement, kept as a test — eight honest phrasings
+// that must survive a repository where nothing passed, and seven excuses that
+// must not.
+const HONEST_PHRASINGS = [
+  // The false positive from the debt entry: a person explaining that the two
+  // environments agree is the opposite of "works on my machine".
+  "It works on my machine and in CI: both run the same command, output attached.",
+  "Ran the suite locally and in CI; both green, and the CI run is linked below.",
+  "3 tests fail in auth.test.ts: the token clock is mocked wrong. Fixing that now.",
+  "The quality gate is red — eslint reports two errors in src/router.mjs, both introduced here.",
+  "Coverage fell to 84%: the new branch in parseArgs has no test, recorded as a blocked criterion.",
+  "I inspected the diff first and then ran the suite: 128 tests pass, 0 fail.",
+  "Frontend QA ran with screenshots attached; the modal renders correctly at 375px.",
+  "TODO(PROJ-412): split the router once the migration lands."
+];
+
+const RATIONALIZED_PHRASINGS = [
+  // The three the list used to miss.
+  ["unrelated_or_flaky", "The remaining failures are unrelated to this task."],
+  ["inspection_only", "Marked the criterion met based on code inspection alone."],
+  ["unverified_claim", "Should be fine, I did not run the build."],
+  // And four it already caught, kept so a widened pattern cannot lose them.
+  ["tests_failing_deferred", "Tests are still failing but this is fine to merge."],
+  ["works_on_my_machine", "Works on my machine, ship it."],
+  ["tests_deferred", "Skipping tests for now."],
+  ["pre_existing_failure", "This is a pre-existing failure in the vendor bundle."]
+];
+
+test("fifteen phrasings: the honest ones pass with every gate red, the excuses do not", () => {
+  assert.equal(HONEST_PHRASINGS.length + RATIONALIZED_PHRASINGS.length, 15);
+  // The hardest case for a false positive: nothing ran, so every gate is null
+  // and any match is a block.
+  const nothingRan = completionClaimSignals({});
+  for (const summary of HONEST_PHRASINGS) {
+    const result = lintCompletionClaims({ summary, signals: nothingRan });
+    assert.deepEqual(result.findings, [], `blocked an honest report: ${summary}`);
+    assert.equal(result.status, "ok");
+  }
+  for (const [expected, summary] of RATIONALIZED_PHRASINGS) {
+    const result = lintCompletionClaims({ summary, signals: nothingRan });
+    assert.equal(result.status, "blocked", `let a rationalization through: ${summary}`);
+    assert.ok(
+      result.findings.some((item) => item.rule === expected && item.severity === "block"),
+      `${summary} → ${JSON.stringify(result.findings.map((item) => item.rule))}, expected ${expected}`
+    );
+  }
+});
+
+test("over a green gate the same fifteen are at most a warning", () => {
+  // Every gate passed: a rationalization is then wording, not a substitute for
+  // evidence, so nothing may refuse the report.
+  const green = completionClaimSignals(record([
+    { type: "quality_gate", result: { status: "passed" } },
+    { type: "change_hygiene", result: { status: "pass" } },
+    { type: "frontend_qa", result: { gate: "pass" } }
+  ]));
+  for (const summary of [...HONEST_PHRASINGS, ...RATIONALIZED_PHRASINGS.map(([, text]) => text)]) {
+    const result = lintCompletionClaims({ summary, signals: green });
+    assert.equal(result.status, "ok", `${summary} → ${JSON.stringify(result.findings)}`);
+    assert.equal(result.findings.every((item) => item.severity === "warn"), true);
+  }
 });

@@ -425,6 +425,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tasks: five ECC skills recommended where there were none, and every task keeps
   the three skills it had.
 
+- **The completion-statement linter blocked an honest report and missed three
+  excuses.** "It works on my machine and in CI: both run the same command" was
+  refused, because the "and in CI" exemption was only on the `locally` half of
+  the pattern; it is now on both. "unrelated to this task" walked through
+  because the rule required the word "change"; "should be fine" because the rule
+  knew only "should work"; "I did not run the build" because the rule knew only
+  "run the tests". A new `inspection_only` rule catches a criterion marked met
+  from reading the diff rather than running it. Measured on fifteen phrasings —
+  eight honest ones against a repository where nothing passed, seven excuses —
+  kept as a regression test.
+
 - **A rollback deleted files without saying which.** `rollback_task` brings the
   working tree to a snapshot's state, so a file written after it goes — possibly
   one a person wrote from another terminal. The answer now names every deleted

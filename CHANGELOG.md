@@ -409,6 +409,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A checkout without an Obsidian vault could not find its own helpers.** Four
+  trees the server runs rather than reads — the SQLite search helper, the
+  search-eval cases, the BGE-M3 embedding scripts and the Frontend QA runner —
+  were addressed only as `<vault>/09-mcp/<tree>`. A clone of this repository has
+  all four in its root and no `09-mcp` at all, and the vault falls back to the
+  bundled `docker/public-seed`, which carries notes and skills but no helpers.
+  So a fresh clone reported "Search helper not found:
+  …/docker/public-seed/09-mcp/search-index/search_cli.py" — a path that can
+  never exist there — and semantic search, both search smokes, the skill-routing
+  eval and Frontend QA were unreachable without a vault. Each tree is now
+  resolved in its own right: the vault layout first, then the repository's, and
+  the vault path is what an error names when neither is there
+  (`src/core/runtime-assets.mjs`). Measured on a bare checkout: the search
+  helper, the embedding worker, the eval cases and the QA runner are all found,
+  `frontend_qa_runner` passes, and `search_index_freshness` moves from "helper
+  not found" to "the index is stale by 330 notes", which is the next honest step
+  rather than a dead end.
+
 - **A security scan read its own findings as a dead network.** `run_security_scan`
   matched the word `proxy` — along with `offline`, `unable to connect` and
   `failed to fetch` — against a scanner's whole output, so an advisory titled

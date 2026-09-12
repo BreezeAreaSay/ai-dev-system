@@ -79,6 +79,7 @@ import {
 } from "./core/project-markdown.mjs";
 import { loadImportGraph, renderImportGraphMarkdown } from "./core/import-graph.mjs";
 import { configureRuntimeStateRoot, resolveProjectIdentity } from "./core/project-identity.mjs";
+import { resolveRuntimeAssets } from "./core/runtime-assets.mjs";
 import { resolveRuntimeHome } from "./core/runtime-home.mjs";
 import {
   compileContextPack,
@@ -236,7 +237,14 @@ const skillRoutingReportRelativePath = "03-skills-catalog/registries/skill-routi
 const projectsRelativeDir = "02-knowledge/Projects";
 const projectsDir = path.join(vaultRoot, projectsRelativeDir);
 const projectsIndexRelativePath = `${projectsRelativeDir}/Projects Index.md`;
-const searchSourceDir = path.join(vaultRoot, "09-mcp", "search-index");
+// The helper trees the server runs. A vault keeps them under `09-mcp/`; a plain
+// checkout of this repository keeps them in its root and has no `09-mcp` at all,
+// so each is resolved in its own right (`src/core/runtime-assets.mjs`).
+const runtimeAssets = resolveRuntimeAssets({
+  vaultRoot,
+  repositoryRoot: path.resolve(serverDir, "..", "..")
+});
+const searchSourceDir = runtimeAssets.searchIndexDir;
 const searchIndexDir = path.resolve(
   aiDevRuntimePath(
     "AI_DEV_SEARCH_INDEX_DIR",
@@ -246,10 +254,10 @@ const searchIndexDir = path.resolve(
 );
 const searchIndexPath = path.join(searchIndexDir, "ai-dev-search.sqlite");
 const searchCliPath = path.join(searchSourceDir, "search_cli.py");
-const searchEvalCasesPath = path.join(vaultRoot, "09-mcp", "search-eval", "search_eval_cases.json");
-const embeddingsDir = path.join(vaultRoot, "09-mcp", "embeddings");
-const frontendQaRunnerPath = path.join(vaultRoot, "09-mcp", "frontend-qa", "frontend_qa_runner.mjs");
-const frontendQaPackagePath = path.join(vaultRoot, "09-mcp", "frontend-qa", "package.json");
+const searchEvalCasesPath = path.join(runtimeAssets.searchEvalDir, "search_eval_cases.json");
+const embeddingsDir = runtimeAssets.embeddingsDir;
+const frontendQaRunnerPath = path.join(runtimeAssets.frontendQaDir, "frontend_qa_runner.mjs");
+const frontendQaPackagePath = path.join(runtimeAssets.frontendQaDir, "package.json");
 const uiUxProMaxRoot = path.join(
   vaultRoot,
   "03-skills-catalog",
@@ -1606,7 +1614,12 @@ async function runSkillRoutingEval({
   case_ids = [],
   write_report = true
 } = {}) {
-  const target = cases_path ? safePath(cases_path) : safePath(skillRoutingEvalRelativePath);
+  // A caller's path is checked against the vault; ours is the resolved helper
+  // tree, which in a plain checkout sits outside the seed that stands in for a
+  // vault (`src/core/runtime-assets.mjs`).
+  const target = cases_path
+    ? safePath(cases_path)
+    : path.join(runtimeAssets.searchEvalDir, "skill_routing_eval_cases.json");
   const source = await readSkillRoutingCases(target);
   const selectedIds = new Set(searchEvalList(case_ids));
   const cases = selectedIds.size

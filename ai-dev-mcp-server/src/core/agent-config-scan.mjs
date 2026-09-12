@@ -65,7 +65,32 @@ const COMMAND_INJECTION = /!`[^`]+`/;
 // has to survive being read out loud as the reason for a finding.
 // `\b` is ASCII-only in JavaScript, so the Russian half carries no word
 // boundary: "Не спрашивай" at the start of a line would not match one.
-const AUTO_RUN_PROSE = /\b(?:without (?:asking|confirmation|permission)|do not ask|don't ask|never ask|no confirmation needed|auto[- ]?(?:run|approve|accept|commit|merge|push)|always (?:run|commit|push|merge) )|(?:не спрашивай|без подтверждени|без спроса|всегда запускай)/i;
+//
+// "always run …" used to be here and is not any more: "Always run the tests
+// before you claim the task is done" waives nothing, and a rule that calls an
+// honest instruction a bypass is a rule people stop reading (Д-24). What is
+// left names the confirmation it removes.
+const AUTO_RUN_PROSE = new RegExp([
+  "\\bwithout (?:asking|being asked|confirmation|permission|prompting|a prompt)\\b",
+  "\\bno (?:need to ask|confirmation (?:needed|required))\\b",
+  "\\b(?:do not|don't|never|no need to) (?:ask|confirm|prompt|stop to ask)\\b",
+  "\\bskip (?:the )?(?:confirmation|prompt|permission)s?\\b",
+  "\\bauto[- ]?(?:run|approve|accept|commit|merge|push|apply)\\b",
+  // An imperative only: "Run the dev server automatically" is an instruction,
+  // "the formatter runs automatically on save" is a description of the project.
+  "^\\s*(?:[-*+]\\s+|\\d+[.)]\\s+)?(?:always\\s+)?(?:run|start|launch|execute|commit|push|merge|apply|deploy|install)\\b[^.\\n]{0,40}\\bautomatically\\b",
+  "(?:не спрашивай|не переспрашивай|без подтверждени|без спроса|не жди подтверждени|сразу запускай|запускай сразу)",
+  "(?:автоматически (?:запускай|выполняй|коммить|пуш)|(?:запускай|выполняй)[^.\\n]{0,40}автоматически)"
+].join("|"), "i");
+
+// The flags and settings that turn the permission prompt off outright. A
+// literal is the easiest thing in this module to recognise and the most
+// common way such a file starts, so it is its own rule rather than prose.
+const PERMISSION_BYPASS_FLAG = /--dangerously-skip-permissions|--dangerously-bypass-approvals-and-sandbox|--yolo\b|\bbypassPermissions\b/i;
+
+// …unless the line is telling the reader not to use it. "Never run with
+// --dangerously-skip-permissions" is the opposite of the finding.
+const BYPASS_FORBIDDEN = /\b(?:never|not|without|avoid|don't|do not|forbidden|prohibited)\b[^.\n]{0,60}$|(?:никогда|не |без |запрещен)[^.\n]{0,60}$/i;
 
 // A hook command that splices something in: `$VAR`, `${VAR}`, `$(cmd)` or a
 // backtick. Hook input is the tool call's own arguments, so this is where a
@@ -85,6 +110,35 @@ const PERMISSIVE_MODES = Object.freeze({
   plan: "",
   default: ""
 });
+
+/**
+ * Every string in a document, with the path of the key holding it.
+ *
+ * Top-level strings are not where a secret goes. `env` is: it is how Claude
+ * Code puts variables into the session, so `env.AWS_ACCESS_KEY_ID` is the most
+ * likely credential in the file and used to be the one place this scan did not
+ * look (Д-23). Naming the path — `env.AWS_ACCESS_KEY_ID`, not `env` — is what
+ * makes the finding actionable.
+ *
+ * @param {unknown} value
+ * @param {string} [prefix]
+ * @param {number} [depth]
+ * @returns {Generator<{ path: string, value: string }>}
+ */
+function* stringValues(value, prefix = "", depth = 0) {
+  if (depth > 12) return;
+  if (typeof value === "string") {
+    yield { path: prefix || "(root)", value };
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const [index, item] of value.entries()) yield* stringValues(item, `${prefix}[${index}]`, depth + 1);
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) yield* stringValues(item, prefix ? `${prefix}.${key}` : key, depth + 1);
+  }
+}
 
 function finding({ rule, severity, file, line = 0, message }) {
   return { rule, severity, file, line: Math.max(0, Number(line) || 0), message: String(message) };
@@ -123,6 +177,16 @@ export function scanInstructionFile(file, text) {
         file,
         line,
         message: `${file}:${line} runs a shell command every time the file is loaded (\`!\`…\`\`), before the agent has read the instructions. Anyone who can commit to this repository can choose that command.`
+      }));
+    }
+    const bypass = PERMISSION_BYPASS_FLAG.exec(content);
+    if (bypass && !BYPASS_FORBIDDEN.test(content.slice(0, bypass.index))) {
+      findings.push(finding({
+        rule: "instructions_disable_permission_prompt",
+        severity: "block",
+        file,
+        line,
+        message: `${file}:${line} tells the agent to run with \`${bypass[0]}\` ("${content.trim().slice(0, 80)}"), which turns off the permission prompt entirely for everyone who opens this repository. Pre-approve the commands this project needs instead.`
       }));
     }
     if (AUTO_RUN_PROSE.test(content)) {
@@ -192,14 +256,13 @@ export function scanSettingsDocument(file, document) {
       message: `${file} pre-approves ${allow.length} pattern(s) and denies nothing. A deny list is what keeps a broad allow from reaching production commands.`
     }));
   }
-  for (const [key, value] of Object.entries(document ?? {})) {
-    if (typeof value !== "string") continue;
+  for (const { path: keyPath, value } of stringValues(document ?? {})) {
     for (const hit of findSecretsInLine(value)) {
       findings.push(finding({
         rule: "settings_carry_secret",
         severity: "block",
         file,
-        message: `${file} → ${key} holds what looks like a ${hit.id.replaceAll("_", " ")} (${maskConfigValue(value)}). Settings files are committed; keep credentials in the environment.`
+        message: `${file} → ${keyPath} holds what looks like a ${hit.id.replaceAll("_", " ")} (${maskConfigValue(value)}). Settings files are committed; keep credentials in the environment.`
       }));
     }
   }

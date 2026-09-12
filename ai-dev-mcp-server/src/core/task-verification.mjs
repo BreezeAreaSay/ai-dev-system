@@ -26,6 +26,9 @@ export function verificationPassed(checks) {
     if (item.type === "frontend_product") return item.result?.ok === true;
     if (item.type === "archify_deliver" || item.type === "archify_visual_check") return item.result?.ok === true;
     if (item.type === "change_hygiene") return item.result?.status !== "block";
+    // A coverage floor only runs when a task asked for one, and a floor nobody
+    // could measure is not a floor that was met.
+    if (item.type === "coverage") return item.result?.status === "pass";
     return false;
   });
 }

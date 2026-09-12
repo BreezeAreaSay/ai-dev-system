@@ -38,6 +38,13 @@ Node 22, но `engines` в `package.json` не трогался: `>=24` оста
 | 15 | [15-completion-statement-linter.md](15-completion-statement-linter.md) | 3.17 | Линтер заявлений о завершении в `checkpoint_task` / `complete_task`: двенадцать рационализаций против сигналов проверок, waiver в `.ai-dev/policy.json`, seed-скилл `self-evaluation` |
 | 16 | [16-task-snapshots.md](16-task-snapshots.md) | 3.2 | Снимки рабочего дерева задачи в `refs/ai-dev/snapshots/<task_id>/<n>` и обратимый откат: `snapshot_task`, `list_task_snapshots`, `rollback_task`, автоснимок в `checkpoint_task`, удаление в `complete_task` |
 | 17 | [17-policy-rules-and-mcp-inventory.md](17-policy-rules-and-mcp-inventory.md) | 3.9, 3.10 | Правила guard без ручной правки JSON (`list_policy_rules`, `upsert_policy_rule`, `remove_policy_rule`: компиляция шаблона как в guard, дедуп, обязательный пример) и инвентарь MCP-серверов проекта (`list_mcp_servers`: шесть конфигов, транспорты, подстановки, секрет в открытом виде — находка `block`) |
+| 17 | [17-docs-freshness.md](17-docs-freshness.md) | 3.6 | Правило гигиены `docs_stale`: экспорт, схема инструмента или CLI-флаг изменились, а документа никто не тронул |
+| 18 | [18-fact-forcing.md](18-fact-forcing.md) | 3.18 | Режим `fact_force` в guard: первая правка файла за сессию требует четырёх фактов, первая разрушительная команда — строки отката |
+| 19 | [19-git-hooks.md](19-git-hooks.md) | 3.20 | Цель `git` в `install_agent_hooks`: `pre-commit` и `pre-push` через `core.hooksPath`, для любого клиента и для человека |
+| 20 | [20-rule-packs.md](20-rule-packs.md) | 3.19 | Одиннадцать новых паков правил и метки стека, по которым они выбираются |
+| 21 | [21-instinct-proposals.md](21-instinct-proposals.md) | 3.5 | `propose_instincts` и `list_sessions`: журнал наблюдений от хука конца сессии и кандидаты в инстинкты со статусом `proposed` |
+| 22 | [22-coverage-gaps.md](22-coverage-gaps.md) | 3.23 | `coverage_gaps`: четыре формата отчёта, ранжирование по изменённым файлам, порог `coverage_min` в `verify_task` |
+| 23 | [23-epics.md](23-epics.md) | 3.4 | Эпики: `decompose_task`, `epic_status`, `depends_on` между детьми, родитель закрывается последним |
 
 ## Как читать этот каталог
 

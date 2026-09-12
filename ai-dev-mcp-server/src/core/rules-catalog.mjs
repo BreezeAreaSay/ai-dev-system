@@ -231,6 +231,75 @@ Extends the TypeScript and web rules.
 `
   },
   {
+    id: "vue",
+    title: "Vue / Nuxt",
+    paths: ["**/*.vue", "**/nuxt.config.*", "**/composables/**", "**/stores/**", "**/pages/**", "**/layouts/**"],
+    stacks: ["Vue", "Nuxt"],
+    content: `# Vue / Nuxt Rules
+
+Extends the TypeScript and web rules.
+
+- \`<script setup lang="ts">\` for every component; props and emits declared with \`defineProps<T>()\` / \`defineEmits<T>()\`, never as runtime objects when types are available.
+- Reactivity: \`ref\` for primitives, \`reactive\` for object state you own, \`computed\` for anything derived. Never destructure a \`reactive\` object — it drops reactivity; use \`toRefs\`.
+- \`watch\` with an explicit source and \`watchEffect\` only where the dependencies are obvious; clean up timers and listeners in \`onUnmounted\`.
+- One-way data flow: props down, events up. Shared state goes in a Pinia store with typed state, getters and actions — not in a global \`reactive\` object.
+- \`v-for\` always carries a stable \`:key\` that is not the array index; never combine \`v-if\` and \`v-for\` on one element.
+- Scoped styles by default; global styles only in the entry stylesheet. Design tokens as CSS custom properties, as in the web rules.
+- Nuxt: \`useFetch\` / \`useAsyncData\` with an explicit key for data, \`server: false\` only when the call truly cannot run on the server; \`useState\` for shared SSR state. Server-only secrets live in \`runtimeConfig\`, never in \`public\`.
+- Nuxt routing is file-based: \`pages/\` defines routes and \`middleware/\` guards them; do not hand-roll a router on top.
+
+## Verification
+
+- \`vue-tsc --noEmit\`, ESLint with \`eslint-plugin-vue\`, Vitest with \`@vue/test-utils\` before \`verify_task\`.
+- Test behaviour through the rendered component, not the component instance's internals.
+`
+  },
+  {
+    id: "angular",
+    title: "Angular",
+    paths: ["**/*.component.ts", "**/*.service.ts", "**/*.module.ts", "**/*.directive.ts", "**/*.pipe.ts", "**/angular.json"],
+    stacks: ["Angular"],
+    content: `# Angular Rules
+
+Extends the TypeScript and web rules.
+
+- Standalone components by default; declare dependencies in \`imports\` rather than growing a shared NgModule.
+- \`inject()\` over constructor parameter injection in new code; providers scoped as narrowly as the consumer allows (\`providedIn: "root"\` only for genuinely global services).
+- \`ChangeDetectionStrategy.OnPush\` on every component; state as signals or observables, never mutated in place.
+- RxJS: compose with operators, subscribe at the edge, and always unsubscribe — \`takeUntilDestroyed()\`, or the \`async\` pipe in the template. A subscription without a teardown is a leak.
+- Reactive forms with typed controls; template-driven forms only for trivial single-field cases.
+- Templates stay declarative: no method calls that compute on every change detection pass; precompute in the component or a pure pipe.
+- HTTP access goes through typed services with interceptors for auth and errors; components do not call \`HttpClient\` directly.
+
+## Verification
+
+- \`ng build\`, \`ng lint\`, \`ng test\` (Karma or Vitest) before \`verify_task\`; Playwright or Cypress for critical journeys.
+`
+  },
+  {
+    id: "react-native",
+    title: "React Native / Expo",
+    paths: ["**/*.tsx", "**/*.jsx", "**/app.json", "**/eas.json", "**/metro.config.*", "**/ios/**", "**/android/**"],
+    stacks: ["React Native/Expo", "Capacitor/Ionic"],
+    content: `# React Native / Expo Rules
+
+Extends the TypeScript and React rules; the web rules do not apply — there is no DOM.
+
+- Layout with Flexbox and \`StyleSheet.create\`; no pixel values assumed to be device-independent. Respect safe areas (\`react-native-safe-area-context\`) on every screen.
+- Lists: \`FlatList\` / \`SectionList\` with \`keyExtractor\` and stable item components. Never map a large array into \`ScrollView\`.
+- Animation and gestures on the UI thread (Reanimated, Gesture Handler); anything driven from JavaScript will drop frames under load.
+- Platform differences are explicit: \`Platform.select\`, \`.ios.tsx\` / \`.android.tsx\` files. Test both, including a small screen and the largest text size the OS offers.
+- Permissions are requested in context, with a usable path when they are denied; never at launch "just in case".
+- Secrets never ship in the bundle — a mobile app is a client, and \`app.json\` "extra" is readable by anyone who downloads it. Tokens come from a server exchange and live in secure storage (Keychain / Keystore), not \`AsyncStorage\`.
+- Expo: keep to the managed workflow while it suffices; a config plugin beats a manual \`ios/\` or \`android/\` edit, which the next prebuild would erase.
+- Offline and slow networks are normal: every screen has a loading, empty, error and offline state, and writes queue rather than fail silently.
+
+## Verification
+
+- Type check, lint, Jest with \`@testing-library/react-native\`, and a real run on both platforms (simulator counts, release build is better) before \`verify_task\`.
+`
+  },
+  {
     id: "web",
     title: "Web / Frontend",
     paths: ["**/*.css", "**/*.scss", "**/*.sass", "**/*.less", "**/*.html", "**/*.tsx", "**/*.jsx", "**/*.vue", "**/*.svelte"],
@@ -287,6 +356,29 @@ Extends the common rules with Python-specific content; language-specific rules w
 `
   },
   {
+    id: "fastapi",
+    title: "FastAPI",
+    paths: ["**/main.py", "**/app/**/*.py", "**/api/**/*.py", "**/routers/**/*.py", "**/schemas/**/*.py", "**/dependencies/**/*.py"],
+    stacks: ["FastAPI"],
+    content: `# FastAPI Rules
+
+Extends the Python rules.
+
+- Routers are thin: parse, authorize, delegate, shape the response. Business logic lives in services that know nothing about HTTP and can be tested without a client.
+- Every endpoint declares a \`response_model\`. A model that could carry a password hash, a token or an internal id is a leak waiting for the first \`return user\`.
+- Request bodies are Pydantic models with real constraints (\`Field(gt=0)\`, \`EmailStr\`, \`max_length\`), not \`dict\`. Settings are a \`BaseSettings\` model read once at startup, so a missing variable fails the boot rather than the first request.
+- \`async def\` only over async I/O. One blocking call — a sync database driver, \`requests\`, \`time.sleep\` — stalls the whole event loop; put it behind \`run_in_threadpool\` or use the async client.
+- Shared resources (database session, HTTP client, cache) come from \`Depends\` and are created in the \`lifespan\` handler, so tests can override exactly what they need and nothing leaks between requests.
+- Authentication is a dependency, not a decorator on the honour system: apply it at the router, and check the JWT's expiry, issuer, audience and algorithm — never \`verify_signature=False\`.
+- Background work that must survive a restart belongs in a queue, not in \`BackgroundTasks\`.
+- CORS, rate limits and body-size limits are configured per environment; \`allow_origins=["*"]\` with credentials is not a configuration, it is an incident.
+
+## Verification
+
+- \`pytest\` with \`httpx.AsyncClient\` against the app (not a live server), dependency overrides cleared afterwards, and the OpenAPI document generated (\`/openapi.json\`) to confirm the contract changed the way the change intended.
+`
+  },
+  {
     id: "golang",
     title: "Go",
     paths: ["**/*.go", "**/go.mod", "**/go.sum"],
@@ -331,6 +423,149 @@ Extends the common rules with Python-specific content; language-specific rules w
 `
   },
   {
+    id: "kotlin",
+    title: "Kotlin / Android",
+    paths: ["**/*.kt", "**/*.kts", "**/build.gradle.kts", "**/AndroidManifest.xml"],
+    stacks: ["Kotlin", "Android"],
+    content: `# Kotlin / Android Rules
+
+Extends the Java/JVM rules where they overlap; Kotlin rules win on conflict.
+
+- Null safety is the type system's job: no \`!!\`, no platform types crossing a module boundary. Prefer \`?.\`, \`?:\` and \`requireNotNull\` with a message.
+- \`val\` over \`var\`, data classes for values, sealed classes or interfaces for closed hierarchies so \`when\` is exhaustive without an \`else\`.
+- Coroutines: every suspend call runs in a scope that is cancelled with its owner (\`viewModelScope\`, \`lifecycleScope\`, a structured scope in a service). \`GlobalScope\` is a leak. Dispatchers are injected, never hard-coded, so tests can run them.
+- Expose state as \`StateFlow\` / \`Flow\`, collect it lifecycle-aware (\`repeatOnLifecycle\`); the UI layer reads state and sends events, nothing more.
+- Android: no work in \`Activity\`/\`Fragment\` beyond rendering and input; configuration changes and process death must not lose state (\`SavedStateHandle\`).
+- Permissions are requested in context with a working path when denied; secrets live in the Keystore, never in \`SharedPreferences\` or the APK.
+- Extension functions for real reuse, not to decorate unrelated types; no logic in \`companion object\` that hides a global.
+
+## Verification
+
+- \`./gradlew ktlintCheck detekt test\` (whatever the project actually configures) before \`verify_task\`; Turbine for flow tests, Espresso or Compose UI tests for the screens a change touches.
+`
+  },
+  {
+    id: "swift",
+    title: "Swift / Apple platforms",
+    paths: ["**/*.swift", "**/Package.swift", "**/*.xcodeproj/**", "**/*.xcworkspace/**"],
+    stacks: ["Swift", "iOS"],
+    content: `# Swift / Apple Platforms Rules
+
+- \`struct\` and \`enum\` first; \`class\` only for identity or reference semantics you actually need, and then \`final\` unless it is designed for inheritance.
+- Optionals are handled, never forced: no \`!\` unwrapping outside a test fixture. \`guard let\` at the top of a function reads better than nested \`if let\`.
+- Errors are typed and thrown (\`throws\`, a \`Result\`), not signalled by returning nil; \`try!\` and an empty \`catch\` are defects.
+- Concurrency: \`async\`/\`await\` and actors over completion handlers and locks. UI state is \`@MainActor\`. Captures in escaping closures are \`[weak self]\` unless the lifetime is obviously bounded.
+- SwiftUI: small views, state owned by exactly one view (\`@State\`) or a model (\`@Observable\` / \`@StateObject\`), never both; no side effects in \`body\`.
+- Accessibility is part of the view, not a pass at the end: labels, traits, Dynamic Type and a check at the largest text size.
+- Secrets live in the Keychain; \`UserDefaults\` and \`Info.plist\` are readable by anyone with the app.
+
+## Verification
+
+- \`swift build\` and \`swift test\`, or \`xcodebuild test\` on the scheme the project uses, plus SwiftLint or SwiftFormat where configured, before \`verify_task\`.
+`
+  },
+  {
+    id: "dart",
+    title: "Dart / Flutter",
+    paths: ["**/*.dart", "**/pubspec.yaml", "**/lib/**", "**/test/**"],
+    stacks: ["Flutter/Dart"],
+    content: `# Dart / Flutter Rules
+
+- Sound null safety everywhere: no \`late\` without a guaranteed initialiser, no \`!\` on a value the compiler cannot prove.
+- \`const\` constructors wherever the widget allows; a \`const\` subtree is rebuild-free, and that is most of Flutter's performance work.
+- Widgets stay small and are extracted into classes, not returned from helper methods: a method loses the element identity that makes rebuilds cheap.
+- State management is one choice, made once (Riverpod, Bloc, Provider) and applied consistently. \`setState\` is for local, ephemeral state only.
+- Anything expensive goes off the UI isolate (\`compute\`, an isolate); a frame budget is 16 ms.
+- Layout must survive the real world: long text, the largest \`textScaleFactor\`, the smallest supported screen, and both orientations. Overflow is a bug, not a warning.
+- \`dispose\` every controller, subscription and animation; \`BuildContext\` is never used after an \`await\` without \`mounted\`.
+
+## Verification
+
+- \`dart analyze\` (with \`flutter_lints\` or stricter), \`dart format --set-exit-if-changed\`, \`flutter test\` including widget tests for changed screens, before \`verify_task\`.
+`
+  },
+  {
+    id: "csharp",
+    title: "C# / .NET",
+    paths: ["**/*.cs", "**/*.csproj", "**/*.sln", "**/appsettings*.json"],
+    stacks: ["C#/.NET"],
+    content: `# C# / .NET Rules
+
+- Nullable reference types enabled and warnings treated as errors; a project that suppresses them has turned off its own type system.
+- \`record\` for values, \`readonly\` fields, immutable collections at API boundaries; \`var\` only where the type is obvious from the right-hand side.
+- \`async\`/\`await\` all the way: no \`.Result\`, no \`.Wait()\`, no \`async void\` outside an event handler. Pass and honour \`CancellationToken\`.
+- \`IDisposable\`/\`IAsyncDisposable\` handled with \`using\`; \`HttpClient\` comes from \`IHttpClientFactory\`, never constructed per call.
+- Dependency injection with the narrowest lifetime that works; never resolve a scoped service from a singleton.
+- ASP.NET Core: thin controllers or minimal-API endpoints, validated request DTOs, no EF entities in responses, explicit authorization on every endpoint, and configuration through \`IOptions<T>\` bound at startup.
+- EF Core: \`AsNoTracking\` for reads, projections instead of loading whole graphs, explicit migrations reviewed as code; a query inside a loop is a defect.
+- Exceptions carry context and are mapped to consistent problem details; \`catch (Exception) { }\` is never acceptable.
+
+## Verification
+
+- \`dotnet build -warnaserror\`, \`dotnet format --verify-no-changes\`, \`dotnet test\` before \`verify_task\`; integration tests through \`WebApplicationFactory\` for endpoint changes.
+`
+  },
+  {
+    id: "cpp",
+    title: "C / C++",
+    paths: ["**/*.c", "**/*.h", "**/*.cc", "**/*.cpp", "**/*.hpp", "**/*.cxx", "**/CMakeLists.txt", "**/meson.build"],
+    stacks: ["C/C++"],
+    content: `# C / C++ Rules
+
+- Ownership is explicit: RAII for every resource, \`unique_ptr\` by default, \`shared_ptr\` only for genuinely shared lifetime, raw pointers and references as non-owning views. \`new\`/\`delete\` in application code is a defect.
+- Follow the rule of zero; if a class must manage a resource, write all five special members or delete them.
+- Prefer the standard library to hand-rolled loops and buffers: \`std::span\`, \`std::string_view\`, \`std::optional\`, ranges. Never \`strcpy\`, \`sprintf\`, \`gets\`, or an unchecked \`memcpy\`.
+- Every index, size and cast is checked at the boundary; signed/unsigned mixing and integer overflow are undefined behaviour, not style questions.
+- \`const\` and \`constexpr\` by default; \`noexcept\` where it is true. Headers declare, translation units define; no non-inline definitions in headers.
+- Concurrency through \`std::jthread\`, \`std::atomic\` and scoped locks; a data race is undefined behaviour even when the test passes.
+- Errors: exceptions or \`std::expected\`, chosen once per project. An error code that nobody checks is worse than a throw.
+
+## Verification
+
+- Build with warnings on and as errors (\`-Wall -Wextra -Wpedantic\` or \`/W4 /WX\`), run the test suite under AddressSanitizer and UndefinedBehaviorSanitizer, and run clang-tidy and clang-format where configured, before \`verify_task\`.
+`
+  },
+  {
+    id: "php",
+    title: "PHP / Laravel / Symfony",
+    paths: ["**/*.php", "**/composer.json", "**/routes/**", "**/app/**", "**/src/**"],
+    stacks: ["PHP", "Laravel", "Symfony"],
+    content: `# PHP / Laravel / Symfony Rules
+
+- \`declare(strict_types=1);\` in every file; typed properties, parameters and return types. PSR-12 formatting, PSR-4 autoloading.
+- Composition over inheritance, constructor injection over service location (\`app()\`, \`Container::get\`) in application code; final classes unless designed for extension.
+- Never interpolate into SQL: query builder or prepared statements only. Escape on output (\`htmlspecialchars\`, \`{{ }}\` in Blade or Twig), and treat \`{!! !!}\` / \`|raw\` as a security review.
+- Secrets come from the environment; \`.env\` is never committed and \`config()\` reads it only at boot so configuration caching cannot strand a value.
+- Laravel: thin controllers, Form Requests for validation, API Resources for responses (an Eloquent model returned directly leaks columns), jobs for slow work, and eager loading — an N+1 query is the default outcome of a lazy relation in a loop.
+- Symfony: controllers as thin services, validation through constraints, Doctrine repositories behind interfaces, and the profiler checked for query count on a changed page.
+- Errors are exceptions with context, handled centrally; \`@\` suppression and an empty \`catch\` are defects.
+
+## Verification
+
+- PHPStan or Psalm at the project's configured level, PHP-CS-Fixer or \`php-cs-fixer --dry-run\`, and PHPUnit or Pest before \`verify_task\`; feature tests for changed routes.
+`
+  },
+  {
+    id: "ruby",
+    title: "Ruby / Rails",
+    paths: ["**/*.rb", "**/*.rake", "**/Gemfile", "**/Rakefile", "**/app/**", "**/config/**", "**/db/**"],
+    stacks: ["Ruby", "Rails"],
+    content: `# Ruby / Rails Rules
+
+- Small methods with intention-revealing names; guard clauses over nesting; \`frozen_string_literal: true\` at the top of every file.
+- Keep metaprogramming out of application code: \`method_missing\`, \`define_method\` and monkey patches on core classes make behaviour unfindable. Refinements or a plain module if there is no alternative.
+- Rails: fat models are not the goal either — validation and associations on the model, workflow in service objects or interactors, presentation in helpers or view components, controllers thin.
+- Strong parameters on every create and update; never \`params.permit!\`. Authorization is explicit per action (Pundit, CanCan), not implied by the route.
+- Query with the relation, not with strings: \`where(id: ids)\` over interpolation. Prevent N+1 with \`includes\`/\`preload\`, and check the log for query counts on a changed page.
+- Migrations are reversible and safe on a live table: add a column nullable, backfill in batches, then enforce. A migration that locks a large table in a request-serving deploy is an outage.
+- Background work through the project's queue (Sidekiq, Active Job) with idempotent jobs; secrets from credentials or the environment, never committed.
+
+## Verification
+
+- RuboCop, Brakeman for security-relevant changes, and RSpec or Minitest before \`verify_task\`; request specs for changed endpoints, system specs for changed flows.
+`
+  },
+  {
     id: "docker",
     title: "Docker / Containers",
     paths: ["**/Dockerfile", "**/*.dockerfile", "**/docker-compose*.yml", "**/docker-compose*.yaml", "**/compose*.yml", "**/compose*.yaml"],
@@ -349,7 +584,8 @@ Extends the common rules with Python-specific content; language-specific rules w
 /**
  * Map detected stack labels (from `detectProject` / `analyzeProject`) to packs.
  * Matching is additive: a Next.js + TypeScript repository gets typescript,
- * react, and web.
+ * react, and web. The one subtraction is React Native, which shares a library
+ * with the browser but not a platform.
  *
  * @param {string[]} stack - Detected stack labels.
  * @param {string[]} [projectTypes] - Detected project types (frontend, backend, api, mobile, bot).
@@ -363,5 +599,9 @@ export function packsForStack(stack = [], projectTypes = []) {
   }
   if (projectTypes.includes("frontend") && !selected.has("web")) selected.add("web");
   if (labels.has("Node.js") && !labels.has("TypeScript")) selected.add("typescript");
+  // A React Native app is not a web page: the web pack is about the DOM, CSS
+  // and Core Web Vitals, none of which it has. A universal app that also builds
+  // for the browser keeps it.
+  if (labels.has("React Native/Expo") && !labels.has("Next.js") && !labels.has("Vite")) selected.delete("web");
   return RULE_PACKS.map((pack) => pack.id).filter((id) => selected.has(id));
 }

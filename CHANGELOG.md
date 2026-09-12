@@ -150,6 +150,141 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reports actually contain, and a post-action for each average band.
     `ai-dev-orchestrator` and `verification-loop` route to it before
     `complete_task`.
+- **Epics** (`decompose_task`, `epic_status`, `src/core/task-epics.mjs`): a
+  task can be broken into children with an order between them.
+  - Each child is opened through `begin_task`, so it routes its own skills,
+    compiles its own context pack and carries its own acceptance criteria;
+    every other tool works on it unchanged.
+  - `depends_on` names siblings by key or by 1-based position. A reference to
+    nothing, a child waiting for itself, and a ring of children each waiting
+    for the next are refused before anything is created — an order that cannot
+    be worked is better rejected than opened. At most 20 children, one level
+    deep.
+  - `epic_status` reports each child's state (done, in progress, ready,
+    blocked, and what it is blocked by), how far the epic has come, and the one
+    child to work next; asked about a child, it answers with the parent's epic.
+    An epic whose every open child waits for another open one is reported as
+    deadlocked rather than as "nothing ready".
+  - `complete_task` on a parent is refused while any child is open, or while a
+    child's record is missing: an epic closes last, on evidence that still
+    exists. The task record gained `parent_id`, `depends_on` and `epic`.
+  - GitHub Issues are not part of this. ECC coordinates epics through issues
+    and labels; this server tracks tasks itself and works offline.
+- **`coverage_gaps`** (`src/core/coverage-reports.mjs`,
+  `src/extensions/coverage.mjs`): reads whichever coverage report the project's
+  own test run left behind — an lcov tracefile, an Istanbul
+  `coverage-final.json`, a Cobertura or `coverage.py` XML, or a
+  `go test -coverprofile` — and ranks what is not covered.
+  - A file the change set touched outranks one it did not, and an uncovered
+    function counts double: an untested line in a file just edited was probably
+    just written. Uncovered lines come back folded into ranges (`18-24`) with
+    the functions that run in no test.
+  - Report paths are normalised against the project root and matched to changed
+    files on whole trailing segments, so a Go import path and a repository path
+    are recognised as one file. Nothing is executed: a report that no run
+    produced comes back as `no_report` with the command that would produce one.
+  - `verify_task` gained `coverage_min`: a percentage of lines the report must
+    show, checked as a new `coverage` check with the five largest gaps
+    attached. It fails when the report is missing — a floor nobody could
+    measure is not a floor that was met — and `0`, the default, leaves coverage
+    out entirely.
+- **`propose_instincts`** (`src/core/instinct-proposals.mjs`): the session-end
+  hook now leaves an observation log beside its draft — what the user said,
+  what tools ran with what, which calls came back as errors — and this tool
+  reads one session's log into candidate instincts.
+  - Five patterns, ported from ECC's continuous-learning-v2 observer: a
+    correction the user made (only after the agent had done something to
+    correct), a rule they stated ("always", "never", "use X instead of Y"), an
+    error signature that recurred together with the call that finally cleared
+    it, a command run three times, and a pair of commands run back to back
+    twice. An error signature generalises paths, numbers and quoted values, so
+    one failure on two files is one signature.
+  - Candidates are not conclusions. Each quotes what was observed, is stored
+    with the new status `proposed`, is capped at 0.5 confidence, never reaches
+    a context pack, and becomes an instinct through
+    `update_instinct(action: "confirm")`. `list_instincts` gained a `status`
+    filter to review them; `dry_run` returns them without storing anything.
+  - A second run over the same log proposes nothing new: a candidate that
+    matches an instinct the store already holds is reported as skipped rather
+    than quietly raising that instinct's confidence.
+  - The wording is deliberately the user's own, not a paraphrase. The half of
+    the observer that needs a model stays with the agent, which confirms the
+    candidates and rewrites them with `record_instinct` where they read badly.
+- **`list_sessions`**: the handoffs a repository has, newest first, with the
+  unconfirmed hook drafts marked and the sessions whose observation log is
+  still on disk flagged for `propose_instincts`. `drafts_only` and
+  `substantive_only` narrow it.
+- **Eleven more rule packs** (`src/core/rules-catalog.mjs`): `vue`, `angular`,
+  `react-native`, `fastapi`, `kotlin`, `swift`, `dart`, `csharp`, `cpp`, `php`
+  and `ruby` join the eight the catalogue had, each with its own `paths` globs
+  and stack labels.
+  - The labels they are chosen by are now detected: `nuxt.config.*` or the
+    `nuxt` dependency, `angular.json` or `@angular/core`, `build.gradle.kts`
+    (Kotlin, alongside Java/JVM), `Package.swift`, `Gemfile`/`Rakefile`/
+    `.ruby-version` and `rails` inside them, `artisan` or `laravel/framework`
+    and `symfony/framework-bundle` in `composer.json`, `CMakeLists.txt` and its
+    neighbours, and the five conventional root files of a .NET repository.
+  - `packsForStack` gained its one subtraction: a React Native project no
+    longer gets the `web` pack. It shares a library with the browser, not a
+    platform — there is no DOM, no CSS and no Core Web Vitals to budget. A
+    universal app that also builds for the browser keeps it.
+  - `web` already carried ECC's `performance` and `design-quality` rules, so
+    those are not separate packs. `perl`, `arkts` and `fsharp` are not written:
+    nothing detects them and nothing here could check them (DEBTS Д-16).
+- **Git hooks** (`install_agent_hooks` target `git`, `hooks/git-hooks.mjs`):
+  a `pre-commit` and a `pre-push` installed through `core.hooksPath`, so the
+  same rules apply to a client with no hook API and to a human at a terminal.
+  - `pre-commit` scans the staged diff for what change hygiene calls blocking —
+    a secret-bearing path, a secret in an added line, a merge-conflict marker, a
+    focused test, a left-behind `debugger` or `breakpoint()` — and refuses the
+    commit. `pre-push` reports when the active task has no verification or its
+    latest one failed. `git_hooks` in `.ai-dev/policy.json` sets each to
+    `block`, `warn` (the pre-push default) or `off`.
+  - The hooks read the server's own rules from `.ai-dev/hooks/patterns.json`,
+    which now also carries the leftover patterns and the placeholder pattern, so
+    `password = "correct-horse-battery"` is a finding and
+    `password = "REPLACE_ME"` is not.
+  - A `core.hooksPath` someone else set is reported, never taken over, and every
+    hook in `.git/hooks` that would stop running is named. `agent_hooks_status`
+    answers with `git_hooks`, `core_hooks_path` and `git_hooks_active`, the last
+    true only when the stubs exist *and* git points at them.
+- **Fact forcing** (`hooks/fact-force.mjs`, `fact_force` in
+  `.ai-dev/policy.json`, on by default under the `strict` profile): the first
+  edit of a file in a session is refused until the agent has put its grounding
+  on the record — a `FACTS <path>` block naming the importers, the API the edit
+  changes, the data it touches and the instruction it serves — and the first
+  destructive command is refused until a `ROLLBACK:` line says how to get back.
+  - The refusal quotes the block to write. PreToolUse runs after the turn
+    carrying the tool call is written to the transcript, so the facts and the
+    edit travel together: the agent writes them, repeats the edit, and the file
+    stays grounded for the rest of the session.
+  - Eleven groups of command count as destructive — file removal and moves,
+    `sed -i`, git history rewrites, `git push`, dependency changes, migrations,
+    database writes, infrastructure, permissions, service control. The
+    irreversible ones never reach the gate: the guard's hard rules refuse them
+    first, for their own reason.
+  - Session state lives in `~/.ai-dev/state/guard/<session>.json`: entries
+    expire after `expiry_minutes` (30), at most `max_entries` (500) are kept,
+    and after `max_denials` (3) refusals in one session the gate stops refusing
+    and only notes what was missing.
+  - It judges nothing it cannot see: no transcript (Cursor sends a conversation
+    id, not a path), unreadable or unwritable state, or a path matching
+    `exempt_globs` all leave the call alone. `AI_DEV_FACT_FORCE` and
+    `AI_DEV_FACT_FORCE_EXEMPT` override the policy for one run.
+- **Documentation freshness** (`docs_stale` in `verify_change_hygiene`): a
+  change set that moves the public interface — a new export, an `inputSchema`,
+  a command-line flag, in JavaScript, TypeScript, Python, Go, Rust, Java,
+  Kotlin, C#, Swift, PHP or a shell script — without touching a single document
+  is now a `warn` finding listing the files that did move.
+  - Only declarations count. A line inside an exported function does not widen
+    the interface, and a flag passed to someone else's program (`--no-color` to
+    `git`) is not a flag the project offers, so neither fires the rule.
+  - Tests, vendored trees (`node_modules/`, `vendor/`, `dist/`) and the
+    documentation itself are not read for interface signals; data files are
+    left out too, since a schema key in JSON is as often a fixture as a
+    contract. Any `.md`, `.mdx`, `.rst`, `.adoc`, `.txt` or file under `docs/`
+    answers the finding, `README.md` and `CHANGELOG.md` included.
+  - `summary` gained `interface_files` and `documentation_files`.
 - **Task snapshots and rollback** (`src/core/task-snapshots.mjs`,
   `src/extensions/snapshots.mjs`): `snapshot_task`, `list_task_snapshots` and
   `rollback_task` make an agent's turn undoable. A snapshot records the whole

@@ -1,13 +1,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { atomicWriteFile } from "./atomic-files.mjs";
-import { PROTECTED_CONFIG_FILES, SECRET_FILE_PATTERN, SECRET_PATTERNS } from "./change-hygiene.mjs";
+import { runProcess } from "./process-runner.mjs";
+import { LEFTOVER_PATTERNS, PLACEHOLDER_VALUE, PROTECTED_CONFIG_FILES, SECRET_FILE_PATTERN, SECRET_PATTERNS } from "./change-hygiene.mjs";
 
-export const HOOK_FILES = ["lib.mjs", "guard.mjs", "post-edit.mjs", "session-start.mjs", "session-end.mjs", "cost-capture.mjs", "compact-advisor.mjs", "stop-check.mjs"];
-export const HOOK_TARGETS = ["claude", "cursor"];
+export const HOOK_FILES = ["lib.mjs", "fact-force.mjs", "git-hooks.mjs", "guard.mjs", "post-edit.mjs", "session-start.mjs", "session-end.mjs", "cost-capture.mjs", "compact-advisor.mjs", "stop-check.mjs"];
+export const HOOK_TARGETS = ["claude", "cursor", "git"];
 export const HOOK_PROFILES = ["minimal", "standard", "strict"];
 export const HOOKS_RELATIVE_DIR = ".ai-dev/hooks";
 export const POLICY_RELATIVE_PATH = ".ai-dev/policy.json";
+/** Where `core.hooksPath` is pointed. Relative, so a linked worktree resolves it against its own root. */
+export const GIT_HOOKS_RELATIVE_DIR = ".ai-dev/git-hooks";
+/** The git hooks we install. Each is a stub that hands the work to `git-hooks.mjs`. */
+export const GIT_HOOK_NAMES = ["pre-commit", "pre-push"];
 const COMMAND_MARKER = ".ai-dev/hooks/";
 
 /**
@@ -47,6 +52,29 @@ export function defaultPolicy(profile = "standard") {
     // report states that reason too:
     // { "rule": "tests_deferred", "reason": "…", "expires": "2026-12-31" }.
     completion_claims: { enabled: true, waivers: [] },
+    // Fact forcing (hooks/fact-force.mjs), on under the strict profile. The
+    // first edit of a file in a session is refused until the agent has written
+    // a `FACTS <path>` block naming the importers, the API it changes, the data
+    // it touches and the instruction it serves; the first destructive command
+    // is refused until a `ROLLBACK:` line says how to get back. The gate reads
+    // the transcript, so it judges nothing where there is none (Cursor), and it
+    // stops refusing after `max_denials` refusals in one session. Defaults live
+    // in FACT_FORCE_DEFAULTS; agent-hooks.test.mjs holds these two in step.
+    fact_force: {
+      enabled: profile === "strict",
+      files: true,
+      bash: true,
+      expiry_minutes: 30,
+      max_denials: 3,
+      max_entries: 500,
+      exempt_globs: ["**/*.md", "**/*.txt", "**/*.lock", "**/*.snap", ".ai-dev/**", ".claude/**", ".cursor/**"]
+    },
+    // Git hooks (hooks/git-hooks.mjs), installed by targets: ["git"] through
+    // core.hooksPath so they run for every client and for a human at a
+    // terminal. "block" refuses, "warn" says so and lets it through, "off" is
+    // silent. pre-commit scans the staged diff for the findings hygiene calls
+    // blocking; pre-push reads the active task's latest verification.
+    git_hooks: { pre_commit: "block", pre_push: "warn" },
     allow_commands: [],
     rules: [
       {
@@ -75,8 +103,10 @@ export function defaultPolicy(profile = "standard") {
 }
 
 /**
- * Serialize the server's secret and config patterns for the hooks so the
- * guard and the MCP hygiene scan never drift.
+ * Serialize the server's secret, leftover and config patterns for the hooks so
+ * the guard, the git hooks and the MCP hygiene scan never drift. The hooks are
+ * copied into other repositories and cannot import the server, so this file is
+ * how they read one table.
  *
  * @returns {object}
  */
@@ -89,6 +119,16 @@ export function renderHookPatterns() {
       source: rule.pattern.source,
       flags: rule.pattern.flags,
       placeholder_aware: Boolean(rule.placeholderAware)
+    })),
+    placeholder_value: PLACEHOLDER_VALUE.source,
+    leftovers: LEFTOVER_PATTERNS.map((rule) => ({
+      id: rule.id,
+      severity: rule.severity,
+      source: rule.pattern.source,
+      flags: rule.pattern.flags,
+      message: rule.message,
+      languages: rule.languages ?? [],
+      source_only: Boolean(rule.sourceOnly)
     })),
     secret_file: SECRET_FILE_PATTERN.source,
     protected_config_files: [...PROTECTED_CONFIG_FILES]
@@ -299,6 +339,52 @@ export function cursorHookWarnings(current, ours) {
   return warnings;
 }
 
+/**
+ * The stub git runs. It is three lines of `sh` rather than a Node script so the
+ * shebang question never comes up: Git for Windows runs hooks through its own
+ * shell, and `node` is looked up on PATH exactly as it is on a Unix box. The
+ * path to the implementation is relative to the stub, so moving or cloning the
+ * repository keeps it working.
+ *
+ * @param {string} hook - `pre-commit` or `pre-push`.
+ * @returns {string}
+ */
+export function gitHookStub(hook) {
+  return [
+    "#!/bin/sh",
+    "# Installed by ai-dev-system (install_agent_hooks, targets: [\"git\"]).",
+    "# Delete .ai-dev/git-hooks or unset core.hooksPath to remove it.",
+    `exec node "$(dirname "$0")/../hooks/git-hooks.mjs" ${hook} "$@"`,
+    ""
+  ].join("\n");
+}
+
+async function git(projectRoot, args) {
+  try {
+    return await runProcess({ executable: "git", args: ["-C", projectRoot, ...args], cwd: projectRoot, timeoutMs: 15_000 });
+  } catch {
+    return { ok: false, exitCode: null, stdout: "", stderr: "" };
+  }
+}
+
+/**
+ * Hooks that will stop running once `core.hooksPath` moves: git consults one
+ * directory, so an active `.git/hooks/pre-commit` is silently replaced rather
+ * than chained. We install anyway and name them — chaining would bake an
+ * absolute path into the stub, and a hook that only sometimes runs is worse
+ * than one the user was told about.
+ *
+ * @param {string} projectRoot
+ * @returns {Promise<string[]>}
+ */
+async function shadowedGitHooks(projectRoot) {
+  const result = await git(projectRoot, ["rev-parse", "--git-path", "hooks"]);
+  if (!result.ok) return [];
+  const directory = path.resolve(projectRoot, result.stdout.trim());
+  const names = await fs.readdir(directory).catch(() => []);
+  return names.filter((name) => !name.endsWith(".sample"));
+}
+
 async function readJson(target) {
   try {
     return JSON.parse(await fs.readFile(target, "utf8"));
@@ -397,6 +483,35 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
     }
   }
 
+  if (targets.includes("git")) {
+    const inside = await git(root, ["rev-parse", "--is-inside-work-tree"]);
+    if (!inside.ok || inside.stdout.trim() !== "true") {
+      warnings.push("targets included \"git\" but this is not a Git working tree; no git hooks were installed.");
+    } else {
+      const configured = (await git(root, ["config", "--get", "core.hooksPath"])).stdout.trim();
+      const foreign = configured && configured !== GIT_HOOKS_RELATIVE_DIR;
+      if (!foreign) warnings.push(...(await shadowedGitHooks(root)).map((name) => (
+        `.git/hooks/${name} will stop running: git consults one hooks directory, and core.hooksPath now points at ${GIT_HOOKS_RELATIVE_DIR}. Move it there to keep it.`
+      )));
+      for (const hook of GIT_HOOK_NAMES) {
+        const relativePath = `${GIT_HOOKS_RELATIVE_DIR}/${hook}`;
+        await writeManaged(relativePath, gitHookStub(hook));
+        // Re-applied every time: a stub whose content is current may still have
+        // lost its executable bit to a checkout, an unzip, or a copy.
+        if (!dryRun) await fs.chmod(path.join(root, ...relativePath.split("/")), 0o755).catch(() => undefined);
+      }
+      if (foreign) {
+        warnings.push(`core.hooksPath already points at ${configured}; it was left alone. Point it at ${GIT_HOOKS_RELATIVE_DIR}, or copy the two stubs there, to run these hooks.`);
+      } else if (dryRun) {
+        planned.push(`git config core.hooksPath ${GIT_HOOKS_RELATIVE_DIR}`);
+      } else if (configured !== GIT_HOOKS_RELATIVE_DIR) {
+        const set = await git(root, ["config", "core.hooksPath", GIT_HOOKS_RELATIVE_DIR]);
+        if (set.ok) updated.push(`git config core.hooksPath ${GIT_HOOKS_RELATIVE_DIR}`);
+        else warnings.push(`Could not set core.hooksPath: ${(set.stderr || "git config failed").trim()}`);
+      }
+    }
+  }
+
   if (targets.includes("cursor")) {
     const cursorPath = path.join(root, ".cursor", "hooks.json");
     const current = await readJson(cursorPath);
@@ -427,6 +542,11 @@ export async function agentHooksStatus(projectRoot) {
   } catch {
     policy = { error: "policy.json is not valid JSON" };
   }
+  const hooksPath = (await git(root, ["config", "--get", "core.hooksPath"])).stdout.trim();
+  const gitHooks = {};
+  for (const hook of GIT_HOOK_NAMES) {
+    gitHooks[hook] = await readText(path.join(root, ...GIT_HOOKS_RELATIVE_DIR.split("/"), hook)) !== null;
+  }
   const claude = await readJson(path.join(root, ".claude", "settings.json")).catch(() => null);
   const cursor = await readJson(path.join(root, ".cursor", "hooks.json")).catch(() => null);
   const count = (document) => Object.values(document?.hooks ?? {}).flat().filter(isOurs).length;
@@ -438,6 +558,11 @@ export async function agentHooksStatus(projectRoot) {
     installed: Object.values(files).every(Boolean),
     profile: policy?.profile ?? null,
     policy_rules: Array.isArray(policy?.rules) ? policy.rules.length : 0,
+    git_hooks: gitHooks,
+    git_hooks_dir: GIT_HOOKS_RELATIVE_DIR,
+    // Installed *and* reachable: stubs git is not pointed at never run.
+    git_hooks_active: Object.values(gitHooks).every(Boolean) && hooksPath === GIT_HOOKS_RELATIVE_DIR,
+    core_hooks_path: hooksPath,
     claude_entries: count(claude),
     cursor_entries: count(cursor),
     cursor_format_version: cursorVersion,

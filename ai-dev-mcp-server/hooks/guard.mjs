@@ -3,9 +3,11 @@
 // for Write/Edit/MultiEdit. Blocks git hook bypasses, destructive commands,
 // secret-bearing files, linter-config weakening, and secrets in new content;
 // warns about oversized files and ad-hoc scratch documents. Extra rules come
-// from .ai-dev/policy.json (hookify-style regex rules).
+// from .ai-dev/policy.json (hookify-style regex rules), and `fact_force` there
+// adds the grounding gate in fact-force.mjs.
 import fs from "node:fs";
 import path from "node:path";
+import { evaluateFactForce } from "./fact-force.mjs";
 import {
   block,
   compileRegex,
@@ -167,10 +169,28 @@ function checkBash(input, policy) {
   return { blocks: [...blocks, ...custom.blocks], warns: [...warns, ...custom.warns] };
 }
 
+/** Every file one Write/Edit/MultiEdit call would touch, with the content it would get. */
+function editTargets(input) {
+  if (input.edits.length) return input.edits.map((edit) => ({ filePath: String(edit.file_path || ""), content: String(edit.new_string || "") }));
+  return [{ filePath: input.filePath, content: input.content }];
+}
+
+/** Repository-relative, POSIX-separated paths of an edit, for policy globs and state keys. */
+function relativeTargets(input, projectRoot) {
+  return editTargets(input)
+    .map((target) => target.filePath)
+    .filter(Boolean)
+    .map((filePath) => {
+      const absolute = path.isAbsolute(filePath) ? filePath : path.join(projectRoot, filePath);
+      const relative = path.relative(projectRoot, absolute).replaceAll("\\", "/");
+      return relative && !relative.startsWith("..") ? relative : String(filePath).replaceAll("\\", "/");
+    });
+}
+
 function checkFile(input, policy, projectRoot) {
   const blocks = [];
   const warns = [];
-  const targets = input.edits.length ? input.edits.map((edit) => ({ filePath: String(edit.file_path || ""), content: String(edit.new_string || "") })) : [{ filePath: input.filePath, content: input.content }];
+  const targets = editTargets(input);
   const secretFile = compileRegex(policy.patterns?.secret_file || "(^|/)(\\.env(?!\\.(?:example|sample|template|dist)$)(?:\\.[^/]+)?|[^/]*\\.(?:pem|key|p12|pfx)|id_rsa|id_ed25519)$");
   const protectedConfigs = new Set(policy.patterns?.protected_config_files || []);
   const secretPatterns = (policy.patterns?.secrets || []).map((item) => ({ ...item, regex: compileRegex(item.source, item.flags || "") })).filter((item) => item.regex);
@@ -208,6 +228,11 @@ async function main() {
   if (truncated) block("BLOCKED: hook input exceeded 1 MiB; refusing to evaluate a truncated payload.");
   const result = mode === "bash" ? checkBash(input, policy) : checkFile(input, policy, projectRoot);
   if (result.blocks.length) block([...new Set(result.blocks)].join("\n"));
+  // Fact forcing runs after the hard rules: a command that is refused outright
+  // is refused for its own reason, not for a missing rollback line.
+  const forced = evaluateFactForce({ mode, hookInput: input, policy, targets: mode === "file" ? relativeTargets(input, projectRoot) : [] });
+  if (forced.deny) block(forced.deny);
+  if (forced.note) result.warns.push(forced.note);
   if (result.warns.length && profileAllows(policy.profile, ["standard", "strict"])) emitContext("PreToolUse", [...new Set(result.warns)].map((line) => `[ai-dev guard] ${line}`).join("\n"));
   process.exit(0);
 }

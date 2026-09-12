@@ -107,10 +107,16 @@ const GROUPS = [
       "verify_task",
       "complete_task",
       "prepare_pull_request",
+      "coverage_gaps",
       "start_project_pilot",
       "record_project_pilot_review",
       "project_pilot_status"
     ]
+  },
+  {
+    title: "Epics",
+    when: "A task too big for one arc. `decompose_task` opens its children as real tasks with an order between them, and the parent stays open until every one of them is closed.",
+    tools: ["decompose_task", "epic_status"]
   },
   {
     title: "Plan gate",
@@ -140,8 +146,10 @@ const GROUPS = [
       "list_decisions",
       "save_session",
       "resume_session",
+      "list_sessions",
       "context_budget_status",
       "record_instinct",
+      "propose_instincts",
       "list_instincts",
       "update_instinct",
       "evolve_instincts",

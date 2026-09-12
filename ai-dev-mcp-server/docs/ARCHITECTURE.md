@@ -279,11 +279,13 @@ where a foreign hook sits ahead of ours, since Cursor runs the first entry of an
 | --- | --- | --- |
 | `guard.mjs bash` | PreToolUse (Bash) | Blocks git-hook bypasses, destructive and publishing commands, and policy `block` rules. |
 | `guard.mjs file` | PreToolUse (Write/Edit) | Blocks secret-bearing paths, secrets in new content, and weakened linter or protected configuration. |
+| `fact-force.mjs` | PreToolUse, via `guard.mjs` | Under `fact_force`, refuses the first edit of a file in a session until a `FACTS <path>` block names its importers, the API it changes, the data it touches and the instruction it serves, and the first destructive command until a `ROLLBACK:` line says how to get back. Reads the transcript for both. |
 | `compact-advisor.mjs` | PreToolUse (Edit/Write) | Suggests `/compact` from real context size — the `usage` of the newest assistant message in the transcript — plus a per-session tool-call count. Never blocks. |
 | `post-edit.mjs` | PostToolUse | Formats the edited file with the project's own formatter when one is installed locally — never installs anything, never uses `npx`. |
 | `session-start.mjs` | SessionStart | Injects the last handoff, open tasks, high-confidence instincts, and the installed rules index into the first turn. |
-| `session-end.mjs` | Stop, PreCompact | Distils the transcript into an unconfirmed draft record (`confirmed: false`) for `resume_session`. |
+| `session-end.mjs` | Stop, PreCompact | Distils the transcript into an unconfirmed draft record (`confirmed: false`) for `resume_session`, and writes the observation log beside it (`observe-<session>.json`: what the user said, what tools ran with what, which calls failed) that `propose_instincts` reads. |
 | `cost-capture.mjs` | Stop | Sums the `usage` of the assistant messages the transcript gained since the last run and appends them to the usage ledger, per model. Tokens only — the report prices them. |
+| `git-hooks.mjs` | git `pre-commit`, `pre-push` | Installed through `core.hooksPath` by `targets: ["git"]`, so they run for every client and for a human at a terminal. `pre-commit` refuses a staged secret, conflict marker, focused test or left-behind debugger; `pre-push` reports an active task with no verification or a failed one. |
 | `stop-check.mjs` | Stop | Cheap checks on git-modified files: leftover `console.log`/`debugger`, secrets, and a `verify_task` reminder while a task is active with uncommitted changes. |
 
 `.ai-dev/policy.json` is the knob: a `profile` (`minimal` — guard and session capture only,
@@ -292,7 +294,10 @@ where a foreign hook sits ahead of ours, since Cursor runs the first entry of an
 derives it from the window — `compact_context_thresholds.standard` / `.large`,
 `compact_context_window`, `compact_context_interval`), `model_rates` (per-model price overrides
 for the usage report, in USD per million tokens), `completion_claims` (the completion-statement
-linter: `enabled`, and `waivers` of `{ rule, reason, expires? }` where the reason is real), and a list
+linter: `enabled`, and `waivers` of `{ rule, reason, expires? }` where the reason is real),
+`fact_force` (the grounding gate: `enabled` — on by default under `strict` — `files`, `bash`,
+`expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), `git_hooks` (`pre_commit` and
+`pre_push`, each `block`, `warn` or `off`), and a list
 of hookify-style `rules` (`{ id, event, pattern, action, message }`) that add project-specific
 `block` or `warn` patterns without touching the scripts. Hooks fail open: any error exits 0 so a
 broken hook never wedges the agent.
@@ -411,6 +416,9 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
   "plan": null,
   "acceptance_criteria": [{ "id": "AC-1", "text": "...", "status": "pending", "evidence": [], "note": "" }],
   "skills": ["..."],
+  "parent_id": "",                 // set on a child of an epic
+  "depends_on": [],                // sibling task ids this child waits for
+  "epic": null,                    // { "children": ["task-..."] } on the parent
   "context": {
     "worktree": { "path", "branch", "base_ref", "main_root", "created", "removed_at?" }
   },
@@ -424,6 +432,14 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
 - `plan_policy` is computed at `begin_task` from complexity signals and risk. When it says
   `plan_required`, the task gets an extra acceptance criterion that only `plan_task` can meet, so
   the plan gate is enforced through the normal completion rules rather than a special case.
+- `parent_id`, `depends_on` and `epic` are the epic links (`core/task-epics.mjs`). A task is a
+  child when `parent_id` names one, a parent when `epic.children` lists any, and most tasks are
+  neither. `decompose_task` opens each child through `begin_task` — so a child is a task in every
+  other respect — and writes the links afterwards, because a dependency is an id and the ids only
+  exist once the children do. A reference to nothing, a child waiting for itself and a cycle are
+  refused before any child is created. `complete_task` on a parent is refused while a child is
+  open or a child record is missing; `epic_status` reports what is ready, what is blocked by what,
+  and an epic where every open child waits for another open one.
 - `context.worktree` is present only for a task opened with `begin_task_in_worktree`. It records
   where the isolated checkout lives and which branch it is on; `complete_task` uses it to point at
   the merge or PR, and `remove_task_worktree` stamps `removed_at` instead of deleting the field.

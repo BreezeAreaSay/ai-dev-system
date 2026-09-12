@@ -35,10 +35,11 @@ const POLICY_APPLIES = "The guard reads .ai-dev/policy.json on every command and
 
 /**
  * Agent hooks tools: install deterministic client-side guards (Claude Code /
- * Cursor hooks) that complement the MCP server: block --no-verify and
- * destructive commands, protect secrets and linter configs, auto-format,
- * inject the last handoff on session start, capture session summaries, and
- * advise on strategic compaction.
+ * Cursor hooks, and git hooks through core.hooksPath) that complement the MCP
+ * server: block --no-verify and destructive commands, protect secrets and
+ * linter configs, auto-format, inject the last handoff on session start,
+ * capture session summaries, advise on strategic compaction, and hold a commit
+ * or a push to the same rules whoever makes it.
  *
  * The project's own rules live in `.ai-dev/policy.json`, which the guard reads
  * on every call. `list_policy_rules`, `upsert_policy_rule` and
@@ -53,13 +54,13 @@ export function createHookTools(host) {
     definitions: [
       {
         name: "install_agent_hooks",
-        description: "Install the AI Dev agent hooks into a repository: self-contained scripts under .ai-dev/hooks, a hookify-style .ai-dev/policy.json, and registrations in .claude/settings.json (Claude Code) and/or .cursor/hooks.json (Cursor). Re-running refreshes the scripts and keeps custom policy rules.",
+        description: "Install the AI Dev agent hooks into a repository: self-contained scripts under .ai-dev/hooks, a hookify-style .ai-dev/policy.json, and registrations in .claude/settings.json (Claude Code), .cursor/hooks.json (Cursor) and/or git hooks through core.hooksPath (target \"git\": pre-commit refuses a staged secret or conflict marker, pre-push reads the active task's latest verification). Re-running refreshes the scripts and keeps custom policy rules.",
         inputSchema: {
           type: "object",
           properties: {
             project_path: { type: "string" },
             targets: { type: "array", items: { type: "string", enum: HOOK_TARGETS }, default: ["claude"] },
-            profile: { type: "string", enum: HOOK_PROFILES, default: "standard", description: "minimal: guards + session capture; standard: + session start context, formatting, compaction advice, stop checks; strict: standard + push/amend warnings." },
+            profile: { type: "string", enum: HOOK_PROFILES, default: "standard", description: "minimal: guards + session capture; standard: + session start context, formatting, compaction advice, stop checks; strict: standard + push/amend warnings + fact forcing (the first edit of a file and the first destructive command have to state their grounding)." },
             overwrite: { type: "boolean", default: false, description: "Also reset .ai-dev/policy.json to defaults." },
             cursor_format_version: { type: "number", enum: CURSOR_HOOKS_FORMATS, default: CURSOR_HOOKS_FORMAT_VERSION, description: "Format version of .cursor/hooks.json to write. Cursor 3.x still reads version 1; a new format gets its own adapter rather than a rewrite of this one." },
             dry_run: { type: "boolean", default: false }

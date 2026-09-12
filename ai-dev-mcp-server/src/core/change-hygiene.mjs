@@ -32,7 +32,8 @@ export const SECRET_PATTERNS = Object.freeze([
   }
 ]);
 
-const PLACEHOLDER_VALUE = /^(?:process\.env\.[A-Za-z0-9_]+|\$\{[^}]*\}|<[^<>]*>|\{\{[^}]*\}\}|REPLACE_?ME|CHANGE_?ME|YOUR[_-]?API[_-]?KEY|YOUR[_-]?KEY[_-]?HERE|YOUR[_-]?[A-Z_]*|API[_-]?KEY|SECRET|TOKEN|PASSWORD|KEY|TODO|TBD|FIXME|X{4,}|x{4,}|\*{4,}|\.{3,}|example|test|dummy|placeholder|changeme|redacted)$/i;
+/** Values that look like a secret but are a stand-in for one. Shared with the hooks through `patterns.json`. */
+export const PLACEHOLDER_VALUE = /^(?:process\.env\.[A-Za-z0-9_]+|\$\{[^}]*\}|<[^<>]*>|\{\{[^}]*\}\}|REPLACE_?ME|CHANGE_?ME|YOUR[_-]?API[_-]?KEY|YOUR[_-]?KEY[_-]?HERE|YOUR[_-]?[A-Z_]*|API[_-]?KEY|SECRET|TOKEN|PASSWORD|KEY|TODO|TBD|FIXME|X{4,}|x{4,}|\*{4,}|\.{3,}|example|test|dummy|placeholder|changeme|redacted)$/i;
 
 /** Files whose presence in a change set is itself a finding. */
 export const SECRET_FILE_PATTERN = /(^|\/)(\.env(?!\.(?:example|sample|template|dist)$)(?:\.[^/]+)?|[^/]*\.(?:pem|key|p12|pfx|jks|keystore)|id_rsa|id_ed25519|[^/]*secrets?\.(?:json|ya?ml|toml)|credentials(?:\.json)?)$/i;
@@ -50,6 +51,11 @@ export const PROTECTED_CONFIG_FILES = new Set([
 ]);
 
 const TEST_PATH = /(^|\/)(tests?|__tests__|spec|specs|e2e|cypress|playwright)\/|\.(test|spec)\.[cm]?[jt]sx?$|_test\.(go|py|rs)$|(^|\/)test_[^/]+\.py$|\.tests?\.py$/i;
+/** Anything a reader of the project would consult: Markdown, reStructuredText, AsciiDoc, or a file under docs/. */
+const DOCUMENTATION_PATH = /(^|\/)(?:docs?|documentation)\/|\.(?:md|mdx|rst|adoc|txt)$/i;
+const VENDORED_PATH = /(^|\/)(?:node_modules|vendor|dist|build|out|target|coverage|\.venv|venv|__pycache__)\//i;
+/** Shells and task runners: an interface is often declared here, but they are not "source" for the test rules. */
+const INTERFACE_SCRIPT_EXTENSIONS = new Set([".sh", ".bash", ".zsh", ".ps1"]);
 const SOURCE_EXTENSIONS = new Set([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".py", ".go", ".rs", ".java", ".kt", ".kts", ".cs", ".php", ".rb", ".swift", ".vue", ".svelte"]);
 const NON_SOURCE_PATH = /(^|\/)(docs?|documentation|examples?|scripts?|migrations|fixtures|\.ai-dev|\.github|\.claude|\.cursor|node_modules|dist|build)\//i;
 const CONFIG_BASENAME = /^(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|pyproject\.toml|poetry\.lock|uv\.lock|go\.mod|go\.sum|Cargo\.toml|Cargo\.lock|tsconfig[^/]*\.json|.*\.config\.[cm]?[jt]s|.*rc(\.[a-z]+)?|\.gitignore|Dockerfile|docker-compose[^/]*\.ya?ml|Makefile|README(\.[a-z]+)?\.md)$/i;
@@ -63,7 +69,8 @@ const LARGE_FILE_LINES = 800;
  */
 export const IGNORED_CHANGE_PATH = /(^|\/)\.ai-dev\/(context|frontend-qa|frontend-qa-baselines|artifacts|pr)\//i;
 
-const LEFTOVER_PATTERNS = Object.freeze([
+/** Debug and merge leftovers, one line each. Exported for the hooks, which read them from `patterns.json`. */
+export const LEFTOVER_PATTERNS = Object.freeze([
   { id: "merge_conflict_marker", severity: "block", pattern: /^(?:<{7}|>{7})(?:\s|$)/, message: "Merge conflict marker left in the file." },
   { id: "test_only", severity: "block", pattern: /\b(?:describe|it|test|context)\.only\s*\(/, message: "A focused test (.only) would silently skip the rest of the suite.", languages: ["js"] },
   { id: "debugger_statement", severity: "block", pattern: /^\s*debugger\s*;?\s*$/, message: "debugger statement left in code.", languages: ["js"] },
@@ -84,6 +91,33 @@ const LEFTOVER_PAIR_PATTERNS = Object.freeze([
   { id: "empty_catch", severity: "warn", first: /catch\s*(?:\([^)]*\))?\s*\{\s*$/, second: /^\s*\}/, message: "Empty catch swallows the error silently (silent failure).", languages: ["js"] }
 ]);
 
+/**
+ * Signals that an added line widened or reshaped the surface other people code
+ * against: a new export, a tool contract, a command-line flag. ECC keeps the
+ * same list in `update-docs` and `living-docs-governance`, where the rule is
+ * that a public change without a documentation change is a stale document.
+ *
+ * Only *declarations* match. A body line inside an exported function is not an
+ * interface change, and passing `--no-color` to a subprocess is not a flag the
+ * project offers, so neither fires the rule.
+ */
+export const PUBLIC_INTERFACE_PATTERNS = Object.freeze([
+  { id: "export", pattern: /^\s*export\s+(?:default\s+)?(?:declare\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum|abstract)\b/, languages: ["js"] },
+  { id: "export", pattern: /^\s*export\s*(?:\{|\*)/, languages: ["js"] },
+  { id: "export", pattern: /^\s*(?:module\.exports\b|exports\.[A-Za-z_$][\w$]*\s*=)/, languages: ["js"] },
+  { id: "export", pattern: /^(?:async\s+)?(?:def|class)\s+(?!_)[A-Za-z]/, languages: ["py"] },
+  { id: "export", pattern: /^__all__\s*=/, languages: ["py"] },
+  { id: "export", pattern: /^\s*pub(?:\([^)]*\))?\s+(?:async\s+)?(?:unsafe\s+)?(?:fn|struct|enum|trait|type|const|mod)\b/, languages: ["rs"] },
+  { id: "export", pattern: /^func\s+(?:\([^)]*\)\s*)?[A-Z]/, languages: ["go"] },
+  { id: "export", pattern: /^\s*(?:public|protected)\s+(?:static\s+|final\s+|abstract\s+|async\s+)*(?:class|interface|enum|record|fun|func|var|val|[A-Za-z_<>\[\]]+\s+[A-Za-z_]\w*\s*\()/, languages: ["other"] },
+  { id: "tool_schema", pattern: /\binputSchema\b|"inputSchema"/ },
+  { id: "cli_flag", pattern: /(?:\.option|\.addOption|\.argument|add_argument|\.flag|StringVar|BoolVar|IntVar)\s*\(\s*["'`]?-{1,2}[A-Za-z]/ },
+  { id: "cli_flag", pattern: /(?:case|===|==|\.includes|\.has|startsWith)\s*\(?\s*["'`]--[a-z][a-z0-9-]*["'`]/ }
+]);
+
+/** Human-readable name of each interface signal, for the `docs_stale` message. */
+const INTERFACE_SIGNAL_LABELS = Object.freeze({ export: "exports", tool_schema: "tool schemas", cli_flag: "CLI flags" });
+
 function languageOf(relativePath) {
   const extension = path.extname(relativePath).toLowerCase();
   if ([".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts", ".vue", ".svelte"].includes(extension)) return "js";
@@ -103,6 +137,42 @@ function isSourcePath(relativePath) {
     && !isTestPath(relativePath)
     && !NON_SOURCE_PATH.test(relativePath)
     && !CONFIG_BASENAME.test(base);
+}
+
+/** A file a reader consults rather than runs: the counterpart of an interface change. */
+function isDocumentationPath(relativePath) {
+  return DOCUMENTATION_PATH.test(relativePath);
+}
+
+/**
+ * Files whose added lines are searched for interface signals: code, including
+ * the scripts an interface is usually declared in, but not tests, not vendored
+ * trees, and not documentation. Data files are left out — a schema key in JSON
+ * is as often a fixture as a contract.
+ */
+function isInterfaceCandidate(relativePath) {
+  const extension = path.extname(relativePath).toLowerCase();
+  return (SOURCE_EXTENSIONS.has(extension) || INTERFACE_SCRIPT_EXTENSIONS.has(extension))
+    && !isTestPath(relativePath)
+    && !isDocumentationPath(relativePath)
+    && !VENDORED_PATH.test(relativePath);
+}
+
+/**
+ * The interface signals an added line carries, if any.
+ *
+ * @param {string} line
+ * @param {string} language - Result of {@link languageOf}.
+ * @returns {string[]} Signal ids: `export`, `tool_schema`, `cli_flag`.
+ */
+export function findInterfaceSignals(line, language = "other") {
+  const text = String(line ?? "");
+  const signals = new Set();
+  for (const rule of PUBLIC_INTERFACE_PATTERNS) {
+    if (rule.languages && !rule.languages.includes(language)) continue;
+    if (rule.pattern.test(text)) signals.add(rule.id);
+  }
+  return [...signals];
 }
 
 function mask(value) {
@@ -304,14 +374,19 @@ export function analyzeChangeSet(changeSet, { lineCounts = {} } = {}) {
   const findings = [];
   const sourceFiles = [];
   const testFiles = [];
+  const documentationFiles = [];
+  const interfaceFiles = new Set();
+  const interfaceSignals = new Set();
   for (const file of changeSet.files ?? []) {
     const relativePath = file.path;
     const base = path.basename(relativePath);
     const language = languageOf(relativePath);
     const test = isTestPath(relativePath);
     const source = isSourcePath(relativePath);
+    const interfaceCandidate = isInterfaceCandidate(relativePath);
     if (source) sourceFiles.push(relativePath);
     if (test) testFiles.push(relativePath);
+    if (isDocumentationPath(relativePath)) documentationFiles.push(relativePath);
 
     if (SECRET_FILE_PATTERN.test(relativePath)) {
       findings.push(finding("block", "secret_file_in_change_set", relativePath, 0,
@@ -330,6 +405,12 @@ export function analyzeChangeSet(changeSet, { lineCounts = {} } = {}) {
     const addedLines = file.added ?? [];
     for (const [index, { line, text }] of addedLines.entries()) {
       const next = addedLines[index + 1];
+      if (interfaceCandidate) {
+        for (const signal of findInterfaceSignals(text, language)) {
+          interfaceFiles.add(relativePath);
+          interfaceSignals.add(signal);
+        }
+      }
       for (const rule of LEFTOVER_PAIR_PATTERNS) {
         if (rule.languages && !rule.languages.includes(language)) continue;
         if (!next || next.line !== line + 1) continue;
@@ -365,6 +446,13 @@ export function analyzeChangeSet(changeSet, { lineCounts = {} } = {}) {
       { files: untestedSources.slice(0, 20) }));
   }
 
+  if (interfaceFiles.size && !documentationFiles.length) {
+    const signals = [...interfaceSignals].map((signal) => INTERFACE_SIGNAL_LABELS[signal] ?? signal);
+    findings.push(finding("warn", "docs_stale", "", 0,
+      `The public interface changed (${signals.join(", ")}) but no documentation file changed. Update the README or docs/, or record in the checkpoint note why the change is internal.`,
+      { files: [...interfaceFiles].slice(0, 20) }));
+  }
+
   const counts = { block: 0, warn: 0, info: 0 };
   for (const item of findings) counts[item.severity] = (counts[item.severity] || 0) + 1;
   const status = counts.block ? "block" : counts.warn ? "warn" : "pass";
@@ -379,6 +467,8 @@ export function analyzeChangeSet(changeSet, { lineCounts = {} } = {}) {
       files_changed: (changeSet.files ?? []).length,
       source_files: sourceFiles.length,
       test_files: testFiles.length,
+      documentation_files: documentationFiles.length,
+      interface_files: interfaceFiles.size,
       added_lines: (changeSet.files ?? []).reduce((sum, file) => sum + (file.added?.length ?? 0), 0),
       ...counts,
       truncated: Boolean(changeSet.truncated)

@@ -22,6 +22,8 @@ for all of these clients.
   pull request description built from the evidence it collected;
 - [snapshots of a task's working tree](#undoing-a-turn) after every checkpoint, and a
   reversible rollback to any of them;
+- [epics](#breaking-a-task-up): one task broken into children with an order between
+  them, and a parent that cannot close while a child is open;
 - a quality gate, security checks, and Frontend QA with Playwright / Chromium;
 - [memory across sessions](#memory-and-learning): handoffs, decisions, and learned instincts;
 - [agent hooks](#hooks) for Claude Code and Cursor that guard commands and file writes,
@@ -317,6 +319,34 @@ Use the ai-dev MCP server. Begin a task for /workspace/my-project:
 add CSV export for the report, cover the change with tests, and run verify_task.
 ```
 
+### Breaking a task up
+
+A task too big for one arc becomes an epic. `decompose_task` turns it into a
+parent and a set of children, each opened through `begin_task` — so a child
+routes its own skills, compiles its own context pack, carries its own acceptance
+criteria, and every other tool works on it unchanged.
+
+```text
+Use the ai-dev MCP server. Decompose task-2026... into: extract the parser;
+wire it into the router (depends on the first); document the new module
+(depends on the second).
+```
+
+A child may wait for its siblings through `depends_on`, named by key or by
+position. A reference to nothing, a child waiting for itself, and a ring of
+children each waiting for the next are all refused before anything is created —
+an order that cannot be worked is better rejected than opened.
+
+`epic_status` reads the family back: what each child is waiting for, how far the
+whole thing has come, and the one child to work next (something already in
+progress before something merely ready). Ask it about a child and it answers
+with the parent's epic. `complete_task` on the parent is refused while any child
+is open, or while a child's record has gone missing — an epic closes last, on
+evidence that still exists.
+
+GitHub Issues are not part of this. ECC coordinates epics through issues and
+labels; this server tracks tasks itself and works offline.
+
 ### Undoing a turn
 
 `checkpoint_task` records the whole working tree of the task — tracked changes, staged or
@@ -344,6 +374,8 @@ explicit call.
 | `record_decision` | A numbered ADR: title, context, decision, alternatives, consequences. | `.ai-dev/decisions/`, versioned with the code |
 | `record_instinct` | One learned behaviour as "when *trigger*, *action*", with a confidence that rises on repeat observation and decays with time. | `~/.ai-dev/state/instincts.json` |
 | `context_budget_status` | Nothing — it estimates a task's static context against the model window and says when compacting is safe. | — |
+| `list_sessions` | Nothing — it lists the handoffs a repository has, newest first, marking the unconfirmed hook drafts and the sessions whose observation log is still on disk. | — |
+| `propose_instincts` | Candidate instincts read out of one session's observation log, stored as `proposed` until confirmed. | `~/.ai-dev/state/instincts.json` |
 
 Decisions, the newest handoff, and instincts above 70% confidence are folded
 into the context pack that `begin_task` compiles, so the next session sees them
@@ -359,7 +391,20 @@ choices as decisions, and a handoff if the work continues elsewhere. It is
 deliberately conservative — single occurrences, code, and secrets do not belong
 in long-term memory.
 
-`list_instincts` shows what has been learned, `update_instinct` confirms or
+`propose_instincts` is the other half of that loop, for the sessions where
+nobody ran the prompt. The session-end hook leaves an observation log — what you
+said, what tools ran with what, which calls came back as errors — and the tool
+reads one: the corrections you made, the rules you stated, an error that recurred
+and the call that finally cleared it, and the commands and pairs of commands the
+session kept repeating. What comes back is candidates, not conclusions. Each one
+quotes what was observed, is stored with status `proposed`, is never injected
+into a context pack, and becomes a real instinct only through
+`update_instinct(action: "confirm")` — or goes away with `retire`. Run it against
+a session by id, or leave the id out for the newest one; `dry_run` shows the
+candidates without storing any.
+
+`list_instincts` shows what has been learned (`status: "proposed"` for the
+candidates), `update_instinct` confirms or
 retires one, and `evolve_instincts` clusters mature instincts into skill drafts
 and promotes those seen across several projects to global scope.
 
@@ -410,12 +455,44 @@ Three profiles:
 - `standard` — the default: everything above, including formatting, session
   start injection, the compaction advisor, and the end-of-response check.
 - `strict` — the same set plus extra review warnings before `git push` and
-  `git commit --amend`.
+  `git commit --amend`, and fact forcing.
+
+Fact forcing is the strict profile's one refusal that is not about danger. The
+first edit of a file in a session is refused until the agent has written the
+facts behind it, and the first destructive command until it has written the way
+back:
+
+```text
+FACTS src/router.mjs
+importers: src/app.mjs and src/server.mjs
+api: adds a `resolve` export, nothing removed
+data: reads the route table in config/routes.json
+instruction: "make the router resolve nested paths"
+```
+
+The refusal quotes that block, the agent writes it in the turn that repeats the
+edit, and the retry goes through; the file then stays grounded for the rest of
+the session. The gate reads the transcript, so where there is none it judges
+nothing, and it stops refusing after three refusals in one session rather than
+arguing. `fact_force` in the policy turns it on anywhere, or off under strict,
+and `exempt_globs` keeps it away from paths where it has nothing to ask.
+
+`targets: ["git"]` installs two more, for everyone rather than for one client:
+`install_agent_hooks` writes `.ai-dev/git-hooks/{pre-commit,pre-push}` and points
+`core.hooksPath` at them, so a commit made from an editor, a script or a terminal
+meets the same rules. `pre-commit` refuses a staged secret, merge-conflict
+marker, focused test or left-behind `debugger`; `pre-push` says when the active
+task has no verification or its latest one failed. A `core.hooksPath` someone
+else set is reported, never taken over, and every hook in `.git/hooks` that
+would stop running is named — git consults one hooks directory, not two.
 
 `.ai-dev/policy.json` is where you tune it without touching the scripts:
 `allow_config_edits`, `format_on_edit`, compaction thresholds, `model_rates`,
 `completion_claims` (the completion-statement linter: `enabled`, and `waivers` of
-`{ rule, reason, expires }`), and a list of your own rules:
+`{ rule, reason, expires }`), `fact_force` (`enabled`, `files`, `bash`,
+`expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), `git_hooks`
+(`pre_commit` and `pre_push`, each `block`, `warn` or `off`), and a list of your
+own rules:
 
 ```json
 {

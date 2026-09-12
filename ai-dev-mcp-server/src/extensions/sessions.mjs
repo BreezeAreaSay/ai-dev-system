@@ -118,6 +118,20 @@ export function createSessionTools(host) {
         }
       },
       {
+        name: "list_sessions",
+        description: "List the session handoffs a repository has, newest first: who saved each one (the agent, or the session-end hook as an unconfirmed draft), its topic, next step, substance score, task and branch, and whether an observation log for it is still on disk for propose_instincts. Read-only.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string" },
+            limit: { type: "number", default: 20 },
+            drafts_only: { type: "boolean", default: false, description: "Only the unconfirmed captures the session-end hook wrote." },
+            substantive_only: { type: "boolean", default: false, description: "Drop records too thin to resume from." }
+          },
+          required: ["project_path"]
+        }
+      },
+      {
         name: "context_budget_status",
         description: "Estimate the static context overhead of a task (compiled pack, routed skills, rules, AGENTS.md) against the model window and advise when to compact: at phase boundaries after checkpoint/verify, never mid-edit.",
         inputSchema: {
@@ -131,6 +145,48 @@ export function createSessionTools(host) {
       }
     ],
     handlers: {
+      async list_sessions(args) {
+        const identity = await host.resolveProjectIdentity(args.project_path);
+        const records = await host.sessionStore.list(identity, {
+          limit: args.limit ?? 20,
+          substantiveOnly: Boolean(args.substantive_only)
+        });
+        const logs = await host.sessionStore.observations(identity);
+        const observed = new Set(logs.map((log) => String(log.session_id || "")).filter(Boolean));
+        const sessions = records
+          .filter((record) => !args.drafts_only || isHookDraft(record))
+          .map((record) => ({
+            id: record.id,
+            saved_at: record.saved_at,
+            topic: record.topic,
+            next_step: record.next_step,
+            source: record.source,
+            unconfirmed: record.unconfirmed,
+            substance_score: record.substance_score,
+            task_id: record.task_id,
+            branch: record.branch,
+            client: record.client,
+            session_id: record.session_id,
+            files: (record.files ?? []).length,
+            // propose_instincts reads the log, not the handoff, so this is what
+            // says whether there is anything left to learn from.
+            has_observations: Boolean(record.session_id && observed.has(record.session_id))
+          }));
+        const drafts = sessions.filter((item) => item.unconfirmed).length;
+        return {
+          project_id: identity.project_id,
+          repository_id: identity.repository_id,
+          count: sessions.length,
+          drafts,
+          observation_logs: logs.length,
+          sessions,
+          next_step: drafts
+            ? `${drafts} unconfirmed hook draft(s): confirm one with save_session(confirm_hook_draft: true) or ignore it.`
+            : sessions.length
+              ? "resume_session loads the newest substantive handoff in full."
+              : "No handoffs yet: save_session writes one, and the session-end hook drafts one when you forget."
+        };
+      },
       async save_session(args) {
         const { identity, record } = await projectFor(args);
         const state = await host.captureProjectState(identity.project_root);
@@ -263,6 +319,6 @@ export function createSessionTools(host) {
         return { task_id: record.id, status: record.status, ...budget };
       }
     },
-    readOnly: ["resume_session", "context_budget_status"]
+    readOnly: ["list_sessions", "resume_session", "context_budget_status"]
   };
 }

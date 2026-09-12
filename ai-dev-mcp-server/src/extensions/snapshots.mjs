@@ -104,19 +104,20 @@ async function rollbackTask(host, { task_id, snapshot_id }) {
     snapshotId: snapshot_id
   });
   // Every file a rollback deletes is named, because a rollback brings the tree
-  // to the snapshot's state and anything written since goes — including a file
-  // a person put there from another terminal (Д-15). The deletions are
-  // recoverable from the undo snapshot, so they are reported rather than
-  // refused, and the ones this task has never captured are named separately:
-  // those are the ones most likely not to be its work.
+  // to the snapshot's state and anything written since goes — this task's own
+  // work as much as a file a person put there from another terminal (Д-15).
+  // The warning says that about all of them equally: which of two files written
+  // since the last snapshot is whose is not something the snapshots know, and
+  // the split used to claim it did (Д-28). The deletions are recoverable from
+  // the undo snapshot, so they are reported rather than refused.
   const warnings = [];
   if (result.removed_files.length) {
-    warnings.push(`${result.removed_files.length} file(s) that did not exist in ${result.snapshot.snapshot_id} were deleted: ${listFiles(result.removed_files)}. Every one of them is in the undo snapshot ${result.undo.snapshot_id}.`);
+    warnings.push(`${result.removed_files.length} file(s) that did not exist in ${result.snapshot.snapshot_id} were deleted: ${listFiles(result.removed_files)}. All of them were written after that snapshot — by this task, or by anyone else working in this tree. Every one is in the undo snapshot ${result.undo.snapshot_id}: restore them with rollback_task(task_id=${record.id}, snapshot_id=${result.undo.snapshot_id}), and check with whoever shares the working tree before carrying on.`);
   }
-  if (result.removed_unfamiliar_files.length) {
-    warnings.push(`${result.removed_unfamiliar_files.length} of them have never appeared in a snapshot of this task, so they may be someone else's work rather than yours: ${listFiles(result.removed_unfamiliar_files)}. Check with whoever shares this working tree before carrying on, or restore them with rollback_task(task_id=${record.id}, snapshot_id=${result.undo.snapshot_id}).`);
-  } else if (result.removed_files.length && !result.removed_classification_reliable) {
-    warnings.push("Which of the deleted files belong to this task could not be told apart: at least one snapshot recorded more paths than it kept. Read the removed_files list rather than trusting the split.");
+  if (result.removed_unsnapshotted_files.length) {
+    warnings.push(`${result.removed_unsnapshotted_files.length} of them appear in no snapshot of this task at all, so the undo snapshot is the only record that they existed: ${listFiles(result.removed_unsnapshotted_files)}.`);
+  } else if (result.removed_files.length && !result.removed_snapshot_history_complete) {
+    warnings.push("Which of the deleted files this task had snapshotted before could not be told: at least one snapshot recorded more paths than it kept. Read the removed_files list rather than trusting the split.");
   }
   return {
     action: "rolled_back",
@@ -126,8 +127,8 @@ async function rollbackTask(host, { task_id, snapshot_id }) {
     undo_snapshot: describe(result.undo, true),
     restored_files: result.restored_files,
     removed_files: result.removed_files,
-    removed_unfamiliar_files: result.removed_unfamiliar_files,
-    removed_classification_reliable: result.removed_classification_reliable,
+    removed_unsnapshotted_files: result.removed_unsnapshotted_files,
+    removed_snapshot_history_complete: result.removed_snapshot_history_complete,
     warnings,
     ...(result.kept_files.length ? { kept_files: result.kept_files, kept_reason: "A nested repository is left in place: its history is not this task's to delete." } : {}),
     next_step: `This rollback is itself reversible: rollback_task(task_id=${record.id}, snapshot_id=${result.undo.snapshot_id}) restores the state it replaced.`
@@ -164,7 +165,7 @@ export function createSnapshotTools(host) {
       },
       {
         name: "rollback_task",
-        description: "Restore the task's working tree to a snapshot: files it holds go back to their recorded content and files added since are removed. Every removed file is named in removed_files, and the ones this task has never snapshotted — which may be someone else's work in a shared working tree — are named again in removed_unfamiliar_files with a warning. Ignored files, nested repositories and the git index are untouched, and no branch, commit or stash entry is written. The state being replaced is snapshotted first, so the rollback can itself be rolled back and nothing it deleted is lost.",
+        description: "Restore the task's working tree to a snapshot: files it holds go back to their recorded content and files added since are removed. Every removed file is named in removed_files with a warning — all of them were written after the snapshot, by this task or by anyone else sharing the working tree — and the ones no snapshot of this task holds at all are named again in removed_unsnapshotted_files. Ignored files, nested repositories and the git index are untouched, and no branch, commit or stash entry is written. The state being replaced is snapshotted first, so the rollback can itself be rolled back and nothing it deleted is lost.",
         inputSchema: {
           type: "object",
           properties: {

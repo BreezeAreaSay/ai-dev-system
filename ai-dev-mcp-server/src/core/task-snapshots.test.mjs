@@ -18,7 +18,7 @@ import {
   resolveTaskWorktree,
   restoreSnapshot,
   rollbackTaskToSnapshot,
-  unfamiliarRemovals,
+  unsnapshottedRemovals,
   snapshotRef,
   snapshotTargetStatus,
   taskSnapshots
@@ -386,8 +386,8 @@ test("a rollback names every file it deletes, and flags the ones the task never 
   // Neither file was in snapshot-1, and this task has never captured either, so
   // both are flagged: the answer cannot tell whose they are, only that the task
   // has no record of them.
-  assert.deepEqual(rolledBack.removed_unfamiliar_files, ["src/router.js", "user-note.md"]);
-  assert.equal(rolledBack.removed_classification_reliable, true);
+  assert.deepEqual(rolledBack.removed_unsnapshotted_files, ["src/router.js", "user-note.md"]);
+  assert.equal(rolledBack.removed_snapshot_history_complete, true);
   assert.equal(await readFileOrNull(repo, "user-note.md"), null);
   // And it is recoverable, which is what makes reporting rather than refusing
   // the right answer.
@@ -399,11 +399,11 @@ test("a rollback names every file it deletes, and flags the ones the task never 
   await writeFile(repo, "user-note.md", "# edited\n");
   const second = await rollbackTaskToSnapshot({ taskStore, record: known.task, worktreePath: repo, snapshotId: "snapshot-1" });
   assert.deepEqual(second.removed_files, ["src/router.js", "user-note.md"]);
-  assert.deepEqual(second.removed_unfamiliar_files, [], "both paths are in this task's snapshot history now");
+  assert.deepEqual(second.removed_unsnapshotted_files, [], "both paths are in this task's snapshot history now");
 
   // The rollback record keeps the flagged list, so the answer survives the call.
   const stored = (await taskStore.read(record.id)).rollbacks;
-  assert.deepEqual(stored[0].removed_unfamiliar_files, ["src/router.js", "user-note.md"]);
+  assert.deepEqual(stored[0].removed_unsnapshotted_files, ["src/router.js", "user-note.md"]);
 });
 
 test("the removal split is refused rather than guessed when a snapshot's file list was truncated", () => {
@@ -413,10 +413,10 @@ test("the removal split is refused rather than guessed when a snapshot's file li
       { snapshot_id: "snapshot-2", files: ["c.js"], file_count: 1 }
     ]
   };
-  assert.deepEqual(unfamiliarRemovals(record, ["a.js", "d.js"]), { files: ["d.js"], reliable: true });
-  assert.deepEqual(unfamiliarRemovals({ snapshots: [] }, ["d.js"]), { files: ["d.js"], reliable: true });
-  assert.deepEqual(unfamiliarRemovals({}, undefined), { files: [], reliable: true });
+  assert.deepEqual(unsnapshottedRemovals(record, ["a.js", "d.js"]), { files: ["d.js"], reliable: true });
+  assert.deepEqual(unsnapshottedRemovals({ snapshots: [] }, ["d.js"]), { files: ["d.js"], reliable: true });
+  assert.deepEqual(unsnapshottedRemovals({}, undefined), { files: [], reliable: true });
 
   const truncated = { snapshots: [{ snapshot_id: "snapshot-1", files: ["a.js"], file_count: 140 }] };
-  assert.deepEqual(unfamiliarRemovals(truncated, ["a.js", "d.js"]), { files: [], reliable: false });
+  assert.deepEqual(unsnapshottedRemovals(truncated, ["a.js", "d.js"]), { files: [], reliable: false });
 });

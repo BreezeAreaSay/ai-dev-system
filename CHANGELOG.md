@@ -409,6 +409,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A security scan read its own findings as a dead network.** `run_security_scan`
+  matched the word `proxy` — along with `offline`, `unable to connect` and
+  `failed to fetch` — against a scanner's whole output, so an advisory titled
+  "…cache-key and proxy interpretation differentials" turned a finished
+  `npm audit` into "could not reach the network". This repository's fourteen
+  findings, five of them high, came back as `skipped`, and `verify_task` passed
+  its `security_scan` check because a skipped scanner cannot block. Offline is
+  now decided by the failure channel: machine tokens only (`ENOTFOUND`,
+  `ECONNREFUSED`, `getaddrinfo`, npm's own network banner, and the rest), read
+  only when the scanner produced no findings at all — one that reported findings
+  reached whatever it needed to reach. The report is read alongside `stderr`
+  because `npm audit --json` prints its own network failure as a JSON document
+  on stdout and still exits 1. The reason now carries the exit code and the
+  first line of `stderr` instead of a slice of somebody's dependency tree
+  (`src/core/security-scan.mjs`).
+
+- **One slow policy rule cost one budget; thirty cost thirty.** The guard gave
+  every rule its own 250 ms and raised a fresh worker after each overrun, so a
+  `.ai-dev/policy.json` with thirty catastrophic patterns held a Bash command
+  for 8.7 seconds — past the ten at which the client abandons the hook, which is
+  the failure the budget existed to prevent. All of an event's rules now share
+  one deadline (`POLICY_MATCH_DEADLINE_MS`, 1 s), the remaining budget also caps
+  the next rule, and every answer says whether it ran (`checked`). The guard
+  prints one line per rule that blew its own budget and one line for everything
+  the deadline cut off; `list_policy_rules` marks such a rule `match_not_checked`
+  rather than reporting it as matching nothing. Thirty rules: 8.7 s → 1.1 s; an
+  honest policy is unchanged (`src/core/regex-budget.mjs`, `hooks/lib.mjs`,
+  `hooks/guard.mjs`).
+
+- **A secret in `env` was the one place `scan_agent_config` did not look.** The
+  settings scan read only top-level strings, and `env` — how Claude Code puts
+  variables into a session — is where a credential actually goes. The document
+  is now walked to the leaves, arrays included, and the finding names the path
+  (`env.AWS_ACCESS_KEY_ID`, `hooks.PreToolUse[0].hooks[0].command`) with the
+  value masked.
+
+- **The most direct way to turn the permission prompt off was not recognised.**
+  "Always use `--dangerously-skip-permissions`" named no pattern at all, and
+  "Run `npm run dev` automatically … no need to ask" matched neither half of the
+  prose rule. Flag literals are now their own blocking rule
+  (`instructions_disable_permission_prompt`), a line that forbids the flag is
+  not a finding, and the prose covers "no need to ask", "without prompting",
+  "skip the confirmation", an imperative "Run … automatically", and their
+  Russian halves. `always run …` is gone from the list: "Always run the tests
+  before you claim the task is done" waives nothing, and a rule that calls an
+  honest instruction a bypass is a rule people stop reading. Fifteen phrasings
+  in two languages: seven caught before, fifteen now, with the one false
+  positive gone (`src/core/agent-config-scan.mjs`).
+
+- **A half-written `~/.claude.json` read as "this machine declares no servers".**
+  The streaming reader checks the first character and nothing else, so a file
+  cut off mid-document yielded zero values and zero errors. It now counts
+  nesting as it goes: a stream that ends with an object or a string still open
+  is an error naming that, and `list_mcp_servers` reports the source as
+  unreadable instead of empty (`src/core/json-subset.mjs`).
+
+- **The completion linter's newest rules existed only in English.** Agents here
+  report in Russian, so the three rationalizations added for Д-10 — "these
+  failures were pre-existing", "marked the criterion met from reading the code",
+  "probably fine, I did not run the build" — walked through in the language they
+  are actually written in. Their Russian halves are in. `pre_existing_failure`
+  also gained an exemption, the second of its kind after "works on my machine
+  **and in CI**": naming where it failed and carrying the fix over ("this test
+  was already failing on main, and I ported the fix from PR 12") is a report
+  with two facts in it, not an excuse. An exemption is read in the sentence its
+  match sits in, so an honest sentence cannot cover for an excuse in the next
+  one. Twenty-five phrasings: zero missed, zero false positives
+  (`src/core/completion-claims.mjs`).
+
+- **Worktree cleanup could not say what it had removed.** `cleanup_task_worktrees`
+  stored only the removal outcome, which carries no `name` and no `state`, so a
+  report of the cleanup could list paths and nothing else. Each record now
+  carries the plan entry as well (`src/core/task-worktrees.mjs`).
+
+- **A rollback called the agent's own files somebody else's.** "Never appeared
+  in a snapshot of this task" means "written since the last snapshot", not
+  "written by someone else" — and the warning claimed the second. It now says
+  the same thing about every deleted file: all of them were written after the
+  snapshot, by this task or by anyone else sharing the working tree, and here is
+  the command that brings them back. The list that remains is named for what it
+  is: `removed_unsnapshotted_files` (with `removed_snapshot_history_complete`),
+  the paths for which the undo snapshot is the only record they existed
+  (`src/core/task-snapshots.mjs`, `src/extensions/snapshots.mjs`).
+
+- **A skill that says "do not trigger for code review" was picked for a code
+  review.** The specialist slot scored the whole of `use_when`, so the sentence
+  an author writes about when *not* to use a skill argued in its favour: a
+  generalist took the reserved slot on a debugging task and a review task, both
+  of which its own text excludes. The exclusion clause is now read separately
+  and subtracts what it names — but only terms the rest of the text does not
+  also name, since these sentences share their nouns, and never a function word
+  (`src/core/task-vocabulary.mjs`). On the eight tasks of the original
+  measurement no skill is now offered for a situation it excludes, and the
+  database skill wins the migration review.
+
 - **Imported skills could never be recommended.** All 101 skills imported from
   ECC were in the index and none of them ever reached an answer:
   `recommend_skills` returns three skills, deterministic routing fills all three

@@ -22,6 +22,8 @@ for all of these clients.
   pull request description built from the evidence it collected;
 - [snapshots of a task's working tree](#undoing-a-turn) after every checkpoint, and a
   reversible rollback to any of them;
+- [epics](#breaking-a-task-up): one task broken into children with an order between
+  them, and a parent that cannot close while a child is open;
 - a quality gate, security checks, and Frontend QA with Playwright / Chromium;
 - [memory across sessions](#memory-and-learning): handoffs, decisions, and learned instincts;
 - [agent hooks](#hooks) for Claude Code and Cursor that guard commands and file writes;
@@ -313,6 +315,34 @@ Example request to the agent:
 Use the ai-dev MCP server. Begin a task for /workspace/my-project:
 add CSV export for the report, cover the change with tests, and run verify_task.
 ```
+
+### Breaking a task up
+
+A task too big for one arc becomes an epic. `decompose_task` turns it into a
+parent and a set of children, each opened through `begin_task` — so a child
+routes its own skills, compiles its own context pack, carries its own acceptance
+criteria, and every other tool works on it unchanged.
+
+```text
+Use the ai-dev MCP server. Decompose task-2026... into: extract the parser;
+wire it into the router (depends on the first); document the new module
+(depends on the second).
+```
+
+A child may wait for its siblings through `depends_on`, named by key or by
+position. A reference to nothing, a child waiting for itself, and a ring of
+children each waiting for the next are all refused before anything is created —
+an order that cannot be worked is better rejected than opened.
+
+`epic_status` reads the family back: what each child is waiting for, how far the
+whole thing has come, and the one child to work next (something already in
+progress before something merely ready). Ask it about a child and it answers
+with the parent's epic. `complete_task` on the parent is refused while any child
+is open, or while a child's record has gone missing — an epic closes last, on
+evidence that still exists.
+
+GitHub Issues are not part of this. ECC coordinates epics through issues and
+labels; this server tracks tasks itself and works offline.
 
 ### Undoing a turn
 

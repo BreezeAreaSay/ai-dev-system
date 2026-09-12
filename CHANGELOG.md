@@ -150,6 +150,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reports actually contain, and a post-action for each average band.
     `ai-dev-orchestrator` and `verification-loop` route to it before
     `complete_task`.
+- **Epics** (`decompose_task`, `epic_status`, `src/core/task-epics.mjs`): a
+  task can be broken into children with an order between them.
+  - Each child is opened through `begin_task`, so it routes its own skills,
+    compiles its own context pack and carries its own acceptance criteria;
+    every other tool works on it unchanged.
+  - `depends_on` names siblings by key or by 1-based position. A reference to
+    nothing, a child waiting for itself, and a ring of children each waiting
+    for the next are refused before anything is created — an order that cannot
+    be worked is better rejected than opened. At most 20 children, one level
+    deep.
+  - `epic_status` reports each child's state (done, in progress, ready,
+    blocked, and what it is blocked by), how far the epic has come, and the one
+    child to work next; asked about a child, it answers with the parent's epic.
+    An epic whose every open child waits for another open one is reported as
+    deadlocked rather than as "nothing ready".
+  - `complete_task` on a parent is refused while any child is open, or while a
+    child's record is missing: an epic closes last, on evidence that still
+    exists. The task record gained `parent_id`, `depends_on` and `epic`.
+  - GitHub Issues are not part of this. ECC coordinates epics through issues
+    and labels; this server tracks tasks itself and works offline.
 - **`coverage_gaps`** (`src/core/coverage-reports.mjs`,
   `src/extensions/coverage.mjs`): reads whichever coverage report the project's
   own test run left behind — an lcov tracefile, an Istanbul

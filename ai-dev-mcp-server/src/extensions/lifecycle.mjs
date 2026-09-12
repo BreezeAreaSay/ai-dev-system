@@ -30,6 +30,7 @@ import {
   validateArchifyVisualCheckEvidence
 } from "../core/archify-receipt.mjs";
 import { collectChangeSet, verifyChangeHygiene } from "../core/change-hygiene.mjs";
+import { epicCompletionBlockers } from "../core/task-epics.mjs";
 import { rankCoverageGaps, readCoverageReport, summarizeCoverage } from "../core/coverage-reports.mjs";
 import {
   completionClaimFailure,
@@ -503,6 +504,35 @@ async function preparePullRequestForTask(host, taskId) {
 }
 
 /** Close the task, write down what happened, and say what is left to do. */
+/**
+ * An epic closes last. A parent whose children are still open would otherwise
+ * claim work that nobody did, and a child record the store no longer has is
+ * the same claim with the evidence missing.
+ *
+ * @param {{ taskStore: { read: Function } }} host
+ * @param {object} parent
+ */
+async function refuseOpenChildren(host, parent) {
+  const ids = parent.epic?.children ?? [];
+  if (!ids.length) return;
+  const children = [];
+  const missing = [];
+  for (const id of ids) {
+    try {
+      children.push(await host.taskStore.read(id));
+    } catch {
+      missing.push(id);
+    }
+  }
+  const blockers = epicCompletionBlockers({ children, missing });
+  if (!blockers.length) return;
+  throw new Error([
+    `Task ${parent.id} is an epic with ${blockers.length} unfinished child task(s):`,
+    ...blockers.map((item) => `- ${item}`),
+    "Complete each of them first, or call epic_status to see what is ready to work on."
+  ].join("\n"));
+}
+
 async function completeTask(host, {
   task_id,
   summary,
@@ -517,6 +547,7 @@ async function completeTask(host, {
   const projectRoot = projectIdentity.project_root;
   const projectState = await host.captureProjectState(projectRoot);
   const completionClaims = await auditCompletionClaims(host, existing, { summary, projectState });
+  await refuseOpenChildren(host, existing);
   let record = await host.taskStore.complete(task_id, {
     summary,
     projectState,

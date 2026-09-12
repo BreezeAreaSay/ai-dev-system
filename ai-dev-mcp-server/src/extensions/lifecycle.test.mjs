@@ -163,6 +163,40 @@ test("verify_task runs the gate and hygiene, and a passing run meets its criteri
   assert.deepEqual(criteria.criteria, [{ id: "AC-1", status: "met", evidence: [verified.verification.id] }]);
 });
 
+test("an epic cannot close while a child is open, or while a child record is gone", async () => {
+  const { registry, host, calls } = createFixture({ record: { epic: { children: ["task-child-1", "task-child-2"] } } });
+  const parentRead = host.taskStore.read;
+  const children = new Map([
+    ["task-child-1", { id: "task-child-1", task: "Extract the parser", status: "complete" }],
+    ["task-child-2", { id: "task-child-2", task: "Wire it into the router", status: "active" }]
+  ]);
+  host.taskStore.read = async (id) => (children.has(id) ? children.get(id) : parentRead(id));
+
+  await assert.rejects(
+    () => call(registry, "complete_task", { task_id: "task-1", summary: "Router split into modules." }),
+    /1 unfinished child task[\s\S]*task-child-2 \(active\): Wire it into the router/
+  );
+  assert.equal(calls.some(([name]) => name === "complete"), false, "nothing was written");
+
+  // A child whose record is gone is the same refusal: the evidence is missing.
+  host.taskStore.read = async (id) => {
+    if (id === "task-child-1") return { id, task: "Extract the parser", status: "complete" };
+    if (id === "task-child-2") throw new Error("Unknown task: task-child-2");
+    return parentRead(id);
+  };
+  await assert.rejects(
+    () => call(registry, "complete_task", { task_id: "task-1", summary: "Router split into modules." }),
+    /task-child-2: the child task record is gone/
+  );
+
+  // Every child complete, and the parent closes like any other task.
+  host.taskStore.read = async (id) => (
+    id.startsWith("task-child") ? { id, task: "child", status: "complete" } : parentRead(id)
+  );
+  const completed = await call(registry, "complete_task", { task_id: "task-1", summary: "Router split into modules." });
+  assert.equal(completed.task.status, "complete");
+});
+
 test("coverage_min adds a check, and no report means the floor is unproven", async () => {
   const { registry } = createFixture();
   const without = await call(registry, "verify_task", { task_id: "task-1" });

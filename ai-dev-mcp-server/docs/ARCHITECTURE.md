@@ -396,6 +396,9 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
   "plan": null,
   "acceptance_criteria": [{ "id": "AC-1", "text": "...", "status": "pending", "evidence": [], "note": "" }],
   "skills": ["..."],
+  "parent_id": "",                 // set on a child of an epic
+  "depends_on": [],                // sibling task ids this child waits for
+  "epic": null,                    // { "children": ["task-..."] } on the parent
   "context": {
     "worktree": { "path", "branch", "base_ref", "main_root", "created", "removed_at?" }
   },
@@ -409,6 +412,14 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
 - `plan_policy` is computed at `begin_task` from complexity signals and risk. When it says
   `plan_required`, the task gets an extra acceptance criterion that only `plan_task` can meet, so
   the plan gate is enforced through the normal completion rules rather than a special case.
+- `parent_id`, `depends_on` and `epic` are the epic links (`core/task-epics.mjs`). A task is a
+  child when `parent_id` names one, a parent when `epic.children` lists any, and most tasks are
+  neither. `decompose_task` opens each child through `begin_task` — so a child is a task in every
+  other respect — and writes the links afterwards, because a dependency is an id and the ids only
+  exist once the children do. A reference to nothing, a child waiting for itself and a cycle are
+  refused before any child is created. `complete_task` on a parent is refused while a child is
+  open or a child record is missing; `epic_status` reports what is ready, what is blocked by what,
+  and an epic where every open child waits for another open one.
 - `context.worktree` is present only for a task opened with `begin_task_in_worktree`. It records
   where the isolated checkout lives and which branch it is on; `complete_task` uses it to point at
   the merge or PR, and `remove_task_worktree` stamps `removed_at` instead of deleting the field.

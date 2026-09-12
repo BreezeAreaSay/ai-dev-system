@@ -127,6 +127,13 @@ export class TaskStore {
         ...(planPolicy.plan_required ? [PLAN_CRITERION_TEXT] : [])
       ]),
       skills: skills || [],
+      // Epic links (src/core/task-epics.mjs). A task is a child when
+      // `parent_id` names one, a parent when `epic.children` lists any, and
+      // most tasks are neither. Older records carry none of the three, so every
+      // reader treats them as absent rather than required.
+      parent_id: "",
+      depends_on: [],
+      epic: null,
       context,
       baseline,
       checkpoints: [],

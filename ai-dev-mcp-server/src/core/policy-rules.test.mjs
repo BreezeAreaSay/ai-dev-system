@@ -268,7 +268,7 @@ test("a hand-edited rule that stopped working is reported instead of silently do
 });
 
 test("the rule reader answers for values it was never given", async () => {
-  assert.deepEqual(await verifyPolicyRule({}), { checked_as: "bash", fires_on_example: null, counter_example_matches: null, timed_out: false });
+  assert.deepEqual(await verifyPolicyRule({}), { checked_as: "bash", fires_on_example: null, counter_example_matches: null, timed_out: false, not_checked: false });
   const described = await describePolicyRule(undefined);
   assert.equal(described.id, "");
   assert.equal(described.effective_action, "warn");

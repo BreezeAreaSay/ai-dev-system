@@ -17,6 +17,7 @@ import {
   matchWithBudget,
   normalizeInput,
   POLICY_MATCH_BUDGET_MS,
+  POLICY_MATCH_DEADLINE_MS,
   profileAllows,
   projectRootOf,
   readStdin,
@@ -131,6 +132,11 @@ function destructiveRm(tokens) {
 // but policy.json is a file anyone can edit, so the guard does not rely on that:
 // every rule match runs in a worker thread that is killed when it overstays, and
 // a rule that overstays is reported instead of evaluated.
+//
+// The per-rule budget bounds one rule, not one event: thirty slow rules cost
+// thirty budgets, which is past the ten seconds the client allows (Д-22). So
+// all of an event's rules share one deadline, and the ones it cuts off are
+// counted in a single line instead of being matched.
 async function applyCustomRules(rules, event, text, filePath) {
   const blocks = [];
   const warns = [];
@@ -144,17 +150,28 @@ async function applyCustomRules(rules, event, text, filePath) {
   if (!applicable.length) return { blocks, warns };
   const haystack = event === "file" ? `${filePath}\n${text}` : text;
   const answers = await matchWithBudget(applicable.map((rule) => ({ pattern: String(rule.pattern || ""), flags: "i", haystack })));
+  const unchecked = [];
   applicable.forEach((rule, index) => {
     const name = rule.id || rule.name || "rule";
-    if (answers[index] === null) {
+    const answer = answers[index] || { matched: null, checked: false };
+    if (!answer.checked) {
+      unchecked.push(name);
+      return;
+    }
+    if (answer.matched === null) {
       warns.push(`[policy:${name}] this rule was not evaluated: matching its pattern took longer than ${POLICY_MATCH_BUDGET_MS} ms. Fix the pattern with upsert_policy_rule — until then the rule protects nothing.`);
       return;
     }
-    if (!answers[index]) return;
+    if (!answer.matched) return;
     const message = `[policy:${name}] ${rule.message || "Matched a project policy rule."}`;
     if (rule.action === "block") blocks.push(message);
     else warns.push(message);
   });
+  if (unchecked.length) {
+    const named = unchecked.slice(0, 5).join(", ");
+    const rest = unchecked.length > 5 ? `, and ${unchecked.length - 5} more` : "";
+    warns.push(`[policy] ${unchecked.length} rule(s) were never matched: the ${POLICY_MATCH_DEADLINE_MS} ms this event gets for all its rules together ran out before their turn. Not evaluated: ${named}${rest}. A rule ahead of them is spending the budget — find it with list_policy_rules and fix it with upsert_policy_rule; until then these rules protect nothing.`);
+  }
   return { blocks, warns };
 }
 

@@ -50,6 +50,39 @@ test("the jobs behind a timed-out one are still evaluated", async () => {
   assert.deepEqual(answers.map((answer) => answer.timed_out), [false, true, false, true, false]);
 });
 
+test("one deadline covers the whole batch, and the jobs it cuts off say so", async () => {
+  const slow = { pattern: CATASTROPHIC, flags: "i", haystack: CATASTROPHIC_INPUT };
+  const jobs = [...Array.from({ length: 8 }, () => slow), { pattern: "omega", flags: "i", haystack: "omega" }];
+  const started = process.hrtime.bigint();
+  const answers = await matchWithBudget(jobs, { budgetMs: 150, deadlineMs: 600 });
+  const elapsed = Number(process.hrtime.bigint() - started) / 1e6;
+
+  // Eight budgets would be 1.2 seconds before worker startup is counted; the
+  // deadline is what the caller actually waits for.
+  assert.ok(elapsed < 2500, `the batch should end near its deadline, took ${Math.round(elapsed)} ms`);
+  assert.equal(answers.length, jobs.length, "every job gets an answer either way");
+  const ran = answers.filter((answer) => answer.checked);
+  const cut = answers.filter((answer) => !answer.checked);
+  assert.ok(ran.length >= 1 && cut.length >= 1, `the deadline should stop the batch part-way, ran ${ran.length}`);
+  assert.ok(ran.every((answer) => answer.timed_out), "the jobs that ran are the slow ones");
+  for (const answer of cut) {
+    assert.equal(answer.matched, null);
+    assert.equal(answer.timed_out, false, "never run is not the same as too slow");
+    assert.match(answer.error, /600 ms deadline passed before this match was run/);
+  }
+});
+
+test("an honest batch is not touched by the deadline, however many jobs it holds", async () => {
+  const jobs = Array.from({ length: 200 }, (_, index) => ({
+    pattern: "rm\\s+-rf\\s+/",
+    flags: "i",
+    haystack: index % 2 === 0 ? "rm -rf /tmp/x" : "npm test"
+  }));
+  const answers = await matchWithBudget(jobs, { budgetMs: 150, deadlineMs: 600 });
+  assert.ok(answers.every((answer) => answer.checked), "no honest job goes unchecked");
+  assert.deepEqual(answers.map((answer) => answer.matched), jobs.map((_, index) => index % 2 === 0));
+});
+
 test("a pattern that does not compile is an error, not a throw", async () => {
   const answer = await matchOneWithBudget({ pattern: "[unclosed", flags: "i", haystack: "x" });
   assert.equal(answer.matched, null);

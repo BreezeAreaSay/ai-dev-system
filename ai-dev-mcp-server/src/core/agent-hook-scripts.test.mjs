@@ -250,6 +250,45 @@ test("the strict guard refuses an ungrounded first edit and takes the answer fro
   assert.equal(blind.status, 0);
 });
 
+test("a policy full of slow rules costs the guard one deadline, not one budget per rule", async (t) => {
+  const { projectRoot } = await fixture(t);
+  await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], profile: "standard" });
+  // Written by hand, which is the case the budget exists for: upsert_policy_rule
+  // refuses this pattern, and .ai-dev/policy.json is a file anyone can edit.
+  const policyPath = path.join(projectRoot, ".ai-dev", "policy.json");
+  const policy = JSON.parse(await fs.readFile(policyPath, "utf8"));
+  const slowRules = Array.from({ length: 30 }, (_, index) => ({
+    id: `slow-${index}`,
+    event: "bash",
+    pattern: "(a|a)+$",
+    action: "warn",
+    message: "slow rule",
+    enabled: true
+  }));
+  await fs.writeFile(policyPath, JSON.stringify({ ...policy, rules: [...(policy.rules ?? []), ...slowRules] }, null, 2));
+
+  const started = Date.now();
+  const answered = runHook(projectRoot, "guard.mjs", ["bash"], { tool_name: "Bash", tool_input: { command: `echo ${"a".repeat(40)}!` } });
+  const elapsed = Date.now() - started;
+  assert.equal(answered.status, 0);
+  // Thirty per-rule budgets are 8.7 seconds measured, and the client abandons a
+  // hook at ten (docs/ecc-upgrades/DEBTS.md, Д-22).
+  assert.ok(elapsed < 5_000, `the guard should answer near its deadline, took ${elapsed} ms`);
+  const context = JSON.parse(answered.stdout || "{}").hookSpecificOutput?.additionalContext ?? "";
+  const unchecked = /(\d+) rule\(s\) were never matched/.exec(context);
+  assert.ok(unchecked, `the guard should say how many rules it never reached: ${context}`);
+  assert.ok(Number(unchecked[1]) > 0);
+  assert.match(context, /slow-/, "and name some of them");
+
+  // The same policy without the catastrophic patterns is unaffected: the
+  // deadline bounds the damage, it does not ration honest rules.
+  const honest = slowRules.map((rule) => ({ ...rule, pattern: `never-matches-${rule.id}` }));
+  await fs.writeFile(policyPath, JSON.stringify({ ...policy, rules: [...(policy.rules ?? []), ...honest] }, null, 2));
+  const fast = runHook(projectRoot, "guard.mjs", ["bash"], { tool_name: "Bash", tool_input: { command: "echo hello" } });
+  assert.equal(fast.status, 0);
+  assert.doesNotMatch(JSON.parse(fast.stdout || "{}").hookSpecificOutput?.additionalContext ?? "", /were never matched|was not evaluated/);
+});
+
 test("the git hook reads the server's own rules and the diff the same way", async () => {
   assert.deepEqual(gitHookSettings({}), { pre_commit: "block", pre_push: "warn" });
   assert.deepEqual(gitHookSettings({ git_hooks: { pre_commit: "warn", pre_push: "block" } }), { pre_commit: "warn", pre_push: "block" });

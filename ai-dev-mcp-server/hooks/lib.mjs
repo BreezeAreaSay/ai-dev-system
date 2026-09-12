@@ -389,6 +389,11 @@ export function compileRegex(source, flags = "i") {
  * is copied into other repositories and cannot import it.
  */
 export const POLICY_MATCH_BUDGET_MS = 250;
+// One deadline for the whole event on top of the per-rule budget. Thirty slow
+// rules used to cost thirty budgets — 8.7 seconds measured, against a client
+// that abandons a hook at ten (docs/ecc-upgrades/DEBTS.md, Д-22) — so the rules
+// the deadline cuts off are reported as unchecked instead of being run.
+export const POLICY_MATCH_DEADLINE_MS = 1000;
 export const POLICY_MATCH_MAX_INPUT = 4096;
 
 const MATCH_WORKER_SOURCE = `
@@ -442,16 +447,23 @@ function runMatchBatch(jobs, budgetMs) {
 }
 
 /**
- * Match `{ pattern, flags, haystack }` jobs, each under its own budget. A job
- * that outlives the budget answers `null` — the guard reports it as a rule it
- * could not evaluate rather than hanging on it — and the jobs behind it are run
- * in a fresh worker, because killing the stuck one is the only way to stop it.
+ * Match `{ pattern, flags, haystack }` jobs, each under its own budget and all
+ * of them under one deadline. Every job gets an answer:
+ *
+ * - `{ checked: true, matched: true | false }` — the job ran.
+ * - `{ checked: true, matched: null }` — it outlived its own budget. The jobs
+ *   behind it are run in a fresh worker, because killing the stuck one is the
+ *   only way to stop it.
+ * - `{ checked: false, matched: null }` — the deadline passed first, so it was
+ *   never run. The guard says how many of those there were, in one line.
  *
  * @param {Array<{ pattern: string, flags?: string, haystack?: string }>} jobs
- * @param {number} [budgetMs]
- * @returns {Promise<Array<boolean | null>>}
+ * @param {{ budgetMs?: number, deadlineMs?: number }} [options]
+ * @returns {Promise<Array<{ matched: boolean | null, checked: boolean }>>}
  */
-export async function matchWithBudget(jobs, budgetMs = POLICY_MATCH_BUDGET_MS) {
+export async function matchWithBudget(jobs, options = {}) {
+  const budgetMs = Number.isFinite(options.budgetMs) && options.budgetMs > 0 ? options.budgetMs : POLICY_MATCH_BUDGET_MS;
+  const deadlineMs = Number.isFinite(options.deadlineMs) && options.deadlineMs > 0 ? options.deadlineMs : POLICY_MATCH_DEADLINE_MS;
   const list = Array.isArray(jobs) ? jobs : [];
   if (!list.length) return [];
   const prepared = list.map((job) => ({
@@ -460,18 +472,23 @@ export async function matchWithBudget(jobs, budgetMs = POLICY_MATCH_BUDGET_MS) {
     haystack: String((job && job.haystack) || "").slice(0, POLICY_MATCH_MAX_INPUT)
   }));
   const answers = new Array(prepared.length).fill(null);
+  const startedAt = Date.now();
   let offset = 0;
   while (offset < prepared.length) {
-    const { results, timedOutAt } = await runMatchBatch(prepared.slice(offset), budgetMs);
+    // What is left of the deadline is also the ceiling for the next job: the
+    // last rule of an event may not overrun the event.
+    const left = deadlineMs - (Date.now() - startedAt);
+    if (left <= 0) break;
+    const { results, timedOutAt } = await runMatchBatch(prepared.slice(offset), Math.min(budgetMs, left));
     for (let index = 0; index < results.length && offset + index < prepared.length; index += 1) {
-      answers[offset + index] = results[index];
+      answers[offset + index] = { matched: results[index], checked: true };
     }
     const stuck = timedOutAt >= 0 ? offset + timedOutAt : offset + results.length;
     if (stuck >= prepared.length) break;
-    answers[stuck] = null;
+    answers[stuck] = { matched: null, checked: true };
     offset = stuck + 1;
   }
-  return answers;
+  return answers.map((answer) => answer || { matched: null, checked: false });
 }
 
 /** Split a shell command into segments on unquoted ; | & and newlines, stripping quotes. */

@@ -21,7 +21,7 @@ import path from "node:path";
 import { POLICY_RELATIVE_PATH, defaultPolicy } from "./agent-hooks.mjs";
 import { atomicWriteFile } from "./atomic-files.mjs";
 import { findSecretsInLine } from "./change-hygiene.mjs";
-import { DEFAULT_MATCH_BUDGET_MS, matchWithBudget, riskyPatternProbes } from "./regex-budget.mjs";
+import { DEFAULT_MATCH_BUDGET_MS, DEFAULT_MATCH_DEADLINE_MS, matchWithBudget, riskyPatternProbes } from "./regex-budget.mjs";
 
 /** Hook events `guard.mjs` evaluates rules for. `all` fires on both. */
 export const POLICY_RULE_EVENTS = ["bash", "file", "all"];
@@ -151,8 +151,12 @@ function compileError(pattern) {
  * docs/ecc-upgrades/DEBTS.md, Д-16. One worker serves the whole batch, so
  * listing a policy costs one thread, not one per rule.
  *
+ * The batch also has a deadline, so a policy full of slow rules cannot make
+ * this listing cost the sum of their budgets (Д-22). A rule the deadline cut
+ * off comes back `not_checked`, which reads differently from "matched nothing".
+ *
  * @param {object[]} rules
- * @returns {Promise<Array<{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string, timed_out: boolean }>>}
+ * @returns {Promise<Array<{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string, timed_out: boolean, not_checked: boolean }>>}
  */
 export async function verifyPolicyRules(rules) {
   const list = Array.isArray(rules) ? rules : [];
@@ -179,7 +183,8 @@ export async function verifyPolicyRules(rules) {
       checked_as: slot.checked_as,
       fires_on_example: example ? example.matched : null,
       counter_example_matches: counter ? counter.matched : null,
-      timed_out: Boolean(example?.timed_out || counter?.timed_out)
+      timed_out: Boolean(example?.timed_out || counter?.timed_out),
+      not_checked: Boolean(example?.checked === false || counter?.checked === false)
     };
   });
 }
@@ -188,7 +193,7 @@ export async function verifyPolicyRules(rules) {
  * Run one rule against the samples stored with it.
  *
  * @param {object} rule
- * @returns {Promise<{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string, timed_out: boolean }>}
+ * @returns {Promise<{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string, timed_out: boolean, not_checked: boolean }>}
  */
 export async function verifyPolicyRule(rule) {
   const [verification] = await verifyPolicyRules([rule ?? {}]);
@@ -200,6 +205,9 @@ function verificationProblems(verification) {
   const problems = [];
   if (verification.timed_out) {
     problems.push(`Matching this pattern against its own sample did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms: it backtracks catastrophically, and the guard — which runs it on every Bash command and every file write — will abandon it instead of answering. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
+  }
+  if (verification.not_checked) {
+    problems.push(`This rule was never matched against its sample: the ${DEFAULT_MATCH_DEADLINE_MS} ms this listing gets for all rules together ran out on the rules before it. Those rules are the ones to fix; until then nothing here says whether this one still works.`);
   }
   if (verification.fires_on_example === false) {
     problems.push("The example stored with the rule no longer matches: the pattern was narrowed, or the example was edited.");
@@ -226,6 +234,7 @@ function describeVerifiedRule(rule, verification) {
     counter_example: typeof rule?.counter_example === "string" ? rule.counter_example : "",
     fires_on_example: verification.fires_on_example,
     match_timed_out: verification.timed_out,
+    match_not_checked: verification.not_checked,
     problems: [...policyRuleProblems(rule), ...verificationProblems(verification)]
   };
 }

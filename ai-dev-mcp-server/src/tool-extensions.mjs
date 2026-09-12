@@ -39,6 +39,7 @@ import { createSecurityTools } from "./extensions/security.mjs";
 import { createSessionTools } from "./extensions/sessions.mjs";
 import { createSkillTools } from "./extensions/skills.mjs";
 import { createSnapshotTools } from "./extensions/snapshots.mjs";
+import { createStateTools } from "./extensions/state.mjs";
 import { createSystemTools } from "./extensions/system.mjs";
 import { createUsageTools } from "./extensions/usage.mjs";
 import { createWorktreeTools } from "./extensions/worktrees.mjs";
@@ -63,6 +64,7 @@ export const EXTENSION_FACTORIES = [
   createSessionTools,
   createSkillTools,
   createSnapshotTools,
+  createStateTools,
   createSystemTools,
   createUsageTools,
   createWorktreeTools

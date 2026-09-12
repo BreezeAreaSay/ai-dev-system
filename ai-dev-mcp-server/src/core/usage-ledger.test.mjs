@@ -227,3 +227,32 @@ test("the report slices today, yesterday and the last seven days, and prices wha
   assert.equal(report.tasks[0].cost_usd, 18.01, "everything but the event that carries no task id");
   assert.equal(report.usage.cost_usd, 28.01);
 });
+
+
+// prune_state rotates the ledger on a schedule rather than waiting for the
+// byte ceiling, which a project that stays small never reaches.
+test("the ledger can be rotated to a line count, and says what a rotation would do", async (t) => {
+  const stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "usage-rotate-"));
+  t.after(() => fs.rm(stateRoot, { recursive: true, force: true }));
+  const ledger = new UsageLedger({ stateRoot });
+  for (let index = 0; index < 12; index += 1) {
+    await ledger.recordToolCall({ tool: `tool-${index}`, ok: true, durationMs: 1 });
+  }
+  await ledger.flush();
+
+  assert.deepEqual(await ledger.rotationPlan(5), { lines: 12, kept: 5, removed: 7 });
+  assert.deepEqual((await ledger.readEvents()).length, 12, "the plan changes nothing");
+
+  assert.deepEqual(await ledger.rotate(5), { lines: 12, kept: 5, removed: 7 });
+  const kept = await ledger.readEvents();
+  assert.deepEqual(kept.map((event) => event.tool), ["tool-7", "tool-8", "tool-9", "tool-10", "tool-11"]);
+
+  // A rotation that has nothing to remove leaves the file alone.
+  assert.deepEqual(await ledger.rotate(5), { lines: 5, kept: 5, removed: 0 });
+  assert.deepEqual((await ledger.readEvents()).length, 5);
+
+  // A ledger that was never written answers rather than throwing.
+  const empty = new UsageLedger({ stateRoot: path.join(stateRoot, "nowhere") });
+  assert.deepEqual(await empty.rotationPlan(10), { lines: 0, kept: 0, removed: 0 });
+  assert.deepEqual(await empty.rotate(10), { lines: 0, kept: 0, removed: 0 });
+});

@@ -154,7 +154,8 @@ const GROUPS = [
       "update_instinct",
       "evolve_instincts",
       "export_instincts",
-      "import_instincts"
+      "import_instincts",
+      "prune_state"
     ]
   },
   {

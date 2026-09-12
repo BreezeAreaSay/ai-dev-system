@@ -328,6 +328,39 @@ export class UsageLedger {
     await this.queue.catch(() => undefined);
   }
 
+  /**
+   * What a rotation would remove, without touching the file. `prune_state`
+   * reports this in `dry_run` mode.
+   *
+   * @param {number} keepLines
+   * @returns {Promise<{ lines: number, kept: number, removed: number }>}
+   */
+  async rotationPlan(keepLines) {
+    const keep = Math.max(1, Number(keepLines) || this.keepLines);
+    const text = await fs.readFile(this.filePath, "utf8").catch(() => "");
+    const lines = text.split("\n").filter(Boolean).length;
+    const kept = Math.min(lines, keep);
+    return { lines, kept, removed: lines - kept };
+  }
+
+  /**
+   * Keep the newest `keepLines` events and drop the rest.
+   *
+   * {@link pruneIfNeeded} only fires when the file passes its byte ceiling, so
+   * a project that never reaches 8 MiB keeps every tool call it ever made. This
+   * is the rotation `prune_state` asks for on a schedule instead.
+   *
+   * @param {number} keepLines
+   * @returns {Promise<{ lines: number, kept: number, removed: number }>}
+   */
+  async rotate(keepLines) {
+    const plan = await this.rotationPlan(keepLines);
+    if (plan.removed <= 0) return plan;
+    const lines = (await fs.readFile(this.filePath, "utf8")).split("\n").filter(Boolean);
+    await atomicWriteFile(this.filePath, `${lines.slice(-plan.kept).join("\n")}\n`, "utf8");
+    return plan;
+  }
+
   async pruneIfNeeded() {
     const stats = await fs.stat(this.filePath).catch(() => null);
     if (!stats || stats.size <= this.maxBytes) return false;

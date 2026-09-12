@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **State housekeeping** (`prune_state`): retires instincts whose confidence
+  fell under 0.3 and that have not been observed for 90 days, archives session
+  handoffs and hook observation logs older than 90 days into an `archive/`
+  directory beside them (moved, never deleted, and a scope's newest handoff is
+  always kept), rotates the usage ledger down to its newest 20 000 events, and
+  deletes the snapshot refs of completed *and abandoned* tasks — a task that is
+  not complete and has not been updated for 30 days previously kept
+  `refs/ai-dev/snapshots/<task>/*` for good, and each live ref pins a whole tree.
+  Runs as a dry run unless `dry_run: false`, and reports each of the four areas
+  separately so one that fails does not stop the others
+  (`src/core/state-pruning.mjs`).
+
 - **Security scanners** (`run_security_scan`): adapters for `npm audit`,
   `pip-audit`, `cargo audit`, `gitleaks`, `semgrep` and `trivy fs`. Each one
   knows how to find its binary, whether this project is one it has anything to

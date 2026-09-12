@@ -22,7 +22,7 @@ function hit(overrides = {}) {
  * A runtime whose Python helper is a stub: every call is recorded, and the
  * answer comes from a queue the test controls. No process is ever spawned.
  */
-async function createFixture(t, { responses = [], ranking = {}, exists = true } = {}) {
+async function createFixture(t, { responses = [], ranking = {}, exists = true, embed } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "search-index-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
 
@@ -44,6 +44,7 @@ async function createFixture(t, { responses = [], ranking = {}, exists = true } 
     },
     embedQuery: async (payload, options) => {
       calls.push({ command: "embedQuery", payload, options });
+      if (embed) return embed(payload, options);
       return { embeddings: [[0.1, 0.2, 0.3]] };
     },
     hardNegativeRules: async () => [],
@@ -365,4 +366,33 @@ test("an explicit skill-catalog query is answered by the index, not the router",
     query: "list every skill", scope: "skills", intent_routing: true, dense_weight: 0, ensure_fresh: false
   });
   assert.deepEqual(results.map((item) => item.title), ["other"]);
+});
+
+test("a missing model degrades the search instead of ending it", async (t) => {
+  // Keyword and sparse need no model; dense is the optional half, and the
+  // README says so. It used to throw out of the dense branch and take the whole
+  // query with it, so `hybrid_search`, `preset_search` and `explain_search` were
+  // dead until someone downloaded 2.3 GB of weights.
+  const { runtime } = await createFixture(t, {
+    responses: [[{ path: "01-system/Operating Model.md", title: "Operating Model", score: 1 }]],
+    embed: async () => {
+      throw new Error("BGE-M3 worker exited with code 1. Model directory does not exist: /models/bge-m3");
+    }
+  });
+  const results = await runtime.hybridSearch({ query: "operating model", dense_weight: 0.35, ensure_fresh: false });
+  assert.equal(results.length, 1);
+  assert.match(results.dense_unavailable, /Model directory does not exist/);
+  // The note rides alongside the array rather than inside it: a caller that
+  // serializes the results sees exactly what it saw before.
+  assert.equal(JSON.parse(JSON.stringify(results)).length, 1);
+  assert.equal(Object.keys(results[0]).includes("dense_unavailable"), false);
+});
+
+test("a dense query that works leaves no complaint behind", async (t) => {
+  const { runtime, calls } = await createFixture(t, {
+    responses: [[{ path: "a.md", title: "A", score: 1 }]]
+  });
+  const results = await runtime.hybridSearch({ query: "operating model", dense_weight: 0.35, ensure_fresh: false });
+  assert.equal(results.dense_unavailable, undefined);
+  assert.ok(calls.some((call) => call.command === "embedQuery"));
 });

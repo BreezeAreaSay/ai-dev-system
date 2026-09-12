@@ -36,6 +36,14 @@ const EXPLAIN_MAX_LIMIT = 20;
 /** Most golden cases one `run_search_eval` call may run. */
 const MAX_EVAL_CASES = 200;
 
+/** Why the dense half of a hybrid search did not run, when it did not. */
+function denseNote(results) {
+  const issue = results?.dense_unavailable;
+  return issue
+    ? { dense: { used: false, reason: `Ranked on keywords and sparse aliases only: ${issue}` } }
+    : {};
+}
+
 /** Preset-driven hybrid search, optionally with the scoring breakdown. */
 async function presetSearch(host, options = {}) {
   const explain = Boolean(options.explain);
@@ -46,6 +54,9 @@ async function presetSearch(host, options = {}) {
     query: resolved.search.query,
     result_count: results.length,
     applied: appliedSearchPresetSummary(resolved),
+    // Keyword and sparse always run; dense is the optional half, and when it is
+    // missing the answer says so rather than pretending it ranked.
+    ...denseNote(results),
     tuning_notes: explain ? explainSearchTuningNotes(results, weights) : undefined,
     results: explain
       ? results.map((item, index) => explainSearchResult(item, index, weights))
@@ -68,6 +79,7 @@ async function explainSearch(host, options = {}) {
     result_count: results.length,
     applied: appliedSearchPresetSummary(resolved),
     weights: appliedSearchPresetSummary(resolved).weights,
+    ...denseNote(results),
     notes: [
       "weighted_score_before_adjustments is computed from returned component scores and normalized weights.",
       "score_adjustment captures lexical boosts, vault-note preference, and source penalties applied inside the search helper."

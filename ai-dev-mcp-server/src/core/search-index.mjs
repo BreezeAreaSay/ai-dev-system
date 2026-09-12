@@ -46,6 +46,19 @@ const MAX_RESULTS = 50;
  * @param {object} deps.ranking - Pure ranking collaborators.
  * @returns {object} The runtime.
  */
+/**
+ * The results, with why the dense half was skipped attached where a caller can
+ * find it and `JSON.stringify` cannot trip over it.
+ *
+ * @param {object[]} results
+ * @param {string} issue - "" when dense ran.
+ * @returns {object[]}
+ */
+function withDenseNote(results, issue) {
+  if (issue) Object.defineProperty(results, "dense_unavailable", { value: issue, enumerable: false });
+  return results;
+}
+
 export function createSearchIndexRuntime({
   vaultRoot,
   searchCliPath,
@@ -286,22 +299,33 @@ export function createSearchIndexRuntime({
     if (ensure_fresh) await ensureFresh();
 
     let denseQueryVectorPath = "";
+    // Why the dense half did not run, when it did not. Hybrid search is
+    // keyword + sparse + dense, and the first two need no model: a missing
+    // BGE-M3 used to throw out of here and take the whole search with it,
+    // though the documented contract is that dense is the optional part.
+    let denseIssue = "";
     if (selectedDenseWeight > 0) {
-      const denseQuery = await embedQuery({
-        texts: [normalizedQuery],
-        prefix: "query: ",
-        normalize: true,
-        batch_size: 1,
-        precision: 8,
-        include_embeddings: true,
-        model_dir: dense_model_dir,
-        device: dense_device
-      }, { timeoutMs: 300000 });
-      const vector = denseQuery.embeddings?.[0];
-      if (Array.isArray(vector) && vector.length) {
-        await fs.mkdir(searchIndexDir, { recursive: true });
-        denseQueryVectorPath = path.join(searchIndexDir, `.dense-query-${process.pid}-${Date.now()}.json`);
-        await atomicWriteJson(denseQueryVectorPath, vector, { spaces: 0 });
+      try {
+        const denseQuery = await embedQuery({
+          texts: [normalizedQuery],
+          prefix: "query: ",
+          normalize: true,
+          batch_size: 1,
+          precision: 8,
+          include_embeddings: true,
+          model_dir: dense_model_dir,
+          device: dense_device
+        }, { timeoutMs: 300000 });
+        const vector = denseQuery.embeddings?.[0];
+        if (Array.isArray(vector) && vector.length) {
+          await fs.mkdir(searchIndexDir, { recursive: true });
+          denseQueryVectorPath = path.join(searchIndexDir, `.dense-query-${process.pid}-${Date.now()}.json`);
+          await atomicWriteJson(denseQueryVectorPath, vector, { spaces: 0 });
+        } else {
+          denseIssue = "the embedding backend returned no vector for this query";
+        }
+      } catch (error) {
+        denseIssue = String(error?.message ?? error).replace(/\s+/g, " ").trim();
       }
     }
 
@@ -361,12 +385,12 @@ export function createSearchIndexRuntime({
         });
       }
       if (!intent_routing || !["all", "skills"].includes(String(scope || "all"))) {
-        return ranked.slice(0, requestedLimit);
+        return withDenseNote(ranked.slice(0, requestedLimit), denseIssue);
       }
-      if (project || csvValue(folders)) return ranked.slice(0, requestedLimit);
-      if (isSkillCatalogQuery(normalizedQuery)) return ranked.slice(0, requestedLimit);
+      if (project || csvValue(folders)) return withDenseNote(ranked.slice(0, requestedLimit), denseIssue);
+      if (isSkillCatalogQuery(normalizedQuery)) return withDenseNote(ranked.slice(0, requestedLimit), denseIssue);
       const selectedSources = new Set(csvValue(source).split(",").map((item) => item.trim().toLowerCase()).filter(Boolean));
-      if (selectedSources.size && !selectedSources.has("custom")) return ranked.slice(0, requestedLimit);
+      if (selectedSources.size && !selectedSources.has("custom")) return withDenseNote(ranked.slice(0, requestedLimit), denseIssue);
 
       const route = routeSkills({ task: normalizedQuery, maxSkills: 3 });
       const registry = await readSkillIndex();

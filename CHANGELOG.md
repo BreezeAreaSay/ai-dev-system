@@ -424,6 +424,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Hybrid search died without the optional model.** The README says it plainly
+  — "Hybrid search works without a model: SQLite FTS, sparse aliases, and
+  deterministic intent routing are always on" — and the dense embedding call was
+  not guarded, so a missing BGE-M3 threw out of the query and took the whole
+  search with it. `hybrid_search`, `preset_search` and `explain_search` were
+  dead on a fresh install until someone downloaded 2.3 GB. Dense is now the
+  optional half it was documented to be: when it cannot run, the keyword and
+  sparse ranking answers, and `preset_search` and `explain_search` say why the
+  dense half is missing rather than passing off a lexical ranking as a semantic
+  one. The dense smoke still fails when dense does not run, which is its job.
+
 - **A freshly built search index reported itself stale.** Every render of a
   skill card stamps `generated_at`, so `rebuild_index` rewrote all 142 of them
   whatever they said, their mtimes moved, and the index built seconds earlier

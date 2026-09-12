@@ -341,6 +341,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Imported skills could never be recommended.** All 101 skills imported from
+  ECC were in the index and none of them ever reached an answer:
+  `recommend_skills` returns three skills, deterministic routing fills all three
+  with our own, and an imported skill's English `use_when` shares no substring
+  with a Russian task. Routing now has reserved roles that do not consume the
+  three (`RESERVED_ROUTING_ROLES`): `capability` as before, and a new
+  `specialist` — one imported skill whose `use_when` answers the task's
+  situation, offered beside the routed core rather than instead of part of it.
+  The match runs through a new concept table (`src/core/task-vocabulary.mjs`)
+  that translates what a Russian task names into the terms an imported catalogue
+  is written in; it names concepts, never skills. A skill that declares an
+  ecosystem is penalised when neither task nor project mentions it, and refused
+  when the project has a stack and this is not it. Measured on eight typical
+  tasks: five ECC skills recommended where there were none, and every task keeps
+  the three skills it had.
+
 - **A single policy rule could take the guard out of service.** A pattern that
   backtracks catastrophically — `(a|a)+$` needs 38.8 seconds against
   twenty-eight characters — passed `upsert_policy_rule`, and after that the

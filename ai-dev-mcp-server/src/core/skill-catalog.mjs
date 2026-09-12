@@ -71,6 +71,24 @@ export function isDesignSkill(item) {
   return String(item.source ?? "").toLowerCase().includes("design/") || (item.categories ?? []).some((category) => /design|frontend|ui|ux/i.test(category));
 }
 
+/**
+ * Taxonomy groups whose skills are about what a user looks at.
+ *
+ * {@link isDesignSkill} reads the `categories` array, which for an imported
+ * catalogue is the union of everything its auto-tagger guessed: ECC's
+ * `hexagonal-architecture` carries `design`, `frontend`, `ui` and `ux` there and
+ * is a backend architecture skill. `primary_group` is one value and it is the
+ * one the taxonomy actually settled on, so a caller that must not filter out an
+ * architecture skill on a mis-tag asks this instead.
+ */
+const DESIGN_FIRST_GROUPS = new Set(["frontend-ui", "design-content"]);
+
+/** Design/frontend skills, by source folder or by the group the taxonomy settled on. */
+export function isDesignFirstSkill(item) {
+  return String(item?.source ?? "").toLowerCase().includes("design/") ||
+    DESIGN_FIRST_GROUPS.has(String(item?.primary_group ?? ""));
+}
+
 /** Skills whose output is imagery rather than code. */
 export function isVisualHeavySkill(item) {
   return /imagegen|image-to-code|brandkit|logo|identity/i.test(`${item.name} ${item.description ?? ""} ${item.use_when ?? ""}`);

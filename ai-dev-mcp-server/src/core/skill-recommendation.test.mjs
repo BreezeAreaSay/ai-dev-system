@@ -17,6 +17,7 @@ import {
   taskLooksLandingConversion,
   taskLooksMembraneIntegration,
   taskLooksQuality,
+  pickTaskSpecialist,
   taskLooksVisual
 } from "./skill-recommendation.mjs";
 
@@ -371,4 +372,141 @@ test("quality tasks add review, and backend tasks add the backend pair", () => {
     context: projectContext({ context_text: "fastapi postgres celery worker" })
   });
   assert.ok(backendProject.some((item) => item.name === "backend-api-engineer"));
+});
+
+
+// Д-1. 101 imported skills were in the index and none of them could ever be
+// recommended: our own three fill every conventional slot, and an imported
+// skill's English `use_when` shares no substring with a Russian task. The fix
+// is a reserved slot plus the bilingual expansion, and the thing it must not do
+// is cost us one of ours.
+const IMPORTED_TDD = Object.freeze({
+  name: "tdd-workflow",
+  source: "external/ecc",
+  type: "external-skill",
+  path: "sources/external/ecc/skills/tdd-workflow/SKILL.md",
+  // The auto-tagger's categories, mis-tags included: this entry is filed under
+  // design and frontend in the real registry.
+  categories: ["external", "frontend", "design", "ui", "testing-quality"],
+  primary_group: "testing-quality",
+  description: "Use this skill when writing new features, fixing bugs, or refactoring code. Enforces test-driven development with 80%+ coverage including unit, integration, and E2E tests.",
+  use_when: "Use this skill when writing new features, fixing bugs, or refactoring code. Enforces test-driven development with 80%+ coverage including unit, integration, and E2E tests.",
+  languages: ["typescript", "javascript"],
+  frameworks: ["playwright"],
+  maturity: "reviewed",
+  trust_level: "known-upstream",
+  quality_score: 91,
+  quality_status: "pass",
+  routing_priority: "normal",
+  skill_schema_version: 2
+});
+
+// Same situation text and same name shape, so only the declared ecosystem
+// separates them: one is a PHP skill, the other lists most of the world.
+const NARROW_IMPORT = Object.freeze({
+  ...IMPORTED_TDD,
+  name: "alpha-testing",
+  path: "sources/external/ecc/skills/alpha-testing/SKILL.md",
+  languages: ["php"],
+  frameworks: ["laravel"]
+});
+const BROAD_IMPORT = Object.freeze({
+  ...IMPORTED_TDD,
+  name: "omega-testing",
+  path: "sources/external/ecc/skills/omega-testing/SKILL.md",
+  languages: ["python", "go", "java", "kotlin", "ruby"],
+  frameworks: ["django", "spring"]
+});
+
+test("an imported specialist is offered beside the routed three, never instead of one", () => {
+  const items = [
+    registryItem(),
+    registryItem({ name: "code-reviewer", description: "review a diff for risk", use_when: "a change needs review" }),
+    registryItem({ name: "backend-api-engineer", description: "backend contracts", use_when: "backend or API work" }),
+    IMPORTED_TDD
+  ];
+  const task = "настроить разработку через тесты";
+  const withoutImport = recommendSkillsFromRegistry({ task, items: items.slice(0, 3), context: NO_PROJECT });
+  const withImport = recommendSkillsFromRegistry({ task, items, context: NO_PROJECT });
+
+  assert.deepEqual(
+    withImport.slice(0, withoutImport.length).map((item) => item.name),
+    withoutImport.map((item) => item.name),
+    "the routed core is untouched"
+  );
+  const specialist = withImport.at(-1);
+  assert.equal(specialist.name, "tdd-workflow");
+  assert.equal(specialist.source, "external/ecc");
+  assert.equal(specialist.routing_role, "specialist");
+  assert.match(specialist.routing_rule, /^use-when:/);
+  assert.equal(specialist.type, "external-skill", "the registry metadata comes with it, not a synthesised stub");
+  assert.ok(specialist.path, "the agent needs the path to read it");
+});
+
+test("a specialist has to answer the task's situation, and its ecosystem has to be plausible", () => {
+  const base = [registryItem()];
+  const context = (stack) => ({ ...NO_PROJECT, available: true, name: "demo", stack });
+
+  // No project stack: a foreign ecosystem is a penalty, not a veto, and between
+  // two equal matches the one that is not written for a single stack wins —
+  // even though the narrow one sorts first by name.
+  const noStack = pickTaskSpecialist({ task: "настроить разработку через тесты", items: [...base, NARROW_IMPORT, BROAD_IMPORT], context: NO_PROJECT });
+  assert.equal(noStack.item.name, "omega-testing");
+  assert.equal(noStack.stack, "foreign");
+
+  // A project with a stack refuses a skill written for another one outright.
+  assert.equal(
+    pickTaskSpecialist({ task: "настроить разработку через тесты", items: [...base, NARROW_IMPORT], context: context(["TypeScript", "Vite"]) }),
+    null
+  );
+  assert.equal(
+    pickTaskSpecialist({ task: "настроить разработку через тесты", items: [...base, IMPORTED_TDD], context: context(["TypeScript", "Vite"]) }).stack,
+    "aligned"
+  );
+
+  // A task that names no concept the table knows gets no specialist, and
+  // neither does one whose only connection is the name.
+  assert.equal(pickTaskSpecialist({ task: "поговори с заказчиком", items: [...base, IMPORTED_TDD], context: NO_PROJECT }), null);
+  assert.equal(
+    pickTaskSpecialist({
+      task: "запусти tdd-workflow",
+      items: [...base, { ...IMPORTED_TDD, use_when: "", description: "" }],
+      context: NO_PROJECT
+    }),
+    null,
+    "a name in the task text is not a situation match"
+  );
+
+  // An import that shadows one of ours by name is never offered.
+  assert.equal(
+    pickTaskSpecialist({
+      task: "настроить разработку через тесты",
+      items: [registryItem({ name: "tdd-workflow", description: "our own", use_when: "ours" }), IMPORTED_TDD],
+      context: NO_PROJECT
+    }),
+    null
+  );
+  // Nor is a deprecated or disabled one.
+  assert.equal(pickTaskSpecialist({ task: "настроить разработку через тесты", items: [...base, { ...IMPORTED_TDD, maturity: "deprecated" }], context: NO_PROJECT }), null);
+  assert.equal(pickTaskSpecialist({ task: "настроить разработку через тесты", items: [...base, { ...IMPORTED_TDD, routing_priority: "disabled" }], context: NO_PROJECT }), null);
+});
+
+test("an imported skill mis-tagged as design is still reachable for the work it is about", () => {
+  // `hexagonal-architecture` carries design/frontend/ui/ux categories from the
+  // importer and is a backend architecture skill. Filed under its own
+  // primary_group it must survive a task that has nothing to do with design.
+  const hexagonal = {
+    ...IMPORTED_TDD,
+    name: "hexagonal-architecture",
+    use_when: "introducing or refactoring toward Ports and Adapters, or when domain logic has become entangled with I/O",
+    description: "Design, implement, and refactor Ports & Adapters systems with clear domain boundaries, dependency inversion and testable use-case orchestration.",
+    categories: ["external", "frontend", "design", "ui", "ux", "testing-quality"],
+    primary_group: "testing-quality"
+  };
+  const picked = pickTaskSpecialist({ task: "отрефакторить по гексагональной архитектуре", items: [registryItem(), hexagonal], context: NO_PROJECT });
+  assert.equal(picked.item.name, "hexagonal-architecture");
+
+  // One whose primary_group really is design stays filtered.
+  const frontend = { ...hexagonal, name: "liquid-glass-design", primary_group: "frontend-ui" };
+  assert.equal(pickTaskSpecialist({ task: "отрефакторить по гексагональной архитектуре", items: [registryItem(), frontend], context: NO_PROJECT }), null);
 });

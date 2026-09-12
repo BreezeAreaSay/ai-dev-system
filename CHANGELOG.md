@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Agent harness grading** (`scan_agent_config`): grades a repository's agent
+  configuration from A to F over five places nothing else reads together —
+  `CLAUDE.md` / `AGENTS.md` that run a command on load or tell the agent in
+  prose to stop asking, `.claude/settings.json` that pre-approves `Bash(*)` or
+  sets `defaultMode: bypassPermissions`, hook commands that splice a variable
+  into a shell, subagents with no `tools:` limit, and everything
+  `list_mcp_servers` already finds (folded in, not re-implemented). Findings use
+  the change-hygiene shape `{ rule, severity, file, line, message }`; a
+  `block` — a setting that removes a check rather than narrowing one — caps the
+  grade at D. The grade is written into the project card's new
+  "Agent Configuration" section, and credentials are masked with the same
+  function the MCP inventory uses (`src/core/agent-config-scan.mjs`).
+
 - **Worktree lifecycle states** (`list_task_worktrees`, `plan_worktree_cleanup`):
   each task worktree is reported as `orphan` (git still registers a directory
   that is gone), `dirty` (uncommitted work lives only there), `merged` (every

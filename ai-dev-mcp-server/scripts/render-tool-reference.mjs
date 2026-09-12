@@ -166,7 +166,7 @@ const GROUPS = [
   {
     title: "Agent harness inventory",
     when: "Auditing which MCP servers this repository wires into its agents, over which transports, and whether any credential is sitting in a config file.",
-    tools: ["list_mcp_servers"]
+    tools: ["list_mcp_servers", "scan_agent_config"]
   },
   {
     title: "Usage and cost",

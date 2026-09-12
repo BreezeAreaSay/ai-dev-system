@@ -280,10 +280,22 @@ function redact(text, redactions) {
   return output;
 }
 
-function maskValue(value) {
+/**
+ * A credential as a report may repeat it: enough to recognise, not enough to
+ * use. Exported because `scan_agent_config` masks the same way — one function,
+ * so a value that is safe to print in one report is safe in the other.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function maskConfigValue(value) {
   const text = String(value ?? "");
   if (text.length <= 8) return "***";
   return `${text.slice(0, 3)}…${text.slice(-2)} (${text.length} chars)`;
+}
+
+function maskValue(value) {
+  return maskConfigValue(value);
 }
 
 function definitionFingerprint(definition) {

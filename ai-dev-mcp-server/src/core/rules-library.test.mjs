@@ -35,10 +35,16 @@ test("catalog is well formed and stack mapping is additive", () => {
   assert.deepEqual(packsForStack(["Node.js", "React", "React Native/Expo"]), ["typescript", "react", "react-native"],
     "a React Native app gets no web rules: there is no DOM");
   assert.deepEqual(packsForStack(["PHP", "Laravel"]), ["php"]);
+  // Д-18: the two packs that had no detector label until the root directory was
+  // listed. ArkTS is deliberately still without one — see the debt entry.
+  assert.deepEqual(packsForStack(["Perl"]), ["perl"]);
+  assert.deepEqual(packsForStack(["F#"]), ["fsharp"]);
+  assert.deepEqual(packsForStack(["C#/.NET", "F#"]), ["csharp", "fsharp"]);
+  assert.deepEqual(packsForStack(["ArkTS/HarmonyOS"]), [], "the detector labels ArkTS; no pack claims it yet");
   // Every pack is reachable from a stack label the detector can produce, or it
   // is only ever installed by name.
   const detected = new Set(["TypeScript", "React", "Vue", "Angular", "React Native/Expo", "Tailwind CSS", "Python", "FastAPI",
-    "Go", "Rust", "Java/JVM", "Kotlin", "Swift", "Flutter/Dart", "C#/.NET", "C/C++", "PHP", "Ruby", "Docker"]);
+    "Go", "Rust", "Java/JVM", "Kotlin", "Swift", "Flutter/Dart", "C#/.NET", "C/C++", "PHP", "Ruby", "Perl", "F#", "Docker"]);
   for (const pack of RULE_PACKS) {
     assert.ok(pack.stacks.some((label) => detected.has(label)), `${pack.id} names no detectable stack`);
   }

@@ -425,6 +425,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tasks: five ECC skills recommended where there were none, and every task keeps
   the three skills it had.
 
+- **A .NET, F# or Xcode project was invisible to the detector.** Those project
+  files are named after the product (`Atlas.csproj`), and the detector checked
+  paths rather than listing the root, so `C#/.NET` was inferred from five
+  conventional side files and `.csproj`, `.sln`, `.fsproj` and `.xcodeproj` were
+  never seen. `createProjectDetector` now takes an injected `readDirectory` and
+  reads the root's extensions. New stack labels with it: `F#`, `Perl` and
+  `ArkTS/HarmonyOS`, plus rule packs for `perl` and `fsharp` — `arkts` is
+  deliberately still unwritten, for the reason recorded in
+  docs/ecc-upgrades/DEBTS.md, Д-18.
+
 - **The static gate's size rules had no test.** Its five branches — a module
   over the ceiling, a pinned module that grew, a pinned module back under the
   ceiling, a pin for a module that no longer exists, and the main module over

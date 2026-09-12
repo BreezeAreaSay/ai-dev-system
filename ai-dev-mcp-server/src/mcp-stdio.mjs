@@ -2152,7 +2152,8 @@ const { detectProject } = createProjectDetector({
   readProjectText: readProjectTextIfExists,
   safeProjectFile,
   stat: (target) => fs.stat(target).catch(() => null),
-  analyzeProject
+  analyzeProject,
+  readDirectory: (target) => fs.readdir(target).catch(() => [])
 });
 
 async function projectTree(projectRoot, { maxDepth = 2, maxEntries = 160 } = {}) {

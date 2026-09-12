@@ -409,6 +409,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`clients:install` could not find the server it installs.** The one command
+  the README gives for wiring the server into Cursor, Gemini, VS Code and Claude
+  computed its entrypoint as `<vault>/09-mcp/ai-dev-mcp-server/src/server.mjs`.
+  From a plain checkout that resolved to `<home>/09-mcp/…` and the command
+  refused to touch anything: "Required local paths are missing". It now
+  registers the server it is part of, and writes no `AI_DEV_VAULT_ROOT` when
+  there is no vault — the server finds the bundled seed on its own. A vault
+  install still gets the vault's own copy.
+
 - **Three tools crashed instead of stating their contract.** Called without
   their argument, `search_knowledge`, `search_skills` and `read_skill` answered
   "Cannot read properties of undefined (reading 'toLowerCase')" where every

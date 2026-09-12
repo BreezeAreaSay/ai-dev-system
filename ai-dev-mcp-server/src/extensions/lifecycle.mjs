@@ -29,7 +29,8 @@ import {
   validateArchifyDeliveryReceipt,
   validateArchifyVisualCheckEvidence
 } from "../core/archify-receipt.mjs";
-import { verifyChangeHygiene } from "../core/change-hygiene.mjs";
+import { collectChangeSet, verifyChangeHygiene } from "../core/change-hygiene.mjs";
+import { rankCoverageGaps, readCoverageReport, summarizeCoverage } from "../core/coverage-reports.mjs";
 import {
   completionClaimFailure,
   completionClaimSignals,
@@ -277,6 +278,43 @@ async function validateArchifyDeliveryEvidence(host, entries, projectRoot) {
  * Each runner is optional and each failure is folded into a check rather than
  * thrown, so one unavailable tool cannot hide the result of the others.
  */
+/**
+ * Hold the project's own coverage report to a floor. The report is read, never
+ * produced: running the tests is the quality gate's job, and a report that run
+ * did not leave behind means the floor is unproven rather than met.
+ *
+ * @param {string} projectRoot
+ * @param {number} minimum - Percentage of lines.
+ * @param {string} baseRef - What the change set is taken against, for the gaps worth naming.
+ * @returns {Promise<object>}
+ */
+async function coverageCheck(projectRoot, minimum, baseRef) {
+  const report = await readCoverageReport(projectRoot);
+  if (!report) {
+    return {
+      status: "no_report",
+      minimum,
+      error: "No coverage report found. Run the project's test command with coverage enabled, or set coverage_min to 0."
+    };
+  }
+  const totals = summarizeCoverage(report.files);
+  const changeSet = await collectChangeSet(projectRoot, { baseRef: baseRef || "HEAD" });
+  const ranked = rankCoverageGaps({
+    files: report.files,
+    changedFiles: (changeSet.files ?? []).map((file) => file.path),
+    limit: 5
+  });
+  return {
+    status: totals.line_percent >= minimum ? "pass" : "below_minimum",
+    minimum,
+    line_percent: totals.line_percent,
+    branch_percent: totals.branch_percent,
+    report: { format: report.format, path: report.path, generated_at: report.generated_at },
+    scope: ranked.scope,
+    gaps: ranked.gaps
+  };
+}
+
 async function verifyTask(host, {
   task_id,
   run_quality = true,
@@ -285,6 +323,7 @@ async function verifyTask(host, {
   frontend_options = {},
   run_hygiene = true,
   hygiene_base_ref = "HEAD",
+  coverage_min = 0,
   evidence = []
 }) {
   const record = await host.taskStore.read(task_id);
@@ -384,6 +423,7 @@ async function verifyTask(host, {
   }
 
   if (run_hygiene) checks.push({ type: "change_hygiene", result: await verifyChangeHygiene(projectRoot, { baseRef: hygiene_base_ref }) });
+  if (Number(coverage_min) > 0) checks.push({ type: "coverage", result: await coverageCheck(projectRoot, Number(coverage_min), hygiene_base_ref) });
   const projectState = await host.captureProjectState(projectRoot);
   const passed = verificationPassed(checks);
   const verification = {
@@ -600,6 +640,7 @@ export function createLifecycleTools(host) {
             frontend_options: { type: "object", additionalProperties: true, default: {} },
             run_hygiene: { type: "boolean", default: true, description: "Scan added lines for secrets, debug leftovers, focused/skipped tests, conflict markers, weakened lint configs, and missing test changes. A block finding fails verification." },
             hygiene_base_ref: { type: "string", default: "HEAD", description: "Git ref the hygiene scan diffs against; use the branch base (for example main) to include committed work." },
+            coverage_min: { type: "number", default: 0, description: "Minimum percentage of lines the project's coverage report must show. 0 leaves coverage out. A report that is missing or unreadable fails the check: an unproven floor is not a met one." },
             evidence: ARCHIFY_EVIDENCE_SCHEMA
           },
           required: ["task_id"]

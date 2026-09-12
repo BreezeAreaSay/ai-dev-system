@@ -163,6 +163,20 @@ test("verify_task runs the gate and hygiene, and a passing run meets its criteri
   assert.deepEqual(criteria.criteria, [{ id: "AC-1", status: "met", evidence: [verified.verification.id] }]);
 });
 
+test("coverage_min adds a check, and no report means the floor is unproven", async () => {
+  const { registry } = createFixture();
+  const without = await call(registry, "verify_task", { task_id: "task-1" });
+  assert.equal(without.verification.checks.some((item) => item.type === "coverage"), false,
+    "no floor was asked for, so none is checked");
+
+  const asked = await call(createFixture().registry, "verify_task", { task_id: "task-1", coverage_min: 80 });
+  const coverage = asked.verification.checks.find((item) => item.type === "coverage");
+  assert.equal(coverage.result.status, "no_report");
+  assert.equal(coverage.result.minimum, 80);
+  assert.match(coverage.result.error, /Run the project's test command with coverage enabled/);
+  assert.equal(asked.verification.passed, false);
+});
+
 test("an unavailable runner becomes a failing check rather than an exception", async () => {
   const { registry } = createFixture({ qualityGateThrows: true });
   const verified = await call(registry, "verify_task", { task_id: "task-1", run_hygiene: false });

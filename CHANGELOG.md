@@ -150,6 +150,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reports actually contain, and a post-action for each average band.
     `ai-dev-orchestrator` and `verification-loop` route to it before
     `complete_task`.
+- **`coverage_gaps`** (`src/core/coverage-reports.mjs`,
+  `src/extensions/coverage.mjs`): reads whichever coverage report the project's
+  own test run left behind — an lcov tracefile, an Istanbul
+  `coverage-final.json`, a Cobertura or `coverage.py` XML, or a
+  `go test -coverprofile` — and ranks what is not covered.
+  - A file the change set touched outranks one it did not, and an uncovered
+    function counts double: an untested line in a file just edited was probably
+    just written. Uncovered lines come back folded into ranges (`18-24`) with
+    the functions that run in no test.
+  - Report paths are normalised against the project root and matched to changed
+    files on whole trailing segments, so a Go import path and a repository path
+    are recognised as one file. Nothing is executed: a report that no run
+    produced comes back as `no_report` with the command that would produce one.
+  - `verify_task` gained `coverage_min`: a percentage of lines the report must
+    show, checked as a new `coverage` check with the five largest gaps
+    attached. It fails when the report is missing — a floor nobody could
+    measure is not a floor that was met — and `0`, the default, leaves coverage
+    out entirely.
 - **`propose_instincts`** (`src/core/instinct-proposals.mjs`): the session-end
   hook now leaves an observation log beside its draft — what the user said,
   what tools ran with what, which calls came back as errors — and this tool

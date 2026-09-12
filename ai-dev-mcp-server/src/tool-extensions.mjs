@@ -20,6 +20,7 @@
  * import cycle and couple pure logic to the vault.
  */
 
+import { createCoverageTools } from "./extensions/coverage.mjs";
 import { createDecisionTools } from "./extensions/decisions.mjs";
 import { createFrontendDesignTools } from "./extensions/frontend-design.mjs";
 import { createFrontendQaTools } from "./extensions/frontend-qa.mjs";
@@ -40,6 +41,7 @@ import { createUsageTools } from "./extensions/usage.mjs";
 import { createWorktreeTools } from "./extensions/worktrees.mjs";
 
 export const EXTENSION_FACTORIES = [
+  createCoverageTools,
   createDecisionTools,
   createFrontendDesignTools,
   createFrontendQaTools,

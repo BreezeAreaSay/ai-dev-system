@@ -77,6 +77,7 @@ import {
   recommendedSkillsMarkdown,
   scriptsTable
 } from "./core/project-markdown.mjs";
+import { loadImportGraph, renderImportGraphMarkdown } from "./core/import-graph.mjs";
 import { configureRuntimeStateRoot, resolveProjectIdentity } from "./core/project-identity.mjs";
 import { resolveRuntimeHome } from "./core/runtime-home.mjs";
 import {
@@ -2333,6 +2334,9 @@ ${autoCommandsMarkdown()}
 
 async function buildProjectMapMd(detected) {
   const tree = await projectTree(detected.project_path);
+  // The graph is re-read only when the source files moved; the fingerprint
+  // costs a directory walk, the parse costs the whole tree (PLAN.md 3.8).
+  const importGraph = await loadImportGraph(detected.project_path).catch(() => null);
   return `# Project Map
 
 Generated: ${new Date().toISOString()}
@@ -2363,6 +2367,10 @@ ${architectureMarkdown(detected.architecture)}
 ## Important Files And Folders
 
 ${asBulletList(detected.markers)}
+
+## Import graph
+
+${renderImportGraphMarkdown(importGraph)}
 
 ## Documentation
 

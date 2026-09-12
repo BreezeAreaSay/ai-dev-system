@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Import graph in the project map**: `.ai-dev/project-map.md` gained an
+  "Import graph" section — the modules most of the codebase depends on, every
+  import cycle, and the files nothing in the project imports. Read from
+  JavaScript/TypeScript and Python sources, resolving only to files inside the
+  repository, so a bare specifier is counted as an external dependency and never
+  becomes a node. The scan is lazy: the source files are fingerprinted by path,
+  size and mtime (a directory walk) and re-parsed only when that moves, so
+  `prepare_project`, `refresh_project_map` and `refresh_project_context`
+  re-render the map every time and re-read the tree only when it changed
+  (`src/core/import-graph.mjs`).
+
 - **Agent harness grading** (`scan_agent_config`): grades a repository's agent
   configuration from A to F over five places nothing else reads together —
   `CLAUDE.md` / `AGENTS.md` that run a command on load or tell the agent in

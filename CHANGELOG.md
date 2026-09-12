@@ -425,6 +425,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tasks: five ECC skills recommended where there were none, and every task keeps
   the three skills it had.
 
+- **Retired models' prices are marked as unverified.** Six rows in the rate
+  table price models the published page no longer lists, so nothing re-checks
+  them. They stay — a ledger keeps old events and a report over last quarter has
+  to price what ran — but `usage_report` now keeps them out of the per-model
+  breakdown (`historical_models` instead of `models`, each with
+  `price_basis: "historical"`), reports `usage.historical_cost_usd` as the share
+  of the total that rests on them, and says so in `rates.notice`. The totals
+  still include them: dropping the cost would make them wrong the other way,
+  silently. `include_historical_models` folds them back in. Current models'
+  prices are untouched.
+
 - **`list_mcp_servers` parsed the whole of `~/.claude.json` to reach two keys.**
   The same file holds Claude Code's conversation history for every project it
   has opened — tens of megabytes on an active machine. It is now streamed and

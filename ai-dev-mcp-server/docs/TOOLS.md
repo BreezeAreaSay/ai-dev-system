@@ -221,7 +221,7 @@ for permission per call can let them through without prompting.
 | Tool | Read-only | Required arguments | What it does |
 | --- | --- | --- | --- |
 | `record_usage` | no | — | Record model usage reported by the client for a turn, task, or session (tokens, cache, cost, duration). The MCP server never sees tokens itself; a session runner or the agent posts them here so cost per task becomes visible. |
-| `usage_report` | yes | — | Aggregate recorded tool calls and model usage: per-tool call counts, failure rates and latency, per-task tokens and cost, per-model totals, and the today / yesterday / last-seven-days slices. Cost is what the client reported where it reported one, and an estimate from the published rate table (overridable per project in .ai-dev/policy.json) everywhere else. Filter by project, task, or start time. |
+| `usage_report` | yes | — | Aggregate recorded tool calls and model usage: per-tool call counts, failure rates and latency, per-task tokens and cost, per-model totals, and the today / yesterday / last-seven-days slices. Cost is what the client reported where it reported one, and an estimate from the published rate table (overridable per project in .ai-dev/policy.json) everywhere else. Models the price page no longer lists are priced from what it said while they were current: their cost stays in every total, usage.historical_cost_usd says how much of it that is, and they are reported under historical_models rather than models unless include_historical_models is set. Filter by project, task, or start time. |
 
 ## Frontend product and QA
 

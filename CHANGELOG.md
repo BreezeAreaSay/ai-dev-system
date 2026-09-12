@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Distilled project rules** (`distill_project_rules`): reads what a repository
+  already does — module system, Node built-in import style, Python import style,
+  source and test file naming, where tests live, which test runner, how failures
+  are raised, whether caught errors are acted on — and writes it to
+  `.ai-dev/rules/project.md` with `status: draft`. Every statement carries the
+  counts it came from, and a convention the repository splits on is reported as
+  split instead of being turned into a rule. It complements
+  `install_project_rules` rather than replacing it, and never writes over an
+  existing file: the answer distinguishes a draft (safe to regenerate) from one
+  whose `status: draft` line a person has removed (`src/core/rules-distill.mjs`).
+
 - **Import graph in the project map**: `.ai-dev/project-map.md` gained an
   "Import graph" section — the modules most of the codebase depends on, every
   import cycle, and the files nothing in the project imports. Read from

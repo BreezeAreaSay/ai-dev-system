@@ -36,6 +36,7 @@ Node 22, но `engines` в `package.json` не трогался: `>=24` оста
 | 13 | [13-ecc-skill-catalog.md](13-ecc-skill-catalog.md) | 3.1 | Выборочный импорт каталога скиллов ECC как `external/ecc`: четыре ворот отбора, группы исключений с цитатами разбора, `trust: known-upstream` |
 | 14 | [14-pull-request-preparation.md](14-pull-request-preparation.md) | 3.16 | `prepare_pull_request`: описание PR из доказательств задачи, заполнение шаблона репозитория, секция «осталось», ссылка из `complete_task` |
 | 15 | [15-completion-statement-linter.md](15-completion-statement-linter.md) | 3.17 | Линтер заявлений о завершении в `checkpoint_task` / `complete_task`: двенадцать рационализаций против сигналов проверок, waiver в `.ai-dev/policy.json`, seed-скилл `self-evaluation` |
+| 16 | [16-task-snapshots.md](16-task-snapshots.md) | 3.2 | Снимки рабочего дерева задачи в `refs/ai-dev/snapshots/<task_id>/<n>` и обратимый откат: `snapshot_task`, `list_task_snapshots`, `rollback_task`, автоснимок в `checkpoint_task`, удаление в `complete_task` |
 
 ## Как читать этот каталог
 

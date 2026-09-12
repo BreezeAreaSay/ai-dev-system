@@ -75,7 +75,7 @@ startup, so a broken extension can never reach a client.
 
 Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygiene`,
 `instincts`, `lifecycle`, `plans`, `projects`, `pull-requests`, `rules`, `search`, `sessions`,
-`skills`, `system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
+`skills`, `snapshots`, `system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
 `change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `pull-request.mjs`,
 `pr-template.mjs`, `rules-library.mjs`, `rules-catalog.mjs`, `session-memory.mjs`,
 `skill-catalog.mjs`, `skill-cards.mjs`, `skill-registry-docs.mjs`,
@@ -84,7 +84,7 @@ Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygie
 `search-runtime.mjs`, `search-eval.mjs`, `project-cards.mjs`, `project-markdown.mjs`,
 `quality-gate-runner.mjs`, `task-verification.mjs`, `task-completion.mjs`,
 `system-health.mjs`, `system-dashboard.mjs`, `text-format.mjs`, `usage-ledger.mjs`,
-`task-worktrees.mjs`); the extension is the MCP surface over it.
+`task-worktrees.mjs`, `task-snapshots.mjs`); the extension is the MCP surface over it.
 
 `core/` is not only pure logic. A handful of modules there are services: they run processes
 or own state, but know nothing about MCP and take everything environment-specific as a
@@ -95,6 +95,16 @@ arguments, so the module is testable against a stub rather than against an insta
 toolchain.
 `core/completion-claims.mjs` has no extension of its own: the `lifecycle` extension is its only
 caller.
+
+`snapshots` keeps a turn undoable. `core/task-snapshots.mjs` records the whole working tree of a
+task — tracked changes, staged or not, plus the files the agent created — as one commit object
+that no branch points at, held by a ref under `refs/ai-dev/snapshots/<task_id>/<n>`, and
+`rollback_task` restores those files and removes the ones that appeared since. Nothing is
+written to the user's branch, their stash or their index; `.gitignore` decides what is carried,
+so dependencies and build output stay out of it. The lifecycle drives it at both ends:
+`checkpoint_task` snapshots the turn it records (a repository that cannot be snapshotted leaves
+a reason, never an error), and `complete_task` deletes the refs the closed task no longer needs.
+A rollback snapshots the state it is about to replace, so it can itself be rolled back.
 
 `pull-requests` is the one extension that reads from every other: `prepare_pull_request`
 projects a task record, its verifications, its decisions and its plan onto the repository diff

@@ -16,8 +16,11 @@
  * - **A scanner that needs the network says so instead of hanging.** Five of
  *   the six fetch an advisory database. Offline they fail slowly and in their
  *   own way, so they are skipped up front when the run is declared offline, and
- *   a network error in the output is read as "offline", not as a scan failure.
- *   `verify_task` therefore cannot be held up by a missing network.
+ *   a run that came back with nothing and an errno is read as "offline", not as
+ *   a scan failure. `verify_task` therefore cannot be held up by a missing
+ *   network. That reading is deliberately narrow: findings are never evidence
+ *   about the network, because a scan that retracts itself over a word in its
+ *   own report fails open while looking clean.
  *
  * The gate: critical and high `dependency` and `secret` findings block; every
  * other finding, and every severity a scanner did not state, warns. A blocked
@@ -138,8 +141,17 @@ export const SECURITY_SCANNERS = Object.freeze([
 /** Local semgrep rule files, in the order semgrep itself documents them. */
 const SEMGREP_LOCAL_CONFIGS = Object.freeze([".semgrep.yml", ".semgrep.yaml", "semgrep.yml", "semgrep.yaml", ".semgrep"]);
 
-/** Output that means "there was no network", whatever the scanner calls it. */
-const OFFLINE_OUTPUT = /\b(ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|ENETUNREACH)\b|getaddrinfo|network is unreachable|could not resolve host|proxy|failed to (?:fetch|download)|temporary failure in name resolution|unable to (?:connect|reach)|offline/i;
+/**
+ * Output that means "there was no network", whatever the scanner calls it.
+ *
+ * Machine tokens only: errno names, the resolver call, the kernel's and npm's
+ * own wording for a dead socket. No ordinary word goes in here. An advisory
+ * titled "…cache-key and proxy interpretation differentials" used to match the
+ * bare word `proxy` and turn fourteen real findings of this repository, five of
+ * them high, into "npm audit could not reach the network" — a scan that failed
+ * open while reading as a clean bill of health.
+ */
+const OFFLINE_OUTPUT = /\b(?:ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH|ENETDOWN|EHOSTUNREACH|ERR_SOCKET_TIMEOUT|CERT_HAS_EXPIRED|UNABLE_TO_VERIFY_LEAF_SIGNATURE|SELF_SIGNED_CERT_IN_CHAIN)\b|\bgetaddrinfo\b|network is unreachable|temporary failure in name resolution|could not resolve host|npm error network\b/i;
 
 async function pathExists(target) {
   return fs.stat(target).then(() => true).catch(() => false);
@@ -237,6 +249,24 @@ function outputTail(result, limit = 400) {
 }
 
 /**
+ * The one line of a failed run worth quoting: the first thing the scanner said
+ * went wrong. Never a slice of the report — a tail of `npm audit --json` is a
+ * fragment of somebody's dependency tree, which explains nothing.
+ *
+ * @param {{ stderr?: string }} result
+ * @param {string} report - What the scanner printed or wrote as its report.
+ * @returns {string}
+ */
+function firstProblemLine(result, report, limit = 200) {
+  const source = String(result?.stderr ?? "").trim() || String(report ?? "").trim();
+  const lines = source.split("\n").map((item) => item.trim()).filter(Boolean);
+  // In a report the first line is usually a brace. The line that names the
+  // errno is the one that says anything.
+  const line = lines.find((item) => OFFLINE_OUTPUT.test(item)) ?? lines[0] ?? "";
+  return line.replace(/\s+/g, " ").slice(0, limit);
+}
+
+/**
  * Run one scanner and read its output.
  *
  * @param {object} scanner
@@ -274,21 +304,11 @@ async function runOneScanner(scanner, { projectRoot, offline, timeoutMs, runner,
       duration_ms: Date.now() - started
     };
   }
-  const combined = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   if (result.timedOut) {
     return {
       ...base,
       status: "skipped",
       reason: `${scanner.tool} did not finish within ${Math.round(timeoutMs / 1000)}s and was stopped. Its findings are unknown, not absent.`,
-      findings: [],
-      duration_ms: Date.now() - started
-    };
-  }
-  if (network && OFFLINE_OUTPUT.test(combined)) {
-    return {
-      ...base,
-      status: "skipped",
-      reason: `${scanner.tool} could not reach the network: ${outputTail(result, 200)}. Its findings are unknown, not absent.`,
       findings: [],
       duration_ms: Date.now() - started
     };
@@ -301,6 +321,21 @@ async function runOneScanner(scanner, { projectRoot, offline, timeoutMs, runner,
   }
   const findings = scanner.parse(raw);
   const exitOk = scanner.successExitCodes.includes(result.exitCode ?? -1);
+  // Offline is decided by the failure channel, never by what the scanner
+  // found. A scanner that came back with findings reached whatever it needed
+  // to reach, so its findings stand and no word inside them can retract the
+  // run. Only a run that produced nothing can be a run the network ate — and
+  // then the report is read too, because npm prints its own network failure as
+  // a JSON document on stdout under `--json` and still exits 1.
+  if (network && !findings.length && (OFFLINE_OUTPUT.test(result.stderr ?? "") || OFFLINE_OUTPUT.test(raw))) {
+    return {
+      ...base,
+      status: "skipped",
+      reason: `${scanner.tool} exited ${result.exitCode ?? "without an exit code"} without reaching the network: ${firstProblemLine(result, raw)}. Its findings are unknown, not absent.`,
+      findings: [],
+      duration_ms: Date.now() - started
+    };
+  }
   if (!exitOk && !findings.length) {
     return {
       ...base,

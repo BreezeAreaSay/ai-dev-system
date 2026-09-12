@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   BLOCKING_KINDS,
   BLOCKING_SEVERITIES,
@@ -16,6 +17,8 @@ import {
   semgrepConfigFor,
   skipReasonFor
 } from "./security-scan.mjs";
+
+const FIXTURES = fileURLToPath(new URL("../../test/fixtures/security-scan/", import.meta.url));
 
 async function tempProject(t, files = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "security-scan-"));
@@ -144,8 +147,66 @@ test("a network failure in the output is read as offline, not as a broken scan",
   });
   const [npmAudit] = scan.scanners.filter((scanner) => scanner.id === "npm_audit");
   assert.equal(npmAudit.status, "skipped");
-  assert.match(npmAudit.reason, /could not reach the network/);
+  assert.match(npmAudit.reason, /exited 1 without reaching the network/);
+  assert.match(npmAudit.reason, /npm error code ENOTFOUND/, "the first line of stderr, not a slice of the report");
   assert.equal(scan.status, "pass");
+});
+
+test("a real report is read as findings, whatever words the advisories use", async (t) => {
+  const root = await tempProject(t, { "package-lock.json": "{}" });
+  const report = await fs.readFile(path.join(FIXTURES, "npm-audit-report.json"), "utf8");
+  assert.match(report, /proxy/i, "the fixture is only interesting while it names a proxy");
+
+  const scan = await runSecurityScan(root, {
+    scanners: ["npm_audit"],
+    runner: fakeRunner({ npm: { exitCode: 1, stdout: report } }),
+    locate: fakeLocator(["npm"])
+  });
+  assert.equal(scan.scanners[0].status, "ok");
+  assert.equal(scan.summary.findings, 14);
+  assert.equal(scan.summary.blocking, 5);
+  assert.equal(scan.status, "block");
+
+  // The same report with the word every advisory title happens to share taken
+  // out. A scan may not change its mind about the network over its own prose.
+  const renamed = await runSecurityScan(root, {
+    scanners: ["npm_audit"],
+    runner: fakeRunner({ npm: { exitCode: 1, stdout: report.replace(/proxy/gi, "pxy") } }),
+    locate: fakeLocator(["npm"])
+  });
+  assert.deepEqual(renamed.summary, scan.summary);
+});
+
+test("npm's own offline report — JSON on stdout, exit 1 — is skipped, not read as clean", async (t) => {
+  const root = await tempProject(t, { "package-lock.json": "{}" });
+  // Measured: `npm audit --json --registry=http://127.0.0.1:9/`. The failure is
+  // a JSON document on stdout, so the exit code and the report shape both look
+  // ordinary; only the errno says what happened.
+  const stdout = JSON.stringify({
+    message: "request to http://127.0.0.1:9/-/npm/v1/security/audits/quick failed, reason: connect ECONNREFUSED 127.0.0.1:9",
+    error: { summary: "", detail: "" }
+  });
+  const scan = await runSecurityScan(root, {
+    scanners: ["npm_audit"],
+    runner: fakeRunner({
+      npm: { exitCode: 1, stdout, stderr: "npm warn audit request to http://127.0.0.1:9/-/npm/v1/security/audits/quick failed, reason: connect ECONNREFUSED 127.0.0.1:9\nnpm error audit endpoint returned an error" }
+    }),
+    locate: fakeLocator(["npm"])
+  });
+  assert.equal(scan.scanners[0].status, "skipped");
+  assert.match(scan.scanners[0].reason, /exited 1 without reaching the network/);
+  assert.match(scan.scanners[0].reason, /ECONNREFUSED/, "the reason names what failed");
+  assert.equal(scan.summary.checked, 0, "a scan that proved nothing counts nothing as checked");
+
+  // The same failure with nothing on stderr: the reason comes from the line of
+  // the report that names the errno, not from the opening brace.
+  const quiet = await runSecurityScan(root, {
+    scanners: ["npm_audit"],
+    runner: fakeRunner({ npm: { exitCode: 1, stdout: JSON.stringify({ message: "request to https://registry.npmjs.org/ failed, reason: connect ECONNREFUSED", error: {} }, null, 2) } }),
+    locate: fakeLocator(["npm"])
+  });
+  assert.equal(quiet.scanners[0].status, "skipped");
+  assert.match(quiet.scanners[0].reason, /ECONNREFUSED/);
 });
 
 test("a scanner that overstays its timeout is skipped, so verify_task is never held up", async (t) => {

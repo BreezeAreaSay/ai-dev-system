@@ -346,12 +346,17 @@ export async function cleanupTaskWorktrees({
   if (!dryRun) {
     for (const entry of plan.remove) {
       try {
-        removed.push(await removeTaskWorktree({
+        const outcome = await removeTaskWorktree({
           projectRoot: listed.main_root,
           worktreePath: entry.path,
           force: entry.state === "orphan",
           deleteBranch
-        }));
+        });
+        // What it was, then what happened to it. The outcome alone carries no
+        // `name` and no `state`, so a report of the cleanup could only list
+        // paths — `removed.map((item) => item.name)` answered with undefined
+        // for every entry (docs/ecc-upgrades/DEBTS.md, Д-27).
+        removed.push({ ...entry, ...outcome });
       } catch (error) {
         problems.push(`${entry.path}: ${error instanceof Error ? error.message : String(error)}`);
       }

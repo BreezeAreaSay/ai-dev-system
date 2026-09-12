@@ -207,6 +207,13 @@ test("states and cleanup over a real repository, and nothing goes without being 
   assert.equal(applied.removed.length, 1);
   assert.equal(applied.removed[0].branch_deleted, true);
   assert.deepEqual(applied.problems, []);
+  // Each record says what was removed, not only that something was: the plan
+  // entry's name, state and reason, plus the outcome (Д-27).
+  assert.equal(applied.removed[0].name, "merged");
+  assert.equal(applied.removed[0].state, "orphan");
+  assert.match(applied.removed[0].branch, /merged$/);
+  assert.equal(typeof applied.removed[0].reason, "string");
+  assert.equal(applied.removed[0].path, applied.removed[0].removed);
   const remaining = await listTaskWorktrees({ projectRoot: repo, includeStatus: true });
   assert.deepEqual(remaining.worktrees.map((item) => item.name).sort(), ["ahead", "dirty"]);
   assert.equal(remaining.worktrees.every((item) => item.state !== "orphan"), true);
@@ -215,5 +222,6 @@ test("states and cleanup over a real repository, and nothing goes without being 
   // is only ever discarded through remove_task_worktree with force.
   const aggressive = await cleanupTaskWorktrees({ projectRoot: repo, dryRun: false, includeStale: true, staleAfterDays: 0 });
   assert.deepEqual(aggressive.removed.map((item) => path.basename(item.removed)), ["ahead"]);
+  assert.deepEqual(aggressive.removed.map((item) => item.name), ["ahead"], "and by name, which is what a report prints");
   assert.deepEqual((await listTaskWorktrees({ projectRoot: repo })).worktrees.map((item) => item.name), ["dirty"]);
 });

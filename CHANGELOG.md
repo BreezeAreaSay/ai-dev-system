@@ -425,6 +425,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tasks: five ECC skills recommended where there were none, and every task keeps
   the three skills it had.
 
+- **`list_mcp_servers` parsed the whole of `~/.claude.json` to reach two keys.**
+  The same file holds Claude Code's conversation history for every project it
+  has opened — tens of megabytes on an active machine. It is now streamed and
+  only `mcpServers` and the current project's `projects[<path>].mcpServers` are
+  buffered (`src/core/json-subset.mjs`), so another project's history and
+  servers are never even recognised. Over two megabytes the report says what the
+  read cost instead of hiding it, and a file that does not start a JSON object
+  is reported unreadable rather than read as empty.
+
 - **A .NET, F# or Xcode project was invisible to the detector.** Those project
   files are named after the product (`Atlas.csproj`), and the detector checked
   paths rather than listing the root, so `C#/.NET` was inferred from five

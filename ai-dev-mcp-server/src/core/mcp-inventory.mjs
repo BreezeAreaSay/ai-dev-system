@@ -23,6 +23,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { findSecretsInLine } from "./change-hygiene.mjs";
+import { readJsonSubset } from "./json-subset.mjs";
 import { parseTomlLite } from "./toml-lite.mjs";
 
 /** Project-scope config files, in the order a report lists them. */
@@ -97,6 +98,44 @@ export function stripJsonComments(text) {
     output += char;
   }
   return output.replace(/,(\s*[}\]])/g, "$1");
+}
+
+/** Bytes past which the report says what reading this file cost. */
+const LARGE_CONFIG_BYTES = 2 * 1024 * 1024;
+
+/**
+ * Read only the keys that declare servers, streaming past the rest.
+ *
+ * `~/.claude.json` holds the user's own MCP servers *and* Claude Code's
+ * conversation history for every project it has opened, which is tens of
+ * megabytes on an active machine (docs/ecc-upgrades/DEBTS.md, Д-17). Two keys
+ * are wanted; the rest is streamed through and dropped. The scanner does not
+ * validate, so the first character is checked instead: a file that does not
+ * start an object is reported unreadable the way a failed parse was.
+ */
+async function readServerKeys(absolute, source, projectRoot) {
+  const patterns = [[source.key]];
+  if (source.projects && projectRoot) patterns.push(["projects", projectRoot, source.key]);
+  const scan = await readJsonSubset(absolute, patterns);
+  if (!scan.exists) return { exists: false, document: null, error: "", warnings: [] };
+  if (scan.root && scan.root !== "{") {
+    return { exists: true, document: null, error: `not valid JSON: the document starts with "${scan.root}", not an object`, warnings: [] };
+  }
+  const document = {};
+  for (const { path: keyPath, value } of scan.found) {
+    let holder = document;
+    for (const segment of keyPath.slice(0, -1)) {
+      if (!holder[segment] || typeof holder[segment] !== "object") holder[segment] = {};
+      holder = holder[segment];
+    }
+    holder[keyPath.at(-1)] = value;
+  }
+  const warnings = [];
+  if (scan.bytes > LARGE_CONFIG_BYTES) {
+    warnings.push(`${(scan.bytes / (1024 * 1024)).toFixed(1)} MB streamed to read ${patterns.length} key(s); the rest of the file was skipped, not parsed`);
+  }
+  for (const key of scan.truncated) warnings.push(`${key} is larger than the value limit and was skipped`);
+  return { exists: true, document, error: scan.errors.length ? `not valid JSON: ${scan.errors[0]}` : "", warnings };
 }
 
 async function readConfigDocument(absolute, format) {
@@ -359,7 +398,11 @@ export async function listMcpServers({ projectRoot, homeDir = os.homedir(), env 
   const settings = { enableAll: false, enabled: new Set(), disabled: new Set() };
 
   for (const source of planned) {
-    const { exists, document, error, warnings } = await readConfigDocument(source.absolute, source.format);
+    // The user-scope Claude Code file is read key by key rather than parsed
+    // whole: it is also where the conversation history lives.
+    const { exists, document, error, warnings } = source.projects
+      ? await readServerKeys(source.absolute, source, root)
+      : await readConfigDocument(source.absolute, source.format);
     const entries = error ? [] : serverEntries(document, source, root);
     if (source.approvals && document && typeof document === "object") {
       if (document.enableAllProjectMcpServers === true) settings.enableAll = true;

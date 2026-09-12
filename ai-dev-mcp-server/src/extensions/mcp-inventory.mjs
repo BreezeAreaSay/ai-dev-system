@@ -50,7 +50,7 @@ export function createMcpInventoryTools(host) {
             include_user_scope: {
               type: "boolean",
               default: false,
-              description: "Also read the current user's own config files (~/.claude.json including its per-project block, ~/.cursor/mcp.json, ~/.gemini/settings.json, ~/.codex/config.toml). They apply to this project too, but they are outside the repository and belong to the person running the server."
+              description: "Also read the current user's own config files (~/.claude.json including its per-project block, ~/.cursor/mcp.json, ~/.gemini/settings.json, ~/.codex/config.toml). They apply to this project too, but they are outside the repository and belong to the person running the server. ~/.claude.json is streamed key by key rather than parsed: the same file holds Claude Code's conversation history, and the report says how much it streamed."
             }
           },
           required: ["project_path"]

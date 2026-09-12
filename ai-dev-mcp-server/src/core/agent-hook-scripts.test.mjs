@@ -8,6 +8,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { GIT_HOOKS_RELATIVE_DIR, agentHooksStatus, defaultPolicy, installAgentHooks, renderHookPatterns } from "./agent-hooks.mjs";
 import { parseAddedLines } from "./change-hygiene.mjs";
+import { observationsFileName, proposeInstincts } from "./instinct-proposals.mjs";
 import {
   FACT_FORCE_DEFAULTS,
   FACT_KEYS,
@@ -345,4 +346,51 @@ test("targets git point core.hooksPath at stubs that refuse a bad commit", async
   assert.ok(foreign.warnings.some((line) => line.includes(".githooks")));
   assert.equal(hooksPath(), ".githooks");
   assert.equal((await agentHooksStatus(projectRoot)).git_hooks_active, false);
+});
+
+test("session-end leaves an observation log the server can turn into instinct proposals", async (t) => {
+  const { root, projectRoot } = await fixture(t);
+  await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], profile: "standard" });
+  const transcript = path.join(root, "transcript.jsonl");
+  const assistant = (...content) => JSON.stringify({ type: "assistant", message: { role: "assistant", content } });
+  const said = (text) => JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } });
+  const failed = (id, text) => JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, is_error: true, content: [{ type: "text", text }] }] } });
+  await fs.writeFile(transcript, [
+    said("Split the router out of the entry point"),
+    assistant({ type: "tool_use", id: "t1", name: "Bash", input: { command: "npm test" } }),
+    assistant({ type: "tool_use", id: "t2", name: "Bash", input: { command: "npm test" } }),
+    said("No, never edit the generated client by hand"),
+    assistant({ type: "tool_use", id: "t3", name: "Bash", input: { command: "npm test" } }),
+    assistant({ type: "tool_use", id: "t4", name: "Edit", input: { file_path: "src/router.mjs" } }),
+    assistant({ type: "tool_use", id: "t5", name: "Bash", input: { command: "node build.mjs" } }),
+    failed("t5", "Error: Cannot find module '/repo/dist/a.js'"),
+    assistant({ type: "tool_use", id: "t6", name: "Bash", input: { command: "node build.mjs" } }),
+    failed("t6", "Error: Cannot find module '/repo/dist/b.js'"),
+    assistant({ type: "tool_use", id: "t7", name: "Bash", input: { command: "npm ci" } })
+  ].join("\n") + "\n");
+
+  const result = runHook(projectRoot, "session-end.mjs", [], { session_id: "s-9", transcript_path: transcript });
+  assert.equal(result.status, 0, result.stderr);
+
+  // The hook writes the log beside the draft, under the name the server reads.
+  const sessionsRoot = path.join(root, "state", "sessions");
+  const [scopeKey] = await fs.readdir(sessionsRoot);
+  const logPath = path.join(sessionsRoot, scopeKey, observationsFileName("s-9"));
+  const log = JSON.parse(await fs.readFile(logPath, "utf8"));
+  assert.equal(log.session_id, "s-9");
+  assert.equal(log.project_path, projectRoot);
+  assert.ok(log.events.length >= 10);
+  // A tool_result turn is the harness speaking, so it is an error event and not
+  // a user message.
+  assert.deepEqual(log.events.filter((event) => event.k === "user").map((event) => event.t), [
+    "Split the router out of the entry point",
+    "No, never edit the generated client by hand"
+  ]);
+  assert.deepEqual(log.events.filter((event) => event.k === "error").map((event) => event.c), ["node build.mjs", "node build.mjs"]);
+
+  const { proposals } = proposeInstincts({ events: log.events, projectName: "project" });
+  const kinds = proposals.map((item) => item.kind);
+  assert.ok(kinds.includes("correction"), `no correction in ${kinds.join(", ")}`);
+  assert.ok(kinds.includes("repeated_command"));
+  assert.equal(proposals.find((item) => item.kind === "resolved_error").action, "run `npm ci`");
 });

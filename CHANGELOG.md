@@ -150,6 +150,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reports actually contain, and a post-action for each average band.
     `ai-dev-orchestrator` and `verification-loop` route to it before
     `complete_task`.
+- **`propose_instincts`** (`src/core/instinct-proposals.mjs`): the session-end
+  hook now leaves an observation log beside its draft — what the user said,
+  what tools ran with what, which calls came back as errors — and this tool
+  reads one session's log into candidate instincts.
+  - Five patterns, ported from ECC's continuous-learning-v2 observer: a
+    correction the user made (only after the agent had done something to
+    correct), a rule they stated ("always", "never", "use X instead of Y"), an
+    error signature that recurred together with the call that finally cleared
+    it, a command run three times, and a pair of commands run back to back
+    twice. An error signature generalises paths, numbers and quoted values, so
+    one failure on two files is one signature.
+  - Candidates are not conclusions. Each quotes what was observed, is stored
+    with the new status `proposed`, is capped at 0.5 confidence, never reaches
+    a context pack, and becomes an instinct through
+    `update_instinct(action: "confirm")`. `list_instincts` gained a `status`
+    filter to review them; `dry_run` returns them without storing anything.
+  - A second run over the same log proposes nothing new: a candidate that
+    matches an instinct the store already holds is reported as skipped rather
+    than quietly raising that instinct's confidence.
+  - The wording is deliberately the user's own, not a paraphrase. The half of
+    the observer that needs a model stays with the agent, which confirms the
+    candidates and rewrites them with `record_instinct` where they read badly.
+- **`list_sessions`**: the handoffs a repository has, newest first, with the
+  unconfirmed hook drafts marked and the sessions whose observation log is
+  still on disk flagged for `propose_instincts`. `drafts_only` and
+  `substantive_only` narrow it.
 - **Eleven more rule packs** (`src/core/rules-catalog.mjs`): `vue`, `angular`,
   `react-native`, `fastapi`, `kotlin`, `swift`, `dart`, `csharp`, `cpp`, `php`
   and `ruby` join the eight the catalogue had, each with its own `paths` globs

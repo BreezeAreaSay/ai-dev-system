@@ -3,7 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { observationsFileName } from "../core/instinct-proposals.mjs";
 import { InstinctStore } from "../core/instincts.mjs";
+import { SessionStore } from "../core/session-memory.mjs";
 import { TaskStore } from "../core/task-lifecycle.mjs";
 import { createExtensionTools } from "../tool-extensions.mjs";
 import { createInstinctTools } from "./instincts.mjs";
@@ -64,4 +66,77 @@ test("instinct tools record, list, update, evolve into vault drafts, export, and
   assert.equal(imported.imported, 1);
   assert.equal(imported.reinforced, 1, "same global instinct merges instead of duplicating");
   await assert.rejects(registry.handlers.get("import_instincts")({ entries: exported.instincts, scope: "project" }), /project_path is required/);
+});
+
+test("propose_instincts turns a session's observation log into candidates nobody has confirmed yet", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "propose-instincts-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const projectRoot = path.join(root, "project");
+  await fs.mkdir(projectRoot);
+  const stateRoot = path.join(root, "state");
+  const instinctStore = new InstinctStore({ stateRoot });
+  const sessionStore = new SessionStore({ stateRoot });
+  const identity = { project_root: projectRoot, project_id: "project-test", repository_id: "repository-test" };
+  const host = {
+    instinctStore,
+    sessionStore,
+    taskStore: new TaskStore({ stateRoot }),
+    resolveProjectIdentity: async () => identity,
+    detectProject: async () => ({ stack: ["TypeScript"], project_types: ["backend"] })
+  };
+  const registry = createExtensionTools(host, [createInstinctTools]);
+
+  const empty = await registry.handlers.get("propose_instincts")({ project_path: projectRoot });
+  assert.equal(empty.status, "no_observations");
+  assert.deepEqual(empty.proposals, []);
+  assert.match(empty.next_step, /install_agent_hooks/);
+
+  // The log the session-end hook leaves behind, written where it writes it.
+  const directory = sessionStore.directoryFor("repository-test");
+  await fs.mkdir(directory, { recursive: true });
+  await fs.writeFile(path.join(directory, observationsFileName("s-1")), JSON.stringify({
+    schema_version: 1,
+    session_id: "s-1",
+    updated_at: "2026-09-12T10:00:00.000Z",
+    project_path: projectRoot,
+    events: [
+      { k: "tool", n: "Bash", c: "npm test" },
+      { k: "user", t: "No, never edit the generated client by hand" },
+      { k: "tool", n: "Bash", c: "npm test" },
+      { k: "tool", n: "Bash", c: "npm test" }
+    ]
+  }, null, 2));
+
+  const dry = await registry.handlers.get("propose_instincts")({ project_path: projectRoot, dry_run: true });
+  assert.equal(dry.status, "proposed");
+  assert.equal(dry.session_id, "s-1");
+  assert.equal(dry.signals.tool_calls, 3);
+  assert.ok(dry.proposals.length >= 2);
+  assert.equal((await instinctStore.list({ projectId: "project-test", includeRetired: true })).length, 0, "a dry run stores nothing");
+
+  const proposed = await registry.handlers.get("propose_instincts")({ project_path: projectRoot });
+  assert.equal(proposed.status, "proposed");
+  for (const item of proposed.proposals) assert.equal(item.status, "proposed");
+  assert.match(proposed.next_step, /list_instincts\(status: "proposed"\)/);
+
+  // Proposals are memory, not behaviour: they are listed only when asked for,
+  // and never injected into a context pack.
+  assert.equal((await registry.handlers.get("list_instincts")({ project_path: projectRoot })).count, 0);
+  const review = await registry.handlers.get("list_instincts")({ project_path: projectRoot, status: "proposed" });
+  assert.equal(review.count, proposed.proposals.length);
+  const injected = await instinctStore.rankForContext({ projectId: "project-test", threshold: 0 });
+  assert.equal(injected.instincts.length, 0);
+
+  // Confirming one is what makes it a behaviour; the rest can be retired.
+  const confirmed = await registry.handlers.get("update_instinct")({ id: proposed.proposals[0].id, action: "confirm" });
+  assert.equal(confirmed.instinct.status, "active");
+  assert.equal((await registry.handlers.get("list_instincts")({ project_path: projectRoot })).count, 1);
+
+  // A second run over the same log proposes nothing new rather than inflating
+  // the confidence of what it already said.
+  const again = await registry.handlers.get("propose_instincts")({ project_path: projectRoot });
+  assert.equal(again.status, "nothing_new");
+  assert.deepEqual(again.proposals, []);
+  assert.ok(again.skipped.length >= 2);
+  assert.match(again.skipped[0].reason, /already recorded as/);
 });

@@ -16,6 +16,14 @@ import { memoryScopeKeys } from "./project-identity.mjs";
 export const INSTINCT_DOMAINS = ["code-style", "testing", "git", "debugging", "workflow", "security", "architecture", "tooling", "performance", "documentation", "general"];
 export const INSTINCT_SCOPES = ["project", "global"];
 export const INSTINCT_SOURCES = ["agent", "observation", "task-outcome", "import", "hook"];
+/**
+ * `active` is a behaviour the agent follows, `proposed` is a candidate
+ * `propose_instincts` derived from a session and nobody has confirmed —
+ * listed on request, never injected into a context pack, and turned into an
+ * active instinct by `update_instinct(action: "confirm")`. `retired` and
+ * `promoted` are the ends of the same life.
+ */
+export const INSTINCT_STATUSES = ["active", "proposed", "retired", "promoted"];
 export const GLOBAL_FRIENDLY_DOMAINS = ["security", "workflow", "git", "general", "testing"];
 
 const STORE_SCHEMA_VERSION = 1;
@@ -94,6 +102,19 @@ export function effectiveConfidence(instinct, now = new Date().toISOString()) {
   const weeks = Number.isFinite(last) ? Math.max(0, (Date.parse(now) - last) / (7 * 86_400_000)) : 0;
   const decayed = instinct.confidence - Math.floor(weeks) * DECAY_PER_WEEK;
   return round(Math.max(Math.min(instinct.confidence, DECAY_FLOOR), decayed));
+}
+
+/**
+ * Whether two instincts say the same thing: three quarters of the shorter
+ * one's words appear in the other. Exported so a proposer can tell a new
+ * candidate from one the store already holds.
+ *
+ * @param {{ trigger: string, action: string }} left
+ * @param {{ trigger: string, action: string }} right
+ * @returns {boolean}
+ */
+export function instinctsAreSimilar(left, right) {
+  return similar(left, right);
 }
 
 function similar(left, right) {
@@ -223,7 +244,9 @@ export class InstinctStore {
         observations,
         source,
         stack: [...new Set((input.stack ?? []).map(String))],
-        status: "active",
+        // A proposal is stored, listed and confirmable, but it is not a
+        // behaviour yet: `list` hides it and the context pack never sees it.
+        status: input.status === "proposed" ? "proposed" : "active",
         created_at: now,
         updated_at: now,
         last_observed_at: now,
@@ -246,7 +269,9 @@ export class InstinctStore {
         instinct.observations += 1;
         instinct.confidence = round(clamp(instinct.confidence + CONFIRM_STEP));
         instinct.last_observed_at = now;
-        if (instinct.status === "retired") instinct.status = "active";
+        // Confirming is what a proposal is waiting for, and what brings a
+        // retired instinct back.
+        if (["retired", "proposed"].includes(instinct.status)) instinct.status = "active";
       } else if (kind === "contradict") {
         instinct.confidence = round(clamp(instinct.confidence - CONTRADICT_STEP));
         if (instinct.confidence < RETIRE_BELOW) instinct.status = "retired";
@@ -272,16 +297,19 @@ export class InstinctStore {
   /**
    * List instincts visible to a project (its own plus global ones).
    *
-   * Retired and promoted instincts are hidden unless `includeRetired` is set.
+   * Proposed, retired and promoted instincts are hidden unless `status` names
+   * one of them, or `includeRetired` asks for everything.
    *
-   * @param {{ repositoryId?: string, projectId?: string, scope?: string, domain?: string, minConfidence?: number, includeRetired?: boolean, now?: string }} [filter]
+   * @param {{ repositoryId?: string, projectId?: string, scope?: string, domain?: string, status?: string, minConfidence?: number, includeRetired?: boolean, now?: string }} [filter]
    * @returns {Promise<object[]>}
    */
-  async list({ repositoryId = "", projectId = "", scope = "", domain = "", minConfidence = 0, includeRetired = false, now = new Date().toISOString() } = {}) {
+  async list({ repositoryId = "", projectId = "", scope = "", domain = "", status = "", minConfidence = 0, includeRetired = false, now = new Date().toISOString() } = {}) {
     const store = await this.read();
     const keys = memoryScopeKeys({ repositoryId, projectId });
     return store.instincts
-      .filter((item) => includeRetired || item.status === "active")
+      // An explicit status asks for exactly that one; otherwise only behaviours
+      // the agent follows, unless everything was asked for.
+      .filter((item) => (status ? item.status === status : includeRetired || item.status === "active"))
       .filter((item) => !keys.length || item.scope === "global" || inScope(item, keys))
       .filter((item) => !scope || item.scope === scope)
       .filter((item) => !domain || item.domain === domain)

@@ -185,3 +185,59 @@ test("a handoff saved in a task worktree resumes from the main checkout", async 
   assert.match(resumed.briefing, /Wire the middleware in server\.ts/);
   assert.equal((await registry.handlers.get("resume_session")({ project_path: checkout, session_id: saved.session_id })).session.id, saved.session_id);
 });
+
+test("list_sessions shows what a repository remembers, and which sessions still have a log to learn from", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "list-sessions-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const projectRoot = path.join(root, "project");
+  await fs.mkdir(projectRoot, { recursive: true });
+  const stateRoot = path.join(root, "state");
+  const sessionStore = new SessionStore({ stateRoot });
+  const identity = { project_root: projectRoot, project_id: "project-test", repository_id: "repository-test" };
+  const host = {
+    taskStore: new TaskStore({ stateRoot }),
+    sessionStore,
+    resolveProjectIdentity: async () => identity,
+    captureProjectState: async () => ({ fingerprint: "f1", branch: "main", dirty: false, dirty_files: [] }),
+    instinctStore: { rankForContext: async () => ({ markdown: "" }) }
+  };
+  const registry = createExtensionTools(host, [createSessionTools]);
+
+  const none = await registry.handlers.get("list_sessions")({ project_path: projectRoot });
+  assert.equal(none.count, 0);
+  assert.match(none.next_step, /No handoffs yet/);
+
+  await sessionStore.save({
+    ...identity, repositoryId: identity.repository_id, projectId: identity.project_id, projectPath: projectRoot,
+    sessionId: "s-1", now: "2026-09-12T09:00:00.000Z",
+    topic: "Extract the router", building: "Splitting the router out of the entry point",
+    next_step: "Move the last two handlers and run the suite", files: [{ path: "src/router.mjs", status: "in_progress" }]
+  });
+  const directory = sessionStore.directoryFor("repository-test");
+  await fs.writeFile(path.join(directory, "hook-s-2.json"), JSON.stringify({
+    schema_version: 1, id: "session-hook-s-2", saved_at: "2026-09-12T11:00:00.000Z",
+    repository_id: "repository-test", project_id: "project-test", project_path: projectRoot,
+    source: "hook", confirmed: false, session_id: "s-2", topic: "Chase a flaky test",
+    building: "Requests in this session (3)", files: [], worked: [], failed: [], untried: [], decisions: [], blockers: [], next_step: ""
+  }, null, 2));
+  await fs.writeFile(path.join(directory, "observe-s-2.json"), JSON.stringify({
+    schema_version: 1, session_id: "s-2", updated_at: "2026-09-12T11:00:00.000Z", events: [{ k: "tool", n: "Bash", c: "npm test" }]
+  }, null, 2));
+
+  const listed = await registry.handlers.get("list_sessions")({ project_path: projectRoot });
+  assert.equal(listed.count, 2);
+  assert.equal(listed.drafts, 1);
+  assert.equal(listed.observation_logs, 1);
+  assert.deepEqual(listed.sessions.map((item) => item.session_id), ["s-2", "s-1"], "newest first");
+  assert.equal(listed.sessions[0].unconfirmed, true);
+  assert.equal(listed.sessions[0].has_observations, true);
+  assert.equal(listed.sessions[1].unconfirmed, false);
+  assert.equal(listed.sessions[1].has_observations, false, "the older handoff has no log left to learn from");
+  assert.equal(listed.sessions[1].next_step, "Move the last two handlers and run the suite");
+  assert.match(listed.next_step, /1 unconfirmed hook draft/);
+
+  const drafts = await registry.handlers.get("list_sessions")({ project_path: projectRoot, drafts_only: true });
+  assert.deepEqual(drafts.sessions.map((item) => item.id), ["session-hook-s-2"]);
+  const substantive = await registry.handlers.get("list_sessions")({ project_path: projectRoot, substantive_only: true });
+  assert.deepEqual(substantive.sessions.map((item) => item.session_id), ["s-1"], "the draft is too thin to resume from");
+});

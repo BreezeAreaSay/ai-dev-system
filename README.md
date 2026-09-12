@@ -341,6 +341,8 @@ explicit call.
 | `record_decision` | A numbered ADR: title, context, decision, alternatives, consequences. | `.ai-dev/decisions/`, versioned with the code |
 | `record_instinct` | One learned behaviour as "when *trigger*, *action*", with a confidence that rises on repeat observation and decays with time. | `~/.ai-dev/state/instincts.json` |
 | `context_budget_status` | Nothing — it estimates a task's static context against the model window and says when compacting is safe. | — |
+| `list_sessions` | Nothing — it lists the handoffs a repository has, newest first, marking the unconfirmed hook drafts and the sessions whose observation log is still on disk. | — |
+| `propose_instincts` | Candidate instincts read out of one session's observation log, stored as `proposed` until confirmed. | `~/.ai-dev/state/instincts.json` |
 
 Decisions, the newest handoff, and instincts above 70% confidence are folded
 into the context pack that `begin_task` compiles, so the next session sees them
@@ -356,7 +358,20 @@ choices as decisions, and a handoff if the work continues elsewhere. It is
 deliberately conservative — single occurrences, code, and secrets do not belong
 in long-term memory.
 
-`list_instincts` shows what has been learned, `update_instinct` confirms or
+`propose_instincts` is the other half of that loop, for the sessions where
+nobody ran the prompt. The session-end hook leaves an observation log — what you
+said, what tools ran with what, which calls came back as errors — and the tool
+reads one: the corrections you made, the rules you stated, an error that recurred
+and the call that finally cleared it, and the commands and pairs of commands the
+session kept repeating. What comes back is candidates, not conclusions. Each one
+quotes what was observed, is stored with status `proposed`, is never injected
+into a context pack, and becomes a real instinct only through
+`update_instinct(action: "confirm")` — or goes away with `retire`. Run it against
+a session by id, or leave the id out for the newest one; `dry_run` shows the
+candidates without storing any.
+
+`list_instincts` shows what has been learned (`status: "proposed"` for the
+candidates), `update_instinct` confirms or
 retires one, and `evolve_instincts` clusters mature instincts into skill drafts
 and promotes those seen across several projects to global scope.
 

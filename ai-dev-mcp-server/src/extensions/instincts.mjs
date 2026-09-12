@@ -1,8 +1,11 @@
 import path from "node:path";
 import { atomicWriteFile } from "../core/atomic-files.mjs";
+import { proposeInstincts } from "../core/instinct-proposals.mjs";
 import {
   INSTINCT_DOMAINS,
   INSTINCT_SCOPES,
+  INSTINCT_STATUSES,
+  instinctsAreSimilar,
   renderInstinctSkillDraft
 } from "../core/instincts.mjs";
 import { resolveWithinSync } from "../core/path-policy.mjs";
@@ -61,8 +64,23 @@ export function createInstinctTools(host) {
             project_path: { type: "string" },
             scope: { type: "string", enum: INSTINCT_SCOPES },
             domain: { type: "string", enum: INSTINCT_DOMAINS },
+            status: { type: "string", enum: INSTINCT_STATUSES, description: "Exactly one status. Default: active only. Use proposed to review what propose_instincts suggested." },
             min_confidence: { type: "number", default: 0 },
             include_retired: { type: "boolean", default: false }
+          }
+        }
+      },
+      {
+        name: "propose_instincts",
+        description: "Read the observation log the session-end hook wrote for a session and propose candidate instincts from it: what the user corrected, the rules they stated, an error that recurred and the call that cleared it, and the commands and command pairs the session kept repeating. Candidates are stored with status \"proposed\" — listed by list_instincts(status: \"proposed\"), never injected into a context pack — and become real instincts through update_instinct(action: \"confirm\").",
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string" },
+            task_id: { type: "string" },
+            session_id: { type: "string", description: "Which session's log to read. Default: the newest one for this repository." },
+            limit: { type: "number", default: 10, description: "Most candidates to propose, strongest first." },
+            dry_run: { type: "boolean", default: false, description: "Return the candidates without storing them." }
           }
         }
       },
@@ -168,10 +186,79 @@ export function createInstinctTools(host) {
           projectId: identity?.project_id || "",
           scope: args.scope,
           domain: args.domain,
+          status: args.status || "",
           minConfidence: Number(args.min_confidence) || 0,
           includeRetired: Boolean(args.include_retired)
         });
         return { project_id: identity?.project_id || null, repository_id: identity?.repository_id || null, count: instincts.length, instincts };
+      },
+      async propose_instincts(args) {
+        const { identity, record } = await projectFor(args);
+        if (!identity) throw new Error("project_path or task_id is required.");
+        const projectName = record?.project?.name || path.basename(identity.project_root);
+        const logs = await host.sessionStore.observations(identity, { sessionId: args.session_id });
+        const log = logs[0];
+        if (!log) {
+          return {
+            status: "no_observations",
+            project_id: identity.project_id,
+            sessions: 0,
+            proposals: [],
+            next_step: args.session_id
+              ? `No observation log for session ${args.session_id}. install_agent_hooks writes one at the end of every session; list_sessions shows which sessions this repository has.`
+              : "No observation log for this repository yet. install_agent_hooks writes one at the end of every session."
+          };
+        }
+        const { proposals, signals } = proposeInstincts({ events: log.events, projectName, limit: args.limit });
+        // A candidate that repeats something the store already holds is not
+        // news, and recording it would quietly raise that instinct's
+        // confidence on the strength of one session.
+        const known = await host.instinctStore.list({
+          repositoryId: identity.repository_id,
+          projectId: identity.project_id,
+          includeRetired: true
+        });
+        const fresh = [];
+        const skipped = [];
+        for (const candidate of proposals) {
+          const match = known.find((item) => instinctsAreSimilar(item, candidate));
+          if (match) skipped.push({ ...candidate, reason: `already recorded as ${match.id} (${match.status})` });
+          else fresh.push(candidate);
+        }
+        const stored = [];
+        if (!args.dry_run) {
+          for (const candidate of fresh) {
+            const result = await host.instinctStore.record({
+              trigger: candidate.trigger,
+              action: candidate.action,
+              domain: candidate.domain,
+              scope: "project",
+              status: "proposed",
+              repositoryId: identity.repository_id,
+              projectId: identity.project_id,
+              projectName,
+              source: "observation",
+              note: candidate.note,
+              observations: candidate.observations,
+              confidence: candidate.confidence,
+              stack: await stackFor(identity)
+            });
+            stored.push({ ...candidate, id: result.instinct.id, status: result.instinct.status });
+          }
+        }
+        return {
+          status: fresh.length ? "proposed" : "nothing_new",
+          project_id: identity.project_id,
+          repository_id: identity.repository_id,
+          session_id: log.session_id || "",
+          observed_at: log.updated_at || "",
+          signals,
+          proposals: args.dry_run ? fresh : stored,
+          skipped,
+          next_step: fresh.length
+            ? `Review them with list_instincts(status: "proposed"), then update_instinct(id, action: "confirm") for each one that is true, or action: "retire" for the rest. A proposal quotes what was observed; the wording is yours to fix with record_instinct.`
+            : "Nothing this session showed is new. Everything observed is already recorded."
+        };
       },
       async update_instinct(args) {
         const instinct = await host.instinctStore.adjust(args.id, args.action, { note: args.note, taskId: args.task_id });

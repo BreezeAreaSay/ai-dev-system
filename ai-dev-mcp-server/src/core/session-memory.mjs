@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { atomicWriteFile, atomicWriteJson } from "./atomic-files.mjs";
+import { observationsFileName } from "./instinct-proposals.mjs";
 import { memoryScopeKeys } from "./project-identity.mjs";
 
 export const HANDOFF_RELATIVE_PATH = ".ai-dev/context/handoff.md";
@@ -173,9 +174,10 @@ export class SessionStore {
     return moved;
   }
 
+  /** Handoff records only: the observation logs the hook writes share the directory, not the shape. */
   async recordNames(directory) {
     try {
-      return (await fs.readdir(directory)).filter((name) => name.endsWith(".json"));
+      return (await fs.readdir(directory)).filter((name) => name.endsWith(".json") && !name.startsWith("observe-"));
     } catch (error) {
       if (error?.code === "ENOENT") return [];
       throw error;
@@ -264,6 +266,44 @@ export class SessionStore {
    */
   async drafts(scope, { limit = 20 } = {}) {
     return (await this.list(scope, { limit: 200 })).filter(isHookDraft).slice(0, Math.max(1, limit));
+  }
+
+  /**
+   * Observation logs the `session-end` hook wrote for this scope, newest
+   * first. They sit beside the drafts and outlive them: a draft is discarded
+   * once confirmed, and the log it was distilled from is what
+   * `propose_instincts` still reads.
+   *
+   * @param {object | string} scope
+   * @param {{ sessionId?: string }} [options]
+   * @returns {Promise<object[]>}
+   */
+  async observations(scope, { sessionId = "" } = {}) {
+    const wanted = sessionId ? observationsFileName(sessionId) : "";
+    const logs = [];
+    const seen = new Set();
+    for (const key of memoryScopeKeys(scope)) {
+      const directory = this.directoryFor(key);
+      let names = [];
+      try {
+        names = (await fs.readdir(directory)).filter((name) => name.startsWith("observe-") && name.endsWith(".json"));
+      } catch (error) {
+        if (error?.code !== "ENOENT") throw error;
+        continue;
+      }
+      for (const name of names) {
+        if (wanted && name !== wanted) continue;
+        if (seen.has(name)) continue;
+        seen.add(name);
+        try {
+          const log = JSON.parse(await fs.readFile(path.join(directory, name), "utf8"));
+          logs.push({ ...log, path: path.join(directory, name) });
+        } catch {
+          // A half-written log is skipped; the next capture rewrites it whole.
+        }
+      }
+    }
+    return logs.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
   }
 
   /**

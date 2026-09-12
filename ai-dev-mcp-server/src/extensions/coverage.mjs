@@ -12,7 +12,7 @@ export function createCoverageTools(host) {
     definitions: [
       {
         name: "coverage_gaps",
-        description: "Read the project's coverage report (lcov.info, Istanbul coverage-final.json, a Cobertura or coverage.py XML, or a go test coverprofile) and rank what is not covered, weighing the files this change touched above everything else. Reads a report, never runs one: produce it with the project's own test command first. Read-only.",
+        description: "Read the project's coverage report (lcov.info, Istanbul coverage-final.json, a Cobertura or coverage.py XML, or a go test coverprofile) and rank what is not covered, weighing the files this change touched above everything else. Reads a report, never runs one: produce it with the project's own test command first. Read-only. Give project_path or task_id to say which repository to read.",
         inputSchema: {
           type: "object",
           properties: {

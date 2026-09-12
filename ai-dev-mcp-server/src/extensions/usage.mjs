@@ -45,7 +45,7 @@ export function createUsageTools(host) {
     definitions: [
       {
         name: "record_usage",
-        description: "Record model usage reported by the client for a turn, task, or session (tokens, cache, cost, duration). The MCP server never sees tokens itself; a session runner or the agent posts them here so cost per task becomes visible.",
+        description: "Record model usage reported by the client for a turn, task, or session (tokens, cache, cost, duration). The MCP server never sees tokens itself; a session runner or the agent posts them here so cost per task becomes visible. Give at least one of input_tokens, output_tokens or cost_usd — there is nothing to record otherwise.",
         inputSchema: {
           type: "object",
           properties: {

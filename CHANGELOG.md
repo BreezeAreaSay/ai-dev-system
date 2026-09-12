@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run setup`**: the first run, as one command. A clone ships the server,
+  the skills and the seed, but four things are built rather than shipped — the
+  skill registry, the SQLite search index, the skill-routing benchmark report
+  and the Frontend QA runner's dependencies — and until they exist the health
+  check fails and the search tools answer with refusals. `npm run setup` builds
+  the three that need nothing but the repository; `--frontend-qa` installs the
+  QA dependencies; `--dense` builds the Python environment and downloads the
+  2.3 GB BGE-M3 weights, because a download that size is a decision a person
+  makes rather than something a setup command does behind their back. Every step
+  is idempotent, says whether it ran and why, and the run ends with the
+  diagnostic, so what is still missing is on the screen rather than in a
+  document (`src/core/first-run.mjs`, `scripts/first-run.mjs`). Measured on this
+  repository: routing benchmark 37/37, search index 332 documents, and the
+  health check's failures drop from three to one — the model weights.
+
 - **Distilled project rules** (`distill_project_rules`): reads what a repository
   already does — module system, Node built-in import style, Python import style,
   source and test file naming, where tests live, which test runner, how failures
@@ -408,6 +423,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `~/.codex/config.toml`; it is off by default.
 
 ### Fixed
+
+- **Nine tools refused a call that filled every required field.** A JSON Schema
+  cannot say "project_path or task_id", so `record_decision`, `list_decisions`,
+  `coverage_gaps`, `record_instinct` (project scope), `save_session` (topic or
+  building), `record_usage` (tokens or cost) and the three Archify tools that
+  take a spec accepted a schema-complete call and then refused it. The
+  alternative is now in each tool's description, where a model reads it, and a
+  test holds them to it.
+
+- **The required-notes check demanded a layout a checkout cannot have.** Three
+  of the six notes it wants live under `09-mcp/` in a vault and in the
+  repository's own root in a clone; one exists only in a vault; and one named a
+  file — `03-skills-catalog/Skill Cards.md` — that nothing in the runtime has
+  ever written. So a healthy source install was told five notes were missing.
+  The check now reads each note through the layout it has, requires what that
+  layout can carry, and names the catalogue the runtime really renders.
 
 - **`clients:install` could not find the server it installs.** The one command
   the README gives for wiring the server into Cursor, Gemini, VS Code and Claude

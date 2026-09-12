@@ -81,7 +81,7 @@ export function createSessionTools(host) {
     definitions: [
       {
         name: "save_session",
-        description: "Save a structured session handoff (what we are building, what worked with evidence, what failed and why, untried ideas, file states, decisions, blockers, exact next step). Stored under ~/.ai-dev/state/sessions, keyed by repository so task worktrees and the main checkout share one memory, and projected to .ai-dev/context/handoff.md so the next session (or a compaction) resumes from facts.",
+        description: "Save a structured session handoff (what we are building, what worked with evidence, what failed and why, untried ideas, file states, decisions, blockers, exact next step). Stored under ~/.ai-dev/state/sessions, keyed by repository so task worktrees and the main checkout share one memory, and projected to .ai-dev/context/handoff.md so the next session (or a compaction) resumes from facts. Give topic or building: a handoff nobody can name is a handoff nobody reads.",
         inputSchema: {
           type: "object",
           properties: {

@@ -4789,9 +4789,14 @@ export function startLegacyServer() {
 export {
   assertNotProtectedProjectRoot,
   callTool,
+  // Where the runtime keeps the two things a first run builds. Exported so
+  // `scripts/first-run.mjs` asks the runtime instead of re-deriving the
+  // fallback chain — the mismatch that made a checkout look empty.
+  embeddingsDir,
   extensionReadOnlyTools,
   resolveTaskProjectRoot,
   safeProjectRoot,
+  searchIndexPath,
   shutdownBgeWorkers,
   tools,
   usageLedger,

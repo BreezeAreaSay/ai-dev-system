@@ -38,7 +38,7 @@ export function createInstinctTools(host) {
     definitions: [
       {
         name: "record_instinct",
-        description: "Record a learned behavior as an atomic instinct: when <trigger>, <action>. Use after a user correction, an error you resolved the same way twice, or a workflow you repeat. Repeated observations of the same instinct raise its confidence; instincts above 70% are injected into later context packs. Default scope is project (the whole repository, task worktrees included); use global only for universal practices.",
+        description: "Record a learned behavior as an atomic instinct: when <trigger>, <action>. Use after a user correction, an error you resolved the same way twice, or a workflow you repeat. Repeated observations of the same instinct raise its confidence; instincts above 70% are injected into later context packs. Default scope is project (the whole repository, task worktrees included); use global only for universal practices. A project-scoped instinct needs project_path or task_id to say which repository it belongs to; a global one does not.",
         inputSchema: {
           type: "object",
           properties: {

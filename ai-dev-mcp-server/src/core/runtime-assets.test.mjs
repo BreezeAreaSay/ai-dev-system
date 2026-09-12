@@ -3,7 +3,14 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { RUNTIME_ASSET_TREES, resolveAssetTree, resolveRuntimeAssets } from "./runtime-assets.mjs";
+import {
+  RUNTIME_ASSET_TREES,
+  VAULT_ONLY_NOTES,
+  resolveAssetTree,
+  resolveRuntimeAssets,
+  resolveRuntimeNote,
+  vaultCarriesRuntime
+} from "./runtime-assets.mjs";
 
 /** An `exists` that answers from a list of paths instead of a disk. */
 function fakeExists(present) {
@@ -106,4 +113,44 @@ test("a directory that is neither answers as missing rather than throwing", asyn
   const assets = resolveRuntimeAssets({ vaultRoot: empty, repositoryRoot: empty });
   assert.deepEqual(Object.values(assets.sources), ["missing", "missing", "missing", "missing"]);
   assert.equal(assets.searchIndexDir, path.join(empty, "09-mcp", "search-index"));
+});
+
+test("an expected note is read through whichever layout this install has", () => {
+  const note = (relative, present) => resolveRuntimeNote({
+    relative,
+    vaultRoot: "/repo/docker/public-seed",
+    repositoryRoot: "/repo",
+    exists: fakeExists(present)
+  });
+
+  // A checkout: the server's own documents are in the repository, and the
+  // Obsidian entry page has no place here at all.
+  assert.deepEqual(
+    note("09-mcp/ai-dev-mcp-server/docs/ARCHITECTURE.md", ["/repo/ai-dev-mcp-server/docs/ARCHITECTURE.md"]),
+    { path: path.join("/repo", "ai-dev-mcp-server", "docs", "ARCHITECTURE.md"), source: "repository" }
+  );
+  assert.equal(note("00-start-here.md", []).source, "not-applicable");
+  assert.deepEqual(VAULT_ONLY_NOTES, ["00-start-here.md"]);
+
+  // A note the runtime generates is missing until it is generated — not excused.
+  assert.equal(note("03-skills-catalog/registries/SKILL_CARDS.md", []).source, "missing");
+  assert.equal(
+    note("03-skills-catalog/registries/SKILL_CARDS.md", ["/repo/docker/public-seed/03-skills-catalog/registries/SKILL_CARDS.md"]).source,
+    "vault"
+  );
+});
+
+test("a real vault is held to the whole list, layout excuses and all", () => {
+  const exists = fakeExists(["/vault/09-mcp", "/repo/ai-dev-mcp-server/README.md"]);
+  assert.equal(vaultCarriesRuntime("/vault", exists), true);
+  assert.equal(vaultCarriesRuntime("/repo/docker/public-seed", exists), false);
+  // The repository has this file, but a vault install is not allowed to borrow it.
+  const resolved = resolveRuntimeNote({
+    relative: "09-mcp/ai-dev-mcp-server/README.md",
+    vaultRoot: "/vault",
+    repositoryRoot: "/repo",
+    exists
+  });
+  assert.equal(resolved.source, "missing");
+  assert.equal(resolved.path, path.join("/vault", "09-mcp", "ai-dev-mcp-server", "README.md"));
 });

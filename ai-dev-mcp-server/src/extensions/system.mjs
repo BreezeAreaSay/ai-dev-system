@@ -7,6 +7,7 @@ import {
   dashboardFreshness,
   renderSystemDashboard
 } from "../core/system-dashboard.mjs";
+import { resolveRuntimeNote } from "../core/runtime-assets.mjs";
 import {
   REQUIRED_SYSTEM_NOTES,
   buildSystemSnapshot,
@@ -162,8 +163,21 @@ async function systemHealthCheck(host, {
   await report.runCheck("required_notes", false, async () => {
     const files = [];
     for (const relative of REQUIRED_SYSTEM_NOTES) {
-      const status = await host.fileStatus(host.safePath(relative));
-      files.push({ relative_path: relative, exists: status.exists, size_bytes: status.size_bytes || 0 });
+      // The vault layout first, then this repository's own — the same two
+      // layouts the helper trees are resolved through (`runtime-assets.mjs`).
+      const resolved = resolveRuntimeNote({
+        relative,
+        vaultRoot: host.vaultRoot,
+        repositoryRoot: host.serverRoot ? path.resolve(host.serverRoot, "..") : host.vaultRoot
+      });
+      const status = await host.fileStatus(resolved.path);
+      files.push({
+        relative_path: relative,
+        path: resolved.path,
+        source: resolved.source,
+        exists: status.exists,
+        size_bytes: status.size_bytes || 0
+      });
     }
     return evaluateRequiredNotes(files);
   });

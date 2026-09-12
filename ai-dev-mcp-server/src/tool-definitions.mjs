@@ -955,7 +955,7 @@ export function buildToolDefinitions({
   },
   {
     name: "archify_validate",
-    description: "Validate an Archify JSON specification and return structured diagnostics without delivering an artifact.",
+    description: "Validate an Archify JSON specification and return structured diagnostics without delivering an artifact. Provide exactly one of spec (inline) or spec_path (a file).",
     inputSchema: {
       type: "object",
       properties: {
@@ -972,7 +972,7 @@ export function buildToolDefinitions({
   },
   {
     name: "archify_render",
-    description: "Render an Archify specification to HTML without the delivery quality gate.",
+    description: "Render an Archify specification to HTML without the delivery quality gate. Provide exactly one of spec (inline) or spec_path (a file).",
     inputSchema: {
       type: "object",
       properties: {
@@ -986,7 +986,7 @@ export function buildToolDefinitions({
   },
   {
     name: "archify_deliver",
-    description: "Render, validate, and deliver a self-contained Archify HTML artifact with SHA-256 receipt.",
+    description: "Render, validate, and deliver a self-contained Archify HTML artifact with SHA-256 receipt. Provide exactly one of spec (inline) or spec_path (a file).",
     inputSchema: {
       type: "object",
       properties: {

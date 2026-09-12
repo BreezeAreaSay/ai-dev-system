@@ -35,6 +35,66 @@ export const RUNTIME_ASSET_TREES = Object.freeze({
 });
 
 /**
+ * The notes a healthy system carries, and where each one is in a checkout.
+ *
+ * `null` means the note belongs to a vault and a checkout has no equivalent: an
+ * Obsidian entry page is not something a cloned repository can be missing, and
+ * reporting it as missing taught a new user that their install was broken when
+ * it was not.
+ */
+export const RUNTIME_NOTE_LAYOUTS = Object.freeze({
+  "09-mcp/README.md": Object.freeze(["README.md"]),
+  "09-mcp/ai-dev-mcp-server/README.md": Object.freeze(["ai-dev-mcp-server", "README.md"]),
+  "09-mcp/ai-dev-mcp-server/docs/ARCHITECTURE.md": Object.freeze(["ai-dev-mcp-server", "docs", "ARCHITECTURE.md"])
+});
+
+/**
+ * Notes that exist only in an Obsidian vault. A checkout has no entry page and
+ * is not missing one.
+ */
+export const VAULT_ONLY_NOTES = Object.freeze(["00-start-here.md"]);
+
+/**
+ * Whether this root is a real vault rather than the bundled seed a checkout
+ * falls back to. The MCP tree is the thing a vault has and a checkout does not.
+ *
+ * @param {string} vaultRoot
+ * @param {(target: string) => boolean} [exists]
+ * @returns {boolean}
+ */
+export function vaultCarriesRuntime(vaultRoot, exists = existsSync) {
+  return exists(path.join(path.resolve(vaultRoot), "09-mcp"));
+}
+
+/**
+ * Where one expected note is, in whichever layout this install has.
+ *
+ * @param {object} input
+ * @param {string} input.relative - Vault-relative path, as the health check names it.
+ * @param {string} input.vaultRoot
+ * @param {string} input.repositoryRoot
+ * @param {(target: string) => boolean} [input.exists]
+ * @returns {{ path: string, source: "vault" | "repository" | "missing" | "not-applicable" }}
+ */
+export function resolveRuntimeNote({ relative, vaultRoot, repositoryRoot, exists = existsSync }) {
+  const inVault = path.join(path.resolve(vaultRoot), ...String(relative).split("/"));
+  if (exists(inVault)) return { path: inVault, source: "vault" };
+  // A real vault is held to the whole list; only a checkout is read through the
+  // repository layout, and only for the notes that have a place in it.
+  if (vaultCarriesRuntime(vaultRoot, exists)) return { path: inVault, source: "missing" };
+  if (VAULT_ONLY_NOTES.includes(relative)) return { path: inVault, source: "not-applicable" };
+  const mapped = RUNTIME_NOTE_LAYOUTS[relative];
+  // Not mapped and not vault-only: a note the runtime generates into whichever
+  // tree it reads. Missing means missing — it is waiting to be built, not
+  // impossible here.
+  if (!mapped) return { path: inVault, source: "missing" };
+  const inRepository = path.join(path.resolve(repositoryRoot), ...mapped);
+  return exists(inRepository)
+    ? { path: inRepository, source: "repository" }
+    : { path: inRepository, source: "missing" };
+}
+
+/**
  * One tree's directory, and where it was found.
  *
  * @param {object} input

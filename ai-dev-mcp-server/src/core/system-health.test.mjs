@@ -38,6 +38,25 @@ import {
   overallHealthStatus
 } from "./system-health.mjs";
 
+test("required notes count what is missing, not what this layout cannot have", () => {
+  const ok = evaluateRequiredNotes([
+    { relative_path: "00-start-here.md", exists: false, source: "not-applicable" },
+    { relative_path: "09-mcp/ai-dev-mcp-server/README.md", exists: true, source: "repository" },
+    { relative_path: "01-system/AI Dev Control Center.md", exists: true, source: "vault" }
+  ]);
+  assert.equal(ok.status, "ok");
+  assert.match(ok.summary, /1 read from the repository layout/);
+  assert.match(ok.summary, /1 vault-only note\(s\) do not apply here/);
+
+  const missing = evaluateRequiredNotes([
+    { relative_path: "03-skills-catalog/registries/SKILL_CARDS.md", exists: false, source: "missing" },
+    { relative_path: "00-start-here.md", exists: false, source: "not-applicable" }
+  ]);
+  assert.equal(missing.status, "warn");
+  assert.equal(missing.summary, "1 required notes are missing.");
+  assert.deepEqual(missing.details.missing.map((item) => item.relative_path), ["03-skills-catalog/registries/SKILL_CARDS.md"]);
+});
+
 test("countBy tallies by derived key and folds empty keys into unknown", () => {
   assert.deepEqual(countBy([{ s: "a" }, { s: "a" }, { s: "" }], (item) => item.s), { a: 2, unknown: 1 });
   assert.deepEqual(countBy([], (item) => item), {});

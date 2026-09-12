@@ -34,7 +34,10 @@ export const REQUIRED_SYSTEM_NOTES = Object.freeze([
   "09-mcp/README.md",
   "09-mcp/ai-dev-mcp-server/README.md",
   "09-mcp/ai-dev-mcp-server/docs/ARCHITECTURE.md",
-  "03-skills-catalog/Skill Cards.md"
+  // The catalogue the runtime actually renders (`sync_skill_cards`). The list
+  // used to name "03-skills-catalog/Skill Cards.md", which nothing writes, so
+  // the check reported a note missing that could never appear.
+  "03-skills-catalog/registries/SKILL_CARDS.md"
 ]);
 
 /** Availability keys the BGE-M3 backend needs before dense search can run. */
@@ -198,10 +201,21 @@ export function evaluateVaultRoot(status) {
  * @param {Array<{ relative_path: string, exists: boolean, size_bytes: number }>} files
  */
 export function evaluateRequiredNotes(files) {
-  const missing = files.filter((file) => !file.exists);
+  // A note carries where it was found. `not-applicable` is a note that belongs
+  // to the Obsidian layout and has no place in a plain checkout — counting
+  // those as missing told a healthy source install that it was broken.
+  const missing = files.filter((file) => !file.exists && file.source !== "not-applicable");
+  const elsewhere = files.filter((file) => file.source === "repository").length;
+  const inapplicable = files.filter((file) => file.source === "not-applicable").length;
+  const notes = [
+    elsewhere ? `${elsewhere} read from the repository layout` : "",
+    inapplicable ? `${inapplicable} vault-only note(s) do not apply here` : ""
+  ].filter(Boolean).join(", ");
   return {
     status: missing.length ? "warn" : "ok",
-    summary: missing.length ? `${missing.length} required notes are missing.` : "Core system notes exist.",
+    summary: missing.length
+      ? `${missing.length} required notes are missing.`
+      : `Core system notes exist${notes ? ` (${notes})` : ""}.`,
     details: { files, missing }
   };
 }

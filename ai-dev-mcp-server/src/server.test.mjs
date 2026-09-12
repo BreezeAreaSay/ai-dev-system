@@ -119,6 +119,38 @@ test("SDK runtime exposes tools, resources, prompts, and structured results", as
 });
 
 
+test("a tool that needs one of two arguments says so where a caller can read it", async (t) => {
+  // A schema's `required` cannot say "project_path or task_id", so these tools
+  // accepted a call that filled every required field and then refused it. The
+  // alternative has to be in the description, which is what a model reads.
+  const { client } = await connectedPair();
+  t.after(() => client.close());
+  const { tools } = await client.listTools();
+  const described = Object.fromEntries(tools.map((tool) => [tool.name, tool.description ?? ""]));
+
+  const contracts = [
+    ["record_decision", ["project_path", "task_id"]],
+    ["list_decisions", ["project_path", "task_id"]],
+    ["coverage_gaps", ["project_path", "task_id"]],
+    ["record_instinct", ["project_path", "task_id"]],
+    ["save_session", ["topic", "building"]],
+    ["record_usage", ["input_tokens", "output_tokens", "cost_usd"]],
+    ["archify_validate", ["spec", "spec_path"]],
+    ["archify_render", ["spec", "spec_path"]],
+    ["archify_deliver", ["spec", "spec_path"]]
+  ];
+  for (const [name, alternatives] of contracts) {
+    const description = described[name];
+    assert.ok(description, `${name} is not in the tool list`);
+    for (const alternative of alternatives) {
+      assert.ok(
+        description.includes(alternative),
+        `${name} refuses without one of ${alternatives.join(" / ")}, and its description never mentions ${alternative}`
+      );
+    }
+  }
+});
+
 test("the usage ledger records every caller once: direct calls, transport calls, failures", async (t) => {
   const { client, server } = await connectedPair();
   t.after(async () => {

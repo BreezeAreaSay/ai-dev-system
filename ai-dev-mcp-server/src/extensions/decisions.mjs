@@ -25,7 +25,7 @@ export function createDecisionTools(host) {
     definitions: [
       {
         name: "record_decision",
-        description: "Record an architecture or product decision as a numbered ADR under .ai-dev/decisions (title, context, decision, alternatives, consequences). Decisions are versioned with the code and surfaced in later context packs.",
+        description: "Record an architecture or product decision as a numbered ADR under .ai-dev/decisions (title, context, decision, alternatives, consequences). Decisions are versioned with the code and surfaced in later context packs. Give project_path or task_id: a decision is recorded against a repository, and the task is how it finds one.",
         inputSchema: {
           type: "object",
           properties: {
@@ -45,7 +45,7 @@ export function createDecisionTools(host) {
       },
       {
         name: "list_decisions",
-        description: "List recorded decisions (ADRs) for a project, newest first, optionally filtered by status or tag.",
+        description: "List recorded decisions (ADRs) for a project, newest first, optionally filtered by status or tag. Give project_path or task_id to say which repository to read.",
         inputSchema: {
           type: "object",
           properties: {

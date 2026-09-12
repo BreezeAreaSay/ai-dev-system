@@ -1,5 +1,9 @@
 # 13. Импорт каталога скиллов ECC (`external/ecc`)
 
+> **Путь `src/mcp-stdio.mjs` ниже — исторический.** Документ описывает, как это строилось,
+> когда почти весь код сервера лежал в одном модуле. Этап 1 плана вынес его в `src/core/*` и
+> `src/extensions/*`; где какой код сейчас — [CODE-MAP.md](CODE-MAP.md).
+
 Пункт [3.1 плана](PLAN.md). Каталог ECC (`affaan-m/ECC`, MIT) содержит 291 скилл в
 `skills/<name>/SKILL.md`. Многие из них — готовые методики разработки, которых у нас нет:
 `tdd-workflow`, `error-handling`, `api-design`, `database-migrations`, `contract-first`,

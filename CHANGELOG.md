@@ -425,6 +425,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tasks: five ECC skills recommended where there were none, and every task keeps
   the three skills it had.
 
+- **A rollback deleted files without saying which.** `rollback_task` brings the
+  working tree to a snapshot's state, so a file written after it goes — possibly
+  one a person wrote from another terminal. The answer now names every deleted
+  file in `removed_files`, names again in `removed_unfamiliar_files` those the
+  task has never snapshotted (the ones most likely not to be its work), and
+  carries a `warnings` line saying how many went and which undo snapshot brings
+  them back. Whose a file is cannot be told, and the answer does not claim to:
+  it states what is checkable, and refuses the split rather than guessing when a
+  snapshot's recorded file list was truncated.
+
 - **A single policy rule could take the guard out of service.** A pattern that
   backtracks catastrophically — `(a|a)+$` needs 38.8 seconds against
   twenty-eight characters — passed `upsert_policy_rule`, and after that the

@@ -18,6 +18,7 @@ import {
   resolveTaskWorktree,
   restoreSnapshot,
   rollbackTaskToSnapshot,
+  unfamiliarRemovals,
   snapshotRef,
   snapshotTargetStatus,
   taskSnapshots
@@ -356,4 +357,66 @@ test("a removed ref is reported as unavailable, and restoring an unknown commit 
   assert.equal((await restoreSnapshot({ worktreePath: repo, commit: snapshot.commit })).restored_files, 2);
   await assert.rejects(restoreSnapshot({ worktreePath: repo, commit: "0".repeat(40) }), /not in this repository/);
   assert.deepEqual(await listSnapshotRefs({ worktreePath: repo, taskId: "task-unknown" }), []);
+});
+
+
+// Д-15. A rollback brings the tree to the snapshot's state, so a file written
+// after it goes — including one a person put there from another terminal. It
+// cannot be told apart from the task's own new file, so it is named instead of
+// quietly deleted, and separately when this task has never snapshotted it.
+test("a rollback names every file it deletes, and flags the ones the task never had", async (t) => {
+  const { repo } = await repoFixture(t);
+  const { taskStore, record } = await taskStoreFixture(t, repo);
+
+  await writeFile(repo, "src/app.js", "export const app = 2;\n");
+  const first = await captureTaskSnapshot({ taskStore, record, worktreePath: repo, label: "turn one" });
+
+  // The task's own new file, and a note a person wrote while it worked.
+  await writeFile(repo, "src/router.js", "export const route = 1;\n");
+  await writeFile(repo, "user-note.md", "# reminder: ask about the migration\n");
+
+  const rolledBack = await rollbackTaskToSnapshot({
+    taskStore,
+    record: first.task,
+    worktreePath: repo,
+    snapshotId: "snapshot-1"
+  });
+
+  assert.deepEqual(rolledBack.removed_files, ["src/router.js", "user-note.md"]);
+  // Neither file was in snapshot-1, and this task has never captured either, so
+  // both are flagged: the answer cannot tell whose they are, only that the task
+  // has no record of them.
+  assert.deepEqual(rolledBack.removed_unfamiliar_files, ["src/router.js", "user-note.md"]);
+  assert.equal(rolledBack.removed_classification_reliable, true);
+  assert.equal(await readFileOrNull(repo, "user-note.md"), null);
+  // And it is recoverable, which is what makes reporting rather than refusing
+  // the right answer.
+  await rollbackTaskToSnapshot({ taskStore, record: rolledBack.task, worktreePath: repo, snapshotId: rolledBack.undo.snapshot_id });
+  assert.equal(await readFileOrNull(repo, "user-note.md"), "# reminder: ask about the migration\n");
+
+  // A file the task has snapshotted before is not flagged.
+  const known = await captureTaskSnapshot({ taskStore, record: await taskStore.read(record.id), worktreePath: repo, label: "captured the note" });
+  await writeFile(repo, "user-note.md", "# edited\n");
+  const second = await rollbackTaskToSnapshot({ taskStore, record: known.task, worktreePath: repo, snapshotId: "snapshot-1" });
+  assert.deepEqual(second.removed_files, ["src/router.js", "user-note.md"]);
+  assert.deepEqual(second.removed_unfamiliar_files, [], "both paths are in this task's snapshot history now");
+
+  // The rollback record keeps the flagged list, so the answer survives the call.
+  const stored = (await taskStore.read(record.id)).rollbacks;
+  assert.deepEqual(stored[0].removed_unfamiliar_files, ["src/router.js", "user-note.md"]);
+});
+
+test("the removal split is refused rather than guessed when a snapshot's file list was truncated", () => {
+  const record = {
+    snapshots: [
+      { snapshot_id: "snapshot-1", files: ["a.js", "b.js"], file_count: 2 },
+      { snapshot_id: "snapshot-2", files: ["c.js"], file_count: 1 }
+    ]
+  };
+  assert.deepEqual(unfamiliarRemovals(record, ["a.js", "d.js"]), { files: ["d.js"], reliable: true });
+  assert.deepEqual(unfamiliarRemovals({ snapshots: [] }, ["d.js"]), { files: ["d.js"], reliable: true });
+  assert.deepEqual(unfamiliarRemovals({}, undefined), { files: [], reliable: true });
+
+  const truncated = { snapshots: [{ snapshot_id: "snapshot-1", files: ["a.js"], file_count: 140 }] };
+  assert.deepEqual(unfamiliarRemovals(truncated, ["a.js", "d.js"]), { files: [], reliable: false });
 });

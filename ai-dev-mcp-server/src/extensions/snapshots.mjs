@@ -89,6 +89,12 @@ async function listTaskSnapshots(host, { task_id }) {
   };
 }
 
+/** A file list a person can read in a tool answer, with a tail count. */
+function listFiles(files, limit = 20) {
+  const shown = files.slice(0, limit).map((file) => `\`${file}\``).join(", ");
+  return files.length > limit ? `${shown} and ${files.length - limit} more` : shown;
+}
+
 async function rollbackTask(host, { task_id, snapshot_id }) {
   const { record, worktreePath } = await taskWorkingTree(host, task_id);
   const result = await rollbackTaskToSnapshot({
@@ -97,6 +103,21 @@ async function rollbackTask(host, { task_id, snapshot_id }) {
     worktreePath,
     snapshotId: snapshot_id
   });
+  // Every file a rollback deletes is named, because a rollback brings the tree
+  // to the snapshot's state and anything written since goes — including a file
+  // a person put there from another terminal (Д-15). The deletions are
+  // recoverable from the undo snapshot, so they are reported rather than
+  // refused, and the ones this task has never captured are named separately:
+  // those are the ones most likely not to be its work.
+  const warnings = [];
+  if (result.removed_files.length) {
+    warnings.push(`${result.removed_files.length} file(s) that did not exist in ${result.snapshot.snapshot_id} were deleted: ${listFiles(result.removed_files)}. Every one of them is in the undo snapshot ${result.undo.snapshot_id}.`);
+  }
+  if (result.removed_unfamiliar_files.length) {
+    warnings.push(`${result.removed_unfamiliar_files.length} of them have never appeared in a snapshot of this task, so they may be someone else's work rather than yours: ${listFiles(result.removed_unfamiliar_files)}. Check with whoever shares this working tree before carrying on, or restore them with rollback_task(task_id=${record.id}, snapshot_id=${result.undo.snapshot_id}).`);
+  } else if (result.removed_files.length && !result.removed_classification_reliable) {
+    warnings.push("Which of the deleted files belong to this task could not be told apart: at least one snapshot recorded more paths than it kept. Read the removed_files list rather than trusting the split.");
+  }
   return {
     action: "rolled_back",
     task_id: record.id,
@@ -105,6 +126,9 @@ async function rollbackTask(host, { task_id, snapshot_id }) {
     undo_snapshot: describe(result.undo, true),
     restored_files: result.restored_files,
     removed_files: result.removed_files,
+    removed_unfamiliar_files: result.removed_unfamiliar_files,
+    removed_classification_reliable: result.removed_classification_reliable,
+    warnings,
     ...(result.kept_files.length ? { kept_files: result.kept_files, kept_reason: "A nested repository is left in place: its history is not this task's to delete." } : {}),
     next_step: `This rollback is itself reversible: rollback_task(task_id=${record.id}, snapshot_id=${result.undo.snapshot_id}) restores the state it replaced.`
   };
@@ -140,7 +164,7 @@ export function createSnapshotTools(host) {
       },
       {
         name: "rollback_task",
-        description: "Restore the task's working tree to a snapshot: files it holds go back to their recorded content and files added since are removed. Ignored files, nested repositories and the git index are untouched, and no branch, commit or stash entry is written. The state being replaced is snapshotted first, so the rollback can itself be rolled back.",
+        description: "Restore the task's working tree to a snapshot: files it holds go back to their recorded content and files added since are removed. Every removed file is named in removed_files, and the ones this task has never snapshotted — which may be someone else's work in a shared working tree — are named again in removed_unfamiliar_files with a warning. Ignored files, nested repositories and the git index are untouched, and no branch, commit or stash entry is written. The state being replaced is snapshotted first, so the rollback can itself be rolled back and nothing it deleted is lost.",
         inputSchema: {
           type: "object",
           properties: {

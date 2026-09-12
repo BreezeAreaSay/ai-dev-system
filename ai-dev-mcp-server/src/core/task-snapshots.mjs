@@ -442,13 +442,45 @@ export async function captureTaskSnapshot({ taskStore, record, worktreePath, lab
 }
 
 /**
+ * Which of the removed files this task has never had in a snapshot of its own.
+ *
+ * A rollback brings the tree to the snapshot's state, so every file that
+ * appeared afterwards goes — including one a person wrote from another terminal
+ * while the agent worked (docs/ecc-upgrades/DEBTS.md, Д-15). There is no way to
+ * tell whose a file is, but there is a useful proxy: a path this task has never
+ * captured in any of its snapshots is the one most likely not to be its work,
+ * and those are worth naming separately in the answer.
+ *
+ * The classification is only as good as the recorded file lists, which are
+ * capped at a hundred paths per snapshot. When any of them was truncated the
+ * answer says so instead of guessing.
+ *
+ * @param {object} record - The task.
+ * @param {string[]} removedFiles
+ * @returns {{ files: string[], reliable: boolean }}
+ */
+export function unfamiliarRemovals(record, removedFiles) {
+  const seen = new Set();
+  let truncated = false;
+  for (const snapshot of taskSnapshots(record)) {
+    const files = Array.isArray(snapshot?.files) ? snapshot.files : [];
+    for (const file of files) seen.add(file);
+    if (Number(snapshot?.file_count ?? 0) > files.length) truncated = true;
+  }
+  if (truncated) return { files: [], reliable: false };
+  return { files: (removedFiles ?? []).filter((file) => !seen.has(file)), reliable: true };
+}
+
+/**
  * Roll a task's working tree back to one of its snapshots.
  *
  * The current state is snapshotted first, so the rollback itself can be rolled
  * back: `undo` names the snapshot that holds what was on disk a moment ago.
+ * That is also what makes the removals safe to report rather than refuse:
+ * every file this rollback deletes is in the undo snapshot.
  *
  * @param {{ taskStore: object, record: object, worktreePath: string, snapshotId: string }} input
- * @returns {Promise<{ snapshot: object, undo: object, restored_files: number, removed_files: string[], task: object }>}
+ * @returns {Promise<{ snapshot: object, undo: object, restored_files: number, removed_files: string[], removed_unfamiliar_files: string[], removed_classification_reliable: boolean, task: object }>}
  */
 export async function rollbackTaskToSnapshot({ taskStore, record, worktreePath, snapshotId }) {
   const target = findTaskSnapshot(record, snapshotId);
@@ -464,6 +496,7 @@ export async function rollbackTaskToSnapshot({ taskStore, record, worktreePath, 
     trigger: "rollback"
   });
   const restore = await restoreSnapshot({ worktreePath, commit: target.commit });
+  const unfamiliar = unfamiliarRemovals(record, restore.removed_files);
   const task = await taskStore.update(record.id, (current) => {
     current.rollbacks = [...(Array.isArray(current.rollbacks) ? current.rollbacks : []), {
       at: new Date().toISOString(),
@@ -471,11 +504,19 @@ export async function rollbackTaskToSnapshot({ taskStore, record, worktreePath, 
       commit: target.commit,
       undo_snapshot_id: undo.snapshot.snapshot_id,
       restored_files: restore.restored_files,
-      removed_files: restore.removed_files.length
+      removed_files: restore.removed_files.length,
+      removed_unfamiliar_files: unfamiliar.files
     }];
     return current;
   });
-  return { snapshot: target, undo: undo.snapshot, ...restore, task };
+  return {
+    snapshot: target,
+    undo: undo.snapshot,
+    ...restore,
+    removed_unfamiliar_files: unfamiliar.files,
+    removed_classification_reliable: unfamiliar.reliable,
+    task
+  };
 }
 
 /**

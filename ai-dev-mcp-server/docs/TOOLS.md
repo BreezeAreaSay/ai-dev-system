@@ -158,7 +158,7 @@ for permission per call can let them through without prompting.
 | --- | --- | --- | --- |
 | `snapshot_task` | no | `task_id` | Record the task's whole working tree (tracked changes, staged or not, plus new files) as a restorable snapshot. Nothing is committed to a branch and nothing is stashed: the snapshot is one object kept alive by a ref under refs/ai-dev/snapshots/<task_id>/. checkpoint_task snapshots on its own; call this before a risky edit that is not a checkpoint. |
 | `list_task_snapshots` | yes | `task_id` | List a task's snapshots with the turn they belong to, what changed, and whether git still holds them. Snapshots are deleted when the task completes. |
-| `rollback_task` | no | `task_id`, `snapshot_id` | Restore the task's working tree to a snapshot: files it holds go back to their recorded content and files added since are removed. Ignored files, nested repositories and the git index are untouched, and no branch, commit or stash entry is written. The state being replaced is snapshotted first, so the rollback can itself be rolled back. |
+| `rollback_task` | no | `task_id`, `snapshot_id` | Restore the task's working tree to a snapshot: files it holds go back to their recorded content and files added since are removed. Every removed file is named in removed_files, and the ones this task has never snapshotted — which may be someone else's work in a shared working tree — are named again in removed_unfamiliar_files with a warning. Ignored files, nested repositories and the git index are untouched, and no branch, commit or stash entry is written. The state being replaced is snapshotted first, so the rollback can itself be rolled back and nothing it deleted is lost. |
 
 ## Change hygiene and project rules
 

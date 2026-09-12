@@ -113,6 +113,13 @@ test("snapshot_task, list_task_snapshots and rollback_task carry one task throug
   assert.equal(rolledBack.action, "rolled_back");
   assert.deepEqual(rolledBack.removed_files, ["src/broken.js"]);
   assert.equal(rolledBack.undo_snapshot.snapshot_id, "snapshot-2");
+  // Д-15: the deletion is named in the answer, and named again as one this task
+  // has no record of, with the undo snapshot that can bring it back.
+  assert.deepEqual(rolledBack.removed_unfamiliar_files, ["src/broken.js"]);
+  assert.equal(rolledBack.removed_classification_reliable, true);
+  assert.equal(rolledBack.warnings.length, 2);
+  assert.match(rolledBack.warnings[0], /^1 file\(s\) that did not exist in snapshot-1 were deleted: `src\/broken\.js`\. Every one of them is in the undo snapshot snapshot-2\./);
+  assert.match(rolledBack.warnings[1], /have never appeared in a snapshot of this task.*`src\/broken\.js`/);
   assert.equal(await fs.readFile(path.join(repo, "src", "router.js"), "utf8"), "export const route = 1;\n");
   assert.match(rolledBack.next_step, /snapshot-2/);
 

@@ -150,6 +150,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reports actually contain, and a post-action for each average band.
     `ai-dev-orchestrator` and `verification-loop` route to it before
     `complete_task`.
+- **Fact forcing** (`hooks/fact-force.mjs`, `fact_force` in
+  `.ai-dev/policy.json`, on by default under the `strict` profile): the first
+  edit of a file in a session is refused until the agent has put its grounding
+  on the record — a `FACTS <path>` block naming the importers, the API the edit
+  changes, the data it touches and the instruction it serves — and the first
+  destructive command is refused until a `ROLLBACK:` line says how to get back.
+  - The refusal quotes the block to write. PreToolUse runs after the turn
+    carrying the tool call is written to the transcript, so the facts and the
+    edit travel together: the agent writes them, repeats the edit, and the file
+    stays grounded for the rest of the session.
+  - Eleven groups of command count as destructive — file removal and moves,
+    `sed -i`, git history rewrites, `git push`, dependency changes, migrations,
+    database writes, infrastructure, permissions, service control. The
+    irreversible ones never reach the gate: the guard's hard rules refuse them
+    first, for their own reason.
+  - Session state lives in `~/.ai-dev/state/guard/<session>.json`: entries
+    expire after `expiry_minutes` (30), at most `max_entries` (500) are kept,
+    and after `max_denials` (3) refusals in one session the gate stops refusing
+    and only notes what was missing.
+  - It judges nothing it cannot see: no transcript (Cursor sends a conversation
+    id, not a path), unreadable or unwritable state, or a path matching
+    `exempt_globs` all leave the call alone. `AI_DEV_FACT_FORCE` and
+    `AI_DEV_FACT_FORCE_EXEMPT` override the policy for one run.
 - **Documentation freshness** (`docs_stale` in `verify_change_hygiene`): a
   change set that moves the public interface — a new export, an `inputSchema`,
   a command-line flag, in JavaScript, TypeScript, Python, Go, Rust, Java,

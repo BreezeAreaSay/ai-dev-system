@@ -259,6 +259,7 @@ where a foreign hook sits ahead of ours, since Cursor runs the first entry of an
 | --- | --- | --- |
 | `guard.mjs bash` | PreToolUse (Bash) | Blocks git-hook bypasses, destructive and publishing commands, and policy `block` rules. |
 | `guard.mjs file` | PreToolUse (Write/Edit) | Blocks secret-bearing paths, secrets in new content, and weakened linter or protected configuration. |
+| `fact-force.mjs` | PreToolUse, via `guard.mjs` | Under `fact_force`, refuses the first edit of a file in a session until a `FACTS <path>` block names its importers, the API it changes, the data it touches and the instruction it serves, and the first destructive command until a `ROLLBACK:` line says how to get back. Reads the transcript for both. |
 | `compact-advisor.mjs` | PreToolUse (Edit/Write) | Suggests `/compact` from real context size — the `usage` of the newest assistant message in the transcript — plus a per-session tool-call count. Never blocks. |
 | `post-edit.mjs` | PostToolUse | Formats the edited file with the project's own formatter when one is installed locally — never installs anything, never uses `npx`. |
 | `session-start.mjs` | SessionStart | Injects the last handoff, open tasks, high-confidence instincts, and the installed rules index into the first turn. |
@@ -272,7 +273,9 @@ where a foreign hook sits ahead of ours, since Cursor runs the first entry of an
 derives it from the window — `compact_context_thresholds.standard` / `.large`,
 `compact_context_window`, `compact_context_interval`), `model_rates` (per-model price overrides
 for the usage report, in USD per million tokens), `completion_claims` (the completion-statement
-linter: `enabled`, and `waivers` of `{ rule, reason, expires? }` where the reason is real), and a list
+linter: `enabled`, and `waivers` of `{ rule, reason, expires? }` where the reason is real),
+`fact_force` (the grounding gate: `enabled` — on by default under `strict` — `files`, `bash`,
+`expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), and a list
 of hookify-style `rules` (`{ id, event, pattern, action, message }`) that add project-specific
 `block` or `warn` patterns without touching the scripts. Hooks fail open: any error exits 0 so a
 broken hook never wedges the agent.

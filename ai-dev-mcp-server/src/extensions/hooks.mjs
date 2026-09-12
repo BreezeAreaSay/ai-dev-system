@@ -30,7 +30,7 @@ export function createHookTools(host) {
           properties: {
             project_path: { type: "string" },
             targets: { type: "array", items: { type: "string", enum: HOOK_TARGETS }, default: ["claude"] },
-            profile: { type: "string", enum: HOOK_PROFILES, default: "standard", description: "minimal: guards + session capture; standard: + session start context, formatting, compaction advice, stop checks; strict: standard + push/amend warnings." },
+            profile: { type: "string", enum: HOOK_PROFILES, default: "standard", description: "minimal: guards + session capture; standard: + session start context, formatting, compaction advice, stop checks; strict: standard + push/amend warnings + fact forcing (the first edit of a file and the first destructive command have to state their grounding)." },
             overwrite: { type: "boolean", default: false, description: "Also reset .ai-dev/policy.json to defaults." },
             cursor_format_version: { type: "number", enum: CURSOR_HOOKS_FORMATS, default: CURSOR_HOOKS_FORMAT_VERSION, description: "Format version of .cursor/hooks.json to write. Cursor 3.x still reads version 1; a new format gets its own adapter rather than a rewrite of this one." },
             dry_run: { type: "boolean", default: false }

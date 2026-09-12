@@ -407,12 +407,34 @@ Three profiles:
 - `standard` — the default: everything above, including formatting, session
   start injection, the compaction advisor, and the end-of-response check.
 - `strict` — the same set plus extra review warnings before `git push` and
-  `git commit --amend`.
+  `git commit --amend`, and fact forcing.
+
+Fact forcing is the strict profile's one refusal that is not about danger. The
+first edit of a file in a session is refused until the agent has written the
+facts behind it, and the first destructive command until it has written the way
+back:
+
+```text
+FACTS src/router.mjs
+importers: src/app.mjs and src/server.mjs
+api: adds a `resolve` export, nothing removed
+data: reads the route table in config/routes.json
+instruction: "make the router resolve nested paths"
+```
+
+The refusal quotes that block, the agent writes it in the turn that repeats the
+edit, and the retry goes through; the file then stays grounded for the rest of
+the session. The gate reads the transcript, so where there is none it judges
+nothing, and it stops refusing after three refusals in one session rather than
+arguing. `fact_force` in the policy turns it on anywhere, or off under strict,
+and `exempt_globs` keeps it away from paths where it has nothing to ask.
 
 `.ai-dev/policy.json` is where you tune it without touching the scripts:
 `allow_config_edits`, `format_on_edit`, compaction thresholds, `model_rates`,
 `completion_claims` (the completion-statement linter: `enabled`, and `waivers` of
-`{ rule, reason, expires }`), and a list of your own rules:
+`{ rule, reason, expires }`), `fact_force` (`enabled`, `files`, `bash`,
+`expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), and a list of
+your own rules:
 
 ```json
 {

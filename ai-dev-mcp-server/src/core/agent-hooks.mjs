@@ -3,7 +3,7 @@ import path from "node:path";
 import { atomicWriteFile } from "./atomic-files.mjs";
 import { PROTECTED_CONFIG_FILES, SECRET_FILE_PATTERN, SECRET_PATTERNS } from "./change-hygiene.mjs";
 
-export const HOOK_FILES = ["lib.mjs", "guard.mjs", "post-edit.mjs", "session-start.mjs", "session-end.mjs", "cost-capture.mjs", "compact-advisor.mjs", "stop-check.mjs"];
+export const HOOK_FILES = ["lib.mjs", "fact-force.mjs", "guard.mjs", "post-edit.mjs", "session-start.mjs", "session-end.mjs", "cost-capture.mjs", "compact-advisor.mjs", "stop-check.mjs"];
 export const HOOK_TARGETS = ["claude", "cursor"];
 export const HOOK_PROFILES = ["minimal", "standard", "strict"];
 export const HOOKS_RELATIVE_DIR = ".ai-dev/hooks";
@@ -47,6 +47,23 @@ export function defaultPolicy(profile = "standard") {
     // report states that reason too:
     // { "rule": "tests_deferred", "reason": "…", "expires": "2026-12-31" }.
     completion_claims: { enabled: true, waivers: [] },
+    // Fact forcing (hooks/fact-force.mjs), on under the strict profile. The
+    // first edit of a file in a session is refused until the agent has written
+    // a `FACTS <path>` block naming the importers, the API it changes, the data
+    // it touches and the instruction it serves; the first destructive command
+    // is refused until a `ROLLBACK:` line says how to get back. The gate reads
+    // the transcript, so it judges nothing where there is none (Cursor), and it
+    // stops refusing after `max_denials` refusals in one session. Defaults live
+    // in FACT_FORCE_DEFAULTS; agent-hooks.test.mjs holds these two in step.
+    fact_force: {
+      enabled: profile === "strict",
+      files: true,
+      bash: true,
+      expiry_minutes: 30,
+      max_denials: 3,
+      max_entries: 500,
+      exempt_globs: ["**/*.md", "**/*.txt", "**/*.lock", "**/*.snap", ".ai-dev/**", ".claude/**", ".cursor/**"]
+    },
     allow_commands: [],
     rules: [
       {

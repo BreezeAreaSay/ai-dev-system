@@ -150,9 +150,14 @@ const GROUPS = [
     ]
   },
   {
-    title: "Agent hooks",
-    when: "Setting up (or inspecting) the hook pack that guards commands and file writes in Claude Code and Cursor.",
-    tools: ["install_agent_hooks", "agent_hooks_status"]
+    title: "Agent hooks and policy",
+    when: "Setting up (or inspecting) the hook pack that guards commands and file writes in Claude Code and Cursor, and editing the project rules it enforces.",
+    tools: ["install_agent_hooks", "agent_hooks_status", "list_policy_rules", "upsert_policy_rule", "remove_policy_rule"]
+  },
+  {
+    title: "Agent harness inventory",
+    when: "Auditing which MCP servers this repository wires into its agents, over which transports, and whether any credential is sitting in a config file.",
+    tools: ["list_mcp_servers"]
   },
   {
     title: "Usage and cost",
@@ -265,7 +270,7 @@ function render() {
   ];
   for (const group of GROUPS) {
     const anchor = group.title.toLowerCase().replaceAll(/[^a-z0-9 ]/g, "").replaceAll(" ", "-");
-    lines.push(`- [${group.title}](#${anchor}) — ${group.tools.length} tools`);
+    lines.push(`- [${group.title}](#${anchor}) — ${group.tools.length} tool${group.tools.length === 1 ? "" : "s"}`);
   }
   for (const group of GROUPS) {
     lines.push("", `## ${group.title}`, "", `**When to call:** ${group.when}`, "");

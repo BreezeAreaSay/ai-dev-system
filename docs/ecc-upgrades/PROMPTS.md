@@ -37,10 +37,10 @@
 | 3.4 | линтер заявлений о завершении | сделано |
 | 3.5 | снимки и откат состояния задачи | **сделано**, `src/core/task-snapshots.mjs`, `src/extensions/snapshots.mjs`, [16-task-snapshots.md](16-task-snapshots.md) |
 | 3.6 | сканеры безопасности | не начато |
-| 3.7 | правила policy и инвентарь MCP | не начато |
+| 3.7 | правила policy и инвентарь MCP | **сделано**, `src/core/policy-rules.mjs`, `src/core/mcp-inventory.mjs`, [17-policy-rules-and-mcp-inventory.md](17-policy-rules-and-mcp-inventory.md) |
 | 4.1, 4.2 | подготовка к Argentum | не начато |
 
-Ближайшие невыполненные: 3.6, затем 3.7. Остальные позиции этапа 3 живут в
+Ближайшие невыполненные: 3.6. Остальные позиции этапа 3 живут в
 [PLAN.md](PLAN.md) и в разделе C файла [ECC-GAP-ANALYSIS.md](ECC-GAP-ANALYSIS.md), там их сорок три.
 
 Открытые долги — в [DEBTS.md](DEBTS.md). Отдельной сессией их чинить рано: договорённость была

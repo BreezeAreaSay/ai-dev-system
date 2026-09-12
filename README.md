@@ -24,7 +24,10 @@ for all of these clients.
   reversible rollback to any of them;
 - a quality gate, security checks, and Frontend QA with Playwright / Chromium;
 - [memory across sessions](#memory-and-learning): handoffs, decisions, and learned instincts;
-- [agent hooks](#hooks) for Claude Code and Cursor that guard commands and file writes;
+- [agent hooks](#hooks) for Claude Code and Cursor that guard commands and file writes,
+  with the project's own rules edited through checked tools rather than by hand;
+- [an inventory of the MCP servers](#what-your-agents-are-wired-to) your agents are wired to,
+  and the credentials sitting in those config files;
 - a Docker image for teams: no personal vault, passwords, tokens, projects, or task history.
 
 ## Requirements
@@ -430,6 +433,52 @@ Three profiles:
 ```
 
 `event` is `bash`, `file`, or `all`; `action` is `block` or `warn`.
+
+### Rules without hand-editing JSON
+
+A rule nobody proved fires is a rule that silently does nothing, and the guard
+says nothing about one: a pattern that does not compile, an event it never
+evaluates, or an `action` it does not know are skipped or quietly downgraded to a
+warning. So the rules block has tools of its own:
+
+```text
+Use the ai-dev MCP server. Call upsert_policy_rule for /workspace/my-project with a
+rule that blocks `terraform destroy`, and an example it must match.
+```
+
+`upsert_policy_rule` compiles the pattern exactly as the guard does
+(case-insensitively), refuses one that cannot work — including a quantified group
+holding an unbounded quantifier, which would stall the guard on a long line —
+refuses a second rule that fires on the same text, and refuses a new or changed
+pattern that does not match the `example` you pass. It stores the example on the
+rule, so `list_policy_rules` can re-run it later and tell you a rule a hand edit
+disarmed; `counter_example` is checked the same way, against a pattern that grew
+too broad. Updates are patches, so `{ "id": "warn-eval", "enabled": false }`
+disables a rule and `remove_policy_rule` deletes one. `agent_hooks_status` lists
+every rule with what the guard would actually do with it. The guard re-reads the
+file on every call, so a change is live without restarting the client.
+
+## What your agents are wired to
+
+Every client keeps its own list of MCP servers, and each entry is a program that
+starts with the editor and answers tool calls with your credentials.
+`list_mcp_servers` reads all of them — `.mcp.json`, `.claude/settings.json` and
+`settings.local.json`, `.cursor/mcp.json`, `.vscode/mcp.json`,
+`.gemini/settings.json`, `.codex/config.toml` — and reports one entry per server:
+which files declare it, over which transport, which environment variables it
+substitutes and whether they are set, and whether Claude Code starts it without
+asking.
+
+A credential written out in a config file is a `block` finding, masked out of the
+report so it is not repeated into the next ticket: the file is in the repository,
+so the value is in every clone and needs rotating, not deleting. Plain HTTP to a
+remote endpoint, `npx -y` with no pinned version, a server that starts through a
+shell, an entry no client can start, a config that cannot be parsed, and the same
+server name defined differently in two files are warnings. Pass
+`include_user_scope: true` to include your own `~/.claude.json` (with its
+per-project block), `~/.cursor/mcp.json`, `~/.gemini/settings.json` and
+`~/.codex/config.toml`; it is off by default, because those files are yours
+rather than the repository's.
 
 ## Local data and security
 

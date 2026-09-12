@@ -123,6 +123,11 @@ const GROUPS = [
     tools: ["begin_task_in_worktree", "list_task_worktrees", "remove_task_worktree"]
   },
   {
+    title: "Task snapshots",
+    when: "Undoing a turn. `checkpoint_task` snapshots the working tree on its own, so there is usually something to go back to; these tools add one on demand, show what can be returned to, and put the files back.",
+    tools: ["snapshot_task", "list_task_snapshots", "rollback_task"]
+  },
+  {
     title: "Change hygiene and project rules",
     when: "Reviewing a diff before claiming it is done, and installing the engineering rules an agent should follow in this repository.",
     tools: ["verify_change_hygiene", "list_rule_packs", "install_project_rules"]

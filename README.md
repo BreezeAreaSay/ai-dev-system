@@ -20,6 +20,8 @@ for all of these clients.
 - a task lifecycle: `begin_task`, `checkpoint_task`, `verify_task`, `complete_task`,
   a completion-statement linter that refuses a report the checks do not back, and a
   pull request description built from the evidence it collected;
+- [snapshots of a task's working tree](#undoing-a-turn) after every checkpoint, and a
+  reversible rollback to any of them;
 - a quality gate, security checks, and Frontend QA with Playwright / Chromium;
 - [memory across sessions](#memory-and-learning): handoffs, decisions, and learned instincts;
 - [agent hooks](#hooks) for Claude Code and Cursor that guard commands and file writes;
@@ -296,7 +298,9 @@ with `/workspace`; for example, call `begin_task` with `/workspace/my-project`.
    my machine" — is refused with the rule, the check behind it and what is missing;
    `.ai-dev/policy.json` turns the linter off or waives one rule where the reason is
    real and written into the report.
-6. `complete_task` writes the pull request description from that evidence into
+6. Each checkpoint also snapshots the working tree that turn produced, so a turn that
+   went wrong can be undone (see below).
+7. `complete_task` writes the pull request description from that evidence into
    `.ai-dev/pr/<task_id>.md` — goal, acceptance criteria with their status,
    changed files by group, the checks that ran, decisions, and whatever is still
    outstanding — filling the repository's own pull request template when it has
@@ -309,6 +313,20 @@ Example request to the agent:
 Use the ai-dev MCP server. Begin a task for /workspace/my-project:
 add CSV export for the report, cover the change with tests, and run verify_task.
 ```
+
+### Undoing a turn
+
+`checkpoint_task` records the whole working tree of the task — tracked changes, staged or
+not, plus the files the agent created — as a snapshot, and `snapshot_task` takes one on
+demand before something risky. `list_task_snapshots` shows what can be returned to, and
+`rollback_task` returns to it: the snapshot's files go back to their recorded content and
+the files that appeared since are removed.
+
+Nothing is written to your branch, your stash or your index. A snapshot is a single commit
+object no branch points at, held by a ref under `refs/ai-dev/snapshots/<task_id>/`, and
+`.gitignore` decides what it carries, so dependencies and build output are neither stored
+nor touched. A rollback snapshots the state it replaces first, so it can itself be rolled
+back. `complete_task` deletes the task's snapshots once the work is closed.
 
 ## Memory and learning
 

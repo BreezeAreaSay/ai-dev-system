@@ -150,6 +150,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reports actually contain, and a post-action for each average band.
     `ai-dev-orchestrator` and `verification-loop` route to it before
     `complete_task`.
+- **Task snapshots and rollback** (`src/core/task-snapshots.mjs`,
+  `src/extensions/snapshots.mjs`): `snapshot_task`, `list_task_snapshots` and
+  `rollback_task` make an agent's turn undoable. A snapshot records the whole
+  working tree of a task — tracked changes, staged or not, plus the files the
+  agent created — as one commit object no branch points at, held by a ref under
+  `refs/ai-dev/snapshots/<task_id>/<n>`.
+  - Nothing is written to the user's branch, stash or index. `.gitignore` and
+    `.git/info/exclude` decide what a snapshot carries, so dependencies and
+    build output are neither stored nor touched.
+  - `rollback_task` restores the snapshot's files and removes the ones that
+    appeared since, emptied directories included. It snapshots the state it
+    replaces first, so a rollback is itself reversible; the snapshot is named by
+    id (`snapshot-3`), number, or commit.
+  - `checkpoint_task` snapshots the turn it records (`snapshot: false` opts out;
+    a project without git reports a reason instead of failing), and
+    `complete_task` deletes the closed task's snapshots, reporting how many in a
+    new `snapshots` field. The entries stay on the record, marked, so the turns
+    remain readable. Automatic snapshots are capped at 50 per task; ones taken
+    by name are kept until the task closes.
 
 ### Fixed
 

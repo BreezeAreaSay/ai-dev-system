@@ -6,6 +6,10 @@
  * against its acceptance criteria, `verify_task` runs the checks that could
  * prove the work, and `complete_task` closes it and writes down what happened.
  *
+ * Two of them also carry the task's snapshots (`src/extensions/snapshots.mjs`):
+ * a checkpoint is a turn, so it snapshots the working tree that turn produced,
+ * and completion deletes the snapshots the task no longer needs.
+ *
  * Everything the arc touches arrives through `host`: the task store, project
  * identity and detection, project state capture, the frontend product state,
  * the Archify receipt store and the project-card writers. The four sibling
@@ -43,6 +47,11 @@ import {
   taskCompletionMarkdown
 } from "../core/task-completion.mjs";
 import { withPlanGateWarning } from "../core/task-plans.mjs";
+import {
+  captureTaskSnapshot,
+  pruneTaskSnapshots,
+  resolveTaskWorktree
+} from "../core/task-snapshots.mjs";
 import {
   metAcceptanceCriteria,
   verificationCheckSummary,
@@ -197,22 +206,47 @@ async function auditCompletionClaims(host, record, { summary = "", notes = "", p
   return result;
 }
 
-/** Record progress against the task's acceptance criteria. */
+/**
+ * Record progress against the task's acceptance criteria, and keep the turn
+ * that produced it restorable.
+ *
+ * The snapshot is taken after the checkpoint is written, so it holds exactly
+ * the tree the checkpoint reports on. A repository that cannot be snapshotted
+ * (no git, a removed worktree) leaves a `skipped` snapshot with the reason:
+ * recording progress must not depend on it.
+ */
 async function checkpointTask(host, {
   task_id,
   summary,
   changed_files = [],
   criteria = [],
-  notes = ""
+  notes = "",
+  snapshot = true
 }) {
   const completionClaims = await auditCompletionClaims(host, await host.taskStore.read(task_id), { summary, notes });
-  const record = withPlanGateWarning(await host.taskStore.checkpoint(task_id, {
+  const checkpointed = await host.taskStore.checkpoint(task_id, {
     summary,
     changedFiles: changed_files,
     criteria,
     notes
-  }), changed_files);
-  return { ...record, completion_claims: completionClaims };
+  });
+  const captured = snapshot === false
+    ? { status: "skipped", reason: "snapshot=false", task: checkpointed }
+    : await captureTaskSnapshot({
+      taskStore: host.taskStore,
+      record: checkpointed,
+      worktreePath: await resolveTaskWorktree({ record: checkpointed, resolveProjectIdentity: host.resolveProjectIdentity }).catch(() => ""),
+      label: summary,
+      trigger: "checkpoint",
+      required: false
+    });
+  return {
+    ...withPlanGateWarning(captured.task, changed_files),
+    completion_claims: completionClaims,
+    snapshot: captured.status === "created"
+      ? { status: "created", snapshot_id: captured.snapshot.snapshot_id, turn: captured.snapshot.turn, commit: captured.snapshot.commit, file_count: captured.snapshot.file_count }
+      : { status: "skipped", reason: captured.reason }
+  };
 }
 
 /** Turn supplied Archify evidence into checks, one per delivered artifact. */
@@ -443,11 +477,21 @@ async function completeTask(host, {
   const projectRoot = projectIdentity.project_root;
   const projectState = await host.captureProjectState(projectRoot);
   const completionClaims = await auditCompletionClaims(host, existing, { summary, projectState });
-  const record = await host.taskStore.complete(task_id, {
+  let record = await host.taskStore.complete(task_id, {
     summary,
     projectState,
     allowWaived: allow_waived
   });
+  // The task is closed, so its turn-by-turn snapshots have nothing left to
+  // protect: the refs go and the entries stay, marked, as the record of what
+  // the run looked like turn by turn.
+  const prunedSnapshots = await pruneTaskSnapshots({
+    taskStore: host.taskStore,
+    record,
+    worktreePath: await resolveTaskWorktree({ record, resolveProjectIdentity: host.resolveProjectIdentity }).catch(() => ""),
+    reason: "completed"
+  }).catch((error) => ({ status: "skipped", deleted: 0, reason: error instanceof Error ? error.message : String(error), task: record }));
+  record = prunedSnapshots.task;
   const completionVerificationIds = new Set(record.completion?.verification_ids || []);
   const finalVerification = [...record.verifications]
     .reverse()
@@ -478,6 +522,7 @@ async function completeTask(host, {
     report,
     skill_outcomes: skillOutcomes,
     completion_claims: completionClaims,
+    snapshots: { status: prunedSnapshots.status, deleted: prunedSnapshots.deleted, ...(prunedSnapshots.reason ? { reason: prunedSnapshots.reason } : {}) },
     ...(pullRequest ? { pull_request: pullRequest } : {}),
     ...(worktree ? { worktree } : {}),
     ...(nextSteps.length ? { next_step: nextSteps.join(" ") } : {})
@@ -511,7 +556,7 @@ export function createLifecycleTools(host) {
       },
       {
         name: "checkpoint_task",
-        description: "Record implementation progress, changed files, and acceptance-criterion evidence before verification. The summary and notes are linted for rationalizations (\"pre-existing issue\", \"skipping tests for now\", \"should work\"): one whose check did not pass is refused unless .ai-dev/policy.json waives that rule and the report states the reason.",
+        description: "Record implementation progress, changed files, and acceptance-criterion evidence before verification, and snapshot the working tree this turn produced so rollback_task can return to it. The summary and notes are linted for rationalizations (\"pre-existing issue\", \"skipping tests for now\", \"should work\"): one whose check did not pass is refused unless .ai-dev/policy.json waives that rule and the report states the reason.",
         inputSchema: {
           type: "object",
           properties: {
@@ -536,7 +581,8 @@ export function createLifecycleTools(host) {
                 required: ["id", "status"]
               }
             },
-            notes: { type: "string" }
+            notes: { type: "string" },
+            snapshot: { type: "boolean", default: true, description: "Snapshot the working tree for this turn so rollback_task can return to it. Set false to skip the snapshot on a very large tree." }
           },
           required: ["task_id", "summary"]
         }
@@ -561,7 +607,7 @@ export function createLifecycleTools(host) {
       },
       {
         name: "complete_task",
-        description: "Complete a task only when all acceptance criteria are resolved and passing verification matches the current project state. The summary is linted for rationalizations that no passing check backs (see checkpoint_task).",
+        description: "Complete a task only when all acceptance criteria are resolved and passing verification matches the current project state. The summary is linted for rationalizations that no passing check backs (see checkpoint_task), and the task's snapshots are deleted once it closes.",
         inputSchema: {
           type: "object",
           properties: {

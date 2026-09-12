@@ -18,6 +18,12 @@
  * could recognise plus an error, which is exactly what a report wants. The
  * values it does return went through `JSON.parse`, so they are either valid or
  * absent.
+ *
+ * One shape of broken file it does recognise, because the alternative is worse
+ * than saying nothing: a document that stops in the middle. Nesting is counted
+ * as the scan goes, so a file whose last character leaves an object or a string
+ * open ends with an error rather than with an empty result — "this file is cut
+ * off", not "this file declares no servers" (Д-25).
  */
 import { createReadStream } from "node:fs";
 
@@ -176,6 +182,11 @@ export function createJsonSubsetScanner(patterns, { maxValueBytes = MAX_SUBSET_V
       if (capture) {
         if (capture.kind === "scalar") endCapture();
         else truncated.push(capture.path.join("."));
+      }
+      if (inString || stack.length) {
+        const open = stack.length ? `${stack.length} unclosed ${stack.length === 1 ? "value" : "values"}` : "";
+        const string = inString ? "an unterminated string" : "";
+        errors.push(`the document ends in the middle, with ${[open, string].filter(Boolean).join(" and ")}: the file is cut off or still being written, so what it holds is unknown rather than absent`);
       }
       return { values, bytes, truncated, errors, root };
     }

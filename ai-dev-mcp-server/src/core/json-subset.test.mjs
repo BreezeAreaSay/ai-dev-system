@@ -144,6 +144,20 @@ test("a file that is not the object it was looking for says so", async (t) => {
   const cut = scan('{"mcpServers": {"a": {"command": "node"', [["mcpServers"]]);
   assert.deepEqual(cut.values, []);
   assert.deepEqual(cut.truncated, ["mcpServers"]);
+  // …and the document itself is reported as cut off. Without this the caller
+  // reads a half-written file as "this machine declares no servers" (Д-25).
+  assert.equal(cut.errors.length, 1);
+  assert.match(cut.errors[0], /ends in the middle/);
+  assert.match(cut.errors[0], /unknown rather than absent/);
+
+  // A file cut at three different places, and one that is whole.
+  for (const text of ['{"mcpServers":', '{"mcpServers": {"a": {"command": "np', '{"mcpServers": {"a": {}},']) {
+    const partial = scan(text, [["mcpServers"]]);
+    assert.match(partial.errors[0] ?? "", /ends in the middle/, `not reported as cut off: ${text}`);
+  }
+  const whole = scan('{"mcpServers": {"a": {"command": "node"}}, "projects": {}}', [["mcpServers"]]);
+  assert.deepEqual(whole.errors, [], "a whole document is not accused of ending early");
+  assert.equal(whole.values.length, 1);
 
   // Something that starts like an object and then is not: whatever parsed, plus
   // the error.

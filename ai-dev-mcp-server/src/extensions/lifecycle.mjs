@@ -324,6 +324,8 @@ async function verifyTask(host, {
   frontend_options = {},
   run_hygiene = true,
   hygiene_base_ref = "HEAD",
+  run_security_scan = true,
+  security_scanners = "auto",
   coverage_min = 0,
   evidence = []
 }) {
@@ -424,6 +426,17 @@ async function verifyTask(host, {
   }
 
   if (run_hygiene) checks.push({ type: "change_hygiene", result: await verifyChangeHygiene(projectRoot, { baseRef: hygiene_base_ref }) });
+  // Security scanners next to hygiene: hygiene reads the diff, this reads the
+  // tree and the dependency graph with whatever tools the machine has. A
+  // scanner that is missing or offline is skipped with a reason, so this can
+  // neither fail the run nor hold it up (src/core/security-scan.mjs).
+  if (run_security_scan) {
+    const { markdown: _markdown, next_step: _nextStep, ...scan } = await host.runSecurityScan({
+      project_path: projectRoot,
+      scanners: Array.isArray(security_scanners) ? security_scanners : undefined
+    });
+    checks.push({ type: "security_scan", result: scan });
+  }
   if (Number(coverage_min) > 0) checks.push({ type: "coverage", result: await coverageCheck(projectRoot, Number(coverage_min), hygiene_base_ref) });
   const projectState = await host.captureProjectState(projectRoot);
   const passed = verificationPassed(checks);
@@ -671,6 +684,8 @@ export function createLifecycleTools(host) {
             frontend_options: { type: "object", additionalProperties: true, default: {} },
             run_hygiene: { type: "boolean", default: true, description: "Scan added lines for secrets, debug leftovers, focused/skipped tests, conflict markers, weakened lint configs, and missing test changes. A block finding fails verification." },
             hygiene_base_ref: { type: "string", default: "HEAD", description: "Git ref the hygiene scan diffs against; use the branch base (for example main) to include committed work." },
+            run_security_scan: { type: "boolean", default: true, description: "Run the security scanners this machine has installed (run_security_scan). Critical and high dependency or secret findings fail verification; everything else is reported. A scanner that is absent, inapplicable or offline is skipped with a reason and cannot fail or delay the run." },
+            security_scanners: { type: "array", items: { type: "string" }, description: "Scanner ids to run instead of all of them. See run_security_scan." },
             coverage_min: { type: "number", default: 0, description: "Minimum percentage of lines the project's coverage report must show. 0 leaves coverage out. A report that is missing or unreadable fails the check: an unproven floor is not a met one." },
             evidence: ARCHIFY_EVIDENCE_SCHEMA
           },

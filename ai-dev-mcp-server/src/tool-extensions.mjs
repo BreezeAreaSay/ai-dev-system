@@ -35,6 +35,7 @@ import { createProjectTools } from "./extensions/projects.mjs";
 import { createPullRequestTools } from "./extensions/pull-requests.mjs";
 import { createRulesTools } from "./extensions/rules.mjs";
 import { createSearchTools } from "./extensions/search.mjs";
+import { createSecurityTools } from "./extensions/security.mjs";
 import { createSessionTools } from "./extensions/sessions.mjs";
 import { createSkillTools } from "./extensions/skills.mjs";
 import { createSnapshotTools } from "./extensions/snapshots.mjs";
@@ -58,6 +59,7 @@ export const EXTENSION_FACTORIES = [
   createPullRequestTools,
   createRulesTools,
   createSearchTools,
+  createSecurityTools,
   createSessionTools,
   createSkillTools,
   createSnapshotTools,

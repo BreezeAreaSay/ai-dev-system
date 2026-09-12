@@ -24,6 +24,12 @@ test("each check type has its own idea of good", () => {
   // Hygiene is the one check that may warn and still pass.
   assert.equal(verificationPassed([check("change_hygiene", { status: "warn" })]), true);
   assert.equal(verificationPassed([check("change_hygiene", { status: "block" })]), false);
+  // Security scanners read the same way, and a run where every scanner was
+  // missing or offline passes: it is a `pass` with `checked: 0`, which is what
+  // the report says out loud rather than a failure nobody can act on.
+  assert.equal(verificationPassed([check("security_scan", { status: "pass", summary: { checked: 0 } })]), true);
+  assert.equal(verificationPassed([check("security_scan", { status: "warn" })]), true);
+  assert.equal(verificationPassed([check("security_scan", { status: "block" })]), false);
   // A coverage floor only appears when a task asked for one, and a floor
   // nobody could measure is not a floor that was met.
   assert.equal(verificationPassed([check("coverage", { status: "pass", line_percent: 91 })]), true);

@@ -136,7 +136,7 @@ const GROUPS = [
   {
     title: "Change hygiene and project rules",
     when: "Reviewing a diff before claiming it is done, and installing the engineering rules an agent should follow in this repository.",
-    tools: ["verify_change_hygiene", "list_rule_packs", "install_project_rules"]
+    tools: ["verify_change_hygiene", "run_security_scan", "list_rule_packs", "install_project_rules"]
   },
   {
     title: "Memory and learning",

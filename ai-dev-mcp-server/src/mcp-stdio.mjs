@@ -4375,6 +4375,7 @@ const extensions = createExtensionTools({
   // for the tool the client asked for and none for the work it delegated.
   recommendSkills: (args) => extensions.handlers.get("recommend_skills")(args),
   runQualityGate: (args) => extensions.handlers.get("run_quality_gate")(args),
+  runSecurityScan: (args) => extensions.handlers.get("run_security_scan")(args),
   runFrontendQa: (args) => extensions.handlers.get("run_frontend_qa")(args),
   preparePullRequest: (args) => extensions.handlers.get("prepare_pull_request")(args),
   // Skill sources and the writers that turn them into the generated catalog.

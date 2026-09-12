@@ -70,6 +70,17 @@ function createFixture(overrides = {}) {
       if (overrides.qualityGateThrows) throw new Error("Quality gate file not found.");
       return { status: overrides.qualityStatus ?? "passed" };
     },
+    runSecurityScan: async (args) => {
+      calls.push(["runSecurityScan", args]);
+      return {
+        status: overrides.securityStatus ?? "pass",
+        summary: { checked: 0, skipped: 6, failed: 0, findings: 0, blocking: 0 },
+        scanners: [],
+        findings: [],
+        markdown: "# Security scan: pass\n",
+        next_step: "…"
+      };
+    },
     runFrontendQa: async (args) => {
       calls.push(["runFrontendQa", args]);
       if (overrides.frontendQaThrows) throw new Error("Frontend QA runner not found.");
@@ -155,8 +166,14 @@ test("verify_task runs the gate and hygiene, and a passing run meets its criteri
   const verified = await call(registry, "verify_task", { task_id: "task-1" });
   const [, gate] = calls.find(([name]) => name === "runQualityGate");
   assert.deepEqual(gate, { project_path: "/repo/atlas", labels: [], dry_run: false, update_registry: false, register_if_missing: false });
-  assert.deepEqual(verified.verification.checks.map((item) => item.type), ["quality_gate", "change_hygiene"]);
+  assert.deepEqual(verified.verification.checks.map((item) => item.type), ["quality_gate", "change_hygiene", "security_scan"]);
   assert.equal(verified.verification.passed, true);
+  // The scanners run next to hygiene, and a run where none of them could run is
+  // a pass with `checked: 0` rather than a failure nobody can act on.
+  assert.deepEqual(calls.find(([name]) => name === "runSecurityScan")[1], { project_path: "/repo/atlas", scanners: undefined });
+  const securityCheck = verified.verification.checks.at(-1).result;
+  assert.equal(securityCheck.summary.checked, 0);
+  assert.equal("markdown" in securityCheck, false, "the report text stays out of the task record");
   assert.match(verified.verification.id, /^verification-\d+-[0-9a-f]{8}$/);
   assert.equal(verified.skill_outcomes.recorded, true);
   const [, , criteria] = calls.find(([name]) => name === "checkpoint");
@@ -378,4 +395,21 @@ test("an Archify delivery is written onto the project card", async () => {
   assert.equal(update.mode, "replace");
   assert.equal(update.update_index, false);
   assert.ok(calls.some(([name]) => name === "syncProjectCard"));
+});
+
+
+test("a blocking security finding fails verification, and the scan can be turned off", async () => {
+  const { registry, calls } = createFixture({ securityStatus: "block" });
+  const blocked = await call(registry, "verify_task", { task_id: "task-1" });
+  assert.equal(blocked.verification.passed, false);
+  assert.equal(blocked.verification.checks.at(-1).result.status, "block");
+
+  const without = await call(createFixture().registry, "verify_task", { task_id: "task-1", run_security_scan: false });
+  assert.deepEqual(without.verification.checks.map((item) => item.type), ["quality_gate", "change_hygiene"]);
+  assert.equal(without.verification.passed, true);
+
+  const named = createFixture();
+  await call(named.registry, "verify_task", { task_id: "task-1", security_scanners: ["gitleaks"] });
+  assert.deepEqual(named.calls.find(([name]) => name === "runSecurityScan")[1], { project_path: "/repo/atlas", scanners: ["gitleaks"] });
+  assert.ok(calls.length > 0);
 });

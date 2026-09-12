@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Security scanners** (`run_security_scan`): adapters for `npm audit`,
+  `pip-audit`, `cargo audit`, `gitleaks`, `semgrep` and `trivy fs`. Each one
+  knows how to find its binary, whether this project is one it has anything to
+  say about, and how to read its output; every finding comes back as
+  `{ tool, kind, severity, file, line, message, rule }`. `verify_task` runs the
+  same scan as its `security_scan` check, next to `change_hygiene`: critical and
+  high dependency or secret findings fail verification, everything else is
+  reported. A scanner that is absent, inapplicable or needs a network this run
+  does not have is `skipped` with the reason, so it can neither fail nor delay a
+  verification (`src/core/security-scan.mjs`,
+  `src/core/security-scan-parsers.mjs`).
+
 - Twelve agent-workflow upgrades, ported from ECC (Everything Claude Code) and
   reshaped for this server. New capabilities, all reachable as MCP tools:
   - **Extension registry** (`src/tool-extensions.mjs`): tools now live in

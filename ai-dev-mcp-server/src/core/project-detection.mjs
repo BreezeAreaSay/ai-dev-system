@@ -231,6 +231,8 @@ export function createProjectDetector({
     const packageManager = await inferPackageManager(projectRoot, packageJson);
     const pyprojectText = await readProjectText(projectRoot, "pyproject.toml");
     const requirementsText = await readProjectText(projectRoot, "requirements.txt");
+    const composerText = (await readProjectText(projectRoot, "composer.json")).toLowerCase();
+    const gemfileText = (await readProjectText(projectRoot, "Gemfile")).toLowerCase();
     const pythonMetadataText = `${pyprojectText}\n${requirementsText}`.toLowerCase();
     const dependencyText = `${Object.keys(dependencies).join(" ")}\n${pythonMetadataText}`.toLowerCase();
 
@@ -248,6 +250,8 @@ export function createProjectDetector({
     if (dependencies.next) addStack("Next.js");
     if (dependencies.react) addStack("React");
     if (dependencies.vue) addStack("Vue");
+    if (dependencies.nuxt || await exists("nuxt.config.ts") || await exists("nuxt.config.js") || await exists("nuxt.config.mjs")) addStack("Nuxt");
+    if (dependencies["@angular/core"] || await exists("angular.json")) addStack("Angular");
     if (dependencies.svelte) addStack("Svelte");
     if (dependencies.vite) addStack("Vite");
     if (dependencies.tailwindcss || await exists("tailwind.config.js") || await exists("tailwind.config.ts")) addStack("Tailwind CSS");
@@ -272,7 +276,18 @@ export function createProjectDetector({
     if (await exists("go.mod")) addStack("Go");
     if (await exists("Cargo.toml")) addStack("Rust");
     if (await exists("composer.json")) addStack("PHP");
+    if (await exists("artisan") || /laravel\/framework/.test(composerText)) addStack("Laravel");
+    if (/symfony\/framework-bundle/.test(composerText)) addStack("Symfony");
+    if (await exists("Gemfile") || await exists("Rakefile") || await exists(".ruby-version")) addStack("Ruby");
+    if (/\brails\b/.test(gemfileText) || await exists("config/application.rb")) addStack("Rails");
+    if (await exists("Package.swift")) addStack("Swift");
+    // Every .NET repository has a project or solution file, but those are named
+    // after the product, and the detector reads paths rather than listing them.
+    // These five are the conventional root files that are not.
+    if (await exists("global.json") || await exists("Directory.Build.props") || await exists("NuGet.config") || await exists("nuget.config") || await exists(".config/dotnet-tools.json")) addStack("C#/.NET");
+    if (await exists("CMakeLists.txt") || await exists("meson.build") || await exists("configure.ac") || await exists("conanfile.txt") || await exists("vcpkg.json")) addStack("C/C++");
     if (await exists("pom.xml") || await exists("build.gradle") || await exists("build.gradle.kts")) addStack("Java/JVM");
+    if (await exists("build.gradle.kts") || await exists("settings.gradle.kts")) addStack("Kotlin");
     if (await exists("Dockerfile") || await exists("docker-compose.yml") || await exists("compose.yml")) addStack("Docker");
     if (await exists("docker-compose.yml") || await exists("compose.yml")) addStack("Docker Compose");
     if (await exists(".github/workflows")) addStack("GitHub Actions");

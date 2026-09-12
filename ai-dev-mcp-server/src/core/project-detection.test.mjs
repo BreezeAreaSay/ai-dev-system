@@ -263,3 +263,38 @@ test("a malformed package.json is treated as no manifest at all", async () => {
   assert.equal(detected.package_manager, "Not detected");
   assert.equal(detected.stack.includes("Node.js"), false);
 });
+
+test("the stacks the newer rule packs are chosen by are detected from root files", async () => {
+  const nuxt = detectorOver({ "package.json": JSON.stringify({ dependencies: { vue: "3", nuxt: "3" } }) });
+  const nuxtStack = (await nuxt.detectProject("/repo")).stack;
+  assert.ok(nuxtStack.includes("Vue") && nuxtStack.includes("Nuxt"));
+
+  const angular = detectorOver({ "package.json": "{}", "angular.json": "{}" });
+  assert.ok((await angular.detectProject("/repo")).stack.includes("Angular"));
+
+  const kotlin = detectorOver({ "build.gradle.kts": "plugins { kotlin(\"jvm\") }" });
+  const kotlinStack = (await kotlin.detectProject("/repo")).stack;
+  assert.ok(kotlinStack.includes("Kotlin") && kotlinStack.includes("Java/JVM"), "a Kotlin JVM project is both");
+
+  const swift = detectorOver({ "Package.swift": "// swift-tools-version:5.9" });
+  assert.ok((await swift.detectProject("/repo")).stack.includes("Swift"));
+
+  const dotnet = detectorOver({ "global.json": "{}" });
+  assert.ok((await dotnet.detectProject("/repo")).stack.includes("C#/.NET"));
+
+  const cpp = detectorOver({ "CMakeLists.txt": "project(atlas)" });
+  assert.ok((await cpp.detectProject("/repo")).stack.includes("C/C++"));
+
+  const rails = detectorOver({ "Gemfile": "gem \"rails\", \"~> 7.1\"" });
+  const railsStack = (await rails.detectProject("/repo")).stack;
+  assert.ok(railsStack.includes("Ruby") && railsStack.includes("Rails"));
+
+  const laravel = detectorOver({ "composer.json": JSON.stringify({ require: { "laravel/framework": "^11" } }) });
+  const laravelStack = (await laravel.detectProject("/repo")).stack;
+  assert.ok(laravelStack.includes("PHP") && laravelStack.includes("Laravel"));
+
+  // A plain Ruby script directory is Ruby without being Rails.
+  const ruby = detectorOver({ "Rakefile": "task :default" });
+  const rubyStack = (await ruby.detectProject("/repo")).stack;
+  assert.ok(rubyStack.includes("Ruby") && !rubyStack.includes("Rails"));
+});

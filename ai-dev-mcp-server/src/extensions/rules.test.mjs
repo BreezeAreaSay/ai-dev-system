@@ -17,7 +17,7 @@ test("rules tools detect packs from the stack and install projections", async (t
   };
   const registry = createExtensionTools(host, [createRulesTools]);
   const listed = await registry.handlers.get("list_rule_packs")({ project_path: root });
-  assert.deepEqual(listed.detected.packs, ["python", "docker"]);
+  assert.deepEqual(listed.detected.packs, ["python", "fastapi", "docker"]);
   assert.ok(listed.common.length >= 5);
   assert.ok(listed.targets.includes("claude-md"));
   assert.equal(listed.default_targets.includes("claude-md"), false);
@@ -28,8 +28,9 @@ test("rules tools detect packs from the stack and install projections", async (t
 
   const installed = await registry.handlers.get("install_project_rules")({ project_path: root, targets: ["ai-dev", "agents-md"] });
   assert.equal(installed.action, "rules_installed");
-  assert.deepEqual(installed.packs, ["python", "docker"]);
+  assert.deepEqual(installed.packs, ["python", "fastapi", "docker"]);
   assert.ok(installed.written.includes(".ai-dev/rules/python.md"));
+  assert.ok(installed.written.includes(".ai-dev/rules/fastapi.md"));
   assert.ok(installed.written.includes("AGENTS.md"));
   assert.equal(installed.written.some((item) => item.startsWith(".claude/")), false);
   assert.equal(dirty.length, 1);

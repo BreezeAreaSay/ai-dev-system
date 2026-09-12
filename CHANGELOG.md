@@ -150,6 +150,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     reports actually contain, and a post-action for each average band.
     `ai-dev-orchestrator` and `verification-loop` route to it before
     `complete_task`.
+- **Eleven more rule packs** (`src/core/rules-catalog.mjs`): `vue`, `angular`,
+  `react-native`, `fastapi`, `kotlin`, `swift`, `dart`, `csharp`, `cpp`, `php`
+  and `ruby` join the eight the catalogue had, each with its own `paths` globs
+  and stack labels.
+  - The labels they are chosen by are now detected: `nuxt.config.*` or the
+    `nuxt` dependency, `angular.json` or `@angular/core`, `build.gradle.kts`
+    (Kotlin, alongside Java/JVM), `Package.swift`, `Gemfile`/`Rakefile`/
+    `.ruby-version` and `rails` inside them, `artisan` or `laravel/framework`
+    and `symfony/framework-bundle` in `composer.json`, `CMakeLists.txt` and its
+    neighbours, and the five conventional root files of a .NET repository.
+  - `packsForStack` gained its one subtraction: a React Native project no
+    longer gets the `web` pack. It shares a library with the browser, not a
+    platform — there is no DOM, no CSS and no Core Web Vitals to budget. A
+    universal app that also builds for the browser keeps it.
+  - `web` already carried ECC's `performance` and `design-quality` rules, so
+    those are not separate packs. `perl`, `arkts` and `fsharp` are not written:
+    nothing detects them and nothing here could check them (DEBTS Д-16).
 - **Git hooks** (`install_agent_hooks` target `git`, `hooks/git-hooks.mjs`):
   a `pre-commit` and a `pre-push` installed through `core.hooksPath`, so the
   same rules apply to a client with no hook API and to a human at a terminal.

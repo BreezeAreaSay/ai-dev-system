@@ -27,10 +27,21 @@ test("catalog is well formed and stack mapping is additive", () => {
   }
   assert.deepEqual(packsForStack(["Node.js", "TypeScript", "Next.js", "React", "Tailwind CSS", "Docker"]), ["typescript", "react", "web", "docker"]);
   assert.deepEqual(packsForStack(["Node.js"]), ["typescript"]);
-  assert.deepEqual(packsForStack(["Python", "FastAPI"]), ["python"]);
-  assert.deepEqual(packsForStack(["Vue"], ["frontend"]), ["web"]);
+  assert.deepEqual(packsForStack(["Python", "FastAPI"]), ["python", "fastapi"]);
+  assert.deepEqual(packsForStack(["Vue"], ["frontend"]), ["vue", "web"]);
   assert.deepEqual(packsForStack([], ["frontend"]), ["web"]);
   assert.deepEqual(packsForStack(["Go", "Rust", "Java/JVM"]), ["golang", "rust", "java"]);
+  assert.deepEqual(packsForStack(["Java/JVM", "Kotlin"]), ["java", "kotlin"]);
+  assert.deepEqual(packsForStack(["Node.js", "React", "React Native/Expo"]), ["typescript", "react", "react-native"],
+    "a React Native app gets no web rules: there is no DOM");
+  assert.deepEqual(packsForStack(["PHP", "Laravel"]), ["php"]);
+  // Every pack is reachable from a stack label the detector can produce, or it
+  // is only ever installed by name.
+  const detected = new Set(["TypeScript", "React", "Vue", "Angular", "React Native/Expo", "Tailwind CSS", "Python", "FastAPI",
+    "Go", "Rust", "Java/JVM", "Kotlin", "Swift", "Flutter/Dart", "C#/.NET", "C/C++", "PHP", "Ruby", "Docker"]);
+  for (const pack of RULE_PACKS) {
+    assert.ok(pack.stacks.some((label) => detected.has(label)), `${pack.id} names no detectable stack`);
+  }
   const catalog = describeRuleCatalog();
   assert.equal(catalog.packs.length, RULE_PACKS.length);
 });

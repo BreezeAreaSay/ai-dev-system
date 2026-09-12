@@ -20,9 +20,11 @@ function createFixture(overrides = {}) {
 
 const call = (registry, name, args) => registry.handlers.get(name)(args);
 
-test("the tool needs a project or a task, and is read-only", () => {
+test("the tool needs a project or a task, and is not read-only", () => {
   const { registry } = createFixture();
-  assert.deepEqual(registry.readOnly, ["run_security_scan"]);
+  // Not read-only: it starts the project's own scanners, and trivy writes a
+  // vulnerability database into the user's cache.
+  assert.deepEqual(registry.readOnly, []);
   const [definition] = registry.definitions;
   assert.equal(definition.name, "run_security_scan");
   // The description has to name the finding shape and the gate, because that is

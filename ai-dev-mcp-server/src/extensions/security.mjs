@@ -78,6 +78,10 @@ export function createSecurityTools(host) {
         };
       }
     },
-    readOnly: ["run_security_scan"]
+    // Not read-only, for the same reason `run_quality_gate` is not: it starts
+    // the project's own tools. Most of them only read, but `trivy` downloads a
+    // vulnerability database into the user's cache and `npm audit` reaches the
+    // registry, and a hint that says otherwise is a hint that is wrong.
+    readOnly: []
   };
 }

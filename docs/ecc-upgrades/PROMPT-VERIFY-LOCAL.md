@@ -65,7 +65,7 @@ git log --oneline -1
 поломка. Ожидаемо изменённые или новые: `.ai-dev/plans/*`, `.ai-dev/project-map.md`,
 `.ai-dev/quality-gate.md`, `03-skills-catalog/registries/*`. Их не трогай.
 
-Ожидаю: последний коммит — `Stop the seed refresh from deleting the skills it ships`
+Ожидаю: последний коммит — `Fix the runtime-path test that only failed on Windows`
 (или новее). Напиши, какой хеш получился.
 
 ## Шаг 1. Первый запуск
@@ -118,7 +118,7 @@ node -e "import('./src/mcp-stdio.mjs').then(m=>m.callTool('search_index_status',
 npm run check
 ```
 
-Ожидаю: `# fail 0`, около 951 теста, покрытие не ниже 85/60/85. Покажи строки `# tests`,
+Ожидаю: `# fail 0`, около 958 тестов, покрытие не ниже 85/60/85. Покажи строки `# tests`,
 `# pass`, `# fail`, `# skipped` и строку покрытия.
 
 ```
@@ -215,6 +215,77 @@ npm run verify:cursor
 **Сделай это руками в настоящем Cursor**, дважды, и напиши, совпало ли поведение с описанным.
 Это нельзя проверить кодом — поэтому долг и висит открытым.
 
+## Шаг 7б. Демон — новое, проверь отдельно
+
+Сервер теперь умеет жить одним тёплым процессом на локальном сокете вместо отдельного
+stdio-процесса на каждого клиента. На Windows это именованный канал. `npm start` не изменился,
+демон — отдельный путь.
+
+Запусти его в **отдельном окне** и не закрывай:
+
+```
+npm run daemon
+```
+
+В другом окне проверь, что он поднялся и опубликовал себя:
+
+```
+Get-Content $env:USERPROFILE\.ai-dev\run\daemon.json
+```
+
+Ожидаю JSON с `pid`, `version`, `address` и `started_at`. `address` на Windows должен быть
+именованным каналом вида `\\.\pipe\ai-dev-<твоё имя пользователя>`.
+
+Теперь поговори с ним настоящим MCP. Создай файл `daemon-probe.mjs` **внутри каталога
+`ai-dev-mcp-server`** — он импортирует модуль по относительному пути, из другого места не
+заработает:
+
+```js
+import net from "node:net";
+import { socketAddress } from "./src/core/runtime-paths.mjs";
+
+const socket = net.connect(socketAddress());
+await new Promise((r) => socket.once("connect", r));
+const call = (payload) => new Promise((resolve) => {
+  let buf = "";
+  const onData = (c) => {
+    buf += c.toString();
+    const nl = buf.indexOf("\n");
+    if (nl >= 0) { socket.off("data", onData); resolve(JSON.parse(buf.slice(0, nl))); }
+  };
+  socket.on("data", onData);
+  socket.write(JSON.stringify(payload) + "\n");
+});
+const init = await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "probe", version: "0" } } });
+console.log("сервер:", init.result?.serverInfo, "инструкций символов:", (init.result?.instructions || "").length);
+socket.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+const tools = await call({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+console.log("инструментов:", tools.result?.tools?.length);
+socket.end();
+process.exit(0);
+```
+
+и запусти: `node daemon-probe.mjs`
+
+Ожидаю: сервер `ai-dev-system`, около 1000 символов инструкций, **133** инструмента.
+Если инструментов меньше или инструкции пустые — скажи мне.
+
+Проверь, что второй демон не крадёт сокет: в третьем окне запусти `npm run daemon` ещё раз.
+Он обязан сразу завершиться, не заняв канал. Первый при этом должен продолжать отвечать —
+прогони пробу снова.
+
+Потом первый демон останови (Ctrl+C) и убедись, что он за собой прибрал:
+
+```
+Test-Path $env:USERPROFILE\.ai-dev\run\daemon.json
+Test-Path $env:USERPROFILE\.ai-dev\run\daemon.lock
+```
+
+Оба должны дать `False`. Удали `daemon-probe.mjs`.
+
+**Если демон не запускается или проба не отвечает — это важнее всего остального в отчёте.**
+На Windows он проверялся только счётом, живого запуска на этой платформе ещё не было.
+
 ## Шаг 8. Сценарий чистого пользователя
 
 Это самое важное: у человека, который просто склонировал репозиторий, всё должно
@@ -241,8 +312,9 @@ npm run check
 2. Какой корень знаний выбрал сервер у меня и сколько скиллов увидел.
 3. Сколько скиллов увидел чистый клон.
 4. Строку «N падений из 10».
-5. Список всего, что упало или повело себя не так, как написано выше — с сырым выводом.
-6. Отдельно: что проверить не удалось и почему.
+5. Поднялся ли демон на Windows, сколько инструментов отдал по каналу, прибрался ли за собой.
+6. Список всего, что упало или повело себя не так, как написано выше — с сырым выводом.
+7. Отдельно: что проверить не удалось и почему.
 
 Если всё зелёное — так и напиши, но с выводом команд. Если нашёл плохое — это полезнее
 зелёного отчёта, не сглаживай.

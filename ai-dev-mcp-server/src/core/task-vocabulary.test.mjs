@@ -8,7 +8,8 @@ import {
   specialistMatchScore,
   splitSituationText,
   stackAlignment,
-  taskConcepts
+  taskConcepts,
+  taskNamesSkill
 } from "./task-vocabulary.mjs";
 
 // The two skills Д-1 names, verbatim from the imported registry.
@@ -158,4 +159,45 @@ test("a skill's declared ecosystem is read from the task and the project, never 
   // the English side of the table must not be able to claim an ecosystem.
   const noStack = expandTaskVocabulary("настроить разработку через тесты").own_terms;
   assert.equal(stackAlignment(TDD_WORKFLOW, noStack), "foreign");
+});
+
+test("a skill is named only as a whole word, never as a fragment of one", () => {
+  // Measured on the real catalogue: "set up a Slack notification integration
+  // for our deploy pipeline" contained "eploy" — a UK recruitment system — and
+  // containment scored it as though the task had asked for it by name, worth
+  // +24 and a pass through the membrane floor.
+  assert.equal(taskNamesSkill("set up a Slack notification for our deploy pipeline", "eploy"), false);
+  assert.equal(taskNamesSkill("build a sandbox for the team", "box"), false);
+  assert.equal(taskNamesSkill("send a message to a Slack channel", "slack"), true);
+});
+
+test("a hyphenated name is named by the words it is written from", () => {
+  assert.equal(taskNamesSkill("upload the report to google drive", "google-drive"), true);
+  assert.equal(taskNamesSkill("upload the report to google-drive", "google-drive"), true);
+  assert.equal(taskNamesSkill("upload the report to google docs", "google-drive"), false);
+});
+
+test("an empty or one-character name is never named", () => {
+  assert.equal(taskNamesSkill("anything at all", ""), false);
+  assert.equal(taskNamesSkill("anything at all", "x"), false);
+  assert.equal(taskNamesSkill("", "slack"), false);
+});
+
+test("one part of a compound name does not count as naming the skill", () => {
+  // `octopus-deploy` is normalised to "octopus deploy" so that a task writing
+  // the name in words still finds it. Left unguarded that same rewrite let
+  // "deploy pipeline" claim the name match, and octopus-deploy outscored slack
+  // 14 to 13 on a task that named only Slack.
+  const octopus = { name: "octopus-deploy", use_when: "deploy releases", description: "" };
+  const partial = specialistMatchScore(octopus, ["deploy", "pipeline"]);
+  assert.equal(partial.name_match, false);
+
+  const whole = specialistMatchScore(octopus, ["octopus", "deploy"]);
+  assert.equal(whole.name_match, true);
+  assert.ok(whole.score > partial.score, "naming every part must outscore naming one");
+});
+
+test("a single-word name still matches on its own word", () => {
+  const slack = { name: "slack", use_when: "the user wants to interact with Slack data", description: "" };
+  assert.equal(specialistMatchScore(slack, ["slack", "integration"]).name_match, true);
 });

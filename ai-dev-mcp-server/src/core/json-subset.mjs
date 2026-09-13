@@ -101,6 +101,16 @@ export function createJsonSubsetScanner(patterns, { maxValueBytes = MAX_SUBSET_V
     }
   };
 
+  /** A key as JSON spells it, back as the string it stands for. */
+  const decodeKey = (raw) => {
+    if (!raw.includes("\\")) return raw;
+    try {
+      return JSON.parse(`"${raw}"`);
+    } catch {
+      return raw;
+    }
+  };
+
   return {
     push(chunk) {
       const text = String(chunk);
@@ -111,13 +121,20 @@ export function createJsonSubsetScanner(patterns, { maxValueBytes = MAX_SUBSET_V
           append(char);
           if (escaped) {
             escaped = false;
+            // Kept raw and decoded at the closing quote. Dropping escapes here
+            // is how a Windows path key — `"C:\\Users\\me\\project"` in the
+            // file — became `C:Usersmeproject` and matched nothing, so
+            // list_mcp_servers never found the per-project servers in
+            // ~/.claude.json on Windows.
+            if (readingKey) keyBuffer += char;
           } else if (char === "\\") {
             escaped = true;
+            if (readingKey) keyBuffer += char;
           } else if (char === "\"") {
             inString = false;
             if (readingKey) {
               readingKey = false;
-              if (stack.length) stack.at(-1).key = keyBuffer;
+              if (stack.length) stack.at(-1).key = decodeKey(keyBuffer);
               keyBuffer = "";
               expectKey = false;
             } else if (capture?.kind === "string") {

@@ -54,10 +54,7 @@ async function copyApplication(stage) {
   await copyFile(path.join(serverRoot, "package.json"), stage, "app/package.json");
   await copyFile(path.join(serverRoot, "package-lock.json"), stage, "app/package-lock.json");
   await copyDistributionTree(path.join(serverRoot, "src"), path.join(stage, "app", "src"), {
-    exclude: (relative, entry) => (
-      /\.test\.mjs$/i.test(entry.name)
-      || relative.replaceAll("\\", "/") === "core/public-distribution.mjs"
-    )
+    exclude: (relative, entry) => /\.test\.mjs$/i.test(entry.name)
   });
   // Agent hook scripts are copied into user repositories by install_agent_hooks.
   await copyDistributionTree(path.join(serverRoot, "hooks"), path.join(stage, "app", "hooks"));

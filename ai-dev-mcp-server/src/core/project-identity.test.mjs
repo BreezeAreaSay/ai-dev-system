@@ -146,6 +146,23 @@ test("the hooks copy of the derivation answers exactly like the server", async (
   }
 });
 
+test("the hook and the server agree on a project reached through another spelling of its path", async (t) => {
+  // The server resolves a root with fs.realpath before hashing it; the hook
+  // copy hashed what it was handed. A symlink here, and on Windows the 8.3
+  // short name a temporary directory is handed out under, then keyed the hook's
+  // memory under an id the server never reads. Measured on windows-latest.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-alias-id-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const real = path.join(root, "project");
+  const alias = path.join(root, "alias");
+  await fs.mkdir(real, { recursive: true });
+  await fs.symlink(real, alias, "junction").catch(() => fs.symlink(real, alias));
+
+  const identity = await resolveProjectIdentity(alias);
+  assert.deepEqual(memoryKeysOf(alias, false), [identity.project_id]);
+  assert.deepEqual(memoryKeysOf(alias, false), memoryKeysOf(real, false));
+});
+
 test("projects outside Git fall back to the project id as their memory key", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-no-git-id-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

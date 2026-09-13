@@ -129,9 +129,16 @@ export function relativePosix(fromRoot, target) {
   return path.relative(fromRoot, target).replaceAll("\\", "/");
 }
 
-/** Same derivation as the server's resolveProjectIdentity (core/project-identity.mjs). */
+/**
+ * Same derivation as the server's resolveProjectIdentity (core/project-identity.mjs).
+ *
+ * The server hashes the canonical root — it resolves the path with fs.realpath
+ * before normalising it — so this has to as well. Without it a hook writing
+ * through a symlink, or through the 8.3 short name Windows hands out for a
+ * temporary directory, keyed its memory under an id the server never looks up.
+ */
 export function projectIdOf(projectRoot, isGit = true) {
-  return `project-${hashKey(`${isGit ? "git" : "filesystem"}:${normalizePath(projectRoot)}`)}`;
+  return `project-${hashKey(`${isGit ? "git" : "filesystem"}:${normalizePath(realpathOf(projectRoot))}`)}`;
 }
 
 /**

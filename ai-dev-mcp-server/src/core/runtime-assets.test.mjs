@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   RUNTIME_ASSET_TREES,
@@ -33,8 +34,8 @@ test("a vault keeps its own layout, and nothing else is consulted", () => {
       "/repo/embeddings"
     ])
   });
-  assert.equal(assets.searchIndexDir, path.join("/vault", "09-mcp", "search-index"));
-  assert.equal(assets.embeddingsDir, path.join("/vault", "09-mcp", "embeddings"));
+  assert.equal(assets.searchIndexDir, path.resolve("/vault", "09-mcp", "search-index"));
+  assert.equal(assets.embeddingsDir, path.resolve("/vault", "09-mcp", "embeddings"));
   assert.deepEqual(assets.sources, {
     searchIndex: "vault",
     searchEval: "vault",
@@ -52,10 +53,10 @@ test("a checkout with no vault answers from the repository root", () => {
     repositoryRoot: "/repo",
     exists: fakeExists(["/repo/search-index", "/repo/search-eval", "/repo/embeddings", "/repo/frontend-qa"])
   });
-  assert.equal(assets.searchIndexDir, path.join("/repo", "search-index"));
-  assert.equal(assets.searchEvalDir, path.join("/repo", "search-eval"));
-  assert.equal(assets.embeddingsDir, path.join("/repo", "embeddings"));
-  assert.equal(assets.frontendQaDir, path.join("/repo", "frontend-qa"));
+  assert.equal(assets.searchIndexDir, path.resolve("/repo", "search-index"));
+  assert.equal(assets.searchEvalDir, path.resolve("/repo", "search-eval"));
+  assert.equal(assets.embeddingsDir, path.resolve("/repo", "embeddings"));
+  assert.equal(assets.frontendQaDir, path.resolve("/repo", "frontend-qa"));
   assert.deepEqual(Object.values(assets.sources), ["repository", "repository", "repository", "repository"]);
 });
 
@@ -78,11 +79,11 @@ test("when a tree is nowhere, the answer names the layout the deployment expecte
     exists: fakeExists([])
   });
   assert.equal(missing.source, "missing");
-  assert.equal(missing.dir, path.join("/vault", "09-mcp", "search-index"));
+  assert.equal(missing.dir, path.resolve("/vault", "09-mcp", "search-index"));
 });
 
 test("over a real checkout every helper tree resolves to a directory that is there", async () => {
-  const repositoryRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..", "..", "..");
+  const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
   const assets = resolveRuntimeAssets({
     vaultRoot: path.join(repositoryRoot, "docker", "public-seed"),
     repositoryRoot
@@ -112,7 +113,7 @@ test("a directory that is neither answers as missing rather than throwing", asyn
   t.after(() => fs.rm(empty, { recursive: true, force: true }));
   const assets = resolveRuntimeAssets({ vaultRoot: empty, repositoryRoot: empty });
   assert.deepEqual(Object.values(assets.sources), ["missing", "missing", "missing", "missing"]);
-  assert.equal(assets.searchIndexDir, path.join(empty, "09-mcp", "search-index"));
+  assert.equal(assets.searchIndexDir, path.resolve(empty, "09-mcp", "search-index"));
 });
 
 test("an expected note is read through whichever layout this install has", () => {
@@ -127,7 +128,7 @@ test("an expected note is read through whichever layout this install has", () =>
   // Obsidian entry page has no place here at all.
   assert.deepEqual(
     note("09-mcp/ai-dev-mcp-server/docs/ARCHITECTURE.md", ["/repo/ai-dev-mcp-server/docs/ARCHITECTURE.md"]),
-    { path: path.join("/repo", "ai-dev-mcp-server", "docs", "ARCHITECTURE.md"), source: "repository" }
+    { path: path.resolve("/repo", "ai-dev-mcp-server", "docs", "ARCHITECTURE.md"), source: "repository" }
   );
   assert.equal(note("00-start-here.md", []).source, "not-applicable");
   assert.deepEqual(VAULT_ONLY_NOTES, ["00-start-here.md"]);
@@ -152,5 +153,5 @@ test("a real vault is held to the whole list, layout excuses and all", () => {
     exists
   });
   assert.equal(resolved.source, "missing");
-  assert.equal(resolved.path, path.join("/vault", "09-mcp", "ai-dev-mcp-server", "README.md"));
+  assert.equal(resolved.path, path.resolve("/vault", "09-mcp", "ai-dev-mcp-server", "README.md"));
 });

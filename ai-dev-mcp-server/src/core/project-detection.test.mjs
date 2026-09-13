@@ -18,7 +18,11 @@ import {
  */
 function detectorOver(files = {}, { analysis = {} } = {}) {
   const seen = new Set(Object.keys(files));
-  const relative = (target) => target.replace(/^\/repo\/?/, "");
+  // The detector builds its paths with path.join, so on Windows it asks about
+  // `\repo\package.json`. The fixture speaks one spelling and normalises the
+  // other: without this every lookup missed and the detector reported an empty
+  // project (measured on windows-latest — six tests, "Not detected" throughout).
+  const relative = (target) => String(target).replaceAll("\\", "/").replace(/^.*\/repo\/?/, "");
   const exists = (rel) => seen.has(rel) || seen.has(`${rel}/`);
   const analyzed = {
     stack: [], project_types: [], commands: [], components: [], architecture: {}, workspace: {},

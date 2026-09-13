@@ -424,6 +424,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The published image did not start.** `skill-import-policy.mjs` imports
+  `public-distribution.mjs`, and the Docker context's allowlist excluded that
+  module, so the container died on startup with `ERR_MODULE_NOT_FOUND` and the
+  stdio smoke failed on a closed connection. Measured: 84 of the repository's 85
+  `src/core` modules reached the image. The exclusion is gone — the privacy
+  audit passes over the context with the module in it — and the audit now walks
+  the staged tree for imports it cannot resolve, naming the file and the
+  specifier, so nothing can be left out of an image again without the check that
+  runs before the build saying so.
+
+- **`list_mcp_servers` could not see a Windows project's own servers.** The
+  streaming reader for `~/.claude.json` dropped every escape while reading a
+  key, and Claude Code keys its per-project block by absolute path — so
+  `"C:\\Users\\me\\app"` in the file became `C:Usersmeapp` and matched
+  nothing. Keys are kept raw and decoded whole now, which also fixes keys
+  carrying quotes, tabs or `\uXXXX`.
+
+- **The hooks keyed their memory under an id the server never reads.** The
+  server hashes a project root after resolving it with `fs.realpath`; the hook
+  copy hashed the path it was handed. Through a symlink — or the 8.3 short name
+  Windows hands out for a temporary directory — the two disagreed, so a session
+  captured by a hook was invisible to the server. Both canonicalise the same way
+  now.
+
+- **A pull-request template was reported under a name the repository does not
+  have.** On a case-insensitive filesystem the lookup of
+  `.github/pull_request_template.md` opens `PULL_REQUEST_TEMPLATE.md`, and the
+  answer echoed the spelling that was asked for. It reads the directory and
+  answers with the name on disk.
+
 - **A rollback rewrote every line ending on Windows.** Snapshots are captured
   with `git add` and restored with `git restore`, and Git for Windows ships
   with `core.autocrlf=true` — CR stripped going into the object store, CRLF

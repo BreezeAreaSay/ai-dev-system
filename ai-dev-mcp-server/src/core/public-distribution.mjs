@@ -356,6 +356,62 @@ export async function copyDistributionFile(source, target) {
  * @param {Array<{ path: string, bytes: number, sha256: string }>} files
  * @returns {string} Hex digest.
  */
+/**
+ * Relative import specifiers in a JavaScript module, static and dynamic.
+ *
+ * Deliberately textual: the context is staged, not installed, so there is
+ * nothing to load and nothing to parse it with.
+ */
+const RELATIVE_IMPORT = /(?:^|[\s;(])(?:import|export)\s[^"'`]*?from\s*["'](\.[^"']*)["']|\bimport\s*\(\s*["'](\.[^"']*)["']\s*\)|\bimport\s*["'](\.[^"']*)["']/g;
+
+/**
+ * Imports inside a staged tree that point at files the tree does not carry.
+ *
+ * The allowlist that builds the Docker context decides what ships, and a module
+ * left out of it is not found until something imports it at runtime: the
+ * published image died on startup with
+ * `ERR_MODULE_NOT_FOUND: /opt/ai-dev/app/src/core/public-distribution.mjs`,
+ * because a shipped module imported one the allowlist excluded. The context is
+ * checked for that before an image is ever built.
+ *
+ * @param {string} root - Directory to walk, e.g. the staged `app/`.
+ * @returns {Promise<Array<{ file: string, specifier: string, resolved: string }>>}
+ */
+export async function findDanglingImports(root) {
+  const base = path.resolve(root);
+  const findings = [];
+  const walk = async (directory) => {
+    const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const absolute = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === "node_modules" || entry.name === ".git") continue;
+        await walk(absolute);
+        continue;
+      }
+      if (!/\.(?:mjs|js|cjs)$/i.test(entry.name)) continue;
+      const text = await fs.readFile(absolute, "utf8").catch(() => "");
+      for (const match of text.matchAll(RELATIVE_IMPORT)) {
+        const specifier = match[1] ?? match[2] ?? match[3];
+        if (!specifier) continue;
+        const target = path.resolve(path.dirname(absolute), specifier);
+        const candidates = path.extname(target)
+          ? [target]
+          : [`${target}.mjs`, `${target}.js`, path.join(target, "index.mjs"), path.join(target, "index.js")];
+        const exists = await Promise.all(candidates.map((item) => fs.stat(item).then(() => true).catch(() => false)));
+        if (exists.some(Boolean)) continue;
+        findings.push({
+          file: path.relative(base, absolute).replaceAll("\\", "/"),
+          specifier,
+          resolved: path.relative(base, target).replaceAll("\\", "/")
+        });
+      }
+    }
+  };
+  await walk(base);
+  return findings.sort((left, right) => left.file.localeCompare(right.file) || left.specifier.localeCompare(right.specifier));
+}
+
 export function distributionContentFingerprint(files) {
   const source = files
     .map((item) => `${item.path}\0${item.bytes}\0${item.sha256}`)

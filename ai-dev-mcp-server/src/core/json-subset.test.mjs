@@ -41,6 +41,37 @@ function scan(text, patterns = CLAUDE_JSON_PATTERNS, options) {
   return scanner.finish();
 }
 
+test("a key that carries escapes is matched by what it means, not how it is spelled", () => {
+  // Claude Code keys the per-project block of ~/.claude.json by absolute path,
+  // and on Windows that path is full of backslashes — `"C:\\Users\\me\\app"`
+  // in the file. Reading escapes away left `C:Usersmeapp`, which matched
+  // nothing, so list_mcp_servers found no per-project servers on Windows at
+  // all. Measured by CI on windows-latest.
+  const windowsPath = "C:\\Users\\me\\app";
+  const document = JSON.stringify({
+    projects: {
+      [windowsPath]: { mcpServers: { local: { command: "node" } } },
+      "/home/me/app": { mcpServers: { other: { command: "node" } } }
+    },
+    "a \"quoted\" key": 1,
+    "tab\there": 2
+  });
+
+  const result = scan(document, [
+    ["projects", windowsPath, "mcpServers"],
+    ["projects", "/home/me/app", "mcpServers"],
+    ["a \"quoted\" key"],
+    ["tab\there"]
+  ]);
+
+  const byPath = Object.fromEntries(result.values.map((item) => [item.path.join(" | "), item.value]));
+  assert.deepEqual(byPath[`projects | ${windowsPath} | mcpServers`], { local: { command: "node" } });
+  assert.deepEqual(byPath["projects | /home/me/app | mcpServers"], { other: { command: "node" } });
+  assert.equal(byPath['a "quoted" key'], 1);
+  assert.equal(byPath["tab\there"], 2);
+});
+
+
 test("the two wanted keys come back and nothing else does", () => {
   const result = scan(claudeJson());
   assert.deepEqual(result.errors, []);

@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-13
+
+A major version because what a clone *is* changed, not only what it can do: the
+bundled catalogue went from 142 skills to 3,227, the protocols now reach seven
+assistant instruction files instead of three, and one health check changed the
+status it reports. Anything reading those outputs should be re-checked against
+this release.
+
+**Highlights**
+
+- **3,085 skills in the box.** The intent gate `grill-me`, the whole Membrane
+  integration catalogue, and the Understand Anything codebase-graph skills — all
+  MIT, each recorded in `THIRD_PARTY_NOTICES.md` with its revision. Routing is
+  held steady by `membrane_policy` and a named-skill floor; the 37-case golden
+  benchmark is unchanged.
+- **Every assistant reads the protocols.** `install_project_rules` writes
+  `AGENTS.md`, `.claude/rules`, `.cursor/rules`, `GEMINI.md`,
+  `.github/copilot-instructions.md`, `.windsurf/rules` and `.clinerules` — and
+  by default only the ones whose tool this machine or repository already shows a
+  trace of.
+- **`npm run daemon`.** One warm local process on a Unix socket, or a named pipe
+  on Windows, instead of a fresh server per client.
+- **`npm run setup` and `npm run acceptance`.** The first run, and the project's
+  own acceptance rule, as commands rather than instructions.
+- **Windows is a supported platform.** Byte-exact snapshots, platform-native
+  worktree paths, the interpreter that actually exists, a shell-free `npm`, and
+  one memory key per project rather than one per machine.
+- **976 tests, 0 failures**, coverage 97.0 / 83.8 / 94.8 against thresholds
+  85 / 60 / 85.
+
+**Breaking**
+
+- The bundled seed now carries 3,227 skills. A deployment that pinned the old
+  142 will see different routing candidates; `membrane_policy: "exclude"`
+  restores the narrow behaviour.
+- `system_health` reports `embedding_backend` as `skipped`, not `fail`, when the
+  optional dense model was never downloaded. Anything treating a non-`ok` status
+  as an error should read the status rather than its absence.
+- `install_project_rules` with no explicit `targets` writes more files than
+  before, chosen by what the machine already uses. Pass `targets` to pin it.
+
+
 
 ### Fixed
 

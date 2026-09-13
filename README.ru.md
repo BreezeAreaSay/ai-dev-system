@@ -12,10 +12,34 @@ MCP-сервера.
 модель: Codex, Cursor, Claude Desktop или Claude Code, VS Code с MCP, Gemini CLI/Code Assist
 или другой MCP-host. Одна и та же локальная конфигурация доступна всем этим клиентам.
 
+## Что нового в 2.0
+
+- **3 227 скиллов в поставке.** Гейт намерения, который расспрашивает о размытой
+  задаче до начала работы, полный интеграционный каталог
+  [Membrane](https://github.com/membranedev/application-skills) и скиллы для
+  разбора кодовой базы — всё под MIT, каждый записан в
+  [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) с ревизией. Маршрутизация
+  по-прежнему возвращает три скилла плюс зарезервированный слот: интеграционный
+  не попадёт в ответ, пока задача не назовёт приложение.
+- **Протоколы читает каждый ассистент.** `install_project_rules` пишет
+  `AGENTS.md`, `.claude/rules`, `.cursor/rules`, `GEMINI.md`,
+  `.github/copilot-instructions.md`, `.windsurf/rules` и `.clinerules` — по
+  умолчанию только те, чей инструмент уже оставил след в этом репозитории или на
+  машине, чтобы не создавать файл, который никто не прочитает.
+- **`npm run daemon`.** Один тёплый процесс на локальном сокете (на Windows —
+  именованный канал) вместо запуска сервера под каждого клиента: индекс и модель
+  загружаются один раз. `npm start` не изменился и остаётся путём по умолчанию.
+- **`npm run setup`.** Первый запуск одной командой: собирает то, чего нет в
+  клоне, пересобирает устаревшее и говорит, какие шаги пропустил и почему.
+- **`npm run acceptance`.** Десять прогонов гейта подряд и число падений, с
+  различением упавшего теста и сломавшегося сбора покрытия.
+- **Windows — полноправная платформа**, а не «по возможности».
+
 ## Что входит
 
-- локальный MCP-сервер на Node.js;
-- база знаний, проектный контекст и управляемая библиотека skills;
+- локальный MCP-сервер на Node.js, 133 типизированных инструмента
+  ([справочник](ai-dev-mcp-server/docs/TOOLS.md));
+- база знаний, проектный контекст и библиотека из 3 227 скиллов;
 - гибридный поиск: SQLite FTS, sparse-поиск и опциональный локальный BGE-M3;
 - task lifecycle: `begin_task`, `checkpoint_task`, `verify_task`, `complete_task`,
   линтер заявлений о завершении и описание pull request, собранное из накопленных
@@ -656,4 +680,20 @@ npm run docker:smoke -- --image ai-dev-system:local
 
 ## Лицензии
 
-Смотрите [LICENSE](LICENSE) и [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Сам проект под MIT — см. [LICENSE](LICENSE).
+
+Вшитый каталог скиллов — импортированная работа, а не написанная здесь. Каждый
+источник под MIT, текст лицензии лежит рядом с его файлами в
+`docker/public-seed/03-skills-catalog/sources/`, и каждый записан в
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) с импортированной ревизией:
+
+| Источник | Скиллов |
+| --- | --- |
+| [Membrane application-skills](https://github.com/membranedev/application-skills) | 3 074 |
+| [ECC — Everything Claude Code](THIRD_PARTY_NOTICES.md) | 101 |
+| [Understand Anything](https://github.com/Egonex-AI/Understand-Anything) | 9 |
+| [mattpocock/skills](https://github.com/mattpocock/skills) | 1 |
+| taste-skill, ui-ux-pro-max, Archify | дизайн и диаграммы |
+
+У Membrane нет отдельного файла лицензии: объявление MIT едет в каждом скилле, и
+все 3 074 импортированных файла его несут.

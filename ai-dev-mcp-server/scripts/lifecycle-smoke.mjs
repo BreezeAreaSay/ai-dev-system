@@ -7,6 +7,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { RESERVED_ROUTING_ROLES } from "../src/core/skill-router.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const serverRoot = path.resolve(scriptDir, "..");
@@ -93,7 +94,17 @@ try {
     task: "Implement and verify the fixture sum behavior"
   });
   assert.equal(begun.status, "active");
-  assert(begun.skills.length > 0 && begun.skills.length <= 3);
+  // Three conventional skills at most, plus whatever took a reserved slot: a
+  // capability (Archify) or a specialist the task named. The reserved ones sit
+  // beside the routed core, never instead of it, so counting them against the
+  // limit is what this assertion used to do only because an English task could
+  // not reach a specialist at all (Д-29).
+  // begin_task records the role as `routing_role`; `recommend_skills` answers
+  // with `role`. Read both rather than pick one.
+  const roleOf = (skill) => skill.routing_role ?? skill.role ?? "";
+  const conventional = begun.skills.filter((skill) => !RESERVED_ROUTING_ROLES.includes(roleOf(skill)));
+  assert(conventional.length > 0 && conventional.length <= 3, `routed ${conventional.length} conventional skills`);
+  assert(begun.skills.length <= 3 + RESERVED_ROUTING_ROLES.length, `skills: ${begun.skills.map((skill) => skill.name).join(", ")}`);
 
   const manualCriteria = begun.acceptance_criteria
     .filter((criterion) => !/automated checks pass/i.test(criterion.text))

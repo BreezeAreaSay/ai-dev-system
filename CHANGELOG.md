@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run acceptance`**: the rule this project ends a session on, as a
+  command. Ten consecutive `npm run check` runs and the line "N падений из 10",
+  with the two kinds of failure kept apart — a run with a failing test is the
+  suite telling you something, a run that exits non-zero with `# fail 0` is the
+  coverage reporter and says nothing about the code. `--runs N` for a longer
+  sample.
+
+- **`npm run verify:cursor`**: the five-minute check a person with a real Cursor
+  has to run, printed from the adapter's own contract. The claims that could not
+  be verified from here now also come back in `install_agent_hooks`'s answer
+  rather than living only in a source comment.
+
+
+- **3,085 skills, in the file each assistant already reads.** The intent gate
+  (`grill-me`, this project's own, following the `grilling` interview imported
+  from [mattpocock/skills](https://github.com/mattpocock/skills)), the whole
+  [Membrane](https://github.com/membranedev/application-skills) integration
+  catalogue — 3,074 application skills, from Gmail and Slack to Salesforce —
+  and the nine [Understand
+  Anything](https://github.com/Egonex-AI/Understand-Anything) codebase-graph
+  skills. 3,084 of them are imported, all MIT, each recorded in
+  `THIRD_PARTY_NOTICES.md` with its revision and licence text beside the source;
+  the remaining one is `grill-me`. The registry goes from 142 skills to 3,227
+  and the search index to 3,443 documents, 3,227 of them skill cards; routing
+  holds at three skills plus a reserved slot, and an integration skill stays out
+  of the answer until a task names its application.
+
+
 - **`npm run setup`**: the first run, as one command. A clone ships the server,
   the skills and the seed, but four things are built rather than shipped — the
   skill registry, the SQLite search index, the skill-routing benchmark report
@@ -434,6 +462,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skips the two generated zones. Measured on a polluted checkout: prepare goes
   from a refusal to 1188 files, the same as a clean clone, and the verifier
   reports `current` with 1040 files checked.
+
+- **`npm run check` failed about twice in ten runs, and never because of a
+  test.** `--experimental-test-coverage` sets `NODE_V8_COVERAGE`, and every
+  process the suite spawns — git, python, the installed hooks, the MCP smokes —
+  inherited it and wrote its own coverage file into the same directory. A child
+  that died before V8 flushed left that file at zero bytes; the reporter parses
+  every file in the directory and fell over on it, which is the `# fail 0`
+  beside a non-zero exit that Д-11 has recorded since the first stage. Caught by
+  running the gate with a coverage directory of its own: the failing run held
+  377 files against 376 on every passing one, and the extra file was empty. The
+  test setup drops the variable now — this process captured its own path at
+  startup, so its coverage is intact and nothing it spawns inherits the
+  directory. Measured after: 121 files instead of 376, none empty, line coverage
+  unchanged at 97%.
+
+- **A HarmonyOS project got no language rules.** The detector has labelled
+  `ArkTS/HarmonyOS` from `oh-package.json5` since the root listing was added,
+  and `packsForStack` answered with an empty list — the last of the three packs
+  Д-18 recorded as missing. The pack is written from the language's own
+  constraints: obligatory types, an object shape fixed at declaration, no
+  runtime code generation, a declarative `build()` with no side effects, state
+  through `@State`/`@Prop`/`@Link`, heavy work in a `TaskPool` or `Worker`, and
+  the Ability lifecycle kept apart from the component's. The test that pinned
+  its absence is flipped, and the other direction is now checked too: a label
+  the detector gives a language must select a pack.
+
+- **No English task ever reached an imported skill.** The concept table is the
+  bridge from Russian to the English the imported catalogue is written in, and
+  `pickTaskSpecialist` gave up before scoring anything when the table recognised
+  nothing — which is the normal case for a task written in English. Three things
+  fix it: the early exit asks whether there is anything to score with rather
+  than which half of the vocabulary produced it; a concept now also fires on its
+  own English words, but only on the ones that identify it alone (a word two
+  concepts share, like `refactor` in both "refactoring" and "red green
+  refactor", identifies neither); and a task that names a skill outright is held
+  to a lower score than one that has to earn its place by overlapping the
+  skill's situation. Measured: `set up test-driven development for this module`
+  now reaches `tdd-workflow`, `refactor towards hexagonal architecture` reaches
+  `hexagonal-architecture`, `send a notification through gmail…` reaches
+  `gmail`, and "поговори с заказчиком" still gets nobody. The routing benchmark
+  stays at 37/37.
+
+- **The lifecycle smoke encoded the bug.** It asserted `skills.length <= 3`,
+  while the reserved slot is by design offered *beside* the routed three — the
+  assertion held only because an English task could never reach a specialist. It
+  counts conventional skills and reserved roles apart now.
 
 - **The published image did not start.** `skill-import-policy.mjs` imports
   `public-distribution.mjs`, and the Docker context's allowlist excluded that

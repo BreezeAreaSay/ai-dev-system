@@ -4,7 +4,33 @@ import { atomicWriteFile } from "./atomic-files.mjs";
 import { COMMON_RULES, RULE_PACKS, packsForStack } from "./rules-catalog.mjs";
 
 export const RULES_RELATIVE_DIR = ".ai-dev/rules";
-export const RULE_TARGETS = ["ai-dev", "claude", "claude-md", "cursor", "agents-md"];
+/**
+ * Where each agent tool reads a repository's instructions.
+ *
+ * The content is the same for all of them — the rules this system installs and
+ * the workflow it expects — so what differs is only the file and whether the
+ * tool owns the whole file (`file`) or shares it with the repository's own
+ * prose (`section`). Adding a tool is a row here, not a branch.
+ *
+ * A tool absent from this table is not unsupported: every one of them also
+ * reads `AGENTS.md`, which is the de-facto shared file, and every MCP client
+ * receives the protocol in the server's initialize instructions.
+ */
+export const INSTRUCTION_SURFACES = Object.freeze([
+  Object.freeze({ target: "agents-md", path: "AGENTS.md", mode: "section", tools: "Codex, Zed, OpenCode, Jules, Aider" }),
+  Object.freeze({ target: "gemini-md", path: "GEMINI.md", mode: "section", tools: "Gemini CLI, Antigravity" }),
+  Object.freeze({ target: "copilot", path: ".github/copilot-instructions.md", mode: "section", tools: "GitHub Copilot" }),
+  Object.freeze({ target: "windsurf", path: ".windsurf/rules/ai-dev.md", mode: "file", tools: "Windsurf" }),
+  Object.freeze({ target: "cline", path: ".clinerules/ai-dev.md", mode: "file", tools: "Cline, Roo Code" })
+]);
+
+export const RULE_TARGETS = [
+  "ai-dev",
+  "claude",
+  "claude-md",
+  "cursor",
+  ...INSTRUCTION_SURFACES.map((surface) => surface.target)
+];
 /**
  * Installed when the caller names no target. `claude-md` is opt-in: it is the
  * alternative to `claude`, not an addition to it — installing both loads the
@@ -147,6 +173,13 @@ export function renderAgentsRulesSection(packIds) {
   const lines = [
     AGENTS_SECTION,
     "",
+    "Work in this repository runs through the ai-dev-system MCP server. Two protocols apply to every substantive task, whichever assistant is reading this:",
+    "",
+    "1. **Intent gate (`grill-me`)** — before touching anything, restate the request, separate what is known from what is assumed, ask only the questions whose answers change the work, and state what done means. It is supplemental: it does not take one of the three routed skill slots.",
+    "2. **Task lifecycle (`ai-dev-orchestrator`)** — `begin_task` (or `begin_task_in_worktree`) to open the task and compile its context, at most the three skills it routes, `checkpoint_task` for progress and decisions, `verify_task` for evidence, `complete_task` only when every criterion is met or waived with a reason.",
+    "",
+    "Read either protocol in full with `read_skill`. If the MCP server is unavailable, follow the rules below and say in the final answer that the lifecycle tools could not be used.",
+    "",
     "Always-on engineering rules live in `.ai-dev/rules/`. Read them before changing code; language packs apply to matching files and override common rules on conflict.",
     "",
     ...COMMON_RULES.map((rule) => `- Common: \`${RULES_RELATIVE_DIR}/common/${rule.id}.md\` (${rule.title})`),
@@ -206,8 +239,41 @@ export function planRuleFiles({ packIds, targets = DEFAULT_RULE_TARGETS }) {
   if (wanted.has("claude")) files.push(...renderClaudeRules(packIds).map((file) => ({ target: "claude", ...file })));
   if (wanted.has("claude-md")) files.push({ target: "claude-md", path: CLAUDE_MD_FILE, heading: AGENTS_SECTION, section: renderClaudeMdSection(packIds) });
   if (wanted.has("cursor")) files.push(...renderCursorRules(packIds).map((file) => ({ target: "cursor", ...file })));
-  if (wanted.has("agents-md")) files.push({ target: "agents-md", path: "AGENTS.md", heading: AGENTS_SECTION, section: renderAgentsRulesSection(packIds) });
+  for (const surface of INSTRUCTION_SURFACES) {
+    if (!wanted.has(surface.target)) continue;
+    const section = renderAgentsRulesSection(packIds);
+    files.push(surface.mode === "section"
+      ? { target: surface.target, path: surface.path, heading: AGENTS_SECTION, section }
+      : { target: surface.target, path: surface.path, content: `${GENERATED_MARKER}\n\n${section}\n` });
+  }
   return files;
+}
+
+/**
+ * The instruction files worth writing for this repository, on top of the
+ * defaults: the ones whose tool has left a trace here or on this machine.
+ *
+ * Writing every file into every repository is clutter, and writing only
+ * `AGENTS.md` leaves Copilot, Gemini, Windsurf and Cline reading nothing. So
+ * the answer is what the repository shows: a `.github/` directory means
+ * Copilot's file has a home, a `.windsurf/` directory means Windsurf is in use,
+ * and a `~/.gemini` means the Gemini CLI is installed for this person.
+ *
+ * @param {object} input
+ * @param {string} input.projectRoot
+ * @param {string} [input.homeDir]
+ * @param {(target: string) => boolean} input.exists - Injected; `fs.existsSync` in production.
+ * @returns {string[]} Targets from {@link INSTRUCTION_SURFACES}, defaults included.
+ */
+export function detectInstructionTargets({ projectRoot, homeDir = "", exists }) {
+  const inProject = (...parts) => exists(path.join(projectRoot, ...parts));
+  const inHome = (...parts) => Boolean(homeDir) && exists(path.join(homeDir, ...parts));
+  const found = new Set(DEFAULT_RULE_TARGETS);
+  if (inProject(".github") || inProject(".github", "copilot-instructions.md")) found.add("copilot");
+  if (inProject("GEMINI.md") || inHome(".gemini")) found.add("gemini-md");
+  if (inProject(".windsurf") || inProject(".windsurfrules") || inHome(".codeium")) found.add("windsurf");
+  if (inProject(".clinerules") || inHome(".cline")) found.add("cline");
+  return RULE_TARGETS.filter((target) => found.has(target));
 }
 
 async function readIfExists(target) {

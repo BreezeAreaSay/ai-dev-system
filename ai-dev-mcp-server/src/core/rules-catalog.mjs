@@ -586,6 +586,50 @@ Extends the Java/JVM rules where they overlap; Kotlin rules win on conflict.
 `
   },
   {
+    id: "arkts",
+    title: "ArkTS (HarmonyOS)",
+    paths: ["**/*.ets", "**/oh-package.json5", "**/build-profile.json5", "**/hvigorfile.ts", "**/entry/src/**"],
+    stacks: ["ArkTS/HarmonyOS"],
+    content: `# ArkTS Rules
+
+ArkTS is TypeScript with the dynamic half removed so the compiler can lay objects out
+statically. What TypeScript merely discourages, ArkTS refuses — writing it like TypeScript
+produces code that does not compile rather than code that runs slowly.
+
+- Every declaration is typed, and the type is one the compiler can close over: no \`any\`, no
+  \`unknown\`, no implicit \`any\` from an omitted parameter type. A value whose shape varies is a
+  union of the shapes it actually takes.
+- An object's shape is fixed at its declaration: no adding or deleting properties at runtime,
+  no index signature standing in for a class, no \`delete\`. Use a class or an interface, and a
+  \`Map\` when the keys really are data.
+- No structural typing tricks: no \`as\` to reinterpret an unrelated type, no prototype access,
+  no \`Object.assign\` to graft behaviour. Inheritance and interfaces are the mechanisms.
+- No runtime code generation: \`eval\`, \`new Function\`, and dynamic \`import()\` of a computed
+  specifier are unavailable. Imports are static and resolved through \`oh-package.json5\`.
+- UI is declarative and state-driven. A \`@Component\`'s \`build()\` describes the tree and does
+  nothing else: no network call, no timer, no mutation of state it is rendering. State changes
+  go through \`@State\`, \`@Prop\`, \`@Link\` and \`@Provide\`/\`@Consume\`, chosen by who owns the
+  value — \`@State\` for the component's own, \`@Prop\` for a one-way copy, \`@Link\` for a
+  two-way binding to the owner's.
+- A list renders through \`ForEach\` with a stable key function, and \`LazyForEach\` once the
+  data set is unbounded; an index as the key rebuilds the list on every insertion.
+- Work that can block goes to a \`TaskPool\` (short, concurrent) or a \`Worker\` (long-lived), and
+  what crosses that boundary must be serialisable — a class instance arrives as data, not as
+  itself.
+- Ability lifecycle is not the component lifecycle: acquire in \`onCreate\`/\`onForeground\` and
+  release in \`onBackground\`/\`onDestroy\`. Anything held across a background transition is a
+  leak the system will charge for.
+- Permissions are declared in \`module.json5\` and requested at the moment of use, never at
+  startup for later convenience.
+
+## Verification
+
+- \`hvigorw assembleHap --mode module\` (or the DevEco build) must pass with no ArkTS compile
+  diagnostics; treat every ArkTS restriction warning as an error, since the release build does.
+- New behaviour needs a test under \`entry/src/ohosTest\` and, for a UI change, a UITest case.
+`
+  },
+  {
     id: "fsharp",
     title: "F#",
     paths: ["**/*.fs", "**/*.fsi", "**/*.fsx", "**/*.fsproj", "**/paket.dependencies", "**/Directory.Build.props"],

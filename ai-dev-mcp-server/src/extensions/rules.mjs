@@ -1,8 +1,10 @@
+import { existsSync } from "node:fs";
 import {
   DEFAULT_RULE_TARGETS,
   RULE_TARGETS,
   RULES_RELATIVE_DIR,
   describeRuleCatalog,
+  detectInstructionTargets,
   installProjectRules
 } from "../core/rules-library.mjs";
 import { packsForStack } from "../core/rules-catalog.mjs";
@@ -30,13 +32,13 @@ export function createRulesTools(host) {
       },
       {
         name: "install_project_rules",
-        description: "Install engineering rules into a repository: canonical .ai-dev/rules (common + packs chosen from the detected stack), Claude Code .claude/rules projections with paths frontmatter, Cursor .cursor/rules .mdc files, and an Engineering Rules section in AGENTS.md. The opt-in claude-md target writes @-imports of the common rules into CLAUDE.md instead of copying them into .claude/rules; use it instead of the claude target, not alongside it. Existing hand-edited files are kept unless overwrite=true.",
+        description: "Install engineering rules and the workflow protocols into a repository, in the file each assistant reads: canonical .ai-dev/rules (common + packs chosen from the detected stack), Claude Code .claude/rules projections with paths frontmatter, Cursor .cursor/rules .mdc files, and an Engineering Rules section in AGENTS.md (Codex, Zed, OpenCode), GEMINI.md, .github/copilot-instructions.md, .windsurf/rules and .clinerules. With no targets it installs the defaults plus the files whose tool this repository or this machine already shows a trace of, so nothing writes a file nobody reads. The opt-in claude-md target writes @-imports of the common rules into CLAUDE.md instead of copying them into .claude/rules; use it instead of the claude target, not alongside it. Existing hand-edited files are kept unless overwrite=true.",
         inputSchema: {
           type: "object",
           properties: {
             project_path: { type: "string" },
             packs: { type: "array", items: { type: "string" }, default: [], description: "Explicit pack ids; auto-detected from the stack when empty." },
-            targets: { type: "array", items: { type: "string", enum: RULE_TARGETS }, default: DEFAULT_RULE_TARGETS, description: "ai-dev (canonical), claude (.claude/rules copies), claude-md (@-imports in CLAUDE.md; use instead of claude), cursor, agents-md." },
+            targets: { type: "array", items: { type: "string", enum: RULE_TARGETS }, default: [], description: "Empty means the defaults plus whichever of gemini-md, copilot, windsurf and cline this repository or machine shows a trace of. Named explicitly: ai-dev (canonical), claude (.claude/rules copies), claude-md (@-imports in CLAUDE.md; use instead of claude), cursor, agents-md, gemini-md, copilot, windsurf, cline." },
             overwrite: { type: "boolean", default: false },
             dry_run: { type: "boolean", default: false }
           },
@@ -101,7 +103,13 @@ export function createRulesTools(host) {
           stack: project.stack ?? [],
           projectTypes: project.project_types ?? [],
           packs: args.packs?.length ? args.packs : undefined,
-          targets: args.targets?.length ? args.targets : DEFAULT_RULE_TARGETS,
+          targets: args.targets?.length
+            ? args.targets
+            : detectInstructionTargets({
+              projectRoot: identity.project_root,
+              homeDir: host.homeDirectory ?? "",
+              exists: existsSync
+            }),
           overwrite: Boolean(args.overwrite),
           dryRun: Boolean(args.dry_run)
         });

@@ -1,7 +1,8 @@
 # Third-Party Notices
 
 The public seed includes the following separately maintained MIT-licensed knowledge packages.
-Their license files remain alongside their sources in the image.
+Their license files remain alongside their sources in the image, except where an upstream
+repository ships none and states its licence in each file instead, as noted below.
 
 ## taste-skill
 
@@ -23,6 +24,38 @@ Their license files remain alongside their sources in the image.
 - Included revision: `c9148d0bb239ed01a95724a5928b98cdf9c30658`
 - License: MIT
 - Selection record: `03-skills-catalog/sources/external/ecc/upstream.json`
+
+## Understand Anything
+
+- Source: https://github.com/Egonex-AI/Understand-Anything (partial import: the
+  nine skills from `understand-anything-plugin/skills`, not the TypeScript
+  application they drive)
+- Included revision: `6df3065f1d8ddc2ce3615314d1d493f36d6b1c80`
+- License: MIT, © Yuxiang Lin and Infinite Universe, Inc.
+- License text: `03-skills-catalog/sources/external/understand-anything/LICENSE`
+- These skills read a knowledge graph the upstream tool builds; without that
+  tool installed they describe a pipeline this system does not run.
+
+## Membrane application skills
+
+- Source: https://github.com/membranedev/application-skills (complete import:
+  3,074 `skills/<app>` integration skills)
+- Included revision: `f484c8265e70ec910a57342389cca5c5de7d8167`
+- License: MIT, as declared by the upstream README and by the `license: MIT`
+  field in every imported `SKILL.md`. The upstream repository ships no LICENSE
+  file; the declaration travels with each skill.
+- These skills describe third-party application integrations and state their own
+  requirement: network access and a Membrane account. They are excluded from
+  routing unless a task names the application (`membrane_policy`).
+
+## mattpocock/skills
+
+- Source: https://github.com/mattpocock/skills (selective import: the
+  `grilling` interview protocol from `skills/productivity/grilling`, which the
+  `grill-me` intent gate follows)
+- Included revision: `3cca18b368ae95cdbdebbff572ccafa662551015`
+- License: MIT
+- License text: `03-skills-catalog/sources/external/mattpocock-skills/LICENSE`
 
 ## Archify
 

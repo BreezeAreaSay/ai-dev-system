@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  NAME_MATCH_SCORE,
   TASK_CONCEPTS,
   declaredStackTerms,
   expandTaskVocabulary,
@@ -77,11 +78,30 @@ test("the score is carried by the text that says when to use a skill", () => {
   assert.ok(hexagonal.matched_terms.includes("adapters"));
   assert.ok(hexagonal.use_when_hits >= 3);
 
-  // A name the task states outright counts, but only alongside the situation.
+  // A name the task states outright is a signal of its own: it identifies the
+  // skill where no amount of situation overlap would. The caller holds a named
+  // skill to a lower score, so the flag has to say which kind of match it was.
   const nameOnly = specialistMatchScore({ name: "hexagonal-architecture", use_when: "", description: "" }, terms);
   assert.ok(nameOnly.score > 0);
   assert.equal(nameOnly.use_when_hits, 0);
-  assert.deepEqual(specialistMatchScore({}, terms), { score: 0, use_when_hits: 0, matched_terms: [], excluded_terms: [] });
+  assert.equal(nameOnly.name_match, true);
+
+  // An application skill named by one word of a sentence: one whole word in the
+  // name, nothing in a situation nobody wrote.
+  const gmail = specialistMatchScore(
+    { name: "gmail", use_when: "", description: "Gmail integration. Use when the user wants to interact with Gmail data." },
+    expandTaskVocabulary("send a notification through gmail when the build fails").terms
+  );
+  assert.equal(gmail.name_match, true);
+  assert.ok(gmail.score >= NAME_MATCH_SCORE);
+
+  // A term that only appears inside a longer name is not the task naming it.
+  const partial = specialistMatchScore({ name: "hexagonal-architecture", use_when: "", description: "" }, ["hexagon"]);
+  assert.equal(partial.name_match, false);
+  assert.deepEqual(
+    specialistMatchScore({}, terms),
+    { score: 0, use_when_hits: 0, name_match: false, matched_terms: [], excluded_terms: [] }
+  );
 });
 
 test("the half of use_when that says when not to use a skill counts against it", () => {

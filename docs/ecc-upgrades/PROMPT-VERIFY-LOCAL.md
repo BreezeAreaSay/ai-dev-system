@@ -80,9 +80,11 @@ git log --oneline -1
 Select-String -Path src/core/task-vocabulary.mjs -Pattern 'export function taskNamesSkill' | Measure-Object | % Count
 Select-String -Path scripts/acceptance.mjs -Pattern 'resolveSpawnInvocation' | Measure-Object | % Count
 Select-String -Path src/core/public-distribution.mjs -Pattern 'export function buildContextStaleness' | Measure-Object | % Count
+Select-String -Path ..\docker\compose.local.example.yaml -Pattern 'models/bge-m3' | Measure-Object | % Count
 ```
 
-Ожидаю **1, 4 и 1** (второй встречается четыре раза — это нормально).
+Ожидаю **1, 4, 1 и 2** (второй встречается четыре раза, четвёртый — два: это нормально).
+Четвёртый грепает файл уровнем выше, в корне репозитория.
 
 **Если хоть один ноль — остановись и напиши мне.** Значит обновление не дошло, и все дальнейшие
 результаты будут про старый код. Проверь тогда, куда смотрит `git remote -v` и на какой ветке ты
@@ -413,6 +415,54 @@ npm run check
 Покажи вывод `search_index_status` из этого клона. Если у чистого клона скиллов меньше —
 это провал, скажи немедленно.
 
+## Шаг 9. Модель в контейнере — этого я проверить не могу
+
+У меня в среде нет демона Docker, поэтому образ не собирался ни разу. Всё, что я утверждаю про
+модель в контейнере, проверено чтением кода и слиянием compose-файлов, но не живым запуском.
+Если у тебя есть Docker Desktop — это самая ценная часть прогона. Если нет, так и напиши, это
+не провал.
+
+Сборка образа с питоновской частью (долго, несколько гигабайт зависимостей):
+
+```
+cd ai-dev-mcp-server
+npm run docker:prepare
+cd ..
+docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker\build-context
+```
+
+Веса должны быть уже скачаны (`npm run setup -- --dense` кладёт их в `~\.ai-dev\models\bge-m3`).
+Если их нет — пропусти шаг и скажи об этом, качать 2.3 ГБ ради проверки не нужно.
+
+Запуск с моделью:
+
+```
+$env:AI_DEV_IMAGE = "ai-dev-system:bge"
+$env:AI_DEV_MODEL_PATH = "$env:USERPROFILE\.ai-dev\models\bge-m3"
+$env:AI_DEV_PROJECT_PATH = "<путь к любому проекту>"
+powershell -File docker\run-mcp.ps1
+```
+
+**Что мне нужно из этого прогона** — вызови в контейнере `embedding_status` и пришли из ответа:
+
+- `paths.embeddings_python` — жду `/opt/ai-dev/embeddings/.venv/bin/python`;
+- `paths.model_dir` — жду `/models/bge-m3`;
+- все семь записей `availability` со значениями `exists`.
+
+И то же самое через Compose — раскомментируй монтирование модели в своём `compose.local.yaml`
+(в `compose.local.example.yaml` оно уже есть) и покажи вывод:
+
+```
+docker compose -f docker\compose.yaml -f docker\compose.local.yaml config
+```
+
+Меня интересует список `volumes` целиком: должно быть три — `/data`, `/workspace` и
+`/models/bge-m3` с `read_only: true`.
+
+**Отдельно проверь враждебно:** запусти контейнер **без** монтирования модели и покажи, что
+говорит `embedding_backend` в `system_health_check`. Я утверждаю, что он скажет `skipped` с
+названием команды, а не `fail`. Если скажет что-то третье — это дефект, и он мой.
+
 ## Итог
 
 Напиши коротко:
@@ -424,7 +474,9 @@ npm run check
 5. Поднялся ли демон на Windows, сколько инструментов отдал по каналу, прибрался ли за собой.
 6. Таблицу маршрутизации из шага 6: что появилось и, главное, что **не** появилось.
 7. Список всего, что упало или повело себя не так, как написано выше — с сырым выводом.
-8. Отдельно: что проверить не удалось и почему.
+8. Из шага 9 — два пути из `embedding_status`, семь значений `exists`, список `volumes` из
+   `docker compose config` и ответ `embedding_backend` без модели. Или строку «Docker нет».
+9. Отдельно: что проверить не удалось и почему.
 
 **Текст ошибок вставляй прямо в ответ, а не ссылкой на файл.** Пути вида
 `C:\Users\...\Temp\...` до меня не доходят — я вижу только то, что написано в сообщении.

@@ -59,7 +59,13 @@ test("worktreeName and parseWorktreeList normalise input", () => {
     ""
   ].join("\n"));
   assert.equal(parsed.length, 3);
-  assert.deepEqual(parsed[1], { path: "/repo/.worktrees/one", head: "def", branch: "task/one", bare: false, detached: false, locked: true, prunable: false });
+  // The path is in this platform's spelling, not git's: git prints forward
+  // slashes on Windows too, and a record that mixes both spellings compares
+  // unequal against anything built with path.join.
+  assert.deepEqual(parsed[1], {
+    path: path.resolve("/repo/.worktrees/one"),
+    head: "def", branch: "task/one", bare: false, detached: false, locked: true, prunable: false
+  });
   assert.equal(parsed[2].prunable, true);
   assert.equal(parsed[2].detached, true);
 });

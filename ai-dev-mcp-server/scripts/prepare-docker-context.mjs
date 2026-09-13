@@ -54,10 +54,7 @@ async function copyApplication(stage) {
   await copyFile(path.join(serverRoot, "package.json"), stage, "app/package.json");
   await copyFile(path.join(serverRoot, "package-lock.json"), stage, "app/package-lock.json");
   await copyDistributionTree(path.join(serverRoot, "src"), path.join(stage, "app", "src"), {
-    exclude: (relative, entry) => (
-      /\.test\.mjs$/i.test(entry.name)
-      || relative.replaceAll("\\", "/") === "core/public-distribution.mjs"
-    )
+    exclude: (relative, entry) => /\.test\.mjs$/i.test(entry.name)
   });
   // Agent hook scripts are copied into user repositories by install_agent_hooks.
   await copyDistributionTree(path.join(serverRoot, "hooks"), path.join(stage, "app", "hooks"));
@@ -97,9 +94,18 @@ async function createDockerContext({ output }) {
   const outputRoot = assertGeneratedTarget(output);
   const stage = path.join(generatedRoot, `context-${process.pid}`);
   const publicSeed = path.join(repositoryRoot, "docker", "public-seed");
-  await fs.access(path.join(publicSeed, "public-seed.manifest.json")).catch(() => {
-    throw new Error("Public seed is missing. Run npm run docker:seed first.");
-  });
+  const manifestFile = path.join(publicSeed, "public-seed.manifest.json");
+  const seedManifest = await fs.readFile(manifestFile, "utf8").then(JSON.parse).catch(() => null);
+  if (!seedManifest) throw new Error("Public seed is missing. Run npm run docker:seed first.");
+  // The seed doubles as the vault a server without Obsidian runs against, so a
+  // machine that has used the system has project cards and registries in it —
+  // git ignores them, and the privacy audit rightly refused to ship them, which
+  // meant `npm run docker:prepare` failed for anyone who had run the server
+  // once. The manifest already says what the seed is; the image gets that.
+  const seedFiles = new Set([
+    "public-seed.manifest.json",
+    ...(Array.isArray(seedManifest.files) ? seedManifest.files.map((item) => String(item.path)) : [])
+  ]);
 
   await fs.mkdir(generatedRoot, { recursive: true });
   await fs.rm(stage, { recursive: true, force: true });
@@ -115,7 +121,9 @@ async function createDockerContext({ output }) {
     await copyFile(path.join(repositoryRoot, "LICENSE"), stage, "LICENSE");
     await copyApplication(stage);
     await copyRuntime(stage);
-    await copyDistributionTree(publicSeed, path.join(stage, "public-seed"));
+    await copyDistributionTree(publicSeed, path.join(stage, "public-seed"), {
+      exclude: (relative, entry) => entry.isFile() && !seedFiles.has(relative.replaceAll("\\", "/"))
+    });
     await writeText(path.join(stage, ".dockerignore"), `**
 !.dockerignore
 !Dockerfile

@@ -146,6 +146,41 @@ test("the hooks copy of the derivation answers exactly like the server", async (
   }
 });
 
+test("the hook and the server agree on a project reached through another spelling of its path", async (t) => {
+  // The server resolves a root with fs.realpath before hashing it; the hook
+  // copy hashed what it was handed. A symlink here, and on Windows the 8.3
+  // short name a temporary directory is handed out under, then keyed the hook's
+  // memory under an id the server never reads. Measured on windows-latest.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-alias-id-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const real = path.join(root, "project");
+  const alias = path.join(root, "alias");
+  await fs.mkdir(real, { recursive: true });
+  await fs.symlink(real, alias, "junction").catch(() => fs.symlink(real, alias));
+
+  const identity = await resolveProjectIdentity(alias);
+  assert.deepEqual(memoryKeysOf(alias, false), [identity.project_id]);
+  assert.deepEqual(memoryKeysOf(alias, false), memoryKeysOf(real, false));
+});
+
+test("a hook fired inside a project keys its memory to the project, not to the subdirectory", async (t) => {
+  // The server walks up to the nearest project boundary before hashing; the
+  // hook copy hashed whatever directory it was handed. Anywhere a marker sits
+  // above the directory in question the two disagreed — which is what
+  // windows-latest was measuring, one temporary directory at a time.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-boundary-id-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const project = path.join(root, "project");
+  const nested = path.join(project, "src", "deep");
+  await fs.mkdir(nested, { recursive: true });
+  await fs.writeFile(path.join(project, "package.json"), JSON.stringify({ name: "boundary" }), "utf8");
+
+  const identity = await resolveProjectIdentity(nested);
+  assert.equal(identity.project_root, await fs.realpath(project));
+  assert.deepEqual(memoryKeysOf(nested, false), [identity.project_id]);
+  assert.deepEqual(memoryKeysOf(nested, false), memoryKeysOf(project, false));
+});
+
 test("projects outside Git fall back to the project id as their memory key", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-no-git-id-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

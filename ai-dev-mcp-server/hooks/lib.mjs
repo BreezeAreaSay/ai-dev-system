@@ -90,12 +90,20 @@ export function git(cwd, args) {
 }
 
 function realpathOf(target) {
+  // The server resolves roots with the asynchronous fs.realpath
+  // (core/project-identity.mjs), which is libuv's — the same resolution as
+  // realpathSync.native, and on Windows that expands 8.3 short names
+  // (RUNNER~1 -> runneradmin) and junctions where the JavaScript realpathSync
+  // does not. Using the JavaScript one here keyed the hook's memory under an id
+  // the server never looks up: CI on windows-latest measured two different
+  // project ids for one directory. The plain sync call stays as the fallback,
+  // for the paths the native one refuses.
   try {
-    // fs.realpathSync, not realpathSync.native: the server resolves roots with
-    // fs.realpath (core/project-identity.mjs), and on Windows the native variant
-    // also expands 8.3 short names (RUNNER~1 -> runneradmin). Two spellings of
-    // one directory would key two different project ids, so the hook and the
-    // server must resolve them the same way.
+    return fs.realpathSync.native(target);
+  } catch {
+    /* fall through */
+  }
+  try {
     return fs.realpathSync(target);
   } catch {
     return path.resolve(target);
@@ -129,9 +137,60 @@ export function relativePosix(fromRoot, target) {
   return path.relative(fromRoot, target).replaceAll("\\", "/");
 }
 
-/** Same derivation as the server's resolveProjectIdentity (core/project-identity.mjs). */
+/**
+ * The markers the server treats as a project boundary
+ * (core/project-identity.mjs). Duplicated here on purpose: this file is copied
+ * into other repositories and cannot import the server.
+ */
+const BOUNDARY_MARKERS = [
+  ".ai-dev",
+  ".git",
+  "package.json",
+  "pyproject.toml",
+  "go.mod",
+  "Cargo.toml",
+  "pom.xml",
+  "build.gradle",
+  "Gemfile",
+  "composer.json"
+];
+
+/**
+ * The nearest directory at or above `start` that says it is a project, exactly
+ * as the server decides it. A hook fired from a subdirectory otherwise keyed
+ * its memory to that subdirectory while the server keyed it to the project.
+ */
+function projectBoundaryOf(start) {
+  const runtimeRoot = normalizePath(stateRoot());
+  let current = path.resolve(start);
+  while (true) {
+    for (const marker of BOUNDARY_MARKERS) {
+      const markerPath = path.join(current, marker);
+      if (marker === ".ai-dev" && normalizePath(markerPath) === runtimeRoot) continue;
+      if (fs.existsSync(markerPath)) return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) return "";
+    current = parent;
+  }
+}
+
+/**
+ * Same derivation as the server's resolveProjectIdentity (core/project-identity.mjs):
+ * canonical path first, then the nearest project boundary at or above it, then
+ * the hash.
+ *
+ * Both halves were missing here. Without the canonical path a hook writing
+ * through a symlink — or through the spelling Windows hands out for a temporary
+ * directory — keyed its memory under an id the server never looks up; without
+ * the boundary walk a hook fired inside a subdirectory of a project keyed it to
+ * the subdirectory. CI on windows-latest measured the first; the second is the
+ * same divergence one directory further down.
+ */
 export function projectIdOf(projectRoot, isGit = true) {
-  return `project-${hashKey(`${isGit ? "git" : "filesystem"}:${normalizePath(projectRoot)}`)}`;
+  const canonical = realpathOf(projectRoot);
+  const root = projectBoundaryOf(canonical) || canonical;
+  return `project-${hashKey(`${isGit ? "git" : "filesystem"}:${normalizePath(realpathOf(root))}`)}`;
 }
 
 /**

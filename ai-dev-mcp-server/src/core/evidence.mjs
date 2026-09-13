@@ -158,7 +158,10 @@ export async function captureProjectState(projectRoot) {
       strength: walk.count > 0 ? "medium" : "weak"
     };
   }
-  const gitRoot = rootResult.stdout.trim();
+  // Git's own spelling uses forward slashes on Windows, and the filesystem
+  // branch below answers with path.resolve, so one capture of the same project
+  // could disagree with another by separator alone.
+  const gitRoot = path.resolve(rootResult.stdout.trim());
   const [head, branch, status] = await Promise.all([
     git(gitRoot, ["rev-parse", "HEAD"]),
     git(gitRoot, ["branch", "--show-current"]),

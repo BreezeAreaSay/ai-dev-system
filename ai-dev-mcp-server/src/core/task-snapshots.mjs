@@ -58,10 +58,22 @@ const MAX_LABEL_LENGTH = 200;
 const SNAPSHOT_IDENTITY = ["-c", "user.name=ai-dev", "-c", "user.email=ai-dev@snapshots.invalid"];
 const REF_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,119}$/;
 
+// A snapshot has to give back the bytes it took. Git for Windows ships with
+// `core.autocrlf=true`, which strips CR on the way into the object store and
+// puts CRLF back on the way out — so a file the agent wrote with LF came back
+// from a rollback with every line ending rewritten. Measured on Linux by
+// setting the same option: `export const app = 2;\n` in, `…;\r\n` out.
+//
+// The index is seeded from the repository's own (`seedIndex`), so files the
+// agent did not touch keep the entries they already had and only what actually
+// changed is stored raw. A `.gitattributes` that declares `eol` still applies,
+// which is right: there the working tree is already in the form it declares.
+const NO_EOL_CONVERSION = ["-c", "core.autocrlf=false"];
+
 async function git(cwd, args, { env = {}, timeoutMs = 60_000 } = {}) {
   return runProcess({
     executable: "git",
-    args: ["-C", path.resolve(cwd), "-c", "core.quotepath=false", ...args],
+    args: ["-C", path.resolve(cwd), "-c", "core.quotepath=false", ...NO_EOL_CONVERSION, ...args],
     cwd,
     env,
     timeoutMs,
@@ -128,7 +140,11 @@ async function repositoryContext(worktreePath) {
   const toplevel = await git(requested, ["rev-parse", "--show-toplevel"]);
   if (!toplevel.ok) throw new Error(`Not a git repository, so it cannot be snapshotted: ${requested}`);
   const root = await fs.realpath(toplevel.stdout.trim());
-  const gitDir = assertOk(await git(root, ["rev-parse", "--absolute-git-dir"]), "git rev-parse --absolute-git-dir").stdout.trim();
+  // Git prints this with forward slashes on Windows as well; the index file is
+  // built from it with path.join, so it is resolved to one spelling first.
+  const gitDir = path.resolve(
+    assertOk(await git(root, ["rev-parse", "--absolute-git-dir"]), "git rev-parse --absolute-git-dir").stdout.trim()
+  );
   return { root, gitDir };
 }
 

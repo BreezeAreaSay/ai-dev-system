@@ -424,6 +424,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Packaging refused to run for anyone who had used the system.** A server
+  without an Obsidian vault runs against the bundled seed and writes project
+  cards into it; the seed's own Python helpers leave bytecode behind. Git
+  ignores both, but `docker:prepare` copied the seed wholesale and the privacy
+  audit — rightly — refused to ship a project card, while `docker:seed:verify`
+  read the same files as seed drift. The context is now staged from the seed
+  manifest, which is what `docker:seed:verify` already blesses, and the verifier
+  skips the two generated zones. Measured on a polluted checkout: prepare goes
+  from a refusal to 1188 files, the same as a clean clone, and the verifier
+  reports `current` with 1040 files checked.
+
+- **The published image did not start.** `skill-import-policy.mjs` imports
+  `public-distribution.mjs`, and the Docker context's allowlist excluded that
+  module, so the container died on startup with `ERR_MODULE_NOT_FOUND` and the
+  stdio smoke failed on a closed connection. Measured: 84 of the repository's 85
+  `src/core` modules reached the image. The exclusion is gone — the privacy
+  audit passes over the context with the module in it — and the audit now walks
+  the staged tree for imports it cannot resolve, naming the file and the
+  specifier, so nothing can be left out of an image again without the check that
+  runs before the build saying so.
+
+- **`list_mcp_servers` could not see a Windows project's own servers.** The
+  streaming reader for `~/.claude.json` dropped every escape while reading a
+  key, and Claude Code keys its per-project block by absolute path — so
+  `"C:\\Users\\me\\app"` in the file became `C:Usersmeapp` and matched
+  nothing. Keys are kept raw and decoded whole now, which also fixes keys
+  carrying quotes, tabs or `\uXXXX`.
+
+- **The hooks keyed their memory under an id the server never reads.** Two
+  things differed, and the same CI job measured both. The server hashes a
+  project root after resolving it with `fs.realpath`, while the hook copy hashed
+  the path it was handed — so a symlink, or the spelling Windows hands out for a
+  temporary directory, was enough to disagree. And the server walks up to the
+  nearest project boundary (`.git`, `package.json`, and eight more markers)
+  before hashing, while the hook hashed exactly the directory it was given: a
+  hook fired from a subdirectory of a project wrote its memory where the server
+  never looked. Both halves are in the hook now — the boundary walk duplicated
+  there deliberately, since that file is copied into other repositories and
+  cannot import the server — and `realpathSync.native` is used to match what the
+  asynchronous `fs.realpath` does.
+
+- **A pull-request template was reported under a name the repository does not
+  have.** On a case-insensitive filesystem the lookup of
+  `.github/pull_request_template.md` opens `PULL_REQUEST_TEMPLATE.md`, and the
+  answer echoed the spelling that was asked for. It reads the directory and
+  answers with the name on disk.
+
+- **A rollback rewrote every line ending on Windows.** Snapshots are captured
+  with `git add` and restored with `git restore`, and Git for Windows ships
+  with `core.autocrlf=true` — CR stripped going into the object store, CRLF
+  written back coming out. So a file the agent wrote with LF came back from
+  `rollback_task` with every line changed. Measured by CI on `windows-latest`
+  (`'export const app = 2;\r\n'` against the `\n` the test wrote) and
+  reproduced on Linux by setting the same option. The snapshot commands now run
+  with the conversion off, so the bytes that went in come back out — including
+  a file that really is CRLF. The index is still seeded from the repository's
+  own, so files nobody touched keep their existing entries.
+
+- **A worktree record carried two spellings of the same path.**
+  `git worktree list --porcelain` prints forward slashes on Windows too, and
+  the cleanup record put that beside a path built with `path.join`:
+  `C:/Users/…/.worktrees/merged` against `C:\Users\…\.worktrees\merged`.
+  Comparisons that resolved first were fine; printing and matching the raw
+  value was not. Paths now come out of the parser in the platform's own
+  spelling, and the same is done for `--absolute-git-dir` in snapshots and for
+  `--show-toplevel` in `captureProjectState`, where a git project's
+  `project_root` otherwise differed from a non-git one by separator alone.
+
+- **`npm run setup` called stale artefacts "already built".** The plan asked
+  whether a file existed, never whether it was current, so one run printed
+  `· Search index: already built` and, four lines later from the diagnostic in
+  the same run, `fail: skill_routing_benchmark — … is stale; rerun
+  run_skill_routing_eval`. Setup now reads the freshness signals the health
+  check grades — `search_index_status.stale`, and the benchmark report's mtime
+  against its golden cases and `skill-router.mjs` — and rebuilds what is out of
+  date, saying so. An optional step that is installed but stale says
+  `out of date; --dense rebuilds it` instead of reporting itself installed.
+
+- **`--dense` downloaded 2.3 GB and left search nearly blind.** Documents are
+  embedded during a rebuild, and the model download was the last thing the flag
+  did, so an install with the weights in place, a live worker and `dense_score`
+  in its answers had vectors for 300 documents and 382 waiting — none of which
+  the dense half of a hybrid query could see. `--dense` now embeds the index
+  after fetching the weights, re-embeds when documents have been added since,
+  and the setup header prints the coverage: an index built without the model
+  reads `none embedded yet`, not `0 with a vector, 0 without`.
+
+- **The setup header printed an interpreter Windows never creates.**
+  `.venv/bin/python` was hard-coded while the step that builds the environment
+  looked in both places and worked, so the only thing that was wrong was the
+  line a person reads. It is resolved per platform now, from what is on disk
+  when something is on disk.
+
+- **A checkout could edit its golden cases and never be told to rerun the
+  benchmark.** The freshness check compared the report against
+  `09-mcp/search-eval/skill_routing_eval_cases.json`, a path that does not exist
+  outside an Obsidian vault, so the missing file's mtime read as zero and the
+  report was always "fresh". Measured on this repository: touching the cases
+  left `fresh: true` before, and gives `fail … is stale` now. The benchmark and
+  the health check read one resolved path.
+
+- **A Python helper's failure was reported as `Traceback (most recent call
+  last):`.** The helper explains itself in the last line of the traceback and
+  every caller that prints one line prints the first, so `npm run setup --
+  --dense` without the embeddings environment reported the word "Traceback" and
+  nothing else. The final exception now leads, with the traceback kept behind it
+  (`src/core/python-failure.mjs`).
+
+- **`change-hygiene.mjs` was invisible to code search.** Its binary-file check
+  was written as a raw NUL byte in the source rather than an escape, so `grep`
+  and `rg` answered `Binary file … matches` and 537 lines of the module never
+  appeared in a repository-wide search — which is how the byte was found, by a
+  search that skipped it. Git was unaffected: its heuristic reads the first 8000
+  bytes and the byte sat at 15851.
+
 - **Hybrid search died without the optional model.** The README says it plainly
   — "Hybrid search works without a model: SQLite FTS, sparse aliases, and
   deterministic intent routing are always on" — and the dense embedding call was

@@ -8,6 +8,7 @@ import {
   auditDistributionTree,
   distributionPathFindings,
   distributionTextFindings,
+  findDanglingImports,
   ownerUsername
 } from "./public-distribution.mjs";
 
@@ -26,6 +27,39 @@ test("distribution text policy reports secret classes without echoing values", (
   const findings = distributionTextFindings(`token=${token}`, "unsafe.txt");
   assert.deepEqual(findings, [{ rule: "github-token", path: "unsafe.txt" }]);
   assert.equal(JSON.stringify(findings).includes(token), false);
+});
+
+test("a staged tree that imports what it does not carry is reported before an image is built", async (t) => {
+  // Measured: the published image died on startup with
+  // ERR_MODULE_NOT_FOUND for core/public-distribution.mjs, because a shipped
+  // module imported one the allowlist excluded. Nothing caught it until the
+  // container ran.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "dangling-imports-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const src = path.join(root, "src", "core");
+  await fs.mkdir(src, { recursive: true });
+  await fs.mkdir(path.join(root, "node_modules", "left-out"), { recursive: true });
+
+  await fs.writeFile(path.join(src, "kept.mjs"), 'export const kept = 1;\n', "utf8");
+  await fs.writeFile(path.join(src, "server.mjs"), [
+    'import { kept } from "./kept.mjs";',
+    'import { gone } from "./left-out.mjs";',
+    'import express from "express";',
+    'const lazy = await import("./also-gone.mjs");',
+    'export { kept, gone, lazy };'
+  ].join("\n"), "utf8");
+  // A module in node_modules is not the tree's own to account for.
+  await fs.writeFile(path.join(root, "node_modules", "left-out", "index.mjs"), 'import "./nowhere.mjs";\n', "utf8");
+
+  const findings = await findDanglingImports(root);
+  assert.deepEqual(findings.map((item) => item.specifier), ["./also-gone.mjs", "./left-out.mjs"]);
+  assert.equal(findings[0].file, "src/core/server.mjs");
+  assert.equal(findings[0].resolved, "src/core/also-gone.mjs");
+
+  // An extensionless specifier resolving to a real file is not a finding.
+  await fs.writeFile(path.join(src, "left-out.mjs"), "export const gone = 2;\n", "utf8");
+  await fs.writeFile(path.join(src, "also-gone.mjs"), "export default 3;\n", "utf8");
+  assert.deepEqual(await findDanglingImports(root), []);
 });
 
 test("distribution audit accepts a clean allowlisted tree", async (t) => {

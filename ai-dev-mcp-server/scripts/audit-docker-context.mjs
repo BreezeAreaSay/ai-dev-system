@@ -8,6 +8,7 @@ import {
   assertCleanDistribution,
   auditDistributionTree,
   distributionContentFingerprint,
+  findDanglingImports,
   ownerUsername
 } from "../src/core/public-distribution.mjs";
 
@@ -31,6 +32,18 @@ const audit = assertCleanDistribution(
   }),
   "Docker build context"
 );
+
+// What the allowlist left out is only discovered when something imports it, and
+// by then the image is built and its server dies on startup.
+const dangling = await findDanglingImports(path.join(target, "app"));
+if (dangling.length) {
+  process.stderr.write(
+    `Docker build context imports ${dangling.length} module(s) it does not carry:\n` +
+    dangling.map((item) => `  ${item.file} imports ${item.specifier} (${item.resolved})\n`).join("") +
+    "Either ship the file or stop importing it; the allowlist is in scripts/prepare-docker-context.mjs.\n"
+  );
+  process.exit(1);
+}
 
 process.stdout.write(`${JSON.stringify({
   status: "passed",

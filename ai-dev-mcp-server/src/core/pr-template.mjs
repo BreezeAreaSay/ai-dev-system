@@ -159,12 +159,25 @@ function rejectUnsafeRelativePath(relativePath) {
  */
 export async function findPullRequestTemplate(projectRoot, { explicitPath = "" } = {}) {
   const root = path.resolve(projectRoot);
+  // Windows and macOS match filenames without regard to case, so a lookup of
+  // `.github/pull_request_template.md` opens `.github/PULL_REQUEST_TEMPLATE.md`
+  // and the report then names a file that is not in the repository. The answer
+  // is the spelling on disk, whichever candidate found it.
+  const onDiskName = async (directory, name) => {
+    const entries = await fs.readdir(path.join(root, ...directory.split("/").filter(Boolean))).catch(() => []);
+    return entries.find((entry) => entry === name)
+      ?? entries.find((entry) => entry.toLowerCase() === name.toLowerCase())
+      ?? name;
+  };
   const read = async (relative) => {
     const target = path.join(root, ...relative.split("/"));
     const stat = await fs.stat(target).catch(() => null);
     if (!stat?.isFile()) return null;
     const markdown = await fs.readFile(target, "utf8").catch(() => "");
-    return markdown.trim() ? { path: relative, markdown } : null;
+    if (!markdown.trim()) return null;
+    const segments = relative.split("/");
+    const real = await onDiskName(segments.slice(0, -1).join("/"), segments.at(-1));
+    return { path: [...segments.slice(0, -1), real].join("/"), markdown };
   };
   if (explicitPath) {
     const found = await read(rejectUnsafeRelativePath(explicitPath));

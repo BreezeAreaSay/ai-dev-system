@@ -15,7 +15,11 @@
  * `03-skills-catalog/{registries,cards,groups}` is skipped on both sides: those
  * are rebuilt on demand by `npm run skills:ensure-index` in a standalone
  * checkout and are git-ignored there, while a full-vault build commits them.
- * Either way they are generated output, not seed content.
+ * Either way they are generated output, not seed content. So are the project
+ * cards a vault-less server writes into `02-knowledge/Projects/` and the Python
+ * bytecode the seed's own scripts leave behind: using the system is not seed
+ * drift, and before this both made `npm run docker:seed:verify` fail on a
+ * developer's own checkout.
  *
  * `--write` is the repair path for a checkout without the private vault, where
  * `npm run docker:seed` cannot run: it recomputes the manifest from the tree as
@@ -42,8 +46,15 @@ const manifestPath = path.join(seedRoot, manifestName);
 const GENERATED_PREFIXES = [
   "03-skills-catalog/registries/",
   "03-skills-catalog/cards/",
-  "03-skills-catalog/groups/"
+  "03-skills-catalog/groups/",
+  // A server without an Obsidian vault runs against this seed and writes its
+  // project cards here. Git ignores them; so does the seed.
+  "02-knowledge/Projects/"
 ];
+
+// Python bytecode from running the seed's own helper scripts. Git ignores it
+// everywhere, and a checkout that has run them is not a drifted seed.
+const GENERATED_PATTERN = /(?:^|\/)__pycache__\/|\.pyc$/;
 
 // Dashboards rendered on demand by `validate_skill_library` and
 // `rebuild_system_dashboard`. Like the registries they are output, not seed
@@ -61,6 +72,7 @@ const GENERATED_FILES = [
 function skipped(relativePath) {
   return relativePath === manifestName
     || GENERATED_FILES.includes(relativePath)
+    || GENERATED_PATTERN.test(relativePath)
     || GENERATED_PREFIXES.some((prefix) => relativePath.startsWith(prefix));
 }
 

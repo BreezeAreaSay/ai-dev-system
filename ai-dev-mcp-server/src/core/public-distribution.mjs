@@ -291,12 +291,18 @@ export function assertCleanDistribution(audit, label = "distribution") {
  * Recursively copy a directory into the distribution target, honouring an
  * `exclude(relativePath, dirent)` predicate and refusing to copy symlinks.
  *
+ * `vendoredDependencyTree` marks the source as already inside an approved
+ * vendored dependency. The approval check below reads a path relative to this
+ * copy's own root, so a nested `node_modules` (`ajv/node_modules/fast-uri`)
+ * never matches the distribution-root pattern and would be dropped — taking a
+ * pinned runtime dependency with it.
+ *
  * @param {string} source - Source directory.
  * @param {string} target - Target directory.
- * @param {{ exclude?: (relativePath: string, entry: import("node:fs").Dirent) => boolean }} [options]
+ * @param {{ exclude?: (relativePath: string, entry: import("node:fs").Dirent) => boolean, vendoredDependencyTree?: boolean }} [options]
  * @returns {Promise<void>}
  */
-export async function copyDistributionTree(source, target, { exclude = () => false } = {}) {
+export async function copyDistributionTree(source, target, { exclude = () => false, vendoredDependencyTree = false } = {}) {
   const sourceRoot = path.resolve(source);
   const targetRoot = path.resolve(target);
 
@@ -314,6 +320,7 @@ export async function copyDistributionTree(source, target, { exclude = () => fal
       if (
         entry.isDirectory()
         && FORBIDDEN_DIRECTORY_NAMES.has(entry.name.toLowerCase())
+        && !vendoredDependencyTree
         && !isApprovedVendoredDependencyPath(relative)
       ) continue;
       const absoluteTarget = path.join(currentTarget, entry.name);
@@ -437,4 +444,44 @@ export function ownerUsername() {
   } catch {
     return process.env.USER || process.env.USERNAME || process.env.LOGNAME || "";
   }
+}
+
+/**
+ * Skill catalogues the repository vendors instead of generating from a vault.
+ *
+ * The seed is built from the owner's vault by an explicit allowlist, so a
+ * directory that exists only in the checkout is deleted by the next
+ * `npm run docker:seed` — the refresh stages a fresh tree and replaces the
+ * output wholesale. These catalogues arrived by import, are recorded in
+ * `THIRD_PARTY_NOTICES.md`, and have no vault to be copied from; `grill-me` is
+ * this project's own but ships from here for the same reason. The refresh
+ * carries them forward from the checkout and then asserts they survived.
+ *
+ * `minimumSkills` is the count imported, so a partial copy fails the build
+ * rather than shipping a seed that is quietly missing most of its catalogue.
+ *
+ * @type {ReadonlyArray<{ relative: string, minimumSkills: number }>}
+ */
+export const VENDORED_SEED_CATALOGUES = Object.freeze([
+  Object.freeze({ relative: "external/membrane", minimumSkills: 3074 }),
+  Object.freeze({ relative: "external/understand-anything", minimumSkills: 9 }),
+  Object.freeze({ relative: "external/mattpocock-skills", minimumSkills: 1 }),
+  Object.freeze({ relative: "custom/grill-me", minimumSkills: 1 })
+]);
+
+/**
+ * Report the vendored catalogues a staged seed lost or truncated.
+ *
+ * @param {Record<string, number>} counts skills found per `relative` path
+ * @returns {Array<{ relative: string, expected: number, found: number }>} empty when every catalogue is whole
+ */
+export function missingVendoredCatalogues(counts) {
+  const findings = [];
+  for (const { relative, minimumSkills } of VENDORED_SEED_CATALOGUES) {
+    const found = Number(counts?.[relative] ?? 0);
+    if (!Number.isFinite(found) || found < minimumSkills) {
+      findings.push({ relative, expected: minimumSkills, found: Number.isFinite(found) ? found : 0 });
+    }
+  }
+  return findings;
 }

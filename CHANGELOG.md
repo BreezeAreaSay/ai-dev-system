@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+### Fixed
+
+- **`npm run docker:seed` no longer deletes the vendored skill catalogues.** The
+  seed is generated from the owner's vault through an explicit allowlist and
+  then replaces its output directory wholesale, so the three imported
+  catalogues — which live in the checkout and in no vault — were dropped:
+  3,227 skills became 143 and 4,186 files became 1,008, with the regenerated
+  manifest making the loss look deliberate. The refresh now carries them
+  forward from the checkout and refuses to write a seed that is missing any of
+  them. A rebuild reproduces the committed seed byte for byte.
+
+- **A seed rebuild no longer breaks archify.** Nested vendored dependencies
+  (`archify/node_modules/ajv/node_modules/fast-uri`, 34 tracked files) were
+  dropped by the copy: the approval pattern matches a distribution-root path
+  while the copy tested one relative to its own root. `ajv` needs `fast-uri` at
+  runtime, so the locally executed CLI those dependencies exist for stopped
+  working after any refresh — silently, since the privacy audit reads the
+  distribution-root path and passed.
+
 ### Added
 
 - **`npm run acceptance`**: the rule this project ends a session on, as a

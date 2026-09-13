@@ -10,7 +10,9 @@ import {
   copyDistributionFile,
   copyDistributionTree,
   distributionContentFingerprint,
-  ownerUsername
+  missingVendoredCatalogues,
+  ownerUsername,
+  VENDORED_SEED_CATALOGUES
 } from "../src/core/public-distribution.mjs";
 import { isDirectExecution } from "../src/core/direct-execution.mjs";
 
@@ -160,12 +162,73 @@ async function copySkillSources(vaultRoot, stage) {
           // `simple-icons` (~23 MB) is only used by the brand-mark generator,
           // never at runtime, so the clean seed omits it.
           ? (relative, entry) => entry.name === ".DS_Store" || entry.name === "simple-icons"
-          : excludedSource
+          : excludedSource,
+        // Nested dependencies (`ajv/node_modules/fast-uri`) are part of the same
+        // approved vendored tree; without this the copy drops them and archify
+        // loses a runtime dependency on the next seed refresh.
+        vendoredDependencyTree: directory === "node_modules"
       }
     );
   }
   for (const file of ["LICENSE", "SKILL.md", "THIRD_PARTY_NOTICES.md", "package.json", "package-lock.json", "upstream.json"]) {
     await copyDistributionFile(path.join(archifySource, file), path.join(archifyTarget, file));
+  }
+}
+
+/**
+ * Count `SKILL.md` files below a directory, without following symlinks.
+ *
+ * @param {string} root
+ * @returns {Promise<number>}
+ */
+async function countSkillFiles(root) {
+  let total = 0;
+  const entries = await fs.readdir(root, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      total += await countSkillFiles(path.join(root, entry.name));
+    } else if (entry.isFile() && entry.name === "SKILL.md") {
+      total += 1;
+    }
+  }
+  return total;
+}
+
+/**
+ * Carry the vendored skill catalogues from the checkout into the staged seed.
+ *
+ * `copySkillSources` reads the owner's vault, which has never held these — they
+ * came from imports recorded in `THIRD_PARTY_NOTICES.md`. Without this step the
+ * refresh replaces the seed with a tree missing 3,084 skills, and the manifest
+ * it writes makes the loss look intentional.
+ *
+ * The source is the repository's own `docker/public-seed`, read before the
+ * output is replaced, so running with `--output` elsewhere still vendors from
+ * the checkout.
+ *
+ * @param {string} stage staged seed root
+ * @returns {Promise<void>}
+ */
+async function copyVendoredCatalogues(stage) {
+  const vendoredRoot = path.join(defaultOutput, "03-skills-catalog", "sources");
+  const stageRoot = path.join(stage, "03-skills-catalog", "sources");
+  const counts = {};
+  for (const { relative } of VENDORED_SEED_CATALOGUES) {
+    const source = path.join(vendoredRoot, relative);
+    const target = path.join(stageRoot, relative);
+    if (!(await fs.access(source).then(() => true).catch(() => false))) continue;
+    await copyDistributionTree(source, target, { exclude: excludedSource });
+    counts[relative] = await countSkillFiles(target);
+  }
+  const missing = missingVendoredCatalogues(counts);
+  if (missing.length > 0) {
+    const detail = missing
+      .map(({ relative, expected, found }) => `${relative} (${found} of ${expected})`)
+      .join(", ");
+    throw new Error(
+      `Public seed would drop vendored skill catalogues: ${detail}. `
+      + `They live in the checkout, not the vault; refusing to write a seed without them.`
+    );
   }
 }
 
@@ -220,6 +283,7 @@ async function createPublicSeed({ source, output, replace }) {
   try {
     await copyStaticFiles(vaultRoot, stage);
     await copySkillSources(vaultRoot, stage);
+    await copyVendoredCatalogues(stage);
     await writeCleanSeedDocuments(stage);
 
     const initialAudit = assertCleanDistribution(

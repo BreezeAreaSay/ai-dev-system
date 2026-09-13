@@ -424,6 +424,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Packaging refused to run for anyone who had used the system.** A server
+  without an Obsidian vault runs against the bundled seed and writes project
+  cards into it; the seed's own Python helpers leave bytecode behind. Git
+  ignores both, but `docker:prepare` copied the seed wholesale and the privacy
+  audit — rightly — refused to ship a project card, while `docker:seed:verify`
+  read the same files as seed drift. The context is now staged from the seed
+  manifest, which is what `docker:seed:verify` already blesses, and the verifier
+  skips the two generated zones. Measured on a polluted checkout: prepare goes
+  from a refusal to 1188 files, the same as a clean clone, and the verifier
+  reports `current` with 1040 files checked.
+
 - **The published image did not start.** `skill-import-policy.mjs` imports
   `public-distribution.mjs`, and the Docker context's allowlist excluded that
   module, so the container died on startup with `ERR_MODULE_NOT_FOUND` and the

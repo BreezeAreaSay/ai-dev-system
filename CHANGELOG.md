@@ -17,6 +17,18 @@ this release.
 
 **Highlights**
 
+- **A fresh clone no longer fails its own health check.** `git clone` →
+  `npm install` → `npm run setup` used to end in `Health: fail — 4 not passing`
+  on Linux and Windows alike: the Frontend QA runner threw where its optional
+  dependency was missing, the embedding check counted the Python environment
+  `--dense` builds as required, and one skill — `grill-me`, shipped here —
+  failed its own quality rules. Now `degraded — 2 not passing`, both warnings
+  naming a next step.
+- **macOS is tested, not assumed.** CI had three Linux jobs and one Windows job
+  and nothing for macOS. A `macos-latest` job now runs the unit tests, the
+  identity and hook tests, a first run and the seed check — and found a defect
+  on its first run.
+
 - **3,085 skills in the box.** The intent gate `grill-me`, the whole Membrane
   integration catalogue, and the Understand Anything codebase-graph skills — all
   MIT, each recorded in `THIRD_PARTY_NOTICES.md` with its revision. Routing is
@@ -42,15 +54,63 @@ this release.
 - The bundled seed now carries 3,227 skills. A deployment that pinned the old
   142 will see different routing candidates; `membrane_policy: "exclude"`
   restores the narrow behaviour.
-- `system_health` reports `embedding_backend` as `skipped`, not `fail`, when the
-  optional dense model was never downloaded. Anything treating a non-`ok` status
-  as an error should read the status rather than its absence.
+- **`system_health` reports two checks differently.** `embedding_backend` is
+  `skipped`, not `fail`, when the optional dense model was never downloaded, and
+  `frontend_qa_environment` is `skipped` when Playwright was never installed —
+  both are opt-in steps, and their absence is not a fault. A half-configured
+  Frontend QA (Playwright present, its browser missing) is still a warning, and
+  a missing shipped helper is still a failure. Anything treating a non-`ok`
+  status as an error should read the status rather than its absence.
 - `install_project_rules` with no explicit `targets` writes more files than
   before, chosen by what the machine already uses. Pass `targets` to pin it.
+- **Project memory keys change on machines where the home directory is reached
+  through a symlink or a short name** — every macOS install, and any Windows or
+  Linux one whose path is not canonical. They were wrong before: every project
+  under such a home shared one key. Memory written under the old key is not
+  migrated; sessions, instincts and handoffs recorded there start fresh.
 
 
 
 ### Fixed
+
+- **Every project under one home no longer shares a memory key.** The hook
+  compared a candidate `.ai-dev` against a runtime root that was one path
+  segment too deep, and then against one spelled differently — uncanonicalised,
+  so a home reached through a symlink (`/var/folders` on every macOS) or a
+  Windows 8.3 short name never matched. Either way the runtime directory went
+  back into the project-marker list and the walk stopped there. Session memory,
+  instincts and handoffs are keyed by that id, so notes from one project reached
+  an agent working on another, silently. Measured: two sibling projects both
+  hashing to `project-e24ca70e5358e2931b79` while the server told them apart.
+  The walk still runs to the filesystem root, so a `package.json` in a home
+  directory collapses everything below it the same way — recorded as Д-48 with
+  three possible answers rather than left implied.
+
+- **A correct install no longer reports itself broken.** The Frontend QA runner
+  ships but imports Playwright at module load, so on a clone that never ran
+  `--frontend-qa` the module-not-found escaped and became a failed check; the
+  embedding check listed only the weights as optional, though `--dense` also
+  builds the Python environment; and `grill-me` failed the quality rules this
+  project applies to every other skill — no trigger wording, no procedure of its
+  own, no statement of what the gate must produce. The card now carries all
+  three, and its findings went from four to zero.
+
+- **`npm run acceptance` reads both runner spellings.** Node 22 writes
+  `# fail 2`, Node 24 writes `ℹ fail 2`; reading only the first filed every
+  Node 24 run as "failed before the tests" — the one distinction the command
+  exists to make.
+
+- **`docker:seed:verify` tells line endings from corruption.** A checkout older
+  than `.gitattributes` keeps CRLF, and git does not rewrite files already on
+  disk when that rule arrives. 74 files were reported as differing content; each
+  was larger than its manifest entry by exactly its line count. The check now
+  names that case and prints the command that fixes it.
+
+- **`docker:audit` refuses a build context it cannot date.** It reads
+  `.docker/build-context`, which is local build output, and believed whatever it
+  found there — reporting a dangling import of a module this repository does not
+  carry. The manifest records `generated_at`, kept outside the content
+  fingerprint so the same tree still fingerprints identically.
 
 - **`npm run docker:seed` no longer deletes the vendored skill catalogues.** The
   seed is generated from the owner's vault through an explicit allowlist and

@@ -33,7 +33,10 @@ for all of these clients.
   and why.
 - **`npm run acceptance`.** Ten consecutive gate runs and the failure count,
   telling a failing test apart from a coverage reporter that fell over.
-- **Windows is a supported platform**, not a best-effort one.
+- **Linux, Windows and macOS are all tested**, not supported by assumption. CI
+  runs the suite on each, and a fresh clone reaches a healthy install on every
+  one: `git clone` → `npm install` → `npm run setup`, with the optional steps
+  reported as skipped rather than failed.
 
 ## What is included
 

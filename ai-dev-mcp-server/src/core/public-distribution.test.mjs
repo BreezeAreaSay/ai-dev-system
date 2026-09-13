@@ -6,6 +6,7 @@ import test from "node:test";
 import {
   assertCleanDistribution,
   auditDistributionTree,
+  buildContextStaleness,
   copyDistributionTree,
   missingVendoredCatalogues,
   VENDORED_SEED_CATALOGUES,
@@ -194,4 +195,32 @@ test("a nested node_modules survives inside an approved vendored tree", async ()
   );
 
   await fs.rm(root, { recursive: true, force: true });
+});
+
+test("a context generated after the newest source is not stale", () => {
+  const generatedAt = "2026-09-13T12:00:00.000Z";
+  const newestSourceMs = Date.parse("2026-09-13T11:00:00.000Z");
+  assert.deepEqual(buildContextStaleness({ generatedAt, newestSourceMs }), { stale: false, reason: "" });
+});
+
+test("a source newer than the context makes it stale, and the reason says both times", () => {
+  const result = buildContextStaleness({
+    generatedAt: "2026-09-13T11:00:00.000Z",
+    newestSourceMs: Date.parse("2026-09-13T12:00:00.000Z")
+  });
+  assert.equal(result.stale, true);
+  assert.match(result.reason, /2026-09-13T12:00:00\.000Z/);
+  assert.match(result.reason, /2026-09-13T11:00:00\.000Z/);
+});
+
+test("a context that cannot say when it was made is treated as stale", () => {
+  // Rather than trusted: an audit of an unknown tree reports findings about a
+  // tree nobody can identify, which is how `scripts/models.mjs` was reported
+  // as a dangling import of sources that never referenced it.
+  assert.equal(buildContextStaleness({}).stale, true);
+  assert.equal(buildContextStaleness({ generatedAt: "not a date", newestSourceMs: 1 }).stale, true);
+});
+
+test("an unreadable source tree does not make a dated context stale", () => {
+  assert.equal(buildContextStaleness({ generatedAt: "2026-09-13T11:00:00.000Z" }).stale, false);
 });

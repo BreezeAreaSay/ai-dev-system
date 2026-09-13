@@ -36,5 +36,11 @@ docker/public-seed/01-system/system-dashboard.json
 # Generated live-state (machine-specific absolute paths); regenerated locally by
 # `node scripts/ai-dev.mjs distribution` and the project-prep MCP tools.
 runtime-distribution.json
-.ai-dev/project-brief.md
-.ai-dev/project-map.md
+
+# Running the server against this repository writes its own runtime state here:
+# plans, decisions, context, the quality gate, prepared pull requests, git hooks
+# and caches. None of it is tracked, and all of it carries machine-specific
+# paths. Anchored to the root on purpose — an unanchored `.ai-dev/` would also
+# swallow `frontend-qa/fixtures/**/.ai-dev/`, where fixture files ARE tracked,
+# and quietly ignore any new one.
+/.ai-dev/

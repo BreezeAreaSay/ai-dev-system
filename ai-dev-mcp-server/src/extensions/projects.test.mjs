@@ -63,10 +63,14 @@ test("the extension exposes one tool, and it is not read-only", () => {
 });
 
 test("a missing gate file names the path it looked for", async () => {
-  const { registry } = createFixture({ exists: false });
+  const { host, registry } = createFixture({ exists: false });
+  // Asked of the same host the code asks, so the assertion carries no opinion
+  // about separators. Spelling the path here by hand passed on POSIX and
+  // failed on Windows, where `path.join` had rebuilt it with backslashes.
+  const probed = host.safeProjectFile(await host.safeProjectRoot("atlas"), ".ai-dev/quality-gate.md");
   await assert.rejects(
     () => call(registry, { project_path: "atlas" }),
-    /Quality gate file not found: \/repo\/atlas\/\.ai-dev\/quality-gate\.md/
+    (error) => error.message === `Quality gate file not found: ${probed}`
   );
 });
 

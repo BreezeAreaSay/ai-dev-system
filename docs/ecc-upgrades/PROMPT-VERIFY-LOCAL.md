@@ -8,6 +8,9 @@
 2. Если что-то упало — **не чини молча и не обходи**. Запиши команду, вывод, и только потом предлагай.
 3. Если не смог проверить — так и напиши: «не проверено, потому что…». Выдумывать результат нельзя.
 4. В конце обязательна строка вида **«N падений из 10»**. Один зелёный прогон — не доказательство.
+5. **Ничего не чини.** Этот прогон собирает данные. Правки делаю я — иначе мы разойдёмся деревьями.
+6. Длинные выводы сохраняй в файлы и присылай их целиком, а не хвост:
+   `npm run check *> check.txt`, `node --test ... *> identity.txt` (PowerShell: `*>` ловит и stderr).
 
 ## Шаг 0а. Найти нужный репозиторий — не пропускай этот шаг
 
@@ -65,7 +68,7 @@ git log --oneline -1
 поломка. Ожидаемо изменённые или новые: `.ai-dev/plans/*`, `.ai-dev/project-map.md`,
 `.ai-dev/quality-gate.md`, `03-skills-catalog/registries/*`. Их не трогай.
 
-Ожидаю: последний коммит — `Stop the seed refresh from deleting the skills it ships`
+Ожидаю: последний коммит — `Stop the docker audit from judging a context it cannot date`
 (или новее). Напиши, какой хеш получился.
 
 ## Шаг 1. Первый запуск
@@ -118,7 +121,7 @@ node -e "import('./src/mcp-stdio.mjs').then(m=>m.callTool('search_index_status',
 npm run check
 ```
 
-Ожидаю: `# fail 0`, около 951 теста, покрытие не ниже 85/60/85. Покажи строки `# tests`,
+Ожидаю: `# fail 0`, около 967 тестов, покрытие не ниже 85/60/85. Покажи строки `# tests`,
 `# pass`, `# fail`, `# skipped` и строку покрытия.
 
 ```
@@ -126,6 +129,10 @@ npm run acceptance
 ```
 
 Это гоняет `npm run check` десять раз и сам печатает строку «N падений из 10». Скопируй её.
+
+**В прошлый прогон эта команда умирала на run 1/10 с `spawn npm ENOENT`** — она запускала `npm`
+без оболочки, а на Windows это `npm.cmd`. Починено. Если ENOENT повторится — это откат правки,
+скажи сразу и приложи вывод целиком.
 Если падения есть — для каждого напиши, какого оно рода: `tests failed` (упал тест — это
 про код) или `coverage reporter` (не про код). Команда их различает сама.
 
@@ -135,13 +142,27 @@ npm run acceptance
 ## Шаг 4. Сборка раздачи — то, что уезжает к пользователям
 
 ```
+npm run docker:prepare
 npm run docker:seed:verify
 npm run docker:audit
 npm run packaging:check
 npm run docs:tools:check
 ```
 
-Все четыре должны дать `"status": "current"` или `"passed"`. Покажи вывод.
+**`docker:prepare` идёт первым и это не лишнее.** `docker:audit` читает `.docker/build-context` —
+локальный артефакт прошлой сборки. В прошлый прогон он у тебя пожаловался на импорт
+`scripts/models.mjs`: такого модуля в репозитории нет и никто его не импортирует — аудит судил о
+дереве, которого больше нет. Теперь он это ловит сам и говорит `context is stale`; если скажет —
+значит `docker:prepare` не отработал, покажи его вывод.
+
+Остальные три должны дать `"status": "current"` или `"passed"`. Покажи вывод всех.
+
+**Если `docker:seed:verify` снова скажет «N problems» — сохрани его вывод целиком в файл и
+пришли.** В прошлый раз было 74 проблемы, а список файлов не дошёл; без него причину не найти:
+
+```
+npm run docker:seed:verify *> seed-verify.txt
+```
 
 Теперь отдельно проверь, что пересборка сида **не теряет** скиллы (это чинилось только что):
 
@@ -182,22 +203,42 @@ node -e "import('./src/mcp-stdio.mjs').then(m=>m.callTool('install_project_rules
 
 ## Шаг 6. Маршрутизация скиллов — проверь враждебно
 
-Задай задачу **по-английски** и убедись, что импортированные скиллы вообще достижимы:
+Эти четыре задачи проверяют две правки: раньше имя скилла искалось **вхождением подстроки**
+(слово «deploy» содержало `eploy` — британскую ATS — и та лезла в выдачу), и составное имя
+считалось названным по одной своей части («message» называл `message-bird`).
 
+Создай в `ai-dev-mcp-server` файл `routing-probe.mjs`:
+
+```js
+import { callTool } from "./src/mcp-stdio.mjs";
+const tasks = [
+  "set up a Slack notification integration for our deploy pipeline",
+  "send a message to a Slack channel from our app",
+  "send a notification through gmail when the build fails",
+  "исправь падающий тест в модуле авторизации"
+];
+for (const task of tasks) {
+  const r = await callTool("recommend_skills", { task });
+  const arr = JSON.parse(r.content.find((c) => c.type === "text").text);
+  console.log("\n### " + task);
+  for (const s of arr) console.log("   ", String(s.name).padEnd(32), "|", String(s.source).padEnd(18), "| score", s.score);
+}
+process.exit(0);
 ```
-node -e "import('./src/mcp-stdio.mjs').then(m=>m.callTool('recommend_skills',{task:'set up a Slack notification integration for our deploy pipeline'})).then(r=>console.log(r.content[0].text))"
-```
 
-Ожидаю: среди предложенного появляется интеграционный скилл Slack.
+и запусти `node routing-probe.mjs`. Потом удали файл.
 
-Теперь обратная проверка — задача, которая приложение **не называет**:
+Сверь с ожидаемым — **важны и присутствия, и отсутствия**:
 
-```
-node -e "import('./src/mcp-stdio.mjs').then(m=>m.callTool('recommend_skills',{task:'исправь падающий тест в модуле авторизации'})).then(r=>console.log(r.content[0].text))"
-```
+| задача | обязан быть | обязан ОТСУТСТВОВАТЬ |
+| --- | --- | --- |
+| Slack + deploy pipeline | `slack` | `eploy`, `octopus-deploy` |
+| message в Slack | `slack` | `message-bird` |
+| gmail | `gmail` | — |
+| русская про тест | — | любой `external/membrane` |
 
-Ожидаю: интеграционных скиллов в ответе **нет**. Если они лезут в каждую задачу — это поломка,
-скажи мне.
+Если в выдаче появился `eploy`, `octopus-deploy` или `message-bird` — правка не доехала или
+откатилась, скажи сразу и приложи весь вывод.
 
 Проверь, что гейт намерения на месте:
 
@@ -214,6 +255,128 @@ npm run verify:cursor
 Команда напечатает по шагам, что нужно нажать в живом Cursor и что должно получиться.
 **Сделай это руками в настоящем Cursor**, дважды, и напиши, совпало ли поведение с описанным.
 Это нельзя проверить кодом — поэтому долг и висит открытым.
+
+## Шаг 7б. Демон — новое, проверь отдельно
+
+Сервер теперь умеет жить одним тёплым процессом на локальном сокете вместо отдельного
+stdio-процесса на каждого клиента. На Windows это именованный канал. `npm start` не изменился,
+демон — отдельный путь.
+
+Запусти его в **отдельном окне** и не закрывай:
+
+```
+npm run daemon
+```
+
+В другом окне проверь, что он поднялся и опубликовал себя:
+
+```
+Get-Content $env:USERPROFILE\.ai-dev\run\daemon.json
+```
+
+Ожидаю JSON с `pid`, `version`, `address` и `started_at`. `address` на Windows должен быть
+именованным каналом вида `\\.\pipe\ai-dev-<твоё имя пользователя>`.
+
+Теперь поговори с ним настоящим MCP. Создай файл `daemon-probe.mjs` **внутри каталога
+`ai-dev-mcp-server`** — он импортирует модуль по относительному пути, из другого места не
+заработает:
+
+```js
+import net from "node:net";
+import { socketAddress } from "./src/core/runtime-paths.mjs";
+
+const socket = net.connect(socketAddress());
+await new Promise((r) => socket.once("connect", r));
+const call = (payload) => new Promise((resolve) => {
+  let buf = "";
+  const onData = (c) => {
+    buf += c.toString();
+    const nl = buf.indexOf("\n");
+    if (nl >= 0) { socket.off("data", onData); resolve(JSON.parse(buf.slice(0, nl))); }
+  };
+  socket.on("data", onData);
+  socket.write(JSON.stringify(payload) + "\n");
+});
+const init = await call({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "probe", version: "0" } } });
+console.log("сервер:", init.result?.serverInfo, "инструкций символов:", (init.result?.instructions || "").length);
+socket.write(JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" }) + "\n");
+const tools = await call({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} });
+console.log("инструментов:", tools.result?.tools?.length);
+socket.end();
+process.exit(0);
+```
+
+и запусти: `node daemon-probe.mjs`
+
+Ожидаю: сервер `ai-dev-system`, около 1000 символов инструкций, **133** инструмента.
+Если инструментов меньше или инструкции пустые — скажи мне.
+
+Проверь, что второй демон не крадёт сокет: в третьем окне запусти `npm run daemon` ещё раз.
+Он обязан сразу завершиться, не заняв канал. Первый при этом должен продолжать отвечать —
+прогони пробу снова.
+
+Потом первый демон останови (Ctrl+C) и убедись, что он за собой прибрал:
+
+```
+Test-Path $env:USERPROFILE\.ai-dev\run\daemon.json
+Test-Path $env:USERPROFILE\.ai-dev\run\daemon.lock
+```
+
+Оба должны дать `False`. Удали `daemon-probe.mjs`.
+
+**Если демон не запускается или проба не отвечает — это важнее всего остального в отчёте.**
+На Windows он проверялся только счётом, живого запуска на этой платформе ещё не было.
+
+## Шаг 7в. Два незакрытых дефекта — собери сырые данные
+
+Эти два теста падают у тебя и **не воспроизводятся** на Linux, поэтому починить их вслепую
+нельзя. Нужен полный текст ошибки, а не имена тестов.
+
+```
+node --test src/core/project-identity.test.mjs *> identity.txt
+```
+
+Пришли `identity.txt` **целиком**. Мне нужны блоки `AssertionError` с полями `actual` и
+`expected` — именно они скажут, в чём дело. Падать должны два:
+
+- `the hook and the server agree on a project reached through another spelling of its path`
+- `projects outside Git fall back to the project id as their memory key`
+
+Дополнительно ответь на три вопроса — они отсекают мои гипотезы:
+
+1. Создаётся ли на этой машине junction без прав администратора? Проверь так:
+
+```
+$t = Join-Path $env:TEMP ("jtest-" + [guid]::NewGuid())
+New-Item -ItemType Directory -Path "$t\real" -Force | Out-Null
+New-Item -ItemType Junction -Path "$t\alias" -Target "$t\real" -ErrorAction Continue
+Test-Path "$t\alias"
+Remove-Item -Recurse -Force $t
+```
+
+Напиши, что вернул `Test-Path`: `True` или `False`.
+
+2. Что показывает `git` во временном каталоге (не должно найти репозиторий):
+
+```
+$t = Join-Path $env:TEMP ("gtest-" + [guid]::NewGuid())
+New-Item -ItemType Directory -Path $t -Force | Out-Null
+Push-Location $t; git rev-parse --show-toplevel; git rev-parse --git-dir; Pop-Location
+Remove-Item -Recurse -Force $t
+```
+
+Приведи вывод целиком, включая текст ошибки, если git ругается.
+
+3. Куда указывает `$env:TEMP` и совпадает ли он с тем, что видит Node:
+
+```
+echo $env:TEMP
+node -e "const os=require('os'),fs=require('fs');console.log(os.tmpdir());console.log(fs.realpathSync.native(os.tmpdir()))"
+```
+
+Меня интересует, отличается ли короткое имя (8.3) от полного.
+
+Удали `identity.txt` только после того, как пришлёшь.
 
 ## Шаг 8. Сценарий чистого пользователя
 
@@ -240,9 +403,19 @@ npm run check
 1. Хеш коммита, на котором проверял.
 2. Какой корень знаний выбрал сервер у меня и сколько скиллов увидел.
 3. Сколько скиллов увидел чистый клон.
-4. Строку «N падений из 10».
-5. Список всего, что упало или повело себя не так, как написано выше — с сырым выводом.
-6. Отдельно: что проверить не удалось и почему.
+4. Строку «N падений из 10» — и дошёл ли `acceptance` до десяти прогонов вообще.
+5. Поднялся ли демон на Windows, сколько инструментов отдал по каналу, прибрался ли за собой.
+6. Таблицу маршрутизации из шага 6: что появилось и, главное, что **не** появилось.
+7. Список всего, что упало или повело себя не так, как написано выше — с сырым выводом.
+8. Отдельно: что проверить не удалось и почему.
+
+**Обязательно приложи файлами**, даже если считаешь, что там всё в порядке:
+
+- `identity.txt` — полный вывод `node --test src/core/project-identity.test.mjs`;
+- `seed-verify.txt` — если `docker:seed:verify` пожаловался;
+- `check.txt` — если `npm run check` дал хоть одно падение.
+
+И ответы на три вопроса из шага 7в (junction, git во временном каталоге, короткое имя TEMP).
 
 Если всё зелёное — так и напиши, но с выводом команд. Если нашёл плохое — это полезнее
-зелёного отчёта, не сглаживай.
+зелёного отчёта, не сглаживай. Ничего не чини: этот прогон собирает данные.

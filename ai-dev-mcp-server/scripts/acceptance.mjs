@@ -19,6 +19,7 @@ import {
   renderAcceptanceReport,
   summarizeAcceptanceRun
 } from "../src/core/acceptance.mjs";
+import { resolveSpawnInvocation } from "../src/core/process-runner.mjs";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -34,10 +35,22 @@ function parseArgs(argv) {
   return options;
 }
 
-/** One `npm run check`, with its output captured rather than streamed. */
-function runCheck(logFile) {
+/**
+ * One `npm run check`, with its output captured rather than streamed.
+ *
+ * The command goes through `resolveSpawnInvocation` because on Windows `npm`
+ * is `npm.cmd`, and Node refuses to spawn a `.cmd` without a shell — plain
+ * `spawn("npm", …)` dies with `ENOENT` before the first run finishes. The
+ * resolver rewrites it to `node <npm-cli.js>`, which needs no shell and so
+ * carries no quoting risk.
+ *
+ * @param {string} logFile - Where this run's combined output is written.
+ * @param {{ executable: string, args: string[] }} invocation - From `resolveSpawnInvocation`.
+ * @returns {Promise<{ exitCode: number, output: string }>}
+ */
+function runCheck(logFile, invocation) {
   return new Promise((resolve, reject) => {
-    const child = spawn("npm", ["run", "check"], { cwd: serverRoot, windowsHide: true });
+    const child = spawn(invocation.executable, invocation.args, { cwd: serverRoot, windowsHide: true });
     const chunks = [];
     child.stdout.on("data", (chunk) => chunks.push(chunk));
     child.stderr.on("data", (chunk) => chunks.push(chunk));
@@ -62,12 +75,22 @@ if (options.help) {
   process.exit(0);
 }
 
+// Resolved once: the answer cannot change between runs, and failing here says
+// so before ten runs are announced rather than during the first one.
+let invocation;
+try {
+  invocation = await resolveSpawnInvocation("npm", ["run", "check"]);
+} catch (error) {
+  console.error(String(error?.message ?? error));
+  process.exit(2);
+}
+
 const logDir = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-acceptance-"));
 const runs = [];
 for (let index = 1; index <= options.runs; index += 1) {
   const started = Date.now();
   process.stdout.write(`run ${index}/${options.runs} … `);
-  const result = await runCheck(path.join(logDir, `run-${index}.log`));
+  const result = await runCheck(path.join(logDir, `run-${index}.log`), invocation);
   const summary = { ...summarizeAcceptanceRun(result), duration_ms: Date.now() - started };
   runs.push(summary);
   process.stdout.write(`${summary.ok ? "ok" : summary.kind} (${(summary.duration_ms / 1000).toFixed(0)}s)\n`);

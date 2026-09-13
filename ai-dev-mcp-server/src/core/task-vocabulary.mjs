@@ -114,6 +114,25 @@ export function taskConcepts(task) {
 /** What a task naming the skill outright is worth, against SPECIALIST_MIN_SCORE. */
 export const NAME_MATCH_SCORE = 6;
 
+/**
+ * Does the task name this skill outright?
+ *
+ * Substring containment was the old test, and with 3,074 short product names a
+ * collision is not a corner case: "our deploy pipeline" contains "eploy", a UK
+ * recruitment system, which then scored as though the task had asked for it by
+ * name. Hyphens become spaces on both sides so a task writing "google drive"
+ * still names `google-drive`.
+ *
+ * @param {string} task
+ * @param {string} name - Skill name, as the registry spells it.
+ * @returns {boolean}
+ */
+export function taskNamesSkill(task, name) {
+  const phrase = String(name ?? "").toLowerCase().replaceAll("-", " ").trim();
+  if (phrase.length < 2) return false;
+  return wholeWord(phrase, String(task ?? "").toLowerCase().replaceAll("-", " "));
+}
+
 /** `term` as a whole word in `text`, hyphens and dots included in the word. */
 function wholeWord(term, text) {
   const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -258,6 +277,19 @@ export function specialistMatchScore(item, terms) {
     (item?.languages ?? []).join(" ")
   ].join(" ").toLowerCase();
   const name = String(item?.name ?? "").toLowerCase().replaceAll("-", " ");
+  // A compound name is only "named outright" when the task carries every part
+  // of it. Hyphens become spaces above so "google drive" can find
+  // `google-drive`; left unguarded that same rewrite let one component stand
+  // for the whole name, and a task saying "deploy pipeline" counted as naming
+  // `octopus-deploy` while "send a message" named `message-bird`. Measured: on
+  // "set up a Slack notification integration for our deploy pipeline",
+  // octopus-deploy scored 14 against slack's 13 and took the specialist slot
+  // the task had named Slack for.
+  const nameParts = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const termSet = new Set(terms);
+  const namedOutright = nameParts.length > 0
+    && nameParts.every((part) => termSet.has(part))
+    && nameParts.some((part) => part.length >= 4 && !FUNCTION_WORDS.has(part));
   const matched = [];
   const excludedTerms = [];
   let score = 0;
@@ -287,7 +319,7 @@ export function specialistMatchScore(item, terms) {
       // through gmail" shares one meaningful word with the `gmail` skill and
       // nothing else, which no situation-overlap threshold will ever clear.
       // A partial match inside a longer name stays worth what it was.
-      if (term.length >= 4 && !FUNCTION_WORDS.has(term) && wholeWord(term, name)) {
+      if (namedOutright && term.length >= 4 && !FUNCTION_WORDS.has(term) && wholeWord(term, name)) {
         score += NAME_MATCH_SCORE;
         nameMatch = true;
       } else {

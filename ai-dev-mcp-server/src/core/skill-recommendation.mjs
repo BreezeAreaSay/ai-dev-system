@@ -29,7 +29,7 @@ import {
   isVisualHeavySkill,
   skillKey
 } from "./skill-catalog.mjs";
-import { declaredStackTerms, expandTaskVocabulary, specialistMatchScore, stackAlignment } from "./task-vocabulary.mjs";
+import { declaredStackTerms, expandTaskVocabulary, specialistMatchScore, stackAlignment, taskNamesSkill } from "./task-vocabulary.mjs";
 import { scoreText, toStringList } from "./text-format.mjs";
 import { canonicalSkillGroup, inferTaskSkillGroups } from "../skill-taxonomy.mjs";
 import { SKILL_SCHEMA_VERSION } from "../skill-quality.mjs";
@@ -534,7 +534,10 @@ export function recommendSkillsFromRegistry({
         item.use_when ?? "",
         membrane ? "" : (item.requires ?? []).join(" ")
       ]);
-      const exactName = String(item.name || "").length > 1 && String(task).toLowerCase().includes(String(item.name).toLowerCase());
+      // Whole words, not containment: `taskNamesSkill` exists because "deploy"
+      // contained "eploy" and handed a recruitment system +24 and a pass
+      // through the membrane floor.
+      const exactName = taskNamesSkill(task, item.name);
       if (exactName) score += 24;
       if (item.source === "custom") score += 4;
       if (score > 0 && routedGroupSet.has(item.primary_group)) score += 6;

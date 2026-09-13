@@ -77,7 +77,10 @@ async function runQualityGate(host, {
   const projectRoot = await host.safeProjectRoot(project_path);
   const gatePath = host.safeProjectFile(projectRoot, QUALITY_GATE_RELATIVE_PATH);
   if (!(await host.pathExists(gatePath))) {
-    throw new Error(`Quality gate file not found: ${path.join(projectRoot, ".ai-dev", "quality-gate.md")}`);
+    // The path that was probed, not one rebuilt from its parts: `path.join`
+    // spells separators the host may not have used, so on Windows the message
+    // named a file the code never looked at.
+    throw new Error(`Quality gate file not found: ${gatePath}`);
   }
 
   const startedAt = new Date().toISOString();

@@ -255,25 +255,83 @@ docker compose \
 
 ## Локальная BGE-M3
 
-Базовый образ работает со sparse/FTS-поиском без тяжелой ML-модели. Для образа с Python
-зависимостями BGE-M3:
+Модель — не дополнение, а половина поиска: без неё остаётся совпадение по словам, с ней
+появляется совпадение по смыслу. В контейнере она работает, но образ не несёт ни того, ни
+другого её куска — по разным причинам.
+
+**Python-часть выключена по умолчанию**, чтобы не платить установкой те, кто ею не пользуется.
+Включается аргументом сборки:
 
 ```bash
+npm --prefix ai-dev-mcp-server run docker:prepare
 docker build \
   --build-arg INSTALL_BGE_M3=1 \
   --tag ai-dev-system:bge \
   .docker/build-context
 ```
 
-Веса модели не встраиваются. Укажите отдельный локальный каталог:
+Аргумент строит виртуальное окружение в `/opt/ai-dev/embeddings/.venv` — ровно там, где сервер
+его и ищет.
+
+**Весов в образе нет никогда.** Это ~2.3 ГБ, и они ваши, а не дистрибутива. Скачиваются один
+раз на хосте:
+
+```bash
+cd ai-dev-mcp-server
+npm run setup -- --dense
+```
+
+Каталог по умолчанию — `~/.ai-dev/models/bge-m3`, переопределяется через `BGE_M3_MODEL_DIR`.
+
+### Запуск с моделью
+
+Лаунчером:
 
 ```bash
 export AI_DEV_IMAGE="ai-dev-system:bge"
-export AI_DEV_MODEL_PATH="/absolute/path/to/bge-m3"
+export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models/bge-m3"
+export AI_DEV_PROJECT_PATH="/absolute/path/to/project"
 sh ./docker/run-mcp.sh
 ```
 
-Каталог модели подключается read-only в `/models/bge-m3`.
+Через Compose — раскомментируйте монтирование модели в своём `compose.local.yaml`
+(в `compose.local.example.yaml` оно уже есть, с той же переменной):
+
+```bash
+export AI_DEV_IMAGE="ai-dev-system:bge"
+export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models/bge-m3"
+docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
+```
+
+Оба способа подключают каталог read-only в `/models/bge-m3` — туда же смотрит
+`BGE_M3_MODEL_DIR` внутри образа. `network_mode: none` этому не мешает: помощники выставляют
+`TRANSFORMERS_OFFLINE=1` и `HF_HUB_OFFLINE=1` до загрузки модели и в сеть не ходят.
+
+### Образ с весами внутри
+
+Если модель должна быть в самом образе — машина без сети, раздача команде, — это ваша сборка
+поверх нашей, четыре строки:
+
+```dockerfile
+# Dockerfile.bge
+FROM ai-dev-system:bge
+COPY --chown=node:node bge-m3/ /models/bge-m3/
+```
+
+```bash
+docker build -f Dockerfile.bge -t ai-dev-system:bge-bundled "$HOME/.ai-dev/models"
+```
+
+Ни тома, ни переменной такому образу не нужно: `/models/bge-m3` уже на месте. Публикуемый
+образ при этом остаётся маленьким — веса не попадают ни в allowlist-контекст, ни в GHCR.
+
+### Как убедиться
+
+В диагностике (`npm --prefix ai-dev-mcp-server run -s doctor`) смотрите проверку
+`embedding_backend`: без модели — `skipped` с названием нужной команды, с моделью — `ok`.
+Подробности даёт инструмент `embedding_status`: четыре записи в `availability` должны быть
+`exists: true` — `embeddings_python`, `model_dir`, `model_file`, `modules_file`. Первая ложная
+означает образ без `INSTALL_BGE_M3=1`, остальные — что том с весами не подключён.
 
 ## GHCR
 

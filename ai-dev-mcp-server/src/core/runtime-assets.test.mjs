@@ -47,7 +47,7 @@ test("a vault keeps its own layout, and nothing else is consulted", () => {
 test("a checkout with no vault answers from the repository root", () => {
   // What a clone of this repository actually looks like: the helper trees are
   // in the root, and the seed the vault falls back to has no 09-mcp at all
-  // (docs/ecc-upgrades/DEBTS.md — the search helper could never be found).
+  // (docs/DEFECTS.md — the search helper could never be found).
   const assets = resolveRuntimeAssets({
     vaultRoot: "/repo/docker/public-seed",
     repositoryRoot: "/repo",

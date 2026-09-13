@@ -467,7 +467,7 @@ export function compileRegex(source, flags = "i") {
  * A pattern that backtracks catastrophically cannot be interrupted on this
  * thread, and one such rule in `.ai-dev/policy.json` stalls the guard on every
  * Bash command and every file write: `(a|a)+$` against twenty-eight characters
- * takes 38.8 seconds (docs/ecc-upgrades/DEBTS.md, Д-16). The server refuses to
+ * takes 38.8 seconds (docs/DEFECTS.md, Д-16). The server refuses to
  * write such a rule, but nothing stops a hand edit, so the guard never trusts
  * the pattern either: it matches in a worker thread it can kill.
  *
@@ -477,7 +477,7 @@ export function compileRegex(source, flags = "i") {
 export const POLICY_MATCH_BUDGET_MS = 250;
 // One deadline for the whole event on top of the per-rule budget. Thirty slow
 // rules used to cost thirty budgets — 8.7 seconds measured, against a client
-// that abandons a hook at ten (docs/ecc-upgrades/DEBTS.md, Д-22) — so the rules
+// that abandons a hook at ten (docs/DEFECTS.md, Д-22) — so the rules
 // the deadline cuts off are reported as unchecked instead of being run.
 export const POLICY_MATCH_DEADLINE_MS = 1000;
 export const POLICY_MATCH_MAX_INPUT = 4096;

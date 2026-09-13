@@ -60,13 +60,17 @@ for all of these clients.
 
 ## Requirements
 
-For the Docker path:
+To run it locally — the path this page recommends — you need Node.js 22.12+ and
+npm, and nothing else. On Windows you can use the bundled runtime described in
+the [server README](ai-dev-mcp-server/README.md).
+
+For the packaged path you need Docker instead:
 
 - Docker Desktop (Windows / macOS) or Docker Engine (Linux); bootstrap can install it;
 - Docker must have access to the project folder you choose.
 
-To run from source you additionally need Node.js 22.12+ and npm. On Windows you can
-use the bundled runtime described in the [server README](ai-dev-mcp-server/README.md).
+## Quick start: run it locally
+
 From the clone root:
 
 ```bash
@@ -82,7 +86,25 @@ local BGE-M3 model and the embeddings built with it (~2.3 GB); neither runs
 unless asked. No Obsidian vault is needed: without one the server reads the
 bundled seed and its helper trees from the repository itself.
 
+Then point your MCP client at `ai-dev-mcp-server/src/server.mjs` — see
+[Connecting AI agents](#connecting-ai-agents). That is the whole install.
+
+Two ways to run it, and they speak the same protocol:
+
+| | |
+| --- | --- |
+| `npm start` | One stdio process per client. The default, and what the client configurations below launch. |
+| `npm run daemon` | One warm process on a local socket (a named pipe on Windows) serving every client, so the search index and the embedding model load once instead of per connection. |
+
+**Why local first.** The dense model is the reason. Locally it is one flag —
+`npm run setup -- --dense` — and it lands in `~/.ai-dev`. In the published image
+it is off (`INSTALL_BGE_M3=0`), so getting it there means building your own
+image variant and mounting `/models`.
+
 ## One command on Windows
+
+This is the packaged path: the script installs Docker and pulls the image. For
+the local path see [Quick start: run it locally](#quick-start-run-it-locally).
 
 After `git clone`, open PowerShell in the clone root and run:
 
@@ -119,6 +141,9 @@ passwords, folder contents, or your profile are written to Git. Restart the AI
 client afterwards.
 
 ## One command on macOS and Linux
+
+Also the packaged path. For the local one see
+[Quick start: run it locally](#quick-start-run-it-locally).
 
 If Docker is already installed and running:
 
@@ -178,7 +203,14 @@ To develop the image itself, use explicit local mode:
 sh ./bootstrap.sh --build-local
 ```
 
-## Quick start: Docker
+## The packaged path: Docker
+
+Choose this when you want the system on a machine that should not hold a
+personal vault, or when a team needs one image everybody runs the same way. The
+image carries no vault, passwords, tokens, projects or task history. It is not
+the faster path to a working install on your own machine — that is the local one
+above — and the local dense model is off by default in it.
+
 
 ### 1. Get the image
 
@@ -616,10 +648,10 @@ root filesystem, no Linux capabilities, and `no-new-privileges`.
 If a project genuinely needs internet access during verification, set
 `AI_DEV_DOCKER_NETWORK=bridge` deliberately for that run only.
 
-## Docker Compose and BGE-M3
+## Docker Compose
 
-For Compose, copy `docker/compose.local.example.yaml` to
-`docker/compose.local.yaml`, set a local `AI_DEV_PROJECT_PATH`, and run:
+Copy `docker/compose.local.example.yaml` to `docker/compose.local.yaml`, set a
+local `AI_DEV_PROJECT_PATH`, and run:
 
 ```bash
 docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
@@ -628,16 +660,109 @@ docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T a
 `compose.local.yaml` and `docker/.env` are Git-ignored because they can contain
 local paths.
 
-For more accurate semantic search you can build a variant with BGE-M3:
+## The local model in a container
+
+Hybrid search has two halves: keyword matching, which works everywhere with no
+setup, and dense retrieval on the local BGE-M3 model, which is what makes a
+search understand a question rather than match its words. The container can run
+both. It takes two things the image does not ship, for two different reasons.
+
+**The Python side is off by default** — building it into every image would cost
+everyone the install whether they use it or not. Turn it on with a build
+argument:
 
 ```bash
+npm --prefix ai-dev-mcp-server run docker:prepare
 docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker/build-context
 ```
 
-The model weights are not embedded in the image. Mount your own local folder via
-`AI_DEV_MODEL_PATH`; the launcher attaches it read-only as `/models/bge-m3`. See
-[the server README](ai-dev-mcp-server/README.md#semantic-search-bge-m3) for how to
-download the weights when running from source.
+**The weights are never in the published image.** They are ~2.3 GB and they are yours, not
+the distribution's — an image carrying them would be a 2.3 GB pull for every
+user and a licence question for the publisher. Download them once on the host:
+
+```bash
+cd ai-dev-mcp-server
+npm run setup -- --dense
+```
+
+They land in `~/.ai-dev/models/bge-m3` (override with `BGE_M3_MODEL_DIR`). That
+same folder then mounts into the container read-only — the container reads the
+weights and never writes them.
+
+### Running it, either way
+
+With the launcher scripts:
+
+```bash
+export AI_DEV_IMAGE=ai-dev-system:bge
+export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models/bge-m3"
+export AI_DEV_PROJECT_PATH="/absolute/path/to/your/project"
+sh docker/run-mcp.sh
+```
+
+With Compose, uncomment the model mount in your `compose.local.yaml` — the
+example file carries it with the same variable — and run:
+
+```bash
+export AI_DEV_IMAGE=ai-dev-system:bge
+export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models/bge-m3"
+docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
+```
+
+Both attach the folder at `/models/bge-m3`, which is where `BGE_M3_MODEL_DIR`
+points inside the image. `compose.yaml` runs with `network_mode: none`, and that
+does not get in the way: the embedding helpers set `TRANSFORMERS_OFFLINE=1` and
+`HF_HUB_OFFLINE=1` before loading, so the model is read from the mount and
+nothing reaches for the network. It is also why the weights have to arrive by
+mount rather than by a download inside the container.
+
+### If you want the weights inside the image
+
+Mounting keeps the published image small, which is right for the default. It is
+not right for every deployment: an air-gapped machine, or an image handed to a
+team that should not each download 2.3 GB, wants the model baked in. That is
+your build, not the distribution's, and it is four lines:
+
+```dockerfile
+# Dockerfile.bge — build it from the folder holding the weights
+FROM ai-dev-system:bge
+COPY --chown=node:node bge-m3/ /models/bge-m3/
+```
+
+```bash
+docker build -f Dockerfile.bge -t ai-dev-system:bge-bundled "$HOME/.ai-dev/models"
+```
+
+The result needs no mount and no variable: `/models/bge-m3` is already there,
+which is what `BGE_M3_MODEL_DIR` points at. Everything else — `network_mode:
+none`, the read-only root filesystem, the unprivileged user — stays as it was.
+
+### Checking that it worked
+
+Ask the running server for a diagnostic. The check to read is
+`embedding_backend`: without the model it reports `skipped` and says what to
+run, and with it `ok`.
+
+```bash
+npm --prefix ai-dev-mcp-server run -s doctor
+```
+
+For the detail behind that one line, the `embedding_status` tool lists what
+dense retrieval needs and whether each part is there. Four entries under
+`availability` have to read `exists: true` — `embeddings_python`, `model_dir`,
+`model_file` and `modules_file` — and in a container `paths.model_dir` should
+read `/models/bge-m3` and `paths.embeddings_python`
+`/opt/ai-dev/embeddings/.venv/bin/python`. Anything false there names the half
+that is missing: the interpreter means the image was built without
+`INSTALL_BGE_M3=1`, the model files mean the mount did not arrive.
+
+Then `search_index_status` reports `dense_documents` against
+`dense_pending_documents`: a fresh index has vectors for none of its documents
+until `npm run setup -- --dense` has embedded them.
+
+Running from source instead? Then none of this applies: `npm run setup --
+--dense` is the whole of it. See
+[the server README](ai-dev-mcp-server/README.md#semantic-search-bge-m3).
 
 ## Publishing for a team
 
@@ -714,9 +839,10 @@ Architecture and the full tool list: [ai-dev-mcp-server/README.md](ai-dev-mcp-se
 
 ## Contributing
 
-The improvement plan and the ECC-derived upgrade notes (rationale, wiring, tool examples) live in
-[docs/ecc-upgrades/](docs/ecc-upgrades/README.md); start with [PLAN.md](docs/ecc-upgrades/PLAN.md).
-
+Every defect found in this project is in [docs/DEFECTS.md](docs/DEFECTS.md), with
+the measurement that reproduced it and the measurement after the fix — open ones
+next to closed ones. The rules an agent working here is held to are in
+[AGENTS.md](AGENTS.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, how the test
 suite is split between a standalone checkout and a full vault, and the checks CI

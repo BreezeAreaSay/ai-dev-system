@@ -58,6 +58,12 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: npm run test:core
 
+      # The SQLite search helper is Python and has its own suite. It shipped
+      # for months without anything running it.
+      - name: Search helper tests
+        working-directory: search-index
+        run: python3 -m unittest test_search_freshness
+
   mcp-server-node-floor:
     name: MCP server (Node 22.12 floor)
     runs-on: ubuntu-latest

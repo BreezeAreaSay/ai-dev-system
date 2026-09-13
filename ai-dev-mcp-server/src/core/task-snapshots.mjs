@@ -462,7 +462,7 @@ export async function captureTaskSnapshot({ taskStore, record, worktreePath, lab
  *
  * A rollback brings the tree to the snapshot's state, so every file that
  * appeared afterwards goes — including one a person wrote from another terminal
- * while the agent worked (docs/ecc-upgrades/DEBTS.md, Д-15).
+ * while the agent worked (docs/DEFECTS.md, Д-15).
  *
  * What this list says, exactly: no snapshot of this task holds this path. That
  * is a fact about the snapshots, not about who wrote the file — a file the

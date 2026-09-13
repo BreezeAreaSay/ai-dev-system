@@ -6,7 +6,7 @@ import { auditDistributionTree, copyDistributionTree } from "./public-distributi
 
 /**
  * Selection policy for `import_skill_repo` when it imports a large upstream
- * skill catalogue (docs/ecc-upgrades/PLAN.md, item 3.1).
+ * skill catalogue (the imported-catalogue work).
  *
  * A repository like ECC ships hundreds of skills, most of which are not
  * engineering methodology: business operations, regulated domains, media

@@ -449,6 +449,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from a refusal to 1188 files, the same as a clean clone, and the verifier
   reports `current` with 1040 files checked.
 
+- **A HarmonyOS project got no language rules.** The detector has labelled
+  `ArkTS/HarmonyOS` from `oh-package.json5` since the root listing was added,
+  and `packsForStack` answered with an empty list — the last of the three packs
+  Д-18 recorded as missing. The pack is written from the language's own
+  constraints: obligatory types, an object shape fixed at declaration, no
+  runtime code generation, a declarative `build()` with no side effects, state
+  through `@State`/`@Prop`/`@Link`, heavy work in a `TaskPool` or `Worker`, and
+  the Ability lifecycle kept apart from the component's. The test that pinned
+  its absence is flipped, and the other direction is now checked too: a label
+  the detector gives a language must select a pack.
+
 - **No English task ever reached an imported skill.** The concept table is the
   bridge from Russian to the English the imported catalogue is written in, and
   `pickTaskSpecialist` gave up before scoring anything when the table recognised

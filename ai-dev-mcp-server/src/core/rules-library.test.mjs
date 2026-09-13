@@ -91,18 +91,30 @@ test("catalog is well formed and stack mapping is additive", () => {
   assert.deepEqual(packsForStack(["Node.js", "React", "React Native/Expo"]), ["typescript", "react", "react-native"],
     "a React Native app gets no web rules: there is no DOM");
   assert.deepEqual(packsForStack(["PHP", "Laravel"]), ["php"]);
-  // Д-18: the two packs that had no detector label until the root directory was
-  // listed. ArkTS is deliberately still without one — see the debt entry.
+  // Д-18: the three packs that had no detector label until the root directory
+  // was listed. ArkTS was the last one still missing — the detector labelled a
+  // HarmonyOS project and the rules library had nothing to give it.
   assert.deepEqual(packsForStack(["Perl"]), ["perl"]);
   assert.deepEqual(packsForStack(["F#"]), ["fsharp"]);
   assert.deepEqual(packsForStack(["C#/.NET", "F#"]), ["csharp", "fsharp"]);
-  assert.deepEqual(packsForStack(["ArkTS/HarmonyOS"]), [], "the detector labels ArkTS; no pack claims it yet");
+  assert.deepEqual(packsForStack(["ArkTS/HarmonyOS"]), ["arkts"]);
   // Every pack is reachable from a stack label the detector can produce, or it
   // is only ever installed by name.
   const detected = new Set(["TypeScript", "React", "Vue", "Angular", "React Native/Expo", "Tailwind CSS", "Python", "FastAPI",
-    "Go", "Rust", "Java/JVM", "Kotlin", "Swift", "Flutter/Dart", "C#/.NET", "C/C++", "PHP", "Ruby", "Perl", "F#", "Docker"]);
+    "Go", "Rust", "Java/JVM", "Kotlin", "Swift", "Flutter/Dart", "C#/.NET", "C/C++", "PHP", "Ruby", "Perl", "F#",
+    "ArkTS/HarmonyOS", "Docker"]);
   for (const pack of RULE_PACKS) {
     assert.ok(pack.stacks.some((label) => detected.has(label)), `${pack.id} names no detectable stack`);
+  }
+  // And the other direction, which is where ArkTS slipped through: a label the
+  // detector gives a language must select a pack. The labels that name a
+  // library or a service ride on their ecosystem's pack instead.
+  const CARRIED_BY_AN_ECOSYSTEM_PACK = new Set([
+    "Alembic", "PostgreSQL", "Redis", "aiogram", "Bot framework", "OpenAI-compatible LLM", "GitHub Actions"
+  ]);
+  for (const label of detected) {
+    if (CARRIED_BY_AN_ECOSYSTEM_PACK.has(label)) continue;
+    assert.ok(packsForStack([label], []).length > 0, `${label} is detected and selects no pack`);
   }
   const catalog = describeRuleCatalog();
   assert.equal(catalog.packs.length, RULE_PACKS.length);

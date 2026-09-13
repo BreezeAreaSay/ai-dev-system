@@ -24,10 +24,16 @@ function withHome(home, run) {
   }
 }
 
+// Resolved once, because `\tmp\home` is absolute on POSIX but only
+// drive-relative on Windows, where it resolves against the current drive.
+// Writing the expectation by hand instead passed on Linux and failed on
+// Windows CI with `D:\tmp\home\.ai-dev`.
+const HOME = path.resolve(path.join(path.sep, "tmp", "home"));
+
 test("every runtime path hangs off the same .ai-dev root", () => {
-  withHome(path.join(path.sep, "tmp", "home"), () => {
+  withHome(HOME, () => {
     const root = aiDevHome();
-    assert.equal(root, path.join(path.sep, "tmp", "home", ".ai-dev"));
+    assert.equal(root, path.join(HOME, ".ai-dev"));
     assert.equal(runtimeDir(), path.join(root, "run"));
     assert.equal(logsDir(), path.join(root, "logs"));
     assert.equal(daemonInfoPath(), path.join(root, "run", "daemon.json"));
@@ -37,8 +43,20 @@ test("every runtime path hangs off the same .ai-dev root", () => {
   });
 });
 
+test("a home that is not absolute still yields an absolute root", () => {
+  // The daemon writes its lock and socket here and chmods the directory, so a
+  // path that moves with the working directory would be a different tree each
+  // run. This case fails on every platform if the resolve is ever dropped —
+  // unlike a hand-spelled absolute path, which only fails on Windows.
+  withHome(path.join("relative", "home"), () => {
+    const root = aiDevHome();
+    assert.equal(path.isAbsolute(root), true);
+    assert.equal(root, path.resolve(path.join("relative", "home"), ".ai-dev"));
+  });
+});
+
 test("the lock and the socket share one directory, so one mode 0700 covers both", () => {
-  withHome(path.join(path.sep, "tmp", "home"), () => {
+  withHome(HOME, () => {
     assert.equal(
       path.dirname(socketAddress({ platform: "linux" })),
       path.dirname(daemonLockPath())

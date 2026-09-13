@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **3,084 skills, in the file each assistant already reads.** The intent gate
+  (`grill-me`, following the `grilling` interview imported from
+  [mattpocock/skills](https://github.com/mattpocock/skills)), the whole
+  [Membrane](https://github.com/membranedev/application-skills) integration
+  catalogue — 3,074 application skills, from Gmail and Slack to Salesforce —
+  and the nine [Understand
+  Anything](https://github.com/Egonex-AI/Understand-Anything) codebase-graph
+  skills. All MIT, each recorded in `THIRD_PARTY_NOTICES.md` with its revision
+  and licence text beside the source. The registry goes from 144 skills to
+  3,227 and the search index from 350 documents to 3,443; routing holds at three
+  skills plus a reserved slot, and an integration skill stays out of the answer
+  until a task names its application.
+
+
 - **`npm run setup`**: the first run, as one command. A clone ships the server,
   the skills and the seed, but four things are built rather than shipped — the
   skill registry, the SQLite search index, the skill-routing benchmark report
@@ -434,6 +448,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skips the two generated zones. Measured on a polluted checkout: prepare goes
   from a refusal to 1188 files, the same as a clean clone, and the verifier
   reports `current` with 1040 files checked.
+
+- **No English task ever reached an imported skill.** The concept table is the
+  bridge from Russian to the English the imported catalogue is written in, and
+  `pickTaskSpecialist` gave up before scoring anything when the table recognised
+  nothing — which is the normal case for a task written in English. Three things
+  fix it: the early exit asks whether there is anything to score with rather
+  than which half of the vocabulary produced it; a concept now also fires on its
+  own English words, but only on the ones that identify it alone (a word two
+  concepts share, like `refactor` in both "refactoring" and "red green
+  refactor", identifies neither); and a task that names a skill outright is held
+  to a lower score than one that has to earn its place by overlapping the
+  skill's situation. Measured: `set up test-driven development for this module`
+  now reaches `tdd-workflow`, `refactor towards hexagonal architecture` reaches
+  `hexagonal-architecture`, `send a notification through gmail…` reaches
+  `gmail`, and "поговори с заказчиком" still gets nobody. The routing benchmark
+  stays at 37/37.
+
+- **The lifecycle smoke encoded the bug.** It asserted `skills.length <= 3`,
+  while the reserved slot is by design offered *beside* the routed three — the
+  assertion held only because an English task could never reach a specialist. It
+  counts conventional skills and reserved roles apart now.
 
 - **The published image did not start.** `skill-import-policy.mjs` imports
   `public-distribution.mjs`, and the Docker context's allowlist excluded that

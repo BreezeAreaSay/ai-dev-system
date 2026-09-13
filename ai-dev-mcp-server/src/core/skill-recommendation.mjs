@@ -197,6 +197,21 @@ export function skillQualityRankAdjustment(item) {
  * coincidence ("test" appears in half the catalogue), two is a theme, three is
  * the situation.
  */
+/**
+ * How many of a task's own words a specialist needs to be scored at all when
+ * the concept table recognised nothing — which is the normal case in English.
+ * Below this a task is a phrase, and a match on it is a coincidence.
+ */
+export const SPECIALIST_MIN_TERMS = 3;
+
+/**
+ * The floor for a skill the task named outright. Lower than
+ * {@link SPECIALIST_MIN_SCORE}, which is calibrated for a skill that has to
+ * earn its place by overlapping the task's situation rather than by being
+ * asked for by name.
+ */
+export const SPECIALIST_NAMED_MIN_SCORE = 6;
+
 export const SPECIALIST_MIN_SITUATION_HITS = 3;
 
 /**
@@ -248,7 +263,13 @@ export const SPECIALIST_NARROW_STACK_PENALTY = 2;
 export function pickTaskSpecialist({ task, items, context, exclude = [], membranePolicy = "auto", includeMembrane = false }) {
   const projectStack = context?.stack ?? [];
   const { concepts, terms, own_terms: ownTerms } = expandTaskVocabulary(task, projectStack);
-  if (!concepts.length) return null;
+  // Concepts are the Russian-to-English bridge, so an English task almost never
+  // has any: measured, "send a notification through gmail when the build fails"
+  // yields no concepts and eight of its own terms, and this exit dropped it
+  // before any scoring ran (Д-29). What matters is whether there is anything to
+  // score with, not which half of the vocabulary produced it. The situation-hit
+  // floor below is what keeps a two-word task from matching on noise.
+  if (!concepts.length && ownTerms.length < SPECIALIST_MIN_TERMS) return null;
   const visualTask = taskLooksVisual(task);
   const frontendProject = projectStackLooksFrontend(context ?? {});
   const taken = new Set(exclude.map((name) => String(name ?? "")));
@@ -262,7 +283,12 @@ export function pickTaskSpecialist({ task, items, context, exclude = [], membran
     if (isVisualHeavySkill(item) && !visualTask) continue;
     if (isDesignFirstSkill(item) && !visualTask && !frontendProject) continue;
     const match = specialistMatchScore(item, terms);
-    if (match.use_when_hits < SPECIALIST_MIN_SITUATION_HITS) continue;
+    // A task that names the skill has already said which one it means, so it is
+    // held to a lower bar than a skill that merely overlaps the task's words.
+    // Without this the 3,074 application integration skills were unreachable:
+    // "gmail" is one word of a sentence, and one word never clears a threshold
+    // built for situation overlap.
+    if (!match.name_match && match.use_when_hits < SPECIALIST_MIN_SITUATION_HITS) continue;
     const stack = stackAlignment(item, ownTerms);
     if (stack === "foreign" && projectStack.length) continue;
     const narrow = declaredStackTerms(item).length <= 2;
@@ -270,7 +296,7 @@ export function pickTaskSpecialist({ task, items, context, exclude = [], membran
       ? SPECIALIST_FOREIGN_STACK_PENALTY + (narrow ? SPECIALIST_NARROW_STACK_PENALTY : 0)
       : 0;
     const score = match.score + skillQualityRankAdjustment(item) - penalty;
-    if (score < SPECIALIST_MIN_SCORE) continue;
+    if (score < (match.name_match ? SPECIALIST_NAMED_MIN_SCORE : SPECIALIST_MIN_SCORE)) continue;
     const candidate = { item, score, concepts, stack, matched_terms: match.matched_terms };
     if (!best || candidate.score > best.score || (candidate.score === best.score && item.name.localeCompare(best.item.name) < 0)) {
       best = candidate;

@@ -64,10 +64,60 @@ export const TASK_CONCEPTS = Object.freeze([
  * @param {string} task
  * @returns {string[]}
  */
+/**
+ * The English side of a concept, as the phrases a task can name it by.
+ *
+ * Only what identifies the concept on its own: a two-word phrase
+ * ("test-driven", "pull request") or a word long enough to be distinctive. The
+ * short common ones ("test", "api", "data") stay out — they would fire a
+ * concept on any sentence that happened to use them, and an over-expanded query
+ * scores every adjacent skill instead of the right one.
+ */
+const CONCEPT_TRIGGERS = (() => {
+  const seen = new Map();
+  for (const concept of TASK_CONCEPTS) {
+    for (const term of concept.en.split(/\s+/)) seen.set(term, (seen.get(term) ?? 0) + 1);
+  }
+  return new Map(TASK_CONCEPTS.map((concept) => [
+    concept.id,
+    concept.en
+      .split(/\s+/)
+      // Distinctive to this concept: a word two concepts share identifies
+      // neither. "refactor" sits in both `refactor` and `tdd` ("red green
+      // refactor"), and firing tdd on a refactoring task pulled the whole
+      // testing vocabulary into a query that never asked for it.
+      .filter((term) => seen.get(term) === 1)
+      .filter((term) => term.length >= 7 || term.includes("-"))
+  ]));
+})();
+
+/**
+ * Concepts the task names, in either language.
+ *
+ * The `ru` regexes are the Russian bridge. English tasks used to come back
+ * empty — the table was written as a bridge *from* Russian — and an empty
+ * concept list stopped `pickTaskSpecialist` before it scored anything, so no
+ * English task ever reached an imported skill (Д-29). An English task now
+ * matches on the concept's own English vocabulary.
+ *
+ * @param {string} task
+ * @returns {string[]} Concept ids.
+ */
 export function taskConcepts(task) {
   const text = String(task ?? "").normalize("NFKC").toLowerCase().replaceAll("ё", "е");
   if (!text.trim()) return [];
-  return TASK_CONCEPTS.filter((concept) => concept.ru.test(text)).map((concept) => concept.id);
+  return TASK_CONCEPTS
+    .filter((concept) => concept.ru.test(text) || (CONCEPT_TRIGGERS.get(concept.id) ?? []).some((term) => wholeWord(term, text)))
+    .map((concept) => concept.id);
+}
+
+/** What a task naming the skill outright is worth, against SPECIALIST_MIN_SCORE. */
+export const NAME_MATCH_SCORE = 6;
+
+/** `term` as a whole word in `text`, hyphens and dots included in the word. */
+function wholeWord(term, text) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?:^|[^\\p{L}\\p{N}-])${escaped}(?:$|[^\\p{L}\\p{N}-])`, "iu").test(text);
 }
 
 /**
@@ -212,6 +262,7 @@ export function specialistMatchScore(item, terms) {
   const excludedTerms = [];
   let score = 0;
   let situationHits = 0;
+  let nameMatch = false;
   for (const term of terms) {
     let hit = false;
     if (situation.includes(term)) {
@@ -231,7 +282,17 @@ export function specialistMatchScore(item, terms) {
       continue;
     }
     if (name.includes(term)) {
-      score += 2;
+      // A task that names the skill has identified it, and for an application
+      // integration catalogue that is the whole signal: "send a notification
+      // through gmail" shares one meaningful word with the `gmail` skill and
+      // nothing else, which no situation-overlap threshold will ever clear.
+      // A partial match inside a longer name stays worth what it was.
+      if (term.length >= 4 && !FUNCTION_WORDS.has(term) && wholeWord(term, name)) {
+        score += NAME_MATCH_SCORE;
+        nameMatch = true;
+      } else {
+        score += 2;
+      }
       hit = true;
     }
     if (taxonomy.includes(term)) {
@@ -240,5 +301,5 @@ export function specialistMatchScore(item, terms) {
     }
     if (hit) matched.push(term);
   }
-  return { score, use_when_hits: situationHits, matched_terms: matched, excluded_terms: excludedTerms };
+  return { score, use_when_hits: situationHits, name_match: nameMatch, matched_terms: matched, excluded_terms: excludedTerms };
 }

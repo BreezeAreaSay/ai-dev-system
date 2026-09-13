@@ -72,6 +72,39 @@ async function taskStoreFixture(t, repo, overrides = {}) {
   return { taskStore, record };
 }
 
+test("a rollback gives back the bytes it took, whatever core.autocrlf says", async (t) => {
+  // Git for Windows ships with core.autocrlf=true: CR is stripped on the way
+  // into the object store and CRLF written back on the way out, so a file the
+  // agent wrote with LF came back from a rollback with every line ending
+  // rewritten. CI measured it on windows-latest; this sets the same option,
+  // which works the same way on any platform.
+  const { repo } = await repoFixture(t);
+  runGit(repo, ["config", "core.autocrlf", "true"]);
+  await writeFile(repo, "src/app.js", "export const app = 2;\n");
+  await writeFile(repo, "notes.md", "# reminder: ask about the migration\n");
+
+  const snapshot = await captureSnapshot({ worktreePath: repo, taskId: "task-eol", sequence: 1 });
+  await writeFile(repo, "src/app.js", "export const app = 3;\n");
+  await writeFile(repo, "notes.md", "# something else\n");
+  await restoreSnapshot({ worktreePath: repo, commit: snapshot.commit });
+
+  assert.equal(await readFileOrNull(repo, "src/app.js"), "export const app = 2;\n");
+  assert.equal(await readFileOrNull(repo, "notes.md"), "# reminder: ask about the migration\n");
+
+  // And a file that really is CRLF stays CRLF: the point is the bytes, not a
+  // preferred line ending.
+  await writeFile(repo, "windows.txt", "first\r\nsecond\r\n");
+  const second = await captureSnapshot({ worktreePath: repo, taskId: "task-eol", sequence: 2 });
+  await writeFile(repo, "windows.txt", "changed\r\n");
+  await restoreSnapshot({ worktreePath: repo, commit: second.commit });
+  assert.equal(await readFileOrNull(repo, "windows.txt"), "first\r\nsecond\r\n");
+
+  // Files nobody touched are not dragged into the snapshot by the change of
+  // filter: the index is seeded from the repository's own.
+  assert.equal(snapshot.files.includes(".gitignore"), false);
+});
+
+
 test("snapshotRef rejects anything that would escape the snapshot namespace", () => {
   assert.equal(snapshotRef("task-20260912T090000-abcdef12", 3), `${SNAPSHOT_REF_NAMESPACE}/task-20260912T090000-abcdef12/3`);
   assert.throws(() => snapshotRef("../../heads/main", 1), /Invalid task id/);

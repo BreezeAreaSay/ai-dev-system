@@ -424,6 +424,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A rollback rewrote every line ending on Windows.** Snapshots are captured
+  with `git add` and restored with `git restore`, and Git for Windows ships
+  with `core.autocrlf=true` — CR stripped going into the object store, CRLF
+  written back coming out. So a file the agent wrote with LF came back from
+  `rollback_task` with every line changed. Measured by CI on `windows-latest`
+  (`'export const app = 2;\r\n'` against the `\n` the test wrote) and
+  reproduced on Linux by setting the same option. The snapshot commands now run
+  with the conversion off, so the bytes that went in come back out — including
+  a file that really is CRLF. The index is still seeded from the repository's
+  own, so files nobody touched keep their existing entries.
+
+- **A worktree record carried two spellings of the same path.**
+  `git worktree list --porcelain` prints forward slashes on Windows too, and
+  the cleanup record put that beside a path built with `path.join`:
+  `C:/Users/…/.worktrees/merged` against `C:\Users\…\.worktrees\merged`.
+  Comparisons that resolved first were fine; printing and matching the raw
+  value was not. Paths now come out of the parser in the platform's own
+  spelling, and the same is done for `--absolute-git-dir` in snapshots and for
+  `--show-toplevel` in `captureProjectState`, where a git project's
+  `project_root` otherwise differed from a non-git one by separator alone.
+
 - **`npm run setup` called stale artefacts "already built".** The plan asked
   whether a file existed, never whether it was current, so one run printed
   `· Search index: already built` and, four lines later from the diagnostic in

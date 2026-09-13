@@ -127,16 +127,30 @@ async function copyHandoffFiles(mainRoot, worktreePath) {
 /**
  * Parse `git worktree list --porcelain` output.
  *
+ * Paths come back in this platform's own spelling. Git prints them with
+ * forward slashes everywhere, including Windows, so a record carried both
+ * `C:/Users/…/\u002eworktrees/merged` from git and
+ * `C:\\Users\\…\\.worktrees\\merged` from `path.join` and compared
+ * unequal — CI on windows-latest failed on exactly that. Callers that resolve
+ * before comparing were already immune; callers that print or match the raw
+ * value were not.
+ *
  * @param {string} text
  * @returns {Array<{ path: string, head: string, branch: string, bare: boolean, detached: boolean, locked: boolean, prunable: boolean }>}
  */
+/** One path git printed, in the spelling this platform uses. */
+function nativePath(value) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed ? path.resolve(trimmed) : "";
+}
+
 export function parseWorktreeList(text) {
   const entries = [];
   let current = null;
   for (const line of String(text ?? "").split("\n")) {
     if (line.startsWith("worktree ")) {
       if (current) entries.push(current);
-      current = { path: line.slice(9).trim(), head: "", branch: "", bare: false, detached: false, locked: false, prunable: false };
+      current = { path: nativePath(line.slice(9)), head: "", branch: "", bare: false, detached: false, locked: false, prunable: false };
     } else if (!current) {
       continue;
     } else if (line.startsWith("HEAD ")) {

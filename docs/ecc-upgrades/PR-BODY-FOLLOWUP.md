@@ -111,16 +111,17 @@ the change.
 
 ## Size, and how to read the diff
 
-3,169 files changed. 3,147 of them are the vendored skill catalogues under
+3,170 files changed. 3,147 of them are the vendored skill catalogues under
 `docker/public-seed/03-skills-catalog/sources/external/`, which are imported
-content, not authored code. The reviewable change is 22 files:
+content, not authored code. The reviewable change is 23 files:
 
 | Area | Files |
 | --- | --- |
 | `ai-dev-mcp-server/src/` | 12 |
 | `ai-dev-mcp-server/scripts/` | 3 |
+| `docs/ecc-upgrades/` | 3 |
 | `ai-dev-mcp-server/test/`, `package.json`, `docs/TOOLS.md` | 3 |
-| `CHANGELOG.md`, `THIRD_PARTY_NOTICES.md`, `docs/ecc-upgrades/` | 4 |
+| `CHANGELOG.md`, `THIRD_PARTY_NOTICES.md` | 2 |
 
 `git diff e8bc590..HEAD -- ':!docker/public-seed'` is the whole of it.
 

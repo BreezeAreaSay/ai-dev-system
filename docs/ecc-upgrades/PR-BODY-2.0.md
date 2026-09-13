@@ -69,6 +69,52 @@ only sensible conclusion.
   Measured: at 260 ms the tail comes back all-null, at 5000 ms it is stable. The
   deadline is now stated; the batch deadline keeps its own test.
 
+### A correct install failed its own health check, everywhere
+
+The Windows report said a fresh clone greets its first user with `Health: fail
+— 4 not passing`, and that read as a Windows finding. A clean clone on Linux
+reproduces it word for word, so it was what every new user saw on any platform.
+Three unrelated causes:
+
+- **The Frontend QA runner ships but imports Playwright at module load**, so on
+  a clone that never ran `--frontend-qa` the `ERR_MODULE_NOT_FOUND` escaped and
+  `runCheck` filed it as a failure. It is now an unavailable status carrying the
+  command that installs it. Playwright present but its browser missing stays a
+  warning — that one really is half configured and the person can fix it.
+- **The embedding check listed only the weights as optional**, but `--dense`
+  also builds the Python environment its own step description names ("a Python
+  environment plus 2.3 GB of weights"). `embeddings_python` joins the optional
+  set; a missing shipped helper is still a failure.
+- **`skill_quality` failed on exactly one important skill: `grill-me`**, written
+  in this same work. Its card said "read the `grilling` skill and follow it" and
+  little else — no trigger wording, no procedure of its own, no statement of
+  what the gate must produce. It now carries a seven-step procedure and an
+  acceptance section naming the three things that must exist before
+  `begin_task`: the request as you now read it, the assumptions you made, and
+  criteria each settleable by a command, a file or a number. Its quality
+  findings went from four to zero.
+
+Measured on the same clean clone: `fail — 4 not passing` became `degraded — 2
+not passing`, both warnings that name a next step. Ten consecutive gate runs on
+Linux: **0 failures out of 10**.
+
+The same pass corrected something I had said wrongly. "POSIX hides this because
+/tmp is not under the home directory" was true of the *test*, not of real use:
+Linux projects live in `~/…`, so the shared-memory-key defect hit Linux users
+too. Measured with a home-shaped layout — before the fix `~/dev/projA` and
+`~/dev/projB` both resolved their boundary to `$HOME`; after it they differ.
+
+### macOS was supported by assumption
+
+`ci.yml` had three `ubuntu-latest` jobs and one `windows-latest` job, and
+nothing for macOS — while platform differences produced most of the defects in
+this pull request. macOS is not almost-Linux: a case-insensitive filesystem by
+default, and `os.tmpdir()` under `/var/folders`, which is a symlink to
+`/private/var`. Both land in exactly the path canonicalisation and boundary walk
+that have been biting. A `macos-latest` job now runs the unit tests, the
+identity and hook tests on their own, a first run, and the seed check — so the
+platform is measured rather than assumed.
+
 ### The release
 
 A major version because what a clone *is* changed, not only what it can do. The
@@ -113,12 +159,14 @@ ships no LICENSE file of its own and declares MIT per skill instead.
 - [x] No secrets, tokens, personal paths, or a personal vault in the diff —
   `npm run security` passes inside `check`.
 - [x] Docs updated if behaviour, flags, or setup changed — `DEBTS.md` records
-  Д-45, Д-46 and Д-47 with their measurements; the verification prompt now
-  proves an update arrived before trusting a single result, after a whole run
-  was spent on pre-fix code.
+  Д-45 through Д-50 with their measurements, including Д-48, which states what
+  the boundary fix deliberately leaves open rather than letting a narrow test
+  imply it is solved. The verification prompt now proves an update arrived
+  before trusting a single result, after a whole run was spent on pre-fix code.
 
 ## Size
 
-17 files, +500 / −26. Nothing under `docker/public-seed` changed. The largest
-entries are the debt registry and the two READMEs; the behaviour change is six
-source files totalling +106 lines.
+22 files, +905 / −49. The only change under `docker/public-seed` is the rewritten
+`grill-me` card and the manifest entry that follows it. The largest entries are
+the debt registry and the two READMEs; the behaviour change is eight source
+files.

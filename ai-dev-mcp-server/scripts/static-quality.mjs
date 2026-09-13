@@ -5,13 +5,13 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 // The `src/mcp-stdio.mjs` line budget. It lives in src/core so the System
 // Dashboard reports the ceiling this gate enforces: the file shrank one
-// extraction at a time (docs/ecc-upgrades/PLAN.md, stage 1) and the ceiling was
+// extraction at a time (stage 1 of the modularity work) and the ceiling was
 // re-pinned to its actual size plus roughly 300 lines of working room after each
 // step, so the file can be edited but not re-grown.
 import { SYSTEM_LINE_CEILING } from "../src/core/system-health.mjs";
 // The size rules themselves live in src/core so they can be tested without
 // breaking a real file on purpose and putting it back
-// (docs/ecc-upgrades/DEBTS.md, Д-12). This file is the input and output
+// (docs/DEFECTS.md, Д-12). This file is the input and output
 // around them.
 import {
   MODULE_LINE_CEILING,

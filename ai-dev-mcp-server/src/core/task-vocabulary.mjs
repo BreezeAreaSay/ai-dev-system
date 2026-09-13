@@ -8,7 +8,7 @@
  * skills imported from ECC: their `use_when` is English, and the tasks this
  * server is asked to route are usually Russian. "настроить разработку через
  * тесты" and `tdd-workflow`'s "test-driven development" share no substring, so
- * the skill scored zero and never reached the answer (docs/ecc-upgrades/DEBTS.md,
+ * the skill scored zero and never reached the answer (docs/DEFECTS.md,
  * Д-1).
  *
  * So the task is expanded before it is scored: a concept the task names in
@@ -205,7 +205,7 @@ export function stackAlignment(item, ownTerms) {
  *
  * A skill author who writes "Do not trigger for … code review" has answered the
  * routing question for that situation, and reading only the first half of the
- * sentence turns the answer upside down (docs/ecc-upgrades/DEBTS.md, Д-20). The
+ * sentence turns the answer upside down (docs/DEFECTS.md, Д-20). The
  * clause runs to the end of its sentence, which is where such a list ends.
  *
  * No `\b` on the Russian branch: word boundaries are ASCII-only in JavaScript.

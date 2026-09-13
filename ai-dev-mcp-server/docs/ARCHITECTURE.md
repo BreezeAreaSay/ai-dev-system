@@ -162,7 +162,7 @@ Beside them sit the reserved roles (`RESERVED_ROUTING_ROLES`), which do not cons
   `pickTaskSpecialist` in `core/skill-recommendation.mjs`. It earns the slot the way its author
   intended: by its `use_when` answering the task's situation. The 101 skills imported from ECC
   could otherwise never appear at all, because our own three always fill the conventional slots
-  (docs/ecc-upgrades/DEBTS.md, Д-1).
+  (docs/DEFECTS.md, Д-1).
 
 The specialist is matched through `core/task-vocabulary.mjs`, which translates the concepts a
 Russian task names into the English terms an imported catalogue is written in — "настроить
@@ -179,7 +179,7 @@ Imported skills carry `trust: known-upstream` and `instruction_policy: data-unti
 are **metadata, not a mechanism**: nothing in this server reads `instruction_policy` before doing
 or refusing anything, and changing it to `trusted` would change no behaviour. They are an
 inventory — they say the catalogue contains text nobody here has read — and a decision built on
-them is a decision built on a label (docs/ecc-upgrades/DEBTS.md, Д-7).
+them is a decision built on a label (docs/DEFECTS.md, Д-7).
 
 What actually keeps a hundred imported texts out of an agent's context is the shape of the
 context pack:
@@ -533,7 +533,7 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
 
 - `src/mcp-stdio.mjs` may not exceed `SYSTEM_LINE_CEILING` (5,076 today), which lives in
   `core/system-health.mjs` so the System Dashboard reports the ceiling the gate enforces. The file
-  shrank one extraction at a time (docs/ecc-upgrades/PLAN.md, stage 1: 10,018 lines to 4,776 across
+  shrank one extraction at a time (stage 1 of the modularity work: 10,018 lines to 4,776 across
   six steps) and the ceiling was re-pinned to its actual size plus roughly 300 lines of working room
   after each step, so it can be edited but not re-grown. New capabilities go into `src/extensions/`,
   so the budget only has to cover editing what is left.

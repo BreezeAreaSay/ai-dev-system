@@ -3,10 +3,9 @@
 Instructions for an AI agent working on **this** repository.
 
 This project's whole purpose is to put engineering protocols into the file every
-assistant already reads. It went a long time without having one of its own — the
-rules below were held in the head of whoever was working, which is exactly the
-failure mode the project exists to prevent. Recorded as Д-43 in
-`docs/ecc-upgrades/DEBTS.md`; this file closes it.
+assistant already reads. For a long time it had no such file of its own, and the
+rules below were held in the head of whoever was working — the exact failure the
+project exists to prevent.
 
 Written by hand, not generated. `install_project_rules` writes this file into
 *other* repositories; here it is the source, not the output.
@@ -94,7 +93,7 @@ interpolate a variable into a command string. See
 **Everything merges to `main`.** No long-lived branches.
 
 **A defect you find is written down before it is fixed**, in
-`docs/ecc-upgrades/DEBTS.md`: what is wrong, what it threatens, a measurement
+`docs/DEFECTS.md`: what is wrong, what it threatens, a measurement
 that reproduces it, and after the fix a second measurement. "Fixed" without a
 number before and after is not a closed debt. Write it even when you cannot fix
 it — an owner decision recorded beats a defect remembered.
@@ -124,7 +123,7 @@ diff, and do not report a result you have not seen printed.**
   them here have been wrong about a key name or a path.
 - A claim you could not check is reported as unchecked. Say which half you
   verified and which half you did not. A plausible sentence is not a verified
-  one: `docs/ecc-upgrades/DEBTS.md` Д-52 exists because a documentation draft
+  one: `docs/DEFECTS.md` Д-52 exists because a documentation draft
   told readers to look for a status key that does not exist.
 
 ## Commands worth knowing
@@ -140,6 +139,6 @@ npm run docker:seed:verify   # after touching docker/public-seed
 
 ## Language
 
-Code, comments and public documentation are English. `README.ru.md`,
-`docs/ecc-upgrades/DEBTS.md` and the working notes under `docs/ecc-upgrades/`
-are Russian — keep each file in the language it is already in.
+Code, comments and public documentation are English. `README.ru.md` and
+`docs/DEFECTS.md` are Russian — keep each file in the language it is already
+in.

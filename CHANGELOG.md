@@ -75,6 +75,20 @@ this release.
 
 
 
+### Removed
+
+- **The working notes are no longer in the repository.** `docs/ecc-upgrades/`
+  held the development record — a staged plan, per-stage implementation
+  journals, the prompts written for verification agents, pull-request bodies,
+  handoffs, a code map made obsolete by the architecture document. 41 files and
+  14,492 lines that answered questions nobody installing this has. They remain
+  in the git history; they are simply not part of what you clone.
+
+  One file earned its place and stays, moved and renamed: the defect registry,
+  now `docs/DEFECTS.md`. Every defect found in this project is there with the
+  measurement that reproduced it and the measurement after the fix, open entries
+  beside closed ones, and 28 comments in the source cite it by entry number.
+
 ### Fixed
 
 - **Every project under one home no longer shares a memory key.** The hook
@@ -351,7 +365,7 @@ this release.
   (`min_quality_score`, default 75). `dry_run: true` reports the plan without
   writing. The result and the generated `upstream.json` record how many skills
   were imported and why each of the rest was left out.
-- **ECC skill catalogue** as `external/ecc` (`docs/ecc-upgrades/PLAN.md`, item
+- **ECC skill catalogue** as `external/ecc` (the imported-catalogue work, item
   3.1): 101 of ECC's 291 skills (MIT, pinned to a commit), among them
   `tdd-workflow`, `api-design`, `contract-first`, `hexagonal-architecture`,
   `intent-driven-development`, `database-migrations`, `error-handling`,
@@ -1021,7 +1035,7 @@ this release.
   reads the root's extensions. New stack labels with it: `F#`, `Perl` and
   `ArkTS/HarmonyOS`, plus rule packs for `perl` and `fsharp` — `arkts` is
   deliberately still unwritten, for the reason recorded in
-  docs/ecc-upgrades/DEBTS.md, Д-18.
+  docs/DEFECTS.md, Д-18.
 
 - **The static gate's size rules had no test.** Its five branches — a module
   over the ceiling, a pinned module that grew, a pinned module back under the
@@ -1329,7 +1343,7 @@ this release.
 ### Fixed
 
 - `save_session` accepts both spellings of the failure reason. ECC's
-  save-session prompt (and the example in `docs/ecc-upgrades/09-session-memory.md`)
+  save-session prompt (and its worked example)
   writes `failed: [{ approach, why }]` while the schema said `reason`, so the
   explanation was silently dropped and `resume_session` printed "reason not
   recorded". `why` is now normalized into `reason`; the examples and the file

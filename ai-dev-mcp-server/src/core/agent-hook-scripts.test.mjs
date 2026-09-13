@@ -272,7 +272,7 @@ test("a policy full of slow rules costs the guard one deadline, not one budget p
   const elapsed = Date.now() - started;
   assert.equal(answered.status, 0);
   // Thirty per-rule budgets are 8.7 seconds measured, and the client abandons a
-  // hook at ten (docs/ecc-upgrades/DEBTS.md, Д-22).
+  // hook at ten (docs/DEFECTS.md, Д-22).
   assert.ok(elapsed < 5_000, `the guard should answer near its deadline, took ${elapsed} ms`);
   const context = JSON.parse(answered.stdout || "{}").hookSpecificOutput?.additionalContext ?? "";
   const unchecked = /(\d+) rule\(s\) were never matched/.exec(context);

@@ -5,7 +5,7 @@
  * a synchronous call into the engine, and a pattern that backtracks
  * catastrophically holds the thread until it finishes. Measured on this
  * repository: `(a|a)+$` against twenty-eight `a` and a `!` takes 38.8 seconds
- * (docs/ecc-upgrades/DEBTS.md, Д-16). One such rule in `.ai-dev/policy.json`
+ * (docs/DEFECTS.md, Д-16). One such rule in `.ai-dev/policy.json`
  * stalls the guard on every Bash command and every file write.
  *
  * A worker thread *can* be terminated, so that is what this module does: the
@@ -31,7 +31,7 @@ export const DEFAULT_MATCH_BUDGET_MS = 250;
  * The per-job budget bounds one rule; it does not bound an event. Thirty rules
  * that each overstay cost thirty budgets — measured on this repository, thirty
  * `(a|a)+$` rules held the guard for 8.7 seconds and the client abandons a hook
- * at ten (docs/ecc-upgrades/DEBTS.md, Д-22). So the batch has a deadline of its
+ * at ten (docs/DEFECTS.md, Д-22). So the batch has a deadline of its
  * own: when it passes, the jobs behind it come back unchecked instead of being
  * run, and the caller reports them rather than paying for them.
  *

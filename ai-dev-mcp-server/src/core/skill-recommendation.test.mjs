@@ -495,7 +495,7 @@ test("a skill that says it is not for this situation does not get the slot", () 
   const base = [registryItem()];
   // The real shape of the generalist that used to take the slot: a use_when
   // that answers almost any task, with the situations it is not for listed in
-  // the same sentence (docs/ecc-upgrades/DEBTS.md, Д-20).
+  // the same sentence (docs/DEFECTS.md, Д-20).
   const generalist = {
     ...IMPORTED_TDD,
     name: "intent-driven-development",

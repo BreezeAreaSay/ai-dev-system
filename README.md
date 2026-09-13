@@ -839,9 +839,10 @@ Architecture and the full tool list: [ai-dev-mcp-server/README.md](ai-dev-mcp-se
 
 ## Contributing
 
-The improvement plan and the ECC-derived upgrade notes (rationale, wiring, tool examples) live in
-[docs/ecc-upgrades/](docs/ecc-upgrades/README.md); start with [PLAN.md](docs/ecc-upgrades/PLAN.md).
-
+Every defect found in this project is in [docs/DEFECTS.md](docs/DEFECTS.md), with
+the measurement that reproduced it and the measurement after the fix — open ones
+next to closed ones. The rules an agent working here is held to are in
+[AGENTS.md](AGENTS.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, how the test
 suite is split between a standalone checkout and a full vault, and the checks CI

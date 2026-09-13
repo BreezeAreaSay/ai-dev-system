@@ -32,7 +32,7 @@ process.env.PYTHONDONTWRITEBYTECODE = "1";
 // before V8 writes anything leaves that file at zero bytes, the reporter parses
 // every file in the directory, and the run ends with `# fail 0` and
 // "Could not report code coverage. SyntaxError: Unexpected end of JSON input"
-// (docs/ecc-upgrades/DEBTS.md, Д-11). Measured: on the failing run the directory
+// (docs/DEFECTS.md, Д-11). Measured: on the failing run the directory
 // held 377 files against 376 on every passing one, and the extra file was empty.
 //
 // This process already captured its own coverage path at startup, so dropping

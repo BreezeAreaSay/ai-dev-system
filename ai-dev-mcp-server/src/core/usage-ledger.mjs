@@ -47,7 +47,7 @@ export const CACHE_READ_MULTIPLIER = 0.1;
  *
  * Their rows were read from {@link RATE_TABLE_SOURCE} while each model was
  * current, and the page has since dropped them — so `checked_on` does not cover
- * them and nothing re-verifies them (docs/ecc-upgrades/DEBTS.md, Д-8). They
+ * them and nothing re-verifies them (docs/DEFECTS.md, Д-8). They
  * stay in the table because a ledger keeps old events and a report over last
  * quarter has to price what actually ran; they are marked so a total that
  * leans on them says so, and they are kept out of the per-model breakdown

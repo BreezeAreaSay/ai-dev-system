@@ -6,6 +6,9 @@ import test from "node:test";
 import {
   assertCleanDistribution,
   auditDistributionTree,
+  copyDistributionTree,
+  missingVendoredCatalogues,
+  VENDORED_SEED_CATALOGUES,
   distributionPathFindings,
   distributionTextFindings,
   findDanglingImports,
@@ -123,4 +126,72 @@ test("owner-context home directories require a specific path", () => {
   assert.equal(ownerContext("HOME is /root here", ["/root"]), false);
   assert.equal(ownerContext("cloned into /home/sacha/vault", ["/home/sacha"]), true);
   assert.equal(ownerContext("C:/Users/sacha/vault", ["C:\\Users\\sacha"]), true);
+});
+
+test("a whole vendored catalogue set reports nothing missing", () => {
+  const counts = Object.fromEntries(
+    VENDORED_SEED_CATALOGUES.map(({ relative, minimumSkills }) => [relative, minimumSkills])
+  );
+  assert.deepEqual(missingVendoredCatalogues(counts), []);
+});
+
+test("a catalogue the seed refresh dropped is reported, not passed over", () => {
+  // The defect this guards: `copySkillSources` reads an allowlist of vault
+  // directories, the vendored catalogues live only in the checkout, and the
+  // refresh replaces the seed wholesale — so a missing entry means 3,074 skills
+  // silently leave the distribution.
+  const counts = Object.fromEntries(
+    VENDORED_SEED_CATALOGUES.map(({ relative, minimumSkills }) => [relative, minimumSkills])
+  );
+  delete counts["external/membrane"];
+  assert.deepEqual(missingVendoredCatalogues(counts), [
+    { relative: "external/membrane", expected: 3074, found: 0 }
+  ]);
+});
+
+test("a partially copied catalogue fails as loudly as a missing one", () => {
+  const counts = Object.fromEntries(
+    VENDORED_SEED_CATALOGUES.map(({ relative, minimumSkills }) => [relative, minimumSkills])
+  );
+  counts["external/understand-anything"] = 4;
+  assert.deepEqual(missingVendoredCatalogues(counts), [
+    { relative: "external/understand-anything", expected: 9, found: 4 }
+  ]);
+});
+
+test("every vendored catalogue names a path and a positive count", () => {
+  assert.ok(VENDORED_SEED_CATALOGUES.length > 0);
+  for (const entry of VENDORED_SEED_CATALOGUES) {
+    assert.match(entry.relative, /^(external|custom)\/[a-z0-9-]+$/);
+    assert.ok(Number.isInteger(entry.minimumSkills) && entry.minimumSkills > 0);
+  }
+});
+
+test("a nested node_modules survives inside an approved vendored tree", async () => {
+  // archify ships pinned runtime dependencies, and ajv keeps its own copy of
+  // fast-uri below them. The approval pattern reads a distribution-root path,
+  // but the copy sees one relative to its own root, so without the explicit
+  // flag the nested directory is dropped and archify loses a dependency.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "vendored-"));
+  const source = path.join(root, "node_modules");
+  await fs.mkdir(path.join(source, "ajv", "node_modules", "fast-uri"), { recursive: true });
+  await fs.writeFile(path.join(source, "ajv", "index.js"), "export default 1;\n");
+  await fs.writeFile(path.join(source, "ajv", "node_modules", "fast-uri", "index.js"), "export default 2;\n");
+
+  const dropped = path.join(root, "dropped");
+  await copyDistributionTree(source, dropped);
+  assert.equal(await fs.access(path.join(dropped, "ajv", "index.js")).then(() => true).catch(() => false), true);
+  assert.equal(
+    await fs.access(path.join(dropped, "ajv", "node_modules", "fast-uri", "index.js")).then(() => true).catch(() => false),
+    false
+  );
+
+  const kept = path.join(root, "kept");
+  await copyDistributionTree(source, kept, { vendoredDependencyTree: true });
+  assert.equal(
+    await fs.access(path.join(kept, "ajv", "node_modules", "fast-uri", "index.js")).then(() => true).catch(() => false),
+    true
+  );
+
+  await fs.rm(root, { recursive: true, force: true });
 });

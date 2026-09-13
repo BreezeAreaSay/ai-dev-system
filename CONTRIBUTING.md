@@ -8,6 +8,11 @@ By contributing you agree that your contributions are licensed under the
 [MIT License](LICENSE), and that you follow the
 [Code of Conduct](CODE_OF_CONDUCT.md).
 
+**Working through an AI agent?** [AGENTS.md](AGENTS.md) holds the rules an agent
+gets wrong on this repository — where a new tool goes, three constraints that
+look arbitrary and are not, and what "finished" means here. It complements this
+file rather than replacing it.
+
 ## Repository layout
 
 | Path | What it is |

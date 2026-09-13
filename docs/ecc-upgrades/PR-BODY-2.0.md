@@ -157,6 +157,25 @@ set `TRANSFORMERS_OFFLINE=1` and `HF_HUB_OFFLINE=1` before loading. Recorded as
 Docker is not a detour here: it is the packaged way to run this, and the model
 is part of the package.
 
+### The repository finally has the file it writes for everyone else
+
+`install_project_rules` exists to put engineering protocols into the file every
+assistant reads. This repository had none: no `AGENTS.md`, no `CLAUDE.md`, no
+`GEMINI.md`, no `.clinerules`. The rules this work was held to — new tools only
+as extensions, never importing `mcp-stdio.mjs`; the 800-line module ceiling and
+its two pinned exceptions; fake secrets in tests assembled by concatenation
+because a literal trips the security scan; the deliberate duplication under
+`hooks/`, since those files run inside other people's repositories with no
+access to this package; a defect written down with a measurement before and
+after; a session that ends with ten gate runs and the line `N падений из 10`
+rather than one green run — were held in whoever was working. The next agent
+would have broken them and been right to.
+
+Written by hand, not generated: in this repository the file is the source, not
+the tool's output. Closes Д-43, whose other half (`/.ai-dev/` in `.gitignore`,
+anchored to the root so it cannot swallow the tracked fixture trees under
+`frontend-qa/fixtures/`) was already fixed.
+
 ### The release
 
 A major version because what a clone *is* changed, not only what it can do. The

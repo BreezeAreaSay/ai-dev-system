@@ -167,6 +167,18 @@ this release.
   are still there, unported (Д-42).
 
 
+- **A root `AGENTS.md`.** The project whose whole purpose is putting protocols
+  into the file every assistant reads had none of its own: no `AGENTS.md`, no
+  `CLAUDE.md`, no `GEMINI.md`, no `.clinerules`. The rules this work was held to
+  lived in whoever was working — new tools only as extensions and never
+  importing `mcp-stdio.mjs`, the 800-line module ceiling and its two pinned
+  exceptions, fake secrets in tests assembled by concatenation because a literal
+  trips the security scan, the deliberate duplication in `hooks/` because those
+  files run inside other people's repositories, a defect written down with a
+  measurement before and after, and a session that ends with ten gate runs
+  rather than one. Written by hand: here the file is the source, not
+  `install_project_rules`'s output (Д-43).
+
 - **`npm run acceptance`**: the rule this project ends a session on, as a
   command. Ten consecutive `npm run check` runs and the line "N падений из 10",
   with the two kinds of failure kept apart — a run with a failing test is the

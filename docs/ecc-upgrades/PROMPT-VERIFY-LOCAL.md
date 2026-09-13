@@ -9,18 +9,61 @@
 3. Если не смог проверить — так и напиши: «не проверено, потому что…». Выдумывать результат нельзя.
 4. В конце обязательна строка вида **«N падений из 10»**. Один зелёный прогон — не доказательство.
 
-## Шаг 0. Обновиться
+## Шаг 0а. Найти нужный репозиторий — не пропускай этот шаг
+
+Проект может лежать **внутри** Obsidian-vault, и vault сам по себе тоже бывает git-репозиторием.
+Это разные репозитории с несвязанными историями, и обновлять надо проект, а не vault.
+
+Как отличить по корню:
+
+| корень проекта `ai-dev-system` | корень vault |
+| --- | --- |
+| `ai-dev-mcp-server/`, `docker/`, `CHANGELOG.md`, `THIRD_PARTY_NOTICES.md` | `03-skills-catalog/`, `01-system/`, `09-mcp/`, `02-knowledge/` |
+
+Найди настоящий корень проекта:
 
 ```
-cd <корень ai-dev-system>
+Get-ChildItem -Recurse -Depth 4 -Directory -Filter ai-dev-mcp-server | Select-Object -ExpandProperty FullName
+```
+
+Родитель найденного каталога и есть корень проекта. Перейди туда и убедись:
+
+```
+Get-ChildItem -Name | Select-Object -First 12
+git rev-parse --show-toplevel
 git remote -v
-git status --porcelain
+```
+
+**Признаки, что ты не там:**
+
+- `git pull` отвечает `refusing to merge unrelated histories`;
+- в корне лежит `03-skills-catalog` или `09-mcp`;
+- `docs/ecc-upgrades/PROMPT-VERIFY-LOCAL.md` не существует.
+
+Если видишь хоть один — **остановись и напиши мне**. Никогда не выполняй
+`--allow-unrelated-histories`: этим ты вобьёшь публичный проект в мой личный vault или наоборот.
+
+Отдельно проверь и скажи мне, если у **vault**-репозитория `origin` указывает на
+`stonebridgeway/ai-dev-system`. Это опасная настройка: один `git push` оттуда опубликует мои
+личные заметки. Сам ничего не меняй — просто сообщи.
+
+## Шаг 0б. Обновиться
+
+Только в корне проекта:
+
+```
+git remote -v
+git status --short --branch
 git fetch origin
 git log --oneline -1
 ```
 
 Обнови до последнего `main`. Если рабочее дерево грязное — сначала покажи, что именно изменено,
-и спроси меня. Не делай `git reset --hard` без моего слова.
+и спроси меня. Не делай `git reset --hard`, `git checkout -- .` и `git clean` без моего слова.
+
+Учти: сервер при работе создаёт файлы, и они **должны** быть грязными — это не мусор и не
+поломка. Ожидаемо изменённые или новые: `.ai-dev/plans/*`, `.ai-dev/project-map.md`,
+`.ai-dev/quality-gate.md`, `03-skills-catalog/registries/*`. Их не трогай.
 
 Ожидаю: последний коммит — `Stop the seed refresh from deleting the skills it ships`
 (или новее). Напиши, какой хеш получился.

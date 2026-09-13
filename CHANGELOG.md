@@ -29,6 +29,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run daemon`: the server as one warm local process.** The same MCP
+  server over a Unix socket (a named pipe on Windows) instead of a fresh stdio
+  process per client, so the search index and the embedding model load once and
+  stay loaded. It takes a pid lock — a second daemon refuses rather than
+  stealing the socket, and a lock left by a dead process is cleared — publishes
+  `~/.ai-dev/run/daemon.json`, creates the socket 0600 inside a 0700 directory,
+  and exits after `AI_DEV_IDLE_TIMEOUT_MS` without sessions (default 30
+  minutes). Optional: `npm start` remains the stdio path and nothing about it
+  changed.
+
+  Ported file by file from `codex/commit-all-20260908`, a snapshot branch that
+  cannot be merged — moving main to it would be 744,638 deletions, taking the
+  vendored skill catalogue and everything since the server was split into
+  modules. `tool-profile.mjs`, `project-trust.mjs` and `scripts/models.mjs`
+  are still there, unported (Д-42).
+
+
 - **`npm run acceptance`**: the rule this project ends a session on, as a
   command. Ten consecutive `npm run check` runs and the line "N падений из 10",
   with the two kinds of failure kept apart — a run with a failing test is the
@@ -217,7 +234,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **`cost-capture.mjs`**, an eighth hook, registered on `Stop` at every
     profile. It sums the `usage` of the assistant messages a transcript gained
     since the last run — subagent turns included, since they are billed the
-    same — and appends one `kind: "usage"` event per model to the usage ledger,
+    same — splits the cache writes by TTL, and appends one `kind: "usage"`
+    event per model to the usage ledger,
     writing the file directly so it works while the server runs in Docker. A
     byte cursor per session (`state/usage/sessions/<session>.json`) keeps the
     same message from being billed twice however often `Stop` fires, and a
@@ -226,8 +244,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     tokens per model, read from Anthropic's pricing page on the date recorded
     in `RATE_TABLE_SOURCE`, with the cache multipliers (5-minute write 1.25x,
     1-hour write 2x, read 0.1x) filling the rows that do not state their own.
-    Prices change, so `model_rates` in `.ai-dev/policy.json` overrides or adds
-    any row per project.
+    A turn's `cache_creation_1h_tokens` — the share of its cache writes made
+    with an hour's TTL, which the transcript reports under `cache_creation` and
+    `record_usage` now accepts — is priced at the 1-hour rate and the rest at
+    the 5-minute one. Prices change, so `model_rates` in `.ai-dev/policy.json`
+    overrides or adds any row per project.
   - **`usage_report`** now returns the `today` / `yesterday` / `last_7_days`
     slices alongside the per-model and per-task totals, and estimates cost from
     the rate table wherever the client reported none — a reported cost still
@@ -1228,7 +1249,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cases it is compared against, so whenever the two writes landed in different
   milliseconds the `skill_routing_benchmark` check called the report stale, that
   critical check failed, and the health status came out `fail` instead of
-  `degraded`. The cases are written first now.
+  `degraded`. The cases are written first now, and the report's mtime is
+  pinned a minute ahead of them — ordering alone still left the two writes in
+  the same millisecond on an idle machine.
 
 ## [1.0.0] - 2026-09-01
 

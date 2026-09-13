@@ -11,16 +11,21 @@
 ## Runtime Layers
 
 1. `server.mjs`: official MCP SDK transport, protocol capabilities, resources, prompts, and tool registration.
-2. `mcp-stdio.mjs`: composed domain-service facade and legacy-compatible rollback handler.
-3. `tool-definitions.mjs`: typed MCP contracts separated from dispatch and implementation.
-4. `core/`: path policy, atomic storage, command policy, process execution, canonical project
+2. `daemon.mjs` + `transport/socket.mjs`: the same server over a local Unix socket or Windows
+   named pipe instead of one stdio process per client. One warm process serves many sessions,
+   so the search index and the embedding model load once; it takes a pid lock, publishes
+   `run/daemon.json`, and exits after `AI_DEV_IDLE_TIMEOUT_MS` of no sessions (default 30 min).
+   Optional — `npm start` remains the stdio path.
+3. `mcp-stdio.mjs`: composed domain-service facade and legacy-compatible rollback handler.
+4. `tool-definitions.mjs`: typed MCP contracts separated from dispatch and implementation.
+5. `core/`: path policy, atomic storage, command policy, process execution, canonical project
    identity, context compilation, task state, routing, outcome analytics, overlays, dashboard,
    frontend quality, and runtime distribution.
-5. `extensions/`: capabilities registered from outside `mcp-stdio.mjs` (see below).
-6. `hooks/`: standalone scripts run by the *agent*, not by the server (see below).
-7. `09-mcp/search-index`: FTS and BGE-M3 hybrid retrieval.
-8. Obsidian: human-readable knowledge, generated project cards, workflows, and reports.
-9. `${AI_DEV_HOME}/state` (default `~/.ai-dev/state`): runtime task state and evidence that should not clutter the vault.
+6. `extensions/`: capabilities registered from outside `mcp-stdio.mjs` (see below).
+7. `hooks/`: standalone scripts run by the *agent*, not by the server (see below).
+8. `09-mcp/search-index`: FTS and BGE-M3 hybrid retrieval.
+9. Obsidian: human-readable knowledge, generated project cards, workflows, and reports.
+10. `${AI_DEV_HOME}/state` (default `~/.ai-dev/state`): runtime task state and evidence that should not clutter the vault.
 
 Archify is a local, vendored diagram capability. Its nine typed MCP tools and
 artifact/evidence contract are documented in [ARCHIFY.md](ARCHIFY.md).
@@ -363,11 +368,13 @@ What `cost-capture` writes is tokens, not money. A Claude Code transcript is app
 the hook keeps a byte cursor per session (`state/usage/sessions/<session>.json`), reads only what
 arrived since the last Stop, sums `usage` per model over the assistant messages in it — subagent
 turns included, since they are billed the same — and appends one `kind: "usage"` event per model to
-`state/usage/events.jsonl`. It writes the file directly rather than calling `record_usage`, because
+`state/usage/events.jsonl`. Cache writes are split by TTL: `cache_creation_input_tokens` covers both,
+so the hour-long share (`cache_creation.ephemeral_1h_input_tokens`) is carried separately and priced
+at its own rate. It writes the file directly rather than calling `record_usage`, because
 the server may be in Docker while the hook runs on the developer's machine. Prices live in
 `core/usage-ledger.mjs` (`RATE_TABLE`, read from Anthropic's pricing page on the date in
-`RATE_TABLE_SOURCE`, with the cache multipliers — write 1.25x, read 0.1x — filling the rows that do
-not state them) and are applied by `usage_report` at read time, so a price change re-prices history
+`RATE_TABLE_SOURCE`, with the cache multipliers — 5-minute write 1.25x, 1-hour write 2x, read 0.1x —
+filling the rows that do not state them) and are applied by `usage_report` at read time, so a price change re-prices history
 instead of freezing a stale number into the ledger. A model the table does not know is reported
 under `rates.unpriced_models` rather than counted as free.
 

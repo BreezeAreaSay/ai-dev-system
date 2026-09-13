@@ -51,6 +51,20 @@ export const EMBEDDING_BACKEND_REQUIREMENTS = Object.freeze([
   "modules_file"
 ]);
 
+/**
+ * The requirements that arrive only with the optional dense step.
+ *
+ * The helpers ship with the repository; the model weights are downloaded by
+ * `npm run setup -- --dense` and are hundreds of megabytes, so a clone that
+ * never asked for them is not broken. Reporting their absence as a failure met
+ * every new user with "Health: fail" on a correct install.
+ */
+export const EMBEDDING_MODEL_REQUIREMENTS = Object.freeze([
+  "model_dir",
+  "model_file",
+  "modules_file"
+]);
+
 /** Search presets every install must expose. */
 export const REQUIRED_SEARCH_PRESETS = Object.freeze([
   "balanced",
@@ -285,6 +299,17 @@ export function evaluateFrontendQaEnvironment(status) {
  */
 export function evaluateEmbeddingBackend(status) {
   const missing = EMBEDDING_BACKEND_REQUIREMENTS.filter((key) => !status.availability?.[key]?.exists);
+  // Everything missing is model weights, and those are an opt-in download: the
+  // install is correct, dense search simply is not set up. Anything else
+  // missing is a shipped file that should be there, which is a real failure.
+  const onlyModel = missing.length > 0 && missing.every((key) => EMBEDDING_MODEL_REQUIREMENTS.includes(key));
+  if (onlyModel) {
+    return {
+      status: "skipped",
+      summary: "Dense search is not set up: the model weights were never downloaded. Run `npm run setup -- --dense` to enable it.",
+      details: { missing, optional: true, availability: status.availability, workers: status.workers }
+    };
+  }
   if (missing.length) {
     return {
       status: "fail",

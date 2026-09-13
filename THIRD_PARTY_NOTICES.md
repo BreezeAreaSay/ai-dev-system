@@ -24,6 +24,15 @@ Their license files remain alongside their sources in the image.
 - License: MIT
 - Selection record: `03-skills-catalog/sources/external/ecc/upstream.json`
 
+## mattpocock/skills
+
+- Source: https://github.com/mattpocock/skills (selective import: the
+  `grilling` interview protocol from `skills/productivity/grilling`, which the
+  `grill-me` intent gate follows)
+- Included revision: `3cca18b368ae95cdbdebbff572ccafa662551015`
+- License: MIT
+- License text: `03-skills-catalog/sources/external/mattpocock-skills/LICENSE`
+
 ## Archify
 
 - Source: https://github.com/tt-a1i/archify (vendored from the repository's

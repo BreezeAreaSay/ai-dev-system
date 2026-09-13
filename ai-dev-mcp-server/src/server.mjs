@@ -376,7 +376,9 @@ export function createAiDevServer() {
       },
       instructions: [
         "Use this server as a bounded context and quality layer for local software development.",
-        "Prefer begin_task for substantive work, load no more than three routed skills, and require verification evidence before completion.",
+        "Two protocols apply to every substantive repository task, and read_skill returns either in full.",
+        "First the intent gate (skill `grill-me`): restate the request, separate known from assumed, ask only the questions whose answers change the work, and state what done means. It is supplemental and does not take one of the three routed skill slots.",
+        "Then the task lifecycle (skill `ai-dev-orchestrator`): begin_task for substantive work, load no more than three routed skills, checkpoint_task for progress and decisions, and require verification evidence from verify_task before complete_task.",
         "For frontend product or visual work, use Frontend Product Quality v2 and do not allow implementation before visual direction and design-system approval.",
         "When no visual reference exists, use Reference Factory manifests; the client must actually call ImageGen or Figma and inspect every PNG before registration.",
         "Never expose or summarize password notes through MCP resources."

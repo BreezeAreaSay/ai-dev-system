@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "policy": "explicit allowlist; no private vault zones or local runtime state",
-  "total_files": 1040,
-  "total_bytes": 18083897,
-  "content_fingerprint": "3943408a26d7eae25195c84b251db44c447da16ccc595172e15f5e3ddf4a92c6",
+  "total_files": 1043,
+  "total_bytes": 18089214,
+  "content_fingerprint": "8e816cded725cc718adec55add5df16720ec345dc1311090eae26f3bc129be9a",
   "files": [
     {
       "path": "01-system/Agent Rules.md",
@@ -159,6 +159,11 @@
       "path": "03-skills-catalog/sources/custom/frontend-quality-gate/SKILL.md",
       "bytes": 6182,
       "sha256": "17932163f06e0f3ed5fa7327cc4a588f1984645bf3988dab43f8effff6a9ccfc"
+    },
+    {
+      "path": "03-skills-catalog/sources/custom/grill-me/SKILL.md",
+      "bytes": 2224,
+      "sha256": "8a269e03e5325de3796b2b8942fe700b9b5fa262df1c9112b7dc2252aea1dfd3"
     },
     {
       "path": "03-skills-catalog/sources/custom/knowledge-curator/SKILL.md",
@@ -4904,6 +4909,16 @@
       "path": "03-skills-catalog/sources/external/ecc/upstream.json",
       "bytes": 3626,
       "sha256": "70034d9ad0ce5c23d6dcb2a44e6580f20028a4ef20bedecd3de04810ee06f55f"
+    },
+    {
+      "path": "03-skills-catalog/sources/external/mattpocock-skills/LICENSE",
+      "bytes": 1068,
+      "sha256": "b1fe614f897c8fc82d0a3098d8baeb981ebf0e7e71497336d721c0bd698bccd0"
+    },
+    {
+      "path": "03-skills-catalog/sources/external/mattpocock-skills/skills/grilling/SKILL.md",
+      "bytes": 2025,
+      "sha256": "0580d60f61041224d75136a93f3c609e6d3043725f9ce8c1a8c92d317afd1a21"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/.gitignore",

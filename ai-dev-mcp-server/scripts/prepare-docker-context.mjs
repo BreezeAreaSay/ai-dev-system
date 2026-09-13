@@ -150,6 +150,11 @@ async function createDockerContext({ output }) {
     const manifest = {
       schema_version: 1,
       policy: "generated from explicit repository and public-seed allowlists",
+      // Outside `content_fingerprint`, which is taken over `files` alone, so a
+      // rebuild of the same tree still fingerprints identically. The audit
+      // needs this to tell a context built from these sources from one left
+      // over by an earlier tree.
+      generated_at: new Date().toISOString(),
       docker_receives_only_allowlisted_files: true,
       total_files: initialAudit.total_files,
       total_bytes: initialAudit.total_bytes,

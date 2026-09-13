@@ -485,3 +485,33 @@ export function missingVendoredCatalogues(counts) {
   }
   return findings;
 }
+
+/**
+ * Is a prepared build context older than the sources it was built from?
+ *
+ * `.docker/build-context` is local build output, and the audit reads it rather
+ * than the repository. A context left over from an earlier tree makes the audit
+ * report findings about files that no longer exist — measured on a verification
+ * run, where it named `scripts/models.mjs`, a module this repository does not
+ * carry and nothing in it imports.
+ *
+ * A context that cannot say when it was made is stale by definition: an audit
+ * of an unidentifiable tree proves nothing about this one.
+ *
+ * @param {{ generatedAt?: string, newestSourceMs?: number }} [input]
+ * @returns {{ stale: boolean, reason: string }}
+ */
+export function buildContextStaleness({ generatedAt, newestSourceMs } = {}) {
+  const generatedMs = Date.parse(String(generatedAt ?? ""));
+  if (!Number.isFinite(generatedMs)) {
+    return { stale: true, reason: "the context does not say when it was generated" };
+  }
+  if (!Number.isFinite(newestSourceMs)) return { stale: false, reason: "" };
+  if (newestSourceMs > generatedMs) {
+    return {
+      stale: true,
+      reason: `a source file changed ${new Date(newestSourceMs).toISOString()}, after the context was generated ${new Date(generatedMs).toISOString()}`
+    };
+  }
+  return { stale: false, reason: "" };
+}

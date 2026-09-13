@@ -1,6 +1,6 @@
 ## What and why
 
-Six commits on top of `e8bc590`, the point where PR #38 merged. Two things
+Everything on top of `e8bc590`, the point where PR #38 merged. Two things
 arrived that the project did not have before — a catalogue of skills large
 enough to be useful, and a way for any assistant to reach it — and four debts
 closed behind them.

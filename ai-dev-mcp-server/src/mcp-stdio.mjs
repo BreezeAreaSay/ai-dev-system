@@ -1898,10 +1898,35 @@ async function fileStatus(target) {
 }
 
 async function frontendQaEnvironmentStatus() {
+  const unavailable = (reason) => ({
+    status: "unavailable",
+    playwright_available: false,
+    chromium_available: false,
+    browser_launch_ok: false,
+    launch_error: reason
+  });
   if (!(await pathExists(frontendQaRunnerPath))) {
-    return { status: "unavailable", playwright_available: false, chromium_available: false, browser_launch_ok: false };
+    return unavailable("The Frontend QA runner is not in this install.");
   }
-  const output = await execFileWithInput(
+  // The runner imports Playwright at module load, so on a clone that never ran
+  // `npm run setup -- --frontend-qa` it dies with ERR_MODULE_NOT_FOUND before
+  // printing anything. Letting that escape turned an opt-in install nobody
+  // asked for into a failed health check on every fresh clone.
+  let output;
+  try {
+    output = await runFrontendQaStatus();
+  } catch (error) {
+    return unavailable(`The Frontend QA runner could not start: ${String(error?.message ?? error).split("\n")[0]}`);
+  }
+  try {
+    return JSON.parse(output.stdout);
+  } catch {
+    return unavailable("The Frontend QA runner answered with something other than JSON.");
+  }
+}
+
+async function runFrontendQaStatus() {
+  return execFileWithInput(
     process.execPath,
     [frontendQaRunnerPath],
     JSON.stringify({ action: "status", project_path: vaultRoot }),
@@ -1911,7 +1936,6 @@ async function frontendQaEnvironmentStatus() {
       env: { AI_DEV_FRONTEND_QA_ARTIFACT_ROOT: frontendQaArtifactsRoot }
     }
   );
-  return JSON.parse(output.stdout);
 }
 
 function sanitizeRepoName(repositoryUrl, requestedName) {

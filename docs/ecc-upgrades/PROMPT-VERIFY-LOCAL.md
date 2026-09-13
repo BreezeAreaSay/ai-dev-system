@@ -191,7 +191,7 @@ Get-ChildItem ..\docker\probe-seed\03-skills-catalog\sources\external -Name
 
 Ожидаю: **3227** скиллов и шесть источников (archify, ecc, mattpocock-skills, membrane,
 ui-ux-pro-max, understand-anything). Отпечаток в выводе должен быть
-`047dc6a50aa9033efbdef79336ad6ca1730eb7af35a18fcd49ac344a6ac2027d`.
+`d032c147a26f6bd99859eda9f28c44ff88a4a94fb8f3ab34251b1cb72e200ce3`.
 
 Если скиллов 143 — обновление не доехало, скажи мне сразу.
 

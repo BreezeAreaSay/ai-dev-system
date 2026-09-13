@@ -1,6 +1,6 @@
 ---
 name: grill-me
-description: The intent gate. Use before any substantive repository work, and whenever a request could mean two different things: stress-test the request with the grilling interview until the design tree has no open branches, then open the task. Skip only for a request whose scope is one obvious edit.
+description: The intent gate. Use when a request could mean two different things, and before any substantive repository work: stress-test the request with the grilling interview until the design tree has no open branches, then open the task. Skip only for a request whose scope is one obvious edit.
 ---
 
 # Grill Me
@@ -9,25 +9,53 @@ Most bad changes are not bad code. They are a correct implementation of a reques
 checked. This gate runs before the work, and it is the first thing the
 `ai-dev-orchestrator` protocol asks for.
 
-The interview itself is the `grilling` skill (imported from
+The interview technique is the `grilling` skill (imported from
 [mattpocock/skills](https://github.com/mattpocock/skills), MIT): a design tree worked in
 rounds, where each round asks the whole frontier — every question whose prerequisites are
 already settled — with a recommended answer beside each one, and waits. Read it with
-`read_skill` and follow it; the rest of this card is only how it fits this system.
+`read_skill` and follow it. This card is the procedure around it and what the gate has to
+produce.
 
-## How it fits here
+## Procedure
 
-- **It is supplemental.** The gate does not take one of the three skill slots `begin_task`
+1. **Read the request for branches.** Name every reading it supports. One reading and one
+   obvious place to change means the gate is already done — see the last section.
+2. **Answer from the repository first.** Anything a lookup can settle is not a question:
+   `search_all` for where the behaviour lives, `analyze_project` for the shape of the
+   project, the project brief for what it is for. Take those answers before asking anyone.
+3. **Ask the whole frontier at once.** Every question whose prerequisites are settled, in
+   one round, each with the answer you would pick and why. A frontier asked one question
+   per turn is an interrogation.
+4. **Fold the answers back in and repeat.** New answers open new branches. Keep going until
+   the frontier is empty.
+5. **Write the assumptions down.** Whatever you decided without asking goes into the
+   answer; whatever shapes the design goes into `record_decision`.
+6. **End in acceptance criteria.** The last frontier is what done means.
+7. **Open the task.** `begin_task` with those criteria. The gate is over.
+
+## Acceptance: what the gate produces
+
+Before `begin_task` is called, the conversation has to hold all three, written out rather
+than implied:
+
+- **A one-paragraph statement of the request** as you now read it, in your words.
+- **The assumptions you made** without asking, each on its own line.
+- **Acceptance criteria**, each one settleable by a command, a file, or a number — never by
+  an opinion. "The endpoint returns 404 for an unknown id, covered by a test" is a
+  criterion; "error handling is improved" is not.
+
+If any of the three is missing, the gate has not finished, whatever the interview covered.
+`checkpoint_task` and `verify_task` carry those criteria from there on, so a vague one
+stays vague for the whole task.
+
+## Constraints
+
+- **The gate is supplemental.** It does not take one of the three skill slots `begin_task`
   routes. Run it, then open the task.
-- **Facts are yours, decisions are theirs.** Anything the repository can answer —
-  which file owns the behaviour, whether a command exists, what the tests cover — is a
-  lookup (`search_all`, `analyze_project`, the project brief), never a question.
-- **Ask once, in one round.** A frontier asked one question per turn is an interrogation.
-- **Assumptions are written down, not held.** What you decided without asking goes into
-  the answer, and anything that shapes the design goes into `record_decision`.
-- **The gate ends in criteria.** The last frontier is what done means. Each criterion must
-  be something a command, a file, or a number can settle, and those are what `begin_task`
-  and `checkpoint_task` carry from there on.
+- **Never ask what the repository can answer.** A question whose answer is in the code
+  spends the asker's attention on your lookup.
+- **Never start the work inside the gate.** No edits, no commits, no branches until the
+  criteria exist. The one exception is reading.
 
 ## When to proceed instead
 

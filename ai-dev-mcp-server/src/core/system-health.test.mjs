@@ -208,7 +208,18 @@ test("frontend QA environment is ready only when Playwright can launch Chromium"
   assert.match(evaluateFrontendQaEnvironment({
     playwright_available: true, chromium_available: true, browser_launch_ok: true
   }).summary, /ready from runner/);
-  assert.equal(evaluateFrontendQaEnvironment({ playwright_available: false }).status, "warn");
+  // Nothing installed is the opt-in step nobody ran; a clean clone met its
+  // first user with "Health: fail" partly because of this one.
+  const notInstalled = evaluateFrontendQaEnvironment({ playwright_available: false });
+  assert.equal(notInstalled.status, "skipped");
+  assert.equal(notInstalled.details.optional, true);
+  assert.match(notInstalled.summary, /--frontend-qa/);
+
+  // Playwright there and its browser not is a half-configured install, and
+  // stays a warning: something is wrong that the person can fix.
+  assert.equal(evaluateFrontendQaEnvironment({
+    playwright_available: true, chromium_available: false, browser_launch_ok: false
+  }).status, "warn");
 });
 
 function embeddingAvailability(overrides = {}) {

@@ -2,8 +2,8 @@
   "schema_version": 1,
   "policy": "explicit allowlist; no private vault zones or local runtime state",
   "total_files": 4186,
-  "total_bytes": 40435807,
-  "content_fingerprint": "047dc6a50aa9033efbdef79336ad6ca1730eb7af35a18fcd49ac344a6ac2027d",
+  "total_bytes": 40437168,
+  "content_fingerprint": "d032c147a26f6bd99859eda9f28c44ff88a4a94fb8f3ab34251b1cb72e200ce3",
   "files": [
     {
       "path": "01-system/Agent Rules.md",
@@ -162,8 +162,8 @@
     },
     {
       "path": "03-skills-catalog/sources/custom/grill-me/SKILL.md",
-      "bytes": 2224,
-      "sha256": "8a269e03e5325de3796b2b8942fe700b9b5fa262df1c9112b7dc2252aea1dfd3"
+      "bytes": 3585,
+      "sha256": "220f7647cb429b249339bbc96c98220e9a6ddd5c0e321e6fbccf306e4f629df5"
     },
     {
       "path": "03-skills-catalog/sources/custom/knowledge-curator/SKILL.md",

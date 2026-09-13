@@ -173,6 +173,40 @@ test("the runtime directory is not a project boundary, even when projects sit be
   assert.equal(projectIdOf(project, false), (await resolveProjectIdentity(project)).project_id);
 });
 
+test("a home reached through a symlink still has its runtime directory skipped", async (t) => {
+  // macOS CI found this on the job's first run. Its temp directory is reached
+  // through /var/folders, a symlink to /private/var, so the configured runtime
+  // root and the canonical path the walk reads spelled the same directory two
+  // ways and never compared equal — `.ai-dev` went back to counting as a
+  // project marker and every project below the home shared one memory key
+  // again. Reproduced on Linux with an explicit symlink, which is what this
+  // test builds, so it fails everywhere if the canonicalisation is dropped.
+  const real = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-real-"));
+  const link = path.join(os.tmpdir(), `ai-dev-link-${process.pid}-${Date.now()}`);
+  await fs.symlink(real, link, "junction").catch(() => fs.symlink(real, link));
+  t.after(async () => {
+    await fs.unlink(link).catch(() => fs.rm(link, { recursive: true, force: true })).catch(() => {});
+    await fs.rm(real, { recursive: true, force: true });
+  });
+
+  const outer = path.join(link, "outer");
+  const home = path.join(outer, "home");
+  await fs.mkdir(path.join(home, ".ai-dev", "state"), { recursive: true });
+  await fs.writeFile(path.join(outer, "package.json"), JSON.stringify({ name: "outer" }), "utf8");
+  const project = path.join(home, "projects", "one");
+  await fs.mkdir(project, { recursive: true });
+
+  const previousHome = process.env.AI_DEV_HOME;
+  process.env.AI_DEV_HOME = home;
+  t.after(() => {
+    if (previousHome === undefined) delete process.env.AI_DEV_HOME;
+    else process.env.AI_DEV_HOME = previousHome;
+  });
+
+  assert.equal(projectIdOf(project, false), projectIdOf(outer, false));
+  assert.equal(projectIdOf(project, false), (await resolveProjectIdentity(project)).project_id);
+});
+
 test("a real marker beside the runtime directory still stops the walk", async (t) => {
   // The other half of the same rule, and what makes the case above meaningful:
   // `.ai-dev` is skipped because it is the runtime tree, not because anything

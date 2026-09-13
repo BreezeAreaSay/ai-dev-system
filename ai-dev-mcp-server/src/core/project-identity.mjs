@@ -80,7 +80,13 @@ async function git(cwd, args) {
 
 async function nearestProjectBoundary(start) {
   let current = start;
-  const runtimeRoot = normalizePath(configuredRuntimeStateRoot || resolveRuntimeStateRoot());
+  // Canonical, for the same reason the hook's copy is: `start` is already a
+  // realpath, and on a machine that reaches its home through a symlink — every
+  // macOS temp directory, via /var/folders -> /private/var — an unresolved
+  // runtime root never equals the walked one, so `.ai-dev` counts as a project
+  // marker and the walk stops on the runtime directory itself.
+  const configured = configuredRuntimeStateRoot || resolveRuntimeStateRoot();
+  const runtimeRoot = normalizePath(await fs.realpath(configured).catch(() => path.resolve(configured)));
   while (true) {
     for (const marker of BOUNDARY_MARKERS) {
       const markerPath = path.join(current, marker);

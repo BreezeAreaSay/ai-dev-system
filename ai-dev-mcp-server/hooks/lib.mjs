@@ -161,7 +161,13 @@ const BOUNDARY_MARKERS = [
  * its memory to that subdirectory while the server keyed it to the project.
  */
 function projectBoundaryOf(start) {
-  const runtimeRoot = normalizePath(runtimeStateRoot());
+  // Canonical, because the walk below reads canonical paths. macOS reaches its
+  // temp directory through /var/folders, a symlink to /private/var, so the
+  // configured root and the walked path spelled the same directory differently
+  // and the comparison never matched — putting the runtime directory back in
+  // the marker list and every project below it back under one memory key.
+  // Measured on macOS CI, and reproduced on Linux with a symlinked home.
+  const runtimeRoot = normalizePath(realpathOf(runtimeStateRoot()));
   let current = path.resolve(start);
   while (true) {
     for (const marker of BOUNDARY_MARKERS) {

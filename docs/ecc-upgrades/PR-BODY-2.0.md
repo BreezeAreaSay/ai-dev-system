@@ -24,8 +24,24 @@ instincts and handoffs are keyed by that id: notes from one project were handed
 to an agent working on another, silently.
 
 Reproduced on Linux with the same layout — two sibling projects both hashing to
-`project-e24ca70e5358e2931b79` in the hook while the server told them apart —
-and covered by a test that fails on any platform if the comparison drifts again.
+`project-e24ca70e5358e2931b79` in the hook while the server told them apart.
+
+The first test written for it was itself platform-dependent, and Windows CI
+caught that: it asserted two sibling projects differ, which holds on POSIX
+(the fake home lands in `/tmp` with no marker above it) and fails on Windows,
+where `os.tmpdir()` sits inside the real user profile and the walk finds a
+marker there. It now asserts what the fix actually guarantees — a home whose
+only marker is `.ai-dev` is walked past — inside a tree with a marker of its
+own, so nothing above the temp directory can change the answer. A second test
+covers the other half: a real marker at that level still stops the walk, so
+`.ai-dev` is skipped for being the runtime tree rather than by position.
+
+That leaves the general case open, and `DEBTS.md` records it as Д-48 rather
+than leaving it implied: the walk still runs to the filesystem root, so a
+`package.json` in someone's home directory collapses every project below it the
+same way. The hook and the server agree there, so it is a question about the
+rule, not a divergence to fix — with three answers and the measurement behind
+each.
 
 ### Three correct states that looked like faults
 
@@ -82,8 +98,8 @@ ships no LICENSE file of its own and declares MIT per skill instead.
 
 ## Checklist
 
-- [x] `npm run check` passes from `ai-dev-mcp-server/` — 976 tests, 969 pass,
-  0 fail, 7 skipped; coverage 97.02 lines / 83.81 branches / 94.84 functions
+- [x] `npm run check` passes from `ai-dev-mcp-server/` — 977 tests, 970 pass,
+  0 fail, 7 skipped; coverage 97.04 lines / 83.80 branches / 94.84 functions
   against thresholds 85 / 60 / 85. `packaging:check`, `docs:tools:check` and
   `docker:seed:verify` pass.
 - [x] New behaviour has tests; `src/core/` additions have JSDoc types — the

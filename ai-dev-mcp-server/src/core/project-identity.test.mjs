@@ -144,13 +144,21 @@ test("the runtime directory is not a project boundary, even when projects sit be
   // projects both hashed to project-e24ca70e5358e2931b79 in the hook while the
   // server told them apart, which means every project on such a machine shared
   // one memory key.
-  const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-home-"));
-  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  // `outer` carries a marker of its own so the walk stops there and never
+  // reaches whatever sits above the temp directory. That matters: an earlier
+  // version of this test asserted two sibling projects differ, which held on
+  // POSIX — where the fake home lands in /tmp with nothing above it — and
+  // failed on Windows, where os.tmpdir() is inside the real user profile and
+  // the walk found a marker there. What the fix guarantees is narrower and
+  // decidable: a home whose only marker is `.ai-dev` is walked past.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-home-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const outer = path.join(root, "outer");
+  const home = path.join(outer, "home");
   await fs.mkdir(path.join(home, ".ai-dev", "state"), { recursive: true });
-  const first = path.join(home, "AppData", "Local", "Temp", "first");
-  const second = path.join(home, "AppData", "Local", "Temp", "second");
-  await fs.mkdir(first, { recursive: true });
-  await fs.mkdir(second, { recursive: true });
+  await fs.writeFile(path.join(outer, "package.json"), JSON.stringify({ name: "outer" }), "utf8");
+  const project = path.join(home, "AppData", "Local", "Temp", "project");
+  await fs.mkdir(project, { recursive: true });
 
   const previousHome = process.env.AI_DEV_HOME;
   process.env.AI_DEV_HOME = home;
@@ -159,9 +167,35 @@ test("the runtime directory is not a project boundary, even when projects sit be
     else process.env.AI_DEV_HOME = previousHome;
   });
 
-  assert.notEqual(projectIdOf(first, false), projectIdOf(second, false));
-  assert.equal(projectIdOf(first, false), (await resolveProjectIdentity(first)).project_id);
-  assert.equal(projectIdOf(second, false), (await resolveProjectIdentity(second)).project_id);
+  // Stopping at `home` would key the project to the runtime directory; reaching
+  // `outer` is the boundary the markers actually describe.
+  assert.equal(projectIdOf(project, false), projectIdOf(outer, false));
+  assert.equal(projectIdOf(project, false), (await resolveProjectIdentity(project)).project_id);
+});
+
+test("a real marker beside the runtime directory still stops the walk", async (t) => {
+  // The other half of the same rule, and what makes the case above meaningful:
+  // `.ai-dev` is skipped because it is the runtime tree, not because anything
+  // at that level is ignored.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-marker-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const outer = path.join(root, "outer");
+  const home = path.join(outer, "home");
+  await fs.mkdir(path.join(home, ".ai-dev", "state"), { recursive: true });
+  await fs.writeFile(path.join(outer, "package.json"), JSON.stringify({ name: "outer" }), "utf8");
+  await fs.writeFile(path.join(home, "go.mod"), "module home\n", "utf8");
+  const project = path.join(home, "AppData", "Local", "Temp", "project");
+  await fs.mkdir(project, { recursive: true });
+
+  const previousHome = process.env.AI_DEV_HOME;
+  process.env.AI_DEV_HOME = home;
+  t.after(() => {
+    if (previousHome === undefined) delete process.env.AI_DEV_HOME;
+    else process.env.AI_DEV_HOME = previousHome;
+  });
+
+  assert.notEqual(projectIdOf(project, false), projectIdOf(outer, false));
+  assert.equal(projectIdOf(project, false), (await resolveProjectIdentity(project)).project_id);
 });
 
 test("the hooks copy of the derivation answers exactly like the server", async (t) => {

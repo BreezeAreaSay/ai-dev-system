@@ -13,6 +13,7 @@ import {
   claudeHookEntries,
   cursorHookWarnings,
   cursorHooksDocument,
+  cursorVerificationPlan,
   defaultPolicy,
   installAgentHooks,
   mergeClaudeSettings,
@@ -173,6 +174,29 @@ test("the Cursor adapter is pinned to a checked hooks.json format version", () =
   assert.match(warnings[1], /beforeShellExecution already lists 1 foreign hook/);
   assert.deepEqual(cursorHookWarnings(null, document), []);
   assert.deepEqual(cursorHookWarnings({ version: 1, hooks: {} }, document), []);
+});
+
+test("what the Cursor adapter could not verify is said at install time, and has a check", () => {
+  // Д-2: three statements in the contract stand on secondary sources, because
+  // cursor.com is unreachable from where this was built. They were recorded in
+  // a source comment, which is the one place the person installing never looks.
+  const plan = cursorVerificationPlan();
+  assert.deepEqual(plan.unverified, ["events", "limits"]);
+  // Derived from the contract, so a claim that gets settled stops being asked
+  // about instead of being asked about forever.
+  const settled = cursorVerificationPlan({
+    contract: { ...CURSOR_HOOKS_CONTRACT, verification: { ...CURSOR_HOOKS_CONTRACT.verification, events: "corroborated" } }
+  });
+  assert.deepEqual(settled.unverified, ["limits"]);
+  assert.equal(settled.steps[0].claim, "limits", "the open question is asked first");
+
+  for (const step of plan.steps) {
+    assert.ok(step.question.endsWith("?"), `${step.claim} asks no question`);
+    assert.ok(step.how.length > 0, `${step.claim} says how to check nothing`);
+    // An expectation has to say what both outcomes mean, or the person checking
+    // learns nothing from the one they get.
+    assert.ok(step.expected.length > 80, `${step.claim} does not say what either answer means`);
+  }
 });
 
 test("installing for Cursor records the format version and reports what it could not decide", async (t) => {

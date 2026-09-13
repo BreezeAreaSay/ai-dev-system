@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run acceptance`**: the rule this project ends a session on, as a
+  command. Ten consecutive `npm run check` runs and the line "N падений из 10",
+  with the two kinds of failure kept apart — a run with a failing test is the
+  suite telling you something, a run that exits non-zero with `# fail 0` is the
+  coverage reporter and says nothing about the code. `--runs N` for a longer
+  sample.
+
+- **`npm run verify:cursor`**: the five-minute check a person with a real Cursor
+  has to run, printed from the adapter's own contract. The claims that could not
+  be verified from here now also come back in `install_agent_hooks`'s answer
+  rather than living only in a source comment.
+
+
 - **3,084 skills, in the file each assistant already reads.** The intent gate
   (`grill-me`, following the `grilling` interview imported from
   [mattpocock/skills](https://github.com/mattpocock/skills)), the whole
@@ -448,6 +461,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skips the two generated zones. Measured on a polluted checkout: prepare goes
   from a refusal to 1188 files, the same as a clean clone, and the verifier
   reports `current` with 1040 files checked.
+
+- **`npm run check` failed about twice in ten runs, and never because of a
+  test.** `--experimental-test-coverage` sets `NODE_V8_COVERAGE`, and every
+  process the suite spawns — git, python, the installed hooks, the MCP smokes —
+  inherited it and wrote its own coverage file into the same directory. A child
+  that died before V8 flushed left that file at zero bytes; the reporter parses
+  every file in the directory and fell over on it, which is the `# fail 0`
+  beside a non-zero exit that Д-11 has recorded since the first stage. Caught by
+  running the gate with a coverage directory of its own: the failing run held
+  377 files against 376 on every passing one, and the extra file was empty. The
+  test setup drops the variable now — this process captured its own path at
+  startup, so its coverage is intact and nothing it spawns inherits the
+  directory. Measured after: 121 files instead of 376, none empty, line coverage
+  unchanged at 97%.
 
 - **A HarmonyOS project got no language rules.** The detector has labelled
   `ArkTS/HarmonyOS` from `oh-package.json5` since the root listing was added,

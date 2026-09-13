@@ -231,6 +231,66 @@ export const CURSOR_HOOKS_CONTRACT = {
   ]
 };
 
+/**
+ * What a person with a real Cursor has to do to settle what this adapter could
+ * not, and what they should see if it works.
+ *
+ * The contract above records its confidence claim by claim because cursor.com
+ * is unreachable from where this was built (Д-2). That leaves three statements
+ * standing on secondary sources: whether Cursor knows the three session events,
+ * whether the first registration for an event shadows the rest, and whether a
+ * denial actually reaches the user. Each one is five minutes in front of a real
+ * editor, and each has an observable that does not depend on reading Cursor's
+ * mind.
+ *
+ * The plan is derived from the contract rather than written beside it, so a
+ * claim that changes status stops being asked about.
+ *
+ * @param {{ contract?: object, stateRoot?: string }} [options]
+ * @returns {{ unverified: string[], steps: Array<{ claim: string, question: string, how: string[], expected: string }> }}
+ */
+export function cursorVerificationPlan({ contract = CURSOR_HOOKS_CONTRACT, stateRoot = "~/.ai-dev/state" } = {}) {
+  const unverified = Object.entries(contract.verification ?? {})
+    .filter(([, status]) => String(status).startsWith("unverified"))
+    .map(([claim]) => claim);
+  const catalogue = {
+    events: {
+      question: "Does Cursor run sessionStart, sessionEnd and preCompact at all?",
+      how: [
+        "Install the hooks into a scratch project: install_agent_hooks with targets [\"cursor\"].",
+        "Open that project in Cursor and start a new chat. Say anything; do not edit files.",
+        "Close the chat, then look in " + stateRoot + "/sessions for a handoff file written in the last minute."
+      ],
+      expected: "A handoff file means the session events fire. Nothing there after a full chat means Cursor ignores those three registrations, and session memory has to move to the `stop` event."
+    },
+    limits: {
+      question: "Does the first registration for an event shadow the ones after it?",
+      how: [
+        "In the same project, edit .cursor/hooks.json and put a second entry before ours on beforeShellExecution: {\"command\": \"node -e \\\"console.log(JSON.stringify({permission:'allow'}))\\\"\"}.",
+        "Ask the agent in Cursor to run `git commit --no-verify -m test`."
+      ],
+      expected: "A refusal means every registration runs and ours is reached. The commit going through means the first entry wins and the installer's warning is real."
+    },
+    version: {
+      question: "Is `version: 1` the document version this Cursor reads?",
+      how: ["Open .cursor/hooks.json in Cursor and check that it reports no schema error."],
+      expected: "No complaint means the document version is the one this Cursor reads. A schema error naming `version` means the format has moved, and a new builder has to be added to CURSOR_HOOKS_BUILDERS rather than the version-1 one rewritten."
+    },
+    deny_response: {
+      question: "Does a denial reach the person, or is it swallowed?",
+      how: ["Ask the agent to run `rm -rf /` in that project."],
+      expected: "Cursor showing the guard's own message means the deny shape reaches the person. The command being refused with no message, or running anyway, means the response shape is wrong for this version and a blocked command looks like a glitch."
+    }
+  };
+  const order = [...unverified, ...Object.keys(catalogue).filter((claim) => !unverified.includes(claim))];
+  return {
+    unverified,
+    steps: order
+      .filter((claim) => catalogue[claim])
+      .map((claim) => ({ claim, ...catalogue[claim] }))
+  };
+}
+
 function cursorHooksV1(profile) {
   const full = profile !== "minimal";
   const entry = (script, ...args) => ({ command: ["node", `${HOOKS_RELATIVE_DIR}/${script}`, ...args, "--cursor"].join(" ") });
@@ -520,7 +580,26 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
     await writeManaged(".cursor/hooks.json", `${JSON.stringify(mergeCursorHooks(current, ours), null, 2)}\n`);
   }
 
-  return { profile, targets, written, updated, skipped, planned, backups, warnings, cursor_format_version: Number(cursorFormatVersion) };
+  // What this adapter could not check itself, said where the person installing
+  // will see it rather than only in a source comment (Д-2).
+  const cursorUnverified = targets.includes("cursor") ? cursorVerificationPlan().unverified : [];
+  return {
+    profile,
+    targets,
+    written,
+    updated,
+    skipped,
+    planned,
+    backups,
+    warnings,
+    cursor_format_version: Number(cursorFormatVersion),
+    ...(cursorUnverified.length
+      ? {
+        cursor_unverified: cursorUnverified,
+        cursor_verification_step: "Run `npm run verify:cursor` for the five-minute check in a real editor."
+      }
+      : {})
+  };
 }
 
 /**

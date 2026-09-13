@@ -26,6 +26,21 @@ process.env.BGE_M3_MODEL_DIR = path.join(stateHome, "models", "bge-m3");
 // Python helpers must never drop __pycache__/*.pyc into the repo or the seed.
 process.env.PYTHONDONTWRITEBYTECODE = "1";
 
+// `--experimental-test-coverage` sets NODE_V8_COVERAGE, and every process the
+// suite spawns — git, python, the installed hooks, the MCP smokes — inherits it
+// and creates its own coverage file in the same directory. A child that dies
+// before V8 writes anything leaves that file at zero bytes, the reporter parses
+// every file in the directory, and the run ends with `# fail 0` and
+// "Could not report code coverage. SyntaxError: Unexpected end of JSON input"
+// (docs/ecc-upgrades/DEBTS.md, Д-11). Measured: on the failing run the directory
+// held 377 files against 376 on every passing one, and the extra file was empty.
+//
+// This process already captured its own coverage path at startup, so dropping
+// the variable here costs nothing and stops it reaching anything spawned from
+// here — including the workers' own children, since node:test runs this import
+// inside every worker.
+delete process.env.NODE_V8_COVERAGE;
+
 process.on("exit", () => {
   try {
     fs.rmSync(stateHome, { recursive: true, force: true });

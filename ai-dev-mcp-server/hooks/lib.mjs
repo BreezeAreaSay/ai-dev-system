@@ -161,7 +161,7 @@ const BOUNDARY_MARKERS = [
  * its memory to that subdirectory while the server keyed it to the project.
  */
 function projectBoundaryOf(start) {
-  const runtimeRoot = normalizePath(stateRoot());
+  const runtimeRoot = normalizePath(runtimeStateRoot());
   let current = path.resolve(start);
   while (true) {
     for (const marker of BOUNDARY_MARKERS) {
@@ -225,8 +225,29 @@ export function memoryKeysOf(projectRoot, isGit = true) {
 
 export function stateRoot() {
   if (process.env.AI_DEV_STATE_ROOT) return path.resolve(process.env.AI_DEV_STATE_ROOT);
+  return path.join(runtimeStateRoot(), "state");
+}
+
+/**
+ * The runtime tree itself (`<home>/.ai-dev`), which is what the server's
+ * `resolveRuntimeStateRoot` returns.
+ *
+ * `stateRoot()` is one level below it, and comparing that against a candidate
+ * `<dir>/.ai-dev` never matched — so the runtime directory was read as a
+ * project boundary. On Windows the temp directory lives inside the user
+ * profile, so the walk from any project there stopped at `<home>` and every
+ * project on the machine shared one memory key. Measured: two sibling
+ * directories under a home carrying `.ai-dev` both hashed to
+ * `project-e24ca70e5358e2931b79` in the hook while the server told them apart.
+ *
+ * The server does not honour `AI_DEV_STATE_ROOT` here either: that variable
+ * moves where state is written, not which directory is the runtime tree.
+ *
+ * @returns {string}
+ */
+export function runtimeStateRoot() {
   const home = process.env.AI_DEV_HOME || process.env.USERPROFILE || process.env.HOME || os.homedir();
-  return path.join(home, ".ai-dev", "state");
+  return path.join(home, ".ai-dev");
 }
 
 /** Same sanitisation as the server's SessionStore.directoryFor. */

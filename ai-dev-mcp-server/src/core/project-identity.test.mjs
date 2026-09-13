@@ -136,6 +136,34 @@ test("every worktree of one clone shares a repository id while project ids stay 
   assert.notEqual(nestedMain.repository_id, fromMain.repository_id);
 });
 
+test("the runtime directory is not a project boundary, even when projects sit below it", async (t) => {
+  // Windows puts the temp directory inside the user profile, and the server
+  // creates `<home>/.ai-dev` there. The hook compared a candidate `.ai-dev`
+  // against `<home>/.ai-dev/state` — one segment too deep, so the comparison
+  // never matched and the walk stopped at `<home>`. Measured: two sibling
+  // projects both hashed to project-e24ca70e5358e2931b79 in the hook while the
+  // server told them apart, which means every project on such a machine shared
+  // one memory key.
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-home-"));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  await fs.mkdir(path.join(home, ".ai-dev", "state"), { recursive: true });
+  const first = path.join(home, "AppData", "Local", "Temp", "first");
+  const second = path.join(home, "AppData", "Local", "Temp", "second");
+  await fs.mkdir(first, { recursive: true });
+  await fs.mkdir(second, { recursive: true });
+
+  const previousHome = process.env.AI_DEV_HOME;
+  process.env.AI_DEV_HOME = home;
+  t.after(() => {
+    if (previousHome === undefined) delete process.env.AI_DEV_HOME;
+    else process.env.AI_DEV_HOME = previousHome;
+  });
+
+  assert.notEqual(projectIdOf(first, false), projectIdOf(second, false));
+  assert.equal(projectIdOf(first, false), (await resolveProjectIdentity(first)).project_id);
+  assert.equal(projectIdOf(second, false), (await resolveProjectIdentity(second)).project_id);
+});
+
 test("the hooks copy of the derivation answers exactly like the server", async (t) => {
   const { main, worktree } = await cloneWithWorktree(t);
   for (const projectRoot of [main, worktree, path.join(main, "packages", "web")]) {

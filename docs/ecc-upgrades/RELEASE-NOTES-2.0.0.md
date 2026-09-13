@@ -38,7 +38,11 @@ this release.
 - **Windows is a supported platform.** Byte-exact snapshots, platform-native
   worktree paths, the interpreter that actually exists, a shell-free `npm`, and
   one memory key per project rather than one per machine.
-- **976 tests, 0 failures**, coverage 97.0 / 83.8 / 94.8 against thresholds
+- **The local model runs in a container.** The Python side is a build argument
+  (`INSTALL_BGE_M3=1`), the weights mount read-only at `/models/bge-m3` from
+  either the launcher scripts or Compose, and both READMEs carry the whole path
+  end to end — including a four-line Dockerfile for baking the weights in.
+- **978 tests, 0 failures**, coverage 97.05 / 83.83 / 94.79 against thresholds
   85 / 60 / 85.
 
 **Breaking**
@@ -70,12 +74,12 @@ this release.
 | | |
 | --- | --- |
 | Tests | 978, 0 failures |
-| Coverage | 97.0 lines / 83.7 branches / 94.8 functions (thresholds 85 / 60 / 85) |
+| Coverage | 97.05 lines / 83.83 branches / 94.79 functions (thresholds 85 / 60 / 85) |
 | Ten consecutive gate runs | 0 failures out of 10 |
 | Platforms in CI | Linux, Windows, macOS |
 | Skills shipped | 3,227 |
 | MCP tools | 133 |
-| Defects recorded and closed | 51 recorded, 47 closed |
+| Defects recorded and closed | 52 recorded, 48 closed |
 
 **Install**
 

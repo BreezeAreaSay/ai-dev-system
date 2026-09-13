@@ -1,6 +1,26 @@
+# Copy to compose.local.yaml and edit. That file is Git-ignored: it holds local paths.
 services:
   ai-dev-mcp:
     volumes:
       - type: bind
         source: ${AI_DEV_PROJECT_PATH:?Set AI_DEV_PROJECT_PATH to a local project or projects directory}
         target: /workspace
+
+      # Dense search with the local BGE-M3 model.
+      #
+      # The weights are never in the image — they are ~2.3 GB and they are yours,
+      # not the distribution's. Download them once on the host with
+      # `npm run setup -- --dense` (they land in ~/.ai-dev/models/bge-m3), then
+      # uncomment the three lines below and set AI_DEV_MODEL_PATH to that folder.
+      #
+      # The image also has to carry the Python side, which is off by default:
+      #   docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker/build-context
+      #   AI_DEV_IMAGE=ai-dev-system:bge docker compose ... run --rm -T ai-dev-mcp
+      #
+      # Read-only on purpose: the container reads the weights and never writes them.
+      # The launcher scripts (docker/run-mcp.sh, run-mcp.ps1) do the same mount from
+      # the same variable, so both ways of starting the image agree.
+      # - type: bind
+      #   source: ${AI_DEV_MODEL_PATH:?Set AI_DEV_MODEL_PATH to the folder holding the BGE-M3 weights}
+      #   target: /models/bge-m3
+      #   read_only: true

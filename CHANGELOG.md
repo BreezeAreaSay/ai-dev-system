@@ -46,7 +46,11 @@ this release.
 - **Windows is a supported platform.** Byte-exact snapshots, platform-native
   worktree paths, the interpreter that actually exists, a shell-free `npm`, and
   one memory key per project rather than one per machine.
-- **976 tests, 0 failures**, coverage 97.0 / 83.8 / 94.8 against thresholds
+- **The local model runs in a container.** The Python side is a build argument
+  (`INSTALL_BGE_M3=1`), the weights mount read-only at `/models/bge-m3` from
+  either the launcher scripts or Compose, and both READMEs carry the whole path
+  end to end — including a four-line Dockerfile for baking the weights in.
+- **978 tests, 0 failures**, coverage 97.05 / 83.83 / 94.79 against thresholds
   85 / 60 / 85.
 
 **Breaking**
@@ -120,6 +124,21 @@ this release.
   manifest making the loss look deliberate. The refresh now carries them
   forward from the checkout and refuses to write a seed that is missing any of
   them. A rebuild reproduces the committed seed byte for byte.
+
+- **The local model works in a container, and the instructions say how.** Dense
+  retrieval hung on `AI_DEV_MODEL_PATH`, which only the launcher scripts read:
+  Compose had no `/models` mount and no mention of the variable, while the
+  README explained it in the section about Compose. A reader following that got
+  a container where `BGE_M3_MODEL_DIR=/models/bge-m3` pointed at nothing, and
+  the failure was quiet — `embedding_backend` says `skipped`, which reads as
+  "you did not download the model" rather than "the mount is missing".
+  `compose.local.example.yaml` now carries the mount against the same variable
+  the launchers use, and both READMEs and `docker/README.md` carry the whole
+  path end to end: the `INSTALL_BGE_M3=1` build argument, the one host command
+  that downloads the weights, both ways to run it, a four-line Dockerfile for
+  baking the weights into an image of your own, and the two keys that say
+  whether it worked. `network_mode: none` is no obstacle — the embedding helpers
+  set `TRANSFORMERS_OFFLINE=1` and `HF_HUB_OFFLINE=1` before loading.
 
 - **A seed rebuild no longer breaks archify.** Nested vendored dependencies
   (`archify/node_modules/ajv/node_modules/fast-uri`, 34 tracked files) were

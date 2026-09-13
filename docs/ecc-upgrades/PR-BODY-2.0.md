@@ -115,6 +115,48 @@ that have been biting. A `macos-latest` job now runs the unit tests, the
 identity and hook tests on their own, a first run, and the seed check — so the
 platform is measured rather than assumed.
 
+### The model was documented into a mount that Compose did not have
+
+Dense retrieval on the local BGE-M3 model is half of what the search does, and
+in a container it hung on `AI_DEV_MODEL_PATH`. Only the launcher scripts
+(`run-mcp.sh`, `run-mcp.ps1`) read that variable. Compose had no `/models` mount
+and no mention of it — while the README explained the variable in the section
+about Compose. A reader following those instructions got a container where
+`BGE_M3_MODEL_DIR=/models/bge-m3` pointed at nothing, and the failure was quiet:
+`embedding_backend` reports `skipped` with "download the model", which reads as
+user error rather than a missing mount.
+
+`compose.local.example.yaml` now carries the mount, commented, against the same
+variable the launchers use, so both ways of starting the image agree. Proved by
+merging the two files as Docker merges them:
+
+```
+volumes:
+  - volume ai-dev-data              -> /data
+  - bind   ${AI_DEV_PROJECT_PATH}   -> /workspace
+  - bind   ${AI_DEV_MODEL_PATH}     -> /models/bge-m3   (read_only)
+```
+
+Both READMEs and `docker/README.md` gain end-to-end instructions: the build
+argument that installs the Python side (`INSTALL_BGE_M3=1`, off by default so
+nobody pays for an install they do not use), the one host command that downloads
+the weights, both ways to run it, a four-line Dockerfile for anyone who wants
+the weights baked into an image of their own, and what to read to confirm it
+worked.
+
+The claims in those instructions were checked rather than written from memory,
+and one of the four was false: the draft told the reader to look for
+`dense_enabled`, a key `embedding_status` does not return. It is now the keys
+that exist. The other three hold — `embeddingsDir` resolves to
+`/opt/ai-dev/embeddings` under the image layout, which is exactly where the
+`INSTALL_BGE_M3=1` step builds the virtual environment the server looks for; and
+`network_mode: none` does not block the model, because both embedding helpers
+set `TRANSFORMERS_OFFLINE=1` and `HF_HUB_OFFLINE=1` before loading. Recorded as
+Д-52 with the measurement on both sides.
+
+Docker is not a detour here: it is the packaged way to run this, and the model
+is part of the package.
+
 ### The release
 
 A major version because what a clone *is* changed, not only what it can do. The
@@ -144,8 +186,8 @@ ships no LICENSE file of its own and declares MIT per skill instead.
 
 ## Checklist
 
-- [x] `npm run check` passes from `ai-dev-mcp-server/` — 977 tests, 970 pass,
-  0 fail, 7 skipped; coverage 97.04 lines / 83.80 branches / 94.84 functions
+- [x] `npm run check` passes from `ai-dev-mcp-server/` — 978 tests, 971 pass,
+  0 fail, 7 skipped; coverage 97.05 lines / 83.83 branches / 94.79 functions
   against thresholds 85 / 60 / 85. `packaging:check`, `docs:tools:check` and
   `docker:seed:verify` pass.
 - [x] New behaviour has tests; `src/core/` additions have JSDoc types — the
@@ -159,9 +201,10 @@ ships no LICENSE file of its own and declares MIT per skill instead.
 - [x] No secrets, tokens, personal paths, or a personal vault in the diff —
   `npm run security` passes inside `check`.
 - [x] Docs updated if behaviour, flags, or setup changed — `DEBTS.md` records
-  Д-45 through Д-50 with their measurements, including Д-48, which states what
+  Д-45 through Д-52 with their measurements, including Д-48, which states what
   the boundary fix deliberately leaves open rather than letting a narrow test
-  imply it is solved. The verification prompt now proves an update arrived
+  imply it is solved, and Д-52, where checking my own draft instructions found
+  a key in them that does not exist. The verification prompt now proves an update arrived
   before trusting a single result, after a whole run was spent on pre-fix code.
 
 ## Size

@@ -549,7 +549,10 @@ reject, each verified by breaking it deliberately against a throwaway module and
 ## Operations And Distribution
 
 - `System Dashboard.md` is generated from live tool, skill, project, search, outcome, and runtime state.
-- `config/runtime.example.json` documents the supported local stdio profile.
+- `config/runtime.example.json` documents the supported local stdio profile, and
+  `runtime-distribution.example.json` in the repository root shows what
+  `prepare_runtime_distribution` writes — the real file is git-ignored because it
+  embeds machine-specific absolute paths.
 - `scripts/ai-dev.mjs` exposes doctor, dashboard, reindex, acceptance, backup, and distribution commands.
 - Remote HTTP is intentionally absent. The future VPS profile is rejected until TLS, authentication,
   allowlists, rate limiting, and threat review exist.

@@ -75,6 +75,20 @@ this release.
 
 
 
+### Fixed — the sweep that removed the notes also found this
+
+- **Eight tests that shipped and never ran.**
+  `search-index/test_search_freshness.py` covers the SQLite search helper —
+  freshness detection, the rebuild lock, dense-vector preservation on a fast
+  rebuild, the candidate pool, and the collapse rules that keep a skill card and
+  its source out of the results twice. `node --test` cannot see them: they are
+  Python. No npm script and no CI job ran them, so they gated nothing while
+  looking like coverage. `npm run check` runs them now (and
+  `npm run test:search-helper` on its own), and CI runs the same suite directly
+  on a runner that always has Python. A checkout without Python gets a skip that
+  names the reason, never a failure, and tells "no interpreter" apart from "the
+  one you named does not answer" (Д-53).
+
 ### Removed
 
 - **The working notes are no longer in the repository.** `docs/ecc-upgrades/`

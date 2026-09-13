@@ -22,7 +22,7 @@ file rather than replacing it.
 | `ai-dev-mcp-server/src/*.mjs` | the tool surface, coupled to a content vault |
 | `docker/` | launchers, compose files, and `public-seed/` (the clean bundled vault) |
 | `packaging/` | Arch `PKGBUILD` and Homebrew formula |
-| `embeddings/`, `frontend-qa/`, `search-eval/` | Python and Playwright helpers |
+| `embeddings/`, `search-index/`, `search-eval/`, `frontend-qa/` | Python and Playwright helpers, each with its own tests |
 
 The full Obsidian vault this server normally reads is **not** in this repository.
 A standalone checkout resolves its content root to `docker/public-seed`.
@@ -33,7 +33,7 @@ A standalone checkout resolves its content root to `docker/public-seed`.
 - npm (the server); pnpm only if you work on `frontend-qa/`
 - Git
 - Docker Desktop / Engine — only for the Docker and packaging paths
-- Python 3.11+ — only for the embeddings and search-eval helpers
+- Python 3.11+ — only for the embeddings, search-index and search-eval helpers
 
 ## Package-manager policy
 
@@ -70,7 +70,7 @@ npm test
 
 What CI runs (`.github/workflows/`):
 
-- `ci.yml` → `mcp-server`: `npm run lint`, `npm run security`, `npm run packaging:check`, `npm run test:core`
+- `ci.yml` → `mcp-server`: `npm run lint`, `npm run security`, `npm run packaging:check`, `npm run test:core`, and the search helper's Python suite
 - `ci.yml` → `vault-suite`: `npm run skills:ensure-index`, then `npm test`, `npm run protocol:smoke`, `npm run lifecycle:smoke`
 - `docker-publish.yml`: privacy policy test, allowlisted context audit, image build, `docker:smoke`, and (on `main` / tags) the GHCR publish
 
@@ -78,7 +78,7 @@ Run the same gate locally before opening a PR:
 
 ```bash
 cd ai-dev-mcp-server
-npm run check          # static-quality + seed index + coverage + security + protocol/lifecycle smokes
+npm run check          # static-quality + seed index + coverage + security + search helper + protocol/lifecycle smokes
 npm run docker:prepare && npm run docker:audit   # if you touched the Docker context or seed
 npm run docker:seed:verify                       # if you touched the seed
 ```

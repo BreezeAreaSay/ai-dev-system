@@ -13,9 +13,21 @@
  * over on a partially written file, which says nothing about the code.
  */
 
-/** `# fail N` from a `node --test` run, or null when the line is absent. */
+/**
+ * The failure count a `node --test` run reported, or null when it said nothing.
+ *
+ * Two spellings, because the runner changed one: Node 22 writes TAP comments
+ * (`# fail 2`), Node 24 writes an info line (`\u2139 fail 2`). Reading only the
+ * first turned every Node 24 run into "failed before the tests" — measured on
+ * Windows with Node 24.19, where ten runs each carrying two real test failures
+ * were all reported as having failed before any test ran, hiding what the suite
+ * was actually saying.
+ *
+ * @param {string} output - Combined stdout and stderr of the run.
+ * @returns {number|null}
+ */
 export function testFailureCount(output) {
-  const match = /^# fail (\d+)$/m.exec(String(output ?? ""));
+  const match = /^[#\u2139]\s*fail\s+(\d+)\s*$/m.exec(String(output ?? ""));
   return match ? Number(match[1]) : null;
 }
 

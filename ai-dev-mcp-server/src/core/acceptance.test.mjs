@@ -62,3 +62,30 @@ test("the verdict separates a failure of the code from a failure of the run", ()
     { passed: false, failed_runs: 2, failing_tests: 1 }
   );
 });
+
+test("the failure count is read from both runner spellings", () => {
+  // Node 22 writes TAP comments, Node 24 an info line. Reading only the first
+  // turned every Node 24 run into "failed before the tests": measured on
+  // Windows with Node 24.19, ten runs each carrying two real test failures were
+  // all classified as having failed before any test ran.
+  assert.equal(testFailureCount("# tests 967\n# pass 965\n# fail 2\n# skipped 0"), 2);
+  assert.equal(testFailureCount("ℹ tests 967\nℹ pass 965\nℹ fail 2\nℹ skipped 0"), 2);
+  assert.equal(testFailureCount("ℹ fail 0"), 0);
+  assert.equal(testFailureCount("nothing of the sort"), null);
+  assert.equal(testFailureCount(undefined), null);
+});
+
+test("a Node 24 run with failing tests is called a test failure, not a mystery", () => {
+  const run = summarizeAcceptanceRun({
+    exitCode: 1,
+    output: "ℹ tests 967\nℹ pass 965\nℹ fail 2\nℹ skipped 0"
+  });
+  assert.equal(run.kind, "tests failed");
+  assert.equal(run.test_failures, 2);
+  assert.equal(run.ok, false);
+});
+
+test("a count that only looks like the line is not read as one", () => {
+  assert.equal(testFailureCount("the log says # fail 5 somewhere inline"), null);
+  assert.equal(testFailureCount("# failures 5"), null);
+});

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +9,7 @@ import {
   auditDistributionTree,
   buildContextStaleness,
   copyDistributionTree,
+  lineEndingOnlyMismatch,
   missingVendoredCatalogues,
   VENDORED_SEED_CATALOGUES,
   distributionPathFindings,
@@ -223,4 +225,29 @@ test("a context that cannot say when it was made is treated as stale", () => {
 
 test("an unreadable source tree does not make a dated context stale", () => {
   assert.equal(buildContextStaleness({ generatedAt: "2026-09-13T11:00:00.000Z" }).stale, false);
+});
+
+test("a CRLF copy of a listed file is recognised as a line-ending difference", () => {
+  // A checkout older than .gitattributes keeps CRLF, and git does not rewrite
+  // files already on disk when the rule arrives. Measured on Windows: 74 files,
+  // each exactly its line count larger than the manifest entry.
+  const lf = Buffer.from("first\nsecond\nthird\n", "utf8");
+  const sha = createHash("sha256").update(lf).digest("hex");
+  const crlf = Buffer.from("first\r\nsecond\r\nthird\r\n", "utf8");
+  assert.equal(crlf.length - lf.length, 3, "one byte per line");
+  assert.equal(lineEndingOnlyMismatch(crlf, sha), true);
+});
+
+test("an unchanged file and a genuinely different one are both not line endings", () => {
+  const lf = Buffer.from("first\nsecond\n", "utf8");
+  const sha = createHash("sha256").update(lf).digest("hex");
+  assert.equal(lineEndingOnlyMismatch(lf, sha), false, "no CR at all");
+  assert.equal(lineEndingOnlyMismatch(Buffer.from("other\r\ntext\r\n"), sha), false);
+});
+
+test("a lone CR is not treated as a line ending difference", () => {
+  const lf = Buffer.from("a\nb\n", "utf8");
+  const sha = createHash("sha256").update(lf).digest("hex");
+  assert.equal(lineEndingOnlyMismatch(Buffer.from("a\rb\r"), sha), false);
+  assert.equal(lineEndingOnlyMismatch("not a buffer", sha), false);
 });

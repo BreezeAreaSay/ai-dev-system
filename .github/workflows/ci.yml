@@ -122,6 +122,45 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: npm run lifecycle:smoke
 
+  macos:
+    name: macOS (core + hook tests, first run)
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ai-dev-mcp-server/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ai-dev-mcp-server
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # macOS was supported by assumption until this job existed: POSIX like
+      # Linux, but with a case-insensitive filesystem by default and a temp
+      # directory under /var/folders that is a symlink to /private/var. Both
+      # reach the path canonicalisation and the project-boundary walk, which is
+      # where the platform differences have actually bitten.
+      - name: Core unit tests
+        working-directory: ai-dev-mcp-server
+        run: npm run test:core
+
+      - name: Hook tests
+        working-directory: ai-dev-mcp-server
+        run: node --test "src/core/project-identity.test.mjs" "src/core/agent-hooks.test.mjs"
+
+      - name: First run builds what a clone ships without
+        working-directory: ai-dev-mcp-server
+        run: npm run setup
+
+      - name: Public seed matches its manifest
+        working-directory: ai-dev-mcp-server
+        run: npm run docker:seed:verify
+
   windows:
     name: Windows (PowerShell syntax, bootstrap plan, installer, core + hook tests)
     runs-on: windows-latest

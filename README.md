@@ -12,10 +12,36 @@ Code / Claude Desktop, Cursor, VS Code with MCP, Gemini CLI / Code Assist, Codex
 or any other MCP host — not a model directly. The same local configuration works
 for all of these clients.
 
+## New in 2.0
+
+- **3,227 skills in the box.** An intent gate that interviews a vague request
+  before work starts, the complete [Membrane](https://github.com/membranedev/application-skills)
+  application-integration catalogue, and codebase-graph skills — all MIT, each
+  recorded in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) with its revision.
+  Routing still returns three skills plus a reserved slot: an integration skill
+  stays out of the answer until a task names its application.
+- **Every assistant reads the same protocols.** `install_project_rules` writes
+  `AGENTS.md`, `.claude/rules`, `.cursor/rules`, `GEMINI.md`,
+  `.github/copilot-instructions.md`, `.windsurf/rules` and `.clinerules` — by
+  default only the ones whose tool this repository or machine already shows a
+  trace of, so nothing writes a file nobody reads.
+- **`npm run daemon`.** One warm process on a local socket (a named pipe on
+  Windows) instead of a fresh server per client, so the index and the embedding
+  model load once. `npm start` is unchanged and still the default.
+- **`npm run setup`.** The first run as one command: it builds what a clone
+  ships without, rebuilds what has gone stale, and says which steps it skipped
+  and why.
+- **`npm run acceptance`.** Ten consecutive gate runs and the failure count,
+  telling a failing test apart from a coverage reporter that fell over.
+- **Linux, Windows and macOS are all tested**, not supported by assumption. CI
+  runs the suite on each, and a fresh clone reaches a healthy install on every
+  one: `git clone` → `npm install` → `npm run setup`, with the optional steps
+  reported as skipped rather than failed.
+
 ## What is included
 
-- a local Node.js MCP server;
-- a knowledge base, project context, and a managed skill library;
+- a local Node.js MCP server, 133 typed tools ([reference](ai-dev-mcp-server/docs/TOOLS.md));
+- a knowledge base, project context, and a skill library of 3,227 skills;
 - hybrid search: SQLite FTS, sparse retrieval, and an optional local BGE-M3 model;
 - a task lifecycle: `begin_task`, `checkpoint_task`, `verify_task`, `complete_task`,
   a completion-statement linter that refuses a report the checks do not back, and a
@@ -699,4 +725,21 @@ Security reports: [SECURITY.md](SECURITY.md).
 
 ## Licences
 
-See [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+This project is MIT — see [LICENSE](LICENSE).
+
+The bundled skill catalogue is imported work, not written here. Every source is
+MIT, ships its licence text beside its own files under
+`docker/public-seed/03-skills-catalog/sources/`, and is recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) with the revision that was
+imported:
+
+| Source | Skills |
+| --- | --- |
+| [Membrane application-skills](https://github.com/membranedev/application-skills) | 3,074 |
+| [ECC — Everything Claude Code](THIRD_PARTY_NOTICES.md) | 101 |
+| [Understand Anything](https://github.com/Egonex-AI/Understand-Anything) | 9 |
+| [mattpocock/skills](https://github.com/mattpocock/skills) | 1 |
+| taste-skill, ui-ux-pro-max, Archify | design and diagram tooling |
+
+Membrane publishes no separate `LICENSE` file; the MIT declaration travels with
+each skill, and all 3,074 imported files carry it.

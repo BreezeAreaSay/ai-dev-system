@@ -45,7 +45,13 @@ test("the jobs behind a timed-out one are still evaluated", async () => {
     { pattern: "omega", flags: "i", haystack: "omega" },
     { pattern: CATASTROPHIC, flags: "i", haystack: CATASTROPHIC_INPUT },
     { pattern: "zeta", flags: "i", haystack: "nothing here" }
-  ], { budgetMs: 150 });
+    // The batch deadline is stated rather than inherited. At the default 1000 ms
+    // two catastrophic jobs at 150 ms plus worker startup leave nothing for the
+    // last honest job on a loaded machine, and this test then measured the
+    // deadline instead of what it claims. Measured: at deadlineMs 260 the tail
+    // comes back [true, null, null, null, null]; at 5000 it is stable. The
+    // deadline itself is covered by the next test.
+  ], { budgetMs: 150, deadlineMs: 5000 });
   assert.deepEqual(answers.map((answer) => answer.matched), [true, null, true, null, false]);
   assert.deepEqual(answers.map((answer) => answer.timed_out), [false, true, false, true, false]);
 });

@@ -34,7 +34,8 @@ import { fileURLToPath } from "node:url";
 import {
   assertCleanDistribution,
   auditDistributionTree,
-  distributionContentFingerprint
+  distributionContentFingerprint,
+  lineEndingOnlyMismatch
 } from "../src/core/public-distribution.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -131,16 +132,34 @@ if (manifest.content_fingerprint !== fingerprint) {
 }
 
 const expected = index(listed);
+const lineEndingProblems = [];
 for (const [relative, entry] of expected) {
   const actual = onDisk.get(relative);
   if (!actual) {
     problems.push(`listed in the manifest but missing from the seed: ${relative}`);
   } else if (actual.sha256 !== entry.sha256) {
-    problems.push(`content differs from the manifest: ${relative} (${entry.bytes} bytes / ${entry.sha256.slice(0, 12)} listed, ${actual.bytes} / ${actual.sha256.slice(0, 12)} on disk)`);
+    // A checkout older than .gitattributes keeps CRLF, because git does not
+    // rewrite files already on disk when that rule arrives. Saying "content
+    // differs" for that reads as corruption and sends people looking for one.
+    const content = await fs.readFile(path.join(seedRoot, relative)).catch(() => null);
+    if (content && lineEndingOnlyMismatch(content, entry.sha256)) {
+      lineEndingProblems.push(relative);
+    } else {
+      problems.push(`content differs from the manifest: ${relative} (${entry.bytes} bytes / ${entry.sha256.slice(0, 12)} listed, ${actual.bytes} / ${actual.sha256.slice(0, 12)} on disk)`);
+    }
   }
 }
 for (const relative of onDisk.keys()) {
   if (!expected.has(relative)) problems.push(`in the seed but missing from the manifest: ${relative}`);
+}
+
+if (lineEndingProblems.length) {
+  problems.push(
+    `${lineEndingProblems.length} file(s) match the manifest except for their line endings, `
+    + "so this checkout predates .gitattributes and git has not renormalised it. "
+    + "Run `git add --renormalize . && git checkout -- .` at the repository root, or clone afresh. "
+    + `First: ${lineEndingProblems.slice(0, 3).join(", ")}`
+  );
 }
 
 if (problems.length) {

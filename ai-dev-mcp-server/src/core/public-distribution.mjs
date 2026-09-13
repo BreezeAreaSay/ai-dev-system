@@ -515,3 +515,26 @@ export function buildContextStaleness({ generatedAt, newestSourceMs } = {}) {
   }
   return { stale: false, reason: "" };
 }
+
+/**
+ * Is a file's only difference from the manifest its line endings?
+ *
+ * `.gitattributes` normalises the tree to LF, but git does not rewrite files
+ * already on disk when that rule arrives — a checkout older than the rule keeps
+ * CRLF until something re-checks those files out. The verifier then reports
+ * "content differs from the manifest", which reads as corruption. Measured on a
+ * Windows checkout: 74 files, each larger than its manifest entry by exactly
+ * its line count.
+ *
+ * @param {Buffer} content - The file as it sits on disk.
+ * @param {string} expectedSha256 - What the manifest lists for it.
+ * @returns {boolean} true when stripping CR before LF reproduces the listed hash
+ */
+export function lineEndingOnlyMismatch(content, expectedSha256) {
+  if (!Buffer.isBuffer(content) || !content.includes(0x0d)) return false;
+  const normalised = Buffer.from(
+    content.toString("latin1").replaceAll("\r\n", "\n"),
+    "latin1"
+  );
+  return crypto.createHash("sha256").update(normalised).digest("hex") === String(expectedSha256);
+}

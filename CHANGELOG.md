@@ -452,12 +452,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nothing. Keys are kept raw and decoded whole now, which also fixes keys
   carrying quotes, tabs or `\uXXXX`.
 
-- **The hooks keyed their memory under an id the server never reads.** The
-  server hashes a project root after resolving it with `fs.realpath`; the hook
-  copy hashed the path it was handed. Through a symlink — or the 8.3 short name
-  Windows hands out for a temporary directory — the two disagreed, so a session
-  captured by a hook was invisible to the server. Both canonicalise the same way
-  now.
+- **The hooks keyed their memory under an id the server never reads.** Two
+  things differed, and the same CI job measured both. The server hashes a
+  project root after resolving it with `fs.realpath`, while the hook copy hashed
+  the path it was handed — so a symlink, or the spelling Windows hands out for a
+  temporary directory, was enough to disagree. And the server walks up to the
+  nearest project boundary (`.git`, `package.json`, and eight more markers)
+  before hashing, while the hook hashed exactly the directory it was given: a
+  hook fired from a subdirectory of a project wrote its memory where the server
+  never looked. Both halves are in the hook now — the boundary walk duplicated
+  there deliberately, since that file is copied into other repositories and
+  cannot import the server — and `realpathSync.native` is used to match what the
+  asynchronous `fs.realpath` does.
 
 - **A pull-request template was reported under a name the repository does not
   have.** On a case-insensitive filesystem the lookup of

@@ -11,16 +11,21 @@
 ## Runtime Layers
 
 1. `server.mjs`: official MCP SDK transport, protocol capabilities, resources, prompts, and tool registration.
-2. `mcp-stdio.mjs`: composed domain-service facade and legacy-compatible rollback handler.
-3. `tool-definitions.mjs`: typed MCP contracts separated from dispatch and implementation.
-4. `core/`: path policy, atomic storage, command policy, process execution, canonical project
+2. `daemon.mjs` + `transport/socket.mjs`: the same server over a local Unix socket or Windows
+   named pipe instead of one stdio process per client. One warm process serves many sessions,
+   so the search index and the embedding model load once; it takes a pid lock, publishes
+   `run/daemon.json`, and exits after `AI_DEV_IDLE_TIMEOUT_MS` of no sessions (default 30 min).
+   Optional — `npm start` remains the stdio path.
+3. `mcp-stdio.mjs`: composed domain-service facade and legacy-compatible rollback handler.
+4. `tool-definitions.mjs`: typed MCP contracts separated from dispatch and implementation.
+5. `core/`: path policy, atomic storage, command policy, process execution, canonical project
    identity, context compilation, task state, routing, outcome analytics, overlays, dashboard,
    frontend quality, and runtime distribution.
-5. `extensions/`: capabilities registered from outside `mcp-stdio.mjs` (see below).
-6. `hooks/`: standalone scripts run by the *agent*, not by the server (see below).
-7. `09-mcp/search-index`: FTS and BGE-M3 hybrid retrieval.
-8. Obsidian: human-readable knowledge, generated project cards, workflows, and reports.
-9. `${AI_DEV_HOME}/state` (default `~/.ai-dev/state`): runtime task state and evidence that should not clutter the vault.
+6. `extensions/`: capabilities registered from outside `mcp-stdio.mjs` (see below).
+7. `hooks/`: standalone scripts run by the *agent*, not by the server (see below).
+8. `09-mcp/search-index`: FTS and BGE-M3 hybrid retrieval.
+9. Obsidian: human-readable knowledge, generated project cards, workflows, and reports.
+10. `${AI_DEV_HOME}/state` (default `~/.ai-dev/state`): runtime task state and evidence that should not clutter the vault.
 
 Archify is a local, vendored diagram capability. Its nine typed MCP tools and
 artifact/evidence contract are documented in [ARCHIFY.md](ARCHIFY.md).

@@ -29,6 +29,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run daemon`: the server as one warm local process.** The same MCP
+  server over a Unix socket (a named pipe on Windows) instead of a fresh stdio
+  process per client, so the search index and the embedding model load once and
+  stay loaded. It takes a pid lock — a second daemon refuses rather than
+  stealing the socket, and a lock left by a dead process is cleared — publishes
+  `~/.ai-dev/run/daemon.json`, creates the socket 0600 inside a 0700 directory,
+  and exits after `AI_DEV_IDLE_TIMEOUT_MS` without sessions (default 30
+  minutes). Optional: `npm start` remains the stdio path and nothing about it
+  changed.
+
+  Ported file by file from `codex/commit-all-20260908`, a snapshot branch that
+  cannot be merged — moving main to it would be 744,638 deletions, taking the
+  vendored skill catalogue and everything since the server was split into
+  modules. `tool-profile.mjs`, `project-trust.mjs` and `scripts/models.mjs`
+  are still there, unported (Д-42).
+
+
 - **`npm run acceptance`**: the rule this project ends a session on, as a
   command. Ten consecutive `npm run check` runs and the line "N падений из 10",
   with the two kinds of failure kept apart — a run with a failing test is the

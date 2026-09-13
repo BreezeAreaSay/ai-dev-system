@@ -22,18 +22,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than living only in a source comment.
 
 
-- **3,084 skills, in the file each assistant already reads.** The intent gate
-  (`grill-me`, following the `grilling` interview imported from
-  [mattpocock/skills](https://github.com/mattpocock/skills)), the whole
+- **3,085 skills, in the file each assistant already reads.** The intent gate
+  (`grill-me`, this project's own, following the `grilling` interview imported
+  from [mattpocock/skills](https://github.com/mattpocock/skills)), the whole
   [Membrane](https://github.com/membranedev/application-skills) integration
   catalogue — 3,074 application skills, from Gmail and Slack to Salesforce —
   and the nine [Understand
   Anything](https://github.com/Egonex-AI/Understand-Anything) codebase-graph
-  skills. All MIT, each recorded in `THIRD_PARTY_NOTICES.md` with its revision
-  and licence text beside the source. The registry goes from 144 skills to
-  3,227 and the search index from 350 documents to 3,443; routing holds at three
-  skills plus a reserved slot, and an integration skill stays out of the answer
-  until a task names its application.
+  skills. 3,084 of them are imported, all MIT, each recorded in
+  `THIRD_PARTY_NOTICES.md` with its revision and licence text beside the source;
+  the remaining one is `grill-me`. The registry goes from 142 skills to 3,227
+  and the search index to 3,443 documents, 3,227 of them skill cards; routing
+  holds at three skills plus a reserved slot, and an integration skill stays out
+  of the answer until a task names its application.
 
 
 - **`npm run setup`**: the first run, as one command. A clone ships the server,

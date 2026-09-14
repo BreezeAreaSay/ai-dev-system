@@ -509,19 +509,6 @@ export function renderSecurityScanMarkdown(scan) {
 export const OFFLINE_CAPABLE_SCANNERS = Object.freeze(["gitleaks", "semgrep"]);
 
 /**
- * Whether this machine can check anything at all, for `system_health_check`.
- *
- * Not critical: a machine with no scanner installed is a machine where
- * `run_security_scan` comes back `unchecked`, which is a gap worth naming and
- * not a broken system. It is named here because the scan itself is only run on
- * demand, and the published image ships with one of the six at most — so
- * without this check the gap is invisible until a task asks for a scan
- * (docs/DEFECTS.md, Д-55).
- *
- * @param {Array<{ id: string, tool: string, executable: string, installed: boolean }>} availability
- * @returns {{ status: string, summary: string, details: object }}
- */
-/**
  * Whether one scanner can actually run on this machine, and why not when it
  * cannot.
  *
@@ -591,6 +578,19 @@ function firstOutputLine(output) {
     ?.slice(0, 160) ?? "";
 }
 
+/**
+ * Whether this machine can check anything at all, for `system_health_check`.
+ *
+ * Not critical: a machine with no scanner installed is a machine where
+ * `run_security_scan` comes back `unchecked`, which is a gap worth naming and
+ * not a broken system. It is named here because the scan itself is only run on
+ * demand, and the published image ships with one of the six at most — so
+ * without this check the gap is invisible until a task asks for a scan
+ * (docs/DEFECTS.md, Д-55).
+ *
+ * @param {Array<{ id: string, tool: string, executable: string, installed: boolean }>} availability
+ * @returns {{ status: string, summary: string, details: object }}
+ */
 export function evaluateSecurityScanners(availability) {
   const all = Array.isArray(availability) ? availability : [];
   const installed = all.filter((item) => item.installed);

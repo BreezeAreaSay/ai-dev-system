@@ -9,14 +9,14 @@
  * `Health: fail` on a correct install, with every search tool refusing until
  * somebody called `rebuild_search_index` by hand (docs/DEFECTS.md, Д-57).
  *
- * So the three required steps of `FIRST_RUN_STEPS` live here — what decides
+ * So the required steps of `FIRST_RUN_STEPS` live here — what decides
  * whether each is needed, what each one does, and how to run a plan — and both
  * commands call the same code. `src/core/first-run.mjs` still decides *what* to
  * run from what is on disk; this is the part that touches the disk and the
  * tools, which is why it is a script rather than a core module.
  *
  * Nothing here reaches the network and every step is idempotent: a second
- * container start finds all three present and current, and rebuilds nothing.
+ * container start finds them all present and current, and rebuilds nothing.
  */
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -29,7 +29,12 @@ import path from "node:path";
  * dense vectors built from them — are opt-in, reach the network, and are never
  * run unasked. A container has no way to ask, so it runs exactly these.
  */
-export const REQUIRED_STEP_IDS = Object.freeze(["skill_registry", "search_index", "routing_benchmark"]);
+export const REQUIRED_STEP_IDS = Object.freeze([
+  "skill_registry",
+  "skill_quality_report",
+  "search_index",
+  "routing_benchmark"
+]);
 
 /**
  * Where the artefacts of the required steps live, given a vault.
@@ -37,7 +42,7 @@ export const REQUIRED_STEP_IDS = Object.freeze(["skill_registry", "search_index"
  * @param {object} input
  * @param {string} input.vaultRoot
  * @param {string} input.searchIndexPath
- * @returns {{ registriesDir: string, skillRegistryPath: string, searchIndexPath: string, routingReportPath: string }}
+ * @returns {{ registriesDir: string, skillRegistryPath: string, searchIndexPath: string, routingReportPath: string, skillQualityReportPath: string }}
  */
 export function requiredArtefactPaths({ vaultRoot, searchIndexPath }) {
   const registriesDir = path.join(vaultRoot, "03-skills-catalog", "registries");
@@ -45,7 +50,8 @@ export function requiredArtefactPaths({ vaultRoot, searchIndexPath }) {
     registriesDir,
     skillRegistryPath: path.join(registriesDir, "skills.index.json"),
     searchIndexPath,
-    routingReportPath: path.join(registriesDir, "skill-routing-eval.json")
+    routingReportPath: path.join(registriesDir, "skill-routing-eval.json"),
+    skillQualityReportPath: path.join(registriesDir, "skill-quality.index.json")
   };
 }
 
@@ -88,6 +94,22 @@ export function createRequiredActions({ callTool }) {
     async skill_registry() {
       const result = await callTool("rebuild_index", {});
       return summarizeToolResult(result, (doc) => `${doc.total ?? doc.count ?? doc.skills ?? "?"} skill(s) indexed`);
+    },
+    async skill_quality_report() {
+      // `validate_skill_library` is the only writer of the report the health
+      // check reads, and nothing called it: every fresh install answered its own
+      // diagnostic with `skill_quality: report missing` (docs/DEFECTS.md, Д-63).
+      // The duplicate analysis is the expensive half and the report does not
+      // need it here, so it is left to whoever asks for the tool by hand.
+      const result = await callTool("validate_skill_library", {
+        write_report: true,
+        include_duplicates: false,
+        refresh_registry: false
+      });
+      return summarizeToolResult(result, (doc) => {
+        const total = doc.summary?.total ?? doc.total;
+        return total === undefined ? "report written" : `${total} skill(s) validated`;
+      });
     },
     async search_index() {
       const result = await callTool("rebuild_search_index", {
@@ -147,7 +169,8 @@ export async function readRequiredState({ paths, callTool, serverRoot, skillRout
   const present = {
     skill_registry: existsSync(paths.skillRegistryPath),
     search_index: existsSync(paths.searchIndexPath),
-    routing_benchmark: existsSync(paths.routingReportPath)
+    routing_benchmark: existsSync(paths.routingReportPath),
+    skill_quality_report: existsSync(paths.skillQualityReportPath)
   };
   const stale = { search_index: Boolean(indexStatus?.stale) };
   if (present.routing_benchmark) {
@@ -157,6 +180,13 @@ export async function readRequiredState({ paths, callTool, serverRoot, skillRout
       modifiedAt(path.join(serverRoot, "src", "core", "skill-router.mjs"))
     ]);
     stale.routing_benchmark = report < Math.max(...inputs);
+  }
+  if (present.skill_quality_report) {
+    // The report describes the registry, so a registry rebuilt since is a
+    // report that no longer describes anything. A report at least as new as the
+    // registry is the second start rebuilding nothing.
+    const report = await modifiedAt(paths.skillQualityReportPath);
+    stale.skill_quality_report = report < await modifiedAt(paths.skillRegistryPath);
   }
   return { indexStatus, present, stale };
 }

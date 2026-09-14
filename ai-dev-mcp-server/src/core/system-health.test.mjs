@@ -348,7 +348,18 @@ test("project registry check previews at most ten projects", () => {
   assert.equal(ok.status, "ok");
   assert.equal(ok.details.count, 12);
   assert.equal(ok.details.projects.length, 10);
-  assert.equal(evaluateProjectRegistry([]).status, "warn");
+});
+
+test("an empty project registry is a fresh install, not a warning", () => {
+  // A correct install has no projects until somebody registers one, and warning
+  // about that put every new user at `degraded` on their first health check
+  // (docs/DEFECTS.md, Д-63).
+  const empty = evaluateProjectRegistry([]);
+  assert.equal(empty.status, "ok");
+  assert.equal(empty.details.count, 0);
+  assert.deepEqual(empty.details.projects, []);
+  assert.match(empty.summary, /no projects registered yet/);
+  assert.match(empty.summary, /bootstrap_project/, "the summary says how to get one");
 });
 
 test("auto command and search preset checks fail on missing entries", () => {

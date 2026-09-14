@@ -431,7 +431,10 @@ async function verifyTask(host, {
   // scanner that is missing or offline is skipped with a reason, so this can
   // neither fail the run nor hold it up (src/core/security-scan.mjs).
   if (run_security_scan) {
-    const { markdown: _markdown, next_step: _nextStep, ...scan } = await host.runSecurityScan({
+    // The rendered report is dropped — it is the same scan as prose — but
+    // `next_step` stays: it is the only line that says a scan came back
+    // `unchecked` because nothing could run (docs/DEFECTS.md, Д-55).
+    const { markdown: _markdown, ...scan } = await host.runSecurityScan({
       project_path: projectRoot,
       scanners: Array.isArray(security_scanners) ? security_scanners : undefined
     });
@@ -673,7 +676,7 @@ export function createLifecycleTools(host) {
       },
       {
         name: "verify_task",
-        description: "Run the project quality gate and optional Frontend QA, then bind machine-readable evidence to the current Git state.",
+        description: "Run the project quality gate and optional Frontend QA, then bind machine-readable evidence to the current Git state. Each check that did not come back good carries a detail with the first meaningful line of its output and any hint, so a failure says why and not only that it failed.",
         inputSchema: {
           type: "object",
           properties: {

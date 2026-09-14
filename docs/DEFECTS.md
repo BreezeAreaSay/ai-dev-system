@@ -12,11 +12,12 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 62 записи. Закрыто 50, из них девять — заходом по долгам Д-20 … Д-28, шесть
-(Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, и шесть (Д-43, Д-49 … Д-53) —
-заходом на кроссплатформенность и на подготовку 2.0.
+Состояние: 62 записи. Закрыто 52, из них девять — заходом по долгам Д-20 … Д-28, шесть
+(Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
+заходом на кроссплатформенность и на подготовку 2.0, и две (Д-54, Д-55) — пачкой D по тикетам
+апстрима #47 и #48.
 
-Открыто двенадцать. Три давних:
+Открыто десять. Три давних:
 
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
   закрывается: осталось пять минут в самом Cursor по двум пунктам, и для них есть
@@ -27,7 +28,7 @@
   положенный в домашний каталог, схлопывает все проекты под ним в один ключ памяти. Записаны
   три возможных ответа, выбор за владельцем.
 
-Девять — заход по тикетам апстрима #47–#54 (2026-09-14, все с опубликованного Docker-образа на
+Семь из девяти по тикетам апстрима #47–#54 (2026-09-14, все с опубликованного Docker-образа на
 macOS). Записаны до исправления, по правилу реестра, с замером на эмуляции образа. Чинятся
 пачками по корневой причине, каждая пачка — один PR в апстрим:
 
@@ -37,8 +38,9 @@ macOS). Записаны до исправления, по правилу рее
   свежем образе, #50), Д-59 (отсутствие BGE-M3 как `fail`, #52), Д-56 (Frontend QA мёртв в
   образе, #49).
 - **Пачка C — дистрибуция рантайма не только для Windows:** Д-61 (#54).
-- **Пачка D — честность verify_task:** Д-54 (`node --test <каталог>` без диагноза, #47), Д-55
-  (`security_scan: pass` без единого сканера, #48).
+- **Пачка D — честность verify_task:** закрыта. Д-54 (`node --test <каталог>` без диагноза,
+  #47), Д-55 (`security_scan: pass` без единого сканера, #48). Обе записи закрыты с замером до
+  и после; проверка образа с `gitleaks` перенесена в CI на PR — собрать образ локально нельзя.
 - **Д-62** — доставка BGE-M3 через системный Python. Архитектурное решение владельца, не пачка.
 
 Д-5 закрыт решением владельца: CI форка не нужен, проверка идёт через PR в апстрим.
@@ -2353,7 +2355,7 @@ Python есть всегда. Python для этого репозитория н
 
 ## Д-54. Гейт качества честно проваливает `node --test <каталог>`, но не говорит, почему
 
-**Статус:** открыт. Пачка D. Тикет апстрима #47.
+**Статус:** закрыт. Пачка D. Тикет апстрима #47.
 
 `.ai-dev/quality-gate.md` пишется `analyze_project` из `scripts.test` проекта как есть
 (`project-detection.mjs`, `packageRunCommand`): `Test: npm run test`. Если сам скрипт —
@@ -2396,9 +2398,53 @@ glob, каталог исполняется как файл; писать `node 
 **Проверка.** На том же проекте `run_quality_gate` показывает `runtime.node`, `verify_task` —
 строку с `Cannot find module` и подсказку; `node --test` без аргументов проходит гейт.
 
+**Замер после.** Запись воспроизведена сначала руками, на обоих мажорах, тем же минимальным
+проектом:
+
+```
+$ node -v                     v22.22.2          $ node -v                     v24.21.0
+$ node --test test/                             $ node --test test/
+# Error: Cannot find module '…/repro47/test'    Error: Cannot find module '…/repro47/test'
+# pass 0   # fail 1   exit=1                    exit=1   (TAP не начинается вовсе)
+$ node --test                                   $ node --test
+# pass 1   # fail 0   exit=0                    exit=0
+```
+
+Замер записи сходится с кодом: правки в ней не понадобились.
+
+Живой сервер, тот же проект, `run_quality_gate` через `callTool` с `update_registry:false`:
+
+```
+до:     status=failed  exit_code=1  runtime=(нет)  hint=(нет)
+после:  status=failed  exit_code=1
+        runtime={"node":"v22.22.2","exec_path":"/opt/node22/bin/node"}
+        hint="Node >= 21 treats positional arguments as glob patterns; a directory is run
+              as a test file. Use `node --test` or `node --test \"test/**/*.test.js\"`."
+```
+
+`verify_task` на той же задаче, сводка проверки в записи верификации:
+
+```
+до:     {"type":"quality_gate","status":"failed"}
+после:  {"type":"quality_gate","status":"failed",
+         "detail":{"output":"Error: Cannot find module '…/repro47/test'",
+                   "hint":"Node >= 21 treats positional arguments as glob patterns; …"}}
+```
+
+Встречная проба (то, чего быть не должно): проект с тем же тестом и гейтом
+`- Test: \`node --test\`` — `status=passed`, `exit_code=0`, `hint=""`, `runtime` на месте.
+Гейт не ослаблен и команду за пользователя не разворачивает. Чистая
+`diagnoseQualityCommandFailure` молчит на обычном упавшем тесте, на отсутствующей зависимости
+(`Cannot find module 'chai'`), на уже написанном glob и на команде не из `node --test`; проверено
+и на реальном выводе Node 22 (с TAP-префиксами `# `), и на реальном выводе Node 24 (без них).
+
+**Что не проверено.** Поведение внутри собранного образа: Docker-демона в песочнице нет. Абзац
+в `docker/README.md` и INSTALL описывает Node 24 по `ARG NODE_IMAGE=node:24-bookworm-slim`, а не
+по замеру внутри контейнера.
+
 ## Д-55. `security_scan` без единого сканера — `pass`
 
-**Статус:** открыт. Пачка D. Тикет апстрима #48.
+**Статус:** закрыт. Пачка D. Тикет апстрима #48.
 
 `securityScanStatus` возвращает `pass`, если нет находок и нет ошибок — даже когда все шесть
 сканеров пропущены. Так задумано («отсутствующий сканер никогда не блокирует»,
@@ -2435,6 +2481,62 @@ semgrep с локальными правилами; trivy, pip-audit, cargo-audi
 
 **Проверка.** Тот же вызов даёт `status=unchecked`; в образе `gitleaks version` отвечает, и на
 проекте с подложенным ключом (собранным конкатенацией) скан даёт `block`.
+
+**Замер после.** Замер записи воспроизведён на живом сервере и сошёлся с кодом; правок в записи
+не потребовалось. `run_security_scan` на том же минимальном проекте, машина без сканеров
+(`AI_DEV_OFFLINE=1`):
+
+```
+до:     status=pass       summary={"checked":0,"skipped":6,"failed":0,"findings":0,"blocking":0}
+после:  status=unchecked  summary={"checked":0,"skipped":6,"failed":0,"findings":0,"blocking":0}
+        next_step="No scanner could run here, so nothing was checked. Install at least one
+                   (gitleaks is the cheapest and needs no network) …"
+```
+
+`verify_task` на той же задаче:
+
+```
+до:     checks=[… {"type":"security_scan","status":"pass"}]      next_step выброшен
+после:  checks=[… {"type":"security_scan","status":"unchecked"}] next_step доехал до записи
+        verification.passed определяется остальными проверками: `unchecked` не блокирует
+```
+
+`system_health_check`, машина без единого сканера на PATH (PATH из одного каталога с `node`):
+
+```
+до:     проверки security_scanners нет вовсе
+после:  {"name":"security_scanners","status":"warn","critical":false,
+         "summary":"None of the 6 security scanners is installed, so run_security_scan comes
+                    back unchecked. Install gitleaks: …",
+         "details":{"installed":[],"missing":[…шесть…],"offline_capable":[]}}
+        общий статус — degraded, не fail; строка попадает в recommendations
+```
+
+Враждебная проба: тот же проект с ключом, собранным конкатенацией
+(`["AKIA", "B".repeat(16)].join("")`), и shim-`gitleaks` на PATH, печатающий JSON-отчёт с
+находкой:
+
+```
+run_security_scan → status=block  summary={"checked":1,"skipped":5,"findings":1,"blocking":1}
+                    findings=[{tool:"gitleaks",kind:"secret",severity:"critical",file:"leak.txt"}]
+verify_task        → security_scan: block, next_step про ротацию утёкшего
+system_health_check → security_scanners: ok, offline_capable:["gitleaks"]
+```
+
+То есть оба конца видны: без сканеров — `unchecked`, со сканером и находкой — `block`, и
+`verify_task` в обоих случаях несёт и статус, и `next_step`.
+
+**Что не проверено.** Образ. Docker-демона в песочнице нет, собрать и запустить его нельзя,
+поэтому проверены только три вещи: путь бинарника `/usr/bin/gitleaks` — по Dockerfile апстрима
+(WebFetch с `raw.githubusercontent.com`), а не по слоям образа (блобы `ghcr.io` в песочнице
+закрыты политикой egress); мультиарховый digest
+`sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f` тега `v8.30.1` и то,
+что индекс покрывает `linux/amd64` и `linux/arm64` — по Registry API ghcr.io; лицензия MIT
+и строка копирайта — по `LICENSE` апстрима. Само `gitleaks version` внутри образа проверяется в
+CI: в `.github/workflows/docker-publish.yml` добавлен шаг
+`docker run --rm --network none --entrypoint gitleaks ai-dev-system:ci version`, который идёт
+на каждом PR после сборки образа. До зелёного CI утверждение «в образе gitleaks работает»
+остаётся непроверенным.
 
 ## Д-56. В образе Frontend QA мёртв, а диагностика говорит «Playwright не установлен»
 

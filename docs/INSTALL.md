@@ -411,10 +411,27 @@ docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker/build-
 
 ### Running it, either way
 
-With the launcher scripts:
+`AI_DEV_MODEL_PATH` names the folder *above* the models — `~/.ai-dev/models`, the one
+`npm run setup -- --dense` fills — not a model directory. A folder that holds model
+files itself (`pytorch_model.bin`, `config.json`, `onnx/`) is the value the variable
+had before 2.1, and the launchers refuse it with directions rather than mounting it one
+level too deep.
+
+With the installer, which is the default Docker path:
 
 ```bash
-export AI_DEV_IMAGE=ai-dev-system:bge
+sh ./bootstrap.sh --model-path "$HOME/.ai-dev/models"
+```
+
+The fast-start runtime mounts the folder read-only as `/models`, and the client
+configurations bootstrap writes carry `AI_DEV_MODEL_PATH`, so the cold fallback
+launch mounts it too. `AI_DEV_MODEL_PATH` in the environment is the default for
+`--model-path`; on Windows the switch is `-ModelPath`.
+
+With the launcher scripts directly (`AI_DEV_IMAGE` is only needed for the legacy
+`ai-dev-system:bge` build):
+
+```bash
 export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
 export AI_DEV_PROJECT_PATH="/absolute/path/to/your/project"
 sh docker/run-mcp.sh

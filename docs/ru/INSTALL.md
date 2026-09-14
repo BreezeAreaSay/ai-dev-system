@@ -387,10 +387,26 @@ docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker/build-
 
 ### Запуск, обоими способами
 
-Через скрипты-лаунчеры:
+`AI_DEV_MODEL_PATH` — это папка *над* моделями, `~/.ai-dev/models`, та, которую заполняет
+`npm run setup -- --dense`, а не каталог модели. Каталог, в котором лежат файлы модели
+(`pytorch_model.bin`, `config.json`, `onnx/`), — это значение переменной до 2.1; лаунчеры
+не монтируют его на уровень глубже, а останавливаются и говорят, куда указать.
+
+Через установщик — это путь Docker по умолчанию:
 
 ```bash
-export AI_DEV_IMAGE=ai-dev-system:bge
+sh ./bootstrap.sh --model-path "$HOME/.ai-dev/models"
+```
+
+Fast-start контейнер монтирует папку read-only в `/models`, а в клиентские конфиги
+bootstrap записывает `AI_DEV_MODEL_PATH`, так что холодный запуск монтирует её же.
+`AI_DEV_MODEL_PATH` в окружении — значение `--model-path` по умолчанию; на Windows ключ
+называется `-ModelPath`.
+
+Через скрипты-лаунчеры напрямую (`AI_DEV_IMAGE` нужен только для legacy-сборки
+`ai-dev-system:bge`):
+
+```bash
 export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
 export AI_DEV_PROJECT_PATH="/абсолютный/путь/к/проекту"
 sh docker/run-mcp.sh

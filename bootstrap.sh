@@ -14,6 +14,7 @@ build_local=0
 plan=0
 node_image="${AI_DEV_BOOTSTRAP_NODE_IMAGE:-node:24-bookworm-slim}"
 data_volume="${AI_DEV_DATA_VOLUME:-ai-dev-system-data}"
+model_path="${AI_DEV_MODEL_PATH:-}"
 
 usage() {
   cat <<'EOF'
@@ -21,6 +22,8 @@ Usage: sh ./bootstrap.sh [options]
 
 Options:
   --project-path PATH       Folder to mount as /workspace.
+  --model-path PATH         Folder holding bge-m3-onnx/ and/or bge-m3/, mounted read-only
+                            as /models (default: AI_DEV_MODEL_PATH; unset = no dense weights).
   --image NAME              Docker image tag (default: published GHCR latest).
   --clients LIST            Comma-separated: codex,cursor,gemini,vscode,claude.
   --install-prerequisites   Install Docker with Homebrew, apt, dnf, or pacman.
@@ -35,6 +38,7 @@ EOF
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --project-path) project_path="$2"; shift 2 ;;
+    --model-path) model_path="$2"; shift 2 ;;
     --image) image="$2"; image_set=1; shift 2 ;;
     --clients) clients="$2"; shift 2 ;;
     --install-prerequisites) install_prerequisites=1; shift ;;
@@ -74,8 +78,13 @@ if [ "$plan" -eq 1 ]; then
   plan_clients=$(json_escape "$clients")
   plan_runtime=$(json_escape "$runtime_container")
   plan_volume=$(json_escape "$data_volume")
-  printf '{"repository":"%s","project_path":"%s","image":"%s","clients":"%s","runtime_container":"%s","data_volume":"%s","build_local":%s,"node_on_host_required":false}\n' \
-    "$plan_repo" "$plan_project" "$plan_image" "$plan_clients" "$plan_runtime" "$plan_volume" "$build_local"
+  # Present only when a model folder was given, so the default plan is unchanged.
+  plan_model=""
+  if [ -n "$model_path" ]; then
+    plan_model=",\"model_path\":\"$(json_escape "$model_path")\""
+  fi
+  printf '{"repository":"%s","project_path":"%s","image":"%s","clients":"%s","runtime_container":"%s","data_volume":"%s"%s,"build_local":%s,"node_on_host_required":false}\n' \
+    "$plan_repo" "$plan_project" "$plan_image" "$plan_clients" "$plan_runtime" "$plan_volume" "$plan_model" "$build_local"
   exit 0
 fi
 
@@ -179,6 +188,30 @@ case "$project_path" in
 esac
 project_path=$(CDPATH= cd -- "$project_path" && pwd -P)
 
+if [ -n "$model_path" ]; then
+  case "$model_path" in
+    *,*) printf '%s\n' "Model path cannot contain a comma when Docker --mount syntax is used." >&2; exit 64 ;;
+  esac
+  if [ ! -d "$model_path" ]; then
+    printf '%s\n' "Model path does not exist: ${model_path}" >&2
+    exit 64
+  fi
+  model_path=$(CDPATH= cd -- "$model_path" && pwd -P)
+  # The folder above the models, holding bge-m3-onnx/ and/or bge-m3/, mounted
+  # read-only as /models in the fast-start runtime (docs/DEFECTS.md Д-69). A
+  # folder that holds model files itself is the pre-Д-62 value of the variable
+  # and would leave both backends looking one level too deep (Д-68).
+  for marker in pytorch_model.bin modules.json config.json onnx; do
+    if [ -e "${model_path}/${marker}" ]; then
+      printf '%s\n' "--model-path names the folder above the models, and ${model_path} holds model files itself (${marker}). Point it at the parent folder that contains bge-m3-onnx/ and/or bge-m3/ — for a default install that is \$HOME/.ai-dev/models (docs/INSTALL.md)." >&2
+      exit 64
+    fi
+  done
+  if [ ! -d "${model_path}/bge-m3-onnx" ] && [ ! -d "${model_path}/bge-m3" ]; then
+    printf '%s\n' "${model_path} holds neither bge-m3-onnx/ nor bge-m3/ yet; dense search will report that it is not set up until a model is put there." >&2
+  fi
+fi
+
 uid=$(id -u)
 gid=$(id -g)
 run_node() {
@@ -245,6 +278,7 @@ docker run -d \
   --cap-drop ALL \
   --mount "type=volume,source=${data_volume},target=/data" \
   --mount "type=bind,source=${project_path},target=/workspace" \
+  ${model_path:+--mount} ${model_path:+"type=bind,source=${model_path},target=/models,readonly"} \
   "$image" tail -f /dev/null >/dev/null
 
 if [ "$skip_smoke" -ne 1 ]; then
@@ -304,6 +338,7 @@ if [ "$skip_client_install" -ne 1 ]; then
       --runtime-container "$runtime_container" \
       --image "$image" \
       --project-path "$project_path" \
+      ${model_path:+--model-path} ${model_path:+"$model_path"} \
       --clients "$clients" \
       --home "$HOME" \
       --app-data "$app_data" \
@@ -311,6 +346,9 @@ if [ "$skip_client_install" -ne 1 ]; then
 fi
 
 printf '%s\n' "AI Dev MCP System is ready. Restart the selected AI clients to load ai-dev."
+if [ -n "$model_path" ]; then
+  printf '%s\n' "Model weights are mounted read-only from ${model_path} as /models."
+fi
 if [ -n "$stale_warning" ]; then
   printf '%s\n' "Installed from a stale image. ${stale_warning}" >&2
 fi

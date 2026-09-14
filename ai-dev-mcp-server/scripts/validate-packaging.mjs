@@ -30,6 +30,8 @@ const [
   installGuideRu,
   bootstrapUnix,
   bootstrapWindows,
+  runMcpUnix,
+  runMcpWindows,
   launcher,
   pkgbuild,
   srcinfo,
@@ -42,6 +44,8 @@ const [
   read("docs/ru/INSTALL.md"),
   read("bootstrap.sh"),
   read("bootstrap.ps1"),
+  read("docker/run-mcp.sh"),
+  read("docker/run-mcp.ps1"),
   read("packaging/launcher.sh"),
   read("packaging/arch/PKGBUILD"),
   read("packaging/arch/.SRCINFO"),
@@ -82,6 +86,13 @@ requireText(bootstrapUnix, /--allow-stale-image/, "bootstrap.sh");
 requireText(bootstrapWindows, /ghcr\.io\/stonebridgeway\/ai-dev-system:latest/, "bootstrap.ps1");
 requireText(bootstrapWindows, /\[switch\]\$BuildLocal/, "bootstrap.ps1");
 requireText(bootstrapWindows, /\[switch\]\$AllowStaleImage/, "bootstrap.ps1");
+// The model folder is mounted the same way on both platforms, and the launchers
+// refuse the pre-Д-62 value — the model directory itself — with the same words
+// (docs/DEFECTS.md Д-68, Д-69).
+requireText(bootstrapUnix, /--model-path/, "bootstrap.sh");
+requireText(bootstrapWindows, /\[string\]\$ModelPath/, "bootstrap.ps1");
+requireText(runMcpUnix, /holds model files itself/, "docker/run-mcp.sh");
+requireText(runMcpWindows, /holds model files itself/, "docker/run-mcp.ps1");
 
 requireText(launcher, /@AI_DEV_SYSTEM_ROOT@/, "packaging launcher");
 requireText(launcher, /bootstrap\.sh/, "packaging launcher");

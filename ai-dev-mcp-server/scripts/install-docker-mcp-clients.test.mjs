@@ -37,6 +37,24 @@ test("Docker client configuration uses the local stdio launcher and project moun
   assert.equal(cursor.env.AI_DEV_IMAGE, options.image);
   assert.equal(cursor.env.AI_DEV_PROJECT_PATH, options.projectPath);
   assert.equal(cursor.env.AI_DEV_MCP_LAUNCHER, options.launcher);
+  // No model folder was named, so the launcher must not be told to mount one.
+  assert.equal("AI_DEV_MODEL_PATH" in cursor.env, false);
+});
+
+test("a model folder reaches the launcher as AI_DEV_MODEL_PATH, on both platforms", () => {
+  // Д-69: the client config is the only place the cold launch path and every
+  // Windows launch can learn where the weights are.
+  const windows = buildDockerClientServerConfig("cursor", { ...options, modelPath: "C:\\Users\\dev\\.ai-dev\\models" });
+  assert.equal(windows.env.AI_DEV_MODEL_PATH, "C:\\Users\\dev\\.ai-dev\\models");
+  const unix = buildDockerClientServerConfig("cursor", {
+    ...options,
+    launcher: "/opt/ai-dev/docker/run-mcp.sh",
+    projectPath: "/home/dev/projects",
+    modelPath: "/home/dev/.ai-dev/models/",
+    platform: "linux"
+  });
+  assert.equal(unix.env.AI_DEV_MODEL_PATH, "/home/dev/.ai-dev/models");
+  assert.equal(unix.env.AI_DEV_PROJECT_PATH, "/home/dev/projects");
 });
 
 test("Windows configurations preserve Unicode launchers through an environment variable", () => {

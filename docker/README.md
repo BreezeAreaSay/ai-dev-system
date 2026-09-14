@@ -341,10 +341,21 @@ npm run setup -- --dense
 
 ### Запуск с моделью
 
-Лаунчером:
+Установщиком — путь по умолчанию: fast-start контейнер получает папку read-only в `/models`,
+а клиентские конфиги — `AI_DEV_MODEL_PATH` для холодного запуска
+(`docs/DEFECTS.md`, Д-69):
 
 ```bash
-export AI_DEV_IMAGE="ai-dev-system:bge"
+sh ./bootstrap.sh --model-path "$HOME/.ai-dev/models"
+```
+
+Переменная называет папку *над* моделями. Каталог, где лежат сами файлы модели
+(`pytorch_model.bin`, `config.json`, `onnx/`), — значение до 2.1; лаунчеры его распознают и
+останавливаются с подсказкой, а не монтируют на уровень глубже (Д-68).
+
+Лаунчером напрямую (`AI_DEV_IMAGE` нужен только для legacy-сборки `ai-dev-system:bge`):
+
+```bash
 export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
 export AI_DEV_PROJECT_PATH="/absolute/path/to/project"
 sh ./docker/run-mcp.sh

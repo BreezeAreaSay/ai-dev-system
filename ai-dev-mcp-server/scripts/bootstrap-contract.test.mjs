@@ -39,6 +39,8 @@ test("Unix bootstrap defaults to the published image without a local build", asy
     assert.equal(output.image, "ghcr.io/stonebridgeway/ai-dev-system:latest");
     assert.equal(output.build_local, 0);
     assert.equal(output.node_on_host_required, false);
+    // Д-69: the model folder is optional, and an absent option leaves the plan exactly as it was.
+    assert.equal("model_path" in output, false);
   } finally {
     await fs.rm(home, { recursive: true, force: true });
   }
@@ -271,4 +273,108 @@ test("a smoke check that fails on its own still cleans up, and still exits 70", 
   const { code } = await new Promise((resolve) => child.once("exit", (exitCode, signal) => resolve({ code: exitCode, signal })));
   assert.equal(code, 70, "the smoke failure no longer reports its own exit code");
   assert.deepEqual(await smokeDirectories(root), [], "a failed smoke check left its directory behind");
+});
+
+test("--model-path shows up in the plan, and only then", async (context) => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-"));
+  try {
+    const result = plan(["--model-path", path.join(home, "models")], home);
+    if (result.error?.code === "ENOENT") {
+      context.skip("sh is unavailable on this host");
+      return;
+    }
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(JSON.parse(result.stdout).model_path, path.join(home, "models"));
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+// A `docker` that lets the install run all the way to the runtime container and
+// writes down how that container was started, so a test can read the mounts.
+const recordingDocker = [
+  "#!/bin/sh",
+  'sub="$1"',
+  "shift",
+  'case "$sub" in',
+  "  version) echo 27.0.0; exit 0 ;;",
+  "  pull) exit 0 ;;",
+  "  ps) exit 0 ;;",
+  "  run)",
+  '    for a in "$@"; do [ "$a" = "-d" ] && { printf \'%s\\n\' "$@" >> "$STUB_LOG"; exit 0; }; done',
+  "    exit 0 ;;",
+  "esac",
+  "exit 0",
+  ""
+].join("\n");
+
+async function bootstrapWithModelPath(modelDir, context) {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-models-"));
+  const binDir = path.join(home, "bin");
+  await fs.mkdir(binDir);
+  await fs.writeFile(path.join(binDir, "docker"), recordingDocker, { mode: 0o755 });
+  const log = path.join(home, "docker-run.log");
+  try {
+    const result = spawnSync(
+      shell,
+      [bootstrap, "--skip-smoke", "--skip-client-install", "--project-path", path.join(home, "projects"), "--model-path", modelDir],
+      {
+        encoding: "utf8",
+        env: { ...process.env, HOME: home, STUB_LOG: log, PATH: `${binDir}${path.delimiter}${process.env.PATH}` }
+      }
+    );
+    if (result.error?.code === "ENOENT") {
+      context.skip("sh is unavailable on this host");
+      return null;
+    }
+    const recorded = await fs.readFile(log, "utf8").catch(() => "");
+    return { ...result, recorded };
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+}
+
+test("the fast-start runtime mounts the model folder read-only as /models", async (context) => {
+  const models = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-"));
+  await fs.mkdir(path.join(models, "bge-m3-onnx"));
+  try {
+    const result = await bootstrapWithModelPath(models, context);
+    if (result === null) return;
+    assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+    const realModels = await fs.realpath(models);
+    assert.match(result.recorded, new RegExp(`type=bind,source=${realModels.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")},target=/models,readonly`), "the runtime container was started without the model mount");
+    assert.match(result.stdout, /mounted read-only from .* as \/models/, "the install did not say what it mounted");
+    // A folder that does hold a model directory earns no warning.
+    assert.doesNotMatch(result.stderr, /holds neither/);
+  } finally {
+    await fs.rm(models, { recursive: true, force: true });
+  }
+});
+
+test("a model folder without a model in it is a warning, not a refusal", async (context) => {
+  const models = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-"));
+  try {
+    const result = await bootstrapWithModelPath(models, context);
+    if (result === null) return;
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /holds neither bge-m3-onnx\/ nor bge-m3\//);
+    assert.match(result.recorded, /target=\/models,readonly/);
+  } finally {
+    await fs.rm(models, { recursive: true, force: true });
+  }
+});
+
+test("the pre-Д-62 value of the model path — the model directory itself — is refused with directions", async (context) => {
+  const oldStyle = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bge-m3-"));
+  await fs.writeFile(path.join(oldStyle, "pytorch_model.bin"), "");
+  try {
+    const result = await bootstrapWithModelPath(oldStyle, context);
+    if (result === null) return;
+    assert.equal(result.status, 64, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+    assert.match(result.stderr, /holds model files itself \(pytorch_model\.bin\)/);
+    assert.match(result.stderr, /bge-m3-onnx\//, "the message does not say what the folder should contain");
+    assert.equal(result.recorded, "", "the runtime container was started despite the refusal");
+  } finally {
+    await fs.rm(oldStyle, { recursive: true, force: true });
+  }
 });

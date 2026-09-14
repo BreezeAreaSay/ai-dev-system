@@ -113,6 +113,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The launchers recognise the pre-2.1 value of `AI_DEV_MODEL_PATH`.** The variable
+  now names the folder above the models; a folder that holds model files itself was
+  mounted one level too deep and dense search reported "not set up" to a user who had
+  followed the previous instructions. `docker/run-mcp.sh` and `run-mcp.ps1` stop with
+  directions instead, and a folder with no model in it yet is a warning, not a refusal
+  (Д-68).
+- **The default Docker install can reach the model weights at all.** The fast-start
+  runtime never mounted `/models`, and the client configurations never carried
+  `AI_DEV_MODEL_PATH`, so on the path `bootstrap.sh` sets up the weights had nowhere to
+  go. `bootstrap.sh --model-path` / `bootstrap.ps1 -ModelPath` (default:
+  `AI_DEV_MODEL_PATH`) mount the folder read-only into the runtime and write the
+  variable into every client configuration; `--plan` gains `model_path` only when one
+  was given (Д-69).
 - **A correct fresh install passes its own health check.** A new volume came up
   `degraded` for two reasons that had nothing to do with the install. The skill
   quality report is written only by `validate_skill_library` with

@@ -144,6 +144,59 @@ this release.
 
 ### Fixed
 
+- **A fresh container no longer fails its own health check** (upstream #50). The
+  entrypoint built the skill registry and stopped; `npm run setup` also built
+  the search index and the routing benchmark. So a container started with
+  neither, four critical checks failed, every search tool answered with a
+  refusal until somebody called `rebuild_search_index` by hand, and the first
+  thing a new user saw on a correct install was `Health: fail`. Both paths now
+  run the same three steps from the same module
+  (`scripts/first-run-steps.mjs`), idempotently and without the network: about
+  ten seconds on the first container start, nothing on the second. The
+  container writes its dashboard note before the index rather than after it,
+  which had left the index stale the moment the entrypoint finished. Measured
+  on an emulated volume: `fail` with 5 failing checks before, `degraded` with 0
+  after.
+
+  Two of the notes the check expects were genuinely absent from the image and
+  one could never be there. A volume seeded from `docker/public-seed` is now
+  told apart from a hand-made Obsidian vault by the `PUBLIC_SEED.md` the seed
+  carries, so the vault's entry page is `not-applicable` rather than missing;
+  the repository README, `ai-dev-mcp-server/README.md` and
+  `docs/ARCHITECTURE.md` are shipped in the image, which is where the check
+  looks for the other three.
+
+- **Missing BGE-M3 weights are no longer a critical failure, and the advice
+  now fits where it is read** (upstream #52). The search index was one of the
+  embedding backend's requirements, so on a fresh container one missing
+  artefact was counted as two critical failures and the soft "dense is not set
+  up" tipped into `fail`. The index has its own critical check and the backend
+  no longer claims it. The published image is built with `INSTALL_BGE_M3=0` and
+  now says so through `AI_DEV_DENSE_INSTALLED`, so the health check tells a
+  container to mount the weights (`AI_DEV_MODEL_PATH`, or an image variant
+  built with `--build-arg INSTALL_BGE_M3=1`) instead of sending it to a
+  `npm run setup -- --dense` it cannot run. A dense stack that is installed and
+  unweighted is now a warning rather than a skip: set up and unfinished is not
+  the same as never asked for.
+
+- **Frontend QA works inside the image, and a runner that cannot start says
+  so** (upstream #49). The QA runner imports two server modules by the relative
+  path they have in a checkout; in the image the server is at
+  `/opt/ai-dev/app` and that path resolved nowhere, so the runner died on its
+  first import — with Playwright and Chromium installed and unreachable. The
+  Dockerfile now symlinks `/opt/ai-dev/ai-dev-mcp-server` onto the application.
+  The probe behind the health check took the first line of the failure, which
+  for a module-resolution error is the frame Node threw from
+  (`node:internal/modules/esm/resolve:275`) and never the reason; it now reads
+  the reason out of the whole output and tells a dependency nobody installed
+  (still optional, still `skipped`) from a file this install does not carry
+  (`fail`, naming the file). The context audit walks `runtime/` as well as
+  `app/`, through the one path correspondence the Dockerfile creates, so an
+  import the allowlist drops is caught before an image is built rather than
+  after it is published. `docker-smoke.mjs` runs `system_health_check` inside
+  the built image and fails on a failing check or on a runner that did not
+  start.
+
 - **Every project under one home no longer shares a memory key.** The hook
   compared a candidate `.ai-dev` against a runtime root that was one path
   segment too deep, and then against one spelled differently — uncanonicalised,

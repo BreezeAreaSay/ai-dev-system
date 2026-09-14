@@ -1,0 +1,226 @@
+name: Dense search evaluation
+
+# The measurement Д-62's acceptance criterion (2) is decided on, and the only
+# place it can be taken: the model weights come from huggingface.co and the
+# legacy stack's torch build from download.pytorch.org, neither of which the
+# development sandbox can reach. Runners can.
+#
+# Two jobs, one per backend, running the same golden cases against the same
+# vault so the numbers are comparable. If int8 ONNX loses to Python-fp32 by more
+# than noise, the manifest's `dtype` moves to fp16 or fp32 — that is a field,
+# not a code change.
+#
+# Dispatch only. It downloads about 600 MB (ONNX) and about 2.3 GB (Python), so
+# it is not something every push should pay for.
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_cases:
+        description: Golden cases to run per backend
+        required: false
+        default: "50"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dense-eval-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  onnx:
+    name: ONNX backend (no Python)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ai-dev-mcp-server/package-lock.json
+
+      - name: Read the pinned revision
+        id: manifest
+        run: |
+          revision="$(node -p "require('./ai-dev-mcp-server/models/bge-m3.manifest.json').revision")"
+          echo "revision=${revision}" >> "$GITHUB_OUTPUT"
+
+      # Keyed on the revision, so a manifest that moves to a new export or a new
+      # dtype downloads afresh rather than scoring yesterday's weights.
+      - name: Restore the model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ai-dev/models/bge-m3-onnx
+          key: bge-m3-onnx-${{ steps.manifest.outputs.revision }}
+
+      - name: Install dependencies
+        working-directory: ai-dev-mcp-server
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      # The same flags the Dockerfile uses. onnxruntime-node ships its prebuilt
+      # binaries inside the npm package, so --ignore-scripts must not break it;
+      # if that ever changes, this is where it is caught rather than in a user's
+      # first search (docs/DEFECTS.md, Д-62).
+      - name: The native binding survives --ignore-scripts
+        working-directory: ai-dev-mcp-server
+        run: node -e "import('onnxruntime-node').then((m) => { if (!m.InferenceSession) { throw new Error('onnxruntime-node loaded without InferenceSession'); } console.log('onnxruntime-node loaded'); })"
+
+      # Criterion (1): one command, one Node, no Python. The download verifies
+      # every file against the manifest's sha256 and throws on a mismatch, so an
+      # export that moved upstream fails this step loudly instead of quietly
+      # rewriting what we are pinned to.
+      - name: Download the model and build the dense index
+        working-directory: ai-dev-mcp-server
+        env:
+          AI_DEV_DENSE_BACKEND: onnx
+        run: npm run setup -- --dense --no-health
+
+      - name: Dense search is READY
+        working-directory: ai-dev-mcp-server
+        run: npm run dense:doctor
+
+      # The gated inference test: width, norm, and that a translation pair is
+      # closer than two unrelated sentences. It skips everywhere else.
+      - name: Inference test
+        working-directory: ai-dev-mcp-server
+        run: node --import ./test/setup.mjs --test src/core/dense-onnx-inference.test.mjs
+
+      - name: Measure
+        working-directory: ai-dev-mcp-server
+        env:
+          AI_DEV_DENSE_BACKEND: onnx
+        run: node scripts/dense-benchmark.mjs --label onnx --out "${{ runner.temp }}/dense-onnx.json"
+
+      - name: Upload the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dense-eval-onnx
+          path: ${{ runner.temp }}/dense-onnx.json
+
+  python:
+    name: Legacy Python backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ai-dev-mcp-server/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Restore the model
+        uses: actions/cache@v4
+        with:
+          path: ~/.ai-dev/models/bge-m3
+          key: bge-m3-torch-${{ env.BGE_M3_PYTHON_REVISION || 'unpinned' }}-v1
+
+      - name: Install dependencies
+        working-directory: ai-dev-mcp-server
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Build the legacy stack and the dense index
+        working-directory: ai-dev-mcp-server
+        env:
+          AI_DEV_DENSE_BACKEND: python
+        run: npm run setup -- --dense-python --no-health
+
+      # The commit the torch repository is at right now. Nothing pins it yet:
+      # `BGE_M3_PYTHON_REVISION` takes a value and the sandbox could not read
+      # one, since huggingface.co is closed to it. Print it so the owner can
+      # paste it into that variable and close the last half of Д-62 point 1.
+      - name: Report the revision this run used
+        run: |
+          python -m pip install --quiet huggingface_hub
+          python - <<'PY'
+          from huggingface_hub import HfApi
+          info = HfApi().model_info("BAAI/bge-m3")
+          print(f"BAAI/bge-m3 is currently at {info.sha}")
+          print("Set BGE_M3_PYTHON_REVISION to that value to pin the legacy download.")
+          PY
+
+      - name: Measure
+        working-directory: ai-dev-mcp-server
+        env:
+          AI_DEV_DENSE_BACKEND: python
+        run: node scripts/dense-benchmark.mjs --label python --out "${{ runner.temp }}/dense-python.json"
+
+      - name: Upload the report
+        uses: actions/upload-artifact@v4
+        with:
+          name: dense-eval-python
+          path: ${{ runner.temp }}/dense-python.json
+
+  compare:
+    name: Compare the two backends
+    runs-on: ubuntu-latest
+    needs: [onnx, python]
+    # The ONNX numbers are the ones being accepted; the legacy job is the
+    # yardstick and its stack is the fragile one. If it fails, say so in the
+    # table rather than losing the half that worked.
+    if: always()
+    steps:
+      - name: Download the reports
+        uses: actions/download-artifact@v4
+        with:
+          path: reports
+        continue-on-error: true
+
+      - name: Write the summary
+        run: |
+          node - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          const fs = require("node:fs");
+          const read = (name) => {
+            try {
+              return JSON.parse(fs.readFileSync(`reports/dense-eval-${name}/dense-${name}.json`, "utf8"));
+            } catch {
+              return null;
+            }
+          };
+          const onnx = read("onnx");
+          const python = read("python");
+          const cell = (report, pick) => (report ? pick(report) : "job did not report");
+          const rows = [
+            ["Backend", (r) => r.backend],
+            ["Revision", (r) => String(r.revision).slice(0, 12)],
+            ["dtype", (r) => r.dtype],
+            ["Documents embedded", (r) => `${r.index.dense_documents} (${r.index.dense_pending_documents} pending)`],
+            ["Mean reciprocal rank", (r) => r.eval.mean_reciprocal_rank],
+            ["Top-1 accuracy", (r) => r.eval.top_1_accuracy],
+            ["Mean nDCG", (r) => r.eval.mean_ndcg],
+            ["Golden cases passed", (r) => `${r.eval.passed}/${r.eval.total}`],
+            ["Cold start (ms)", (r) => r.latency_ms.cold_start],
+            ["Warm query, median (ms)", (r) => r.latency_ms.warm_median],
+            ["Resident memory (MB)", (r) => r.memory_mb.rss],
+          ];
+          console.log("## Dense search: ONNX against the legacy Python stack\n");
+          console.log("The same golden cases, the same vault, one run each.\n");
+          console.log("| | ONNX (int8) | Python (fp32) |");
+          console.log("| --- | --- | --- |");
+          for (const [label, pick] of rows) {
+            console.log(`| ${label} | ${cell(onnx, pick)} | ${cell(python, pick)} |`);
+          }
+          console.log("");
+          if (onnx && python) {
+            const drop = python.eval.mean_reciprocal_rank - onnx.eval.mean_reciprocal_rank;
+            console.log(drop > 0.02
+              ? `**int8 loses ${drop.toFixed(4)} MRR to fp32.** That is past noise: move \`dtype\` in `
+                + "`models/bge-m3.manifest.json` to `fp16` or `fp32` and run this again. It is a field, not a code change."
+              : `**int8 is within ${Math.abs(drop).toFixed(4)} MRR of fp32.** Criterion (2) of Д-62 holds; keep the manifest as it is.`);
+          } else {
+            console.log("_One of the two jobs did not produce a report, so criterion (2) is not decided by this run._");
+          }
+          PY

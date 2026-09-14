@@ -3,7 +3,6 @@ import test from "node:test";
 import { dashboardSourceFingerprint, renderSystemDashboard } from "./system-dashboard.mjs";
 import {
   COVERAGE_THRESHOLDS,
-  EMBEDDING_BACKEND_REQUIREMENTS,
   REQUIRED_SEARCH_PRESETS,
   REQUIRED_SYSTEM_NOTES,
   SYSTEM_LINE_CEILING,
@@ -13,7 +12,6 @@ import {
   dashboardSkillSource,
   evaluateAutoCommands,
   evaluateDenseSmoke,
-  evaluateEmbeddingBackend,
   evaluateFrontendQaEnvironment,
   evaluateFrontendQaRunner,
   evaluateHybridSmoke,
@@ -220,32 +218,6 @@ test("frontend QA environment is ready only when Playwright can launch Chromium"
   assert.equal(evaluateFrontendQaEnvironment({
     playwright_available: true, chromium_available: false, browser_launch_ok: false
   }).status, "warn");
-});
-
-function embeddingAvailability(overrides = {}) {
-  const availability = {};
-  for (const key of EMBEDDING_BACKEND_REQUIREMENTS) availability[key] = { exists: true };
-  return { ...availability, ...overrides };
-}
-
-test("embedding backend fails on a missing shipped helper and reports worker state otherwise", () => {
-  const missing = evaluateEmbeddingBackend({
-    availability: embeddingAvailability({ embed_helper: { exists: false } }),
-    workers: { count: 0 }
-  });
-  assert.equal(missing.status, "fail");
-  assert.deepEqual(missing.details.missing, ["embed_helper"]);
-  assert.match(evaluateEmbeddingBackend({ availability: embeddingAvailability(), workers: { count: 0 } }).summary, /not started yet/);
-  const running = evaluateEmbeddingBackend({
-    availability: embeddingAvailability(),
-    workers: { count: 2 },
-    backend: "bge-m3-local",
-    paths: { model_dir: "/models" }
-  });
-  assert.equal(running.status, "ok");
-  assert.match(running.summary, /2 worker\(s\)/);
-  assert.equal(running.details.paths.model_dir, "/models");
-  assert.equal(evaluateEmbeddingBackend({ workers: { count: 0 } }).details.missing.length, EMBEDDING_BACKEND_REQUIREMENTS.length);
 });
 
 test("skill registry check rejects non-arrays and empty registries", () => {
@@ -515,32 +487,4 @@ test("system snapshot falls back when quality, projects, and card shapes are spa
   assert.equal(buildSystemSnapshot(snapshotInput({ cards: null })).skills.cards, 0);
   assert.equal(buildSystemSnapshot(snapshotInput({ projects: [{ name: "No id" }] })).projects.items[0].id, "");
   assert.ok(buildSystemSnapshot(snapshotInput({ generatedAt: undefined })).generated_at);
-});
-
-test("a clone that never downloaded the weights is skipped, not failed", () => {
-  // The weights come from `npm run setup -- --dense` and weigh hundreds of
-  // megabytes. Reporting their absence as a failure met every new user with
-  // "Health: fail — 4 not passing" on a correct install.
-  const fresh = evaluateEmbeddingBackend({
-    availability: embeddingAvailability({
-      model_dir: { exists: false },
-      model_file: { exists: false },
-      modules_file: { exists: false }
-    }),
-    workers: { count: 0 }
-  });
-  assert.equal(fresh.status, "skipped");
-  assert.equal(fresh.details.optional, true);
-  assert.match(fresh.summary, /--dense/);
-});
-
-test("weights present but a shipped helper gone is still a failure", () => {
-  const broken = evaluateEmbeddingBackend({
-    availability: embeddingAvailability({
-      worker_helper: { exists: false },
-      model_file: { exists: false }
-    }),
-    workers: { count: 0 }
-  });
-  assert.equal(broken.status, "fail", "a missing helper is never optional");
 });

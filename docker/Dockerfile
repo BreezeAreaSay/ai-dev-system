@@ -15,6 +15,12 @@ LABEL org.opencontainers.image.title="AI Dev MCP System" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.licenses="MIT"
 
+# Whether this image carries the BGE-M3 Python stack. The diagnostics read it to
+# tell "dense was left out of this image on purpose" from "dense is broken", and
+# to advise a mount rather than `npm run setup -- --dense`, which no container
+# can run (docs/DEFECTS.md, Д-59).
+ENV AI_DEV_DENSE_INSTALLED=${INSTALL_BGE_M3}
+
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \

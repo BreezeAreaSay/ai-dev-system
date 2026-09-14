@@ -14,7 +14,6 @@ import {
   createHealthReport,
   evaluateAutoCommands,
   evaluateDenseSmoke,
-  evaluateEmbeddingBackend,
   evaluateFrontendQaEnvironment,
   evaluateFrontendQaRunner,
   evaluateHybridSmoke,
@@ -34,6 +33,7 @@ import {
   evaluateSkillVisualGraph,
   evaluateVaultRoot
 } from "../core/system-health.mjs";
+import { evaluateEmbeddingBackend } from "../core/embedding-health.mjs";
 
 const DENSE_SMOKE_QUERY = "создай качественный интерфейс без ИИ слопа по утвержденным референсам";
 

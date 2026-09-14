@@ -7,6 +7,9 @@ import {
   QUALITY_GATE_MAX_TIMEOUT_MS,
   cleanQualityCommand,
   diagnoseQualityCommandFailure,
+  engineAgreement,
+  engineMatches,
+  parseEngineRange,
   normalizeQualityLabel,
   parseQualityGateCommands,
   qualityCommandBlockReason,
@@ -250,4 +253,74 @@ test("an ordinary failure is left to speak for itself", () => {
     stderr: "Error: Cannot find module '/home/dev/repro47/test'"
   }), "");
   assert.equal(diagnoseQualityCommandFailure(), "");
+});
+
+// Д-67: the report named the Node that ran the commands and the project named
+// the Node it wants, and nothing put the two side by side.
+test("the engine ranges projects actually write are read", () => {
+  const satisfied = [
+    ["20", "v20.11.0"], ["20", "v20.0.0"],
+    ["^20", "v20.5.1"], ["^20.1", "v20.9.0"], ["^20.1.2", "v20.1.2"],
+    ["~20.1", "v20.1.9"], ["~20", "v20.99.0"],
+    [">=20", "v24.0.0"], [">=20", "v20.0.0"], [">20", "v21.0.0"],
+    ["<21", "v20.9.9"], ["<=20", "v20.99.0"],
+    ["20.x", "v20.9.9"], ["20.X", "v20.0.1"], ["*", "v24.0.0"], ["x", "v18.0.0"],
+    ["18 || 20", "v18.1.0"], ["18 || 20", "v20.1.0"],
+    [">=18 <21", "v20.0.0"], [">=18 <21", "v18.0.0"],
+    [" >=18   <21 ", "v19.4.0"],
+    ["^0.2", "v0.2.9"], ["^0.0.3", "v0.0.3"]
+  ];
+  for (const [range, version] of satisfied) {
+    assert.equal(engineMatches(range, version), true, `${range} should accept ${version}`);
+  }
+
+  const refused = [
+    ["20", "v22.22.2"], ["20", "v19.9.9"],
+    ["^20", "v21.0.0"], ["^20.1", "v20.0.9"], ["^20.1.2", "v20.1.1"],
+    ["~20.1", "v20.2.0"], ["~20.1", "v20.0.9"],
+    [">=20", "v18.20.4"], [">20", "v20.99.99"],
+    ["<21", "v21.0.0"], ["<=20", "v21.0.0"],
+    ["20.x", "v21.0.0"],
+    ["18 || 20", "v22.0.0"], ["18 || 20", "v19.0.0"],
+    [">=18 <21", "v22.0.0"], [">=18 <21", "v17.9.9"],
+    ["^0.2", "v0.3.0"], ["^0.0.3", "v0.0.4"]
+  ];
+  for (const [range, version] of refused) {
+    assert.equal(engineMatches(range, version), false, `${range} should refuse ${version}`);
+  }
+});
+
+test("a range this does not read says so instead of guessing", () => {
+  // A misparse that invents a warning is worse than the silence it replaced.
+  for (const range of ["lts/*", "18 - 20", ">=18 <21 !=19", "node", "", "   ", ">=", "20.x.1", "^", "v"]) {
+    assert.equal(engineMatches(range, "v22.0.0"), null, `${JSON.stringify(range)} is not a range this reads`);
+    assert.equal(parseEngineRange(range), null);
+  }
+  assert.equal(engineMatches("20", "not-a-version"), null, "an unreadable running version claims nothing either");
+  assert.equal(engineMatches(undefined, "v22.0.0"), null);
+});
+
+test("the gate warns about a Node the project did not choose, and stays quiet otherwise", () => {
+  const mismatch = engineAgreement({ declared: "20", running: "v22.22.2" });
+  assert.equal(mismatch.satisfied, false);
+  assert.equal(mismatch.mismatch.declared, "20");
+  assert.equal(mismatch.mismatch.running, "v22.22.2");
+  assert.match(mismatch.mismatch.message, /engines\.node 20/);
+  assert.match(mismatch.mismatch.message, /Node v22\.22\.2/);
+  assert.match(mismatch.mismatch.message, /warning/i, "the gate warns; it does not block");
+
+  // The three silences.
+  const agreeing = engineAgreement({ declared: "22", running: "v22.22.2" });
+  assert.equal(agreeing.satisfied, true);
+  assert.equal(agreeing.mismatch, undefined);
+  const wide = engineAgreement({ declared: ">=18", running: "v22.22.2" });
+  assert.equal(wide.satisfied, true);
+  assert.equal(wide.mismatch, undefined);
+  assert.equal(engineAgreement({ declared: "", running: "v22.22.2" }), null, "a project with no engines says nothing");
+  assert.equal(engineAgreement({ running: "v22.22.2" }), null);
+
+  // Not read is not a mismatch.
+  const unread = engineAgreement({ declared: "lts/*", running: "v22.22.2" });
+  assert.equal(unread.satisfied, null);
+  assert.equal(unread.mismatch, undefined, "an unreadable range raises nothing");
 });

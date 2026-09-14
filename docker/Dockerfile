@@ -96,7 +96,7 @@ RUN if [ "${INSTALL_BGE_M3}" = "1" ]; then \
     fi
 
 COPY public-seed/ /opt/ai-dev/public-seed/
-COPY LICENSE THIRD_PARTY_NOTICES.md /opt/ai-dev/
+COPY LICENSE README.md THIRD_PARTY_NOTICES.md /opt/ai-dev/
 COPY container/entrypoint.sh /usr/local/bin/ai-dev-entrypoint
 
 RUN chmod 0755 /usr/local/bin/ai-dev-entrypoint \

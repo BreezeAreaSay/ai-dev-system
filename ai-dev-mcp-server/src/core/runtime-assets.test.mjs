@@ -10,6 +10,7 @@ import {
   resolveAssetTree,
   resolveRuntimeAssets,
   resolveRuntimeNote,
+  seededDistribution,
   vaultCarriesRuntime
 } from "./runtime-assets.mjs";
 
@@ -154,4 +155,48 @@ test("a real vault is held to the whole list, layout excuses and all", () => {
   });
   assert.equal(resolved.source, "missing");
   assert.equal(resolved.path, path.resolve("/vault", "09-mcp", "ai-dev-mcp-server", "README.md"));
+});
+
+test("a seeded container volume is not held to a private vault's notes", () => {
+  // Д-57: `/data/ai-dev-system` is seeded from `docker/public-seed` and then
+  // has the runtime trees symlinked into `09-mcp/`, which made it look like a
+  // hand-made Obsidian vault — so it was held to the entry page no
+  // distribution ships and reported it missing on every start.
+  const exists = fakeExists([
+    "/data/ai-dev-system/09-mcp",
+    "/data/ai-dev-system/PUBLIC_SEED.md",
+    "/opt/ai-dev/README.md"
+  ]);
+  assert.equal(seededDistribution("/data/ai-dev-system", exists), true);
+
+  const entryPage = resolveRuntimeNote({
+    relative: "00-start-here.md",
+    vaultRoot: "/data/ai-dev-system",
+    repositoryRoot: "/opt/ai-dev",
+    exists
+  });
+  assert.equal(entryPage.source, "not-applicable");
+
+  // What the distribution does ship is still read, through the layout it has.
+  const mcpReadme = resolveRuntimeNote({
+    relative: "09-mcp/README.md",
+    vaultRoot: "/data/ai-dev-system",
+    repositoryRoot: "/opt/ai-dev",
+    exists
+  });
+  assert.deepEqual(mcpReadme, { path: "/opt/ai-dev/README.md", source: "repository" });
+});
+
+test("a hand-made vault without the seed marker is still held to the whole list", () => {
+  const exists = fakeExists(["/vault/09-mcp", "/repo/README.md"]);
+  assert.equal(seededDistribution("/vault", exists), false);
+  for (const relative of ["00-start-here.md", "09-mcp/README.md"]) {
+    const resolved = resolveRuntimeNote({
+      relative,
+      vaultRoot: "/vault",
+      repositoryRoot: "/repo",
+      exists
+    });
+    assert.equal(resolved.source, "missing", `${relative} is genuinely missing from a real vault`);
+  }
 });

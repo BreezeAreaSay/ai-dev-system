@@ -98,6 +98,11 @@ import {
 } from "./core/search-reranker.mjs";
 import { countBy } from "./core/system-health.mjs";
 import {
+  classifyFrontendQaLaunchFailure,
+  LAUNCH_MISSING_FILE,
+  LAUNCH_UNKNOWN
+} from "./core/frontend-qa-launch.mjs";
+import {
   createLocalRuntimeProfile,
   renderRuntimeDistribution,
   runtimeDistributionFingerprint,
@@ -1899,25 +1904,32 @@ async function fileStatus(target) {
 }
 
 async function frontendQaEnvironmentStatus() {
-  const unavailable = (reason) => ({
+  const unavailable = (reason, launchFailure = LAUNCH_UNKNOWN) => ({
     status: "unavailable",
     playwright_available: false,
     chromium_available: false,
     browser_launch_ok: false,
+    launch_failure: launchFailure,
     launch_error: reason
   });
   if (!(await pathExists(frontendQaRunnerPath))) {
-    return unavailable("The Frontend QA runner is not in this install.");
+    return unavailable("The runner is not in this install.", LAUNCH_MISSING_FILE);
   }
   // The runner imports Playwright at module load, so on a clone that never ran
   // `npm run setup -- --frontend-qa` it dies with ERR_MODULE_NOT_FOUND before
   // printing anything. Letting that escape turned an opt-in install nobody
   // asked for into a failed health check on every fresh clone.
+  //
+  // Which of the two ERR_MODULE_NOT_FOUND shapes it is decides what the health
+  // check says, so the reason is read out of the whole output rather than taken
+  // from its first line, which is the frame Node threw from and never the cause
+  // (docs/DEFECTS.md, Д-56).
   let output;
   try {
     output = await runFrontendQaStatus();
   } catch (error) {
-    return unavailable(`The Frontend QA runner could not start: ${String(error?.message ?? error).split("\n")[0]}`);
+    const failure = classifyFrontendQaLaunchFailure(String(error?.message ?? error));
+    return unavailable(failure.summary, failure.kind);
   }
   try {
     return JSON.parse(output.stdout);

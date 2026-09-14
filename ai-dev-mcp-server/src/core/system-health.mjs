@@ -9,6 +9,7 @@
  * the System Dashboard renders.
  */
 import { dashboardSourceFingerprint } from "./system-dashboard.mjs";
+import { LAUNCH_MISSING_FILE, LAUNCH_UNKNOWN } from "./frontend-qa-launch.mjs";
 
 /**
  * The `mcp-stdio.mjs` line budget. `scripts/static-quality.mjs` enforces it and
@@ -248,7 +249,7 @@ export function evaluateFrontendQaRunner({ runner, manifest, artifactsRoot }) {
 }
 
 /**
- * @param {{ playwright_available?: boolean, chromium_available?: boolean, browser_launch_ok?: boolean, playwright_source?: string, launch_error?: string }} status
+ * @param {{ playwright_available?: boolean, chromium_available?: boolean, browser_launch_ok?: boolean, playwright_source?: string, launch_error?: string, launch_failure?: string }} status
  */
 export function evaluateFrontendQaEnvironment(status) {
   const ready = status.playwright_available && status.chromium_available && status.browser_launch_ok;
@@ -260,6 +261,24 @@ export function evaluateFrontendQaEnvironment(status) {
     status.chromium_available && !status.browser_launch_ok ? "a browser that launches" : ""
   ].filter(Boolean).join(" and ");
   const because = String(status.launch_error || "").replace(/\s+/g, " ").trim();
+  // A runner that could not start says nothing about Playwright, and reading
+  // its three `false`s as "the optional install was skipped" is how a container
+  // with Playwright in it was told to install Playwright (docs/DEFECTS.md,
+  // Д-56). A file the runner imports being absent is a broken install.
+  if (status.launch_failure === LAUNCH_MISSING_FILE) {
+    return {
+      status: "fail",
+      summary: `The Frontend QA runner is broken and never started. ${because}`,
+      details: status
+    };
+  }
+  if (status.launch_failure === LAUNCH_UNKNOWN) {
+    return {
+      status: "warn",
+      summary: `The Frontend QA runner did not start. ${because}`,
+      details: status
+    };
+  }
   // Nothing installed at all is the opt-in step nobody ran, not a fault: the
   // runner ships, its browser does not. Playwright present but its browser
   // missing is a real half-configured state, and stays a warning.

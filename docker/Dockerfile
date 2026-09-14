@@ -103,6 +103,12 @@ RUN if [ "${INSTALL_BGE_M3}" = "1" ]; then \
 
 COPY public-seed/ /opt/ai-dev/public-seed/
 COPY LICENSE README.md THIRD_PARTY_NOTICES.md /opt/ai-dev/
+
+# The Frontend QA runner imports the server as `../ai-dev-mcp-server`, which is
+# where it sits in a checkout. Without this the runner dies on its first import
+# and the health check blames Playwright, which is installed (docs/DEFECTS.md,
+# Д-56). ESM resolves through realpath, so the symlink is enough.
+RUN ln -s /opt/ai-dev/app /opt/ai-dev/ai-dev-mcp-server
 COPY container/entrypoint.sh /usr/local/bin/ai-dev-entrypoint
 
 RUN chmod 0755 /usr/local/bin/ai-dev-entrypoint \

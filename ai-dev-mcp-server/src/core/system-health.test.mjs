@@ -35,6 +35,7 @@ import {
   healthSummary,
   overallHealthStatus
 } from "./system-health.mjs";
+import { LAUNCH_MISSING_FILE, LAUNCH_MISSING_PACKAGE, LAUNCH_UNKNOWN } from "./frontend-qa-launch.mjs";
 
 test("a Frontend QA environment that is not ready says which piece is missing", () => {
   const ready = evaluateFrontendQaEnvironment({
@@ -487,4 +488,44 @@ test("system snapshot falls back when quality, projects, and card shapes are spa
   assert.equal(buildSystemSnapshot(snapshotInput({ cards: null })).skills.cards, 0);
   assert.equal(buildSystemSnapshot(snapshotInput({ projects: [{ name: "No id" }] })).projects.items[0].id, "");
   assert.ok(buildSystemSnapshot(snapshotInput({ generatedAt: undefined })).generated_at);
+});
+
+test("a Frontend QA runner that never started is not reported as Playwright missing", () => {
+  // Д-56: in the image Playwright and Chromium are installed and the runner
+  // dies importing the server, so all three flags are false for a reason that
+  // has nothing to do with the optional install. Saying "run `npm run setup --
+  // --frontend-qa`" sent the reader after software that was already there, and
+  // the command cannot be run inside a container anyway.
+  const broken = evaluateFrontendQaEnvironment({
+    playwright_available: false,
+    chromium_available: false,
+    browser_launch_ok: false,
+    launch_failure: LAUNCH_MISSING_FILE,
+    launch_error: "The runner imports /opt/ai-dev/ai-dev-mcp-server/src/core/command-policy.mjs, "
+      + "which this install does not carry."
+  });
+  assert.equal(broken.status, "fail");
+  assert.match(broken.summary, /broken and never started/);
+  assert.match(broken.summary, /command-policy\.mjs/);
+  assert.doesNotMatch(broken.summary, /--frontend-qa/);
+
+  // A dependency nobody installed is still the opt-in step nobody ran.
+  const notInstalled = evaluateFrontendQaEnvironment({
+    playwright_available: false,
+    launch_failure: LAUNCH_MISSING_PACKAGE,
+    launch_error: 'The runner\'s dependency "@axe-core/playwright" is not installed.'
+  });
+  assert.equal(notInstalled.status, "skipped");
+  assert.match(notInstalled.summary, /--frontend-qa/);
+
+  // Anything else the runner died of is a warning that quotes it rather than
+  // a confident claim about Playwright.
+  const other = evaluateFrontendQaEnvironment({
+    playwright_available: false,
+    launch_failure: LAUNCH_UNKNOWN,
+    launch_error: "Command timed out after 60000ms"
+  });
+  assert.equal(other.status, "warn");
+  assert.match(other.summary, /did not start\. Command timed out/);
+  assert.doesNotMatch(other.summary, /--frontend-qa/);
 });

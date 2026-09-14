@@ -388,6 +388,20 @@ test("the pre-Д-62 value of the model path — the model directory itself — i
 // test that would have said so before the Windows job did.
 const bootstrapPowerShell = path.join(repositoryRoot, "bootstrap.ps1");
 
+// pwsh renders a thrown message through its ConciseView: coloured even with no
+// terminal, a gutter on every line, and wrapped at whatever width the host
+// reports — 80 on the runner, wider here (docs/DEFECTS.md Д-71). The message is
+// what is under test, so the view is taken back off before matching.
+function powerShellMessage(rendered) {
+  return rendered
+    .replace(/\u001B\[[0-9;]*m/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:Line|\d+)?\s*\|\s?/, "").trim())
+    .filter((line) => line && !/^~+$/.test(line))
+    .join(" ")
+    .replace(/\s+/g, " ");
+}
+
 function runPowerShellBootstrap(args, home) {
   return spawnSync("pwsh", ["-NoLogo", "-NonInteractive", "-File", bootstrapPowerShell, "-ProjectPath", path.join(home, "projects"), ...args], {
     encoding: "utf8",
@@ -435,8 +449,9 @@ test("the PowerShell installer refuses the pre-Д-62 model path before it looks 
       return;
     }
     assert.equal(result.status, 1, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
-    assert.match(result.stderr, /holds model files itself \(pytorch_model\.bin\)/);
-    assert.match(result.stderr, /bge-m3-onnx/, "the message does not say what the folder should contain");
+    const message = powerShellMessage(result.stderr);
+    assert.match(message, /holds model files itself \(pytorch_model\.bin\)/);
+    assert.match(message, /bge-m3-onnx/, "the message does not say what the folder should contain");
   } finally {
     await fs.rm(home, { recursive: true, force: true });
   }

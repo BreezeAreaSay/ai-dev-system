@@ -101,6 +101,20 @@ for (const marker of ["pytorch_model.bin", "modules.json", "config.json", "onnx"
 // that could not run it (docs/DEFECTS.md Д-70). pwsh is on the ubuntu and macOS
 // runners as well as on Windows; the recording docker is a shell script, so
 // this half runs where sh is the shell.
+// pwsh renders a thrown message through its ConciseView: coloured even with no
+// terminal, a gutter on every line, and wrapped at whatever width the host
+// reports — 80 on the runner, wider here (docs/DEFECTS.md Д-71). The message is
+// what is under test, so the view is taken back off before matching.
+function powerShellMessage(rendered) {
+  return rendered
+    .replace(/\u001B\[[0-9;]*m/g, "")
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:Line|\d+)?\s*\|\s?/, "").trim())
+    .filter((line) => line && !/^~+$/.test(line))
+    .join(" ")
+    .replace(/\s+/g, " ");
+}
+
 async function launchPowerShellWithModelPath(modelDir, context) {
   if (process.platform === "win32") {
     context.skip("the recording docker is a shell script");
@@ -174,9 +188,10 @@ for (const marker of ["pytorch_model.bin", "modules.json", "config.json", "onnx"
       const result = await launchPowerShellWithModelPath(oldStyle, context);
       if (result === null) return;
       assert.equal(result.status, 1, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
-      assert.match(result.stderr, /AI_DEV_MODEL_PATH now names the folder above the models/);
-      assert.match(result.stderr, new RegExp(`holds model files itself \\(${marker.replace(".", "\\.")}\\)`));
-      assert.match(result.stderr, /bge-m3-onnx/);
+      const message = powerShellMessage(result.stderr);
+      assert.match(message, /AI_DEV_MODEL_PATH now names the folder above the models/);
+      assert.match(message, new RegExp(`holds model files itself \\(${marker.replace(".", "\\.")}\\)`));
+      assert.match(message, /bge-m3-onnx/);
       assert.equal(result.recorded, "", "docker was run despite the refusal");
     } finally {
       await fs.rm(oldStyle, { recursive: true, force: true });

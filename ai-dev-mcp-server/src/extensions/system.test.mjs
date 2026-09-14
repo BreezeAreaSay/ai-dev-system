@@ -85,6 +85,10 @@ async function createFixture(t) {
 
   const calls = [];
   const host = {
+    // The security_scanners check asks the host which binaries exist, so the
+    // fixture answers for a machine with all six rather than for whichever
+    // machine runs the suite.
+    locateExecutable: async (executable) => `/usr/bin/${executable}`,
     vaultRoot,
     serverRoot,
     taskStateRoot: path.join(root, "state"),
@@ -177,16 +181,35 @@ test("health check runs every check through the host", async (t) => {
 
   assert.deepEqual(result.checks.map((check) => check.name), [
     "vault_root", "required_notes", "search_index_file", "search_index_freshness", "frontend_qa_runner",
-    "frontend_qa_environment", "embedding_backend", "skill_registry", "skill_taxonomy", "skill_visual_graph",
-    "skill_quality", "skill_routing_benchmark", "skill_outcomes", "skill_cards", "project_registry",
-    "auto_commands", "search_presets", "search_smoke", "hybrid_smoke_no_dense", "dense_smoke", "search_eval"
+    "frontend_qa_environment", "security_scanners", "embedding_backend", "skill_registry", "skill_taxonomy",
+    "skill_visual_graph", "skill_quality", "skill_routing_benchmark", "skill_outcomes", "skill_cards",
+    "project_registry", "auto_commands", "search_presets", "search_smoke", "hybrid_smoke_no_dense",
+    "dense_smoke", "search_eval"
   ]);
   const failing = result.checks.filter((check) => check.status !== "ok" && check.status !== "skipped");
   assert.deepEqual(failing, [], `unexpected non-ok checks: ${JSON.stringify(failing)}`);
   assert.equal(result.status, "ok");
-  assert.deepEqual(result.summary, { ok: 19, warn: 0, fail: 0, skipped: 2 });
+  assert.deepEqual(result.summary, { ok: 20, warn: 0, fail: 0, skipped: 2 });
   assert.equal(result.recommendations.length, 1);
   assert.match(result.recommendations[0], /include_dense_smoke=true/);
+});
+
+// Д-55: nothing told a user that this machine cannot run a single scanner, so
+// `run_security_scan` came back empty and nobody knew why until they read it.
+test("a machine with no security scanner installed is warned about, not failed", async (t) => {
+  const { host, registry } = await createFixture(t);
+  host.locateExecutable = async () => "";
+  const result = await registry.handlers.get("system_health_check")({});
+
+  const check = result.checks.find((item) => item.name === "security_scanners");
+  assert.equal(check.status, "warn");
+  assert.equal(check.critical, false, "a gap in tooling is not a broken system");
+  assert.match(check.summary, /None of the 6 security scanners is installed/);
+  assert.deepEqual(check.details.installed, []);
+  // Non-critical, so the run is degraded rather than failed, and the warning is
+  // repeated where a reader looks for what to do next.
+  assert.equal(result.status, "degraded");
+  assert.ok(result.recommendations.some((item) => item.includes("security_scanners")));
 });
 
 test("health check honours the include flags and the smoke limit", async (t) => {

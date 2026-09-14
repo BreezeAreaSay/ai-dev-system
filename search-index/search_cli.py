@@ -1060,6 +1060,14 @@ def rebuild_locked(args):
     if preserve_dense and not args.dense_embeddings:
         args.dense_text_limit = int(previous_meta.get("dense_text_limit", args.dense_text_limit) or args.dense_text_limit)
         args.dense_include_membrane = previous_meta.get("dense_include_membrane", "false").lower() == "true"
+        # And the provenance, from the index rather than from this call's
+        # defaults. A fast rebuild does not know or care which backend embedded
+        # what is already there; reading `python` off the default would make
+        # every routine refresh discard an ONNX-built index's vectors and stamp
+        # the index as something it is not (docs/DEFECTS.md, Д-62).
+        args.dense_backend = previous_meta.get("dense_backend", "") or LEGACY_DENSE_BACKEND
+        args.dense_revision = previous_meta.get("dense_revision", "") or UNPINNED_REVISION
+        args.dense_dtype = previous_meta.get("dense_dtype", "") or LEGACY_DENSE_DTYPE
 
     dense_vectors = {}
     dense_stats = {"eligible": 0, "reused": 0, "encoded": 0, "pending": 0}

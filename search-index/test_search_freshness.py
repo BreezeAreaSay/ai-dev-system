@@ -134,7 +134,7 @@ class SearchFreshnessTests(unittest.TestCase):
         dense_hash = search_cli.dense_content_hash(search_cli.dense_passage_text(doc, 1200))
         con = sqlite3.connect(self.index)
         con.execute(
-            "INSERT INTO dense_vectors(id, vector, dimensions, model, backend, revision, dtype, content_hash, mtime)"
+            "INSERT OR REPLACE INTO dense_vectors(id, vector, dimensions, model, backend, revision, dtype, content_hash, mtime)"
             " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 doc["id"],
@@ -160,15 +160,30 @@ class SearchFreshnessTests(unittest.TestCase):
         con.close()
         return doc, dense_hash
 
+    def dense_rebuild(self, **provenance):
+        """A dense rebuild that supplies no vectors, so only reuse can fill the index.
+
+        `dense_vectors_json` pointing at an empty list is what makes this
+        readable: nothing can be encoded, so `dense_documents` counts exactly
+        the cached vectors this provenance was allowed to keep.
+        """
+        empty = self.index.parent / "no-vectors.json"
+        empty.write_text(json.dumps({"vectors": []}), encoding="utf-8")
+        return self.call_json(search_cli.rebuild, self.args(
+            dense_embeddings=True,
+            dense_vectors_json=str(empty),
+            **provenance,
+        ))
+
     def test_vectors_from_another_backend_are_not_reused(self):
         """An int8 ONNX vector and an fp32 torch vector are not comparable."""
         self.call_json(search_cli.rebuild, self.args(preserve_dense=False))
         self.seed_dense_vector("python", search_cli.UNPINNED_REVISION, "fp32")
 
-        kept = self.call_json(search_cli.rebuild, self.args())
+        kept = self.dense_rebuild(dense_backend="python", dense_dtype="fp32")
         self.assertEqual(kept["dense_documents"], 1, "the same backend reuses its own vector")
 
-        moved = self.call_json(search_cli.rebuild, self.args(dense_backend="onnx", dense_dtype="int8"))
+        moved = self.dense_rebuild(dense_backend="onnx", dense_dtype="int8")
         self.assertEqual(moved["dense_documents"], 0)
         self.assertEqual(moved["dense_pending_documents"], 1)
 
@@ -176,14 +191,16 @@ class SearchFreshnessTests(unittest.TestCase):
         self.call_json(search_cli.rebuild, self.args(preserve_dense=False))
         self.seed_dense_vector("onnx", "aaaa", "int8")
 
-        same = self.args(dense_backend="onnx", dense_revision="aaaa", dense_dtype="int8")
-        self.assertEqual(self.call_json(search_cli.rebuild, same)["dense_documents"], 1)
+        same = self.dense_rebuild(dense_backend="onnx", dense_revision="aaaa", dense_dtype="int8")
+        self.assertEqual(same["dense_documents"], 1)
 
-        newer = self.args(dense_backend="onnx", dense_revision="bbbb", dense_dtype="int8")
-        self.assertEqual(self.call_json(search_cli.rebuild, newer)["dense_pending_documents"], 1)
+        self.seed_dense_vector("onnx", "aaaa", "int8")
+        newer = self.dense_rebuild(dense_backend="onnx", dense_revision="bbbb", dense_dtype="int8")
+        self.assertEqual(newer["dense_pending_documents"], 1)
 
-        heavier = self.args(dense_backend="onnx", dense_revision="aaaa", dense_dtype="fp32")
-        self.assertEqual(self.call_json(search_cli.rebuild, heavier)["dense_pending_documents"], 1)
+        self.seed_dense_vector("onnx", "aaaa", "int8")
+        heavier = self.dense_rebuild(dense_backend="onnx", dense_revision="aaaa", dense_dtype="fp32")
+        self.assertEqual(heavier["dense_pending_documents"], 1)
 
     def test_an_index_without_provenance_columns_is_fully_reembedded(self):
         """The upgrade path: vectors that cannot say where they came from."""
@@ -262,6 +279,25 @@ class SearchFreshnessTests(unittest.TestCase):
         ]}), encoding="utf-8")
 
         self.assertEqual(search_cli.load_supplied_dense_vectors(payload), {})
+
+    def test_a_fast_rebuild_keeps_vectors_from_whichever_backend_made_them(self):
+        """A routine refresh must not throw away an ONNX-built index."""
+        self.call_json(search_cli.rebuild, self.args(preserve_dense=False))
+        self.seed_dense_vector("onnx", "4de1325", "int8")
+        # Meta has to say so too, the way a real ONNX rebuild leaves it.
+        con = sqlite3.connect(self.index)
+        for key, value in {"dense_backend": "onnx", "dense_revision": "4de1325", "dense_dtype": "int8"}.items():
+            con.execute("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)", (key, value))
+        con.commit()
+        con.close()
+
+        # No --dense-backend on the call: a fast rebuild does not pass one.
+        kept = self.call_json(search_cli.rebuild, self.args())
+        self.assertEqual(kept["dense_documents"], 1)
+        self.assertEqual(kept["dense_pending_documents"], 0)
+        self.assertEqual(kept["dense_backend"], "onnx")
+        self.assertEqual(kept["dense_revision"], "4de1325")
+        self.assertEqual(kept["dense_dtype"], "int8")
 
     def test_busy_dense_cache_is_not_silently_treated_as_empty(self):
         self.index.parent.mkdir(parents=True, exist_ok=True)

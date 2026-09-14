@@ -7,10 +7,14 @@
 # out of the upstream image rather than installed; the digest is the multi-arch
 # index for v8.30.1 and covers linux/amd64 and linux/arm64. MIT licensed; see
 # THIRD_PARTY_NOTICES.md.
+#
+# Both image arguments are declared before the first FROM: an ARG after a FROM
+# belongs to that stage alone, and NODE_IMAGE declared between the two stages
+# left the second FROM blank (docs/DEFECTS.md, Д-70).
 ARG GITLEAKS_IMAGE=ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${GITLEAKS_IMAGE} AS gitleaks
 
-ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${NODE_IMAGE}
 
 ARG INSTALL_BGE_M3=0

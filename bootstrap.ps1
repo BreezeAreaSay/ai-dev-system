@@ -145,7 +145,9 @@ if ($ModelPath) {
     $resolvedModelPath = [IO.Path]::GetFullPath($ModelPath)
 }
 if ($Plan) {
-    $plan = [pscustomobject]@{
+    # Not $plan: variable names are case-insensitive, and $Plan is the switch
+    # this block is answering (docs/DEFECTS.md, Д-70).
+    $planDocument = [pscustomobject]@{
         repository = $repoRoot
         project_path = $resolvedProjectPath
         image = $Image
@@ -156,9 +158,9 @@ if ($Plan) {
     }
     # Present only when a model folder was given, so the default plan is unchanged.
     if ($resolvedModelPath) {
-        $plan | Add-Member -NotePropertyName model_path -NotePropertyValue $resolvedModelPath
+        $planDocument | Add-Member -NotePropertyName model_path -NotePropertyValue $resolvedModelPath
     }
-    $plan | ConvertTo-Json -Depth 3
+    $planDocument | ConvertTo-Json -Depth 3
     exit 0
 }
 

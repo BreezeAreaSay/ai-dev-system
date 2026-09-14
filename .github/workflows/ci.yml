@@ -46,6 +46,18 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: npm run packaging:check
 
+      # The PowerShell installer is edited on machines that cannot run it;
+      # ubuntu runners carry pwsh, so the plan is rendered here before the
+      # Windows job ever starts (docs/DEFECTS.md, Д-70).
+      - name: PowerShell installer renders its plan
+        shell: pwsh
+        run: |
+          $plan = ./bootstrap.ps1 -Plan | ConvertFrom-Json
+          if (-not $plan.repository) { throw "bootstrap.ps1 -Plan produced no repository field" }
+          $tokens = $null; $parseErrors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $PWD "docker/run-mcp.ps1"), [ref]$tokens, [ref]$parseErrors) | Out-Null
+          if ($parseErrors) { throw "docker/run-mcp.ps1 does not parse: $($parseErrors[0].Message)" }
+
       - name: Tool reference is current
         working-directory: ai-dev-mcp-server
         run: npm run docs:tools:check

@@ -67,7 +67,7 @@ const report = {
   dtype: backend.provenance?.dtype,
   node: process.version,
   index: {
-    documents: indexStatus.document_count,
+    documents: indexStatus.indexed_document_count,
     dense_documents: indexStatus.dense_documents,
     dense_pending_documents: indexStatus.dense_pending_documents,
     dense_backend: indexStatus.dense_backend,

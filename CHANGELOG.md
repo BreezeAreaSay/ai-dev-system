@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dense search runs without Python** (`docs/DEFECTS.md`, Д-62). The local
+  BGE-M3 model now has a second backend behind the contract it always had —
+  text in, a normalized 1024-dimension vector out — and it is the default:
+  `@huggingface/transformers` over `onnxruntime-node`, both ordinary npm
+  dependencies. `npm run setup -- --dense` downloads a pinned, checksum-verified
+  ONNX export (about 600 MB) and dense search works; there is no virtualenv, no
+  `torch==2.14.0+cpu` from the PyTorch index and no 2.3 GB snapshot. The
+  README's "Node.js 22.12+ and nothing else" is now true of `--dense` too.
+
+  The legacy Python path is unchanged and still there, as `--dense-python` or
+  `AI_DEV_DENSE_BACKEND=python`. `auto` — the default — prefers whichever model
+  is actually verified on disk, so an existing installation keeps using the
+  stack it already built until it chooses otherwise.
+
+  Inference runs on a `worker_thread`. `onnxruntime-node`'s binding declares
+  itself "a simple synchronized inference session object wrap" and its `run()`
+  returns outputs rather than a promise, so on the main thread an indexing pass
+  would hold the MCP stdio loop for minutes.
+
+- **`npm run dense:doctor`** (Д-62). Six stages in the order they depend on each
+  other — Node, the native binding, the manifest, the model files and their
+  checksums, the model loading, a trial embedding whose width and norm are
+  measured — stopping at the first that fails and naming it in words, with the
+  command to run. Never a traceback. Exit code 0 when dense search is ready.
+
+- **`models/bge-m3.manifest.json`** (Д-42, Д-62). The pinned export — model,
+  revision, dtype, dimensions, pooling, licence and a sha256 for every file —
+  carried over from the `codex/commit-all-20260908` snapshot branch along with
+  its downloader. Changing the quantisation is now a field in this file rather
+  than a code change. After this, nothing in that branch is missing from `main`.
+
+- **`.github/workflows/dense-eval.yml`** (Д-62). Dispatch-only: downloads each
+  backend's model, builds the index with it, runs the golden cases and publishes
+  a comparison table. The weights come from hosts a development sandbox cannot
+  reach, so this is where the ONNX-against-Python numbers are taken.
+
 - **Capability profiles.** The 133 tools are grouped into eight named slices —
   `core`, `coding`, `memory`, `git`, `frontend`, `qa`, `security`, `advanced` —
   and `AI_DEV_PROFILES` narrows what `tools/list` advertises to the ones a
@@ -34,6 +70,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and it deletes everything it made. `docs/DEMO.md` quotes its output.
 
 ### Changed
+
+- **Dense vectors record where they came from** (Д-62). Every vector in the
+  index now carries its backend, revision and dtype alongside the model name,
+  and a cached vector is reused only when all of them still match. An int8 ONNX
+  vector and an fp32 torch vector for one sentence differ far more than two
+  sentences do, and keying the cache on the model name alone meant switching
+  backends silently mixed two vector spaces in one ranking. An index written
+  before this cannot say what produced it, so it is re-embedded once.
+
+- **`INSTALL_BGE_M3` no longer decides whether a container can search densely**
+  (Д-62). The ONNX runtime is a normal dependency and is in every image, so the
+  default image runs dense search from mounted weights with no Python at all.
+  The build argument goes back to meaning what it says: whether the legacy torch
+  stack is present. Image size grows by about 378 MB for the runtime and the
+  library.
+
+- **One model mount point for the container** (Д-62). `AI_DEV_MODEL_PATH` is now
+  the folder *above* the models — `~/.ai-dev/models` — bound at `/models`, with
+  `bge-m3-onnx/` and `bge-m3/` under it, instead of one model's directory bound
+  at `/models/bge-m3`. Both launcher scripts, the Compose example and both
+  INSTALL guides say the same thing. **Existing setups must update the
+  variable**: pointing it at `…/models/bge-m3` now mounts that directory as the
+  whole model folder and neither backend will find its files.
+
+- **The legacy model download takes a revision** (Д-62, point 1).
+  `snapshot_download("BAAI/bge-m3")` ran unpinned, so upstream could change what
+  an install received. `BGE_M3_PYTHON_REVISION` now pins it, and an index built
+  without one records its vectors as coming from an unpinned download rather
+  than implying a pin that is not there.
 
 - **The README leads with what the system is for.** It had grown to 871 lines and
   opened with a release summary and an inventory; a reader could not tell in the

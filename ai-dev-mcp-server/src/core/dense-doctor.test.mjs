@@ -1,0 +1,167 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  MINIMUM_NODE,
+  compareVersions,
+  denseDoctorStages,
+  renderDenseDoctorReport,
+  runDenseDoctor,
+  vectorNorm
+} from "./dense-doctor.mjs";
+
+const MANIFEST = Object.freeze({
+  export: "Xenova/bge-m3",
+  revision: "e".repeat(40),
+  dtype: "int8",
+  dimensions: 4
+});
+
+const unitVector = [0.5, 0.5, 0.5, 0.5];
+
+function deps(overrides = {}) {
+  return {
+    nodeVersion: "v22.22.2",
+    loadRuntime: async () => ({ InferenceSession: function InferenceSession() {} }),
+    readManifest: () => MANIFEST,
+    verifyFiles: async () => ({ ready: true, dir: "/models/bge-m3-onnx", present: ["a", "b"], missing: [], mismatched: [] }),
+    loadModel: async () => ({ seconds: 2.1 }),
+    embedProbe: async () => ({ vector: unitVector, seconds: 0.08 }),
+    ...overrides
+  };
+}
+
+const doctor = (overrides) => runDenseDoctor(denseDoctorStages(deps(overrides)));
+
+test("versions compare by number, not by string", () => {
+  assert.ok(compareVersions("22.12.0", MINIMUM_NODE) === 0);
+  assert.ok(compareVersions("v24.1.0", "22.12.0") > 0);
+  assert.ok(compareVersions("22.9.0", "22.12.0") < 0, "22.9 is older than 22.12, though it sorts later as text");
+  assert.ok(compareVersions("22", "22.0.0") === 0);
+});
+
+test("a normalized vector is recognised and a raw one is not", () => {
+  assert.deepEqual(vectorNorm(unitVector), { norm: 1, unit: true });
+  assert.equal(vectorNorm([3, 4, 0, 0]).unit, false);
+  assert.equal(vectorNorm([3, 4, 0, 0]).norm, 5);
+});
+
+test("a machine with everything in place reads READY, every stage ok", async () => {
+  const result = await doctor();
+  assert.equal(result.ready, true);
+  assert.equal(result.failed, null);
+  assert.deepEqual(result.stages.map((stage) => stage.status), ["ok", "ok", "ok", "ok", "ok", "ok"]);
+  const report = renderDenseDoctorReport(result);
+  assert.match(report, /Dense search: READY/);
+  assert.match(report, /Xenova\/bge-m3 @ eeeeeeeeeeee, int8/);
+  assert.ok(!report.includes("What to do"), "a working machine is not told to do anything");
+});
+
+test("an empty model directory stops at the files stage and names the command", async () => {
+  const result = await doctor({
+    verifyFiles: async () => ({
+      ready: false,
+      dir: "/models/bge-m3-onnx",
+      present: [],
+      missing: ["config.json", "onnx/model_int8.onnx"],
+      mismatched: []
+    })
+  });
+
+  assert.equal(result.ready, false);
+  assert.equal(result.failed.key, "files");
+  const report = renderDenseDoctorReport(result);
+  assert.match(report, /Dense search: UNAVAILABLE/);
+  assert.match(report, /Stopped at: model files present and unmodified/);
+  assert.match(report, /missing from \/models\/bge-m3-onnx: config\.json, onnx\/model_int8\.onnx/);
+  assert.match(report, /What to do: Run `npm run setup -- --dense`/);
+});
+
+test("files that are there but wrong get different advice from files that are absent", async () => {
+  const result = await doctor({
+    verifyFiles: async () => ({
+      ready: false,
+      dir: "/models/bge-m3-onnx",
+      present: ["config.json"],
+      missing: [],
+      mismatched: ["onnx/model_int8.onnx"]
+    })
+  });
+  const report = renderDenseDoctorReport(result);
+  assert.match(report, /do not match the manifest/);
+  assert.match(report, /Delete \/models\/bge-m3-onnx/);
+  assert.ok(!/download the model \(about 600 MB/.test(report), "re-downloading into a dirty directory is not the fix");
+});
+
+test("stages after a failure are skipped rather than run into a worse error", async () => {
+  let loadCalls = 0;
+  const result = await doctor({
+    verifyFiles: async () => ({ ready: false, dir: "/d", present: [], missing: ["config.json"], mismatched: [] }),
+    loadModel: async () => {
+      loadCalls += 1;
+      return { seconds: 0 };
+    }
+  });
+  assert.equal(loadCalls, 0, "loading a model whose weights are absent produces a second, confusing error");
+  assert.deepEqual(result.stages.map((stage) => stage.status), ["ok", "ok", "ok", "fail", "skipped", "skipped"]);
+});
+
+test("an old Node stops at the first stage and nothing else is attempted", async () => {
+  let runtimeCalls = 0;
+  const result = await doctor({
+    nodeVersion: "v20.11.0",
+    loadRuntime: async () => {
+      runtimeCalls += 1;
+      return {};
+    }
+  });
+  assert.equal(result.failed.key, "node");
+  assert.equal(runtimeCalls, 0);
+  assert.match(renderDenseDoctorReport(result), /this is v20\.11\.0/);
+});
+
+test("a native binding that will not load is a sentence, never a stack trace", async () => {
+  const result = await doctor({
+    loadRuntime: async () => {
+      const error = new Error("libonnxruntime.so.1: cannot open shared object file");
+      error.stack = "Error: libonnxruntime...\n    at Object.<anonymous> (/deep/internal/path.js:1:1)";
+      throw error;
+    }
+  });
+
+  assert.equal(result.failed.key, "runtime");
+  const report = renderDenseDoctorReport(result);
+  assert.match(report, /cannot open shared object file/);
+  assert.match(report, /npm rebuild onnxruntime-node/);
+  assert.ok(!report.includes("    at Object"), "no stack frames reach the user");
+});
+
+test("a runtime that imports but exports nothing usable fails rather than passing", async () => {
+  const result = await doctor({ loadRuntime: async () => ({}) });
+  assert.equal(result.failed.key, "runtime");
+});
+
+test("a manifest that will not parse fails at its own stage", async () => {
+  const result = await doctor({
+    readManifest: () => {
+      throw new Error("Dense model manifest is missing: revision.");
+    }
+  });
+  assert.equal(result.failed.key, "manifest");
+  assert.match(renderDenseDoctorReport(result), /manifest is missing: revision/);
+});
+
+test("a model that loads but embeds the wrong width is caught", async () => {
+  const result = await doctor({ embedProbe: async () => ({ vector: [1, 0], seconds: 0.1 }) });
+  assert.equal(result.failed.key, "embed");
+  assert.match(renderDenseDoctorReport(result), /2 dimensions.*the manifest says 4/);
+});
+
+test("a model that embeds unnormalized vectors is caught, because scoring assumes it did not", async () => {
+  const result = await doctor({ embedProbe: async () => ({ vector: [3, 4, 0, 0], seconds: 0.1 }) });
+  assert.equal(result.failed.key, "embed");
+  assert.match(renderDenseDoctorReport(result), /norm 5, .*vectors must be normalized/);
+});
+
+test("the trial embedding reports its latency when it passes", async () => {
+  assert.match(renderDenseDoctorReport(await doctor()), /4 dimensions, norm 1, 0\.08s/);
+});

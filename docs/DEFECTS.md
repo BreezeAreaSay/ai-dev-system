@@ -3185,8 +3185,9 @@ stale: 1 added`: отчёт пишет заметку `Skill Quality Dashboard.m
 `evaluateProjectRegistry` при нуле проектов отдаёт `ok` с текстом
 «no projects registered yet; `bootstrap_project` registers one».
 
-Тесты на падение проверены: на коде до правки падают шесть из семи в
-`scripts/first-run-steps.test.mjs` и тест о пустом реестре в `system-health.test.mjs`.
+Тесты на падение проверены на дереве 9b48c66 (отдельный worktree, чтобы не трогать рабочее):
+падают семь из восьми в `scripts/first-run-steps.test.mjs`, три из десяти в
+`src/core/first-run.test.mjs` и тест о пустом реестре в `system-health.test.mjs`.
 
 ## Д-64. `security_scanners` считает `cargo_audit` установленным по наличию `cargo`
 

@@ -64,7 +64,7 @@ Narrowing affects the listing only — `tools/call` still accepts every tool by 
 | `explain_search` | `advanced` | yes | `query` | Explain why hybrid_search ranked results the way it did, including preset, keyword, sparse semantic, dense BGE-M3, and adjustment signals. |
 | `run_search_eval` | `qa` | yes | — | Run golden search evaluation cases against preset/hybrid search and report pass/fail ranking quality. |
 | `embed_texts` | `advanced` | yes | — | Generate local BGE-M3 embeddings for short texts using the installed CPU backend. |
-| `embedding_status` | `advanced` | yes | — | Inspect the local BGE-M3 embedding backend, model files, search index, and warm worker state without loading the model. |
+| `embedding_status` | `advanced` | yes | — | Inspect the local BGE-M3 embedding backends (ONNX and legacy Python), which one is selected and why, model files, search index, and warm worker state without loading the model. |
 | `search_index_status` | `advanced` | yes | — | Inspect search-index freshness against current vault/project sources, including added, changed, deleted, and pending dense documents. |
 | `rebuild_search_index` | `advanced` | no | — | Rebuild the local SQLite FTS search index for knowledge notes, project cards, project AI-dev files, and skill metadata. |
 | `search_projects` | `advanced` | yes | `query` | Search registered project cards and indexed repo-local AI-dev files. |

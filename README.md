@@ -69,9 +69,11 @@ npm run setup
 ```
 
 Then point your MCP client at `ai-dev-mcp-server/src/server.mjs` and restart it.
-That is the whole install, and it is the path to take on your own machine: the
-local dense model is one flag here (`npm run setup -- --dense`) and a custom
-image build in the packaged path.
+That is the whole install, and it is the path to take on your own machine. The
+local dense model is one flag here — `npm run setup -- --dense` downloads a
+pinned, checksum-verified ONNX export of BGE-M3 and runs it through Node, so
+"and nothing else" holds for that too; `npm run dense:doctor` says whether it
+worked. In the packaged path the weights are mounted instead.
 
 **Packaged, through Docker** — for a machine that should not hold a personal
 vault, or a team that wants one image everybody runs the same way:

@@ -327,7 +327,7 @@ docker build \
 Аргумент строит виртуальное окружение в `/opt/ai-dev/embeddings/.venv` — ровно там, где сервер
 его и ищет.
 
-**Весов в образе нет никогда.** Это ~2.3 ГБ, и они ваши, а не дистрибутива. Скачиваются один
+**Весов в образе нет никогда.** Они ваши, а не дистрибутива. Скачиваются один
 раз на хосте:
 
 ```bash
@@ -335,7 +335,9 @@ cd ai-dev-mcp-server
 npm run setup -- --dense
 ```
 
-Каталог по умолчанию — `~/.ai-dev/models/bge-m3`, переопределяется через `BGE_M3_MODEL_DIR`.
+Каталог по умолчанию — `~/.ai-dev/models/bge-m3-onnx`, переопределяется через `BGE_M3_ONNX_DIR`.
+Монтируется папка над ним — `~/.ai-dev/models`: под одной точкой лежат оба бэкенда,
+`bge-m3-onnx/` (по умолчанию) и `bge-m3/` (legacy, для `--dense-python`).
 
 ### Запуск с моделью
 
@@ -343,7 +345,7 @@ npm run setup -- --dense
 
 ```bash
 export AI_DEV_IMAGE="ai-dev-system:bge"
-export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models/bge-m3"
+export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
 export AI_DEV_PROJECT_PATH="/absolute/path/to/project"
 sh ./docker/run-mcp.sh
 ```
@@ -353,12 +355,12 @@ sh ./docker/run-mcp.sh
 
 ```bash
 export AI_DEV_IMAGE="ai-dev-system:bge"
-export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models/bge-m3"
+export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
 docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
 ```
 
-Оба способа подключают каталог read-only в `/models/bge-m3` — туда же смотрит
-`BGE_M3_MODEL_DIR` внутри образа. `network_mode: none` этому не мешает: помощники выставляют
+Оба способа подключают каталог read-only в `/models` — туда же смотрят
+`BGE_M3_ONNX_DIR` и `BGE_M3_MODEL_DIR` внутри образа. `network_mode: none` этому не мешает: помощники выставляют
 `TRANSFORMERS_OFFLINE=1` и `HF_HUB_OFFLINE=1` до загрузки модели и в сеть не ходят.
 
 ### Образ с весами внутри

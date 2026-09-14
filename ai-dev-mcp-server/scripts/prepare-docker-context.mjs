@@ -58,6 +58,9 @@ async function copyApplication(stage) {
   });
   // Agent hook scripts are copied into user repositories by install_agent_hooks.
   await copyDistributionTree(path.join(serverRoot, "hooks"), path.join(stage, "app", "hooks"));
+  // The dense manifest is read at import time by `mcp-stdio.mjs`: without it the
+  // container does not start at all (docs/DEFECTS.md, Д-62).
+  await copyFile(path.join(serverRoot, "models", "bge-m3.manifest.json"), stage, "app/models/bge-m3.manifest.json");
   for (const name of [
     "ai-dev.mjs",
     "docker-bootstrap.mjs",

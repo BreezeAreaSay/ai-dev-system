@@ -25,10 +25,13 @@ LABEL org.opencontainers.image.title="AI Dev MCP System" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.licenses="MIT"
 
-# Whether this image carries the BGE-M3 Python stack. The diagnostics read it to
-# tell "dense was left out of this image on purpose" from "dense is broken", and
-# to advise a mount rather than `npm run setup -- --dense`, which no container
-# can run (docs/DEFECTS.md, Д-59).
+# Whether this image carries the *legacy* BGE-M3 Python stack. It no longer
+# decides whether dense search is possible: the ONNX runtime is an ordinary npm
+# dependency and is always installed, so a default image can run dense search
+# from mounted weights with no Python at all (docs/DEFECTS.md, Д-62). The
+# diagnostics still read it to tell "the legacy stack was left out on purpose"
+# from "dense is broken", and to advise a mount rather than
+# `npm run setup -- --dense`, which no container can run (Д-59).
 ENV AI_DEV_DENSE_INSTALLED=${INSTALL_BGE_M3}
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -42,6 +45,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     AI_DEV_FRONTEND_QA_ARTIFACT_ROOT=/data/runtime-home/.ai-dev/artifacts/frontend-qa \
     AI_DEV_PYTHON=/usr/bin/python3 \
     BGE_M3_MODEL_DIR=/models/bge-m3 \
+    BGE_M3_ONNX_DIR=/models/bge-m3-onnx \
     HOME=/data/runtime-home \
     USERPROFILE=/data/runtime-home
 
@@ -88,7 +92,13 @@ RUN apt-get update \
 
 WORKDIR /opt/ai-dev/app
 COPY app/package.json app/package-lock.json ./
+# --ignore-scripts on purpose, and onnxruntime-node survives it: its prebuilt
+# binaries ship inside the npm package rather than arriving through a postinstall
+# download, so `require`ing it here works without `npm rebuild`. The step below
+# proves that at build time instead of leaving it to a user's first search
+# (docs/DEFECTS.md, Д-62).
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
+    && node -e "import('onnxruntime-node').then((m) => { if (!m.InferenceSession) { throw new Error('onnxruntime-node loaded without InferenceSession'); } })" \
     && npm cache clean --force
 COPY app/ ./
 
@@ -105,6 +115,8 @@ COPY runtime/frontend-qa/frontend_qa_runner.mjs ./
 COPY runtime/search-index/ /opt/ai-dev/search-index/
 COPY runtime/search-eval/ /opt/ai-dev/search-eval/
 COPY runtime/embeddings/ /opt/ai-dev/embeddings/
+# The legacy backend only. The default image has dense search through ONNX and
+# does not need any of this (docs/DEFECTS.md, Д-62).
 RUN if [ "${INSTALL_BGE_M3}" = "1" ]; then \
       python3 -m venv /opt/ai-dev/embeddings/.venv \
       && /opt/ai-dev/embeddings/.venv/bin/python -m pip install \
@@ -125,7 +137,7 @@ RUN ln -s /opt/ai-dev/app /opt/ai-dev/ai-dev-mcp-server
 COPY container/entrypoint.sh /usr/local/bin/ai-dev-entrypoint
 
 RUN chmod 0755 /usr/local/bin/ai-dev-entrypoint \
-    && mkdir -p /data /models /workspace \
+    && mkdir -p /data /models/bge-m3 /models/bge-m3-onnx /workspace \
     && chown -R node:node /data /models /workspace
 
 VOLUME ["/data"]

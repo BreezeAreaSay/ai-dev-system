@@ -4462,7 +4462,13 @@ const extensions = createExtensionTools({
   rebuildSearchIndex: (args) => searchRuntime.rebuild(args),
   searchIndex: (args) => searchRuntime.search(args),
   hybridSearchIndex: (args) => searchRuntime.hybridSearch(args),
-  embeddingStatus: (args) => embeddingRuntime.status(args),
+  // The health check grades this payload, so it carries the backend choice too:
+  // with ONNX selected, a missing Python stack is not what "dense search is not
+  // set up" means, and the advice differs (docs/DEFECTS.md, Д-62).
+  embeddingStatus: async (args) => ({
+    ...await embeddingRuntime.status(args),
+    dense_backend: await denseRuntime.describe()
+  }),
   runSearchEval: (args) => extensions.handlers.get("run_search_eval")(args),
   // The sibling tools the lifecycle extension drives. Reached through the
   // registry rather than `callTool`, so a composed run records one ledger entry

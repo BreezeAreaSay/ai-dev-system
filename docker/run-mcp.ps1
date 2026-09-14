@@ -41,7 +41,10 @@ if ($env:AI_DEV_MODEL_PATH) {
     if ($modelPath.Contains(",")) {
         throw "AI_DEV_MODEL_PATH cannot contain a comma when Docker --mount syntax is used."
     }
-    $dockerArgs += @("--mount", "type=bind,source=$modelPath,target=/models/bge-m3,readonly")
+    # One mount point for both backends: the folder is expected to hold
+    # bge-m3-onnx/ (the default) and/or bge-m3/ (the legacy Python weights).
+    # docs/DEFECTS.md, Д-62.
+    $dockerArgs += @("--mount", "type=bind,source=$modelPath,target=/models,readonly")
 }
 
 $dockerArgs += $image

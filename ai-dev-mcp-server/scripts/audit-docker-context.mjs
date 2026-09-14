@@ -84,6 +84,25 @@ const audit = assertCleanDistribution(
 // `/opt/ai-dev/*` and `app/` to `/opt/ai-dev/app`, with
 // `/opt/ai-dev/ai-dev-mcp-server` symlinked onto the latter, so from inside
 // `runtime/` the server is `../ai-dev-mcp-server`.
+// Non-JS assets the server reads at load time. `findDanglingImports` cannot see
+// these — the dense manifest is read through `createRequire` from a computed
+// URL, so it left the allowlist unnoticed and the image started, imported
+// `mcp-stdio.mjs` and died on a missing JSON file (docs/DEFECTS.md, Д-62).
+const requiredAssets = ["app/models/bge-m3.manifest.json"];
+const absentAssets = [];
+for (const relative of requiredAssets) {
+  const present = await stat(path.join(target, relative)).then(() => true).catch(() => false);
+  if (!present) absentAssets.push(relative);
+}
+if (absentAssets.length) {
+  process.stderr.write(
+    `Docker build context is missing ${absentAssets.length} file(s) the server reads at startup:\n` +
+    absentAssets.map((item) => `  ${item}\n`).join("") +
+    "Add them to the allowlist in scripts/prepare-docker-context.mjs.\n"
+  );
+  process.exit(1);
+}
+
 const dangling = [
   ...await findDanglingImports(path.join(target, "app")),
   ...await findDanglingImports(path.join(target, "runtime"), {

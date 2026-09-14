@@ -62,6 +62,10 @@ jobs:
       - name: Build validation image
         run: docker build --tag ai-dev-system:ci .docker/build-context
 
+      - name: Assert the image can scan for secrets offline
+        run: |
+          docker run --rm --network none --entrypoint gitleaks ai-dev-system:ci version
+
       - name: Negotiate MCP over Docker stdio
         working-directory: ai-dev-mcp-server
         run: npm run docker:smoke -- --image ai-dev-system:ci

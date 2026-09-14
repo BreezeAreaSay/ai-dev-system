@@ -144,6 +144,28 @@ this release.
 
 ### Fixed
 
+- **The runtime distribution manifest describes the platform it is on, not
+  Windows.** `prepare_runtime_distribution` expected a PowerShell launcher and
+  three PowerShell scripts wherever it ran, so on macOS, Linux and in the
+  published Docker image it was rejected outright and
+  `runtime_distribution_status` answered `prepared: false, ready_local: false`
+  with those files listed as "missing" — a report about its own layout rather
+  than about the installation. The container bootstrap called it on every start
+  and was refused every time, so `09-mcp/runtime-distribution.json` never
+  appeared. The manifest is now built for one of three runtime flavors —
+  `windows` (unchanged), `posix` (`npm start`, `node scripts/acceptance.mjs`)
+  and `docker` (`sh docker/run-mcp.sh`, and the `/data` volume as the backup
+  unit) — and a file the flavor cannot have is reported as not applicable with a
+  reason instead of missing, so readiness counts only what applies. The rendered
+  `Runtime Distribution.md` no longer names PowerShell where there is none.
+  `scripts/ai-dev.mjs acceptance` runs the cross-platform runner that
+  `npm run acceptance` already used instead of `powershell.exe`, and `backup`
+  off Windows says it is unavailable and why rather than spawning an interpreter
+  that is not there. Measured on Linux and against an emulated image:
+  `prepared=false ready_local=false` with three missing files in a checkout and
+  four in the image, now `prepared=true ready_local=true missing_files=[]` in
+  both. Upstream #54, `docs/DEFECTS.md` Д-61.
+
 - **Every project under one home no longer shares a memory key.** The hook
   compared a candidate `.ai-dev` against a runtime root that was one path
   segment too deep, and then against one spelled differently — uncanonicalised,

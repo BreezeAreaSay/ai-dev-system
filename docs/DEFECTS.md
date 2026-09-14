@@ -12,11 +12,11 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 62 записи. Закрыто 50, из них девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 62 записи. Закрыто 51, из них девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, и шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0.
 
-Открыто двенадцать. Три давних:
+Открыто одиннадцать. Три давних:
 
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
   закрывается: осталось пять минут в самом Cursor по двум пунктам, и для них есть
@@ -27,7 +27,7 @@
   положенный в домашний каталог, схлопывает все проекты под ним в один ключ памяти. Записаны
   три возможных ответа, выбор за владельцем.
 
-Девять — заход по тикетам апстрима #47–#54 (2026-09-14, все с опубликованного Docker-образа на
+Восемь — заход по тикетам апстрима #47–#54 (2026-09-14, все с опубликованного Docker-образа на
 macOS). Записаны до исправления, по правилу реестра, с замером на эмуляции образа. Чинятся
 пачками по корневой причине, каждая пачка — один PR в апстрим:
 
@@ -36,7 +36,7 @@ macOS). Записаны до исправления, по правилу рее
 - **Пачка B — Docker: первый запуск и честность диагностики:** Д-57 (health check падает на
   свежем образе, #50), Д-59 (отсутствие BGE-M3 как `fail`, #52), Д-56 (Frontend QA мёртв в
   образе, #49).
-- **Пачка C — дистрибуция рантайма не только для Windows:** Д-61 (#54).
+- **Пачка C — дистрибуция рантайма не только для Windows:** Д-61 (#54) — закрыт.
 - **Пачка D — честность verify_task:** Д-54 (`node --test <каталог>` без диагноза, #47), Д-55
   (`security_scan: pass` без единого сканера, #48).
 - **Д-62** — доставка BGE-M3 через системный Python. Архитектурное решение владельца, не пачка.
@@ -2625,7 +2625,7 @@ reason }`, health check — `skipped` с советом под окружени�
 
 ## Д-61. Дистрибуция рантайма описана только для Windows
 
-**Статус:** открыт. Пачка C. Тикет апстрима #54.
+**Статус:** закрыт. Пачка C. Тикет апстрима #54.
 
 `buildRuntimeDistributionManifest` (`mcp-stdio.mjs`) зашивает `local_launcher:
 scripts/start-local.ps1`, `acceptance`/`backup`/`restore: 09-mcp/scripts/*.ps1`,
@@ -2658,6 +2658,48 @@ runtime-контейнер, acceptance/backup — `not_applicable`. `ready_local
 
 **Проверка.** На Linux и в образе `prepared=true, ready_local=true, missing_files=[]`; на
 Windows — без изменений.
+
+**Замер после.** Чистая логика вынесена в `core/runtime-distribution.mjs`:
+`runtimeFlavor({ platform, env })` → `windows | posix | docker` (docker — по `AI_DEV_RUNTIME=docker`
+из ENV-блока `docker/Dockerfile`), `distributionExpectations(flavor)` → ожидаемые файлы и команды,
+`summarizeDistributionFiles` считает готовность только по применимым файлам. В `mcp-stdio.mjs`
+осталась проводка.
+
+Linux, чистый чекаут (`node scripts/ai-dev.mjs distribution` после `prepare_runtime_distribution`):
+
+```
+runtime_flavor=posix  prepared=true  ready_local=true  missing_files=[]
+not_applicable=[local_launcher, backup, restore]
+start="npm start"  acceptance="node scripts/acceptance.mjs"
+```
+
+Эмуляция образа (контекст `npm run docker:prepare`, переменные `docker/Dockerfile:18-30`,
+раскладка `docker/entrypoint.sh`):
+
+```
+runtime_flavor=docker  prepared=true  ready_local=true  missing_files=[]
+not_applicable=[local_launcher, acceptance, backup, restore]
+start="sh docker/run-mcp.sh"
+```
+
+`prepare_runtime_distribution` в эмуляции отдаёт `runtime_distribution_prepared` (было
+`rejected`), `09-mcp/runtime-distribution.json` и `09-mcp/Runtime Distribution.md` появляются.
+В обоих отрендеренных документах ноль вхождений `powershell` и `.ps1` (было: команда старта и два
+скрипта восстановления). Побочный эффект из Д-57 снят: после первого старта контейнера файл на
+месте, второй старт `docker-bootstrap.mjs` `prepare_runtime_distribution` уже не вызывает.
+
+Отрицательная проба: та же раскладка образа **без** `AI_DEV_RUNTIME` даёт `runtime_flavor=posix`,
+`ready_local=false`, `missing=[acceptance]` — переменная в Dockerfile несущая, а не декоративная.
+`node scripts/ai-dev.mjs backup` на Linux печатает отказ с причиной и выходит с кодом 1, не
+запуская `powershell.exe`; `acceptance` в эмуляции образа отказывает так же, в чекауте доходит до
+`scripts/acceptance.mjs` и отдаёт его код выхода без своего стектрейса.
+
+Windows-ветка закреплена тестом на точные прежние значения (`distributionExpectations("windows")`
+и `distributionFilePlan("windows", …)` — семь файлов, четыре команды, два `.ps1` восстановления).
+Живьём на Windows **не проверено**: машины нет. Проверено только тестом на чистых функциях.
+
+Ceiling `mcp-stdio.mjs`: 4863 → 4852 строки. `npm run check` зелёный; `test:core` 804 теста,
+802 pass, 0 fail, 2 skipped (было 797 / 795 / 0 / 2 — семь новых тестов).
 
 ## Д-62. Доставка BGE-M3 через системный Python — самая хрупкая часть установки
 

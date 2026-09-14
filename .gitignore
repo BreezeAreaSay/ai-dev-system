@@ -44,3 +44,4 @@ runtime-distribution.json
 # swallow `frontend-qa/fixtures/**/.ai-dev/`, where fixture files ARE tracked,
 # and quietly ignore any new one.
 /.ai-dev/
+/.idea/

@@ -48,6 +48,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **One `package.json` in the home directory no longer merges every project
+  below it.** The project-boundary walk ran to the root of the filesystem and
+  stopped at the first marker it found, so a leftover `package.json` in `~` —
+  or a dotfiles clone's `.git` — made every project under the home directory
+  share one memory key, and the session handoffs, instincts and context of one
+  project were served to an agent working in another without any sign of it.
+  A marker sitting in the home directory itself, or anywhere above it, is no
+  longer a boundary; a session that starts there keys to where it started.
+  Below the home directory and outside it (`/srv/app`, `C:\work\app`) nothing
+  changes, including nested packages, worktrees and the runtime directory rule.
+  The home comes from `USERPROFILE` on Windows and `HOME` elsewhere, is compared
+  case-insensitively on Windows and through its real path everywhere, and where
+  neither variable is set the rule does not apply at all. The rule is one pure
+  function taking the platform and the home as parameters, present in the server
+  and in the hooks copy that ships into other repositories, with both copies
+  answering the same fourteen layouts in the tests (Д-48).
+
 - **A fresh clone finishes its install instead of failing the smoke check.**
   `bootstrap.sh`, `docker/run-mcp.sh`, `docker/entrypoint.sh` and
   `packaging/launcher.sh` were committed as `100644`, and the fast-start smoke

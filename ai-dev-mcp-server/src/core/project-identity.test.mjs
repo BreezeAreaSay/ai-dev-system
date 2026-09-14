@@ -6,13 +6,63 @@ import test from "node:test";
 import { runProcess } from "./process-runner.mjs";
 import {
   configureRuntimeStateRoot,
+  isProjectBoundaryCandidate,
   memoryScopeKeys,
   projectIdentityKey,
   repositoryId,
   resolveProjectIdentity,
-  sameProjectIdentity
+  sameProjectIdentity,
+  userHomeDirectory
 } from "./project-identity.mjs";
-import { memoryKeysOf, projectIdOf, repositoryIdOf } from "../../hooks/lib.mjs";
+import {
+  isProjectBoundaryCandidate as hookIsProjectBoundaryCandidate,
+  memoryKeysOf,
+  projectIdOf,
+  projectRootOf,
+  repositoryIdOf,
+  userHomeDirectory as hookUserHomeDirectory
+} from "../../hooks/lib.mjs";
+
+/**
+ * Point the home rule at a directory of this test's own making. The rule reads
+ * the environment, but `os.tmpdir()` sits inside the user profile on Windows,
+ * so a test that left the real home in place would be deciding a different
+ * layout there than here (docs/DEFECTS.md, Д-48).
+ */
+function withHome(t, homeDir) {
+  const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  if (homeDir) {
+    process.env.HOME = homeDir;
+    process.env.USERPROFILE = homeDir;
+  } else {
+    delete process.env.HOME;
+    delete process.env.USERPROFILE;
+  }
+  t.after(() => {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+}
+
+/** One layout per line, decided without touching the filesystem or the platform. */
+const HOME_RULE_CASES = [
+  ["the home directory itself", "linux", "/home/ivan", "/home/ivan", false],
+  ["the directory holding the home", "linux", "/home/ivan", "/home", false],
+  ["the filesystem root", "linux", "/home/ivan", "/", false],
+  ["a trailing separator on the home", "linux", "/home/ivan/", "/home/ivan", false],
+  ["a project below the home", "linux", "/home/ivan", "/home/ivan/work/app", true],
+  ["a project outside the home", "linux", "/home/ivan", "/srv/app", true],
+  ["a sibling whose name starts with the home's", "linux", "/home/ivan", "/home/ivana", true],
+  ["POSIX tells two spellings apart", "linux", "/home/ivan", "/home/Ivan", true],
+  ["the Windows profile, spelled either way", "win32", "C:\\Users\\Ivan", "c:/users/ivan/", false],
+  ["the directory holding the Windows profile", "win32", "C:\\Users\\Ivan", "C:\\USERS", false],
+  ["the Windows drive root", "win32", "C:\\Users\\Ivan", "C:\\", false],
+  ["a project below the Windows profile", "win32", "C:\\Users\\Ivan", "C:\\Users\\Ivan\\projects\\app", true],
+  ["a project outside the Windows profile", "win32", "C:\\Users\\Ivan", "C:\\work\\app", true],
+  ["no home known at all", "linux", "", "/", true]
+];
 
 async function runGit(cwd, args) {
   const result = await runProcess({ executable: "git", args: ["-C", cwd, ...args], cwd, timeoutMs: 20_000 });
@@ -288,4 +338,177 @@ test("projects outside Git fall back to the project id as their memory key", asy
   assert.deepEqual(memoryKeysOf(root, false), [identity.project_id]);
   assert.deepEqual(memoryScopeKeys("project-bare"), ["project-bare"]);
   assert.deepEqual(memoryScopeKeys({ repositoryId: "repository-1", projectId: "repository-1" }), ["repository-1"]);
+});
+
+test("a marker in the home directory or above it is not a project boundary", () => {
+  // Д-48. The walk ran to the root of the filesystem and stopped at the first
+  // marker, so one `package.json` in `~` — which anyone who has run npm from
+  // their home directory has — put every project below it under a single
+  // memory key. Platform and home are parameters so both branches are decided
+  // here, on whatever machine runs the suite.
+  for (const [name, platform, homeDir, directory, expected] of HOME_RULE_CASES) {
+    assert.equal(isProjectBoundaryCandidate(directory, { platform, homeDir }), expected, name);
+  }
+});
+
+test("the hook copy of the home rule answers exactly like the server", () => {
+  // Д-45, Д-51 and Д-52 were all one defect: the two copies disagreeing. This
+  // is the rule's version of that check — the same layouts through both.
+  for (const [name, platform, homeDir, directory] of HOME_RULE_CASES) {
+    assert.equal(
+      hookIsProjectBoundaryCandidate(directory, { platform, homeDir }),
+      isProjectBoundaryCandidate(directory, { platform, homeDir }),
+      name
+    );
+  }
+});
+
+test("the home directory is read the way the platform spells it", () => {
+  const both = { HOME: "/home/ivan", USERPROFILE: "C:\\Users\\Ivan" };
+  for (const home of [userHomeDirectory, hookUserHomeDirectory]) {
+    assert.equal(home({ platform: "win32", env: both }), "C:\\Users\\Ivan");
+    assert.equal(home({ platform: "linux", env: both }), "/home/ivan");
+    // Only one of the two set: whichever it is, it is the home.
+    assert.equal(home({ platform: "win32", env: { HOME: "/home/ivan" } }), "/home/ivan");
+    assert.equal(home({ platform: "linux", env: { USERPROFILE: "C:\\Users\\Ivan" } }), "C:\\Users\\Ivan");
+    // Neither set: the caller is told so and leaves the rule unapplied.
+    assert.equal(home({ platform: "linux", env: {} }), "");
+    assert.equal(home({ platform: "win32", env: { USERPROFILE: "   " } }), "");
+  }
+  assert.equal(isProjectBoundaryCandidate("/", { platform: "linux", env: {} }), true);
+  assert.equal(hookIsProjectBoundaryCandidate("/", { platform: "linux", env: {} }), true);
+});
+
+test("a package.json in the home directory no longer collapses the projects below it", async (t) => {
+  // Д-48, the measurement from the record: `outer/home/AppData/Local/Temp/project`
+  // with a `package.json` at `outer`. The project used to answer with `outer`'s
+  // identifier — two levels above itself — and so did every other project on
+  // the machine.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-home-marker-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const outer = path.join(root, "outer");
+  const home = path.join(outer, "home");
+  const project = path.join(home, "AppData", "Local", "Temp", "project");
+  const sibling = path.join(home, "AppData", "Local", "Temp", "other");
+  await fs.mkdir(project, { recursive: true });
+  await fs.mkdir(sibling, { recursive: true });
+  await fs.writeFile(path.join(outer, "package.json"), JSON.stringify({ name: "outer" }), "utf8");
+  withHome(t, home);
+
+  const identity = await resolveProjectIdentity(project);
+  assert.equal(identity.project_root, await fs.realpath(project));
+  assert.notEqual(identity.project_id, (await resolveProjectIdentity(outer)).project_id);
+  assert.notEqual(identity.project_id, (await resolveProjectIdentity(sibling)).project_id);
+  assert.equal(projectIdOf(project, false), identity.project_id);
+  assert.deepEqual(memoryKeysOf(project, false), [identity.project_id]);
+});
+
+test("a dotfiles clone in the home directory does not become every project's repository", async (t) => {
+  // The same rule from the other marker: `.git` in `~` makes `rev-parse
+  // --show-toplevel` answer `~` for every project below it, so the boundary
+  // walk is not the only way in — the Git fallback is gated the same way.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-dotfiles-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const alpha = path.join(home, "work", "alpha");
+  const beta = path.join(home, "work", "beta");
+  await fs.mkdir(alpha, { recursive: true });
+  await fs.mkdir(beta, { recursive: true });
+  await runGit(home, ["init", "-q", "-b", "main"]);
+  withHome(t, home);
+
+  const first = await resolveProjectIdentity(alpha);
+  const second = await resolveProjectIdentity(beta);
+  assert.equal(first.project_root, await fs.realpath(alpha));
+  assert.notEqual(first.project_id, second.project_id);
+  assert.notEqual(first.repository_id, second.repository_id);
+  // The hook reaches the same place through `rev-parse --show-toplevel`.
+  assert.equal(projectRootOf(alpha), await fs.realpath(alpha));
+  assert.deepEqual(memoryKeysOf(alpha), memoryScopeKeys(first));
+  assert.deepEqual(memoryKeysOf(beta), memoryScopeKeys(second));
+});
+
+test("a project outside the home keeps the boundary it always had", async (t) => {
+  // The counter-probe. Nothing above a project that does not live under the
+  // home directory changes: `/tmp/outer/project` still answers with `outer`.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-outside-home-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const outer = path.join(root, "outer");
+  const project = path.join(outer, "project");
+  await fs.mkdir(home, { recursive: true });
+  await fs.mkdir(project, { recursive: true });
+  await fs.writeFile(path.join(outer, "package.json"), JSON.stringify({ name: "outer" }), "utf8");
+  withHome(t, home);
+
+  const identity = await resolveProjectIdentity(project);
+  assert.equal(identity.project_root, await fs.realpath(outer));
+  assert.equal(projectIdOf(project, false), identity.project_id);
+});
+
+test("a session started in the home directory or above it keys to where it started", async (t) => {
+  // Both ends of the rule stated outright: with no boundary left to find, the
+  // starting directory stands for itself rather than climbing to the root.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-home-start-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const outer = path.join(root, "outer");
+  const home = path.join(outer, "home");
+  await fs.mkdir(home, { recursive: true });
+  // The only marker sits two levels above the home, which is where the walk
+  // used to end up from either starting point.
+  await fs.writeFile(path.join(root, "Gemfile"), "source 'https://rubygems.org'\n", "utf8");
+  withHome(t, home);
+
+  const inHome = await resolveProjectIdentity(home);
+  assert.equal(inHome.project_root, await fs.realpath(home));
+  assert.equal(projectIdOf(home, false), inHome.project_id);
+
+  const aboveHome = await resolveProjectIdentity(outer);
+  assert.equal(aboveHome.project_root, await fs.realpath(outer));
+  assert.equal(projectIdOf(outer, false), aboveHome.project_id);
+  assert.notEqual(inHome.project_id, aboveHome.project_id);
+  assert.notEqual(inHome.project_id, (await resolveProjectIdentity(root)).project_id);
+});
+
+test("a home reached through a symlink is still recognised as the home", async (t) => {
+  // Д-51's lesson applied to the new comparison: macOS reaches its temp
+  // directory through /var/folders -> /private/var, so an unresolved home never
+  // equals the canonical path the walk reads, and the rule would silently do
+  // nothing there.
+  const real = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-home-real-"));
+  const link = path.join(os.tmpdir(), `ai-dev-home-link-${process.pid}-${Date.now()}`);
+  await fs.symlink(real, link, "junction").catch(() => fs.symlink(real, link));
+  t.after(async () => {
+    await fs.unlink(link).catch(() => fs.rm(link, { recursive: true, force: true })).catch(() => {});
+    await fs.rm(real, { recursive: true, force: true });
+  });
+
+  const home = path.join(real, "home");
+  const project = path.join(home, "projects", "one");
+  await fs.mkdir(project, { recursive: true });
+  await fs.writeFile(path.join(home, "package.json"), JSON.stringify({ name: "home" }), "utf8");
+  // The home is handed over through the symlink; the walk reads canonical paths.
+  withHome(t, path.join(link, "home"));
+
+  const identity = await resolveProjectIdentity(project);
+  assert.equal(identity.project_root, await fs.realpath(project));
+  assert.equal(projectIdOf(project, false), identity.project_id);
+});
+
+test("with no home in the environment the walk behaves as it always did", async (t) => {
+  // Stated as a case of its own because it is the rule's escape hatch: a
+  // process with neither HOME nor USERPROFILE gets the old behaviour, not a
+  // guessed home.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-no-home-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const outer = path.join(root, "outer");
+  const home = path.join(outer, "home");
+  const project = path.join(home, "AppData", "Local", "Temp", "project");
+  await fs.mkdir(project, { recursive: true });
+  await fs.writeFile(path.join(outer, "package.json"), JSON.stringify({ name: "outer" }), "utf8");
+  withHome(t, "");
+
+  const identity = await resolveProjectIdentity(project);
+  assert.equal(identity.project_root, await fs.realpath(outer));
+  assert.equal(projectIdOf(project, false), identity.project_id);
 });

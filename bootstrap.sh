@@ -7,6 +7,8 @@ image_set=0
 clients="codex,cursor,gemini,vscode,claude"
 skip_smoke=0
 skip_client_install=0
+allow_stale_image=0
+stale_warning=""
 install_prerequisites=0
 build_local=0
 plan=0
@@ -24,6 +26,7 @@ Options:
   --install-prerequisites   Install Docker with Homebrew, apt, dnf, or pacman.
   --build-local             Build ai-dev-system:local from this checkout.
   --skip-smoke              Skip the final MCP stdio negotiation check.
+  --allow-stale-image       Install the cached image when the registry pull fails.
   --skip-client-install     Do not modify local AI-client configuration files.
   --plan                    Print the local plan without installing or building.
 EOF
@@ -37,6 +40,7 @@ while [ "$#" -gt 0 ]; do
     --install-prerequisites) install_prerequisites=1; shift ;;
     --build-local) build_local=1; shift ;;
     --skip-smoke) skip_smoke=1; shift ;;
+    --allow-stale-image) allow_stale_image=1; shift ;;
     --skip-client-install) skip_client_install=1; shift ;;
     --plan) plan=1; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -193,12 +197,26 @@ if [ "$build_local" -eq 1 ]; then
 else
   printf '%s\n' "Pulling ${image}..."
   if ! docker pull "$image"; then
-    if docker image inspect "$image" >/dev/null 2>&1; then
-      printf '%s\n' "Registry pull failed; using the existing local image ${image}." >&2
-    else
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
       printf '%s\n' "Could not pull ${image}, and no cached copy exists." >&2
       exit 69
     fi
+    # Installing whatever happened to be in the cache produced bug reports
+    # about defects already fixed upstream (docs/DEFECTS.md Д-60), so the age
+    # of that copy is stated and using it is now a deliberate choice.
+    stale_created=$(docker image inspect --format '{{.Created}}' "$image" 2>/dev/null || true)
+    # A locally built image has no RepoDigests, and `index` on an empty list
+    # fails rather than returning nothing.
+    stale_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || true)
+    [ -n "$stale_created" ] || stale_created="unknown"
+    [ -n "$stale_digest" ] || stale_digest="none (image was built locally)"
+    stale_warning="Registry pull failed. The cached copy of ${image} was created ${stale_created} (digest: ${stale_digest}) and is missing anything released since."
+    printf '%s\n' "$stale_warning" >&2
+    if [ "$allow_stale_image" -ne 1 ]; then
+      printf '%s\n' "Stopping rather than installing an image of unknown age. Restore the registry connection and run again, or re-run with --allow-stale-image to install this copy anyway." >&2
+      exit 69
+    fi
+    printf '%s\n' "Continuing because --allow-stale-image was given. Run 'docker pull ${image}' and bootstrap again once the registry is reachable." >&2
   fi
 fi
 
@@ -288,3 +306,6 @@ if [ "$skip_client_install" -ne 1 ]; then
 fi
 
 printf '%s\n' "AI Dev MCP System is ready. Restart the selected AI clients to load ai-dev."
+if [ -n "$stale_warning" ]; then
+  printf '%s\n' "Installed from a stale image. ${stale_warning}" >&2
+fi

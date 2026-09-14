@@ -169,6 +169,18 @@ To develop the image itself, use explicit local mode:
 sh ./bootstrap.sh --build-local
 ```
 
+If the registry cannot be reached and an older copy of the image is already in
+the local Docker cache, bootstrap stops rather than installing it. It prints
+when that copy was created and its digest, so you can tell how far behind it is.
+Installing it anyway is a deliberate choice:
+
+```bash
+sh ./bootstrap.sh --allow-stale-image
+```
+
+On Windows the same switch is `-AllowStaleImage`. Prefer restoring the registry
+connection: a cached image can be missing fixes that are already released.
+
 ## The packaged path: Docker
 
 Choose this when you want the system on a machine that should not hold a

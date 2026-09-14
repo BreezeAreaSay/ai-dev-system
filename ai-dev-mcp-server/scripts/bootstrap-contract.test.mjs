@@ -96,3 +96,73 @@ test("the shell scripts that get executed are committed as executable", async (c
     assert.equal(modes.get(file), "100755", `${file} is not committed as executable`);
   }
 });
+
+// A `docker` that answers `version`, fails `pull`, and still has the image
+// cached. The Д-60 path is the one where the registry is unreachable and
+// something older is sitting in the local cache.
+const stubDocker = [
+  "#!/bin/sh",
+  'sub="$1"',
+  "shift",
+  'case "$sub" in',
+  "  version) echo 27.0.0; exit 0 ;;",
+  '  pull) echo "Error response from daemon: unauthorized" >&2; exit 1 ;;',
+  "  image)",
+  '    [ "$1" = "inspect" ] || exit 1',
+  '    for a in "$@"; do',
+  '      case "$a" in',
+  "        *Created*) echo 2019-01-02T03:04:05.000000000Z; exit 0 ;;",
+  "        *RepoDigests*) echo ghcr.io/example/ai-dev-system@sha256:cafebabe; exit 0 ;;",
+  "      esac",
+  "    done",
+  "    exit 0 ;;",
+  '  ps) echo "STUB: reached docker ps" >&2; exit 1 ;;',
+  "esac",
+  "exit 0",
+  ""
+].join("\n");
+
+async function runWithStubDocker(args, context) {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-stale-"));
+  const binDir = path.join(home, "bin");
+  await fs.mkdir(binDir);
+  await fs.writeFile(path.join(binDir, "docker"), stubDocker, { mode: 0o755 });
+  try {
+    const result = spawnSync(
+      shell,
+      [bootstrap, "--skip-smoke", "--skip-client-install", "--project-path", path.join(home, "projects"), ...args],
+      {
+        encoding: "utf8",
+        env: { ...process.env, HOME: home, PATH: `${binDir}${path.delimiter}${process.env.PATH}` }
+      }
+    );
+    if (result.error?.code === "ENOENT") {
+      context.skip("sh is unavailable on this host");
+      return null;
+    }
+    return result;
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+}
+
+test("a failed pull with a cached image stops instead of installing it", async (context) => {
+  const result = await runWithStubDocker([], context);
+  if (result === null) return;
+  assert.equal(result.status, 69, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  assert.match(result.stderr, /2019-01-02T03:04:05/, "the age of the cached image is not reported");
+  assert.match(result.stderr, /sha256:cafebabe/, "the digest of the cached image is not reported");
+  assert.match(result.stderr, /--allow-stale-image/, "the override is not offered");
+  // Stopping means stopping: the runtime container is never touched.
+  assert.doesNotMatch(result.stderr, /reached docker ps/, "bootstrap continued past the stale image");
+});
+
+test("--allow-stale-image installs the cached image and keeps saying so", async (context) => {
+  const result = await runWithStubDocker(["--allow-stale-image"], context);
+  if (result === null) return;
+  assert.match(result.stderr, /2019-01-02T03:04:05/, "the age of the cached image is not reported");
+  // The stub fails `docker ps`, which only runs after the pull branch has let
+  // the install through -- so reaching it is the proof that the flag works.
+  assert.match(result.stderr, /reached docker ps/, "bootstrap stopped despite --allow-stale-image");
+  assert.notEqual(result.status, 69, "the override still exited with the stale-image code");
+});

@@ -12,11 +12,11 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 53 записи. Закрыто 50, из них девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 62 записи. Закрыто 50, из них девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, и шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0.
 
-Открыто три:
+Открыто двенадцать. Три давних:
 
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
   закрывается: осталось пять минут в самом Cursor по двум пунктам, и для них есть
@@ -26,6 +26,20 @@
 - **Д-48** — обход границы проекта доходит до корня файловой системы: `package.json`,
   положенный в домашний каталог, схлопывает все проекты под ним в один ключ памяти. Записаны
   три возможных ответа, выбор за владельцем.
+
+Девять — заход по тикетам апстрима #47–#54 (2026-09-14, все с опубликованного Docker-образа на
+macOS). Записаны до исправления, по правилу реестра, с замером на эмуляции образа. Чинятся
+пачками по корневой причине, каждая пачка — один PR в апстрим:
+
+- **Пачка A — установка (shell):** Д-58 (бит исполнения, #51), Д-60 (устаревший образ при сбое
+  pull, #53).
+- **Пачка B — Docker: первый запуск и честность диагностики:** Д-57 (health check падает на
+  свежем образе, #50), Д-59 (отсутствие BGE-M3 как `fail`, #52), Д-56 (Frontend QA мёртв в
+  образе, #49).
+- **Пачка C — дистрибуция рантайма не только для Windows:** Д-61 (#54).
+- **Пачка D — честность verify_task:** Д-54 (`node --test <каталог>` без диагноза, #47), Д-55
+  (`security_scan: pass` без единого сканера, #48).
+- **Д-62** — доставка BGE-M3 через системный Python. Архитектурное решение владельца, не пачка.
 
 Д-5 закрыт решением владельца: CI форка не нужен, проверка идёт через PR в апстрим.
 
@@ -2336,3 +2350,346 @@ Python есть всегда. Python для этого репозитория н
 
 **Чему это учит.** Поиск «на что никто не ссылается» задумывался как уборка, а нашёл дыру в
 проверках. Файл без ссылок — это не всегда мусор; иногда это то, что забыли подключить.
+
+## Д-54. Гейт качества честно проваливает `node --test <каталог>`, но не говорит, почему
+
+**Статус:** открыт. Пачка D. Тикет апстрима #47.
+
+`.ai-dev/quality-gate.md` пишется `analyze_project` из `scripts.test` проекта как есть
+(`project-detection.mjs`, `packageRunCommand`): `Test: npm run test`. Если сам скрипт —
+`node --test test/`, на Node ≥ 21 он падает без всякого гейта: позиционные аргументы стали
+glob-паттернами, каталог `test/` матчится сам на себя, и раннер исполняет его как файл теста.
+
+**Замер.** Минимальный проект из тикета (`test/sample.test.js`, один проходящий тест):
+
+```
+$ node -v                     v22.22.2          $ node -v                     v24.21.0  ← мажор образа
+$ node --test test/                             $ node --test test/
+# Error: Cannot find module '…/repro47/test'    Error: Cannot find module '…/repro47/test'
+# pass 0   # fail 1   exit=1                    exit=1
+$ node --test                                   $ node --test
+# pass 1   # fail 0   exit=0                    exit=0
+```
+
+`run_quality_gate` на том же проекте: `status=failed`, команда `npm run test`, `exit_code=1`,
+stdout содержит `Cannot find module`. Гейт не ошибся — он передал падение. Ложным его делают две
+вещи. (1) `verify_task` сводит проверку к `quality_gate: failed`; причина остаётся в stdout
+команды, который до вердикта не доходит. (2) На Docker-пути команды проекта исполняет Node
+образа (24), а не Node пользователя. Если у пользователя Node 20, где каталог ещё
+разворачивался, «тесты проходят напрямую» и «гейт падает» расходятся на одном и том же скрипте,
+и ничто на это не указывает: версия есть только в хвосте TAP-вывода (`# Node.js v24…`).
+
+**Чем грозит.** Проект, чей `npm test` устарел вместе с Node, получает провал верификации без
+диагноза, и агент чинит не то. Обратный риск — «починить» ослаблением гейта.
+
+**Что делать.** (1) В результате команды — первоклассное поле `runtime` (`node`, `execPath`), в
+вердикте `verify_task` — первая содержательная строка вывода провалившейся команды. (2) Чистая
+диагностика в `quality-gate-runner.mjs`: команда вида `node --test <операнд>`, операнд —
+каталог, в выводе `Cannot find module …/<операнд>` → подсказка: Node ≥ 21 понимает аргументы как
+glob, каталог исполняется как файл; писать `node --test` или `node --test "test/**/*.test.js"`.
+(3) В `docker/README.md` и INSTALL: `verify_task` в Docker запускает команды проекта Node
+образа. Не делать: разворачивать каталог за пользователя — гейт не переписывает команды проекта.
+
+**Решение владельца.** Должен ли Docker-путь уважать `engines.node` проекта (предупреждение при
+расхождении, несколько Node в образе)? Отдельная работа; здесь записан только факт расхождения.
+
+**Проверка.** На том же проекте `run_quality_gate` показывает `runtime.node`, `verify_task` —
+строку с `Cannot find module` и подсказку; `node --test` без аргументов проходит гейт.
+
+## Д-55. `security_scan` без единого сканера — `pass`
+
+**Статус:** открыт. Пачка D. Тикет апстрима #48.
+
+`securityScanStatus` возвращает `pass`, если нет находок и нет ошибок — даже когда все шесть
+сканеров пропущены. Так задумано («отсутствующий сканер никогда не блокирует»,
+`security-scan.mjs`), и там же честно сказано: такой прогон читается как `pass` с `checked: 0`.
+Но `checked` никто не читает: `verificationPassed` смотрит только на `block`, а `verify_task`
+перед записью проверки выбрасывает `next_step` — единственную строку, говорившую «No scanner
+could run here» (`lifecycle.mjs`: `{ markdown: _markdown, next_step: _nextStep, ...scan }`).
+
+В опубликованном образе не установлен ни один из шести (`docker/Dockerfile`: шрифты, библиотеки
+Chromium, python3, git, tini). `npm audit` есть как бинарник, но контейнер запущен с
+`--network none`, а advisory-база сетевая. На Docker-пути стадия безопасности всегда `pass` с
+нулевым покрытием — не сбой, а её штатный режим.
+
+**Замер.** Машина без сканеров, `run_security_scan` на минимальном проекте:
+
+```
+status=pass   summary={"checked":0,"skipped":6,"failed":0,"findings":0,"blocking":0}
+next_step="No scanner could run here. Install at least one (gitleaks is the cheapest and needs no network) …"
+```
+
+Через `verify_task` от этого остаётся `security_scan: pass`.
+
+**Чем грозит.** «security: pass» читается как «проверено». В Docker иначе и быть не может.
+
+**Что делать.** (1) Вердикт `unchecked` при `checked === 0` — ни `pass`, ни `block`:
+`verify_task` проходит (правило «пропуск не блокирует» остаётся), но сводка проверки и карточка
+задачи несут `unchecked`, а `next_step` доезжает до записи. (2) В образ — `gitleaks`:
+единственный из шести, кто работает офлайн; статический Go-бинарник, многостадийный
+`COPY --from=ghcr.io/gitleaks/gitleaks:<pin>`, amd64 и arm64. (3) Некритичная проверка
+`security_scanners` в `system_health_check`: сколько из шести на месте, `warn` при нуле.
+(4) В `docker/README.md` — честная матрица: в `--network none` возможны только gitleaks и
+semgrep с локальными правилами; trivy, pip-audit, cargo-audit и `npm audit` там не работают
+принципиально.
+
+**Проверка.** Тот же вызов даёт `status=unchecked`; в образе `gitleaks version` отвечает, и на
+проекте с подложенным ключом (собранным конкатенацией) скан даёт `block`.
+
+## Д-56. В образе Frontend QA мёртв, а диагностика говорит «Playwright не установлен»
+
+**Статус:** открыт. Пачка B. Тикет апстрима #49.
+
+`frontend-qa/frontend_qa_runner.mjs:9-13` импортирует
+`../ai-dev-mcp-server/src/core/command-policy.mjs` и `…/process-runner.mjs` — относительно
+раскладки репозитория. В образе раннер лежит в `/opt/ai-dev/frontend-qa`, сервер — в
+`/opt/ai-dev/app`; каталога `/opt/ai-dev/ai-dev-mcp-server` нет. Playwright и Chromium в образ
+поставлены (`Dockerfile:78-86`), но до них не доходит: раннер умирает на импорте.
+
+Проба `frontendQaEnvironmentStatus` (`mcp-stdio.mjs`) берёт первую строку сообщения — у
+ERR_MODULE_NOT_FOUND это заголовок стека `node:internal/modules/esm/resolve:NNN`, не причина.
+Дальше `evaluateFrontendQaEnvironment` видит `playwright_available: false` и советует
+`npm run setup -- --frontend-qa` — внутри образа это невыполнимо и не про то.
+
+Аудит контекста (`audit-docker-context.mjs`) ищет висящие импорты только в `app/`;
+`runtime/frontend-qa` не проверяется — поэтому сборка зелёная.
+
+**Замер.** Раскладка образа (`app/` + `frontend-qa/`, без `ai-dev-mcp-server/`), пакеты
+раннера установлены:
+
+```
+exit=1
+первая строка stderr → launch_error:  node:internal/modules/esm/resolve:275
+причина:  Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/ai-dev-mcp-server/src/core/command-policy.mjs'
+          imported from …/frontend-qa/frontend_qa_runner.mjs
+```
+
+На чистом клоне без `--frontend-qa` первая строка другая — `package_json_reader:314` (нет
+пакета `@axe-core/playwright`). У репортёра `esm/resolve:272` — сигнатура промаха по файлу,
+то есть именно образ.
+
+**Чем грозит.** В опубликованном образе `run_frontend_qa` не работает вообще, а health check
+называет это «опциональное не установлено». Пользователь идёт ставить Playwright, который стоит.
+
+**Что делать.** (1) Образ: симлинк `/opt/ai-dev/ai-dev-mcp-server → /opt/ai-dev/app` (одна
+строка Dockerfile; ESM резолвит через realpath) — либо перенести приложение в
+`/opt/ai-dev/ai-dev-mcp-server`, что честнее, но трогает entrypoint, run-mcp и документацию.
+(2) Проба: брать из stderr строку с `ERR_MODULE_NOT_FOUND`/`Cannot find`; различать «нет пакета»
+(`Cannot find package` → не установлено, `skipped`) и «нет файла» (`Cannot find module '/…'` →
+раннер сломан, `fail`). (3) `findDanglingImports` — прогонять и по `runtime/`.
+(4) `docker-smoke.mjs` — вызывать `system_health_check` в собранном образе и требовать, чтобы
+`frontend_qa_environment` не был `unavailable` по причине старта.
+
+**Проверка.** В собранном образе `frontend_qa_environment` = `ok` (Chromium запускается) или
+`warn` с причиной из Playwright, не из загрузчика модулей; `npm run docker:audit` краснеет, если
+из `runtime/` убрать файл, который раннер импортирует.
+
+## Д-57. Свежий Docker-инсталл проваливает собственную диагностику
+
+**Статус:** открыт. Пачка B. Тикет апстрима #50.
+
+CHANGELOG 2.0.0: «свежий клон больше не проваливает health check … теперь `degraded — 2 not
+passing`». Верно для `npm run setup` (`scripts/first-run.mjs`): реестр скиллов, поисковый индекс,
+бенчмарк роутинга. Docker-путь идёт через `scripts/docker-bootstrap.mjs` из entrypoint — а он
+строит только реестр скиллов, дашборд и манифест дистрибуции. Индекса и бенчмарка нет; четыре
+критичных проверки падают от их отсутствия, пятая (`embedding_backend`) — от него же косвенно
+(Д-59).
+
+**Замер.** Эмуляция entrypoint на пустом volume (seed, симлинки `09-mcp/*`, переменные образа),
+затем `docker-bootstrap.mjs`, затем `system_health_check`:
+
+```
+после docker-bootstrap:   status=fail       ok 9 / warn 4 / fail 5 / skipped 3
+  fail  search_index_file         SQLite search index is missing.
+  fail  embedding_backend         missing required files: search_index, …
+  fail  skill_routing_benchmark   report is missing.
+  fail  search_smoke              Search index does not exist
+  fail  hybrid_smoke_no_dense     Search index does not exist
+```
+
+Тот же volume после `scripts/first-run.mjs --no-health` (индекс 5.6 с, бенчмарк 37/37):
+
+```
+после first-run:          status=degraded   ok 14 / warn 3 / fail 0 / skipped 4
+```
+
+Вся разница — два шага, которых нет в `docker-bootstrap.mjs`. Из предупреждений:
+`required_notes` — нет `00-start-here.md` и `09-mcp/README.md`, их нет в public seed;
+`skill_quality: report missing` — общее с npm-путём.
+
+Побочно: `prepare_runtime_distribution` из `docker-bootstrap.mjs` на Docker всегда отвергается
+(Д-61), поэтому вызывается при каждом старте контейнера, а `runtime-distribution.json` не
+появляется никогда.
+
+**Чем грозит.** Первое, что видит пользователь после `bootstrap.sh`, — `Health: fail` на
+исправной установке; при этом поиск — все инструменты поиска — реально не работает, пока кто-то
+не вызовет `rebuild_search_index`.
+
+**Что делать.** `docker-bootstrap.mjs` исполняет тот же план `FIRST_RUN_STEPS`
+(`core/first-run.mjs`: `skill_registry`, `search_index`, `routing_benchmark`), а не свой
+укороченный список — идемпотентно, без сети, с `present`/`stale` как в `first-run.mjs`.
+`00-start-here.md` и `09-mcp/README.md` — в seed, либо `REQUIRED_SYSTEM_NOTES` учится раскладке
+образа. `docker-smoke.mjs` вызывает `system_health_check` и требует `status != fail`.
+
+**Проверка.** Тот же замер даёт `degraded`, `fail 0` сразу после entrypoint; второй старт
+контейнера ничего не перестраивает.
+
+## Д-58. `bootstrap.sh` и `docker/run-mcp.sh` закоммичены без бита исполнения
+
+**Статус:** открыт. Пачка A. Тикет апстрима #51.
+
+```
+$ git ls-files -s | grep -E '\.sh$'
+100644 … bootstrap.sh
+100644 … docker/entrypoint.sh
+100755 … docker/public-seed/…/scan-rules.sh       ← репозиторий умеет хранить бит
+100755 … docker/public-seed/…/scan-skills.sh
+100644 … docker/run-mcp.sh
+100644 … packaging/launcher.sh
+```
+
+Документация зовёт `sh ./bootstrap.sh` — это работает. Но `bootstrap.sh:240` вызывает лаунчер
+напрямую: `AI_DEV_RUNTIME_CONTAINER=… "$launcher"` → `Permission denied` → «Fast-start MCP stdio
+smoke check failed», exit 70 — хотя smoke ни при чём. Конфиги клиентов не страдают:
+`install-docker-mcp-clients.mjs:135` пишет `/bin/sh <лаунчер>`. `entrypoint.sh` получает
+`chmod 0755` в Dockerfile, `launcher.sh` — `chmod 755` в PKGBUILD и Homebrew. Реально ломается
+один путь — и это первый запуск без `--skip-smoke`.
+
+**Чем грозит.** Установка из свежего клона на macOS и Linux падает на последнем шаге с
+сообщением про smoke.
+
+**Что делать.** `git update-index --chmod=+x` на все четыре `.sh`; `bootstrap.sh:240` — вызывать
+через `sh "$launcher"` (zip-скачивание с GitHub бит теряет); в сообщении об ошибке различать
+«лаунчер не запустился» и «сервер не ответил»; в `bootstrap-contract.test.mjs` — тест, что
+`git ls-files -s` даёт `100755` для этих файлов.
+
+**Проверка.** `sh ./bootstrap.sh` без `--skip-smoke` на свежем клоне проходит fast-start smoke;
+тест на режим файлов зелёный.
+
+## Д-59. Отсутствие BGE-M3 — `fail`, а совет внутри образа невыполним
+
+**Статус:** открыт. Пачка B. Тикет апстрима #52.
+
+`EMBEDDING_BACKEND_REQUIREMENTS` включает `search_index`. `evaluateEmbeddingBackend` отдаёт
+мягкий `skipped` («веса не скачаны, `npm run setup -- --dense`») только если не хватает
+*исключительно* модельных файлов; любой другой ключ в `missing` даёт `fail`. На свежем Docker
+индекса нет (Д-57) → отсутствующая модель превращается в критичный провал «Embedding backend is
+missing required files: search_index, …». Один пропавший файл засчитан двумя критичными
+провалами.
+
+Вторая половина: в опубликованном образе dense выключен намеренно (`INSTALL_BGE_M3=0`,
+`docs/INSTALL.md:66-67`), и включается он не `npm run setup -- --dense`, а монтированием весов
+(`AI_DEV_MODEL_PATH`) или сборкой с `INSTALL_BGE_M3=1`. Диагностика этого не знает: ни
+`embedding_status`, ни health check не отличают «в этом образе не предусмотрено» от «сломано» и
+советуют команду, которая в контейнере не имеет смысла.
+
+**Замер.** Из эмуляции Д-57: `embedding_backend` = `fail` при отсутствующем индексе,
+`missing = [search_index, embeddings_python, model_dir, model_file, modules_file]`; после
+появления индекса — `skipped`, без единого изменения в бэкенде эмбеддингов.
+
+**Чем грозит.** «Health: fail» и красная строка про бэкенд на образе, где dense выключен по
+дизайну; пользователь ищет поломку, которой нет.
+
+**Что делать.** (1) Убрать `search_index` из требований бэкенда — у индекса свой критичный чек.
+(2) Явный сигнал «dense отключён»: `ENV AI_DEV_DENSE=disabled` в Dockerfile при
+`INSTALL_BGE_M3=0` (или маркер-файл); `embedding_status` отдаёт `dense: { installed: false,
+reason }`, health check — `skipped` с советом под окружение: в образе — про
+`AI_DEV_MODEL_PATH`/`INSTALL_BGE_M3=1`, в клоне — про `--dense`. (3) Отличать от поломки: venv или
+`AI_DEV_PYTHON` есть, весов нет → `warn`, не `skipped`.
+
+**Проверка.** На пустом volume `embedding_backend` = `skipped` с советом про монтирование; с
+примонтированными весами — `ok`; с venv без весов — `warn`.
+
+## Д-60. При сбое `docker pull` bootstrap молча берёт устаревший образ
+
+**Статус:** открыт. Пачка A. Тикет апстрима #53.
+
+`bootstrap.sh:194-202`: если `docker pull` не удался, а под тегом что-то есть локально — одна
+строка в stderr «Registry pull failed; using the existing local image …», и установка идёт
+дальше как ни в чём не бывало. Возраст, digest, что делать — ничего. Fast-start контейнер
+поднимается с `--restart unless-stopped`, то есть устаревший образ переживает перезагрузки.
+`bootstrap.ps1:190` делает то же (`Write-Warning`).
+
+**Чем грозит.** Пользователь ставит «latest», получает то, что случайно лежало в кэше, и потом
+сообщает баги, которые уже починены.
+
+**Варианты.** (1) Останавливаться: exit 69 с текстом «pull не удался; локальная копия от
+<дата>, <digest>; повторите с `--allow-stale-image`». (2) Продолжать, но громко: многострочное
+предупреждение с датой и digest, его повтор в финальной строке «ready», совет `docker pull`
+позже. Рекомендую (1): bootstrap запускают один раз, и установщик, который ставит не то, хуже
+установщика, который остановился. Выбор — за владельцем.
+
+**Проверка.** С заглушкой `docker` (pull падает, inspect отвечает) bootstrap выходит с кодом 69
+и печатает дату и digest; с флагом — продолжает и печатает предупреждение дважды.
+`bootstrap.ps1` — зеркально.
+
+## Д-61. Дистрибуция рантайма описана только для Windows
+
+**Статус:** открыт. Пачка C. Тикет апстрима #54.
+
+`buildRuntimeDistributionManifest` (`mcp-stdio.mjs`) зашивает `local_launcher:
+scripts/start-local.ps1`, `acceptance`/`backup`/`restore: 09-mcp/scripts/*.ps1`,
+`commands.start: powershell -File …`. `scripts/ai-dev.mjs acceptance|backup` запускает
+`powershell.exe`, хотя кроссплатформенный `scripts/acceptance.mjs` лежит рядом и именно он стоит
+за `npm run acceptance`. На macOS, Linux и в Docker `prepare_runtime_distribution` отвергается,
+`runtime_distribution_status` отдаёт `prepared: false, ready_local: false` и список
+PowerShell-файлов как «missing».
+
+**Замер.** Linux, эмуляция образа:
+
+```
+prepared=false  ready_local=false
+missing_files=[acceptance:run-acceptance.ps1, backup:backup-ai-dev-system.ps1, restore:restore-ai-dev-system.ps1]
+start="powershell -File scripts/start-local.ps1"
+```
+
+В образе не хватает и `start-local.ps1` (в `app/scripts` он не входит) — четыре файла, как в
+тикете.
+
+**Чем грозит.** Инструмент статуса на двух из трёх платформ сообщает не о состоянии установки, а
+о своей раскладке. Плюс Д-57: bootstrap образа вызывает `prepare_runtime_distribution` при
+каждом старте и всегда получает отказ.
+
+**Что делать.** Манифест по окружению: `windows` — как сейчас; `posix` — `start: npm start`,
+`acceptance: node scripts/acceptance.mjs`, backup/restore — `not_applicable` с причиной
+(кроссплатформенных скриптов нет), а не «missing»; `docker` — лаунчер `docker/run-mcp.sh` или
+runtime-контейнер, acceptance/backup — `not_applicable`. `ready_local` считать по применимым
+файлам. `ai-dev.mjs acceptance` → `acceptance.mjs`. Обновить `runtime-distribution.example.json`.
+
+**Проверка.** На Linux и в образе `prepared=true, ready_local=true, missing_files=[]`; на
+Windows — без изменений.
+
+## Д-62. Доставка BGE-M3 через системный Python — самая хрупкая часть установки
+
+**Статус:** открыт. Не расхождение, а архитектурное решение; принимать владельцу. Предложение
+пришло вместе с тикетом #52.
+
+Текущая цепочка `--dense`: `python3 -m venv` → pip → `torch==2.14.0+cpu` с индекса PyTorch →
+`sentence-transformers==6.0.1` → `snapshot_download("BAAI/bge-m3")` без `revision` → 2.3 ГБ.
+Завязка на ОС, архитектуру, версию Python, наличие wheel под неё и текущее состояние репозитория
+модели. README при этом обещает «Node.js 22.12+ и больше ничего» — для `--dense` это неправда. В
+Docker вопрос снят (`INSTALL_BGE_M3` при сборке), поэтому речь только о локальном пути.
+
+**Что уже верно.** Гибридный поиск живёт без dense (Д-59 делает это видимым, а не сломанным).
+Sparse-половина — своя (`search_cli.py`, `sparse_dot`), от BGE-M3 не зависит; `bge_m3_embed.py`
+берёт у модели только dense-вектор через SentenceTransformer. Значит, замена бэкенда трогает
+один контракт: текст → нормализованный вектор 1024.
+
+**Варианты.**
+
+1. Закрепить `revision` модели и записать манифест (`model`, `revision`, `dimensions`,
+   `backend`). Дёшево, делать в любом случае: апстрим не сможет молча поменять файлы.
+2. Управляемый Python через `uv`: свой CPython 3.12, свой venv, платформенные requirements
+   (CPU-wheel torch для Linux и Windows, обычный для macOS) плюс `npm run dense:doctor`, который
+   вместо traceback печатает, какая стадия отвалилась и что запустить. Быстрый путь; добавляет
+   зависимость от установщика `uv`.
+3. Убрать Python: BGE-M3 в ONNX через Transformers.js / onnxruntime-node. Целевая архитектура —
+   README снова честен. Прежде чем переписывать: PoC на `search-eval` (Recall@3/5, MRR, успех
+   роутинга, латентность, RAM, холодный старт), Python против ONNX; при потере качества в
+   пределах шума Python становится legacy-бэкендом за той же абстракцией.
+
+Рекомендация: 1 — сразу; 2 — ближайший релиз; 3 — после PoC. До решения крупных функций в поиск
+не добавлять. GPU (CUDA/MPS/ROCm) не трогать, CPU-first.
+
+**Замер для решения.** Доля свежих установок с `--dense`, доходящих до «Dense search: READY», —
+сейчас это число никто не собирает; `dense:doctor` и станет тем замером.

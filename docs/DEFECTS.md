@@ -12,11 +12,11 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 62 записи. Закрыто 50, из них девять — заходом по долгам Д-20 … Д-28, шесть
-(Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, и шесть (Д-43, Д-49 … Д-53) —
-заходом на кроссплатформенность и на подготовку 2.0.
+Состояние: 62 записи. Закрыто 52, из них девять — заходом по долгам Д-20 … Д-28, шесть
+(Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
+заходом на кроссплатформенность и на подготовку 2.0, и два (Д-58, Д-60) — пачкой A по установке.
 
-Открыто двенадцать. Три давних:
+Открыто десять. Три давних:
 
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
   закрывается: осталось пять минут в самом Cursor по двум пунктам, и для них есть
@@ -27,12 +27,12 @@
   положенный в домашний каталог, схлопывает все проекты под ним в один ключ памяти. Записаны
   три возможных ответа, выбор за владельцем.
 
-Девять — заход по тикетам апстрима #47–#54 (2026-09-14, все с опубликованного Docker-образа на
-macOS). Записаны до исправления, по правилу реестра, с замером на эмуляции образа. Чинятся
-пачками по корневой причине, каждая пачка — один PR в апстрим:
+Ещё семь — из захода по тикетам апстрима #47–#54 (2026-09-14, все с опубликованного
+Docker-образа на macOS). Все девять записаны до исправления, по правилу реестра, с замером на
+эмуляции образа. Чинятся пачками по корневой причине, каждая пачка — один PR в апстрим:
 
 - **Пачка A — установка (shell):** Д-58 (бит исполнения, #51), Д-60 (устаревший образ при сбое
-  pull, #53).
+  pull, #53). Закрыта: оба замера после — в записях.
 - **Пачка B — Docker: первый запуск и честность диагностики:** Д-57 (health check падает на
   свежем образе, #50), Д-59 (отсутствие BGE-M3 как `fail`, #52), Д-56 (Frontend QA мёртв в
   образе, #49).
@@ -2536,7 +2536,7 @@ passing`». Верно для `npm run setup` (`scripts/first-run.mjs`): рее�
 
 ## Д-58. `bootstrap.sh` и `docker/run-mcp.sh` закоммичены без бита исполнения
 
-**Статус:** открыт. Пачка A. Тикет апстрима #51.
+**Статус:** закрыт. Пачка A. Тикет апстрима #51.
 
 ```
 $ git ls-files -s | grep -E '\.sh$'
@@ -2565,6 +2565,34 @@ smoke check failed», exit 70 — хотя smoke ни при чём. Конфи�
 
 **Проверка.** `sh ./bootstrap.sh` без `--skip-smoke` на свежем клоне проходит fast-start smoke;
 тест на режим файлов зелёный.
+
+**Замер после.** Бит проставлен всем четырём:
+
+```
+$ git ls-files -s bootstrap.sh docker/entrypoint.sh docker/run-mcp.sh packaging/launcher.sh
+100755 … bootstrap.sh
+100755 … docker/entrypoint.sh
+100755 … docker/run-mcp.sh
+100755 … packaging/launcher.sh
+```
+
+Демона Docker в песочнице нет, поэтому установка прогнана на свежем `git clone` с подменой
+`docker` shim-скриптом через `PATH`. До правки: `./bootstrap.sh: 240: …/docker/run-mcp.sh:
+Permission denied` → «Fast-start MCP stdio smoke check failed», exit 70 — воспроизведено
+дословно. После правки на том же клоне, где бит снят вручную (`chmod -x`, то есть ровно случай
+zip-скачивания), установка доходит до «AI Dev MCP System is ready», exit 0.
+
+Два исхода теперь различаются. Лаунчер, завершившийся с кодом 9: «Fast-start MCP launcher …
+exited with status 9 without answering» плюс подсказка про `--skip-smoke`, exit 70. Лаунчер,
+отработавший с кодом 0, но без `serverInfo`: «… ran, but the server did not answer with
+serverInfo», exit 70.
+
+Тест `the shell scripts that get executed are committed as executable` зелёный и падает, если
+вернуть любому из четырёх режим `100644` (проверено: `git update-index --chmod=-x
+docker/run-mcp.sh` → `not ok 3 … docker/run-mcp.sh is not committed as executable`).
+
+**Не проверено.** Настоящий `docker pull`/`docker exec` против живого демона — его в песочнице
+нет; всё «про образ» проверено эмуляцией. Сборку образа проверяет CI на PR.
 
 ## Д-59. Отсутствие BGE-M3 — `fail`, а совет внутри образа невыполним
 
@@ -2602,7 +2630,7 @@ reason }`, health check — `skipped` с советом под окружени�
 
 ## Д-60. При сбое `docker pull` bootstrap молча берёт устаревший образ
 
-**Статус:** открыт. Пачка A. Тикет апстрима #53.
+**Статус:** закрыт решением владельца — вариант (1). Пачка A. Тикет апстрима #53.
 
 `bootstrap.sh:194-202`: если `docker pull` не удался, а под тегом что-то есть локально — одна
 строка в stderr «Registry pull failed; using the existing local image …», и установка идёт
@@ -2622,6 +2650,42 @@ reason }`, health check — `skipped` с советом под окружени�
 **Проверка.** С заглушкой `docker` (pull падает, inspect отвечает) bootstrap выходит с кодом 69
 и печатает дату и digest; с флагом — продолжает и печатает предупреждение дважды.
 `bootstrap.ps1` — зеркально.
+
+**Замер после.** Выбран вариант (1). Замер — на том же shim-скрипте `docker` (`version`
+отвечает, `pull` падает, `image inspect` отдаёт дату и digest).
+
+До правки: одна строка «Registry pull failed; using the existing local image …», установка
+доходит до «ready», exit 0 — воспроизведено дословно.
+
+После правки, без флага:
+
+```
+Registry pull failed. The cached copy of ghcr.io/stonebridgeway/ai-dev-system:latest was created
+2025-03-01T09:15:42.123456789Z (digest: ghcr.io/…@sha256:abc123) and is missing anything
+released since.
+Stopping rather than installing an image of unknown age. Restore the registry connection and run
+again, or re-run with --allow-stale-image to install this copy anyway.
+exit 69
+```
+
+С `--allow-stale-image`: то же предупреждение, затем «Continuing because --allow-stale-image was
+given …», установка идёт дальше, а после строки «AI Dev MCP System is ready» предупреждение
+повторяется целиком («Installed from a stale image. …»), exit 0.
+
+Краевые случаи: у локально собранного образа `RepoDigests` пуст, и `index` на пустом списке
+падает — digest печатается как `none (image was built locally)`, а не роняет установку. Когда
+кэша нет вовсе, сообщение и код прежние («Could not pull …, and no cached copy exists», exit 69).
+При успешном pull слова `stale` в выводе нет ни разу.
+
+Формат `--plan` не изменился: вывод `sh ./bootstrap.sh --plan` побайтово совпадает с замером до
+правки. Два теста (`a failed pull with a cached image stops instead of installing it`,
+`--allow-stale-image installs the cached image and keeps saying so`) зелёные и оба падают на коде
+до правки. `validate-packaging.mjs` теперь требует флаг с обеих сторон: `--allow-stale-image` в
+`bootstrap.sh` и `[switch]$AllowStaleImage` в `bootstrap.ps1`.
+
+**Не проверено.** `bootstrap.ps1` исполнением не проверен — PowerShell в песочнице нет; зеркальная
+правка сверена по тексту и закреплена проверкой паритета в `validate-packaging.mjs`, но живого
+прогона на Windows не было. Поведение при настоящем сбое сети против GHCR не проверялось.
 
 ## Д-61. Дистрибуция рантайма описана только для Windows
 

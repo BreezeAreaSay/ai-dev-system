@@ -9,7 +9,8 @@ import {
   MAX_EMBED_TEXTS,
   MAX_EMBED_TEXT_LENGTH,
   cleanEmbedTexts,
-  createEmbeddingRuntime
+  createEmbeddingRuntime,
+  denseInstallationSignal
 } from "./embedding-workers.mjs";
 
 /**
@@ -326,4 +327,46 @@ test("shutdown empties the pool", async (t) => {
   assert.equal((await runtime.status()).workers.count, 1);
   runtime.shutdown();
   assert.equal((await runtime.status()).workers.count, 0);
+});
+
+test("an image says whether the dense stack was built into it", () => {
+  // Д-59: without this, "dense was left out of this image on purpose" and
+  // "dense is broken" look the same and get the same wrong advice. The
+  // Dockerfile passes its INSTALL_BGE_M3 build argument straight through.
+  assert.deepEqual(denseInstallationSignal({ AI_DEV_DENSE_INSTALLED: "0" }), {
+    installed: false, reason: "image-opt-out"
+  });
+  assert.deepEqual(denseInstallationSignal({ AI_DEV_DENSE_INSTALLED: "1" }), {
+    installed: true, reason: "image-opt-in"
+  });
+  for (const off of ["false", "NO", " off ", "disabled"]) {
+    assert.equal(denseInstallationSignal({ AI_DEV_DENSE_INSTALLED: off }).installed, false, off);
+  }
+  for (const on of ["true", "YES", " on ", "enabled"]) {
+    assert.equal(denseInstallationSignal({ AI_DEV_DENSE_INSTALLED: on }).installed, true, on);
+  }
+  // Unstated is not "off": outside a container nothing sets it, and the caller
+  // falls back to what is on disk.
+  for (const env of [{}, { AI_DEV_DENSE_INSTALLED: "" }, { AI_DEV_DENSE_INSTALLED: "maybe" }]) {
+    assert.deepEqual(denseInstallationSignal(env), { installed: null, reason: "unset" });
+  }
+});
+
+test("status says whether dense search is installed, not only which files exist", async (t) => {
+  const withVenv = await createFixture(t);
+  const present = await withVenv.runtime.status({});
+  assert.deepEqual(present.dense, { installed: true, reason: "interpreter-present" });
+
+  const withoutVenv = await createFixture(t, { exists: () => false });
+  const absent = await withoutVenv.runtime.status({});
+  assert.deepEqual(absent.dense, { installed: false, reason: "not-set-up" });
+
+  // What the image declares wins over what happens to be on disk: the system
+  // interpreter existing is not evidence that anybody set dense search up.
+  process.env.AI_DEV_DENSE_INSTALLED = "0";
+  t.after(() => { delete process.env.AI_DEV_DENSE_INSTALLED; });
+  const declared = await createFixture(t);
+  assert.deepEqual((await declared.runtime.status({})).dense, {
+    installed: false, reason: "image-opt-out"
+  });
 });

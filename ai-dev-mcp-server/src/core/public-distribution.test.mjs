@@ -68,6 +68,47 @@ test("a staged tree that imports what it does not carry is reported before an im
   assert.deepEqual(await findDanglingImports(root), []);
 });
 
+test("the runtime tree is audited through the layout the image gives it", async (t) => {
+  // Д-56: the Frontend QA runner imports the server as `../ai-dev-mcp-server`,
+  // which is where it sits in a checkout and where the Dockerfile symlinks it
+  // in the image. In the staged context the server is under `app/` and the
+  // runner under `runtime/frontend-qa/`, so without the alias every one of the
+  // runner's server imports reads as dangling and the check is red by
+  // construction; with it, a file the runner needs and the allowlist dropped
+  // is caught before an image is built.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-imports-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const core = path.join(root, "app", "src", "core");
+  const runner = path.join(root, "runtime", "frontend-qa");
+  await fs.mkdir(core, { recursive: true });
+  await fs.mkdir(runner, { recursive: true });
+  await fs.writeFile(path.join(core, "command-policy.mjs"), "export const policy = 1;\n", "utf8");
+  await fs.writeFile(path.join(runner, "frontend_qa_runner.mjs"), [
+    'import { policy } from "../ai-dev-mcp-server/src/core/command-policy.mjs";',
+    'import { run } from "../ai-dev-mcp-server/src/core/process-runner.mjs";',
+    'export { policy, run };'
+  ].join("\n"), "utf8");
+
+  const aliases = [[path.join(root, "runtime", "ai-dev-mcp-server"), path.join(root, "app")]];
+  const runtimeRoot = path.join(root, "runtime");
+  const findings = await findDanglingImports(runtimeRoot, { aliases });
+  // One shipped, one not: only the missing one is a finding.
+  assert.deepEqual(findings.map((item) => item.specifier), ["../ai-dev-mcp-server/src/core/process-runner.mjs"]);
+  assert.equal(findings[0].file, "frontend-qa/frontend_qa_runner.mjs");
+
+  await fs.writeFile(path.join(core, "process-runner.mjs"), "export const run = 2;\n", "utf8");
+  assert.deepEqual(await findDanglingImports(runtimeRoot, { aliases }), []);
+
+  // Without the alias the same tree reads as two broken imports, which is what
+  // the audit would have had to ignore had it walked `runtime/` as it stood.
+  assert.equal((await findDanglingImports(runtimeRoot)).length, 2);
+
+  // The alias forgives only the path the Dockerfile actually creates.
+  await fs.writeFile(path.join(runner, "other.mjs"), 'import "../elsewhere/thing.mjs";\n', "utf8");
+  const elsewhere = await findDanglingImports(runtimeRoot, { aliases });
+  assert.deepEqual(elsewhere.map((item) => item.specifier), ["../elsewhere/thing.mjs"]);
+});
+
 test("distribution audit accepts a clean allowlisted tree", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-public-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

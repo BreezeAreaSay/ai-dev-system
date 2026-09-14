@@ -47,7 +47,8 @@ npm run setup
 
 `npm run setup` builds the three things a clone does not ship — the skill
 registry, the search index and the routing benchmark — and prints the health
-check. Add `--frontend-qa` for the QA runner's dependencies, `--dense` for the
+check. The container builds the same three on its first start, from the same
+code, so the two paths cannot end up with different installs. Add `--frontend-qa` for the QA runner's dependencies, `--dense` for the
 local BGE-M3 model and the embeddings built with it (~2.3 GB); neither runs
 unless asked. No Obsidian vault is needed: without one the server reads the
 bundled seed and its helper trees from the repository itself.
@@ -65,7 +66,10 @@ Two ways to run it, and they speak the same protocol:
 **Why local first.** The dense model is the reason. Locally it is one flag —
 `npm run setup -- --dense` — and it lands in `~/.ai-dev`. In the published image
 it is off (`INSTALL_BGE_M3=0`), so getting it there means building your own
-image variant and mounting `/models`.
+image variant and mounting `/models`. The image says so about itself through
+`AI_DEV_DENSE_INSTALLED`, and the health check reads it: inside a container
+`embedding_backend` reports dense search as not set up and points at the mount,
+rather than at a `npm run setup` no container can run.
 
 ## One command on Windows
 

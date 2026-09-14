@@ -25,6 +25,12 @@ LABEL org.opencontainers.image.title="AI Dev MCP System" \
       org.opencontainers.image.source="${SOURCE_URL}" \
       org.opencontainers.image.licenses="MIT"
 
+# Whether this image carries the BGE-M3 Python stack. The diagnostics read it to
+# tell "dense was left out of this image on purpose" from "dense is broken", and
+# to advise a mount rather than `npm run setup -- --dense`, which no container
+# can run (docs/DEFECTS.md, Д-59).
+ENV AI_DEV_DENSE_INSTALLED=${INSTALL_BGE_M3}
+
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production \
     AI_DEV_RUNTIME=docker \
@@ -109,7 +115,13 @@ RUN if [ "${INSTALL_BGE_M3}" = "1" ]; then \
 COPY --from=gitleaks /usr/bin/gitleaks /usr/local/bin/gitleaks
 
 COPY public-seed/ /opt/ai-dev/public-seed/
-COPY LICENSE THIRD_PARTY_NOTICES.md /opt/ai-dev/
+COPY LICENSE README.md THIRD_PARTY_NOTICES.md /opt/ai-dev/
+
+# The Frontend QA runner imports the server as `../ai-dev-mcp-server`, which is
+# where it sits in a checkout. Without this the runner dies on its first import
+# and the health check blames Playwright, which is installed (docs/DEFECTS.md,
+# Д-56). ESM resolves through realpath, so the symlink is enough.
+RUN ln -s /opt/ai-dev/app /opt/ai-dev/ai-dev-mcp-server
 COPY container/entrypoint.sh /usr/local/bin/ai-dev-entrypoint
 
 RUN chmod 0755 /usr/local/bin/ai-dev-entrypoint \

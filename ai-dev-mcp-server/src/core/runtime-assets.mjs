@@ -55,6 +55,31 @@ export const RUNTIME_NOTE_LAYOUTS = Object.freeze({
 export const VAULT_ONLY_NOTES = Object.freeze(["00-start-here.md"]);
 
 /**
+ * The file the public seed carries into every tree it seeds.
+ *
+ * A container's `/data` volume is seeded from `docker/public-seed` and then has
+ * the runtime trees symlinked into `09-mcp/`, which made it look exactly like a
+ * hand-made Obsidian vault to the check below — so it was held to the whole
+ * note list, including the entry page no distribution ships, and a correct
+ * container reported missing notes forever (docs/DEFECTS.md, Д-57). The seed
+ * says what it is; the marker is in `public-seed.manifest.json` and lands at
+ * the root of whatever it seeds.
+ */
+export const SEEDED_DISTRIBUTION_MARKER = "PUBLIC_SEED.md";
+
+/**
+ * Whether this root was seeded from the public distribution rather than built
+ * by hand in Obsidian.
+ *
+ * @param {string} vaultRoot
+ * @param {(target: string) => boolean} [exists]
+ * @returns {boolean}
+ */
+export function seededDistribution(vaultRoot, exists = existsSync) {
+  return exists(path.join(path.resolve(vaultRoot), SEEDED_DISTRIBUTION_MARKER));
+}
+
+/**
  * Whether this root is a real vault rather than the bundled seed a checkout
  * falls back to. The MCP tree is the thing a vault has and a checkout does not.
  *
@@ -79,9 +104,12 @@ export function vaultCarriesRuntime(vaultRoot, exists = existsSync) {
 export function resolveRuntimeNote({ relative, vaultRoot, repositoryRoot, exists = existsSync }) {
   const inVault = path.join(path.resolve(vaultRoot), ...String(relative).split("/"));
   if (exists(inVault)) return { path: inVault, source: "vault" };
-  // A real vault is held to the whole list; only a checkout is read through the
-  // repository layout, and only for the notes that have a place in it.
-  if (vaultCarriesRuntime(vaultRoot, exists)) return { path: inVault, source: "missing" };
+  // A real vault is held to the whole list; a checkout and a seeded container
+  // volume are read through the repository layout instead, and only for the
+  // notes that have a place in it.
+  if (vaultCarriesRuntime(vaultRoot, exists) && !seededDistribution(vaultRoot, exists)) {
+    return { path: inVault, source: "missing" };
+  }
   if (VAULT_ONLY_NOTES.includes(relative)) return { path: inVault, source: "not-applicable" };
   const mapped = RUNTIME_NOTE_LAYOUTS[relative];
   // Not mapped and not vault-only: a note the runtime generates into whichever

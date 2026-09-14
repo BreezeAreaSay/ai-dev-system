@@ -24,6 +24,14 @@ import {
   renderFirstRunReport,
   venvPythonPath
 } from "../src/core/first-run.mjs";
+import {
+  createRequiredActions,
+  parseToolResult as parseResult,
+  readRequiredState,
+  requiredArtefactPaths,
+  runFirstRunPlan,
+  summarizeToolResult as summarize
+} from "./first-run-steps.mjs";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = path.resolve(serverRoot, "..");
@@ -94,22 +102,19 @@ const modelDir = process.env.BGE_M3_MODEL_DIR
 const venvDir = path.join(embeddingsDir, ".venv");
 const densePython = process.env.AI_DEV_PYTHON || venvPythonPath({ venvDir, exists: existsSync });
 
-const registriesDir = path.join(vaultRoot, "03-skills-catalog", "registries");
-const routingReportPath = path.join(registriesDir, "skill-routing-eval.json");
-
-// Asked once and read by both the plan and the report below: a status call
-// walks the vault. A machine without a working Python helper cannot answer it,
-// and that is a reason to rebuild rather than to stop before the first step.
-const indexStatus = existsSync(searchIndexPath)
-  ? await callTool("search_index_status", { include_external_project_files: true })
-    .then(parseResult)
-    .catch(() => null)
-  : null;
+// The three steps no install can do without are built by the same code the
+// container entrypoint runs, so the two paths cannot drift apart again
+// (docs/DEFECTS.md, Д-57). What is on disk is read the same way too.
+const artefacts = requiredArtefactPaths({ vaultRoot, searchIndexPath });
+const { indexStatus, present: requiredPresent, stale: requiredStale } = await readRequiredState({
+  paths: artefacts,
+  callTool,
+  serverRoot,
+  skillRoutingEvalCasesPath
+});
 
 const present = {
-  skill_registry: existsSync(path.join(registriesDir, "skills.index.json")),
-  search_index: existsSync(searchIndexPath),
-  routing_benchmark: existsSync(routingReportPath),
+  ...requiredPresent,
   frontend_qa: existsSync(path.join(repositoryRoot, "frontend-qa", "node_modules")),
   dense_model: existsSync(path.join(modelDir, "pytorch_model.bin")),
   dense_index: Number(indexStatus?.dense_documents || 0) > 0
@@ -117,28 +122,7 @@ const present = {
 
 /** What each step actually does. Every one of them is idempotent. */
 const ACTIONS = {
-  async skill_registry() {
-    const result = await callTool("rebuild_index", {});
-    return summarize(result, (doc) => `${doc.total ?? doc.count ?? doc.skills ?? "?"} skill(s) indexed`);
-  },
-  async search_index() {
-    const result = await callTool("rebuild_search_index", {
-      include_external_project_files: true,
-      dense_embeddings: false,
-      preserve_dense: true
-    });
-    return summarize(result, (doc) => (
-      `${doc.indexed_document_count ?? doc.current_document_count ?? doc.documents ?? "?"} document(s) indexed`
-    ));
-  },
-  async routing_benchmark() {
-    const result = await callTool("run_skill_routing_eval", {});
-    return summarize(result, (doc) => {
-      const passed = doc.summary?.passed ?? doc.passed;
-      const total = doc.summary?.total ?? doc.total;
-      return total === undefined ? "benchmark written" : `${passed}/${total} cases pass`;
-    });
-  },
+  ...createRequiredActions({ callTool }),
   async frontend_qa() {
     const qaRoot = path.join(repositoryRoot, "frontend-qa");
     const hasPnpmLock = existsSync(path.join(qaRoot, "pnpm-lock.yaml"));
@@ -180,53 +164,12 @@ async function hasCommand(command) {
   return code === 0;
 }
 
-function parseResult(result) {
-  const text = result?.content?.find((item) => item.type === "text")?.text ?? "";
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function summarize(result, describe) {
-  const doc = parseResult(result);
-  return doc ? describe(doc) : "done";
-}
-
-async function modifiedAt(target) {
-  const stat = await fs.stat(target).catch(() => null);
-  return stat?.mtimeMs ?? 0;
-}
-
-/**
- * What exists but no longer matches what it was built from.
- *
- * Existence was the only question this asked, so a vault whose notes had moved
- * on since the last build was told "already built" and then, two lines later by
- * the diagnostic in the same run, that its index and its benchmark were stale.
- * Both answers came from the same command. These are the signals the health
- * check itself grades, asked before rather than after.
- */
-async function findStale(present) {
-  const stale = {
-    search_index: Boolean(indexStatus?.stale),
-    // Documents indexed since the last embedding run have no vector, so the
-    // dense half of a hybrid query cannot see them.
-    dense_index: Number(indexStatus?.dense_pending_documents || 0) > 0
-  };
-  if (present.routing_benchmark) {
-    const report = await modifiedAt(routingReportPath);
-    const inputs = await Promise.all([
-      modifiedAt(skillRoutingEvalCasesPath),
-      modifiedAt(path.join(serverRoot, "src", "core", "skill-router.mjs"))
-    ]);
-    stale.routing_benchmark = report < Math.max(...inputs);
-  }
-  return stale;
-}
-
-const stale = await findStale(present);
+const stale = {
+  ...requiredStale,
+  // Documents indexed since the last embedding run have no vector, so the
+  // dense half of a hybrid query cannot see them.
+  dense_index: Number(indexStatus?.dense_pending_documents || 0) > 0
+};
 const plan = planFirstRun({ present, stale, want: options.want, force: options.force });
 console.log(`Vault: ${vaultRoot}`);
 console.log(`Search index: ${searchIndexPath}`);
@@ -234,26 +177,11 @@ console.log(`Dense model: ${modelDir} (interpreter ${densePython})`);
 if (indexStatus) console.log(describeDenseCoverage(indexStatus));
 console.log("");
 
-const results = [];
-for (const step of plan) {
-  if (!step.run) {
-    results.push({ ...step, status: "skipped" });
-    continue;
-  }
-  process.stdout.write(`→ ${step.title}: ${step.detail}\n`);
-  const started = Date.now();
-  try {
-    const reason = await ACTIONS[step.id]();
-    results.push({ ...step, status: "done", reason, duration_ms: Date.now() - started });
-  } catch (error) {
-    results.push({
-      ...step,
-      status: "failed",
-      error: String(error?.message ?? error).split("\n")[0],
-      duration_ms: Date.now() - started
-    });
-  }
-}
+const results = await runFirstRunPlan(
+  plan,
+  ACTIONS,
+  (step) => process.stdout.write(`→ ${step.title}: ${step.detail}\n`)
+);
 
 console.log("");
 console.log(renderFirstRunReport(results));

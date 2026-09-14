@@ -68,6 +68,31 @@ export function cleanEmbedTexts({ texts, text }) {
 }
 
 /**
+ * Whether this deployment was built with the dense stack at all.
+ *
+ * The published image is built with `INSTALL_BGE_M3=0` and the Dockerfile
+ * passes that build argument through to `AI_DEV_DENSE_INSTALLED`, so a
+ * container can say "dense was left out of me on purpose" rather than leaving
+ * the diagnostics to guess from missing files. Outside a container nothing sets
+ * it, and the answer is `null` — not off, just unstated — which lets the caller
+ * fall back to what is on disk (docs/DEFECTS.md, Д-59).
+ *
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {{ installed: boolean|null, reason: string }}
+ */
+export function denseInstallationSignal(env = process.env) {
+  const raw = String(env.AI_DEV_DENSE_INSTALLED ?? "").trim().toLowerCase();
+  if (!raw) return { installed: null, reason: "unset" };
+  if (["0", "false", "no", "off", "disabled"].includes(raw)) {
+    return { installed: false, reason: "image-opt-out" };
+  }
+  if (["1", "true", "yes", "on", "enabled"].includes(raw)) {
+    return { installed: true, reason: "image-opt-in" };
+  }
+  return { installed: null, reason: "unset" };
+}
+
+/**
  * Create the embedding runtime.
  *
  * @param {object} deps
@@ -329,6 +354,16 @@ export function createEmbeddingRuntime({
   } = {}) {
     const resolvedModelDir = resolveModelDir(model_dir);
     const python = pythonCommand();
+    const declared = denseInstallationSignal(process.env);
+    const availability = {
+      search_index: await fileStatus(searchIndexPath),
+      embeddings_python: await fileStatus(python),
+      embed_helper: await fileStatus(embedCliPath),
+      worker_helper: await fileStatus(workerCliPath),
+      model_dir: await fileStatus(resolvedModelDir),
+      model_file: await fileStatus(path.join(resolvedModelDir, "pytorch_model.bin")),
+      modules_file: await fileStatus(path.join(resolvedModelDir, "modules.json"))
+    };
     const workerStates = [...workers.values()].map((state) => ({
       key: state.key,
       pid: state.child.pid,
@@ -353,15 +388,16 @@ export function createEmbeddingRuntime({
         worker_helper: workerCliPath,
         model_dir: resolvedModelDir
       },
-      availability: {
-        search_index: await fileStatus(searchIndexPath),
-        embeddings_python: await fileStatus(python),
-        embed_helper: await fileStatus(embedCliPath),
-        worker_helper: await fileStatus(workerCliPath),
-        model_dir: await fileStatus(resolvedModelDir),
-        model_file: await fileStatus(path.join(resolvedModelDir, "pytorch_model.bin")),
-        modules_file: await fileStatus(path.join(resolvedModelDir, "modules.json"))
-      },
+      availability,
+      // Said outright rather than inferred: an install that never asked for
+      // dense search and one whose Python stack is there but unweighted look
+      // identical in `availability`, and they need different advice.
+      dense: declared.installed === null
+        ? {
+          installed: availability.embeddings_python.exists,
+          reason: availability.embeddings_python.exists ? "interpreter-present" : "not-set-up"
+        }
+        : declared,
       workers: {
         count: workerStates.length,
         states: workerStates

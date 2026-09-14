@@ -381,11 +381,27 @@ const RELATIVE_IMPORT = /(?:^|[\s;(])(?:import|export)\s[^"'`]*?from\s*["'](\.[^
  * because a shipped module imported one the allowlist excluded. The context is
  * checked for that before an image is ever built.
  *
+ * `aliases` exists because the staged tree is not laid out the way the image
+ * is. The Frontend QA runner sits beside the server in the image and imports it
+ * by relative path; in the context the server is under `app/` and the runner
+ * under `runtime/frontend-qa/`, so the same import resolves nowhere and the
+ * check would be red by construction. An alias states the one correspondence
+ * the Dockerfile creates, and nothing else is forgiven: the runner's import was
+ * broken in the published image for exactly this reason, undetected because
+ * only `app/` was ever walked (docs/DEFECTS.md, Д-56).
+ *
  * @param {string} root - Directory to walk, e.g. the staged `app/`.
+ * @param {object} [options]
+ * @param {Array<[string, string]>} [options.aliases] - `[from, to]` absolute path
+ *   prefixes; a resolved import starting with `from` is also looked for under `to`.
  * @returns {Promise<Array<{ file: string, specifier: string, resolved: string }>>}
  */
-export async function findDanglingImports(root) {
+export async function findDanglingImports(root, { aliases = [] } = {}) {
   const base = path.resolve(root);
+  const rewrites = aliases.map(([from, to]) => [path.resolve(from), path.resolve(to)]);
+  const alternatives = (target) => rewrites
+    .filter(([from]) => target === from || target.startsWith(`${from}${path.sep}`))
+    .map(([from, to]) => path.join(to, path.relative(from, target)));
   const findings = [];
   const walk = async (directory) => {
     const entries = await fs.readdir(directory, { withFileTypes: true }).catch(() => []);
@@ -402,9 +418,9 @@ export async function findDanglingImports(root) {
         const specifier = match[1] ?? match[2] ?? match[3];
         if (!specifier) continue;
         const target = path.resolve(path.dirname(absolute), specifier);
-        const candidates = path.extname(target)
-          ? [target]
-          : [`${target}.mjs`, `${target}.js`, path.join(target, "index.mjs"), path.join(target, "index.js")];
+        const candidates = [target, ...alternatives(target)].flatMap((item) => (path.extname(item)
+          ? [item]
+          : [`${item}.mjs`, `${item}.js`, path.join(item, "index.mjs"), path.join(item, "index.js")]));
         const exists = await Promise.all(candidates.map((item) => fs.stat(item).then(() => true).catch(() => false)));
         if (exists.some(Boolean)) continue;
         findings.push({

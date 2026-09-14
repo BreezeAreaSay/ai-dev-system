@@ -9,6 +9,7 @@
  * the System Dashboard renders.
  */
 import { dashboardSourceFingerprint } from "./system-dashboard.mjs";
+import { LAUNCH_MISSING_FILE, LAUNCH_UNKNOWN } from "./frontend-qa-launch.mjs";
 
 /**
  * The `mcp-stdio.mjs` line budget. `scripts/static-quality.mjs` enforces it and
@@ -38,34 +39,6 @@ export const REQUIRED_SYSTEM_NOTES = Object.freeze([
   // used to name "03-skills-catalog/Skill Cards.md", which nothing writes, so
   // the check reported a note missing that could never appear.
   "03-skills-catalog/registries/SKILL_CARDS.md"
-]);
-
-/** Availability keys the BGE-M3 backend needs before dense search can run. */
-export const EMBEDDING_BACKEND_REQUIREMENTS = Object.freeze([
-  "search_index",
-  "embeddings_python",
-  "embed_helper",
-  "worker_helper",
-  "model_dir",
-  "model_file",
-  "modules_file"
-]);
-
-/**
- * The requirements that arrive only with the optional dense step.
- *
- * The helpers ship with the repository; the Python environment and the weights
- * are built by `npm run setup -- --dense` — the step's own description calls it
- * "a Python environment plus 2.3 GB of weights" — so a clone that never asked
- * for them is not broken. Reporting their absence as a failure met every new
- * user with "Health: fail" on a correct install, measured on a clean clone on
- * both Linux and Windows.
- */
-export const EMBEDDING_MODEL_REQUIREMENTS = Object.freeze([
-  "embeddings_python",
-  "model_dir",
-  "model_file",
-  "modules_file"
 ]);
 
 /** Search presets every install must expose. */
@@ -276,7 +249,7 @@ export function evaluateFrontendQaRunner({ runner, manifest, artifactsRoot }) {
 }
 
 /**
- * @param {{ playwright_available?: boolean, chromium_available?: boolean, browser_launch_ok?: boolean, playwright_source?: string, launch_error?: string }} status
+ * @param {{ playwright_available?: boolean, chromium_available?: boolean, browser_launch_ok?: boolean, playwright_source?: string, launch_error?: string, launch_failure?: string }} status
  */
 export function evaluateFrontendQaEnvironment(status) {
   const ready = status.playwright_available && status.chromium_available && status.browser_launch_ok;
@@ -288,6 +261,24 @@ export function evaluateFrontendQaEnvironment(status) {
     status.chromium_available && !status.browser_launch_ok ? "a browser that launches" : ""
   ].filter(Boolean).join(" and ");
   const because = String(status.launch_error || "").replace(/\s+/g, " ").trim();
+  // A runner that could not start says nothing about Playwright, and reading
+  // its three `false`s as "the optional install was skipped" is how a container
+  // with Playwright in it was told to install Playwright (docs/DEFECTS.md,
+  // Д-56). A file the runner imports being absent is a broken install.
+  if (status.launch_failure === LAUNCH_MISSING_FILE) {
+    return {
+      status: "fail",
+      summary: `The Frontend QA runner is broken and never started. ${because}`,
+      details: status
+    };
+  }
+  if (status.launch_failure === LAUNCH_UNKNOWN) {
+    return {
+      status: "warn",
+      summary: `The Frontend QA runner did not start. ${because}`,
+      details: status
+    };
+  }
   // Nothing installed at all is the opt-in step nobody ran, not a fault: the
   // runner ships, its browser does not. Playwright present but its browser
   // missing is a real half-configured state, and stays a warning.
@@ -304,45 +295,6 @@ export function evaluateFrontendQaEnvironment(status) {
       ? `Playwright Chromium is ready from ${status.playwright_source || "runner"}.`
       : `Frontend QA cannot run: ${missing || "its browser"} is missing.${because ? ` ${because}` : ""}`,
     details: status
-  };
-}
-
-/**
- * @param {object} status - `embedding_status` payload.
- */
-export function evaluateEmbeddingBackend(status) {
-  const missing = EMBEDDING_BACKEND_REQUIREMENTS.filter((key) => !status.availability?.[key]?.exists);
-  // Everything missing is model weights, and those are an opt-in download: the
-  // install is correct, dense search simply is not set up. Anything else
-  // missing is a shipped file that should be there, which is a real failure.
-  const onlyModel = missing.length > 0 && missing.every((key) => EMBEDDING_MODEL_REQUIREMENTS.includes(key));
-  if (onlyModel) {
-    return {
-      status: "skipped",
-      summary: "Dense search is not set up: the model weights were never downloaded. Run `npm run setup -- --dense` to enable it.",
-      details: { missing, optional: true, availability: status.availability, workers: status.workers }
-    };
-  }
-  if (missing.length) {
-    return {
-      status: "fail",
-      summary: `Embedding backend is missing required files: ${missing.join(", ")}.`,
-      details: { missing, availability: status.availability, workers: status.workers }
-    };
-  }
-  return {
-    status: "ok",
-    summary: status.workers.count > 0
-      ? `Embedding backend files exist; ${status.workers.count} worker(s) currently tracked.`
-      : "Embedding backend files exist; worker is not started yet.",
-    details: {
-      backend: status.backend,
-      dense_model: status.dense_model,
-      dense_dimensions: status.dense_dimensions,
-      configured_device: status.configured_device,
-      workers: status.workers,
-      paths: status.paths
-    }
   };
 }
 

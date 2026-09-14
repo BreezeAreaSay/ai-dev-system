@@ -33,6 +33,13 @@ SEMANTIC_DIMENSIONS = 1024
 MAX_VECTOR_FEATURES = 512
 DENSE_MODEL_NAME = "BAAI/bge-m3"
 DENSE_DIMENSIONS = 1024
+# Where a dense vector came from. Two exports of one model, and two dtypes of
+# one export, do not produce comparable vectors, so a cached vector is only
+# reusable when every one of these still matches (docs/DEFECTS.md, Д-62).
+DENSE_PROVENANCE_COLUMNS = ("backend", "revision", "dtype")
+LEGACY_DENSE_BACKEND = "python"
+LEGACY_DENSE_DTYPE = "fp32"
+UNPINNED_REVISION = "unpinned"
 DEFAULT_DENSE_TEXT_LIMIT = 1200
 HYBRID_CANDIDATE_LIMIT = 500
 def _default_dense_model_dir():
@@ -475,14 +482,24 @@ def load_existing_dense_cache(index_path):
             return {}
         columns = {row[1] for row in con.execute("PRAGMA table_info(dense_vectors)").fetchall()}
         required = {"id", "vector", "dimensions", "model", "content_hash", "mtime"}
+        required.update(DENSE_PROVENANCE_COLUMNS)
+        # An index written before vectors carried their provenance cannot say
+        # which backend produced them, so none of it is reusable: returning an
+        # empty cache re-embeds everything once, which is exactly what a change
+        # of vector space requires.
         if not required.issubset(columns):
             return {}
         cache = {}
-        for row in con.execute("SELECT id, vector, dimensions, model, content_hash, mtime FROM dense_vectors"):
+        for row in con.execute(
+            "SELECT id, vector, dimensions, model, backend, revision, dtype, content_hash, mtime FROM dense_vectors"
+        ):
             cache[row["id"]] = {
                 "vector": row["vector"],
                 "dimensions": int(row["dimensions"]),
                 "model": row["model"],
+                "backend": row["backend"],
+                "revision": row["revision"],
+                "dtype": row["dtype"],
                 "content_hash": row["content_hash"],
                 "mtime": float(row["mtime"] or 0.0),
             }
@@ -510,18 +527,38 @@ def load_existing_meta(index_path):
     return read_existing_index(index_path, read)
 
 
+def dense_provenance(args):
+    """What this run's vectors are, so a later run can tell whether they still fit."""
+    return {
+        "model": DENSE_MODEL_NAME,
+        "dimensions": DENSE_DIMENSIONS,
+        "backend": getattr(args, "dense_backend", LEGACY_DENSE_BACKEND) or LEGACY_DENSE_BACKEND,
+        "revision": getattr(args, "dense_revision", "") or UNPINNED_REVISION,
+        "dtype": getattr(args, "dense_dtype", "") or LEGACY_DENSE_DTYPE,
+    }
+
+
+def dense_cache_hit(cached, record, provenance):
+    """Whether a cached vector may stand in for this record, unchanged."""
+    if not cached:
+        return False
+    if cached.get("content_hash") != record["content_hash"]:
+        return False
+    if cached.get("model") != provenance["model"]:
+        return False
+    if int(cached.get("dimensions") or 0) != provenance["dimensions"]:
+        return False
+    return all(cached.get(column) == provenance[column] for column in DENSE_PROVENANCE_COLUMNS)
+
+
 def preserve_existing_dense_vectors(docs, args, index_path):
     records = dense_doc_records(docs, args)
     cache = load_existing_dense_cache(index_path)
+    provenance = dense_provenance(args)
     vectors = {}
     for record in records:
         cached = cache.get(record["id"])
-        if (
-            cached
-            and cached.get("model") == DENSE_MODEL_NAME
-            and cached.get("dimensions") == DENSE_DIMENSIONS
-            and cached.get("content_hash") == record["content_hash"]
-        ):
+        if dense_cache_hit(cached, record, provenance):
             vectors[record["id"]] = {
                 "vector": cached["vector"],
                 "content_hash": record["content_hash"],
@@ -563,32 +600,67 @@ def encode_dense_texts(model, texts, batch_size=8, progress=False):
     return [dense_vector_to_blob(row) for row in embeddings]
 
 
+def load_supplied_dense_vectors(path_value):
+    """Vectors embedded outside this process, keyed by document id.
+
+    The ONNX backend runs in Node (docs/DEFECTS.md, Д-62), so for that path this
+    helper never loads a model at all: it is handed the numbers and only writes
+    them. Each entry carries the content hash it was embedded from, so a
+    document edited between the plan and the rebuild is left pending rather than
+    stored against text it no longer has.
+    """
+    with open(path_value, "r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    supplied = {}
+    for entry in payload.get("vectors") or []:
+        values = entry.get("vector") or []
+        if len(values) != DENSE_DIMENSIONS:
+            continue
+        supplied[entry["id"]] = {
+            "content_hash": entry.get("content_hash", ""),
+            "blob": dense_vector_to_blob(values),
+        }
+    return supplied
+
+
 def build_dense_vectors(docs, args, index_path=None):
     records = dense_doc_records(docs, args)
     cache = load_existing_dense_cache(index_path) if getattr(args, "dense_incremental", True) else {}
+    provenance = dense_provenance(args)
+    supplied_path = getattr(args, "dense_vectors_json", "") or ""
+    supplied = load_supplied_dense_vectors(supplied_path) if supplied_path else {}
     vectors = {}
     to_encode = []
     reused = 0
+    encoded = 0
 
     for record in records:
-        cached = cache.get(record["id"])
-        if (
-            cached
-            and cached.get("model") == DENSE_MODEL_NAME
-            and cached.get("dimensions") == DENSE_DIMENSIONS
-            and cached.get("content_hash") == record["content_hash"]
-        ):
+        if dense_cache_hit(cache.get(record["id"]), record, provenance):
             vectors[record["id"]] = {
-                "vector": cached["vector"],
+                "vector": cache[record["id"]]["vector"],
                 "content_hash": record["content_hash"],
                 "mtime": record["mtime"],
                 "reused": True,
             }
             reused += 1
-        else:
-            to_encode.append(record)
+            continue
+        offered = supplied.get(record["id"])
+        if offered is not None:
+            if offered["content_hash"] != record["content_hash"]:
+                continue
+            vectors[record["id"]] = {
+                "vector": offered["blob"],
+                "content_hash": record["content_hash"],
+                "mtime": record["mtime"],
+                "reused": False,
+            }
+            encoded += 1
+            continue
+        to_encode.append(record)
 
-    if to_encode:
+    # Nothing is loaded when the vectors arrived from outside: a run that was
+    # given every vector it needed must not import torch to confirm it.
+    if to_encode and not supplied_path:
         model = load_dense_model(args.dense_model_dir, args.dense_device)
         blobs = encode_dense_texts(
             model,
@@ -603,12 +675,40 @@ def build_dense_vectors(docs, args, index_path=None):
                 "mtime": record["mtime"],
                 "reused": False,
             }
+        encoded += len(to_encode)
+        to_encode = []
 
     return vectors, {
         "eligible": len(records),
         "reused": reused,
-        "encoded": len(to_encode),
+        "encoded": encoded,
+        "pending": len(records) - reused - encoded,
     }
+
+
+def dense_plan(args):
+    """Which documents still need a vector, for a backend that lives elsewhere.
+
+    The sqlite writer is here and the ONNX model is in Node, so the two halves
+    meet over two files: this prints the passages needing work, and the rebuild
+    that follows is handed their vectors through --dense-vectors-json.
+    """
+    docs = collect_documents(Path(args.vault_root), args.include_external_project_files)
+    records = dense_doc_records(docs, args)
+    cache = load_existing_dense_cache(args.index_path) if getattr(args, "dense_incremental", True) else {}
+    provenance = dense_provenance(args)
+    pending = [record for record in records if not dense_cache_hit(cache.get(record["id"]), record, provenance)]
+    print_json({
+        "index_path": str(args.index_path),
+        "document_count": len(docs),
+        "eligible": len(records),
+        "reusable": len(records) - len(pending),
+        "provenance": provenance,
+        "records": [
+            {"id": record["id"], "text": record["text"], "content_hash": record["content_hash"]}
+            for record in pending
+        ],
+    })
 
 
 def build_dense_query_vector(query, model_dir, device):
@@ -907,6 +1007,9 @@ def index_status(args):
             reasons.append("source_fingerprint_mismatch")
 
         dense_enabled = meta.get("dense_enabled", "false").lower() == "true"
+        dense_backend = meta.get("dense_backend", "")
+        dense_revision = meta.get("dense_revision", "")
+        dense_dtype = meta.get("dense_dtype", "")
         dense_documents = int(meta.get("dense_documents", "0") or 0)
         dense_pending = int(meta.get("dense_pending_documents", "0") or 0)
         print_json({
@@ -928,6 +1031,9 @@ def index_status(args):
             "source_fingerprint": current_fingerprint,
             "indexed_fingerprint": indexed_fingerprint,
             "dense_enabled": dense_enabled,
+            "dense_backend": dense_backend,
+            "dense_revision": dense_revision,
+            "dense_dtype": dense_dtype,
             "dense_documents": dense_documents,
             "dense_pending_documents": dense_pending,
         })
@@ -957,10 +1063,13 @@ def rebuild_locked(args):
 
     dense_vectors = {}
     dense_stats = {"eligible": 0, "reused": 0, "encoded": 0, "pending": 0}
+    dense_run_provenance = dense_provenance(args)
     dense_started = time.time()
     if args.dense_embeddings:
+        # Not forced to zero any more: with the vectors embedded outside this
+        # process, a document edited between the plan and the rebuild really is
+        # still pending, and saying so is what makes the next run pick it up.
         dense_vectors, dense_stats = build_dense_vectors(docs, args, index_path)
-        dense_stats["pending"] = 0
     elif preserve_dense:
         dense_vectors, dense_stats = preserve_existing_dense_vectors(docs, args, index_path)
     dense_active = bool(args.dense_embeddings or preserve_dense)
@@ -1006,6 +1115,9 @@ def rebuild_locked(args):
           vector BLOB NOT NULL,
           dimensions INTEGER NOT NULL,
           model TEXT NOT NULL,
+          backend TEXT NOT NULL,
+          revision TEXT NOT NULL,
+          dtype TEXT NOT NULL,
           content_hash TEXT NOT NULL,
           mtime REAL NOT NULL
         );
@@ -1062,12 +1174,16 @@ def rebuild_locked(args):
             else:
                 dense_encoded_documents += 1
             con.execute(
-                "INSERT INTO dense_vectors(id, vector, dimensions, model, content_hash, mtime) VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO dense_vectors(id, vector, dimensions, model, backend, revision, dtype, content_hash, mtime)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     doc["id"],
                     dense_entry["vector"],
                     DENSE_DIMENSIONS,
                     DENSE_MODEL_NAME,
+                    dense_run_provenance["backend"],
+                    dense_run_provenance["revision"],
+                    dense_run_provenance["dtype"],
                     dense_entry["content_hash"],
                     dense_entry["mtime"],
                 ),
@@ -1089,6 +1205,9 @@ def rebuild_locked(args):
     con.execute("INSERT INTO meta(key, value) VALUES ('dense_model', ?)", (DENSE_MODEL_NAME,))
     con.execute("INSERT INTO meta(key, value) VALUES ('dense_model_dir', ?)", (str(Path(args.dense_model_dir).expanduser()),))
     con.execute("INSERT INTO meta(key, value) VALUES ('dense_dimensions', ?)", (str(DENSE_DIMENSIONS),))
+    con.execute("INSERT INTO meta(key, value) VALUES ('dense_backend', ?)", (dense_run_provenance["backend"],))
+    con.execute("INSERT INTO meta(key, value) VALUES ('dense_revision', ?)", (dense_run_provenance["revision"],))
+    con.execute("INSERT INTO meta(key, value) VALUES ('dense_dtype', ?)", (dense_run_provenance["dtype"],))
     con.execute("INSERT INTO meta(key, value) VALUES ('dense_documents', ?)", (str(dense_documents),))
     con.execute("INSERT INTO meta(key, value) VALUES ('dense_reused_documents', ?)", (str(dense_reused_documents),))
     con.execute("INSERT INTO meta(key, value) VALUES ('dense_encoded_documents', ?)", (str(dense_encoded_documents),))
@@ -1121,6 +1240,9 @@ def rebuild_locked(args):
         "dense_dimensions": DENSE_DIMENSIONS if dense_active else 0,
         "dense_seconds": dense_seconds,
         "dense_model": DENSE_MODEL_NAME if dense_active else "",
+        "dense_backend": dense_run_provenance["backend"] if dense_active else "",
+        "dense_revision": dense_run_provenance["revision"] if dense_active else "",
+        "dense_dtype": dense_run_provenance["dtype"] if dense_active else "",
         "by_scope": by_scope,
     })
 
@@ -1627,7 +1749,26 @@ def main():
     rebuild_parser.add_argument("--dense-include-membrane", action="store_true")
     rebuild_parser.add_argument("--no-dense-incremental", action="store_false", dest="dense_incremental")
     rebuild_parser.add_argument("--preserve-dense", action="store_true")
+    # Where the vectors came from. The ONNX backend embeds in Node and hands the
+    # numbers over through --dense-vectors-json; the legacy path leaves these at
+    # their defaults and loads the model here (docs/DEFECTS.md, Д-62).
+    rebuild_parser.add_argument("--dense-backend", default=LEGACY_DENSE_BACKEND)
+    rebuild_parser.add_argument("--dense-revision", default="")
+    rebuild_parser.add_argument("--dense-dtype", default="")
+    rebuild_parser.add_argument("--dense-vectors-json", default="")
     rebuild_parser.set_defaults(dense_incremental=True, func=rebuild)
+
+    plan_parser = sub.add_parser("dense-plan")
+    plan_parser.add_argument("--vault-root", required=True)
+    plan_parser.add_argument("--index-path", required=True)
+    plan_parser.add_argument("--include-external-project-files", action="store_true")
+    plan_parser.add_argument("--dense-text-limit", type=int, default=DEFAULT_DENSE_TEXT_LIMIT)
+    plan_parser.add_argument("--dense-include-membrane", action="store_true")
+    plan_parser.add_argument("--no-dense-incremental", action="store_false", dest="dense_incremental")
+    plan_parser.add_argument("--dense-backend", default=LEGACY_DENSE_BACKEND)
+    plan_parser.add_argument("--dense-revision", default="")
+    plan_parser.add_argument("--dense-dtype", default="")
+    plan_parser.set_defaults(dense_incremental=True, func=dense_plan)
 
     status_parser = sub.add_parser("status")
     status_parser.add_argument("--vault-root", required=True)

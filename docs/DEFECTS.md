@@ -34,7 +34,10 @@
 - **Пачка H — мелочи, найденные при проверке первого захода:** Д-63 (свежая установка не
   бывает `ok`), Д-64 (`cargo_audit` считается установленным по `cargo`), Д-65 (временный каталог
   smoke без `trap`), Д-66 (README ссылается на несуществующий репозиторий taste-skill), Д-67
-  (Docker-путь не смотрит на `engines.node` проекта).
+  (Docker-путь не смотрит на `engines.node` проекта) — **все пять закрыты**. У Д-63 и Д-65
+  замеры из записей исправлены по факту: у Д-63 предупреждений было два, а не три, у Д-65 течёт
+  SIGTERM, а не Ctrl-C. Итоговые счётчики в абзаце выше не трогал — их двигать тому, кто сольёт
+  пачки.
 
 Д-5 закрыт решением владельца: CI форка не нужен, проверка идёт через PR в апстрим.
 
@@ -3128,14 +3131,14 @@ GitHub закрыты сетевой политикой; доступны тол
 
 ## Д-63. Свежая установка не бывает `ok` — по конструкции двух проверок
 
-**Статус:** открыт. Пачка H. Найден при проверке пачки B.
+**Статус:** закрыт. Пачка H. Найден при проверке пачки B.
 
-После Д-57 свежий том даёт `degraded`: ok 15 / warn 3 / fail 0. Два из трёх предупреждений —
-не про установку. `skill_quality: report missing` — отчёт качества скиллов пишет только
-одноимённый инструмент с `write_report` (`extensions/skills.mjs:222`), и ни `npm run setup`, ни
-entrypoint его не вызывают. `project_registry: Project registry has no project cards yet` —
-`evaluateProjectRegistry` (`system-health.mjs:477`) отдаёт `warn` при нуле проектов, а на свежей
-установке проектов и не может быть. Третье предупреждение — Chromium в песочнице; в образе его нет.
+После Д-57 свежий том даёт `degraded`. Предупреждения не про установку.
+`skill_quality: report missing` — отчёт качества скиллов пишет только `validate_skill_library`
+с `write_report` (`extensions/skills.mjs:222`), и ни `npm run setup`, ни entrypoint его не
+вызывают. `project_registry: Project registry has no project cards yet` —
+`evaluateProjectRegistry` (`system-health.mjs`) отдаёт `warn` при нуле проектов, а на свежей
+установке проектов и не может быть.
 
 **Чем грозит.** `ok` недостижим ни для одной свежей установки. Пользователь привыкает читать
 `degraded` как норму — и пропустит настоящее.
@@ -3144,12 +3147,50 @@ entrypoint его не вызывают. `project_registry: Project registry has
 точек входа (Д-57 сделал их одним списком, тест это сторожит). `evaluateProjectRegistry` — `ok`
 при нуле проектов с текстом «проектов ещё нет; `bootstrap_project` регистрирует их».
 
-**Проверка.** Эмуляция из Д-57: `status=ok` в образе; в песочнице — единственный `warn` про
-Chromium. Повторный старт ничего не перестраивает.
+**Поправка к замеру.** В записи стояло «ok 15 / warn 3 / fail 0» и третьим предупреждением —
+Chromium в песочнице. На дереве после мержа пачек A–E воспроизводится не это: `frontend_qa_environment`
+и `embedding_backend` теперь отдают `skipped`, а не `warn`, поэтому замер до правки —
+**ok 16 / warn 2 / fail 0**, и оба предупреждения ровно те два, о которых запись. Побочный
+результат: после правки `ok` достижим и в песочнице, а не только в образе.
+
+**Замер до** (эмуляция свежего образа без Docker, `system_health_check`):
+
+```
+status: degraded   ok 16 / warn 2 / fail 0 / skipped 4
+warn  skill_quality     Skill quality is incomplete: … report missing.
+warn  project_registry  Project registry has no project cards yet.
+```
+
+**Замер после** (та же эмуляция, тот же вызов):
+
+```
+status: ok         ok 18 / warn 0 / fail 0 / skipped 4
+```
+
+Второй старт того же тома: `0 built, 7 skipped, 0 failed`, health по-прежнему
+`ok  ok 18 / warn 0 / fail 0 / skipped 4` — перестраивать нечего.
+
+**Как закрыто.** `skill_quality_report` — четвёртый обязательный шаг `FIRST_RUN_STEPS`; обе точки
+входа берут список оттуда, поэтому `scripts/first-run.mjs` менять не пришлось. Шаг зовёт
+`validate_skill_library` с `write_report: true` и `include_duplicates: false` (дорогая половина
+установке не нужна). Идемпотентность — по времени: отчёт не старше реестра не перестраивается.
+
+Шаг стоит **до** построения поискового индекса, а не после. Первая редакция ставила его
+четвёртым, и эмуляция дала `degraded` снова — уже с `search_index_freshness: Search index is
+stale: 1 added`: отчёт пишет заметку `Skill Quality Dashboard.md` в хранилище, и построенный
+после индекса он оставлял индекс несвежим ровно в момент окончания первого запуска. Это тот же
+капкан, о котором предупреждает комментарий в `scripts/docker-bootstrap.mjs`. Порядок закреплён
+отдельным тестом.
+
+`evaluateProjectRegistry` при нуле проектов отдаёт `ok` с текстом
+«no projects registered yet; `bootstrap_project` registers one».
+
+Тесты на падение проверены: на коде до правки падают шесть из семи в
+`scripts/first-run-steps.test.mjs` и тест о пустом реестре в `system-health.test.mjs`.
 
 ## Д-64. `security_scanners` считает `cargo_audit` установленным по наличию `cargo`
 
-**Статус:** открыт. Пачка H. Найден при проверке пачки D.
+**Статус:** закрыт. Пачка H. Найден при проверке пачки D.
 
 `evaluateSecurityScanners` (`security-scan.mjs`) берёт доступность по `locateExecutable` на
 `SECURITY_SCANNERS[].executable`; у `cargo_audit` это `cargo`, а `cargo audit` — отдельный плагин
@@ -3164,26 +3205,99 @@ Chromium. Повторный старт ничего не перестраива
 **Что делать.** Для сканеров-подкоманд доступность — по пробному вызову (`cargo audit --version`)
 через process runner, `shell: false`; для отдельных бинарников — как сейчас. Тест на оба исхода.
 
-**Проверка.** Тот же вызов → «1 of 6 …: npm_audit»; shim `cargo` с работающим `audit` → 2.
+**Замер до** (эта машина: `cargo 1.94.1` на PATH, плагина нет; `cargo audit --version` →
+``error: no such command: `audit` ``; живой сервер, `system_health_check`):
+
+```
+security_scanners  ok  2 of 6 security scanners installed: npm_audit, cargo_audit.
+```
+
+**Замер после** (та же машина, тот же вызов):
+
+```
+security_scanners  ok  1 of 6 security scanners installed: npm_audit.
+missing_reasons.cargo_audit: cargo is installed but `cargo audit` is not — error: no such command: `audit`
+```
+
+**Встречная проба** (shim `cargo`, у которого `audit` отвечает; тот же вызов):
+
+```
+security_scanners  ok  2 of 6 security scanners installed: npm_audit, cargo_audit.
+missing_reasons.cargo_audit: (none)
+```
+
+**Как закрыто.** Сканер, который является подкомандой другого инструмента, объявляет в
+`SECURITY_SCANNERS` поле `probeArgs` — это описание, а не спецслучай в коде. `scannerAvailability`
+сперва ищет исполняемый файл, и только для таких сканеров делает пробный вызов через process
+runner: массив аргументов, `shell: false`, `SCANNER_PROBE_TIMEOUT_MS` = 10 секунд, во временном
+каталоге, а не в проекте вызывающего. Сканеры-самостоятельные бинарники не изменились и не
+пробуются вовсе. Пробный вызов, который упал, завис или бросил, оставляет сканер недоступным, а не
+ломает проверку.
+
+Сверх записи: `details.missing_reasons` называет причину отсутствия, когда она содержательнее
+«нет на PATH». «У вас есть cargo, но нет cargo-audit» — другой разрыв и другое исправление, чем
+«у вас нет Rust», и именно эта путаница и есть Д-64.
+
+Тесты проверены на падение: мутацией (убрать `probeArgs` у `cargo_audit`) падают три из четырёх
+новых тестов, включая тот, что требует «1 of 6».
 
 ## Д-65. Smoke-проверка `bootstrap.sh` оставляет временный каталог при прерывании
 
-**Статус:** открыт. Пачка H. Найден при ревью пачки A.
+**Статус:** закрыт. Пачка H. Найден при ревью пачки A.
 
 Fast-start smoke (Д-58) создаёт `mktemp -d "${TMPDIR:-/tmp}/ai-dev-smoke.XXXXXX"` и удаляет его
-явно в каждой ветке; `trap` нет. Ctrl-C во время ожидания лаунчера — а ждать он может долго, если
-контейнер не отвечает, — оставляет каталог в `/tmp`.
+явно в каждой ветке; `trap` нет. Прерывание во время ожидания лаунчера — а ждать он может долго,
+если контейнер не отвечает, — оставляет каталог в `/tmp`.
 
 **Чем грозит.** Мусор в `/tmp`. Мелочь, но это установщик — первое, что видит пользователь.
 
 **Что делать.** `trap 'rm -rf "$smoke_dir"' EXIT INT TERM` сразу после `mktemp`, явные `rm`
 убрать. В `bootstrap.ps1` — `try/finally`, проверить, что там симметрично.
 
-**Проверка.** Shim `docker`, SIGINT в момент smoke → каталога `ai-dev-smoke.*` нет.
+**Поправка к замеру.** Запись называла сигналом Ctrl-C. Ctrl-C утечки не даёт — проверено
+на `dash` и на `bash`, сигналом и в процесс, и во всю группу процессов: `|| smoke_status=$?`
+ловит убитый лаунчер, скрипт доходит до своей же ветки очистки и выходит с кодом 70, каталога не
+остаётся. Течёт то, что убивает сам скрипт, не дав ему дойти до `rm`: **SIGTERM** (закрытая
+вкладка терминала, `kill`) и SIGHUP. SIGKILL не чинится ничем и не чинится здесь.
+
+**Замер до** (shim `docker`, лаунчер-заглушка `sleep 60`, `TMPDIR` во временном каталоге;
+сигнал в момент ожидания лаунчера):
+
+```
+dash  TERM parent  LEAKED -> ai-dev-smoke.Xqe9cU
+dash  TERM group   LEAKED -> ai-dev-smoke.V7L9m9
+dash  INT  group   cleaned up      ← Ctrl-C и до правки не тёк
+bash  INT  group   cleaned up
+```
+
+**Замер после** (та же раскладка, восемь сочетаний оболочки, сигнала и цели):
+
+```
+dash TERM parent / TERM group / INT parent / INT group  → cleaned up
+bash TERM parent / TERM group / INT parent / INT group  → cleaned up
+```
+
+**Как закрыто.** Три `trap` сразу после `mktemp`: `EXIT` убирает каталог на любом выходе, `INT` и
+`TERM` убирают его и завершают скрипт (130 и 143) — голый `trap … EXIT INT TERM` из записи после
+обработчика продолжил бы выполнение, то есть скрипт шёл бы дальше вопреки просьбе остановиться.
+Все три явных `rm -rf` убраны.
+
+Коды выхода и `--plan` проверены: `--plan` даёт байт в байт тот же вывод (302 байта, `cmp`
+молчит) — он и не может пострадать, потому что выходит на 79-й строке, задолго до smoke;
+`bootstrap-contract.test.mjs` зелёный, включая обе проверки выхода 69 на устаревшем образе; новый
+тест требует выхода 70 на упавшем smoke и пустого `TMPDIR` после него.
+
+`bootstrap.ps1` менять нечего и симметрия не нарушена: его smoke держит ответ в переменной
+`$response` и временного каталога не создаёт вовсе — удалять нечего.
+
+Тест проверен на падение: на `bootstrap.sh` до правки «an interrupted smoke check takes its
+temporary directory with it» падает с «the interrupted smoke check left its directory behind».
+На Windows тест пропускается — группы процессов и POSIX-сигналы туда не переносятся, и своего
+лаунчера скрипт Windows не запускает (**не проверено на Windows**).
 
 ## Д-66. README ссылается на несуществующий репозиторий taste-skill
 
-**Статус:** открыт. Пачка H. Найден при разборе PR #55.
+**Статус:** закрыт. Пачка H. Найден при разборе PR #55.
 
 PR #55 превратил три названия источников скиллов в ссылки; для taste-skill — на
 `github.com/tt-a1i/taste-skill`. `THIRD_PARTY_NOTICES.md:9` даёт источник
@@ -3198,11 +3312,39 @@ PR #55 превратил три названия источников скил�
 ссылка на источник скиллов в README есть среди `Source:` в `THIRD_PARTY_NOTICES.md` — тогда такое
 расхождение не проживёт до PR.
 
-**Проверка.** `grep` обоих README и notices дают один владелец; тест краснеет на `tt-a1i`.
+**Замер до** (`git ls-remote` и `grep` в этой песочнице):
+
+```
+Leonxlnx/taste-skill  EXISTS
+tt-a1i/taste-skill    NOT FOUND (rc=128)
+README.md:181     …[taste-skill](https://github.com/tt-a1i/taste-skill)…
+README.ru.md:180  …[taste-skill](https://github.com/tt-a1i/taste-skill)…
+скрипт-сторож: # tests 2  # pass 1  # fail 1
+```
+
+**Замер после** (те же команды):
+
+```
+README.md:181     …[taste-skill](https://github.com/Leonxlnx/taste-skill)…
+README.ru.md:180  …[taste-skill](https://github.com/Leonxlnx/taste-skill)…
+скрипт-сторож: # tests 2  # pass 2  # fail 0
+```
+
+**Как закрыто.** Обе ссылки исправлены. Сторож — `scripts/skill-source-links.test.mjs`: каждая
+ссылка вида `https://github.com/<владелец>/<репозиторий>` в обоих README должна быть среди строк
+`- Source:` в `THIRD_PARTY_NOTICES.md`; второй тест требует, чтобы оба README ссылались на один и
+тот же набор репозиториев. Правило работает потому, что все шесть ссылок GitHub в README — это
+ссылки на источники скиллов; ссылке не на источник в этом абзаце и не место, а если такая
+понадобится, она попадёт в notices, а не в исключение в тесте.
+
+Тест проверен на падение на коде до правки: краснеет именно на `tt-a1i/taste-skill`.
+Существование репозиториев проверено `git ls-remote` (`Leonxlnx/taste-skill`, `tt-a1i/archify`,
+`nextlevelbuilder/ui-ux-pro-max-skill` — есть; `tt-a1i/taste-skill` — нет). Сторож существования
+репозитория не проверяет: сеть в гейте не нужна и не будет.
 
 ## Д-67. Docker-путь исполняет команды проекта Node образа, не глядя на `engines.node` проекта
 
-**Статус:** открыт. Пачка H. Решение по заметке владельцу из Д-54: предупреждать, не блокировать.
+**Статус:** закрыт. Пачка H. Решение по заметке владельцу из Д-54: предупреждать, не блокировать.
 
 В контейнере команды гейта исполняет Node образа (24). Д-54 добавил в результат `runtime.node`,
 но если `package.json` проекта говорит `"engines": { "node": "20" }`, никто это с `runtime.node` не
@@ -3221,3 +3363,71 @@ PR #55 превратил три названия источников скил�
 
 **Проверка.** Тот же проект → предупреждение; `engines.node: "22"` под Node 22 → тишина; диапазон
 `>=18` под Node 24 → тишина.
+
+**Поправка к замеру.** Node в песочнице — 22.22.2, не 24; в образе 24. Расхождение мажоров то же
+самое, замер снят под 22.
+
+**Замер до** (проект из Д-54 с `"engines": {"node": "20"}`, живой сервер, `run_quality_gate`):
+
+```
+status  : failed
+runtime : {"node":"v22.22.2","exec_path":"/opt/node22/bin/node"}
+runtime.engines_mismatch: null          ← о расхождении ни слова
+```
+
+**Замер после** (тот же проект, тот же вызов):
+
+```
+status  : failed
+runtime : {"node":"v22.22.2","exec_path":"/opt/node22/bin/node",
+           "engines":{"declared":"20","satisfied":false},
+           "engines_mismatch":{"declared":"20","running":"v22.22.2","message":"This project
+             declares engines.node 20; the quality gate ran its commands on Node v22.22.2. …
+             This is a warning: the gate ran everything it was asked to."}}
+```
+
+**Встречные пробы** (тот же инструмент, тот же проект, меняется только `engines.node`):
+
+```
+"22"     → engines:{declared:"22",satisfied:true}     engines_mismatch: null
+">=18"   → engines:{declared:">=18",satisfied:true}   engines_mismatch: null
+(нет)    → runtime без поля engines                   engines_mismatch: null
+"lts/*"  → engines:{declared:"lts/*",satisfied:null}  engines_mismatch: null   ← не разобран, не тревога
+```
+
+**`verify_task`** (тот же проект, `begin_task` + `verify_task`), дайджест проверок:
+
+```
+до:    detail: { output: "Error: Cannot find module …", hint: "Node >= 21 treats …" }
+после: detail: { output: …, hint: …,
+                 engines_mismatch: { declared: "20", running: "v22.22.2", message: … } }
+```
+
+И на проекте, чей гейт **проходит**, с `engines.node: "20"` под Node 22:
+
+```
+{ type: "quality_gate", status: "passed", detail: { engines_mismatch: { declared: "20", … } } }
+```
+
+`verificationPassed` при этом по-прежнему `true`: предупреждение, не блокировка.
+
+**Как закрыто.** Разбор диапазонов — свой, без зависимостей, в `quality-gate-runner.mjs`:
+`parseEngineRange` даёт альтернативы (`||`), каждая — набор полуоткрытых интервалов; читаются
+`20`, `^20`, `~20.1`, `>=20`, `>20`, `<21`, `<=20`, `20.x`, `*`, `18 || 20`, `>=18 <21` и
+сочетания. `engineMatches(range, version)` отвечает `true`, `false` или `null`. `null` — это
+«не разобран»: дефисные диапазоны (`18 - 20`), `lts/*`, `20.x.1`, пустая строка, нечитаемая
+версия. Неразобранное не даёт ни утверждения, ни тревоги — выдуманное из ошибки разбора
+предупреждение хуже молчания, которое оно заменяет.
+
+`engineAgreement` в `runQualityGate` читает `package.json` проекта (непарсящийся `package.json` —
+проблема проекта, и не эта проверка место её поднимать) и кладёт в `runtime.engines` пару
+`{ declared, satisfied }`, а `runtime.engines_mismatch` — только когда `satisfied === false`.
+
+Сверх записи: `verificationCheckSummary` теперь оставляет `detail` и у **прошедшей** проверки,
+если в нём есть `engines_mismatch`. Иначе предупреждение было бы видно только тогда, когда и без
+него что-то уже упало, — а это не предупреждение. Всё остальное на прошедшей проверке
+по-прежнему молчит.
+
+Разбор закреплён 41 случаем (23 принимаемых, 18 отвергаемых) плюс 10 неразбираемых. Тесты
+проверены на падение: на коде до правки падает и разбор (модуль не экспортирует функций), и тест
+`verify_task` о переносе предупреждения в дайджест.

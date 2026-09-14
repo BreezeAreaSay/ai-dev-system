@@ -229,6 +229,25 @@ sh ./docker/run-mcp.sh
 The process waits for MCP messages on standard input. That is expected: end the
 check with `Ctrl+C`, then wire the launcher command into an MCP client.
 
+### 4. What the container runs your checks with
+
+In the container, `run_quality_gate` and `verify_task` execute the commands from
+your project's `.ai-dev/quality-gate.md` with the **image's** Node — currently
+24 — not the Node you have installed. A command that behaves differently across
+Node majors will therefore disagree with your own terminal, and the gate is not
+what made it disagree. `node --test test/` is the usual one: since Node 21 the
+positional arguments are glob patterns, so the directory is executed as a test
+file and the script fails by itself, where under Node 20 it passed.
+
+`run_quality_gate` reports which Node ran the commands as `runtime.node` and
+`runtime.exec_path`, and a failed command carries a `hint` when the cause is one
+the gate recognizes. It does not rewrite your commands for you.
+
+The container also runs with `--network none`, and of the six security scanners
+only `gitleaks` — which is in the image — works with no network at all. So a
+scan there is one scanner, not six; `docker/README.md` has the full matrix. A
+scan in which not one scanner ran comes back `unchecked`, never `pass`.
+
 ## Connecting AI agents
 
 In every case, replace `C:\ABSOLUTE\PATH` with the absolute path to your clone of

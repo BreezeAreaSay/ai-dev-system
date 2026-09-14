@@ -6,6 +6,7 @@ import {
   QUALITY_GATE_MAX_COMMANDS,
   QUALITY_GATE_MAX_TIMEOUT_MS,
   cleanQualityCommand,
+  diagnoseQualityCommandFailure,
   normalizeQualityLabel,
   parseQualityGateCommands,
   qualityCommandBlockReason,
@@ -184,4 +185,69 @@ test("the report names every command, and an empty run says so", () => {
   assert.match(empty, /\| None \| \. \|  \| no commands run \|  \|/);
   assert.match(empty, /- No matching diagram specifications\./);
   assert.equal(/## Blocked Commands/.test(empty), false);
+});
+
+// Д-54: `node --test test/` fails on its own under Node >= 21, and the gate
+// passed the failure through without anything that named the cause.
+test("a `node --test <directory>` run that never reached a test is diagnosed", () => {
+  // What npm actually prints: it echoes the script, and the runner reports the
+  // directory as an unresolvable module before any test body runs.
+  const npmOutput = [
+    "",
+    "> repro47@1.0.0 test",
+    "> node --test test/",
+    "",
+    "TAP version 13",
+    "# node:internal/modules/cjs/loader:1386",
+    "#   throw err;",
+    "# Error: Cannot find module '/home/dev/repro47/test'",
+    "# Node.js v24.21.0",
+    "not ok 1 - test",
+    "# fail 1"
+  ].join("\n");
+
+  assert.match(
+    diagnoseQualityCommandFailure({ command: "npm run test", stdout: npmOutput }),
+    /glob patterns.*Use `node --test`/s
+  );
+  // The same diagnosis when the gate file names the command directly.
+  assert.match(
+    diagnoseQualityCommandFailure({
+      command: "node --test test/",
+      stderr: "Error: Cannot find module '/home/dev/repro47/test'"
+    }),
+    /glob patterns/
+  );
+  // Windows spells the resolved path with backslashes.
+  assert.match(
+    diagnoseQualityCommandFailure({
+      command: "node --test tests\\",
+      stderr: "Error: Cannot find module 'C:\\repo\\tests'"
+    }),
+    /glob patterns/
+  );
+});
+
+test("an ordinary failure is left to speak for itself", () => {
+  // A test that ran and failed says nothing about globs.
+  assert.equal(diagnoseQualityCommandFailure({
+    command: "npm test",
+    stdout: "not ok 1 - sum\n  AssertionError: 4 !== 5\n# fail 1"
+  }), "");
+  // A missing dependency is a module Node could not find, but not the operand.
+  assert.equal(diagnoseQualityCommandFailure({
+    command: "node --test test/",
+    stderr: "Error: Cannot find module 'chai'"
+  }), "");
+  // The glob spelling is what the hint recommends, so it never earns the hint.
+  assert.equal(diagnoseQualityCommandFailure({
+    command: 'node --test "test/**/*.test.js"',
+    stderr: "Error: Cannot find module '/home/dev/repro47/test/**/*.test.js'"
+  }), "");
+  // A command that is not `node --test` at all.
+  assert.equal(diagnoseQualityCommandFailure({
+    command: "vitest run test/",
+    stderr: "Error: Cannot find module '/home/dev/repro47/test'"
+  }), "");
+  assert.equal(diagnoseQualityCommandFailure(), "");
 });

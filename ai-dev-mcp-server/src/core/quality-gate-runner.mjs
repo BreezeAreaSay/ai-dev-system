@@ -214,3 +214,72 @@ export function qualityGateStatus({ dryRun, parsed, results, blocked, diagramSpe
   if (!results.length) return "no_commands_run";
   return "passed";
 }
+
+/**
+ * What to tell an agent about a `node --test <directory>` run that failed
+ * before any test body executed.
+ *
+ * Node 21 made the positional arguments of `node --test` glob patterns. A bare
+ * directory then matches itself, and the runner executes the directory as if it
+ * were a test file, so a suite that passes under `node --test` fails under
+ * `node --test test/` with a module-resolution error and nothing that names the
+ * cause (docs/DEFECTS.md, Д-54).
+ */
+export const NODE_TEST_DIRECTORY_HINT = "Node >= 21 treats positional arguments as glob patterns; a directory is run as a test file. Use `node --test` or `node --test \"test/**/*.test.js\"`.";
+
+/** Every module path a `Cannot find module` line in this output names. */
+function moduleNotFoundNames(output) {
+  return [...String(output).matchAll(/Cannot find module ['"]([^'"]+)['"]/g)].map((match) => match[1]);
+}
+
+/**
+ * The positional operands of every `node --test` invocation this text shows.
+ *
+ * The gate runs what the project wrote down, which is usually `npm run test`;
+ * the `node --test …` line is then in the output, because npm echoes the script
+ * it is about to run. So command and output are read the same way, and the TAP
+ * and npm line prefixes (`#`, `>`) are stripped first.
+ */
+function nodeTestOperands(text) {
+  const operands = [];
+  for (const rawLine of String(text).split(/\r?\n/)) {
+    const tokens = rawLine.replace(/^[\s>#]+/, "").trim().split(/\s+/).filter(Boolean);
+    const nodeAt = tokens.findIndex((token) => /(?:^|[\\/])node(?:\.exe)?$/i.test(token.replace(/^["']|["']$/g, "")));
+    if (nodeAt < 0) continue;
+    const testAt = tokens.indexOf("--test", nodeAt + 1);
+    if (testAt < 0) continue;
+    for (const token of tokens.slice(testAt + 1)) {
+      if (token.startsWith("-")) continue;
+      operands.push(token.replace(/^["']|["']$/g, ""));
+    }
+  }
+  return operands;
+}
+
+/**
+ * The hint for one failed command, or `""` when there is nothing certain to
+ * say.
+ *
+ * Deliberately narrow: a hint is produced only when the operand Node could not
+ * resolve is the very operand the command handed to `--test`. An ordinary
+ * failing test says nothing about globs and gets no hint, and a command already
+ * written as a glob is the spelling this hint recommends.
+ *
+ * @param {{ command?: string, stdout?: string, stderr?: string }} run
+ * @returns {string} The hint, or `""`.
+ */
+export function diagnoseQualityCommandFailure({ command = "", stdout = "", stderr = "" } = {}) {
+  const output = `${stdout}\n${stderr}`;
+  const missing = moduleNotFoundNames(output);
+  if (!missing.length) return "";
+  for (const operand of nodeTestOperands(`${command}\n${output}`)) {
+    const bare = operand.replace(/[\\/]+$/, "");
+    if (!bare || /[*?]/.test(bare)) continue;
+    const named = missing.some((name) => {
+      const resolved = name.replaceAll("\\", "/");
+      return resolved === bare || resolved.endsWith(`/${bare.replaceAll("\\", "/")}`);
+    });
+    if (named) return NODE_TEST_DIRECTORY_HINT;
+  }
+  return "";
+}

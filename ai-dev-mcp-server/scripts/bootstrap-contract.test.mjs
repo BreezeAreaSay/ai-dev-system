@@ -59,3 +59,40 @@ test("Unix bootstrap keeps local source builds explicit", async (context) => {
     await fs.rm(home, { recursive: true, force: true });
   }
 });
+
+// bootstrap.sh runs the launcher for its fast-start smoke check, the Dockerfile
+// runs the entrypoint, and the packaged launcher is run by the installed
+// command. All four were committed as 100644 once (docs/DEFECTS.md Д-58); the
+// repository does store the bit, so the mode is asserted rather than trusted.
+test("the shell scripts that get executed are committed as executable", async (context) => {
+  const executables = [
+    "bootstrap.sh",
+    "docker/run-mcp.sh",
+    "docker/entrypoint.sh",
+    "packaging/launcher.sh"
+  ];
+  const result = spawnSync("git", ["ls-files", "-s", "--", ...executables], {
+    cwd: repositoryRoot,
+    encoding: "utf8"
+  });
+  if (result.error?.code === "ENOENT") {
+    context.skip("git is unavailable on this host");
+    return;
+  }
+  if (result.status !== 0) {
+    context.skip(`git ls-files failed: ${result.stderr.trim()}`);
+    return;
+  }
+  const modes = new Map(
+    result.stdout
+      .split("\n")
+      .filter((line) => line.trim() !== "")
+      .map((line) => {
+        const [meta, file] = line.split("\t");
+        return [file, meta.split(" ")[0]];
+      })
+  );
+  for (const file of executables) {
+    assert.equal(modes.get(file), "100755", `${file} is not committed as executable`);
+  }
+});

@@ -237,10 +237,29 @@ if [ "$skip_smoke" -ne 1 ]; then
     exit 70
   fi
   printf '%s\n' "Running fast-start MCP stdio smoke check..."
-  if ! printf '%s\n' "$init" | AI_DEV_RUNTIME_CONTAINER="$runtime_container" "$launcher" | grep -q '"serverInfo"'; then
-    printf '%s\n' "Fast-start MCP stdio smoke check failed." >&2
+  # The launcher is invoked through `sh` rather than executed: a download of
+  # this repository as a zip archive drops the execute bit, and the failure
+  # that produces is reported here as a smoke failure (docs/DEFECTS.md Д-58).
+  # A pipeline exits with the status of its last command, so the launcher's own
+  # status has to be captured separately to tell "the launcher never ran" apart
+  # from "the server answered something other than serverInfo".
+  smoke_dir=$(mktemp -d "${TMPDIR:-/tmp}/ai-dev-smoke.XXXXXX")
+  smoke_output="${smoke_dir}/fast-start.json"
+  smoke_status=0
+  printf '%s\n' "$init" | AI_DEV_RUNTIME_CONTAINER="$runtime_container" sh "$launcher" \
+    > "$smoke_output" || smoke_status=$?
+  if [ "$smoke_status" -ne 0 ]; then
+    rm -rf "$smoke_dir"
+    printf '%s\n' "Fast-start MCP launcher ${launcher} exited with status ${smoke_status} without answering." >&2
+    printf '%s\n' "The runtime container ${runtime_container} is already running; re-run with --skip-smoke to finish the install, or check the launcher above." >&2
     exit 70
   fi
+  if ! grep -q '"serverInfo"' "$smoke_output"; then
+    rm -rf "$smoke_dir"
+    printf '%s\n' "Fast-start MCP launcher ${launcher} ran, but the server did not answer with serverInfo." >&2
+    exit 70
+  fi
+  rm -rf "$smoke_dir"
 fi
 
 if [ "$skip_client_install" -ne 1 ]; then

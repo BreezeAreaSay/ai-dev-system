@@ -18,6 +18,15 @@ By contributing you agree that your contributions are licensed under the
 | `docker/` | launchers, compose files, and `public-seed/` (the clean bundled vault) |
 | `packaging/` | Arch `PKGBUILD` and Homebrew formula |
 | `embeddings/`, `frontend-qa/`, `search-eval/` | Python and Playwright helpers |
+| `docs/`, `docs/ru/` | the guides the two READMEs link to, in English and Russian |
+
+`README.md` and `README.ru.md` answer what the project is and why to install it;
+they stay short on purpose. Reference material belongs in `docs/`, and a change
+to one language's document should be mirrored in the other.
+
+A new tool needs a home in two places, and CI enforces both: a documentation
+group in `scripts/render-tool-reference.mjs`, and a capability profile in
+`src/core/tool-profiles.mjs`. Run `npm run docs:tools` after adding one.
 
 The full Obsidian vault this server normally reads is **not** in this repository.
 A standalone checkout resolves its content root to `docker/public-seed`.
@@ -130,7 +139,8 @@ PR checklist:
 - [ ] new behaviour has tests; `src/core/` additions have JSDoc
 - [ ] `CHANGELOG.md` updated
 - [ ] no personal data, secrets, or machine-specific paths
-- [ ] docs updated (`README.md`, `README.ru.md`, or `ai-dev-mcp-server/README.md`)
+- [ ] docs updated (`README.md` / `README.ru.md` for the product story,
+      `docs/` and `docs/ru/` for the detail, or `ai-dev-mcp-server/README.md`)
 
 ## Reporting bugs and security issues
 

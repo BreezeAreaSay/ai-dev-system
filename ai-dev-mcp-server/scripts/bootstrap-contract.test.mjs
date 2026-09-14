@@ -19,10 +19,12 @@ const shell = process.platform === "win32"
     ].find((candidate) => candidate && existsSync(candidate)) || "sh"
   : "sh";
 
+// AI_DEV_MODEL_PATH is blanked: both installers read it as the default model
+// folder, and a developer who has it set is not what these plans are about.
 function plan(args, home) {
   return spawnSync(shell, [bootstrap, "--plan", "--project-path", path.join(home, "projects"), ...args], {
     encoding: "utf8",
-    env: { ...process.env, HOME: home }
+    env: { ...process.env, HOME: home, AI_DEV_MODEL_PATH: "" }
   });
 }
 
@@ -376,5 +378,66 @@ test("the pre-Д-62 value of the model path — the model directory itself — i
     assert.equal(result.recorded, "", "the runtime container was started despite the refusal");
   } finally {
     await fs.rm(oldStyle, { recursive: true, force: true });
+  }
+});
+
+// The Windows installer, through pwsh where it exists (the ubuntu and macOS
+// runners carry it too). `-Plan` failed on the first CI run because its
+// document was stored in `$plan`, which is the switch itself under
+// PowerShell's case-insensitive names (docs/DEFECTS.md Д-70); this is the
+// test that would have said so before the Windows job did.
+const bootstrapPowerShell = path.join(repositoryRoot, "bootstrap.ps1");
+
+function runPowerShellBootstrap(args, home) {
+  return spawnSync("pwsh", ["-NoLogo", "-NonInteractive", "-File", bootstrapPowerShell, "-ProjectPath", path.join(home, "projects"), ...args], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, AI_DEV_MODEL_PATH: "" }
+  });
+}
+
+test("the PowerShell plan renders, and carries model_path only when -ModelPath is given", async (context) => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-ps-"));
+  try {
+    const bare = runPowerShellBootstrap(["-Plan"], home);
+    if (bare.error?.code === "ENOENT") {
+      context.skip("pwsh is unavailable on this host");
+      return;
+    }
+    assert.equal(bare.status, 0, `stdout: ${bare.stdout}\nstderr: ${bare.stderr}`);
+    const output = JSON.parse(bare.stdout);
+    assert.equal(output.image, "ghcr.io/stonebridgeway/ai-dev-system:latest");
+    assert.equal(output.build_local, false);
+    assert.equal("model_path" in output, false);
+
+    const withModels = runPowerShellBootstrap(["-Plan", "-ModelPath", path.join(home, "models")], home);
+    assert.equal(withModels.status, 0, withModels.stderr);
+    assert.equal(JSON.parse(withModels.stdout).model_path, path.join(home, "models"));
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("the PowerShell installer refuses the pre-Д-62 model path before it looks for Docker", async (context) => {
+  // A validation that let this through would go on to Ensure-Docker, which on
+  // Windows may start Docker Desktop; the refusal is asserted where it cannot.
+  if (process.platform === "win32") {
+    context.skip("Ensure-Docker has side effects on Windows");
+    return;
+  }
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-ps-"));
+  const oldStyle = path.join(home, "bge-m3");
+  await fs.mkdir(oldStyle);
+  await fs.writeFile(path.join(oldStyle, "pytorch_model.bin"), "");
+  try {
+    const result = runPowerShellBootstrap(["-SkipSmoke", "-SkipClientInstall", "-ModelPath", oldStyle], home);
+    if (result.error?.code === "ENOENT") {
+      context.skip("pwsh is unavailable on this host");
+      return;
+    }
+    assert.equal(result.status, 1, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+    assert.match(result.stderr, /holds model files itself \(pytorch_model\.bin\)/);
+    assert.match(result.stderr, /bge-m3-onnx/, "the message does not say what the folder should contain");
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
   }
 });

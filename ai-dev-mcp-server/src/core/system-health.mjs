@@ -17,7 +17,7 @@ import { dashboardSourceFingerprint } from "./system-dashboard.mjs";
  *
  * It is a ratchet: the file's actual size plus roughly 300 lines of working
  * room, re-pinned downwards after each extraction and never upwards. Stage 1 of
- * docs/ecc-upgrades/PLAN.md took the file from 10,018 lines to 4,776 across six
+ * the modularity work took the file from 10,018 lines to 4,776 across six
  * steps; this is that size plus the working room. New capabilities go into
  * `src/extensions/` rather than here, so the budget only has to cover editing
  * what is left.

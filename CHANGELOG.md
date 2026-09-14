@@ -35,14 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The README leads with what the system is for.** It was 745 lines that opened
-  with a release summary and an inventory; a reader could not tell in the first
-  minute which problem the project solves. It is now 171 lines: the problem, one
-  task end to end, install, a first task, the eight profiles, how it works, and
-  links. The reference material it carried moved, unchanged, into `docs/` —
+- **The README leads with what the system is for.** It had grown to 871 lines and
+  opened with a release summary and an inventory; a reader could not tell in the
+  first minute which problem the project solves. It is now 181 lines: the problem,
+  one task end to end, install, a first task, the eight profiles, how it works,
+  and links. The reference material it carried moved, unchanged, into `docs/` —
   `INSTALL.md`, `WORKFLOW.md`, `GUARDRAILS.md`, `CAPABILITIES.md`, `DEMO.md` —
   with `README.ru.md` and `docs/ru/` mirroring it. Nothing was deleted; the two
-  READMEs and the ten documents behind them cover what the two READMEs did.
+  READMEs and the ten documents behind them cover what the two READMEs did,
+  the local-first install path and the local model in a container included.
 
 
 ## [2.0.0] - 2026-09-13
@@ -84,7 +85,11 @@ this release.
 - **Windows is a supported platform.** Byte-exact snapshots, platform-native
   worktree paths, the interpreter that actually exists, a shell-free `npm`, and
   one memory key per project rather than one per machine.
-- **976 tests, 0 failures**, coverage 97.0 / 83.8 / 94.8 against thresholds
+- **The local model runs in a container.** The Python side is a build argument
+  (`INSTALL_BGE_M3=1`), the weights mount read-only at `/models/bge-m3` from
+  either the launcher scripts or Compose, and both READMEs carry the whole path
+  end to end — including a four-line Dockerfile for baking the weights in.
+- **978 tests, 0 failures**, coverage 97.05 / 83.83 / 94.79 against thresholds
   85 / 60 / 85.
 
 **Breaking**
@@ -108,6 +113,34 @@ this release.
   migrated; sessions, instincts and handoffs recorded there start fresh.
 
 
+
+### Fixed — the sweep that removed the notes also found this
+
+- **Eight tests that shipped and never ran.**
+  `search-index/test_search_freshness.py` covers the SQLite search helper —
+  freshness detection, the rebuild lock, dense-vector preservation on a fast
+  rebuild, the candidate pool, and the collapse rules that keep a skill card and
+  its source out of the results twice. `node --test` cannot see them: they are
+  Python. No npm script and no CI job ran them, so they gated nothing while
+  looking like coverage. `npm run check` runs them now (and
+  `npm run test:search-helper` on its own), and CI runs the same suite directly
+  on a runner that always has Python. A checkout without Python gets a skip that
+  names the reason, never a failure, and tells "no interpreter" apart from "the
+  one you named does not answer" (Д-53).
+
+### Removed
+
+- **The working notes are no longer in the repository.** `docs/ecc-upgrades/`
+  held the development record — a staged plan, per-stage implementation
+  journals, the prompts written for verification agents, pull-request bodies,
+  handoffs, a code map made obsolete by the architecture document. 41 files and
+  14,492 lines that answered questions nobody installing this has. They remain
+  in the git history; they are simply not part of what you clone.
+
+  One file earned its place and stays, moved and renamed: the defect registry,
+  now `docs/DEFECTS.md`. Every defect found in this project is there with the
+  measurement that reproduced it and the measurement after the fix, open entries
+  beside closed ones, and 28 comments in the source cite it by entry number.
 
 ### Fixed
 
@@ -159,6 +192,21 @@ this release.
   forward from the checkout and refuses to write a seed that is missing any of
   them. A rebuild reproduces the committed seed byte for byte.
 
+- **The local model works in a container, and the instructions say how.** Dense
+  retrieval hung on `AI_DEV_MODEL_PATH`, which only the launcher scripts read:
+  Compose had no `/models` mount and no mention of the variable, while the
+  README explained it in the section about Compose. A reader following that got
+  a container where `BGE_M3_MODEL_DIR=/models/bge-m3` pointed at nothing, and
+  the failure was quiet — `embedding_backend` says `skipped`, which reads as
+  "you did not download the model" rather than "the mount is missing".
+  `compose.local.example.yaml` now carries the mount against the same variable
+  the launchers use, and both READMEs and `docker/README.md` carry the whole
+  path end to end: the `INSTALL_BGE_M3=1` build argument, the one host command
+  that downloads the weights, both ways to run it, a four-line Dockerfile for
+  baking the weights into an image of your own, and the two keys that say
+  whether it worked. `network_mode: none` is no obstacle — the embedding helpers
+  set `TRANSFORMERS_OFFLINE=1` and `HF_HUB_OFFLINE=1` before loading.
+
 - **A seed rebuild no longer breaks archify.** Nested vendored dependencies
   (`archify/node_modules/ajv/node_modules/fast-uri`, 34 tracked files) were
   dropped by the copy: the approval pattern matches a distribution-root path
@@ -185,6 +233,18 @@ this release.
   modules. `tool-profile.mjs`, `project-trust.mjs` and `scripts/models.mjs`
   are still there, unported (Д-42).
 
+
+- **A root `AGENTS.md`.** The project whose whole purpose is putting protocols
+  into the file every assistant reads had none of its own: no `AGENTS.md`, no
+  `CLAUDE.md`, no `GEMINI.md`, no `.clinerules`. The rules this work was held to
+  lived in whoever was working — new tools only as extensions and never
+  importing `mcp-stdio.mjs`, the 800-line module ceiling and its two pinned
+  exceptions, fake secrets in tests assembled by concatenation because a literal
+  trips the security scan, the deliberate duplication in `hooks/` because those
+  files run inside other people's repositories, a defect written down with a
+  measurement before and after, and a session that ends with ten gate runs
+  rather than one. Written by hand: here the file is the source, not
+  `install_project_rules`'s output (Д-43).
 
 - **`npm run acceptance`**: the rule this project ends a session on, as a
   command. Ten consecutive `npm run check` runs and the line "N падений из 10",
@@ -358,7 +418,7 @@ this release.
   (`min_quality_score`, default 75). `dry_run: true` reports the plan without
   writing. The result and the generated `upstream.json` record how many skills
   were imported and why each of the rest was left out.
-- **ECC skill catalogue** as `external/ecc` (`docs/ecc-upgrades/PLAN.md`, item
+- **ECC skill catalogue** as `external/ecc` (the imported-catalogue work, item
   3.1): 101 of ECC's 291 skills (MIT, pinned to a commit), among them
   `tdd-workflow`, `api-design`, `contract-first`, `hexagonal-architecture`,
   `intent-driven-development`, `database-migrations`, `error-handling`,
@@ -1028,7 +1088,7 @@ this release.
   reads the root's extensions. New stack labels with it: `F#`, `Perl` and
   `ArkTS/HarmonyOS`, plus rule packs for `perl` and `fsharp` — `arkts` is
   deliberately still unwritten, for the reason recorded in
-  docs/ecc-upgrades/DEBTS.md, Д-18.
+  docs/DEFECTS.md, Д-18.
 
 - **The static gate's size rules had no test.** Its five branches — a module
   over the ceiling, a pinned module that grew, a pinned module back under the
@@ -1336,7 +1396,7 @@ this release.
 ### Fixed
 
 - `save_session` accepts both spellings of the failure reason. ECC's
-  save-session prompt (and the example in `docs/ecc-upgrades/09-session-memory.md`)
+  save-session prompt (and its worked example)
   writes `failed: [{ approach, why }]` while the schema said `reason`, so the
   explanation was silently dropped and `resume_session` printed "reason not
   recorded". `why` is now normalized into `reason`; the examples and the file

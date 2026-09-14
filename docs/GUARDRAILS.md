@@ -7,13 +7,6 @@ than only to the tools an agent chooses to call, the policy file that tunes
 them, an inventory of what your agents are wired to, and what stays on your
 machine.
 
-## Contents
-
-- [Hooks](#hooks)
-- [Rules without hand-editing JSON](#rules-without-hand-editing-json)
-- [What your agents are wired to](#what-your-agents-are-wired-to)
-- [Local data and security](#local-data-and-security)
-
 ## Hooks
 
 `install_agent_hooks` wires the server's guard rails into the agent itself, so
@@ -117,7 +110,7 @@ own rules:
 
 `event` is `bash`, `file`, or `all`; `action` is `block` or `warn`.
 
-## Rules without hand-editing JSON
+### Rules without hand-editing JSON
 
 A rule nobody proved fires is a rule that silently does nothing, and the guard
 says nothing about one: a pattern that does not compile, an event it never

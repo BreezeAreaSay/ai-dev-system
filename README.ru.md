@@ -60,19 +60,29 @@ API», по шагам, включая падение проверки и исп
 
 ## Установка
 
-Одна команда после `git clone`. Она доставит недостающее, скачает образ и
-зарегистрирует сервер в клиентах, которые вы назовёте.
+**Локально, из клона** — нужен Node.js 22.12+ и больше ничего:
+
+```bash
+cd ai-dev-mcp-server
+npm ci --ignore-scripts --no-audit --no-fund
+npm run setup
+```
+
+Затем направьте MCP-клиент на `ai-dev-mcp-server/src/server.mjs` и перезапустите
+его. Это вся установка, и на своей машине стоит идти именно этим путём:
+локальная dense-модель здесь — один флаг (`npm run setup -- --dense`), а в
+упакованном варианте это отдельная сборка образа.
+
+**В контейнере, через Docker** — для машины, на которой не должно быть личного
+vault, или для команды, которой нужен один образ на всех:
 
 | | |
 | --- | --- |
-| **Windows** | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1` |
-| **macOS / Linux** | `sh ./bootstrap.sh` (добавьте `--install-prerequisites`, если нет Docker) |
-| **Из исходников** | `cd ai-dev-mcp-server && npm ci --ignore-scripts && npm run setup` |
+| Windows | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1` |
+| macOS / Linux | `sh ./bootstrap.sh` (добавьте `--install-prerequisites`, если нет Docker) |
 
-Затем перезапустите AI-клиент.
-
-Полная матрица — Docker, Compose, BGE-M3, Arch/AUR, Homebrew, блоки конфигурации
-для каждого клиента и что делать, если не заработало:
+Блоки конфигурации для каждого клиента, Compose, локальная модель в контейнере,
+Arch/AUR, Homebrew и что делать, если не заработало:
 **[docs/ru/INSTALL.md](docs/ru/INSTALL.md)**.
 
 ## Первая задача
@@ -146,18 +156,14 @@ flowchart TB
 | [**Архитектура**](ai-dev-mcp-server/docs/ARCHITECTURE.md) | Как устроен сервер. *(на английском)* |
 | [**История изменений**](CHANGELOG.md) | Что изменилось и что перепроверить после обновления. |
 
-## План развития
-
-Планы развития и заметки об апгрейдах на базе ECC (обоснование, разводка,
-примеры инструментов) — в [docs/ecc-upgrades/](docs/ecc-upgrades/README.md),
-начните с [PLAN.md](docs/ecc-upgrades/PLAN.md).
-
 ## Участие в разработке
 
 [CONTRIBUTING.md](CONTRIBUTING.md) — рабочий процесс, как разделён набор тестов
-между отдельным клоном и полным vault, и какие проверки запускает CI. Участие
-регулируется [Кодексом поведения](CODE_OF_CONDUCT.md). Сообщения об
-уязвимостях: [SECURITY.md](SECURITY.md).
+между отдельным клоном и полным vault, и какие проверки запускает CI. Работаете
+через ИИ-агента? В [AGENTS.md](AGENTS.md) собраны правила, которые агент на этом
+репозитории понимает неверно. Участие регулируется
+[Кодексом поведения](CODE_OF_CONDUCT.md). Сообщения об уязвимостях:
+[SECURITY.md](SECURITY.md).
 
 ## Лицензии
 

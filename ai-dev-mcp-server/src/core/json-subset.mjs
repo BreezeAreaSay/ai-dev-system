@@ -5,7 +5,7 @@
  * user-scope MCP servers — `mcpServers` and `projects[<path>].mcpServers` — and
  * the same file is where Claude Code keeps the conversation history for every
  * project it has ever opened, which on an active machine is tens of megabytes
- * (docs/ecc-upgrades/DEBTS.md, Д-17). `JSON.parse` of the whole document to
+ * (docs/DEFECTS.md, Д-17). `JSON.parse` of the whole document to
  * reach two keys is the wrong amount of work and the wrong amount of memory,
  * and the parsed history sits in the heap for as long as the call lasts.
  *

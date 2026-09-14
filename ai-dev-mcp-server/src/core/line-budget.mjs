@@ -6,7 +6,7 @@
  * Its five branches used to live inside the walk over the tree, which meant the
  * only way to test them was to break a real file on purpose and put it back —
  * a check that happened once, by hand, and could not run again
- * (docs/ecc-upgrades/DEBTS.md, Д-12). A rewrite of the gate that silently
+ * (docs/DEFECTS.md, Д-12). A rewrite of the gate that silently
  * disabled a branch would have passed `npm run check`.
  *
  * So the rules are here, over a list of `{ path, lines }` the caller has

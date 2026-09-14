@@ -148,7 +148,7 @@ function compileError(pattern) {
  * The budget is the point. A pattern that backtracks catastrophically cannot be
  * interrupted in this thread (Node has no such switch), so every match runs in
  * a worker that is killed when it overstays — see `regex-budget.mjs` and
- * docs/ecc-upgrades/DEBTS.md, Д-16. One worker serves the whole batch, so
+ * docs/DEFECTS.md, Д-16. One worker serves the whole batch, so
  * listing a policy costs one thread, not one per rule.
  *
  * The batch also has a deadline, so a policy full of slow rules cannot make
@@ -391,7 +391,7 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false }) {
   // backtracking explodes. So the pattern is also run against input built from
   // its own alphabet, under the same budget the guard uses. `(a|a)+$` matches
   // "aaa" in microseconds and needs 38.8 seconds for twenty-eight characters
-  // and a tail (docs/ecc-upgrades/DEBTS.md, Д-16): the probe is what separates
+  // and a tail (docs/DEFECTS.md, Д-16): the probe is what separates
   // the two, and it needs no list of shapes to recognise.
   if (String(merged.pattern ?? "")) {
     const probes = riskyPatternProbes(merged.pattern);

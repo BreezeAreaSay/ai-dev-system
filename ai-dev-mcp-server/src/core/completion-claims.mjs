@@ -93,7 +93,7 @@ export const RATIONALIZATION_PATTERNS = Object.freeze([
     proof: "Re-run the checks through verify_task so the evidence is bound to the current Git state.",
     // "It works on my machine and in CI" is a person explaining that the two
     // environments agree, which is the opposite of the excuse. Both halves of
-    // the pattern carry the same exemption (docs/ecc-upgrades/DEBTS.md, Д-10).
+    // the pattern carry the same exemption (docs/DEFECTS.md, Д-10).
     pattern: /\bworks?\s+(?:fine\s+|ok(?:ay)?\s+)?on\s+my\s+(?:machine|box|laptop|side|end)\b(?![^.\n]{0,40}\band\s+(?:in|on)\s+ci\b)|\bworks?\s+(?:fine\s+|ok(?:ay)?\s+)?locally\b(?![^.\n]{0,40}\band\s+(?:in|on)\s+ci\b)|у\s+меня\s+(?:вс[её]\s+)?работает|локально\s+(?:вс[её]\s+)?(?:работает|проходит|зелен)/i
   },
   {

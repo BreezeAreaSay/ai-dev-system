@@ -6,13 +6,6 @@ How a task actually runs, what to do when it is too big for one arc, how to undo
 a turn, and what the system remembers between sessions. For a single worked
 example from first command to closed task, see the [demo](DEMO.md).
 
-## Contents
-
-- [Working with the agent](#working-with-the-agent)
-- [Breaking a task up](#breaking-a-task-up)
-- [Undoing a turn](#undoing-a-turn)
-- [Memory and learning](#memory-and-learning)
-
 ## Working with the agent
 
 1. Open the target repository in your MCP client.
@@ -42,7 +35,7 @@ Use the ai-dev MCP server. Begin a task for /workspace/my-project:
 add CSV export for the report, cover the change with tests, and run verify_task.
 ```
 
-## Breaking a task up
+### Breaking a task up
 
 A task too big for one arc becomes an epic. `decompose_task` turns it into a
 parent and a set of children, each opened through `begin_task` — so a child
@@ -70,7 +63,7 @@ evidence that still exists.
 GitHub Issues are not part of this. ECC coordinates epics through issues and
 labels; this server tracks tasks itself and works offline.
 
-## Undoing a turn
+### Undoing a turn
 
 `checkpoint_task` records the whole working tree of the task — tracked changes, staged or
 not, plus the files the agent created — as a snapshot, and `snapshot_task` takes one on
@@ -127,6 +120,6 @@ a session by id, or leave the id out for the newest one; `dry_run` shows the
 candidates without storing any.
 
 `list_instincts` shows what has been learned (`status: "proposed"` for the
-candidates), `update_instinct` confirms or retires one, and `evolve_instincts`
-clusters mature instincts into skill drafts and promotes those seen across
-several projects to global scope.
+candidates), `update_instinct` confirms or
+retires one, and `evolve_instincts` clusters mature instincts into skill drafts
+and promotes those seen across several projects to global scope.

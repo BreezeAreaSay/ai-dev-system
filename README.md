@@ -60,19 +60,30 @@ scene by scene, including the verification failure and the fix.
 
 ## Install
 
-One command after `git clone`. It installs what is missing, pulls the image, and
-registers the server with the clients you name.
+**Locally, from a clone** — Node.js 22.12+ and nothing else:
+
+```bash
+cd ai-dev-mcp-server
+npm ci --ignore-scripts --no-audit --no-fund
+npm run setup
+```
+
+Then point your MCP client at `ai-dev-mcp-server/src/server.mjs` and restart it.
+That is the whole install, and it is the path to take on your own machine: the
+local dense model is one flag here (`npm run setup -- --dense`) and a custom
+image build in the packaged path.
+
+**Packaged, through Docker** — for a machine that should not hold a personal
+vault, or a team that wants one image everybody runs the same way:
 
 | | |
 | --- | --- |
-| **Windows** | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1` |
-| **macOS / Linux** | `sh ./bootstrap.sh` (add `--install-prerequisites` if Docker is missing) |
-| **From source** | `cd ai-dev-mcp-server && npm ci --ignore-scripts && npm run setup` |
+| Windows | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1` |
+| macOS / Linux | `sh ./bootstrap.sh` (add `--install-prerequisites` if Docker is missing) |
 
-Then restart your AI client.
-
-Full matrix — Docker, Compose, BGE-M3, Arch/AUR, Homebrew, every client's config
-block, and what to do when it does not work: **[docs/INSTALL.md](docs/INSTALL.md)**.
+Every client's configuration block, Compose, the local model in a container,
+Arch/AUR, Homebrew, and what to do when it does not work:
+**[docs/INSTALL.md](docs/INSTALL.md)**.
 
 ## Your first task
 
@@ -149,9 +160,8 @@ container runs with no network, no capabilities, and a read-only root filesystem
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, how the test
 suite is split between a standalone checkout and a full vault, and the checks CI
-runs. The improvement plan and the ECC-derived upgrade notes live in
-[docs/ecc-upgrades/](docs/ecc-upgrades/README.md); start with
-[PLAN.md](docs/ecc-upgrades/PLAN.md).
+runs. Working through an AI agent? [AGENTS.md](AGENTS.md) holds the rules an
+agent gets wrong on this repository.
 
 Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 Security reports: [SECURITY.md](SECURITY.md).

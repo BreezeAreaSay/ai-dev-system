@@ -29,7 +29,7 @@ plan.steps.forEach((step, index) => {
   lines.push(`   → ${step.expected}`);
   lines.push("");
 });
-lines.push("Record what you saw in docs/ecc-upgrades/DEBTS.md under Д-2 — a claim checked and");
+lines.push("Record what you saw in docs/DEFECTS.md under Д-2 — a claim checked and");
 lines.push("not written down is a claim nobody else can rely on.");
 console.log(lines.join("\n"));
 process.exitCode = 0;

@@ -37,11 +37,11 @@
     "test:core": "node --import ./test/setup.mjs --test \"src/core/**/*.test.mjs\"",
     "test:coverage": "node --import ./test/setup.mjs --test --experimental-test-coverage --test-coverage-include=src/core/*.mjs --test-coverage-exclude=src/core/*.test.mjs --test-coverage-lines=85 --test-coverage-branches=60 --test-coverage-functions=85",
     "lint": "node scripts/static-quality.mjs",
+    "test:search-helper": "node scripts/run-search-helper-tests.mjs",
     "security": "node scripts/security-check.mjs",
-    "test:legacy": "node --import ./test/setup.mjs --test src/skill-taxonomy.test.mjs src/skill-quality.test.mjs",
     "protocol:smoke": "node scripts/protocol-smoke.mjs",
     "lifecycle:smoke": "node scripts/lifecycle-smoke.mjs",
-    "check": "node scripts/static-quality.mjs && node scripts/ensure-skill-index.mjs && node --import ./test/setup.mjs --test --experimental-test-coverage --test-coverage-include=src/core/*.mjs --test-coverage-exclude=src/core/*.test.mjs --test-coverage-lines=85 --test-coverage-branches=60 --test-coverage-functions=85 && node scripts/security-check.mjs && node scripts/protocol-smoke.mjs && node scripts/lifecycle-smoke.mjs",
+    "check": "node scripts/static-quality.mjs && node scripts/ensure-skill-index.mjs && node --import ./test/setup.mjs --test --experimental-test-coverage --test-coverage-include=src/core/*.mjs --test-coverage-exclude=src/core/*.test.mjs --test-coverage-lines=85 --test-coverage-branches=60 --test-coverage-functions=85 && node scripts/security-check.mjs && node scripts/run-search-helper-tests.mjs && node scripts/protocol-smoke.mjs && node scripts/lifecycle-smoke.mjs",
     "dev": "node --watch src/server.mjs",
     "verify:cursor": "node scripts/verify-cursor-hooks.mjs"
   },

@@ -55,6 +55,9 @@ export const BLOCKING_KINDS = Object.freeze(["dependency", "secret"]);
 /** How long any one scanner gets. A scanner that overstays is reported, not awaited. */
 export const SCANNER_TIMEOUT_MS = 180_000;
 
+/** How long an availability probe gets. It only asks a tool for its version. */
+export const SCANNER_PROBE_TIMEOUT_MS = 10_000;
+
 /**
  * The scanner catalogue.
  *
@@ -100,6 +103,13 @@ export const SECURITY_SCANNERS = Object.freeze([
     network: true,
     parse: parseCargoAudit,
     successExitCodes: [0, 1],
+    // `cargo` is Rust's package manager; `cargo audit` is a plugin installed
+    // separately with `cargo install cargo-audit`. Finding `cargo` on the PATH
+    // therefore proves nothing about this scanner, and a machine with Rust and
+    // no plugin was told the scanner was installed (docs/DEFECTS.md, Д-64). A
+    // scanner that is a subcommand of something else declares the probe that
+    // answers the question instead of being believed on its executable.
+    probeArgs: ["audit", "--version"],
     purpose: "RUSTSEC advisories against Cargo.lock"
   },
   {
@@ -511,6 +521,76 @@ export const OFFLINE_CAPABLE_SCANNERS = Object.freeze(["gitleaks", "semgrep"]);
  * @param {Array<{ id: string, tool: string, executable: string, installed: boolean }>} availability
  * @returns {{ status: string, summary: string, details: object }}
  */
+/**
+ * Whether one scanner can actually run on this machine, and why not when it
+ * cannot.
+ *
+ * For a scanner that is its own binary, being on the PATH is the whole
+ * question. For a scanner that is a subcommand of something else, it is not:
+ * `cargo` is on the PATH of every Rust machine and `cargo audit` is a plugin
+ * most of them have never installed. Such a scanner carries `probeArgs`, and
+ * the probe — the tool asked for its own version, argv array, `shell: false`,
+ * seconds not minutes — decides (docs/DEFECTS.md, Д-64).
+ *
+ * The probe runs in a temporary directory rather than in a project: it asks a
+ * version, and it must not be able to read, or be confused by, whatever
+ * repository the caller happens to be looking at.
+ *
+ * @param {object} scanner - One entry of {@link SECURITY_SCANNERS}.
+ * @param {object} [options]
+ * @param {Function} [options.locate] - Executable locator (injected by tests).
+ * @param {Function} [options.runner] - Process runner (injected by tests).
+ * @param {number} [options.timeoutMs]
+ * @param {string} [options.cwd]
+ * @returns {Promise<{ id: string, tool: string, executable: string, installed: boolean, reason?: string }>}
+ */
+export async function scannerAvailability(scanner, {
+  locate = locateExecutable,
+  runner = runProcess,
+  timeoutMs = SCANNER_PROBE_TIMEOUT_MS,
+  cwd = os.tmpdir()
+} = {}) {
+  const entry = { id: scanner.id, tool: scanner.tool, executable: scanner.executable };
+  const binary = await locate(scanner.executable).catch(() => "");
+  if (!binary) {
+    return { ...entry, installed: false, reason: `${scanner.executable} is not installed or not on the PATH.` };
+  }
+  if (!scanner.probeArgs?.length) return { ...entry, installed: true };
+
+  const probe = await runner({
+    executable: scanner.executable,
+    args: [...scanner.probeArgs],
+    cwd,
+    timeoutMs
+  }).catch((error) => ({ ok: false, stderr: String(error?.message ?? error), stdout: "" }));
+  if (probe?.ok) return { ...entry, installed: true };
+
+  const said = firstOutputLine(`${probe?.stderr ?? ""}\n${probe?.stdout ?? ""}`);
+  const because = probe?.timedOut ? "it did not answer in time" : said || "it answered with an error";
+  return {
+    ...entry,
+    installed: false,
+    // The distinction worth stating: this machine has the host tool and is one
+    // `cargo install cargo-audit` away, which is not the same gap as not having
+    // Rust at all.
+    reason: `${scanner.executable} is installed but \`${scanner.tool}\` is not — ${because}`
+  };
+}
+
+/** Everything the six scanners answer about this machine. */
+export async function securityScannerAvailability(options = {}) {
+  return Promise.all(SECURITY_SCANNERS.map((scanner) => scannerAvailability(scanner, options)));
+}
+
+/** The first line of some command output worth quoting, or "". */
+function firstOutputLine(output) {
+  return String(output ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+    ?.slice(0, 160) ?? "";
+}
+
 export function evaluateSecurityScanners(availability) {
   const all = Array.isArray(availability) ? availability : [];
   const installed = all.filter((item) => item.installed);
@@ -518,7 +598,13 @@ export function evaluateSecurityScanners(availability) {
   const details = {
     installed: installed.map((item) => item.id),
     missing: missing.map((item) => item.id),
-    offline_capable: installed.filter((item) => OFFLINE_CAPABLE_SCANNERS.includes(item.id)).map((item) => item.id)
+    offline_capable: installed.filter((item) => OFFLINE_CAPABLE_SCANNERS.includes(item.id)).map((item) => item.id),
+    // Why each absent scanner is absent, when the answer is more than "it is
+    // not on the PATH" — "you have cargo but not cargo-audit" is a different
+    // gap, and a different fix, from "you have no Rust" (docs/DEFECTS.md, Д-64).
+    missing_reasons: Object.fromEntries(
+      missing.filter((item) => item.reason).map((item) => [item.id, item.reason])
+    )
   };
   if (!installed.length) {
     return {

@@ -1,15 +1,18 @@
 [CmdletBinding()]
 param(
     [string]$ProjectPath = (Join-Path $HOME "AI-Dev-Projects"),
+    [string]$ModelPath = $env:AI_DEV_MODEL_PATH,
     [string]$Image = "ghcr.io/stonebridgeway/ai-dev-system:latest",
     [string]$Clients = "codex,cursor,gemini,vscode,claude",
     [switch]$BuildLocal,
     [switch]$SkipSmoke,
+    [switch]$AllowStaleImage,
     [switch]$SkipClientInstall,
     [switch]$Plan
 )
 
 $ErrorActionPreference = "Stop"
+$staleWarning = $null
 if ($BuildLocal -and -not $PSBoundParameters.ContainsKey("Image")) {
     $Image = "ai-dev-system:local"
 }
@@ -137,8 +140,14 @@ if (-not (Test-Path -LiteralPath (Join-Path $serverRoot "package.json"))) {
 }
 
 $resolvedProjectPath = [IO.Path]::GetFullPath($ProjectPath)
+$resolvedModelPath = $null
+if ($ModelPath) {
+    $resolvedModelPath = [IO.Path]::GetFullPath($ModelPath)
+}
 if ($Plan) {
-    [pscustomobject]@{
+    # Not $plan: variable names are case-insensitive, and $Plan is the switch
+    # this block is answering (docs/DEFECTS.md, Д-70).
+    $planDocument = [pscustomobject]@{
         repository = $repoRoot
         project_path = $resolvedProjectPath
         image = $Image
@@ -146,8 +155,34 @@ if ($Plan) {
         clients = $Clients
         installs_prerequisites_when_missing = $true
         writes_only_local_client_config = $true
-    } | ConvertTo-Json -Depth 3
+    }
+    # Present only when a model folder was given, so the default plan is unchanged.
+    if ($resolvedModelPath) {
+        $planDocument | Add-Member -NotePropertyName model_path -NotePropertyValue $resolvedModelPath
+    }
+    $planDocument | ConvertTo-Json -Depth 3
     exit 0
+}
+
+if ($resolvedModelPath) {
+    if ($resolvedModelPath.Contains(",")) {
+        throw "Model path cannot contain a comma when Docker --mount syntax is used."
+    }
+    if (-not (Test-Path -LiteralPath $resolvedModelPath -PathType Container)) {
+        throw "Model path does not exist: $resolvedModelPath"
+    }
+    # The folder above the models, holding bge-m3-onnx\ and/or bge-m3; the
+    # launcher mounts it read-only as /models (docs/DEFECTS.md Д-69). A folder
+    # that holds model files itself is the pre-Д-62 value of the variable and
+    # would leave both backends looking one level too deep (Д-68).
+    foreach ($marker in @("pytorch_model.bin", "modules.json", "config.json", "onnx")) {
+        if (Test-Path -LiteralPath (Join-Path $resolvedModelPath $marker)) {
+            throw "-ModelPath names the folder above the models, and $resolvedModelPath holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ and/or bge-m3\ - for a default install that is $HOME\.ai-dev\models (docs/INSTALL.md)."
+        }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $resolvedModelPath "bge-m3-onnx")) -and -not (Test-Path -LiteralPath (Join-Path $resolvedModelPath "bge-m3"))) {
+        Write-Warning "$resolvedModelPath holds neither bge-m3-onnx\ nor bge-m3\ yet; dense search will report that it is not set up until a model is put there."
+    }
 }
 
 Ensure-Docker
@@ -186,11 +221,24 @@ if ($BuildLocal) {
     & docker pull $Image
     if ($LASTEXITCODE -ne 0) {
         & docker image inspect $Image *> $null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Warning "Registry pull failed; using the existing local image $Image."
-        } else {
+        if ($LASTEXITCODE -ne 0) {
             throw "Could not pull $Image, and no cached copy exists."
         }
+        # Installing whatever happened to be in the cache produced bug reports
+        # about defects already fixed upstream (docs/DEFECTS.md Д-60), so the age
+        # of that copy is stated and using it is now a deliberate choice.
+        $created = (& docker image inspect --format '{{.Created}}' $Image 2>$null | Select-Object -First 1)
+        # A locally built image has no RepoDigests, and `index` on an empty list
+        # fails rather than returning nothing.
+        $digest = (& docker image inspect --format '{{index .RepoDigests 0}}' $Image 2>$null | Select-Object -First 1)
+        if ([string]::IsNullOrWhiteSpace($created)) { $created = "unknown" }
+        if ([string]::IsNullOrWhiteSpace($digest)) { $digest = "none (image was built locally)" }
+        $staleWarning = "Registry pull failed. The cached copy of $Image was created $created (digest: $digest) and is missing anything released since."
+        Write-Warning $staleWarning
+        if (-not $AllowStaleImage) {
+            throw "Stopping rather than installing an image of unknown age. Restore the registry connection and run again, or re-run with -AllowStaleImage to install this copy anyway."
+        }
+        Write-Warning "Continuing because -AllowStaleImage was given. Run 'docker pull $Image' and bootstrap again once the registry is reachable."
     }
 }
 
@@ -211,6 +259,10 @@ if (-not $SkipSmoke) {
     }
 }
 
+$modelPathArgs = @()
+if ($resolvedModelPath) {
+    $modelPathArgs = @("--model-path", $resolvedModelPath)
+}
 if (-not $SkipClientInstall) {
     Write-Host "Installing local MCP client configurations..."
     $clientLauncher = Install-ClientLauncher $launcher
@@ -222,8 +274,15 @@ if (-not $SkipClientInstall) {
         --claude-launcher $claudeLauncher `
         --image $Image `
         --project-path $resolvedProjectPath `
+        @modelPathArgs `
         --clients $Clients
     if ($LASTEXITCODE -ne 0) { throw "MCP client configuration failed (exit code $LASTEXITCODE)." }
 }
 
 Write-Host "AI Dev MCP System is ready. Restart the selected AI clients to load the ai-dev MCP server."
+if ($resolvedModelPath) {
+    Write-Host "Model weights will be mounted read-only from $resolvedModelPath as /models by the launcher."
+}
+if ($staleWarning) {
+    Write-Warning "Installed from a stale image. $staleWarning"
+}

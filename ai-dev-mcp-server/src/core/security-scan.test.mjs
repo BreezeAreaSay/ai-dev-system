@@ -8,11 +8,14 @@ import {
   BLOCKING_KINDS,
   BLOCKING_SEVERITIES,
   SECURITY_SCANNERS,
+  evaluateSecurityScanners,
   findingBlocks,
   renderSecurityScanMarkdown,
   resolveOffline,
   runSecurityScan,
+  scannerAvailability,
   securityScanStatus,
+  securityScannerAvailability,
   selectScanners,
   semgrepConfigFor,
   skipReasonFor
@@ -149,7 +152,9 @@ test("a network failure in the output is read as offline, not as a broken scan",
   assert.equal(npmAudit.status, "skipped");
   assert.match(npmAudit.reason, /exited 1 without reaching the network/);
   assert.match(npmAudit.reason, /npm error code ENOTFOUND/, "the first line of stderr, not a slice of the report");
-  assert.equal(scan.status, "pass");
+  // The one scanner on this machine never reached the network, so this run
+  // checked nothing (Д-55).
+  assert.equal(scan.status, "unchecked");
 });
 
 test("a real report is read as findings, whatever words the advisories use", async (t) => {
@@ -219,7 +224,7 @@ test("a scanner that overstays its timeout is skipped, so verify_task is never h
   });
   assert.equal(scan.scanners[0].status, "skipped");
   assert.match(scan.scanners[0].reason, /did not finish within 5s and was stopped/);
-  assert.equal(scan.status, "pass");
+  assert.equal(scan.status, "unchecked", "the only scanner was stopped, so nothing was checked");
 });
 
 test("a scanner that failed for its own reasons is an error, and warns without blocking", async (t) => {
@@ -266,7 +271,11 @@ test("critical and high dependency and secret findings block; everything else wa
   const semgrepFinding = scan.findings.find((item) => item.tool === "semgrep");
   assert.equal(findingBlocks(semgrepFinding), false, "a static-analysis hit is a lead, not a blocker");
   assert.equal(securityScanStatus({ findings: [semgrepFinding], scanners: [] }), "warn");
-  assert.equal(securityScanStatus({ findings: [], scanners: [] }), "pass");
+  assert.equal(
+    securityScanStatus({ findings: [], scanners: [{ status: "ok" }] }),
+    "pass",
+    "a scanner ran and found nothing"
+  );
 
   // gitleaks writes its report to a file, so the runner is given a path.
   const gitleaksCall = calls.find((call) => call.executable.endsWith("gitleaks"));
@@ -318,4 +327,164 @@ test("the gate's vocabulary is the one the plan states", () => {
   assert.equal(findingBlocks({ kind: "dependency", severity: "unknown" }), false);
   assert.equal(findingBlocks({ kind: "misconfig", severity: "critical" }), false);
   assert.equal(findingBlocks({}), false);
+});
+
+// Д-55: a scan where not one scanner could run used to come back `pass`, and
+// `verify_task` reduced that to `security_scan: pass` — "checked and clean" for
+// a run in which nobody looked.
+test("a scan where nothing could run is unchecked, not pass", async (t) => {
+  const root = await tempProject(t, {});
+  const scan = await runSecurityScan(root, {
+    runner: fakeRunner({}),
+    locate: fakeLocator([])
+  });
+
+  assert.equal(scan.status, "unchecked");
+  assert.equal(scan.summary.checked, 0);
+  assert.equal(scan.summary.skipped, SECURITY_SCANNERS.length);
+  // The rule the module is built on is unchanged: a missing scanner does not
+  // stop a verification. `unchecked` is not `block`.
+  assert.notEqual(scan.status, "block");
+
+  const markdown = renderSecurityScanMarkdown(scan);
+  assert.match(markdown, /^# Security scan: unchecked/);
+  assert.match(markdown, /has not been found clean — it has not been looked at/);
+
+  // One scanner that ran is enough for the verdict to mean something again.
+  const checked = await runSecurityScan(root, {
+    scanners: ["gitleaks"],
+    runner: fakeRunner({ gitleaks: { stdout: "[]" } }),
+    locate: fakeLocator(["gitleaks"])
+  });
+  assert.equal(checked.status, "pass");
+  assert.equal(checked.summary.checked, 1);
+  assert.equal(/has not been looked at/.test(renderSecurityScanMarkdown(checked)), false);
+});
+
+test("a machine with no scanner installed is a warning, not a failure", () => {
+  const catalogue = SECURITY_SCANNERS.map((scanner) => ({
+    id: scanner.id,
+    tool: scanner.tool,
+    executable: scanner.executable,
+    installed: false
+  }));
+
+  const none = evaluateSecurityScanners(catalogue);
+  assert.equal(none.status, "warn");
+  assert.match(none.summary, /None of the 6 security scanners is installed/);
+  assert.match(none.summary, /gitleaks/, "the advice names the one that needs no network");
+  assert.deepEqual(none.details.installed, []);
+  assert.equal(none.details.missing.length, SECURITY_SCANNERS.length);
+
+  const some = evaluateSecurityScanners(catalogue.map((item) => (
+    item.id === "gitleaks" ? { ...item, installed: true } : item
+  )));
+  assert.equal(some.status, "ok");
+  assert.match(some.summary, /1 of 6 security scanners installed: gitleaks/);
+  assert.deepEqual(some.details.offline_capable, ["gitleaks"]);
+
+  // npm is on every machine that has this server, and it needs a network.
+  const onlyNpm = evaluateSecurityScanners(catalogue.map((item) => (
+    item.id === "npm_audit" ? { ...item, installed: true } : item
+  )));
+  assert.equal(onlyNpm.status, "ok");
+  assert.deepEqual(onlyNpm.details.offline_capable, [], "nothing here works under --network none");
+
+  assert.equal(evaluateSecurityScanners(undefined).status, "warn");
+});
+
+// A machine with Rust and no plugin: `cargo` is on the PATH, `cargo audit` is
+// not installed, and health used to count the scanner as present because it
+// only ever asked about the executable (docs/DEFECTS.md, Д-64).
+const CARGO_WITHOUT_PLUGIN = "error: no such command: `audit`";
+
+function catalogueEntry(id) {
+  return SECURITY_SCANNERS.find((scanner) => scanner.id === id);
+}
+
+test("a scanner that is its own binary is available as soon as the binary is", async () => {
+  const calls = [];
+  const runner = async (options) => { calls.push(options); return { ok: true, stdout: "", stderr: "" }; };
+
+  const present = await scannerAvailability(catalogueEntry("gitleaks"), {
+    locate: async () => "/usr/local/bin/gitleaks",
+    runner
+  });
+  assert.deepEqual(present, { id: "gitleaks", tool: "gitleaks", executable: "gitleaks", installed: true });
+  assert.deepEqual(calls, [], "a binary that is on the PATH is not probed");
+
+  const absent = await scannerAvailability(catalogueEntry("gitleaks"), {
+    locate: async () => "",
+    runner
+  });
+  assert.equal(absent.installed, false);
+  assert.match(absent.reason, /gitleaks is not installed or not on the PATH/);
+  assert.deepEqual(calls, [], "a binary that is absent is not probed either");
+});
+
+test("cargo on the PATH is not cargo audit: the subcommand is asked, not assumed", async () => {
+  const calls = [];
+  const cargo = catalogueEntry("cargo_audit");
+  assert.deepEqual(cargo.probeArgs, ["audit", "--version"], "the probe is declared on the scanner, not special-cased");
+
+  const withoutPlugin = await scannerAvailability(cargo, {
+    locate: async () => "/home/rustacean/.cargo/bin/cargo",
+    runner: async (options) => {
+      calls.push(options);
+      return { ok: false, exitCode: 101, timedOut: false, stdout: "", stderr: `${CARGO_WITHOUT_PLUGIN}\n` };
+    }
+  });
+  assert.equal(withoutPlugin.installed, false, "cargo without the plugin is not cargo audit");
+  assert.match(withoutPlugin.reason, /cargo is installed but `cargo audit` is not/);
+  assert.match(withoutPlugin.reason, /no such command/, "the reason quotes what cargo actually said");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].executable, "cargo");
+  assert.deepEqual(calls[0].args, ["audit", "--version"], "argv array, no shell string");
+  assert.ok(calls[0].timeoutMs <= 30_000, "the probe waits seconds, not minutes");
+  assert.ok(calls[0].cwd && calls[0].cwd !== "", "the probe runs somewhere, and not in the caller's project");
+
+  const withPlugin = await scannerAvailability(cargo, {
+    locate: async () => "/home/rustacean/.cargo/bin/cargo",
+    runner: async () => ({ ok: true, exitCode: 0, stdout: "cargo-audit-audit 0.21.0\n", stderr: "" })
+  });
+  assert.deepEqual(withPlugin, { id: "cargo_audit", tool: "cargo audit", executable: "cargo", installed: true });
+});
+
+test("a probe that hangs or throws leaves the scanner unavailable, not the check broken", async () => {
+  const cargo = catalogueEntry("cargo_audit");
+  const timedOut = await scannerAvailability(cargo, {
+    locate: async () => "/usr/bin/cargo",
+    runner: async () => ({ ok: false, timedOut: true, stdout: "", stderr: "" })
+  });
+  assert.equal(timedOut.installed, false);
+  assert.match(timedOut.reason, /did not answer in time/);
+
+  const threw = await scannerAvailability(cargo, {
+    locate: async () => "/usr/bin/cargo",
+    runner: async () => { throw new Error("spawn EACCES"); }
+  });
+  assert.equal(threw.installed, false);
+  assert.match(threw.reason, /spawn EACCES/);
+});
+
+test("the machine with cargo and no plugin counts one scanner, not two", async () => {
+  const availability = await securityScannerAvailability({
+    locate: async (executable) => (["npm", "cargo"].includes(executable) ? `/usr/bin/${executable}` : ""),
+    runner: async () => ({ ok: false, exitCode: 101, stdout: "", stderr: CARGO_WITHOUT_PLUGIN })
+  });
+  const report = evaluateSecurityScanners(availability);
+  assert.match(report.summary, /1 of 6 security scanners installed: npm_audit\./);
+  assert.deepEqual(report.details.installed, ["npm_audit"]);
+  assert.ok(report.details.missing.includes("cargo_audit"));
+  assert.match(report.details.missing_reasons.cargo_audit, /cargo is installed but `cargo audit` is not/);
+  assert.match(report.details.missing_reasons.gitleaks, /not installed or not on the PATH/);
+
+  // The same machine once the plugin is installed.
+  const withPlugin = await securityScannerAvailability({
+    locate: async (executable) => (["npm", "cargo"].includes(executable) ? `/usr/bin/${executable}` : ""),
+    runner: async () => ({ ok: true, exitCode: 0, stdout: "cargo-audit-audit 0.21.0", stderr: "" })
+  });
+  const after = evaluateSecurityScanners(withPlugin);
+  assert.match(after.summary, /2 of 6 security scanners installed: npm_audit, cargo_audit\./);
+  assert.equal(after.details.missing_reasons.cargo_audit, undefined);
 });

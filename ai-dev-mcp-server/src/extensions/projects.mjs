@@ -12,9 +12,12 @@
  * second copy of the runner.
  */
 import path from "node:path";
+import process from "node:process";
 import { validateArchifyDiagramSpecs } from "../core/archify-quality-gate.mjs";
 import { runPolicyCommand } from "../core/process-runner.mjs";
 import {
+  diagnoseQualityCommandFailure,
+  engineAgreement,
   parseQualityGateCommands,
   qualityCommandBlockReason,
   qualityGateMaxCommands,
@@ -26,6 +29,19 @@ import {
 
 /** The gate file, relative to the project root. */
 const QUALITY_GATE_RELATIVE_PATH = ".ai-dev/quality-gate.md";
+
+/** The `engines.node` a project declares, or "" when it declares none. */
+async function declaredNodeEngine(host, projectRoot) {
+  const manifest = await host.readProjectTextIfExists(projectRoot, "package.json").catch(() => "");
+  if (!manifest) return "";
+  try {
+    return String(JSON.parse(manifest)?.engines?.node ?? "").trim();
+  } catch {
+    // A package.json that does not parse is the project's own problem, and not
+    // one this report is the place to raise.
+    return "";
+  }
+}
 
 /**
  * Record the run on the project's card, registering the project first if the
@@ -120,6 +136,13 @@ async function runQualityGate(host, {
       timeoutMs
     });
     const status = output.timedOut ? "timed_out" : output.exitCode === 0 ? "passed" : "failed";
+    // Read before truncation: the hint is decided by what the command actually
+    // said, not by the prefix that survived the cut (docs/DEFECTS.md, Д-54).
+    const hint = status === "passed" ? "" : diagnoseQualityCommandFailure({
+      command: item.command,
+      stdout: output.stdout,
+      stderr: output.stderr
+    });
     results.push({
       label: item.label,
       command: item.command,
@@ -127,6 +150,7 @@ async function runQualityGate(host, {
       command_adapter: output.command.adapter || output.command.kind,
       execution_adapter: output.invocation?.adapter || "direct",
       status,
+      hint,
       exit_code: output.exitCode,
       stdout: host.truncateOutput(output.stdout),
       stderr: host.truncateOutput(output.stderr),
@@ -154,6 +178,14 @@ async function runQualityGate(host, {
     quality_gate_path: path.relative(projectRoot, gatePath).replaceAll("\\", "/"),
     started_at: startedAt,
     finished_at: new Date().toISOString(),
+    // Which Node ran the project's commands. On the Docker path that is the
+    // image's Node, not the user's, and a script that behaves differently
+    // across majors otherwise disagrees with the user's own terminal with
+    // nothing on the record to explain it (docs/DEFECTS.md, Д-54). Naming it
+    // was not enough on its own: nothing compared it to the Node the project
+    // asks for, so the report held both halves and drew no conclusion
+    // (docs/DEFECTS.md, Д-67).
+    runtime: buildRuntimeReport(await declaredNodeEngine(host, projectRoot)),
     status: qualityGateStatus({ dryRun: dry_run, parsed, results, blocked, diagramSpecs }),
     parsed_commands: parsed,
     selected_commands: selected,
@@ -174,6 +206,21 @@ async function runQualityGate(host, {
 }
 
 /**
+ * The Node this run used, and what the project had to say about it.
+ *
+ * A mismatch is a warning and never a verdict: the gate ran everything it was
+ * asked to, and a declared range this cannot read produces no claim at all.
+ */
+function buildRuntimeReport(declared) {
+  const runtime = { node: process.version, exec_path: process.execPath };
+  const agreement = engineAgreement({ declared, running: process.version });
+  if (!agreement) return runtime;
+  runtime.engines = { declared: agreement.declared, satisfied: agreement.satisfied };
+  if (agreement.mismatch) runtime.engines_mismatch = agreement.mismatch;
+  return runtime;
+}
+
+/**
  * @param {object} host - Shared runtime services (see `src/tool-extensions.mjs`).
  * @returns {{ definitions: Array<object>, handlers: object, readOnly: Array<string> }}
  */
@@ -182,7 +229,7 @@ export function createProjectTools(host) {
     definitions: [
       {
         name: "run_quality_gate",
-        description: "Run safe verification commands from a project's .ai-dev/quality-gate.md and return a structured report.",
+        description: "Run safe verification commands from a project's .ai-dev/quality-gate.md and return a structured report. The report names the Node that ran them in runtime.node and runtime.exec_path — in Docker that is the image's Node, not the caller's — and warns in runtime.engines_mismatch when the project's engines.node asks for a different one. A command that failed for a recognized reason carries a hint. Commands are run as written; the gate never rewrites them.",
         inputSchema: {
           type: "object",
           properties: {

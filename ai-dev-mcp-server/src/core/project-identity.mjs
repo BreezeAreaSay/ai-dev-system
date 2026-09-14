@@ -37,8 +37,70 @@ function hash(value) {
 }
 
 function normalizePath(value) {
-  const resolved = path.resolve(value).replaceAll("\\", "/").replace(/\/+$/, "");
-  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+  return comparablePath(value, process.platform);
+}
+
+/**
+ * Normalise a path for comparison the way a given platform does: POSIX
+ * separators, no trailing slash, case-folded on Windows. The platform is a
+ * parameter so the branch a machine will never take is still testable — and so
+ * a Windows layout can be decided on a POSIX host.
+ *
+ * @param {string} value
+ * @param {string} platform - `process.platform` value.
+ * @returns {string}
+ */
+function comparablePath(value, platform) {
+  const impl = platform === "win32" ? path.win32 : path.posix;
+  const resolved = impl.resolve(String(value ?? "")).replaceAll("\\", "/").replace(/\/+$/, "");
+  return platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+/**
+ * The user's home directory, as the platform spells it: `USERPROFILE` on
+ * Windows, `HOME` elsewhere, each falling back to the other. Empty when neither
+ * is set, and the home rule below then does not apply at all.
+ *
+ * `AI_DEV_HOME` is deliberately not read here: it moves the runtime tree, not
+ * the user, and pointing the runtime somewhere else must not change which
+ * directories can be projects.
+ *
+ * @param {{ platform?: string, env?: Record<string, string | undefined> }} [options]
+ * @returns {string} Absolute home directory, or "" when unknown.
+ */
+export function userHomeDirectory(options = {}) {
+  const platform = options.platform ?? process.platform;
+  const env = options.env ?? process.env;
+  const value = platform === "win32" ? (env.USERPROFILE || env.HOME) : (env.HOME || env.USERPROFILE);
+  return String(value || "").trim();
+}
+
+/**
+ * Whether a directory carrying a marker may be read as a project boundary.
+ *
+ * The walk used to run to the root of the filesystem and stop at the first
+ * marker, so a single `package.json` in `~` — and anyone who has once run npm
+ * from their home directory has one — made every project below it collapse
+ * onto one memory key: the session handoffs, instincts and context of one
+ * project served to an agent working in another, silently
+ * (docs/DEFECTS.md, Д-48). So a marker sitting in the home directory itself, or
+ * anywhere above it, is not a boundary. Below the home directory, and outside
+ * it entirely (`/srv/app`, `C:\work\app`), nothing changes.
+ *
+ * Pass canonical (realpath) values, as the walk does, so a home reached through
+ * a symlink still compares equal to the walked path (docs/DEFECTS.md, Д-51).
+ *
+ * @param {string} directory - Absolute candidate directory.
+ * @param {{ platform?: string, homeDir?: string, env?: Record<string, string | undefined> }} [options]
+ * @returns {boolean}
+ */
+export function isProjectBoundaryCandidate(directory, options = {}) {
+  const platform = options.platform ?? process.platform;
+  const homeDir = options.homeDir ?? userHomeDirectory({ platform, env: options.env });
+  if (!homeDir) return true;
+  const candidate = comparablePath(directory, platform);
+  const home = comparablePath(homeDir, platform);
+  return candidate !== home && !home.startsWith(`${candidate}/`);
 }
 
 function uniquePaths(values) {
@@ -78,7 +140,14 @@ async function git(cwd, args) {
   }
 }
 
-async function nearestProjectBoundary(start) {
+/** The user's home directory as the walk reads paths: canonical, or "". */
+async function canonicalHomeDirectory() {
+  const homeDir = userHomeDirectory();
+  if (!homeDir) return "";
+  return fs.realpath(homeDir).catch(() => path.resolve(homeDir));
+}
+
+async function nearestProjectBoundary(start, homeDir) {
   let current = start;
   // Canonical, for the same reason the hook's copy is: `start` is already a
   // realpath, and on a machine that reaches its home through a symlink — every
@@ -88,6 +157,10 @@ async function nearestProjectBoundary(start) {
   const configured = configuredRuntimeStateRoot || resolveRuntimeStateRoot();
   const runtimeRoot = normalizePath(await fs.realpath(configured).catch(() => path.resolve(configured)));
   while (true) {
+    // Once the walk reaches the home directory every remaining ancestor is
+    // above it too, so there is nothing left that may be a boundary: the start
+    // directory stands for itself (docs/DEFECTS.md, Д-48).
+    if (!isProjectBoundaryCandidate(current, { homeDir })) return null;
     for (const marker of BOUNDARY_MARKERS) {
       const markerPath = path.join(current, marker);
       if (marker === ".ai-dev" && normalizePath(markerPath) === runtimeRoot) continue;
@@ -193,12 +266,17 @@ export async function resolveProjectIdentity(projectPath) {
   const rawGitRoot = gitRootResult.ok ? gitRootResult.stdout.trim() : "";
   // A nested package or explicit .ai-dev directory remains its own project even
   // when it lives inside a larger Git worktree. The closest boundary wins.
-  const boundary = await nearestProjectBoundary(requestedRealPath);
-  const projectRoot = await fs.realpath(path.resolve(boundary || rawGitRoot || requestedRealPath));
+  const homeDir = await canonicalHomeDirectory();
+  const boundary = await nearestProjectBoundary(requestedRealPath, homeDir);
   const isGit = Boolean(rawGitRoot);
   const gitRoot = isGit
     ? await fs.realpath(rawGitRoot).catch(() => path.resolve(rawGitRoot))
     : null;
+  // A dotfiles clone in `~` answers `--show-toplevel` with the home directory
+  // for every project below it, so the rule that keeps a marker there from
+  // being a boundary keeps it out of this fallback too.
+  const gitFallback = gitRoot && isProjectBoundaryCandidate(gitRoot, { homeDir }) ? gitRoot : "";
+  const projectRoot = await fs.realpath(path.resolve(boundary || gitFallback || requestedRealPath));
 
   let remote = "";
   let commonGitDir = "";

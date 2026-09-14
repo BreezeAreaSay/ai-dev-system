@@ -69,9 +69,11 @@ npm run setup
 ```
 
 Then point your MCP client at `ai-dev-mcp-server/src/server.mjs` and restart it.
-That is the whole install, and it is the path to take on your own machine: the
-local dense model is one flag here (`npm run setup -- --dense`) and a custom
-image build in the packaged path.
+That is the whole install, and it is the path to take on your own machine. The
+local dense model is one flag here — `npm run setup -- --dense` downloads a
+pinned, checksum-verified ONNX export of BGE-M3 and runs it through Node, so
+"and nothing else" holds for that too; `npm run dense:doctor` says whether it
+worked. In the packaged path the weights are mounted instead.
 
 **Packaged, through Docker** — for a machine that should not hold a personal
 vault, or a team that wants one image everybody runs the same way:
@@ -178,4 +180,4 @@ imported: [Membrane application-skills](https://github.com/membranedev/applicati
 (3,074), [ECC — Everything Claude Code](THIRD_PARTY_NOTICES.md) (101),
 [Understand Anything](https://github.com/Egonex-AI/Understand-Anything) (9),
 [mattpocock/skills](https://github.com/mattpocock/skills) (1), and the
-[taste-skill](https://github.com/tt-a1i/taste-skill), [ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) and [Archify](https://github.com/tt-a1i/archify) design and diagram tooling.
+[taste-skill](https://github.com/Leonxlnx/taste-skill), [ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) and [Archify](https://github.com/tt-a1i/archify) design and diagram tooling.

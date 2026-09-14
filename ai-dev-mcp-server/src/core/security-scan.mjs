@@ -12,7 +12,9 @@
  *
  * - **A missing scanner is a `skipped` result with a reason, never an error.**
  *   Nobody installs all six. A scan that fails because `trivy` is absent would
- *   teach an agent to stop running scans.
+ *   teach an agent to stop running scans. A run where *none* of them could run
+ *   is still not a failure — it is `unchecked`, which passes without claiming
+ *   anything was checked (docs/DEFECTS.md, Д-55).
  * - **A scanner that needs the network says so instead of hanging.** Five of
  *   the six fetch an advisory database. Offline they fail slowly and in their
  *   own way, so they are skipped up front when the run is declared offline, and
@@ -52,6 +54,9 @@ export const BLOCKING_KINDS = Object.freeze(["dependency", "secret"]);
 
 /** How long any one scanner gets. A scanner that overstays is reported, not awaited. */
 export const SCANNER_TIMEOUT_MS = 180_000;
+
+/** How long an availability probe gets. It only asks a tool for its version. */
+export const SCANNER_PROBE_TIMEOUT_MS = 10_000;
 
 /**
  * The scanner catalogue.
@@ -98,6 +103,13 @@ export const SECURITY_SCANNERS = Object.freeze([
     network: true,
     parse: parseCargoAudit,
     successExitCodes: [0, 1],
+    // `cargo` is Rust's package manager; `cargo audit` is a plugin installed
+    // separately with `cargo install cargo-audit`. Finding `cargo` on the PATH
+    // therefore proves nothing about this scanner, and a machine with Rust and
+    // no plugin was told the scanner was installed (docs/DEFECTS.md, Д-64). A
+    // scanner that is a subcommand of something else declares the probe that
+    // answers the question instead of being believed on its executable.
+    probeArgs: ["audit", "--version"],
     purpose: "RUSTSEC advisories against Cargo.lock"
   },
   {
@@ -366,19 +378,26 @@ export function findingBlocks(item) {
 }
 
 /**
- * The scan's verdict: `block`, `warn`, or `pass`.
+ * The scan's verdict: `block`, `warn`, `unchecked`, or `pass`.
  *
  * A scanner that was skipped or errored never blocks — that is the whole point
- * of the skip — but it is counted, so a run where nothing could be checked
- * reads as `pass` with `checked: 0` rather than as a clean bill of health.
+ * of the skip. But a run where not one of them could run proves nothing, and
+ * calling that `pass` made "security: pass" mean "checked and clean" when it
+ * meant "nobody looked": `checked: 0` was the only thing that said otherwise
+ * and nothing read it (docs/DEFECTS.md, Д-55). Such a run is `unchecked`.
+ *
+ * `unchecked` still does not block — the rule that a missing scanner cannot
+ * stop a verification is unchanged — it only stops the run claiming a result it
+ * does not have.
  *
  * @param {{ findings: object[], scanners: object[] }} scan
- * @returns {"block" | "warn" | "pass"}
+ * @returns {"block" | "warn" | "unchecked" | "pass"}
  */
 export function securityScanStatus({ findings = [], scanners = [] } = {}) {
   if (findings.some(findingBlocks)) return "block";
   if (findings.length) return "warn";
   if (scanners.some((scanner) => scanner.status === "error")) return "warn";
+  if (!scanners.some((scanner) => scanner.status === "ok")) return "unchecked";
   return "pass";
 }
 
@@ -463,6 +482,9 @@ export async function runSecurityScan(projectRoot, {
 export function renderSecurityScanMarkdown(scan) {
   const lines = [`# Security scan: ${scan.status}`, ""];
   lines.push(`${scan.summary.checked} scanner(s) ran, ${scan.summary.skipped} skipped, ${scan.summary.failed} failed. ${scan.summary.findings} finding(s), ${scan.summary.blocking} blocking.`, "");
+  if (scan.status === "unchecked") {
+    lines.push("Nothing was checked: no scanner ran here, so this project has not been found clean — it has not been looked at. Install at least one (gitleaks needs no network).", "");
+  }
   for (const scanner of scan.scanners) {
     const detail = scanner.status === "ok" ? `${scanner.findings} finding(s)` : scanner.reason;
     lines.push(`- **${scanner.tool}** — ${scanner.status}: ${detail}`);
@@ -476,4 +498,124 @@ export function renderSecurityScanMarkdown(scan) {
     if (scan.findings.length > 50) lines.push(`- …and ${scan.findings.length - 50} more.`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * The scanners that have something to say with no network at all: gitleaks
+ * reads the repository and its history, and semgrep does too when the project
+ * keeps its own rules (`semgrepConfigFor`). The other four fetch an advisory
+ * database or a hosted rule pack.
+ */
+export const OFFLINE_CAPABLE_SCANNERS = Object.freeze(["gitleaks", "semgrep"]);
+
+/**
+ * Whether one scanner can actually run on this machine, and why not when it
+ * cannot.
+ *
+ * For a scanner that is its own binary, being on the PATH is the whole
+ * question. For a scanner that is a subcommand of something else, it is not:
+ * `cargo` is on the PATH of every Rust machine and `cargo audit` is a plugin
+ * most of them have never installed. Such a scanner carries `probeArgs`, and
+ * the probe — the tool asked for its own version, argv array, `shell: false`,
+ * seconds not minutes — decides (docs/DEFECTS.md, Д-64).
+ *
+ * The probe runs in a temporary directory rather than in a project: it asks a
+ * version, and it must not be able to read, or be confused by, whatever
+ * repository the caller happens to be looking at.
+ *
+ * @param {object} scanner - One entry of {@link SECURITY_SCANNERS}.
+ * @param {object} [options]
+ * @param {Function} [options.locate] - Executable locator (injected by tests).
+ * @param {Function} [options.runner] - Process runner (injected by tests).
+ * @param {number} [options.timeoutMs]
+ * @param {string} [options.cwd]
+ * @returns {Promise<{ id: string, tool: string, executable: string, installed: boolean, reason?: string }>}
+ */
+export async function scannerAvailability(scanner, {
+  locate = locateExecutable,
+  runner = runProcess,
+  timeoutMs = SCANNER_PROBE_TIMEOUT_MS,
+  cwd = os.tmpdir()
+} = {}) {
+  const entry = { id: scanner.id, tool: scanner.tool, executable: scanner.executable };
+  const binary = await locate(scanner.executable).catch(() => "");
+  if (!binary) {
+    return { ...entry, installed: false, reason: `${scanner.executable} is not installed or not on the PATH.` };
+  }
+  if (!scanner.probeArgs?.length) return { ...entry, installed: true };
+
+  const probe = await runner({
+    executable: scanner.executable,
+    args: [...scanner.probeArgs],
+    cwd,
+    timeoutMs
+  }).catch((error) => ({ ok: false, stderr: String(error?.message ?? error), stdout: "" }));
+  if (probe?.ok) return { ...entry, installed: true };
+
+  const said = firstOutputLine(`${probe?.stderr ?? ""}\n${probe?.stdout ?? ""}`);
+  const because = probe?.timedOut ? "it did not answer in time" : said || "it answered with an error";
+  return {
+    ...entry,
+    installed: false,
+    // The distinction worth stating: this machine has the host tool and is one
+    // `cargo install cargo-audit` away, which is not the same gap as not having
+    // Rust at all.
+    reason: `${scanner.executable} is installed but \`${scanner.tool}\` is not — ${because}`
+  };
+}
+
+/** Everything the six scanners answer about this machine. */
+export async function securityScannerAvailability(options = {}) {
+  return Promise.all(SECURITY_SCANNERS.map((scanner) => scannerAvailability(scanner, options)));
+}
+
+/** The first line of some command output worth quoting, or "". */
+function firstOutputLine(output) {
+  return String(output ?? "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean)
+    ?.slice(0, 160) ?? "";
+}
+
+/**
+ * Whether this machine can check anything at all, for `system_health_check`.
+ *
+ * Not critical: a machine with no scanner installed is a machine where
+ * `run_security_scan` comes back `unchecked`, which is a gap worth naming and
+ * not a broken system. It is named here because the scan itself is only run on
+ * demand, and the published image ships with one of the six at most — so
+ * without this check the gap is invisible until a task asks for a scan
+ * (docs/DEFECTS.md, Д-55).
+ *
+ * @param {Array<{ id: string, tool: string, executable: string, installed: boolean }>} availability
+ * @returns {{ status: string, summary: string, details: object }}
+ */
+export function evaluateSecurityScanners(availability) {
+  const all = Array.isArray(availability) ? availability : [];
+  const installed = all.filter((item) => item.installed);
+  const missing = all.filter((item) => !item.installed);
+  const details = {
+    installed: installed.map((item) => item.id),
+    missing: missing.map((item) => item.id),
+    offline_capable: installed.filter((item) => OFFLINE_CAPABLE_SCANNERS.includes(item.id)).map((item) => item.id),
+    // Why each absent scanner is absent, when the answer is more than "it is
+    // not on the PATH" — "you have cargo but not cargo-audit" is a different
+    // gap, and a different fix, from "you have no Rust" (docs/DEFECTS.md, Д-64).
+    missing_reasons: Object.fromEntries(
+      missing.filter((item) => item.reason).map((item) => [item.id, item.reason])
+    )
+  };
+  if (!installed.length) {
+    return {
+      status: "warn",
+      summary: `None of the ${all.length} security scanners is installed, so run_security_scan comes back unchecked. Install gitleaks: it is the cheapest of the six and the only one that needs no network.`,
+      details
+    };
+  }
+  return {
+    status: "ok",
+    summary: `${installed.length} of ${all.length} security scanners installed: ${details.installed.join(", ")}.`,
+    details
+  };
 }

@@ -9,6 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dense search runs without Python** (`docs/DEFECTS.md`, Д-62). The local
+  BGE-M3 model now has a second backend behind the contract it always had —
+  text in, a normalized 1024-dimension vector out — and it is the default:
+  `@huggingface/transformers` over `onnxruntime-node`, both ordinary npm
+  dependencies. `npm run setup -- --dense` downloads a pinned, checksum-verified
+  ONNX export (about 600 MB) and dense search works; there is no virtualenv, no
+  `torch==2.14.0+cpu` from the PyTorch index and no 2.3 GB snapshot. The
+  README's "Node.js 22.12+ and nothing else" is now true of `--dense` too.
+
+  The legacy Python path is unchanged and still there, as `--dense-python` or
+  `AI_DEV_DENSE_BACKEND=python`. `auto` — the default — prefers whichever model
+  is actually verified on disk, so an existing installation keeps using the
+  stack it already built until it chooses otherwise.
+
+  Inference runs on a `worker_thread`. `onnxruntime-node`'s binding declares
+  itself "a simple synchronized inference session object wrap" and its `run()`
+  returns outputs rather than a promise, so on the main thread an indexing pass
+  would hold the MCP stdio loop for minutes.
+
+- **`npm run dense:doctor`** (Д-62). Six stages in the order they depend on each
+  other — Node, the native binding, the manifest, the model files and their
+  checksums, the model loading, a trial embedding whose width and norm are
+  measured — stopping at the first that fails and naming it in words, with the
+  command to run. Never a traceback. Exit code 0 when dense search is ready.
+
+- **`models/bge-m3.manifest.json`** (Д-42, Д-62). The pinned export — model,
+  revision, dtype, dimensions, pooling, licence and a sha256 for every file —
+  carried over from the `codex/commit-all-20260908` snapshot branch along with
+  its downloader. Changing the quantisation is now a field in this file rather
+  than a code change. After this, nothing in that branch is missing from `main`.
+
+- **`.github/workflows/dense-eval.yml`** (Д-62). Dispatch-only: downloads each
+  backend's model, builds the index with it, runs the golden cases and publishes
+  a comparison table. The weights come from hosts a development sandbox cannot
+  reach, so this is where the ONNX-against-Python numbers are taken.
+
 - **Capability profiles.** The 133 tools are grouped into eight named slices —
   `core`, `coding`, `memory`, `git`, `frontend`, `qa`, `security`, `advanced` —
   and `AI_DEV_PROFILES` narrows what `tools/list` advertises to the ones a
@@ -35,6 +71,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Dense vectors record where they came from** (Д-62). Every vector in the
+  index now carries its backend, revision and dtype alongside the model name,
+  and a cached vector is reused only when all of them still match. An int8 ONNX
+  vector and an fp32 torch vector for one sentence differ far more than two
+  sentences do, and keying the cache on the model name alone meant switching
+  backends silently mixed two vector spaces in one ranking. An index written
+  before this cannot say what produced it, so it is re-embedded once.
+
+- **`INSTALL_BGE_M3` no longer decides whether a container can search densely**
+  (Д-62). The ONNX runtime is a normal dependency and is in every image, so the
+  default image runs dense search from mounted weights with no Python at all.
+  The build argument goes back to meaning what it says: whether the legacy torch
+  stack is present. Image size grows by about 378 MB for the runtime and the
+  library.
+
+- **One model mount point for the container** (Д-62). `AI_DEV_MODEL_PATH` is now
+  the folder *above* the models — `~/.ai-dev/models` — bound at `/models`, with
+  `bge-m3-onnx/` and `bge-m3/` under it, instead of one model's directory bound
+  at `/models/bge-m3`. Both launcher scripts, the Compose example and both
+  INSTALL guides say the same thing. **Existing setups must update the
+  variable**: pointing it at `…/models/bge-m3` now mounts that directory as the
+  whole model folder and neither backend will find its files.
+
+- **The legacy model download takes a revision** (Д-62, point 1).
+  `snapshot_download("BAAI/bge-m3")` ran unpinned, so upstream could change what
+  an install received. `BGE_M3_PYTHON_REVISION` now pins it, and an index built
+  without one records its vectors as coming from an unpinned download rather
+  than implying a pin that is not there.
+
 - **The README leads with what the system is for.** It had grown to 871 lines and
   opened with a release summary and an inventory; a reader could not tell in the
   first minute which problem the project solves. It is now 181 lines: the problem,
@@ -45,6 +110,219 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   READMEs and the ten documents behind them cover what the two READMEs did,
   the local-first install path and the local model in a container included.
 
+
+### Fixed
+
+- **The launchers recognise the pre-2.1 value of `AI_DEV_MODEL_PATH`.** The variable
+  now names the folder above the models; a folder that holds model files itself was
+  mounted one level too deep and dense search reported "not set up" to a user who had
+  followed the previous instructions. `docker/run-mcp.sh` and `run-mcp.ps1` stop with
+  directions instead, and a folder with no model in it yet is a warning, not a refusal
+  (Д-68).
+- **The default Docker install can reach the model weights at all.** The fast-start
+  runtime never mounted `/models`, and the client configurations never carried
+  `AI_DEV_MODEL_PATH`, so on the path `bootstrap.sh` sets up the weights had nowhere to
+  go. `bootstrap.sh --model-path` / `bootstrap.ps1 -ModelPath` (default:
+  `AI_DEV_MODEL_PATH`) mount the folder read-only into the runtime and write the
+  variable into every client configuration; `--plan` gains `model_path` only when one
+  was given (Д-69).
+- **A correct fresh install passes its own health check.** A new volume came up
+  `degraded` for two reasons that had nothing to do with the install. The skill
+  quality report is written only by `validate_skill_library` with
+  `write_report`, and neither `npm run setup` nor the container entrypoint ever
+  called it, so every install answered its own diagnostic with `skill_quality:
+  report missing`; and an empty project registry warned, on a machine where
+  there cannot be a project yet. The report is now a required first-run step,
+  shared by both entry points and idempotent — a report at least as new as the
+  registry is left alone — and it runs before the search index, because it
+  writes a dashboard note into the vault and building it afterwards left the
+  index stale. An empty registry is `ok` and names `bootstrap_project`. A fresh
+  emulated image now reports `ok`, 18 checks ok and none warning, where it
+  reported `degraded` with two warnings before (Д-63).
+
+- **`cargo` on the PATH is no longer mistaken for `cargo audit`.** The health
+  check read scanner availability off the executable each scanner names, and
+  `cargo_audit` names `cargo` — which is Rust's package manager, while `cargo
+  audit` is a plugin installed separately. Every machine with Rust was told it
+  had the scanner: "2 of 6 security scanners installed: npm_audit, cargo_audit"
+  on a machine where `cargo audit --version` answers `error: no such command`.
+  A scanner that is a subcommand of another tool now declares a probe, and
+  availability comes from running it — argv array, `shell: false`, ten seconds.
+  The report names the gap it found, so having cargo without cargo-audit reads
+  as the different fix it is (Д-64).
+
+- **The installer takes its smoke check's temporary directory with it.** The
+  fast-start smoke waits on a launcher that can hang for as long as the user
+  lets it, and its directory was removed by an explicit `rm -rf` in each branch
+  that leaves. Terminated anywhere between the `mktemp -d` and one of those — a
+  closed terminal, a `kill` — `bootstrap.sh` left an `ai-dev-smoke.*` directory
+  in `/tmp`. A trap on EXIT, INT and TERM now covers every way out. `--plan` and
+  the 69/70 exit codes are unchanged. `bootstrap.ps1` needs nothing: its smoke
+  keeps the answer in a variable and creates no directory (Д-65).
+
+- **The README links the taste-skill repository that exists.** Both READMEs
+  pointed at `tt-a1i/taste-skill`, which `git ls-remote` does not find;
+  `THIRD_PARTY_NOTICES.md` has recorded `Leonxlnx/taste-skill` as the source
+  since the import. A test now requires every GitHub repository a README links
+  to be one the notices file records as a source, and both READMEs to credit the
+  same set (Д-66).
+
+- **The quality gate says when it ran on a Node the project did not ask for.**
+  In the container the gate's commands run on the image's Node. The report named
+  that Node and nothing compared it with the project's `engines.node`, so a
+  project pinned to 20 running under 22 got the "passes on my machine, fails in
+  the gate" pair with nothing on the record to explain it. `run_quality_gate`
+  now answers in `runtime.engines`, adding `runtime.engines_mismatch` when the
+  declared range refuses the running version, and `verify_task` carries it in
+  the check's detail — including on a check that passed, since a warning visible
+  only after something else failed is not a warning. The range parser is its own
+  and deliberately partial: it reads `20`, `^20`, `~20.1`, `>=20`, `20.x`,
+  `18 || 20` and `>=18 <21`, and answers "not read" for everything else rather
+  than inventing a warning out of a misparse. It never blocks (Д-67).
+
+- **One `package.json` in the home directory no longer merges every project
+  below it.** The project-boundary walk ran to the root of the filesystem and
+  stopped at the first marker it found, so a leftover `package.json` in `~` —
+  or a dotfiles clone's `.git` — made every project under the home directory
+  share one memory key, and the session handoffs, instincts and context of one
+  project were served to an agent working in another without any sign of it.
+  A marker sitting in the home directory itself, or anywhere above it, is no
+  longer a boundary; a session that starts there keys to where it started.
+  Below the home directory and outside it (`/srv/app`, `C:\work\app`) nothing
+  changes, including nested packages, worktrees and the runtime directory rule.
+  The home comes from `USERPROFILE` on Windows and `HOME` elsewhere, is compared
+  case-insensitively on Windows and through its real path everywhere, and where
+  neither variable is set the rule does not apply at all. The rule is one pure
+  function taking the platform and the home as parameters, present in the server
+  and in the hooks copy that ships into other repositories, with both copies
+  answering the same fourteen layouts in the tests (Д-48).
+
+- **A fresh clone finishes its install instead of failing the smoke check.**
+  `bootstrap.sh`, `docker/run-mcp.sh`, `docker/entrypoint.sh` and
+  `packaging/launcher.sh` were committed as `100644`, and the fast-start smoke
+  check executed the launcher directly: `Permission denied`, reported as
+  "Fast-start MCP stdio smoke check failed", exit 70, with the smoke check
+  blameless. The four files now carry the execute bit, and the launcher is
+  invoked through `sh` so a zip download of the repository — which always drops
+  the bit — installs too. The check also captures the launcher's own exit
+  status rather than letting `| grep -q` discard it, so "the launcher never ran"
+  and "the server answered without `serverInfo`" no longer share one message
+  (Д-58, upstream #51).
+
+- **A failed `docker pull` no longer installs whatever was in the cache.**
+  Bootstrap printed one line to stderr and carried on with the stale local
+  image; since the fast-start container runs with `--restart unless-stopped`,
+  that copy then survived reboots, and users who asked for `latest` reported
+  defects already fixed. It now stops with exit 69 and prints when the cached
+  copy was created and its digest. `--allow-stale-image` (`-AllowStaleImage` on
+  Windows) installs it anyway, repeating the warning after the "ready" line so
+  the choice stays visible. A locally built image, which has no `RepoDigests`,
+  reports the digest as absent instead of aborting (Д-60, upstream #53).
+
+- **A fresh container no longer fails its own health check** (upstream #50). The
+  entrypoint built the skill registry and stopped; `npm run setup` also built
+  the search index and the routing benchmark. So a container started with
+  neither, four critical checks failed, every search tool answered with a
+  refusal until somebody called `rebuild_search_index` by hand, and the first
+  thing a new user saw on a correct install was `Health: fail`. Both paths now
+  run the same three steps from the same module
+  (`scripts/first-run-steps.mjs`), idempotently and without the network: about
+  ten seconds on the first container start, nothing on the second. The
+  container writes its dashboard note before the index rather than after it,
+  which had left the index stale the moment the entrypoint finished. Measured
+  on an emulated volume: `fail` with 5 failing checks before, `degraded` with 0
+  after.
+
+  Two of the notes the check expects were genuinely absent from the image and
+  one could never be there. A volume seeded from `docker/public-seed` is now
+  told apart from a hand-made Obsidian vault by the `PUBLIC_SEED.md` the seed
+  carries, so the vault's entry page is `not-applicable` rather than missing;
+  the repository README, `ai-dev-mcp-server/README.md` and
+  `docs/ARCHITECTURE.md` are shipped in the image, which is where the check
+  looks for the other three.
+
+- **Missing BGE-M3 weights are no longer a critical failure, and the advice
+  now fits where it is read** (upstream #52). The search index was one of the
+  embedding backend's requirements, so on a fresh container one missing
+  artefact was counted as two critical failures and the soft "dense is not set
+  up" tipped into `fail`. The index has its own critical check and the backend
+  no longer claims it. The published image is built with `INSTALL_BGE_M3=0` and
+  now says so through `AI_DEV_DENSE_INSTALLED`, so the health check tells a
+  container to mount the weights (`AI_DEV_MODEL_PATH`, or an image variant
+  built with `--build-arg INSTALL_BGE_M3=1`) instead of sending it to a
+  `npm run setup -- --dense` it cannot run. A dense stack that is installed and
+  unweighted is now a warning rather than a skip: set up and unfinished is not
+  the same as never asked for.
+
+- **Frontend QA works inside the image, and a runner that cannot start says
+  so** (upstream #49). The QA runner imports two server modules by the relative
+  path they have in a checkout; in the image the server is at
+  `/opt/ai-dev/app` and that path resolved nowhere, so the runner died on its
+  first import — with Playwright and Chromium installed and unreachable. The
+  Dockerfile now symlinks `/opt/ai-dev/ai-dev-mcp-server` onto the application.
+  The probe behind the health check took the first line of the failure, which
+  for a module-resolution error is the frame Node threw from
+  (`node:internal/modules/esm/resolve:275`) and never the reason; it now reads
+  the reason out of the whole output and tells a dependency nobody installed
+  (still optional, still `skipped`) from a file this install does not carry
+  (`fail`, naming the file). The context audit walks `runtime/` as well as
+  `app/`, through the one path correspondence the Dockerfile creates, so an
+  import the allowlist drops is caught before an image is built rather than
+  after it is published. `docker-smoke.mjs` runs `system_health_check` inside
+  the built image and fails on a failing check or on a runner that did not
+  start.
+
+- **The runtime distribution manifest describes the platform it is on, not
+  Windows.** `prepare_runtime_distribution` expected a PowerShell launcher and
+  three PowerShell scripts wherever it ran, so on macOS, Linux and in the
+  published Docker image it was rejected outright and
+  `runtime_distribution_status` answered `prepared: false, ready_local: false`
+  with those files listed as "missing" — a report about its own layout rather
+  than about the installation. The container bootstrap called it on every start
+  and was refused every time, so `09-mcp/runtime-distribution.json` never
+  appeared. The manifest is now built for one of three runtime flavors —
+  `windows` (unchanged), `posix` (`npm start`, `node scripts/acceptance.mjs`)
+  and `docker` (`sh docker/run-mcp.sh`, and the `/data` volume as the backup
+  unit) — and a file the flavor cannot have is reported as not applicable with a
+  reason instead of missing, so readiness counts only what applies. The rendered
+  `Runtime Distribution.md` no longer names PowerShell where there is none.
+  `scripts/ai-dev.mjs acceptance` runs the cross-platform runner that
+  `npm run acceptance` already used instead of `powershell.exe`, and `backup`
+  off Windows says it is unavailable and why rather than spawning an interpreter
+  that is not there. Measured on Linux and against an emulated image:
+  `prepared=false ready_local=false` with three missing files in a checkout and
+  four in the image, now `prepared=true ready_local=true missing_files=[]` in
+  both. Upstream #54, `docs/DEFECTS.md` Д-61.
+
+- **A failed quality gate now says why, not only that it failed.** A project
+  whose `npm test` is `node --test test/` fails on Node 21 and later for a
+  reason that has nothing to do with the project: positional arguments became
+  glob patterns, the directory matches itself, and the runner executes it as a
+  test file. The gate passed that failure through correctly and `verify_task`
+  reduced it to `quality_gate: failed`, leaving the cause in a command's stdout
+  that no reader of the verdict ever saw. `run_quality_gate` now reports the
+  Node that ran the commands (`runtime.node`, `runtime.exec_path`) — on the
+  Docker path that is the image's Node, currently 24, not the caller's — and a
+  failed command carries a `hint` when the cause is one the gate recognizes.
+  Every check in a verification that did not come back good now carries a
+  `detail` with the first meaningful line of its output and that hint. The gate
+  still runs the project's commands exactly as written and rewrites nothing.
+  (upstream #47, docs/DEFECTS.md Д-54)
+
+- **A security scan that ran nothing is `unchecked`, not `pass`.** With none of
+  the six scanners installed — which is every run of the published image, since
+  it shipped with none and the container has `--network none` — the scan
+  returned `pass` with `checked: 0`, and `verify_task` reduced that to
+  `security_scan: pass`. "Nothing was found" and "nobody looked" are different
+  claims, and the second was being reported as the first. The verdict for a run
+  in which no scanner ran is now `unchecked`; it still cannot block a
+  verification, and `verify_task` no longer drops the `next_step` that says no
+  scanner could run. The image now carries `gitleaks` — the only one of the six
+  that works with no network — pinned by digest for amd64 and arm64, and
+  `system_health_check` gained a non-critical `security_scanners` check that
+  warns when the machine has none of them. `docker/README.md` and both INSTALL
+  guides carry the matrix of what can actually run under `--network none`.
+  (upstream #48, docs/DEFECTS.md Д-55)
 
 ## [2.0.0] - 2026-09-13
 

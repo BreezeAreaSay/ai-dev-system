@@ -19,6 +19,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { atomicWriteJson } from "./atomic-files.mjs";
+import { denseProvenanceArgs, planAndEmbedDenseVectors } from "./dense-index.mjs";
 import { csvValue, stripBom } from "./text-format.mjs";
 import { pythonFailureMessage } from "./python-failure.mjs";
 
@@ -71,6 +72,7 @@ export function createSearchIndexRuntime({
   pathExists,
   execFile,
   embedQuery,
+  denseIndexBackend,
   hardNegativeRules,
   readSkillIndex,
   ranking
@@ -162,29 +164,78 @@ export function createSearchIndexRuntime({
     ];
     if (include_external_project_files) args.push("--include-external-project-files");
     if (!dense_embeddings && preserve_dense) args.push("--preserve-dense");
+
+    // Which backend embeds decides which interpreter runs the helper. The ONNX
+    // one embeds here and hands the helper its numbers, so the helper needs no
+    // more than a stdlib Python; the legacy one loads its model inside the
+    // helper, which is why that path still needs the virtualenv
+    // (docs/DEFECTS.md, Д-62).
+    const plan = dense_embeddings && denseIndexBackend ? await denseIndexBackend.describe() : null;
+    const useOnnx = Boolean(plan && plan.backend === "onnx" && plan.available);
+    let vectorsPath = "";
+    let denseNote = null;
+
     if (dense_embeddings) {
-      args.push(
+      const denseArgs = [
         "--dense-embeddings",
-        "--dense-model-dir",
-        path.resolve(String(dense_model_dir || defaultModelDir)),
-        "--dense-device",
-        String(dense_device || "cpu"),
-        "--dense-batch-size",
-        String(Math.max(1, Math.min(Number(dense_batch_size) || 8, 32))),
         "--dense-text-limit",
         String(Math.max(300, Math.min(Number(dense_text_limit) || 1200, 12000)))
-      );
-      if (dense_include_membrane) args.push("--dense-include-membrane");
-      if (dense_incremental === false) args.push("--no-dense-incremental");
+      ];
+      if (dense_include_membrane) denseArgs.push("--dense-include-membrane");
+      if (dense_incremental === false) denseArgs.push("--no-dense-incremental");
+
+      if (useOnnx) {
+        vectorsPath = path.join(searchIndexDir, `.dense-vectors-${process.pid}-${Date.now()}.json`);
+        denseNote = await planAndEmbedDenseVectors({
+          runPlan: (planArgs) => runSearchCli(planArgs, { timeoutMs: 600000, command: pythonCommand() }),
+          planArgs: [
+            "--vault-root", vaultRoot,
+            "--index-path", searchIndexPath,
+            ...(include_external_project_files ? ["--include-external-project-files"] : []),
+            ...denseArgs.filter((value) => value !== "--dense-embeddings")
+          ],
+          embed: (texts) => embedQuery({
+            texts,
+            normalize: true,
+            include_embeddings: true,
+            batch_size: Math.max(1, Math.min(Number(dense_batch_size) || 8, 32))
+          }, { timeoutMs: 3600000 }),
+          provenance: plan.provenance,
+          writeJson: (target, value) => atomicWriteJson(target, value, { spaces: 0 }),
+          vectorsPath,
+          batchSize: Math.max(1, Math.min(Number(dense_batch_size) || 8, 32))
+        });
+        args.push(...denseArgs, ...denseProvenanceArgs(plan.provenance), "--dense-vectors-json", vectorsPath);
+      } else {
+        args.push(
+          ...denseArgs,
+          "--dense-model-dir",
+          path.resolve(String(dense_model_dir || defaultModelDir)),
+          "--dense-device",
+          String(dense_device || "cpu"),
+          "--dense-batch-size",
+          String(Math.max(1, Math.min(Number(dense_batch_size) || 8, 32)))
+        );
+        if (plan) args.push(...denseProvenanceArgs(plan.provenance));
+      }
     }
-    const rebuilt = await runSearchCli(args, {
-      timeoutMs: dense_embeddings ? 3600000 : 600000,
-      command: dense_embeddings ? embeddingPythonCommand() : pythonCommand()
-    });
-    dirtyReason = "";
-    lastStatus = null;
-    lastStatusAt = 0;
-    return rebuilt;
+
+    try {
+      const rebuilt = await runSearchCli(args, {
+        timeoutMs: dense_embeddings ? 3600000 : 600000,
+        command: dense_embeddings && !useOnnx ? embeddingPythonCommand() : pythonCommand()
+      });
+      dirtyReason = "";
+      lastStatus = null;
+      lastStatusAt = 0;
+      if (denseNote) {
+        rebuilt.dense_planned_documents = denseNote.planned;
+        rebuilt.dense_embedded_documents = denseNote.embedded;
+      }
+      return rebuilt;
+    } finally {
+      if (vectorsPath) await fs.rm(vectorsPath, { force: true }).catch(() => {});
+    }
   }
 
   /**

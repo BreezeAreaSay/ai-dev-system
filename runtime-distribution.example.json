@@ -1,7 +1,8 @@
 {
-  "_comment": "Example of the file written by `node ai-dev-mcp-server/scripts/ai-dev.mjs distribution` (MCP tool: prepare_runtime_distribution). The real runtime-distribution.json is git-ignored because it embeds machine-specific absolute paths. Placeholders below use ${VAR} expansion.",
+  "_comment": "Example of the file written by `node ai-dev-mcp-server/scripts/ai-dev.mjs distribution` (MCP tool: prepare_runtime_distribution). The real runtime-distribution.json is git-ignored because it embeds machine-specific absolute paths. Placeholders below use ${VAR} expansion, and the `files` and `fingerprint` keys the real file carries are left out for the same reason. This example shows the `posix` flavor; `runtime_flavor` is `windows` on Windows and `docker` inside the published image, and `commands` and `recovery` follow it.",
   "schema_version": 1,
   "generated_at": "1970-01-01T00:00:00.000Z",
+  "runtime_flavor": "posix",
   "profile": {
     "schema_version": 1,
     "mode": "local-first",
@@ -19,7 +20,9 @@
     "remote_foundation": {
       "status": "disabled",
       "bind": "127.0.0.1",
-      "tls": { "mode": "required-before-enable" },
+      "tls": {
+        "mode": "required-before-enable"
+      },
       "authentication": {
         "mode": "bearer",
         "token_env": "AI_DEV_MCP_BEARER_TOKEN"
@@ -30,14 +33,21 @@
     }
   },
   "profile_source": "generated local-first defaults",
-  "profile_validation": { "ok": true, "errors": [], "warnings": [] },
+  "profile_validation": {
+    "ok": true,
+    "errors": [],
+    "warnings": []
+  },
   "entrypoint": "src/server.mjs",
-  "tools": 83,
+  "tools": 133,
   "commands": {
-    "start": "powershell -File scripts/start-local.ps1",
+    "start": "npm start",
     "doctor": "node scripts/ai-dev.mjs doctor",
-    "acceptance": "node scripts/ai-dev.mjs acceptance",
-    "backup": "node scripts/ai-dev.mjs backup <label>"
+    "acceptance": "node scripts/acceptance.mjs"
+  },
+  "command_context": "",
+  "recovery": {
+    "reason": "No cross-platform backup or restore script ships with this runtime. Copy the vault and the AI Dev home (AI_DEV_HOME) instead."
   },
   "remote_transport_implemented": false,
   "remote_policy": "blocked until official HTTP transport, TLS, environment-bound bearer auth, allowlist, rate limit, audit log, and threat review are implemented"

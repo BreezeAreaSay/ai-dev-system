@@ -214,3 +214,230 @@ export function qualityGateStatus({ dryRun, parsed, results, blocked, diagramSpe
   if (!results.length) return "no_commands_run";
   return "passed";
 }
+
+/**
+ * What to tell an agent about a `node --test <directory>` run that failed
+ * before any test body executed.
+ *
+ * Node 21 made the positional arguments of `node --test` glob patterns. A bare
+ * directory then matches itself, and the runner executes the directory as if it
+ * were a test file, so a suite that passes under `node --test` fails under
+ * `node --test test/` with a module-resolution error and nothing that names the
+ * cause (docs/DEFECTS.md, Д-54).
+ */
+export const NODE_TEST_DIRECTORY_HINT = "Node >= 21 treats positional arguments as glob patterns; a directory is run as a test file. Use `node --test` or `node --test \"test/**/*.test.js\"`.";
+
+/** Every module path a `Cannot find module` line in this output names. */
+function moduleNotFoundNames(output) {
+  return [...String(output).matchAll(/Cannot find module ['"]([^'"]+)['"]/g)].map((match) => match[1]);
+}
+
+/**
+ * The positional operands of every `node --test` invocation this text shows.
+ *
+ * The gate runs what the project wrote down, which is usually `npm run test`;
+ * the `node --test …` line is then in the output, because npm echoes the script
+ * it is about to run. So command and output are read the same way, and the TAP
+ * and npm line prefixes (`#`, `>`) are stripped first.
+ */
+function nodeTestOperands(text) {
+  const operands = [];
+  for (const rawLine of String(text).split(/\r?\n/)) {
+    const tokens = rawLine.replace(/^[\s>#]+/, "").trim().split(/\s+/).filter(Boolean);
+    const nodeAt = tokens.findIndex((token) => /(?:^|[\\/])node(?:\.exe)?$/i.test(token.replace(/^["']|["']$/g, "")));
+    if (nodeAt < 0) continue;
+    const testAt = tokens.indexOf("--test", nodeAt + 1);
+    if (testAt < 0) continue;
+    for (const token of tokens.slice(testAt + 1)) {
+      if (token.startsWith("-")) continue;
+      operands.push(token.replace(/^["']|["']$/g, ""));
+    }
+  }
+  return operands;
+}
+
+/**
+ * The hint for one failed command, or `""` when there is nothing certain to
+ * say.
+ *
+ * Deliberately narrow: a hint is produced only when the operand Node could not
+ * resolve is the very operand the command handed to `--test`. An ordinary
+ * failing test says nothing about globs and gets no hint, and a command already
+ * written as a glob is the spelling this hint recommends.
+ *
+ * @param {{ command?: string, stdout?: string, stderr?: string }} run
+ * @returns {string} The hint, or `""`.
+ */
+export function diagnoseQualityCommandFailure({ command = "", stdout = "", stderr = "" } = {}) {
+  const output = `${stdout}\n${stderr}`;
+  const missing = moduleNotFoundNames(output);
+  if (!missing.length) return "";
+  for (const operand of nodeTestOperands(`${command}\n${output}`)) {
+    const bare = operand.replace(/[\\/]+$/, "");
+    if (!bare || /[*?]/.test(bare)) continue;
+    const named = missing.some((name) => {
+      const resolved = name.replaceAll("\\", "/");
+      return resolved === bare || resolved.endsWith(`/${bare.replaceAll("\\", "/")}`);
+    });
+    if (named) return NODE_TEST_DIRECTORY_HINT;
+  }
+  return "";
+}
+
+/**
+ * A version as `[major, minor, patch]`, with an absent or wildcard part left
+ * `null`, or `null` when this is not a version at all.
+ *
+ * Partial is the normal case here: `engines.node` is written `20` far more
+ * often than `20.0.0`, and the missing parts are what decides how wide the
+ * range is. Prerelease and build metadata are dropped — Node's own releases
+ * carry none, and a range that leans on them is not one this understands.
+ */
+function parseVersionParts(text) {
+  const match = /^v?(\d+|[xX*])(?:\.(\d+|[xX*]))?(?:\.(\d+|[xX*]))?(?:[-+][0-9A-Za-z][0-9A-Za-z.-]*)?$/
+    .exec(String(text ?? "").trim());
+  if (!match) return null;
+  const parts = [match[1], match[2], match[3]].map((part) => (
+    part === undefined || /^[xX*]$/.test(part) ? null : Number(part)
+  ));
+  // `20.x.1` is not a range anybody means; once a part is open the rest is too.
+  const firstOpen = parts.indexOf(null);
+  if (firstOpen >= 0 && parts.slice(firstOpen).some((part) => part !== null)) return null;
+  return parts;
+}
+
+/** The lowest version a partial covers: the missing parts are zero. */
+function lowerBound(parts) {
+  return parts.map((part) => part ?? 0);
+}
+
+/** The first version a partial no longer covers, or `null` when it covers everything. */
+function upperBound([major, minor, patch]) {
+  if (major === null) return null;
+  if (minor === null) return [major + 1, 0, 0];
+  if (patch === null) return [major, minor + 1, 0];
+  return [major, minor, patch + 1];
+}
+
+/** The first version a caret range no longer covers. */
+function caretUpperBound([major, minor, patch]) {
+  if (major === null || major > 0) return [(major ?? 0) + 1, 0, 0];
+  if (minor === null) return [1, 0, 0];
+  if (minor > 0 || patch === null) return [0, minor + 1, 0];
+  return [0, 0, patch + 1];
+}
+
+/** The first version a tilde range no longer covers. */
+function tildeUpperBound([major, minor]) {
+  if (major === null) return null;
+  if (minor === null) return [major + 1, 0, 0];
+  return [major, minor + 1, 0];
+}
+
+function compareVersions(left, right) {
+  for (let index = 0; index < 3; index += 1) {
+    if (left[index] !== right[index]) return left[index] < right[index] ? -1 : 1;
+  }
+  return 0;
+}
+
+/** One comparator as the half-open interval it accepts, or `null` when unreadable. */
+function comparatorInterval(comparator) {
+  const match = /^(>=|<=|>|<|=|\^|~)?\s*(.+)$/.exec(comparator);
+  if (!match) return null;
+  const [, operator = "", operand] = match;
+  const parts = parseVersionParts(operand);
+  if (!parts) return null;
+  if (parts[0] === null) return { from: [0, 0, 0], to: null };
+  const low = lowerBound(parts);
+  switch (operator) {
+    case ">=": return { from: low, to: null };
+    case ">": return { from: upperBound(parts), to: null };
+    case "<=": return { from: [0, 0, 0], to: upperBound(parts) };
+    case "<": return { from: [0, 0, 0], to: low };
+    case "^": return { from: low, to: caretUpperBound(parts) };
+    case "~": return { from: low, to: tildeUpperBound(parts) };
+    default: return { from: low, to: upperBound(parts) };
+  }
+}
+
+/**
+ * An `engines.node` range as the alternatives it offers, or `null` when this is
+ * not a shape we read.
+ *
+ * Deliberately partial. It covers what `engines.node` is actually written as —
+ * `20`, `^20`, `~20.1`, `>=20`, `20.x`, `18 || 20`, `>=18 <21` — and answers
+ * `null` for everything else, including hyphen ranges and `lts/*`. A range this
+ * cannot read produces no claim in either direction: a warning invented out of
+ * a misparse is worse than the silence it replaced (docs/DEFECTS.md, Д-67).
+ *
+ * @param {string} range
+ * @returns {Array<Array<{ from: number[], to: number[]|null }>>|null}
+ */
+export function parseEngineRange(range) {
+  const text = String(range ?? "").trim();
+  if (!text) return null;
+  const alternatives = [];
+  for (const alternative of text.split("||")) {
+    const comparators = alternative.trim().split(/\s+/).filter(Boolean);
+    if (!comparators.length) return null;
+    const intervals = [];
+    for (const comparator of comparators) {
+      const interval = comparatorInterval(comparator);
+      if (!interval) return null;
+      intervals.push(interval);
+    }
+    alternatives.push(intervals);
+  }
+  return alternatives.length ? alternatives : null;
+}
+
+/**
+ * Whether a version satisfies an `engines.node` range.
+ *
+ * @param {string} range - As written in the project's package.json.
+ * @param {string} version - As `process.version`.
+ * @returns {boolean|null} `null` when the range, or the version, was not read.
+ */
+export function engineMatches(range, version) {
+  const alternatives = parseEngineRange(range);
+  if (!alternatives) return null;
+  const parts = parseVersionParts(version);
+  if (!parts || parts.some((part) => part === null)) return null;
+  return alternatives.some((intervals) => intervals.every(({ from, to }) => (
+    compareVersions(parts, from) >= 0 && (to === null || compareVersions(parts, to) < 0)
+  )));
+}
+
+/**
+ * What the gate has to say about the Node it ran on versus the one the project
+ * asks for.
+ *
+ * On the Docker path the commands run on the image's Node, not the user's, and
+ * a project pinned to another major got the "passes here, fails in the gate"
+ * pair with nothing on the record to explain it (docs/DEFECTS.md, Д-67). This
+ * warns; it never blocks, and a range it could not read says so rather than
+ * guessing.
+ *
+ * @param {object} input
+ * @param {string} [input.declared] - The project's `engines.node`.
+ * @param {string} input.running - As `process.version`.
+ * @returns {{ declared: string, satisfied: boolean|null, mismatch?: object }|null}
+ */
+export function engineAgreement({ declared, running }) {
+  const range = String(declared ?? "").trim();
+  if (!range) return null;
+  const satisfied = engineMatches(range, running);
+  if (satisfied !== false) return { declared: range, satisfied };
+  return {
+    declared: range,
+    satisfied,
+    mismatch: {
+      declared: range,
+      running,
+      message: `This project declares engines.node ${range}; the quality gate ran its commands on Node ${running}. `
+        + "A command that behaves differently across majors will disagree with the project's own terminal. "
+        + "This is a warning: the gate ran everything it was asked to."
+    }
+  };
+}

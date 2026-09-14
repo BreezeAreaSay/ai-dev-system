@@ -85,7 +85,24 @@ if [ -n "${AI_DEV_MODEL_PATH:-}" ]; then
     *,*) printf '%s\n' "AI_DEV_MODEL_PATH cannot contain a comma." >&2; exit 64 ;;
   esac
   model_path="$(cd "${AI_DEV_MODEL_PATH}" && pwd -P)"
-  set -- "$@" --mount "type=bind,source=${model_path},target=/models/bge-m3,readonly"
+  # One mount point for both backends: the folder is expected to hold
+  # bge-m3-onnx/ (the default) and/or bge-m3/ (the legacy Python weights).
+  # docs/DEFECTS.md, Д-62.
+  #
+  # Before Д-62 the variable named the model directory itself. A folder that
+  # holds model files is that old value; mounted at /models it would leave both
+  # backends looking one level too deep and reporting "not set up"
+  # (docs/DEFECTS.md Д-68).
+  for marker in pytorch_model.bin modules.json config.json onnx; do
+    if [ -e "${model_path}/${marker}" ]; then
+      printf '%s\n' "AI_DEV_MODEL_PATH now names the folder above the models, and ${model_path} holds model files itself (${marker}). Point it at the parent folder that contains bge-m3-onnx/ and/or bge-m3/ — for a default install that is \$HOME/.ai-dev/models (docs/INSTALL.md)." >&2
+      exit 64
+    fi
+  done
+  if [ ! -d "${model_path}/bge-m3-onnx" ] && [ ! -d "${model_path}/bge-m3" ]; then
+    printf '%s\n' "AI_DEV_MODEL_PATH=${model_path} holds neither bge-m3-onnx/ nor bge-m3/; dense search will report that it is not set up until a model is put there." >&2
+  fi
+  set -- "$@" --mount "type=bind,source=${model_path},target=/models,readonly"
 fi
 
 exec docker "$@" "${image}"

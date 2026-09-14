@@ -72,13 +72,14 @@ function createFixture(overrides = {}) {
     },
     runSecurityScan: async (args) => {
       calls.push(["runSecurityScan", args]);
+      const status = overrides.securityStatus ?? "unchecked";
       return {
-        status: overrides.securityStatus ?? "pass",
+        status,
         summary: { checked: 0, skipped: 6, failed: 0, findings: 0, blocking: 0 },
         scanners: [],
         findings: [],
-        markdown: "# Security scan: pass\n",
-        next_step: "…"
+        markdown: `# Security scan: ${status}\n`,
+        next_step: "No scanner could run here, so nothing was checked."
       };
     },
     runFrontendQa: async (args) => {
@@ -169,11 +170,15 @@ test("verify_task runs the gate and hygiene, and a passing run meets its criteri
   assert.deepEqual(verified.verification.checks.map((item) => item.type), ["quality_gate", "change_hygiene", "security_scan"]);
   assert.equal(verified.verification.passed, true);
   // The scanners run next to hygiene, and a run where none of them could run is
-  // a pass with `checked: 0` rather than a failure nobody can act on.
+  // `unchecked` rather than a failure nobody can act on — it still does not
+  // block, but it no longer reads as "checked and clean" (Д-55).
   assert.deepEqual(calls.find(([name]) => name === "runSecurityScan")[1], { project_path: "/repo/atlas", scanners: undefined });
   const securityCheck = verified.verification.checks.at(-1).result;
+  assert.equal(securityCheck.status, "unchecked");
   assert.equal(securityCheck.summary.checked, 0);
   assert.equal("markdown" in securityCheck, false, "the report text stays out of the task record");
+  // …but the one line that says nobody looked does reach the record.
+  assert.match(securityCheck.next_step, /No scanner could run here/);
   assert.match(verified.verification.id, /^verification-\d+-[0-9a-f]{8}$/);
   assert.equal(verified.skill_outcomes.recorded, true);
   const [, , criteria] = calls.find(([name]) => name === "checkpoint");

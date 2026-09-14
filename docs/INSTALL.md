@@ -47,8 +47,9 @@ npm run setup
 
 `npm run setup` builds the three things a clone does not ship — the skill
 registry, the search index and the routing benchmark — and prints the health
-check. Add `--frontend-qa` for the QA runner's dependencies, `--dense` for the
-local BGE-M3 model and the embeddings built with it (~2.3 GB); neither runs
+check. The container builds the same three on its first start, from the same
+code, so the two paths cannot end up with different installs. Add `--frontend-qa` for the QA runner's dependencies, `--dense` for the
+local BGE-M3 model and the embeddings built with it (about 600 MB); neither runs
 unless asked. No Obsidian vault is needed: without one the server reads the
 bundled seed and its helper trees from the repository itself.
 
@@ -63,9 +64,13 @@ Two ways to run it, and they speak the same protocol:
 | `npm run daemon` | One warm process on a local socket (a named pipe on Windows) serving every client, so the search index and the embedding model load once instead of per connection. |
 
 **Why local first.** The dense model is the reason. Locally it is one flag —
-`npm run setup -- --dense` — and it lands in `~/.ai-dev`. In the published image
-it is off (`INSTALL_BGE_M3=0`), so getting it there means building your own
-image variant and mounting `/models`.
+`npm run setup -- --dense` — and it lands in `~/.ai-dev`, with nothing but Node
+involved. In the published image the weights cannot be downloaded at all, so
+getting it there means building your own
+image variant and mounting `/models`. The image says so about itself through
+`AI_DEV_DENSE_INSTALLED`, and the health check reads it: inside a container
+`embedding_backend` reports dense search as not set up and points at the mount,
+rather than at a `npm run setup` no container can run.
 
 ## One command on Windows
 
@@ -169,6 +174,18 @@ To develop the image itself, use explicit local mode:
 sh ./bootstrap.sh --build-local
 ```
 
+If the registry cannot be reached and an older copy of the image is already in
+the local Docker cache, bootstrap stops rather than installing it. It prints
+when that copy was created and its digest, so you can tell how far behind it is.
+Installing it anyway is a deliberate choice:
+
+```bash
+sh ./bootstrap.sh --allow-stale-image
+```
+
+On Windows the same switch is `-AllowStaleImage`. Prefer restoring the registry
+connection: a cached image can be missing fixes that are already released.
+
 ## The packaged path: Docker
 
 Choose this when you want the system on a machine that should not hold a
@@ -228,6 +245,25 @@ sh ./docker/run-mcp.sh
 
 The process waits for MCP messages on standard input. That is expected: end the
 check with `Ctrl+C`, then wire the launcher command into an MCP client.
+
+### 4. What the container runs your checks with
+
+In the container, `run_quality_gate` and `verify_task` execute the commands from
+your project's `.ai-dev/quality-gate.md` with the **image's** Node — currently
+24 — not the Node you have installed. A command that behaves differently across
+Node majors will therefore disagree with your own terminal, and the gate is not
+what made it disagree. `node --test test/` is the usual one: since Node 21 the
+positional arguments are glob patterns, so the directory is executed as a test
+file and the script fails by itself, where under Node 20 it passed.
+
+`run_quality_gate` reports which Node ran the commands as `runtime.node` and
+`runtime.exec_path`, and a failed command carries a `hint` when the cause is one
+the gate recognizes. It does not rewrite your commands for you.
+
+The container also runs with `--network none`, and of the six security scanners
+only `gitleaks` — which is in the image — works with no network at all. So a
+scan there is one scanner, not six; `docker/README.md` has the full matrix. A
+scan in which not one scanner ran comes back `unchecked`, never `pass`.
 
 ## Connecting AI agents
 
@@ -345,37 +381,58 @@ local paths.
 Hybrid search has two halves: keyword matching, which works everywhere with no
 setup, and dense retrieval on the local BGE-M3 model, which is what makes a
 search understand a question rather than match its words. The container can run
-both. It takes two things the image does not ship, for two different reasons.
+both, and since the ONNX runtime is an ordinary npm dependency it is already in
+the default image — there is nothing to turn on. One thing is still missing, for
+one reason.
 
-**The Python side is off by default** — building it into every image would cost
-everyone the install whether they use it or not. Turn it on with a build
-argument:
-
-```bash
-npm --prefix ai-dev-mcp-server run docker:prepare
-docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker/build-context
-```
-
-**The weights are never in the published image.** They are ~2.3 GB and they are yours, not
-the distribution's — an image carrying them would be a 2.3 GB pull for every
-user and a licence question for the publisher. Download them once on the host:
+**The weights are never in the published image.** They are yours, not the
+distribution's — an image carrying them would be a several-hundred-megabyte pull
+for every user and a licence question for the publisher. Download them once on
+the host:
 
 ```bash
 cd ai-dev-mcp-server
 npm run setup -- --dense
 ```
 
-They land in `~/.ai-dev/models/bge-m3` (override with `BGE_M3_MODEL_DIR`). That
-same folder then mounts into the container read-only — the container reads the
-weights and never writes them.
+They land in `~/.ai-dev/models/bge-m3-onnx` (override with `BGE_M3_ONNX_DIR`).
+Mount the folder *above* them — `~/.ai-dev/models` — read-only; the container
+reads the weights and never writes them. One mount serves both backends, which
+live side by side under it as `bge-m3-onnx/` and `bge-m3/`.
+
+**The legacy Python backend** is still there and still off by default, because
+building torch into every image would cost everyone the install whether they use
+it or not. It is only needed if you deliberately want the old path:
+
+```bash
+npm --prefix ai-dev-mcp-server run docker:prepare
+docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker/build-context
+```
 
 ### Running it, either way
 
-With the launcher scripts:
+`AI_DEV_MODEL_PATH` names the folder *above* the models — `~/.ai-dev/models`, the one
+`npm run setup -- --dense` fills — not a model directory. A folder that holds model
+files itself (`pytorch_model.bin`, `config.json`, `onnx/`) is the value the variable
+had before 2.1, and the launchers refuse it with directions rather than mounting it one
+level too deep.
+
+With the installer, which is the default Docker path:
 
 ```bash
-export AI_DEV_IMAGE=ai-dev-system:bge
-export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models/bge-m3"
+sh ./bootstrap.sh --model-path "$HOME/.ai-dev/models"
+```
+
+The fast-start runtime mounts the folder read-only as `/models`, and the client
+configurations bootstrap writes carry `AI_DEV_MODEL_PATH`, so the cold fallback
+launch mounts it too. `AI_DEV_MODEL_PATH` in the environment is the default for
+`--model-path`; on Windows the switch is `-ModelPath`.
+
+With the launcher scripts directly (`AI_DEV_IMAGE` is only needed for the legacy
+`ai-dev-system:bge` build):
+
+```bash
+export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
 export AI_DEV_PROJECT_PATH="/absolute/path/to/your/project"
 sh docker/run-mcp.sh
 ```
@@ -385,12 +442,13 @@ example file carries it with the same variable — and run:
 
 ```bash
 export AI_DEV_IMAGE=ai-dev-system:bge
-export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models/bge-m3"
+export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
 docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
 ```
 
-Both attach the folder at `/models/bge-m3`, which is where `BGE_M3_MODEL_DIR`
-points inside the image. `compose.yaml` runs with `network_mode: none`, and that
+Both attach the folder at `/models`, where `BGE_M3_ONNX_DIR` and
+`BGE_M3_MODEL_DIR` point inside the image (`/models/bge-m3-onnx` and
+`/models/bge-m3`). `compose.yaml` runs with `network_mode: none`, and that
 does not get in the way: the embedding helpers set `TRANSFORMERS_OFFLINE=1` and
 `HF_HUB_OFFLINE=1` before loading, so the model is read from the mount and
 nothing reaches for the network. It is also why the weights have to arrive by
@@ -400,21 +458,21 @@ mount rather than by a download inside the container.
 
 Mounting keeps the published image small, which is right for the default. It is
 not right for every deployment: an air-gapped machine, or an image handed to a
-team that should not each download 2.3 GB, wants the model baked in. That is
-your build, not the distribution's, and it is four lines:
+team that should not each download the weights, wants the model baked in. That
+is your build, not the distribution's, and it is four lines:
 
 ```dockerfile
 # Dockerfile.bge — build it from the folder holding the weights
-FROM ai-dev-system:bge
-COPY --chown=node:node bge-m3/ /models/bge-m3/
+FROM ghcr.io/stonebridgeway/ai-dev-system:latest
+COPY --chown=node:node bge-m3-onnx/ /models/bge-m3-onnx/
 ```
 
 ```bash
 docker build -f Dockerfile.bge -t ai-dev-system:bge-bundled "$HOME/.ai-dev/models"
 ```
 
-The result needs no mount and no variable: `/models/bge-m3` is already there,
-which is what `BGE_M3_MODEL_DIR` points at. Everything else — `network_mode:
+The result needs no mount and no variable: `/models/bge-m3-onnx` is already
+there, which is what `BGE_M3_ONNX_DIR` points at. Everything else — `network_mode:
 none`, the read-only root filesystem, the unprivileged user — stays as it was.
 
 ### Checking that it worked
@@ -427,14 +485,20 @@ run, and with it `ok`.
 npm --prefix ai-dev-mcp-server run -s doctor
 ```
 
-For the detail behind that one line, the `embedding_status` tool lists what
-dense retrieval needs and whether each part is there. Four entries under
-`availability` have to read `exists: true` — `embeddings_python`, `model_dir`,
-`model_file` and `modules_file` — and in a container `paths.model_dir` should
-read `/models/bge-m3` and `paths.embeddings_python`
-`/opt/ai-dev/embeddings/.venv/bin/python`. Anything false there names the half
-that is missing: the interpreter means the image was built without
-`INSTALL_BGE_M3=1`, the model files mean the mount did not arrive.
+For the detail behind that one line, the `embedding_status` tool says which
+backend is selected and why. Read `dense_backend`: `backend` is `onnx` or
+`python`, `available` says whether it can run, and `reason` is a sentence rather
+than a flag. Under `dense_backend.onnx`, `missing` lists files that are not
+there and `mismatched` lists files that are there and are not the pinned export
+— the first means the mount did not arrive, the second means the bytes are
+wrong. From a checkout, `npm run dense:doctor` walks the same ground in six
+stages and names the one that stopped.
+
+The legacy backend is graded the same way it always was: four entries under
+`availability` read `exists: true` — `embeddings_python`, `model_dir`,
+`model_file` and `modules_file` — and a missing interpreter means the image was
+built without `INSTALL_BGE_M3=1`. With the ONNX backend selected those entries
+say nothing about whether dense search works.
 
 Then `search_index_status` reports `dense_documents` against
 `dense_pending_documents`: a fresh index has vectors for none of its documents

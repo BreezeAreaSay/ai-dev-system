@@ -76,7 +76,39 @@ const audit = assertCleanDistribution(
 
 // What the allowlist left out is only discovered when something imports it, and
 // by then the image is built and its server dies on startup.
-const dangling = await findDanglingImports(path.join(target, "app"));
+//
+// `runtime/` is walked as well as `app/`. It was not, and the Frontend QA
+// runner shipped for months importing two server modules by a relative path
+// that resolves nowhere inside the image — the audit was green because it never
+// looked there (docs/DEFECTS.md, Д-56). The Dockerfile copies `runtime/*` to
+// `/opt/ai-dev/*` and `app/` to `/opt/ai-dev/app`, with
+// `/opt/ai-dev/ai-dev-mcp-server` symlinked onto the latter, so from inside
+// `runtime/` the server is `../ai-dev-mcp-server`.
+// Non-JS assets the server reads at load time. `findDanglingImports` cannot see
+// these — the dense manifest is read through `createRequire` from a computed
+// URL, so it left the allowlist unnoticed and the image started, imported
+// `mcp-stdio.mjs` and died on a missing JSON file (docs/DEFECTS.md, Д-62).
+const requiredAssets = ["app/models/bge-m3.manifest.json"];
+const absentAssets = [];
+for (const relative of requiredAssets) {
+  const present = await stat(path.join(target, relative)).then(() => true).catch(() => false);
+  if (!present) absentAssets.push(relative);
+}
+if (absentAssets.length) {
+  process.stderr.write(
+    `Docker build context is missing ${absentAssets.length} file(s) the server reads at startup:\n` +
+    absentAssets.map((item) => `  ${item}\n`).join("") +
+    "Add them to the allowlist in scripts/prepare-docker-context.mjs.\n"
+  );
+  process.exit(1);
+}
+
+const dangling = [
+  ...await findDanglingImports(path.join(target, "app")),
+  ...await findDanglingImports(path.join(target, "runtime"), {
+    aliases: [[path.join(target, "runtime", "ai-dev-mcp-server"), path.join(target, "app")]]
+  })
+];
 if (dangling.length) {
   process.stderr.write(
     `Docker build context imports ${dangling.length} module(s) it does not carry:\n` +

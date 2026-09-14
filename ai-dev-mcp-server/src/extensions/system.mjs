@@ -7,14 +7,18 @@ import {
   dashboardFreshness,
   renderSystemDashboard
 } from "../core/system-dashboard.mjs";
+import { locateExecutable } from "../core/process-runner.mjs";
 import { resolveRuntimeNote } from "../core/runtime-assets.mjs";
+import {
+  evaluateSecurityScanners,
+  securityScannerAvailability
+} from "../core/security-scan.mjs";
 import {
   REQUIRED_SYSTEM_NOTES,
   buildSystemSnapshot,
   createHealthReport,
   evaluateAutoCommands,
   evaluateDenseSmoke,
-  evaluateEmbeddingBackend,
   evaluateFrontendQaEnvironment,
   evaluateFrontendQaRunner,
   evaluateHybridSmoke,
@@ -34,6 +38,7 @@ import {
   evaluateSkillVisualGraph,
   evaluateVaultRoot
 } from "../core/system-health.mjs";
+import { evaluateEmbeddingBackend } from "../core/embedding-health.mjs";
 
 const DENSE_SMOKE_QUERY = "создай качественный интерфейс без ИИ слопа по утвержденным референсам";
 
@@ -200,6 +205,21 @@ async function systemHealthCheck(host, {
     evaluateFrontendQaEnvironment(await host.frontendQaEnvironmentStatus())
   ));
 
+  // Not critical: no scanner installed is a gap, not a broken system. It is
+  // checked here because `run_security_scan` is only run on demand, so a
+  // machine that can check nothing stays silent until a task asks for a scan
+  // and gets `unchecked` back (docs/DEFECTS.md, Д-55).
+  await report.runCheck("security_scanners", false, async () => {
+    // Through the host when it offers a locator or a runner, so a fixture can
+    // answer for a machine other than the one running the test. A scanner that
+    // is a subcommand of another tool is asked rather than assumed: `cargo` on
+    // the PATH is not `cargo audit` (docs/DEFECTS.md, Д-64).
+    return evaluateSecurityScanners(await securityScannerAvailability({
+      locate: host.locateExecutable ?? locateExecutable,
+      ...(host.runProcess ? { runner: host.runProcess } : {})
+    }));
+  });
+
   if (include_embedding_status) {
     await report.runCheck("embedding_backend", true, async () => (
       evaluateEmbeddingBackend(await host.embeddingStatus({}))
@@ -364,7 +384,7 @@ export function createSystemTools(host) {
     definitions: [
       {
         name: "system_health_check",
-        description: "Run an AI Dev System health check for vault paths, search index, skill/project registries, search presets, BGE-M3 backend, worker state, and optional search smoke tests.",
+        description: "Run an AI Dev System health check for vault paths, search index, skill/project registries, search presets, BGE-M3 backend, installed security scanners, worker state, and optional search smoke tests.",
         inputSchema: {
           type: "object",
           properties: {

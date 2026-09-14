@@ -69,9 +69,11 @@ npm run setup
 ```
 
 Затем направьте MCP-клиент на `ai-dev-mcp-server/src/server.mjs` и перезапустите
-его. Это вся установка, и на своей машине стоит идти именно этим путём:
-локальная dense-модель здесь — один флаг (`npm run setup -- --dense`), а в
-упакованном варианте это отдельная сборка образа.
+его. Это вся установка, и на своей машине стоит идти именно этим путём.
+Локальная dense-модель здесь — один флаг: `npm run setup -- --dense` скачивает
+пиннутый ONNX-экспорт BGE-M3 со сверкой sha256 и запускает его в Node, так что
+«и больше ничего» верно и для неё; `npm run dense:doctor` скажет, получилось ли.
+В упакованном варианте веса монтируются.
 
 **В контейнере, через Docker** — для машины, на которой не должно быть личного
 vault, или для команды, которой нужен один образ на всех:
@@ -177,4 +179,4 @@ flowchart TB
 (3 074), [ECC — Everything Claude Code](THIRD_PARTY_NOTICES.md) (101),
 [Understand Anything](https://github.com/Egonex-AI/Understand-Anything) (9),
 [mattpocock/skills](https://github.com/mattpocock/skills) (1), а также
-[taste-skill](https://github.com/tt-a1i/taste-skill), [ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) и [Archify](https://github.com/tt-a1i/archify).
+[taste-skill](https://github.com/Leonxlnx/taste-skill), [ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) и [Archify](https://github.com/tt-a1i/archify).

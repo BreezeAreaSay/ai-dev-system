@@ -7,11 +7,14 @@ image_set=0
 clients="codex,cursor,gemini,vscode,claude"
 skip_smoke=0
 skip_client_install=0
+allow_stale_image=0
+stale_warning=""
 install_prerequisites=0
 build_local=0
 plan=0
 node_image="${AI_DEV_BOOTSTRAP_NODE_IMAGE:-node:24-bookworm-slim}"
 data_volume="${AI_DEV_DATA_VOLUME:-ai-dev-system-data}"
+model_path="${AI_DEV_MODEL_PATH:-}"
 
 usage() {
   cat <<'EOF'
@@ -19,11 +22,14 @@ Usage: sh ./bootstrap.sh [options]
 
 Options:
   --project-path PATH       Folder to mount as /workspace.
+  --model-path PATH         Folder holding bge-m3-onnx/ and/or bge-m3/, mounted read-only
+                            as /models (default: AI_DEV_MODEL_PATH; unset = no dense weights).
   --image NAME              Docker image tag (default: published GHCR latest).
   --clients LIST            Comma-separated: codex,cursor,gemini,vscode,claude.
   --install-prerequisites   Install Docker with Homebrew, apt, dnf, or pacman.
   --build-local             Build ai-dev-system:local from this checkout.
   --skip-smoke              Skip the final MCP stdio negotiation check.
+  --allow-stale-image       Install the cached image when the registry pull fails.
   --skip-client-install     Do not modify local AI-client configuration files.
   --plan                    Print the local plan without installing or building.
 EOF
@@ -32,11 +38,13 @@ EOF
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --project-path) project_path="$2"; shift 2 ;;
+    --model-path) model_path="$2"; shift 2 ;;
     --image) image="$2"; image_set=1; shift 2 ;;
     --clients) clients="$2"; shift 2 ;;
     --install-prerequisites) install_prerequisites=1; shift ;;
     --build-local) build_local=1; shift ;;
     --skip-smoke) skip_smoke=1; shift ;;
+    --allow-stale-image) allow_stale_image=1; shift ;;
     --skip-client-install) skip_client_install=1; shift ;;
     --plan) plan=1; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -70,8 +78,13 @@ if [ "$plan" -eq 1 ]; then
   plan_clients=$(json_escape "$clients")
   plan_runtime=$(json_escape "$runtime_container")
   plan_volume=$(json_escape "$data_volume")
-  printf '{"repository":"%s","project_path":"%s","image":"%s","clients":"%s","runtime_container":"%s","data_volume":"%s","build_local":%s,"node_on_host_required":false}\n' \
-    "$plan_repo" "$plan_project" "$plan_image" "$plan_clients" "$plan_runtime" "$plan_volume" "$build_local"
+  # Present only when a model folder was given, so the default plan is unchanged.
+  plan_model=""
+  if [ -n "$model_path" ]; then
+    plan_model=",\"model_path\":\"$(json_escape "$model_path")\""
+  fi
+  printf '{"repository":"%s","project_path":"%s","image":"%s","clients":"%s","runtime_container":"%s","data_volume":"%s"%s,"build_local":%s,"node_on_host_required":false}\n' \
+    "$plan_repo" "$plan_project" "$plan_image" "$plan_clients" "$plan_runtime" "$plan_volume" "$plan_model" "$build_local"
   exit 0
 fi
 
@@ -175,6 +188,30 @@ case "$project_path" in
 esac
 project_path=$(CDPATH= cd -- "$project_path" && pwd -P)
 
+if [ -n "$model_path" ]; then
+  case "$model_path" in
+    *,*) printf '%s\n' "Model path cannot contain a comma when Docker --mount syntax is used." >&2; exit 64 ;;
+  esac
+  if [ ! -d "$model_path" ]; then
+    printf '%s\n' "Model path does not exist: ${model_path}" >&2
+    exit 64
+  fi
+  model_path=$(CDPATH= cd -- "$model_path" && pwd -P)
+  # The folder above the models, holding bge-m3-onnx/ and/or bge-m3/, mounted
+  # read-only as /models in the fast-start runtime (docs/DEFECTS.md Д-69). A
+  # folder that holds model files itself is the pre-Д-62 value of the variable
+  # and would leave both backends looking one level too deep (Д-68).
+  for marker in pytorch_model.bin modules.json config.json onnx; do
+    if [ -e "${model_path}/${marker}" ]; then
+      printf '%s\n' "--model-path names the folder above the models, and ${model_path} holds model files itself (${marker}). Point it at the parent folder that contains bge-m3-onnx/ and/or bge-m3/ — for a default install that is \$HOME/.ai-dev/models (docs/INSTALL.md)." >&2
+      exit 64
+    fi
+  done
+  if [ ! -d "${model_path}/bge-m3-onnx" ] && [ ! -d "${model_path}/bge-m3" ]; then
+    printf '%s\n' "${model_path} holds neither bge-m3-onnx/ nor bge-m3/ yet; dense search will report that it is not set up until a model is put there." >&2
+  fi
+fi
+
 uid=$(id -u)
 gid=$(id -g)
 run_node() {
@@ -193,12 +230,26 @@ if [ "$build_local" -eq 1 ]; then
 else
   printf '%s\n' "Pulling ${image}..."
   if ! docker pull "$image"; then
-    if docker image inspect "$image" >/dev/null 2>&1; then
-      printf '%s\n' "Registry pull failed; using the existing local image ${image}." >&2
-    else
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
       printf '%s\n' "Could not pull ${image}, and no cached copy exists." >&2
       exit 69
     fi
+    # Installing whatever happened to be in the cache produced bug reports
+    # about defects already fixed upstream (docs/DEFECTS.md Д-60), so the age
+    # of that copy is stated and using it is now a deliberate choice.
+    stale_created=$(docker image inspect --format '{{.Created}}' "$image" 2>/dev/null || true)
+    # A locally built image has no RepoDigests, and `index` on an empty list
+    # fails rather than returning nothing.
+    stale_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || true)
+    [ -n "$stale_created" ] || stale_created="unknown"
+    [ -n "$stale_digest" ] || stale_digest="none (image was built locally)"
+    stale_warning="Registry pull failed. The cached copy of ${image} was created ${stale_created} (digest: ${stale_digest}) and is missing anything released since."
+    printf '%s\n' "$stale_warning" >&2
+    if [ "$allow_stale_image" -ne 1 ]; then
+      printf '%s\n' "Stopping rather than installing an image of unknown age. Restore the registry connection and run again, or re-run with --allow-stale-image to install this copy anyway." >&2
+      exit 69
+    fi
+    printf '%s\n' "Continuing because --allow-stale-image was given. Run 'docker pull ${image}' and bootstrap again once the registry is reachable." >&2
   fi
 fi
 
@@ -227,6 +278,7 @@ docker run -d \
   --cap-drop ALL \
   --mount "type=volume,source=${data_volume},target=/data" \
   --mount "type=bind,source=${project_path},target=/workspace" \
+  ${model_path:+--mount} ${model_path:+"type=bind,source=${model_path},target=/models,readonly"} \
   "$image" tail -f /dev/null >/dev/null
 
 if [ "$skip_smoke" -ne 1 ]; then
@@ -237,8 +289,32 @@ if [ "$skip_smoke" -ne 1 ]; then
     exit 70
   fi
   printf '%s\n' "Running fast-start MCP stdio smoke check..."
-  if ! printf '%s\n' "$init" | AI_DEV_RUNTIME_CONTAINER="$runtime_container" "$launcher" | grep -q '"serverInfo"'; then
-    printf '%s\n' "Fast-start MCP stdio smoke check failed." >&2
+  # The launcher is invoked through `sh` rather than executed: a download of
+  # this repository as a zip archive drops the execute bit, and the failure
+  # that produces is reported here as a smoke failure (docs/DEFECTS.md Д-58).
+  # A pipeline exits with the status of its last command, so the launcher's own
+  # status has to be captured separately to tell "the launcher never ran" apart
+  # from "the server answered something other than serverInfo".
+  smoke_dir=$(mktemp -d "${TMPDIR:-/tmp}/ai-dev-smoke.XXXXXX")
+  # The wait below is unbounded: a container that never answers holds the
+  # launcher open for as long as the user lets it. Killed there, the script used
+  # to die between the mktemp and the rm that each branch carried, leaving the
+  # directory in /tmp (docs/DEFECTS.md Д-65). One trap covers every way out,
+  # including the ones no branch can be written for.
+  trap 'rm -rf "$smoke_dir"' EXIT
+  trap 'rm -rf "$smoke_dir"; exit 130' INT
+  trap 'rm -rf "$smoke_dir"; exit 143' TERM
+  smoke_output="${smoke_dir}/fast-start.json"
+  smoke_status=0
+  printf '%s\n' "$init" | AI_DEV_RUNTIME_CONTAINER="$runtime_container" sh "$launcher" \
+    > "$smoke_output" || smoke_status=$?
+  if [ "$smoke_status" -ne 0 ]; then
+    printf '%s\n' "Fast-start MCP launcher ${launcher} exited with status ${smoke_status} without answering." >&2
+    printf '%s\n' "The runtime container ${runtime_container} is already running; re-run with --skip-smoke to finish the install, or check the launcher above." >&2
+    exit 70
+  fi
+  if ! grep -q '"serverInfo"' "$smoke_output"; then
+    printf '%s\n' "Fast-start MCP launcher ${launcher} ran, but the server did not answer with serverInfo." >&2
     exit 70
   fi
 fi
@@ -262,6 +338,7 @@ if [ "$skip_client_install" -ne 1 ]; then
       --runtime-container "$runtime_container" \
       --image "$image" \
       --project-path "$project_path" \
+      ${model_path:+--model-path} ${model_path:+"$model_path"} \
       --clients "$clients" \
       --home "$HOME" \
       --app-data "$app_data" \
@@ -269,3 +346,9 @@ if [ "$skip_client_install" -ne 1 ]; then
 fi
 
 printf '%s\n' "AI Dev MCP System is ready. Restart the selected AI clients to load ai-dev."
+if [ -n "$model_path" ]; then
+  printf '%s\n' "Model weights are mounted read-only from ${model_path} as /models."
+fi
+if [ -n "$stale_warning" ]; then
+  printf '%s\n' "Installed from a stale image. ${stale_warning}" >&2
+fi

@@ -41,7 +41,23 @@ if ($env:AI_DEV_MODEL_PATH) {
     if ($modelPath.Contains(",")) {
         throw "AI_DEV_MODEL_PATH cannot contain a comma when Docker --mount syntax is used."
     }
-    $dockerArgs += @("--mount", "type=bind,source=$modelPath,target=/models/bge-m3,readonly")
+    # One mount point for both backends: the folder is expected to hold
+    # bge-m3-onnx/ (the default) and/or bge-m3/ (the legacy Python weights).
+    # docs/DEFECTS.md, Д-62.
+    #
+    # Before Д-62 the variable named the model directory itself. A folder that
+    # holds model files is that old value; mounted at /models it would leave both
+    # backends looking one level too deep and reporting "not set up"
+    # (docs/DEFECTS.md Д-68).
+    foreach ($marker in @("pytorch_model.bin", "modules.json", "config.json", "onnx")) {
+        if (Test-Path -LiteralPath (Join-Path $modelPath $marker)) {
+            throw "AI_DEV_MODEL_PATH now names the folder above the models, and $modelPath holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ and/or bge-m3\ - for a default install that is $HOME\.ai-dev\models (docs/INSTALL.md)."
+        }
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $modelPath "bge-m3-onnx")) -and -not (Test-Path -LiteralPath (Join-Path $modelPath "bge-m3"))) {
+        [Console]::Error.WriteLine("AI_DEV_MODEL_PATH=$modelPath holds neither bge-m3-onnx\ nor bge-m3; dense search will report that it is not set up until a model is put there.")
+    }
+    $dockerArgs += @("--mount", "type=bind,source=$modelPath,target=/models,readonly")
 }
 
 $dockerArgs += $image

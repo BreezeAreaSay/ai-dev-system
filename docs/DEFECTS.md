@@ -12,20 +12,44 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 53 записи. Закрыто 50, из них девять — заходом по долгам Д-20 … Д-28, шесть
-(Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, и шесть (Д-43, Д-49 … Д-53) —
-заходом на кроссплатформенность и на подготовку 2.0.
+Состояние: 71 запись. Закрыто 67, из них девять — заходом по долгам Д-20 … Д-28, шесть
+(Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
+заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
+апстрима #47–#54 с опубликованного Docker-образа, и девять (Д-42, Д-48, Д-63 … Д-69) — вторым
+заходом того же дня по тому, что нашлось при проверке первого.
 
-Открыто три:
+Открыто четыре:
 
+- **Д-70** — два регресса первого прогона CI: `ARG NODE_IMAGE` оказался внутри стадии gitleaks и
+  во втором `FROM` пуст; в `bootstrap.ps1` переменная `$plan` совпала с параметром `[switch]$Plan`.
+  Оба внесены сессиями, которым нечем было запустить Docker и PowerShell. Правка запушена;
+  PowerShell-половина замерена живьём (pwsh 7.6.6) и накрыта контракт-тестами, Dockerfile ждёт
+  зелёного Docker-джоба на PR в апстрим — Actions самого форка джобы не запускают (аккаунт
+  заблокирован по биллингу).
+- **Д-71** — второй прогон CI: тест из Д-70 читал `stderr` pwsh как плоский текст, а pwsh рисует
+  `throw` окрашенным и перенесённым по ширине консоли; тест `runtime-assets` сравнивал
+  контейнерный путь с буквальной POSIX-строкой, и на Windows `path.resolve` дописал диск. Оба —
+  утверждения о том, как среда *рисует* факт, а не о самом факте. Правка внесена и воспроизведена
+  локально в обе стороны (без `TERM` pwsh переносит по 80 колонкам, как раннер); зелёный прогон
+  ещё не увиден.
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
-  закрывается: осталось пять минут в самом Cursor по двум пунктам, и для них есть
-  `npm run verify:cursor`.
-- **Д-42** — ветка-снимок с профилем инструментов, доверием к проекту и `models.mjs` не
-  мержится в текущее дерево. Нужен разбор по файлам, а не мерж.
-- **Д-48** — обход границы проекта доходит до корня файловой системы: `package.json`,
-  положенный в домашний каталог, схлопывает все проекты под ним в один ключ памяти. Записаны
-  три возможных ответа, выбор за владельцем.
+  закрывается: двадцать минут в самом Cursor по четырём пунктам, `npm run verify:cursor`
+  печатает их.
+- **Д-62** — закрыта частично: dense-поиск без Python (ONNX в Node) написан, покрыт тестами и
+  цепочкой проверки, но веса и инференс из песочницы недоступны; критерий приёмки (2) — качество
+  ONNX-int8 против Python-fp32 на `search-eval` — приносит workflow `dense-eval.yml`, и до его
+  чисел запись открыта. Второе, что осталось: `revision` для legacy-пути `BAAI/bge-m3` — тот же
+  workflow печатает её, владелец вписывает.
+
+Два захода 2026-09-14 по тикетам апстрима #47–#54: первый — восемь дефектов четырьмя пачками по
+корневой причине (A, установка: Д-58, Д-60; B, Docker: Д-56, Д-57, Д-59; C, дистрибуция: Д-61;
+D, честность verify_task: Д-54, Д-55); второй — то, что нашлось при их проверке (E, граница
+проекта: Д-48; F, локальная модель без Python: Д-62, Д-42; H, мелочи: Д-63 … Д-67; и по следам
+проверки F — Д-68, Д-69, монтирование весов в Docker). Что в
+песочнице проверить было нельзя — сборку образа, поведение внутри него, скачивание весов и
+инференс — несёт CI: `docker-publish.yml` собирает образ на каждом PR и гоняет в нём health
+check, отдельный шаг проверяет `gitleaks version` офлайн, `dense-eval.yml` по кнопке меряет
+качество dense-поиска.
 
 Д-5 закрыт решением владельца: CI форка не нужен, проверка идёт через PR в апстрим.
 
@@ -1789,7 +1813,8 @@ await fs.rename(stage, outputRoot);
 
 ## Д-42. Ветку `codex/commit-all-20260908` нельзя слить, а работа в ней есть
 
-**Статус:** открыт частично. Подсистема демона перенесена, три файла остаются.
+**Статус:** закрыт (2026-09-14). Демон перенесён, три оставшихся файла разобраны, последний из
+них — манифест модели — перенесён пачкой F. Ветку можно удалять.
 
 При сведении всех веток в main оказалось, что 19 веток форка сливаются (последняя — одним
 слиянием `claude/lucid-ramanujan-syom2o`, которая уже вобрала две другие), а одна ветка upstream
@@ -1842,6 +1867,39 @@ changes`, 134 файла. База слияния с main — `36677833`, дев
 профили переписывают `tool-definitions.mjs`, доверие нужно к чему-то подключить, а загрузку
 модели в main уже частично закрывает `embedding-workers.mjs` и шаг `--dense`, так что её надо
 не переносить, а сверять. Ветку по-прежнему не сливать и не удалять.
+
+
+**Сверка с `main` (2026-09-14).** Три оставшихся файла разобраны по одному:
+
+- `src/core/tool-profile.mjs` (профили `core`/`full`, 278 строк) — **вытеснен**: в `main` живёт
+  `src/core/tool-profiles.mjs`, восемь профилей и `AI_DEV_PROFILES` (см. CHANGELOG 2.0.x). Не
+  переносить.
+- `src/core/project-trust.mjs` (58 строк: список доверенных проектов, `assertTrusted`) — **не
+  переносить.** Граница безопасности в `main` — политика команд (`command-policy.mjs`: allowlist
+  исполняемых, `shell: false`, пути внутри проекта) и границы проекта в `project-identity.mjs`.
+  Список доверия без потребителя дублировал бы её, а потребителя за девять дней так и не
+  появилось. Если владелец решит иначе — файл в ветке, 58 строк.
+- `scripts/models.mjs` + `models/bge-m3.manifest.json` — **это задел для Д-62**: манифест
+  описывает не Python-путь, а пиннутый ONNX-экспорт `Xenova/bge-m3` (`revision`
+  `4de13258303883538bd53b696b452bf8099f0858`, `dtype: int8`, `dimensions: 1024`, `pooling: cls`,
+  sha256 на каждый из пяти файлов, среди них `onnx/model_int8.onnx`), а `pullModel`/`modelStatus`
+  качают и сверяют хэши без Python. Инференса в снапшоте нет — в зависимостях ни `onnxruntime`,
+  ни Transformers.js. Переносится пачкой F вместе с Д-62.
+
+**Закрытие (2026-09-14).** Пачка F перенесла `models/bge-m3.manifest.json` и загрузчик из
+`scripts/models.mjs` — в стиле `main`, с JSDoc, а не копированием: разделены на
+`src/core/dense-manifest.mjs` (разбор, сверка sha256, происхождение вектора) и
+`src/core/dense-download.mjs` (потоковая загрузка во временный файл с переименованием после
+совпадения хэша). У снапшота тестов не было; здесь их 18, и загрузчик проверяется против
+локального `node:http`-сервера — битые байты, обрыв посреди тела, мёртвый источник с переходом на
+следующий, офлайн. `aiDevHome()` из снапшота заменён на `defaultOnnxModelDir()`: каталог
+ONNX-экспорта отдельный от legacy-весов, потому что файлы в них разные (Д-62).
+
+Итог по четырём файлам без аналогов: `daemon.mjs` + `runtime-paths` + `socket` перенесены
+(2026-09-13), `tool-profile.mjs` вытеснен `tool-profiles.mjs`, `project-trust.mjs` решено не
+переносить, `scripts/models.mjs` + манифест перенесены сейчас. **В ветке не осталось ничего,
+чего нет в `main` или что решено не брать. Ветку можно удалить** — она на апстриме, удаляет
+владелец.
 
 ## Д-43. Проект, который пишет AGENTS.md всем остальным, сам его не имеет
 
@@ -2078,7 +2136,7 @@ manifest» читается как повреждение, и человек и�
 
 ## Д-48. Обход границы идёт до корня диска, и маркер в домашнем каталоге сводит всё под ним
 
-**Статус:** открыт. Не расхождение, а следствие правила; решение принимать владельцу.
+**Статус:** закрыт. Владелец выбрал вариант 1 в уточнённой форме; замер до и после ниже.
 
 Д-45 убрал частный случай: `<home>/.ai-dev` больше не читается как граница проекта. Общий
 случай остался. `projectBoundaryOf` (и такой же обход в ядре) поднимается **до корня
@@ -2113,6 +2171,69 @@ manifest» читается как повреждение, и человек и�
 (поддельный дом лежит в `/tmp`, выше маркеров нет) и неверно на Windows, где `os.tmpdir()`
 находится внутри реального профиля. Тест переписан так, чтобы проверять ровно то, что правка
 гарантирует.
+
+**Что выбрано и почему.** Вариант 1, но сформулированный через сам домашний каталог, а не через
+глубину обхода: **маркер, лежащий в домашнем каталоге пользователя или выше него, границей не
+считается**. Ниже дома и вне дома (`/srv/app`, `C:\work\app`) не меняется ничего.
+
+Вариант 2 (не выше чем на N уровней) отклонён: N — произвольное число, и оно ошибается в обе
+стороны. `~/work/app` и `/srv/ci/checkouts/deploy/app/services/api` требуют разных N, а вместе с
+`begin_task_in_worktree` глубина ещё и меняется под одним проектом. Вариант 3 («ошибка
+пользователя») отклонён потому, что ошибка не видна: подстановка чужой памяти происходит молча,
+а `npm init` в домашнем каталоге — не редкость и не нарушение.
+
+Граничные случаи заданы явно и закреплены тестами: старт прямо в доме или выше — граница есть сам
+стартовый каталог; дом на Windows берётся из `USERPROFILE`, пути сравниваются без учёта регистра;
+дом, до которого дошли через символическую ссылку, приводится к реальному пути так же, как в
+Д-51; дом не определён (`HOME` и `USERPROFILE` пусты) — правило не применяется, поведение прежнее.
+`AI_DEV_HOME` домом намеренно не считается: эта переменная переносит рантайм-дерево, а не
+пользователя.
+
+**Как закрыто.** Правило — чистая функция `isProjectBoundaryCandidate(directory, { platform,
+homeDir })` с параметрами платформы и дома (как `socketAddress` в Д-42), поэтому обе ветки
+решаются на любой машине, а тесты не зависят от того, где лежит `os.tmpdir()`. Две копии:
+`src/core/project-identity.mjs` и `hooks/lib.mjs` — вторая без импортов из пакета, потому что хук
+копируется в чужие репозитории.
+
+Обход границы возвращает `null`, как только дошёл до дома: всё, что выше, — тоже выше дома.
+Закрыт и второй вход в ту же дыру: `git rev-parse --show-toplevel` при dotfiles-репозитории в `~`
+отвечает домом для каждого проекта под ним, поэтому запасной путь через git-корень (в ядре) и
+`projectRootOf` (в хуке) пропущены через то же правило.
+
+**Замер до** (раскладка из «Замера», живой сервер, инструмент `project_identity`):
+
+```
+alpha  root=<stage>/home  id=project-43f2793bd940e4c3e8ec
+beta   root=<stage>/home  id=project-43f2793bd940e4c3e8ec   ← слиты
+```
+
+**Замер после** (тот же вызов того же инструмента на той же раскладке):
+
+```
+alpha  root=<stage>/home/projects/alpha  id=project-bb7438c755fe401682d3
+beta   root=<stage>/home/projects/beta   id=project-acbf37a9bd363aa40f6a
+```
+
+Раскладка из «Замера до» в самой записи — `outer/home/AppData/Local/Temp/project` с `package.json`
+у `outer` — до правки давала идентификатор `outer` (`project-151df51a3ef5147aa26d` у обоих), после
+правки даёт идентификатор самого `project` (`project-df016fa44556a8c47d2d` против
+`project-a795713db5c8d9f2fcb0` у `outer`).
+
+Сами хеши в обоих блоках — от временных каталогов того прогона, и от прогона к прогону меняются;
+воспроизводится не цифра, а равенство: до правки два идентификатора совпадали, после — различаются,
+и `project_root` указывает на сам проект.
+
+Встречные пробы, снятые тем же инструментом, совпадают до и после: `package.json` в раскладке вне
+дома (`<stage>/outside/outer/project`) по-прежнему даёт границу `outer`, вложенный пакет
+`alpha/packages/web` по-прежнему остаётся собственным проектом.
+
+Тест-паритет двух копий зелёный: четырнадцать раскладок (дом, каталог над домом, корень диска,
+проект под домом, проект вне дома, сосед с общим префиксом имени, регистр на POSIX и на `win32`,
+корень диска Windows, отсутствующий дом) прогоняются через обе копии и сверяются между собой в
+`project-identity.test.mjs`; тот же набор стоит отдельно в `agent-hooks.test.mjs`. Шесть тестов
+на живых раскладках проверены на падение: на коде до правки падают четыре из них (две оставшиеся —
+встречные пробы, они и должны проходить в обе стороны, и падают на слишком широком правиле —
+проверено мутацией).
 
 ## Д-49. Правильная установка встречала нового пользователя провалом на всех платформах
 
@@ -2336,3 +2457,1397 @@ Python есть всегда. Python для этого репозитория н
 
 **Чему это учит.** Поиск «на что никто не ссылается» задумывался как уборка, а нашёл дыру в
 проверках. Файл без ссылок — это не всегда мусор; иногда это то, что забыли подключить.
+
+## Д-54. Гейт качества честно проваливает `node --test <каталог>`, но не говорит, почему
+
+**Статус:** закрыт. Пачка D. Тикет апстрима #47.
+
+`.ai-dev/quality-gate.md` пишется `analyze_project` из `scripts.test` проекта как есть
+(`project-detection.mjs`, `packageRunCommand`): `Test: npm run test`. Если сам скрипт —
+`node --test test/`, на Node ≥ 21 он падает без всякого гейта: позиционные аргументы стали
+glob-паттернами, каталог `test/` матчится сам на себя, и раннер исполняет его как файл теста.
+
+**Замер.** Минимальный проект из тикета (`test/sample.test.js`, один проходящий тест):
+
+```
+$ node -v                     v22.22.2          $ node -v                     v24.21.0  ← мажор образа
+$ node --test test/                             $ node --test test/
+# Error: Cannot find module '…/repro47/test'    Error: Cannot find module '…/repro47/test'
+# pass 0   # fail 1   exit=1                    exit=1
+$ node --test                                   $ node --test
+# pass 1   # fail 0   exit=0                    exit=0
+```
+
+`run_quality_gate` на том же проекте: `status=failed`, команда `npm run test`, `exit_code=1`,
+stdout содержит `Cannot find module`. Гейт не ошибся — он передал падение. Ложным его делают две
+вещи. (1) `verify_task` сводит проверку к `quality_gate: failed`; причина остаётся в stdout
+команды, который до вердикта не доходит. (2) На Docker-пути команды проекта исполняет Node
+образа (24), а не Node пользователя. Если у пользователя Node 20, где каталог ещё
+разворачивался, «тесты проходят напрямую» и «гейт падает» расходятся на одном и том же скрипте,
+и ничто на это не указывает: версия есть только в хвосте TAP-вывода (`# Node.js v24…`).
+
+**Чем грозит.** Проект, чей `npm test` устарел вместе с Node, получает провал верификации без
+диагноза, и агент чинит не то. Обратный риск — «починить» ослаблением гейта.
+
+**Что делать.** (1) В результате команды — первоклассное поле `runtime` (`node`, `execPath`), в
+вердикте `verify_task` — первая содержательная строка вывода провалившейся команды. (2) Чистая
+диагностика в `quality-gate-runner.mjs`: команда вида `node --test <операнд>`, операнд —
+каталог, в выводе `Cannot find module …/<операнд>` → подсказка: Node ≥ 21 понимает аргументы как
+glob, каталог исполняется как файл; писать `node --test` или `node --test "test/**/*.test.js"`.
+(3) В `docker/README.md` и INSTALL: `verify_task` в Docker запускает команды проекта Node
+образа. Не делать: разворачивать каталог за пользователя — гейт не переписывает команды проекта.
+
+**Решение владельца.** Должен ли Docker-путь уважать `engines.node` проекта (предупреждение при
+расхождении, несколько Node в образе)? Отдельная работа; здесь записан только факт расхождения.
+
+**Проверка.** На том же проекте `run_quality_gate` показывает `runtime.node`, `verify_task` —
+строку с `Cannot find module` и подсказку; `node --test` без аргументов проходит гейт.
+
+**Замер после.** Запись воспроизведена сначала руками, на обоих мажорах, тем же минимальным
+проектом:
+
+```
+$ node -v                     v22.22.2          $ node -v                     v24.21.0
+$ node --test test/                             $ node --test test/
+# Error: Cannot find module '…/repro47/test'    Error: Cannot find module '…/repro47/test'
+# pass 0   # fail 1   exit=1                    exit=1   (TAP не начинается вовсе)
+$ node --test                                   $ node --test
+# pass 1   # fail 0   exit=0                    exit=0
+```
+
+Замер записи сходится с кодом: правки в ней не понадобились.
+
+Живой сервер, тот же проект, `run_quality_gate` через `callTool` с `update_registry:false`:
+
+```
+до:     status=failed  exit_code=1  runtime=(нет)  hint=(нет)
+после:  status=failed  exit_code=1
+        runtime={"node":"v22.22.2","exec_path":"/opt/node22/bin/node"}
+        hint="Node >= 21 treats positional arguments as glob patterns; a directory is run
+              as a test file. Use `node --test` or `node --test \"test/**/*.test.js\"`."
+```
+
+`verify_task` на той же задаче, сводка проверки в записи верификации:
+
+```
+до:     {"type":"quality_gate","status":"failed"}
+после:  {"type":"quality_gate","status":"failed",
+         "detail":{"output":"Error: Cannot find module '…/repro47/test'",
+                   "hint":"Node >= 21 treats positional arguments as glob patterns; …"}}
+```
+
+Встречная проба (то, чего быть не должно): проект с тем же тестом и гейтом
+`- Test: \`node --test\`` — `status=passed`, `exit_code=0`, `hint=""`, `runtime` на месте.
+Гейт не ослаблен и команду за пользователя не разворачивает. Чистая
+`diagnoseQualityCommandFailure` молчит на обычном упавшем тесте, на отсутствующей зависимости
+(`Cannot find module 'chai'`), на уже написанном glob и на команде не из `node --test`; проверено
+и на реальном выводе Node 22 (с TAP-префиксами `# `), и на реальном выводе Node 24 (без них).
+
+**Что не проверено.** Поведение внутри собранного образа: Docker-демона в песочнице нет. Абзац
+в `docker/README.md` и INSTALL описывает Node 24 по `ARG NODE_IMAGE=node:24-bookworm-slim`, а не
+по замеру внутри контейнера.
+
+## Д-55. `security_scan` без единого сканера — `pass`
+
+**Статус:** закрыт. Пачка D. Тикет апстрима #48.
+
+`securityScanStatus` возвращает `pass`, если нет находок и нет ошибок — даже когда все шесть
+сканеров пропущены. Так задумано («отсутствующий сканер никогда не блокирует»,
+`security-scan.mjs`), и там же честно сказано: такой прогон читается как `pass` с `checked: 0`.
+Но `checked` никто не читает: `verificationPassed` смотрит только на `block`, а `verify_task`
+перед записью проверки выбрасывает `next_step` — единственную строку, говорившую «No scanner
+could run here» (`lifecycle.mjs`: `{ markdown: _markdown, next_step: _nextStep, ...scan }`).
+
+В опубликованном образе не установлен ни один из шести (`docker/Dockerfile`: шрифты, библиотеки
+Chromium, python3, git, tini). `npm audit` есть как бинарник, но контейнер запущен с
+`--network none`, а advisory-база сетевая. На Docker-пути стадия безопасности всегда `pass` с
+нулевым покрытием — не сбой, а её штатный режим.
+
+**Замер.** Машина без сканеров, `run_security_scan` на минимальном проекте:
+
+```
+status=pass   summary={"checked":0,"skipped":6,"failed":0,"findings":0,"blocking":0}
+next_step="No scanner could run here. Install at least one (gitleaks is the cheapest and needs no network) …"
+```
+
+Через `verify_task` от этого остаётся `security_scan: pass`.
+
+**Чем грозит.** «security: pass» читается как «проверено». В Docker иначе и быть не может.
+
+**Что делать.** (1) Вердикт `unchecked` при `checked === 0` — ни `pass`, ни `block`:
+`verify_task` проходит (правило «пропуск не блокирует» остаётся), но сводка проверки и карточка
+задачи несут `unchecked`, а `next_step` доезжает до записи. (2) В образ — `gitleaks`:
+единственный из шести, кто работает офлайн; статический Go-бинарник, многостадийный
+`COPY --from=ghcr.io/gitleaks/gitleaks:<pin>`, amd64 и arm64. (3) Некритичная проверка
+`security_scanners` в `system_health_check`: сколько из шести на месте, `warn` при нуле.
+(4) В `docker/README.md` — честная матрица: в `--network none` возможны только gitleaks и
+semgrep с локальными правилами; trivy, pip-audit, cargo-audit и `npm audit` там не работают
+принципиально.
+
+**Проверка.** Тот же вызов даёт `status=unchecked`; в образе `gitleaks version` отвечает, и на
+проекте с подложенным ключом (собранным конкатенацией) скан даёт `block`.
+
+**Замер после.** Замер записи воспроизведён на живом сервере и сошёлся с кодом; правок в записи
+не потребовалось. `run_security_scan` на том же минимальном проекте, машина без сканеров
+(`AI_DEV_OFFLINE=1`):
+
+```
+до:     status=pass       summary={"checked":0,"skipped":6,"failed":0,"findings":0,"blocking":0}
+после:  status=unchecked  summary={"checked":0,"skipped":6,"failed":0,"findings":0,"blocking":0}
+        next_step="No scanner could run here, so nothing was checked. Install at least one
+                   (gitleaks is the cheapest and needs no network) …"
+```
+
+`verify_task` на той же задаче:
+
+```
+до:     checks=[… {"type":"security_scan","status":"pass"}]      next_step выброшен
+после:  checks=[… {"type":"security_scan","status":"unchecked"}] next_step доехал до записи
+        verification.passed определяется остальными проверками: `unchecked` не блокирует
+```
+
+`system_health_check`, машина без единого сканера на PATH (PATH из одного каталога с `node`):
+
+```
+до:     проверки security_scanners нет вовсе
+после:  {"name":"security_scanners","status":"warn","critical":false,
+         "summary":"None of the 6 security scanners is installed, so run_security_scan comes
+                    back unchecked. Install gitleaks: …",
+         "details":{"installed":[],"missing":[…шесть…],"offline_capable":[]}}
+        общий статус — degraded, не fail; строка попадает в recommendations
+```
+
+Враждебная проба: тот же проект с ключом, собранным конкатенацией
+(`["AKIA", "B".repeat(16)].join("")`), и shim-`gitleaks` на PATH, печатающий JSON-отчёт с
+находкой:
+
+```
+run_security_scan → status=block  summary={"checked":1,"skipped":5,"findings":1,"blocking":1}
+                    findings=[{tool:"gitleaks",kind:"secret",severity:"critical",file:"leak.txt"}]
+verify_task        → security_scan: block, next_step про ротацию утёкшего
+system_health_check → security_scanners: ok, offline_capable:["gitleaks"]
+```
+
+То есть оба конца видны: без сканеров — `unchecked`, со сканером и находкой — `block`, и
+`verify_task` в обоих случаях несёт и статус, и `next_step`.
+
+**Что не проверено.** Образ. Docker-демона в песочнице нет, собрать и запустить его нельзя,
+поэтому проверены только три вещи: путь бинарника `/usr/bin/gitleaks` — по Dockerfile апстрима
+(WebFetch с `raw.githubusercontent.com`), а не по слоям образа (блобы `ghcr.io` в песочнице
+закрыты политикой egress); мультиарховый digest
+`sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f` тега `v8.30.1` и то,
+что индекс покрывает `linux/amd64` и `linux/arm64` — по Registry API ghcr.io; лицензия MIT
+и строка копирайта — по `LICENSE` апстрима. Само `gitleaks version` внутри образа проверяется в
+CI: в `.github/workflows/docker-publish.yml` добавлен шаг
+`docker run --rm --network none --entrypoint gitleaks ai-dev-system:ci version`, который идёт
+на каждом PR после сборки образа. До зелёного CI утверждение «в образе gitleaks работает»
+остаётся непроверенным.
+
+## Д-56. В образе Frontend QA мёртв, а диагностика говорит «Playwright не установлен»
+
+**Статус:** закрыт. Пачка B. Тикет апстрима #49.
+
+`frontend-qa/frontend_qa_runner.mjs:9-13` импортирует
+`../ai-dev-mcp-server/src/core/command-policy.mjs` и `…/process-runner.mjs` — относительно
+раскладки репозитория. В образе раннер лежит в `/opt/ai-dev/frontend-qa`, сервер — в
+`/opt/ai-dev/app`; каталога `/opt/ai-dev/ai-dev-mcp-server` нет. Playwright и Chromium в образ
+поставлены (`Dockerfile:78-86`), но до них не доходит: раннер умирает на импорте.
+
+Проба `frontendQaEnvironmentStatus` (`mcp-stdio.mjs`) берёт первую строку сообщения — у
+ERR_MODULE_NOT_FOUND это заголовок стека `node:internal/modules/esm/resolve:NNN`, не причина.
+Дальше `evaluateFrontendQaEnvironment` видит `playwright_available: false` и советует
+`npm run setup -- --frontend-qa` — внутри образа это невыполнимо и не про то.
+
+Аудит контекста (`audit-docker-context.mjs`) ищет висящие импорты только в `app/`;
+`runtime/frontend-qa` не проверяется — поэтому сборка зелёная.
+
+**Замер.** Раскладка образа (`app/` + `frontend-qa/`, без `ai-dev-mcp-server/`), пакеты
+раннера установлены:
+
+```
+exit=1
+первая строка stderr → launch_error:  node:internal/modules/esm/resolve:275
+причина:  Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/ai-dev-mcp-server/src/core/command-policy.mjs'
+          imported from …/frontend-qa/frontend_qa_runner.mjs
+```
+
+На чистом клоне без `--frontend-qa` первая строка другая — `package_json_reader:314` (нет
+пакета `@axe-core/playwright`). У репортёра `esm/resolve:272` — сигнатура промаха по файлу,
+то есть именно образ.
+
+**Чем грозит.** В опубликованном образе `run_frontend_qa` не работает вообще, а health check
+называет это «опциональное не установлено». Пользователь идёт ставить Playwright, который стоит.
+
+**Что делать.** (1) Образ: симлинк `/opt/ai-dev/ai-dev-mcp-server → /opt/ai-dev/app` (одна
+строка Dockerfile; ESM резолвит через realpath) — либо перенести приложение в
+`/opt/ai-dev/ai-dev-mcp-server`, что честнее, но трогает entrypoint, run-mcp и документацию.
+(2) Проба: брать из stderr строку с `ERR_MODULE_NOT_FOUND`/`Cannot find`; различать «нет пакета»
+(`Cannot find package` → не установлено, `skipped`) и «нет файла» (`Cannot find module '/…'` →
+раннер сломан, `fail`). (3) `findDanglingImports` — прогонять и по `runtime/`.
+(4) `docker-smoke.mjs` — вызывать `system_health_check` в собранном образе и требовать, чтобы
+`frontend_qa_environment` не был `unavailable` по причине старта.
+
+**Проверка.** В собранном образе `frontend_qa_environment` = `ok` (Chromium запускается) или
+`warn` с причиной из Playwright, не из загрузчика модулей; `npm run docker:audit` краснеет, если
+из `runtime/` убрать файл, который раннер импортирует.
+
+**Что сделано.** (1) `docker/Dockerfile`: `RUN ln -s /opt/ai-dev/app /opt/ai-dev/ai-dev-mcp-server`.
+Взят минимальный вариант; перенос приложения в `/opt/ai-dev/ai-dev-mcp-server` честнее, но трогает
+entrypoint, `run-mcp.sh`/`run-mcp.ps1` и `docker/README.md` — **записан здесь как альтернатива на
+случай, если раскладку будут менять по другой причине**. (2) `findDanglingImports`
+(`src/core/public-distribution.mjs`) принимает алиасы путей, а `audit-docker-context.mjs` прогоняет
+его и по `runtime/` с алиасом `runtime/ai-dev-mcp-server → app` — ровно той связью, которую создаёт
+Dockerfile, и ничем больше. (3) Классификация причины старта вынесена в
+`src/core/frontend-qa-launch.mjs`: `Cannot find package` → «не установлено» (`skipped`),
+`Cannot find module '/…'` → «раннер сломан» (`fail`), всё остальное → `warn` с первой содержательной
+строкой. Проба в `mcp-stdio.mjs` кладёт вид отказа в `launch_failure`, а
+`evaluateFrontendQaEnvironment` читает его вместо того, чтобы выводить «Playwright не установлен» из
+трёх `false`. (4) `docker-smoke.mjs` падает, если `frontend_qa_environment` несёт `launch_failure`.
+
+**Замер после.** Раскладка образа, собранная из `.docker/build-context` (`app/` + `frontend-qa/` с
+установленными пакетами + симлинки entrypoint), проба через `system_health_check`:
+
+```
+без симлинка (как в опубликованном образе):
+  frontend_qa_environment = fail
+  launch_failure = "missing-file"
+  The Frontend QA runner is broken and never started. The runner imports
+  …/opt/ai-dev/ai-dev-mcp-server/src/core/command-policy.mjs, which this install does not carry.
+
+с симлинком, который теперь создаёт Dockerfile:
+  frontend_qa_environment = warn
+  launch_failure = undefined
+  Frontend QA cannot run: the Chromium binary is missing. Chromium is not at
+  /ms-playwright/chromium-1243/chrome-linux64/chrome … — причина из Playwright, не из загрузчика.
+```
+
+В песочнице Chromium стоит по другому пути, поэтому `warn`, а не `ok`; в образе он там, где
+Playwright его ищет. **`ok` в собранном образе не проверен — Docker-демона нет; это проверит
+`docker-smoke.mjs` в CI на PR.**
+
+Аудит контекста: `node scripts/audit-docker-context.mjs` на целом контексте — `passed`; после
+`mv app/src/core/process-runner.mjs` в сторону — `exit=1` и в списке строка
+`frontend-qa/frontend_qa_runner.mjs imports ../ai-dev-mcp-server/src/core/process-runner.mjs`,
+то есть импорт раннера теперь виден аудиту. Юнит-тест держит и обратную сторону: без алиаса тот же
+staged-каталог даёт две висящих ссылки, а алиас прощает только путь из Dockerfile.
+
+## Д-57. Свежий Docker-инсталл проваливает собственную диагностику
+
+**Статус:** закрыт. Пачка B. Тикет апстрима #50.
+
+CHANGELOG 2.0.0: «свежий клон больше не проваливает health check … теперь `degraded — 2 not
+passing`». Верно для `npm run setup` (`scripts/first-run.mjs`): реестр скиллов, поисковый индекс,
+бенчмарк роутинга. Docker-путь идёт через `scripts/docker-bootstrap.mjs` из entrypoint — а он
+строит только реестр скиллов, дашборд и манифест дистрибуции. Индекса и бенчмарка нет; четыре
+критичных проверки падают от их отсутствия, пятая (`embedding_backend`) — от него же косвенно
+(Д-59).
+
+**Замер.** Эмуляция entrypoint на пустом volume (seed, симлинки `09-mcp/*`, переменные образа),
+затем `docker-bootstrap.mjs`, затем `system_health_check`:
+
+```
+после docker-bootstrap:   status=fail       ok 9 / warn 4 / fail 5 / skipped 3
+  fail  search_index_file         SQLite search index is missing.
+  fail  embedding_backend         missing required files: search_index, …
+  fail  skill_routing_benchmark   report is missing.
+  fail  search_smoke              Search index does not exist
+  fail  hybrid_smoke_no_dense     Search index does not exist
+```
+
+Тот же volume после `scripts/first-run.mjs --no-health` (индекс 5.6 с, бенчмарк 37/37):
+
+```
+после first-run:          status=degraded   ok 14 / warn 3 / fail 0 / skipped 4
+```
+
+Вся разница — два шага, которых нет в `docker-bootstrap.mjs`. Из предупреждений:
+`required_notes` — нет `00-start-here.md` и `09-mcp/README.md`, их нет в public seed;
+`skill_quality: report missing` — общее с npm-путём.
+
+Побочно: `prepare_runtime_distribution` из `docker-bootstrap.mjs` на Docker всегда отвергается
+(Д-61), поэтому вызывается при каждом старте контейнера, а `runtime-distribution.json` не
+появляется никогда.
+
+**Чем грозит.** Первое, что видит пользователь после `bootstrap.sh`, — `Health: fail` на
+исправной установке; при этом поиск — все инструменты поиска — реально не работает, пока кто-то
+не вызовет `rebuild_search_index`.
+
+**Что делать.** `docker-bootstrap.mjs` исполняет тот же план `FIRST_RUN_STEPS`
+(`core/first-run.mjs`: `skill_registry`, `search_index`, `routing_benchmark`), а не свой
+укороченный список — идемпотентно, без сети, с `present`/`stale` как в `first-run.mjs`.
+`00-start-here.md` и `09-mcp/README.md` — в seed, либо `REQUIRED_SYSTEM_NOTES` учится раскладке
+образа. `docker-smoke.mjs` вызывает `system_health_check` и требует `status != fail`.
+
+**Проверка.** Тот же замер даёт `degraded`, `fail 0` сразу после entrypoint; второй старт
+контейнера ничего не перестраивает.
+
+**Что сделано.** Общий модуль `ai-dev-mcp-server/scripts/first-run-steps.mjs`: три обязательных шага
+`FIRST_RUN_STEPS`, что каждый из них делает, и чтение `present`/`stale` с диска. `first-run.mjs` и
+`docker-bootstrap.mjs` теперь оба ходят через него, так что разойтись им больше нечем; тест
+сверяет список шагов с `FIRST_RUN_STEPS.filter(!optional)`, так что новый обязательный шаг не
+появится мимо контейнера. Новый файл добавлен в allowlist `prepare-docker-context.mjs`.
+
+Порядок в контейнере пришлось развести: дашборд и манифест дистрибуции пишутся **между** реестром
+и индексом, а не после всего. Написанная после сборки индекса заметка `01-system/System Dashboard.md`
+делала индекс устаревшим ровно в момент окончания entrypoint, и второй старт пересобирал его зря —
+замерено: `added 1 → 01-system/System Dashboard.md`.
+
+`required_notes`: `scripts/refresh-public-seed.mjs` без приватного vault не работает (он копирует
+именованные файлы из `AI_DEV_SOURCE_VAULT_ROOT`), и `00-start-here.md` в его списке нет — выдумывать
+заметку не стали. Вместо этого `resolveRuntimeNote` научили отличать seeded-раскладку от
+рукописного vault по маркеру `PUBLIC_SEED.md`, который сид и так кладёт в корень тома: на
+seeded-томе `00-start-here.md` — `not-applicable` (запись приватного vault), а остальные читаются
+через repository-раскладку, как в клоне. Чтобы им было что читать, в образ добавлены три файла,
+которых там не было: `README.md` репозитория (это и есть `09-mcp/README.md` по
+`RUNTIME_NOTE_LAYOUTS`), `app/README.md` и `app/docs/ARCHITECTURE.md`. Последние два в замере ниже
+не видны — в эмуляции `09-mcp/ai-dev-mcp-server` вёл на рабочее дерево, где они есть; в образе их
+не было, то есть в нём не хватало не двух заметок, а четырёх.
+
+**Замер после.** Та же эмуляция, но сид отфильтрован по `public-seed.manifest.json` — ровно как его
+фильтрует `prepare-docker-context.mjs`, иначе в неё попадают сгенерированные реестры, которых в
+образе нет:
+
+```
+после docker-bootstrap:   status=degraded   ok 15 / warn 2 / fail 0 / skipped 4
+  warn  skill_quality       report missing   (общее с npm-путём, не из этой пачки)
+  warn  project_registry    нет карточек проектов
+  skipped embedding_backend dense выключен в этом образе (Д-59)
+  required_notes → ok: 00-start-here.md = not-applicable, 09-mcp/README.md = repository
+
+первый старт:  3 built, 3 skipped, 0 failed, 10.9 c (индекс 4.8 с, бенчмарк 0.1 с, реестр 5.1 с)
+второй старт:  0 built, 6 skipped, 0 failed, 0.5 c — не пересобирается ничего
+```
+
+То же на раскладке, собранной из `.docker/build-context` (то есть на тех файлах, что реально едут в
+образ, с `app/scripts` из allowlist): `3 built, 3 skipped, 0 failed`, затем `status=degraded`,
+`ok 15 / warn 3 / fail 0 / skipped 3` — третий `warn` там `frontend_qa_environment` с причиной из
+Playwright (Д-56). **Поведение в собранном образе не проверено: Docker-демона нет. Это проверит
+`docker-smoke.mjs` в CI на PR — он теперь вызывает `system_health_check` и падает при `status=fail`
+или любом критичном провале.**
+
+Побочное (Д-61) не трогалось: `prepare_runtime_distribution` по-прежнему вызывается на каждом
+старте и на Docker отвергается — это пачка C.
+
+## Д-58. `bootstrap.sh` и `docker/run-mcp.sh` закоммичены без бита исполнения
+
+**Статус:** закрыт. Пачка A. Тикет апстрима #51.
+
+```
+$ git ls-files -s | grep -E '\.sh$'
+100644 … bootstrap.sh
+100644 … docker/entrypoint.sh
+100755 … docker/public-seed/…/scan-rules.sh       ← репозиторий умеет хранить бит
+100755 … docker/public-seed/…/scan-skills.sh
+100644 … docker/run-mcp.sh
+100644 … packaging/launcher.sh
+```
+
+Документация зовёт `sh ./bootstrap.sh` — это работает. Но `bootstrap.sh:240` вызывает лаунчер
+напрямую: `AI_DEV_RUNTIME_CONTAINER=… "$launcher"` → `Permission denied` → «Fast-start MCP stdio
+smoke check failed», exit 70 — хотя smoke ни при чём. Конфиги клиентов не страдают:
+`install-docker-mcp-clients.mjs:135` пишет `/bin/sh <лаунчер>`. `entrypoint.sh` получает
+`chmod 0755` в Dockerfile, `launcher.sh` — `chmod 755` в PKGBUILD и Homebrew. Реально ломается
+один путь — и это первый запуск без `--skip-smoke`.
+
+**Чем грозит.** Установка из свежего клона на macOS и Linux падает на последнем шаге с
+сообщением про smoke.
+
+**Что делать.** `git update-index --chmod=+x` на все четыре `.sh`; `bootstrap.sh:240` — вызывать
+через `sh "$launcher"` (zip-скачивание с GitHub бит теряет); в сообщении об ошибке различать
+«лаунчер не запустился» и «сервер не ответил»; в `bootstrap-contract.test.mjs` — тест, что
+`git ls-files -s` даёт `100755` для этих файлов.
+
+**Проверка.** `sh ./bootstrap.sh` без `--skip-smoke` на свежем клоне проходит fast-start smoke;
+тест на режим файлов зелёный.
+
+**Замер после.** Бит проставлен всем четырём:
+
+```
+$ git ls-files -s bootstrap.sh docker/entrypoint.sh docker/run-mcp.sh packaging/launcher.sh
+100755 … bootstrap.sh
+100755 … docker/entrypoint.sh
+100755 … docker/run-mcp.sh
+100755 … packaging/launcher.sh
+```
+
+Демона Docker в песочнице нет, поэтому установка прогнана на свежем `git clone` с подменой
+`docker` shim-скриптом через `PATH`. До правки: `./bootstrap.sh: 240: …/docker/run-mcp.sh:
+Permission denied` → «Fast-start MCP stdio smoke check failed», exit 70 — воспроизведено
+дословно. После правки на том же клоне, где бит снят вручную (`chmod -x`, то есть ровно случай
+zip-скачивания), установка доходит до «AI Dev MCP System is ready», exit 0.
+
+Два исхода теперь различаются. Лаунчер, завершившийся с кодом 9: «Fast-start MCP launcher …
+exited with status 9 without answering» плюс подсказка про `--skip-smoke`, exit 70. Лаунчер,
+отработавший с кодом 0, но без `serverInfo`: «… ran, but the server did not answer with
+serverInfo», exit 70.
+
+Тест `the shell scripts that get executed are committed as executable` зелёный и падает, если
+вернуть любому из четырёх режим `100644` (проверено: `git update-index --chmod=-x
+docker/run-mcp.sh` → `not ok 3 … docker/run-mcp.sh is not committed as executable`).
+
+**Не проверено.** Настоящий `docker pull`/`docker exec` против живого демона — его в песочнице
+нет; всё «про образ» проверено эмуляцией. Сборку образа проверяет CI на PR.
+
+## Д-59. Отсутствие BGE-M3 — `fail`, а совет внутри образа невыполним
+
+**Статус:** закрыт. Пачка B. Тикет апстрима #52.
+
+`EMBEDDING_BACKEND_REQUIREMENTS` включает `search_index`. `evaluateEmbeddingBackend` отдаёт
+мягкий `skipped` («веса не скачаны, `npm run setup -- --dense`») только если не хватает
+*исключительно* модельных файлов; любой другой ключ в `missing` даёт `fail`. На свежем Docker
+индекса нет (Д-57) → отсутствующая модель превращается в критичный провал «Embedding backend is
+missing required files: search_index, …». Один пропавший файл засчитан двумя критичными
+провалами.
+
+Вторая половина: в опубликованном образе dense выключен намеренно (`INSTALL_BGE_M3=0`,
+`docs/INSTALL.md:66-67`), и включается он не `npm run setup -- --dense`, а монтированием весов
+(`AI_DEV_MODEL_PATH`) или сборкой с `INSTALL_BGE_M3=1`. Диагностика этого не знает: ни
+`embedding_status`, ни health check не отличают «в этом образе не предусмотрено» от «сломано» и
+советуют команду, которая в контейнере не имеет смысла.
+
+**Замер.** Из эмуляции Д-57: `embedding_backend` = `fail` при отсутствующем индексе,
+`missing = [search_index, embeddings_python, model_dir, model_file, modules_file]`; после
+появления индекса — `skipped`, без единого изменения в бэкенде эмбеддингов.
+
+**Чем грозит.** «Health: fail» и красная строка про бэкенд на образе, где dense выключен по
+дизайну; пользователь ищет поломку, которой нет.
+
+**Что делать.** (1) Убрать `search_index` из требований бэкенда — у индекса свой критичный чек.
+(2) Явный сигнал «dense отключён»: `ENV AI_DEV_DENSE=disabled` в Dockerfile при
+`INSTALL_BGE_M3=0` (или маркер-файл); `embedding_status` отдаёт `dense: { installed: false,
+reason }`, health check — `skipped` с советом под окружение: в образе — про
+`AI_DEV_MODEL_PATH`/`INSTALL_BGE_M3=1`, в клоне — про `--dense`. (3) Отличать от поломки: venv или
+`AI_DEV_PYTHON` есть, весов нет → `warn`, не `skipped`.
+
+**Проверка.** На пустом volume `embedding_backend` = `skipped` с советом про монтирование; с
+примонтированными весами — `ok`; с venv без весов — `warn`.
+
+**Что сделано.** (1) `search_index` убран из `EMBEDDING_BACKEND_REQUIREMENTS` — у индекса свой
+критичный чек `search_index_file`, и один пропавший файл больше не считается дважды. (2) В
+Dockerfile `ENV AI_DEV_DENSE_INSTALLED=${INSTALL_BGE_M3}`; `embedding-workers.mjs` отдаёт
+`dense: { installed, reason }` — `image-opt-out` / `image-opt-in` из переменной, а без неё
+`interpreter-present` / `not-set-up` по тому, есть ли интерпретатор dense-стека. (3) Совет пишется
+под окружение: в образе — про `AI_DEV_MODEL_PATH` и `--build-arg INSTALL_BGE_M3=1`, в клоне — про
+`npm run setup -- --dense`. (4) Стек есть, весов нет → `warn`, а не `skipped`: «не просили» и
+«настроили и не доделали» — разные состояния.
+
+Заявленное образом бьёт то, что оказалось на диске: `AI_DEV_PYTHON=/usr/bin/python3` в образе
+существует всегда и не является свидетельством, что кто-то ставил dense. Дискриминант —
+`availability.embeddings_python`, то есть интерпретатор из `embeddingPythonCommand()`
+(`embeddings/.venv`), а не системный python.
+
+`system-health.mjs` был 751 строкой при потолке 800: `evaluateEmbeddingBackend` и две константы
+требований вынесены в `src/core/embedding-health.mjs` с тестом рядом. После всех правок
+`system-health.mjs` — 703 строки.
+
+**Замер после.** Пять окружений, одна и та же эмуляция, разница только в переменных и файлах:
+
+```
+образ INSTALL_BGE_M3=0, весов нет   skipped  dense={installed:false, reason:"image-opt-out"}
+  «…Mount the weights — point AI_DEV_MODEL_PATH at the folder holding them before
+   `docker/run-mcp.sh` — or build an image variant with `--build-arg INSTALL_BGE_M3=1`.»
+   (строки `npm run setup` в совете нет)
+образ INSTALL_BGE_M3=1, весов нет   warn     dense={installed:true,  reason:"image-opt-in"}
+клон с venv, весов нет              warn     dense={installed:true,  reason:"interpreter-present"}
+  «…Run `npm run setup -- --dense` to enable it.»
+веса примонтированы                 ok
+веса примонтированы в образ dense=0 ok
+```
+
+`missing` при пустом volume теперь `[embeddings_python, model_dir, model_file, modules_file]` —
+без `search_index`; сам индекс к этому моменту уже построен (Д-57), а если бы не был, сказал бы об
+этом один `search_index_file`, а не два чека.
+
+## Д-60. При сбое `docker pull` bootstrap молча берёт устаревший образ
+
+**Статус:** закрыт решением владельца — вариант (1). Пачка A. Тикет апстрима #53.
+
+`bootstrap.sh:194-202`: если `docker pull` не удался, а под тегом что-то есть локально — одна
+строка в stderr «Registry pull failed; using the existing local image …», и установка идёт
+дальше как ни в чём не бывало. Возраст, digest, что делать — ничего. Fast-start контейнер
+поднимается с `--restart unless-stopped`, то есть устаревший образ переживает перезагрузки.
+`bootstrap.ps1:190` делает то же (`Write-Warning`).
+
+**Чем грозит.** Пользователь ставит «latest», получает то, что случайно лежало в кэше, и потом
+сообщает баги, которые уже починены.
+
+**Варианты.** (1) Останавливаться: exit 69 с текстом «pull не удался; локальная копия от
+<дата>, <digest>; повторите с `--allow-stale-image`». (2) Продолжать, но громко: многострочное
+предупреждение с датой и digest, его повтор в финальной строке «ready», совет `docker pull`
+позже. Рекомендую (1): bootstrap запускают один раз, и установщик, который ставит не то, хуже
+установщика, который остановился. Выбор — за владельцем.
+
+**Проверка.** С заглушкой `docker` (pull падает, inspect отвечает) bootstrap выходит с кодом 69
+и печатает дату и digest; с флагом — продолжает и печатает предупреждение дважды.
+`bootstrap.ps1` — зеркально.
+
+**Замер после.** Выбран вариант (1). Замер — на том же shim-скрипте `docker` (`version`
+отвечает, `pull` падает, `image inspect` отдаёт дату и digest).
+
+До правки: одна строка «Registry pull failed; using the existing local image …», установка
+доходит до «ready», exit 0 — воспроизведено дословно.
+
+После правки, без флага:
+
+```
+Registry pull failed. The cached copy of ghcr.io/stonebridgeway/ai-dev-system:latest was created
+2025-03-01T09:15:42.123456789Z (digest: ghcr.io/…@sha256:abc123) and is missing anything
+released since.
+Stopping rather than installing an image of unknown age. Restore the registry connection and run
+again, or re-run with --allow-stale-image to install this copy anyway.
+exit 69
+```
+
+С `--allow-stale-image`: то же предупреждение, затем «Continuing because --allow-stale-image was
+given …», установка идёт дальше, а после строки «AI Dev MCP System is ready» предупреждение
+повторяется целиком («Installed from a stale image. …»), exit 0.
+
+Краевые случаи: у локально собранного образа `RepoDigests` пуст, и `index` на пустом списке
+падает — digest печатается как `none (image was built locally)`, а не роняет установку. Когда
+кэша нет вовсе, сообщение и код прежние («Could not pull …, and no cached copy exists», exit 69).
+При успешном pull слова `stale` в выводе нет ни разу.
+
+Формат `--plan` не изменился: вывод `sh ./bootstrap.sh --plan` побайтово совпадает с замером до
+правки. Два теста (`a failed pull with a cached image stops instead of installing it`,
+`--allow-stale-image installs the cached image and keeps saying so`) зелёные и оба падают на коде
+до правки. `validate-packaging.mjs` теперь требует флаг с обеих сторон: `--allow-stale-image` в
+`bootstrap.sh` и `[switch]$AllowStaleImage` в `bootstrap.ps1`.
+
+**Не проверено.** `bootstrap.ps1` исполнением не проверен — PowerShell в песочнице нет; зеркальная
+правка сверена по тексту и закреплена проверкой паритета в `validate-packaging.mjs`, но живого
+прогона на Windows не было. Поведение при настоящем сбое сети против GHCR не проверялось.
+
+## Д-61. Дистрибуция рантайма описана только для Windows
+
+**Статус:** закрыт. Пачка C. Тикет апстрима #54.
+
+`buildRuntimeDistributionManifest` (`mcp-stdio.mjs`) зашивает `local_launcher:
+scripts/start-local.ps1`, `acceptance`/`backup`/`restore: 09-mcp/scripts/*.ps1`,
+`commands.start: powershell -File …`. `scripts/ai-dev.mjs acceptance|backup` запускает
+`powershell.exe`, хотя кроссплатформенный `scripts/acceptance.mjs` лежит рядом и именно он стоит
+за `npm run acceptance`. На macOS, Linux и в Docker `prepare_runtime_distribution` отвергается,
+`runtime_distribution_status` отдаёт `prepared: false, ready_local: false` и список
+PowerShell-файлов как «missing».
+
+**Замер.** Linux, эмуляция образа:
+
+```
+prepared=false  ready_local=false
+missing_files=[acceptance:run-acceptance.ps1, backup:backup-ai-dev-system.ps1, restore:restore-ai-dev-system.ps1]
+start="powershell -File scripts/start-local.ps1"
+```
+
+В образе не хватает и `start-local.ps1` (в `app/scripts` он не входит) — четыре файла, как в
+тикете.
+
+**Чем грозит.** Инструмент статуса на двух из трёх платформ сообщает не о состоянии установки, а
+о своей раскладке. Плюс Д-57: bootstrap образа вызывает `prepare_runtime_distribution` при
+каждом старте и всегда получает отказ.
+
+**Что делать.** Манифест по окружению: `windows` — как сейчас; `posix` — `start: npm start`,
+`acceptance: node scripts/acceptance.mjs`, backup/restore — `not_applicable` с причиной
+(кроссплатформенных скриптов нет), а не «missing»; `docker` — лаунчер `docker/run-mcp.sh` или
+runtime-контейнер, acceptance/backup — `not_applicable`. `ready_local` считать по применимым
+файлам. `ai-dev.mjs acceptance` → `acceptance.mjs`. Обновить `runtime-distribution.example.json`.
+
+**Проверка.** На Linux и в образе `prepared=true, ready_local=true, missing_files=[]`; на
+Windows — без изменений.
+
+**Замер после.** Чистая логика вынесена в `core/runtime-distribution.mjs`:
+`runtimeFlavor({ platform, env })` → `windows | posix | docker` (docker — по `AI_DEV_RUNTIME=docker`
+из ENV-блока `docker/Dockerfile`), `distributionExpectations(flavor)` → ожидаемые файлы и команды,
+`summarizeDistributionFiles` считает готовность только по применимым файлам. В `mcp-stdio.mjs`
+осталась проводка.
+
+Linux, чистый чекаут (`node scripts/ai-dev.mjs distribution` после `prepare_runtime_distribution`):
+
+```
+runtime_flavor=posix  prepared=true  ready_local=true  missing_files=[]
+not_applicable=[local_launcher, backup, restore]
+start="npm start"  acceptance="node scripts/acceptance.mjs"
+```
+
+Эмуляция образа (контекст `npm run docker:prepare`, переменные `docker/Dockerfile:18-30`,
+раскладка `docker/entrypoint.sh`):
+
+```
+runtime_flavor=docker  prepared=true  ready_local=true  missing_files=[]
+not_applicable=[local_launcher, acceptance, backup, restore]
+start="sh docker/run-mcp.sh"
+```
+
+`prepare_runtime_distribution` в эмуляции отдаёт `runtime_distribution_prepared` (было
+`rejected`), `09-mcp/runtime-distribution.json` и `09-mcp/Runtime Distribution.md` появляются.
+В обоих отрендеренных документах ноль вхождений `powershell` и `.ps1` (было: команда старта и два
+скрипта восстановления). Побочный эффект из Д-57 снят: после первого старта контейнера файл на
+месте, второй старт `docker-bootstrap.mjs` `prepare_runtime_distribution` уже не вызывает.
+
+Отрицательная проба: та же раскладка образа **без** `AI_DEV_RUNTIME` даёт `runtime_flavor=posix`,
+`ready_local=false`, `missing=[acceptance]` — переменная в Dockerfile несущая, а не декоративная.
+`node scripts/ai-dev.mjs backup` на Linux печатает отказ с причиной и выходит с кодом 1, не
+запуская `powershell.exe`; `acceptance` в эмуляции образа отказывает так же, в чекауте доходит до
+`scripts/acceptance.mjs` и отдаёт его код выхода без своего стектрейса.
+
+Windows-ветка закреплена тестом на точные прежние значения (`distributionExpectations("windows")`
+и `distributionFilePlan("windows", …)` — семь файлов, четыре команды, два `.ps1` восстановления).
+Живьём на Windows **не проверено**: машины нет. Проверено только тестом на чистых функциях.
+
+Ceiling `mcp-stdio.mjs`: 4863 → 4852 строки. `npm run check` зелёный; `test:core` 804 теста,
+802 pass, 0 fail, 2 skipped (было 797 / 795 / 0 / 2 — семь новых тестов).
+
+## Д-62. Доставка BGE-M3 через системный Python — самая хрупкая часть установки
+
+**Статус:** закрыт частично: код, тесты и цепочка проверки готовы; критерий (2) ждёт прогона
+`dense-eval`. Не расхождение, а архитектурное решение; принято владельцем. Предложение
+пришло вместе с тикетом #52.
+
+Текущая цепочка `--dense`: `python3 -m venv` → pip → `torch==2.14.0+cpu` с индекса PyTorch →
+`sentence-transformers==6.0.1` → `snapshot_download("BAAI/bge-m3")` без `revision` → 2.3 ГБ.
+Завязка на ОС, архитектуру, версию Python, наличие wheel под неё и текущее состояние репозитория
+модели. README при этом обещает «Node.js 22.12+ и больше ничего» — для `--dense` это неправда. В
+Docker вопрос снят (`INSTALL_BGE_M3` при сборке), поэтому речь только о локальном пути.
+
+**Что уже верно.** Гибридный поиск живёт без dense (Д-59 делает это видимым, а не сломанным).
+Sparse-половина — своя (`search_cli.py`, `sparse_dot`), от BGE-M3 не зависит; `bge_m3_embed.py`
+берёт у модели только dense-вектор через SentenceTransformer. Значит, замена бэкенда трогает
+один контракт: текст → нормализованный вектор 1024.
+
+**Варианты.**
+
+1. Закрепить `revision` модели и записать манифест (`model`, `revision`, `dimensions`,
+   `backend`). Дёшево, делать в любом случае: апстрим не сможет молча поменять файлы.
+2. Управляемый Python через `uv`: свой CPython 3.12, свой venv, платформенные requirements
+   (CPU-wheel torch для Linux и Windows, обычный для macOS) плюс `npm run dense:doctor`, который
+   вместо traceback печатает, какая стадия отвалилась и что запустить. Быстрый путь; добавляет
+   зависимость от установщика `uv`.
+3. Убрать Python: BGE-M3 в ONNX через Transformers.js / onnxruntime-node. Целевая архитектура —
+   README снова честен. Прежде чем переписывать: PoC на `search-eval` (Recall@3/5, MRR, успех
+   роутинга, латентность, RAM, холодный старт), Python против ONNX; при потере качества в
+   пределах шума Python становится legacy-бэкендом за той же абстракцией.
+
+Рекомендация: 1 — сразу; 2 — ближайший релиз; 3 — после PoC. До решения крупных функций в поиск
+не добавлять. GPU (CUDA/MPS/ROCm) не трогать, CPU-first.
+
+**Замер для решения.** Доля свежих установок с `--dense`, доходящих до «Dense search: READY», —
+сейчас это число никто не собирает; `dense:doctor` и станет тем замером.
+
+**Решение (2026-09-14, соавтор).** Локальная модель — самый важный этап установки, и она должна
+работать у всех одинаково, а не через починку Python на каждой машине. Целевой бэкенд —
+**ONNX в Node.js** (`@huggingface/transformers` поверх `onnxruntime-node`): `npm run setup --
+--dense` качает пиннутый экспорт по манифесту с проверкой sha256 и после этого dense-поиск
+готов; Python-путь остаётся legacy за той же абстракцией (текст → нормализованный вектор 1024) и
+не является умолчанием. Пункт 1 (закрепить `revision`) выполняется для обоих путей. Пункт 2 (`uv`)
+не делается: это улучшение костыля, а не его устранение.
+
+**Что уже есть.** Ветка-снимок из Д-42 несёт манифест ровно этой модели (`Xenova/bge-m3`,
+`revision 4de1325…`, `int8`, sha256 по файлам) и загрузчик с проверкой хэшей. Инференса нет.
+
+**Критерии приёмки.** (1) На чистой машине с одним Node 22.12+ `npm run setup -- --dense` даёт
+`Dense search: READY`, без Python. (2) `run_search_eval` с dense через ONNX не хуже Python-fp32
+сверх шума по Recall@3/5 и MRR на `search-eval`; если int8 проигрывает — переключить манифест на
+fp32 (`onnx/model.onnx`, ~2.2 ГБ) или fp16, это поле манифеста, не код. (3) `npm run dense:doctor`
+называет отвалившуюся стадию словами, а не traceback. (4) Образ: `INSTALL_BGE_M3` перестаёт
+означать Python-стек; веса по-прежнему монтируются (`AI_DEV_MODEL_PATH`).
+
+**Что нельзя проверить в песочнице сессии.** `huggingface.co`, `download.pytorch.org` и релизы
+GitHub закрыты сетевой политикой; доступны только npm и PyPI. Скачивание весов и инференс
+проверяются в CI (у раннеров сеть открыта; отдельный workflow по `workflow_dispatch` с кэшем
+модели) и на машине соавтора. Сессия строит бэкенд, тесты на подменах и цепочку проверки, а
+числа для критерия (2) приносит CI — до них Д-62 не закрыт.
+
+---
+
+**Как сделано (2026-09-14).**
+
+Бэкенд — одна абстракция за двумя реализациями. `src/core/dense-backend.mjs` выбирает
+(`AI_DEV_DENSE_BACKEND=auto|onnx|python`, `auto` — тот, чья модель реально лежит на диске и
+сверена), `src/core/dense-runtime.mjs` — единственное место, которое отвечает «какой бэкенд и
+может ли он сейчас», так что `embedding_status`, health-check и перестройка индекса не могут
+ответить про одну машину по-разному. Сверка каталога модели кэшируется на минуту: хешировать
+сотни мегабайт на каждый запрос нельзя.
+
+**Почему `worker_threads`, а не порции с `await`.** Это не предпочтение, а свойство зависимости,
+прочитанное в ней самой: `onnxruntime-node/dist/binding.d.ts` называет себя «a simple
+**synchronized** inference session object wrap», а `run(feeds, fetches, options)` возвращает
+`ReturnType` — готовые выходы, не промис. JS-слой оборачивает вызов в `setImmediate`, то есть
+откладывает *начало* работы и ничего не меняет в том, где она идёт: инференс занимает тот поток,
+который его вызвал. Эмбеддинг нескольких тысяч документов на главном потоке остановил бы
+stdio-цикл MCP на минуты. Поэтому сессия модели живёт в `src/workers/dense-onnx-worker.mjs`, а
+через границу ходит только JSON. Сам воркер в пул **инжектится**, поэтому машина без весов
+покрывает тестами всё: модель, которая не загрузилась; воркер, умерший посреди запроса;
+таймаут; батчи; выключение.
+
+**Индекс.** Писатель индекса — Python, модель — в Node, и подвинуть нельзя ни того ни другого:
+помощник владеет схемой, сбором документов и блокировкой. Они встречаются через два файла:
+`search_cli.py dense-plan` печатает пассажи, которым этот бэкенд ещё должен вектор, Node их
+эмбеддит, а `rebuild --dense-vectors-json` их записывает, не импортируя torch (тест это и
+проверяет — `load_dense_model` подменён на выброс исключения). Документ, изменившийся между
+планом и перестройкой, к тому моменту имеет другой `content_hash` и остаётся pending, а не
+получает вектор от текста, которого у него уже нет; поэтому счётчик pending больше не
+обнуляется принудительно.
+
+**Происхождение вектора.** В `dense_vectors` добавлены `backend`, `revision`, `dtype`;
+кэшированный вектор переиспользуется, только если совпало всё. Индекс, написанный раньше, сказать
+о себе этого не может — `load_existing_dense_cache` требует новые колонки и возвращает пустой
+кэш, то есть всё переэмбеддивается один раз.
+
+**Дефект, найденный собственной пробой и исправленный здесь же.** Быстрая перестройка
+(`preserve_dense`, та, что идёт при каждом устаревшем индексе) не передаёт бэкенд — и
+происхождение бралось из значения аргумента по умолчанию (`python`). В результате ONNX-индекс
+при первом же обычном обновлении терял все векторы (3 документа: `dense=3 pending=0` →
+`dense=0 pending=3`) и переклеймлялся в `python/unpinned/fp32`. Исправлено: при сохраняющей
+перестройке происхождение читается из меты самого индекса, как уже читались `dense_text_limit` и
+`dense_include_membrane`. Регрессионный тест
+`test_a_fast_rebuild_keeps_vectors_from_whichever_backend_made_them`; на коде до правки падает
+(`0 != 1` — проверено мутацией).
+
+**Про `--ignore-scripts` (то, что просили проверить первым).** Ограничения нет:
+`onnxruntime-node` везёт собранные бинарники **внутри npm-пакета** (`bin/napi-v6/{darwin,linux,win32}/{x64,arm64}`),
+а не тянет их postinstall-скриптом, поэтому после `npm ci --ignore-scripts` он загружается —
+проверено живьём: `LOADED ok, InferenceSession: function`. `npm rebuild onnxruntime-node` не
+нужен. Чтобы это не сломалось молча, проверка стоит в двух местах: шагом в `docker/Dockerfile`
+(падает на сборке) и шагом в `dense-eval.yml`.
+
+**Размер.** `node_modules` сервера: 28 МБ → 406 МБ, то есть **+378 МБ**. Ключевая деталь:
+`@huggingface/transformers@3.7.5` жёстко требует `onnxruntime-node@1.21.0`, и пин другой версии
+наверху даёт вложенную копию — 626 МБ вместо 378. Версия в `package.json` совпадает с этим пином
+намеренно. Внутри: `onnxruntime-node` 208 МБ (бинарники пяти платформ), `onnxruntime-web` 92 МБ и
+`sharp`/`@img` 17 МБ — транзитивные и для текста не нужные; обрезка образа не делалась, это
+отдельная работа.
+
+**Замер после (что проверено здесь, живым сервером).**
+
+`dense:doctor` на трёх состояниях каталога модели:
+
+```
+пусто:                [ FAIL ] model files present and unmodified — missing from …/bge-m3-onnx:
+                      config.json, tokenizer.json, tokenizer_config.json, special_tokens_map.json,
+                      onnx/model_int8.onnx
+                      What to do: Run `npm run setup -- --dense` … (no Python needed).  exit 1
+файлы верные:         [  ok  ] model files present and unmodified — 5 file(s) verified
+                      [ FAIL ] model loads — Cannot read properties of undefined (reading 'type')
+                      (фраза, не traceback; стадии после — пропущены)
+один файл подменён:   [ FAIL ] model files present and unmodified — these do not match the
+                      manifest: onnx/model_int8.onnx
+                      What to do: Delete … — the bytes there are not the pinned export.
+```
+
+Вторая и третья раскладки сняты так: поддельные файлы плюс манифест, временно перенацеленный на
+их хэши (подобрать файл под настоящий sha256 нельзя); манифест возвращён на место.
+
+`embedding_status` на трёх окружениях:
+
+```
+ничего нет:           backend=onnx available=false missing=5
+                      reason="Dense search is not installed. Run `npm run setup -- --dense` …"
+файлы на месте:       backend=onnx available=true missing=[] mismatched=[]
+                      («файлы на месте, инференс не проверен» — инференс проверяет doctor)
+один файл подменён:   available=false mismatched=["onnx/model_int8.onnx"]
+```
+
+Двухпроходная перестройка — против **настоящего** `search_cli.py` и настоящего каталога
+(подменена только модель: детерминированный единичный вектор на текст):
+
+```
+первая dense-перестройка      dense=3 pending=0 backend=onnx planned=3 embedded=3
+ничего не менялось            dense=3 pending=0             planned=0 embedded=0
+изменён один документ         dense=3 pending=0             planned=1 embedded=1
+сменилась revision модели     dense=3 pending=0 rev=ffffffff planned=3 embedded=3  (все три заново)
+встречная: обычная перестройка dense=3 pending=0 backend=onnx  (векторы целы, бэкенд не переклеен)
+встречная: временные файлы     0 остатков в каталоге индекса
+```
+
+Свежий образ (эмуляция без Docker, `docker-bootstrap.mjs` + `system_health_check`):
+`degraded`, **ok 16 / warn 2 / fail 0**; `embedding_backend` — `skipped` с текстом уже про ONNX:
+«Dense search is not set up: the ONNX export is not here. Weights are never baked into an image:
+point AI_DEV_MODEL_PATH at a folder holding `bge-m3-onnx/`…». До правки `mcp-stdio.mjs` та же
+проверка отвечала про Python-стек, которого в этом образе и не должно быть.
+
+`npm run check` — 1121 тест, 1113 pass, 0 fail, 8 skipped (skip добавился один: тест инференса,
+он пропускается с причиной и с командой). `npm run docker:prepare && npm run docker:audit` —
+passed.
+
+**Найдено по дороге и починено здесь же:** манифест читается на этапе импорта через
+`createRequire`, а не `import`, поэтому `findDanglingImports` его не видит — он не попал в
+allowlist `prepare-docker-context.mjs`, и образ стартовал, импортировал `mcp-stdio.mjs` и падал
+на отсутствующем JSON. Файл добавлен в контекст, а в `audit-docker-context.mjs` — проверка
+не-JS-ресурсов, которые сервер читает при старте (проверено: без файла аудит печатает
+«missing 1 file(s) the server reads at startup»).
+
+**Чего здесь проверить нельзя и что осталось.**
+
+- **Скачивание весов и инференс.** `huggingface.co` закрыт. Загрузчик проверен против локального
+  `node:http`-сервера (битые байты, обрыв посреди тела, мёртвый источник, офлайн); инференс —
+  тестом, который **пропускается с причиной**, и его же гоняет `dense-eval.yml` после скачивания.
+  Что модель на самом деле грузится и даёт норму 1 — **не проверено**.
+- **Критерий (2)** (ONNX-int8 против Python-fp32) — **не проверен**: числа приносит
+  `dense-eval.yml`. Замечание к самому критерию: харнесс `run_search_eval` не считает Recall@3/5
+  (в золотых кейсах по одной ожидаемой заметке), он считает MRR, top-1 и nDCG — таблица печатает
+  их под своими именами, а не выдуманную колонку recall.
+- **Пункт 1 для legacy-пути закрыт наполовину.** Проводка есть: `BGE_M3_PYTHON_REVISION`
+  доходит до `snapshot_download(revision=…)`, а индекс пишет `unpinned`, когда пина нет. Самого
+  коммита `BAAI/bge-m3` в песочнице не достать, и выдумывать хэш нельзя — шаг в `dense-eval.yml`
+  печатает текущий `sha`, чтобы владелец вписал его в переменную.
+- **Образ Docker не собирался** (демона нет): проверена эмуляция распакованного образа и
+  `docker:audit`. Рост образа на **+378 МБ** посчитан по `node_modules`, не по собранным слоям.
+- Обрезка `onnxruntime-web` и `sharp` из образа — не делалась.
+
+
+
+## Д-63. Свежая установка не бывает `ok` — по конструкции двух проверок
+
+**Статус:** закрыт. Пачка H. Найден при проверке пачки B.
+
+После Д-57 свежий том даёт `degraded`. Предупреждения не про установку.
+`skill_quality: report missing` — отчёт качества скиллов пишет только `validate_skill_library`
+с `write_report` (`extensions/skills.mjs:222`), и ни `npm run setup`, ни entrypoint его не
+вызывают. `project_registry: Project registry has no project cards yet` —
+`evaluateProjectRegistry` (`system-health.mjs`) отдаёт `warn` при нуле проектов, а на свежей
+установке проектов и не может быть.
+
+**Чем грозит.** `ok` недостижим ни для одной свежей установки. Пользователь привыкает читать
+`degraded` как норму — и пропустит настоящее.
+
+**Что делать.** Шаг `skill_quality_report` в `scripts/first-run-steps.mjs` — идемпотентно, для обеих
+точек входа (Д-57 сделал их одним списком, тест это сторожит). `evaluateProjectRegistry` — `ok`
+при нуле проектов с текстом «проектов ещё нет; `bootstrap_project` регистрирует их».
+
+**Поправка к замеру.** В записи стояло «ok 15 / warn 3 / fail 0» и третьим предупреждением —
+Chromium в песочнице. На дереве после мержа пачек A–E воспроизводится не это: `frontend_qa_environment`
+и `embedding_backend` теперь отдают `skipped`, а не `warn`, поэтому замер до правки —
+**ok 16 / warn 2 / fail 0**, и оба предупреждения ровно те два, о которых запись. Побочный
+результат: после правки `ok` достижим и в песочнице, а не только в образе.
+
+**Замер до** (эмуляция свежего образа без Docker, `system_health_check`):
+
+```
+status: degraded   ok 16 / warn 2 / fail 0 / skipped 4
+warn  skill_quality     Skill quality is incomplete: … report missing.
+warn  project_registry  Project registry has no project cards yet.
+```
+
+**Замер после** (та же эмуляция, тот же вызов):
+
+```
+status: ok         ok 18 / warn 0 / fail 0 / skipped 4
+```
+
+Второй старт того же тома: `0 built, 7 skipped, 0 failed`, health по-прежнему
+`ok  ok 18 / warn 0 / fail 0 / skipped 4` — перестраивать нечего.
+
+**Как закрыто.** `skill_quality_report` — четвёртый обязательный шаг `FIRST_RUN_STEPS`; обе точки
+входа берут список оттуда, поэтому `scripts/first-run.mjs` менять не пришлось. Шаг зовёт
+`validate_skill_library` с `write_report: true` и `include_duplicates: false` (дорогая половина
+установке не нужна). Идемпотентность — по времени: отчёт не старше реестра не перестраивается.
+
+Шаг стоит **до** построения поискового индекса, а не после. Первая редакция ставила его
+четвёртым, и эмуляция дала `degraded` снова — уже с `search_index_freshness: Search index is
+stale: 1 added`: отчёт пишет заметку `Skill Quality Dashboard.md` в хранилище, и построенный
+после индекса он оставлял индекс несвежим ровно в момент окончания первого запуска. Это тот же
+капкан, о котором предупреждает комментарий в `scripts/docker-bootstrap.mjs`. Порядок закреплён
+отдельным тестом.
+
+`evaluateProjectRegistry` при нуле проектов отдаёт `ok` с текстом
+«no projects registered yet; `bootstrap_project` registers one».
+
+Тесты на падение проверены на дереве 9b48c66 (отдельный worktree, чтобы не трогать рабочее):
+падают семь из восьми в `scripts/first-run-steps.test.mjs`, три из десяти в
+`src/core/first-run.test.mjs` и тест о пустом реестре в `system-health.test.mjs`.
+
+## Д-64. `security_scanners` считает `cargo_audit` установленным по наличию `cargo`
+
+**Статус:** закрыт. Пачка H. Найден при проверке пачки D.
+
+`evaluateSecurityScanners` (`security-scan.mjs`) берёт доступность по `locateExecutable` на
+`SECURITY_SCANNERS[].executable`; у `cargo_audit` это `cargo`, а `cargo audit` — отдельный плагин
+(`cargo install cargo-audit`).
+
+**Замер.** Машина с `cargo` и без плагина: `cargo audit --version` → `error: no such command:
+'audit'`; health: «2 of 6 security scanners installed: npm_audit, cargo_audit».
+
+**Чем грозит.** Проверка, добавленная ради честности (Д-55), сама неточна. Скан потом
+самокорректируется (`error` → `warn`), но диагноз до скана — ложный.
+
+**Что делать.** Для сканеров-подкоманд доступность — по пробному вызову (`cargo audit --version`)
+через process runner, `shell: false`; для отдельных бинарников — как сейчас. Тест на оба исхода.
+
+**Замер до** (эта машина: `cargo 1.94.1` на PATH, плагина нет; `cargo audit --version` →
+``error: no such command: `audit` ``; живой сервер, `system_health_check`):
+
+```
+security_scanners  ok  2 of 6 security scanners installed: npm_audit, cargo_audit.
+```
+
+**Замер после** (та же машина, тот же вызов):
+
+```
+security_scanners  ok  1 of 6 security scanners installed: npm_audit.
+missing_reasons.cargo_audit: cargo is installed but `cargo audit` is not — error: no such command: `audit`
+```
+
+**Встречная проба** (shim `cargo`, у которого `audit` отвечает; тот же вызов):
+
+```
+security_scanners  ok  2 of 6 security scanners installed: npm_audit, cargo_audit.
+missing_reasons.cargo_audit: (none)
+```
+
+**Как закрыто.** Сканер, который является подкомандой другого инструмента, объявляет в
+`SECURITY_SCANNERS` поле `probeArgs` — это описание, а не спецслучай в коде. `scannerAvailability`
+сперва ищет исполняемый файл, и только для таких сканеров делает пробный вызов через process
+runner: массив аргументов, `shell: false`, `SCANNER_PROBE_TIMEOUT_MS` = 10 секунд, во временном
+каталоге, а не в проекте вызывающего. Сканеры-самостоятельные бинарники не изменились и не
+пробуются вовсе. Пробный вызов, который упал, завис или бросил, оставляет сканер недоступным, а не
+ломает проверку.
+
+Сверх записи: `details.missing_reasons` называет причину отсутствия, когда она содержательнее
+«нет на PATH». «У вас есть cargo, но нет cargo-audit» — другой разрыв и другое исправление, чем
+«у вас нет Rust», и именно эта путаница и есть Д-64.
+
+Тесты проверены на падение: мутацией (убрать `probeArgs` у `cargo_audit`) падают три из четырёх
+новых тестов, включая тот, что требует «1 of 6».
+
+## Д-65. Smoke-проверка `bootstrap.sh` оставляет временный каталог при прерывании
+
+**Статус:** закрыт. Пачка H. Найден при ревью пачки A.
+
+Fast-start smoke (Д-58) создаёт `mktemp -d "${TMPDIR:-/tmp}/ai-dev-smoke.XXXXXX"` и удаляет его
+явно в каждой ветке; `trap` нет. Прерывание во время ожидания лаунчера — а ждать он может долго,
+если контейнер не отвечает, — оставляет каталог в `/tmp`.
+
+**Чем грозит.** Мусор в `/tmp`. Мелочь, но это установщик — первое, что видит пользователь.
+
+**Что делать.** `trap 'rm -rf "$smoke_dir"' EXIT INT TERM` сразу после `mktemp`, явные `rm`
+убрать. В `bootstrap.ps1` — `try/finally`, проверить, что там симметрично.
+
+**Поправка к замеру.** Запись называла сигналом Ctrl-C. Ctrl-C утечки не даёт — проверено
+на `dash` и на `bash`, сигналом и в процесс, и во всю группу процессов: `|| smoke_status=$?`
+ловит убитый лаунчер, скрипт доходит до своей же ветки очистки и выходит с кодом 70, каталога не
+остаётся. Течёт то, что убивает сам скрипт, не дав ему дойти до `rm`: **SIGTERM** (закрытая
+вкладка терминала, `kill`) и SIGHUP. SIGKILL не чинится ничем и не чинится здесь.
+
+**Замер до** (shim `docker`, лаунчер-заглушка `sleep 60`, `TMPDIR` во временном каталоге;
+сигнал в момент ожидания лаунчера):
+
+```
+dash  TERM parent  LEAKED -> ai-dev-smoke.Xqe9cU
+dash  TERM group   LEAKED -> ai-dev-smoke.V7L9m9
+dash  INT  group   cleaned up      ← Ctrl-C и до правки не тёк
+bash  INT  group   cleaned up
+```
+
+**Замер после** (та же раскладка, восемь сочетаний оболочки, сигнала и цели):
+
+```
+dash TERM parent / TERM group / INT parent / INT group  → cleaned up
+bash TERM parent / TERM group / INT parent / INT group  → cleaned up
+```
+
+**Как закрыто.** Три `trap` сразу после `mktemp`: `EXIT` убирает каталог на любом выходе, `INT` и
+`TERM` убирают его и завершают скрипт (130 и 143) — голый `trap … EXIT INT TERM` из записи после
+обработчика продолжил бы выполнение, то есть скрипт шёл бы дальше вопреки просьбе остановиться.
+Все три явных `rm -rf` убраны.
+
+Коды выхода и `--plan` проверены: `--plan` даёт байт в байт тот же вывод (302 байта, `cmp`
+молчит) — он и не может пострадать, потому что выходит на 79-й строке, задолго до smoke;
+`bootstrap-contract.test.mjs` зелёный, включая обе проверки выхода 69 на устаревшем образе; новый
+тест требует выхода 70 на упавшем smoke и пустого `TMPDIR` после него.
+
+`bootstrap.ps1` менять нечего и симметрия не нарушена: его smoke держит ответ в переменной
+`$response` и временного каталога не создаёт вовсе — удалять нечего.
+
+Тест проверен на падение: на `bootstrap.sh` до правки «an interrupted smoke check takes its
+temporary directory with it» падает с «the interrupted smoke check left its directory behind».
+На Windows тест пропускается — группы процессов и POSIX-сигналы туда не переносятся, и своего
+лаунчера скрипт Windows не запускает (**не проверено на Windows**).
+
+## Д-66. README ссылается на несуществующий репозиторий taste-skill
+
+**Статус:** закрыт. Пачка H. Найден при разборе PR #55.
+
+PR #55 превратил три названия источников скиллов в ссылки; для taste-skill — на
+`github.com/tt-a1i/taste-skill`. `THIRD_PARTY_NOTICES.md:9` даёт источник
+`github.com/Leonxlnx/taste-skill`.
+
+**Замер.** `git ls-remote`: `Leonxlnx/taste-skill` — существует, `tt-a1i/taste-skill` — не найден
+(tt-a1i — автор Archify, откуда, видимо, и скопирован владелец).
+
+**Чем грозит.** Битая ссылка в абзаце про источники, в обоих README, с первого дня после мержа.
+
+**Что делать.** `README.md`, `README.ru.md` → `Leonxlnx/taste-skill`. И сторож: тест, что каждая
+ссылка на источник скиллов в README есть среди `Source:` в `THIRD_PARTY_NOTICES.md` — тогда такое
+расхождение не проживёт до PR.
+
+**Замер до** (`git ls-remote` и `grep` в этой песочнице):
+
+```
+Leonxlnx/taste-skill  EXISTS
+tt-a1i/taste-skill    NOT FOUND (rc=128)
+README.md:181     …[taste-skill](https://github.com/tt-a1i/taste-skill)…
+README.ru.md:180  …[taste-skill](https://github.com/tt-a1i/taste-skill)…
+скрипт-сторож: # tests 2  # pass 1  # fail 1
+```
+
+**Замер после** (те же команды):
+
+```
+README.md:181     …[taste-skill](https://github.com/Leonxlnx/taste-skill)…
+README.ru.md:180  …[taste-skill](https://github.com/Leonxlnx/taste-skill)…
+скрипт-сторож: # tests 2  # pass 2  # fail 0
+```
+
+**Как закрыто.** Обе ссылки исправлены. Сторож — `scripts/skill-source-links.test.mjs`: каждая
+ссылка вида `https://github.com/<владелец>/<репозиторий>` в обоих README должна быть среди строк
+`- Source:` в `THIRD_PARTY_NOTICES.md`; второй тест требует, чтобы оба README ссылались на один и
+тот же набор репозиториев. Правило работает потому, что все шесть ссылок GitHub в README — это
+ссылки на источники скиллов; ссылке не на источник в этом абзаце и не место, а если такая
+понадобится, она попадёт в notices, а не в исключение в тесте.
+
+Тест проверен на падение на коде до правки: краснеет именно на `tt-a1i/taste-skill`.
+Существование репозиториев проверено `git ls-remote` (`Leonxlnx/taste-skill`, `tt-a1i/archify`,
+`nextlevelbuilder/ui-ux-pro-max-skill` — есть; `tt-a1i/taste-skill` — нет). Сторож существования
+репозитория не проверяет: сеть в гейте не нужна и не будет.
+
+## Д-67. Docker-путь исполняет команды проекта Node образа, не глядя на `engines.node` проекта
+
+**Статус:** закрыт. Пачка H. Решение по заметке владельцу из Д-54: предупреждать, не блокировать.
+
+В контейнере команды гейта исполняет Node образа (24). Д-54 добавил в результат `runtime.node`,
+но если `package.json` проекта говорит `"engines": { "node": "20" }`, никто это с `runtime.node` не
+сравнивает.
+
+**Замер.** Проект из Д-54 с `engines.node: "20"` под Node 24: гейт падает по причине из Д-54, а о
+расхождении версий не говорит ни слова.
+
+**Чем грозит.** Та же пара «у меня проходит — в гейте падает», только без подсказки: подсказка
+Д-54 узкая и на другие несовместимости не сработает.
+
+**Что делать.** `run_quality_gate` читает `engines.node`, сравнивает с `process.version` простым
+разбором диапазонов без зависимостей (`20`, `^20`, `>=20`, `20.x`, `18 || 20`, `>=18 <21`); при
+расхождении — `runtime.engines_mismatch` с текстом и строка в `detail` `verify_task`. Не
+блокирует. Неразбираемый диапазон — честное «не разобран», не ложная тревога. Тесты на разбор.
+
+**Проверка.** Тот же проект → предупреждение; `engines.node: "22"` под Node 22 → тишина; диапазон
+`>=18` под Node 24 → тишина.
+
+**Поправка к замеру.** Node в песочнице — 22.22.2, не 24; в образе 24. Расхождение мажоров то же
+самое, замер снят под 22.
+
+**Замер до** (проект из Д-54 с `"engines": {"node": "20"}`, живой сервер, `run_quality_gate`):
+
+```
+status  : failed
+runtime : {"node":"v22.22.2","exec_path":"/opt/node22/bin/node"}
+runtime.engines_mismatch: null          ← о расхождении ни слова
+```
+
+**Замер после** (тот же проект, тот же вызов):
+
+```
+status  : failed
+runtime : {"node":"v22.22.2","exec_path":"/opt/node22/bin/node",
+           "engines":{"declared":"20","satisfied":false},
+           "engines_mismatch":{"declared":"20","running":"v22.22.2","message":"This project
+             declares engines.node 20; the quality gate ran its commands on Node v22.22.2. …
+             This is a warning: the gate ran everything it was asked to."}}
+```
+
+**Встречные пробы** (тот же инструмент, тот же проект, меняется только `engines.node`):
+
+```
+"22"     → engines:{declared:"22",satisfied:true}     engines_mismatch: null
+">=18"   → engines:{declared:">=18",satisfied:true}   engines_mismatch: null
+(нет)    → runtime без поля engines                   engines_mismatch: null
+"lts/*"  → engines:{declared:"lts/*",satisfied:null}  engines_mismatch: null   ← не разобран, не тревога
+```
+
+**`verify_task`** (тот же проект, `begin_task` + `verify_task`), дайджест проверок:
+
+```
+до:    detail: { output: "Error: Cannot find module …", hint: "Node >= 21 treats …" }
+после: detail: { output: …, hint: …,
+                 engines_mismatch: { declared: "20", running: "v22.22.2", message: … } }
+```
+
+И на проекте, чей гейт **проходит**, с `engines.node: "20"` под Node 22:
+
+```
+{ type: "quality_gate", status: "passed", detail: { engines_mismatch: { declared: "20", … } } }
+```
+
+`verificationPassed` при этом по-прежнему `true`: предупреждение, не блокировка.
+
+**Как закрыто.** Разбор диапазонов — свой, без зависимостей, в `quality-gate-runner.mjs`:
+`parseEngineRange` даёт альтернативы (`||`), каждая — набор полуоткрытых интервалов; читаются
+`20`, `^20`, `~20.1`, `>=20`, `>20`, `<21`, `<=20`, `20.x`, `*`, `18 || 20`, `>=18 <21` и
+сочетания. `engineMatches(range, version)` отвечает `true`, `false` или `null`. `null` — это
+«не разобран»: дефисные диапазоны (`18 - 20`), `lts/*`, `20.x.1`, пустая строка, нечитаемая
+версия. Неразобранное не даёт ни утверждения, ни тревоги — выдуманное из ошибки разбора
+предупреждение хуже молчания, которое оно заменяет.
+
+`engineAgreement` в `runQualityGate` читает `package.json` проекта (непарсящийся `package.json` —
+проблема проекта, и не эта проверка место её поднимать) и кладёт в `runtime.engines` пару
+`{ declared, satisfied }`, а `runtime.engines_mismatch` — только когда `satisfied === false`.
+
+Сверх записи: `verificationCheckSummary` теперь оставляет `detail` и у **прошедшей** проверки,
+если в нём есть `engines_mismatch`. Иначе предупреждение было бы видно только тогда, когда и без
+него что-то уже упало, — а это не предупреждение. Всё остальное на прошедшей проверке
+по-прежнему молчит.
+
+Разбор закреплён 41 случаем (23 принимаемых, 18 отвергаемых) плюс 10 неразбираемых. Тесты
+проверены на падение: на коде до правки падает и разбор (модуль не экспортирует функций), и тест
+`verify_task` о переносе предупреждения в дайджест.
+
+## Д-68. Старое значение `AI_DEV_MODEL_PATH` молча превращается в «dense не установлен»
+
+**Статус:** закрыт. Найден при проверке пачки F.
+
+Д-62 поменял смысл `AI_DEV_MODEL_PATH`: раньше переменная называла сам каталог модели
+(`…/models/bge-m3`, монтировался в `/models/bge-m3`), теперь — папку над моделями (`…/models`,
+монтируется в `/models`, внутри `bge-m3-onnx/` и/или `bge-m3/`). Документация обновлена, но
+лаунчеры (`docker/run-mcp.sh`, `docker/run-mcp.ps1`) старое значение не распознают: каталог с
+весами монтируется в `/models`, бэкенды ищут `/models/bge-m3-onnx` и `/models/bge-m3`, не
+находят, и health check говорит «dense не установлен» — пользователю, который смонтировал всё
+так, как учили вчера.
+
+**Замер.** `AI_DEV_MODEL_PATH=<каталог с pytorch_model.bin>` → `run-mcp.sh` строит
+`--mount type=bind,source=<он же>,target=/models,readonly` и молча запускает контейнер; внутри
+есть `/models/pytorch_model.bin` и нет `/models/bge-m3/`.
+
+**Чем грозит.** Ломающее изменение без сигнала: те, кто монтировал веса до Д-62, теряют
+dense-поиск и получают совет «скачайте модель» вместо «переменная теперь про другой каталог».
+
+**Что делать.** В обоих лаунчерах: каталог, в котором лежат файлы модели (`pytorch_model.bin`,
+`modules.json`, `config.json` или `onnx/`), — это старое значение; остановиться с exit 64 и
+сказать словами, куда переменную теперь указывать. Папка без `bge-m3-onnx/` и `bge-m3/` —
+предупреждение, но не отказ: dense необязателен. Паритет `.sh`/`.ps1` закрепить в
+`validate-packaging.mjs`, поведение `.sh` — контрактным тестом с подменённым `docker`.
+
+**Проверка.** Старый путь → exit 64 и текст с `bge-m3-onnx/`; новый путь → в аргументах
+`docker` есть `target=/models,readonly`; папка без моделей → предупреждение в stderr,
+контейнер запускается.
+
+**Замер после.** Подменённый `docker`, записывающий аргументы; `sh docker/run-mcp.sh` с
+`AI_DEV_MODEL_PATH`:
+
+- каталог с `pytorch_model.bin` → exit 64, `docker` не вызван, в stderr: «AI_DEV_MODEL_PATH now
+  names the folder above the models, and <путь> holds model files itself (pytorch_model.bin).
+  Point it at the parent folder that contains bge-m3-onnx/ and/or bge-m3/ — for a default
+  install that is $HOME/.ai-dev/models»; то же для `modules.json`, `config.json` и `onnx/` —
+  по тесту на каждый маркер;
+- папка с `bge-m3-onnx/` → exit 0, в аргументах `type=bind,source=<путь>,target=/models,readonly`;
+- пустая папка → exit 0, предупреждение «holds neither bge-m3-onnx/ nor bge-m3/», контейнер
+  запускается.
+
+`run-mcp.ps1` изменён зеркально по тексту, живьём не запускался — PowerShell в песочнице нет;
+паритет формулировки сторожит `validate-packaging.mjs`: замена текста в `.ps1` делает
+`npm run packaging:check` красным, проверено мутацией. Контрактный тест —
+`scripts/run-mcp-contract.test.mjs`, шесть случаев.
+
+## Д-69. Fast-start контейнер не видит `/models`: веса недостижимы на пути установки по умолчанию
+
+**Статус:** закрыт. Найден при разборе Д-68.
+
+`bootstrap.sh` поднимает fast-start runtime (`docker run -d … tail -f /dev/null`) с томом `/data`
+и проектом `/workspace` — и без `/models`. `AI_DEV_MODEL_PATH` читает только холодный путь
+`run-mcp.sh` (`docker run`, когда runtime-контейнера нет); в тёплом пути лаунчер делает
+`docker exec` в контейнер, где `/models` пуст. Клиентские конфиги, которые пишет bootstrap,
+указывают на тёплый путь и переменную не несут. `bootstrap.ps1` runtime-контейнер не поднимает
+вовсе — там всё идёт холодным путём через `run-mcp.ps1`, но и в его клиентские конфиги
+`AI_DEV_MODEL_PATH` не попадает. Итог: после установки по умолчанию весам некуда
+подключиться, и обещание Д-62 «dense у всех одной командой» для Docker-пользователя не
+выполняется.
+
+**Замер.** `grep -n -i model bootstrap.sh bootstrap.ps1` — пусто;
+`grep -n -i model ai-dev-mcp-server/scripts/install-docker-mcp-clients.mjs` — пусто.
+
+**Чем грозит.** Пользователь Docker делает всё по документации Д-62 — и получает «dense не
+установлен» без способа это изменить, кроме ручного пересоздания контейнера.
+
+**Что делать.** `bootstrap.sh --model-path PATH` / `bootstrap.ps1 -ModelPath` (по умолчанию —
+`AI_DEV_MODEL_PATH`): fast-start контейнер получает `--mount type=bind,source=PATH,target=/models,
+readonly`; проверка старого значения — из Д-68; установщик клиентских конфигов пишет
+`AI_DEV_MODEL_PATH` в окружение лаунчера, чтобы холодный путь и Windows монтировали то же. В
+`--plan` поле `model_path` появляется только когда задано — без него вывод побайтово прежний.
+Финальная строка говорит, что смонтировано.
+
+**Проверка.** `sh ./bootstrap.sh --plan` без флага — побайтово как до правки; с `--model-path` —
+поле в JSON; с shim-`docker` аргументы `docker run -d` содержат `target=/models,readonly`; старое
+значение → exit 64 до запуска контейнера; конфиг клиента несёт `AI_DEV_MODEL_PATH`.
+
+**Замер после.** `grep -c -i model`: `bootstrap.sh` 27, `bootstrap.ps1` 26,
+`install-docker-mcp-clients.mjs` 8 — было 0, 0, 0.
+
+- `sh ./bootstrap.sh --plan` без `--model-path` — побайтово как до правки (`cmp` молчит); с
+  `--model-path /tmp/models` в JSON появляется `"model_path":"/tmp/models"`.
+- Подменённый `docker`: `--model-path <папка с bge-m3-onnx/>` → `docker run -d …` содержит
+  `--mount type=bind,source=<папка>,target=/models,readonly`, установка заканчивается строкой
+  «Model weights are mounted read-only from <папка> as /models»; пустая папка → предупреждение и
+  тот же mount; старое значение → exit 64 с тем же текстом, что у лаунчера, контейнер не
+  запускался.
+- Установщик: `--model-path` → `env.AI_DEV_MODEL_PATH` в конфиге клиента на обеих платформах;
+  без флага ключа в `env` нет — тесты в `install-docker-mcp-clients.test.mjs`.
+
+`bootstrap.ps1 -ModelPath` и `run-mcp.ps1` при закрытии были зеркальны по тексту и живьём не
+запускались; прогнаны позже, при Д-70, под pwsh 7.6.6 — те же ответы, что у sh-версий, — и с тех
+пор накрыты кейсами в `bootstrap-contract.test.mjs` и `run-mcp-contract.test.mjs`; паритет ключа
+сторожит `validate-packaging.mjs`. Не проверено: настоящий контейнер с настоящими весами — Docker-демона
+в песочнице нет; это подтверждает первый пользователь, запустивший
+`sh ./bootstrap.sh --model-path "$HOME/.ai-dev/models"` после `npm run setup -- --dense`.
+
+Гейт: `npm run check` — 1148 тестов, 1140 pass, 0 fail, 8 skipped (было 1137 / 1129 / 0 / 8).
+Acceptance: `0 падений из 10` — десять прогонов `npm run check` подряд на финальном дереве, ни одного падения ни тестов, ни отчёта покрытия.
+
+## Д-70. Первый прогон CI: `ARG` вне стадии в Dockerfile и переменная-тёзка switch-параметра в `bootstrap.ps1`
+
+**Статус:** закрыт частично. PowerShell-половина замерена живьём, накрыта тестами и подтверждена
+вторым прогоном PR: Windows-джоб прошёл шаг «Bootstrap plan» и дошёл до `test:core` (где упал уже
+по Д-71). Dockerfile-половина исправлена и проверена по тексту, сборку подтверждает только
+Docker-джоб на PR в апстрим (#56) — Actions самого форка джобы не запускают («The job was not
+started because your account is locked due to a billing issue»). Найден CI на первом же прогоне
+после мержа второго захода.
+
+Два регресса, у которых одна причина: их внесли сессии, которым нечем было исполнить то, что они
+правили, — Docker-демона и PowerShell в песочнице нет, и обе правки проверялись только текстом
+(паритет в `validate-packaging.mjs` сторожит слова, не семантику).
+
+1. **Dockerfile.** Д-55 добавил стадию `FROM ${GITLEAKS_IMAGE} AS gitleaks` первой строкой сборки.
+   `ARG NODE_IMAGE=node:24-bookworm-slim`, стоявший до этого перед первым `FROM`, оказался *после*
+   него — то есть внутри стадии gitleaks, где он и остался: в Dockerfile `ARG` после `FROM` виден
+   только своей стадии. Следующий `FROM ${NODE_IMAGE}` раскрылся в пустоту.
+2. **`bootstrap.ps1`.** Д-69 добавил в блок `-Plan` объект `$plan = [pscustomobject]@{…}`. Имена
+   переменных в PowerShell регистронезависимы, и `$plan` — это тот же `[switch]$Plan` из `param()`:
+   присваивание объекта в switch падает при первом же обращении.
+
+**Замер.** Docker-джоб на PR:
+
+```
+Dockerfile:14  FROM ${NODE_IMAGE}
+ERROR: failed to build: failed to solve: base name (${NODE_IMAGE}) should not be blank
+```
+
+Windows-джоб, `./bootstrap.ps1 -Plan`:
+
+```
+Cannot convert value "@{repository=…; project_path=…; …}" to type
+"System.Management.Automation.SwitchParameter"
+```
+
+**Чем грозит.** Образ не собирается вообще — ни один из in-image шагов (health check в
+контейнере, `gitleaks version`) не доходит до запуска, и всё, что второй заход обещал проверить
+CI, стоит. На Windows `-Plan` — первое, что делает установщик.
+
+**Что делать.** `ARG NODE_IMAGE` — выше первого `FROM`, рядом с `GITLEAKS_IMAGE` (глобальные
+аргументы сборки объявляются до стадий). Переменную в `-Plan` назвать `$planDocument`. И
+закрыть дыру, через которую это прошло: в `ci.yml` на ubuntu есть `pwsh` — шаг
+`pwsh -File ./bootstrap.ps1 -Plan` с разбором JSON стоит секунды и ловит такое до Windows-джоба.
+И третье: `run-mcp.ps1` и `bootstrap.ps1` получают тот же контракт-тест, что уже есть у sh-версий
+(подменённый `docker`, монтирование `/models`, отказ по старому значению), через `pwsh` там, где он
+есть — ubuntu- и macos-раннеры его несут; без `pwsh` кейсы помечаются skip с причиной.
+
+**Проверка.** Docker-джоб доходит до `docker-smoke.mjs` и `gitleaks version`; Windows-джоб печатает
+JSON плана; новый шаг на ubuntu — то же.
+
+**Замер после.** PowerShell 7.6.6 (deb-пакет с packages.microsoft.com, распакован в песочницу без
+установки):
+
+- `bootstrap.ps1` до правки, `-Plan`: `Cannot convert value "System.Management.Automation.PSCustomObject"
+  to type "System.Management.Automation.SwitchParameter"` — тот же текст, что в CI. После правки —
+  JSON плана из семи полей; с `-ModelPath` появляется восьмое, `model_path`.
+- Новый шаг `ci.yml` (рендер плана и разбор `docker/run-mcp.ps1`) исполнен дословно — проходит;
+  разбор всех семи `.ps1` репозитория, как в Windows-джобе, — без ошибок.
+- `run-mcp.ps1` против подменённого `docker`: папка с `bge-m3-onnx/` → в аргументах
+  `--mount type=bind,source=<папка>,target=/models,readonly`; пустая папка → предупреждение
+  «holds neither» и тот же mount; старое значение (любой из четырёх маркеров) → exit 1 с текстом
+  «AI_DEV_MODEL_PATH now names the folder above the models…», `docker` не вызывался.
+  `bootstrap.ps1 -ModelPath`: старое значение → exit 1 с «-ModelPath names the folder above the
+  models…» до `Ensure-Docker`; несуществующая папка и запятая в пути — свои отказы; пустая папка →
+  `WARNING: … holds neither …` и дальше по пути установки. Переменная `AI_DEV_MODEL_PATH` со старым
+  значением и без `-ModelPath` — тот же отказ (сценарий Д-68 на Windows).
+- Восемь новых кейсов в `run-mcp-contract.test.mjs` и `bootstrap-contract.test.mjs` — 25 в двух
+  файлах, все зелёные с `pwsh`; без `pwsh` — 8 skip с причиной. Мутации: вернуть `$plan` → 1
+  падение; убрать цикл маркеров из лаунчера → 4; убрать mount → 2; убрать проверку маркеров из
+  установщика → 1.
+- Dockerfile: `ARG GITLEAKS_IMAGE` и `ARG NODE_IMAGE` — строки 14–15, первый `FROM` — 16;
+  `docker:prepare` и `docker:audit` — `passed`. Digest образа gitleaks сверен с реестром: индекс
+  `v8.30.1` в ghcr.io отдаёт тот же `sha256:c00b6bd0…` с платформами linux/amd64 и linux/arm64.
+  Демона в песочнице нет, сборку подтверждает Docker-джоб PR.
+
+**Чему это учит.** Паритет по тексту — не замена исполнению. Файл, который сессия не может
+запустить, должен быть запущен кем-то до мержа: либо CI на ветке до интеграции, либо человеком.
+
+## Д-71. Второй прогон CI: тест читает окрашенный и перенесённый вывод pwsh как строку; тест `runtime-assets` сравнивает контейнерный путь буквально на Windows
+
+**Статус:** закрыт частично. Правка внесена, падение раннера воспроизведено и снято локально;
+зелёный прогон CI ещё не увиден. Найден CI на втором прогоне PR в апстрим, сразу после правки Д-70.
+
+Два падения с общей причиной: утверждение написано о том, как *среда автора* показывает факт, а
+не о самом факте.
+
+1. **`bootstrap-contract.test.mjs`, кейс из Д-70.** `pwsh -File` рисует `throw` через свой
+   ConciseView: ANSI-раскраска даже без терминала, боковая колонка `     | ` на каждой строке и
+   перенос текста сообщения по ширине консоли. Тест искал в `stderr`
+   `holds model files itself \(pytorch_model\.bin\)` одной строкой. Ширину консоли pwsh без TTY
+   берёт из terminfo по `TERM`: в песочнице `TERM=linux` — переноса нет вовсе, и кейс прошёл; на
+   раннере `TERM` не задан — 80 колонок, и строка разорвалась между `itself` и
+   `(pytorch_model.bin)`. Четыре зеркальных кейса лаунчера в `run-mcp-contract.test.mjs` прошли на
+   раннере только потому, что там перенос пришёлся между другими словами — они сломаны так же.
+2. **`runtime-assets.test.mjs`, «a seeded container volume is not held to a private vault's
+   notes» (Д-57).** Модуль строит путь через `path.join(path.resolve(repositoryRoot), …)` — верно
+   для обеих платформ. Соседние утверждения в том же файле сравнивают с `path.resolve(…)`; это одно
+   сравнивает с буквальной строкой `/opt/ai-dev/README.md`. На Windows `path.resolve("/opt/ai-dev")`
+   даёт `D:\opt\ai-dev`. Тест написан и прогнан на Linux; на первом прогоне PR Windows-джоб упал
+   раньше (Д-70), до `test:core`, так что это его первое исполнение на Windows.
+
+**Замер.** Ubuntu-джоб «vault-coupled suite + smokes», `npm test`: 1156 тестов, 1147 pass, 1 fail —
+
+```
+✖ the PowerShell installer refuses the pre-Д-62 model path before it looks for Docker
+  AssertionError: The input did not match the regular expression
+  /holds model files itself \(pytorch_model\.bin\)/. Input:
+  '\x1B[31;1mException: \x1B[0m/home/runner/work/…/bootstrap.ps1:180 …
+  … | \x1B[31;1m/tmp/ai-dev-bootstrap-ps-D3CslN/bge-m3 holds model files itself\x1B[0m\n'
+  … | \x1B[31;1m(pytorch_model.bin). Point it at the parent folder that contains\x1B[0m\n'
+```
+
+Windows-джоб, `npm run test:core`: 920 тестов, 918 pass, 1 fail —
+
+```
+✖ a seeded container volume is not held to a private vault's notes
+  + actual - expected
+  +   path: 'D:\\opt\\ai-dev\\README.md',
+  -   path: '/opt/ai-dev/README.md',
+```
+
+**Чем грозит.** Красный PR при исправном коде: оба падения — в тестах, поведение установщика,
+лаунчера и модуля верное. Но пока они красные, зелёный Docker-джоб и остальные не видны как
+результат, и второе, что скрыто: шаг «Agent hook tests» Windows-джоба (`src/extensions/hooks.test.mjs`)
+не исполнялся ни в одном прогоне PR — джоб оба раза падал раньше.
+
+**Что делать.** (1) В обоих контракт-тестах снимать с вывода pwsh его вид перед проверкой: убрать
+ANSI-последовательности, боковую колонку и переносы, склеить в одну строку — и утверждать о тексте
+сообщения. (2) В `runtime-assets.test.mjs` сравнивать с `path.resolve("/opt/ai-dev", "README.md")`,
+как соседние утверждения. (3) Поставить оба места под тот же вопрос, что и Д-70: что ещё в этих
+файлах зависит от хоста.
+
+**Проверка.** Нормализатор — на дословной строке из лога раннера и на живом выводе pwsh 7.6.6 с
+разной шириной; мутации Д-70 ловятся по-прежнему. Windows-джоб доходит до «Agent hook tests».
+
+**Замер после.** Локально, pwsh 7.6.6:
+
+- Воспроизведение: те же тесты до правки, `env -u TERM` — `not ok … the PowerShell installer
+  refuses the pre-Д-62 model path`, 7 pass / 1 fail, то же утверждение, что на раннере; четыре
+  кейса лаунчера проходят, как и там. После правки — 8 / 0 и без `TERM`, и с `TERM=linux`.
+- Нормализатор на дословной строке `actual` из лога раннера: старое выражение по сырому `stderr` —
+  `false`, по снятому виду — `true`; текст сообщения после снятия — одной строкой, с
+  `(pytorch_model.bin)` на месте.
+- Мутации без `TERM`: убрать проверку маркеров из установщика → 1 падение; убрать цикл маркеров из
+  лаунчера → 4; переписать текст сообщения так, чтобы маркер пропал → 1.
+- `runtime-assets`: `path.win32.join(path.win32.resolve("/opt/ai-dev"), "README.md")` равно
+  `path.win32.resolve("/opt/ai-dev", "README.md")` — то, что теперь стоит в утверждении, совпадает
+  с тем, что строит модуль, на обеих раскладках путей; исполнение на Windows — за CI.
+- Три файла тестов — 35 кейсов, все зелёные с pwsh; `npm run lint` — чисто.
+
+**Чему это учит.** Тест должен утверждать о факте, а не о его отпечатке в среде автора:
+сообщение — после снятия вида хоста, путь — через тот же `path`, что и код. И то, что джоб упал
+рано, скрывает всё, что стоит за ним: Windows-джоб пока ни разу не дошёл до своего последнего шага.

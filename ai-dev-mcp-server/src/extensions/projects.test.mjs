@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import process from "node:process";
 import test from "node:test";
 import { createExtensionTools } from "../tool-extensions.mjs";
 import { createProjectTools } from "./projects.mjs";
@@ -91,6 +92,18 @@ test("a dry run selects and blocks without executing anything", async () => {
     execution: "argv", shell: false, unsafe_bypass_honored: false, legacy_allow_unsafe_requested: false
   });
   assert.ok(result.started_at <= result.finished_at);
+});
+
+// Д-54: on the Docker path the image's Node runs the project's commands, and a
+// script that behaves differently across majors disagreed with the user's own
+// terminal with nothing on the record to say which Node had run it.
+test("the report names the Node that ran the commands", async () => {
+  const { registry } = createFixture();
+  const result = await call(registry, { project_path: "atlas", dry_run: true, update_registry: false });
+  assert.equal(result.runtime.node, process.version);
+  assert.equal(result.runtime.exec_path, process.execPath);
+  // Nothing ran, so nothing is diagnosed.
+  assert.deepEqual(result.results.map((item) => item.hint ?? ""), ["", "", ""]);
 });
 
 test("the legacy unsafe flag is recorded and never honoured", async () => {

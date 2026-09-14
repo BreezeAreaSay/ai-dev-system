@@ -14,7 +14,7 @@ function parseArgs(argv) {
     const argument = argv[index];
     if (argument === "--apply") {
       options.apply = true;
-    } else if (["--clients", "--launcher", "--launcher-env", "--claude-launcher", "--runtime-container", "--image", "--project-path", "--home", "--app-data", "--platform"].includes(argument)) {
+    } else if (["--clients", "--launcher", "--launcher-env", "--claude-launcher", "--runtime-container", "--image", "--project-path", "--model-path", "--home", "--app-data", "--platform"].includes(argument)) {
       options[argument.slice(2).replaceAll("-", "_")] = String(argv[index + 1] || "");
       index += 1;
     } else if (argument === "--help" || argument === "-h") {
@@ -122,6 +122,7 @@ export function buildDockerClientServerConfig(client, {
   runtimeContainer,
   image,
   projectPath,
+  modelPath,
   platform = process.platform
 }) {
   const windows = platform === "win32";
@@ -143,6 +144,10 @@ export function buildDockerClientServerConfig(client, {
     env: {
       AI_DEV_IMAGE: image,
       AI_DEV_PROJECT_PATH: pathApi.resolve(projectPath),
+      // The folder above the model directories, which the launcher mounts as
+      // /models. Without it the cold launch path, and every Windows launch, has
+      // no way to reach the weights the user downloaded (docs/DEFECTS.md Д-69).
+      ...(modelPath ? { AI_DEV_MODEL_PATH: pathApi.resolve(modelPath) } : {}),
       ...(windows ? { AI_DEV_MCP_LAUNCHER: resolvedLauncher } : {}),
       ...(!windows && runtimeContainer ? { AI_DEV_RUNTIME_CONTAINER: runtimeContainer } : {})
     }
@@ -259,7 +264,8 @@ export async function installDockerMcpClients(options) {
   }
   const paths = localPaths({ ...options, appData: options.app_data || options.appData });
   const runtimeContainer = options.runtime_container || options.runtimeContainer;
-  const normalized = { ...options, launcher, claudeLauncher, runtimeContainer, projectPath, platform };
+  const modelPath = options.model_path || options.modelPath || "";
+  const normalized = { ...options, launcher, claudeLauncher, runtimeContainer, projectPath, modelPath, platform };
   const clients = options.clients || [...SUPPORTED_DOCKER_CLIENTS];
   const results = [];
   for (const client of clients) {
@@ -275,7 +281,7 @@ function usage() {
     "Install the Docker AI Dev MCP launcher for local AI clients.",
     "",
     "Usage:",
-    "  node scripts/install-docker-mcp-clients.mjs --apply --launcher <run-mcp> --image <image> --project-path <folder> [--runtime-container <name>] [--clients codex,cursor,gemini,vscode,claude]"
+    "  node scripts/install-docker-mcp-clients.mjs --apply --launcher <run-mcp> --image <image> --project-path <folder> [--model-path <folder>] [--runtime-container <name>] [--clients codex,cursor,gemini,vscode,claude]"
   ].join("\n");
 }
 

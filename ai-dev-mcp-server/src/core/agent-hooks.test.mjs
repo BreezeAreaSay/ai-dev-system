@@ -129,6 +129,65 @@ test("hook path helpers are platform-agnostic", async (t) => {
   }
 });
 
+test("the hook decides the project boundary without climbing into the home directory", async (t) => {
+  // Д-48, the hook's copy of the rule. It is spelled out here as well as in
+  // project-identity.test.mjs because this file is the one that travels with
+  // the hooks, and the two copies have already drifted three times (Д-45,
+  // Д-51, Д-52). Platform and home are parameters: os.tmpdir() sits inside the
+  // user profile on Windows, so an environment-driven test would be deciding a
+  // different layout there than here.
+  const { isProjectBoundaryCandidate, projectIdOf, projectRootOf, userHomeDirectory } =
+    await import("../../hooks/lib.mjs");
+  const cases = [
+    ["the home directory itself", "linux", "/home/ivan", "/home/ivan", false],
+    ["the directory holding the home", "linux", "/home/ivan", "/home", false],
+    ["the filesystem root", "linux", "/home/ivan", "/", false],
+    ["a trailing separator on the home", "linux", "/home/ivan/", "/home/ivan", false],
+    ["a project below the home", "linux", "/home/ivan", "/home/ivan/work/app", true],
+    ["a project outside the home", "linux", "/home/ivan", "/srv/app", true],
+    ["a sibling whose name starts with the home's", "linux", "/home/ivan", "/home/ivana", true],
+    ["POSIX tells two spellings apart", "linux", "/home/ivan", "/home/Ivan", true],
+    ["the Windows profile, spelled either way", "win32", "C:\\Users\\Ivan", "c:/users/ivan/", false],
+    ["the directory holding the Windows profile", "win32", "C:\\Users\\Ivan", "C:\\USERS", false],
+    ["the Windows drive root", "win32", "C:\\Users\\Ivan", "C:\\", false],
+    ["a project below the Windows profile", "win32", "C:\\Users\\Ivan", "C:\\Users\\Ivan\\projects\\app", true],
+    ["a project outside the Windows profile", "win32", "C:\\Users\\Ivan", "C:\\work\\app", true],
+    ["no home known at all", "linux", "", "/", true]
+  ];
+  for (const [name, platform, homeDir, directory, expected] of cases) {
+    assert.equal(isProjectBoundaryCandidate(directory, { platform, homeDir }), expected, name);
+  }
+  assert.equal(userHomeDirectory({ platform: "win32", env: { USERPROFILE: "C:\\Users\\Ivan", HOME: "/home/ivan" } }), "C:\\Users\\Ivan");
+  assert.equal(userHomeDirectory({ platform: "linux", env: {} }), "");
+
+  // And the same rule where the hook actually starts: a dotfiles clone in `~`
+  // answers `rev-parse --show-toplevel` with the home for every project below
+  // it, which used to key all of them to one directory.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-hook-home-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const alpha = path.join(home, "work", "alpha");
+  const beta = path.join(home, "work", "beta");
+  await fs.mkdir(alpha, { recursive: true });
+  await fs.mkdir(beta, { recursive: true });
+  runGit(home, ["init", "-q", "-b", "main"]);
+
+  const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  process.env.HOME = home;
+  process.env.USERPROFILE = home;
+  t.after(() => {
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
+  assert.equal(projectRootOf(alpha), await fs.realpath(alpha));
+  assert.equal(projectRootOf(home), await fs.realpath(home));
+  assert.notEqual(projectIdOf(alpha), projectIdOf(beta));
+  assert.notEqual(projectIdOf(alpha), projectIdOf(home));
+});
+
 test("pure helpers: patterns, entries, merges", () => {
   const patterns = renderHookPatterns();
   assert.ok(patterns.secrets.some((item) => item.id === "aws_access_key"));

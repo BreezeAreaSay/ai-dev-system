@@ -3,7 +3,6 @@ import test from "node:test";
 import { dashboardSourceFingerprint, renderSystemDashboard } from "./system-dashboard.mjs";
 import {
   COVERAGE_THRESHOLDS,
-  EMBEDDING_BACKEND_REQUIREMENTS,
   REQUIRED_SEARCH_PRESETS,
   REQUIRED_SYSTEM_NOTES,
   SYSTEM_LINE_CEILING,
@@ -13,7 +12,6 @@ import {
   dashboardSkillSource,
   evaluateAutoCommands,
   evaluateDenseSmoke,
-  evaluateEmbeddingBackend,
   evaluateFrontendQaEnvironment,
   evaluateFrontendQaRunner,
   evaluateHybridSmoke,
@@ -37,6 +35,7 @@ import {
   healthSummary,
   overallHealthStatus
 } from "./system-health.mjs";
+import { LAUNCH_MISSING_FILE, LAUNCH_MISSING_PACKAGE, LAUNCH_UNKNOWN } from "./frontend-qa-launch.mjs";
 
 test("a Frontend QA environment that is not ready says which piece is missing", () => {
   const ready = evaluateFrontendQaEnvironment({
@@ -222,32 +221,6 @@ test("frontend QA environment is ready only when Playwright can launch Chromium"
   }).status, "warn");
 });
 
-function embeddingAvailability(overrides = {}) {
-  const availability = {};
-  for (const key of EMBEDDING_BACKEND_REQUIREMENTS) availability[key] = { exists: true };
-  return { ...availability, ...overrides };
-}
-
-test("embedding backend fails on a missing shipped helper and reports worker state otherwise", () => {
-  const missing = evaluateEmbeddingBackend({
-    availability: embeddingAvailability({ embed_helper: { exists: false } }),
-    workers: { count: 0 }
-  });
-  assert.equal(missing.status, "fail");
-  assert.deepEqual(missing.details.missing, ["embed_helper"]);
-  assert.match(evaluateEmbeddingBackend({ availability: embeddingAvailability(), workers: { count: 0 } }).summary, /not started yet/);
-  const running = evaluateEmbeddingBackend({
-    availability: embeddingAvailability(),
-    workers: { count: 2 },
-    backend: "bge-m3-local",
-    paths: { model_dir: "/models" }
-  });
-  assert.equal(running.status, "ok");
-  assert.match(running.summary, /2 worker\(s\)/);
-  assert.equal(running.details.paths.model_dir, "/models");
-  assert.equal(evaluateEmbeddingBackend({ workers: { count: 0 } }).details.missing.length, EMBEDDING_BACKEND_REQUIREMENTS.length);
-});
-
 test("skill registry check rejects non-arrays and empty registries", () => {
   assert.deepEqual(evaluateSkillRegistry({}).details, { type: "object" });
   assert.equal(evaluateSkillRegistry([]).status, "fail");
@@ -375,7 +348,18 @@ test("project registry check previews at most ten projects", () => {
   assert.equal(ok.status, "ok");
   assert.equal(ok.details.count, 12);
   assert.equal(ok.details.projects.length, 10);
-  assert.equal(evaluateProjectRegistry([]).status, "warn");
+});
+
+test("an empty project registry is a fresh install, not a warning", () => {
+  // A correct install has no projects until somebody registers one, and warning
+  // about that put every new user at `degraded` on their first health check
+  // (docs/DEFECTS.md, Д-63).
+  const empty = evaluateProjectRegistry([]);
+  assert.equal(empty.status, "ok");
+  assert.equal(empty.details.count, 0);
+  assert.deepEqual(empty.details.projects, []);
+  assert.match(empty.summary, /no projects registered yet/);
+  assert.match(empty.summary, /bootstrap_project/, "the summary says how to get one");
 });
 
 test("auto command and search preset checks fail on missing entries", () => {
@@ -517,30 +501,42 @@ test("system snapshot falls back when quality, projects, and card shapes are spa
   assert.ok(buildSystemSnapshot(snapshotInput({ generatedAt: undefined })).generated_at);
 });
 
-test("a clone that never downloaded the weights is skipped, not failed", () => {
-  // The weights come from `npm run setup -- --dense` and weigh hundreds of
-  // megabytes. Reporting their absence as a failure met every new user with
-  // "Health: fail — 4 not passing" on a correct install.
-  const fresh = evaluateEmbeddingBackend({
-    availability: embeddingAvailability({
-      model_dir: { exists: false },
-      model_file: { exists: false },
-      modules_file: { exists: false }
-    }),
-    workers: { count: 0 }
+test("a Frontend QA runner that never started is not reported as Playwright missing", () => {
+  // Д-56: in the image Playwright and Chromium are installed and the runner
+  // dies importing the server, so all three flags are false for a reason that
+  // has nothing to do with the optional install. Saying "run `npm run setup --
+  // --frontend-qa`" sent the reader after software that was already there, and
+  // the command cannot be run inside a container anyway.
+  const broken = evaluateFrontendQaEnvironment({
+    playwright_available: false,
+    chromium_available: false,
+    browser_launch_ok: false,
+    launch_failure: LAUNCH_MISSING_FILE,
+    launch_error: "The runner imports /opt/ai-dev/ai-dev-mcp-server/src/core/command-policy.mjs, "
+      + "which this install does not carry."
   });
-  assert.equal(fresh.status, "skipped");
-  assert.equal(fresh.details.optional, true);
-  assert.match(fresh.summary, /--dense/);
-});
+  assert.equal(broken.status, "fail");
+  assert.match(broken.summary, /broken and never started/);
+  assert.match(broken.summary, /command-policy\.mjs/);
+  assert.doesNotMatch(broken.summary, /--frontend-qa/);
 
-test("weights present but a shipped helper gone is still a failure", () => {
-  const broken = evaluateEmbeddingBackend({
-    availability: embeddingAvailability({
-      worker_helper: { exists: false },
-      model_file: { exists: false }
-    }),
-    workers: { count: 0 }
+  // A dependency nobody installed is still the opt-in step nobody ran.
+  const notInstalled = evaluateFrontendQaEnvironment({
+    playwright_available: false,
+    launch_failure: LAUNCH_MISSING_PACKAGE,
+    launch_error: 'The runner\'s dependency "@axe-core/playwright" is not installed.'
   });
-  assert.equal(broken.status, "fail", "a missing helper is never optional");
+  assert.equal(notInstalled.status, "skipped");
+  assert.match(notInstalled.summary, /--frontend-qa/);
+
+  // Anything else the runner died of is a warning that quotes it rather than
+  // a confident claim about Playwright.
+  const other = evaluateFrontendQaEnvironment({
+    playwright_available: false,
+    launch_failure: LAUNCH_UNKNOWN,
+    launch_error: "Command timed out after 60000ms"
+  });
+  assert.equal(other.status, "warn");
+  assert.match(other.summary, /did not start\. Command timed out/);
+  assert.doesNotMatch(other.summary, /--frontend-qa/);
 });

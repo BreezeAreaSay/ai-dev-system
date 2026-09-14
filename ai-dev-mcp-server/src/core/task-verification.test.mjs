@@ -124,3 +124,123 @@ test("the evidence digest names each check and how it reported itself", () => {
   ]);
   assert.deepEqual(verificationCheckSummary([]), []);
 });
+
+// Д-54: a failed verification reduced to `quality_gate: failed` and the reason
+// stayed in a command's stdout nobody reading the verdict ever saw.
+test("a failed check carries the line that says why, and the gate's hint", () => {
+  const hint = "Node >= 21 treats positional arguments as glob patterns; a directory is run as a test file.";
+  const [summary] = verificationCheckSummary([
+    check("quality_gate", {
+      status: "failed",
+      results: [
+        { label: "Lint", status: "passed", stdout: "all good", stderr: "" },
+        {
+          label: "Test",
+          status: "failed",
+          hint,
+          // What npm really prints: its own echo first, the runner's banner
+          // next, and only then the line that says anything.
+          stdout: [
+            "",
+            "> repro47@1.0.0 test",
+            "> node --test test/",
+            "TAP version 13",
+            "# Error: Cannot find module '/home/dev/repro47/test'",
+            "# fail 1"
+          ].join("\n"),
+          stderr: ""
+        }
+      ]
+    })
+  ]);
+
+  assert.equal(summary.status, "failed");
+  assert.equal(summary.detail.output, "Error: Cannot find module '/home/dev/repro47/test'");
+  assert.equal(summary.detail.hint, hint);
+});
+
+test("a check that came back good carries no detail, and neither does a silent failure", () => {
+  const [passed] = verificationCheckSummary([
+    check("quality_gate", {
+      status: "passed",
+      results: [{ label: "Test", status: "passed", stdout: "Error: none of this matters", hint: "" }]
+    })
+  ]);
+  assert.equal(Object.hasOwn(passed, "detail"), false, "a passing check explains nothing");
+
+  // `unchecked` passes, so it is not dressed up as a failure either — its
+  // `next_step` is what says nothing ran (Д-55).
+  const [unchecked] = verificationCheckSummary([
+    check("security_scan", { status: "unchecked", summary: { checked: 0 } })
+  ]);
+  assert.deepEqual(unchecked, { type: "security_scan", status: "unchecked" });
+
+  const [silent] = verificationCheckSummary([check("frontend_qa", { gate: "block" })]);
+  assert.deepEqual(silent, { type: "frontend_qa", status: "block" });
+
+  // A check that never ran reports the error it threw.
+  const [unavailable] = verificationCheckSummary([
+    check("quality_gate", { status: "unavailable", error: "Quality gate file not found: /repo/.ai-dev/quality-gate.md" })
+  ]);
+  assert.match(unavailable.detail.output, /Quality gate file not found/);
+  assert.equal(Object.hasOwn(unavailable.detail, "hint"), false);
+});
+
+// Д-67: the gate now compares the project's `engines.node` with the Node it ran
+// on. A verdict that only shows the mismatch when something else already failed
+// is not a warning, so it survives a passing check too.
+test("a Node the project did not choose is carried into the verdict", () => {
+  const engines_mismatch = {
+    declared: "20",
+    running: "v22.22.2",
+    message: "This project declares engines.node 20; the quality gate ran its commands on Node v22.22.2."
+  };
+
+  const [failed] = verificationCheckSummary([
+    check("quality_gate", {
+      status: "failed",
+      runtime: { node: "v22.22.2", engines: { declared: "20", satisfied: false }, engines_mismatch },
+      results: [{ label: "Test", status: "failed", hint: "", stdout: "# Error: Cannot find module '/repo/test'", stderr: "" }]
+    })
+  ]);
+  assert.equal(failed.detail.engines_mismatch.declared, "20");
+  assert.equal(failed.detail.engines_mismatch.running, "v22.22.2");
+  assert.match(failed.detail.output, /Cannot find module/, "the cause is still the cause");
+
+  const [passed] = verificationCheckSummary([
+    check("quality_gate", {
+      status: "passed",
+      runtime: { node: "v22.22.2", engines: { declared: "20", satisfied: false }, engines_mismatch },
+      results: [{ label: "Test", status: "passed", stdout: "ok", hint: "" }]
+    })
+  ]);
+  assert.deepEqual(passed, { type: "quality_gate", status: "passed", detail: { engines_mismatch } });
+
+  // Everything that is not a mismatch stays silent on a passing check.
+  const [agreeing] = verificationCheckSummary([
+    check("quality_gate", {
+      status: "passed",
+      runtime: { node: "v22.22.2", engines: { declared: ">=18", satisfied: true } },
+      results: [{ label: "Test", status: "passed", stdout: "Error: none of this matters", hint: "" }]
+    })
+  ]);
+  assert.deepEqual(agreeing, { type: "quality_gate", status: "passed" });
+
+  const [undeclared] = verificationCheckSummary([
+    check("quality_gate", { status: "passed", runtime: { node: "v22.22.2" }, results: [] })
+  ]);
+  assert.deepEqual(undeclared, { type: "quality_gate", status: "passed" });
+});
+
+test("a Node mismatch never turns a passing run into a failing one", () => {
+  const checks = [check("quality_gate", {
+    status: "passed",
+    runtime: {
+      node: "v22.22.2",
+      engines: { declared: "20", satisfied: false },
+      engines_mismatch: { declared: "20", running: "v22.22.2", message: "warning only" }
+    },
+    results: []
+  })];
+  assert.equal(verificationPassed(checks), true, "the gate warns; it does not block");
+});

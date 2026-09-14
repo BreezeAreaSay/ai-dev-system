@@ -58,14 +58,26 @@ async function copyApplication(stage) {
   });
   // Agent hook scripts are copied into user repositories by install_agent_hooks.
   await copyDistributionTree(path.join(serverRoot, "hooks"), path.join(stage, "app", "hooks"));
+  // The dense manifest is read at import time by `mcp-stdio.mjs`: without it the
+  // container does not start at all (docs/DEFECTS.md, Д-62).
+  await copyFile(path.join(serverRoot, "models", "bge-m3.manifest.json"), stage, "app/models/bge-m3.manifest.json");
   for (const name of [
     "ai-dev.mjs",
     "docker-bootstrap.mjs",
+    // Shared with `first-run.mjs`, and imported by the bootstrap the entrypoint
+    // runs: left out, the container would die on startup.
+    "first-run-steps.mjs",
     "protocol-smoke.mjs",
     "rebuild-live-state.mjs"
   ]) {
     await copyFile(path.join(serverRoot, "scripts", name), stage, `app/scripts/${name}`);
   }
+  // Two of the notes the health check expects (`REQUIRED_SYSTEM_NOTES`) are
+  // read through the server tree, which the container mounts into the vault at
+  // `09-mcp/ai-dev-mcp-server`. They were not shipped, so a correct container
+  // reported them missing (docs/DEFECTS.md, Д-57).
+  await copyFile(path.join(serverRoot, "README.md"), stage, "app/README.md");
+  await copyFile(path.join(serverRoot, "docs", "ARCHITECTURE.md"), stage, "app/docs/ARCHITECTURE.md");
   await copyFile(
     path.join(serverRoot, "config", "runtime.example.json"),
     stage,
@@ -119,6 +131,9 @@ async function createDockerContext({ output }) {
       "THIRD_PARTY_NOTICES.md"
     );
     await copyFile(path.join(repositoryRoot, "LICENSE"), stage, "LICENSE");
+    // `09-mcp/README.md` resolves to the repository root README, which in the
+    // image is `/opt/ai-dev/README.md` (RUNTIME_NOTE_LAYOUTS).
+    await copyFile(path.join(repositoryRoot, "README.md"), stage, "README.md");
     await copyApplication(stage);
     await copyRuntime(stage);
     await copyDistributionTree(publicSeed, path.join(stage, "public-seed"), {
@@ -136,6 +151,7 @@ async function createDockerContext({ output }) {
 !public-seed/
 !public-seed/**
 !LICENSE
+!README.md
 !THIRD_PARTY_NOTICES.md
 `);
 

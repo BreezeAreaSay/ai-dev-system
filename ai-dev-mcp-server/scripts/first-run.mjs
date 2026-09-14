@@ -8,8 +8,10 @@
  * `src/core/first-run.mjs`; this does it and says what happened.
  *
  * Nothing here reaches the network unless asked: `--frontend-qa` installs the
- * QA runner's dependencies, `--dense` builds the Python environment and
- * downloads the 2.3 GB BGE-M3 weights.
+ * QA runner's dependencies, `--dense` downloads the pinned BGE-M3 ONNX export
+ * (about 600 MB, checksum-verified, no Python), and `--dense-python` builds the
+ * legacy virtualenv and downloads the 2.3 GB torch weights instead
+ * (docs/DEFECTS.md, Д-62).
  */
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -17,6 +19,9 @@ import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { downloadDenseModel } from "../src/core/dense-download.mjs";
+import { defaultOnnxModelDir } from "../src/core/dense-onnx.mjs";
+import { readDenseManifest, verifyDenseModelDirectory } from "../src/core/dense-manifest.mjs";
 import {
   describeDenseCoverage,
   firstRunSucceeded,
@@ -24,6 +29,14 @@ import {
   renderFirstRunReport,
   venvPythonPath
 } from "../src/core/first-run.mjs";
+import {
+  createRequiredActions,
+  parseToolResult as parseResult,
+  readRequiredState,
+  requiredArtefactPaths,
+  runFirstRunPlan,
+  summarizeToolResult as summarize
+} from "./first-run-steps.mjs";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = path.resolve(serverRoot, "..");
@@ -32,6 +45,10 @@ function parseArgs(argv) {
   const options = { want: {}, force: false, health: true };
   for (const argument of argv) {
     if (argument === "--dense") Object.assign(options.want, { dense_model: true, dense_index: true });
+    else if (argument === "--dense-python") {
+      Object.assign(options.want, { dense_model: true, dense_index: true });
+      options.densePython = true;
+    }
     else if (argument === "--frontend-qa") options.want.frontend_qa = true;
     else if (argument === "--all") Object.assign(options.want, { dense_model: true, dense_index: true, frontend_qa: true });
     else if (argument === "--force") options.force = true;
@@ -46,12 +63,14 @@ function usage() {
   return [
     "Build what a fresh clone does not ship.",
     "",
-    "Usage: npm run setup -- [--frontend-qa] [--dense] [--all] [--force] [--no-health]",
+    "Usage: npm run setup -- [--frontend-qa] [--dense] [--dense-python] [--all] [--force] [--no-health]",
     "",
     "  (no flags)      skill registry, search index, routing benchmark",
     "  --frontend-qa   also install the Frontend QA runner's dependencies",
-    "  --dense         also build the Python environment, download BGE-M3 (2.3 GB),",
-    "                  and embed the indexed documents with it",
+    "  --dense         also download the pinned BGE-M3 ONNX export (about 600 MB,",
+    "                  checksum-verified, no Python) and embed the indexed documents",
+    "  --dense-python  the legacy path instead: a Python virtualenv, torch, and the",
+    "                  2.3 GB weights. Same search, four more things to go wrong.",
     "  --all           everything above",
     "  --force         rebuild what is already there",
     "  --no-health     skip the closing diagnostic"
@@ -94,51 +113,37 @@ const modelDir = process.env.BGE_M3_MODEL_DIR
 const venvDir = path.join(embeddingsDir, ".venv");
 const densePython = process.env.AI_DEV_PYTHON || venvPythonPath({ venvDir, exists: existsSync });
 
-const registriesDir = path.join(vaultRoot, "03-skills-catalog", "registries");
-const routingReportPath = path.join(registriesDir, "skill-routing-eval.json");
+// Which dense backend this run installs. `--dense` is the ONNX export and
+// nothing else; the legacy virtualenv is asked for by name, or by the same
+// environment variable that selects it at runtime (docs/DEFECTS.md, Д-62).
+const denseManifest = readDenseManifest();
+const onnxModelDir = defaultOnnxModelDir({ env: process.env });
+const useLegacyDense = Boolean(options.densePython)
+  || String(process.env.AI_DEV_DENSE_BACKEND ?? "").trim().toLowerCase() === "python";
 
-// Asked once and read by both the plan and the report below: a status call
-// walks the vault. A machine without a working Python helper cannot answer it,
-// and that is a reason to rebuild rather than to stop before the first step.
-const indexStatus = existsSync(searchIndexPath)
-  ? await callTool("search_index_status", { include_external_project_files: true })
-    .then(parseResult)
-    .catch(() => null)
-  : null;
+// The three steps no install can do without are built by the same code the
+// container entrypoint runs, so the two paths cannot drift apart again
+// (docs/DEFECTS.md, Д-57). What is on disk is read the same way too.
+const artefacts = requiredArtefactPaths({ vaultRoot, searchIndexPath });
+const { indexStatus, present: requiredPresent, stale: requiredStale } = await readRequiredState({
+  paths: artefacts,
+  callTool,
+  serverRoot,
+  skillRoutingEvalCasesPath
+});
 
 const present = {
-  skill_registry: existsSync(path.join(registriesDir, "skills.index.json")),
-  search_index: existsSync(searchIndexPath),
-  routing_benchmark: existsSync(routingReportPath),
+  ...requiredPresent,
   frontend_qa: existsSync(path.join(repositoryRoot, "frontend-qa", "node_modules")),
-  dense_model: existsSync(path.join(modelDir, "pytorch_model.bin")),
+  dense_model: useLegacyDense
+    ? existsSync(path.join(modelDir, "pytorch_model.bin"))
+    : (await verifyDenseModelDirectory({ manifest: denseManifest, dir: onnxModelDir })).ready,
   dense_index: Number(indexStatus?.dense_documents || 0) > 0
 };
 
 /** What each step actually does. Every one of them is idempotent. */
 const ACTIONS = {
-  async skill_registry() {
-    const result = await callTool("rebuild_index", {});
-    return summarize(result, (doc) => `${doc.total ?? doc.count ?? doc.skills ?? "?"} skill(s) indexed`);
-  },
-  async search_index() {
-    const result = await callTool("rebuild_search_index", {
-      include_external_project_files: true,
-      dense_embeddings: false,
-      preserve_dense: true
-    });
-    return summarize(result, (doc) => (
-      `${doc.indexed_document_count ?? doc.current_document_count ?? doc.documents ?? "?"} document(s) indexed`
-    ));
-  },
-  async routing_benchmark() {
-    const result = await callTool("run_skill_routing_eval", {});
-    return summarize(result, (doc) => {
-      const passed = doc.summary?.passed ?? doc.passed;
-      const total = doc.summary?.total ?? doc.total;
-      return total === undefined ? "benchmark written" : `${passed}/${total} cases pass`;
-    });
-  },
+  ...createRequiredActions({ callTool }),
   async frontend_qa() {
     const qaRoot = path.join(repositoryRoot, "frontend-qa");
     const hasPnpmLock = existsSync(path.join(qaRoot, "pnpm-lock.yaml"));
@@ -147,6 +152,20 @@ const ACTIONS = {
     return `${manager} install in frontend-qa/`;
   },
   async dense_model() {
+    if (!useLegacyDense) {
+      // Download and verify, nothing more: five files, each checked against the
+      // sha256 the manifest pins, into a directory of their own.
+      const status = await downloadDenseModel({
+        manifest: denseManifest,
+        targetDir: onnxModelDir,
+        log: (line) => process.stdout.write(`   ${line}\n`)
+      });
+      if (!status.ready) {
+        throw new Error(`Model directory is still incomplete: ${[...status.missing, ...status.mismatched].join(", ")}`);
+      }
+      return `${denseManifest.export} @ ${String(denseManifest.revision).slice(0, 12)} (${denseManifest.dtype}) `
+        + `in ${onnxModelDir}, ${status.downloaded} file(s) fetched`;
+    }
     if (!existsSync(venvPythonPath({ venvDir, exists: existsSync }))) {
       await runOrThrow("python -m venv", process.env.AI_DEV_PYTHON_BASE || "python3", ["-m", "venv", venvDir]);
     }
@@ -156,11 +175,18 @@ const ACTIONS = {
       "-r", path.join(embeddingsDir, "requirements-bge-m3.txt")
     ]);
     await fs.mkdir(modelDir, { recursive: true });
+    // The revision is passed rather than left to float: an unpinned
+    // `snapshot_download` is exactly the upstream-can-change-under-you problem
+    // the ONNX manifest solves for the other path (docs/DEFECTS.md, Д-62,
+    // point 1). Unset means the old behaviour, and the index records the
+    // vectors as coming from an unpinned download.
+    const legacyRevision = String(process.env.BGE_M3_PYTHON_REVISION ?? "").trim();
     await runOrThrow("model download", python, ["-c", [
       "from huggingface_hub import snapshot_download",
       `snapshot_download("BAAI/bge-m3", local_dir=${JSON.stringify(modelDir)},`,
+      legacyRevision ? ` revision=${JSON.stringify(legacyRevision)},` : "",
       ' allow_patterns=["*.json", "*.model", "sentencepiece.bpe.model", "pytorch_model.bin"])'
-    ].join("\n")]);
+    ].filter(Boolean).join("\n")]);
     return `model in ${modelDir}, interpreter ${python}`;
   },
   async dense_index() {
@@ -180,80 +206,26 @@ async function hasCommand(command) {
   return code === 0;
 }
 
-function parseResult(result) {
-  const text = result?.content?.find((item) => item.type === "text")?.text ?? "";
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function summarize(result, describe) {
-  const doc = parseResult(result);
-  return doc ? describe(doc) : "done";
-}
-
-async function modifiedAt(target) {
-  const stat = await fs.stat(target).catch(() => null);
-  return stat?.mtimeMs ?? 0;
-}
-
-/**
- * What exists but no longer matches what it was built from.
- *
- * Existence was the only question this asked, so a vault whose notes had moved
- * on since the last build was told "already built" and then, two lines later by
- * the diagnostic in the same run, that its index and its benchmark were stale.
- * Both answers came from the same command. These are the signals the health
- * check itself grades, asked before rather than after.
- */
-async function findStale(present) {
-  const stale = {
-    search_index: Boolean(indexStatus?.stale),
-    // Documents indexed since the last embedding run have no vector, so the
-    // dense half of a hybrid query cannot see them.
-    dense_index: Number(indexStatus?.dense_pending_documents || 0) > 0
-  };
-  if (present.routing_benchmark) {
-    const report = await modifiedAt(routingReportPath);
-    const inputs = await Promise.all([
-      modifiedAt(skillRoutingEvalCasesPath),
-      modifiedAt(path.join(serverRoot, "src", "core", "skill-router.mjs"))
-    ]);
-    stale.routing_benchmark = report < Math.max(...inputs);
-  }
-  return stale;
-}
-
-const stale = await findStale(present);
+const stale = {
+  ...requiredStale,
+  // Documents indexed since the last embedding run have no vector, so the
+  // dense half of a hybrid query cannot see them.
+  dense_index: Number(indexStatus?.dense_pending_documents || 0) > 0
+};
 const plan = planFirstRun({ present, stale, want: options.want, force: options.force });
 console.log(`Vault: ${vaultRoot}`);
 console.log(`Search index: ${searchIndexPath}`);
-console.log(`Dense model: ${modelDir} (interpreter ${densePython})`);
+console.log(useLegacyDense
+  ? `Dense model: ${modelDir} (legacy Python backend, interpreter ${densePython})`
+  : `Dense model: ${onnxModelDir} (ONNX backend, ${denseManifest.export} @ ${String(denseManifest.revision).slice(0, 12)})`);
 if (indexStatus) console.log(describeDenseCoverage(indexStatus));
 console.log("");
 
-const results = [];
-for (const step of plan) {
-  if (!step.run) {
-    results.push({ ...step, status: "skipped" });
-    continue;
-  }
-  process.stdout.write(`→ ${step.title}: ${step.detail}\n`);
-  const started = Date.now();
-  try {
-    const reason = await ACTIONS[step.id]();
-    results.push({ ...step, status: "done", reason, duration_ms: Date.now() - started });
-  } catch (error) {
-    results.push({
-      ...step,
-      status: "failed",
-      error: String(error?.message ?? error).split("\n")[0],
-      duration_ms: Date.now() - started
-    });
-  }
-}
+const results = await runFirstRunPlan(
+  plan,
+  ACTIONS,
+  (step) => process.stdout.write(`→ ${step.title}: ${step.detail}\n`)
+);
 
 console.log("");
 console.log(renderFirstRunReport(results));

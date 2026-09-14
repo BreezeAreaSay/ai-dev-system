@@ -2,14 +2,19 @@
  * What a fresh install still has to build before it is whole.
  *
  * A clone of this repository runs and answers immediately — the server starts,
- * the skills are there, the tools work. Four things, though, are built rather
+ * the skills are there, the tools work. Five things, though, are built rather
  * than shipped, and until they are built the diagnostics say so and part of the
  * system answers with a refusal:
  *
  * - the skill registry, generated from the catalogue sources;
+ * - the skill quality report, which the health check reads;
  * - the SQLite search index, which every search tool reads;
  * - the skill-routing benchmark report, which the health check grades;
  * - the Frontend QA runner's own dependencies.
+ *
+ * The order is not alphabetical: the quality report writes a dashboard note
+ * into the vault, so building it after the index leaves the index stale the
+ * moment the first run finishes (docs/DEFECTS.md, Д-63).
  *
  * And one thing is downloaded rather than built: the BGE-M3 weights, 2.3 GB,
  * which is a decision a person makes rather than something a setup command does
@@ -36,6 +41,12 @@ export const FIRST_RUN_STEPS = Object.freeze([
     id: "skill_registry",
     title: "Skill registry",
     detail: "Generated from the catalogue sources; routing and the skill tools read it.",
+    optional: false
+  }),
+  Object.freeze({
+    id: "skill_quality_report",
+    title: "Skill quality report",
+    detail: "Schema and structure over the whole catalogue; the health check reads the report it writes.",
     optional: false
   }),
   Object.freeze({

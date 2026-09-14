@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { execFileWithInput } from "./core/input-process-runner.mjs";
 import {
@@ -54,6 +55,10 @@ import {
 import { listSearchPresets } from "./core/search-runtime.mjs";
 import { createSearchIndexRuntime } from "./core/search-index.mjs";
 import { createEmbeddingRuntime } from "./core/embedding-workers.mjs";
+import { createDenseRuntime } from "./core/dense-runtime.mjs";
+import { createOnnxDenseRuntime, defaultOnnxModelDir } from "./core/dense-onnx.mjs";
+import { readDenseManifest } from "./core/dense-manifest.mjs";
+import { EMBEDDING_MODEL_REQUIREMENTS } from "./core/embedding-health.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
 import {
   isPathInside,
@@ -98,9 +103,18 @@ import {
 } from "./core/search-reranker.mjs";
 import { countBy } from "./core/system-health.mjs";
 import {
+  classifyFrontendQaLaunchFailure,
+  LAUNCH_MISSING_FILE,
+  LAUNCH_UNKNOWN
+} from "./core/frontend-qa-launch.mjs";
+import {
   createLocalRuntimeProfile,
+  distributionExpectations,
+  distributionFilePlan,
   renderRuntimeDistribution,
   runtimeDistributionFingerprint,
+  runtimeFlavor,
+  summarizeDistributionFiles,
   validateRuntimeProfile
 } from "./core/runtime-distribution.mjs";
 import {
@@ -299,6 +313,12 @@ const bgeM3WorkerCliPath = path.join(embeddingsDir, "bge_m3_worker.py");
 const defaultBgeM3ModelDir = path.resolve(
   aiDevRuntimePath("BGE_M3_MODEL_DIR", ["models", "bge-m3"])
 );
+// The ONNX export lives beside the legacy weights, not among them: the two hold
+// different files for the same model (docs/DEFECTS.md, Д-62).
+const defaultBgeM3OnnxDir = path.resolve(
+  aiDevRuntimePath("BGE_M3_ONNX_DIR", ["models", "bge-m3-onnx"])
+);
+const denseManifest = readDenseManifest();
 let searchHardNegativeCache = null;
 
 /**
@@ -322,6 +342,29 @@ const embeddingRuntime = createEmbeddingRuntime({
   fileStatus: (target) => fileStatus(target),
   execFile: (command, args, options) => execFile(command, args, options)
 });
+const onnxDenseRuntime = createOnnxDenseRuntime({
+  modelDir: defaultBgeM3OnnxDir,
+  manifest: denseManifest,
+  spawnWorker: ({ modelDir, manifest }) => new Worker(
+    new URL("./workers/dense-onnx-worker.mjs", import.meta.url),
+    { workerData: { modelDir, manifest: { ...manifest } } }
+  )
+});
+/**
+ * Which dense backend runs. Asked here once so `embedding_status`, the health
+ * check and a rebuild cannot each answer differently (docs/DEFECTS.md, Д-62).
+ */
+const denseRuntime = createDenseRuntime({
+  manifest: denseManifest,
+  onnxModelDir: defaultBgeM3OnnxDir,
+  onnxRuntime: onnxDenseRuntime,
+  pythonRuntime: embeddingRuntime,
+  pythonReady: async () => {
+    const status = await embeddingRuntime.status();
+    return EMBEDDING_MODEL_REQUIREMENTS.every((key) => status.availability?.[key]?.exists);
+  },
+  env: process.env
+});
 const searchRuntime = createSearchIndexRuntime({
   vaultRoot,
   searchCliPath,
@@ -332,7 +375,8 @@ const searchRuntime = createSearchIndexRuntime({
   embeddingPythonCommand: () => embeddingPythonCommand(),
   pathExists: (target) => pathExists(target),
   execFile: (command, args, options) => execFile(command, args, options),
-  embedQuery: (payload, options) => embeddingRuntime.request(payload, options),
+  embedQuery: (payload, options) => denseRuntime.embed(payload, options),
+  denseIndexBackend: { describe: () => denseRuntime.describe() },
   hardNegativeRules: () => activeSearchHardNegativeRules(),
   readSkillIndex: () => readSkillIndex(),
   ranking: {
@@ -343,7 +387,7 @@ const searchRuntime = createSearchIndexRuntime({
     routeSkills
   }
 });
-const shutdownBgeWorkers = () => embeddingRuntime.shutdown();
+const shutdownBgeWorkers = () => denseRuntime.shutdown();
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -1509,48 +1553,32 @@ async function upsertSkillOverlayRecord({
 async function buildRuntimeDistributionManifest() {
   const serverRoot = path.resolve(serverDir, "..");
   const localConfigPath = path.join(serverRoot, "config", "runtime.local.json");
-  const exampleConfigPath = path.join(serverRoot, "config", "runtime.example.json");
   const localProfile = await readJsonIfExists(localConfigPath);
   const profile = localProfile || createLocalRuntimeProfile({
     vaultRoot,
     nodeExecutable: process.execPath
   });
   const validation = validateRuntimeProfile(profile);
-  const files = {
-    entrypoint: path.join(serverRoot, "src", "server.mjs"),
-    local_launcher: path.join(serverRoot, "scripts", "start-local.ps1"),
-    cli: path.join(serverRoot, "scripts", "ai-dev.mjs"),
-    config_example: exampleConfigPath,
-    acceptance: path.join(vaultRoot, "09-mcp", "scripts", "run-acceptance.ps1"),
-    backup: path.join(vaultRoot, "09-mcp", "scripts", "backup-ai-dev-system.ps1"),
-    restore: path.join(vaultRoot, "09-mcp", "scripts", "restore-ai-dev-system.ps1")
-  };
-  const fileStatus = Object.fromEntries(await Promise.all(Object.entries(files).map(async ([key, target]) => [
+  const flavor = runtimeFlavor({ platform: process.platform, env: process.env });
+  const expectations = distributionExpectations(flavor);
+  const plan = distributionFilePlan(flavor, { serverRoot, vaultRoot });
+  const fileStatus = Object.fromEntries(await Promise.all(Object.entries(plan).map(async ([key, entry]) => [
     key,
-    {
-      path: target,
-      exists: await pathExists(target)
-    }
+    entry.applicable === false ? entry : { ...entry, exists: await pathExists(entry.path) }
   ])));
   const manifest = {
     schema_version: 1,
     generated_at: new Date().toISOString(),
+    runtime_flavor: flavor,
     profile,
     profile_source: localProfile ? "config/runtime.local.json" : "generated local-first defaults",
     profile_validation: validation,
     entrypoint: "src/server.mjs",
     tools: tools.length,
-    commands: {
-      start: "powershell -File scripts/start-local.ps1",
-      doctor: "node scripts/ai-dev.mjs doctor",
-      acceptance: "node scripts/ai-dev.mjs acceptance",
-      backup: "node scripts/ai-dev.mjs backup <label>"
-    },
+    commands: expectations.commands,
+    command_context: expectations.command_context || "",
     files: fileStatus,
-    recovery: {
-      backup_script: "09-mcp/scripts/backup-ai-dev-system.ps1",
-      restore_script: "09-mcp/scripts/restore-ai-dev-system.ps1"
-    },
+    recovery: expectations.recovery,
     remote_transport_implemented: false,
     remote_policy: "blocked until official HTTP transport, TLS, environment-bound bearer auth, allowlist, rate limit, audit log, and threat review are implemented"
   };
@@ -1560,15 +1588,15 @@ async function buildRuntimeDistributionManifest() {
 
 async function prepareRuntimeDistribution() {
   const manifest = await buildRuntimeDistributionManifest();
-  const missing = Object.entries(manifest.files)
-    .filter(([, value]) => !value.exists)
-    .map(([key, value]) => `${key}: ${value.path}`);
-  if (!manifest.profile_validation.ok || missing.length) {
+  const summary = summarizeDistributionFiles(manifest.files);
+  if (!manifest.profile_validation.ok || summary.missing.length) {
     return {
       action: "rejected",
+      runtime_flavor: manifest.runtime_flavor,
       profile_errors: manifest.profile_validation.errors,
       profile_warnings: manifest.profile_validation.warnings,
-      missing_files: missing
+      missing_files: summary.missing.map(({ key, path: target }) => `${key}: ${target}`),
+      not_applicable_files: summary.not_applicable
     };
   }
   await Promise.all([
@@ -1578,6 +1606,7 @@ async function prepareRuntimeDistribution() {
   markSearchIndexDirty("runtime distribution documentation updated");
   return {
     action: "runtime_distribution_prepared",
+    runtime_flavor: manifest.runtime_flavor,
     path: runtimeDistributionRelativePath,
     state_path: runtimeDistributionStateRelativePath,
     fingerprint: manifest.fingerprint,
@@ -1593,18 +1622,18 @@ async function runtimeDistributionStatus() {
     readJsonIfExists(safePath(runtimeDistributionStateRelativePath)),
     buildRuntimeDistributionManifest()
   ]);
-  const missing = Object.entries(current.files)
-    .filter(([, value]) => !value.exists)
-    .map(([key, value]) => ({ key, path: value.path }));
+  const summary = summarizeDistributionFiles(current.files);
   const fresh = Boolean(saved?.fingerprint && saved.fingerprint === current.fingerprint);
   return {
     prepared: Boolean(saved),
-    ready_local: current.profile_validation.ok && missing.length === 0,
+    ready_local: current.profile_validation.ok && summary.ready,
+    runtime_flavor: current.runtime_flavor,
     mode: current.profile.mode,
     transport: current.profile.transport,
     profile_source: current.profile_source,
     profile_validation: current.profile_validation,
-    missing_files: missing,
+    missing_files: summary.missing,
+    not_applicable_files: summary.not_applicable,
     remote_transport_implemented: false,
     remote_enabled: current.profile.transport.remote_enabled === true,
     freshness: {
@@ -1899,25 +1928,32 @@ async function fileStatus(target) {
 }
 
 async function frontendQaEnvironmentStatus() {
-  const unavailable = (reason) => ({
+  const unavailable = (reason, launchFailure = LAUNCH_UNKNOWN) => ({
     status: "unavailable",
     playwright_available: false,
     chromium_available: false,
     browser_launch_ok: false,
+    launch_failure: launchFailure,
     launch_error: reason
   });
   if (!(await pathExists(frontendQaRunnerPath))) {
-    return unavailable("The Frontend QA runner is not in this install.");
+    return unavailable("The runner is not in this install.", LAUNCH_MISSING_FILE);
   }
   // The runner imports Playwright at module load, so on a clone that never ran
   // `npm run setup -- --frontend-qa` it dies with ERR_MODULE_NOT_FOUND before
   // printing anything. Letting that escape turned an opt-in install nobody
   // asked for into a failed health check on every fresh clone.
+  //
+  // Which of the two ERR_MODULE_NOT_FOUND shapes it is decides what the health
+  // check says, so the reason is read out of the whole output rather than taken
+  // from its first line, which is the frame Node threw from and never the cause
+  // (docs/DEFECTS.md, Д-56).
   let output;
   try {
     output = await runFrontendQaStatus();
   } catch (error) {
-    return unavailable(`The Frontend QA runner could not start: ${String(error?.message ?? error).split("\n")[0]}`);
+    const failure = classifyFrontendQaLaunchFailure(String(error?.message ?? error));
+    return unavailable(failure.summary, failure.kind);
   }
   try {
     return JSON.parse(output.stdout);
@@ -4421,12 +4457,18 @@ const extensions = createExtensionTools({
   // drives; the named wrappers below are what the system extension's health
   // checks ask for, and `runSearchEval` is the search extension's own tool
   // reached the same way `prepare_pull_request` is.
-  search: searchRuntime, embeddings: embeddingRuntime,
+  search: searchRuntime, embeddings: embeddingRuntime, dense: denseRuntime,
   searchIndexStatus: (args) => searchRuntime.status(args),
   rebuildSearchIndex: (args) => searchRuntime.rebuild(args),
   searchIndex: (args) => searchRuntime.search(args),
   hybridSearchIndex: (args) => searchRuntime.hybridSearch(args),
-  embeddingStatus: (args) => embeddingRuntime.status(args),
+  // The health check grades this payload, so it carries the backend choice too:
+  // with ONNX selected, a missing Python stack is not what "dense search is not
+  // set up" means, and the advice differs (docs/DEFECTS.md, Д-62).
+  embeddingStatus: async (args) => ({
+    ...await embeddingRuntime.status(args),
+    dense_backend: await denseRuntime.describe()
+  }),
   runSearchEval: (args) => extensions.handlers.get("run_search_eval")(args),
   // The sibling tools the lifecycle extension drives. Reached through the
   // registry rather than `callTool`, so a composed run records one ledger entry

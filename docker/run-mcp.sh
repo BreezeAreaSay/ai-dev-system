@@ -85,7 +85,10 @@ if [ -n "${AI_DEV_MODEL_PATH:-}" ]; then
     *,*) printf '%s\n' "AI_DEV_MODEL_PATH cannot contain a comma." >&2; exit 64 ;;
   esac
   model_path="$(cd "${AI_DEV_MODEL_PATH}" && pwd -P)"
-  set -- "$@" --mount "type=bind,source=${model_path},target=/models/bge-m3,readonly"
+  # One mount point for both backends: the folder is expected to hold
+  # bge-m3-onnx/ (the default) and/or bge-m3/ (the legacy Python weights).
+  # docs/DEFECTS.md, Д-62.
+  set -- "$@" --mount "type=bind,source=${model_path},target=/models,readonly"
 fi
 
 exec docker "$@" "${image}"

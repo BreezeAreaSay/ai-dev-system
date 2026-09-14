@@ -428,12 +428,13 @@ export function createSearchTools(host) {
   },
   {
     name: "embedding_status",
-    description: "Inspect the local BGE-M3 embedding backend, model files, search index, and warm worker state without loading the model.",
+    description: "Inspect the local BGE-M3 embedding backends (ONNX and legacy Python), which one is selected and why, model files, search index, and warm worker state without loading the model.",
     inputSchema: {
       type: "object",
       properties: {
         model_dir: { type: "string" },
-        device: { type: "string", default: "cpu" }
+        device: { type: "string", default: "cpu" },
+        refresh: { type: "boolean", default: false }
       }
     }
   },
@@ -501,7 +502,14 @@ export function createSearchTools(host) {
       explain_search: (args) => explainSearch(host, args),
       run_search_eval: (args) => runSearchEval(host, args),
       embed_texts: (args) => host.embeddings.embedTexts(args),
-      embedding_status: (args) => host.embeddings.status(args),
+      // One payload, both backends: the legacy files and worker state as before,
+      // plus which backend is actually selected and why (docs/DEFECTS.md, Д-62).
+      embedding_status: async (args) => {
+        const status = await host.embeddings.status(args);
+        if (!host.dense) return status;
+        const selected = await host.dense.describe(args?.refresh ? { refresh: true } : {});
+        return { ...status, dense_backend: selected, backend: selected.backend, dense_revision: selected.provenance.revision };
+      },
       search_projects: ({ query, project = "", limit = 10 } = {}) => (
         host.search.search({ query, scope: "projects", project, limit })
       ),

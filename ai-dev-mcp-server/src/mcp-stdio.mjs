@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
+import { Worker } from "node:worker_threads";
 import { fileURLToPath } from "node:url";
 import { execFileWithInput } from "./core/input-process-runner.mjs";
 import {
@@ -54,6 +55,10 @@ import {
 import { listSearchPresets } from "./core/search-runtime.mjs";
 import { createSearchIndexRuntime } from "./core/search-index.mjs";
 import { createEmbeddingRuntime } from "./core/embedding-workers.mjs";
+import { createDenseRuntime } from "./core/dense-runtime.mjs";
+import { createOnnxDenseRuntime, defaultOnnxModelDir } from "./core/dense-onnx.mjs";
+import { readDenseManifest } from "./core/dense-manifest.mjs";
+import { EMBEDDING_MODEL_REQUIREMENTS } from "./core/embedding-health.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
 import {
   isPathInside,
@@ -308,6 +313,12 @@ const bgeM3WorkerCliPath = path.join(embeddingsDir, "bge_m3_worker.py");
 const defaultBgeM3ModelDir = path.resolve(
   aiDevRuntimePath("BGE_M3_MODEL_DIR", ["models", "bge-m3"])
 );
+// The ONNX export lives beside the legacy weights, not among them: the two hold
+// different files for the same model (docs/DEFECTS.md, Д-62).
+const defaultBgeM3OnnxDir = path.resolve(
+  aiDevRuntimePath("BGE_M3_ONNX_DIR", ["models", "bge-m3-onnx"])
+);
+const denseManifest = readDenseManifest();
 let searchHardNegativeCache = null;
 
 /**
@@ -331,6 +342,29 @@ const embeddingRuntime = createEmbeddingRuntime({
   fileStatus: (target) => fileStatus(target),
   execFile: (command, args, options) => execFile(command, args, options)
 });
+const onnxDenseRuntime = createOnnxDenseRuntime({
+  modelDir: defaultBgeM3OnnxDir,
+  manifest: denseManifest,
+  spawnWorker: ({ modelDir, manifest }) => new Worker(
+    new URL("./workers/dense-onnx-worker.mjs", import.meta.url),
+    { workerData: { modelDir, manifest: { ...manifest } } }
+  )
+});
+/**
+ * Which dense backend runs. Asked here once so `embedding_status`, the health
+ * check and a rebuild cannot each answer differently (docs/DEFECTS.md, Д-62).
+ */
+const denseRuntime = createDenseRuntime({
+  manifest: denseManifest,
+  onnxModelDir: defaultBgeM3OnnxDir,
+  onnxRuntime: onnxDenseRuntime,
+  pythonRuntime: embeddingRuntime,
+  pythonReady: async () => {
+    const status = await embeddingRuntime.status();
+    return EMBEDDING_MODEL_REQUIREMENTS.every((key) => status.availability?.[key]?.exists);
+  },
+  env: process.env
+});
 const searchRuntime = createSearchIndexRuntime({
   vaultRoot,
   searchCliPath,
@@ -341,7 +375,8 @@ const searchRuntime = createSearchIndexRuntime({
   embeddingPythonCommand: () => embeddingPythonCommand(),
   pathExists: (target) => pathExists(target),
   execFile: (command, args, options) => execFile(command, args, options),
-  embedQuery: (payload, options) => embeddingRuntime.request(payload, options),
+  embedQuery: (payload, options) => denseRuntime.embed(payload, options),
+  denseIndexBackend: { describe: () => denseRuntime.describe() },
   hardNegativeRules: () => activeSearchHardNegativeRules(),
   readSkillIndex: () => readSkillIndex(),
   ranking: {
@@ -352,7 +387,7 @@ const searchRuntime = createSearchIndexRuntime({
     routeSkills
   }
 });
-const shutdownBgeWorkers = () => embeddingRuntime.shutdown();
+const shutdownBgeWorkers = () => denseRuntime.shutdown();
 
 function send(message) {
   process.stdout.write(`${JSON.stringify(message)}\n`);
@@ -4422,12 +4457,18 @@ const extensions = createExtensionTools({
   // drives; the named wrappers below are what the system extension's health
   // checks ask for, and `runSearchEval` is the search extension's own tool
   // reached the same way `prepare_pull_request` is.
-  search: searchRuntime, embeddings: embeddingRuntime,
+  search: searchRuntime, embeddings: embeddingRuntime, dense: denseRuntime,
   searchIndexStatus: (args) => searchRuntime.status(args),
   rebuildSearchIndex: (args) => searchRuntime.rebuild(args),
   searchIndex: (args) => searchRuntime.search(args),
   hybridSearchIndex: (args) => searchRuntime.hybridSearch(args),
-  embeddingStatus: (args) => embeddingRuntime.status(args),
+  // The health check grades this payload, so it carries the backend choice too:
+  // with ONNX selected, a missing Python stack is not what "dense search is not
+  // set up" means, and the advice differs (docs/DEFECTS.md, Д-62).
+  embeddingStatus: async (args) => ({
+    ...await embeddingRuntime.status(args),
+    dense_backend: await denseRuntime.describe()
+  }),
   runSearchEval: (args) => extensions.handlers.get("run_search_eval")(args),
   // The sibling tools the lifecycle extension drives. Reached through the
   // registry rather than `callTool`, so a composed run records one ledger entry

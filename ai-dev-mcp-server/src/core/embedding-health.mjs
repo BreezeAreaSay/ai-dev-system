@@ -70,6 +70,32 @@ export function denseSetupAdvice(dense = {}) {
 }
 
 /**
+ * What the ONNX backend needs, said where the reader is.
+ *
+ * Its requirements are not the legacy ones: no interpreter, no virtualenv, no
+ * 2.3 GB of torch weights — five files that match a manifest. So when that
+ * backend is the one selected, the advice is a download rather than a build,
+ * and inside an image it is a mount (docs/DEFECTS.md, Д-62).
+ *
+ * @param {{ onnx?: object, python?: object }} selected - From the dense runtime.
+ * @param {{ installed?: boolean|null, reason?: string }} [dense]
+ * @returns {string}
+ */
+export function onnxSetupAdvice(selected = {}, dense = {}) {
+  const onnx = selected.onnx || {};
+  if (onnx.mismatched?.length) {
+    return `The files in ${onnx.dir} are not the pinned export (${onnx.mismatched.join(", ")}). `
+      + "Delete that directory and run `npm run setup -- --dense` again.";
+  }
+  if (dense.reason === "image-opt-out" || dense.reason === "image-opt-in") {
+    return "Weights are never baked into an image: point AI_DEV_MODEL_PATH at a folder holding "
+      + "`bge-m3-onnx/` before `docker/run-mcp.sh`.";
+  }
+  return `Run \`npm run setup -- --dense\` to download the pinned ONNX export into ${onnx.dir || "the model directory"} `
+    + "(no Python involved).";
+}
+
+/**
  * Grade the embedding backend from an `embedding_status` payload.
  *
  * Three outcomes rather than two. A shipped helper missing is a real failure.
@@ -84,7 +110,37 @@ export function denseSetupAdvice(dense = {}) {
 export function evaluateEmbeddingBackend(status) {
   const missing = EMBEDDING_BACKEND_REQUIREMENTS.filter((key) => !status.availability?.[key]?.exists);
   const dense = status.dense || {};
-  const shared = { missing, dense, availability: status.availability, workers: status.workers };
+  const selected = status.dense_backend || null;
+  const shared = { missing, dense, selected_backend: selected, availability: status.availability, workers: status.workers };
+
+  // With the ONNX backend selected, the legacy stack's absence says nothing
+  // about whether dense search works — that is the whole point of Д-62 — so it
+  // is graded on its own files. The shipped helpers are still checked below,
+  // because a checkout missing them is broken either way.
+  if (selected?.backend === "onnx") {
+    const shippedMissing = missing.filter((key) => !EMBEDDING_MODEL_REQUIREMENTS.includes(key));
+    if (selected.available) {
+      return {
+        status: "ok",
+        summary: `Dense search is ready through the ONNX backend (${selected.onnx?.export} @ ${String(selected.onnx?.revision).slice(0, 12)}, `
+          + `${selected.onnx?.dtype}); no Python is involved.`,
+        details: { ...shared, backend: "onnx", onnx: selected.onnx, legacy_python_missing: shippedMissing }
+      };
+    }
+    const advice = onnxSetupAdvice(selected, dense);
+    if (selected.onnx?.mismatched?.length) {
+      return {
+        status: "warn",
+        summary: `The ONNX model directory does not match the manifest. ${advice}`,
+        details: { ...shared, backend: "onnx", onnx: selected.onnx }
+      };
+    }
+    return {
+      status: "skipped",
+      summary: `Dense search is not set up: the ONNX export is not here. ${advice}`,
+      details: { ...shared, backend: "onnx", onnx: selected.onnx, optional: true }
+    };
+  }
   // Everything missing is model weights, and those are an opt-in download.
   // Anything else missing is a shipped file that should be there.
   const onlyModel = missing.length > 0 && missing.every((key) => EMBEDDING_MODEL_REQUIREMENTS.includes(key));

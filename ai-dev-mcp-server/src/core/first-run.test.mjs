@@ -11,11 +11,11 @@ import {
 
 const byId = (plan) => Object.fromEntries(plan.map((item) => [item.id, item]));
 
-test("a bare clone builds the three things every install needs, and nothing else", () => {
+test("a bare clone builds the things every install needs, and nothing else", () => {
   const plan = byId(planFirstRun({ present: {} }));
   assert.deepEqual(
     Object.entries(plan).filter(([, item]) => item.run).map(([id]) => id),
-    ["skill_registry", "search_index", "routing_benchmark"]
+    ["skill_registry", "skill_quality_report", "search_index", "routing_benchmark"]
   );
   // The two that reach the network are never run unasked — one of them is 2.3 GB.
   assert.equal(plan.dense_model.run, false);
@@ -25,7 +25,9 @@ test("a bare clone builds the three things every install needs, and nothing else
 });
 
 test("what is already built is left alone, and --force rebuilds it", () => {
-  const present = { skill_registry: true, search_index: true, routing_benchmark: true };
+  const present = {
+    skill_registry: true, skill_quality_report: true, search_index: true, routing_benchmark: true
+  };
   const settled = byId(planFirstRun({ present }));
   assert.deepEqual(Object.values(settled).filter((item) => item.run), []);
   assert.match(settled.search_index.reason, /already built/);
@@ -33,7 +35,7 @@ test("what is already built is left alone, and --force rebuilds it", () => {
   const forced = byId(planFirstRun({ present, force: true }));
   assert.deepEqual(
     Object.values(forced).filter((item) => item.run).map((item) => item.id),
-    ["skill_registry", "search_index", "routing_benchmark"],
+    ["skill_registry", "skill_quality_report", "search_index", "routing_benchmark"],
     "--force does not drag the optional steps in with it"
   );
   assert.match(forced.search_index.reason, /rebuilding on request/);
@@ -43,7 +45,9 @@ test("something built but out of date is rebuilt, without being asked twice", ()
   // Measured on a real vault: the index and the benchmark were both on disk and
   // both stale, setup said "already built", and the diagnostic in the same run
   // reported them stale. Existence is not freshness.
-  const present = { skill_registry: true, search_index: true, routing_benchmark: true };
+  const present = {
+    skill_registry: true, skill_quality_report: true, search_index: true, routing_benchmark: true
+  };
   const plan = byId(planFirstRun({ present, stale: { search_index: true, routing_benchmark: true } }));
   assert.deepEqual(
     Object.values(plan).filter((item) => item.run).map((item) => item.id),
@@ -162,6 +166,9 @@ test("every step says what it is for, and the optional ones name their flag", ()
   }
   assert.deepEqual(
     FIRST_RUN_STEPS.map((step) => step.id),
-    ["skill_registry", "search_index", "routing_benchmark", "frontend_qa", "dense_model", "dense_index"]
+    [
+      "skill_registry", "skill_quality_report", "search_index", "routing_benchmark",
+      "frontend_qa", "dense_model", "dense_index"
+    ]
   );
 });

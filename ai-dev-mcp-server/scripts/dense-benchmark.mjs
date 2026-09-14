@@ -20,20 +20,13 @@
  * recall column the harness cannot fill would be worse than a rename.
  *
  * Usage: node scripts/dense-benchmark.mjs --out report.json [--label onnx]
+ *        [--max-cases 50]
  */
 import fs from "node:fs/promises";
 import process from "node:process";
+import { parseBenchmarkArgs } from "./dense-benchmark-args.mjs";
 
-function parseArgs(argv) {
-  const options = { out: "", label: process.env.AI_DEV_DENSE_BACKEND || "auto" };
-  for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] === "--out") options.out = argv[index + 1];
-    else if (argv[index] === "--label") options.label = argv[index + 1];
-  }
-  return options;
-}
-
-const options = parseArgs(process.argv.slice(2));
+const options = parseBenchmarkArgs(process.argv.slice(2), process.env);
 const { callTool, shutdownBgeWorkers } = await import("../src/mcp-stdio.mjs");
 const parse = (result) => JSON.parse(result.content[0].text);
 
@@ -64,7 +57,7 @@ for (const query of QUERIES) warm.push((await timeQuery(query)).ms);
 warm.sort((left, right) => left - right);
 
 const indexStatus = parse(await callTool("search_index_status", {}));
-const evaluation = parse(await callTool("run_search_eval", { include_dense: true, max_cases: 50 }));
+const evaluation = parse(await callTool("run_search_eval", { include_dense: true, max_cases: options.maxCases }));
 
 const report = {
   label: options.label,
@@ -92,6 +85,7 @@ const report = {
   },
   eval: {
     status: evaluation.status,
+    max_cases: options.maxCases,
     total: evaluation.summary?.total,
     passed: evaluation.summary?.passed,
     failed: evaluation.summary?.failed,

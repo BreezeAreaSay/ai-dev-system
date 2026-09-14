@@ -113,6 +113,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`dense-eval`'s `max_cases` input reaches the measurement.** The workflow offered a
+  case count per backend and nothing passed it on: `dense-benchmark.mjs` read only
+  `--out` and `--label` and called `run_search_eval` with a literal 50, so a dispatch
+  asking for 20 scored all 45 golden cases and said nothing about it. Both jobs now hand
+  the input to the benchmark, the report records the count it was given, and a dispatch
+  that names no count still scores the default (Д-62).
 - **The launchers recognise the pre-2.1 value of `AI_DEV_MODEL_PATH`.** The variable
   now names the folder above the models; a folder that holds model files itself was
   mounted one level too deep and dense search reported "not set up" to a user who had

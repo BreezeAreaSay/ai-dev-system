@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       max_cases:
-        description: Golden cases to run per backend
+        description: Golden cases to run per backend (45 exist; anything larger scores all of them)
         required: false
         default: "50"
 
@@ -94,7 +94,7 @@ jobs:
         working-directory: ai-dev-mcp-server
         env:
           AI_DEV_DENSE_BACKEND: onnx
-        run: node scripts/dense-benchmark.mjs --label onnx --out "${{ runner.temp }}/dense-onnx.json"
+        run: node scripts/dense-benchmark.mjs --label onnx --max-cases "${{ inputs.max_cases }}" --out "${{ runner.temp }}/dense-onnx.json"
 
       - name: Upload the report
         uses: actions/upload-artifact@v4
@@ -156,7 +156,7 @@ jobs:
         working-directory: ai-dev-mcp-server
         env:
           AI_DEV_DENSE_BACKEND: python
-        run: node scripts/dense-benchmark.mjs --label python --out "${{ runner.temp }}/dense-python.json"
+        run: node scripts/dense-benchmark.mjs --label python --max-cases "${{ inputs.max_cases }}" --out "${{ runner.temp }}/dense-python.json"
 
       - name: Upload the report
         uses: actions/upload-artifact@v4

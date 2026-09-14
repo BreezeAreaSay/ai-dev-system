@@ -14,6 +14,7 @@
     "setup": "node scripts/first-run.mjs",
     "demo": "node scripts/ensure-skill-index.mjs && node scripts/demo.mjs",
     "doctor": "node scripts/ai-dev.mjs doctor",
+    "dense:doctor": "node scripts/dense-doctor.mjs",
     "dashboard": "node scripts/ai-dev.mjs dashboard",
     "refresh": "node scripts/ai-dev.mjs refresh",
     "backup": "node scripts/ai-dev.mjs backup",
@@ -46,7 +47,9 @@
     "verify:cursor": "node scripts/verify-cursor-hooks.mjs"
   },
   "dependencies": {
+    "@huggingface/transformers": "3.7.5",
     "@modelcontextprotocol/sdk": "1.30.0",
+    "onnxruntime-node": "1.21.0",
     "zod": "4.5.4"
   }
 }

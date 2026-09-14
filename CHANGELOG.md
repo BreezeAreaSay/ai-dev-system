@@ -45,6 +45,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   READMEs and the ten documents behind them cover what the two READMEs did,
   the local-first install path and the local model in a container included.
 
+### Fixed — what `verify_task` was allowed to claim
+
+- **A failed quality gate now says why, not only that it failed.** A project
+  whose `npm test` is `node --test test/` fails on Node 21 and later for a
+  reason that has nothing to do with the project: positional arguments became
+  glob patterns, the directory matches itself, and the runner executes it as a
+  test file. The gate passed that failure through correctly and `verify_task`
+  reduced it to `quality_gate: failed`, leaving the cause in a command's stdout
+  that no reader of the verdict ever saw. `run_quality_gate` now reports the
+  Node that ran the commands (`runtime.node`, `runtime.exec_path`) — on the
+  Docker path that is the image's Node, currently 24, not the caller's — and a
+  failed command carries a `hint` when the cause is one the gate recognizes.
+  Every check in a verification that did not come back good now carries a
+  `detail` with the first meaningful line of its output and that hint. The gate
+  still runs the project's commands exactly as written and rewrites nothing.
+  (upstream #47, docs/DEFECTS.md Д-54)
+
+- **A security scan that ran nothing is `unchecked`, not `pass`.** With none of
+  the six scanners installed — which is every run of the published image, since
+  it shipped with none and the container has `--network none` — the scan
+  returned `pass` with `checked: 0`, and `verify_task` reduced that to
+  `security_scan: pass`. "Nothing was found" and "nobody looked" are different
+  claims, and the second was being reported as the first. The verdict for a run
+  in which no scanner ran is now `unchecked`; it still cannot block a
+  verification, and `verify_task` no longer drops the `next_step` that says no
+  scanner could run. The image now carries `gitleaks` — the only one of the six
+  that works with no network — pinned by digest for amd64 and arm64, and
+  `system_health_check` gained a non-critical `security_scanners` check that
+  warns when the machine has none of them. `docker/README.md` and both INSTALL
+  guides carry the matrix of what can actually run under `--network none`.
+  (upstream #48, docs/DEFECTS.md Д-55)
+
 
 ## [2.0.0] - 2026-09-13
 

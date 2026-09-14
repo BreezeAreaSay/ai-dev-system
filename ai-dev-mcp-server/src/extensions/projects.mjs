@@ -12,9 +12,11 @@
  * second copy of the runner.
  */
 import path from "node:path";
+import process from "node:process";
 import { validateArchifyDiagramSpecs } from "../core/archify-quality-gate.mjs";
 import { runPolicyCommand } from "../core/process-runner.mjs";
 import {
+  diagnoseQualityCommandFailure,
   parseQualityGateCommands,
   qualityCommandBlockReason,
   qualityGateMaxCommands,
@@ -120,6 +122,13 @@ async function runQualityGate(host, {
       timeoutMs
     });
     const status = output.timedOut ? "timed_out" : output.exitCode === 0 ? "passed" : "failed";
+    // Read before truncation: the hint is decided by what the command actually
+    // said, not by the prefix that survived the cut (docs/DEFECTS.md, Д-54).
+    const hint = status === "passed" ? "" : diagnoseQualityCommandFailure({
+      command: item.command,
+      stdout: output.stdout,
+      stderr: output.stderr
+    });
     results.push({
       label: item.label,
       command: item.command,
@@ -127,6 +136,7 @@ async function runQualityGate(host, {
       command_adapter: output.command.adapter || output.command.kind,
       execution_adapter: output.invocation?.adapter || "direct",
       status,
+      hint,
       exit_code: output.exitCode,
       stdout: host.truncateOutput(output.stdout),
       stderr: host.truncateOutput(output.stderr),
@@ -154,6 +164,11 @@ async function runQualityGate(host, {
     quality_gate_path: path.relative(projectRoot, gatePath).replaceAll("\\", "/"),
     started_at: startedAt,
     finished_at: new Date().toISOString(),
+    // Which Node ran the project's commands. On the Docker path that is the
+    // image's Node, not the user's, and a script that behaves differently
+    // across majors otherwise disagrees with the user's own terminal with
+    // nothing on the record to explain it (docs/DEFECTS.md, Д-54).
+    runtime: { node: process.version, exec_path: process.execPath },
     status: qualityGateStatus({ dryRun: dry_run, parsed, results, blocked, diagramSpecs }),
     parsed_commands: parsed,
     selected_commands: selected,
@@ -182,7 +197,7 @@ export function createProjectTools(host) {
     definitions: [
       {
         name: "run_quality_gate",
-        description: "Run safe verification commands from a project's .ai-dev/quality-gate.md and return a structured report.",
+        description: "Run safe verification commands from a project's .ai-dev/quality-gate.md and return a structured report. The report names the Node that ran them in runtime.node and runtime.exec_path — in Docker that is the image's Node, not the caller's — and a command that failed for a recognized reason carries a hint. Commands are run as written; the gate never rewrites them.",
         inputSchema: {
           type: "object",
           properties: {

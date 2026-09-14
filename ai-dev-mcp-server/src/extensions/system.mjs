@@ -7,7 +7,12 @@ import {
   dashboardFreshness,
   renderSystemDashboard
 } from "../core/system-dashboard.mjs";
+import { locateExecutable } from "../core/process-runner.mjs";
 import { resolveRuntimeNote } from "../core/runtime-assets.mjs";
+import {
+  SECURITY_SCANNERS,
+  evaluateSecurityScanners
+} from "../core/security-scan.mjs";
 import {
   REQUIRED_SYSTEM_NOTES,
   buildSystemSnapshot,
@@ -200,6 +205,22 @@ async function systemHealthCheck(host, {
     evaluateFrontendQaEnvironment(await host.frontendQaEnvironmentStatus())
   ));
 
+  // Not critical: no scanner installed is a gap, not a broken system. It is
+  // checked here because `run_security_scan` is only run on demand, so a
+  // machine that can check nothing stays silent until a task asks for a scan
+  // and gets `unchecked` back (docs/DEFECTS.md, Д-55).
+  await report.runCheck("security_scanners", false, async () => {
+    // Through the host when it offers a locator, so a fixture can answer for a
+    // machine other than the one running the test.
+    const locate = host.locateExecutable ?? locateExecutable;
+    return evaluateSecurityScanners(await Promise.all(SECURITY_SCANNERS.map(async (scanner) => ({
+      id: scanner.id,
+      tool: scanner.tool,
+      executable: scanner.executable,
+      installed: Boolean(await locate(scanner.executable).catch(() => ""))
+    }))));
+  });
+
   if (include_embedding_status) {
     await report.runCheck("embedding_backend", true, async () => (
       evaluateEmbeddingBackend(await host.embeddingStatus({}))
@@ -364,7 +385,7 @@ export function createSystemTools(host) {
     definitions: [
       {
         name: "system_health_check",
-        description: "Run an AI Dev System health check for vault paths, search index, skill/project registries, search presets, BGE-M3 backend, worker state, and optional search smoke tests.",
+        description: "Run an AI Dev System health check for vault paths, search index, skill/project registries, search presets, BGE-M3 backend, installed security scanners, worker state, and optional search smoke tests.",
         inputSchema: {
           type: "object",
           properties: {

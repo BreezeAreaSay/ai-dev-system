@@ -20,7 +20,7 @@ export function createSecurityTools(host) {
     definitions: [
       {
         name: "run_security_scan",
-        description: `Run the security scanners this machine has installed over a project: ${SECURITY_SCANNERS.map((scanner) => scanner.id).join(", ")}. Every finding comes back as { tool, kind, severity, file, line, message, rule }, where kind is dependency, secret, sast or misconfig. A scanner that is not installed, has nothing to read in this project, or needs a network this run does not have is reported as skipped with the reason — never as a failure. Critical and high dependency or secret findings block verify_task; everything else warns.`,
+        description: `Run the security scanners this machine has installed over a project: ${SECURITY_SCANNERS.map((scanner) => scanner.id).join(", ")}. Every finding comes back as { tool, kind, severity, file, line, message, rule }, where kind is dependency, secret, sast or misconfig. A scanner that is not installed, has nothing to read in this project, or needs a network this run does not have is reported as skipped with the reason — never as a failure. Critical and high dependency or secret findings block verify_task; everything else warns. A run where not one scanner could run is unchecked, not pass: it does not block, and it does not claim anything was checked.`,
         inputSchema: {
           type: "object",
           properties: {
@@ -70,8 +70,8 @@ export function createSecurityTools(host) {
           checkpoint,
           next_step: scan.status === "block"
             ? "Fix every critical or high dependency and secret finding — rotate what leaked, upgrade what is vulnerable — before verify_task."
-            : scan.summary.checked === 0
-              ? "No scanner could run here. Install at least one (gitleaks is the cheapest and needs no network) so this check means something."
+            : scan.status === "unchecked"
+              ? "No scanner could run here, so nothing was checked. Install at least one (gitleaks is the cheapest and needs no network) so this check means something."
               : scan.status === "warn"
                 ? "Read the findings and either fix them or say in your checkpoint notes why they stand."
                 : "Nothing found by the scanners that ran; continue with verify_task."

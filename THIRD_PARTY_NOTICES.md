@@ -75,3 +75,20 @@ metadata and license text remain in the vendored package's `node_modules` tree.
 | parse5 | 7.3.0 | MIT |
 | saxes | 6.0.0 | ISC |
 | simple-icons | 16.28.0 | CC0-1.0 |
+
+## Binaries bundled in the Docker image
+
+The following prebuilt binary is copied into the image out of its upstream
+image. It is not part of the public seed and is not redistributed by the npm
+package or by any of the source packages.
+
+### gitleaks
+
+- Source: https://github.com/gitleaks/gitleaks
+- Included image: `ghcr.io/gitleaks/gitleaks:v8.30.1`, pinned by the digest of
+  its multi-arch index (`sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f`),
+  which covers `linux/amd64` and `linux/arm64`
+- License: MIT, © 2019 Zachary Rice
+- License text: https://github.com/gitleaks/gitleaks/blob/master/LICENSE
+- Copied to `/usr/local/bin/gitleaks` by `docker/Dockerfile`. It is the one
+  security scanner `run_security_scan` can use under `--network none`.

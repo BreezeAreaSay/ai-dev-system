@@ -31,6 +31,8 @@ test("the tool needs a project or a task, and is not read-only", () => {
   // what an agent reads before deciding whether to act on a warning.
   assert.match(definition.description, /\{ tool, kind, severity, file, line, message, rule \}/);
   assert.match(definition.description, /skipped with the reason — never as a failure/);
+  // And a run where not one of them ran has to say so where an agent reads it.
+  assert.match(definition.description, /unchecked, not pass/);
   assert.deepEqual(definition.inputSchema.properties.scanners.items.enum, [
     "npm_audit", "pip_audit", "cargo_audit", "gitleaks", "semgrep", "trivy_fs"
   ]);
@@ -43,10 +45,11 @@ test("a scan with nothing installed reports it instead of claiming the project i
   // No marker files and (in the worst case) real binaries: naming one scanner
   // that needs a lock file keeps this hermetic.
   const result = await call(registry, "run_security_scan", { project_path: root, scanners: ["cargo_audit"], offline: true });
-  assert.equal(result.status, "pass");
+  // `unchecked`, not `pass`: nothing ran, so nothing was found clean (Д-55).
+  assert.equal(result.status, "unchecked");
   assert.equal(result.summary.checked, 0);
   assert.match(result.next_step, /No scanner could run here/);
-  assert.match(result.markdown, /# Security scan: pass/);
+  assert.match(result.markdown, /# Security scan: unchecked/);
   assert.equal(result.scanners[0].status, "skipped");
   assert.equal(result.project_path, path.resolve(root));
 });
@@ -57,8 +60,8 @@ test("a scan can be attached to a task as a checkpoint note", async (t) => {
   const { registry, calls } = createFixture({ projectRoot: root });
   await call(registry, "run_security_scan", { task_id: "task-1", scanners: ["cargo_audit"], offline: true, record_checkpoint: true });
   const [, , checkpoint] = calls.find(([name]) => name === "checkpoint");
-  assert.match(checkpoint.summary, /^Security scan: pass \(0 blocking, 0 findings, 1 scanners skipped\)/);
-  assert.match(checkpoint.notes, /# Security scan: pass/);
+  assert.match(checkpoint.summary, /^Security scan: unchecked \(0 blocking, 0 findings, 1 scanners skipped\)/);
+  assert.match(checkpoint.notes, /# Security scan: unchecked/);
 
   const complete = createFixture({ projectRoot: root, taskStatus: "complete" });
   const result = await call(complete.registry, "run_security_scan", { task_id: "task-1", scanners: ["cargo_audit"], offline: true, record_checkpoint: true });

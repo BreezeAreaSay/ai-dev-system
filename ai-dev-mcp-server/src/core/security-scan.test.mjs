@@ -8,6 +8,7 @@ import {
   BLOCKING_KINDS,
   BLOCKING_SEVERITIES,
   SECURITY_SCANNERS,
+  evaluateSecurityScanners,
   findingBlocks,
   renderSecurityScanMarkdown,
   resolveOffline,
@@ -149,7 +150,9 @@ test("a network failure in the output is read as offline, not as a broken scan",
   assert.equal(npmAudit.status, "skipped");
   assert.match(npmAudit.reason, /exited 1 without reaching the network/);
   assert.match(npmAudit.reason, /npm error code ENOTFOUND/, "the first line of stderr, not a slice of the report");
-  assert.equal(scan.status, "pass");
+  // The one scanner on this machine never reached the network, so this run
+  // checked nothing (Д-55).
+  assert.equal(scan.status, "unchecked");
 });
 
 test("a real report is read as findings, whatever words the advisories use", async (t) => {
@@ -219,7 +222,7 @@ test("a scanner that overstays its timeout is skipped, so verify_task is never h
   });
   assert.equal(scan.scanners[0].status, "skipped");
   assert.match(scan.scanners[0].reason, /did not finish within 5s and was stopped/);
-  assert.equal(scan.status, "pass");
+  assert.equal(scan.status, "unchecked", "the only scanner was stopped, so nothing was checked");
 });
 
 test("a scanner that failed for its own reasons is an error, and warns without blocking", async (t) => {
@@ -266,7 +269,11 @@ test("critical and high dependency and secret findings block; everything else wa
   const semgrepFinding = scan.findings.find((item) => item.tool === "semgrep");
   assert.equal(findingBlocks(semgrepFinding), false, "a static-analysis hit is a lead, not a blocker");
   assert.equal(securityScanStatus({ findings: [semgrepFinding], scanners: [] }), "warn");
-  assert.equal(securityScanStatus({ findings: [], scanners: [] }), "pass");
+  assert.equal(
+    securityScanStatus({ findings: [], scanners: [{ status: "ok" }] }),
+    "pass",
+    "a scanner ran and found nothing"
+  );
 
   // gitleaks writes its report to a file, so the runner is given a path.
   const gitleaksCall = calls.find((call) => call.executable.endsWith("gitleaks"));
@@ -318,4 +325,68 @@ test("the gate's vocabulary is the one the plan states", () => {
   assert.equal(findingBlocks({ kind: "dependency", severity: "unknown" }), false);
   assert.equal(findingBlocks({ kind: "misconfig", severity: "critical" }), false);
   assert.equal(findingBlocks({}), false);
+});
+
+// Д-55: a scan where not one scanner could run used to come back `pass`, and
+// `verify_task` reduced that to `security_scan: pass` — "checked and clean" for
+// a run in which nobody looked.
+test("a scan where nothing could run is unchecked, not pass", async (t) => {
+  const root = await tempProject(t, {});
+  const scan = await runSecurityScan(root, {
+    runner: fakeRunner({}),
+    locate: fakeLocator([])
+  });
+
+  assert.equal(scan.status, "unchecked");
+  assert.equal(scan.summary.checked, 0);
+  assert.equal(scan.summary.skipped, SECURITY_SCANNERS.length);
+  // The rule the module is built on is unchanged: a missing scanner does not
+  // stop a verification. `unchecked` is not `block`.
+  assert.notEqual(scan.status, "block");
+
+  const markdown = renderSecurityScanMarkdown(scan);
+  assert.match(markdown, /^# Security scan: unchecked/);
+  assert.match(markdown, /has not been found clean — it has not been looked at/);
+
+  // One scanner that ran is enough for the verdict to mean something again.
+  const checked = await runSecurityScan(root, {
+    scanners: ["gitleaks"],
+    runner: fakeRunner({ gitleaks: { stdout: "[]" } }),
+    locate: fakeLocator(["gitleaks"])
+  });
+  assert.equal(checked.status, "pass");
+  assert.equal(checked.summary.checked, 1);
+  assert.equal(/has not been looked at/.test(renderSecurityScanMarkdown(checked)), false);
+});
+
+test("a machine with no scanner installed is a warning, not a failure", () => {
+  const catalogue = SECURITY_SCANNERS.map((scanner) => ({
+    id: scanner.id,
+    tool: scanner.tool,
+    executable: scanner.executable,
+    installed: false
+  }));
+
+  const none = evaluateSecurityScanners(catalogue);
+  assert.equal(none.status, "warn");
+  assert.match(none.summary, /None of the 6 security scanners is installed/);
+  assert.match(none.summary, /gitleaks/, "the advice names the one that needs no network");
+  assert.deepEqual(none.details.installed, []);
+  assert.equal(none.details.missing.length, SECURITY_SCANNERS.length);
+
+  const some = evaluateSecurityScanners(catalogue.map((item) => (
+    item.id === "gitleaks" ? { ...item, installed: true } : item
+  )));
+  assert.equal(some.status, "ok");
+  assert.match(some.summary, /1 of 6 security scanners installed: gitleaks/);
+  assert.deepEqual(some.details.offline_capable, ["gitleaks"]);
+
+  // npm is on every machine that has this server, and it needs a network.
+  const onlyNpm = evaluateSecurityScanners(catalogue.map((item) => (
+    item.id === "npm_audit" ? { ...item, installed: true } : item
+  )));
+  assert.equal(onlyNpm.status, "ok");
+  assert.deepEqual(onlyNpm.details.offline_capable, [], "nothing here works under --network none");
+
+  assert.equal(evaluateSecurityScanners(undefined).status, "warn");
 });

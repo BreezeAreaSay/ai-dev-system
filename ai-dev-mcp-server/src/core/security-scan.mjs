@@ -12,7 +12,9 @@
  *
  * - **A missing scanner is a `skipped` result with a reason, never an error.**
  *   Nobody installs all six. A scan that fails because `trivy` is absent would
- *   teach an agent to stop running scans.
+ *   teach an agent to stop running scans. A run where *none* of them could run
+ *   is still not a failure — it is `unchecked`, which passes without claiming
+ *   anything was checked (docs/DEFECTS.md, Д-55).
  * - **A scanner that needs the network says so instead of hanging.** Five of
  *   the six fetch an advisory database. Offline they fail slowly and in their
  *   own way, so they are skipped up front when the run is declared offline, and
@@ -366,19 +368,26 @@ export function findingBlocks(item) {
 }
 
 /**
- * The scan's verdict: `block`, `warn`, or `pass`.
+ * The scan's verdict: `block`, `warn`, `unchecked`, or `pass`.
  *
  * A scanner that was skipped or errored never blocks — that is the whole point
- * of the skip — but it is counted, so a run where nothing could be checked
- * reads as `pass` with `checked: 0` rather than as a clean bill of health.
+ * of the skip. But a run where not one of them could run proves nothing, and
+ * calling that `pass` made "security: pass" mean "checked and clean" when it
+ * meant "nobody looked": `checked: 0` was the only thing that said otherwise
+ * and nothing read it (docs/DEFECTS.md, Д-55). Such a run is `unchecked`.
+ *
+ * `unchecked` still does not block — the rule that a missing scanner cannot
+ * stop a verification is unchanged — it only stops the run claiming a result it
+ * does not have.
  *
  * @param {{ findings: object[], scanners: object[] }} scan
- * @returns {"block" | "warn" | "pass"}
+ * @returns {"block" | "warn" | "unchecked" | "pass"}
  */
 export function securityScanStatus({ findings = [], scanners = [] } = {}) {
   if (findings.some(findingBlocks)) return "block";
   if (findings.length) return "warn";
   if (scanners.some((scanner) => scanner.status === "error")) return "warn";
+  if (!scanners.some((scanner) => scanner.status === "ok")) return "unchecked";
   return "pass";
 }
 
@@ -463,6 +472,9 @@ export async function runSecurityScan(projectRoot, {
 export function renderSecurityScanMarkdown(scan) {
   const lines = [`# Security scan: ${scan.status}`, ""];
   lines.push(`${scan.summary.checked} scanner(s) ran, ${scan.summary.skipped} skipped, ${scan.summary.failed} failed. ${scan.summary.findings} finding(s), ${scan.summary.blocking} blocking.`, "");
+  if (scan.status === "unchecked") {
+    lines.push("Nothing was checked: no scanner ran here, so this project has not been found clean — it has not been looked at. Install at least one (gitleaks needs no network).", "");
+  }
   for (const scanner of scan.scanners) {
     const detail = scanner.status === "ok" ? `${scanner.findings} finding(s)` : scanner.reason;
     lines.push(`- **${scanner.tool}** — ${scanner.status}: ${detail}`);
@@ -476,4 +488,48 @@ export function renderSecurityScanMarkdown(scan) {
     if (scan.findings.length > 50) lines.push(`- …and ${scan.findings.length - 50} more.`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * The scanners that have something to say with no network at all: gitleaks
+ * reads the repository and its history, and semgrep does too when the project
+ * keeps its own rules (`semgrepConfigFor`). The other four fetch an advisory
+ * database or a hosted rule pack.
+ */
+export const OFFLINE_CAPABLE_SCANNERS = Object.freeze(["gitleaks", "semgrep"]);
+
+/**
+ * Whether this machine can check anything at all, for `system_health_check`.
+ *
+ * Not critical: a machine with no scanner installed is a machine where
+ * `run_security_scan` comes back `unchecked`, which is a gap worth naming and
+ * not a broken system. It is named here because the scan itself is only run on
+ * demand, and the published image ships with one of the six at most — so
+ * without this check the gap is invisible until a task asks for a scan
+ * (docs/DEFECTS.md, Д-55).
+ *
+ * @param {Array<{ id: string, tool: string, executable: string, installed: boolean }>} availability
+ * @returns {{ status: string, summary: string, details: object }}
+ */
+export function evaluateSecurityScanners(availability) {
+  const all = Array.isArray(availability) ? availability : [];
+  const installed = all.filter((item) => item.installed);
+  const missing = all.filter((item) => !item.installed);
+  const details = {
+    installed: installed.map((item) => item.id),
+    missing: missing.map((item) => item.id),
+    offline_capable: installed.filter((item) => OFFLINE_CAPABLE_SCANNERS.includes(item.id)).map((item) => item.id)
+  };
+  if (!installed.length) {
+    return {
+      status: "warn",
+      summary: `None of the ${all.length} security scanners is installed, so run_security_scan comes back unchecked. Install gitleaks: it is the cheapest of the six and the only one that needs no network.`,
+      details
+    };
+  }
+  return {
+    status: "ok",
+    summary: `${installed.length} of ${all.length} security scanners installed: ${details.installed.join(", ")}.`,
+    details
+  };
 }

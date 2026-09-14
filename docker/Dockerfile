@@ -1,5 +1,15 @@
 # syntax=docker/dockerfile:1.7
 
+# gitleaks is the only one of the six security scanners that works with no
+# network at all, and the container runs with `--network none`. Without it
+# `run_security_scan` in the image comes back `unchecked` — nothing was looked
+# at (docs/DEFECTS.md, Д-55). A static CGO_ENABLED=0 Go binary, so it is copied
+# out of the upstream image rather than installed; the digest is the multi-arch
+# index for v8.30.1 and covers linux/amd64 and linux/arm64. MIT licensed; see
+# THIRD_PARTY_NOTICES.md.
+ARG GITLEAKS_IMAGE=ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+FROM ${GITLEAKS_IMAGE} AS gitleaks
+
 ARG NODE_IMAGE=node:24-bookworm-slim
 FROM ${NODE_IMAGE}
 
@@ -95,6 +105,8 @@ RUN if [ "${INSTALL_BGE_M3}" = "1" ]; then \
         --no-cache-dir \
         -r /opt/ai-dev/embeddings/requirements-bge-m3.txt; \
     fi
+
+COPY --from=gitleaks /usr/bin/gitleaks /usr/local/bin/gitleaks
 
 COPY public-seed/ /opt/ai-dev/public-seed/
 COPY LICENSE THIRD_PARTY_NOTICES.md /opt/ai-dev/

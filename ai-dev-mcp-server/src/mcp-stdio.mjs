@@ -99,8 +99,12 @@ import {
 import { countBy } from "./core/system-health.mjs";
 import {
   createLocalRuntimeProfile,
+  distributionExpectations,
+  distributionFilePlan,
   renderRuntimeDistribution,
   runtimeDistributionFingerprint,
+  runtimeFlavor,
+  summarizeDistributionFiles,
   validateRuntimeProfile
 } from "./core/runtime-distribution.mjs";
 import {
@@ -1509,48 +1513,32 @@ async function upsertSkillOverlayRecord({
 async function buildRuntimeDistributionManifest() {
   const serverRoot = path.resolve(serverDir, "..");
   const localConfigPath = path.join(serverRoot, "config", "runtime.local.json");
-  const exampleConfigPath = path.join(serverRoot, "config", "runtime.example.json");
   const localProfile = await readJsonIfExists(localConfigPath);
   const profile = localProfile || createLocalRuntimeProfile({
     vaultRoot,
     nodeExecutable: process.execPath
   });
   const validation = validateRuntimeProfile(profile);
-  const files = {
-    entrypoint: path.join(serverRoot, "src", "server.mjs"),
-    local_launcher: path.join(serverRoot, "scripts", "start-local.ps1"),
-    cli: path.join(serverRoot, "scripts", "ai-dev.mjs"),
-    config_example: exampleConfigPath,
-    acceptance: path.join(vaultRoot, "09-mcp", "scripts", "run-acceptance.ps1"),
-    backup: path.join(vaultRoot, "09-mcp", "scripts", "backup-ai-dev-system.ps1"),
-    restore: path.join(vaultRoot, "09-mcp", "scripts", "restore-ai-dev-system.ps1")
-  };
-  const fileStatus = Object.fromEntries(await Promise.all(Object.entries(files).map(async ([key, target]) => [
+  const flavor = runtimeFlavor({ platform: process.platform, env: process.env });
+  const expectations = distributionExpectations(flavor);
+  const plan = distributionFilePlan(flavor, { serverRoot, vaultRoot });
+  const fileStatus = Object.fromEntries(await Promise.all(Object.entries(plan).map(async ([key, entry]) => [
     key,
-    {
-      path: target,
-      exists: await pathExists(target)
-    }
+    entry.applicable === false ? entry : { ...entry, exists: await pathExists(entry.path) }
   ])));
   const manifest = {
     schema_version: 1,
     generated_at: new Date().toISOString(),
+    runtime_flavor: flavor,
     profile,
     profile_source: localProfile ? "config/runtime.local.json" : "generated local-first defaults",
     profile_validation: validation,
     entrypoint: "src/server.mjs",
     tools: tools.length,
-    commands: {
-      start: "powershell -File scripts/start-local.ps1",
-      doctor: "node scripts/ai-dev.mjs doctor",
-      acceptance: "node scripts/ai-dev.mjs acceptance",
-      backup: "node scripts/ai-dev.mjs backup <label>"
-    },
+    commands: expectations.commands,
+    command_context: expectations.command_context || "",
     files: fileStatus,
-    recovery: {
-      backup_script: "09-mcp/scripts/backup-ai-dev-system.ps1",
-      restore_script: "09-mcp/scripts/restore-ai-dev-system.ps1"
-    },
+    recovery: expectations.recovery,
     remote_transport_implemented: false,
     remote_policy: "blocked until official HTTP transport, TLS, environment-bound bearer auth, allowlist, rate limit, audit log, and threat review are implemented"
   };
@@ -1560,15 +1548,15 @@ async function buildRuntimeDistributionManifest() {
 
 async function prepareRuntimeDistribution() {
   const manifest = await buildRuntimeDistributionManifest();
-  const missing = Object.entries(manifest.files)
-    .filter(([, value]) => !value.exists)
-    .map(([key, value]) => `${key}: ${value.path}`);
-  if (!manifest.profile_validation.ok || missing.length) {
+  const summary = summarizeDistributionFiles(manifest.files);
+  if (!manifest.profile_validation.ok || summary.missing.length) {
     return {
       action: "rejected",
+      runtime_flavor: manifest.runtime_flavor,
       profile_errors: manifest.profile_validation.errors,
       profile_warnings: manifest.profile_validation.warnings,
-      missing_files: missing
+      missing_files: summary.missing.map(({ key, path: target }) => `${key}: ${target}`),
+      not_applicable_files: summary.not_applicable
     };
   }
   await Promise.all([
@@ -1578,6 +1566,7 @@ async function prepareRuntimeDistribution() {
   markSearchIndexDirty("runtime distribution documentation updated");
   return {
     action: "runtime_distribution_prepared",
+    runtime_flavor: manifest.runtime_flavor,
     path: runtimeDistributionRelativePath,
     state_path: runtimeDistributionStateRelativePath,
     fingerprint: manifest.fingerprint,
@@ -1593,18 +1582,18 @@ async function runtimeDistributionStatus() {
     readJsonIfExists(safePath(runtimeDistributionStateRelativePath)),
     buildRuntimeDistributionManifest()
   ]);
-  const missing = Object.entries(current.files)
-    .filter(([, value]) => !value.exists)
-    .map(([key, value]) => ({ key, path: value.path }));
+  const summary = summarizeDistributionFiles(current.files);
   const fresh = Boolean(saved?.fingerprint && saved.fingerprint === current.fingerprint);
   return {
     prepared: Boolean(saved),
-    ready_local: current.profile_validation.ok && missing.length === 0,
+    ready_local: current.profile_validation.ok && summary.ready,
+    runtime_flavor: current.runtime_flavor,
     mode: current.profile.mode,
     transport: current.profile.transport,
     profile_source: current.profile_source,
     profile_validation: current.profile_validation,
-    missing_files: missing,
+    missing_files: summary.missing,
+    not_applicable_files: summary.not_applicable,
     remote_transport_implemented: false,
     remote_enabled: current.profile.transport.remote_enabled === true,
     freshness: {

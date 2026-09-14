@@ -17,6 +17,7 @@ LABEL org.opencontainers.image.title="AI Dev MCP System" \
 
 ENV DEBIAN_FRONTEND=noninteractive \
     NODE_ENV=production \
+    AI_DEV_RUNTIME=docker \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
     AI_DEV_VAULT_ROOT=/data/ai-dev-system \
     AI_DEV_HOME=/data/runtime-home/.ai-dev \

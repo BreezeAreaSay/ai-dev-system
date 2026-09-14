@@ -144,6 +144,28 @@ this release.
 
 ### Fixed
 
+- **A fresh clone finishes its install instead of failing the smoke check.**
+  `bootstrap.sh`, `docker/run-mcp.sh`, `docker/entrypoint.sh` and
+  `packaging/launcher.sh` were committed as `100644`, and the fast-start smoke
+  check executed the launcher directly: `Permission denied`, reported as
+  "Fast-start MCP stdio smoke check failed", exit 70, with the smoke check
+  blameless. The four files now carry the execute bit, and the launcher is
+  invoked through `sh` so a zip download of the repository — which always drops
+  the bit — installs too. The check also captures the launcher's own exit
+  status rather than letting `| grep -q` discard it, so "the launcher never ran"
+  and "the server answered without `serverInfo`" no longer share one message
+  (Д-58, upstream #51).
+
+- **A failed `docker pull` no longer installs whatever was in the cache.**
+  Bootstrap printed one line to stderr and carried on with the stale local
+  image; since the fast-start container runs with `--restart unless-stopped`,
+  that copy then survived reboots, and users who asked for `latest` reported
+  defects already fixed. It now stops with exit 69 and prints when the cached
+  copy was created and its digest. `--allow-stale-image` (`-AllowStaleImage` on
+  Windows) installs it anyway, repeating the warning after the "ready" line so
+  the choice stays visible. A locally built image, which has no `RepoDigests`,
+  reports the digest as absent instead of aborting (Д-60, upstream #53).
+
 - **Every project under one home no longer shares a memory key.** The hook
   compared a candidate `.ai-dev` against a runtime root that was one path
   segment too deep, and then against one spelled differently — uncanonicalised,

@@ -5,11 +5,13 @@ param(
     [string]$Clients = "codex,cursor,gemini,vscode,claude",
     [switch]$BuildLocal,
     [switch]$SkipSmoke,
+    [switch]$AllowStaleImage,
     [switch]$SkipClientInstall,
     [switch]$Plan
 )
 
 $ErrorActionPreference = "Stop"
+$staleWarning = $null
 if ($BuildLocal -and -not $PSBoundParameters.ContainsKey("Image")) {
     $Image = "ai-dev-system:local"
 }
@@ -186,11 +188,24 @@ if ($BuildLocal) {
     & docker pull $Image
     if ($LASTEXITCODE -ne 0) {
         & docker image inspect $Image *> $null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Warning "Registry pull failed; using the existing local image $Image."
-        } else {
+        if ($LASTEXITCODE -ne 0) {
             throw "Could not pull $Image, and no cached copy exists."
         }
+        # Installing whatever happened to be in the cache produced bug reports
+        # about defects already fixed upstream (docs/DEFECTS.md Д-60), so the age
+        # of that copy is stated and using it is now a deliberate choice.
+        $created = (& docker image inspect --format '{{.Created}}' $Image 2>$null | Select-Object -First 1)
+        # A locally built image has no RepoDigests, and `index` on an empty list
+        # fails rather than returning nothing.
+        $digest = (& docker image inspect --format '{{index .RepoDigests 0}}' $Image 2>$null | Select-Object -First 1)
+        if ([string]::IsNullOrWhiteSpace($created)) { $created = "unknown" }
+        if ([string]::IsNullOrWhiteSpace($digest)) { $digest = "none (image was built locally)" }
+        $staleWarning = "Registry pull failed. The cached copy of $Image was created $created (digest: $digest) and is missing anything released since."
+        Write-Warning $staleWarning
+        if (-not $AllowStaleImage) {
+            throw "Stopping rather than installing an image of unknown age. Restore the registry connection and run again, or re-run with -AllowStaleImage to install this copy anyway."
+        }
+        Write-Warning "Continuing because -AllowStaleImage was given. Run 'docker pull $Image' and bootstrap again once the registry is reachable."
     }
 }
 
@@ -227,3 +242,6 @@ if (-not $SkipClientInstall) {
 }
 
 Write-Host "AI Dev MCP System is ready. Restart the selected AI clients to load the ai-dev MCP server."
+if ($staleWarning) {
+    Write-Warning "Installed from a stale image. $staleWarning"
+}

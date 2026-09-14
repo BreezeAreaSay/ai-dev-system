@@ -75,8 +75,13 @@ requireText(bootstrapUnix, /image=.*ghcr\.io\/stonebridgeway\/ai-dev-system:late
 requireText(bootstrapUnix, /--install-prerequisites/, "bootstrap.sh");
 requireText(bootstrapUnix, /brew install --cask docker/, "bootstrap.sh");
 requireText(bootstrapUnix, /--build-local/, "bootstrap.sh");
+// Refusing a stale cached image is a decision a user has to be able to
+// override on either platform, so the flag is required on both sides
+// (docs/DEFECTS.md Д-60).
+requireText(bootstrapUnix, /--allow-stale-image/, "bootstrap.sh");
 requireText(bootstrapWindows, /ghcr\.io\/stonebridgeway\/ai-dev-system:latest/, "bootstrap.ps1");
 requireText(bootstrapWindows, /\[switch\]\$BuildLocal/, "bootstrap.ps1");
+requireText(bootstrapWindows, /\[switch\]\$AllowStaleImage/, "bootstrap.ps1");
 
 requireText(launcher, /@AI_DEV_SYSTEM_ROOT@/, "packaging launcher");
 requireText(launcher, /bootstrap\.sh/, "packaging launcher");

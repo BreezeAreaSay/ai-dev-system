@@ -108,6 +108,7 @@ import {
   readSkillRoutingCases
 } from "./core/skill-routing-eval.mjs";
 import { captureProjectState } from "./core/evidence.mjs";
+import { filterToolsByProfiles, profilesFromEnvironment } from "./core/tool-profiles.mjs";
 import { TaskStore } from "./core/task-lifecycle.mjs";
 import { UsageLedger, usageHintsFromArgs } from "./core/usage-ledger.mjs";
 import { SessionStore } from "./core/session-memory.mjs";
@@ -4475,6 +4476,24 @@ const tools = [...buildToolDefinitions({
   UI_UX_PRO_MAX_STACKS
 }), ...extensions.definitions];
 
+// Capability profiles narrow what `tools/list` advertises — never what
+// `callTool` accepts. A client that already knows a tool's name keeps working
+// after the surface is narrowed; the saving is the schema text a model would
+// otherwise carry for 133 tools it is not going to use. Resolved once, because
+// the setting cannot change without restarting the server.
+const activeProfiles = profilesFromEnvironment();
+
+const profiledTools = activeProfiles.all ? tools : filterToolsByProfiles(tools, activeProfiles.ids);
+
+/**
+ * The tool list as the active profiles leave it.
+ *
+ * @returns {typeof tools}
+ */
+function visibleTools() {
+  return profiledTools;
+}
+
 async function searchKnowledge({ query, limit = 10 }) {
   if (!query || typeof query !== "string") throw new Error("query is required.");
   const files = await listMarkdownFiles(vaultRoot);
@@ -4750,7 +4769,7 @@ async function handle(message) {
       return;
     }
     if (method === "tools/list") {
-      result(id, { tools });
+      result(id, { tools: visibleTools() });
       return;
     }
     if (method === "tools/call") {
@@ -4822,6 +4841,7 @@ export function startLegacyServer() {
 }
 
 export {
+  activeProfiles,
   assertNotProtectedProjectRoot,
   callTool,
   // Where the runtime keeps the two things a first run builds. Exported so
@@ -4836,7 +4856,8 @@ export {
   skillRoutingEvalCasesPath,
   tools,
   usageLedger,
-  vaultRoot
+  vaultRoot,
+  visibleTools
 };
 
 if (await isDirectExecution(import.meta.url)) startLegacyServer();

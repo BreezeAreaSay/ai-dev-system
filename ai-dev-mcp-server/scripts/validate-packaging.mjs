@@ -24,7 +24,10 @@ function requireText(content, expected, label) {
 
 const [
   readme,
+  readmeRu,
   dockerReadme,
+  installGuide,
+  installGuideRu,
   bootstrapUnix,
   bootstrapWindows,
   launcher,
@@ -33,7 +36,10 @@ const [
   formula
 ] = await Promise.all([
   read("README.md"),
+  read("README.ru.md"),
   read("docker/README.md"),
+  read("docs/INSTALL.md"),
+  read("docs/ru/INSTALL.md"),
   read("bootstrap.sh"),
   read("bootstrap.ps1"),
   read("packaging/launcher.sh"),
@@ -42,11 +48,26 @@ const [
   read("packaging/homebrew/ai-dev-system.rb")
 ]);
 
+// A placeholder that reached a published document would have readers pulling an
+// image that does not exist, so no user-facing page may carry one.
 for (const [label, content] of [
   ["README.md", readme],
-  ["docker/README.md", dockerReadme]
+  ["README.ru.md", readmeRu],
+  ["docker/README.md", dockerReadme],
+  ["docs/INSTALL.md", installGuide],
+  ["docs/ru/INSTALL.md", installGuideRu]
 ]) {
   assert.ok(!content.includes("OWNER/REPOSITORY"), `${label} still contains OWNER/REPOSITORY`);
+}
+
+// The image address itself belongs to the install instructions. The two READMEs
+// send a reader to those guides rather than repeating the address, so asserting
+// it there would only force the duplication back.
+for (const [label, content] of [
+  ["docker/README.md", dockerReadme],
+  ["docs/INSTALL.md", installGuide],
+  ["docs/ru/INSTALL.md", installGuideRu]
+]) {
   assert.ok(content.includes(publishedImage), `${label} does not use the published image`);
 }
 

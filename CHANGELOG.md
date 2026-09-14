@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Capability profiles.** The 133 tools are grouped into eight named slices —
+  `core`, `coding`, `memory`, `git`, `frontend`, `qa`, `security`, `advanced` —
+  and `AI_DEV_PROFILES` narrows what `tools/list` advertises to the ones a
+  session will use. `core` is always on and is added to whatever else is named;
+  an unrecognised name is reported on stderr and ignored rather than taken as an
+  empty list. `AI_DEV_PROFILES=core` lists 25 tools instead of 133, about 15 KB
+  of schema in the model's context instead of 96 KB.
+
+  Narrowing affects the listing only: `tools/call` still accepts every tool by
+  name, so a client that already knows a name keeps working and nothing becomes
+  unreachable. **Unset, every profile is on** — an existing installation behaves
+  exactly as it did before. A narrowed server says so on stderr at startup.
+
+  Every tool belongs to exactly one profile, and `render-tool-reference.mjs`
+  fails — in CI as well — when a new tool belongs to none, the same way it
+  already refuses a tool that belongs to no documentation group. `docs/TOOLS.md`
+  now carries a `Profile` column and a profile table.
+
+- **`npm run demo`.** One real task — "add authentication to the API" — run
+  against the real server in a throwaway project: compiled context, three routed
+  skills, a planted bug, a refused report, a failing quality gate, the fix, a
+  passing run, and the pull request text. About twenty seconds, no MCP client,
+  and it deletes everything it made. `docs/DEMO.md` quotes its output.
+
+### Changed
+
+- **The README leads with what the system is for.** It had grown to 871 lines and
+  opened with a release summary and an inventory; a reader could not tell in the
+  first minute which problem the project solves. It is now 181 lines: the problem,
+  one task end to end, install, a first task, the eight profiles, how it works,
+  and links. The reference material it carried moved, unchanged, into `docs/` —
+  `INSTALL.md`, `WORKFLOW.md`, `GUARDRAILS.md`, `CAPABILITIES.md`, `DEMO.md` —
+  with `README.ru.md` and `docs/ru/` mirroring it. Nothing was deleted; the two
+  READMEs and the ten documents behind them cover what the two READMEs did,
+  the local-first install path and the local model in a container included.
+
+
 ## [2.0.0] - 2026-09-13
 
 A major version because what a clone *is* changed, not only what it can do: the

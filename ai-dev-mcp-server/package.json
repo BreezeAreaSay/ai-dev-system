@@ -12,6 +12,7 @@
     "start": "node src/server.mjs",
     "daemon": "node src/daemon.mjs",
     "setup": "node scripts/first-run.mjs",
+    "demo": "node scripts/ensure-skill-index.mjs && node scripts/demo.mjs",
     "doctor": "node scripts/ai-dev.mjs doctor",
     "dashboard": "node scripts/ai-dev.mjs dashboard",
     "refresh": "node scripts/ai-dev.mjs refresh",

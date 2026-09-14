@@ -17,11 +17,13 @@ import {
   ReadResourceRequestSchema
 } from "@modelcontextprotocol/sdk/types.js";
 import {
+  activeProfiles,
   callTool,
   extensionReadOnlyTools,
   shutdownBgeWorkers,
   tools as legacyTools,
-  vaultRoot
+  vaultRoot,
+  visibleTools
 } from "./mcp-stdio.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
 
@@ -386,8 +388,11 @@ export function createAiDevServer() {
     }
   );
 
+  // Narrowed by the active capability profiles. `CallToolRequestSchema` below
+  // still validates against the full list, so a client that knows a tool's name
+  // can call it whether or not this listing advertised it.
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: legacyTools.map(toolDefinition)
+    tools: visibleTools().map(toolDefinition)
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -505,6 +510,16 @@ export function createAiDevServer() {
 }
 
 export async function startServer() {
+  if (!activeProfiles.all) {
+    const kept = visibleTools().length;
+    process.stderr.write(
+      `ai-dev: capability profiles ${activeProfiles.ids.join(", ")} — ` +
+      `${kept} of ${legacyTools.length} tools listed. Unset AI_DEV_PROFILES for all of them.\n`
+    );
+  }
+  for (const name of activeProfiles.unknown) {
+    process.stderr.write(`ai-dev: AI_DEV_PROFILES names "${name}", which is not a capability profile; ignoring it.\n`);
+  }
   const server = createAiDevServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);

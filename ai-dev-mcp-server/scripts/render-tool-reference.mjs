@@ -11,6 +11,10 @@
  * order of the sections and answers "when do I reach for these?". A tool that
  * is not listed in exactly one group fails both modes — adding a tool means
  * saying where it belongs.
+ *
+ * The same rule applies to the capability profiles in `src/core/tool-profiles.mjs`,
+ * which decide what a narrowed `tools/list` advertises: a new tool that belongs
+ * to no profile would silently be listed in every session, so it fails here too.
  */
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -18,6 +22,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { tools } from "../src/mcp-stdio.mjs";
 import { READ_ONLY_TOOL_NAMES } from "../src/server.mjs";
+import { TOOL_PROFILES, auditProfileCoverage, profileOfTool } from "../src/core/tool-profiles.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const target = path.join(root, "docs", "TOOLS.md");
@@ -262,6 +267,17 @@ function render() {
     if (!seen.has(tool.name)) problems.push(`"${tool.name}" belongs to no group; add it to GROUPS in ${generator}.`);
   }
 
+  const profiles = auditProfileCoverage(tools.map((tool) => tool.name));
+  for (const name of profiles.missing) {
+    problems.push(`"${name}" belongs to no capability profile; add it to TOOL_PROFILES in src/core/tool-profiles.mjs.`);
+  }
+  for (const name of profiles.unknown) {
+    problems.push(`TOOL_PROFILES lists "${name}", which the server does not expose.`);
+  }
+  for (const name of profiles.duplicated) {
+    problems.push(`TOOL_PROFILES files "${name}" under more than one profile.`);
+  }
+
   const lines = [
     "# MCP tool reference",
     "",
@@ -274,6 +290,22 @@ function render() {
     "Read-only tools carry `readOnlyHint` in their MCP annotations: a client that asks",
     "for permission per call can let them through without prompting.",
     "",
+    "## Capability profiles",
+    "",
+    "The groups below organise this document. **Capability profiles** organise the",
+    "server: `AI_DEV_PROFILES` narrows what `tools/list` advertises to the slices a",
+    "session will actually use, so a model does not carry schema text for tools it is",
+    "never going to call. Unset, every profile is on and nothing is hidden.",
+    "",
+    "Narrowing affects the listing only — `tools/call` still accepts every tool by name.",
+    "",
+    "| Profile | Tools | What it adds |",
+    "| --- | --- | --- |",
+    ...TOOL_PROFILES.map((profile) => {
+      const note = profile.always ? " *(always on)*" : "";
+      return `| \`${profile.id}\` | ${profile.tools.length} | ${cell(profile.summary)}${note} |`;
+    }),
+    "",
     "## Contents",
     ""
   ];
@@ -283,13 +315,14 @@ function render() {
   }
   for (const group of GROUPS) {
     lines.push("", `## ${group.title}`, "", `**When to call:** ${group.when}`, "");
-    lines.push("| Tool | Read-only | Required arguments | What it does |");
-    lines.push("| --- | --- | --- | --- |");
+    lines.push("| Tool | Profile | Read-only | Required arguments | What it does |");
+    lines.push("| --- | --- | --- | --- | --- |");
     for (const name of group.tools) {
       const tool = byName.get(name);
       if (!tool) continue;
       const flag = readOnly.has(name) ? "yes" : "no";
-      lines.push(`| \`${name}\` | ${flag} | ${requiredArguments(tool)} | ${cell(tool.description)} |`);
+      const profile = profileOfTool(name) ?? "—";
+      lines.push(`| \`${name}\` | \`${profile}\` | ${flag} | ${requiredArguments(tool)} | ${cell(tool.description)} |`);
     }
   }
   lines.push("");

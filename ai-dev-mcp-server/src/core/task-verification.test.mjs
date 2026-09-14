@@ -124,3 +124,64 @@ test("the evidence digest names each check and how it reported itself", () => {
   ]);
   assert.deepEqual(verificationCheckSummary([]), []);
 });
+
+// Д-54: a failed verification reduced to `quality_gate: failed` and the reason
+// stayed in a command's stdout nobody reading the verdict ever saw.
+test("a failed check carries the line that says why, and the gate's hint", () => {
+  const hint = "Node >= 21 treats positional arguments as glob patterns; a directory is run as a test file.";
+  const [summary] = verificationCheckSummary([
+    check("quality_gate", {
+      status: "failed",
+      results: [
+        { label: "Lint", status: "passed", stdout: "all good", stderr: "" },
+        {
+          label: "Test",
+          status: "failed",
+          hint,
+          // What npm really prints: its own echo first, the runner's banner
+          // next, and only then the line that says anything.
+          stdout: [
+            "",
+            "> repro47@1.0.0 test",
+            "> node --test test/",
+            "TAP version 13",
+            "# Error: Cannot find module '/home/dev/repro47/test'",
+            "# fail 1"
+          ].join("\n"),
+          stderr: ""
+        }
+      ]
+    })
+  ]);
+
+  assert.equal(summary.status, "failed");
+  assert.equal(summary.detail.output, "Error: Cannot find module '/home/dev/repro47/test'");
+  assert.equal(summary.detail.hint, hint);
+});
+
+test("a check that came back good carries no detail, and neither does a silent failure", () => {
+  const [passed] = verificationCheckSummary([
+    check("quality_gate", {
+      status: "passed",
+      results: [{ label: "Test", status: "passed", stdout: "Error: none of this matters", hint: "" }]
+    })
+  ]);
+  assert.equal(Object.hasOwn(passed, "detail"), false, "a passing check explains nothing");
+
+  // `unchecked` passes, so it is not dressed up as a failure either — its
+  // `next_step` is what says nothing ran (Д-55).
+  const [unchecked] = verificationCheckSummary([
+    check("security_scan", { status: "unchecked", summary: { checked: 0 } })
+  ]);
+  assert.deepEqual(unchecked, { type: "security_scan", status: "unchecked" });
+
+  const [silent] = verificationCheckSummary([check("frontend_qa", { gate: "block" })]);
+  assert.deepEqual(silent, { type: "frontend_qa", status: "block" });
+
+  // A check that never ran reports the error it threw.
+  const [unavailable] = verificationCheckSummary([
+    check("quality_gate", { status: "unavailable", error: "Quality gate file not found: /repo/.ai-dev/quality-gate.md" })
+  ]);
+  assert.match(unavailable.detail.output, /Quality gate file not found/);
+  assert.equal(Object.hasOwn(unavailable.detail, "hint"), false);
+});

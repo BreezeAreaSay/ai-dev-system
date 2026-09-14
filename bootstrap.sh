@@ -262,22 +262,27 @@ if [ "$skip_smoke" -ne 1 ]; then
   # status has to be captured separately to tell "the launcher never ran" apart
   # from "the server answered something other than serverInfo".
   smoke_dir=$(mktemp -d "${TMPDIR:-/tmp}/ai-dev-smoke.XXXXXX")
+  # The wait below is unbounded: a container that never answers holds the
+  # launcher open for as long as the user lets it. Killed there, the script used
+  # to die between the mktemp and the rm that each branch carried, leaving the
+  # directory in /tmp (docs/DEFECTS.md Д-65). One trap covers every way out,
+  # including the ones no branch can be written for.
+  trap 'rm -rf "$smoke_dir"' EXIT
+  trap 'rm -rf "$smoke_dir"; exit 130' INT
+  trap 'rm -rf "$smoke_dir"; exit 143' TERM
   smoke_output="${smoke_dir}/fast-start.json"
   smoke_status=0
   printf '%s\n' "$init" | AI_DEV_RUNTIME_CONTAINER="$runtime_container" sh "$launcher" \
     > "$smoke_output" || smoke_status=$?
   if [ "$smoke_status" -ne 0 ]; then
-    rm -rf "$smoke_dir"
     printf '%s\n' "Fast-start MCP launcher ${launcher} exited with status ${smoke_status} without answering." >&2
     printf '%s\n' "The runtime container ${runtime_container} is already running; re-run with --skip-smoke to finish the install, or check the launcher above." >&2
     exit 70
   fi
   if ! grep -q '"serverInfo"' "$smoke_output"; then
-    rm -rf "$smoke_dir"
     printf '%s\n' "Fast-start MCP launcher ${launcher} ran, but the server did not answer with serverInfo." >&2
     exit 70
   fi
-  rm -rf "$smoke_dir"
 fi
 
 if [ "$skip_client_install" -ne 1 ]; then

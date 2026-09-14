@@ -3,7 +3,8 @@ import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { setTimeout as setTimeoutPromise } from "node:timers/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -165,4 +166,109 @@ test("--allow-stale-image installs the cached image and keeps saying so", async 
   // the install through -- so reaching it is the proof that the flag works.
   assert.match(result.stderr, /reached docker ps/, "bootstrap stopped despite --allow-stale-image");
   assert.notEqual(result.status, 69, "the override still exited with the stale-image code");
+});
+
+// A `docker` that answers everything the install needs before the smoke check,
+// so the run reaches the fast-start smoke and stops there.
+const smokeDocker = [
+  "#!/bin/sh",
+  'sub="$1"',
+  "shift",
+  'case "$sub" in',
+  "  version) echo 27.0.0; exit 0 ;;",
+  "  pull) exit 0 ;;",
+  "  ps) exit 0 ;;",
+  "  run)",
+  '    for a in "$@"; do [ "$a" = "-d" ] && exit 0; done',
+  '    echo \'{"result":{"serverInfo":{"name":"stub"}}}\'; exit 0 ;;',
+  "esac",
+  "exit 0",
+  ""
+].join("\n");
+
+/** A checkout complete enough for bootstrap.sh, with the launcher a test names. */
+async function smokeWorkspace(t, launcherScript) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-smoke-test-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  for (const relative of ["repo/docker", "repo/ai-dev-mcp-server", "bin", "tmp", "home"]) {
+    await fs.mkdir(path.join(root, relative), { recursive: true });
+  }
+  await fs.copyFile(bootstrap, path.join(root, "repo", "bootstrap.sh"));
+  await fs.writeFile(path.join(root, "repo", "ai-dev-mcp-server", "package.json"), "{}\n");
+  await fs.writeFile(path.join(root, "repo", "docker", "run-mcp.sh"), launcherScript, { mode: 0o755 });
+  await fs.writeFile(path.join(root, "bin", "docker"), smokeDocker, { mode: 0o755 });
+  return root;
+}
+
+async function smokeDirectories(root) {
+  return (await fs.readdir(path.join(root, "tmp"))).filter((name) => name.startsWith("ai-dev-smoke."));
+}
+
+function startBootstrap(root) {
+  return spawn(
+    shell,
+    [
+      path.join(root, "repo", "bootstrap.sh"),
+      "--skip-client-install",
+      "--project-path", path.join(root, "home", "projects")
+    ],
+    {
+      detached: true,
+      stdio: "ignore",
+      env: {
+        ...process.env,
+        HOME: path.join(root, "home"),
+        TMPDIR: path.join(root, "tmp"),
+        PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH}`
+      }
+    }
+  );
+}
+
+async function waitFor(predicate, { timeoutMs = 30_000, stepMs = 100 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await predicate()) return true;
+    await setTimeoutPromise(stepMs);
+  }
+  return false;
+}
+
+// The fast-start smoke waits on a launcher that can hang indefinitely — that is
+// the whole reason the container is worth checking. Interrupted there, the
+// script died between its `mktemp -d` and the `rm -rf` each branch carried, and
+// left the directory in /tmp (docs/DEFECTS.md Д-65). Ctrl-C happens to survive
+// that, because `|| smoke_status=$?` catches the killed launcher and the script
+// reaches its own cleanup; a terminated shell does not, and that is what this
+// asserts.
+test("an interrupted smoke check takes its temporary directory with it", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("process groups and POSIX signals do not carry to the Windows script");
+    return;
+  }
+  const root = await smokeWorkspace(t, "#!/bin/sh\nsleep 120\n");
+  const child = startBootstrap(root);
+  t.after(() => { try { process.kill(-child.pid, "SIGKILL"); } catch { /* already gone */ } });
+
+  const appeared = await waitFor(async () => (await smokeDirectories(root)).length > 0);
+  assert.ok(appeared, "the smoke check never created its temporary directory; the stubs are wrong");
+
+  const exited = new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal })));
+  process.kill(-child.pid, "SIGTERM");
+  await exited;
+
+  assert.deepEqual(await smokeDirectories(root), [], "the interrupted smoke check left its directory behind");
+});
+
+test("a smoke check that fails on its own still cleans up, and still exits 70", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("the Windows script runs no launcher of its own");
+    return;
+  }
+  // The launcher answers, but with something that is not an initialize result.
+  const root = await smokeWorkspace(t, "#!/bin/sh\ncat >/dev/null\necho not-an-mcp-answer\n");
+  const child = startBootstrap(root);
+  const { code } = await new Promise((resolve) => child.once("exit", (exitCode, signal) => resolve({ code: exitCode, signal })));
+  assert.equal(code, 70, "the smoke failure no longer reports its own exit code");
+  assert.deepEqual(await smokeDirectories(root), [], "a failed smoke check left its directory behind");
 });

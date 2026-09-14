@@ -120,8 +120,14 @@ export function firstMeaningfulLine(output, limit = 200) {
  * more, and the cause stays in a command's stdout that no reader of the verdict
  * ever sees (docs/DEFECTS.md, Д-54).
  *
+ * A third thing rides along when the gate found one: the Node the project asks
+ * for against the Node its commands ran on. That is a warning rather than a
+ * cause — the gate ran everything it was asked to — but it is the difference
+ * between "your test fails" and "your test fails on a Node you never chose"
+ * (docs/DEFECTS.md, Д-67).
+ *
  * @param {{ type: string, result: object }} item
- * @returns {{ output?: string, hint?: string } | null}
+ * @returns {{ output?: string, hint?: string, engines_mismatch?: object } | null}
  */
 export function verificationCheckDetail(item) {
   const result = item?.result ?? {};
@@ -134,6 +140,7 @@ export function verificationCheckDetail(item) {
   const detail = {};
   if (output) detail.output = output;
   if (hint) detail.hint = hint;
+  if (result.runtime?.engines_mismatch) detail.engines_mismatch = result.runtime.engines_mismatch;
   return Object.keys(detail).length ? detail : null;
 }
 
@@ -152,8 +159,13 @@ export function verificationCheckSummary(checks) {
       type: item.type,
       status: item.result?.status || item.result?.gate || "unknown"
     };
-    if (checkSucceeded(item)) return entry;
     const detail = verificationCheckDetail(item);
-    return detail ? { ...entry, detail } : entry;
+    if (!checkSucceeded(item)) return detail ? { ...entry, detail } : entry;
+    // A check that came back good says nothing further — except the one thing
+    // that is a warning rather than a cause, and would otherwise be visible
+    // only when something else had already failed (docs/DEFECTS.md, Д-67).
+    return detail?.engines_mismatch
+      ? { ...entry, detail: { engines_mismatch: detail.engines_mismatch } }
+      : entry;
   });
 }

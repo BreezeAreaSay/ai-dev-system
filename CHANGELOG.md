@@ -48,6 +48,60 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A correct fresh install passes its own health check.** A new volume came up
+  `degraded` for two reasons that had nothing to do with the install. The skill
+  quality report is written only by `validate_skill_library` with
+  `write_report`, and neither `npm run setup` nor the container entrypoint ever
+  called it, so every install answered its own diagnostic with `skill_quality:
+  report missing`; and an empty project registry warned, on a machine where
+  there cannot be a project yet. The report is now a required first-run step,
+  shared by both entry points and idempotent — a report at least as new as the
+  registry is left alone — and it runs before the search index, because it
+  writes a dashboard note into the vault and building it afterwards left the
+  index stale. An empty registry is `ok` and names `bootstrap_project`. A fresh
+  emulated image now reports `ok`, 18 checks ok and none warning, where it
+  reported `degraded` with two warnings before (Д-63).
+
+- **`cargo` on the PATH is no longer mistaken for `cargo audit`.** The health
+  check read scanner availability off the executable each scanner names, and
+  `cargo_audit` names `cargo` — which is Rust's package manager, while `cargo
+  audit` is a plugin installed separately. Every machine with Rust was told it
+  had the scanner: "2 of 6 security scanners installed: npm_audit, cargo_audit"
+  on a machine where `cargo audit --version` answers `error: no such command`.
+  A scanner that is a subcommand of another tool now declares a probe, and
+  availability comes from running it — argv array, `shell: false`, ten seconds.
+  The report names the gap it found, so having cargo without cargo-audit reads
+  as the different fix it is (Д-64).
+
+- **The installer takes its smoke check's temporary directory with it.** The
+  fast-start smoke waits on a launcher that can hang for as long as the user
+  lets it, and its directory was removed by an explicit `rm -rf` in each branch
+  that leaves. Terminated anywhere between the `mktemp -d` and one of those — a
+  closed terminal, a `kill` — `bootstrap.sh` left an `ai-dev-smoke.*` directory
+  in `/tmp`. A trap on EXIT, INT and TERM now covers every way out. `--plan` and
+  the 69/70 exit codes are unchanged. `bootstrap.ps1` needs nothing: its smoke
+  keeps the answer in a variable and creates no directory (Д-65).
+
+- **The README links the taste-skill repository that exists.** Both READMEs
+  pointed at `tt-a1i/taste-skill`, which `git ls-remote` does not find;
+  `THIRD_PARTY_NOTICES.md` has recorded `Leonxlnx/taste-skill` as the source
+  since the import. A test now requires every GitHub repository a README links
+  to be one the notices file records as a source, and both READMEs to credit the
+  same set (Д-66).
+
+- **The quality gate says when it ran on a Node the project did not ask for.**
+  In the container the gate's commands run on the image's Node. The report named
+  that Node and nothing compared it with the project's `engines.node`, so a
+  project pinned to 20 running under 22 got the "passes on my machine, fails in
+  the gate" pair with nothing on the record to explain it. `run_quality_gate`
+  now answers in `runtime.engines`, adding `runtime.engines_mismatch` when the
+  declared range refuses the running version, and `verify_task` carries it in
+  the check's detail — including on a check that passed, since a warning visible
+  only after something else failed is not a warning. The range parser is its own
+  and deliberately partial: it reads `20`, `^20`, `~20.1`, `>=20`, `20.x`,
+  `18 || 20` and `>=18 <21`, and answers "not read" for everything else rather
+  than inventing a warning out of a misparse. It never blocks (Д-67).
+
 - **One `package.json` in the home directory no longer merges every project
   below it.** The project-boundary walk ran to the root of the filesystem and
   stopped at the first marker it found, so a leftover `package.json` in `~` —

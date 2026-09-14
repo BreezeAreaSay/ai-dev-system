@@ -10,8 +10,8 @@ import {
 import { locateExecutable } from "../core/process-runner.mjs";
 import { resolveRuntimeNote } from "../core/runtime-assets.mjs";
 import {
-  SECURITY_SCANNERS,
-  evaluateSecurityScanners
+  evaluateSecurityScanners,
+  securityScannerAvailability
 } from "../core/security-scan.mjs";
 import {
   REQUIRED_SYSTEM_NOTES,
@@ -210,15 +210,14 @@ async function systemHealthCheck(host, {
   // machine that can check nothing stays silent until a task asks for a scan
   // and gets `unchecked` back (docs/DEFECTS.md, Д-55).
   await report.runCheck("security_scanners", false, async () => {
-    // Through the host when it offers a locator, so a fixture can answer for a
-    // machine other than the one running the test.
-    const locate = host.locateExecutable ?? locateExecutable;
-    return evaluateSecurityScanners(await Promise.all(SECURITY_SCANNERS.map(async (scanner) => ({
-      id: scanner.id,
-      tool: scanner.tool,
-      executable: scanner.executable,
-      installed: Boolean(await locate(scanner.executable).catch(() => ""))
-    }))));
+    // Through the host when it offers a locator or a runner, so a fixture can
+    // answer for a machine other than the one running the test. A scanner that
+    // is a subcommand of another tool is asked rather than assumed: `cargo` on
+    // the PATH is not `cargo audit` (docs/DEFECTS.md, Д-64).
+    return evaluateSecurityScanners(await securityScannerAvailability({
+      locate: host.locateExecutable ?? locateExecutable,
+      ...(host.runProcess ? { runner: host.runProcess } : {})
+    }));
   });
 
   if (include_embedding_status) {

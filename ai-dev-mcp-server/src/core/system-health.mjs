@@ -474,10 +474,14 @@ export function evaluateSkillCards({ cards, indexPath, catalogPath }) {
  */
 export function evaluateProjectRegistry(projects) {
   return {
-    status: projects.length ? "ok" : "warn",
+    // An empty registry is what a correct install looks like before anybody has
+    // registered a project — the state every new user is in, and warning about
+    // it made `ok` unreachable on a fresh volume and taught the reader that
+    // `degraded` is normal (docs/DEFECTS.md, Д-63). It says what to do instead.
+    status: "ok",
     summary: projects.length
       ? `Project registry has ${projects.length} project card(s).`
-      : "Project registry has no project cards yet.",
+      : "Project registry has no projects registered yet; `bootstrap_project` registers one.",
     details: {
       count: projects.length,
       projects: projects.slice(0, 10).map((project) => ({

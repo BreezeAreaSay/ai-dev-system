@@ -13,7 +13,9 @@ import {
   renderSecurityScanMarkdown,
   resolveOffline,
   runSecurityScan,
+  scannerAvailability,
   securityScanStatus,
+  securityScannerAvailability,
   selectScanners,
   semgrepConfigFor,
   skipReasonFor
@@ -389,4 +391,100 @@ test("a machine with no scanner installed is a warning, not a failure", () => {
   assert.deepEqual(onlyNpm.details.offline_capable, [], "nothing here works under --network none");
 
   assert.equal(evaluateSecurityScanners(undefined).status, "warn");
+});
+
+// A machine with Rust and no plugin: `cargo` is on the PATH, `cargo audit` is
+// not installed, and health used to count the scanner as present because it
+// only ever asked about the executable (docs/DEFECTS.md, Д-64).
+const CARGO_WITHOUT_PLUGIN = "error: no such command: `audit`";
+
+function catalogueEntry(id) {
+  return SECURITY_SCANNERS.find((scanner) => scanner.id === id);
+}
+
+test("a scanner that is its own binary is available as soon as the binary is", async () => {
+  const calls = [];
+  const runner = async (options) => { calls.push(options); return { ok: true, stdout: "", stderr: "" }; };
+
+  const present = await scannerAvailability(catalogueEntry("gitleaks"), {
+    locate: async () => "/usr/local/bin/gitleaks",
+    runner
+  });
+  assert.deepEqual(present, { id: "gitleaks", tool: "gitleaks", executable: "gitleaks", installed: true });
+  assert.deepEqual(calls, [], "a binary that is on the PATH is not probed");
+
+  const absent = await scannerAvailability(catalogueEntry("gitleaks"), {
+    locate: async () => "",
+    runner
+  });
+  assert.equal(absent.installed, false);
+  assert.match(absent.reason, /gitleaks is not installed or not on the PATH/);
+  assert.deepEqual(calls, [], "a binary that is absent is not probed either");
+});
+
+test("cargo on the PATH is not cargo audit: the subcommand is asked, not assumed", async () => {
+  const calls = [];
+  const cargo = catalogueEntry("cargo_audit");
+  assert.deepEqual(cargo.probeArgs, ["audit", "--version"], "the probe is declared on the scanner, not special-cased");
+
+  const withoutPlugin = await scannerAvailability(cargo, {
+    locate: async () => "/home/rustacean/.cargo/bin/cargo",
+    runner: async (options) => {
+      calls.push(options);
+      return { ok: false, exitCode: 101, timedOut: false, stdout: "", stderr: `${CARGO_WITHOUT_PLUGIN}\n` };
+    }
+  });
+  assert.equal(withoutPlugin.installed, false, "cargo without the plugin is not cargo audit");
+  assert.match(withoutPlugin.reason, /cargo is installed but `cargo audit` is not/);
+  assert.match(withoutPlugin.reason, /no such command/, "the reason quotes what cargo actually said");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].executable, "cargo");
+  assert.deepEqual(calls[0].args, ["audit", "--version"], "argv array, no shell string");
+  assert.ok(calls[0].timeoutMs <= 30_000, "the probe waits seconds, not minutes");
+  assert.ok(calls[0].cwd && calls[0].cwd !== "", "the probe runs somewhere, and not in the caller's project");
+
+  const withPlugin = await scannerAvailability(cargo, {
+    locate: async () => "/home/rustacean/.cargo/bin/cargo",
+    runner: async () => ({ ok: true, exitCode: 0, stdout: "cargo-audit-audit 0.21.0\n", stderr: "" })
+  });
+  assert.deepEqual(withPlugin, { id: "cargo_audit", tool: "cargo audit", executable: "cargo", installed: true });
+});
+
+test("a probe that hangs or throws leaves the scanner unavailable, not the check broken", async () => {
+  const cargo = catalogueEntry("cargo_audit");
+  const timedOut = await scannerAvailability(cargo, {
+    locate: async () => "/usr/bin/cargo",
+    runner: async () => ({ ok: false, timedOut: true, stdout: "", stderr: "" })
+  });
+  assert.equal(timedOut.installed, false);
+  assert.match(timedOut.reason, /did not answer in time/);
+
+  const threw = await scannerAvailability(cargo, {
+    locate: async () => "/usr/bin/cargo",
+    runner: async () => { throw new Error("spawn EACCES"); }
+  });
+  assert.equal(threw.installed, false);
+  assert.match(threw.reason, /spawn EACCES/);
+});
+
+test("the machine with cargo and no plugin counts one scanner, not two", async () => {
+  const availability = await securityScannerAvailability({
+    locate: async (executable) => (["npm", "cargo"].includes(executable) ? `/usr/bin/${executable}` : ""),
+    runner: async () => ({ ok: false, exitCode: 101, stdout: "", stderr: CARGO_WITHOUT_PLUGIN })
+  });
+  const report = evaluateSecurityScanners(availability);
+  assert.match(report.summary, /1 of 6 security scanners installed: npm_audit\./);
+  assert.deepEqual(report.details.installed, ["npm_audit"]);
+  assert.ok(report.details.missing.includes("cargo_audit"));
+  assert.match(report.details.missing_reasons.cargo_audit, /cargo is installed but `cargo audit` is not/);
+  assert.match(report.details.missing_reasons.gitleaks, /not installed or not on the PATH/);
+
+  // The same machine once the plugin is installed.
+  const withPlugin = await securityScannerAvailability({
+    locate: async (executable) => (["npm", "cargo"].includes(executable) ? `/usr/bin/${executable}` : ""),
+    runner: async () => ({ ok: true, exitCode: 0, stdout: "cargo-audit-audit 0.21.0", stderr: "" })
+  });
+  const after = evaluateSecurityScanners(withPlugin);
+  assert.match(after.summary, /2 of 6 security scanners installed: npm_audit, cargo_audit\./);
+  assert.equal(after.details.missing_reasons.cargo_audit, undefined);
 });

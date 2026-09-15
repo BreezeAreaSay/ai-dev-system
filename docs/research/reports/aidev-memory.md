@@ -1,0 +1,94 @@
+# AI Dev MCP Server — Memory Subsystem (as implemented, 2026-09-15)
+
+All paths are relative to `/home/user/ai-dev-system/ai-dev-mcp-server/` unless prefixed with `docs/` (repo root). Line numbers are from the current checkout.
+
+## 0. Layout and keys
+
+Three storage tiers (docs/ARCHITECTURE.md:381-411): the vault (shared knowledge, indexed), `~/.ai-dev/state` (per-user runtime state; `AI_DEV_STATE_ROOT`, `src/mcp-stdio.mjs:302-308`), and `<project>/.ai-dev/` (per-repo, committed). Per-user memory is keyed by `repository_id` (hash of `git rev-parse --git-common-dir`) with `project_id` as legacy fallback; `memoryScopeKeys` returns `[repositoryId, projectId]` and readers merge both (`src/core/project-identity.mjs:355-365`, `src/core/session-memory.mjs:224-247`). First write migrates legacy files (`session-memory.mjs:153-175`, `instincts.mjs:151-157`).
+
+## 1. Session handoff (agent-written)
+
+**Schema** (`session-memory.mjs:198-217` + `normalizeSessionRecord` 56-78): `schema_version:1, id ("session-<ts14>-<uuid8>"), saved_at, repository_id, project_id, project_path, project_name, task_id, branch, worktree, source:"agent", confirmed:true, confirmed_from, client, session_id, topic, building, worked[{item,evidence}], failed[{approach,reason}] (alias why), untried[], files[{path,status∈complete|in_progress|broken|not_started,notes}], decisions[{decision,reason}], blockers[], next_step, environment`. Read-time computed: `substance_score`, `unconfirmed`, `path` (234-236).
+
+**Storage**: `~/.ai-dev/state/sessions/<scopeKey>/<YYYYMMDDHHMMSS>-<slug40>.json` (137-143, 218-219). Projection `.ai-dev/context/handoff.md` per repo (8, 525-529) — written only; no server or hook code reads it back.
+
+**Provenance present**: `source`, `saved_at` (=created), `confirmed`, `confirmed_from`, `session_id`, `client`, per-item `evidence` (worked only). **Absent**: `updated_at` (records are immutable), `confidence`, `importance`, `use_count/last_used`, `valid_from/valid_to`, `supersedes`, `contradictions`.
+
+**Write path**: `save_session` (`src/extensions/sessions.mjs:190-256`). Always **ADD** — a fresh id/file per call (195); no dedup, no upsert, no near-duplicate detection, no preview/dry-run. `confirm_hook_draft:true` = ADD an agent record with `confirmed_from:<draft.id>` + DELETE the draft file (204-229; `withDraft` 42-61: agent fields win, draft fills gaps; `discardDraft` `session-memory.mjs:316-328`). Also appends a checkpoint to an open task (232-239).
+
+**Recall**: `resume_session` → `latest()` = newest by `saved_at` with `substance_score ≥ 3` (249-251, 237). Score (87-99): `building` meaningful (≥12 chars, not placeholder) +2, `next_step` +3, min(3, worked), min(3, failed), min(2, files), min(2, decisions+blockers). Response (`sessions.mjs:288-301`): `session, unconfirmed, hook_drafts[], history[≤5], open_tasks, git, context_pack freshness, handoff_path, briefing`. Briefing (`session-memory.mjs:422-481`) shows building, file states, failed (all), blockers, next step, drafts, tasks, git, instincts markdown. Purely recency-based — no relevance filter, no "why recalled".
+
+Context pack: `handoffContextProvider` (`src/core/context-extras.mjs:44-66`) injects the caveat (if draft), `Saved <date>[WARNING >7d], task`, `Next step`, ≤3 `Do not retry`, ≤3 `Blocker`, and a "Historical reference only" line under `## Last Session Handoff` (`context-compiler.mjs:398`). Pack capped at `maxChars=24_000`; under pressure extras are truncated to 400 chars *after* file excerpts (331, 341-344). Session-start hook (`hooks/session-start.mjs:79-93`): topic, next step, ≤3 failed, ≤3 blockers; whole injection capped `AI_DEV_SESSION_START_MAX_CHARS=8000` (8, 104).
+
+**Temporal**: `STALE_AFTER_DAYS = 7` → `"WARNING: N days ago, things may have changed"` (`session-memory.mjs:10, 409-413, 436`); same `age > 7` in `context-extras.mjs:54`. The session-start hook has **no** age tag. `prune_state` archives records ≥90 days into `sessions/<scope>/archive/` (never deleted), always keeping the newest handoff per scope (`src/core/state-pruning.mjs:40, 161-186`).
+
+**Precedence observation (not in DEFECTS)**: selection is newest-wins with no preference for `confirmed`. The Stop hook runs after `save_session` in the same session and writes `hook-<id>.json` with a later `saved_at`, so `latest()` and the context pack return the draft (score: building +2, files ≤2 → 4 ≥ 3). In `session-start.mjs:15-21` the pick is by *filename* reverse sort, and `hook-…` sorts above `2026…`, so a draft wins even when older. Tests cover draft-only (`agent-hooks.test.mjs:371-384`) and agent-only (`session-memory.test.mjs:68-90`) directories, never both.
+
+## 2. Hook draft + observation log
+
+Written by `hooks/session-end.mjs` on Stop/SessionEnd/PreCompact (`--compact`). Requires transcript ≤16 MB and ≥2 user messages (22, 121). **Draft schema** (133-165): the handoff schema with `source:"hook", confirmed:false, confirmed_from:""`, `id:"session-hook-<sessionId>"`, `topic` = first user message (120 chars), `building` = "Requests in this session (N):" + last 8 requests, `files` = Edit/Write/MultiEdit targets with `status:"in_progress", notes:"touched this session (hook capture)"`, empty `worked/failed/untried/decisions/blockers`, `next_step:""`, plus `tools_used[≤20]` and `captured_by:"stop"|"pre-compact"`. File `hook-<sessionId>.json` is rewritten whole per capture — an upsert by session id (166).
+
+**Observation log** `observe-<sessionId>.json` (169-178): `schema_version, session_id, updated_at, project_path, project_id, repository_id, client, events[{k:user|tool|error, n, c, t, i}]`; caps 600 events / 300 chars text / 200 chars command (24-26). Excluded from handoff listing (`session-memory.mjs:180`), read by `propose_instincts` (281-307). Archived with handoffs at 90 days.
+
+Gate: `isHookDraft = source==="hook" && confirmed!==true` (111-113); pre-flag hook records count as drafts. Caveat text (121-127) is shown in resume briefing, context pack title `"Last Session Handoff (unconfirmed hook draft)"`, and session-start (`session-start.mjs:83-86`). `list_sessions` marks `unconfirmed`, `has_observations` (`sessions.mjs:156-174`).
+
+## 3. Instincts (active and proposed)
+
+**Schema** (`src/core/instincts.mjs:234-255`): `id` (slug of first 8 tokens of trigger+action, 66-77), `trigger, action, domain∈11, scope∈project|global, repository_id, project_id, project_name, confidence, observations, source∈agent|observation|task-outcome|import|hook, stack[], status∈active|proposed|retired|promoted, created_at, updated_at, last_observed_at, evidence[{at,kind∈observe|confirm|contradict|retire|promote,note,task_id,source}] (last 20; 228, 290), promoted_to`. Prune adds `retired_at, retired_reason` (`state-pruning.mjs:258-261`). Store `~/.ai-dev/state/instincts.json`, capped at 5,000 (168, 188).
+
+**Present**: source, created/updated/last_observed, confidence, observations (a use-ish counter), evidence, status. **Absent**: `source_id` (only `evidence[].task_id`), `importance`, `last_used` (injection never writes back), `valid_from/to`, `supersedes`, structured `contradictions` (a contradict is only an evidence entry and −0.1).
+
+**Write path**: `record_instinct` (`src/extensions/instincts.mjs:156-181`, no dry-run) → `record()` (202-261). Dedup = same `id` **or** `similar()` (≥0.75 of the shorter token set shared, 120-127) among non-retired instincts in scope. Match → **UPDATE/reinforce**: `observations += n; confidence = clamp(max(conf + 0.05·n, initialConfidence(observations)))`, `last_observed_at`, evidence appended, stack unioned (222-231), reported as `"instinct_reinforced"`. No match → **ADD**. There is no SUPERSEDE; the only NOOP is `propose_instincts` skipping candidates already known (`instincts.mjs` ext 216-227, `dry_run` supported, 83). `initialConfidence`: 1-2→0.3, 3-5→0.5, 6-10→0.7, ≥11→0.85 (85-91). `update_instinct`: confirm +0.05 (also activates proposed/retired), contradict −0.1 and retire below 0.2, retire, promote (263-295). Constants: floor 0.1, ceiling 0.95 (30-31). `import_instincts` caps at 0.7 (432).
+
+**Proposed** (`src/core/instinct-proposals.mjs`): thresholds correction 1, rule 1, error 2, command 3, chain 2 (34); `confidence = min(0.5, initialConfidence(obs))` (37, 135) so a proposal can never reach the 0.7 inject threshold; stored `status:"proposed", source:"observation"` (ext 231-245); `list()` hides them unless `status:"proposed"` (`instincts.mjs:312`). Each carries a `note` quoting the observed sentence/command.
+
+**Recall**: `rankForContext` (329-344): `list(minConfidence=0.7)` on `effective_confidence`, then `relevance = effective_confidence + 0.25 (project scope) + 0.2 (any token of domain/trigger/stack matches detected stack) + 0.15 (any trigger/action token matches task text)`; top 6 (max 20). Markdown `"- [scope NN%] action (when trigger)"` under "Active instincts (learned from previous work; apply when the trigger matches)" (448-454). Used by `begin_task`/`compile_project_context` (`context-extras.mjs:74-84`; `mcp-stdio.mjs:4214`, `lifecycle.mjs:146`) and `resume_session` (`sessions.mjs:277-287`). Pack `items` carry only `{id, confidence, scope}` — no relevance score or boost reasons are surfaced. The session-start hook reimplements a simpler filter: `status==="active" && confidence ≥ 0.7`, sorted by `confidence + 0.25·project`, top 6, **no decay, no stack/task boost** (`session-start.mjs:45-52`).
+
+**Decay**: `effectiveConfidence = round(max(min(conf, 0.3), conf − floor(weeks_since_last_observed)·0.02))` (100-105) — computed at read, never persisted. `prune_state` retires active/proposed instincts with `confidence < 0.3 && idle ≥ 90 days` (`state-pruning.mjs:36-38, 68-90`). Promotion candidates: same id under ≥2 scope keys with mean confidence ≥0.8 (352-370); `evolve_instincts` clusters ≥3 per `scope:domain` into a SKILL.md draft under `03-skills-catalog/sources/custom/` and marks them `promoted` (ext 267-302).
+
+## 4. Decisions (ADRs)
+
+**Schema** (`src/core/decision-ledger.mjs:182-194`): `id "ADR-NNNN", title, status∈proposed|accepted|superseded|rejected, date (YYYY-MM-DD only), task_id, tags[], supersedes, context, decision, alternatives[], consequences[]`; rendered as Markdown with YAML frontmatter (43-75), parsed back tolerant of hand edits (85-125). Path `<repo>/.ai-dev/decisions/NNNN-slug.md` (5, 201) — per-repo, committed.
+
+**Present**: `date`, `status`, `supersedes`, `task_id`. **Absent**: author/`source`, `source_id`, `created_at` time, `updated_at`, confidence, importance, use_count, evidence, `valid_to` (only the status flip), contradictions.
+
+**Write**: `record_decision` (`src/extensions/decisions.mjs:62-93`): always **ADD** with number = highest existing + 1 (178-181); no dedup, no dry-run. `supersedes` → **SUPERSEDE**: the older file's `status:` line is rewritten to `superseded` (195-210); unknown target throws. Marks the search index dirty (83) although the indexer never scans `.ai-dev/decisions` (see §7).
+
+**Recall**: `decisionsContextProvider` (`context-extras.mjs:25-35`) lists 20 newest, `summarizeDecisions` emits ≤5 non-rejected as `"- ADR-0007 (superseded): title — first line ≤200 chars"` (`decision-ledger.mjs:221-231`). Recency only; superseded entries still appear (marked). Not part of `resume_session` or session-start.
+
+## 5. Skill outcomes
+
+Store `~/.ai-dev/state/skill-outcomes.json`, `schema_version:2`, `attempts` (cap 10,000) and `outcomes` (cap 5,000) (`src/core/skill-outcomes.mjs:6, 264, 300-301`). **Attempt** (216-236): `id "<task>:<verification>", at, task_id, verification_id, status pass|fail, classification∈none|infrastructure|policy|product (55-69), project_id, source_state_fingerprint, source_head, evidence_strength, synthetic, eligible:false, skills[], checks[{type,status}]`. **Terminal outcome** (238-259): `id=task_id, at, task_id, final_verification_id, status, classification, project_id, repository_id, source_state_fingerprint, source_head, evidence_strength, verification_attempts, synthetic, eligible (= !synthetic && strength==="strong"), skills[], human_review (null | pilot review → classification human-accepted/rejected/needs-revision, 360-384)`.
+
+Written automatically by `verify_task` (`src/extensions/lifecycle.mjs:459`) and `complete_task` (586); **UPDATE** by `id`/`task_id` upsert (314-317, 336-338); `rebuild_skill_outcomes` replaces all outcomes from completed tasks (349-358). No agent-authored fields, no dry-run, no decay, no pruning. Recall: `skill_outcome_status` → `summarizeSkillOutcomes` per skill (95-166): `pass_rate`, `distinct_projects`, `human_reviewed`; `empirical_status:"pass"` needs ≥3 attempts, ≥2 projects, pass rate ≥0.8, ≥1 human review; only the latest non-synthetic terminal outcome per task counts (71-83). Folded into skill registry records via `applySkillOutcome` (177-205); never injected as context text.
+
+## 6. Knowledge notes
+
+`write_knowledge_note` / `append_knowledge_note` (`src/mcp-stdio.mjs:770-801`, defs `src/tool-definitions.mjs:914-938`): free-form Markdown into vault folders on an allowlist of 11 prefixes, `.md` only, no `..`, skill sources/registries excluded (423-458). **No schema and no provenance at all** (no author, date, source, confidence). Write = create, or overwrite with `overwrite:true` (else error), or append with optional `## heading`. Marks the search index dirty; the vault walker indexes them (`search-index/search_cli.py:750-758`). `complete_task(write_report)` writes `02-knowledge/Task Runs/<task>.md` this way (`lifecycle.mjs:594-598`). Recall is only through `search_knowledge`/`read_knowledge`; no decay, no expiry.
+
+## 7. The `memory` profile, index, temporal semantics, eval
+
+**16 tools** (`src/core/tool-profiles.mjs:100-121`): `record_decision` (append ADR), `list_decisions` (newest first, filter status/tag), `save_session` (write handoff + projection + task checkpoint), `resume_session` (latest substantive handoff + briefing), `list_sessions` (handoffs incl. drafts, `has_observations`), `context_budget_status` (static tokens vs window; `session-memory.mjs:490-516`), `record_instinct` (add/reinforce), `propose_instincts` (candidates from observation log, `dry_run`), `list_instincts` (with `effective_confidence`), `update_instinct` (confirm/contradict/retire/promote), `evolve_instincts` (clusters → SKILL.md drafts, promotion candidates), `export_instincts` (patterns only, evidence stripped to count), `import_instincts` (cap 0.7), `prune_state` (dry-run default; retire/archive/rotate/snapshots), `write_knowledge_note`, `append_knowledge_note`.
+
+Response shapes: `save_session` → `{action:"session_saved", session_id, path, handoff_path, project_id, repository_id, markdown, checkpoint, confirmed_draft, next_step}` (`sessions.mjs:240-255`); `resume_session` → see §1; `list_sessions` → `{project_id, repository_id, count, drafts, observation_logs, sessions[], next_step}` (176-188); `record_instinct` → `{action:"instinct_created"|"instinct_reinforced", instinct, next_step}`; `propose_instincts` → `{status:"proposed"|"nothing_new"|"no_observations", session_id, observed_at, signals{events,user_messages,tool_calls,errors}, proposals[], skipped[{…,reason}], next_step}` (249-261); `record_decision` → `{action:"decision_recorded", project_path, decision, path, superseded, checkpoint, next_step}`; `prune_state` → `{project_path, dry_run, thresholds, instincts{total,retired,entries}, sessions{archived,archive_dir,entries}, usage, snapshots, problems}` (`state-pruning.mjs:317-326`).
+
+**Search index**: indexes the vault tree plus, per registered project card, only `.ai-dev/project-brief.md`, `project-map.md`, `quality-gate.md`, `AGENTS.md` (`search_cli.py:855-899`). Sessions, drafts, observation logs, `instincts.json`, `skill-outcomes.json`, `.ai-dev/decisions/` and `handoff.md` are **not** indexed. Knowledge notes and evolved skill drafts are.
+
+**Temporal semantics**: all timestamps ISO strings; handoff 7-day stale warning (resume + pack only); instinct decay per whole week to a 0.3 floor; 90-day archive/retire via `prune_state`; decisions carry a date and explicit `supersedes`; handoffs and instincts have no supersession — a new handoff simply becomes newest, a near-duplicate instinct merges. No `valid_from/valid_to` anywhere.
+
+**Memory eval**: none. `search-eval.mjs` and `skill-routing-eval.mjs` contain no session/instinct/handoff cases; coverage is unit tests only (`session-memory.test.mjs`, `instincts.test.mjs`, `instinct-proposals.test.mjs`, `decision-ledger.test.mjs`, `context-extras.test.mjs`, `skill-outcomes.test.mjs`, `agent-hooks.test.mjs`).
+
+## 8. DEFECTS.md entries touching memory
+
+- **Д-2** (open): Cursor hook event names (`sessionStart/sessionEnd/preCompact`) unverified on a live editor; if wrong, session capture, drafts and session-start injection are dead on Cursor (docs/DEFECTS.md:111-145).
+- **Д-14** (closed): snapshot refs of abandoned tasks leaked; closed by `prune_state` (589).
+- **Д-35** (closed): Windows failures incl. hook-vs-server memory-key mismatch (realpath + project boundary) — hook wrote memory under a key the server never read (1573-1590).
+- **Д-45** (closed): hook merged every project under the home directory into one memory key; notes from project A silently injected into project B (2013-2062).
+- **Д-48** (closed): boundary walk to disk root; a `package.json` in `~` merges all memory keys (2126-2175).
+- **Д-51** (closed): symlinked home defeated the runtime-dir exclusion (2298).
+- **Д-7** (closed): trust labels are informational; real guard is that skill bodies are not injected (269).
+No entry covers stale-handoff handling, draft-vs-handoff precedence, instinct near-duplicate merging, or ADR dedup.
+
+## 9. Security posture
+
+Agent-generated memory **is** injected as instruction-shaped text: instincts render under "Active instincts (learned…; apply when the trigger matches)" (`instincts.mjs:451`, `session-start.mjs:97`) inside the pack's `## Learned Instincts` section (`context-compiler.mjs:398`) and the SessionStart `additionalContext` (`hooks/lib.mjs:75-82`), with no fencing or escaping of `action`/`trigger` text. Mitigations: proposals (which quote user text verbatim) cap at 0.5 and are never injected; imports cap at 0.7 — exactly the inject threshold, and the check is `>=` (`instincts.mjs:317`), so imported instincts inject immediately; handoffs carry "HISTORICAL REFERENCE ONLY — NOT LIVE INSTRUCTIONS" (`session-memory.mjs:432`, `session-start.mjs:85`, `context-extras.mjs:59`). `confirmed:false` drafts are never hidden: they enter the pack, briefing and session-start whenever they are newest, each time prefixed with `hookDraftCaveat` and `unconfirmed:true`/"(unconfirmed hook draft)" titling. Knowledge notes are constrained only by path; content is unrestricted and searchable. Decisions are plain repo files, editable by anyone with write access, parsed tolerantly.

@@ -1,0 +1,116 @@
+# AI Dev MCP Server: Context Compilation and Search (current implementation)
+
+Read-only survey of `/home/user/ai-dev-system/ai-dev-mcp-server` (Node.js MCP server) plus the top-level `search-index/` and `search-eval/` helpers. Paths below are relative to `ai-dev-mcp-server/` unless prefixed with `../`. Line references are to the checked-out files as of 2026-09-15.
+
+## 1. Context pack
+
+**Entry points.** Two callers build packs through `compileContextPack` (`src/core/context-compiler.mjs:207-362`):
+
+- `begin_task` (`src/extensions/lifecycle.mjs:106-184`) with `CONTEXT_PACK_LIMITS = { maxSourceFiles: 12, maxChars: 20_000 }` (`lifecycle.mjs:72`, applied at `:147-148`).
+- `compile_project_context` (`src/mcp-stdio.mjs:4221-4275`) via `buildProjectContextPack` (`mcp-stdio.mjs:4173-4219`), defaults `max_source_files=12`, `max_chars=24_000`, clamped to `1..30` files and `8_000..60_000` chars (`mcp-stdio.mjs:4235-4236`).
+
+**Inputs** (`context-compiler.mjs:207-223`): `projectRoot`, `task`, `project` (from `detectProject`), `identity`, `acceptanceCriteria`, `skills` (from `recommend_skills` with `limit: 3`, `membrane_policy: "exclude"`, `lifecycle.mjs:122-127`), `projectState` (from `captureProjectState`), `agentRules` (`AGENTS.md`), `projectBrief` / `projectMap` / `qualityGate` (`.ai-dev/project-brief.md`, `project-map.md`, `quality-gate.md`), `extras` (from `loadContextExtras`), `maxSourceFiles`, `maxChars`, `now`.
+
+**File discovery** (`discoverFiles`, `:142-168`): recursive walk with `maxFiles = 6000`, `maxDepth = 12`; skips symlinks (`:152`), `SKIP_DIRECTORIES` (`:6-10`: `.git`, `node_modules`, `dist`, `build`, `coverage`, `.venv`, `target`, `vendor`, ...), anything under `.ai-dev/context/` (`:159`), `SECRET_FILE_PATTERN` (`:19`: `.env*`, `*.key|pem|p12|pfx`, `id_rsa`, `secret(s).`), and keeps only `TEXT_EXTENSIONS` (`:12-17`, 33 extensions) plus `Dockerfile` / `Makefile` (`:162`).
+
+**Selection signals** (`scoreFile`, `:97-140`); the score is additive:
+
+| Signal | Points | Line |
+|---|---|---|
+| file is in `projectState.dirty_files` | +80 ("currently changed") | `:107-110` |
+| task token in basename | +18 | `:112-114` |
+| task token elsewhere in path | +8 | `:115-117` |
+| extension matches an inferred domain (`TASK_HINTS[domain].extensions`) | +7 per domain | `:120-125` |
+| path under `src|app|lib|server|client|api|routes|components|pages|features/` | +4 | `:126-129` |
+| test path (`test|tests|__tests__/`, `.test.` / `.spec.`) | +10 if the task domain is `test`, else +2 | `:130-133` |
+| `package.json|pyproject.toml|go.mod|cargo.toml|tsconfig.json|vite.config|next.config` | +5 | `:134-137` |
+| lockfiles / `*.min.js|css` (`GENERATED_PATH_PATTERN`, `:20`) | -50 | `:138` |
+
+Task tokens: lowercase, at least 3 chars, at most 80 unique (`:68-76`). Domains (`frontend`, `backend`, `database`, `test`) come from bilingual RU/EN `intentPattern`s (`:41-58`, built by `src/core/intent-patterns.mjs:9-16`). Reasons per file are de-duplicated and capped at 4 (`:139`). There is no content search, no import following and no embedding: selection is path/name heuristics plus git dirty state.
+
+**Ranking and cap** (`:231-238`): keep `score > 0`, sort by score desc then path, then `slice(0, Math.max(1, Math.min(maxSourceFiles || 12, 30)))`.
+
+**Excerpt bounds** (`:240-243`, `:170-185`): `contentBudget = max(4_000, maxChars - 4_000)`; `documentBudget = floor(contentBudget * 0.55)`; `sourceBudget = max(1_500, contentBudget - documentBudget)`; `excerptBudget = max(500, floor(sourceBudget / ranked.length))`. Each excerpt is `content.slice(0, excerptBudget)` from the top of the file: character-based, no line windows, no symbol targeting. Files larger than `512 * 1024` bytes or containing a NUL byte are dropped (`:173-175`). With the `begin_task` limits (20 000 chars, 12 files) that is 16 000 -> 7 200 source chars -> 600 chars per file.
+
+**Per-file fields** (`:177-184` merged with `:232-234`): `path`, `score`, `reasons[]`, `size_bytes`, `modified_at`, `sha256`, `excerpt`, `excerpt_truncated`. There is no per-element `token_cost`.
+
+**Document slices** (`context_sources`, `:301-306`): `agents` 20 %, `project_brief` 30 %, `project_map` 20 %, `quality_gate` 30 % of `documentBudget`, each a plain `slice(0, n)`.
+
+**Token accounting** (`:354-360`): only a whole-pack estimate, `estimated_tokens: Math.ceil(markdown.length / 4)`, next to `max_chars`, `actual_chars`, `selected_source_files`, `discovered_text_files`. No tokenizer is involved.
+
+**Overflow degradation** (`:317-350`), in order: pop files while `markdown.length > maxChars` and more than one remains; then cut every excerpt to `240` chars; then extras markdown to `400`; then each `context_sources` slice to `600`; then extras to `400` again (a duplicated block, `:340-346`); finally drop all files.
+
+**Other fields**: `routed_skills = skills.slice(0, 3)` (`:288`), `extra_sections` (`:289-296`), `commands` via `relevantCommands` (domain-filtered, `slice(0, 10)`, `:187-196`), `quality_gaps`, `risk_signals`, `unknowns` (`:252-260`: missing criteria, no files selected, no test command, frontend work without a brief), `boundaries` (`:308-313`).
+
+**Fingerprints** (`:262-271`, `:314-315`): `source_fingerprint = sha256(JSON{task, project_id, project_state.fingerprint, files[[path, sha256]], skills[[name, source]], criteria})`; id `ctx-<14-digit timestamp>-<10 hex>`; `source_state_fingerprint = projectState.fingerprint`. `captureProjectState` (`src/core/evidence.mjs`) hashes `HEAD + porcelain status + dirty file contents` for git repositories, or a filesystem walk hash otherwise. `contextPackFreshness` (`:468-479`) is a string equality on that state fingerprint.
+
+**Persistence.** `begin_task` does not write `.ai-dev/context/<task>.json`; it stores the pack in the task record under `context: { bounded: true, context_pack_id, compiled_context (markdown), selected_files[{path, score, reasons, sha256}], context_unknowns, ... }` (`lifecycle.mjs:156-173`). `compile_project_context` with `persist=true` writes `.ai-dev/context/packs/<id>.md`, `packs/<id>.json`, `latest.md`, `latest.json` (`mcp-stdio.mjs:4238-4256`); `project_context_status` reads `latest.json` and reports freshness (`:4277-4297`). `docs/ARCHITECTURE.md:444` and the prompt text at `mcp-stdio.mjs:2371` describe `.ai-dev/context/<task-id>.json`, which neither path writes.
+
+**Markdown projection** (`renderContextPack`, `:375-458`): header, Task, Acceptance Criteria, Routed Skills, extra sections, Project Shape, Relevant Commands, Risks And Quality Gaps, Selected Source Files (with `Relevance: <score>; <reasons>` and SHA-256), Agent Rules, Project Brief, Quality Gate, Open Questions, Context Boundaries. `project_map` is sliced into `context_sources` but never rendered in the markdown.
+
+## 2. Search
+
+**Corpus** (`../search-index/search_cli.py`, 1 820 lines; `collect_documents` `:901-911`): (a) every vault `*.md` (`iter_markdown_docs`, `:750-773`) except `03-skills-catalog/sources/`, `registries/`, `groups/all-skills/`, `09-mcp/search-index/` (`:723-733`); (b) skill registry rows from `03-skills-catalog/registries/skills.index.json` rendered as one text document per skill (`:775-828`); (c) with `--include-external-project-files`, four repo-local files per registered project card: `.ai-dev/project-brief.md`, `project-map.md`, `quality-gate.md`, `AGENTS.md` (`:855-890`). Project source code is not indexed. Scope is inferred from the vault path (`:736-747`: `projects`, `workflows`, `quality`, `skills`, `knowledge`).
+
+**Storage**: one SQLite file (`ai-dev-search.sqlite`, `mcp-stdio.mjs:265-272`), `INDEX_SCHEMA_VERSION = 2` (`:55`): `documents`, `docs_fts` as FTS5 with `unicode61` (`:1107-1115`), `semantic_vectors` (hashed sparse vector: `SEMANTIC_DIMENSIONS = 1024`, `MAX_VECTOR_FEATURES = 512`, `:32-33`, built from tokens, `SEMANTIC_ALIASES` RU/EN canonical terms and character 3/4-grams, `:228-280`), and `dense_vectors` BLOB with `backend / revision / dtype` provenance (`:1121-1132`).
+
+**Dense backend**: `src/core/dense-backend.mjs:66-113` picks `onnx` when the manifest-verified export is on disk, else legacy `python`, else "not installed"; `AI_DEV_DENSE_BACKEND` overrides. ONNX runs BGE-M3 in a `worker_thread` via `@huggingface/transformers` + `onnxruntime-node` (`src/core/dense-onnx.mjs:1-28`, `MAX_ONNX_BATCH = 32`, `DEFAULT_ONNX_TIMEOUT_MS = 600_000`; worker entry `src/workers/dense-onnx-worker.mjs`, 101 lines); the probe is cached for `DENSE_PROBE_TTL_MS = 60_000` (`dense-runtime.mjs:19`). Python is still required: `search_cli.py` performs every index operation (status / rebuild / search / hybrid / dense-plan) and is invoked by `runSearchCli` (`search-index.mjs:109-125`); under ONNX it needs only a stdlib Python because vectors are embedded in Node and passed as `--dense-vectors-json` (`dense-index.mjs:97-119`, `DENSE_PLAN_BATCH = 16`). The legacy backend (`embedding-workers.mjs`, `../embeddings/bge_m3_worker.py`, `bge_m3_embed.py`; `DENSE_MODEL = "BAAI/bge-m3"`, `DENSE_DIMENSIONS = 1024`, `MAX_EMBED_TEXTS = 32`, `MAX_EMBED_TEXT_LENGTH = 12000`, `:22-31`) loads the model inside the helper. Д-62 records this as partially closed pending the `dense-eval.yml` numbers.
+
+**Hybrid scoring** (helper `hybrid_search`, `:1548-1665`): candidate pool fixed at `HYBRID_CANDIDATE_LIMIT = 500` (`:44`); keyword score `1/(rank+1)` over bm25 order; sparse and dense dot products clamped to `[0, 1]`; weights normalized (`:1591-1598`); `lexical_boost` up to `+0.15` (`:1424-1433`); Membrane application-skill rows `x0.12` when the query excludes membrane and `x0.35` unless it carries app-integration intent (`:1652-1656`); `vault-note` `+0.04` (`:1657-1658`); then `collapse_search_results` folds card/source duplicates into one entity with priority custom `SKILL.md` 40 > other sources 30 > cards 20 > 10 (`:1495-1545`) and truncates to `limit <= 50` (`:1559`). Plain `search` is bm25 with `candidate_limit = max(50, min(250, limit * 5))` and a LIKE fallback (`:1667-1736`).
+
+**Node side** (`src/core/search-index.mjs`): `MAX_RESULTS = 50` (`:30`), `FRESHNESS_CACHE_MS = 1000` (`:27`). `hybridSearch` (`:332-490`) embeds the query in-process (`prefix: "query: "`, `:366-375`), always asks the helper for 50 (`:397-398`), applies `prioritizeKnowledgeResults` and then `rerankSearchResults`, and slices to the requested limit afterwards. A dense failure becomes a non-enumerable `dense_unavailable` note (`:59-62`) surfaced as `{ dense: { used: false, reason } }` by `preset_search` / `explain_search` (`src/extensions/search.mjs:40-45`).
+
+**Presets** (`src/core/search-runtime.mjs:14-92`, keyword / semantic / dense): `balanced` 0.45 / 0.20 / 0.35 (scope all, limit 10); `code` 0.65 / 0.15 / 0.20 (routing on); `docs` 0.25 / 0.25 / 0.50 (knowledge, 8, routing); `skills` 0.35 / 0.25 / 0.40 (skills, routing); `projects` 0.50 / 0.20 / 0.30 (8); `debug` 0.60 / 0.20 / 0.20 (routing); `frontend` 0.25 / 0.25 / 0.50 (routing); `quality` 0.45 / 0.25 / 0.30 (8). Aliases at `:94-126`; limit clamp `1..50` (`:171`).
+
+**Ranking v2** (`src/core/search-reranker.mjs:180-316`): exact entity `+0.24`; phrase in title/path `+0.16`; token coverage up to `+0.16`; title tokens `+0.025` each up to `+0.10`; catalog query: catalog surface `+0.28`, individual skill `-0.10`; intent alignment `+0.07` each up to `+0.14`; conflicting skills-only intent `-0.24`; scope mismatch `-0.20` / alignment `+0.05`; curated custom skill `+0.04`; membrane without mention `-0.035`; golden-case hard negative `-0.30` (rule query token overlap >= 0.6); rank prior up to `+0.015`. Adds `original_rank / original_score / rerank_score / rerank_adjustment / rerank_reasons / hard_negative / hard_negative_reasons / reranked_rank` and overwrites `score`. Hard negatives come from cases with `must_not` (`:325-333`), cached by file mtime (`mcp-stdio.mjs:757-764`).
+
+**Explanation** (`search-runtime.mjs:279-324`): `weighted_score_before_adjustments`, `score_adjustment` (final minus weighted, so helper boosts, membrane multipliers and reranker deltas are lumped together), `score_parts.{keyword,semantic,dense}.{raw,weight,contribution}`, `likely_reason`, `adjustment_note`; `explainSearchTuningNotes` at `:326-343`.
+
+**Intent routers**: (1) `routeSkills` (`src/core/skill-router.mjs:197-279`): 16 regex rules (`:61-152`), `RULE_PRIORITY` (`:154-159`), `workflowFor` (`:161-175`), `maxSkills <= 3`, reserved `capability` / `specialist` roles (`:293`); in hybrid search routed custom skills are prepended with `score = 2 - index * 0.01`, `mode: "routed-hybrid"`, `retrieval_stage: "deterministic-intent-router"` (`search-index.mjs:452-484`), only when `intent_routing` is on, scope is `all|skills`, there is no project or folder filter, and it is not a catalog query. (2) `knowledge-router.mjs`: three phrase routes plus a search-presets route promote fixed vault paths (`:1-63`, `:129-150`). (3) `inferSearchIntents` with `CONFLICTS` (`search-reranker.mjs:8-36`). (4) `task-vocabulary.mjs`: 28 RU-to-EN concepts (`:30-59`) feeding the specialist picker with `SPECIALIST_MIN_SCORE = 18`, `NAMED_MIN_SCORE = 6`, `MIN_TERMS = 3`, `MIN_SITUATION_HITS = 3`, `FOREIGN_STACK_PENALTY = 8` (`skill-recommendation.mjs:205-233`).
+
+**Tool surface and shapes** (`src/extensions/search.mjs`): 13 tools. `search_all`, `search_projects`, `search_notes`, `search_skill_registry` and `hybrid_search` return the raw result array (`:494-527`); `preset_search` returns `{ query, result_count, applied, dense?, tuning_notes?, results }` (`:48-65`); `explain_search` returns `{ query, scope, result_count, applied, weights, dense?, notes, tuning_notes, results[explained] }` with `EXPLAIN_DEFAULT_LIMIT = 5`, `EXPLAIN_MAX_LIMIT = 20` (`:33-34`). Two non-index tools live in the `core` profile: `search_knowledge` (`mcp-stdio.mjs:4539-4556`) scans every vault markdown file and scores `scoreText` over the path plus the first 8 000 chars, preview 240 chars; `search_skills` (`:4632-4672`) filters the registry and adds `quality_score / 50`. `scoreText` (`src/core/text-format.mjs:91-102`) is +1 per substring term and +3 for the whole query.
+
+**Rebuild triggers**: writers call `markSearchIndexDirty` (notes, skill cards / taxonomy / registry, project files and cards, frontend product state, dashboards, the routing benchmark: `mcp-stdio.mjs:777, 799, 1337, 1436, 1606, 1688, 2646, 2703, 3023, 3741, 3815, 3875`; `extensions/frontend-design.mjs:195, 400, 503`; `skills.mjs:80, 227`; `system.mjs:105`). Every query with `ensure_fresh` (default true) runs `ensureFresh` (`search-index.mjs:247-285`): helper `status` (a stat of the whole vault, cached 1 s) and, when stale or dirty, a rebuild with `dense_embeddings: false, preserve_dense: true`. Dense vectors are refreshed only by `rebuild_search_index` with `dense_embeddings=true` (`dense_text_limit` clamp `300..12000`, batch `1..32`, `:178-221`).
+
+## 3. Code intelligence
+
+No tree-sitter, LSP, AST, symbol index, callers or references. The grep over `src/`, `hooks/`, `docs/` finds only:
+
+- `src/core/import-graph.mjs` (361 lines): regex import scanning for JS/TS (`JS_IMPORT`, `:48`) and Python (`PY_FROM` / `PY_IMPORT`, `:50-51`), resolves relative specifiers to repository files, counts bare specifiers as external, Tarjan cycles (`:188-240`), entry points, top-20 externals; `IMPORT_GRAPH_MAX_FILES = 4_000` (`:42`), cache `.ai-dev/cache/import-graph.json` (`:30`) keyed by a path / size / mtime fingerprint. It is rendered only into `.ai-dev/project-map.md` under `## Import graph` (`mcp-stdio.mjs:2424`, `:2456-2458`) and reaches a pack only as part of the `project_map` slice; `scoreFile` never consults it and the pack never expands the "direct dependencies" of selected files despite instructing the agent to read them (`context-compiler.mjs:309`).
+- `src/core/project-intelligence.mjs` `architectureInventory` (`:200-262`): directory-name conventions (`src|app|lib`, `tests`, `routes|controllers|api`, `migrations|models|prisma`, `main.py|index.ts` ...), no parsing.
+- "symbol" appears only as search-preset aliases (`search-runtime.mjs:102-103`); "dependency graph" at `lifecycle.mjs:430` refers to security scanners. `hooks/` contain nothing relevant.
+
+## 4. Project detection
+
+`createProjectDetector().detectProject` (`src/core/project-detection.mjs:223-426`). The shallow pass reads root manifests: `package.json` scripts and dependencies, lockfile to package manager (`:140-154`), `pyproject.toml` / `requirements.txt` / `composer.json` / `Gemfile` text, about 45 stack markers (`:249-311`, including `.csproj / .sln` via a directory listing per Д-19), marker files (`:313-341`), Install / Dev / Test / Lint / Typecheck / Build commands (`:343-363`), project types (`:365-381`), documentation and `.env` snapshots (`:157-214`), dangerous scripts (`:37-60`). The deep pass `analyzeProject(projectRoot, { maxDepth: 4 })` (`:386`; `project-intelligence.mjs:274-357`) discovers manifests up to depth 4, groups them into Node / Python / generic components, builds the architecture inventory and workspace / monorepo flags and per-component missing gates; deep commands replace shallow ones when present (`:394-396`). Derived last: `quality_gaps`, `risk_signals`, `recommended_next_commands` (`:420-422`). Into the pack go `project.types / stack / components`, `commands` (filtered by task domain, at most 10), `quality_gaps`, `risk_signals`; `components` and `architecture` are also stored on the task record (`lifecycle.mjs:170-171`). The `analyze_project` tool clamps `max_depth` to `1..6` (`mcp-stdio.mjs:4168`).
+
+## 5. Context extras
+
+Contract (`src/core/context-extras.mjs:5-17`): an async provider `(input) => null | { id, title, markdown, items }` with input `{ projectRoot, stateRoot, repositoryId, projectId, task, stack }`. Providers: `decisions` (`listDecisions` limit 20, summary of 5, `:25-35`); `handoff` (latest `SessionStore` record by repositoryId / projectId, age warning when older than 7 days, up to 3 failed approaches and 3 blockers, hook-draft caveat, `:44-66`); `instincts` (`InstinctStore.rankForContext({ repositoryId, projectId, stack, task })`, where the relevance filter lives, `:74-84`). `loadContextExtras` (`:96-108`) runs providers sequentially in `try/catch` and returns `{ sections, errors }`. Failure-handling gap: both callers pass the whole result as `extras`, but `compileContextPack` reads only `extras.sections` (`context-compiler.mjs:289`); `errors` are dropped, so the "reported as an `unknown` entry" promise in `docs/ARCHITECTURE.md:314-315` is not implemented.
+
+## 6. Benchmarks
+
+The `qa` tool profile (`src/core/tool-profiles.mjs:161-175`) carries `run_search_eval` and `run_skill_routing_eval` next to the QA runners. Golden cases live in `../search-eval/search_eval_cases.json` (schema 3, 45 cases: skills 19, frontend 9, docs 8, quality 5, code 2, debug 2; 4 with `must_not`, 44 with `expected_any`) and `../search-eval/skill_routing_eval_cases.json` (schema 1, 37 cases with `task`, `project_types`, `stack`, `expected_all` / `expected_any` / `must_not`); `runtime-assets.mjs:31-32` resolves them from the repository or from `09-mcp/search-eval` in a vault.
+
+`run_search_eval` (`search.mjs:99-204`, judged by `src/core/search-eval.mjs`): per case `pass | fail | skipped`, `matched_rank`, `reciprocal_rank`, `top_1`, `ndcg` (`:215-224`), `negative_checks`, `duplicate_checks`; summary `mean_reciprocal_rank`, `top_1_accuracy`, `mean_ndcg`, `negative_violations`, `visible_duplicate_count`, `collapsed_duplicate_count`; status `ok | degraded | fail`; `MAX_EVAL_CASES = 200`, default `max_cases 50`, `top_k` default 5 clamped `1..50`, `include_dense` default true.
+
+`run_skill_routing_eval` (`mcp-stdio.mjs:1653-1697`, `src/core/skill-routing-eval.mjs`): `pass_rate`, `expected_skill_coverage`, `max_three_violations`, `empty_route_violations`; writes `03-skills-catalog/registries/skill-routing-eval.json` (`:253`) and marks the index dirty. The system health check `skill_routing_benchmark` (`extensions/system.mjs:255`) compares report and case mtimes (Д-33).
+
+## 7. DEFECTS entries (`../docs/DEFECTS.md`, 71 entries)
+
+- Д-1 (`:47`): imported ECC skills never appear in `recommend_skills`; led to the reserved specialist slot.
+- Д-20 (`:872`): a generalist skill (`intent-driven-development`) grabs the specialist slot; exclusion-term scoring fixed it.
+- Д-29 (`:1298`): no English task ever gets a specialist (the concept table was RU-only).
+- Д-32 (`:1430`): model downloaded but no vectors; dense search almost blind after `setup --dense`.
+- Д-33 (`:1453`): routing benchmark freshness compared against a vault path absent from checkouts.
+- Д-34 (`:1480`): Python helper failures reported by the first traceback line.
+- Д-36 (`:1616`): a raw NUL in `change-hygiene.mjs` made it invisible to code search tools.
+- Д-52 (`:2348`), Д-57 (`:2723`), Д-59 (`:2880`), Д-68 (`:3590`), Д-69 (`:3636`): container and model wiring plus health diagnostics around BGE-M3 and the search index.
+- Д-62 (`:3087`): BGE-M3 through system Python is the most fragile install step; the ONNX-in-Node backend was added, still partially open.
+- No entry addresses context-pack size, response size or token budgets; `begin_task` appears only in Д-1 (`:59`) as the consumer that could not see imported skills.
+
+## 8. Line counts and bounding constants
+
+Modules: `context-compiler.mjs` 479, `context-extras.mjs` 108, `project-detection.mjs` 429, `project-intelligence.mjs` 358, `search-index.mjs` 493, `search-runtime.mjs` 343, `search-reranker.mjs` 333, `search-eval.mjs` 306, `embedding-workers.mjs` 409, `dense-backend.mjs` 113, `dense-runtime.mjs` 137, `dense-onnx.mjs` 277, `dense-index.mjs` 119, `skill-router.mjs` 331, `skill-routing-eval.mjs` 124, `knowledge-router.mjs` 150, `intent-patterns.mjs` 43, `task-vocabulary.mjs` 337, `import-graph.mjs` 361, `extensions/search.mjs` 544, `extensions/lifecycle.mjs` 723, `docs/ARCHITECTURE.md` 564, `../search-index/search_cli.py` 1 820, `../docs/DEFECTS.md` 3 850. Tests: `context-compiler.test.mjs` 77, `context-extras.test.mjs` 87, `search-index.test.mjs` 398, `search-reranker.test.mjs` 99, `search-eval.test.mjs` 268, `skill-router.test.mjs` 176, `import-graph.test.mjs` 208, `extensions/search.test.mjs` 278, `../search-index/test_search_freshness.py` 403.
+
+Constants: discovery `maxFiles 6000`, `maxDepth 12`; `maxSourceFiles <= 30`; `maxChars` default `24_000` (`begin_task` `20_000`; tool clamp `8_000..60_000`); `512 KiB` file cap; excerpt floor `500`; degradation cuts `240 / 400 / 600`; token estimate `/ 4`; `tokens <= 80`; `reasons <= 4`; `commands <= 10`; `routed_skills <= 3`. Extras: decisions `20 / 5`, handoff `7 days`, `3` failed, `3` blockers. Search: `MAX_RESULTS 50`, helper request `50`, `HYBRID_CANDIDATE_LIMIT 500`, `FRESHNESS_CACHE_MS 1000`, `EXPLAIN 5 / 20`, `MAX_EVAL_CASES 200`, `dense_text_limit 1200 (300..12000)`, `DENSE_PLAN_BATCH 16`, `MAX_ONNX_BATCH 32`, `MAX_EMBED_TEXTS 32`, `MAX_EMBED_TEXT_LENGTH 12000`, `DENSE_PROBE_TTL_MS 60_000`, `SEMANTIC_DIMENSIONS 1024`, `MAX_VECTOR_FEATURES 512`. Routing: `maxSkills <= 3`, `SPECIALIST_MIN_SCORE 18`. Import graph: `IMPORT_GRAPH_MAX_FILES 4_000`. Deep detection: `maxDepth 4 (1..6)`. Line gate: `MODULE_LINE_CEILING 800`, `SYSTEM_LINE_CEILING 5_076`.

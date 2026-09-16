@@ -1836,7 +1836,16 @@ function pythonCommand() {
   const bundled = process.platform === "win32"
     ? path.join(dependenciesRoot, "python", "python.exe")
     : path.join(dependenciesRoot, "python", "bin", "python");
-  return existsSync(bundled) ? bundled : "python";
+  if (existsSync(bundled)) return bundled;
+  // `python3` off Windows, because `python` is not a command there any more:
+  // macOS dropped it with the Python 2 removal, and a fresh install ends at
+  // `spawn python ENOENT` while building the search index — `npm run setup`
+  // reports a failed step and `npm run doctor` says `fail`, on a machine where
+  // nothing is wrong (docs/DEFECTS.md, Д-72). Windows keeps `python`: its
+  // installer and the Store alias both provide that name and not `python3`.
+  // `scripts/install-local-mcp-clients.mjs` already chose `python3` for the
+  // same fallback; this is the other half of that decision.
+  return process.platform === "win32" ? "python" : "python3";
 }
 
 function embeddingPythonCommand() {

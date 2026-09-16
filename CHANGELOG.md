@@ -113,6 +113,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+Nine of these came from the acceptance runs of 2026-09-15/16 on three real
+machines — macOS 15.2 on Apple Silicon, Windows 11 Pro x64, Arch Linux — and
+four of those arrived as upstream issues #63–#66.
+
+- **A fresh macOS builds its search index.** `pythonCommand()` fell back to bare
+  `python`, which modern macOS does not have; a clean install ended at
+  `spawn python ENOENT`, `npm run setup` reported a failed step and
+  `npm run doctor` said `fail` on a machine where nothing was wrong. It is
+  `python3` off Windows now, the same choice `install-local-mcp-clients.mjs`
+  already made (Д-72).
+- **A stalled download is given up on, and an abandoned one is swept.** `fetch`
+  has no timeout of its own: on Windows a CDN sent 510 MB of 542 and then went
+  silent, and the install sat there past ten minutes. A 60-second stall window,
+  re-armed by every chunk, now ends it with a sentence saying what happened — a
+  slow link is not cut off, only a silent one. Separately, a `.part` file left
+  by a killed process was invisible to later runs, because its name carries the
+  dead process's pid; those older than an hour are now swept before a download
+  starts (Д-73).
+- **One empty `mcp.json` no longer blocks every client.** A zero-byte file — the
+  one VS Code ships — threw `Unexpected end of JSON input`, and because the
+  install loop had no guard, all four clients were left untouched. Empty now
+  reads as empty, a failure is reported against the client it belongs to, and
+  the rest are installed. The editor's configuration tree is also resolved per
+  platform: `--apply` on macOS used to create `~/AppData/Roaming/Code/User/`
+  and write where VS Code would never look (Д-74).
+- **The first run says how many documents it indexed**, instead of
+  `? document(s) indexed` — it read three key names, none of which was the
+  `document_count` the rebuild actually returns (Д-75, upstream #63).
+- **A pull request is named after the code, not the bookkeeping.** `.ai-dev/` is
+  rewritten on nearly every task and outvoted the change itself, producing
+  `feat(ai-dev): …`. Housekeeping is dropped before the vote — adding it to the
+  generic-directory list, as upstream proposed, was measured and does not work
+  (Д-76, upstream #64).
+- **`npm run doctor -- --dense-smoke`** exists, so the health check's own
+  recommendation can be taken from the command that prints it (Д-77, #66).
+- **A failed setup no longer ends with `Health: ok`.** That check describes the
+  vault, not the run that just failed, and it was the last line the reader saw
+  (Д-78).
+- **The fast-start handshake reports the real version**, not `1.0.0`, and a
+  contract test now holds both launchers to `package.json` (Д-79, #65).
+- **The `--dense` step describes what it downloads** — about 600 MB of
+  checksum-verified ONNX weights, no Python — rather than the legacy stack's
+  Python environment and 2.3 GB (Д-80).
+
 - **`dense-eval`'s `max_cases` input reaches the measurement.** The workflow offered a
   case count per backend and nothing passed it on: `dense-benchmark.mjs` read only
   `--out` and `--label` and called `run_search_eval` with a literal 50, so a dispatch

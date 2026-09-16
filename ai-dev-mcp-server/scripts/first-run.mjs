@@ -244,6 +244,13 @@ if (options.health) {
   for (const check of unhappy) {
     console.log(`  ${check.status}: ${check.name} — ${String(check.summary).replace(/\s+/g, " ").slice(0, 120)}`);
   }
+  // The health check describes the vault, not this run, and the two disagree
+  // when a step here failed: "1 failed" scrolled past and "Health: ok" was the
+  // last line the reader saw (docs/DEFECTS.md, Д-78). Say which is which.
+  if (!firstRunSucceeded(results)) {
+    console.log("");
+    console.log("That health check describes the vault, not this run — a step above failed. Fix it and run setup again.");
+  }
 }
 
 await shutdownBgeWorkers();

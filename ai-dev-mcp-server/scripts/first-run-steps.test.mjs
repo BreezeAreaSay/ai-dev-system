@@ -235,3 +235,13 @@ test("running a plan reports every step, including the ones this caller cannot r
   assert.equal(byId.frontend_qa.status, "skipped");
   assert.equal(results.length, plan.length);
 });
+
+test("the first run counts the documents the rebuild actually reported", async () => {
+  // Д-75 (upstream #63): a fresh rebuild answers with `document_count`, which
+  // was in none of the names this line read, so the first thing a new user saw
+  // was "? document(s) indexed" while the index had in fact been built.
+  const actions = createRequiredActions({
+    callTool: async () => toolResult({ document_count: 3442 })
+  });
+  assert.equal(await actions.search_index(), "3442 document(s) indexed");
+});

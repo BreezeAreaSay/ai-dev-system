@@ -5,7 +5,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { downloadDenseModel } from "./dense-download.mjs";
+import { downloadDenseModel, sweepOrphanParts } from "./dense-download.mjs";
 import { parseDenseManifest } from "./dense-manifest.mjs";
 
 const digestOf = (text) => crypto.createHash("sha256").update(text).digest("hex");
@@ -175,4 +175,107 @@ test("a stale .part file from a killed run does not block the next one", async (
 
   const result = await downloadDenseModel({ manifest: manifestFor([host.base]), targetDir: dir, log: quiet });
   assert.equal(result.ready, true);
+});
+
+test("a source that opens a connection and then goes silent is given up on", async (t) => {
+  // Д-73: the Windows acceptance run sat past ten minutes on a CDN that sent
+  // 510 MB of 542 and then nothing. `fetch` has no timeout, so the wait was
+  // unbounded and the tester had to kill it.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dense-stall-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const manifest = {
+    model: "m", export: "e", revision: "r", dtype: "int8", dimensions: 1024,
+    files: { "onnx/model_int8.onnx": "a".repeat(64) },
+    sources: ["https://example.invalid/base"]
+  };
+  // Сирота от убитого прогона лежит ровно там, куда сейчас пойдёт загрузка.
+  await fs.mkdir(path.join(dir, "onnx"), { recursive: true });
+  const orphan = path.join(dir, "onnx", "model_int8.onnx.9999.part");
+  await fs.writeFile(orphan, "abandoned");
+  const longAgo = new Date(Date.now() - 2 * 60 * 60_000);
+  await fs.utimes(orphan, longAgo, longAgo);
+
+  const started = Date.now();
+  const failure = await downloadDenseModel({
+    manifest,
+    targetDir: dir,
+    stallMs: 150,
+    log: () => {},
+    // One chunk, then silence for as long as anyone is willing to wait.
+    fetchImpl: (_url, options) => Promise.resolve({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("first chunk"));
+          options?.signal?.addEventListener("abort", () => controller.error(new Error("aborted")));
+        }
+      })
+    })
+  }).then(() => null, (error) => error);
+
+  assert.ok(failure, "the download should have failed rather than waited");
+  assert.match(failure.message, /no data for 0s|no data for \d+s/);
+  assert.ok(Date.now() - started < 5000, "it should give up in about the stall window, not hang");
+  // Ни своего недописанного файла, ни чужого — каталог чист.
+  assert.deepEqual(await fs.readdir(path.join(dir, "onnx")).catch(() => []), []);
+});
+
+test("a source that is slow but alive is not cut off", async (t) => {
+  // Обратная сторона Д-73: таймаут перевзводится каждым куском, поэтому узкий
+  // канал не обрывается — обрывается только молчащий. Если бы таймер был общим
+  // дедлайном, эта загрузка не дожила бы до конца.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dense-slow-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const manifest = {
+    model: "m", export: "e", revision: "r", dtype: "int8", dimensions: 1024,
+    files: { "onnx/model_int8.onnx": "b".repeat(64) },
+    sources: ["https://example.invalid/base"]
+  };
+  const failure = await downloadDenseModel({
+    manifest,
+    targetDir: dir,
+    stallMs: 200,
+    log: () => {},
+    fetchImpl: () => Promise.resolve({
+      ok: true,
+      body: new ReadableStream({
+        async start(controller) {
+          for (let index = 0; index < 6; index += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 60));
+            controller.enqueue(new TextEncoder().encode(`chunk ${index}`));
+          }
+          controller.close();
+        }
+      })
+    })
+  }).then(() => null, (error) => error);
+
+  // 360 мс живой передачи при окне простоя 200 мс: до конца дошли, и упало уже
+  // на контрольной сумме — то есть на содержимом, а не на времени.
+  assert.ok(failure, "the fake bytes cannot match the manifest");
+  assert.match(failure.message, /checksum mismatch/);
+  assert.doesNotMatch(failure.message, /no data for/);
+});
+
+test("a .part file from a killed run is swept, one from a live run is not", async (t) => {
+  // Д-73: the temporary name carries the writer's pid, so an orphan left by a
+  // killed process is invisible to every later run — three piled up in one
+  // macOS session. Age is the guard: a fresh .part may be a download running
+  // right now in another terminal.
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dense-parts-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  const target = path.join(dir, "model_int8.onnx");
+  const orphan = `${target}.10584.part`;
+  const live = `${target}.17124.part`;
+  const unrelated = path.join(dir, "notes.txt");
+  await fs.writeFile(orphan, "abandoned");
+  await fs.writeFile(live, "in progress");
+  await fs.writeFile(unrelated, "keep me");
+  const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60_000);
+  await fs.utimes(orphan, twoHoursAgo, twoHoursAgo);
+
+  const removed = await sweepOrphanParts(target);
+  assert.deepEqual(removed, ["model_int8.onnx.10584.part"]);
+  assert.equal(await fs.readFile(live, "utf8"), "in progress");
+  assert.equal(await fs.readFile(unrelated, "utf8"), "keep me");
 });

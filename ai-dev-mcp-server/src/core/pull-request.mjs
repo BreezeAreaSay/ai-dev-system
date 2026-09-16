@@ -45,6 +45,23 @@ export const TYPE_PATTERNS = Object.freeze([
 ]);
 
 const GENERIC_DIRS = new Set(["src", "lib", "app", "source", "sources", "packages", "pkg"]);
+
+/**
+ * Directories this system writes to itself, which never name a change's scope.
+ *
+ * `.ai-dev/` holds the brief, the map, the quality gate, the context packs and
+ * their caches — rewritten on nearly every task, and usually outnumbering the
+ * code the task was about, so the majority vote below named the bookkeeping:
+ * "feat(ai-dev): add a subtract function to the widget" (docs/DEFECTS.md, Д-76;
+ * upstream #64).
+ *
+ * They are dropped before the vote rather than added to GENERIC_DIRS, which was
+ * the fix upstream proposed: a generic directory is *skipped over* to reach the
+ * one below it, and `.ai-dev/project-brief.md` has nothing below it — the walk
+ * steps back onto `.ai-dev` and votes for it anyway. Measured: with `.ai-dev`
+ * in GENERIC_DIRS the scope was still `ai-dev`.
+ */
+const HOUSEKEEPING_DIRS = new Set([".ai-dev"]);
 const MAX_FILES_PER_GROUP = 40;
 const MAX_COMMITS = 20;
 const MAX_CHECKPOINTS = 12;
@@ -225,7 +242,10 @@ export function pullRequestType(task) {
  * @returns {string}
  */
 export function scopeFromFiles(files) {
-  const paths = files.map((item) => String(item).replaceAll("\\", "/")).filter(Boolean);
+  const all = files.map((item) => String(item).replaceAll("\\", "/")).filter(Boolean);
+  const paths = all.filter((item) => !HOUSEKEEPING_DIRS.has(String(item.split("/")[0]).toLowerCase()));
+  // Nothing but housekeeping changed: there is no scope to claim, and claiming
+  // the housekeeping's own name is what this is here to stop.
   if (!paths.length) return "";
   const split = paths.map((item) => item.split("/").filter(Boolean));
   let shared = 0;

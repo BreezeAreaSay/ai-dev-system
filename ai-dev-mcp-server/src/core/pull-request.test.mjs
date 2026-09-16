@@ -261,3 +261,21 @@ test("resolveBaseRef and collectPullRequestChanges read a real repository", asyn
   assert.equal(outside.git, false);
   assert.deepEqual((await resolveBaseRef({ projectRoot: root })).base_ref, "");
 });
+
+test("the system's own housekeeping does not name the branch's scope", () => {
+  // Д-76 (upstream #64): `.ai-dev/` is rewritten on nearly every task — brief,
+  // map, quality gate, caches — so it outvoted the code the task was about and
+  // the title read "feat(ai-dev): add a subtract function to the widget".
+  assert.equal(
+    scopeFromFiles([
+      ".ai-dev/project-brief.md",
+      ".ai-dev/project-map.md",
+      ".ai-dev/quality-gate.md",
+      "src/widget/math.mjs"
+    ]),
+    "widget"
+  );
+  // With nothing but housekeeping there is no scope to claim, rather than a
+  // scope that describes the bookkeeping.
+  assert.equal(scopeFromFiles([".ai-dev/project-brief.md", ".ai-dev/cache/x.json"]), "");
+});

@@ -100,10 +100,14 @@ if (command === "help" || command === "--help" || command === "-h") {
     let input;
     if (command === "doctor") {
       tool = "system_health_check";
+      // The health check ends by recommending `include_dense_smoke=true`, and
+      // until these flags existed there was no way to take that advice from the
+      // command it prints under (docs/DEFECTS.md, Д-77; upstream #66). Both stay
+      // off by default: one loads the model, the other runs the golden cases.
       input = {
         include_search_smoke: true,
-        include_dense_smoke: false,
-        include_search_eval: false
+        include_dense_smoke: arguments_.includes("--dense-smoke"),
+        include_search_eval: arguments_.includes("--search-eval")
       };
     } else if (command === "dashboard") {
       tool = "rebuild_system_dashboard";

@@ -9,9 +9,14 @@
 зависимости, если менялся `package-lock.json` (он не менялся, но `git pull` стоит сделать).
 
 ```
+git fetch origin
+git checkout claude/wonderful-dijkstra-xf7pai   # если PR #2 ещё не влит в main
 git pull
 cd ai-dev-mcp-server
 ```
+
+Если PR уже влит — достаточно `git pull` на `main`. Проверить, что вы на ревизии с
+исправлениями: `git log --oneline -1` показывает коммит про приёмочные прогоны.
 
 ---
 

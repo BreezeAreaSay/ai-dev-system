@@ -20,6 +20,7 @@ import path from "node:path";
 import process from "node:process";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { freeSpaceFor, judgeDiskSpace } from "./disk-space.mjs";
 import { sha256File, verifyDenseModelDirectory } from "./dense-manifest.mjs";
 
 /** How many bytes of a response we are willing to buffer for an error message. */
@@ -50,6 +51,42 @@ export const DOWNLOAD_STALL_MS = 60_000;
 
 /** How long an abandoned `.part` file is left alone before it is swept. */
 export const ORPHAN_PART_MAX_AGE_MS = 60 * 60_000;
+
+/**
+ * A failure the next source cannot fix.
+ *
+ * Every other reason one source fails — a 403, a moved export, a dead
+ * connection — is a reason to try the next mirror. A full disk is the same on
+ * all of them, and trying each in turn would bury the one sentence that says
+ * what is actually wrong under a pile of "source failed" lines.
+ *
+ * @param {string} message
+ * @returns {Error}
+ */
+function outOfSpace(message) {
+  const error = new Error(message);
+  error.outOfSpace = true;
+  return error;
+}
+
+/** One file's address at one source. */
+const fileUrl = (source, relative) => `${String(source).replace(/\/$/, "")}/${relative}`;
+
+/**
+ * What to say when the disk fills up in the middle of a transfer.
+ *
+ * Node's own `ENOSPC: no space left on device, write` names the condition but
+ * not the file, the directory or what to do next, and it arrives among the
+ * frames of a stream pipeline. This is the same fact as a sentence.
+ *
+ * @param {string} target
+ * @returns {string}
+ */
+export function describeOutOfSpace(target) {
+  return `${path.basename(target)}: the disk filled up while it was being written to ${path.dirname(target)}. `
+    + "Free up space and run the command again — files that already match are skipped, "
+    + "so it picks up where it stopped.";
+}
 
 /**
  * Delete `.part` files left behind for this target by runs that are gone.
@@ -84,7 +121,59 @@ export async function sweepOrphanParts(target, { now = Date.now(), maxAgeMs = OR
   return removed;
 }
 
-async function downloadOne({ url, target, expected, fetchImpl, log, stallMs = DOWNLOAD_STALL_MS }) {
+/**
+ * Ask the sources how big a file is without fetching it.
+ *
+ * A HEAD is cheap and gives a real number; nothing here guesses. A host that
+ * answers no HEAD, or answers one with no length, leaves the size unknown —
+ * which costs the plan its precision and nothing else, because the size is
+ * checked again from the GET response before that file is written.
+ *
+ * @returns {Promise<number|null>} Bytes, or null when no source would say.
+ */
+async function probeSize({ relative, sources, fetchImpl }) {
+  for (const source of sources) {
+    try {
+      const response = await fetchImpl(fileUrl(source, relative), { method: "HEAD", redirect: "follow" });
+      if (!response?.ok) continue;
+      const declared = Number(response.headers?.get?.("content-length"));
+      if (Number.isFinite(declared) && declared > 0) return declared;
+    } catch {
+      // A source that will not answer a HEAD is not a source that cannot serve
+      // the file, so this is not a failure — only an unknown.
+    }
+  }
+  return null;
+}
+
+/**
+ * Refuse a download that does not fit, before any of it is fetched.
+ *
+ * The whole point is the "before": the run that found Д-81 spent an hour
+ * watching a progress line crawl on a disk that was nearly full, with no way to
+ * tell that from the stalled CDN of Д-73. A sentence with both numbers in it,
+ * said up front, tells them apart.
+ *
+ * A disk that cannot be measured, or a set of files none of whose sizes any
+ * source will state, means no check — never a refusal on the strength of a
+ * number nobody has.
+ */
+async function planForSpace({ pending, sources, targetDir, fetchImpl, log, statfs }) {
+  const free = await freeSpaceFor(targetDir, { statfs });
+  if (free === null) return;
+  let needed = 0;
+  let unknown = 0;
+  for (const [relative] of pending) {
+    const size = await probeSize({ relative, sources, fetchImpl });
+    if (size === null) unknown += 1;
+    else needed += size;
+  }
+  const room = judgeDiskSpace({ free, needed, where: targetDir, atLeast: unknown > 0 });
+  if (room.verdict === "refuse") throw outOfSpace(room.message);
+  if (room.message) log(room.message);
+}
+
+async function downloadOne({ url, target, expected, fetchImpl, log, statfs, stallMs = DOWNLOAD_STALL_MS }) {
   const controller = new AbortController();
   let stallTimer = null;
   let stalled = false;
@@ -106,6 +195,7 @@ async function downloadOne({ url, target, expected, fetchImpl, log, stallMs = DO
         + "Run the command again — files that already match are skipped, so it picks up where it stopped."
       );
     }
+    if (error?.code === "ENOSPC") throw outOfSpace(describeOutOfSpace(target));
     throw error;
   } finally {
     clearTimeout(stallTimer);
@@ -125,6 +215,18 @@ async function downloadOne({ url, target, expected, fetchImpl, log, stallMs = DO
     }
     await fsp.mkdir(path.dirname(target), { recursive: true });
     await sweepOrphanParts(target);
+    // The second line of defence, and on a host that answers no HEAD the only
+    // one: whatever the plan said, this file is about to be written and its
+    // size is now known for certain.
+    const declared = Number(response.headers?.get?.("content-length"));
+    if (Number.isFinite(declared) && declared > 0) {
+      const room = judgeDiskSpace({
+        free: await freeSpaceFor(path.dirname(target), { statfs }),
+        needed: declared,
+        where: path.dirname(target)
+      });
+      if (room.verdict === "refuse") throw outOfSpace(room.message);
+    }
     const temporary = `${target}.${process.pid}.part`;
     await fsp.rm(temporary, { force: true });
     const hash = crypto.createHash("sha256");
@@ -170,6 +272,7 @@ async function downloadOne({ url, target, expected, fetchImpl, log, stallMs = DO
  * @param {typeof fetch} [options.fetchImpl]
  * @param {(line: string) => void} [options.log]
  * @param {Record<string, string|undefined>} [options.env]
+ * @param {(path: string) => Promise<object>} [options.statfs] - Seam for the free-space check.
  * @returns {Promise<object>} The verification result for the finished directory.
  */
 export async function downloadDenseModel({
@@ -178,6 +281,7 @@ export async function downloadDenseModel({
   fetchImpl = fetch,
   log = (line) => process.stderr.write(`${line}\n`),
   env = process.env,
+  statfs = fsp.statfs,
   stallMs = DOWNLOAD_STALL_MS
 } = {}) {
   if (String(env.AI_DEV_OFFLINE ?? "") === "1") {
@@ -186,26 +290,39 @@ export async function downloadDenseModel({
   const sources = manifest.sources ?? [];
   if (!sources.length) throw new Error("Dense model manifest lists no sources to download from.");
   const resolved = path.resolve(String(targetDir));
+  // Which files are actually missing is settled once, before anything is
+  // fetched: the plan for disk space needs the same list the loop works
+  // through, and hashing half a gigabyte twice to build it twice is not free.
+  const pending = [];
+  for (const [relative, digest] of Object.entries(manifest.files)) {
+    if (await sha256File(path.join(resolved, relative)) === digest) continue;
+    pending.push([relative, digest]);
+  }
+  if (pending.length) {
+    await planForSpace({ pending, sources, targetDir: resolved, fetchImpl, log, statfs });
+  }
   let downloaded = 0;
   let bytes = 0;
-  for (const [relative, digest] of Object.entries(manifest.files)) {
+  for (const [relative, digest] of pending) {
     const target = path.join(resolved, relative);
-    if (await sha256File(target) === digest) continue;
     let lastError = null;
     for (const source of sources) {
       try {
         bytes += await downloadOne({
-          url: `${String(source).replace(/\/$/, "")}/${relative}`,
+          url: fileUrl(source, relative),
           target,
           expected: digest,
           fetchImpl,
           log,
+          statfs,
           stallMs
         });
         lastError = null;
         downloaded += 1;
         break;
       } catch (error) {
+        // A disk that is full is full at every mirror.
+        if (error?.outOfSpace) throw error;
         lastError = error;
         log(`source failed for ${relative}: ${error.message}`);
       }

@@ -20,6 +20,10 @@ on:
         description: Golden cases to run per backend (45 exist; anything larger scores all of them)
         required: false
         default: "50"
+      python_revision:
+        description: Commit of BAAI/bge-m3 for the legacy download (blank uses the BGE_M3_PYTHON_REVISION variable, or no pin at all)
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -106,6 +110,16 @@ jobs:
     name: Legacy Python backend
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    # The pin for the legacy download, and the one place it is decided. It is
+    # read three times below — by the cache key, by `snapshot_download` inside
+    # `npm run setup`, and by the index that records where a vector came from —
+    # and every one of them reads it from the environment, so defining it here
+    # is what makes a pinned run possible at all. Before this, the cache key
+    # named `env.BGE_M3_PYTHON_REVISION` and nothing ever set it: the sha this
+    # workflow prints had nowhere to go, and the run was always unpinned
+    # (docs/DEFECTS.md, Д-62, point 1).
+    env:
+      BGE_M3_PYTHON_REVISION: ${{ inputs.python_revision || vars.BGE_M3_PYTHON_REVISION }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -138,18 +152,32 @@ jobs:
           AI_DEV_DENSE_BACKEND: python
         run: npm run setup -- --dense-python --no-health
 
-      # The commit the torch repository is at right now. Nothing pins it yet:
-      # `BGE_M3_PYTHON_REVISION` takes a value and the sandbox could not read
-      # one, since huggingface.co is closed to it. Print it so the owner can
-      # paste it into that variable and close the last half of Д-62 point 1.
+      # Where the sha comes from. The development sandbox cannot reach
+      # huggingface.co and a commit hash is not something to invent, so the one
+      # place the value can be read is a runner — printed here, alongside what
+      # this run actually used, so a pinned run can be told from an unpinned one
+      # and drift from neither (docs/DEFECTS.md, Д-62, point 1).
       - name: Report the revision this run used
         run: |
           python -m pip install --quiet huggingface_hub
           python - <<'PY'
+          import os
           from huggingface_hub import HfApi
-          info = HfApi().model_info("BAAI/bge-m3")
-          print(f"BAAI/bge-m3 is currently at {info.sha}")
-          print("Set BGE_M3_PYTHON_REVISION to that value to pin the legacy download.")
+
+          live = HfApi().model_info("BAAI/bge-m3").sha
+          pinned = os.environ.get("BGE_M3_PYTHON_REVISION", "").strip()
+          print(f"BAAI/bge-m3 is at {live} right now.")
+          if not pinned:
+              print("This run was UNPINNED: it took whatever that repository holds today, and a later")
+              print("run may score different weights under the same name. Set the repository variable")
+              print(f"BGE_M3_PYTHON_REVISION to {live} — or dispatch with that value in python_revision —")
+              print("and every run after it downloads exactly those bytes.")
+          elif pinned == live:
+              print(f"This run was pinned to {pinned}, which is where the repository still is.")
+          else:
+              print(f"This run was pinned to {pinned}; the repository has moved to {live} since.")
+              print("The numbers below are the pinned weights'. That difference is the whole point of")
+              print("the pin: without it this run would have scored something else without saying so.")
           PY
 
       - name: Measure

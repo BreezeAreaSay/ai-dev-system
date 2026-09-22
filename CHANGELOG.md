@@ -69,6 +69,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   passing run, and the pull request text. About twenty seconds, no MCP client,
   and it deletes everything it made. `docs/DEMO.md` quotes its output.
 
+- **The model download refuses a disk it does not fit on** (`docs/DEFECTS.md`,
+  Д-81). Before the first byte, it asks the sources how big the missing files
+  are and compares the total against `statfs`: too little room and it stops
+  there, naming what it needs, what there is and how much to free, rather than
+  starting an hour of writing that cannot finish. A disk that fits the download
+  and little else — the acceptance machine had about 3 GB free and watched its
+  write rate fall from roughly 45 MB/min to roughly 1 MB/min — still downloads,
+  and says once that the disk is why it may crawl. Until now both looked exactly
+  like the stalled CDN of Д-73, which is fixed by the opposite action.
+
+  Also: `ENOSPC` in the middle of a transfer is now a sentence naming the file
+  and the directory instead of a stream frame, and a full disk stops the
+  download rather than being retried against every mirror in turn. A machine
+  whose filesystem will not answer `statfs` is not refused anything — an
+  unmeasurable disk has no verdict.
+
 ### Changed
 
 - **Dense vectors record where they came from** (Д-62). Every vector in the
@@ -123,6 +139,18 @@ four of those arrived as upstream issues #63–#66.
   `npm run doctor` said `fail` on a machine where nothing was wrong. It is
   `python3` off Windows now, the same choice `install-local-mcp-clients.mjs`
   already made (Д-72).
+- **The pin for the legacy model download had nowhere to go** (Д-62, point 1).
+  `dense-eval.yml` printed the current `BAAI/bge-m3` commit and told the owner
+  to set `BGE_M3_PYTHON_REVISION` to it; the cache key read that variable from
+  the `env` context, and nothing in the workflow ever defined it. A repository
+  variable would not have arrived there either — those are read through `vars` —
+  so the value could be written down and still never reach
+  `snapshot_download`, and every run scored whatever upstream held that day
+  without saying so. The legacy job now defines the pin from
+  `inputs.python_revision || vars.BGE_M3_PYTHON_REVISION`, and the reporting
+  step says which of the three a run was: pinned and current, pinned and
+  drifted, or not pinned at all.
+
 - **A stalled download is given up on, and an abandoned one is swept.** `fetch`
   has no timeout of its own: on Windows a CDN sent 510 MB of 542 and then went
   silent, and the install sat there past ten minutes. A 60-second stall window,

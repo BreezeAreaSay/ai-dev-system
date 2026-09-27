@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Dependency scanning for pnpm, Yarn, Bun and OSV, wherever the lockfile is**
+  (`docs/DEFECTS.md`, Д-83). `run_security_scan` had one JavaScript adapter,
+  `npm audit`, and ran it only at the repository root: a pnpm, Yarn or Bun
+  project, or a repository whose `frontend/` and `backend/` each keep their own
+  lockfile, came back `unchecked`. Four adapters join the catalogue —
+  `pnpm_audit`, `yarn_audit` (Yarn 1 and Yarn 2+, told apart by
+  `packageManager` or `.yarnrc.yml`), `bun_audit` and `osv_scanner` — and the
+  package managers' audits run in every directory up to two levels down that
+  holds their lockfile. Findings about a package now carry `package`,
+  `version`, `vulnerable`, `fixed_in` and `aliases`, and one advisory reported by
+  two scanners is one finding, `confirmed_by` the second.
+
+  A new finding kind, `malware`: GitHub's "Malware in …" advisories, which the
+  npm registry serves to every package manager's audit, and OSV's `MAL-`
+  reports from the OpenSSF malicious-packages feed — 221,947 of them for npm,
+  only 28,668 with a GitHub twin. Malware is always critical and always blocks,
+  and the next step says remove and rotate, not upgrade.
+
+  A non-zero exit with no findings is believed only when the output is the
+  tool's report: Yarn 1 handed Yarn 2+'s command exits 1 — "found something" in
+  its bitmask — after printing `Command "npm" not found`, which used to read as
+  a clean scan.
+
 - **Dense search runs without Python** (`docs/DEFECTS.md`, Д-62). The local
   BGE-M3 model now has a second backend behind the contract it always had —
   text in, a normalized 1024-dimension vector out — and it is the default:

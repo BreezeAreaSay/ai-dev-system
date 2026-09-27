@@ -33,8 +33,9 @@ test("the tool needs a project or a task, and is not read-only", () => {
   assert.match(definition.description, /skipped with the reason — never as a failure/);
   // And a run where not one of them ran has to say so where an agent reads it.
   assert.match(definition.description, /unchecked, not pass/);
+  assert.match(definition.description, /kind is dependency, malware, secret, sast or misconfig/);
   assert.deepEqual(definition.inputSchema.properties.scanners.items.enum, [
-    "npm_audit", "pip_audit", "cargo_audit", "gitleaks", "semgrep", "trivy_fs"
+    "npm_audit", "pnpm_audit", "yarn_audit", "bun_audit", "osv_scanner", "pip_audit", "cargo_audit", "gitleaks", "semgrep", "trivy_fs"
   ]);
 });
 

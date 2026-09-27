@@ -1,3 +1,4 @@
+import { MALWARE_REMEDIATION } from "../core/security-scan-parsers.mjs";
 import {
   SECURITY_SCANNERS,
   renderSecurityScanMarkdown,
@@ -20,7 +21,7 @@ export function createSecurityTools(host) {
     definitions: [
       {
         name: "run_security_scan",
-        description: `Run the security scanners this machine has installed over a project: ${SECURITY_SCANNERS.map((scanner) => scanner.id).join(", ")}. Every finding comes back as { tool, kind, severity, file, line, message, rule }, where kind is dependency, secret, sast or misconfig. A scanner that is not installed, has nothing to read in this project, or needs a network this run does not have is reported as skipped with the reason — never as a failure. Critical and high dependency or secret findings block verify_task; everything else warns. A run where not one scanner could run is unchecked, not pass: it does not block, and it does not claim anything was checked.`,
+        description: `Run the security scanners this machine has installed over a project: ${SECURITY_SCANNERS.map((scanner) => scanner.id).join(", ")}. Every finding comes back as { tool, kind, severity, file, line, message, rule }, where kind is dependency, malware, secret, sast or misconfig; a finding about a package also names package, version, vulnerable, fixed_in and aliases. The npm, pnpm, Yarn and Bun audits run in every directory up to two levels down that holds their lockfile, and one advisory reported by two scanners is one finding. A scanner that is not installed, has nothing to read in this project, or needs a network this run does not have is reported as skipped with the reason — never as a failure. Critical and high dependency, malware or secret findings block verify_task; everything else warns. Malware is critical always: the fix is removal and credential rotation, not an upgrade. A run where not one scanner could run is unchecked, not pass: it does not block, and it does not claim anything was checked.`,
         inputSchema: {
           type: "object",
           properties: {
@@ -56,6 +57,7 @@ export function createSecurityTools(host) {
           timeoutMs: Number(args.timeout_ms) > 0 ? Number(args.timeout_ms) : undefined
         });
         const markdown = renderSecurityScanMarkdown(scan);
+        const malware = scan.findings.filter((item) => item.kind === "malware");
         let checkpoint = null;
         if (record && args.record_checkpoint && record.status !== "complete") {
           const updated = await host.taskStore.checkpoint(record.id, {
@@ -68,13 +70,15 @@ export function createSecurityTools(host) {
           ...scan,
           markdown,
           checkpoint,
-          next_step: scan.status === "block"
-            ? "Fix every critical or high dependency and secret finding — rotate what leaked, upgrade what is vulnerable — before verify_task."
-            : scan.status === "unchecked"
-              ? "No scanner could run here, so nothing was checked. Install at least one (gitleaks is the cheapest and needs no network) so this check means something."
-              : scan.status === "warn"
-                ? "Read the findings and either fix them or say in your checkpoint notes why they stand."
-                : "Nothing found by the scanners that ran; continue with verify_task."
+          next_step: malware.length
+            ? `Malware: ${[...new Set(malware.map((item) => `${item.package || "a package"}${item.version ? `@${item.version}` : ""}`))].join(", ")}. ${MALWARE_REMEDIATION} Do this before anything else, then plan the remaining fixes with plan_security_fixes.`
+            : scan.status === "block"
+              ? "Fix every critical or high dependency and secret finding — rotate what leaked, upgrade what is vulnerable — before verify_task. plan_security_fixes turns the dependency findings into exact, confirmable commands."
+              : scan.status === "unchecked"
+                ? "No scanner could run here, so nothing was checked. Install at least one (gitleaks is the cheapest and needs no network) so this check means something."
+                : scan.status === "warn"
+                  ? "Read the findings and either fix them or say in your checkpoint notes why they stand."
+                  : "Nothing found by the scanners that ran; continue with verify_task."
         };
       }
     },

@@ -86,7 +86,7 @@ async function createFixture(t) {
   const calls = [];
   const host = {
     // The security_scanners check asks the host which binaries exist, so the
-    // fixture answers for a machine with all six rather than for whichever
+    // fixture answers for a machine with all of them rather than for whichever
     // machine runs the suite. It also asks a subcommand scanner whether its
     // plugin is really there (docs/DEFECTS.md, Д-64), and that goes through the
     // host too — otherwise this unit test spawns a real `cargo` and its answer
@@ -198,7 +198,7 @@ test("health check runs every check through the host", async (t) => {
   assert.equal(result.status, "ok");
   assert.deepEqual(result.summary, { ok: 20, warn: 0, fail: 0, skipped: 2 });
   const scanners = result.checks.find((check) => check.name === "security_scanners");
-  assert.match(scanners.summary, /6 of 6 security scanners installed/);
+  assert.match(scanners.summary, /10 of 10 security scanners installed/);
   assert.equal(result.recommendations.length, 1);
   assert.match(result.recommendations[0], /include_dense_smoke=true/);
 });
@@ -213,7 +213,7 @@ test("a machine with no security scanner installed is warned about, not failed",
   const check = result.checks.find((item) => item.name === "security_scanners");
   assert.equal(check.status, "warn");
   assert.equal(check.critical, false, "a gap in tooling is not a broken system");
-  assert.match(check.summary, /None of the 6 security scanners is installed/);
+  assert.match(check.summary, /None of the 10 security scanners is installed/);
   assert.deepEqual(check.details.installed, []);
   // Nothing on the PATH means nothing to probe either.
   assert.equal(calls.some((call) => call?.tool === "runProcess"), false);

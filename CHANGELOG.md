@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`plan_security_fixes`** — a dependency fix plan that changes nothing. It
+  runs the package-naming scanners and, for each vulnerable package in each
+  lockfile, says what to do — `replace-malware` or `remove-malware`,
+  `upgrade-direct`, `update-in-range`, `override`, `no-fix` — to which
+  version, with the exact command for the package manager that owns the
+  lockfile, and whether the upgrade is breaking (below 1.0.0 a minor counts).
+  The target is the first published version outside every advisory's range
+  that has been public at least `min_release_age_days` (default 7), read from
+  the registry; npm commands carry `--before` so what an upgrade pulls in is
+  held to the same quarantine. Whether dependents already accept the fix is
+  read from the lockfile — npm, Yarn and Bun record the ranges, pnpm does not,
+  and the plan says so. Installs and updates stay behind confirmation: the plan
+  is what the user confirms. Run against this server's lockfile from before
+  Д-82, it proposes exactly what closed Д-82 by hand — `npm update … --before`
+  for `fast-uri`, `hono` and `qs`, an override flagged breaking for `sharp`.
+
 - **Dependency scanning for pnpm, Yarn, Bun and OSV, wherever the lockfile is**
   (`docs/DEFECTS.md`, Д-83). `run_security_scan` had one JavaScript adapter,
   `npm audit`, and ran it only at the repository root: a pnpm, Yarn or Bun

@@ -105,7 +105,7 @@ If it tries to close early, it will not be allowed to. That is the point.
 
 ## What you get
 
-The server exposes 133 tools. You do not need to know them — they are grouped
+The server exposes 134 tools. You do not need to know them — they are grouped
 into eight **capability profiles**, and only `core` is on the critical path:
 
 | Profile | Tools | What it adds |
@@ -119,7 +119,7 @@ into eight **capability profiles**, and only `core` is on the critical path:
 | `security` | 8 | Secret and dependency scans, command and write policy, MCP inventory. |
 | `advanced` | 36 | Diagrams, the search and skill indexes, the dashboard, usage, packaging. |
 
-Set `AI_DEV_PROFILES=core,git` and the server advertises 34 tools instead of 133
+Set `AI_DEV_PROFILES=core,git` and the server advertises 34 tools instead of 134
 — about 15 KB of schema in the model's context instead of 96 KB, before it has
 read a word of your request. Unset, everything is on and nothing is hidden.
 
@@ -133,7 +133,7 @@ flowchart TB
     subgraph client["Your MCP client (Claude Code, Cursor, VS Code, Codex, Gemini)"]
         agent["the agent"]
     end
-    agent <-->|stdio, no network port| server["ai-dev server<br/>133 tools in 8 profiles"]
+    agent <-->|stdio, no network port| server["ai-dev server<br/>134 tools in 8 profiles"]
     server --> ctx["Project context<br/><i>stack, conventions,<br/>decisions, handoffs</i>"]
     server --> skills["Skill library<br/><i>3,227 skills,<br/>hybrid search</i>"]
     server --> life["Task lifecycle<br/><i>snapshots, quality gate,<br/>completion linter</i>"]
@@ -154,7 +154,7 @@ container runs with no network, no capabilities, and a read-only root filesystem
 | [**Workflow**](docs/WORKFLOW.md) | The task lifecycle, epics, undoing a turn, memory and learning. |
 | [**Capabilities**](docs/CAPABILITIES.md) | The eight profiles and how to narrow the tool surface. |
 | [**Guard rails**](docs/GUARDRAILS.md) | Agent hooks, policy rules, MCP inventory, local data and security. |
-| [**Tool reference**](ai-dev-mcp-server/docs/TOOLS.md) | All 133 tools, generated from the server itself. |
+| [**Tool reference**](ai-dev-mcp-server/docs/TOOLS.md) | All 134 tools, generated from the server itself. |
 | [**Architecture**](ai-dev-mcp-server/docs/ARCHITECTURE.md) | How the server is put together. |
 | [**Changelog**](CHANGELOG.md) | What changed, and what to re-check after upgrading. |
 

@@ -69,6 +69,31 @@ test("a scan can be attached to a task as a checkpoint note", async (t) => {
   assert.equal(result.checkpoint, null, "a completed task takes no more checkpoints");
 });
 
+test("the fix plan changes nothing, and says so when nothing could be scanned", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "security-ext-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }));
+  await fs.writeFile(path.join(root, "package-lock.json"), "{}", "utf8");
+  const before = await fs.readFile(path.join(root, "package-lock.json"), "utf8");
+  const { registry, calls } = createFixture({ projectRoot: root });
+  const definition = registry.definitions.find((item) => item.name === "plan_security_fixes");
+  assert.match(definition.description, /change nothing/);
+  assert.match(definition.description, /only after they confirm/);
+  assert.deepEqual(registry.readOnly, [], "it runs scanners and asks the registry");
+
+  // Offline, every dependency scanner is skipped: an empty plan, and a next
+  // step that refuses to read that as clean.
+  const result = await call(registry, "plan_security_fixes", { task_id: "task-1", offline: true, record_checkpoint: true, min_release_age_days: -3 });
+  assert.equal(result.summary.items, 0);
+  assert.equal(result.min_release_age_days, 7, "a negative quarantine is the default, not no quarantine");
+  assert.equal(result.scan.status, "unchecked");
+  assert.match(result.next_step, /No dependency scanner could run here/);
+  assert.match(result.markdown, /# Security fix plan: 0 item\(s\)/);
+  const [, , checkpoint] = calls.find(([name]) => name === "checkpoint");
+  assert.match(checkpoint.summary, /^Security fix plan: 0 item\(s\), 0 malware, 0 breaking/);
+  assert.equal(await fs.readFile(path.join(root, "package-lock.json"), "utf8"), before);
+  await assert.rejects(() => call(registry, "plan_security_fixes", {}), /project_path or task_id is required/);
+});
+
 test("neither a project nor a task is an error the caller can act on", async () => {
   const { registry } = createFixture();
   await assert.rejects(() => call(registry, "run_security_scan", {}), /project_path or task_id is required/);

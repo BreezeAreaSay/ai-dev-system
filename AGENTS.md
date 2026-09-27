@@ -15,7 +15,7 @@ still apply. This file is the part an agent gets wrong.
 
 ## What this repository is
 
-A local-first MCP server (133 tools over stdio, or one warm daemon) plus its
+A local-first MCP server (134 tools over stdio, or one warm daemon) plus its
 Docker image, packaging and a public skill seed. It opens no network port and
 sends nothing anywhere. The full Obsidian vault it normally reads is **not**
 here: a standalone checkout resolves its content root to `docker/public-seed`.

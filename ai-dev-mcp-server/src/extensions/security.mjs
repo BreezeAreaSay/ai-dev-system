@@ -1,3 +1,5 @@
+import { buildFixPlan, renderFixPlanMarkdown } from "../core/security-fix-plan.mjs";
+import { DEFAULT_MIN_RELEASE_AGE_DAYS } from "../core/security-fix-registry.mjs";
 import { MALWARE_REMEDIATION } from "../core/security-scan-parsers.mjs";
 import {
   SECURITY_SCANNERS,
@@ -5,8 +7,12 @@ import {
   runSecurityScan
 } from "../core/security-scan.mjs";
 
+/** The scanners that name packages, which is what a fix plan is made of. */
+export const DEPENDENCY_SCANNERS = Object.freeze(["npm_audit", "pnpm_audit", "yarn_audit", "bun_audit", "osv_scanner"]);
+
 /**
- * Security scanners as one tool.
+ * Security scanners as one tool, and the plan that turns their dependency
+ * findings into commands.
  *
  * The adapters, the normalized finding shape and the gate live in
  * `core/security-scan.mjs`; this is the MCP surface and the task plumbing.
@@ -17,6 +23,15 @@ import {
  * @param {object} host - Shared runtime services from `mcp-stdio.mjs`.
  */
 export function createSecurityTools(host) {
+  async function projectFor(args) {
+    if (args.task_id) {
+      const record = await host.taskStore.read(args.task_id);
+      return { record, projectRoot: (await host.resolveProjectIdentity(record.project.path)).project_root };
+    }
+    if (args.project_path) return { record: null, projectRoot: (await host.resolveProjectIdentity(args.project_path)).project_root };
+    throw new Error("project_path or task_id is required.");
+  }
+
   return {
     definitions: [
       {
@@ -37,20 +52,25 @@ export function createSecurityTools(host) {
             record_checkpoint: { type: "boolean", default: false, description: "Attach the report to the task as a checkpoint note." }
           }
         }
+      },
+      {
+        name: "plan_security_fixes",
+        description: `Turn a project's dependency and malware findings into a fix plan, and change nothing. Runs the package-naming scanners (${DEPENDENCY_SCANNERS.join(", ")}), then for each vulnerable package in each lockfile says what to do — replace-malware or remove-malware, upgrade-direct, update-in-range, override, or no-fix — to which version, with the exact command for the package manager that owns the lockfile, and whether the upgrade is breaking (below 1.0.0 a minor counts). The target is the first published version outside every advisory's range that has been public for at least min_release_age_days (default ${DEFAULT_MIN_RELEASE_AGE_DAYS}), read from the npm registry; npm commands carry --before so what an upgrade pulls in is held to the same quarantine. Show the plan to the user and run its commands only after they confirm — installs and updates stay behind confirmation.`,
+        inputSchema: {
+          type: "object",
+          properties: {
+            project_path: { type: "string", description: "Absolute repository path. Optional when task_id is given." },
+            task_id: { type: "string", description: "Task whose project is planned for." },
+            offline: { type: "boolean", description: "Do not ask the registry or the audit endpoints; plan from what the advisories name. Defaults to the AI_DEV_OFFLINE environment variable." },
+            min_release_age_days: { type: "number", default: DEFAULT_MIN_RELEASE_AGE_DAYS, description: "Quarantine: a version younger than this is not picked while an older safe one exists. 0 turns it off." },
+            record_checkpoint: { type: "boolean", default: false, description: "Attach the plan to the task as a checkpoint note." }
+          }
+        }
       }
     ],
     handlers: {
       async run_security_scan(args) {
-        let projectRoot;
-        let record = null;
-        if (args.task_id) {
-          record = await host.taskStore.read(args.task_id);
-          projectRoot = (await host.resolveProjectIdentity(record.project.path)).project_root;
-        } else if (args.project_path) {
-          projectRoot = (await host.resolveProjectIdentity(args.project_path)).project_root;
-        } else {
-          throw new Error("project_path or task_id is required.");
-        }
+        const { record, projectRoot } = await projectFor(args);
         const scan = await runSecurityScan(projectRoot, {
           scanners: args.scanners ?? "auto",
           offline: args.offline,
@@ -79,6 +99,42 @@ export function createSecurityTools(host) {
                 : scan.status === "warn"
                   ? "Read the findings and either fix them or say in your checkpoint notes why they stand."
                   : "Nothing found by the scanners that ran; continue with verify_task."
+        };
+      },
+
+      async plan_security_fixes(args) {
+        const { record, projectRoot } = await projectFor(args);
+        const scan = await runSecurityScan(projectRoot, { scanners: [...DEPENDENCY_SCANNERS], offline: args.offline });
+        const age = Number(args.min_release_age_days);
+        const plan = await buildFixPlan({
+          projectRoot,
+          findings: scan.findings,
+          offline: scan.offline,
+          minReleaseAgeDays: Number.isFinite(age) && age >= 0 ? Math.min(age, 365) : DEFAULT_MIN_RELEASE_AGE_DAYS
+        });
+        const markdown = renderFixPlanMarkdown(plan);
+        let checkpoint = null;
+        if (record && args.record_checkpoint && record.status !== "complete") {
+          const updated = await host.taskStore.checkpoint(record.id, {
+            summary: `Security fix plan: ${plan.summary.items} item(s), ${plan.summary.malware} malware, ${plan.summary.breaking} breaking`,
+            notes: markdown
+          });
+          checkpoint = { task_id: updated.id, checkpoints: updated.checkpoints.length };
+        }
+        const checked = scan.scanners.filter((scanner) => scanner.status === "ok").map((scanner) => scanner.id);
+        return {
+          project_path: projectRoot,
+          scan: { status: scan.status, summary: scan.summary, scanners: scan.scanners },
+          ...plan,
+          markdown,
+          checkpoint,
+          next_step: !checked.length
+            ? "No dependency scanner could run here, so there is nothing to plan from — this is not a clean bill. Install osv-scanner, or run from a machine with the project's package manager and a network."
+            : plan.summary.malware
+              ? "Malware first: show the user the plan, and once they confirm, replace or remove it, reinstall from the updated lockfile, and rotate the credentials — before any other item."
+              : plan.summary.items
+                ? "Show the user this plan and wait for their confirmation. Run confirmed items one lockfile at a time, then the verify steps; a breaking item needs its changelog read first."
+                : "No dependency findings to fix."
         };
       }
     },

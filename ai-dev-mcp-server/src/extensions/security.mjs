@@ -16,15 +16,16 @@ import {
 export const SECURITY_SCAN_STAMP = path.join(".ai-dev", "security", "last-scan.json");
 
 /**
- * Record that a scan ran. A scan that checked nothing leaves no stamp — it
- * reviewed nothing — and a stamp that cannot be written costs the scan nothing.
+ * Record that a scan ran, with what it found. An `unchecked` scan is recorded
+ * too: its own answer already says nothing was checked, and without a stamp
+ * the Stop hook would send the agent back after every turn on a machine where
+ * no scanner can run. A stamp that cannot be written costs the scan nothing.
  *
  * @param {string} projectRoot
  * @param {object} scan
  * @param {string} via - The tool that ran it.
  */
 async function stampScan(projectRoot, scan, via) {
-  if (!scan.scanners.some((scanner) => scanner.status === "ok")) return;
   await atomicWriteJson(path.join(projectRoot, SECURITY_SCAN_STAMP), {
     at: new Date().toISOString(),
     via,

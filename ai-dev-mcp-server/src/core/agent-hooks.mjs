@@ -80,7 +80,7 @@ export function defaultPolicy(profile = "standard") {
     // install runs. Malware is refused, a release younger than
     // min_release_age_hours is refused, one younger than warn_release_age_days
     // is warned about. `osv: false` keeps package names away from api.osv.dev.
-    supply_chain: { enabled: true, min_release_age_hours: 24, warn_release_age_days: 7, osv: true, timeout_ms: 4000, max_packages: 8 },
+    supply_chain: { enabled: true, min_release_age_hours: 24, warn_release_age_days: 7, osv: true, timeout_ms: 3000, max_packages: 8 },
     // When back- or front-end code or a dependency manifest changed after the
     // last run_security_scan, the Stop hook sends the agent back to run the
     // security review ("block", once per stop), tells the user ("remind"), or

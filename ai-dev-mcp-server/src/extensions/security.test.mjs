@@ -91,6 +91,10 @@ test("the fix plan changes nothing, and says so when nothing could be scanned", 
   const [, , checkpoint] = calls.find(([name]) => name === "checkpoint");
   assert.match(checkpoint.summary, /^Security fix plan: 0 item\(s\), 0 malware, 0 breaking/);
   assert.equal(await fs.readFile(path.join(root, "package-lock.json"), "utf8"), before);
+  // The run is stamped, unchecked or not, so the Stop hook knows it happened.
+  const stamp = JSON.parse(await fs.readFile(path.join(root, ".ai-dev", "security", "last-scan.json"), "utf8"));
+  assert.deepEqual({ via: stamp.via, status: stamp.status, scanners: stamp.scanners }, { via: "plan_security_fixes", status: "unchecked", scanners: [] });
+  assert.ok(Date.parse(stamp.at) > Date.now() - 60_000);
   await assert.rejects(() => call(registry, "plan_security_fixes", {}), /project_path or task_id is required/);
 });
 

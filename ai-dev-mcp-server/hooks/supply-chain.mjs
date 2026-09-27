@@ -24,7 +24,10 @@ export const SUPPLY_CHAIN_DEFAULTS = Object.freeze({
   min_release_age_hours: 24,
   warn_release_age_days: 7,
   osv: true,
-  timeout_ms: 4000,
+  // Per request. The registry document comes first and the two advisory
+  // lookups after it in parallel, so a command costs at most two of these —
+  // six seconds, inside the ten the client gives the whole guard.
+  timeout_ms: 3000,
   max_packages: 8
 });
 

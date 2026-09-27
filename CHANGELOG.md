@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The `ar-security-review` skill** (`docker/public-seed/03-skills-catalog/sources/custom/ar-security-review`).
+  The workflow the tools above add up to: scan with `run_security_scan`, treat
+  malware as an incident first, plan dependency fixes with
+  `plan_security_fixes`, apply them only after the user confirms, verify with a
+  frozen install, the project's tests and a re-scan, and review the changed
+  TypeScript and JavaScript — back end and front end — against an injection,
+  authorization, SSRF, XSS and secrets checklist. It is what the Stop hook
+  sends the agent back to run. The router gives it a `security-remediation`
+  rule for scan-and-patch tasks ("просканируй и залатай", "malware",
+  "npm audit") while a code review of authorization stays with
+  `code-reviewer`; its description carries Russian triggers, so
+  `search_skills("уязвимости зависимостей")` — which found nothing before —
+  now finds it first. Quality 100/100; the routing eval is 40 of 40.
+
 - **The guard checks a package before an install runs it** (`hooks/supply-chain.mjs`).
   Malware runs during the install, so a scan afterwards finds a machine that is
   already compromised. Under the standard and strict profiles, an `npm

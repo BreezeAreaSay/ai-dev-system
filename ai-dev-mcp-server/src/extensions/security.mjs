@@ -1,3 +1,5 @@
+import path from "node:path";
+import { atomicWriteJson } from "../core/atomic-files.mjs";
 import { buildFixPlan, renderFixPlanMarkdown } from "../core/security-fix-plan.mjs";
 import { DEFAULT_MIN_RELEASE_AGE_DAYS } from "../core/security-fix-registry.mjs";
 import { MALWARE_REMEDIATION } from "../core/security-scan-parsers.mjs";
@@ -6,6 +8,32 @@ import {
   renderSecurityScanMarkdown,
   runSecurityScan
 } from "../core/security-scan.mjs";
+
+/**
+ * Where a scan leaves its time in the project, for the Stop hook
+ * (`hooks/stop-check.mjs`): code changed after it has not been reviewed.
+ */
+export const SECURITY_SCAN_STAMP = path.join(".ai-dev", "security", "last-scan.json");
+
+/**
+ * Record that a scan ran. A scan that checked nothing leaves no stamp — it
+ * reviewed nothing — and a stamp that cannot be written costs the scan nothing.
+ *
+ * @param {string} projectRoot
+ * @param {object} scan
+ * @param {string} via - The tool that ran it.
+ */
+async function stampScan(projectRoot, scan, via) {
+  if (!scan.scanners.some((scanner) => scanner.status === "ok")) return;
+  await atomicWriteJson(path.join(projectRoot, SECURITY_SCAN_STAMP), {
+    at: new Date().toISOString(),
+    via,
+    status: scan.status,
+    findings: scan.summary.findings,
+    blocking: scan.summary.blocking,
+    scanners: scan.scanners.filter((scanner) => scanner.status === "ok").map((scanner) => scanner.id)
+  }).catch(() => undefined);
+}
 
 /** The scanners that name packages, which is what a fix plan is made of. */
 export const DEPENDENCY_SCANNERS = Object.freeze(["npm_audit", "pnpm_audit", "yarn_audit", "bun_audit", "osv_scanner"]);
@@ -78,6 +106,7 @@ export function createSecurityTools(host) {
         });
         const markdown = renderSecurityScanMarkdown(scan);
         const malware = scan.findings.filter((item) => item.kind === "malware");
+        await stampScan(projectRoot, scan, "run_security_scan");
         let checkpoint = null;
         if (record && args.record_checkpoint && record.status !== "complete") {
           const updated = await host.taskStore.checkpoint(record.id, {
@@ -105,6 +134,7 @@ export function createSecurityTools(host) {
       async plan_security_fixes(args) {
         const { record, projectRoot } = await projectFor(args);
         const scan = await runSecurityScan(projectRoot, { scanners: [...DEPENDENCY_SCANNERS], offline: args.offline });
+        await stampScan(projectRoot, scan, "plan_security_fixes");
         const age = Number(args.min_release_age_days);
         const plan = await buildFixPlan({
           projectRoot,

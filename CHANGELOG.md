@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The guard checks a package before an install runs it** (`hooks/supply-chain.mjs`).
+  Malware runs during the install, so a scan afterwards finds a machine that is
+  already compromised. Under the standard and strict profiles, an `npm
+  install|i|add`, `pnpm add`, `yarn add`, `bun add`, `npx`, `pnpm dlx`, `yarn dlx`
+  or `bunx` that names a registry package is looked up first: malware — by
+  GitHub's advisories as the registry serves them, or OSV's `MAL-` reports — is
+  refused, also for an exact version npm has already unpublished (a mirror may
+  still serve it); a release younger than 24 hours is refused with an older
+  version to pin; one younger than a week, or with known high or critical
+  vulnerabilities, is warned about. Anything that cannot be checked warns and
+  never blocks. `supply_chain` in `.ai-dev/policy.json` tunes it; the minimal
+  profile keeps the guard offline.
+- **Every code change gets a security look without the agent remembering to.**
+  An edit to a manifest or lockfile puts a note in the agent's context; and when
+  back- or front-end code changed after the last `run_security_scan` — which now
+  leaves `.ai-dev/security/last-scan.json` — the Stop hook sends the agent back
+  once to run the `ar-security-review` skill (`security_review_on_stop`: `block`,
+  `remind` or `off`).
+
 - **`plan_security_fixes`** — a dependency fix plan that changes nothing. It
   runs the package-naming scanners and, for each vulnerable package in each
   lockfile, says what to do — `replace-malware` or `remove-malware`,
@@ -167,6 +186,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+
+- **The Stop hook saw every changed file but the first** (Д-84). The hooks'
+  `git()` trims its output, so ` M src/api.ts` on the first line of `git status
+  --porcelain` arrived as `M src/api.ts`, and cutting three characters off it
+  read `rc/api.ts` — a file that does not exist, skipped by every end-of-response
+  check. The status column is now read by pattern.
 
 Nine of these came from the acceptance runs of 2026-09-15/16 on three real
 machines — macOS 15.2 on Apple Silicon, Windows 11 Pro x64, Arch Linux — and

@@ -404,6 +404,20 @@ four of those arrived as upstream issues #63–#66.
   guides carry the matrix of what can actually run under `--network none`.
   (upstream #48, docs/DEFECTS.md Д-55)
 
+### Security
+
+- **The server passes its own security gate again** (Д-82). `run_security_scan`
+  on `ai-dev-mcp-server` itself came back `block`: 16 findings, 7 of them high —
+  five host-confusion and SSRF advisories in `fast-uri` 3.1.4 and two inherited
+  libvips/libheif advisories in `sharp` 0.34.5 — plus moderate ones in `hono` and
+  `qs`. All four are transitive. `fast-uri` (3.1.8), `hono` (4.13.8) and `qs`
+  (6.16.0) moved inside their parents' ranges, resolved with `--before` a week
+  back so a fix never lands on a release younger than that. `sharp` sits outside
+  `@huggingface/transformers` 3.7.5's `^0.34.1`, so it is pinned to 0.35.4 with
+  an `overrides` entry rather than taking transformers 4.x, a major with a
+  different pipeline API; the override comes off with the move to 4.x, which
+  asks for `sharp ^0.35.4` itself. After: `pass`, 0 findings.
+
 ## [2.0.0] - 2026-09-13
 
 A major version because what a clone *is* changed, not only what it can do: the

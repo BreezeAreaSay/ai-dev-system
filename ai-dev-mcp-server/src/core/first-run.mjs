@@ -71,7 +71,11 @@ export const FIRST_RUN_STEPS = Object.freeze([
   Object.freeze({
     id: "dense_model",
     title: "Local BGE-M3 model",
-    detail: "A Python environment plus 2.3 GB of weights, for dense search and reranking.",
+    // What `--dense` actually does since Д-62: the pinned ONNX export, checked
+    // against the manifest, run through Node. The Python stack and its 2.3 GB
+    // are `--dense-python` now, and describing them here told a user watching
+    // the download that they were getting something they were not.
+    detail: "About 600 MB of checksum-verified ONNX weights, for dense search and reranking. No Python.",
     optional: true,
     flag: "--dense"
   }),

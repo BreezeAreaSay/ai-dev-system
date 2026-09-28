@@ -121,7 +121,11 @@ export function createRequiredActions({ callTool }) {
         preserve_dense: true
       });
       return summarizeToolResult(result, (doc) => (
-        `${doc.indexed_document_count ?? doc.current_document_count ?? doc.documents ?? "?"} document(s) indexed`
+        // `document_count` is what the rebuild path of search_cli.py returns, and
+        // none of the other three names existed on a first run — so the very
+        // first thing a new user saw was "? document(s) indexed" while the
+        // index was in fact built (docs/DEFECTS.md, Д-75; upstream #63).
+        `${doc.indexed_document_count ?? doc.current_document_count ?? doc.document_count ?? doc.documents ?? "?"} document(s) indexed`
       ));
     },
     async routing_benchmark() {

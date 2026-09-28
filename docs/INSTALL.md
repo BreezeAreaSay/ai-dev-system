@@ -395,6 +395,13 @@ cd ai-dev-mcp-server
 npm run setup -- --dense
 ```
 
+**Room to put them.** About 600 MB of weights, and the download refuses to start
+on a disk that cannot hold them plus 512 MB left over — it says what it needs and
+what is there rather than filling the disk to the last byte. A disk that fits
+them and not much more still works, and says once that it may be slow: writing
+near a full disk is where a download that crawls usually comes from, and it looks
+exactly like a dead connection from the outside.
+
 They land in `~/.ai-dev/models/bge-m3-onnx` (override with `BGE_M3_ONNX_DIR`).
 Mount the folder *above* them — `~/.ai-dev/models` — read-only; the container
 reads the weights and never writes them. One mount serves both backends, which

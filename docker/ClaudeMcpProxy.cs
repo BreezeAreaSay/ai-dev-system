@@ -143,7 +143,7 @@ internal static class ClaudeMcpProxy
     {
         var response = "{\"jsonrpc\":\"2.0\",\"id\":" + id
             + ",\"result\":{\"protocolVersion\":\"" + protocolVersion
-            + "\",\"capabilities\":{\"tools\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"prompts\":{\"listChanged\":false},\"logging\":{}},\"serverInfo\":{\"name\":\"ai-dev-system\",\"version\":\"1.0.0\"}}}";
+            + "\",\"capabilities\":{\"tools\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"prompts\":{\"listChanged\":false},\"logging\":{}},\"serverInfo\":{\"name\":\"ai-dev-system\",\"version\":\"2.0.0\"}}}";
         lock (OutputLock)
         {
             Console.Out.WriteLine(response);

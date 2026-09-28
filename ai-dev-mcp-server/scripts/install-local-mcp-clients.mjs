@@ -66,7 +66,18 @@ function resolvePython(nodeExecutable) {
  */
 export function portablePaths({
   home = os.homedir(),
-  appData = process.env.APPDATA || path.join(home, "AppData", "Roaming"),
+  platform = process.platform,
+  // Where the editor configuration tree lives, which is a different place on
+  // each platform. This used to be the Windows answer everywhere, so on macOS
+  // and Linux `--apply` created `~/AppData/Roaming/Code/User/mcp.json` — a
+  // folder neither system has — and VS Code went on not knowing about the
+  // server (docs/DEFECTS.md, Д-74). `install-docker-mcp-clients.mjs` resolves
+  // it correctly; this is the same resolution.
+  appData = platform === "darwin"
+    ? path.join(home, "Library", "Application Support")
+    : platform === "win32"
+      ? process.env.APPDATA || path.join(home, "AppData", "Roaming")
+      : process.env.XDG_CONFIG_HOME || path.join(home, ".config"),
   nodeExecutable = process.execPath,
   vaultRoot = process.env.AI_DEV_VAULT_ROOT
     || (looksLikeVault(repoVaultRoot) ? repoVaultRoot : "")
@@ -125,10 +136,21 @@ function clientTargets(paths) {
 }
 
 async function readJsonDocument(target) {
+  let text;
   try {
-    return JSON.parse(await fs.readFile(target, "utf8"));
+    text = await fs.readFile(target, "utf8");
   } catch (error) {
     if (error?.code === "ENOENT") return {};
+    throw new Error(`Cannot read ${target}: ${error.message}`);
+  }
+  // An empty file is a client that made the file and wrote nothing yet, which
+  // is not the same as a corrupt one. VS Code ships exactly that, and a zero-byte
+  // mcp.json used to end the whole install with "Unexpected end of JSON input"
+  // — for every client, not just that one (docs/DEFECTS.md, Д-74).
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch (error) {
     throw new Error(`Cannot parse ${target}: ${error.message}`);
   }
 }
@@ -177,10 +199,26 @@ export async function installLocalMcpClients(options = {}) {
 
   const results = [];
   for (const client of options.clients || [...SUPPORTED_CLIENTS]) {
-    results.push(await installClient(client, targets[client], paths, options));
+    try {
+      results.push(await installClient(client, targets[client], paths, options));
+    } catch (error) {
+      // Report it against the client it belongs to and carry on. One
+      // unparseable file used to abort the run before any client was written
+      // (docs/DEFECTS.md, Д-74): the reader saw a stack trace and an install
+      // that had done nothing, with no way to tell which file was at fault.
+      results.push({
+        client,
+        target: targets[client],
+        status: "failed",
+        error: String(error?.message ?? error)
+      });
+    }
   }
+  const failed = results.filter((item) => item.status === "failed");
   return {
-    status: options.apply ? "applied" : "dry-run",
+    status: failed.length
+      ? (failed.length === results.length ? "failed" : "partial")
+      : (options.apply ? "applied" : "dry-run"),
     transport: "stdio",
     server: paths.serverPath,
     clients: results

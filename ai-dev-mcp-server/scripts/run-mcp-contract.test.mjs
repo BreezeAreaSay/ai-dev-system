@@ -198,3 +198,21 @@ for (const marker of ["pytorch_model.bin", "modules.json", "config.json", "onnx"
     }
   });
 }
+
+test("the fast-start handshake names the version this package actually is", async () => {
+  // Д-79 (upstream #65): both launchers answer `initialize` themselves so a
+  // client does not time out while the container starts, and both answered
+  // "1.0.0" — a major version behind — for the whole of 2.0. Nothing recomputes
+  // these strings, so this test is what keeps them honest across a bump.
+  const packageVersion = JSON.parse(
+    await fs.readFile(path.resolve(scriptDir, "..", "package.json"), "utf8")
+  ).version;
+  for (const relative of ["run-mcp.sh", "ClaudeMcpProxy.cs"]) {
+    const source = await fs.readFile(path.resolve(scriptDir, "..", "..", "docker", relative), "utf8");
+    const declared = [...source.matchAll(/\\?"version\\?":\\?"([^"\\]+)\\?"/g)].map((match) => match[1]);
+    assert.ok(declared.length, `${relative} no longer declares a serverInfo version`);
+    for (const value of declared) {
+      assert.equal(value, packageVersion, `${relative} answers initialize with ${value}`);
+    }
+  }
+});

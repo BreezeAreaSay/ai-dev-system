@@ -47,7 +47,7 @@ run_warm_runtime() {
         exit 65
       fi
       printf '%s\n' "$client_line" >&3
-      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"%s","capabilities":{"tools":{"listChanged":false},"resources":{"subscribe":false,"listChanged":false},"prompts":{"listChanged":false},"logging":{}},"serverInfo":{"name":"ai-dev-system","version":"1.0.0"}}}\n' \
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"%s","capabilities":{"tools":{"listChanged":false},"resources":{"subscribe":false,"listChanged":false},"prompts":{"listChanged":false},"logging":{}},"serverInfo":{"name":"ai-dev-system","version":"2.0.0"}}}\n' \
         "$request_id" "$protocol_version"
       continue
     fi

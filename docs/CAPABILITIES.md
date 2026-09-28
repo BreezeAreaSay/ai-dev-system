@@ -2,7 +2,7 @@
 
 [← README](../README.md) · [Install](INSTALL.md) · [Workflow](WORKFLOW.md) · [Guard rails](GUARDRAILS.md)
 
-The server exposes 133 tools. That is a strength when the agent needs one of them
+The server exposes 134 tools. That is a strength when the agent needs one of them
 and a cost the rest of the time: every tool in `tools/list` is schema text the
 model carries before it has read a word of your request.
 
@@ -14,7 +14,7 @@ Capability profiles cut that surface along the lines you already think in.
 | --- | --- | --- | --- |
 | **`core`** | 25 | Project context, skill routing, and a task from first command to verified completion. | Always on. It cannot be switched off. |
 | `coding` | 18 | Epics, the plan gate, project cards and auto-commands, the repository's own engineering rules. | Work that spans several tasks, or a repository whose rules the agent should install and follow. |
-| `memory` | 16 | Decisions, session handoffs, instincts, the knowledge notes behind them. | You want the next session to start where this one stopped. |
+| `memory` | 17 | Decisions, session handoffs, instincts, the knowledge notes behind them, and the Knowledge Galaxy to fly through them. | You want the next session to start where this one stopped. |
 | `git` | 9 | Isolated worktrees, snapshots and rollback, change-hygiene review, pull request text. | The agent touches a real working tree you care about. |
 | `frontend` | 13 | Brief, visual directions, concept jury, design system, reference factory. | Building or reviewing a user-facing surface. |
 | `qa` | 8 | Playwright and visual QA runners, and the benchmarks that hold search and routing honest. | Verification has to produce evidence a person can look at. |
@@ -68,9 +68,9 @@ Measured against the server's own tool definitions:
 | Setting | Tools listed | Schema in context |
 | --- | --- | --- |
 | `core` | 25 | ~15 KB |
-| `core,git` | 34 | ~22 KB |
-| `core,coding,git,memory` | 68 | ~48 KB |
-| unset / `all` | 133 | ~96 KB |
+| `core,git` | 34 | ~23 KB |
+| `core,coding,git,memory` | 69 | ~50 KB |
+| unset / `all` | 134 | ~98 KB |
 
 Two things it does **not** do:
 
@@ -84,7 +84,7 @@ A narrowed server says so on stderr at startup, naming the profiles and the tool
 count, so "the tool is missing" is never an unexplainable symptom:
 
 ```text
-ai-dev: capability profiles core, git — 34 of 133 tools listed. Unset AI_DEV_PROFILES for all of them.
+ai-dev: capability profiles core, git — 34 of 134 tools listed. Unset AI_DEV_PROFILES for all of them.
 ```
 
 A profile name it does not recognise is reported and ignored rather than taken as

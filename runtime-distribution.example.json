@@ -39,7 +39,7 @@
     "warnings": []
   },
   "entrypoint": "src/server.mjs",
-  "tools": 133,
+  "tools": 134,
   "commands": {
     "start": "npm start",
     "doctor": "node scripts/ai-dev.mjs doctor",

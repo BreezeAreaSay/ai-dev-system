@@ -398,6 +398,85 @@ class SearchFreshnessTests(unittest.TestCase):
             [search_cli.HYBRID_CANDIDATE_LIMIT, search_cli.HYBRID_CANDIDATE_LIMIT],
         )
 
+    def galaxy_args(self):
+        return SimpleNamespace(index_path=str(self.index), out_dir=str(Path(self.temp.name) / "galaxy"))
+
+    def test_galaxy_export_writes_one_row_per_document_in_both_spaces(self):
+        (self.vault / "02-knowledge" / "linked.md").write_text(
+            "# Linked\n\nSee [[sample]], [[Sample|again]], [[other#heading]] and ![[diagram.png]].\n",
+            encoding="utf-8",
+        )
+        self.call_json(search_cli.rebuild, self.args(preserve_dense=False))
+        self.seed_dense_vector("onnx", "4de1325", "int8")
+
+        summary = self.call_json(search_cli.galaxy_export, self.galaxy_args())
+        out_dir = Path(summary["out_dir"])
+        manifest = json.loads((out_dir / "nodes.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(manifest["document_count"], 2)
+        self.assertEqual(manifest["dense_documents"], 1)
+        self.assertEqual(manifest["dense_dimensions"], search_cli.DENSE_DIMENSIONS)
+        self.assertEqual(
+            (out_dir / "semantic.f32").stat().st_size,
+            2 * 4 * search_cli.SEMANTIC_DIMENSIONS,
+        )
+        self.assertEqual((out_dir / "dense.f32").stat().st_size, 4 * search_cli.DENSE_DIMENSIONS)
+        self.assertEqual(sorted(node["dense"] for node in manifest["nodes"]), [-1, 0])
+        linked = next(node for node in manifest["nodes"] if node["title"] == "Linked")
+        # Alias and heading are stripped, repeats collapse, and an embed is a
+        # link too: the renderer drops what no note answers to.
+        self.assertEqual(linked["links"], ["sample", "Sample", "other", "diagram.png"])
+        self.assertEqual(summary["wikilinks"], 4)
+
+    def test_galaxy_export_collapses_a_skill_card_into_its_skill(self):
+        registry = self.vault / "03-skills-catalog" / "registries" / "skills.index.json"
+        registry.write_text(json.dumps([{
+            "name": "sample-skill",
+            "source": "custom",
+            "path": "sources/custom/sample-skill/SKILL.md",
+            "description": "Review a change for the defects a careful reader would catch first.",
+        }]), encoding="utf-8")
+        card = self.vault / "03-skills-catalog" / "cards" / "custom" / "sample-skill.md"
+        card.parent.mkdir(parents=True)
+        card.write_text("---\ncard_kind: skill-card\n---\n# sample-skill\n\nPart of [[Security]].\n", encoding="utf-8")
+        self.call_json(search_cli.rebuild, self.args(preserve_dense=False))
+
+        summary = self.call_json(search_cli.galaxy_export, self.galaxy_args())
+        manifest = json.loads((Path(summary["out_dir"]) / "nodes.json").read_text(encoding="utf-8"))
+
+        skills = [node for node in manifest["nodes"] if node["title"] == "sample-skill"]
+        self.assertEqual(len(skills), 1)
+        self.assertEqual(summary["collapsed_documents"], 1)
+        # The registry entry wins, as it does in search; the card's link and
+        # path survive on it.
+        self.assertEqual(skills[0]["path"], "03-skills-catalog/sources/custom/sample-skill/SKILL.md")
+        self.assertEqual(skills[0]["also"], ["03-skills-catalog/cards/custom/sample-skill.md"])
+        self.assertEqual(skills[0]["links"], ["Security"])
+        self.assertEqual(skills[0]["preview"], "Review a change for the defects a careful reader would catch first.")
+
+    def test_galaxy_export_refuses_an_index_that_does_not_exist(self):
+        with self.assertRaisesRegex(RuntimeError, "Search index not found"):
+            search_cli.galaxy_export(self.galaxy_args())
+
+    def test_galaxy_preview_skips_frontmatter_title_and_markup(self):
+        body = "---\ncard_kind: skill-card\nname: x\n---\n# Title\n\nFirst **bold** [[a/b|line]].\n- Second `code`.\n"
+        self.assertEqual(search_cli.galaxy_preview(body, "stored"), "First bold line. Second code.")
+        self.assertEqual(search_cli.galaxy_preview("", "stored"), "stored")
+        self.assertEqual(search_cli.galaxy_preview("# Only a title", "stored"), "stored")
+        registry_body = "name\ncustom\nA description long enough to be the line a reader wants.\nshort"
+        self.assertEqual(
+            search_cli.galaxy_preview(registry_body, "stored", is_note=False),
+            "A description long enough to be the line a reader wants.",
+        )
+        self.assertEqual(search_cli.galaxy_preview("name\ncustom", "stored", is_note=False), "stored")
+
+    def test_semantic_row_ignores_dimensions_outside_the_space(self):
+        row = search_cli.semantic_row(json.dumps({"3": 0.5, "-1": 1.0, "99999": 1.0, "x": 1.0}))
+        self.assertEqual(len(row), search_cli.SEMANTIC_DIMENSIONS)
+        self.assertEqual(row[3], 0.5)
+        self.assertEqual(sum(1 for value in row if value), 1)
+        self.assertEqual(sum(search_cli.semantic_row("not json")), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

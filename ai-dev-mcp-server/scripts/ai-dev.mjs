@@ -15,6 +15,7 @@ Commands:
   start                 Start the stdio MCP server
   doctor                Run local system diagnostics
   dashboard             Regenerate the live Obsidian dashboard
+  galaxy [scopes...]    Render the vault as a 3D galaxy to fly through (HTML)
   reindex               Rebuild text search while preserving dense vectors
   refresh [flags]       Refresh overlays, outcomes, search, runtime, and dashboard
   acceptance            Run the full local acceptance suite
@@ -112,6 +113,10 @@ if (command === "help" || command === "--help" || command === "-h") {
     } else if (command === "dashboard") {
       tool = "rebuild_system_dashboard";
       input = { rebuild_search: false };
+    } else if (command === "galaxy") {
+      // `ai-dev galaxy knowledge workflows` draws only those scopes.
+      tool = "render_knowledge_galaxy";
+      input = arguments_.length ? { scopes: arguments_ } : {};
     } else if (command === "reindex") {
       tool = "rebuild_search_index";
       input = {

@@ -78,7 +78,7 @@ The dependency runs one way: extensions never import `mcp-stdio.mjs`, which woul
 couple pure logic to the vault. Duplicate tool names and definitions without a handler throw at
 startup, so a broken extension can never reach a client.
 
-Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygiene`,
+Registered today: `decisions`, `frontend-design`, `frontend-qa`, `galaxy`, `hooks`, `hygiene`,
 `instincts`, `lifecycle`, `mcp-inventory`, `plans`, `projects`, `pull-requests`, `rules`, `search`, `sessions`,
 `skills`, `snapshots`, `system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
 `change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `pull-request.mjs`,
@@ -90,7 +90,13 @@ Registered today: `decisions`, `frontend-design`, `frontend-qa`, `hooks`, `hygie
 `quality-gate-runner.mjs`, `task-verification.mjs`, `task-completion.mjs`,
 `system-health.mjs`, `system-dashboard.mjs`, `text-format.mjs`, `usage-ledger.mjs`,
 `task-worktrees.mjs`, `task-snapshots.mjs`, `policy-rules.mjs`, `mcp-inventory.mjs`,
-`toml-lite.mjs`); the extension is the MCP surface over it.
+`toml-lite.mjs`, and the `galaxy*.mjs` family); the extension is the MCP surface over it.
+
+The Knowledge Galaxy (`render_knowledge_galaxy`, [docs/GALAXY.md](../../docs/GALAXY.md)) is the one
+extension that also ships browser code. `src/galaxy/` holds the viewer as ordinary ES modules, so
+each is readable and its pure half is tested in Node; `core/galaxy-page.mjs` joins them into the
+single inline module the generated page runs, because a page opened from disk cannot fetch a second
+file. The line ceiling below covers that directory too.
 
 `core/` is not only pure logic. A handful of modules there are services: they run processes
 or own state, but know nothing about MCP and take everything environment-specific as a
@@ -537,7 +543,7 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
   six steps) and the ceiling was re-pinned to its actual size plus roughly 300 lines of working room
   after each step, so it can be edited but not re-grown. New capabilities go into `src/extensions/`,
   so the budget only has to cover editing what is left.
-- Every module under `src/core/` and `src/extensions/` stays within `MODULE_LINE_CEILING` (800) —
+- Every module under `src/core/`, `src/extensions/` and `src/galaxy/` stays within `MODULE_LINE_CEILING` (800) —
   the same soft ceiling `COMMON_RULES` puts on user projects.
 
 `MODULE_LINE_EXCEPTIONS` carries the modules that were already over the ceiling when the rule

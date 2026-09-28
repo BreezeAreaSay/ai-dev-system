@@ -15,7 +15,7 @@ still apply. This file is the part an agent gets wrong.
 
 ## What this repository is
 
-A local-first MCP server (133 tools over stdio, or one warm daemon) plus its
+A local-first MCP server (134 tools over stdio, or one warm daemon) plus its
 Docker image, packaging and a public skill seed. It opens no network port and
 sends nothing anywhere. The full Obsidian vault it normally reads is **not**
 here: a standalone checkout resolves its content root to `docker/public-seed`.
@@ -50,7 +50,7 @@ it couples pure logic to a vault. Take what you need from `host`.
 ## Three rules that look arbitrary and are not
 
 **1. Modules are capped at 800 lines** (`MODULE_LINE_CEILING`), enforced by
-`npm run check` over `src/core/` and `src/extensions/`. Two modules were already
+`npm run check` over `src/core/`, `src/extensions/` and `src/galaxy/`. Two modules were already
 over it when the rule landed and are pinned at that day's size in
 `MODULE_LINE_EXCEPTIONS` — they may shrink, never grow, and once one is back
 under 800 the gate tells you to drop its pin. `src/mcp-stdio.mjs` has

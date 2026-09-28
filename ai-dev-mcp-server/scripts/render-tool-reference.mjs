@@ -51,7 +51,8 @@ const GROUPS = [
       "search_skill_registry",
       "rebuild_index",
       "write_knowledge_note",
-      "append_knowledge_note"
+      "append_knowledge_note",
+      "render_knowledge_galaxy"
     ]
   },
   {

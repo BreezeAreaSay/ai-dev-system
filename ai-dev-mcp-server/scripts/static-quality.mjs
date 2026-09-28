@@ -71,7 +71,8 @@ for (const file of files) {
   ) {
     findings.push(`${relative}: child_process.exec is forbidden; use argv-based execution.`);
   }
-  if (relative.startsWith("src/core/") || relative.startsWith("src/extensions/")) {
+  // `src/galaxy/` is browser code, but code all the same: the ceiling holds there too.
+  if (relative.startsWith("src/core/") || relative.startsWith("src/extensions/") || relative.startsWith("src/galaxy/")) {
     modules.push({ path: relative, lines: countLines(source) });
   }
 }

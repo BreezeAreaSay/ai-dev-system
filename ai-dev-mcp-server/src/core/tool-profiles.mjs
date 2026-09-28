@@ -1,7 +1,7 @@
 /**
  * Capability profiles: eight named slices of the tool surface.
  *
- * The server exposes 133 tools. That is a strength when an agent needs one of
+ * The server exposes 134 tools. That is a strength when an agent needs one of
  * them and a cost the rest of the time: every tool in `tools/list` is schema
  * text in the model's context before the first word of the task is read. The
  * profiles cut the surface along the lines a person already thinks in — "I am
@@ -99,7 +99,7 @@ export const TOOL_PROFILES = Object.freeze([
   {
     id: "memory",
     title: "Memory",
-    summary: "What survives the session: decisions, handoffs, learned instincts, and the notes behind them.",
+    summary: "What survives the session: decisions, handoffs, learned instincts, the notes behind them, and a galaxy to fly through them.",
     always: false,
     tools: Object.freeze([
       "record_decision",
@@ -117,7 +117,8 @@ export const TOOL_PROFILES = Object.freeze([
       "import_instincts",
       "prune_state",
       "write_knowledge_note",
-      "append_knowledge_note"
+      "append_knowledge_note",
+      "render_knowledge_galaxy"
     ])
   },
   {

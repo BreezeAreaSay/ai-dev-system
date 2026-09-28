@@ -57,13 +57,15 @@ const GENERATED_PREFIXES = [
 // everywhere, and a checkout that has run them is not a drifted seed.
 const GENERATED_PATTERN = /(?:^|\/)__pycache__\/|\.pyc$/;
 
-// Dashboards rendered on demand by `validate_skill_library` and
-// `rebuild_system_dashboard`. Like the registries they are output, not seed
-// content, so running either tool in a checkout must not read as seed drift.
+// Dashboards rendered on demand by `validate_skill_library`,
+// `rebuild_system_dashboard` and `render_knowledge_galaxy`. Like the registries
+// they are output, not seed content, so running any of them in a checkout must
+// not read as seed drift.
 const GENERATED_FILES = [
   "03-skills-catalog/Skill Quality Dashboard.md",
   "01-system/System Dashboard.md",
-  "01-system/system-dashboard.json"
+  "01-system/system-dashboard.json",
+  "01-system/Knowledge Galaxy.html"
 ];
 
 /**

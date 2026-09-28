@@ -1736,6 +1736,189 @@ def search(args):
     print_json(collapse_search_results([row_to_result(row) for row in rows])[:limit])
 
 
+# The Knowledge Galaxy reads the index this helper owns rather than a copy of
+# it, so the export lives here with the schema: one JSON file for what each
+# document is, and two raw float32 files for where it sits in meaning. A
+# BGE-M3 vector as JSON is 5.6 times its 4 KB of float32 and gains nothing,
+# since the only reader is the Node renderer on the same machine and byte order.
+#
+# A skill indexed twice — its registry entry and its card note — is one star,
+# collapsed by the same rule that collapses it in search results, so the
+# galaxy never shows what a search would not.
+GALAXY_EXPORT_SCHEMA = 1
+GALAXY_MAX_LINKS_PER_NOTE = 200
+WIKILINK_PATTERN = re.compile(r"\[\[([^\[\]\|#\^\n]+)")
+FRONTMATTER_PATTERN = re.compile(r"\A\ufeff?---\s*\n.*?\n---\s*(?:\n|\Z)", re.DOTALL)
+MARKDOWN_CLEANUPS = (
+    (re.compile(r"!?\[\[([^\]|]*\|)?([^\]]*)\]\]"), lambda match: match.group(2).split("/")[-1]),
+    (re.compile(r"!?\[([^\]]*)\]\([^)]*\)"), lambda match: match.group(1)),
+    (re.compile(r"^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+", re.MULTILINE), lambda match: ""),
+    (re.compile(r"(\*\*|__|`|~~)"), lambda match: ""),
+)
+
+
+def markdown_to_text(text):
+    """Markdown as a reader sees it: link text, no emphasis marks or bullets."""
+    for pattern, replacement in MARKDOWN_CLEANUPS:
+        text = pattern.sub(replacement, text)
+    return text
+
+
+def galaxy_preview(body, stored, is_note=True):
+    """What a document says, in a line or two.
+
+    A note's stored preview starts with its frontmatter, so it is read again
+    from the body without it. A registry skill's body is its metadata one field
+    per line; the longest line is its description or its use-when, which say
+    more than its name and source do.
+    """
+    if not body:
+        return stored
+    if not is_note:
+        lines = [line.strip() for line in body.splitlines() if len(line.strip()) >= 40]
+        return clean_preview(markdown_to_text(max(lines, key=len)), 240) if lines else stored
+    text = FRONTMATTER_PATTERN.sub("", body, count=1).lstrip()
+    # The title is shown beside the preview already.
+    if text.startswith("# "):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+    return clean_preview(markdown_to_text(text), 240) or stored
+
+
+def note_wikilinks(body):
+    """Distinct `[[target]]` names in order of first appearance, capped."""
+    seen = []
+    for match in WIKILINK_PATTERN.finditer(body or ""):
+        target = match.group(1).strip()
+        if target and target not in seen:
+            seen.append(target)
+            if len(seen) >= GALAXY_MAX_LINKS_PER_NOTE:
+                break
+    return seen
+
+
+def semantic_row(vector_json):
+    """The hashed sparse vector as a dense float32 row of SEMANTIC_DIMENSIONS."""
+    row = array("f", bytes(4 * SEMANTIC_DIMENSIONS))
+    try:
+        features = json.loads(vector_json or "{}")
+    except ValueError:
+        features = {}
+    for dim, weight in features.items():
+        try:
+            index = int(dim)
+        except ValueError:
+            continue
+        if 0 <= index < SEMANTIC_DIMENSIONS:
+            row[index] = float(weight)
+    return row
+
+
+def galaxy_entities(documents):
+    """Documents grouped the way search collapses them, the preferred one first."""
+    groups = {}
+    for row in documents:
+        item = dict(row)
+        groups.setdefault(canonical_result_key(item), []).append(item)
+    entities = []
+    for members in groups.values():
+        best = max(range(len(members)), key=lambda index: (result_entity_priority(members[index]), -index))
+        entities.append([members[best], *[member for index, member in enumerate(members) if index != best]])
+    return entities
+
+
+def galaxy_export(args):
+    index_path = Path(args.index_path)
+    out_dir = Path(args.out_dir)
+    if not index_path.exists():
+        raise RuntimeError(f"Search index not found: {index_path}. Rebuild it first.")
+    con = connect(index_path)
+    try:
+        if not table_exists(con, "documents") or not table_exists(con, "semantic_vectors"):
+            raise RuntimeError(f"Search index at {index_path} predates the galaxy export. Rebuild it first.")
+        documents = con.execute(
+            "SELECT id, scope, title, path, source, categories, preview FROM documents ORDER BY path, id"
+        ).fetchall()
+        semantic = {
+            str(row["id"]): row["vector"]
+            for row in con.execute("SELECT id, vector FROM semantic_vectors")
+        }
+        dense = {}
+        if table_exists(con, "dense_vectors"):
+            for row in con.execute("SELECT id, vector, dimensions FROM dense_vectors"):
+                blob = bytes(row["vector"])
+                # A row of another width cannot share a space with the rest; it
+                # is left out rather than padded into a meaningless position.
+                if int(row["dimensions"] or 0) == DENSE_DIMENSIONS and len(blob) == 4 * DENSE_DIMENSIONS:
+                    dense[str(row["id"])] = blob
+        bodies = {}
+        if table_exists(con, "docs_fts"):
+            for row in con.execute("SELECT id, body FROM docs_fts"):
+                bodies[str(row["id"])] = row["body"]
+        dense_model = meta_value(con, "dense_model", "")
+    finally:
+        con.close()
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    nodes = []
+    link_count = 0
+    dense_rows = 0
+    collapsed = 0
+    with open(out_dir / "semantic.f32", "wb") as semantic_file, open(out_dir / "dense.f32", "wb") as dense_file:
+        for members in galaxy_entities(documents):
+            head = members[0]
+            doc_id = str(head["id"])
+            collapsed += len(members) - 1
+            semantic_row(semantic.get(doc_id)).tofile(semantic_file)
+            # The preferred document's vector when it has one; a card's when
+            # only the card was embedded, since that places the skill too.
+            vector_owner = next((str(member["id"]) for member in members if str(member["id"]) in dense), "")
+            dense_index = -1
+            if vector_owner:
+                dense_file.write(dense[vector_owner])
+                dense_index = dense_rows
+                dense_rows += 1
+            links = []
+            for member in members:
+                if member["source"] == "vault-note":
+                    links.extend(link for link in note_wikilinks(bodies.get(str(member["id"]), "")) if link not in links)
+            links = links[:GALAXY_MAX_LINKS_PER_NOTE]
+            link_count += len(links)
+            nodes.append({
+                "id": doc_id,
+                "title": head["title"],
+                "path": head["path"],
+                "scope": head["scope"],
+                "source": head["source"],
+                "categories": head["categories"],
+                "preview": galaxy_preview(bodies.get(doc_id, ""), head["preview"], head["source"] == "vault-note"),
+                "also": [member["path"] for member in members[1:]],
+                "dense": dense_index,
+                "links": links,
+            })
+
+    manifest = {
+        "schema": GALAXY_EXPORT_SCHEMA,
+        "document_count": len(nodes),
+        "collapsed_documents": collapsed,
+        "semantic_dimensions": SEMANTIC_DIMENSIONS,
+        "dense_dimensions": DENSE_DIMENSIONS if dense_rows else 0,
+        "dense_documents": dense_rows,
+        "dense_model": dense_model if dense_rows else "",
+        "nodes": nodes,
+    }
+    with open(out_dir / "nodes.json", "w", encoding="utf-8") as handle:
+        json.dump(manifest, handle, ensure_ascii=False, separators=(",", ":"))
+    print_json({
+        "out_dir": str(out_dir),
+        "schema": GALAXY_EXPORT_SCHEMA,
+        "document_count": len(nodes),
+        "collapsed_documents": collapsed,
+        "dense_documents": dense_rows,
+        "wikilinks": link_count,
+        "files": ["nodes.json", "semantic.f32", "dense.f32"],
+    })
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -1811,6 +1994,11 @@ def main():
     hybrid_parser.add_argument("--dense-device", default=os.environ.get("BGE_M3_DEVICE", "cpu"))
     hybrid_parser.add_argument("--dense-query-vector-path", default="")
     hybrid_parser.set_defaults(func=hybrid_search)
+
+    galaxy_parser = sub.add_parser("galaxy-export")
+    galaxy_parser.add_argument("--index-path", required=True)
+    galaxy_parser.add_argument("--out-dir", required=True)
+    galaxy_parser.set_defaults(func=galaxy_export)
 
     args = parser.parse_args()
     args.func(args)

@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Knowledge Galaxy** (`render_knowledge_galaxy`, `npm run galaxy`;
+  [docs/GALAXY.md](docs/GALAXY.md)). The vault as a 3D galaxy you fly through, in
+  place of Obsidian's graph view. Every note and skill is a star beside its
+  nearest neighbours in meaning: BGE-M3 vectors where the index has them,
+  keyword vectors otherwise. Wikilinks are drawn as warmer lines, and
+  communities become coloured, named constellations. A note nobody links to
+  lands next to the notes it resembles, not in the outer ring the graph view
+  builds out of exactly those notes.
+
+  The result is one self-contained HTML file, `01-system/Knowledge Galaxy.html`.
+  It opens from disk, needs only WebGL, and makes no request of any kind: its
+  Content-Security-Policy is made of the hashes of its own two inline blocks.
+  Navigation follows anvaka's Software Galaxies:
+  - WASD, R/F, Q/E and the arrows fly and turn; Shift goes faster; Space is
+    steering mode.
+  - Search, a card with each star's nearest neighbours, and "Open in Obsidian".
+  - The camera is kept in the address, so a view can be bookmarked.
+  - Keys are read by physical position, so a Russian layout flies too.
+  - The page follows the browser's language, English or Russian.
+
+  `search_cli.py galaxy-export` writes what the galaxy is drawn from, next to
+  the schema it reads. It folds a skill card into its skill by the same rule
+  search results use.
+
+  **Re-check after upgrading:**
+  - The server now lists 134 tools. The new one is in the `memory` profile.
+  - The module line ceiling now covers `src/galaxy/`, the viewer's browser
+    modules.
+
 - **Dense search runs without Python** (`docs/DEFECTS.md`, Д-62). The local
   BGE-M3 model now has a second backend behind the contract it always had —
   text in, a normalized 1024-dimension vector out — and it is the default:
@@ -132,6 +161,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Nine of these came from the acceptance runs of 2026-09-15/16 on three real
 machines — macOS 15.2 on Apple Silicon, Windows 11 Pro x64, Arch Linux — and
 four of those arrived as upstream issues #63–#66.
+
+- **The README's context-budget figure for `core,git`** (`docs/DEFECTS.md`,
+  Д-82). It promised about 15 KB of schema. That is the figure for `core` alone:
+  `core,git` measures 23 KB. `docs/CAPABILITIES.md` said 22 KB and now also says
+  23, re-measured with every other row of its table.
 
 - **A fresh macOS builds its search index.** `pythonCommand()` fell back to bare
   `python`, which modern macOS does not have; a clean install ended at

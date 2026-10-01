@@ -2,12 +2,15 @@
 // PreToolUse guard: `node guard.mjs bash` for shell commands, `node guard.mjs file`
 // for Write/Edit/MultiEdit. Blocks git hook bypasses, destructive commands,
 // secret-bearing files, linter-config weakening, and secrets in new content;
-// warns about oversized files and ad-hoc scratch documents. Extra rules come
-// from .ai-dev/policy.json (hookify-style regex rules), and `fact_force` there
-// adds the grounding gate in fact-force.mjs.
+// warns about oversized files and ad-hoc scratch documents. An install command
+// that names a package is checked before it runs (supply-chain.mjs): malware and
+// releases younger than a day are refused. Extra rules come from
+// .ai-dev/policy.json (hookify-style regex rules), and `fact_force` there adds
+// the grounding gate in fact-force.mjs.
 import fs from "node:fs";
 import path from "node:path";
 import { evaluateFactForce } from "./fact-force.mjs";
+import { checkSupplyChain } from "./supply-chain.mjs";
 import {
   block,
   compileRegex,
@@ -204,7 +207,12 @@ async function checkBash(input, policy) {
     }
   }
   const custom = await applyCustomRules(policy.rules, "bash", command, "");
-  return { blocks: [...blocks, ...custom.blocks], warns: [...warns, ...custom.warns] };
+  // The minimal profile keeps the guard offline; standard and strict ask the
+  // registry about what an install is about to run.
+  const supply = profileAllows(policy.profile, ["standard", "strict"])
+    ? await checkSupplyChain(shellSegments(command).map(tokensOf), { policy })
+    : { blocks: [], warns: [] };
+  return { blocks: [...blocks, ...custom.blocks, ...supply.blocks], warns: [...warns, ...custom.warns, ...supply.warns] };
 }
 
 /** Every file one Write/Edit/MultiEdit call would touch, with the content it would get. */

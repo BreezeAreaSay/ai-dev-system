@@ -9,6 +9,78 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The `ar-security-review` skill** (`docker/public-seed/03-skills-catalog/sources/custom/ar-security-review`).
+  The workflow the tools above add up to: scan with `run_security_scan`, treat
+  malware as an incident first, plan dependency fixes with
+  `plan_security_fixes`, apply them only after the user confirms, verify with a
+  frozen install, the project's tests and a re-scan, and review the changed
+  TypeScript and JavaScript — back end and front end — against an injection,
+  authorization, SSRF, XSS and secrets checklist. It is what the Stop hook
+  sends the agent back to run. The router gives it a `security-remediation`
+  rule for scan-and-patch tasks ("просканируй и залатай", "malware",
+  "npm audit") while a code review of authorization stays with
+  `code-reviewer`; its description carries Russian triggers, so
+  `search_skills("уязвимости зависимостей")` — which found nothing before —
+  now finds it first. Quality 100/100; the routing eval is 40 of 40.
+
+- **The guard checks a package before an install runs it** (`hooks/supply-chain.mjs`).
+  Malware runs during the install, so a scan afterwards finds a machine that is
+  already compromised. Under the standard and strict profiles, an `npm
+  install|i|add`, `pnpm add`, `yarn add`, `bun add`, `npx`, `pnpm dlx`, `yarn dlx`
+  or `bunx` that names a registry package is looked up first: malware — by
+  GitHub's advisories as the registry serves them, or OSV's `MAL-` reports — is
+  refused, also for an exact version npm has already unpublished (a mirror may
+  still serve it); a release younger than 24 hours is refused with an older
+  version to pin; one younger than a week, or with known high or critical
+  vulnerabilities, is warned about. Anything that cannot be checked warns and
+  never blocks. `supply_chain` in `.ai-dev/policy.json` tunes it; the minimal
+  profile keeps the guard offline.
+- **Every code change gets a security look without the agent remembering to.**
+  An edit to a manifest or lockfile puts a note in the agent's context; and when
+  back- or front-end code changed after the last `run_security_scan` — which now
+  leaves `.ai-dev/security/last-scan.json` — the Stop hook sends the agent back
+  once to run the `ar-security-review` skill (`security_review_on_stop`: `block`,
+  `remind` or `off`).
+
+- **`plan_security_fixes`** — a dependency fix plan that changes nothing. It
+  runs the package-naming scanners and, for each vulnerable package in each
+  lockfile, says what to do — `replace-malware` or `remove-malware`,
+  `upgrade-direct`, `update-in-range`, `override`, `no-fix` — to which
+  version, with the exact command for the package manager that owns the
+  lockfile, and whether the upgrade is breaking (below 1.0.0 a minor counts).
+  The target is the first published version outside every advisory's range
+  that has been public at least `min_release_age_days` (default 7), read from
+  the registry; npm commands carry `--before` so what an upgrade pulls in is
+  held to the same quarantine. Whether dependents already accept the fix is
+  read from the lockfile — npm, Yarn and Bun record the ranges, pnpm does not,
+  and the plan says so. Installs and updates stay behind confirmation: the plan
+  is what the user confirms. Run against this server's lockfile from before
+  Д-82, it proposes exactly what closed Д-82 by hand — `npm update … --before`
+  for `fast-uri`, `hono` and `qs`, an override flagged breaking for `sharp`.
+
+- **Dependency scanning for pnpm, Yarn, Bun and OSV, wherever the lockfile is**
+  (`docs/DEFECTS.md`, Д-83). `run_security_scan` had one JavaScript adapter,
+  `npm audit`, and ran it only at the repository root: a pnpm, Yarn or Bun
+  project, or a repository whose `frontend/` and `backend/` each keep their own
+  lockfile, came back `unchecked`. Four adapters join the catalogue —
+  `pnpm_audit`, `yarn_audit` (Yarn 1 and Yarn 2+, told apart by
+  `packageManager` or `.yarnrc.yml`), `bun_audit` and `osv_scanner` — and the
+  package managers' audits run in every directory up to two levels down that
+  holds their lockfile. Findings about a package now carry `package`,
+  `version`, `vulnerable`, `fixed_in` and `aliases`, and one advisory reported by
+  two scanners is one finding, `confirmed_by` the second.
+
+  A new finding kind, `malware`: GitHub's "Malware in …" advisories, which the
+  npm registry serves to every package manager's audit, and OSV's `MAL-`
+  reports from the OpenSSF malicious-packages feed — 221,947 of them for npm,
+  only 28,668 with a GitHub twin. Malware is always critical and always blocks,
+  and the next step says remove and rotate, not upgrade.
+
+  A non-zero exit with no findings is believed only when the output is the
+  tool's report: Yarn 1 handed Yarn 2+'s command exits 1 — "found something" in
+  its bitmask — after printing `Command "npm" not found`, which used to read as
+  a clean scan.
+
 - **Dense search runs without Python** (`docs/DEFECTS.md`, Д-62). The local
   BGE-M3 model now has a second backend behind the contract it always had —
   text in, a normalized 1024-dimension vector out — and it is the default:
@@ -128,6 +200,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+
+- **The Stop hook saw every changed file but the first** (Д-84). The hooks'
+  `git()` trims its output, so ` M src/api.ts` on the first line of `git status
+  --porcelain` arrived as `M src/api.ts`, and cutting three characters off it
+  read `rc/api.ts` — a file that does not exist, skipped by every end-of-response
+  check. The status column is now read by pattern.
 
 Nine of these came from the acceptance runs of 2026-09-15/16 on three real
 machines — macOS 15.2 on Apple Silicon, Windows 11 Pro x64, Arch Linux — and
@@ -403,6 +481,20 @@ four of those arrived as upstream issues #63–#66.
   warns when the machine has none of them. `docker/README.md` and both INSTALL
   guides carry the matrix of what can actually run under `--network none`.
   (upstream #48, docs/DEFECTS.md Д-55)
+
+### Security
+
+- **The server passes its own security gate again** (Д-82). `run_security_scan`
+  on `ai-dev-mcp-server` itself came back `block`: 16 findings, 7 of them high —
+  five host-confusion and SSRF advisories in `fast-uri` 3.1.4 and two inherited
+  libvips/libheif advisories in `sharp` 0.34.5 — plus moderate ones in `hono` and
+  `qs`. All four are transitive. `fast-uri` (3.1.8), `hono` (4.13.8) and `qs`
+  (6.16.0) moved inside their parents' ranges, resolved with `--before` a week
+  back so a fix never lands on a release younger than that. `sharp` sits outside
+  `@huggingface/transformers` 3.7.5's `^0.34.1`, so it is pinned to 0.35.4 with
+  an `overrides` entry rather than taking transformers 4.x, a major with a
+  different pipeline API; the override comes off with the move to 4.x, which
+  asks for `sharp ^0.35.4` itself. After: `pass`, 0 findings.
 
 ## [2.0.0] - 2026-09-13
 

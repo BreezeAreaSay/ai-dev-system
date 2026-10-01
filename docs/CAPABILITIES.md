@@ -2,7 +2,7 @@
 
 [← README](../README.md) · [Install](INSTALL.md) · [Workflow](WORKFLOW.md) · [Guard rails](GUARDRAILS.md)
 
-The server exposes 133 tools. That is a strength when the agent needs one of them
+The server exposes 134 tools. That is a strength when the agent needs one of them
 and a cost the rest of the time: every tool in `tools/list` is schema text the
 model carries before it has read a word of your request.
 
@@ -18,7 +18,7 @@ Capability profiles cut that surface along the lines you already think in.
 | `git` | 9 | Isolated worktrees, snapshots and rollback, change-hygiene review, pull request text. | The agent touches a real working tree you care about. |
 | `frontend` | 13 | Brief, visual directions, concept jury, design system, reference factory. | Building or reviewing a user-facing surface. |
 | `qa` | 8 | Playwright and visual QA runners, and the benchmarks that hold search and routing honest. | Verification has to produce evidence a person can look at. |
-| `security` | 8 | Secret and dependency scans, command and write policy, agent hooks, MCP inventory. | Setting up guard rails, or auditing what your agents are wired to. |
+| `security` | 9 | Secret and dependency scans, dependency fix plans, command and write policy, agent hooks, MCP inventory. | Setting up guard rails, or auditing what your agents are wired to. |
 | `advanced` | 36 | Archify diagrams, the search and skill indexes, the dashboard, usage ledger, runtime packaging. | Maintaining the system itself rather than using it. |
 
 The authoritative per-tool mapping is the `Profile` column in the
@@ -70,7 +70,7 @@ Measured against the server's own tool definitions:
 | `core` | 25 | ~15 KB |
 | `core,git` | 34 | ~22 KB |
 | `core,coding,git,memory` | 68 | ~48 KB |
-| unset / `all` | 133 | ~96 KB |
+| unset / `all` | 134 | ~99 KB |
 
 Two things it does **not** do:
 
@@ -84,7 +84,7 @@ A narrowed server says so on stderr at startup, naming the profiles and the tool
 count, so "the tool is missing" is never an unexplainable symptom:
 
 ```text
-ai-dev: capability profiles core, git — 34 of 133 tools listed. Unset AI_DEV_PROFILES for all of them.
+ai-dev: capability profiles core, git — 34 of 134 tools listed. Unset AI_DEV_PROFILES for all of them.
 ```
 
 A profile name it does not recognise is reported and ignored rather than taken as

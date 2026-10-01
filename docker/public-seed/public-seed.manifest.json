@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "policy": "explicit allowlist; no private vault zones or local runtime state",
-  "total_files": 4186,
-  "total_bytes": 40437168,
-  "content_fingerprint": "d032c147a26f6bd99859eda9f28c44ff88a4a94fb8f3ab34251b1cb72e200ce3",
+  "total_files": 4188,
+  "total_bytes": 40443830,
+  "content_fingerprint": "6910e7fd8752a01778b28dfcfdc475a5c2e04bf28cabbe90bca517030d868ce9",
   "files": [
     {
       "path": "01-system/Agent Rules.md",
@@ -59,6 +59,16 @@
       "path": "03-skills-catalog/sources/custom/application-security-reviewer/SKILL.md",
       "bytes": 3380,
       "sha256": "82f9496c43d4026c6d1569e2183888e596171a944c86385ce57f1dc11ff875ec"
+    },
+    {
+      "path": "03-skills-catalog/sources/custom/ar-security-review/agents/openai.yaml",
+      "bytes": 311,
+      "sha256": "99807884c80f27137351534020f05533f4cc076e61693f5714eaa13ffe8ec0f2"
+    },
+    {
+      "path": "03-skills-catalog/sources/custom/ar-security-review/SKILL.md",
+      "bytes": 6351,
+      "sha256": "ce2e207c2ce466de593a15e87f25512f91d9dcd7e68cf87ad50e380bcb8a3a9c"
     },
     {
       "path": "03-skills-catalog/sources/custom/backend-api-engineer/agents/openai.yaml",

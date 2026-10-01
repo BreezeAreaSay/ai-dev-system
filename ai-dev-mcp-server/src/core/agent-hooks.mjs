@@ -4,7 +4,7 @@ import { atomicWriteFile } from "./atomic-files.mjs";
 import { runProcess } from "./process-runner.mjs";
 import { LEFTOVER_PATTERNS, PLACEHOLDER_VALUE, PROTECTED_CONFIG_FILES, SECRET_FILE_PATTERN, SECRET_PATTERNS } from "./change-hygiene.mjs";
 
-export const HOOK_FILES = ["lib.mjs", "fact-force.mjs", "git-hooks.mjs", "guard.mjs", "post-edit.mjs", "session-start.mjs", "session-end.mjs", "cost-capture.mjs", "compact-advisor.mjs", "stop-check.mjs"];
+export const HOOK_FILES = ["lib.mjs", "semver-lite.mjs", "supply-chain.mjs", "fact-force.mjs", "git-hooks.mjs", "guard.mjs", "post-edit.mjs", "session-start.mjs", "session-end.mjs", "cost-capture.mjs", "compact-advisor.mjs", "stop-check.mjs"];
 export const HOOK_TARGETS = ["claude", "cursor", "git"];
 export const HOOK_PROFILES = ["minimal", "standard", "strict"];
 export const HOOKS_RELATIVE_DIR = ".ai-dev/hooks";
@@ -75,6 +75,17 @@ export function defaultPolicy(profile = "standard") {
     // silent. pre-commit scans the staged diff for the findings hygiene calls
     // blocking; pre-push reads the active task's latest verification.
     git_hooks: { pre_commit: "block", pre_push: "warn" },
+    // Supply-chain guard (hooks/supply-chain.mjs), on under standard and
+    // strict: a package an install command names is looked up before the
+    // install runs. Malware is refused, a release younger than
+    // min_release_age_hours is refused, one younger than warn_release_age_days
+    // is warned about. `osv: false` keeps package names away from api.osv.dev.
+    supply_chain: { enabled: true, min_release_age_hours: 24, warn_release_age_days: 7, osv: true, timeout_ms: 3000, max_packages: 8 },
+    // When back- or front-end code or a dependency manifest changed after the
+    // last run_security_scan, the Stop hook sends the agent back to run the
+    // security review ("block", once per stop), tells the user ("remind"), or
+    // says nothing ("off").
+    security_review_on_stop: profile === "minimal" ? "off" : "block",
     allow_commands: [],
     rules: [
       {

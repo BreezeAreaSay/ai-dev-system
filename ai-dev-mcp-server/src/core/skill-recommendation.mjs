@@ -488,6 +488,9 @@ export function recommendSkillsFromRegistry({
   if (/(application security|security review|threat model|authorization|authentication|permission|vulnerab|csrf|xss|ssrf|безопасн|авториз|уязвим)/i.test(task)) {
     addNamed("application-security-reviewer", "custom", "task touches an application security boundary or requests threat review", 156);
   }
+  if (/(ar-security-review|security scan|vulnerability scan|scan.*(?:project|repo|dependencies).*vulnerab|(?:fix|patch|remediate).*vulnerab|malware|malicious (?:package|version)|supply[- ]chain attack|\bcve-\d|\bghsa-|(?:npm|pnpm|yarn|bun) audit|просканир|залат|латат|закр.*уязвим|малвар|вредонос|проверк.*безопасн.*(?:проект|зависимост|бэк|фронт)|на\s+уязвимост)/i.test(task)) {
+    addNamed("ar-security-review", "custom", "task asks to scan a project and patch its vulnerabilities, malware or leaked secrets", 162);
+  }
   if (/(secret|credential|dependency audit|supply chain|lockfile|npm audit|pip-audit|snyk|sbom|секрет|зависимост|утечк.*ключ)/i.test(task)) {
     addNamed("secrets-dependencies-auditor", "custom", "task concerns credential exposure or dependency supply-chain risk", 156);
   }

@@ -4530,7 +4530,7 @@ const tools = [...buildToolDefinitions({
 // Capability profiles narrow what `tools/list` advertises — never what
 // `callTool` accepts. A client that already knows a tool's name keeps working
 // after the surface is narrowed; the saving is the schema text a model would
-// otherwise carry for 133 tools it is not going to use. Resolved once, because
+// otherwise carry for 134 tools it is not going to use. Resolved once, because
 // the setting cannot change without restarting the server.
 const activeProfiles = profilesFromEnvironment();
 

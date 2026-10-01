@@ -85,13 +85,44 @@ task has no verification or its latest one failed. A `core.hooksPath` someone
 else set is reported, never taken over, and every hook in `.git/hooks` that
 would stop running is named — git consults one hooks directory, not two.
 
+### Dependencies and security review
+
+Malware in a package runs during the install, so the guard looks at a package
+before an install runs it. Under the standard and strict profiles, any
+`npm install|i|add`, `pnpm add`, `yarn add`, `bun add` or `npx|pnpm dlx|yarn
+dlx|bunx` that names a registry package is checked against GitHub's advisories
+(as the npm registry serves them) and OSV's `MAL-` reports:
+
+- **malware** is refused — also for an exact version npm has already unpublished,
+  because a mirror may still serve it;
+- **a release younger than 24 hours** is refused, with an older version to pin
+  and the time it becomes installable; one younger than seven days is warned
+  about;
+- **known high or critical vulnerabilities** are warned about, with the first
+  release outside them.
+
+A check that cannot be made — no network, a private registry, a timeout — warns
+and never blocks. A lockfile install (`npm ci`, `pnpm install`) names no
+package and is not checked; `run_security_scan` covers what the lockfile holds.
+
+Two more hooks make "every change gets a security look" hold without the agent
+remembering it. An edit to `package.json`, a lockfile, `.npmrc` or
+`.yarnrc.yml` puts a note in the agent's context that the dependencies are
+unscanned. And when back- or front-end code, a manifest or a Dockerfile changed
+after the last `run_security_scan` (its stamp is `.ai-dev/security/last-scan.json`),
+the Stop hook sends the agent back once to run the `ar-security-review` skill
+before it finishes.
+
 `.ai-dev/policy.json` is where you tune it without touching the scripts:
 `allow_config_edits`, `format_on_edit`, compaction thresholds, `model_rates`,
 `completion_claims` (the completion-statement linter: `enabled`, and `waivers` of
 `{ rule, reason, expires }`), `fact_force` (`enabled`, `files`, `bash`,
 `expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), `git_hooks`
-(`pre_commit` and `pre_push`, each `block`, `warn` or `off`), and a list of your
-own rules:
+(`pre_commit` and `pre_push`, each `block`, `warn` or `off`), `supply_chain`
+(`enabled`, `min_release_age_hours`, `warn_release_age_days`, `osv` — `false`
+keeps package names away from api.osv.dev — `timeout_ms`, `max_packages`),
+`security_review_on_stop` (`block`, `remind` or `off`), and a list of your own
+rules:
 
 ```json
 {

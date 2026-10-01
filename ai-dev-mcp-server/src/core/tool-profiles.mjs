@@ -1,7 +1,7 @@
 /**
  * Capability profiles: eight named slices of the tool surface.
  *
- * The server exposes 133 tools. That is a strength when an agent needs one of
+ * The server exposes 134 tools. That is a strength when an agent needs one of
  * them and a cost the rest of the time: every tool in `tools/list` is schema
  * text in the model's context before the first word of the task is read. The
  * profiles cut the surface along the lines a person already thinks in — "I am
@@ -177,10 +177,11 @@ export const TOOL_PROFILES = Object.freeze([
   {
     id: "security",
     title: "Security",
-    summary: "The guard rails: secret and dependency scans, command and write policy, and an inventory of what your agents are wired to.",
+    summary: "The guard rails: secret and dependency scans, dependency fix plans, command and write policy, and an inventory of what your agents are wired to.",
     always: false,
     tools: Object.freeze([
       "run_security_scan",
+      "plan_security_fixes",
       "install_agent_hooks",
       "agent_hooks_status",
       "list_policy_rules",

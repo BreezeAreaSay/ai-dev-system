@@ -284,6 +284,17 @@ export function createSearchIndexRuntime({
     }
   }
 
+  /**
+   * Write what the Knowledge Galaxy is drawn from — documents, their sparse and
+   * dense vectors, and their wikilinks — into `outDir` (`galaxy-export`).
+   */
+  async function exportGalaxy({ outDir }) {
+    return runSearchCli(
+      ["galaxy-export", "--index-path", searchIndexPath, "--out-dir", outDir],
+      { timeoutMs: 300000, command: pythonCommand() }
+    );
+  }
+
   /** Keyword and sparse-semantic search over the index. */
   async function search({
     query,
@@ -489,5 +500,5 @@ export function createSearchIndexRuntime({
     }
   }
 
-  return { markDirty, dirtyReason: dirtyReasonNow, status, rebuild, ensureFresh, search, hybridSearch };
+  return { markDirty, dirtyReason: dirtyReasonNow, status, rebuild, ensureFresh, search, hybridSearch, exportGalaxy };
 }

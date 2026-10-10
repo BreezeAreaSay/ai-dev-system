@@ -50,11 +50,11 @@ test("a Frontend QA environment that is not ready says which piece is missing", 
     playwright_available: true,
     chromium_available: false,
     browser_launch_ok: false,
-    launch_error: "Chromium is not at /opt/pw-browsers/chromium-1243/chrome-linux64/chrome. Install it with `npx playwright install chromium`."
+    launch_error: "Chromium is not at /opt/pw-browsers/chromium-1243/chrome-linux64/chrome. Install it with `npm run setup -- --frontend-qa`."
   });
   assert.equal(noBrowser.status, "warn");
   assert.match(noBrowser.summary, /the Chromium binary is missing/);
-  assert.match(noBrowser.summary, /npx playwright install chromium/);
+  assert.match(noBrowser.summary, /npm run setup -- --frontend-qa/);
 
   const noPlaywright = evaluateFrontendQaEnvironment({ playwright_available: false });
   assert.match(noPlaywright.summary, /Playwright itself/);

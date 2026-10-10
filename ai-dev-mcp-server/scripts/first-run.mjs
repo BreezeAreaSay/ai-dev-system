@@ -22,6 +22,9 @@ import { fileURLToPath } from "node:url";
 import { downloadDenseModel } from "../src/core/dense-download.mjs";
 import { defaultOnnxModelDir } from "../src/core/dense-onnx.mjs";
 import { readDenseManifest, verifyDenseModelDirectory } from "../src/core/dense-manifest.mjs";
+import { frontendQaInstallCommands, frontendQaInstalled, pinnedPnpmVersion } from "../src/core/frontend-qa-install.mjs";
+import { LAUNCH_UNKNOWN, classifyFrontendQaLaunchFailure } from "../src/core/frontend-qa-launch.mjs";
+import { resolveSpawnInvocation } from "../src/core/process-runner.mjs";
 import { resolvePythonCommand } from "../src/core/python-command.mjs";
 import { resolveRuntimeStateRoot } from "../src/core/runtime-home.mjs";
 import { prepareRuntimeHome } from "../src/core/runtime-home-migration.mjs";
@@ -40,9 +43,11 @@ import {
   runFirstRunPlan,
   summarizeToolResult as summarize
 } from "./first-run-steps.mjs";
+import { evaluateFrontendQaEnvironment } from "../src/core/system-health.mjs";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = path.resolve(serverRoot, "..");
+const qaRoot = path.join(repositoryRoot, "frontend-qa");
 
 function parseArgs(argv) {
   const options = { want: {}, force: false, health: true };
@@ -94,6 +99,41 @@ async function runOrThrow(label, command, args, options) {
   if (code !== 0) throw new Error(`${label} exited with code ${code}.`);
 }
 
+/**
+ * The Frontend QA runner's status, asked exactly as the health check asks it —
+ * about the vault, so a Playwright the environment supplies first (NODE_PATH)
+ * is the one judged here too, and setup and `doctor` cannot disagree. `launch:
+ * false` only looks for the browser on disk. A runner that cannot start is
+ * described the way the health check describes it.
+ */
+function frontendQaStatus({ launch = true } = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [path.join(qaRoot, "frontend_qa_runner.mjs")], {
+      cwd: qaRoot,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    const failed = (output) => {
+      const failure = classifyFrontendQaLaunchFailure(output);
+      resolve({ playwright_available: false, chromium_available: false, browser_launch_ok: false, launch_failure: failure.kind, launch_error: failure.summary });
+    };
+    child.on("error", (error) => failed(String(error?.message ?? error)));
+    child.on("exit", (code) => {
+      if (code !== 0) return failed(stderr || `exit code ${code}`);
+      try {
+        resolve(JSON.parse(stdout));
+      } catch {
+        resolve({ playwright_available: false, chromium_available: false, browser_launch_ok: false, launch_failure: LAUNCH_UNKNOWN, launch_error: "The Frontend QA runner answered with something other than JSON." });
+      }
+    });
+    child.stdin.end(JSON.stringify({ action: "status", project_path: vaultRoot, launch }));
+  });
+}
+
 // Data a 2.x install left one level too deep moves first, so every step below
 // finds it (docs/DEFECTS.md, Д-90).
 await prepareRuntimeHome();
@@ -138,9 +178,15 @@ const { indexStatus, present: requiredPresent, stale: requiredStale } = await re
   skillRoutingEvalCasesPath
 });
 
+const qaDependencies = existsSync(path.join(qaRoot, "node_modules"));
 const present = {
   ...requiredPresent,
-  frontend_qa: existsSync(path.join(repositoryRoot, "frontend-qa", "node_modules")),
+  // Installed means the browser too: with only the packages a rerun skipped
+  // the step as built while QA still could not start (docs/DEFECTS.md, Д-93).
+  frontend_qa: frontendQaInstalled({
+    dependencies: qaDependencies,
+    status: qaDependencies ? await frontendQaStatus({ launch: false }) : null
+  }),
   dense_model: useLegacyDense
     ? existsSync(path.join(modelDir, "pytorch_model.bin"))
     : (await verifyDenseModelDirectory({ manifest: denseManifest, dir: onnxModelDir })).ready,
@@ -150,12 +196,20 @@ const present = {
 /** What each step actually does. Every one of them is idempotent. */
 const ACTIONS = {
   ...createRequiredActions({ callTool }),
+  // The lockfile with the pnpm the runner pins, then the Chromium build this
+  // Playwright was released with, and a ✓ only when the browser launches —
+  // the check `doctor` makes (docs/DEFECTS.md, Д-93). npm goes through the
+  // process-runner adapter, which on Windows runs npm's own entry point
+  // rather than npm.cmd.
   async frontend_qa() {
-    const qaRoot = path.join(repositoryRoot, "frontend-qa");
-    const hasPnpmLock = existsSync(path.join(qaRoot, "pnpm-lock.yaml"));
-    const manager = hasPnpmLock && (await hasCommand("pnpm")) ? "pnpm" : "npm";
-    await runOrThrow(`${manager} install`, manager, ["install"], { cwd: qaRoot });
-    return `${manager} install in frontend-qa/`;
+    const pnpmVersion = pinnedPnpmVersion(JSON.parse(await fs.readFile(path.join(qaRoot, "package.json"), "utf8")));
+    for (const step of frontendQaInstallCommands({ qaRoot, pnpmVersion })) {
+      const invocation = await resolveSpawnInvocation(step.command, step.args);
+      await runOrThrow(step.label, invocation.executable, invocation.args, { cwd: step.cwd });
+    }
+    const verdict = evaluateFrontendQaEnvironment(await frontendQaStatus());
+    if (verdict.status !== "ok") throw new Error(verdict.summary);
+    return `pnpm@${pnpmVersion} install --frozen-lockfile, playwright install chromium; ${verdict.summary}`;
   },
   async dense_model() {
     if (!useLegacyDense) {
@@ -206,11 +260,6 @@ const ACTIONS = {
     ));
   }
 };
-
-async function hasCommand(command) {
-  const code = await run(process.platform === "win32" ? "where" : "which", [command], { stdio: "ignore" });
-  return code === 0;
-}
 
 const stale = {
   ...requiredStale,

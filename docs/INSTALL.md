@@ -55,7 +55,11 @@ registry, the search index and the routing benchmark — and prints the health
 check. The container builds the same three on its first start, from the same
 code, so the two paths cannot end up with different installs. Add `--frontend-qa` for the QA runner's dependencies, `--dense` for the
 local BGE-M3 model and the embeddings built with it (about 600 MB); neither runs
-unless asked. No Obsidian vault is needed: without one the server reads the
+unless asked. `--frontend-qa` installs exactly `frontend-qa/pnpm-lock.yaml` with the pnpm
+version the runner pins (fetched through `npm exec`; no pnpm on your PATH is needed), then the
+Chromium build that Playwright wants, and reports success only when that browser starts. It
+needs `registry.npmjs.org` and Playwright's download host; behind a mirror, set
+`PLAYWRIGHT_DOWNLOAD_HOST`. No Obsidian vault is needed: without one the server reads the
 bundled seed and its helper trees from the repository itself.
 
 Then connect your clients:

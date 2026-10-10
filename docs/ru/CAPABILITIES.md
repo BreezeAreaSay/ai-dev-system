@@ -62,14 +62,32 @@ AI_DEV_PROFILES=all             # все профили, то же самое, �
 
 ## Сколько это экономит
 
-Замерено по собственным определениям инструментов сервера:
+Замерено то, что клиент действительно получает: массив `tools` из ответа
+`tools/list`, сериализованный, в байтах (1 КБ = 1000 байт):
 
-| Значение | Инструментов в списке | Схема в контексте |
+| Значение | Инструментов в списке | Схема `tools/list` |
 | --- | --- | --- |
-| `core` | 25 | ~15 КБ |
-| `core,git` | 34 | ~23 КБ |
-| `core,coding,git,memory` | 69 | ~50 КБ |
-| не задано / `all` | 135 | ~98 КБ |
+| `core` | 25 | 22 847 байт (~23 КБ) |
+| `core,git` | 34 | 32 726 байт (~33 КБ) |
+| `core,coding,git,memory` | 69 | 69 554 байта (~70 КБ) |
+| не задано / `all` | 135 | 139 134 байта (~139 КБ) |
+
+Замерить самому (оболочка macOS / Linux; `AI_DEV_PROFILES` меняйте по строкам,
+пустое — все инструменты):
+
+```bash
+cd ai-dev-mcp-server
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"size","version":"0"}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | AI_DEV_PROFILES=core,git node src/server.mjs \
+  | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{for(const l of s.split("\n"))if(l.includes("\"id\":2")){const t=JSON.parse(l).result.tools;console.log(t.length+" tools, "+Buffer.byteLength(JSON.stringify(t))+" bytes")}})'
+```
+
+Числа — для сервера этого выпуска: новый или переформулированный инструмент их
+меняет, поэтому команда здесь. Как клиент упакует схему в контекст модели —
+решает клиент.
 
 Чего сужение **не** делает:
 

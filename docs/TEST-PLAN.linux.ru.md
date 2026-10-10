@@ -103,7 +103,7 @@ git --version || sudo apt-get install -y git
 
 ### Место на диске
 
-**Не меньше 3 ГБ свободного.** Расход: зависимости ≈ 420 МБ, модель ≈ 600 МБ, остальное —
+**Не меньше 3 ГБ свободного.** Расход: зависимости ≈ 511 МБ, модель ≈ 600 МБ, остальное —
 индекс и кеш.
 
 ### Docker Engine
@@ -239,9 +239,8 @@ node -e "import('onnxruntime-node').then(m => console.log('InferenceSession:', t
 Посмотреть, какие наборы бинарников приехали и все ли системные библиотеки на месте:
 
 ```bash
-ls node_modules/onnxruntime-node/bin/napi-v3/linux/
-ldd node_modules/onnxruntime-node/bin/napi-v3/$(node -p "process.arch")/onnxruntime_binding.node 2>/dev/null \
-  || ldd node_modules/onnxruntime-node/bin/napi-v3/linux/$(node -p "process.arch")/onnxruntime_binding.node
+ls node_modules/onnxruntime-node/bin/napi-v6/linux/
+ldd node_modules/onnxruntime-node/bin/napi-v6/linux/$(node -p "process.arch")/onnxruntime_binding.node
 ```
 
 **Ожидается:** обе папки (`x64` и `arm64`), и в выводе `ldd` нет строк `not found`.
@@ -567,8 +566,9 @@ npm run verify:cursor
 ### 10.3. Мало места на диске
 
 Оставьте ≈ 300 МБ и запустите скачивание.
-**Известно заранее:** свободное место перед скачиванием не проверяется. Невнятное сообщение —
-ожидаемая находка, запишите дословно.
+**Что ожидать:** свободное место проверяется до первого байта (Д-81, закрыт 2026-09-22):
+скачивание отказывается стартовать за секунды и говорит, сколько нужно и сколько есть. Запишите
+сообщение дословно и сколько байт успело скачаться — ожидается ноль.
 
 ### 10.4. Корпоративный прокси
 

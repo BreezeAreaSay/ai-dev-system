@@ -230,6 +230,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The documentation says what a measurement says** (`docs/DEFECTS.md`, Д-100).
+  - README, INSTALL (EN and RU): Python 3 — the standard library only — is
+    required for search until it moves to Node; without it `npm run setup`
+    fails at the search index.
+  - Clients are connected with `npm run clients:install`, which no page
+    mentioned, instead of editing JSON by hand.
+  - `npm run daemon` is marked experimental: no client can connect to it yet
+    (Д-97).
+  - Schema sizes are the bytes of the `tools/list` result, with the command that
+    measures them: 22,847 for `core`, 32,726 for `core,git`, 139,134 for all 135
+    tools. The pages said 15, 23 and 98 KB.
+  - The README counts 9 tools in `security` and 3,228 skills.
+  - The server README no longer documents `AI_DEV_RUNTIME_CONFIG`, which nothing
+    reads, and describes `--dense` as the ONNX export it is, not a 2.3 GB Python
+    install.
+  - The test plans no longer list the closed Д-74 and Д-81 as open, and point at
+    `napi-v6`.
+
+  **Re-check after upgrading:** nothing to do; the defect registry now carries
+  Д-85 … Д-109 with the measurement behind each.
+
 - **The Stop hook saw every changed file but the first** (Д-84). The hooks'
   `git()` trims its output, so ` M src/api.ts` on the first line of `git status
   --porcelain` arrived as `M src/api.ts`, and cutting three characters off it

@@ -63,14 +63,32 @@ In a client configuration it goes beside the other variables:
 
 ## What narrowing actually costs and saves
 
-Measured against the server's own tool definitions:
+Measured as what a client actually receives: the `tools` array of the
+`tools/list` result, serialized, in bytes (1 KB = 1,000 bytes):
 
-| Setting | Tools listed | Schema in context |
+| Setting | Tools listed | `tools/list` schema |
 | --- | --- | --- |
-| `core` | 25 | ~15 KB |
-| `core,git` | 34 | ~23 KB |
-| `core,coding,git,memory` | 69 | ~50 KB |
-| unset / `all` | 135 | ~98 KB |
+| `core` | 25 | 22,847 bytes (~23 KB) |
+| `core,git` | 34 | 32,726 bytes (~33 KB) |
+| `core,coding,git,memory` | 69 | 69,554 bytes (~70 KB) |
+| unset / `all` | 135 | 139,134 bytes (~139 KB) |
+
+To measure it yourself (macOS / Linux shell; change `AI_DEV_PROFILES` per row,
+empty for all):
+
+```bash
+cd ai-dev-mcp-server
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"size","version":"0"}}}' \
+  '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | AI_DEV_PROFILES=core,git node src/server.mjs \
+  | node -e 'let s="";process.stdin.on("data",(d)=>s+=d).on("end",()=>{for(const l of s.split("\n"))if(l.includes("\"id\":2")){const t=JSON.parse(l).result.tools;console.log(t.length+" tools, "+Buffer.byteLength(JSON.stringify(t))+" bytes")}})'
+```
+
+The numbers are for the server as of this release; a tool added or reworded
+changes them, which is why the command is here. How a client then packs the
+schema into the model's context is up to the client.
 
 Two things it does **not** do:
 

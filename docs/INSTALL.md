@@ -27,8 +27,13 @@ To start an agent with a narrowed tool surface, add `AI_DEV_PROFILES` to the
 ## Requirements
 
 To run it locally — the path this page recommends — you need Node.js 22.12+ and
-npm, and nothing else. On Windows you can use the bundled runtime described in
-the [server README](../ai-dev-mcp-server/README.md).
+npm, and Python 3 on `PATH` (`python3`; `python` on Windows). Only the standard
+library: the search index is still built and queried by a small Python helper,
+and without an interpreter `npm run setup` fails at the search index and most
+search tools answer `spawn python3 ENOENT`. Moving search to Node is in
+progress; until then Python stays a requirement. On Windows you can use the
+bundled runtime described in the
+[server README](../ai-dev-mcp-server/README.md).
 
 For the packaged path you need Docker instead:
 
@@ -53,7 +58,16 @@ local BGE-M3 model and the embeddings built with it (about 600 MB); neither runs
 unless asked. No Obsidian vault is needed: without one the server reads the
 bundled seed and its helper trees from the repository itself.
 
-Then point your MCP client at `ai-dev-mcp-server/src/server.mjs` — see
+Then connect your clients:
+
+```bash
+npm run clients:install
+```
+
+It writes the server into Claude Code (`~/.claude.json`), Cursor, VS Code and
+Gemini, keeps every other server in those files, backs each changed file up
+first, and changes nothing when run again. Restart the clients afterwards. Codex
+and Claude Desktop are not covered by it yet; for them see
 [Connecting AI agents](#connecting-ai-agents). That is the whole install.
 
 Two ways to run it, and they speak the same protocol:
@@ -61,7 +75,7 @@ Two ways to run it, and they speak the same protocol:
 | | |
 | --- | --- |
 | `npm start` | One stdio process per client. The default, and what the client configurations below launch. |
-| `npm run daemon` | One warm process on a local socket (a named pipe on Windows) serving every client, so the search index and the embedding model load once instead of per connection. |
+| `npm run daemon` | **Experimental.** One warm process on a local socket (a named pipe on Windows). No client can connect to it yet — nothing bridges a client's stdio to the socket — and it fails to start when the socket path is longer than the system allows — 107 bytes on Linux (docs/DEFECTS.md, Д-97). Use `npm start`. |
 
 **Why local first.** The dense model is the reason. Locally it is one flag —
 `npm run setup -- --dense` — and it lands in `~/.ai-dev`, with nothing but Node
@@ -266,6 +280,12 @@ scan there is one scanner, not six; `docker/README.md` has the full matrix. A
 scan in which not one scanner ran comes back `unchecked`, never `pass`.
 
 ## Connecting AI agents
+
+Do not edit these files by hand when an installer covers the client. From a
+clone, `npm run clients:install` configures Claude Code, Cursor, VS Code and
+Gemini (see [Quick start](#quick-start-run-it-locally)); for the Docker path,
+bootstrap configures all six clients. The blocks below are what the Docker
+installer writes, for reference and for a client neither installer covers.
 
 In every case, replace `C:\ABSOLUTE\PATH` with the absolute path to your clone of
 this repository, and `C:\Dev` with the folder that holds your projects. Do not

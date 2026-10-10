@@ -36,7 +36,7 @@ One task, start to finish. This is the whole product:
 ```mermaid
 flowchart LR
     A["You: add authentication<br/>to the API"] --> B["begin_task<br/><i>loads project context:<br/>stack, conventions,<br/>past decisions</i>"]
-    B --> C["routes 3 skills<br/><i>out of 3,227</i>"]
+    B --> C["routes 3 skills<br/><i>out of 3,228</i>"]
     C --> D["agent writes<br/>the code"]
     D --> E["checkpoint_task<br/><i>+ snapshot of<br/>the working tree</i>"]
     E --> F["verify_task<br/><i>tests, quality gate,<br/>security scan</i>"]
@@ -51,7 +51,7 @@ Four things the agent could not do before:
 | | |
 | --- | --- |
 | 🧠 **It remembers the project** | `begin_task` compiles a context pack: the stack, the conventions, the architectural decisions on record, the handoff from the last session, and the instincts learned across sessions. You stop re-explaining. |
-| 🎯 **It finds the knowledge that applies** | Hybrid search (keyword + sparse + optional local BGE-M3) routes the request to at most three skills out of 3,227 — enough to be useful, few enough to stay in context. |
+| 🎯 **It finds the knowledge that applies** | Hybrid search (keyword + sparse + optional local BGE-M3) routes the request to at most three skills out of 3,228 — enough to be useful, few enough to stay in context. |
 | 🔒 **It works inside a lifecycle** | Begin, checkpoint, verify, complete. Every checkpoint snapshots the working tree, so any turn can be undone without touching your branch, stash or index. |
 | ✅ **It cannot just say it is done** | `complete_task` lints the completion report against the checks that actually ran. "Should work", "pre-existing issue", "skipping tests for now" come back refused, with the rule and what is missing. |
 
@@ -60,7 +60,9 @@ scene by scene, including the verification failure and the fix.
 
 ## Install
 
-**Locally, from a clone** — Node.js 22.12+ and nothing else:
+**Locally, from a clone** — Node.js 22.12+, and Python 3 on `PATH` for search
+(the standard library only, no packages: the search index is still built and
+queried by a small Python helper; moving it to Node is in progress):
 
 ```bash
 cd ai-dev-mcp-server
@@ -68,12 +70,21 @@ npm ci --ignore-scripts --no-audit --no-fund
 npm run setup
 ```
 
-Then point your MCP client at `ai-dev-mcp-server/src/server.mjs` and restart it.
-That is the whole install, and it is the path to take on your own machine. The
-local dense model is one flag here — `npm run setup -- --dense` downloads a
-pinned, checksum-verified ONNX export of BGE-M3 and runs it through Node, so
-"and nothing else" holds for that too; `npm run dense:doctor` says whether it
-worked. In the packaged path the weights are mounted instead.
+Then connect your clients and restart them:
+
+```bash
+npm run clients:install
+```
+
+It adds the server to Claude Code, Cursor, VS Code and Gemini, keeps every other
+server in those files, and backs each file up before changing it; running it
+again changes nothing. Codex and Claude Desktop are not covered by it yet — see
+[INSTALL](docs/INSTALL.md#connecting-ai-agents). That is the whole install, and
+it is the path to take on your own machine. The local dense model is one flag
+here — `npm run setup -- --dense` downloads a pinned, checksum-verified ONNX
+export of BGE-M3 and runs it through Node, with no Python packages;
+`npm run dense:doctor` says whether it worked. In the packaged path the weights
+are mounted instead.
 
 **Packaged, through Docker** — for a machine that should not hold a personal
 vault, or a team that wants one image everybody runs the same way:
@@ -116,12 +127,13 @@ into eight **capability profiles**, and only `core` is on the critical path:
 | `git` | 9 | Isolated worktrees, snapshots and rollback, diff review, pull request text. |
 | `frontend` | 13 | Brief, visual directions, design system, references. |
 | `qa` | 8 | Playwright and visual QA, and the benchmarks that hold search and routing honest. |
-| `security` | 8 | Secret and dependency scans, command and write policy, MCP inventory. |
+| `security` | 9 | Secret and dependency scans, dependency fix plans, command and write policy, MCP inventory. |
 | `advanced` | 36 | Diagrams, the search and skill indexes, the dashboard, usage, packaging. |
 
 Set `AI_DEV_PROFILES=core,git` and the server advertises 34 tools instead of 135
-— about 23 KB of schema in the model's context instead of 98 KB, before it has
-read a word of your request. Unset, everything is on and nothing is hidden.
+— about 33 KB of `tools/list` schema in the model's context instead of 139 KB,
+before it has read a word of your request (measured; the command is in
+[Capabilities](docs/CAPABILITIES.md#what-narrowing-actually-costs-and-saves)). Unset, everything is on and nothing is hidden.
 
 **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)** — what each profile carries and
 when to turn it on.
@@ -135,7 +147,7 @@ flowchart TB
     end
     agent <-->|stdio, no network port| server["ai-dev server<br/>135 tools in 8 profiles"]
     server --> ctx["Project context<br/><i>stack, conventions,<br/>decisions, handoffs</i>"]
-    server --> skills["Skill library<br/><i>3,227 skills,<br/>hybrid search</i>"]
+    server --> skills["Skill library<br/><i>3,228 skills,<br/>hybrid search</i>"]
     server --> life["Task lifecycle<br/><i>snapshots, quality gate,<br/>completion linter</i>"]
     ctx & skills & life --> disk[("Your machine only<br/><i>~/.ai-dev + .ai-dev/ in the repo</i>")]
 ```

@@ -7,12 +7,12 @@ evidence-bound task completion.
 
 ## Runtime
 
-- `src/server.mjs`: authoritative stdio runtime built on `@modelcontextprotocol/sdk@1.29.0`.
-- `src/mcp-stdio-legacy.mjs`: single source of truth for tool dispatch (`callTool`), the
-  `tools` contract list, and the hand-rolled JSON-RPC fallback server (`start:legacy`).
-- `src/mcp-stdio.mjs`: thin compatibility shim that re-exports the legacy module for
-  `server.mjs`, the scripts, and the tests.
+- `src/server.mjs`: authoritative stdio runtime built on `@modelcontextprotocol/sdk@1.30.0`.
+- `src/mcp-stdio.mjs`: tool dispatch (`callTool`), the `tools` contract list, and the
+  hand-rolled JSON-RPC fallback server (`startLegacyServer`, `npm run start:legacy`);
+  `server.mjs`, the scripts and the tests import it.
 - `src/tool-definitions.mjs`: typed MCP tool contracts, separated from runtime dispatch.
+- `src/extensions/`: tools added as extensions, registered in `src/tool-extensions.mjs`.
 - `src/core/`: path, command, process, project identity, context, task, routing, outcome, dashboard,
   overlay, frontend-quality, and distribution modules.
 - Node.js: 22.12+ on `PATH` (any distribution). No agent-specific runtime is required.
@@ -20,7 +20,10 @@ evidence-bound task completion.
   - `~/.ai-dev/state` — task lifecycle, skill outcomes, pilots (override: `AI_DEV_STATE_ROOT`)
   - `~/.ai-dev/cache/search-index` — SQLite + dense index (override: `AI_DEV_SEARCH_INDEX_DIR`)
   - `~/.ai-dev/artifacts/frontend-qa` — QA screenshots (override: `AI_DEV_FRONTEND_QA_ARTIFACT_ROOT`)
-  - `~/.ai-dev/models/bge-m3` — embedding model (override: `BGE_M3_MODEL_DIR`)
+  - `~/.ai-dev/models/bge-m3-onnx` — the ONNX embedding model `--dense` installs
+    (override: `BGE_M3_ONNX_DIR`)
+  - `~/.ai-dev/models/bge-m3` — the legacy Python weights, only for `--dense-python`
+    (override: `BGE_M3_MODEL_DIR`)
   - A pre-existing `~/.codex/<...>` layout is used automatically if the `~/.ai-dev` path is absent,
     so installs migrated from the Codex-only runtime keep their history.
 
@@ -29,6 +32,9 @@ Start:
 ```bash
 AI_DEV_VAULT_ROOT="/path/to/vault" node src/server.mjs
 ```
+
+From a plain clone no vault is needed, and `npm run clients:install` writes the client
+entry below into Claude Code, Cursor, VS Code and Gemini for you.
 
 The server negotiates MCP over stdio and exposes structured tool results, Resources, resource
 templates, Prompts, progress notifications, and tool annotations. Any stdio MCP client works —
@@ -214,9 +220,11 @@ displacing the exact workflow skill. Golden cases live in:
 ## Semantic search (BGE-M3)
 
 Hybrid search works without a model: SQLite FTS, sparse aliases, and deterministic
-intent routing are always on. The optional local `BAAI/bge-m3` reranker improves
-concept and document retrieval. The Docker image never bundles the weights
-(~2.3 GB); the container mounts a host folder read-only at `/models/bge-m3`.
+intent routing are always on. The optional local BGE-M3 model improves concept and
+document retrieval. The Docker image never bundles the weights; the launchers mount
+the folder above them read-only at `/models`, and the image reads the ONNX export
+from `/models/bge-m3-onnx`. The exception is the Windows Claude Desktop proxy, which
+still mounts it at `/models/bge-m3` (docs/DEFECTS.md, Д-88).
 
 ### From a source checkout
 
@@ -224,18 +232,27 @@ concept and document retrieval. The Docker image never bundles the weights
 npm run setup -- --dense
 ```
 
-That builds the Python environment, downloads the weights (~2.3 GB) into the
-directory the loader expects (`$BGE_M3_MODEL_DIR`, else
-`~/.ai-dev/models/bge-m3`), and then embeds the documents already in the search
-index — the last part is what makes a query semantic, and the weights on their
-own do not do it. Adding notes later leaves them without a vector until the next
-`npm run setup -- --dense`, which re-embeds only what changed and reports the
-coverage it ended with.
+That downloads the pinned ONNX export `Xenova/bge-m3` — five files, int8, each
+checked against the sha256 in `models/bge-m3.manifest.json` — into
+`~/.ai-dev/models/bge-m3-onnx` (`$BGE_M3_ONNX_DIR` overrides it), and then embeds
+the documents already in the search index. The model runs in Node through
+`onnxruntime-node`: no Python packages, no torch. The embedding is the part that
+makes a query semantic; the weights on their own do not do it. Adding notes later
+leaves them without a vector until the next `npm run setup -- --dense`, which
+re-embeds only what changed and reports the coverage it ended with.
+`npm run dense:doctor` walks the model check stage by stage and names the one that
+stopped.
 
-Set `BGE_M3_DEVICE=cuda` to use a GPU. The loader checks for `pytorch_model.bin`
-in the model directory and says so plainly when it is missing.
+### The legacy Python path
 
-By hand, if you would rather do each step yourself (paths are for a plain
+`npm run setup -- --dense-python` builds the old stack instead: a Python virtualenv,
+torch, and the 2.3 GB `BAAI/bge-m3` weights in `~/.ai-dev/models/bge-m3`
+(`$BGE_M3_MODEL_DIR`). `AI_DEV_DENSE_BACKEND=python` selects it explicitly; the
+default, `auto`, uses it only when no verified ONNX export is on disk and the legacy
+stack is complete. Set `BGE_M3_DEVICE=cuda` to run it on a GPU; the
+loader checks for `pytorch_model.bin` and says so plainly when it is missing.
+
+By hand, if you would rather do each legacy step yourself (paths are for a plain
 checkout; in an Obsidian vault the helper trees live under `09-mcp/`):
 
 1. Install the Python helper dependencies:
@@ -268,12 +285,14 @@ checkout; in an Obsidian vault the helper trees live under `09-mcp/`):
 
 ### With the Docker image
 
+The default image already carries the ONNX runtime. Download the weights on the
+host with `npm run setup -- --dense`, then set `AI_DEV_MODEL_PATH` to the folder
+*above* them — `~/.ai-dev/models` — and the launcher mounts it read-only as
+`/models`. Only the legacy Python backend needs its own image variant:
+
 ```bash
 docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker/build-context
 ```
-
-Download the weights on the host as above, then set `AI_DEV_MODEL_PATH` to that
-folder; the launcher mounts it read-only as `/models/bge-m3`.
 
 ## Frontend QA Config
 
@@ -335,8 +354,8 @@ npm run setup
 SQLite search index and the skill-routing benchmark — and ends with the health
 check, so what is still missing is on the screen. It reaches the network only
 when asked: `--frontend-qa` installs the Frontend QA runner's dependencies,
-`--dense` builds the Python environment, downloads the BGE-M3 weights and embeds
-the index with them. Everything it builds is idempotent, and anything that has
+`--dense` downloads the pinned ONNX export of BGE-M3 (no Python packages) and
+embeds the index with it. Everything it builds is idempotent, and anything that has
 gone out of date since is rebuilt rather than skipped.
 
 Or restore both MCP and Frontend QA runtimes (`../scripts/restore-runtime.ps1`) — it prefers
@@ -350,10 +369,10 @@ AI_DEV_HOME         runtime-data root (default ~/.ai-dev)
 AI_DEV_STATE_ROOT   task/outcome/pilot state (default $AI_DEV_HOME/state)
 AI_DEV_SEARCH_INDEX_DIR   search index dir (default $AI_DEV_HOME/cache/search-index)
 AI_DEV_FRONTEND_QA_ARTIFACT_ROOT   QA artifacts (default $AI_DEV_HOME/artifacts/frontend-qa)
-AI_DEV_RUNTIME_CONFIG   path to a runtime profile JSON
-AI_DEV_PYTHON       python interpreter (default: python3 on PATH)
-BGE_M3_MODEL_DIR    embedding model dir (default $AI_DEV_HOME/models/bge-m3)
-BGE_M3_DEVICE       cpu | cuda
+AI_DEV_PYTHON       python interpreter for the search helper (default: python3; python on Windows)
+BGE_M3_ONNX_DIR     ONNX embedding model dir (default $AI_DEV_HOME/models/bge-m3-onnx)
+BGE_M3_MODEL_DIR    legacy Python model dir (default $AI_DEV_HOME/models/bge-m3)
+BGE_M3_DEVICE       cpu | cuda, legacy Python backend only
 ```
 
 ## Docker

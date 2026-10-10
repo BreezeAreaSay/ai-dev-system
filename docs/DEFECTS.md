@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 85 записей. Закрыто 83, из них девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 109 записей. Закрыто 84, открыто 25. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -36,7 +36,15 @@ Pro x64 и Arch Linux. Пять из этих девяти пришли отчё
 1024 измерения, norm 1. Раздел B ТЗ пройден полностью. На Linux система тоже работает. На Windows
 раздел B не пройден — и его блокер, и вторая половина той же записи закрыты здесь (Д-73).
 
-Открыто два, и ни одно из них не закрывается кодом из песочницы:
+**Программа «одна команда + exe» (2026-10-10).** Двадцать четыре записи Д-85 … Д-108 заведены
+разом по разбору от 2026-10-06 (`docs/program/BRIEF.md`). Каждая с замером «до», снятым заново в
+песочнице, или с пометкой «по коду» и файлом со строкой, и с фазой программы, которая её закроет.
+Номера зафиксированы брифом заранее, поэтому запись из слитой позже ветки галактики получила
+Д-109. Д-100 — расхождения документации с замером — закрыта первой фазой; остальные двадцать
+три открыты. Ход программы — `docs/program/PROGRESS.md`.
+
+Открыто двадцать пять: двадцать три записи программы (Д-85 … Д-108 без Д-100), у каждой своя
+фаза, и две старые, которые кодом из песочницы не закрываются:
 
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
   закрывается: двадцать минут в самом Cursor по четырём пунктам, `npm run verify:cursor`
@@ -551,6 +559,788 @@ ai-dev-system  pass   npm_audit (ai-dev-mcp-server), pnpm_audit (frontend-qa)
 
 **Проверено мутацией.** Вернуть `slice(3)` → падает новый тест «the Stop hook reads the first
 changed file too»; с исправлением проходит.
+
+---
+
+## Д-85. Поиск требует Python, хотя README обещает «Node и больше ничего»
+
+**Статус:** открыт. Закроет фаза 4 программы «одна команда + exe» (`docs/program/BRIEF.md`).
+Нашёл разбор 2026-10-06, замер повторён 2026-10-10.
+
+Поиск ходит через питоновский хелпер `search-index/search_cli.py`: интерпретатор выбирает
+`pythonCommand()` (`src/mcp-stdio.mjs:1833`), вызов — `runSearchCli` (`src/core/search-index.mjs:109`).
+README и INSTALL на обоих языках обещают «Node.js 22.12+ and nothing else». CI этого не видит: на
+раннерах GitHub Python предустановлен, а Windows-джоб не запускает `setup`.
+
+**Чем грозит.** Машина без Python — Windows по умолчанию, минимальный контейнер — после установки
+строго по документации получает `Health: fail`, и почти весь поиск не отвечает.
+
+**Замер до.** Чистый клон `Dev` @ `8f647df`, пустой HOME, PATH — `/opt/node22/bin` плюс всё из
+`/usr/bin` и `/bin`, кроме `python*` и `pip*` (`command -v python3 python` → пусто):
+
+```
+npm ci --ignore-scripts && npm run setup
+✗ Search index (0.0s): spawn python3 ENOENT
+3 built, 3 skipped, 1 failed.
+Health: fail — 22 check(s), 4 not passing.
+  fail: search_index_file — SQLite search index is missing.
+  fail: search_index_freshness — spawn python3 ENOENT
+  fail: search_smoke — spawn python3 ENOENT
+  fail: hybrid_smoke_no_dense — spawn python3 ENOENT
+exit 1
+```
+
+По MCP, тот же PATH, индекс собран заранее: из 13 поисковых инструментов **не работают 11**.
+Девять отвечают ошибкой `spawn python3 ENOENT` — `search_all`, `hybrid_search`, `preset_search`,
+`explain_search`, `search_index_status`, `rebuild_search_index`, `search_projects`, `search_notes`,
+`search_skill_registry`. `run_search_eval` отвечает `status: fail`: все 45 кейсов упали с той же
+ошибкой. `embed_texts` без модели уходит на legacy-интерпретатор: «BGE-M3 Python runtime not
+found: …/embeddings/.venv/bin/python» (Д-98). Работают `list_search_presets` и
+`embedding_status`. Вне поиска падают `prepare_project` и `refresh_project_memory` — тоже
+`spawn python3 ENOENT`. Разбор насчитал 10 отказов из 13: в его счёт не попал `run_search_eval`,
+который отвечает, но проваливает все кейсы.
+
+**Как закроется.** Фаза 4: индекс, hybrid и векторы — на `node:sqlite`, `search_cli.py` удаляется,
+в CI — джоб «чистая машина без Python» на трёх ОС. До этого документация честно называет Python 3
+(только стандартная библиотека) обязательным для поиска (Д-100).
+
+---
+
+## Д-86. `npm install` без `--ignore-scripts` падает на postinstall onnxruntime-node
+
+**Статус:** открыт. Закроет фаза 2.
+
+`onnxruntime-node` 1.30.0 в postinstall (`node ./script/install`) докачивает то, чего нет в
+npm-пакете. Для `linux/x64` это CUDA 12 EP — пакет `Microsoft.ML.OnnxRuntime.Gpu.Linux` с
+`api.nuget.org` (`script/install-metadata.js`: `'linux/x64': ['cuda12']`). Для win32 и darwin
+список пуст, поэтому дефект — про Linux x64. Сервер считает на CPU, CUDA ему не нужна. Скрипт
+ходит в сеть через `global-agent`, а тот читает только `GLOBAL_AGENT_*`, не `HTTPS_PROXY`.
+
+**Чем грозит.** Самая естественная команда — `npm install` — завершается ошибкой, поэтому вся
+документация вынуждена носить `--ignore-scripts`, а забывший его получает красный экран на первом
+же шаге. За корпоративным прокси скрипт не проходит даже там, где nuget доступен.
+
+**Замер до.** Чистый клон, пустой HOME, `npm install --no-audit --no-fund`:
+
+```
+npm error path …/node_modules/onnxruntime-node
+npm error command failed
+npm error command sh -c node ./script/install
+npm error Error: read ECONNRESET
+exit 1 за 24,3 с
+```
+
+В этой песочнице `curl` через прокси достаёт `https://api.nuget.org/v3/index.json` (200), а
+скрипт — нет: Node без агента идёт мимо `HTTPS_PROXY`. В песочнице разбора 2026-10-06 nuget был
+закрыт полностью, результат тот же — exit 1.
+
+**Как закроется.** Фаза 2: `ai-dev-mcp-server/.npmrc` со строкой `onnxruntime-node-install=skip`.
+
+---
+
+## Д-87. `package-lock.json`: шесть дублирующихся ключей
+
+**Статус:** открыт. Закроет фаза 2.
+
+Слияние Dependabot #70 (onnxruntime-node 1.30.0) и #71 (transformers 4.3.0) склеило два
+варианта одного куска `"packages"`: шесть ключей встречаются дважды.
+
+**Чем грозит.** JSON с повторяющимися ключами разные инструменты читают по-разному: стандартный
+разбор берёт последнее значение, потоковые — первое. `npm ci` это терпит, и `npm ls` показывает
+верное дерево, поэтому дефект молчит до первого инструмента, который прочтёт другую копию.
+Следующее автоматическое слияние может тихо выбрать не ту.
+
+**Замер до.** `json.load` с `object_pairs_hook`, собирающим повторы:
+
+```
+6 duplicate keys:
+node_modules/@huggingface/transformers/node_modules/global-agent       строки 70 и 150
+node_modules/@huggingface/transformers/node_modules/matcher            строки 85 и 167
+node_modules/@huggingface/transformers/node_modules/onnxruntime-common строки 100 и 179
+node_modules/@huggingface/transformers/node_modules/onnxruntime-node   строки 106 и 185
+node_modules/@huggingface/transformers/node_modules/serialize-error    строки 123 и 202
+node_modules/@huggingface/transformers/node_modules/type-fest          строки 138 и 217
+package-lock.json — 2 438 строк
+```
+
+**Как закроется.** Фаза 2: lockfile перегенерируется через `npx npm@11.17.0` (версия из
+`packageManager`), дублей 0.
+
+---
+
+## Д-88. ClaudeMcpProxy монтирует модель в `/models/bge-m3`, а образ ищет `/models/bge-m3-onnx`
+
+**Статус:** открыт. Закроет фаза 2. Замер по коду: прокси собирается только на Windows
+(csc.exe из .NET Framework 4), в песочнице его не исполнить.
+
+`docker/ClaudeMcpProxy.cs:76` — `AddBindMount(arguments, "AI_DEV_MODEL_PATH", "/models/bge-m3", true)`.
+Остальные четыре копии монтируют ту же переменную в `/models`: `docker/run-mcp.sh:105`,
+`docker/run-mcp.ps1:60`, `bootstrap.sh:281`, `docker/compose.local.example.yaml:29`. Образ ищет
+ONNX-экспорт в `BGE_M3_ONNX_DIR=/models/bge-m3-onnx` (`docker/Dockerfile:52`). С прокси экспорт
+оказывается в `/models/bge-m3/bge-m3-onnx`, где его никто не ищет. Старое значение переменной —
+папку с самими файлами модели — sh и ps1 отвергают с подсказкой (Д-68), прокси не проверяет ничего.
+
+**Чем грозит.** У Claude Desktop на Windows + Docker dense-поиска нет никогда. Ошибки при этом нет:
+проверка здоровья говорит «not set up», и человек идёт докачивать модель, которая уже лежит на
+диске. Ещё один случай семейства «решение применено в одном месте из двух» — Д-31, Д-44, Д-61,
+Д-72, Д-74.
+
+**Как закроется.** Фаза 2: прокси монтирует в `/models` и, как sh и ps1, отвергает старое
+значение; контрактный тест сверяет цель монтирования во всех пяти копиях.
+
+---
+
+## Д-89. Тёплый `run-mcp.sh` и ClaudeMcpProxy подменяют `initialize`: `instructions` теряются, версия зашита
+
+**Статус:** открыт. Закроет фаза 13.
+
+Чтобы клиент не отвалился по таймауту, пока поднимается контейнер, тёплый путь `docker/run-mcp.sh`
+отвечает на `initialize` сам. Запрос он разбирает через `grep` и `sed` (строки 46–48), ответ —
+литерал со `"version":"2.0.0"` (строка 50). Настоящий ответ сервера выбрасывается — фоновый
+читатель пропускает первую строку (строки 17–23). `docker/ClaudeMcpProxy.cs:146` делает то же
+самое на C#.
+
+**Чем грозит.** `instructions` — руководство сервера для агента: как вести задачу, что вызывать
+первым. В Docker-пути на macOS и Linux и у Claude на Windows оно до клиента не доходит. Список
+`capabilities` тоже зашит: новую возможность сервера клиент не увидит. Версию Д-79 уже
+исправлял руками, и при следующем подъёме её снова придётся править руками.
+
+**Замер до.** Один и тот же сервер двумя путями. Для тёплого пути на PATH лежит заглушка
+`docker`, которая на `docker exec -i <c> node /opt/ai-dev/app/src/server.mjs` запускает локальный
+`src/server.mjs`; рукопожатие делает MCP SDK Client:
+
+```
+node src/server.mjs                         → serverInfo ai-dev-system 2.0.0, instructions 1 048 символов, 441 мс
+sh docker/run-mcp.sh (AI_DEV_RUNTIME_CONTAINER) → serverInfo ai-dev-system 2.0.0, instructions 0 символов, 21 мс
+```
+
+**Как закроется.** Фаза 13: замерить холодный старт; если он укладывается в таймаут Claude
+Desktop — подмену убрать, если нет — заглушка берёт настоящие `instructions` и версию из образа.
+
+---
+
+## Д-90. `AI_DEV_HOME` удваивает `.ai-dev`
+
+**Статус:** открыт. Закроет фаза 2 (решение владельца D2: `AI_DEV_HOME` — сама папка рантайма,
+данные из `<AI_DEV_HOME>/.ai-dev` мигрируют автоматически).
+
+Документация называет `AI_DEV_HOME` самой папкой рантайма. В README сервера: «AI_DEV_HOME
+runtime-data root (default ~/.ai-dev)», в ARCHITECTURE: «`${AI_DEV_HOME}/state` (default
+`~/.ai-dev/state`)». Dockerfile ставит `AI_DEV_HOME=/data/runtime-home/.ai-dev`
+(`docker/Dockerfile:46`). Код же считает её домашним каталогом и дописывает `.ai-dev`
+(`src/core/runtime-home.mjs:30-32`). Ещё три места вычисляют дом по-своему:
+`src/core/dense-onnx.mjs:275`, `scripts/first-run.mjs:112`, `hooks/lib.mjs:325`.
+
+**Чем грозит.** Данные тех, кто задал переменную по документации, лежат в `<AI_DEV_HOME>/.ai-dev`.
+В Docker часть рантайма уходит в `/data/runtime-home/.ai-dev/.ai-dev`. Любая правка семантики без
+миграции «теряет» эти данные.
+
+**Замер до.**
+
+```
+AI_DEV_HOME=/x/.ai-dev  resolveRuntimeStateRoot() → /x/.ai-dev/.ai-dev
+AI_DEV_HOME=/x/.ai-dev  defaultOnnxModelDir()     → /x/.ai-dev/.ai-dev/models/bge-m3-onnx
+```
+
+**Как закроется.** Фаза 2: одна семантика везде, включая копию в хуках (правило 3 AGENTS.md),
+миграция с отчётом в `doctor`.
+
+---
+
+## Д-91. Фильтр Membrane не срабатывает в seed
+
+**Статус:** открыт. Закроет фаза 2.
+
+Skills Membrane — 3 074 коннектора к чужим API — должны оставаться в стороне от dense-векторов и
+уступать в выдаче, пока задача не про интеграцию. Фильтры ищут путь `membrane/application-skills`:
+`search-index/search_cli.py:350-353` (`doc_is_membrane_skill`, план векторов),
+`search_cli.py:1436-1439` (`row_is_membrane_skill`, ранжирование hybrid),
+`src/mcp-stdio.mjs:4553` (`search_knowledge`), `src/mcp-stdio.mjs:601-610`
+(`collectMembraneSkills`). В seed они лежат в `external/membrane/skills` с источником
+`external/membrane`, и ни один фильтр не срабатывает.
+
+**Чем грозит.** Векторы строились бы для 3 444 документов вместо 370 — в 9,3 раза больше работы
+на каждой установке модели. Множитель ×0,35 к счёту коннектора не применяется, и коннекторы
+занимают выдачу задач, которые к ним отношения не имеют.
+
+**Замер до.**
+
+```
+python3 search-index/search_cli.py dense-plan --vault-root docker/public-seed --index-path …/ai-dev-search.sqlite --dense-backend onnx
+→ document_count 3444, eligible 3444, reusable 0
+в индексе: source = external/membrane — 3 074 документа; с маркером membrane/application-skills — 0
+```
+
+`hybrid_search`, top-10, сколько из них коннекторы Membrane:
+
+```
+add authentication to the API   7 из 10   (первые три: gender-api, dynatrace-api, api-sports)
+database migration rollback     1 из 10
+deploy to production            2 из 10
+react component testing         0 из 10
+code review checklist           0 из 10
+```
+
+**Как закроется.** Фаза 2: Membrane определяется по источнику, а не по пути — в `search_cli.py`,
+в `search_knowledge` и при сборе skills. Ожидаемое eligible — 3 444 − 3 074 = 370.
+
+---
+
+## Д-92. `bootstrap.sh --install-prerequisites`: в Ubuntu 24.04 нет пакета `docker-compose-plugin`
+
+**Статус:** открыт. Закроет фаза 2.
+
+`bootstrap.sh:139` ставит `docker.io docker-compose-plugin` через apt, `:141` —
+`docker docker-compose-plugin` через dnf, `:143` — `docker docker-compose` через pacman. В
+репозиториях Ubuntu пакета `docker-compose-plugin` нет: это имя из репозитория Docker Inc. Сам
+bootstrap compose не использует — `docker compose` в скрипте больше не встречается.
+
+**Чем грозит.** Обещанная одна команда установки на самой распространённой серверной системе
+падает на первом шаге.
+
+**Замер до.** `docker run --network host ubuntu:24.04`, `apt-get update`:
+
+```
+apt-get install -s docker.io docker-compose-plugin
+E: Unable to locate package docker-compose-plugin            exit 100
+apt-cache policy: docker.io 29.1.3-0ubuntu3~24.04.2, docker-compose-v2 2.40.3+ds1-0ubuntu1~24.04.1
+apt-get install -s docker.io docker-compose-v2                exit 0
+```
+
+Fedora и Arch здесь не проверены: deb.debian.org закрыт, зеркала Fedora в прошлой песочнице не
+проходили TLS.
+
+**Как закроется.** Фаза 2: bootstrap ставит только движок Docker, с верными именами пакетов для
+apt, dnf и pacman.
+
+---
+
+## Д-93. `setup --frontend-qa` пишет ✓ без Chromium; на Windows npm без обёртки; без pnpm — мимо lockfile
+
+**Статус:** открыт. Закроет фаза 2.
+
+Шаг `frontend_qa` (`scripts/first-run.mjs:147-152`) делает одно: `pnpm install` или `npm install`
+в `frontend-qa/`. Браузер он не ставит, поэтому ✓ означает «пакеты на месте», а не «QA может
+запуститься». Без pnpm на PATH ставит `npm install`, который не читает `pnpm-lock.yaml` и
+резолвит дерево заново. `pnpm install` идёт без `--frozen-lockfile`. Запуск — голый `spawn`
+(`run()`, строка 80) без `resolveSpawnInvocation`, а на Windows `npm` и `pnpm` — это `.cmd`. Это
+класс Д-44 (пункт 1): по коду, на Windows не исполнялось.
+
+**Чем грозит.** Человек видит ✓ и узнаёт, что QA не работает, только из `doctor` или при первом
+вызове `run_frontend_qa`. Версии из lockfile не соблюдаются, и QA на разных машинах бежит на
+разных версиях Playwright.
+
+**Замер до.** Чистый клон, `PLAYWRIGHT_BROWSERS_PATH` — пустой каталог:
+
+```
+pnpm на PATH:   ✓ Frontend QA dependencies (8.3s): pnpm install in frontend-qa/
+                5 built, 2 skipped, 0 failed.   setup exit 0
+                doctor → degraded; warn frontend_qa_environment — Frontend QA cannot run: the Chromium binary is missing.
+без pnpm:       ✓ Frontend QA dependencies (6.6s): npm install in frontend-qa/
+                git status → ?? frontend-qa/package-lock.json   (дерево резолвлено заново, мимо pnpm-lock.yaml)
+                doctor → degraded, то же предупреждение
+```
+
+**Как закроется.** Фаза 2: установка по pnpm-lock (закреплённая версия pnpm, frozen lockfile),
+затем `playwright install chromium`, на Windows — через адаптер process-runner; ✓ — только когда
+Chromium на месте.
+
+---
+
+## Д-94. Локальный установщик клиентов прописывает `AI_DEV_PYTHON=python3` и на Windows
+
+**Статус:** открыт. Закроет фаза 2.
+
+`scripts/install-local-mcp-clients.mjs:58` — `return existsSync(bundled) ? bundled : "python3"`,
+независимо от платформы. Сервер сам выбирает `python` на Windows (`src/mcp-stdio.mjs:1840-1846`,
+Д-72): установщик python.org и алиас Store дают `python`, а `python3.exe` есть не всегда, а там,
+где есть, это часто заглушка Store. В записи Д-72 этот запасной путь установщика назван
+решением, «применённым в одном месте из двух», — для macOS. На Windows он неверен.
+
+**Чем грозит.** На Windows `npm run setup` из терминала работает, а в клиентах, настроенных
+`npm run clients:install`, поиск падает: конфиг клиента переопределяет интерпретатор на
+несуществующий.
+
+**Замер до.**
+
+```
+portablePaths({ platform: "win32", … }) → buildClientServerConfig("cursor").env
+{"AI_DEV_PYTHON":"python3"}
+```
+
+**Как закроется.** Фаза 2: один выбор интерпретатора для сервера и установщика, на Windows —
+`python`. Это временно: в фазе 4 Python уходит совсем.
+
+---
+
+## Д-95. Два установщика клиентов: разные имена и разные наборы клиентов
+
+**Статус:** открыт. Закроет фаза 6.
+
+`scripts/install-local-mcp-clients.mjs` пишет сервер `ai-dev-system` в четыре клиента: Cursor,
+Gemini, VS Code и Claude Code. `scripts/install-docker-mcp-clients.mjs` пишет `ai-dev` в шесть
+мест: Codex, Cursor, Gemini, VS Code, Claude Code и Claude Desktop, включая Store-версию.
+
+**Чем грозит.** Тот, кто попробовал оба пути, получает в каждом клиенте два сервера с одними и
+теми же 135 инструментами: двойная схема в контексте модели и агент, который вызывает то один,
+то другой. Переход с локального пути на Docker и обратно оставляет старую запись работать.
+
+**Замер до.** Пустой HOME:
+
+```
+local, dry-run:   cursor, gemini, vscode, claude                     → "ai-dev-system"
+docker, dry-run:  codex, cursor, gemini, vscode, claude-code, claude-desktop → "ai-dev"
+после --apply обоих:
+  .cursor/mcp.json            ['ai-dev', 'ai-dev-system']
+  .gemini/settings.json       ['ai-dev', 'ai-dev-system']
+  .config/Code/User/mcp.json  ['ai-dev', 'ai-dev-system']
+  .claude.json                ['ai-dev', 'ai-dev-system']
+```
+
+**Как закроется.** Фаза 6: один модуль записи конфигов для локального режима и Docker, имя
+`ai-dev`, миграция записей `ai-dev-system` с резервной копией.
+
+---
+
+## Д-96. Конкурентная запись теряет данные: около 2/3 строк при трёх писателях
+
+**Статус:** открыт. Закроет фаза 2.
+
+`atomicAppendFile` (`src/core/atomic-files.mjs:107`) дописывает так: читает весь файл, пишет
+`старое + новое` во временный и переименовывает поверх. Порядок держит очередь — но только
+внутри одного процесса. Так пишутся журнал расходов (`src/core/usage-ledger.mjs:372`) и заметки
+знаний (`src/mcp-stdio.mjs:798`). JSON-хранилища — instincts, skill-outcomes, pilots, sessions —
+работают по схеме «прочитать, изменить, записать» через `atomicWriteJson`. Каждый MCP-клиент
+поднимает свой процесс сервера, хуки — свои, и общего писателя нет.
+
+**Чем грозит.** При двух клиентах сразу, или клиенте и хуке, события расходов, инстинкты и исходы
+skills теряются молча.
+
+**Замер до.** Три процесса по 200 записей в один файл, пять прогонов:
+
+```
+atomicAppendFile:          218, 223, 209, 218, 208 строк из 600   (битых строк 0)
+atomicWriteJson, RMW:      202, 222, 222, 205, 217 событий из 600
+один процесс, 600 записей: 600 из 600
+```
+
+**Как закроется.** Фаза 2: межпроцессно безопасная дозапись в обеих копиях — `atomic-files` и
+`hooks/lib.mjs`: JSONL одной записью `O_APPEND`, JSON-хранилища под блокировкой с разбором
+протухших, с учётом обрыва процесса посреди записи. Полностью — фаза 8, единственный писатель.
+
+---
+
+## Д-97. Демон падает на длинном пути сокета, `sessions` всегда 0, нет ни stop/status, ни клиента
+
+**Статус:** открыт. Закроет фаза 8.
+
+`src/daemon.mjs` слушает Unix-сокет `<AI_DEV_HOME>/.ai-dev/run/ai-dev.sock`
+(`src/core/runtime-paths.mjs:68`). Путь в `sockaddr_un` ограничен 108 байтами (107 плюс нуль), и
+ядро молча обрезает длинный: `listen` создаёт файл с обрезанным именем, а следующий
+`chmod(address, 0o600)` (`daemon.mjs:128`) его не находит. Это не всё:
+
+- `daemon.json` пишется один раз при старте (`daemon.mjs:130-140`), и счётчик сессий в нём
+  навсегда 0;
+- команд `stop` и `status` нет — в `package.json` есть только `daemon`;
+- нет моста stdio ↔ демон, поэтому ни один клиент к демону подключиться не может.
+
+INSTALL при этом описывает `npm run daemon` как «one warm process … serving every client».
+
+**Чем грозит.** На длинном HOME — профиль Windows в OneDrive, CI, контейнер — демон умирает при
+старте и оставляет `daemon.lock`. На коротком он работает, но пользы от него нет: клиенты по-прежнему
+поднимают свой процесс каждый. Документация обещает то, чего нет.
+
+**Замер до.**
+
+```
+сокет 115 байт:  HOME=/tmp/d97/hhh…h node src/daemon.mjs
+Error: ENOENT: no such file or directory, chmod '…/.ai-dev/run/ai-dev.sock'     exit 1
+ls run/ → srwxr-xr-x ai-d    -rw------- daemon.lock        (обрезанный сокет и брошенный замок)
+
+короткий HOME:   клиент подключился, initialize → instructions 1 048 символов
+daemon.json при открытой сессии → { …, "sessions": 0 }
+```
+
+Длинный путь не экзотика: каталог для временных файлов самой этой сессии
+(`/tmp/claude-0/…/scratchpad/m/home-d97b`) дал 119 байт — и то же падение.
+
+**Как закроется.** Фаза 8: `ai-dev mcp` — мост к демону с подъёмом и запасным in-process режимом,
+короткий путь сокета (`$XDG_RUNTIME_DIR` или `/tmp/ai-dev-<uid>/`), `daemon start|stop|status`,
+живой счётчик сессий.
+
+---
+
+## Д-98. Без ONNX-модели векторы молча уходят на legacy `.venv`, а `dense:doctor` обещает «no Python needed»
+
+**Статус:** открыт. Закроют фазы 4 (питоновская часть) и 5 (менеджер модели).
+
+`npm run setup -- --dense` делает два шага: качает модель и строит векторы документов. Если модель
+не скачалась, второй шаг всё равно запускается. `rebuild_search_index` с `dense_embeddings` при
+недоступном ONNX выбирает legacy-интерпретатор (`src/core/search-index.mjs:226`:
+`command: dense_embeddings && !useOnnx ? embeddingPythonCommand() : pythonCommand()`), и
+`embeddingPythonCommand()` (`src/mcp-stdio.mjs:1851-1857`) называет `embeddings/.venv`, которого
+никто не создавал. `dense:doctor` советует то же, что уже не сработало, и добавляет «no Python
+needed» (`src/core/dense-doctor.mjs:175`, `src/core/dense-backend.mjs:111`). `embed_texts` без
+модели отвечает «BGE-M3 Python runtime not found».
+
+**Чем грозит.** На недоступный huggingface пользователь получает ошибку про виртуальное окружение
+Python, о котором ничего не знает, и совет, который приводит к той же ошибке. Докачки нет
+(ограничение Д-73), зеркала и прокси не поддержаны.
+
+**Замер до.** huggingface.co в песочнице закрыт (403 у прокси):
+
+```
+npm run setup -- --dense
+   source failed for config.json: fetch failed
+✗ Local BGE-M3 model (0.1s): Could not fetch config.json: fetch failed
+✗ Dense vectors (0.0s): spawn …/embeddings/.venv/bin/python ENOENT
+0 built, 5 skipped, 2 failed.                                       exit 1
+
+npm run dense:doctor
+Dense search: UNAVAILABLE
+[ FAIL ] model files present and unmodified — missing from …/bge-m3-onnx: config.json, tokenizer.json, …
+What to do: Run `npm run setup -- --dense` to download the model (about 600 MB, no Python needed).
+```
+
+**Как закроется.** Фаза 4 убирает Python из поиска. Фаза 5 — менеджер модели: докачка по Range,
+зеркала, прокси, прогресс, и вместо тихого фолбэка — ясная ошибка «модель не установлена,
+выполните …».
+
+---
+
+## Д-99. Docker: векторы документов не строятся, веса внутри не скачать, `cp -n` не обновляет seed
+
+**Статус:** открыт. Закроет фаза 13. Замер по коду и на модели `cp`: образ ghcr в песочнице не
+скачать (слои — 403).
+
+- `scripts/docker-bootstrap.mjs` (89 строк) собирает реестр, индекс и бенчмарк, но не строит
+  векторы документов: слова `dense` в нём нет.
+- Контейнер работает с `--network none` (`docker/run-mcp.sh:6`, `docker/compose.yaml`), поэтому
+  модель внутри не скачать. Единственный путь — папка с хоста, а без векторов документов
+  примонтированная модель кодирует только запрос.
+- `docker/entrypoint.sh:24` копирует seed в том командой `cp -a -n`: существующий файл не
+  перезаписывается.
+
+**Чем грозит.** Обновление образа не обновляет skills в существующем томе — пользователь навсегда
+остаётся на seed первой установки, а исправления каталога до него не доходят. Dense в Docker не
+работает даже с моделью.
+
+**Замер до.** Семантика `cp -a -n` на модели тома (coreutils 9):
+
+```
+volume/SKILL.md = "skill v1";  seed-v2/SKILL.md = "skill v2 (updated in the new image)";  seed-v2/NEW.md = "new skill"
+cp -a -n seed-v2/. volume/
+cp: warning: behavior of -n is non-portable and may change in future; use --update=none instead
+volume/SKILL.md → "skill v1"        volume/NEW.md → "new skill"
+grep -c dense scripts/docker-bootstrap.mjs → 0
+```
+
+**Как закроется.** Фаза 13: модель ставится одной командой в том `/data` вместе с векторами;
+seed обновляется по sha256-манифесту из фазы 7.
+
+---
+
+## Д-100. Документация расходится с замером
+
+**Статус:** **закрыт** фазой 1 программы. Замер до и после ниже.
+
+**Что расходилось.** Каждая строка — утверждение документа против замера:
+
+1. README, README.ru, INSTALL (EN и RU): «Node.js 22.12+ and nothing else». Без Python `setup`
+   падает, а 11 из 13 поисковых инструментов не отвечают (Д-85).
+2. README велит «point your MCP client at `ai-dev-mcp-server/src/server.mjs`», а INSTALL даёт
+   JSON-блоки для ручной правки. `npm run clients:install` существует: пишет сервер в Claude Code,
+   Cursor, VS Code и Gemini, делая резервную копию. Но в README и INSTALL на обоих языках о нём
+   ни слова — `grep -c clients:install` по четырём файлам → 0.
+3. Размер схемы. README: для `core,git` «about 23 KB of schema … instead of 98 KB» — после
+   слияния ветки галактики; до неё «15 KB … instead of 96 KB». CAPABILITIES (EN и RU): ~15, ~23,
+   ~50 и ~98 КБ. Это длина определений инструментов (Д-109), а клиент получает ответ
+   `tools/list` — в полтора раза больше.
+4. README, таблица профилей: у `security` 8 инструментов, у сервера 9. Skills «3,227», в реестре
+   3 228.
+5. INSTALL (EN и RU): `npm run daemon` — «one warm process … serving every client». Ни один
+   клиент к нему не подключается (Д-97).
+6. README сервера:
+   - описывает `AI_DEV_RUNTIME_CONFIG`, которую код не читает (grep по `src/`, `scripts/`,
+     `docker/`, bootstrap → 0 вхождений);
+   - описывает `--dense` как «builds the Python environment, downloads the BGE-M3 weights
+     (~2.3 GB)», хотя это ONNX-экспорт и Python не нужен (`npm run setup -- --help`);
+   - модель в Docker монтирует в `/models/bge-m3`, а лаунчеры — в `/models`;
+   - называет SDK `@1.29.0` при `1.30.0` в `package.json`;
+   - называет модуль `src/mcp-stdio-legacy.mjs`, которого нет.
+7. TEST-PLAN*.ru.md:
+   - «известно заранее» — путь VS Code (закрыт в Д-74) и отсутствие проверки свободного места
+     (закрыта в Д-81);
+   - TEST-PLAN.ru.md: «Д-81 оставлен открытым осознанно»;
+   - путь `bin/napi-v3/…` — в onnxruntime-node 1.30 это `bin/napi-v6/<платформа>/<архитектура>`;
+   - «зависимости ≈ 420 МБ» — `node_modules` весит 511 МБ.
+
+**Замер до.** `tools/list` по MCP, `JSON.stringify` списка инструментов, сервер после слияния
+(135 инструментов):
+
+```
+AI_DEV_PROFILES          инструментов   байт      документы говорили
+core                     25             22 847    ~15 КБ
+core,git                 34             32 726    ~23 КБ (README до слияния: ~15 КБ)
+core,coding,git,memory   69             69 554    ~50 КБ
+не задано                135            139 134   ~98 КБ
+```
+
+Остальное: `setup` без Python → exit 1 (Д-85); `npm run clients:install` в пустом HOME → 4 клиента
+`updated`, команда из `.cursor/mcp.json` поднимает сервер и отвечает на `initialize` с
+`instructions` 1 048 символов; `TOOL_PROFILES` → security 9; реестр → 3 228 skills (Membrane
+3 074, ECC 101, custom 28, taste-skill 13, Understand Anything 9, archify, mattpocock-skills и
+ui-ux-pro-max — по одному); `du -sh node_modules` → 511 МБ; `ls node_modules/onnxruntime-node/bin`
+→ `napi-v6`.
+
+**Как закрыт.** Правки текста, каждое число снято заново:
+
+- README и README.ru:
+  - в установке Python 3 (только стандартная библиотека) назван обязательным для поиска до
+    фазы 4;
+  - клиенты подключаются `npm run clients:install`;
+  - размер схемы — замер `tools/list` с командой;
+  - `security` — 9, skills — 3 228.
+- INSTALL (EN и RU): то же про Python и `clients:install`; `npm run daemon` помечен
+  экспериментальным, клиенты к нему не подключаются.
+- CAPABILITIES (EN и RU): таблица по замеру `tools/list` и команда замера.
+- README сервера: `AI_DEV_RUNTIME_CONFIG` убран; `--dense` и раздел о семантическом поиске
+  описывают ONNX без Python, legacy-путь назван legacy; монтирование — `/models`; SDK 1.30.0;
+  раскладка модулей — какая есть.
+- TEST-PLAN*.ru.md: закрытые Д-74 и Д-81 убраны из «известно заранее» и «где мы сейчас»,
+  `napi-v3` → `napi-v6`, 420 → 511 МБ.
+
+**Замер после.** Тот же `tools/list` против чисел в документах и проверки фазы — в отчёте фазы 1
+(`docs/program/reports/phase-01.md`).
+
+---
+
+## Д-101. transformers 4.3.0 и onnxruntime 1.30 не проверены на настоящих весах; override sharp лишний
+
+**Статус:** открыт. Закроет фаза 5. Настоящие веса в песочнице не скачать (huggingface.co — 403),
+поэтому проверка на них — в чек-листе владельца.
+
+Единственный живой прогон с весами — macOS, 2026-09-15 (Д-62): transformers 3.7.5 и
+onnxruntime-node 1.21. Обе зависимости подняты после него:
+
+```
+0173dd2 2026-09-22 Bump @huggingface/transformers from 3.7.5 to 4.3.0   (слит #71, 2026-09-28)
+4bfc61d 2026-09-22 Bump onnxruntime-node from 1.21.0 to 1.30.0          (слит #70, 2026-09-28)
+```
+
+Тест инференса `src/core/dense-onnx-inference.test.mjs:24-29` пропускается без проверенных весов,
+поэтому ни один прогон CI связку не исполнял. transformers 4.3.0 сам требует `sharp: ^0.35.4`,
+закрепляет `onnxruntime-node` точной версией 1.30.0 и тянет `onnxruntime-web
+1.31.0-dev.20260914` — 141 МБ в `node_modules`, Node он не нужен.
+
+**Чем грозит.** Смена мажора transformers может поменять загрузку модели, токенизацию или
+пулинг — и это не увидит никто, пока у пользователя не окажутся неверные векторы. Одна потеря
+уже видна без весов: в onnxruntime-node 1.30 нет нативной сборки для macOS на Intel (замер ниже),
+и на Intel Mac локальная модель не загрузится вовсе.
+
+**Замер до.**
+
+```
+npm ls sharp
+`-- @huggingface/transformers@4.3.0
+  `-- sharp@0.35.4 overridden
+transformers deps: sharp ^0.35.4, onnxruntime-node 1.30.0, onnxruntime-web 1.31.0-dev.20260914-8d85527a0
+```
+
+Override в `package.json` (`"sharp": "0.35.4"`) ничего не добавляет к диапазону, который
+transformers требует сам.
+
+Нативные сборки для macOS в тарболах npm (`npm pack onnxruntime-node@<версия>`, `tar -tz`):
+
+```
+1.21.0: bin/napi-v3/darwin/arm64/onnxruntime_binding.node, bin/napi-v3/darwin/x64/onnxruntime_binding.node
+1.30.0: bin/napi-v6/darwin/arm64/onnxruntime_binding.node                (x64 нет)
+```
+
+**Как закроется.** Фаза 5: сквозной тест синтетической ONNX-моделью через настоящий воркер,
+решение для Intel Mac (поддержать или честно сказать «не поддерживается» в `doctor` и
+документации), настоящие веса — чек-лист владельца. Лишний override убирается в фазе 2 вместе с
+lockfile, доказательство — вывод `npm ls sharp` без него.
+
+---
+
+## Д-102. `search_knowledge` читает все `.md` на каждый вызов
+
+**Статус:** открыт. Закроет фаза 4.
+
+`searchKnowledge` (`src/mcp-stdio.mjs:4548-4565`) на каждый вызов перечисляет все `.md`
+хранилища и читает каждый целиком. Индекс, по которому `search_all` отвечает за десятки
+миллисекунд, он не использует. В seed 3 641 файл `.md`, считая сгенерированные карточки.
+Исключение Membrane внутри стоит на старом пути (Д-91), так что читаются и 3 074 коннектора.
+
+**Чем грозит.** Секунды на вызов, которые агент тратит молча и платит ими за каждый вызов;
+растёт линейно с хранилищем.
+
+**Замер до.** Тёплый сервер, одна MCP-сессия, индекс построен:
+
+```
+search_knowledge "authorization"  2 889 мс
+search_knowledge "deployment"     2 146 мс
+search_knowledge "testing"        2 066 мс
+для сравнения: search_all, тёплый индекс — 75–91 мс
+```
+
+**Как закроется.** Фаза 4: `search_knowledge` идёт через индекс, формат ответа прежний; цель —
+не дольше 100 мс.
+
+---
+
+## Д-103. Хуки вызываются голым `node`; в Docker хуки и сервер пишут в разные места
+
+**Статус:** открыт. Закроют фазы 6 (команды хуков) и 13 (Docker).
+
+`install_agent_hooks` регистрирует каждую команду как `node .ai-dev/hooks/<script>`
+(`src/core/agent-hooks.mjs:149`). GUI-клиенты — Claude Desktop, Cursor, VS Code, запущенные из
+Dock или меню «Пуск», — PATH оболочки не наследуют: Node, поставленный через nvm, fnm или Volta,
+им не виден. В Docker-режиме хуки работают на хосте и пишут в `~/.ai-dev/state`
+(`hooks/lib.mjs:302-305`), а сервер в контейнере — в `/data/runtime-home/.ai-dev/…`
+(`docker/Dockerfile:46`; с Д-90 — уровнем глубже).
+
+**Чем грозит.** Хуки молча не работают: охранник не останавливает опасную команду, передача
+сессии не пишется, Stop-проверки нет. В Docker хуки и сервер не видят ни задач, ни передач друг
+друга.
+
+**Замер до.** Тестовый репозиторий, `install_agent_hooks` (`targets: ["claude"]`) по MCP:
+
+```
+.claude/settings.json: 9 команд, все вида 'node .ai-dev/hooks/<script>'
+node .ai-dev/hooks/session-start.mjs, PATH без node  → sh: 1: node: not found        exit 127
+то же, node на PATH                                  → exit 0
+```
+
+**Как закроется.** Фаза 6: абсолютный путь к node (или `ai-dev hook <имя>`), в обеих копиях —
+сервере и хуках. Фаза 13: состояние хуков и сервера сходится в одном месте.
+
+---
+
+## Д-104. Наследие Codex: запасной путь в `~/.codex` разводит сервер и хуки; PowerShell-скрипты — только в полном хранилище
+
+**Статус:** открыт. Закроет фаза 7.
+
+`aiDevRuntimePath` (`src/mcp-stdio.mjs:221-226`) берёт `~/.codex/<…>`, если `~/.ai-dev/<…>` ещё
+нет, а `~/.codex/<…>` есть. Для состояния это `~/.codex/state/ai-dev-system`
+(`src/mcp-stdio.mjs:303`). У хуков такого запасного пути нет (`hooks/lib.mjs:302-305`).
+`scripts/restore-runtime.ps1:19-21` и `scripts/run-acceptance.ps1:21-22` ищут Node и Python в
+`.cache\codex-runtimes\…`. `backup-ai-dev-system.ps1` и `restore-ai-dev-system.ps1` рассчитаны на
+раскладку полного хранилища (по коду: PowerShell в песочнице нет).
+
+**Чем грозит.** У перешедших с Codex задачи пишутся в одно место, а хуки читают другое:
+SessionStart не показывает открытую задачу, передачи между сессиями расходятся. Резервной копии и
+восстановления у тех, кто ставил из клона, по сути нет.
+
+**Замер до.** HOME, в котором есть `~/.codex/state/ai-dev-system/` и нет `~/.ai-dev/state`:
+
+```
+begin_task по MCP → ~/.codex/state/ai-dev-system/tasks/task-20261010T193037-ca1955b4.json
+SessionStart-хук в том же репозитории → только "Git: master, 2 uncommitted file(s)…" — задачи нет
+тот же файл задачи, скопированный в ~/.ai-dev/state/tasks/ → хук: "- task-20261010T193037-ca1955b4 [active] probe the state root"
+```
+
+**Как закроется.** Фаза 7: одноразовая миграция `~/.codex` → `~/.ai-dev` с записью в лог, поиск
+Codex runtime удаляется, PowerShell-скрипты — кроссплатформенными командами CLI или удалением с
+записью в CHANGELOG.
+
+---
+
+## Д-105. Windows + Docker: нет тёплого контейнера; C#-прокси компилируется у пользователя, без подписи, вне CI
+
+**Статус:** открыт. Закроет фаза 13. Замер — по коду и по конфигу, который строит установщик;
+Windows в песочнице нет.
+
+Конфиг клиента получает `AI_DEV_RUNTIME_CONTAINER` только не на Windows
+(`scripts/install-docker-mcp-clients.mjs:152`): `...(!windows && runtimeContainer ? {…} : {})`.
+Каждая сессия на Windows — холодный `docker run`. `bootstrap.ps1:115-136` компилирует
+`docker/ClaudeMcpProxy.cs` компилятором `%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe` в
+`C:\ProgramData\AI-Dev-System\ClaudeMcpProxy.exe` на машине пользователя. Ни один workflow в
+`.github/workflows/` прокси не собирает — `grep -l "csc\|ClaudeMcpProxy"` пуст.
+
+**Чем грозит.** На Windows медленный старт каждой сессии. Неподписанный exe, собранный на месте,
+вызывает вопросы SmartScreen и антивируса. Ошибка компиляции впервые всплывает у пользователя.
+
+**Замер до.** `buildDockerClientServerConfig("cursor", { runtimeContainer: "ai-dev-system-runtime-1000", … })`:
+
+```
+platform=linux → env: AI_DEV_IMAGE, AI_DEV_PROJECT_PATH, AI_DEV_RUNTIME_CONTAINER
+platform=win32 → env: AI_DEV_IMAGE, AI_DEV_PROJECT_PATH, AI_DEV_MCP_LAUNCHER        (контейнера нет)
+```
+
+**Как закроется.** Фаза 13: конфиги вызывают `docker run -i --rm …` напрямую через модуль фазы 6.
+Прокси и лаунчеры остаются тонкими совместимыми обёртками до 4.0 (D10).
+
+---
+
+## Д-106. `dashboard` без setup падает со stack trace; 8 из 10 строк «Ready» зашиты в код
+
+**Статус:** открыт. Закроет фаза 9. В брифе падение было отмечено как непроверенное — здесь
+воспроизведено.
+
+**Чем грозит.** Первая команда, которую человек может набрать до `setup`, отвечает трассировкой.
+Дашборд, который должен показывать состояние, восемью строками из десяти показывает константу.
+
+**Замер до.** Чистый клон, `npm ci --ignore-scripts`, без `setup`, пустой HOME:
+
+```
+npm run dashboard
+Error: ENOENT: no such file or directory, open '…/docker/public-seed/03-skills-catalog/registries/skills.index.json'
+    at async Object.readSkillIndex (…/src/mcp-stdio.mjs:465:15)
+    at async buildSnapshot (…/src/extensions/system.mjs:71:7)
+    … ещё 6 кадров                                                     exit 1
+```
+
+`src/core/system-dashboard.mjs:84-91`: литерал `Ready` в восьми строках — Static quality gate,
+Coverage gate, Security gate, Archify diagrams, Project Context Compiler, Outcome Analytics v2,
+Reference Factory v2, Search Ranking v2. Вычисляются только две — MCP server и Modular runtime.
+
+**Как закроется.** Фаза 9: строки дашборда — из реальных проверок; без setup — понятное сообщение.
+
+---
+
+## Д-107. Windows pipe демона: предсказуемое имя и права по умолчанию — канал можно подменить
+
+**Статус:** открыт. Закроет фаза 8. Замер по коду и документации Windows: Windows в песочнице нет.
+
+`socketAddress` (`src/core/runtime-paths.mjs:62-68`) называет канал `\\.\pipe\ai-dev-<user>`.
+Демон слушает его через `net.createServer().listen(address)` (`src/daemon.mjs:124-127`);
+ограничение прав — `chmod 0600` — делается только не на Windows (`daemon.mjs:128`). Канал создаётся
+с дескриптором безопасности по умолчанию: по документации `CreateNamedPipe` он даёт чтение группе
+Everyone и анонимной учётной записи.
+
+**Чем грозит.** Имя знает любой локальный процесс. Тот, кто создаст канал первым, получит
+подключения клиентов. Подменённый сервер может отдать агенту что угодно — от ложных инструкций до
+команд — и прочитать контекст проектов. Пока клиентов у демона нет (Д-97), угроза спит; мост
+фазы 8 её разбудит.
+
+**Замер до.**
+
+```
+socketAddress({ platform: "win32", username: "ivan" }) → \\.\pipe\ai-dev-ivan
+```
+
+**Как закроется.** Фаза 8: случайное имя в `daemon.json` с правами 0600, аутентификация первым
+сообщением секретом из профиля пользователя, модель угроз в `ai-dev-mcp-server/docs/SECURITY.md`.
+
+---
+
+## Д-108. Каждый пуш в `main` прода публикует `:latest` — мерж сразу становится выкаткой
+
+**Статус:** открыт. Закроет фаза 13 (решение владельца D9). Замер по коду: CI прода из песочницы
+не запустить.
+
+`.github/workflows/docker-publish.yml` срабатывает на push в `main` и `master` и на теги `v*`
+(строки 3–10). Метки образа (строки 150–154): `type=ref,event=branch`, `type=ref,event=tag`,
+`type=sha`, `type=raw,value=latest,enable={{is_default_branch}}`. Bootstrap и документация берут
+`:latest` по умолчанию. Тёплый контейнер живёт на `:latest` с `restart unless-stopped`.
+
+**Чем грозит.** Мерж в `main` прода — это выкатка всем, кто перезапустит bootstrap или сделает
+`docker pull`. Отдельного канала для отката нет.
+
+**Как закроется.** Фаза 13: `:latest` — только с тегов `v*`, пуш в `main` → `:edge`, `:2` —
+замороженная линия 2.x для отката, `:latest` переходит на 3.x при выкатке.
 
 ---
 
@@ -2508,7 +3298,10 @@ ONNX-экспорта отдельный от legacy-весов, потому ч
 
 ## Д-44. Что нашёл прогон проверки на Windows
 
-**Статус:** закрыт частично. Четыре дефекта из шести закрыты, два ждут сырого вывода с машины.
+**Статус:** закрыт. Пункты 1–5 закрыты в этой записи, пункт 6 — в Д-45 (механизм нашёлся по
+сырому выводу с машины), пункт 7 — в Д-47, пункт 1 (расхождение было в переводах строк, а не в
+данных). До 2026-10-10 строка статуса говорила «закрыт частично: четыре из шести», хотя
+находок семь и оба оставшихся пункта к тому времени уже были закрыты.
 
 Прогон `PROMPT-VERIFY-LOCAL.md` на Windows (Node 24.19, чистый клон и рабочее дерево) дал
 шесть находок. Важно: **чистый клон дал те же три падения теста**, значит дело не в vault.

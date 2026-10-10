@@ -706,11 +706,184 @@ export function usageLedgerPath() {
   return path.join(stateRoot(), "usage", "events.jsonl");
 }
 
+/*
+ * Cross-process file locks — a synchronous copy of src/core/file-lock.mjs.
+ *
+ * The usage ledger is written by every MCP server process and by these hooks
+ * at once, so an append or a prune that does not hold the lock loses somebody's
+ * lines (docs/DEFECTS.md, Д-96). The protocol must stay identical to the
+ * server's (AGENTS.md, rule 3): the lock is `<target>.lock`, created exclusively
+ * and holding `{ pid, host, token, acquired_at }`; it is stale when its process
+ * is gone (same host), when it is older than LOCK_STALE_MS, or when it has no
+ * readable holder for EMPTY_LOCK_GRACE_MS; a stale lock is broken by renaming it
+ * aside and checking that what was renamed is the one judged stale; release
+ * deletes the lock only if it still carries this holder's token.
+ */
+export const LOCK_SUFFIX = ".lock";
+export const LOCK_STALE_MS = 30_000;
+export const EMPTY_LOCK_GRACE_MS = 2_000;
+/** A hook must not hold the agent up for long; giving up costs one ledger line. */
+export const HOOK_LOCK_TIMEOUT_MS = 5_000;
+const LOCK_MAX_BACKOFF_MS = 50;
+
+export function lockPathFor(filePath) {
+  return `${path.resolve(filePath)}${LOCK_SUFFIX}`;
+}
+
+export function processAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+export function lockIsLive(observed, { now = Date.now(), staleMs = LOCK_STALE_MS, emptyGraceMs = EMPTY_LOCK_GRACE_MS, host = os.hostname(), alive = processAlive } = {}) {
+  const holder = observed?.holder;
+  if (!holder || typeof holder !== "object") {
+    return now - Number(observed?.mtimeMs || 0) < emptyGraceMs;
+  }
+  if (now - Number(holder.acquired_at || 0) >= staleMs) return false;
+  if (holder.host && holder.host !== host) return true;
+  return alive(Number(holder.pid));
+}
+
+function readLockHolder(lockPath) {
+  let text;
+  let stat;
+  try {
+    stat = fs.statSync(lockPath);
+    text = fs.readFileSync(lockPath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  }
+  let holder = null;
+  try {
+    holder = JSON.parse(text);
+  } catch {
+    holder = null;
+  }
+  return { holder, mtimeMs: stat.mtimeMs };
+}
+
+function breakStaleLock(lockPath, observed) {
+  const aside = `${lockPath}.stale-${process.pid}-${crypto.randomUUID()}`;
+  try {
+    fs.renameSync(lockPath, aside);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  const taken = readLockHolder(aside);
+  if ((taken?.holder?.token ?? null) !== (observed?.holder?.token ?? null)) {
+    try {
+      fs.linkSync(aside, lockPath);
+    } catch {
+      // Another writer took a fresh lock meanwhile; theirs stands.
+    }
+  }
+  fs.rmSync(aside, { force: true });
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+export function acquireFileLockSync(filePath, { timeoutMs = HOOK_LOCK_TIMEOUT_MS, staleMs = LOCK_STALE_MS } = {}) {
+  const lockPath = lockPathFor(filePath);
+  const token = crypto.randomUUID();
+  const deadline = Date.now() + timeoutMs;
+  let backoff = 2;
+  for (;;) {
+    try {
+      const fd = fs.openSync(lockPath, "wx", 0o600);
+      try {
+        fs.writeSync(fd, JSON.stringify({ pid: process.pid, host: os.hostname(), token, acquired_at: Date.now() }));
+      } finally {
+        fs.closeSync(fd);
+      }
+      return () => {
+        let current = null;
+        try {
+          current = readLockHolder(lockPath);
+        } catch {
+          current = null;
+        }
+        if (current?.holder?.token === token) fs.rmSync(lockPath, { force: true });
+      };
+    } catch (error) {
+      if (error?.code === "ENOENT") {
+        fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+        continue;
+      }
+      if (error?.code !== "EEXIST" && !(process.platform === "win32" && error?.code === "EPERM")) throw error;
+    }
+    const observed = readLockHolder(lockPath);
+    if (observed && !lockIsLive(observed, { staleMs })) {
+      breakStaleLock(lockPath, observed);
+      continue;
+    }
+    if (Date.now() >= deadline) {
+      const owner = observed?.holder?.pid ? ` (held by pid ${observed.holder.pid})` : "";
+      throw new Error(`Timed out after ${timeoutMs} ms waiting for the lock ${lockPath}${owner}.`);
+    }
+    sleepSync(backoff + Math.floor(Math.random() * backoff));
+    backoff = Math.min(backoff * 2, LOCK_MAX_BACKOFF_MS);
+  }
+}
+
+export function withFileLockSync(filePath, operation, options = {}) {
+  const release = acquireFileLockSync(filePath, options);
+  try {
+    return operation();
+  } finally {
+    release();
+  }
+}
+
+/** Cut a trailing partial line — a record a killed writer never finished — off a JSONL file. */
+export function truncateTornTailSync(filePath) {
+  let fd;
+  try {
+    fd = fs.openSync(filePath, "r+");
+  } catch (error) {
+    if (error?.code === "ENOENT") return 0;
+    throw error;
+  }
+  try {
+    const { size } = fs.fstatSync(fd);
+    if (size === 0) return 0;
+    const last = Buffer.alloc(1);
+    fs.readSync(fd, last, 0, 1, size - 1);
+    if (last[0] === 0x0a) return 0;
+    const chunk = Buffer.alloc(64 * 1024);
+    let end = size;
+    while (end > 0) {
+      const start = Math.max(0, end - chunk.length);
+      const bytesRead = fs.readSync(fd, chunk, 0, end - start, start);
+      const newline = chunk.subarray(0, bytesRead).lastIndexOf(0x0a);
+      if (newline >= 0) {
+        fs.ftruncateSync(fd, start + newline + 1);
+        return size - (start + newline + 1);
+      }
+      end = start;
+    }
+    fs.ftruncateSync(fd, 0);
+    return size;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
 /** Same self-limiting as UsageLedger: 8 MB, then keep the newest 20 000 lines. */
 export const USAGE_LEDGER_MAX_BYTES = 8 * 1024 * 1024;
 export const USAGE_LEDGER_KEEP_LINES = 20_000;
 
-function pruneUsageLedger(target) {
+/** Prune under the ledger's lock — the caller holds it. */
+function pruneUsageLedgerLocked(target) {
   let size = 0;
   try {
     size = fs.statSync(target).size;
@@ -720,7 +893,7 @@ function pruneUsageLedger(target) {
   if (size <= USAGE_LEDGER_MAX_BYTES) return;
   try {
     const kept = fs.readFileSync(target, "utf8").split("\n").filter(Boolean).slice(-USAGE_LEDGER_KEEP_LINES);
-    const temp = `${target}.${process.pid}.tmp`;
+    const temp = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
     fs.writeFileSync(temp, `${kept.join("\n")}\n`, "utf8");
     fs.renameSync(temp, target);
   } catch {
@@ -732,8 +905,9 @@ function pruneUsageLedger(target) {
  * Append events to the usage ledger. The hook writes the file directly rather
  * than calling `record_usage`, because the server may be running in Docker while
  * the hook runs on the developer's machine — and because a Stop hook must not
- * depend on an MCP round trip. Lines are appended with O_APPEND (one write per
- * call, no read-modify-write) so a concurrent server append cannot be clobbered.
+ * depend on an MCP round trip. The append is one O_APPEND write under the same
+ * cross-process lock the server's `appendJsonLines` takes, after cutting off a
+ * record a killed writer left without its newline (docs/DEFECTS.md, Д-96).
  *
  * @param {object[]} events
  * @returns {boolean} Whether anything was written.
@@ -743,8 +917,11 @@ export function appendUsageEvents(events) {
   if (!payload) return false;
   const target = usageLedgerPath();
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.appendFileSync(target, payload, "utf8");
-  pruneUsageLedger(target);
+  withFileLockSync(target, () => {
+    truncateTornTailSync(target);
+    fs.appendFileSync(target, payload, "utf8");
+    pruneUsageLedgerLocked(target);
+  });
   return true;
 }
 

@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { atomicWriteFile } from "./atomic-files.mjs";
+import { atomicWriteFile, withExclusiveFile } from "./atomic-files.mjs";
 
 export const DECISIONS_RELATIVE_DIR = ".ai-dev/decisions";
 export const DECISION_STATUSES = ["proposed", "accepted", "superseded", "rejected"];
@@ -175,6 +175,13 @@ export async function recordDecision(projectRoot, input) {
   }
   const root = path.resolve(projectRoot);
   const directory = path.join(root, ...DECISIONS_RELATIVE_DIR.split("/"));
+  // Choosing the next number and writing the file under one lock: two clients
+  // recording a decision at once would otherwise both take ADR-<n+1>
+  // (docs/DEFECTS.md, Д-96).
+  return withExclusiveFile(path.join(directory, ".numbering"), () => writeNextDecision(directory, input, { title, decision, status }));
+}
+
+async function writeNextDecision(directory, input, { title, decision, status }) {
   const files = await listDecisionFiles(directory);
   const last = files.length ? Number(files.at(-1).match(FILE_PATTERN)[1]) : 0;
   const number = String(last + 1).padStart(4, "0");

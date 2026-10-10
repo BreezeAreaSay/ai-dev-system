@@ -59,7 +59,7 @@ and the quality gate runs it with pnpm in that case.
 ```bash
 git clone https://github.com/stonebridgeway/ai-dev-system.git
 cd ai-dev-system/ai-dev-mcp-server
-npm ci --ignore-scripts --no-audit --no-fund
+npm ci
 npm run skills:ensure-index   # builds the bundled seed's skill registry on first run
 npm test
 ```

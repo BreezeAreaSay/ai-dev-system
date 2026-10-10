@@ -96,7 +96,9 @@ RUN apt-get update \
 
 WORKDIR /opt/ai-dev/app
 COPY app/package.json app/package-lock.json ./
-# --ignore-scripts on purpose, and onnxruntime-node survives it: its prebuilt
+# --ignore-scripts on purpose. A clone gets the same from ai-dev-mcp-server/.npmrc
+# (docs/DEFECTS.md, Д-86), but the build context carries package.json and the
+# lockfile only, so the flag is spelled out here. onnxruntime-node survives it: its prebuilt
 # binaries ship inside the npm package rather than arriving through a postinstall
 # download, so `require`ing it here works without `npm rebuild`. The step below
 # proves that at build time instead of leaving it to a user's first search

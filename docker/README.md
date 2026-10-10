@@ -120,7 +120,7 @@ Dockerfile. Без неё раннер умирал на первом импор
 Из корня `ai-dev-mcp-server`:
 
 ```bash
-npm ci --ignore-scripts --no-audit --no-fund
+npm ci
 npm run docker:prepare
 npm run docker:audit
 npm run docker:build

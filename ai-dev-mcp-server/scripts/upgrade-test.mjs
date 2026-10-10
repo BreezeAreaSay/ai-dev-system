@@ -12,12 +12,16 @@
  * `npm ci`. The current server is then started through the command the 2.x
  * client configuration holds, and has to find all of it.
  *
- * Two users are simulated: one with the defaults, and one who set
+ * Three users are simulated: one with the defaults; one who set
  * `AI_DEV_HOME`, whose 2.x data sits one level deeper than documented
- * (docs/DEFECTS.md, Д-90) and must be migrated without loss.
+ * (docs/DEFECTS.md, Д-90) and must be migrated without loss; and the layout of
+ * the Docker image's /data volume — `AI_DEV_HOME` under the home plus explicit
+ * state, index and artifact roots, the environment the Dockerfile sets — run
+ * here without a container.
  *
- * The Docker half cannot run here (the published 2.x image is not pullable from
- * every sandbox); `docs/program/UPGRADE-DOCKER.md` describes it for CI.
+ * The container half itself — pulling the 2.x image, keeping its volume, the
+ * launchers the clients hold — cannot run where the published image is not
+ * pullable; `docs/UPGRADE-TEST.md` describes it for CI.
  *
  * Usage: npm run upgrade:test [-- --base <commit>] [--keep]
  */
@@ -133,14 +137,29 @@ async function syncWorkingTree(source, target) {
   return wanted.size;
 }
 
-function scenarioEnv(base, { home, aiDevHome }) {
+function scenarioEnv(base, { home, aiDevHome, explicitRoots }) {
   const env = { ...base, HOME: home, USERPROFILE: home };
   for (const key of Object.keys(env)) {
     if (/^(AI_DEV_|BGE_M3_)/.test(key)) delete env[key];
   }
   delete env.XDG_CONFIG_HOME;
   if (aiDevHome) env.AI_DEV_HOME = aiDevHome;
+  if (explicitRoots) {
+    // What docker/Dockerfile sets next to AI_DEV_HOME, in 2.x and now.
+    env.AI_DEV_STATE_ROOT = path.join(aiDevHome, "state");
+    env.AI_DEV_SEARCH_INDEX_DIR = path.join(aiDevHome, "cache", "search-index");
+    env.AI_DEV_FRONTEND_QA_ARTIFACT_ROOT = path.join(aiDevHome, "artifacts", "frontend-qa");
+  }
   return env;
+}
+
+/** Every file under `root`, relative to it; empty when it does not exist. */
+async function listFiles(root) {
+  const entries = await fs.readdir(root, { recursive: true, withFileTypes: true }).catch(() => []);
+  return entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.relative(root, path.join(entry.parentPath ?? entry.path, entry.name)))
+    .sort();
 }
 
 /** Everything the 2.x server writes for one user, recorded so it can be found again. */
@@ -182,7 +201,7 @@ async function readJson(file) {
   return JSON.parse(await fs.readFile(file, "utf8"));
 }
 
-async function verifyUpgradedScenario({ label, baseRoot, env, project, expected, aiDevHome }) {
+async function verifyUpgradedScenario({ label, baseRoot, env, project, expected, aiDevHome, doubledBefore = [] }) {
   const cursor = await readJson(path.join(env.HOME, ".cursor", "mcp.json"));
   const local = cursor.mcpServers?.["ai-dev-system"];
   check(`${label}: the 2.x local client entry is still there`, local?.command && Array.isArray(local.args), JSON.stringify(local?.args ?? null));
@@ -212,7 +231,10 @@ async function verifyUpgradedScenario({ label, baseRoot, env, project, expected,
   });
 
   if (aiDevHome) {
-    check(`${label}: nothing is left one level too deep in AI_DEV_HOME`, !existsSync(path.join(aiDevHome, ".ai-dev", "state", "tasks")), path.join(aiDevHome, ".ai-dev"));
+    const left = await listFiles(path.join(aiDevHome, ".ai-dev"));
+    check(`${label}: nothing is left one level too deep in AI_DEV_HOME`, left.length === 0, `${doubledBefore.length} file(s) there under 2.x, ${left.length} now`);
+    const missing = doubledBefore.filter((relative) => !existsSync(path.join(aiDevHome, relative)));
+    check(`${label}: every file 2.x put there is in AI_DEV_HOME itself now`, missing.length === 0, missing.slice(0, 3).join(", "));
     check(`${label}: the task now lives in AI_DEV_HOME itself`, existsSync(path.join(aiDevHome, "state", "tasks", `${expected.taskId}.json`)));
   }
 
@@ -261,9 +283,11 @@ async function main() {
     run("git", ["-C", repoRoot, "worktree", "add", "--detach", "--force", baseRoot, options.base]);
     npm(["ci", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: baseServer });
 
+    const dockerHome = path.join(temp, "data", "runtime-home");
     const scenarios = [
       { label: "default", home: path.join(temp, "home-default") },
-      { label: "AI_DEV_HOME", home: path.join(temp, "home-custom"), aiDevHome: path.join(temp, "home-custom", "ai-dev-data") }
+      { label: "AI_DEV_HOME", home: path.join(temp, "home-custom"), aiDevHome: path.join(temp, "home-custom", "ai-dev-data") },
+      { label: "Docker volume layout", home: dockerHome, aiDevHome: path.join(dockerHome, ".ai-dev"), explicitRoots: true }
     ];
     for (const scenario of scenarios) {
       await fs.mkdir(scenario.home, { recursive: true });
@@ -273,8 +297,9 @@ async function main() {
       npm(["run", "setup", "--", "--no-health"], { cwd: baseServer, env: scenario.env });
       scenario.expected = await createLegacyState({ baseServer, env: scenario.env, project: scenario.project });
       writeLegacyClientConfigs({ baseRoot, env: scenario.env, project: scenario.project });
-      if (scenario.aiDevHome) {
-        check(`${scenario.label}: 2.x wrote its data one level too deep (the case to migrate)`, existsSync(path.join(scenario.aiDevHome, ".ai-dev", "state", "tasks")));
+      if (scenario.aiDevHome) scenario.doubledBefore = await listFiles(path.join(scenario.aiDevHome, ".ai-dev"));
+      if (scenario.aiDevHome && !scenario.explicitRoots) {
+        check(`${scenario.label}: 2.x wrote its data one level too deep (the case to migrate)`, existsSync(path.join(scenario.aiDevHome, ".ai-dev", "state", "tasks")), `${scenario.doubledBefore.length} file(s)`);
       }
     }
 

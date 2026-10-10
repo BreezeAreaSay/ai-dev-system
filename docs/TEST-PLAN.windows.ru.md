@@ -251,10 +251,10 @@ Start-Transcript -Path "$HOME\ai-dev-test-$(Get-Date -f yyyyMMdd-HHmm).log"
 
 ```powershell
 cd $HOME\ai-dev-system\ai-dev-mcp-server
-npm ci --ignore-scripts --no-audit --no-fund
+npm ci
 ```
 
-**Ожидается:** завершение без ошибок, примерно 146 пакетов, обычно меньше минуты.
+**Ожидается:** завершение без ошибок, примерно 136 пакетов, обычно меньше минуты.
 **Записать:** время, точное число пакетов, все предупреждения.
 
 ### A2. Нативный бинарник доехал

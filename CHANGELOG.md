@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`npm run upgrade:test` — a 2.x install upgraded in place** (`docs/UPGRADE-TEST.md`).
+  It checks the production 2.x commit out into a git worktree, has the 2.x server
+  create what three users have — the defaults, `AI_DEV_HOME` set, and the Docker
+  image's `/data` layout — a task with a checkpoint, a decision, an instinct, a
+  session handoff, the search index, Claude hooks in a repository and client
+  configurations from both 2.x installers, then upgrades the checkout to the
+  working tree with plain `npm ci` and starts the server through the 2.x client
+  entry. 41 checks; the container half is a written scenario for CI.
+
 - **The `ar-security-review` skill** (`docker/public-seed/03-skills-catalog/sources/custom/ar-security-review`).
   The workflow the tools above add up to: scan with `run_security_scan`, treat
   malware as an incident first, plan dependency fixes with
@@ -190,6 +199,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`AI_DEV_HOME` is the runtime folder itself, and a 2.x tree moves there**
+  (`docs/DEFECTS.md`, Д-90; owner decision D2). The documentation and the
+  Dockerfile always meant it that way; the code appended `.ai-dev`, so
+  `AI_DEV_HOME=/x/.ai-dev` put everything in `/x/.ai-dev/.ai-dev`. The server,
+  `npm run setup` and the `ai-dev` CLI now move such a tree up when they start —
+  missing files are moved, identical ones dropped, JSONL ledgers appended, and a
+  file that differs on the two sides stays where it was — and `npm run doctor`
+  reports it in a new `runtime_home` check. `AI_DEV_HOME` set to the home
+  directory itself keeps its 2.x meaning, `~/.ai-dev`. The hooks carry the same
+  rule.
+
+  **Re-check after upgrading:** if you set `AI_DEV_HOME`, run `npm run doctor`
+  once and look at `runtime_home`; run `install_agent_hooks` again in the
+  repositories where you installed hooks.
+
+- **`npm ci` and `npm install` need no flag** (Д-86). The server's `.npmrc`
+  turns dependency install scripts off — onnxruntime-node's downloaded a CUDA
+  provider the server never loads and failed offline or behind a proxy — so the
+  guides say plain `npm ci`, CI runs it, and `npm run packaging:check` fails if
+  the setting goes. The Dockerfile keeps `--ignore-scripts`: its build context
+  has no `.npmrc`.
+
+- **The lockfile is regenerated with npm 11.17.0** (Д-87): no duplicate keys,
+  one onnxruntime-node (1.30.0), and no `sharp` override — `npm ls sharp` shows
+  the 0.35.4 it pinned without it.
+
+- **`bootstrap.sh --install-prerequisites` installs the Docker engine alone**
+  (Д-92): `docker.io` with apt, `moby-engine` with dnf, `docker` with pacman
+  (`-Syu`). It used to add a compose package — `docker-compose-plugin`, which
+  Ubuntu does not have — although bootstrap never uses compose. Root needs no
+  sudo now.
+
+- **`npm run setup -- --frontend-qa` installs the lockfile and Chromium, and
+  passes only when the browser launches** (Д-93). The pnpm the runner pins
+  installs exactly `pnpm-lock.yaml` (fetched through `npm exec`; no pnpm on the
+  PATH needed), Playwright installs its own Chromium build, and the step is
+  checked the way `doctor` checks it. It used to run whichever package manager
+  was there — `npm install` ignored the lockfile — and report ✓ with no browser.
+
+- **CI runs plain `npm ci`, and only the production repository publishes
+  images.** A fork that works in its own `main` no longer builds and pushes an
+  image of its own from every push.
+
 - **Dense vectors record where they came from** (Д-62). Every vector in the
   index now carries its backend, revision and dtype alongside the model name,
   and a cached vector is reused only when all of them still match. An int8 ONNX
@@ -232,13 +284,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Claude on Windows with Docker gets dense search** (Д-88). `ClaudeMcpProxy.cs`
+  mounted the model folder at `/models/bge-m3`, one level below where the image
+  looks; it now mounts `/models` like the other four launchers and refuses the
+  pre-2.1 value of `AI_DEV_MODEL_PATH`. A contract test holds all five copies to
+  the Dockerfile. **Re-check after upgrading:** run `bootstrap.ps1` again so the
+  proxy is rebuilt.
+
+- **Membrane connectors stay out of unrelated results in the bundled seed too**
+  (Д-91). The filters tested the vault's path, and the seed keeps the catalogue
+  elsewhere: all 3,074 connectors were embedded and ranked like any skill. Now
+  decided by source: dense eligibility 370 of 3,444 instead of 3,444, and no
+  connectors in the top ten for "add authentication to the API" (seven before);
+  integration queries still get them.
+
+- **One Python interpreter choice for the server and the client installer**
+  (Д-94). The installer wrote `AI_DEV_PYTHON=python3` into every client on
+  Windows, where Python answers to `python`. **Re-check after upgrading:** on
+  Windows, run `npm run clients:install` once more.
+
+- **Concurrent writers no longer lose records** (Д-96). Three processes
+  appending 200 records each kept 208–223 of 600; JSON stores updated by
+  read-modify-write kept 202–222. A cross-process lock file — with stale-lock
+  recovery for a killed writer, in the server and in the hooks' copy — makes it
+  600 of 600 in ten runs out of ten, and `kill -9` mid-run leaves no broken line.
+
 - **The documentation says what a measurement says** (`docs/DEFECTS.md`, Д-100).
   - README, INSTALL (EN and RU): Python 3 — the standard library only — is
     required for search until it moves to Node; without it `npm run setup`
     fails at the search index.
   - Clients are connected with `npm run clients:install`, which README and
-    INSTALL never mentioned, instead of editing JSON by hand; on Windows with
-    `AI_DEV_PYTHON=python` until Д-94 is fixed. INSTALL gains the local
+    INSTALL never mentioned, instead of editing JSON by hand (on Windows it
+    needed `AI_DEV_PYTHON=python` until Д-94 was fixed). INSTALL gains the local
     configuration for Codex and Claude Desktop, which the installer does not
     cover yet.
   - `npm run daemon` is marked experimental: no client can connect to it yet

@@ -18,6 +18,7 @@ started, the commands in the [README](../README.md#install) are enough.
 - [The local model in a container](#the-local-model-in-a-container)
 - [Publishing for a team](#publishing-for-a-team)
 - [Arch / AUR and Homebrew](#arch--aur-and-homebrew)
+- [Updating an earlier install](#updating-an-earlier-install)
 - [Verification and diagnostics](#verification-and-diagnostics)
 
 To start an agent with a narrowed tool surface, add `AI_DEV_PROFILES` to the
@@ -46,9 +47,13 @@ From the clone root:
 
 ```bash
 cd ai-dev-mcp-server
-npm ci --ignore-scripts --no-audit --no-fund
+npm ci
 npm run setup
 ```
+
+`npm ci` runs no dependency install scripts: the package's `.npmrc` turns them off. The one that
+matters, onnxruntime-node's, downloads a CUDA provider the server never loads and fails offline
+or behind a proxy (docs/DEFECTS.md, Д-86); `npm install` behaves the same.
 
 `npm run setup` builds the three things a clone does not ship — the skill
 registry, the search index and the routing benchmark — and prints the health
@@ -234,7 +239,7 @@ Or build the image from a clone of the repository:
 
 ```bash
 cd ai-dev-mcp-server
-npm ci --ignore-scripts --no-audit --no-fund
+npm ci
 npm run docker:prepare
 npm run docker:audit
 npm run docker:build
@@ -635,6 +640,35 @@ ai-dev-system --install-prerequisites
 
 The formula installs the stable `v1.0.0` release. Maintainer publishing and
 release-update details are in [packaging/README.md](../packaging/README.md).
+
+## Updating an earlier install
+
+From a clone:
+
+```bash
+git pull
+cd ai-dev-mcp-server
+npm ci
+npm run setup
+```
+
+What earlier versions left behind is taken care of when the server starts, or needs one
+command:
+
+- **`AI_DEV_HOME`.** Earlier versions wrote the runtime tree into `$AI_DEV_HOME/.ai-dev`
+  instead of `$AI_DEV_HOME` (docs/DEFECTS.md, Д-90). The server, `npm run setup` and the
+  `ai-dev` CLI move it up when they start, without overwriting anything; `npm run doctor`
+  reports what was moved and anything left behind (check `runtime_home`). Hooks you installed
+  into a repository look for the old place until you run `install_agent_hooks` there again.
+- **Windows clients.** Run `npm run clients:install` once more: earlier versions wrote
+  `AI_DEV_PYTHON=python3`, which a Windows Python does not answer to (Д-94).
+- **Docker on Windows.** Run `bootstrap.ps1` once more, so Claude's `ClaudeMcpProxy.exe` is
+  rebuilt and mounts the model folder where the image looks (Д-88).
+- **Docker.** `docker pull` the new image; the runtime tree in the `/data` volume moves the
+  same way on the first start.
+
+`npm run upgrade:test` checks all of this against a 2.x install; see
+[Upgrade test](UPGRADE-TEST.md).
 
 ## Verification and diagnostics
 

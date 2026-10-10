@@ -10,7 +10,7 @@
  * - the skill quality report, which the health check reads;
  * - the SQLite search index, which every search tool reads;
  * - the skill-routing benchmark report, which the health check grades;
- * - the Frontend QA runner's own dependencies.
+ * - the Frontend QA runner's own dependencies and its browser.
  *
  * The order is not alphabetical: the quality report writes a dashboard note
  * into the vault, so building it after the index leaves the index stale the
@@ -64,7 +64,7 @@ export const FIRST_RUN_STEPS = Object.freeze([
   Object.freeze({
     id: "frontend_qa",
     title: "Frontend QA dependencies",
-    detail: "Playwright and its runner, installed into frontend-qa/. Needs the network.",
+    detail: "Playwright from the runner's lockfile and the Chromium build it wants. Needs the network.",
     optional: true,
     flag: "--frontend-qa"
   }),

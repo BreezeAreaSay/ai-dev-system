@@ -358,8 +358,9 @@ npm run setup
 `npm run setup` builds what a clone does not ship — the skill registry, the
 SQLite search index and the skill-routing benchmark — and ends with the health
 check, so what is still missing is on the screen. It reaches the network only
-when asked: `--frontend-qa` installs the Frontend QA runner's dependencies,
-`--dense` downloads the pinned ONNX export of BGE-M3 (no Python packages) and
+when asked: `--frontend-qa` installs the Frontend QA runner's lockfile with the
+pnpm it pins and then Playwright's Chromium, and passes only when that browser
+launches; `--dense` downloads the pinned ONNX export of BGE-M3 (no Python packages) and
 embeds the index with it. Everything it builds is idempotent, and anything that has
 gone out of date since is rebuilt rather than skipped.
 

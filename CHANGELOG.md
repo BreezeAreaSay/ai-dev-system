@@ -117,7 +117,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dependencies. `npm run setup -- --dense` downloads a pinned, checksum-verified
   ONNX export (about 600 MB) and dense search works; there is no virtualenv, no
   `torch==2.14.0+cpu` from the PyTorch index and no 2.3 GB snapshot. The
-  README's "Node.js 22.12+ and nothing else" is now true of `--dense` too.
+  model needs no Python packages; the vectors it computes are still written into
+  the index by the standard-library search helper, so Python 3 stays a
+  requirement until search moves to Node (`docs/DEFECTS.md`, Д-85).
 
   The legacy Python path is unchanged and still there, as `--dense-python` or
   `AI_DEV_DENSE_BACKEND=python`. `auto` — the default — prefers whichever model
@@ -234,8 +236,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - README, INSTALL (EN and RU): Python 3 — the standard library only — is
     required for search until it moves to Node; without it `npm run setup`
     fails at the search index.
-  - Clients are connected with `npm run clients:install`, which no page
-    mentioned, instead of editing JSON by hand.
+  - Clients are connected with `npm run clients:install`, which README and
+    INSTALL never mentioned, instead of editing JSON by hand; on Windows with
+    `AI_DEV_PYTHON=python` until Д-94 is fixed. INSTALL gains the local
+    configuration for Codex and Claude Desktop, which the installer does not
+    cover yet.
   - `npm run daemon` is marked experimental: no client can connect to it yet
     (Д-97).
   - Schema sizes are the bytes of the `tools/list` result, with the command that
@@ -248,8 +253,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The test plans no longer list the closed Д-74 and Д-81 as open, and point at
     `napi-v6`.
 
-  **Re-check after upgrading:** nothing to do; the defect registry now carries
-  Д-85 … Д-109 with the measurement behind each.
+  **Re-check after upgrading:** nothing to do. The defect registry now carries
+  Д-85 … Д-108 and Д-110, each with a measurement or, where this sandbox cannot
+  run it, a file and line.
 
 - **The Stop hook saw every changed file but the first** (Д-84). The hooks'
   `git()` trims its output, so ` M src/api.ts` on the first line of `git status

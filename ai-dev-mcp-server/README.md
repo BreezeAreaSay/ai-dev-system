@@ -33,8 +33,10 @@ Start:
 AI_DEV_VAULT_ROOT="/path/to/vault" node src/server.mjs
 ```
 
-From a plain clone no vault is needed, and `npm run clients:install` writes the client
-entry below into Claude Code, Cursor, VS Code and Gemini for you.
+From a plain clone no vault is needed, and `npm run clients:install` writes an equivalent
+entry into Claude Code, Cursor, VS Code and Gemini for you: the absolute path of the Node that
+ran it, this clone's `src/server.mjs`, no vault variable, `"type": "stdio"` for VS Code and
+Claude Code, and `servers` instead of `mcpServers` for VS Code.
 
 The server negotiates MCP over stdio and exposes structured tool results, Resources, resource
 templates, Prompts, progress notifications, and tool annotations. Any stdio MCP client works —
@@ -223,8 +225,9 @@ Hybrid search works without a model: SQLite FTS, sparse aliases, and determinist
 intent routing are always on. The optional local BGE-M3 model improves concept and
 document retrieval. The Docker image never bundles the weights; the launchers mount
 the folder above them read-only at `/models`, and the image reads the ONNX export
-from `/models/bge-m3-onnx`. The exception is the Windows Claude Desktop proxy, which
-still mounts it at `/models/bge-m3` (docs/DEFECTS.md, Д-88).
+from `/models/bge-m3-onnx`. The exception is the Windows Claude proxy — the launcher
+bootstrap gives both Claude Code and Claude Desktop there — which still mounts it at
+`/models/bge-m3` (docs/DEFECTS.md, Д-88).
 
 ### From a source checkout
 
@@ -247,9 +250,11 @@ stopped.
 
 `npm run setup -- --dense-python` builds the old stack instead: a Python virtualenv,
 torch, and the 2.3 GB `BAAI/bge-m3` weights in `~/.ai-dev/models/bge-m3`
-(`$BGE_M3_MODEL_DIR`). `AI_DEV_DENSE_BACKEND=python` selects it explicitly; the
-default, `auto`, uses it only when no verified ONNX export is on disk and the legacy
-stack is complete. Set `BGE_M3_DEVICE=cuda` to run it on a GPU; the
+(`$BGE_M3_MODEL_DIR`). `AI_DEV_DENSE_BACKEND=python` selects it explicitly; for a
+query the default, `auto`, uses it only when no verified ONNX export is on disk and the
+legacy stack is complete. Building vectors is not that careful yet: with no verified ONNX
+export it reaches for the legacy interpreter in `embeddings/.venv` whether or not that
+exists (docs/DEFECTS.md, Д-98). Set `BGE_M3_DEVICE=cuda` to run it on a GPU; the
 loader checks for `pytorch_model.bin` and says so plainly when it is missing.
 
 By hand, if you would rather do each legacy step yourself (paths are for a plain
@@ -374,6 +379,10 @@ BGE_M3_ONNX_DIR     ONNX embedding model dir (default $AI_DEV_HOME/models/bge-m3
 BGE_M3_MODEL_DIR    legacy Python model dir (default $AI_DEV_HOME/models/bge-m3)
 BGE_M3_DEVICE       cpu | cuda, legacy Python backend only
 ```
+
+`AI_DEV_HOME` is documented, and meant, as the runtime folder itself. Until docs/DEFECTS.md
+Д-90 is fixed the code puts the tree one level deeper, in `$AI_DEV_HOME/.ai-dev`, so every
+default above that starts with `$AI_DEV_HOME/` gains a `.ai-dev/` in between.
 
 ## Docker
 

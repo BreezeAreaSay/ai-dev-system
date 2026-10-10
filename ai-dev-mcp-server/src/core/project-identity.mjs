@@ -23,13 +23,16 @@ const BOUNDARY_MARKERS = [
 let configuredRuntimeStateRoot = "";
 
 /**
- * Pin the absolute runtime-state root (`<home>/.ai-dev`) so project-boundary
- * detection never treats it as a project. Call once during host startup.
+ * Pin the absolute runtime-state root (`AI_DEV_HOME`, else `<home>/.ai-dev`) so
+ * project-boundary detection never treats it as a project. Call once during
+ * host startup.
  *
  * @param {string} stateRoot
+ * @returns {string} the root it pinned
  */
 export function configureRuntimeStateRoot(stateRoot) {
   configuredRuntimeStateRoot = stateRoot ? String(stateRoot) : "";
+  return configuredRuntimeStateRoot;
 }
 
 function hash(value) {

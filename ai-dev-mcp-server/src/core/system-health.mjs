@@ -97,6 +97,31 @@ export function overallHealthStatus(checks) {
 }
 
 /**
+ * The runtime tree: where it is, and whether a 2.x layout is still in the way
+ * (docs/DEFECTS.md, Д-90).
+ *
+ * @param {{ root: string, ai_dev_home: string, ai_dev_home_names_home: boolean, legacy_root: string, legacy_files: string[], last_migration: object|null }} info
+ * @returns {{ status: string, summary: string, details: object }}
+ */
+export function evaluateRuntimeHome(info) {
+  const details = { ...info };
+  if (info.legacy_files?.length) {
+    return {
+      status: "warn",
+      summary: `${info.legacy_files.length} file(s) are still in ${info.legacy_root}, where 2.x put the runtime tree for AI_DEV_HOME; the copy in ${info.root} differs, so they were not moved. Compare and move or delete them by hand.`,
+      details
+    };
+  }
+  const migrated = info.last_migration
+    ? ` On ${String(info.last_migration.at || "").slice(0, 10)} ${Number(info.last_migration.moved || 0) + Number(info.last_migration.merged || 0)} file(s) were moved here from ${info.last_migration.from}.`
+    : "";
+  const namesHome = info.ai_dev_home_names_home
+    ? " AI_DEV_HOME names the home directory, which keeps its 2.x meaning (<home>/.ai-dev); set it to the runtime folder itself or unset it."
+    : "";
+  return { status: "ok", summary: `Runtime tree: ${info.root}.${migrated}${namesHome}`, details };
+}
+
+/**
  * Serializable shape for an error thrown inside a check.
  *
  * @param {unknown} err

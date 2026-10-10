@@ -187,7 +187,7 @@ test("health check runs every check through the host", async (t) => {
   const result = await registry.handlers.get("system_health_check")({});
 
   assert.deepEqual(result.checks.map((check) => check.name), [
-    "vault_root", "required_notes", "search_index_file", "search_index_freshness", "frontend_qa_runner",
+    "vault_root", "runtime_home", "required_notes", "search_index_file", "search_index_freshness", "frontend_qa_runner",
     "frontend_qa_environment", "security_scanners", "embedding_backend", "skill_registry", "skill_taxonomy",
     "skill_visual_graph", "skill_quality", "skill_routing_benchmark", "skill_outcomes", "skill_cards",
     "project_registry", "auto_commands", "search_presets", "search_smoke", "hybrid_smoke_no_dense",
@@ -196,7 +196,7 @@ test("health check runs every check through the host", async (t) => {
   const failing = result.checks.filter((check) => check.status !== "ok" && check.status !== "skipped");
   assert.deepEqual(failing, [], `unexpected non-ok checks: ${JSON.stringify(failing)}`);
   assert.equal(result.status, "ok");
-  assert.deepEqual(result.summary, { ok: 20, warn: 0, fail: 0, skipped: 2 });
+  assert.deepEqual(result.summary, { ok: 21, warn: 0, fail: 0, skipped: 2 });
   const scanners = result.checks.find((check) => check.name === "security_scanners");
   assert.match(scanners.summary, /10 of 10 security scanners installed/);
   assert.equal(result.recommendations.length, 1);

@@ -13,9 +13,12 @@ import {
   tasksStateRoot
 } from "./runtime-paths.mjs";
 
+// AI_DEV_HOME names the runtime folder itself (owner decision D2,
+// docs/DEFECTS.md Д-90); these tests hand it `<home>/.ai-dev`, which is where
+// the runtime tree of a user with that home lives.
 function withHome(home, run) {
   const previous = process.env.AI_DEV_HOME;
-  process.env.AI_DEV_HOME = home;
+  process.env.AI_DEV_HOME = path.join(home, ".ai-dev");
   try {
     return run();
   } finally {

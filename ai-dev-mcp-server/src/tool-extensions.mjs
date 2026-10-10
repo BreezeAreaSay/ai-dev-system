@@ -25,6 +25,7 @@ import { createDecisionTools } from "./extensions/decisions.mjs";
 import { createEpicTools } from "./extensions/epics.mjs";
 import { createFrontendDesignTools } from "./extensions/frontend-design.mjs";
 import { createFrontendQaTools } from "./extensions/frontend-qa.mjs";
+import { createGalaxyTools } from "./extensions/galaxy.mjs";
 import { createHookTools } from "./extensions/hooks.mjs";
 import { createHygieneTools } from "./extensions/hygiene.mjs";
 import { createInstinctTools } from "./extensions/instincts.mjs";
@@ -50,6 +51,7 @@ export const EXTENSION_FACTORIES = [
   createEpicTools,
   createFrontendDesignTools,
   createFrontendQaTools,
+  createGalaxyTools,
   createHookTools,
   createHygieneTools,
   createInstinctTools,

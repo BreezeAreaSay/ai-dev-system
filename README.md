@@ -60,9 +60,10 @@ scene by scene, including the verification failure and the fix.
 
 ## Install
 
-**Locally, from a clone** — Node.js 22.12+, and Python 3 on `PATH` for search
-(the standard library only, no packages: the search index is still built and
-queried by a small Python helper; moving it to Node is in progress):
+**Locally, from a clone** — Node.js 22.12+, and Python 3 on `PATH` (the standard
+library only, no packages): the search index, the search tools and project
+preparation still run through a small Python helper, and moving them to Node is
+in progress.
 
 ```bash
 cd ai-dev-mcp-server
@@ -78,10 +79,13 @@ npm run clients:install
 
 It adds the server to Claude Code, Cursor, VS Code and Gemini, keeps every other
 server in those files, and backs each file up before changing it; running it
-again changes nothing. Codex and Claude Desktop are not covered by it yet — see
-[INSTALL](docs/INSTALL.md#connecting-ai-agents). That is the whole install, and
-it is the path to take on your own machine. The local dense model is one flag
-here — `npm run setup -- --dense` downloads a pinned, checksum-verified ONNX
+again changes nothing. On Windows run it as
+`$env:AI_DEV_PYTHON = "python"; npm run clients:install` for now (see
+[INSTALL](docs/INSTALL.md#quick-start-run-it-locally)). Codex and Claude Desktop
+are not covered by it yet — see
+[INSTALL](docs/INSTALL.md#from-a-clone-codex-and-claude-desktop). That is the
+whole install, and it is the path to take on your own machine. The local dense
+model is one flag here — `npm run setup -- --dense` downloads a pinned, checksum-verified ONNX
 export of BGE-M3 and runs it through Node, with no Python packages;
 `npm run dense:doctor` says whether it worked. In the packaged path the weights
 are mounted instead.
@@ -131,8 +135,8 @@ into eight **capability profiles**, and only `core` is on the critical path:
 | `advanced` | 36 | Diagrams, the search and skill indexes, the dashboard, usage, packaging. |
 
 Set `AI_DEV_PROFILES=core,git` and the server advertises 34 tools instead of 135
-— about 33 KB of `tools/list` schema in the model's context instead of 139 KB,
-before it has read a word of your request (measured; the command is in
+— about 33 KB of `tools/list` schema for the client instead of 139 KB, before
+the model has read a word of your request (measured; the command is in
 [Capabilities](docs/CAPABILITIES.md#what-narrowing-actually-costs-and-saves)). Unset, everything is on and nothing is hidden.
 
 **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)** — what each profile carries and

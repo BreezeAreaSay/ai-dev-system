@@ -68,20 +68,27 @@ It writes the server into Claude Code (`~/.claude.json`), Cursor, VS Code and
 Gemini, keeps every other server in those files, backs each changed file up
 first, and changes nothing when run again. Restart the clients afterwards. Codex
 and Claude Desktop are not covered by it yet; for them see
-[Connecting AI agents](#connecting-ai-agents). That is the whole install.
+[From a clone: Codex and Claude Desktop](#from-a-clone-codex-and-claude-desktop).
+That is the whole install.
+
+On Windows, run it as `$env:AI_DEV_PYTHON = "python"; npm run clients:install` for now: on
+its own it writes `AI_DEV_PYTHON=python3` into every client (docs/DEFECTS.md, Д-94), and a
+Windows Python answers to `python`.
 
 Two ways to run it, and they speak the same protocol:
 
 | | |
 | --- | --- |
-| `npm start` | One stdio process per client. The default, and what the client configurations below launch. |
-| `npm run daemon` | **Experimental.** One warm process on a local socket (a named pipe on Windows). No client can connect to it yet — nothing bridges a client's stdio to the socket — and it fails to start when the socket path is longer than the system allows — 107 bytes on Linux (docs/DEFECTS.md, Д-97). Use `npm start`. |
+| `npm start` | One stdio process per client. The default, and what `npm run clients:install` configures. |
+| `npm run daemon` | **Experimental.** One warm process on a local socket (a named pipe on Windows). No client can connect to it yet — nothing bridges a client's stdio to the socket — and it fails to start when the socket path is longer than 108 bytes (docs/DEFECTS.md, Д-97). Use `npm start`. |
 
 **Why local first.** The dense model is the reason. Locally it is one flag —
-`npm run setup -- --dense` — and it lands in `~/.ai-dev`, with nothing but Node
-involved. In the published image the weights cannot be downloaded at all, so
-getting it there means building your own
-image variant and mounting `/models`. The image says so about itself through
+`npm run setup -- --dense` — and it lands in `~/.ai-dev`; the model needs no Python
+packages, though the vectors it computes are still written into the index by the
+standard-library Python helper. A container runs with no network, so the weights
+cannot be downloaded inside it at all: they are downloaded on the host and mounted
+at `/models` (see [The local model in a container](#the-local-model-in-a-container)).
+The image says so about itself through
 `AI_DEV_DENSE_INSTALLED`, and the health check reads it: inside a container
 `embedding_backend` reports dense search as not set up and points at the mount,
 rather than at a `npm run setup` no container can run.
@@ -284,8 +291,44 @@ scan in which not one scanner ran comes back `unchecked`, never `pass`.
 Do not edit these files by hand when an installer covers the client. From a
 clone, `npm run clients:install` configures Claude Code, Cursor, VS Code and
 Gemini (see [Quick start](#quick-start-run-it-locally)); for the Docker path,
-bootstrap configures all six clients. The blocks below are what the Docker
-installer writes, for reference and for a client neither installer covers.
+bootstrap configures all six clients.
+
+### From a clone: Codex and Claude Desktop
+
+`npm run clients:install` does not configure these two yet, so add the server by
+hand. Use absolute paths: a client started from the Dock or the Start menu does
+not see your shell's `PATH`. `node -p process.execPath` prints the one for Node.
+
+Codex — `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.ai-dev-system]
+command = "/absolute/path/to/node"
+args = ["/absolute/path/to/clone/ai-dev-mcp-server/src/server.mjs"]
+startup_timeout_sec = 120
+tool_timeout_sec = 3600
+```
+
+Claude Desktop — `~/Library/Application Support/Claude/claude_desktop_config.json`
+on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows:
+
+```json
+{
+  "mcpServers": {
+    "ai-dev-system": {
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/clone/ai-dev-mcp-server/src/server.mjs"]
+    }
+  }
+}
+```
+
+No `AI_DEV_PYTHON` is needed: without it the server picks `python3`, or `python`
+on Windows. Restart the client afterwards.
+
+**The Docker path.** The blocks below show the shape of what the Docker installer writes — on Windows
+it also sets `AI_DEV_MCP_LAUNCHER`, and Claude gets `ClaudeMcpProxy.exe` instead of
+PowerShell — for reference and for a client neither installer covers.
 
 In every case, replace `C:\ABSOLUTE\PATH` with the absolute path to your clone of
 this repository, and `C:\Dev` with the folder that holds your projects. Do not

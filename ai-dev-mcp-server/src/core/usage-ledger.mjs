@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { atomicAppendFile, atomicWriteFile } from "./atomic-files.mjs";
+import { appendJsonLines, atomicWriteFile, withExclusiveFile } from "./atomic-files.mjs";
 
 export const USAGE_EVENT_KINDS = ["tool_call", "usage"];
 const MAX_LEDGER_BYTES = 8 * 1024 * 1024;
@@ -369,7 +369,7 @@ export class UsageLedger {
     this.queue = this.queue
       .catch(() => undefined)
       .then(async () => {
-        await atomicAppendFile(this.filePath, line, "utf8");
+        await appendJsonLines(this.filePath, line);
         await this.pruneIfNeeded();
       });
     await this.queue;
@@ -413,20 +413,28 @@ export class UsageLedger {
    * @returns {Promise<{ lines: number, kept: number, removed: number }>}
    */
   async rotate(keepLines) {
-    const plan = await this.rotationPlan(keepLines);
-    if (plan.removed <= 0) return plan;
-    const lines = (await fs.readFile(this.filePath, "utf8")).split("\n").filter(Boolean);
-    await atomicWriteFile(this.filePath, `${lines.slice(-plan.kept).join("\n")}\n`, "utf8");
-    return plan;
+    // Under the ledger's lock: a hook or another server appending between the
+    // read and the rename would otherwise lose its lines (docs/DEFECTS.md, Д-96).
+    return withExclusiveFile(this.filePath, async () => {
+      const plan = await this.rotationPlan(keepLines);
+      if (plan.removed <= 0) return plan;
+      const lines = (await fs.readFile(this.filePath, "utf8")).split("\n").filter(Boolean);
+      await atomicWriteFile(this.filePath, `${lines.slice(-plan.kept).join("\n")}\n`, "utf8");
+      return plan;
+    });
   }
 
   async pruneIfNeeded() {
     const stats = await fs.stat(this.filePath).catch(() => null);
     if (!stats || stats.size <= this.maxBytes) return false;
-    const lines = (await fs.readFile(this.filePath, "utf8")).split("\n").filter(Boolean);
-    const kept = lines.slice(-this.keepLines);
-    await atomicWriteFile(this.filePath, `${kept.join("\n")}\n`, "utf8");
-    return true;
+    return withExclusiveFile(this.filePath, async () => {
+      const current = await fs.stat(this.filePath).catch(() => null);
+      if (!current || current.size <= this.maxBytes) return false;
+      const lines = (await fs.readFile(this.filePath, "utf8")).split("\n").filter(Boolean);
+      const kept = lines.slice(-this.keepLines);
+      await atomicWriteFile(this.filePath, `${kept.join("\n")}\n`, "utf8");
+      return true;
+    });
   }
 
   /**

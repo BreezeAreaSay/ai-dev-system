@@ -347,10 +347,24 @@ def source_fingerprint(docs):
     return digest.hexdigest()
 
 
+MEMBRANE_SOURCES = ("membrane/application-skills", "external/membrane")
+
+
+def is_membrane_source(source):
+    """Whether a document's source is the Membrane catalogue, in either layout.
+
+    By source, not by path: the vault keeps the catalogue under
+    `membrane/application-skills`, the bundled seed under `external/membrane`,
+    and a path test written for the first never matched the second, so 3 074
+    connectors were embedded and ranked like any other skill
+    (docs/DEFECTS.md, Д-91). The same rule as `isMembraneSkill` on the server.
+    """
+    value = str(source or "").strip().lower()
+    return value in MEMBRANE_SOURCES or value == "membrane" or value.startswith("membrane/")
+
+
 def doc_is_membrane_skill(doc):
-    source = str(doc.get("source", "")).lower()
-    path_value = str(doc.get("path", "")).lower()
-    return "membrane/application-skills" in source or "membrane/application-skills" in path_value
+    return is_membrane_source(doc.get("source"))
 
 
 def should_dense_index_doc(doc, args):
@@ -1434,9 +1448,7 @@ def lexical_boost(query, row):
 
 
 def row_is_membrane_skill(row):
-    source = str(row.get("source", "")).lower()
-    path = str(row.get("path", "")).lower()
-    return "membrane/application-skills" in source or "membrane/application-skills" in path
+    return is_membrane_source(row.get("source"))
 
 
 def query_has_app_integration_intent(query):

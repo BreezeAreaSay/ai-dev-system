@@ -38,6 +38,9 @@ import {
   groupWikiLink,
   isDesignSkill,
   isMembraneSkill,
+  catalogSourceOfPath,
+  membraneSourceLayout,
+  MEMBRANE_SOURCE_IDS,
   skillCardPath,
   skillGroupNotePath
 } from "./core/skill-catalog.mjs";
@@ -599,15 +602,14 @@ async function collectCustomSkills() {
 }
 
 async function collectMembraneSkills() {
-  const membraneRoot = path.join(sourcesRoot, "membrane", "application-skills");
-  const skillsDir = path.join(membraneRoot, "skills");
-  const files = await listSkillFilesInSkillsDir(skillsDir);
+  const { id: membraneSource, root: membraneRoot } = membraneSourceLayout(sourcesRoot);
+  const files = await listSkillFilesInSkillsDir(path.join(membraneRoot, "skills"));
   const commit = await getGitCommit(membraneRoot);
   const repository = await getGitRemote(membraneRoot) || "https://github.com/membranedev/application-skills";
   return Promise.all(files.map(({ folderName, filePath }) => skillItemFromFile({
     filePath,
     folderName,
-    source: "membrane/application-skills",
+    source: membraneSource,
     type: "app-integration",
     categories: [],
     requires: ["network access", "Membrane account", "app connection"],
@@ -659,7 +661,7 @@ async function collectExternalSkills() {
   if (!(await pathExists(externalRoot))) return [];
 
   const repos = (await fs.readdir(externalRoot, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => entry.isDirectory() && !MEMBRANE_SOURCE_IDS.includes(`external/${entry.name}`))
     .sort((a, b) => a.name.localeCompare(b.name));
   const result = [];
 
@@ -4550,16 +4552,10 @@ async function searchKnowledge({ query, limit = 10 }) {
   const files = await listMarkdownFiles(vaultRoot);
   const matches = [];
   for (const file of files) {
-    if (file.includes("03-skills-catalog/sources/membrane/application-skills/skills/")) continue;
+    if (isMembraneSkill({ source: catalogSourceOfPath(file) })) continue;
     const text = await readText(file);
     const score = scoreText(query, [file, text.slice(0, 8000)]);
-    if (score > 0) {
-      matches.push({
-        path: file,
-        score,
-        preview: text.replace(/\s+/g, " ").slice(0, 240)
-      });
-    }
+    if (score > 0) matches.push({ path: file, score, preview: text.replace(/\s+/g, " ").slice(0, 240) });
   }
   return matches.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, limit);
 }

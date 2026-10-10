@@ -210,8 +210,10 @@ test("the runtime directory is not a project boundary, even when projects sit be
   const project = path.join(home, "AppData", "Local", "Temp", "project");
   await fs.mkdir(project, { recursive: true });
 
+  // AI_DEV_HOME names the runtime folder itself (owner decision D2,
+  // docs/DEFECTS.md Д-90), so the runtime tree under this fake home is spelled out.
   const previousHome = process.env.AI_DEV_HOME;
-  process.env.AI_DEV_HOME = home;
+  process.env.AI_DEV_HOME = path.join(home, ".ai-dev");
   t.after(() => {
     if (previousHome === undefined) delete process.env.AI_DEV_HOME;
     else process.env.AI_DEV_HOME = previousHome;
@@ -246,8 +248,10 @@ test("a home reached through a symlink still has its runtime directory skipped",
   const project = path.join(home, "projects", "one");
   await fs.mkdir(project, { recursive: true });
 
+  // AI_DEV_HOME names the runtime folder itself (owner decision D2,
+  // docs/DEFECTS.md Д-90), so the runtime tree under this fake home is spelled out.
   const previousHome = process.env.AI_DEV_HOME;
-  process.env.AI_DEV_HOME = home;
+  process.env.AI_DEV_HOME = path.join(home, ".ai-dev");
   t.after(() => {
     if (previousHome === undefined) delete process.env.AI_DEV_HOME;
     else process.env.AI_DEV_HOME = previousHome;
@@ -271,8 +275,10 @@ test("a real marker beside the runtime directory still stops the walk", async (t
   const project = path.join(home, "AppData", "Local", "Temp", "project");
   await fs.mkdir(project, { recursive: true });
 
+  // AI_DEV_HOME names the runtime folder itself (owner decision D2,
+  // docs/DEFECTS.md Д-90), so the runtime tree under this fake home is spelled out.
   const previousHome = process.env.AI_DEV_HOME;
-  process.env.AI_DEV_HOME = home;
+  process.env.AI_DEV_HOME = path.join(home, ".ai-dev");
   t.after(() => {
     if (previousHome === undefined) delete process.env.AI_DEV_HOME;
     else process.env.AI_DEV_HOME = previousHome;

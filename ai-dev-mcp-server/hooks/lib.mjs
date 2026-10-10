@@ -305,8 +305,13 @@ export function stateRoot() {
 }
 
 /**
- * The runtime tree itself (`<home>/.ai-dev`), which is what the server's
- * `resolveRuntimeStateRoot` returns.
+ * The runtime tree itself — `AI_DEV_HOME`, else `<home>/.ai-dev` — which is what
+ * the server's `resolveRuntimeStateRoot` returns (src/core/runtime-home.mjs).
+ *
+ * `AI_DEV_HOME` names the runtime folder itself (owner decision D2,
+ * docs/DEFECTS.md Д-90); 2.x appended `.ai-dev` to it on both sides. The one
+ * value that keeps the 2.x meaning is the home directory itself: taken at its
+ * word it would scatter the runtime tree across the home.
  *
  * `stateRoot()` is one level below it, and comparing that against a candidate
  * `<dir>/.ai-dev` never matched — so the runtime directory was read as a
@@ -322,8 +327,17 @@ export function stateRoot() {
  * @returns {string}
  */
 export function runtimeStateRoot() {
-  const home = process.env.AI_DEV_HOME || process.env.USERPROFILE || process.env.HOME || os.homedir();
-  return path.join(home, ".ai-dev");
+  const home = process.env.USERPROFILE || process.env.HOME || os.homedir();
+  return explicitRuntimeHome() || path.join(home, ".ai-dev");
+}
+
+/** Same as the server's `explicitRuntimeHome`: `AI_DEV_HOME`, unless it names the home itself. */
+export function explicitRuntimeHome() {
+  const raw = String(process.env.AI_DEV_HOME ?? "").trim();
+  if (!raw) return "";
+  const resolved = path.resolve(raw);
+  const homes = [process.env.USERPROFILE, process.env.HOME, os.homedir()].filter(Boolean).map((home) => path.resolve(home));
+  return homes.includes(resolved) ? "" : resolved;
 }
 
 /** Same sanitisation as the server's SessionStore.directoryFor. */

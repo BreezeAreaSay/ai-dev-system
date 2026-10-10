@@ -22,6 +22,8 @@ import { fileURLToPath } from "node:url";
 import { downloadDenseModel } from "../src/core/dense-download.mjs";
 import { defaultOnnxModelDir } from "../src/core/dense-onnx.mjs";
 import { readDenseManifest, verifyDenseModelDirectory } from "../src/core/dense-manifest.mjs";
+import { resolveRuntimeStateRoot } from "../src/core/runtime-home.mjs";
+import { prepareRuntimeHome } from "../src/core/runtime-home-migration.mjs";
 import {
   describeDenseCoverage,
   firstRunSucceeded,
@@ -91,6 +93,9 @@ async function runOrThrow(label, command, args, options) {
   if (code !== 0) throw new Error(`${label} exited with code ${code}.`);
 }
 
+// Data a 2.x install left one level too deep moves first, so every step below
+// finds it (docs/DEFECTS.md, Д-90).
+await prepareRuntimeHome();
 const {
   callTool, shutdownBgeWorkers, vaultRoot, searchIndexPath, embeddingsDir, skillRoutingEvalCasesPath
 } = await import("../src/mcp-stdio.mjs");
@@ -109,7 +114,7 @@ if (options.help) {
 }
 
 const modelDir = process.env.BGE_M3_MODEL_DIR
-  || path.join(process.env.AI_DEV_HOME || process.env.HOME || process.env.USERPROFILE || "", ".ai-dev", "models", "bge-m3");
+  || path.join(resolveRuntimeStateRoot(), "models", "bge-m3");
 const venvDir = path.join(embeddingsDir, ".venv");
 const densePython = process.env.AI_DEV_PYTHON || venvPythonPath({ venvDir, exists: existsSync });
 

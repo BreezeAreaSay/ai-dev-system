@@ -87,7 +87,7 @@ import {
 import { loadImportGraph, renderImportGraphMarkdown } from "./core/import-graph.mjs";
 import { configureRuntimeStateRoot, resolveProjectIdentity } from "./core/project-identity.mjs";
 import { resolveRuntimeAssets } from "./core/runtime-assets.mjs";
-import { resolveRuntimeHome } from "./core/runtime-home.mjs";
+import { resolveRuntimeStateRoot, resolveUserHome } from "./core/runtime-home.mjs";
 import {
   compileContextPack,
   contextPackFreshness
@@ -216,11 +216,11 @@ const vaultRoot = resolveVaultRoot();
 // artifacts). Agent-neutral: defaults to ~/.ai-dev, overridable per directory
 // with the AI_DEV_* env vars, and falls back to a pre-existing ~/.codex/<...>
 // layout so installs migrated from the Codex-only runtime keep their history.
-const userHome = resolveRuntimeHome(vaultRoot);
-configureRuntimeStateRoot(path.join(userHome, ".ai-dev"));
+const userHome = resolveUserHome(vaultRoot);
+const runtimeStateRoot = configureRuntimeStateRoot(resolveRuntimeStateRoot(vaultRoot));
 function aiDevRuntimePath(envVar, segments, legacySegments = segments) {
   if (process.env[envVar]) return path.resolve(process.env[envVar]);
-  const next = path.join(userHome, ".ai-dev", ...segments);
+  const next = path.join(runtimeStateRoot, ...segments);
   const legacy = path.join(userHome, ".codex", ...legacySegments);
   return !existsSync(next) && existsSync(legacy) ? legacy : next;
 }
@@ -2160,7 +2160,7 @@ async function resolveTaskProjectRoot(projectPath) {
 function assertNotProtectedProjectRoot(projectRoot, {
   homeDirectory = os.homedir(),
   runtimeHome = userHome,
-  runtimeStateDirectory = path.join(userHome, ".ai-dev"),
+  runtimeStateDirectory = runtimeStateRoot,
   stateDirectory = taskStateRoot,
   knowledgeVault = vaultRoot
 } = {}) {

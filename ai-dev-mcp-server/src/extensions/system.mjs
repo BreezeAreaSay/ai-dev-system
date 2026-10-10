@@ -24,6 +24,7 @@ import {
   evaluateHybridSmoke,
   evaluateProjectRegistry,
   evaluateRequiredNotes,
+  evaluateRuntimeHome,
   evaluateSearchEval,
   evaluateSearchIndexFile,
   evaluateSearchIndexFreshness,
@@ -39,6 +40,7 @@ import {
   evaluateVaultRoot
 } from "../core/system-health.mjs";
 import { evaluateEmbeddingBackend } from "../core/embedding-health.mjs";
+import { describeRuntimeHome } from "../core/runtime-home-migration.mjs";
 
 const DENSE_SMOKE_QUERY = "создай качественный интерфейс без ИИ слопа по утвержденным референсам";
 
@@ -164,6 +166,8 @@ async function systemHealthCheck(host, {
   await report.runCheck("vault_root", true, async () => (
     evaluateVaultRoot(await host.fileStatus(host.vaultRoot))
   ));
+
+  await report.runCheck("runtime_home", false, async () => evaluateRuntimeHome(await describeRuntimeHome()));
 
   await report.runCheck("required_notes", false, async () => {
     const files = [];

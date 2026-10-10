@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { createAiDevServer } from "./server.mjs";
 import { daemonInfoPath, daemonLockPath, runtimeDir, socketAddress } from "./core/runtime-paths.mjs";
 import { SocketServerTransport } from "./transport/socket.mjs";
+import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
 
 const VERSION = JSON.parse(await fs.readFile(new URL("../package.json", import.meta.url), "utf8")).version;
 
@@ -65,6 +66,7 @@ async function acquireLock() {
  * @returns {Promise<boolean>} false when another daemon is already serving
  */
 export async function runDaemon() {
+  await prepareRuntimeHome();
   if (!(await acquireLock())) return false;
 
   const address = socketAddress();

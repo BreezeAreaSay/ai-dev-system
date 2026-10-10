@@ -29,6 +29,7 @@
 import path from "node:path";
 import process from "node:process";
 import { DENSE_ONNX_BACKEND } from "./dense-backend.mjs";
+import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 
 /** Most texts one worker message may carry, so a batch cannot grow unbounded. */
 export const MAX_ONNX_BATCH = 32;
@@ -272,6 +273,6 @@ export function createOnnxDenseRuntime({
  */
 export function defaultOnnxModelDir({ env = process.env, aiDevHome = "" } = {}) {
   if (env.BGE_M3_ONNX_DIR) return path.resolve(env.BGE_M3_ONNX_DIR);
-  const home = aiDevHome || path.join(env.AI_DEV_HOME || env.HOME || env.USERPROFILE || "", ".ai-dev");
+  const home = aiDevHome || resolveRuntimeStateRoot("", env);
   return path.resolve(path.join(home, "models", "bge-m3-onnx"));
 }

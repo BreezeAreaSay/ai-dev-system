@@ -26,6 +26,7 @@ import {
   visibleTools
 } from "./mcp-stdio.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
+import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
 
 const serverFile = fileURLToPath(import.meta.url);
 const serverRoot = path.resolve(path.dirname(serverFile), "..");
@@ -510,6 +511,7 @@ export function createAiDevServer() {
 }
 
 export async function startServer() {
+  await prepareRuntimeHome();
   if (!activeProfiles.all) {
     const kept = visibleTools().length;
     process.stderr.write(

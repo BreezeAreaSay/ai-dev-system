@@ -17,6 +17,10 @@ import path from "node:path";
 
 const stateHome = fs.mkdtempSync(path.join(os.tmpdir(), "ai-dev-test-home-"));
 
+// The runtime tree itself: AI_DEV_HOME names it (docs/DEFECTS.md, Д-90), so the
+// daemon's socket and lock, config.json and the runtime_home health check all
+// stay out of the developer's real ~/.ai-dev too.
+process.env.AI_DEV_HOME = stateHome;
 process.env.AI_DEV_STATE_ROOT = path.join(stateHome, "state");
 process.env.AI_DEV_SEARCH_INDEX_DIR = path.join(stateHome, "cache", "search-index");
 process.env.AI_DEV_FRONTEND_QA_ARTIFACT_ROOT = path.join(stateHome, "artifacts", "frontend-qa");

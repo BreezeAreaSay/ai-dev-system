@@ -95,6 +95,10 @@ if (command === "help" || command === "--help" || command === "-h") {
     process.exitCode = 1;
   }
 } else {
+  // Move what 2.x left in AI_DEV_HOME/.ai-dev first: doctor, dashboard and the
+  // rest read the runtime tree (docs/DEFECTS.md, Д-90).
+  const { prepareRuntimeHome } = await import("../src/core/runtime-home-migration.mjs");
+  await prepareRuntimeHome();
   const { callTool, shutdownBgeWorkers } = await import("../src/mcp-stdio.mjs");
   try {
     let tool;

@@ -129,26 +129,54 @@ install_docker_macos() {
   fi
 }
 
+# Root runs the command itself; anyone else goes through sudo. A minimal Debian
+# server has no sudo, and a root shell does not need it.
+as_root() {
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo "$@"
+  else
+    printf '%s\n' "Installing Docker needs root: run bootstrap.sh as root, or install sudo first." >&2
+    exit 69
+  fi
+}
+
+# The Docker engine from the distribution's own repositories, and nothing else:
+# bootstrap starts the image with `docker run` and never uses compose. It used
+# to install a compose package as well, under a name Ubuntu does not have
+# (docker-compose-plugin comes from Docker Inc.'s repository), so the one-command
+# install stopped at its first step (docs/DEFECTS.md, Д-92).
+#   apt     Debian, Ubuntu   docker.io
+#   dnf     Fedora           moby-engine, Fedora's build of the Docker engine
+#   pacman  Arch             docker; Arch supports no partial upgrade, hence -Syu
 install_docker_linux() {
   if [ "$install_prerequisites" -ne 1 ]; then
     printf '%s\n' "Docker is required. Re-run with --install-prerequisites, or install Docker Engine/Desktop and run again." >&2
     exit 69
   fi
   if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update
-    sudo apt-get install -y docker.io docker-compose-plugin
+    as_root apt-get update
+    as_root env DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
   elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y docker docker-compose-plugin
+    if ! as_root dnf install -y moby-engine; then
+      printf '%s\n' "dnf could not install moby-engine, the Docker engine Fedora ships. On another dnf-based system install Docker Engine as https://docs.docker.com/engine/install/ describes, then run bootstrap.sh again." >&2
+      exit 69
+    fi
   elif command -v pacman >/dev/null 2>&1; then
-    sudo pacman -Sy --noconfirm docker docker-compose
+    as_root pacman -Syu --needed --noconfirm docker
   else
     printf '%s\n' "No supported Linux package manager was found. Install Docker Engine manually, then run again." >&2
     exit 69
   fi
   if command -v systemctl >/dev/null 2>&1; then
-    sudo systemctl enable --now docker
+    as_root systemctl enable --now docker
   fi
-  sudo usermod -aG docker "$(id -un)"
+  # Root talks to the engine without the docker group; go on to the engine check.
+  if [ "$(id -u)" -eq 0 ]; then
+    return
+  fi
+  as_root usermod -aG docker "$(id -un)"
   printf '%s\n' "Docker was installed. Sign out and sign in (or run newgrp docker), then run bootstrap.sh again." >&2
   exit 0
 }

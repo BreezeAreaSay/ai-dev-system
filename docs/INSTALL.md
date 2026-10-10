@@ -158,9 +158,12 @@ installer if needed, then runs `brew install --cask docker`, starts Docker
 Desktop, and waits for the engine. The first launch of Docker Desktop may require
 accepting the licence and confirming privileged settings in the app window.
 
-On Linux it uses `apt`, `dnf`, or `pacman`, enables the Docker service, and adds
+On Linux it installs the distribution's own Docker engine and nothing else —
+`docker.io` with `apt` (Debian, Ubuntu), `moby-engine` with `dnf` (Fedora), `docker`
+with `pacman` (Arch); bootstrap never uses compose. It runs the package manager
+through `sudo`, or directly when you are root, enables the Docker service, and adds
 the current user to the `docker` group. You then need to log out and back in and
-re-run the command.
+re-run the command; as root there is no group to join and it carries straight on.
 
 Bootstrap needs no Node.js on the host: it configures MCP clients from a
 throwaway `node:24` container. By default it pulls

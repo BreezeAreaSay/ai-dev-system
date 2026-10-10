@@ -456,3 +456,122 @@ test("the PowerShell installer refuses the pre-Д-62 model path before it looks 
     await fs.rm(home, { recursive: true, force: true });
   }
 });
+
+// --install-prerequisites on Linux, against package managers that write down
+// what they were asked to install. The packages are the distribution's Docker
+// engine and nothing else: a compose package used to come along, under a name
+// Ubuntu does not have, and the one-command install stopped at its first step
+// (docs/DEFECTS.md, Д-92). Ubuntu 24.04 itself is checked in a container; the
+// dnf and pacman names here are checked only against what the script runs.
+
+const HIDDEN_COMMANDS = new Set(["docker", "dockerd", "apt-get", "dnf", "yum", "pacman", "sudo", "systemctl", "usermod", "id"]);
+
+/** A PATH directory with the host's tools minus the ones a test stands in for. */
+async function hostToolsWithout(directory) {
+  await fs.mkdir(directory);
+  for (const source of ["/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]) {
+    const entries = await fs.readdir(source).catch(() => []);
+    for (const name of entries) {
+      if (HIDDEN_COMMANDS.has(name)) continue;
+      await fs.symlink(path.join(source, name), path.join(directory, name)).catch(() => undefined);
+    }
+  }
+}
+
+const RECORD = 'printf \'%s %s\\n\' "$(basename "$0")" "$*" >> "$STUB_LOG"';
+const STUBS = {
+  id: 'case "$1" in -u) printf \'%s\\n\' "$STUB_UID" ;; -un) printf \'stub-user\\n\' ;; *) printf \'uid=%s\\n\' "$STUB_UID" ;; esac',
+  sudo: `${RECORD}\nexec "$@"`,
+  systemctl: RECORD,
+  usermod: RECORD,
+  // Installing gives a docker CLI whose engine is not running yet.
+  manager: `${RECORD}\nif [ -n "\${STUB_FAIL:-}" ]; then exit 1; fi\nprintf '#!/bin/sh\\nexit 1\\n' > "$STUB_BIN/docker"\nchmod +x "$STUB_BIN/docker"`
+};
+
+async function installPrerequisites(context, { manager, uid, sudo = true, fail = false }) {
+  if (process.platform !== "linux") {
+    context.skip("the Linux install path; macOS goes through Homebrew");
+    return null;
+  }
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-prereq-"));
+  context.after(() => fs.rm(home, { recursive: true, force: true }));
+  const stubBin = path.join(home, "stub-bin");
+  const hostBin = path.join(home, "host-bin");
+  await fs.mkdir(stubBin);
+  await hostToolsWithout(hostBin);
+  const stubs = { id: STUBS.id, systemctl: STUBS.systemctl, usermod: STUBS.usermod, [manager]: STUBS.manager };
+  if (sudo) stubs.sudo = STUBS.sudo;
+  for (const [name, body] of Object.entries(stubs)) {
+    await fs.writeFile(path.join(stubBin, name), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  }
+  const log = path.join(home, "calls.log");
+  const result = spawnSync("/bin/sh", [bootstrap, "--install-prerequisites", "--skip-client-install", "--project-path", path.join(home, "projects")], {
+    encoding: "utf8",
+    env: {
+      HOME: home,
+      PATH: `${stubBin}${path.delimiter}${hostBin}`,
+      STUB_BIN: stubBin,
+      STUB_LOG: log,
+      STUB_UID: String(uid),
+      AI_DEV_MODEL_PATH: "",
+      ...(fail ? { STUB_FAIL: "1" } : {})
+    }
+  });
+  const calls = (await fs.readFile(log, "utf8").catch(() => "")).trim().split("\n").filter(Boolean);
+  return { ...result, calls };
+}
+
+test("root on Debian or Ubuntu installs docker.io and nothing else, then checks the engine", async (context) => {
+  const result = await installPrerequisites(context, { manager: "apt-get", uid: 0 });
+  if (!result) return;
+  assert.deepEqual(result.calls, [
+    "apt-get update",
+    "apt-get install -y docker.io",
+    "systemctl enable --now docker"
+  ], "root needs neither sudo nor the docker group");
+  assert.equal(result.status, 69, result.stderr);
+  assert.match(result.stderr, /engine is not ready/);
+});
+
+test("a sudo user on Debian or Ubuntu gets docker.io through sudo and joins the docker group", async (context) => {
+  const result = await installPrerequisites(context, { manager: "apt-get", uid: 1000 });
+  if (!result) return;
+  assert.deepEqual(result.calls.filter((call) => !call.startsWith("sudo ")), [
+    "apt-get update",
+    "apt-get install -y docker.io",
+    "systemctl enable --now docker",
+    "usermod -aG docker stub-user"
+  ]);
+  assert.ok(result.calls.includes("sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io"), result.calls.join("\n"));
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /Docker was installed\. Sign out and sign in/);
+});
+
+test("Fedora gets moby-engine, Arch gets docker with a full upgrade, and neither gets compose", async (context) => {
+  const fedora = await installPrerequisites(context, { manager: "dnf", uid: 1000 });
+  if (!fedora) return;
+  assert.ok(fedora.calls.includes("dnf install -y moby-engine"), fedora.calls.join("\n"));
+  assert.equal(fedora.status, 0, fedora.stderr);
+
+  const arch = await installPrerequisites(context, { manager: "pacman", uid: 1000 });
+  assert.ok(arch.calls.includes("pacman -Syu --needed --noconfirm docker"), arch.calls.join("\n"));
+  assert.equal(arch.status, 0, arch.stderr);
+
+  for (const call of [...fedora.calls, ...arch.calls]) assert.doesNotMatch(call, /compose/);
+});
+
+test("a dnf system without moby-engine is told where Docker comes from", async (context) => {
+  const result = await installPrerequisites(context, { manager: "dnf", uid: 0, fail: true });
+  if (!result) return;
+  assert.equal(result.status, 69, result.stderr);
+  assert.match(result.stderr, /could not install moby-engine/);
+  assert.match(result.stderr, /docs\.docker\.com\/engine\/install/);
+});
+
+test("without root or sudo nothing is installed, and the message says what is missing", async (context) => {
+  const result = await installPrerequisites(context, { manager: "apt-get", uid: 1000, sudo: false });
+  if (!result) return;
+  assert.deepEqual(result.calls, []);
+  assert.equal(result.status, 69, result.stderr);
+  assert.match(result.stderr, /needs root: run bootstrap\.sh as root, or install sudo first/);
+});

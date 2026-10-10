@@ -33,7 +33,7 @@ jobs:
 
       - name: Install MCP dependencies
         working-directory: ai-dev-mcp-server
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Test distribution privacy policy
         working-directory: ai-dev-mcp-server
@@ -91,7 +91,7 @@ jobs:
 
       - name: Install MCP dependencies
         working-directory: ai-dev-mcp-server
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Test fast-start launcher contract
         working-directory: ai-dev-mcp-server
@@ -107,7 +107,9 @@ jobs:
           brew style packaging/homebrew/ai-dev-system.rb
 
   publish:
-    if: github.event_name != 'pull_request'
+    # The production repository only. A fork that works in its own main (this
+    # program does) must not publish an image of its own from every push.
+    if: github.event_name != 'pull_request' && github.repository == 'stonebridgeway/ai-dev-system'
     needs:
       - validate
       - unix-launcher

@@ -94,6 +94,22 @@ requireText(bootstrapWindows, /\[string\]\$ModelPath/, "bootstrap.ps1");
 requireText(runMcpUnix, /holds model files itself/, "docker/run-mcp.sh");
 requireText(runMcpWindows, /holds model files itself/, "docker/run-mcp.ps1");
 
+// `npm ci` in the server needs no flag because the package's .npmrc keeps
+// dependency install scripts off — onnxruntime-node's postinstall downloads the
+// CUDA provider from api.nuget.org and fails offline (docs/DEFECTS.md, Д-86).
+// The pages tell people to run plain `npm ci`, so the setting has to stay.
+const npmrc = await read("ai-dev-mcp-server/.npmrc");
+assert.match(npmrc, /^ignore-scripts=true$/m, "ai-dev-mcp-server/.npmrc no longer keeps install scripts off");
+for (const [label, content] of [
+  ["README.md", readme],
+  ["README.ru.md", readmeRu],
+  ["docker/README.md", dockerReadme],
+  ["docs/INSTALL.md", installGuide],
+  ["docs/ru/INSTALL.md", installGuideRu]
+]) {
+  assert.ok(!/npm (?:ci|install)[^\n`]*--ignore-scripts/.test(content), `${label} still tells people to pass --ignore-scripts`);
+}
+
 requireText(launcher, /@AI_DEV_SYSTEM_ROOT@/, "packaging launcher");
 requireText(launcher, /bootstrap\.sh/, "packaging launcher");
 requireText(pkgbuild, /^pkgname=ai-dev-system-git$/m, "PKGBUILD");

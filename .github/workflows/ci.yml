@@ -30,9 +30,12 @@ jobs:
           cache: npm
           cache-dependency-path: ai-dev-mcp-server/package-lock.json
 
+      # Plain `npm ci`, as the install guide says: the package's .npmrc keeps
+      # dependency install scripts off, and `npm run packaging:check` below
+      # fails if it stops doing so (docs/DEFECTS.md, Д-86).
       - name: Install dependencies
         working-directory: ai-dev-mcp-server
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Static quality gate
         working-directory: ai-dev-mcp-server
@@ -92,7 +95,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ai-dev-mcp-server
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Static quality gate
         working-directory: ai-dev-mcp-server
@@ -118,7 +121,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ai-dev-mcp-server
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       # A standalone checkout has no full Obsidian vault, so the server resolves
       # its content root to the bundled docker/public-seed tree. That seed ships
@@ -156,7 +159,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ai-dev-mcp-server
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       # macOS was supported by assumption until this job existed: POSIX like
       # Linux, but with a case-insensitive filesystem by default and a temp
@@ -195,7 +198,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ai-dev-mcp-server
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Parse every PowerShell script
         shell: pwsh

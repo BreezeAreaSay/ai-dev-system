@@ -64,13 +64,14 @@ jobs:
 
       - name: Install dependencies
         working-directory: ai-dev-mcp-server
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
-      # The same flags the Dockerfile uses. onnxruntime-node ships its prebuilt
-      # binaries inside the npm package, so --ignore-scripts must not break it;
-      # if that ever changes, this is where it is caught rather than in a user's
-      # first search (docs/DEFECTS.md, Д-62).
-      - name: The native binding survives --ignore-scripts
+      # No dependency install scripts ran: the package's .npmrc turns them off
+      # (docs/DEFECTS.md, Д-86), and the Dockerfile passes --ignore-scripts.
+      # onnxruntime-node ships its prebuilt binaries inside the npm package, so
+      # that must not break it; if that ever changes, this is where it is caught
+      # rather than in a user's first search (docs/DEFECTS.md, Д-62).
+      - name: The native binding works without install scripts
         working-directory: ai-dev-mcp-server
         run: node -e "import('onnxruntime-node').then((m) => { if (!m.InferenceSession) { throw new Error('onnxruntime-node loaded without InferenceSession'); } console.log('onnxruntime-node loaded'); })"
 
@@ -144,7 +145,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ai-dev-mcp-server
-        run: npm ci --ignore-scripts --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Build the legacy stack and the dense index
         working-directory: ai-dev-mcp-server

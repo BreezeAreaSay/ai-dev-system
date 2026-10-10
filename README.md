@@ -67,7 +67,7 @@ in progress.
 
 ```bash
 cd ai-dev-mcp-server
-npm ci --ignore-scripts --no-audit --no-fund
+npm ci
 npm run setup
 ```
 

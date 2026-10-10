@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 110 записей. Закрыто 84, открыто 26. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 111 записей. Закрыто 93, открыто 18. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -40,11 +40,13 @@ Pro x64 и Arch Linux. Пять из этих девяти пришли отчё
 разом по разбору от 2026-10-06 (`docs/program/BRIEF.md`). Каждая с замером «до», снятым заново в
 песочнице, или с пометкой «по коду» и файлом со строкой, и с фазой программы, которая её закроет.
 Номера зафиксированы брифом заранее, поэтому запись из слитой позже ветки галактики получила
-Д-109. Д-100 — расхождения документации с замером — закрыта первой фазой; остальные двадцать
-три открыты. Д-110 нашёлся при ревью первой фазы. Ход программы — `docs/program/PROGRESS.md`.
+Д-109. Д-100 — расхождения документации с замером — закрыта первой фазой; девять — Д-86, Д-87,
+Д-88, Д-90, Д-91, Д-92, Д-93, Д-94, Д-96 — второй. Д-110 нашёлся при ревью первой фазы, Д-111 —
+во второй. Ход программы — `docs/program/PROGRESS.md`.
 
-Открыто двадцать шесть: двадцать три записи программы (Д-85 … Д-108 без Д-100) и Д-110, у каждой
-своя фаза, и две старые, которые кодом из песочницы не закрываются:
+Открыто восемнадцать: четырнадцать записей программы (Д-85, Д-89, Д-95, Д-97 … Д-99, Д-101 …
+Д-108), Д-110 и Д-111, у каждой своя фаза, и две старые, которые кодом из песочницы не
+закрываются:
 
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
   закрывается: двадцать минут в самом Cursor по четырём пунктам, `npm run verify:cursor`
@@ -608,7 +610,8 @@ runtime not found: …/embeddings/.venv/bin/python». Это Д-98, а не от
 
 ## Д-86. `npm install` без `--ignore-scripts` падает на postinstall onnxruntime-node
 
-**Статус:** открыт. Закроет фаза 2.
+**Статус:** **закрыт** фазой 2 программы (`39356ec`; документация и CI — коммитом документации
+фазы). Замер до и после ниже.
 
 `onnxruntime-node` 1.30.0 в postinstall (`node ./script/install`) докачивает то, чего нет в
 npm-пакете. Для `linux/x64` это CUDA 12 EP — пакет `Microsoft.ML.OnnxRuntime.Gpu.Linux` с
@@ -636,13 +639,34 @@ exit 1 за 24,3 с
 скрипт — нет: Node без агента идёт мимо `HTTPS_PROXY`. В песочнице разбора 2026-10-06 nuget был
 закрыт полностью, результат тот же — exit 1.
 
-**Как закроется.** Фаза 2: `ai-dev-mcp-server/.npmrc` со строкой `onnxruntime-node-install=skip`.
+**Как закрыт.** `ai-dev-mcp-server/.npmrc` со строкой `ignore-scripts=true` — отступление от
+брифа, где стояло `onnxruntime-node-install=skip`: npm 11 и 12 предупреждают, что неизвестные
+ключи `.npmrc` в следующей мажорной версии станут ошибкой, а установочных скриптов в дереве всего
+два (CUDA-провайдер onnxruntime-node и предупреждение protobufjs), и оба не нужны. `npm run
+<скрипт>` своё запускает и с этим ключом — пропускаются только pre/post-хуки, а их у пакета нет.
+Флаг убран из пользовательской документации (README, INSTALL EN/RU, README сервера,
+`docker/README.md`, CONTRIBUTING, три TEST-PLAN), CI ставит простым `npm ci`, а `npm run
+packaging:check` падает, если `.npmrc` перестаёт выключать скрипты или страница снова велит
+передать флаг. Dockerfile флаг сохраняет: в контекст сборки идут только `package.json` и lockfile,
+без `.npmrc`.
+
+**Замер после.** Чистый клон (`HEAD` фазы 2), пустой HOME, `npm install --no-audit --no-fund`:
+
+```
+npm 10.9.4    exit 0, added 136 packages in 11s
+npm 11.17.0   exit 0, added 133 packages in 13s     (npx npm@11.17.0, версия из packageManager)
+```
+
+npm 10 при `npm install` переписывает lockfile: убирает поля `libc`, которые пишет npm 11, и
+потому ставит заодно musl-сборки libvips (отсюда 136 против 133). Так было и в 2.x — в lockfile
+`8f647df` тех же полей 16; `npm ci` lockfile не трогает. `npm run upgrade:test`: «npm ci without
+--ignore-scripts succeeds on the upgraded clone» — exit 0.
 
 ---
 
 ## Д-87. `package-lock.json`: шесть дублирующихся ключей
 
-**Статус:** открыт. Закроет фаза 2.
+**Статус:** **закрыт** фазой 2 программы (`39356ec`). Замер до и после ниже.
 
 Слияние Dependabot #70 (onnxruntime-node 1.30.0) и #71 (transformers 4.3.0) склеило два
 варианта одного куска `"packages"`: шесть ключей встречаются дважды.
@@ -665,16 +689,34 @@ node_modules/@huggingface/transformers/node_modules/type-fest          стро�
 package-lock.json — 2 438 строк
 ```
 
-**Как закроется.** Фаза 2: lockfile перегенерируется через `npx npm@11.17.0` (версия из
-`packageManager`), дублей 0.
+**Как закрыт.** Lockfile перегенерирован через `npx npm@11.17.0` (версия из `packageManager`);
+override `sharp` убран из `package.json`.
+
+**Замер после.** Тот же разбор с `object_pairs_hook` и `npm ls` в чистом клоне:
+
+```
+0 duplicate keys; package-lock.json — 2 158 строк
+npm ls onnxruntime-node --all
+  ├── @huggingface/transformers@4.3.0
+  │   └── onnxruntime-node@1.30.0 deduped
+  └── onnxruntime-node@1.30.0
+npm ls sharp --all
+  └── @huggingface/transformers@4.3.0
+      └── sharp@0.35.4                        (без override — та же версия, что он закреплял)
+npm run security → exit 0
+```
+
+Вложенный onnxruntime-node 1.21.0, который описывали повторяющиеся ключи и которого npm не
+ставил, из lockfile ушёл вместе с ними.
 
 ---
 
 ## Д-88. ClaudeMcpProxy монтирует модель в `/models/bge-m3`, а образ ищет `/models/bge-m3-onnx`
 
-**Статус:** открыт. Закроет фаза 2. У пользователей прокси собирает csc.exe из .NET Framework 4
-на Windows; здесь он собран Mono 6.8 (`mcs`) в контейнере и запущен с заглушкой `docker.exe` —
-это не тот же рантайм, но аргументы `docker run` строит один и тот же код.
+**Статус:** **закрыт** фазой 2 программы (`3eacea4`). Замер до и после ниже. У пользователей
+прокси собирает csc.exe из .NET Framework 4 на Windows; здесь он собран Mono 6.8 (`mcs`) в
+контейнере и запущен с заглушкой `docker.exe` — это не тот же рантайм, но аргументы `docker run`
+строит один и тот же код. Живая проверка на Windows — в чек-листе владельца.
 
 `docker/ClaudeMcpProxy.cs:76` — `AddBindMount(arguments, "AI_DEV_MODEL_PATH", "/models/bge-m3", true)`.
 Остальные четыре копии монтируют ту же переменную в `/models`: `docker/run-mcp.sh:105`,
@@ -702,8 +744,27 @@ docker.exe run --rm -i --read-only … --mount type=volume,source=ai-dev-system-
 Экспорт оказывается в `/models/bge-m3/bge-m3-onnx`. Папку со старым значением — с `config.json`
 внутри — прокси монтирует так же молча.
 
-**Как закроется.** Фаза 2: прокси монтирует в `/models` и, как sh и ps1, отвергает старое
-значение; контрактный тест сверяет цель монтирования во всех пяти копиях.
+**Как закрыт.** Прокси монтирует папку в `/models` и, как sh и ps1, до запуска Docker отвергает
+старое значение — папку, в которой лежат `pytorch_model.bin`, `modules.json`, `config.json` или
+`onnx/`, — а о папке без модели предупреждает. `scripts/model-mount-contract.test.mjs` читает все
+пять копий и сверяет цель монтирования с родителем `BGE_M3_ONNX_DIR` и `BGE_M3_MODEL_DIR` из
+Dockerfile, сверяет списки маркеров старого значения и, где есть csc.exe или Mono, собирает прокси
+и запускает его с записывающим `docker.exe`.
+
+**Замер после.** Тот же стенд — `mcs`, записывающий `docker.exe`, запрос `initialize`:
+
+```
+AI_DEV_MODEL_PATH=/tmp/m/models (внутри bge-m3-onnx/)  exit 0  --mount type=bind,source=/tmp/m/models,target=/models,readonly
+папка с config.json                                    exit 1  Docker не запускался; «AI_DEV_MODEL_PATH now names the folder above the models…»
+папка с onnx/                                          exit 1  то же
+пустая папка                                           exit 0  target=/models,readonly; «…holds neither bge-m3-onnx\ nor bge-m3\…»
+```
+
+До правки все четыре случая давали `target=/models/bge-m3,readonly` и exit 0. Контрактный тест в
+том же контейнере: на старом прокси 0 из 3 (статическая часть называет `/models/bge-m3`), на новом
+3 из 3; на хосте без компилятора — 2 из 3 и пропуск сборки. Уже собранный у пользователя
+`ClaudeMcpProxy.exe` сам не обновится: `bootstrap.ps1` нужно запустить ещё раз (INSTALL,
+«Updating an earlier install»).
 
 ---
 
@@ -738,8 +799,8 @@ Desktop — подмену убрать, если нет — заглушка б
 
 ## Д-90. `AI_DEV_HOME` удваивает `.ai-dev`
 
-**Статус:** открыт. Закроет фаза 2 (решение владельца D2: `AI_DEV_HOME` — сама папка рантайма,
-данные из `<AI_DEV_HOME>/.ai-dev` мигрируют автоматически).
+**Статус:** **закрыт** фазой 2 программы (`628ac6a`; решение владельца D2: `AI_DEV_HOME` — сама
+папка рантайма, данные из `<AI_DEV_HOME>/.ai-dev` мигрируют автоматически). Замер до и после ниже.
 
 Документация называет `AI_DEV_HOME` самой папкой рантайма. В README сервера: «AI_DEV_HOME
 runtime-data root (default ~/.ai-dev)», в ARCHITECTURE: «`${AI_DEV_HOME}/state` (default
@@ -759,14 +820,39 @@ AI_DEV_HOME=/x/.ai-dev  resolveRuntimeStateRoot() → /x/.ai-dev/.ai-dev
 AI_DEV_HOME=/x/.ai-dev  defaultOnnxModelDir()     → /x/.ai-dev/.ai-dev/models/bge-m3-onnx
 ```
 
-**Как закроется.** Фаза 2: одна семантика везде, включая копию в хуках (правило 3 AGENTS.md),
-миграция с отчётом в `doctor`.
+**Как закрыт.** Одна семантика — `src/core/runtime-home.mjs` — для сервера, dense-onnx, first-run
+и project-identity, и её копия в `hooks/lib.mjs` (правило 3; тест сверяет обе копии на шести
+окружениях). Одно значение сохраняет смысл 2.x: `AI_DEV_HOME`, равный самому домашнему каталогу,
+по-прежнему значит `<home>/.ai-dev` — иначе `state/`, `cache/` и `models/` рассыпались бы по
+домашнему каталогу. `src/core/runtime-home-migration.mjs` при старте сервера, `npm run setup` и
+CLI переносит `<AI_DEV_HOME>/.ai-dev` уровнем выше: недостающее переносится, одинаковое
+удаляется, JSONL дописываются, различающиеся файлы остаются на месте и называются; каждый запуск,
+который что-то нашёл, пишется в `state/runtime-home-migration.json`. `doctor` получил проверку
+`runtime_home`.
+
+**Замер после.**
+
+```
+AI_DEV_HOME=/x/.ai-dev            resolveRuntimeStateRoot() → /x/.ai-dev
+AI_DEV_HOME=/x/.ai-dev            defaultOnnxModelDir()     → /x/.ai-dev/models/bge-m3-onnx
+AI_DEV_HOME=/x/.ai-dev            hooks runtimeStateRoot()  → /x/.ai-dev
+AI_DEV_HOME не задан, HOME=/home/someone          → /home/someone/.ai-dev
+AI_DEV_HOME=HOME=/home/someone                     → /home/someone/.ai-dev
+```
+
+`npm run upgrade:test` (41 из 41): в сценарии `AI_DEV_HOME` 2.x положила на уровень глубже 6
+файлов, после обновления там 0, все шесть — в `AI_DEV_HOME`, задача, решение, инстинкт, передача
+и индекс находятся. В раскладке тома Docker (явные корни состояния и индекса) 2.x глубже не
+положила ничего. Хук, установленный 2.x, ищет старое место, пока `install_agent_hooks` не
+выполнен ещё раз, — так и написано в INSTALL. Откат клона с `AI_DEV_HOME` на 2.x данных не
+видит, пока для 2.x не заданы `AI_DEV_STATE_ROOT` и `AI_DEV_SEARCH_INDEX_DIR` (замерено,
+`docs/UPGRADE-TEST.md`).
 
 ---
 
 ## Д-91. Фильтр Membrane не срабатывает в seed
 
-**Статус:** открыт. Закроет фаза 2.
+**Статус:** **закрыт** фазой 2 программы (`e15c598`). Замер до и после ниже.
 
 Skills Membrane — 3 074 коннектора к чужим API — должны оставаться в стороне от dense-векторов и
 уступать в выдаче, пока задача не про интеграцию. Фильтры ищут путь `membrane/application-skills`:
@@ -798,14 +884,41 @@ react component testing         0 из 10
 code review checklist           0 из 10
 ```
 
-**Как закроется.** Фаза 2: Membrane определяется по источнику, а не по пути — в `search_cli.py`,
-в `search_knowledge` и при сборе skills. Ожидаемое eligible — 3 444 − 3 074 = 370.
+**Как закрыт.** Membrane определяется по источнику, а не по пути: `is_membrane_source` в
+`search_cli.py`; `MEMBRANE_SOURCE_IDS`, `catalogSourceOfPath` и `membraneSourceLayout` в
+`src/core/skill-catalog.mjs` — сборщик Membrane читает ту раскладку, которая есть, сборщик external
+её пропускает, `search_knowledge` отсекает файлы по источнику. В seed 3 074 коннектора стали
+skills типа `app-integration`, как в хранилище.
+
+**Замер после.** Чистый клон, свежий индекс:
+
+```
+dense-plan → document_count 3444, eligible 370, reusable 0          (3 444 − 3 074 = 370)
+```
+
+`hybrid_search` по MCP, top-10 — тот же способ, что «до»; «до» повторён на чистом клоне `454b451`
+и сошёлся с записью дословно:
+
+```
+                                   до              после
+add authentication to the API      7 из 10         0 из 10
+database migration rollback        1 из 10         0 из 10
+deploy to production               2 из 10         0 из 10
+react component testing            0 из 10         0 из 10
+code review checklist              0 из 10         0 из 10
+send a slack message from the app  6 из 10, slack #2   8 из 10, slack #2   (интеграция: коннекторы уместны)
+```
+
+Бенчмарк маршрутизации 40/40 до и после; `run_search_eval` на двух чистых worktree — 37 из 45,
+MRR 0.51, nDCG 0.589 до и после, провалы те же.
 
 ---
 
 ## Д-92. `bootstrap.sh --install-prerequisites`: в Ubuntu 24.04 нет пакета `docker-compose-plugin`
 
-**Статус:** открыт. Закроет фаза 2.
+**Статус:** **закрыт** фазой 2 программы (`fe4321a`). Замер до и после ниже. Ubuntu 24.04 проверена
+в контейнере; Debian, Fedora и Arch — **не проверено**: их зеркала закрыты прокси песочницы.
+Проверить на живых системах: `sh ./bootstrap.sh --install-prerequisites` без Docker.
 
 `bootstrap.sh:139` ставит `docker.io docker-compose-plugin` через apt, `:141` —
 `docker docker-compose-plugin` через dnf, `:143` — `docker docker-compose` через pacman. В
@@ -828,14 +941,30 @@ Fedora и Arch здесь не проверены. Зеркала Fedora зак�
 `mirrors.fedoraproject.org` → 403, проверено в контейнере `fedora:42` 2026-10-10. Arch не
 проверялся.
 
-**Как закроется.** Фаза 2: bootstrap ставит только движок Docker, с верными именами пакетов для
-apt, dnf и pacman.
+**Как закрыт.** Ставится только движок, из репозиториев дистрибутива: `docker.io` через apt,
+`moby-engine` через dnf (сборка движка в Fedora; системе на dnf без этого пакета говорится, откуда
+брать Docker), `docker` через pacman с `-Syu` — частичных обновлений Arch не поддерживает. root
+запускает менеджер пакетов сам: на минимальном Debian нет sudo, а root группа `docker` не нужна, и
+он сразу идёт к проверке движка. Пять тестов с записывающими менеджерами пакетов: на старом
+скрипте 0 из 5, на новом 5 из 5.
+
+**Замер после.** Контейнер `ubuntu:24.04`, `sh ./bootstrap.sh --install-prerequisites
+--skip-client-install`:
+
+```
+root            docker.io 29.1.3-0ubuntu3~24.04.2 установлен, compose-пакетов 0;
+                дальше «Docker is installed but its engine is not ready» — в контейнере нет init
+sudo-пользователь  тот же пакет через sudo, пользователь в группе docker,
+                «Docker was installed. Sign out and sign in…», exit 0
+без root и sudo  «Installing Docker needs root…», exit 69, ничего не ставилось
+```
 
 ---
 
 ## Д-93. `setup --frontend-qa` пишет ✓ без Chromium; на Windows npm без обёртки; без pnpm — мимо lockfile
 
-**Статус:** открыт. Закроет фаза 2.
+**Статус:** **закрыт** фазой 2 программы (`29d2d12`). Замер до и после ниже. Путь Windows —
+по коду и тестам: на Windows не исполнялся.
 
 Шаг `frontend_qa` (`scripts/first-run.mjs:147-152`) делает одно: `pnpm install` или `npm install`
 в `frontend-qa/`. Браузер он не ставит, поэтому ✓ означает «пакеты на месте», а не «QA может
@@ -859,15 +988,37 @@ pnpm на PATH:   ✓ Frontend QA dependencies (8.3s): pnpm install in frontend-
                 doctor → degraded, то же предупреждение
 ```
 
-**Как закроется.** Фаза 2: установка по pnpm-lock (закреплённая версия pnpm, frozen lockfile),
-затем `playwright install chromium`, на Windows — через адаптер process-runner; ✓ — только когда
-Chromium на месте.
+**Как закрыт.** `src/core/frontend-qa-install.mjs`: pnpm той версии, что закреплена в
+`packageManager` раннера, ставит ровно lockfile — `npm exec --package=pnpm@<версия> -- pnpm
+install --frozen-lockfile`, npm идёт через адаптер process-runner, свой pnpm на PATH не нужен;
+затем CLI самого Playwright ставит его сборку Chromium; шаг проходит, только если статус раннера,
+спрошенный ровно так, как его спрашивает проверка здоровья, говорит, что браузер запускается.
+Повторный запуск считает шаг выполненным, только если браузер на диске (у статуса раннера
+появился дешёвый вопрос `launch: false`). Подсказка раннера про отсутствующий браузер теперь
+ведёт на `npm run setup -- --frontend-qa`.
+
+**Замер после.** Свежий worktree, pnpm на PATH нет:
+
+```
+браузеров нет, CDN Playwright закрыт   pnpm 11.25.0 ставит lockfile, playwright install chromium падает,
+                                       ✗ Frontend QA dependencies, setup exit 1, doctor warn,
+                                       package-lock.json не появился
+PLAYWRIGHT_DOWNLOAD_HOST — локальное   Chrome for Testing 153.0.8010.12, headless shell и ffmpeg скачаны,
+зеркало                                ✓ «Playwright Chromium is ready from runner.», doctor ok
+повторный запуск                       · already built
+браузер удалён, пакеты на месте        шаг снова выполняется, а не пропускается
+NODE_PATH с чужим Playwright           ✗ в setup и warn в doctor — об одном и том же браузере
+```
+
+Зеркало собрано из публичного бакета Chrome for Testing (`storage.googleapis.com` в песочнице
+открыт) и ffmpeg 1011 из `/opt/pw-browsers` — то, что Playwright скачал бы сам.
 
 ---
 
 ## Д-94. Локальный установщик клиентов прописывает `AI_DEV_PYTHON=python3` и на Windows
 
-**Статус:** открыт. Закроет фаза 2.
+**Статус:** **закрыт** фазой 2 программы (`4942a8f`). Замер до и после ниже. На Windows — по коду
+и тестам с подменённой платформой; живая проверка — в чек-листе владельца.
 
 `scripts/install-local-mcp-clients.mjs:58` — `return existsSync(bundled) ? bundled : "python3"`,
 независимо от платформы. Сервер сам выбирает `python` на Windows (`src/mcp-stdio.mjs:1833-1848`, возврат — `:1848`;
@@ -886,8 +1037,20 @@ portablePaths({ platform: "win32", … }) → buildClientServerConfig("cursor").
 {"AI_DEV_PYTHON":"python3"}
 ```
 
-**Как закроется.** Фаза 2: один выбор интерпретатора для сервера и установщика, на Windows —
-`python`. Это временно: в фазе 4 Python уходит совсем.
+**Как закрыт.** `src/core/python-command.mjs` — единственное место выбора: `AI_DEV_PYTHON`, иначе
+интерпретатор встроенного рантайма, иначе `python` на Windows и `python3` на остальных. Его зовут
+сервер, установщик клиентов (с переданной платформой) и шаг legacy-venv в `npm run setup`. Это
+временно: в фазе 4 Python уходит совсем. Обходной путь `$env:AI_DEV_PYTHON = "python"` убран из
+README и INSTALL; тем, кто ставил клиентов на Windows прежней версией, INSTALL велит запустить
+`npm run clients:install` ещё раз.
+
+**Замер после.**
+
+```
+portablePaths({ platform: "win32", … }) → buildClientServerConfig("cursor").env  {"AI_DEV_PYTHON":"python"}
+portablePaths({ platform: "darwin", … })                                         {"AI_DEV_PYTHON":"python3"}
+portablePaths({ platform: "linux", … })                                          {"AI_DEV_PYTHON":"python3"}
+```
 
 ---
 
@@ -923,7 +1086,8 @@ docker, dry-run:  codex, cursor, gemini, vscode, claude-code, claude-desktop →
 
 ## Д-96. Конкурентная запись теряет данные: около 2/3 строк при трёх писателях
 
-**Статус:** открыт. Закроет фаза 2.
+**Статус:** **закрыт** фазой 2 программы (`a1d118d`). Замер до и после ниже. Полностью — фаза 8:
+один писатель.
 
 `atomicAppendFile` (`src/core/atomic-files.mjs:107`) дописывает так: читает весь файл, пишет
 `старое + новое` во временный и переименовывает поверх. Порядок держит очередь — но только
@@ -943,9 +1107,26 @@ atomicWriteJson, RMW:      202, 222, 222, 205, 217 событий из 600
 один процесс, 600 записей: 600 из 600
 ```
 
-**Как закроется.** Фаза 2: межпроцессно безопасная дозапись в обеих копиях — `atomic-files` и
-`hooks/lib.mjs`: JSONL одной записью `O_APPEND`, JSON-хранилища под блокировкой с разбором
-протухших, с учётом обрыва процесса посреди записи. Полностью — фаза 8, единственный писатель.
+**Как закрыт.** Межпроцессная блокировка `<файл>.lock` (`src/core/file-lock.mjs`, синхронная
+копия в `hooks/lib.mjs`, правило 3): запись `{pid, host, token, acquired_at}`, создание через
+`wx`; протухшей считается блокировка мёртвого процесса того же хоста, старше 30 с или пустая
+старше 2 с (писатель убит между созданием и записью); разлом — переименованием в сторону со
+сверкой токена, снимается только своя. Дозапись — одна запись `O_APPEND` под блокировкой
+(`atomicAppendFile`), для JSONL ещё и с отрезанием оборванного хвоста (`appendJsonLines`, хук
+`appendUsageEvents`). Хранилища instincts, skill-outcomes, pilots, задачи, журнал расходов и
+нумерация решений читают и пишут под `withExclusiveFile`.
+
+**Замер после.** Тот же стенд — три процесса по 200 записей в один файл, десять прогонов подряд:
+
+```
+atomicAppendFile:                600 ×10 из 600, битых строк 0, 1,5–1,8 с на прогон
+appendJsonLines (журнал):        600 ×10
+withExclusiveFile + atomicWriteJson, RMW:   600 ×10 событий, 2,7–3,0 с
+два писателя сервера + хук:      600 ×10
+kill -9 одного из трёх посреди прогона (через 100–410 мс), десять прогонов:
+  битых строк 0, файл кончается переводом строки, выжившие — по 200 из 200,
+  убитый успел 0–64; прогон 1,1–1,5 с — блокировку мёртвого никто не ждёт 30 с
+```
 
 ---
 
@@ -1457,6 +1638,35 @@ skills.index.json → 3228 записей
 
 **Как закроется.** Фаза 14: демо печатает длину `task.skills` и число skills из реестра; DEMO.md
 (EN и RU) — по новому выводу.
+
+---
+
+## Д-111. Dockerfile ставит pnpm@11.9.0, а раннер закрепляет pnpm@11.25.0
+
+**Статус:** открыт. Закроет фаза 13 программы. Нашёлся во второй фазе, при починке Д-93.
+
+`docker/Dockerfile:111` ставит `npm install --global pnpm@11.9.0` и запускает им
+`pnpm install --frozen-lockfile` в `frontend-qa/`, а `frontend-qa/package.json:6` закрепляет
+`"packageManager": "pnpm@11.25.0"` (с 2026-09-01, `426d5dd`; Dockerfile — с 2026-07-28).
+`npm run setup -- --frontend-qa` после Д-93 ставит той версией, что в `packageManager`.
+
+**Чем грозит.** В образе работает не та версия, что написана в Dockerfile: pnpm, увидев чужой
+`packageManager`, сам скачивает и запускает заявленную. Сборка образа лишний раз ходит в реестр
+за вторым pnpm, а читающий Dockerfile видит версию, которой в сборке нет. Ещё один случай
+«решение записано в двух местах и разошлось».
+
+**Замер до.**
+
+```
+cd frontend-qa && npx pnpm@11.9.0 --version   → 11.25.0   (packageManager перехватил)
+cd /tmp       && npx pnpm@11.9.0 --version   → 11.9.0
+```
+
+Сама сборка образа здесь не проверена: `deb.debian.org` закрыт прокси песочницы, а Dockerfile
+ставит пакеты через apt.
+
+**Как закроется.** Фаза 13: Dockerfile берёт версию pnpm из `packageManager` раннера (или ставит
+ровно её), тест сверяет обе.
 
 ---
 

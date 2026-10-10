@@ -7,8 +7,15 @@ import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { appendJsonLines, atomicAppendFile, atomicWriteFile, atomicWriteJson, truncateTornTail, withExclusiveFile } from "./atomic-files.mjs";
 
-test("atomic writes replace complete files", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-atomic-"));
+/** A temp directory removed when the test ends. */
+async function tempRoot(t, prefix) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  return root;
+}
+
+test("atomic writes replace complete files", async (t) => {
+  const root = await tempRoot(t, "ai-dev-atomic-");
   const file = path.join(root, "state.json");
   await atomicWriteJson(file, { version: 1 });
   await atomicWriteJson(file, { version: 2 });
@@ -17,8 +24,8 @@ test("atomic writes replace complete files", async () => {
   assert.deepEqual(leftovers, []);
 });
 
-test("queued appends do not lose concurrent updates", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-append-"));
+test("queued appends do not lose concurrent updates", async (t) => {
+  const root = await tempRoot(t, "ai-dev-append-");
   const file = path.join(root, "events.log");
   await atomicWriteFile(file, "");
   await Promise.all(Array.from({ length: 20 }, (_, index) => atomicAppendFile(file, `${index}\n`)));
@@ -79,8 +86,8 @@ async function readRecords(file) {
 
 const inOrder = (values) => values.every((value, index) => value === index);
 
-test("three processes appending 200 lines each keep all 600", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-multi-append-"));
+test("three processes appending 200 lines each keep all 600", async (t) => {
+  const root = await tempRoot(t, "ai-dev-multi-append-");
   const file = path.join(root, "usage", "events.jsonl");
   const writers = ["a", "b", "c"].map((name) => runWriter(serverWriter, [file, name, "200"]));
   const results = await Promise.all(writers.map((writer) => writer.done));
@@ -94,8 +101,8 @@ test("three processes appending 200 lines each keep all 600", async () => {
   await assert.rejects(fs.stat(`${file}.lock`), { code: "ENOENT" }, "no lock is left behind");
 });
 
-test("a hook and two servers appending to one ledger keep every line", async () => {
-  const stateRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-hook-append-"));
+test("a hook and two servers appending to one ledger keep every line", async (t) => {
+  const stateRoot = await tempRoot(t, "ai-dev-hook-append-");
   const file = path.join(stateRoot, "usage", "events.jsonl");
   const writers = [
     runWriter(serverWriter, [file, "server-1", "150"]),
@@ -109,12 +116,16 @@ test("a hook and two servers appending to one ledger keep every line", async () 
   assert.deepEqual(Object.fromEntries(Object.entries(byWriter).map(([name, values]) => [name, values.length])), { hook: 150, "server-1": 150, "server-2": 150 });
 });
 
-test("a writer killed mid-stream leaves no broken line and does not block the others", async (t) => {
+// What this shows is the dead-pid rule under load: a writer killed at any point,
+// lock held or not, never holds the others up. A torn line cannot come from it —
+// each record is one write(2), which a signal does not split — so the torn-tail
+// repair a crash between writes needs is tested on its own below.
+test("a writer killed while the others append does not hold them up, and what it wrote is whole", async (t) => {
   if (process.platform === "win32") {
     t.skip("SIGKILL timing is POSIX-specific; the lock's dead-pid rule is covered by file-lock.test.mjs");
     return;
   }
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-kill-append-"));
+  const root = await tempRoot(t, "ai-dev-kill-append-");
   const file = path.join(root, "events.jsonl");
   const survivors = [runWriter(serverWriter, [file, "a", "300"]), runWriter(serverWriter, [file, "b", "300"])];
   const victim = runWriter(serverWriter, [file, "victim", "100000"]);
@@ -131,8 +142,8 @@ test("a writer killed mid-stream leaves no broken line and does not block the ot
   assert.ok(inOrder(byWriter.victim ?? []), "what the killed writer finished is intact and in order");
 });
 
-test("read-modify-write from three processes loses no update", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-multi-rmw-"));
+test("read-modify-write from three processes loses no update", async (t) => {
+  const root = await tempRoot(t, "ai-dev-multi-rmw-");
   const file = path.join(root, "store.json");
   const updater = `
 const [target, writer, count] = process.argv.slice(1);
@@ -155,8 +166,30 @@ for (let i = 0; i < Number(count); i += 1) {
   assert.equal(new Set(store.events).size, 300);
 });
 
-test("a torn last record is cut off before the next append, and only in JSONL", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-torn-"));
+test("a rewrite under the lock and an append queued meanwhile do not wait on each other", async (t) => {
+  // Queue first, lock second deadlocked: the append held the queue waiting for
+  // the lock, the rewrite held the lock waiting for the queue, and the append
+  // failed after the lock timeout with its line lost.
+  const root = await tempRoot(t, "ai-dev-rotate-");
+  const ledger = path.join(root, "events.jsonl");
+  await fs.writeFile(ledger, Array.from({ length: 30 }, (_, i) => JSON.stringify({ i })).join("\n") + "\n", "utf8");
+  const started = Date.now();
+  const rotation = withExclusiveFile(ledger, async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const kept = (await fs.readFile(ledger, "utf8")).split("\n").filter(Boolean).slice(-10);
+    await atomicWriteFile(ledger, `${kept.join("\n")}\n`);
+  });
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const append = appendJsonLines(ledger, `${JSON.stringify({ late: true })}\n`);
+  await Promise.all([rotation, append]);
+  assert.ok(Date.now() - started < 5_000, `took ${Date.now() - started} ms`);
+  const lines = (await fs.readFile(ledger, "utf8")).split("\n").filter(Boolean);
+  assert.equal(lines.length, 11, "ten kept, and the late line after them");
+  assert.deepEqual(JSON.parse(lines.at(-1)), { late: true });
+});
+
+test("a torn last record is cut off before the next append, and only in JSONL", async (t) => {
+  const root = await tempRoot(t, "ai-dev-torn-");
   const ledger = path.join(root, "events.jsonl");
   await fs.writeFile(ledger, '{"ok":1}\n{"half":', "utf8");
   await appendJsonLines(ledger, '{"ok":2}\n');
@@ -175,8 +208,8 @@ test("a torn last record is cut off before the next append, and only in JSONL", 
   await assert.rejects(appendJsonLines(ledger, '{"no":"newline"}'), /complete records/);
 });
 
-test("the hooks cut a torn record the same way", async () => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-hook-torn-"));
+test("the hooks cut a torn record the same way", async (t) => {
+  const root = await tempRoot(t, "ai-dev-hook-torn-");
   const ledger = path.join(root, "events.jsonl");
   await fs.writeFile(ledger, `{"ok":1}\n${"x".repeat(70 * 1024)}`, "utf8");
   const { truncateTornTailSync } = await import(hookLibUrl);

@@ -347,9 +347,6 @@ def source_fingerprint(docs):
     return digest.hexdigest()
 
 
-MEMBRANE_SOURCES = ("membrane/application-skills", "external/membrane")
-
-
 def is_membrane_source(source):
     """Whether a document's source is the Membrane catalogue, in either layout.
 
@@ -357,10 +354,10 @@ def is_membrane_source(source):
     `membrane/application-skills`, the bundled seed under `external/membrane`,
     and a path test written for the first never matched the second, so 3 074
     connectors were embedded and ranked like any other skill
-    (docs/DEFECTS.md, Д-91). The same rule as `isMembraneSkill` on the server.
+    (docs/DEFECTS.md, Д-91). Exactly the rule of `isMembraneSkill` on the
+    server, which decides the same question for the skill registry.
     """
-    value = str(source or "").strip().lower()
-    return value in MEMBRANE_SOURCES or value == "membrane" or value.startswith("membrane/")
+    return "membrane" in str(source or "").lower()
 
 
 def doc_is_membrane_skill(doc):

@@ -90,6 +90,7 @@ import {
 import { loadImportGraph, renderImportGraphMarkdown } from "./core/import-graph.mjs";
 import { configureRuntimeStateRoot, resolveProjectIdentity } from "./core/project-identity.mjs";
 import { resolvePythonCommand } from "./core/python-command.mjs";
+import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
 import { resolveRuntimeAssets } from "./core/runtime-assets.mjs";
 import { resolveRuntimeStateRoot, resolveUserHome } from "./core/runtime-home.mjs";
 import {
@@ -220,6 +221,8 @@ const vaultRoot = resolveVaultRoot();
 // artifacts). Agent-neutral: defaults to ~/.ai-dev, overridable per directory
 // with the AI_DEV_* env vars, and falls back to a pre-existing ~/.codex/<...>
 // layout so installs migrated from the Codex-only runtime keep their history.
+// What 2.x left in AI_DEV_HOME/.ai-dev moves before any path here is chosen (Д-90).
+await prepareRuntimeHome();
 const userHome = resolveUserHome(vaultRoot);
 const runtimeStateRoot = configureRuntimeStateRoot(resolveRuntimeStateRoot(vaultRoot));
 function aiDevRuntimePath(envVar, segments, legacySegments = segments) {
@@ -375,7 +378,8 @@ const searchRuntime = createSearchIndexRuntime({
   searchIndexDir,
   searchIndexPath,
   defaultModelDir: defaultBgeM3ModelDir,
-  pythonCommand: () => pythonCommand(),
+  // The client installer writes the same answer into every client's config (Д-94).
+  pythonCommand: () => resolvePythonCommand(),
   embeddingPythonCommand: () => embeddingPythonCommand(),
   pathExists: (target) => pathExists(target),
   execFile: (command, args, options) => execFile(command, args, options),
@@ -1833,11 +1837,6 @@ function truncateOutput(value, max = 6000) {
   return `${text.slice(0, max)}\n...[truncated ${text.length - max} chars]`;
 }
 
-// The client installer writes the same answer into every client's config
-// (docs/DEFECTS.md, Д-72, Д-94).
-function pythonCommand() {
-  return resolvePythonCommand();
-}
 
 function embeddingPythonCommand() {
   if (process.env.BGE_M3_PYTHON) return process.env.BGE_M3_PYTHON;
@@ -1857,7 +1856,7 @@ async function runUiUxProMax(args, { json = false } = {}) {
     allowRoot: false
   });
   const output = await execFile(
-    pythonCommand(),
+    resolvePythonCommand(),
     [scriptPath, ...args],
     { cwd: uiUxProMaxRoot, timeoutMs: 120000 }
   );

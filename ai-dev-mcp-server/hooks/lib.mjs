@@ -331,13 +331,22 @@ export function runtimeStateRoot() {
   return explicitRuntimeHome() || path.join(home, ".ai-dev");
 }
 
+/** Same as the server's `sameDirectory`: through symlinks, and case-blind on Windows and macOS. */
+export function sameDirectory(left, right, { platform = process.platform, realpath = realpathOf } = {}) {
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  const canonical = (value) => {
+    const resolved = paths.resolve(realpath(paths.resolve(value)));
+    return platform === "win32" || platform === "darwin" ? resolved.toLowerCase() : resolved;
+  };
+  return canonical(left) === canonical(right);
+}
+
 /** Same as the server's `explicitRuntimeHome`: `AI_DEV_HOME`, unless it names the home itself. */
-export function explicitRuntimeHome() {
+export function explicitRuntimeHome(options = {}) {
   const raw = String(process.env.AI_DEV_HOME ?? "").trim();
   if (!raw) return "";
-  const resolved = path.resolve(raw);
-  const homes = [process.env.USERPROFILE, process.env.HOME, os.homedir()].filter(Boolean).map((home) => path.resolve(home));
-  return homes.includes(resolved) ? "" : resolved;
+  const homes = [process.env.USERPROFILE, process.env.HOME, os.homedir()].filter(Boolean);
+  return homes.some((home) => sameDirectory(home, raw, options)) ? "" : path.resolve(raw);
 }
 
 /** Same sanitisation as the server's SessionStore.directoryFor. */
@@ -729,16 +738,19 @@ export function usageLedgerPath() {
  * server's (AGENTS.md, rule 3): the lock is `<target>.lock`, created exclusively
  * and holding `{ pid, host, token, acquired_at }`; it is stale when its process
  * is gone (same host), when it is older than LOCK_STALE_MS, or when it has no
- * readable holder for EMPTY_LOCK_GRACE_MS; a stale lock is broken by renaming it
- * aside and checking that what was renamed is the one judged stale; release
- * deletes the lock only if it still carries this holder's token.
+ * readable holder for EMPTY_LOCK_GRACE_MS; a stale lock is broken under
+ * `<target>.lock.break`, and only if it is still the file judged stale (same
+ * identity, same holder); release deletes the lock only if it still carries this
+ * holder's token.
  */
 export const LOCK_SUFFIX = ".lock";
 export const LOCK_STALE_MS = 30_000;
 export const EMPTY_LOCK_GRACE_MS = 2_000;
+export const BREAK_LOCK_STALE_MS = 5_000;
 /** A hook must not hold the agent up for long; giving up costs one ledger line. */
 export const HOOK_LOCK_TIMEOUT_MS = 5_000;
 const LOCK_MAX_BACKOFF_MS = 50;
+const LOCK_TRANSIENT_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
 
 export function lockPathFor(filePath) {
   return `${path.resolve(filePath)}${LOCK_SUFFIX}`;
@@ -755,6 +767,7 @@ export function processAlive(pid) {
 }
 
 export function lockIsLive(observed, { now = Date.now(), staleMs = LOCK_STALE_MS, emptyGraceMs = EMPTY_LOCK_GRACE_MS, host = os.hostname(), alive = processAlive } = {}) {
+  if (observed?.unreadable) return true;
   const holder = observed?.holder;
   if (!holder || typeof holder !== "object") {
     return now - Number(observed?.mtimeMs || 0) < emptyGraceMs;
@@ -764,42 +777,79 @@ export function lockIsLive(observed, { now = Date.now(), staleMs = LOCK_STALE_MS
   return alive(Number(holder.pid));
 }
 
-function readLockHolder(lockPath) {
-  let text;
-  let stat;
+export function readLockSync(lockPath) {
+  let fd;
   try {
-    stat = fs.statSync(lockPath);
-    text = fs.readFileSync(lockPath, "utf8");
+    fd = fs.openSync(lockPath, "r");
   } catch (error) {
     if (error?.code === "ENOENT") return null;
+    if (LOCK_TRANSIENT_CODES.has(error?.code)) return { holder: null, mtimeMs: Date.now(), id: "", unreadable: true };
     throw error;
   }
-  let holder = null;
   try {
-    holder = JSON.parse(text);
-  } catch {
-    holder = null;
+    const stat = fs.fstatSync(fd, { bigint: true });
+    const text = fs.readFileSync(fd, "utf8");
+    let holder = null;
+    try {
+      holder = JSON.parse(text);
+    } catch {
+      holder = null;
+    }
+    return { holder, mtimeMs: Number(stat.mtimeMs), id: `${stat.dev}:${stat.ino}` };
+  } finally {
+    fs.closeSync(fd);
   }
-  return { holder, mtimeMs: stat.mtimeMs };
 }
 
-function breakStaleLock(lockPath, observed) {
-  const aside = `${lockPath}.stale-${process.pid}-${crypto.randomUUID()}`;
+export function sameLock(left, right) {
+  if (!left || !right || !left.id || left.id !== right.id) return false;
+  const leftToken = left.holder?.token ?? null;
+  if (leftToken !== (right.holder?.token ?? null)) return false;
+  return leftToken !== null || left.mtimeMs === right.mtimeMs;
+}
+
+export function breakStaleLockSync(lockPath, observed, { staleMs = LOCK_STALE_MS } = {}) {
+  const breaker = `${lockPath}.break`;
   try {
-    fs.renameSync(lockPath, aside);
+    fs.closeSync(fs.openSync(breaker, "wx", 0o600));
   } catch (error) {
-    if (error?.code === "ENOENT") return;
+    if (error?.code === "EEXIST") {
+      try {
+        if (Date.now() - fs.statSync(breaker).mtimeMs >= BREAK_LOCK_STALE_MS) fs.rmSync(breaker, { force: true });
+      } catch {
+        // The other breaker finished meanwhile.
+      }
+      return false;
+    }
+    if (error?.code === "ENOENT" || LOCK_TRANSIENT_CODES.has(error?.code)) return false;
     throw error;
   }
-  const taken = readLockHolder(aside);
-  if ((taken?.holder?.token ?? null) !== (observed?.holder?.token ?? null)) {
+  try {
+    const current = readLockSync(lockPath);
+    if (!sameLock(current, observed) || lockIsLive(current, { staleMs })) return false;
+    fs.rmSync(lockPath, { force: true });
+    return true;
+  } finally {
     try {
-      fs.linkSync(aside, lockPath);
+      fs.rmSync(breaker, { force: true });
     } catch {
-      // Another writer took a fresh lock meanwhile; theirs stands.
+      // Left behind, it is cleared as stale by the next breaker.
     }
   }
-  fs.rmSync(aside, { force: true });
+}
+
+function releaseLockSync(lockPath, token) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const current = readLockSync(lockPath);
+      if (current?.unreadable) throw Object.assign(new Error("lock busy"), { code: "EBUSY" });
+      if (current?.holder?.token === token) fs.rmSync(lockPath, { force: true });
+      return;
+    } catch (error) {
+      if (!LOCK_TRANSIENT_CODES.has(error?.code)) throw error;
+      sleepSync(10 * (attempt + 1));
+    }
+  }
 }
 
 function sleepSync(ms) {
@@ -819,26 +869,17 @@ export function acquireFileLockSync(filePath, { timeoutMs = HOOK_LOCK_TIMEOUT_MS
       } finally {
         fs.closeSync(fd);
       }
-      return () => {
-        let current = null;
-        try {
-          current = readLockHolder(lockPath);
-        } catch {
-          current = null;
-        }
-        if (current?.holder?.token === token) fs.rmSync(lockPath, { force: true });
-      };
+      return () => releaseLockSync(lockPath, token);
     } catch (error) {
       if (error?.code === "ENOENT") {
         fs.mkdirSync(path.dirname(lockPath), { recursive: true });
         continue;
       }
-      if (error?.code !== "EEXIST" && !(process.platform === "win32" && error?.code === "EPERM")) throw error;
+      if (error?.code !== "EEXIST" && !(process.platform === "win32" && LOCK_TRANSIENT_CODES.has(error?.code))) throw error;
     }
-    const observed = readLockHolder(lockPath);
+    const observed = readLockSync(lockPath);
     if (observed && !lockIsLive(observed, { staleMs })) {
-      breakStaleLock(lockPath, observed);
-      continue;
+      if (breakStaleLockSync(lockPath, observed, { staleMs })) continue;
     }
     if (Date.now() >= deadline) {
       const owner = observed?.holder?.pid ? ` (held by pid ${observed.holder.pid})` : "";

@@ -39,3 +39,10 @@ test("packages without the browser do not count as installed", () => {
   assert.equal(frontendQaInstalled({ dependencies: true, status: null }), false);
   assert.equal(frontendQaInstalled({ dependencies: false, status: { chromium_available: true } }), false);
 });
+
+test("asked for by name, installed means a browser that launches", () => {
+  const onDiskOnly = { chromium_available: true, browser_launch_ok: false };
+  assert.equal(frontendQaInstalled({ dependencies: true, status: onDiskOnly }), true, "unasked, the cheap check");
+  assert.equal(frontendQaInstalled({ dependencies: true, status: onDiskOnly, requireLaunch: true }), false, "a browser that does not start is reinstalled and checked again");
+  assert.equal(frontendQaInstalled({ dependencies: true, status: { chromium_available: true, browser_launch_ok: true }, requireLaunch: true }), true);
+});

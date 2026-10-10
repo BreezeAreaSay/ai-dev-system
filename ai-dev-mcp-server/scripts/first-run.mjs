@@ -115,19 +115,33 @@ function frontendQaStatus({ launch = true } = {}) {
     });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    let settled = false;
+    const settle = (status) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(status);
+    };
     const failed = (output) => {
       const failure = classifyFrontendQaLaunchFailure(output);
-      resolve({ playwright_available: false, chromium_available: false, browser_launch_ok: false, launch_failure: failure.kind, launch_error: failure.summary });
+      settle({ playwright_available: false, chromium_available: false, browser_launch_ok: false, launch_failure: failure.kind, launch_error: failure.summary });
     };
+    // As long as the server allows the same question (`runFrontendQaStatus`).
+    const timer = setTimeout(() => {
+      child.kill();
+      failed("The Frontend QA runner did not answer within 60 s.");
+    }, 60_000);
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.stdin.on("error", () => undefined); // a runner that died early closed it; its exit says why
     child.on("error", (error) => failed(String(error?.message ?? error)));
-    child.on("exit", (code) => {
+    // `close`, not `exit`: only then is everything the runner printed read.
+    child.on("close", (code) => {
       if (code !== 0) return failed(stderr || `exit code ${code}`);
       try {
-        resolve(JSON.parse(stdout));
+        settle(JSON.parse(stdout));
       } catch {
-        resolve({ playwright_available: false, chromium_available: false, browser_launch_ok: false, launch_failure: LAUNCH_UNKNOWN, launch_error: "The Frontend QA runner answered with something other than JSON." });
+        settle({ playwright_available: false, chromium_available: false, browser_launch_ok: false, launch_failure: LAUNCH_UNKNOWN, launch_error: "The Frontend QA runner answered with something other than JSON." });
       }
     });
     child.stdin.end(JSON.stringify({ action: "status", project_path: vaultRoot, launch }));
@@ -183,9 +197,12 @@ const present = {
   ...requiredPresent,
   // Installed means the browser too: with only the packages a rerun skipped
   // the step as built while QA still could not start (docs/DEFECTS.md, Д-93).
+  // Asked for by name, it means a browser that launches — one on disk that
+  // does not start failed the step once and then counted as built.
   frontend_qa: frontendQaInstalled({
     dependencies: qaDependencies,
-    status: qaDependencies ? await frontendQaStatus({ launch: false }) : null
+    status: qaDependencies ? await frontendQaStatus({ launch: Boolean(options.want.frontend_qa) }) : null,
+    requireLaunch: Boolean(options.want.frontend_qa)
   }),
   dense_model: useLegacyDense
     ? existsSync(path.join(modelDir, "pytorch_model.bin"))

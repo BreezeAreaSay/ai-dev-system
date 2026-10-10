@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   describeRuntimeHome,
+  mergeLedgers,
   migrateDoubledRuntimeHome,
   migrationRecordPath,
   prepareRuntimeHome,
@@ -43,9 +45,9 @@ test("a 2.x tree under AI_DEV_HOME/.ai-dev moves up without losing a file (Д-90
   // Same file on both sides, identical: the old copy goes.
   await write(path.join(legacy, "state", "instincts.json"), '{"instincts":[]}\n');
   await write(path.join(aiDevHome, "state", "instincts.json"), '{"instincts":[]}\n');
-  // A ledger both trees grew: appended, nothing dropped.
-  await write(path.join(legacy, "state", "usage", "events.jsonl"), '{"at":"old-1"}\n{"at":"old-2"}\n');
-  await write(path.join(aiDevHome, "state", "usage", "events.jsonl"), '{"at":"new-1"}\n');
+  // A ledger both trees grew: merged in time order, nothing dropped.
+  await write(path.join(legacy, "state", "usage", "events.jsonl"), '{"at":"2026-09-01T00:00:00Z"}\n{"at":"2026-10-01T00:00:00Z"}\n');
+  await write(path.join(aiDevHome, "state", "usage", "events.jsonl"), '{"at":"2026-09-15T00:00:00Z"}\n');
   // Different content on both sides: left where it is, and named.
   await write(path.join(legacy, "state", "skill-outcomes.json"), '{"outcomes":[1]}\n');
   await write(path.join(aiDevHome, "state", "skill-outcomes.json"), '{"outcomes":[2]}\n');
@@ -59,7 +61,11 @@ test("a 2.x tree under AI_DEV_HOME/.ai-dev moves up without losing a file (Д-90
 
   assert.equal(await fs.readFile(path.join(aiDevHome, "state", "tasks", "task-1.json"), "utf8"), '{"id":"task-1"}\n');
   assert.equal(await fs.readFile(path.join(aiDevHome, "cache", "search-index", "ai-dev-search.sqlite"), "utf8"), "sqlite bytes");
-  assert.equal(await fs.readFile(path.join(aiDevHome, "state", "usage", "events.jsonl"), "utf8"), '{"at":"new-1"}\n{"at":"old-1"}\n{"at":"old-2"}\n');
+  assert.equal(
+    await fs.readFile(path.join(aiDevHome, "state", "usage", "events.jsonl"), "utf8"),
+    '{"at":"2026-09-01T00:00:00Z"}\n{"at":"2026-09-15T00:00:00Z"}\n{"at":"2026-10-01T00:00:00Z"}\n',
+    "time order, so pruning the oldest lines prunes the oldest records"
+  );
   assert.equal(await fs.readFile(path.join(aiDevHome, "state", "skill-outcomes.json"), "utf8"), '{"outcomes":[2]}\n', "the current copy is not overwritten");
   assert.equal(await fs.readFile(path.join(legacy, "state", "skill-outcomes.json"), "utf8"), '{"outcomes":[1]}\n', "the old copy is kept");
   await assert.rejects(fs.stat(path.join(legacy, "state", "tasks")), { code: "ENOENT" }, "emptied directories are removed");
@@ -111,4 +117,98 @@ test("the entry points migrate once per process and say what they moved", async 
   assert.equal(lines.length, 1);
   assert.match(lines[0], /moved 1 file\(s\) from .* \(AI_DEV_HOME is the runtime folder itself now\)/);
   assert.ok(await fs.stat(path.join(aiDevHome, "state", "tasks", "task-9.json")));
+});
+
+test("two processes starting at once migrate once: nothing merged twice, nothing aborted", async (t) => {
+  const { aiDevHome, legacy, env } = await fixture(t);
+  const ledger = Array.from({ length: 5_000 }, (_, i) => JSON.stringify({ at: "2026-09-01T00:00:00Z", i })).join("\n");
+  await write(path.join(legacy, "state", "usage", "events.jsonl"), `${ledger}\n`);
+  await write(path.join(aiDevHome, "state", "usage", "events.jsonl"), '{"at":"2026-10-01T00:00:00Z"}\n');
+  for (let i = 0; i < 20; i += 1) await write(path.join(legacy, "state", "tasks", `task-${i}.json`), `{"i":${i}}\n`);
+  const moduleUrl = new URL("./runtime-home-migration.mjs", import.meta.url).href;
+  const source = `const { migrateDoubledRuntimeHome } = await import(${JSON.stringify(moduleUrl)});
+const result = await migrateDoubledRuntimeHome({ env: JSON.parse(process.argv[1]) });
+process.stdout.write(JSON.stringify(result));`;
+  const run = () => new Promise((resolve) => {
+    const child = spawn(process.execPath, ["--input-type=module", "-e", source, "--", JSON.stringify(env)], { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    child.stdout.on("data", (chunk) => { out += chunk; });
+    child.stderr.on("data", (chunk) => { err += chunk; });
+    child.on("close", (code) => resolve({ code, out, err }));
+  });
+  const results = await Promise.all([run(), run()]);
+  for (const result of results) assert.equal(result.code, 0, result.err);
+  const parsed = results.map((result) => JSON.parse(result.out));
+  assert.deepEqual(parsed.map((result) => result.errors?.length ?? 0), [0, 0]);
+  assert.equal(parsed.reduce((sum, result) => sum + result.moved, 0), 20, "every task moved exactly once");
+  assert.equal(parsed.reduce((sum, result) => sum + result.merged, 0), 1, "the ledger merged exactly once");
+  const lines = (await fs.readFile(path.join(aiDevHome, "state", "usage", "events.jsonl"), "utf8")).split("\n").filter(Boolean);
+  assert.equal(lines.length, 5_001);
+  await assert.rejects(fs.stat(legacy), { code: "ENOENT" });
+});
+
+test("a link in the old tree moves as a link, and doctor does not call a skipped one clean", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("creating a symlink needs a privilege Windows does not give by default");
+    return;
+  }
+  const { root, aiDevHome, legacy, env } = await fixture(t);
+  const elsewhere = path.join(root, "other-disk", "models");
+  await write(path.join(elsewhere, "bge-m3-onnx", "model.onnx"), "weights");
+  await fs.symlink(elsewhere, path.join(legacy, "models"));
+  const result = await migrateDoubledRuntimeHome({ env });
+  assert.equal(result.moved, 1);
+  assert.equal(await fs.readlink(path.join(aiDevHome, "models")), elsewhere);
+  assert.equal(await fs.readFile(path.join(aiDevHome, "models", "bge-m3-onnx", "model.onnx"), "utf8"), "weights");
+
+  // A link that cannot move — the destination is taken — is listed, not skipped.
+  await fs.mkdir(legacy, { recursive: true });
+  await fs.symlink(elsewhere, path.join(legacy, "models"));
+  await migrateDoubledRuntimeHome({ env });
+  const info = await describeRuntimeHome({ env });
+  assert.deepEqual(info.legacy_files, ["models"]);
+  assert.equal(evaluateRuntimeHome(info).status, "warn");
+});
+
+test("an entry that cannot move is reported, and the rest of the tree moves anyway", async (t) => {
+  const { aiDevHome, legacy, env } = await fixture(t);
+  await write(path.join(legacy, "state", "tasks", "task-1.json"), "{}\n");
+  await write(path.join(legacy, "state", "blocked", "inside.json"), "{}\n");
+  await write(path.join(aiDevHome, "state", "blocked"), "a file where 2.x had a directory\n");
+  await write(path.join(legacy, "state", "zz-last.json"), "{}\n");
+  const result = await migrateDoubledRuntimeHome({ env });
+  assert.equal(result.errors.length, 1, JSON.stringify(result.errors));
+  assert.equal(result.errors[0].path, path.join("state", "blocked"));
+  assert.ok(await fs.stat(path.join(aiDevHome, "state", "tasks", "task-1.json")));
+  assert.ok(await fs.stat(path.join(aiDevHome, "state", "zz-last.json")), "entries after the failed one still move");
+  const health = evaluateRuntimeHome(await describeRuntimeHome({ env }));
+  assert.equal(health.status, "warn");
+  assert.match(health.summary, /could not be moved/);
+});
+
+test("large files are compared in chunks: equal ones are deduplicated, a last-byte difference is a conflict", async (t) => {
+  const { aiDevHome, legacy, env } = await fixture(t);
+  const big = Buffer.alloc(3 * 1024 * 1024 + 17, 7);
+  const differentAtTheEnd = Buffer.from(big);
+  differentAtTheEnd[differentAtTheEnd.length - 1] = 8;
+  for (const [name, mine, theirs] of [["same.bin", big, big], ["differs.bin", big, differentAtTheEnd], ["shorter.bin", big, big.subarray(1)]]) {
+    await fs.mkdir(path.join(legacy, "models"), { recursive: true });
+    await fs.mkdir(path.join(aiDevHome, "models"), { recursive: true });
+    await fs.writeFile(path.join(legacy, "models", name), mine);
+    await fs.writeFile(path.join(aiDevHome, "models", name), theirs);
+  }
+  const result = await migrateDoubledRuntimeHome({ env });
+  assert.equal(result.duplicates, 1);
+  assert.deepEqual(result.conflicts.sort(), [path.join("models", "differs.bin"), path.join("models", "shorter.bin")]);
+});
+
+test("ledgers merge in time order; untimed records keep the old ledger first; a torn tail is dropped", () => {
+  const at = (day) => JSON.stringify({ at: `2026-09-${day}T00:00:00Z` });
+  assert.equal(mergeLedgers(`${at("01")}\n${at("20")}\n`, `${at("10")}\n${at("30")}\n`), `${at("01")}\n${at("10")}\n${at("20")}\n${at("30")}\n`);
+  assert.equal(mergeLedgers('{"n":1}\n', '{"n":2}\n'), '{"n":1}\n{"n":2}\n');
+  assert.equal(mergeLedgers('{"n":1}\n{"half":', '{"n":2}\n'), '{"n":1}\n{"n":2}\n', "a record cut off by a killed writer");
+  assert.equal(mergeLedgers('{"n":1}', ""), '{"n":1}\n', "a complete last record without its newline is kept");
+  assert.equal(mergeLedgers('{"at":"old-1"}\n', `${at("01")}\n`), `{"at":"old-1"}\n${at("01")}\n`, "only ISO times are times");
+  assert.equal(mergeLedgers("", ""), "");
 });

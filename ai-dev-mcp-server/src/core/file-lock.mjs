@@ -23,9 +23,10 @@ import path from "node:path";
  *   only ever fires for an abandoned one, including one whose pid was reused;
  * - a lock with no readable holder — its writer was killed between creating it
  *   and filling it in — is stale after {@link EMPTY_LOCK_GRACE_MS};
- * - a stale lock is broken by renaming it aside and checking that what was
- *   renamed is the holder that was judged stale, so two processes breaking the
- *   same abandoned lock cannot delete each other's fresh one;
+ * - a stale lock is broken under a second, short-lived lock, `<target>.lock.break`,
+ *   and only if it is still the very file judged stale — same file identity,
+ *   same holder — so two processes breaking one abandoned lock cannot remove each
+ *   other's fresh one, and nothing is ever renamed away and put back;
  * - release deletes the lock only if it still carries this holder's token.
  */
 
@@ -43,8 +44,21 @@ export const LOCK_STALE_MS = 30_000;
  */
 export const EMPTY_LOCK_GRACE_MS = 2_000;
 
-/** How long a writer waits for a live holder before giving up. */
-export const LOCK_TIMEOUT_MS = 15_000;
+/**
+ * How long a writer waits for a live holder before giving up — longer than a
+ * lock takes to go stale, so a lock abandoned by a process whose pid was reused
+ * (quick on Windows) delays a write rather than failing it.
+ */
+export const LOCK_TIMEOUT_MS = 45_000;
+
+/** A breaker holds `<lock>.break` for milliseconds; one this old was abandoned mid-break. */
+export const BREAK_LOCK_STALE_MS = 5_000;
+
+/**
+ * Errors Windows answers for a file another process is creating, deleting or
+ * holding open: the lock is in use, not broken.
+ */
+const TRANSIENT_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
 
 const MAX_BACKOFF_MS = 50;
 
@@ -87,6 +101,7 @@ export function processAlive(pid) {
  * @returns {boolean}
  */
 export function lockIsLive(observed, { now = Date.now(), staleMs = LOCK_STALE_MS, emptyGraceMs = EMPTY_LOCK_GRACE_MS, host = os.hostname(), alive = processAlive } = {}) {
+  if (observed?.unreadable) return true;
   const holder = observed?.holder;
   if (!holder || typeof holder !== "object") {
     return now - Number(observed?.mtimeMs || 0) < emptyGraceMs;
@@ -96,46 +111,80 @@ export function lockIsLive(observed, { now = Date.now(), staleMs = LOCK_STALE_MS
   return alive(Number(holder.pid));
 }
 
-async function readHolder(lockPath) {
-  let text;
-  let stat;
+/**
+ * What the lock file says and which file it is, read through one descriptor so
+ * the identity and the holder belong to the same file.
+ *
+ * @param {string} lockPath
+ * @returns {Promise<{ holder: object|null, mtimeMs: number, id: string, unreadable?: boolean } | null>} null when there is no lock
+ */
+export async function readLock(lockPath) {
+  let handle;
   try {
-    stat = await fs.stat(lockPath);
-    text = await fs.readFile(lockPath, "utf8");
+    handle = await fs.open(lockPath, "r");
   } catch (error) {
     if (error?.code === "ENOENT") return null;
+    if (TRANSIENT_CODES.has(error?.code)) return { holder: null, mtimeMs: Date.now(), id: "", unreadable: true };
     throw error;
   }
-  let holder = null;
   try {
-    holder = JSON.parse(text);
-  } catch {
-    holder = null;
+    const stat = await handle.stat({ bigint: true });
+    const text = await handle.readFile("utf8");
+    let holder = null;
+    try {
+      holder = JSON.parse(text);
+    } catch {
+      holder = null;
+    }
+    return { holder, mtimeMs: Number(stat.mtimeMs), id: `${stat.dev}:${stat.ino}` };
+  } finally {
+    await handle.close();
   }
-  return { holder, mtimeMs: stat.mtimeMs };
+}
+
+/** The same lock file holding the same holder: identity, token, and for an empty holder its mtime. */
+export function sameLock(left, right) {
+  if (!left || !right || !left.id || left.id !== right.id) return false;
+  const leftToken = left.holder?.token ?? null;
+  if (leftToken !== (right.holder?.token ?? null)) return false;
+  return leftToken !== null || left.mtimeMs === right.mtimeMs;
 }
 
 /**
  * Remove an abandoned lock without ever removing a fresh one.
  *
- * The lock is renamed to a name only this process uses; if what was renamed is
- * not the holder judged stale (another writer broke it and took a new lock in
- * between), it is linked back so that writer keeps its lock.
+ * Breakers take `<lock>.break` first, so only one at a time decides. Under it
+ * the lock is read again and removed only if it is still the file judged stale
+ * and still stale; a lock that was released and taken again in between is a
+ * different file and stays. A breaker killed mid-break leaves `<lock>.break`
+ * behind, and the next breaker clears it after {@link BREAK_LOCK_STALE_MS}.
+ *
+ * @param {string} lockPath
+ * @param {{ holder: object|null, mtimeMs: number, id: string }} observed - the lock as judged stale
+ * @param {{ staleMs?: number }} [options]
+ * @returns {Promise<boolean>} whether the lock was removed
  */
-async function breakStaleLock(lockPath, observed) {
-  const aside = `${lockPath}.stale-${process.pid}-${crypto.randomUUID()}`;
+export async function breakStaleLock(lockPath, observed, { staleMs = LOCK_STALE_MS } = {}) {
+  const breaker = `${lockPath}.break`;
   try {
-    await fs.rename(lockPath, aside);
+    await (await fs.open(breaker, "wx", 0o600)).close();
   } catch (error) {
-    if (error?.code === "ENOENT") return;
+    if (error?.code === "EEXIST") {
+      const left = await fs.stat(breaker).catch(() => null);
+      if (left && Date.now() - left.mtimeMs >= BREAK_LOCK_STALE_MS) await fs.rm(breaker, { force: true });
+      return false;
+    }
+    if (error?.code === "ENOENT" || TRANSIENT_CODES.has(error?.code)) return false;
     throw error;
   }
-  const taken = await readHolder(aside);
-  const sameHolder = (taken?.holder?.token ?? null) === (observed?.holder?.token ?? null);
-  if (!sameHolder) {
-    await fs.link(aside, lockPath).catch(() => undefined);
+  try {
+    const current = await readLock(lockPath);
+    if (!sameLock(current, observed) || lockIsLive(current, { staleMs })) return false;
+    await fs.rm(lockPath, { force: true });
+    return true;
+  } finally {
+    await fs.rm(breaker, { force: true }).catch(() => undefined);
   }
-  await fs.rm(aside, { force: true });
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -161,22 +210,18 @@ export async function acquireFileLock(filePath, { timeoutMs = LOCK_TIMEOUT_MS, s
       } finally {
         await handle.close();
       }
-      return async () => {
-        const current = await readHolder(lockPath).catch(() => null);
-        if (current?.holder?.token === token) await fs.rm(lockPath, { force: true });
-      };
+      return () => releaseLock(lockPath, token);
     } catch (error) {
       if (error?.code === "ENOENT") {
         await fs.mkdir(path.dirname(lockPath), { recursive: true });
         continue;
       }
       // Windows answers EPERM for a lock file another process is deleting.
-      if (error?.code !== "EEXIST" && !(process.platform === "win32" && error?.code === "EPERM")) throw error;
+      if (error?.code !== "EEXIST" && !(process.platform === "win32" && TRANSIENT_CODES.has(error?.code))) throw error;
     }
-    const observed = await readHolder(lockPath);
+    const observed = await readLock(lockPath);
     if (observed && !lockIsLive(observed, { staleMs })) {
-      await breakStaleLock(lockPath, observed);
-      continue;
+      if (await breakStaleLock(lockPath, observed, { staleMs })) continue;
     }
     if (Date.now() >= deadline) {
       const owner = observed?.holder?.pid ? ` (held by pid ${observed.holder.pid})` : "";
@@ -184,6 +229,25 @@ export async function acquireFileLock(filePath, { timeoutMs = LOCK_TIMEOUT_MS, s
     }
     await sleep(backoff + Math.floor(Math.random() * backoff));
     backoff = Math.min(backoff * 2, MAX_BACKOFF_MS);
+  }
+}
+
+/**
+ * Delete the lock if it is still ours. Windows can refuse for a moment while
+ * another process reads it, so a refusal is retried; a lock that cannot be
+ * removed at all goes stale and is broken by the next writer.
+ */
+async function releaseLock(lockPath, token) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const current = await readLock(lockPath);
+      if (current?.unreadable) throw Object.assign(new Error("lock busy"), { code: "EBUSY" });
+      if (current?.holder?.token === token) await fs.rm(lockPath, { force: true });
+      return;
+    } catch (error) {
+      if (!TRANSIENT_CODES.has(error?.code)) throw error;
+      await sleep(10 * (attempt + 1));
+    }
   }
 }
 

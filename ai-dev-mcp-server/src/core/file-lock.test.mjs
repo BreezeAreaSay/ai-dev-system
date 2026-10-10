@@ -4,19 +4,28 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  BREAK_LOCK_STALE_MS,
   EMPTY_LOCK_GRACE_MS,
   LOCK_STALE_MS,
   LOCK_SUFFIX,
+  LOCK_TIMEOUT_MS,
   acquireFileLock,
+  breakStaleLock,
   lockIsLive,
   lockPathFor,
   processAlive,
+  readLock,
+  sameLock,
   withFileLock
 } from "./file-lock.mjs";
 import * as hookLib from "../../hooks/lib.mjs";
 
+const tempDirectories = [];
+test.after(() => Promise.all(tempDirectories.map((directory) => fs.rm(directory, { recursive: true, force: true }))));
+
 async function tempFile(name = "ledger.jsonl") {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-lock-"));
+  tempDirectories.push(directory);
   return path.join(directory, name);
 }
 
@@ -45,6 +54,7 @@ test("the hooks' copy of the protocol agrees with the server's on every case", (
   assert.equal(hookLib.LOCK_SUFFIX, LOCK_SUFFIX);
   assert.equal(hookLib.LOCK_STALE_MS, LOCK_STALE_MS);
   assert.equal(hookLib.EMPTY_LOCK_GRACE_MS, EMPTY_LOCK_GRACE_MS);
+  assert.equal(hookLib.BREAK_LOCK_STALE_MS, BREAK_LOCK_STALE_MS);
   assert.equal(hookLib.lockPathFor("relative/ledger.jsonl"), lockPathFor("relative/ledger.jsonl"));
   const now = 5_000_000;
   const base = { pid: process.pid, host: os.hostname(), token: "t", acquired_at: now - 5 };
@@ -56,12 +66,68 @@ test("the hooks' copy of the protocol agrees with the server's on every case", (
     { holder: { ...base, host: "elsewhere", acquired_at: 0 }, mtimeMs: now },
     { holder: null, mtimeMs: now - 1 },
     { holder: null, mtimeMs: now - EMPTY_LOCK_GRACE_MS - 1 },
-    { holder: "garbage", mtimeMs: now - 1 }
+    { holder: "garbage", mtimeMs: now - 1 },
+    { holder: null, mtimeMs: 0, unreadable: true }
   ];
   for (const observed of cases) {
     assert.equal(hookLib.lockIsLive(observed, { now }), lockIsLive(observed, { now }), JSON.stringify(observed));
   }
+  const pairs = [
+    [{ id: "1:2", holder: { token: "t" }, mtimeMs: 5 }, { id: "1:2", holder: { token: "t" }, mtimeMs: 9 }],
+    [{ id: "1:2", holder: { token: "t" }, mtimeMs: 5 }, { id: "1:3", holder: { token: "t" }, mtimeMs: 5 }],
+    [{ id: "1:2", holder: null, mtimeMs: 5 }, { id: "1:2", holder: null, mtimeMs: 5 }],
+    [{ id: "1:2", holder: null, mtimeMs: 5 }, { id: "1:2", holder: null, mtimeMs: 6 }],
+    [{ id: "", holder: null, mtimeMs: 5, unreadable: true }, { id: "", holder: null, mtimeMs: 5 }]
+  ];
+  for (const [left, right] of pairs) {
+    assert.equal(hookLib.sameLock(left, right), sameLock(left, right), JSON.stringify([left, right]));
+  }
+  assert.deepEqual(pairs.map(([left, right]) => sameLock(left, right)), [true, false, true, false, false]);
 });
+
+test("a writer waits out an abandoned lock rather than failing before it goes stale", () => {
+  assert.ok(LOCK_TIMEOUT_MS > LOCK_STALE_MS, `${LOCK_TIMEOUT_MS} ms of waiting against ${LOCK_STALE_MS} ms to go stale`);
+});
+
+test("an unreadable lock — Windows refusing a file in use — counts as held", () => {
+  assert.equal(lockIsLive({ holder: null, mtimeMs: 0, unreadable: true }), true);
+});
+
+const DEAD_HOLDER = () => JSON.stringify({ pid: DEAD_PID, host: os.hostname(), token: "dead", acquired_at: Date.now() });
+
+for (const [label, read, breakLock] of [
+  ["server", (lockPath) => readLock(lockPath), (lockPath, observed) => breakStaleLock(lockPath, observed)],
+  ["hooks", (lockPath) => hookLib.readLockSync(lockPath), (lockPath, observed) => hookLib.breakStaleLockSync(lockPath, observed)]
+]) {
+  test(`${label}: a lock taken afresh after it was judged stale is not broken`, async () => {
+    const target = await tempFile();
+    const lockPath = lockPathFor(target);
+    await fs.writeFile(lockPath, DEAD_HOLDER());
+    const observed = await read(lockPath);
+    assert.equal(lockIsLive(observed), false, "judged stale");
+    // Meanwhile the abandoned lock was cleared and a live writer took a new one.
+    await fs.rm(lockPath);
+    const fresh = JSON.stringify({ pid: process.pid, host: os.hostname(), token: "fresh", acquired_at: Date.now() });
+    await fs.writeFile(lockPath, fresh);
+    assert.equal(await breakLock(lockPath, observed), false);
+    assert.equal(await fs.readFile(lockPath, "utf8"), fresh, "the fresh lock stands");
+    await assert.rejects(fs.stat(`${lockPath}.break`), { code: "ENOENT" }, "the breaker cleans up after itself");
+  });
+
+  test(`${label}: a breaker killed mid-break holds the others up only until its own lock goes stale`, async () => {
+    const target = await tempFile();
+    const lockPath = lockPathFor(target);
+    await fs.writeFile(lockPath, DEAD_HOLDER());
+    const observed = await read(lockPath);
+    await fs.writeFile(`${lockPath}.break`, "");
+    assert.equal(await breakLock(lockPath, observed), false, "a young breaker lock means somebody is breaking it");
+    const old = new Date(Date.now() - BREAK_LOCK_STALE_MS - 1_000);
+    await fs.utimes(`${lockPath}.break`, old, old);
+    assert.equal(await breakLock(lockPath, observed), false, "the abandoned breaker is cleared first");
+    assert.equal(await breakLock(lockPath, observed), true, "then the stale lock goes");
+    await assert.rejects(fs.stat(lockPath), { code: "ENOENT" });
+  });
+}
 
 test("a lock is taken, holds its holder, and is gone after release", async () => {
   const target = await tempFile();

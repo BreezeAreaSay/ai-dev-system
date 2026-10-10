@@ -60,12 +60,13 @@ export function frontendQaInstallCommands({ qaRoot, pnpmVersion, nodeExecutable 
 
 /**
  * Whether what is on disk counts as installed: the dependencies, and the
- * Chromium build this Playwright wants. Without the browser a rerun would skip
- * the step as "already built" while QA still could not start.
+ * Chromium build this Playwright wants — one that launches, when the install
+ * was asked for by name. Without the browser a rerun would skip the step as
+ * "already built" while QA still could not start.
  *
- * @param {{ dependencies: boolean, status?: { chromium_available?: boolean } | null }} input
+ * @param {{ dependencies: boolean, status?: { chromium_available?: boolean, browser_launch_ok?: boolean } | null, requireLaunch?: boolean }} input
  * @returns {boolean}
  */
-export function frontendQaInstalled({ dependencies, status }) {
-  return Boolean(dependencies && status?.chromium_available);
+export function frontendQaInstalled({ dependencies, status, requireLaunch = false }) {
+  return Boolean(dependencies && status?.chromium_available && (!requireLaunch || status?.browser_launch_ok));
 }

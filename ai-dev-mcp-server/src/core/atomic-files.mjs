@@ -5,6 +5,13 @@ import { withFileLock } from "./file-lock.mjs";
 
 const writeQueues = new Map();
 
+/*
+ * Two layers order writers: this in-process queue, and the cross-process lock
+ * (`file-lock.mjs`). They are always taken lock first, queue second. The other
+ * way round deadlocks: an append that sat in the queue waiting for the lock,
+ * while the lock's holder — a ledger rotation — waited in the queue behind it,
+ * failed after the lock timeout and lost its line.
+ */
 function queueFor(filePath, operation) {
   const key = path.resolve(filePath).toLowerCase();
   const previous = writeQueues.get(key) ?? Promise.resolve();
@@ -121,10 +128,8 @@ function toBuffer(data, options) {
  */
 export async function atomicAppendFile(filePath, data, options = "utf8") {
   const absolute = path.resolve(filePath);
-  return queueFor(absolute, async () => {
-    await fs.mkdir(path.dirname(absolute), { recursive: true });
-    return withFileLock(absolute, () => appendUnderLock(absolute, toBuffer(data, options), { dropTornTail: false }));
-  });
+  await fs.mkdir(path.dirname(absolute), { recursive: true });
+  return withFileLock(absolute, () => queueFor(absolute, () => appendUnderLock(absolute, toBuffer(data, options), { dropTornTail: false })));
 }
 
 /**
@@ -144,10 +149,8 @@ export async function appendJsonLines(filePath, text) {
   const absolute = path.resolve(filePath);
   const payload = String(text ?? "");
   if (payload && !payload.endsWith("\n")) throw new Error("appendJsonLines takes complete records, each ending in a newline.");
-  return queueFor(absolute, async () => {
-    await fs.mkdir(path.dirname(absolute), { recursive: true });
-    return withFileLock(absolute, () => appendUnderLock(absolute, Buffer.from(payload, "utf8"), { dropTornTail: true }));
-  });
+  await fs.mkdir(path.dirname(absolute), { recursive: true });
+  return withFileLock(absolute, () => queueFor(absolute, () => appendUnderLock(absolute, Buffer.from(payload, "utf8"), { dropTornTail: true })));
 }
 
 async function appendUnderLock(absolute, buffer, { dropTornTail }) {
@@ -164,6 +167,11 @@ async function appendUnderLock(absolute, buffer, { dropTornTail }) {
 
 /**
  * Cut a trailing partial line — one without its newline — off a JSONL file.
+ *
+ * Called under the file's lock. A writer that does not take it — a 2.x hook
+ * still installed in some repository — appends each record with one write(2),
+ * which no reader sees half done, so what this cuts is a record a crash left
+ * unfinished, not one being written.
  *
  * @param {string} filePath
  * @returns {Promise<number>} bytes removed
@@ -207,7 +215,9 @@ export async function truncateTornTail(filePath) {
  * Holds the cross-process lock for `filePath` across the read and the atomic
  * rename, so two writers cannot both read the old content and lose one of
  * their changes — the JSON stores (instincts, skill outcomes, pilots, task
- * records) lost two updates in three that way (docs/DEFECTS.md, Д-96).
+ * records) lost two updates in three that way (docs/DEFECTS.md, Д-96). Inside,
+ * write with `atomicWriteFile`/`atomicWriteJson`: they queue after the lock, as
+ * the appends do, so they cannot wait on a writer that waits on this lock.
  *
  * @template T
  * @param {string} filePath - The file to update.

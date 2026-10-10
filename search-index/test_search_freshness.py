@@ -229,7 +229,7 @@ class SearchFreshnessTests(unittest.TestCase):
     def test_membrane_is_recognised_by_source_in_either_layout(self):
         # Д-91: the seed keeps the catalogue under external/membrane, the vault
         # under membrane/application-skills; a path test matched only the second.
-        for source in ("external/membrane", "membrane/application-skills", "Membrane"):
+        for source in ("external/membrane", "membrane/application-skills", "Membrane", "external/membrane-cli"):
             self.assertTrue(search_cli.is_membrane_source(source), source)
         for source in ("external/archify", "vault-note", "", None):
             self.assertFalse(search_cli.is_membrane_source(source), source)

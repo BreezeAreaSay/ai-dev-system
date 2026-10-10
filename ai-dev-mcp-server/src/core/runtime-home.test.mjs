@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -6,7 +7,8 @@ import {
   explicitRuntimeHome,
   legacyDoubledRuntimeRoot,
   resolveRuntimeStateRoot,
-  resolveUserHome
+  resolveUserHome,
+  sameDirectory
 } from "./runtime-home.mjs";
 import * as hookLib from "../../hooks/lib.mjs";
 
@@ -32,6 +34,48 @@ test("AI_DEV_HOME naming the home directory keeps its 2.x meaning instead of sca
     assert.equal(resolveRuntimeStateRoot("", env), path.join(HOME, ".ai-dev"));
     assert.equal(legacyDoubledRuntimeRoot(env), "", "nothing to migrate: 2.x used <home>/.ai-dev too");
   }
+});
+
+test("the home is recognised however it is spelled: case on Windows and macOS, symlinks everywhere", () => {
+  const asIs = { realpath: (value) => value };
+  const cases = [
+    { left: "C:\\Users\\Me", right: "c:\\users\\me", platform: "win32", same: true },
+    { left: "C:\\Users\\Me", right: "C:/Users/Me/", platform: "win32", same: true },
+    { left: "/Users/me", right: "/users/ME", platform: "darwin", same: true },
+    { left: "/home/me", right: "/home/ME", platform: "linux", same: false },
+    { left: "/home/me", right: "/home/me/../me", platform: "linux", same: true },
+    { left: "/home/me", right: "/home/other", platform: "linux", same: false }
+  ];
+  for (const { left, right, platform, same } of cases) {
+    assert.equal(sameDirectory(left, right, { platform, ...asIs }), same, `${platform}: ${left} ~ ${right}`);
+    assert.equal(hookLib.sameDirectory(left, right, { platform, ...asIs }), same, `hooks, ${platform}: ${left} ~ ${right}`);
+  }
+  const linked = { platform: "linux", realpath: (value) => (value === "/links/home" ? "/real/home" : value) };
+  assert.equal(sameDirectory("/real/home", "/links/home", linked), true);
+  assert.equal(hookLib.sameDirectory("/real/home", "/links/home", linked), true);
+  // On Windows the 2.x setup spelled differently still means <home>/.ai-dev.
+  const env = { USERPROFILE: "C:\\Users\\Me", AI_DEV_HOME: "c:\\users\\me" };
+  assert.equal(explicitRuntimeHome(env, { platform: "win32", ...asIs }), "");
+});
+
+test("a symlinked home named in AI_DEV_HOME keeps its 2.x meaning", (t) => {
+  if (process.platform === "win32") {
+    t.skip("creating a symlink needs a privilege Windows does not give by default");
+    return;
+  }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai-dev-home-link-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const real = path.join(root, "real-home");
+  fs.mkdirSync(real);
+  fs.symlinkSync(real, path.join(root, "home-link"));
+  const env = { HOME: path.join(root, "home-link"), AI_DEV_HOME: real };
+  assert.equal(explicitRuntimeHome(env), "");
+  assert.equal(resolveRuntimeStateRoot("", env), path.join(root, "home-link", ".ai-dev"));
+  assert.equal(legacyDoubledRuntimeRoot(env), "", "nothing to migrate, and above all nothing moved into the home itself");
+  withEnvironment({ HOME: env.HOME, USERPROFILE: undefined, AI_DEV_HOME: real }, () => {
+    assert.equal(hookLib.explicitRuntimeHome(), "");
+    assert.equal(hookLib.runtimeStateRoot(), resolveRuntimeStateRoot());
+  });
 });
 
 test("the vault's parent is the home only when nothing names one", () => {

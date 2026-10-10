@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -17,6 +18,40 @@ export function resolveUserHome(vaultRoot = "", env = process.env) {
     || (vaultRoot ? path.dirname(path.resolve(vaultRoot)) : os.homedir());
 }
 
+/** As `realpathOf` in hooks/lib.mjs: libuv's resolution, then the JavaScript one, then the path as given. */
+function realpathOrSelf(value) {
+  try {
+    return fs.realpathSync.native(value);
+  } catch {
+    /* fall through */
+  }
+  try {
+    return fs.realpathSync(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Whether two paths name the same directory: through symlinks, and without
+ * regard to case where the filesystem ignores it by default (Windows, macOS).
+ * Comparing the strings let `c:\users\me` or a symlinked home pass for a
+ * different folder than `C:\Users\Me`.
+ *
+ * @param {string} left
+ * @param {string} right
+ * @param {{ platform?: string, realpath?: (value: string) => string }} [options]
+ * @returns {boolean}
+ */
+export function sameDirectory(left, right, { platform = process.platform, realpath = realpathOrSelf } = {}) {
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  const canonical = (value) => {
+    const resolved = paths.resolve(realpath(paths.resolve(value)));
+    return platform === "win32" || platform === "darwin" ? resolved.toLowerCase() : resolved;
+  };
+  return canonical(left) === canonical(right);
+}
+
 /**
  * `AI_DEV_HOME`, when it names a runtime folder rather than the home itself.
  *
@@ -27,14 +62,14 @@ export function resolveUserHome(vaultRoot = "", env = process.env) {
  * keeps meaning what 2.x made of it — `<home>/.ai-dev`.
  *
  * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ platform?: string, realpath?: (value: string) => string }} [options] - for tests
  * @returns {string} absolute path, or "" when the variable is unset or names the home
  */
-export function explicitRuntimeHome(env = process.env) {
+export function explicitRuntimeHome(env = process.env, options = {}) {
   const raw = String(env.AI_DEV_HOME ?? "").trim();
   if (!raw) return "";
-  const resolved = path.resolve(raw);
-  const homes = [env.USERPROFILE, env.HOME, os.homedir()].filter(Boolean).map((home) => path.resolve(home));
-  return homes.includes(resolved) ? "" : resolved;
+  const homes = [env.USERPROFILE, env.HOME, os.homedir()].filter(Boolean);
+  return homes.some((home) => sameDirectory(home, raw, options)) ? "" : path.resolve(raw);
 }
 
 /**

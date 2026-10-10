@@ -106,9 +106,16 @@ export function overallHealthStatus(checks) {
 export function evaluateRuntimeHome(info) {
   const details = { ...info };
   if (info.legacy_files?.length) {
+    const conflicts = info.last_migration?.conflicts?.length ?? 0;
+    const errors = info.last_migration?.errors ?? [];
+    const why = [
+      conflicts ? ` ${conflicts} differ from the copy in ${info.root}: compare the two and keep one.` : "",
+      errors.length ? ` ${errors.length} could not be moved (${errors[0].code || "error"}: ${errors[0].path}): move them by hand.` : "",
+      !conflicts && !errors.length ? " Restart the server to move them." : ""
+    ].join("");
     return {
       status: "warn",
-      summary: `${info.legacy_files.length} file(s) are still in ${info.legacy_root}, where 2.x put the runtime tree for AI_DEV_HOME; the copy in ${info.root} differs, so they were not moved. Compare and move or delete them by hand.`,
+      summary: `${info.legacy_files.length} file(s) are still in ${info.legacy_root}, where 2.x put the runtime tree for AI_DEV_HOME.${why}`,
       details
     };
   }

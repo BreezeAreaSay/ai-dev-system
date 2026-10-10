@@ -142,7 +142,16 @@ async function syncWorkingTree(source, target) {
 }
 
 function scenarioEnv(base, { home, aiDevHome, explicitRoots }) {
-  const env = { ...base, HOME: home, USERPROFILE: home };
+  // Every directory a client installer derives its target from, inside the
+  // scenario's home: on Windows the 2.x installers write VS Code's and Claude
+  // Desktop's configuration under APPDATA and LOCALAPPDATA, not under HOME.
+  const env = {
+    ...base,
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: path.join(home, "AppData", "Roaming"),
+    LOCALAPPDATA: path.join(home, "AppData", "Local")
+  };
   for (const key of Object.keys(env)) {
     if (/^(AI_DEV_|BGE_M3_)/.test(key)) delete env[key];
   }

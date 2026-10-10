@@ -24,6 +24,10 @@
  * pullable; `docs/UPGRADE-TEST.md` describes it for CI.
  *
  * Usage: npm run upgrade:test [-- --base <commit>] [--keep]
+ *
+ * Not named `upgrade-test.mjs`: `node --test` picks up `*-test.mjs` by its own
+ * patterns, and every `npm test` ran this whole scenario as a unit test
+ * (docs/DEFECTS.md, Д-112).
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";

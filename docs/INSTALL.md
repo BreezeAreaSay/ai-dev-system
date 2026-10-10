@@ -486,7 +486,9 @@ docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker/build-
 `npm run setup -- --dense` fills — not a model directory. A folder that holds model
 files itself (`pytorch_model.bin`, `config.json`, `onnx/`) is the value the variable
 had before 2.1, and the launchers refuse it with directions rather than mounting it one
-level too deep.
+level too deep. That includes `ClaudeMcpProxy.exe`, Claude's launcher on Windows, which
+until this release mounted the folder at `/models/bge-m3`, where the image never looks, so
+Claude on Windows had no dense search (docs/DEFECTS.md, Д-88).
 
 With the installer, which is the default Docker path:
 

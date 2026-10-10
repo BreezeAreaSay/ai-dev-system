@@ -22,8 +22,10 @@ services:
       #   AI_DEV_IMAGE=ai-dev-system:bge docker compose ... run --rm -T ai-dev-mcp
       #
       # Read-only on purpose: the container reads the weights and never writes them.
-      # The launcher scripts (docker/run-mcp.sh, run-mcp.ps1) do the same mount from
-      # the same variable, so both ways of starting the image agree.
+      # The launchers (docker/run-mcp.sh, run-mcp.ps1 and the Windows Claude proxy
+      # ClaudeMcpProxy.cs) do the same mount from the same variable, so every way
+      # of starting the image agrees; scripts/model-mount-contract.test.mjs holds
+      # them to it.
       # - type: bind
       #   source: ${AI_DEV_MODEL_PATH:?Set AI_DEV_MODEL_PATH to the folder holding bge-m3-onnx/ and/or bge-m3/}
       #   target: /models

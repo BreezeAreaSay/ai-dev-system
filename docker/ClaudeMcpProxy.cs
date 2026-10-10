@@ -72,8 +72,8 @@ internal static class ClaudeMcpProxy
             "--cap-drop", "ALL",
             "--mount", "type=volume,source=" + (Environment.GetEnvironmentVariable("AI_DEV_DATA_VOLUME") ?? "ai-dev-system-data") + ",target=/data"
         };
-        AddBindMount(arguments, "AI_DEV_PROJECT_PATH", "/workspace", false);
-        AddBindMount(arguments, "AI_DEV_MODEL_PATH", "/models/bge-m3", true);
+        AddBindMount(arguments, MountSource("AI_DEV_PROJECT_PATH"), "/workspace", false);
+        AddBindMount(arguments, ModelMountSource(), "/models", true);
         arguments.Add(Environment.GetEnvironmentVariable("AI_DEV_IMAGE") ?? "ai-dev-system:local");
 
         var startInfo = new ProcessStartInfo
@@ -91,15 +91,51 @@ internal static class ClaudeMcpProxy
         return process;
     }
 
-    private static void AddBindMount(List<string> arguments, string environmentName, string target, bool readOnly)
+    private static string MountSource(string environmentName)
     {
         var value = Environment.GetEnvironmentVariable(environmentName);
-        if (string.IsNullOrWhiteSpace(value)) return;
+        if (string.IsNullOrWhiteSpace(value)) return null;
         var fullPath = Path.GetFullPath(value);
         if (fullPath.Contains(",")) throw new InvalidOperationException(environmentName + " cannot contain a comma.");
         if (!Directory.Exists(fullPath)) throw new DirectoryNotFoundException(environmentName + " does not exist: " + fullPath);
+        return fullPath;
+    }
+
+    // One mount point for both backends, as in run-mcp.sh and run-mcp.ps1: the
+    // folder holds bge-m3-onnx\ and/or bge-m3\, and the image looks for them
+    // under /models. This copy mounted it at /models/bge-m3, one level too deep,
+    // so Claude on Windows never had dense search (docs/DEFECTS.md, Д-88).
+    private static readonly string[] ModelFileMarkers = { "pytorch_model.bin", "modules.json", "config.json", "onnx" };
+
+    private static string ModelMountSource()
+    {
+        var fullPath = MountSource("AI_DEV_MODEL_PATH");
+        if (fullPath == null) return null;
+        // Before Д-62 the variable named the model directory itself. A folder
+        // that holds model files is that old value, and mounted at /models it
+        // would leave both backends looking one level too deep (Д-68).
+        foreach (var marker in ModelFileMarkers)
+        {
+            var candidate = Path.Combine(fullPath, marker);
+            if (File.Exists(candidate) || Directory.Exists(candidate))
+            {
+                throw new InvalidOperationException("AI_DEV_MODEL_PATH now names the folder above the models, and " + fullPath
+                    + " holds model files itself (" + marker + "). Point it at the parent folder that contains bge-m3-onnx\\ and/or bge-m3\\"
+                    + " - for a default install that is %USERPROFILE%\\.ai-dev\\models (docs/INSTALL.md).");
+            }
+        }
+        if (!Directory.Exists(Path.Combine(fullPath, "bge-m3-onnx")) && !Directory.Exists(Path.Combine(fullPath, "bge-m3")))
+        {
+            Console.Error.WriteLine("AI_DEV_MODEL_PATH=" + fullPath + " holds neither bge-m3-onnx\\ nor bge-m3\\; dense search will report that it is not set up until a model is put there.");
+        }
+        return fullPath;
+    }
+
+    private static void AddBindMount(List<string> arguments, string source, string target, bool readOnly)
+    {
+        if (source == null) return;
         arguments.Add("--mount");
-        arguments.Add("type=bind,source=" + fullPath + ",target=" + target + (readOnly ? ",readonly" : ""));
+        arguments.Add("type=bind,source=" + source + ",target=" + target + (readOnly ? ",readonly" : ""));
     }
 
     private static Task PumpBackendOutput(Process backend)

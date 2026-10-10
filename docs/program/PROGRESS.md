@@ -32,12 +32,44 @@
 
 ## Блокеры
 
-- пока нет
+- huggingface.co, hf-mirror.com, modelscope.cn — 403 у прокси песочницы: настоящие веса BGE-M3 здесь не
+  скачать, проверка на них уходит в чек-лист владельца (фазы 5, 13).
+- ghcr.io: манифесты отдаются, слои (`pkg-containers.githubusercontent.com`) — 403: опубликованный
+  образ 2.x не скачать, Docker-часть теста обновления — сценарием (фазы 2, 13, 15).
+- cdn.playwright.dev и playwright.download.prss.microsoft.com — 403: `playwright install chromium`
+  не проверить вживую; Chromium есть локально в `/opt/pw-browsers`.
+- deb.debian.org — 403 (archive.ubuntu.com работает).
+
+## Окружение сессии (замер 2026-10-10)
+
+| Что | Результат |
+|---|---|
+| ОС | Ubuntu 24.04.5 LTS, ядро 6.18, x86_64, 4 CPU, 15 ГБ RAM |
+| Node / npm | 22.22.0 / 10.9.4 (`packageManager` — npm@11.17.0) |
+| Python | 3.13.16 (`/usr/bin/python3`, `/usr/bin/python`) |
+| Chromium | `/opt/pw-browsers/chromium-1194`, `PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers` |
+| Docker | 29.8.2; демон поднимается `dockerd &` (overlayfs, cgroup v1) |
+| huggingface.co | 403 (CONNECT) |
+| ghcr.io | `/v2/` 401, манифест `stonebridgeway/ai-dev-system:latest` отдаётся; слои — 403 |
+| registry-1.docker.io | манифесты и слои отдаются (`docker pull node:24-bookworm-slim` — ок) |
+| mirror.gcr.io | манифесты и слои отдаются (`docker pull mirror.gcr.io/library/ubuntu:24.04` — ок) |
+| deb.debian.org | 403 |
+| archive.ubuntu.com | 200 (HTTP и HTTPS) |
+| cdn.playwright.dev | 403 |
+| Ассеты релизов GitHub | 200 (`electron v38.2.0 SHASUMS256.txt` через release-assets.githubusercontent.com) |
+| api.nuget.org | 200 — в прошлой песочнице был закрыт |
+| registry.npmjs.org, nodejs.org, pypi.org | 200 |
+
+Отличия от прошлой песочницы (бриф §3.7): Docker Hub больше не отдаёт 429 — образы тянутся
+напрямую; api.nuget.org открыт; ассеты релизов GitHub доступны (бинарь Electron скачивается).
 
 ## Журнал ключевых замеров
 
 | Дата | Что | Результат |
 |---|---|---|
+| 2026-10-10 | Базовый прогон: чистый клон `Dev` @ `8f647df`, пустой HOME, `npm ci --ignore-scripts` | 18,8 с; node_modules 511 МБ; onnxruntime-node 288 МБ, onnxruntime-web 141 МБ, @img 28 МБ (совпадает с §3.2) |
+| 2026-10-10 | `npm run setup` (Python есть) | 24,8 с; 4 built, 3 skipped, 0 failed; Health ok, 22 проверки; индекс — 3 444 документа |
+| 2026-10-10 | `npm run check` | exit 0 за 58,8 с; 1 248 тестов, 1 232 pass, 0 fail, 16 skipped; покрытие строк 97,19 % (бриф: 45 с и 97,22 %) |
 
 ## Следующий шаг
 

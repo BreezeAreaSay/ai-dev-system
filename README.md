@@ -79,10 +79,7 @@ npm run clients:install
 
 It adds the server to Claude Code, Cursor, VS Code and Gemini, keeps every other
 server in those files, and backs each file up before changing it; running it
-again changes nothing. On Windows run it as
-`$env:AI_DEV_PYTHON = "python"; npm run clients:install` for now (see
-[INSTALL](docs/INSTALL.md#quick-start-run-it-locally)). Codex and Claude Desktop
-are not covered by it yet — see
+again changes nothing. Codex and Claude Desktop are not covered by it yet — see
 [INSTALL](docs/INSTALL.md#from-a-clone-codex-and-claude-desktop). That is the
 whole install, and it is the path to take on your own machine. The local dense
 model is one flag here — `npm run setup -- --dense` downloads a pinned, checksum-verified ONNX

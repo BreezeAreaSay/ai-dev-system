@@ -10,6 +10,7 @@ import {
   mergeClientDocument,
   portablePaths
 } from "./install-local-mcp-clients.mjs";
+import { resolvePythonCommand } from "../src/core/python-command.mjs";
 
 const paths = {
   nodeExecutable: "C:\\runtime\\node.exe",
@@ -106,6 +107,23 @@ test("the editor configuration tree is the one the platform actually uses", () =
     );
   }
   assert.match(path.join(windows.appData, "Code", "User", "mcp.json"), /AppData|Roaming/);
+});
+
+test("on Windows the clients get the interpreter the server would pick: python, not python3 (Д-94)", () => {
+  const home = path.join(path.sep, "home", "tester");
+  const windows = portablePaths({ home, platform: "win32", nodeExecutable: "C:\\Program Files\\nodejs\\node.exe", env: {} });
+  assert.equal(buildClientServerConfig("cursor", windows).env.AI_DEV_PYTHON, "python");
+  const linux = portablePaths({ home, platform: "linux", nodeExecutable: "/usr/bin/node", env: {} });
+  assert.equal(buildClientServerConfig("cursor", linux).env.AI_DEV_PYTHON, "python3");
+  for (const [platform, execPath] of [["win32", "C:\\nodejs\\node.exe"], ["darwin", "/usr/local/bin/node"], ["linux", "/usr/bin/node"]]) {
+    assert.equal(
+      portablePaths({ home, platform, nodeExecutable: execPath, env: {} }).pythonExecutable,
+      resolvePythonCommand({ env: {}, platform, execPath }),
+      `one choice for server and installer on ${platform}`
+    );
+  }
+  const chosen = portablePaths({ home, platform: "win32", nodeExecutable: "C:\\nodejs\\node.exe", env: { AI_DEV_PYTHON: "C:\\Python312\\python.exe" } });
+  assert.equal(chosen.pythonExecutable, "C:\\Python312\\python.exe", "an interpreter named at install time is kept");
 });
 
 /** A checkout-shaped home with the four client files a test wants in it. */

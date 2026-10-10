@@ -22,6 +22,7 @@ import { fileURLToPath } from "node:url";
 import { downloadDenseModel } from "../src/core/dense-download.mjs";
 import { defaultOnnxModelDir } from "../src/core/dense-onnx.mjs";
 import { readDenseManifest, verifyDenseModelDirectory } from "../src/core/dense-manifest.mjs";
+import { resolvePythonCommand } from "../src/core/python-command.mjs";
 import { resolveRuntimeStateRoot } from "../src/core/runtime-home.mjs";
 import { prepareRuntimeHome } from "../src/core/runtime-home-migration.mjs";
 import {
@@ -172,7 +173,7 @@ const ACTIONS = {
         + `in ${onnxModelDir}, ${status.downloaded} file(s) fetched`;
     }
     if (!existsSync(venvPythonPath({ venvDir, exists: existsSync }))) {
-      await runOrThrow("python -m venv", process.env.AI_DEV_PYTHON_BASE || "python3", ["-m", "venv", venvDir]);
+      await runOrThrow("python -m venv", process.env.AI_DEV_PYTHON_BASE || resolvePythonCommand(), ["-m", "venv", venvDir]);
     }
     const python = venvPythonPath({ venvDir, exists: existsSync });
     await runOrThrow("pip install", python, [

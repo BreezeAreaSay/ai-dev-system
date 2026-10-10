@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isDirectExecution } from "../src/core/direct-execution.mjs";
+import { resolvePythonCommand } from "../src/core/python-command.mjs";
 
 const SUPPORTED_CLIENTS = new Set(["cursor", "gemini", "vscode", "claude"]);
 
@@ -45,19 +46,6 @@ function looksLikeVault(root) {
   return existsSync(path.join(root, "03-skills-catalog")) || existsSync(path.join(root, "01-system"));
 }
 
-function resolvePython(nodeExecutable) {
-  if (process.env.AI_DEV_PYTHON) return process.env.AI_DEV_PYTHON;
-  // Codex-runtime layout: <runtime>/node/bin/node + <runtime>/python/...
-  const bundled = path.resolve(
-    path.dirname(nodeExecutable),
-    "..",
-    "..",
-    "python",
-    process.platform === "win32" ? "python.exe" : "bin/python"
-  );
-  return existsSync(bundled) ? bundled : "python3";
-}
-
 /**
  * Where Node, the server and Python are, for the client configuration.
  *
@@ -79,6 +67,7 @@ export function portablePaths({
       ? process.env.APPDATA || path.join(home, "AppData", "Roaming")
       : process.env.XDG_CONFIG_HOME || path.join(home, ".config"),
   nodeExecutable = process.execPath,
+  env = process.env,
   vaultRoot = process.env.AI_DEV_VAULT_ROOT
     || (looksLikeVault(repoVaultRoot) ? repoVaultRoot : "")
 } = {}) {
@@ -89,7 +78,9 @@ export function portablePaths({
     ? path.join(linkedVaultRoot, "09-mcp", "ai-dev-mcp-server", "src", "server.mjs")
     : "";
   const serverPath = vaultServerPath && existsSync(vaultServerPath) ? vaultServerPath : localServerPath;
-  const pythonExecutable = resolvePython(nodeExecutable);
+  // The server's own choice, so a client config never overrides a working
+  // interpreter with one that is not there (docs/DEFECTS.md, Д-94).
+  const pythonExecutable = resolvePythonCommand({ env, platform, execPath: nodeExecutable });
   return {
     home,
     appData,

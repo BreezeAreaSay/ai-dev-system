@@ -71,9 +71,10 @@ and Claude Desktop are not covered by it yet; for them see
 [From a clone: Codex and Claude Desktop](#from-a-clone-codex-and-claude-desktop).
 That is the whole install.
 
-On Windows, run it as `$env:AI_DEV_PYTHON = "python"; npm run clients:install` for now: on
-its own it writes `AI_DEV_PYTHON=python3` into every client (docs/DEFECTS.md, Д-94), and a
-Windows Python answers to `python`.
+It writes the Python interpreter the server itself would pick: `python` on Windows, `python3`
+elsewhere, or whatever `AI_DEV_PYTHON` names when you run it. If you ran it on Windows with an
+earlier version, run it once more: those wrote `python3`, which a Windows Python does not answer
+to (docs/DEFECTS.md, Д-94).
 
 Two ways to run it, and they speak the same protocol:
 

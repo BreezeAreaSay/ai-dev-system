@@ -66,9 +66,10 @@ npm run clients:install
 настраивает — для них см. [Из клона: Codex и Claude Desktop](#из-клона-codex-и-claude-desktop).
 Это вся установка.
 
-На Windows пока запускайте её так: `$env:AI_DEV_PYTHON = "python"; npm run clients:install`.
-Сама по себе она прописывает всем клиентам `AI_DEV_PYTHON=python3` (docs/DEFECTS.md, Д-94), а
-Python на Windows откликается на `python`.
+Она прописывает тот же интерпретатор Python, который выбрал бы сам сервер: `python` на Windows,
+`python3` на остальных системах или тот, что назван в `AI_DEV_PYTHON` при запуске. Если вы
+запускали её на Windows в прежней версии, запустите ещё раз: прежние версии прописывали `python3`,
+а Python на Windows на это имя не откликается (docs/DEFECTS.md, Д-94).
 
 Запустить можно двумя способами, протокол один и тот же:
 

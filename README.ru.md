@@ -79,10 +79,8 @@ npm run clients:install
 
 Команда добавляет сервер в Claude Code, Cursor, VS Code и Gemini, не трогает
 другие серверы в этих файлах и перед изменением делает резервную копию каждого
-файла; повторный запуск ничего не меняет. На Windows пока запускайте её так:
-`$env:AI_DEV_PYTHON = "python"; npm run clients:install` (см.
-[INSTALL](docs/ru/INSTALL.md#быстрый-старт-локально)). Codex и Claude Desktop она
-пока не настраивает — см.
+файла; повторный запуск ничего не меняет. Codex и Claude Desktop она пока не
+настраивает — см.
 [INSTALL](docs/ru/INSTALL.md#из-клона-codex-и-claude-desktop). Это вся
 установка, и на своей машине стоит идти именно этим путём. Локальная
 dense-модель здесь — один флаг: `npm run setup -- --dense` скачивает пиннутый

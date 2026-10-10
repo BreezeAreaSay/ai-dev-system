@@ -89,6 +89,7 @@ import {
 } from "./core/project-markdown.mjs";
 import { loadImportGraph, renderImportGraphMarkdown } from "./core/import-graph.mjs";
 import { configureRuntimeStateRoot, resolveProjectIdentity } from "./core/project-identity.mjs";
+import { resolvePythonCommand } from "./core/python-command.mjs";
 import { resolveRuntimeAssets } from "./core/runtime-assets.mjs";
 import { resolveRuntimeStateRoot, resolveUserHome } from "./core/runtime-home.mjs";
 import {
@@ -1832,22 +1833,10 @@ function truncateOutput(value, max = 6000) {
   return `${text.slice(0, max)}\n...[truncated ${text.length - max} chars]`;
 }
 
+// The client installer writes the same answer into every client's config
+// (docs/DEFECTS.md, Д-72, Д-94).
 function pythonCommand() {
-  if (process.env.AI_DEV_PYTHON) return process.env.AI_DEV_PYTHON;
-  const dependenciesRoot = path.resolve(path.dirname(process.execPath), "..", "..");
-  const bundled = process.platform === "win32"
-    ? path.join(dependenciesRoot, "python", "python.exe")
-    : path.join(dependenciesRoot, "python", "bin", "python");
-  if (existsSync(bundled)) return bundled;
-  // `python3` off Windows, because `python` is not a command there any more:
-  // macOS dropped it with the Python 2 removal, and a fresh install ends at
-  // `spawn python ENOENT` while building the search index — `npm run setup`
-  // reports a failed step and `npm run doctor` says `fail`, on a machine where
-  // nothing is wrong (docs/DEFECTS.md, Д-72). Windows keeps `python`: its
-  // installer and the Store alias both provide that name and not `python3`.
-  // `scripts/install-local-mcp-clients.mjs` already chose `python3` for the
-  // same fallback; this is the other half of that decision.
-  return process.platform === "win32" ? "python" : "python3";
+  return resolvePythonCommand();
 }
 
 function embeddingPythonCommand() {

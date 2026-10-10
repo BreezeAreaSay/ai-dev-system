@@ -226,6 +226,37 @@ class SearchFreshnessTests(unittest.TestCase):
             self.assertTrue(record["text"])
             self.assertTrue(record["content_hash"])
 
+    def test_membrane_is_recognised_by_source_in_either_layout(self):
+        # Д-91: the seed keeps the catalogue under external/membrane, the vault
+        # under membrane/application-skills; a path test matched only the second.
+        for source in ("external/membrane", "membrane/application-skills", "Membrane"):
+            self.assertTrue(search_cli.is_membrane_source(source), source)
+        for source in ("external/archify", "vault-note", "", None):
+            self.assertFalse(search_cli.is_membrane_source(source), source)
+        self.assertFalse(
+            search_cli.row_is_membrane_skill({"source": "vault-note", "path": "02-knowledge/membrane/application-skills.md"}),
+            "a note that merely mentions the path is not a connector",
+        )
+
+    def test_dense_plan_leaves_out_membrane_from_the_seed_layout(self):
+        registry = self.vault / "03-skills-catalog" / "registries" / "skills.index.json"
+        registry.write_text(json.dumps([
+            {"name": "slack", "source": "external/membrane", "type": "app-integration", "description": "Slack connector"},
+            {"name": "archify", "source": "external/archify", "type": "external-skill", "description": "Diagrams"},
+        ]) + "\n", encoding="utf-8")
+        self.call_json(search_cli.rebuild, self.args(preserve_dense=False))
+
+        slack = search_cli.sha_id("skill", "external/membrane", "slack")
+        archify = search_cli.sha_id("skill", "external/archify", "archify")
+
+        plan = self.call_json(search_cli.dense_plan, self.args(dense_backend="onnx", dense_dtype="int8"))
+        planned = {record["id"] for record in plan["records"]}
+        self.assertIn(archify, planned)
+        self.assertNotIn(slack, planned)
+
+        everything = self.call_json(search_cli.dense_plan, self.args(dense_backend="onnx", dense_dtype="int8", dense_include_membrane=True))
+        self.assertIn(slack, {record["id"] for record in everything["records"]})
+
     def test_supplied_vectors_are_written_without_loading_any_model(self):
         self.call_json(search_cli.rebuild, self.args(preserve_dense=False))
         plan = self.call_json(search_cli.dense_plan, self.args(dense_backend="onnx", dense_dtype="int8"))

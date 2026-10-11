@@ -55,6 +55,20 @@ async function replaceFile(tempPath, targetPath) {
 }
 
 /**
+ * Rename a finished temp file over its target, with the retries Windows needs
+ * while another process holds the target open. For writers that check the
+ * target between writing the temp file and replacing it, as the MCP client
+ * configuration writer does (`mcp-clients.mjs`).
+ *
+ * @param {string} tempPath - A complete file in the target's directory.
+ * @param {string} targetPath
+ * @returns {Promise<void>}
+ */
+export async function renameOver(tempPath, targetPath) {
+  await replaceFile(tempPath, targetPath);
+}
+
+/**
  * Write a file atomically: content goes to a unique temp file in the target
  * directory, is fsync'd, then renamed over the destination. Concurrent writes to
  * the same path are serialised through an in-process queue, and rename retries

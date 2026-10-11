@@ -29,7 +29,7 @@ for (const [packagePath, metadata] of Object.entries(lock.packages ?? {})) {
   }
 }
 
-const scanRoots = ["src", "scripts"];
+const scanRoots = ["bin", "src", "scripts"];
 const secretPatterns = [
   { name: "private key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
   { name: "AWS access key", pattern: /\bAKIA[0-9A-Z]{16}\b/ },

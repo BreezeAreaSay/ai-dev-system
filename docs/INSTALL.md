@@ -28,19 +28,18 @@ To start an agent with a narrowed tool surface, add `AI_DEV_PROFILES` to the
 ## Requirements
 
 To run it locally — the path this page recommends — you need Node.js 22.16+ (or
-24+) and npm. The search index, its status and keyword search (`search_all`,
-`search_notes`, `search_projects`, `search_skill_registry`) run in Node, on
-`node:sqlite`; Node 22.13–22.15 and 23.x ship it without the FTS5 the index needs.
-Python 3 on `PATH` (`python3`; `python` on Windows; the standard library only) is
-still needed for hybrid search (`hybrid_search`, `preset_search`, `explain_search`,
-`run_search_eval`), the knowledge galaxy and `query_ui_ux_knowledge`: without it
-`npm run setup` builds everything and the health check fails only
-`hybrid_smoke_no_dense`. Moving those to Node is next. On an older Node the server
-falls back to the Python helper for all of search, as 2.x did, and says so in
-`search_index_status` (`engine`, `engine_reason`); `AI_DEV_SEARCH_ENGINE=python`
-does the same on purpose. On Windows you can use the
-bundled runtime described in the
-[server README](../ai-dev-mcp-server/README.md).
+24+) and npm, and nothing else. All of search runs in Node, on `node:sqlite`: the
+index, keyword and hybrid search, `search_knowledge` and the knowledge galaxy.
+Node 22.13–22.15 and 23.x ship `node:sqlite` without the FTS5 the index needs;
+there the server starts, and every search tool answers with the Node version it
+needs.
+
+Python is optional. `query_ui_ux_knowledge` and `generate_ui_ux_design_system`
+run the UI UX Pro Max dataset's own Python script (`python3`; `python` on Windows;
+or whatever `AI_DEV_PYTHON` names), and the legacy dense backend (`--dense-python`)
+needs one. Without Python those two tools answer with what to install, the health
+check marks `ui_ux_knowledge` skipped, and nothing else changes. On Windows you can use the bundled runtime
+described in the [server README](../ai-dev-mcp-server/README.md).
 
 For the packaged path you need Docker instead:
 
@@ -86,10 +85,10 @@ and Claude Desktop are not covered by it yet; for them see
 [From a clone: Codex and Claude Desktop](#from-a-clone-codex-and-claude-desktop).
 That is the whole install.
 
-It writes the Python interpreter the server itself would pick: `python` on Windows, `python3`
-elsewhere, or whatever `AI_DEV_PYTHON` names when you run it. If you ran it on Windows with an
-earlier version, run it once more: those wrote `python3`, which a Windows Python does not answer
-to (docs/DEFECTS.md, Д-94).
+It writes the Python interpreter the server itself would pick for its optional Python tools:
+`python` on Windows, `python3` elsewhere, or whatever `AI_DEV_PYTHON` names when you run it. If
+you ran it on Windows with an earlier version, run it once more: those wrote `python3`, which a
+Windows Python does not answer to (docs/DEFECTS.md, Д-94).
 
 Two ways to run it, and they speak the same protocol:
 
@@ -99,9 +98,8 @@ Two ways to run it, and they speak the same protocol:
 | `npm run daemon` | **Experimental.** One warm process on a local socket (a named pipe on Windows). No client can connect to it yet — nothing bridges a client's stdio to the socket — and it fails to start when the socket path is longer than 108 bytes (docs/DEFECTS.md, Д-97). Use `npm start`. |
 
 **Why local first.** The dense model is the reason. Locally it is one flag —
-`npm run setup -- --dense` — and it lands in `~/.ai-dev`; on Node 22.16+ the model
-and the vectors it computes need no Python at all (on an older Node the
-standard-library Python helper still writes them into the index). A container runs with no network, so the weights
+`npm run setup -- --dense` — and it lands in `~/.ai-dev`; neither the model nor the
+vectors it computes need Python. A container runs with no network, so the weights
 cannot be downloaded inside it at all: they are downloaded on the host and mounted
 at `/models` (see [The local model in a container](#the-local-model-in-a-container)).
 The image says so about itself through
@@ -342,8 +340,9 @@ on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows:
 }
 ```
 
-No `AI_DEV_PYTHON` is needed: without it the server picks `python3`, or `python`
-on Windows. Restart the client afterwards.
+No `AI_DEV_PYTHON` is needed: only the two UI UX Pro Max tools run Python, and
+without it the server picks `python3`, or `python` on Windows. Restart the client
+afterwards.
 
 **The Docker path.** The blocks below show the shape of what the Docker installer writes — on Windows
 it also sets `AI_DEV_MCP_LAUNCHER`, and Claude gets `ClaudeMcpProxy.exe` instead of

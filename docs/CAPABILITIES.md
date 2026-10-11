@@ -21,6 +21,12 @@ Capability profiles cut that surface along the lines you already think in.
 | `security` | 9 | Secret and dependency scans, dependency fix plans, command and write policy, agent hooks, MCP inventory. | Setting up guard rails, or auditing what your agents are wired to. |
 | `advanced` | 36 | Archify diagrams, the search and skill indexes, the dashboard, usage ledger, runtime packaging. | Maintaining the system itself rather than using it. |
 
+Every profile runs on Node alone, with one exception in `frontend`:
+`query_ui_ux_knowledge` and `generate_ui_ux_design_system` read the UI UX Pro Max
+dataset through its own Python script, so they need Python 3 on `PATH` (or
+`AI_DEV_PYTHON`). Without it they answer with what to install, and
+`npm run doctor` marks `ui_ux_knowledge` skipped.
+
 The authoritative per-tool mapping is the `Profile` column in the
 [tool reference](../ai-dev-mcp-server/docs/TOOLS.md), which is generated from the
 server's own definitions. Every tool belongs to exactly one profile, and CI

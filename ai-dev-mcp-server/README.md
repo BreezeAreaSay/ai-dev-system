@@ -15,9 +15,9 @@ evidence-bound task completion.
 - `src/extensions/`: tools added as extensions, registered in `src/tool-extensions.mjs`.
 - `src/core/`: path, command, process, project identity, context, task, routing, outcome, dashboard,
   overlay, frontend-quality, and distribution modules.
-- Node.js: 22.16+ or 24+ on `PATH` (any distribution) — the search index lives in `node:sqlite`,
-  which has FTS5 from 22.16; on an older Node, search falls back to the Python helper. No
-  agent-specific runtime is required.
+- Node.js: 22.16+ or 24+ on `PATH` (any distribution) — all of search lives in `node:sqlite`,
+  which has FTS5 from 22.16; on an older Node, every search tool answers with the version it
+  needs. No Python and no agent-specific runtime is required.
 - Regenerable runtime data lives under the **AI Dev home** — `AI_DEV_HOME`, default `~/.ai-dev`:
   - `~/.ai-dev/state` — task lifecycle, skill outcomes, pilots (override: `AI_DEV_STATE_ROOT`)
   - `~/.ai-dev/cache/search-index` — SQLite + dense index (override: `AI_DEV_SEARCH_INDEX_DIR`)
@@ -109,7 +109,9 @@ UI/UX design intelligence:
   effects, anti-patterns, and optional bounded persistence to
   `.ai-dev/frontend/design-system.md`
 - `query_ui_ux_knowledge`: focused local lookup by domain or implementation stack
-- curated `ui-ux-pro-max` core pinned to an audited upstream commit; no network or Python packages
+- curated `ui-ux-pro-max` core pinned to an audited upstream commit; no network and no Python
+  packages, but both tools above run the dataset's own Python script — the only tools that need
+  Python 3 (`AI_DEV_PYTHON`); without it they say so and `doctor` marks `ui_ux_knowledge` skipped
 - deterministic Russian-to-English query hints for common frontend concepts
 - generated recommendations remain drafts; rendered UI and inspected browser evidence are required
 
@@ -254,9 +256,10 @@ stopped.
 torch, and the 2.3 GB `BAAI/bge-m3` weights in `~/.ai-dev/models/bge-m3`
 (`$BGE_M3_MODEL_DIR`). `AI_DEV_DENSE_BACKEND=python` selects it explicitly; for a
 query the default, `auto`, uses it only when no verified ONNX export is on disk and the
-legacy stack is complete. Building vectors is not that careful yet: with no verified ONNX
-export it reaches for the legacy interpreter in `embeddings/.venv` whether or not that
-exists (docs/DEFECTS.md, Д-98). Set `BGE_M3_DEVICE=cuda` to run it on a GPU; the
+legacy stack is complete. Building vectors picks the same way, and with neither installed
+`rebuild_search_index` with `dense_embeddings` refuses with what to install instead of
+reaching for an interpreter that is not there (docs/DEFECTS.md, Д-98). Set
+`BGE_M3_DEVICE=cuda` to run it on a GPU; the
 loader checks for `pytorch_model.bin` and says so plainly when it is missing.
 
 By hand, if you would rather do each legacy step yourself (paths are for a plain
@@ -285,8 +288,8 @@ checkout; in an Obsidian vault the helper trees live under `09-mcp/`):
    PY
    ```
 
-3. Point `AI_DEV_PYTHON` at that venv's interpreter (or keep `python3` on `PATH`
-   with the packages installed), then call `rebuild_search_index` with
+3. Keep that venv where it is (or point `BGE_M3_PYTHON` at another interpreter with
+   the packages installed), then call `rebuild_search_index` with
    `dense_embeddings: true` to embed the index, and `run_search_eval` /
    `system_health_check` to confirm the dense backend is picked up.
 
@@ -377,7 +380,7 @@ AI_DEV_HOME         runtime-data root (default ~/.ai-dev)
 AI_DEV_STATE_ROOT   task/outcome/pilot state (default $AI_DEV_HOME/state)
 AI_DEV_SEARCH_INDEX_DIR   search index dir (default $AI_DEV_HOME/cache/search-index)
 AI_DEV_FRONTEND_QA_ARTIFACT_ROOT   QA artifacts (default $AI_DEV_HOME/artifacts/frontend-qa)
-AI_DEV_PYTHON       python interpreter for the search helper (default: python3; python on Windows)
+AI_DEV_PYTHON       python for the two UI UX Pro Max tools (default: python3; python on Windows)
 BGE_M3_ONNX_DIR     ONNX embedding model dir (default $AI_DEV_HOME/models/bge-m3-onnx)
 BGE_M3_MODEL_DIR    legacy Python model dir (default $AI_DEV_HOME/models/bge-m3)
 BGE_M3_DEVICE       cpu | cuda, legacy Python backend only
@@ -395,7 +398,7 @@ to update them.
 
 ## Docker
 
-The repository ships a local-only, non-root Docker runtime with Chromium, Python search, a clean
+The repository ships a local-only, non-root Docker runtime with Chromium, the search index, a clean
 public skill seed, persistent local state, and no network listener. It is built from a generated
 allowlist context rather than from the Vault or repository root.
 
@@ -426,7 +429,7 @@ Including the full BGE-M3 golden suite:
 ```
 
 The suite runs MCP unit tests, real stdio negotiation, lifecycle smoke, real Chromium Frontend QA,
-Python search-index tests, coverage thresholds, static modularity checks, and local security checks.
+coverage thresholds, static modularity checks, and local security checks.
 
 ## Local Operations
 
@@ -448,7 +451,8 @@ node scripts/install-local-mcp-clients.mjs --apply
 ```
 
 Client configurations point to this repository's `src/server.mjs` (set `AI_DEV_VAULT_ROOT` to
-override the vault root) and to `node` / `python3` on `PATH`. Restart or reload each client after
+override the vault root) and to `node`; the Python they name is used by the two UI UX Pro Max
+tools alone. Restart or reload each client after
 installation. Any model selected inside an MCP-capable client can use the same tools; a raw model
 endpoint still needs an MCP-capable host.
 

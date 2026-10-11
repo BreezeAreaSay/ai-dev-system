@@ -123,7 +123,9 @@ export function selectDenseBackend({ requested = "auto", onnxReady = false, supp
   return { backend: DENSE_ONNX_BACKEND, available: false, requested: choice, reason: notReadyReason({ inContainer, files }) };
 }
 
-const MOUNT_ADVICE = "mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH with docker/run-mcp.sh).";
+/** What fixes the model inside a container: the host's folder, mounted. */
+export const DENSE_MOUNT_ADVICE = "mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH with docker/run-mcp.sh).";
+const MOUNT_ADVICE = DENSE_MOUNT_ADVICE;
 
 /** The model is not usable; say which way, and what changes it. */
 function notReadyReason({ inContainer, files }) {

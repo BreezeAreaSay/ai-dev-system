@@ -38,6 +38,13 @@ test("files that are there and wrong are a warning that names them and the fix",
   const verdict = evaluateEmbeddingBackend(payload({ available: false, onnx: { ...ONNX, ready: false, mismatched: ["onnx/model_int8.onnx"] } }));
   assert.equal(verdict.status, "warn");
   assert.match(verdict.summary, /^The model files in \/m\/bge-m3-onnx do not match the manifest \(onnx\/model_int8\.onnx\)\. Run `npm run setup -- --dense`: it fetches those files again\.$/);
+  // In a container the folder is a read-only mount: the fix is on the host (Д-157).
+  const mounted = evaluateEmbeddingBackend({ ...payload({ available: false, onnx: { ...ONNX, ready: false, mismatched: ["tokenizer.json"] } }), in_container: true });
+  assert.match(mounted.summary, /\(tokenizer\.json\)\. In this container, mount a folder holding bge-m3-onnx\/ at \/models/);
+  assert.doesNotMatch(mounted.summary, /npm run setup/);
+  const mountedPartial = evaluateEmbeddingBackend({ ...payload({ available: false, onnx: { ...ONNX, ready: false, missing: ["onnx/model_int8.onnx"] } }),
+    partial: [{ file: "onnx/model_int8.onnx", bytes: 1024, size: 2048 }], in_container: true });
+  assert.match(mountedPartial.summary, /stopped partway \(1\.0 KB of onnx\/model_int8\.onnx\)\. In this container, mount/);
 });
 
 test("anything left of the Python backend is a warning, ready or not, until it is cleaned up", () => {

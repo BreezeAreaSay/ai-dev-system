@@ -22,7 +22,7 @@ Usage: sh ./bootstrap.sh [options]
 
 Options:
   --project-path PATH       Folder to mount as /workspace.
-  --model-path PATH         Folder holding bge-m3-onnx/ and/or bge-m3/, mounted read-only
+  --model-path PATH         Folder holding bge-m3-onnx/, mounted read-only
                             as /models (default: AI_DEV_MODEL_PATH; unset = no dense weights).
   --image NAME              Docker image tag (default: published GHCR latest).
   --clients LIST            Comma-separated: codex,cursor,gemini,vscode,claude.
@@ -225,18 +225,23 @@ if [ -n "$model_path" ]; then
     exit 64
   fi
   model_path=$(CDPATH= cd -- "$model_path" && pwd -P)
-  # The folder above the models, holding bge-m3-onnx/ and/or bge-m3/, mounted
-  # read-only as /models in the fast-start runtime (docs/DEFECTS.md Д-69). A
-  # folder that holds model files itself is the pre-Д-62 value of the variable
-  # and would leave both backends looking one level too deep (Д-68).
+  # The folder above the model, holding bge-m3-onnx/, mounted read-only as
+  # /models in the fast-start runtime (docs/DEFECTS.md Д-69). A folder that
+  # holds model files itself is the pre-Д-62 value of the variable and would
+  # leave the model one level too deep (Д-68); a lone bge-m3/ is the removed
+  # Python backend's weights (Д-158).
   for marker in pytorch_model.bin modules.json config.json onnx; do
     if [ -e "${model_path}/${marker}" ]; then
-      printf '%s\n' "--model-path names the folder above the models, and ${model_path} holds model files itself (${marker}). Point it at the parent folder that contains bge-m3-onnx/ and/or bge-m3/ — for a default install that is \$HOME/.ai-dev/models (docs/INSTALL.md)." >&2
+      printf '%s\n' "--model-path names the folder above the models, and ${model_path} holds model files itself (${marker}). Point it at the parent folder that contains bge-m3-onnx/ — for a default install that is \$HOME/.ai-dev/models (docs/INSTALL.md)." >&2
       exit 64
     fi
   done
-  if [ ! -d "${model_path}/bge-m3-onnx" ] && [ ! -d "${model_path}/bge-m3" ]; then
-    printf '%s\n' "${model_path} holds neither bge-m3-onnx/ nor bge-m3/ yet; dense search will report that it is not set up until a model is put there." >&2
+  if [ ! -d "${model_path}/bge-m3-onnx" ]; then
+    if [ -d "${model_path}/bge-m3" ]; then
+      printf '%s\n' "${model_path} holds bge-m3/, the weights of the Python backend 3.0 removed, and no bge-m3-onnx/; dense search will report that it is not set up. Put the ONNX model there: npm run model -- install --dir ${model_path}/bge-m3-onnx (docs/INSTALL.md)." >&2
+    else
+      printf '%s\n' "${model_path} holds no bge-m3-onnx/ yet; dense search will report that it is not set up until a model is put there." >&2
+    fi
   fi
 fi
 

@@ -101,10 +101,11 @@ internal static class ClaudeMcpProxy
         return fullPath;
     }
 
-    // One mount point for both backends, as in run-mcp.sh and run-mcp.ps1: the
-    // folder holds bge-m3-onnx\ and/or bge-m3\, and the image looks for them
-    // under /models. This copy mounted it at /models/bge-m3, one level too deep,
-    // so Claude on Windows never had dense search (docs/DEFECTS.md, Д-88).
+    // As in run-mcp.sh and run-mcp.ps1: the folder holds bge-m3-onnx\, and the
+    // image looks for it under /models. This copy mounted it at /models/bge-m3,
+    // one level too deep, so Claude on Windows never had dense search
+    // (docs/DEFECTS.md, Д-88). A lone bge-m3\ is the removed Python backend's
+    // weights (Д-158).
     private static readonly string[] ModelFileMarkers = { "pytorch_model.bin", "modules.json", "config.json", "onnx" };
 
     private static string ModelMountSource()
@@ -120,13 +121,15 @@ internal static class ClaudeMcpProxy
             if (File.Exists(candidate) || Directory.Exists(candidate))
             {
                 throw new InvalidOperationException("AI_DEV_MODEL_PATH now names the folder above the models, and " + fullPath
-                    + " holds model files itself (" + marker + "). Point it at the parent folder that contains bge-m3-onnx\\ and/or bge-m3\\"
+                    + " holds model files itself (" + marker + "). Point it at the parent folder that contains bge-m3-onnx\\"
                     + " - for a default install that is %USERPROFILE%\\.ai-dev\\models (docs/INSTALL.md).");
             }
         }
-        if (!Directory.Exists(Path.Combine(fullPath, "bge-m3-onnx")) && !Directory.Exists(Path.Combine(fullPath, "bge-m3")))
+        if (!Directory.Exists(Path.Combine(fullPath, "bge-m3-onnx")))
         {
-            Console.Error.WriteLine("AI_DEV_MODEL_PATH=" + fullPath + " holds neither bge-m3-onnx\\ nor bge-m3\\; dense search will report that it is not set up until a model is put there.");
+            Console.Error.WriteLine(Directory.Exists(Path.Combine(fullPath, "bge-m3"))
+                ? "AI_DEV_MODEL_PATH=" + fullPath + " holds bge-m3\\, the weights of the Python backend 3.0 removed, and no bge-m3-onnx\\; dense search will report that it is not set up. Put the ONNX model there: npm run model -- install --dir " + Path.Combine(fullPath, "bge-m3-onnx") + " (docs/INSTALL.md)."
+                : "AI_DEV_MODEL_PATH=" + fullPath + " holds no bge-m3-onnx\\; dense search will report that it is not set up until a model is put there.");
         }
         return fullPath;
     }

@@ -171,17 +171,22 @@ if ($resolvedModelPath) {
     if (-not (Test-Path -LiteralPath $resolvedModelPath -PathType Container)) {
         throw "Model path does not exist: $resolvedModelPath"
     }
-    # The folder above the models, holding bge-m3-onnx\ and/or bge-m3; the
-    # launcher mounts it read-only as /models (docs/DEFECTS.md Д-69). A folder
-    # that holds model files itself is the pre-Д-62 value of the variable and
-    # would leave both backends looking one level too deep (Д-68).
+    # The folder above the model, holding bge-m3-onnx\; the launcher mounts it
+    # read-only as /models (docs/DEFECTS.md Д-69). A folder that holds model
+    # files itself is the pre-Д-62 value of the variable and would leave the
+    # model one level too deep (Д-68); a lone bge-m3\ is the removed Python
+    # backend's weights (Д-158).
     foreach ($marker in @("pytorch_model.bin", "modules.json", "config.json", "onnx")) {
         if (Test-Path -LiteralPath (Join-Path $resolvedModelPath $marker)) {
-            throw "-ModelPath names the folder above the models, and $resolvedModelPath holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ and/or bge-m3\ - for a default install that is $HOME\.ai-dev\models (docs/INSTALL.md)."
+            throw "-ModelPath names the folder above the models, and $resolvedModelPath holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ - for a default install that is $HOME\.ai-dev\models (docs/INSTALL.md)."
         }
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $resolvedModelPath "bge-m3-onnx")) -and -not (Test-Path -LiteralPath (Join-Path $resolvedModelPath "bge-m3"))) {
-        Write-Warning "$resolvedModelPath holds neither bge-m3-onnx\ nor bge-m3\ yet; dense search will report that it is not set up until a model is put there."
+    if (-not (Test-Path -LiteralPath (Join-Path $resolvedModelPath "bge-m3-onnx"))) {
+        if (Test-Path -LiteralPath (Join-Path $resolvedModelPath "bge-m3")) {
+            Write-Warning "$resolvedModelPath holds bge-m3\, the weights of the Python backend 3.0 removed, and no bge-m3-onnx\; dense search will report that it is not set up. Put the ONNX model there: npm run model -- install --dir $resolvedModelPath\bge-m3-onnx (docs/INSTALL.md)."
+        } else {
+            Write-Warning "$resolvedModelPath holds no bge-m3-onnx\ yet; dense search will report that it is not set up until a model is put there."
+        }
     }
 }
 

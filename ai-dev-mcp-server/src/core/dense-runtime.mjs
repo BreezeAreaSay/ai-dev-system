@@ -157,6 +157,7 @@ export function createDenseRuntime({
       installed: selected.onnx.ready,
       available: selected.available,
       reason: selected.reason,
+      in_container: String(env.AI_DEV_RUNTIME ?? "") === "docker",
       partial,
       worker: onnxRuntime.status?.().worker ?? { started: false },
       dense_backend: selected

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { environmentWithoutPython, isPythonExecutable, planPythonFreePath } from "./python-free-path.mjs";
+import { environmentWithoutPython, isPythonExecutable, isPythonShebang, planPythonFreePath } from "./python-free-path.mjs";
 
 test("interpreters are recognised by name, and only interpreters", () => {
   for (const name of ["python", "python3", "python3.13", "python2.7"]) {
@@ -19,37 +19,51 @@ test("interpreters are recognised by name, and only interpreters", () => {
   }
 });
 
-test("off Windows a folder with an interpreter is mirrored without it, and an unlistable one goes", () => {
+test("a script's first line names Python, or it does not", () => {
+  for (const head of ["#!/usr/bin/python3\nimport sys", "#!/usr/bin/env python3 -I", "#! /usr/bin/python3.12", "#!/usr/bin/env python\r\n", "#!/opt/venv/bin/python"]) {
+    assert.ok(isPythonShebang(head), head);
+  }
+  for (const head of ["#!/bin/sh\nexec python3 \"$@\"", "#!/usr/bin/env node", "\u007fELF", "", "#!/usr/bin/env pythonista", "# python script, no shebang"]) {
+    assert.ok(!isPythonShebang(head), head);
+  }
+});
+
+test("off Windows a folder with an interpreter or a Python script is mirrored without them; an unlistable one goes", () => {
   const listings = {
     "/usr/local/bin": ["node", "npm"],
-    "/usr/bin": ["env", "git", "python3", "python3.12", "python3-config", "sh"],
+    "/usr/bin": ["env", "git", "python3", "python3.12", "python3-config", "sh", "pip3", "lsb_release"],
     "/home/me/.pyenv/shims": ["python", "pip"],
-    "/opt/tools": ["pydoc3"]
+    "/opt/tools": ["pydoc3"],
+    "/opt/scanners": ["semgrep", "trivy"]
   };
+  const scripts = new Set(["/usr/bin/pip3", "/usr/bin/lsb_release", "/opt/scanners/semgrep"]);
   const plan = planPythonFreePath({
-    pathValue: "/usr/local/bin::/usr/bin:/home/me/.pyenv/shims:/opt/tools:/gone",
+    pathValue: "/usr/local/bin::/usr/bin:/home/me/.pyenv/shims:/opt/tools:/opt/scanners:/gone",
     platform: "linux",
     listDirectory: (directory) => {
       if (!(directory in listings)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
       return listings[directory];
-    }
+    },
+    isPythonScript: (directory, name) => scripts.has(`${directory}/${name}`)
   });
   assert.deepEqual(plan, [
     { directory: "/usr/local/bin", action: "keep" },
     { directory: "/usr/bin", action: "mirror", names: ["env", "git", "python3-config", "sh"] },
     { directory: "/home/me/.pyenv/shims", action: "mirror", names: ["pip"] },
     { directory: "/opt/tools", action: "keep" },
+    { directory: "/opt/scanners", action: "mirror", names: ["trivy"] },
     { directory: "/gone", action: "drop", reason: "cannot be listed" }
   ]);
 });
 
-test("Windows: semicolons, any case, the Store alias and pyenv-win's batch shims — dropped, not mirrored", () => {
+test("Windows: semicolons, any case, the Store alias, pyenv-win's batch shims and pip launchers — dropped, not mirrored", () => {
   const listings = {
     "C:\\hostedtoolcache\\windows\\node\\24.10.0\\x64": ["node.exe", "npm.cmd", "npx.cmd"],
     "C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64": ["Python.exe", "pythonw.exe"],
     "C:\\Users\\me\\AppData\\Local\\Microsoft\\WindowsApps": ["python.exe", "python3.exe", "winget.exe"],
     "C:\\Users\\me\\.pyenv\\pyenv-win\\shims": ["python.bat", "pip.bat"],
     "C:\\Windows": ["py.exe", "explorer.exe"],
+    "C:\\hostedtoolcache\\windows\\Python\\3.12.10\\x64\\Scripts": ["pip.exe", "pip3.12.exe", "wheel.exe"],
     "C:\\Windows\\System32": ["cmd.exe", "where.exe"]
   };
   const plan = planPythonFreePath({
@@ -65,7 +79,8 @@ test("Windows: semicolons, any case, the Store alias and pyenv-win's batch shims
     "holds Python.exe, pythonw.exe",
     "holds python.exe, python3.exe",
     "holds python.bat",
-    "holds py.exe"
+    "holds py.exe",
+    "holds pip.exe, pip3.12.exe"
   ]);
   assert.ok(!plan.some((step) => step.action === "mirror"));
 });

@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { environmentWithoutPython, planPythonFreePath } from "../src/core/python-free-path.mjs";
+import { environmentWithoutPython, isPythonShebang, planPythonFreePath } from "../src/core/python-free-path.mjs";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const windows = process.platform === "win32";
@@ -38,6 +38,21 @@ function npmCli() {
   return found;
 }
 
+/** The first line's worth of a regular file, or "" for anything else. */
+function readHead(file) {
+  let handle;
+  try {
+    if (!fs.statSync(file).isFile()) return "";
+    handle = fs.openSync(file, "r");
+    const buffer = Buffer.alloc(128);
+    return buffer.toString("latin1", 0, fs.readSync(handle, buffer, 0, buffer.length, 0));
+  } catch {
+    return "";
+  } finally {
+    if (handle !== undefined) fs.closeSync(handle);
+  }
+}
+
 /**
  * The PATH the steps run with: this Node's folder first — npm runs package
  * scripts as `node …` — then every entry of the current PATH, each kept,
@@ -48,7 +63,8 @@ function pythonFreePath(scratch) {
   const key = Object.keys(process.env).find((name) => name.toUpperCase() === "PATH") ?? "PATH";
   const plan = planPythonFreePath({
     pathValue: [path.dirname(process.execPath), process.env[key] ?? ""].join(path.delimiter),
-    listDirectory: (directory) => fs.readdirSync(directory)
+    listDirectory: (directory) => fs.readdirSync(directory),
+    isPythonScript: (directory, name) => isPythonShebang(readHead(path.join(directory, name)))
   });
   if (plan[0].action === "drop") {
     throw new Error(`node.exe shares a folder with Python (${plan[0].directory}), so Python cannot be hidden from it.`);
@@ -123,7 +139,7 @@ try {
   const env = environmentWithoutPython(process.env, pathValue);
   assertNoPython(env);
   for (const step of plan.filter((item) => item.action !== "keep")) {
-    console.log(step.action === "drop" ? `Left out ${step.directory} (${step.reason}).` : `Mirrored ${step.directory} without its Python.`);
+    console.log(step.action === "drop" ? `Left out ${step.directory} (${step.reason}).` : `Mirrored ${step.directory} without its Python and Python scripts.`);
   }
   console.log("No Python on PATH: python3, python and py do not start.");
   if (!process.argv.includes("--skip-install")) await run("npm ci", ["ci", "--no-audit", "--no-fund"], env);

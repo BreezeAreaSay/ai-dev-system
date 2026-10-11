@@ -443,7 +443,8 @@ Exit codes: 0 done, 1 failed, 2 wrong usage, 130 stopped with Ctrl-C. `npm run s
 `backup` and `distribution` run the same commands. The 2.x paths still work until 4.0, with a
 note on stderr where they were documented: `node scripts/ai-dev.mjs <command>`,
 `scripts/start-local.ps1` (now `ai-dev mcp`), `scripts/install-local-mcp-clients.mjs [--apply]`
-(now `ai-dev clients install`; a dry run without `--apply`, as before).
+(now `ai-dev clients install`; as before, a dry run without `--apply`, and the four clients 2.x
+wrote — Cursor, Gemini, VS Code, Claude Code — unless `--clients` names others).
 
 `ai-dev clients install` writes one entry, `ai-dev`, into Claude Code, Claude Desktop (and its
 Microsoft Store copy), Cursor, VS Code, Codex and Gemini: the absolute path of this Node, this

@@ -258,7 +258,10 @@ test("a rebuild that leaves the registry stale is not run in a loop, but is trie
 
 test("skills changed, added or removed while the rebuild runs are put right by the next looks (Д-128)", async (t) => {
   const fixture = await makeCatalog(t);
-  const clock = { now: Date.now() };
+  // Later than every write below, however slow the machine: the reader takes
+  // a file stamped after its clock for one from the future and ignores it
+  // (docs/DEFECTS.md, Д-134). Time still moves only by the steps below.
+  const clock = { now: Date.now() + 60_000 };
   const put = async (relative, text) => {
     await fs.mkdir(path.dirname(path.join(fixture.catalog, relative)), { recursive: true });
     await fs.writeFile(path.join(fixture.catalog, relative), text);

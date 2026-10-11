@@ -192,20 +192,23 @@ export function createIndexReader(filePath, { delays = READ_RETRY_DELAYS_MS, idl
    */
   async function read(fn) {
     let lastError;
-    for (let attempt = 0; attempt <= delays.length; attempt += 1) {
-      try {
-        const db = connection();
-        const result = db ? fn(db) : null;
-        closeWhenIdle();
-        return result;
-      } catch (error) {
-        if (isCorruptError(error)) close();
-        if (!isBusyError(error)) throw error;
-        lastError = error;
-        if (attempt < delays.length) await sleep(delays[attempt]);
+    try {
+      for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+        try {
+          const db = connection();
+          return db ? fn(db) : null;
+        } catch (error) {
+          if (isCorruptError(error)) close();
+          if (!isBusyError(error)) throw error;
+          lastError = error;
+          if (attempt < delays.length) await sleep(delays[attempt]);
+        }
       }
+    } finally {
+      // After any read, a failed one too: an ordinary SQL error used to keep
+      // the file open for good (docs/DEFECTS.md, Д-132).
+      closeWhenIdle();
     }
-    closeWhenIdle();
     throw new Error(`SQLite index remained busy after ${delays.length + 1} attempts: ${filePath}`, { cause: lastError });
   }
 

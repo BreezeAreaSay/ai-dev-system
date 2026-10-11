@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { FIRST_RUN_STEPS, planFirstRun } from "../src/core/first-run.mjs";
+import { densePlan, rebuildIndex } from "../src/core/search-store.mjs";
+import { sqliteSupport } from "../src/core/search-sqlite.mjs";
 import {
   REQUIRED_STEP_IDS,
   createRequiredActions,
@@ -263,6 +265,40 @@ test("a registry whose skills changed on disk is rebuilt, and everything built f
     planFirstRun({ present: pulled.present, stale: pulled.stale }).filter((step) => step.run).map((step) => step.id),
     [...REQUIRED_STEP_IDS]
   );
+});
+
+test("after a pull that changed skills, the dense vectors in the index are still reported (Д-131)", { skip: !sqliteSupport().available && sqliteSupport().reason }, async (t) => {
+  const root = await makeVault(t, {
+    "02-knowledge/deploy.md": "# Deploy\n\nHow to deploy and roll back.",
+    "03-skills-catalog/sources/custom/kept/SKILL.md": "# kept\n",
+    "03-skills-catalog/registries/skills.index.json": JSON.stringify([
+      { name: "kept", source: "custom", categories: ["review"], description: "Reviews code.", path: "sources/custom/kept/SKILL.md" }
+    ]),
+    "cases.json": "[]"
+  });
+  const indexPath = path.join(root, "cache", "ai-dev-search.sqlite");
+  const provenance = { backend: "onnx", revision: "abc123", dtype: "int8" };
+  const plan = await densePlan({ vaultRoot: root, indexPath, provenance });
+  const vectors = plan.records.map((record) => ({ id: record.id, content_hash: record.content_hash, vector: Array.from({ length: 1024 }, (_, index) => (index === 0 ? 1 : 0)) }));
+  await rebuildIndex({ vaultRoot: root, indexPath, denseEmbeddings: true, suppliedVectors: vectors, denseBackend: "onnx", denseRevision: "abc123", denseDtype: "int8" });
+  const catalog = path.join(root, "03-skills-catalog");
+  const past = new Date(Date.now() - 120_000);
+  for (const relative of ["sources/custom/kept/SKILL.md", "sources/custom/kept", "sources/custom", "sources"]) await fs.utimes(path.join(catalog, relative), past, past);
+  // The pull rewrites the skill: the registry is out of date.
+  await fs.writeFile(path.join(catalog, "sources/custom/kept/SKILL.md"), "# kept, pulled\n");
+  let asked = 0;
+  const state = await readRequiredState({
+    paths: requiredArtefactPaths({ vaultRoot: root, searchIndexPath: indexPath }),
+    callTool: async () => { asked += 1; return toolResult({}); },
+    serverRoot: path.resolve("."),
+    skillRoutingEvalCasesPath: path.join(root, "cases.json")
+  });
+  assert.equal(state.stale.skill_registry, true);
+  assert.equal(asked, 0, "the tool is not asked: it would rebuild the registry itself");
+  assert.equal(state.indexStatus?.dense_documents, plan.records.length, "the vectors the index holds");
+  const step = planFirstRun({ present: { ...state.present, dense_index: state.indexStatus.dense_documents > 0 }, stale: state.stale })
+    .find((item) => item.id === "dense_index");
+  assert.doesNotMatch(step.reason, /not installed/);
 });
 
 test("running a plan reports every step, including the ones this caller cannot run", async () => {

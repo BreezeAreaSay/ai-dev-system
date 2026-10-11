@@ -134,13 +134,16 @@ test("distribution audit rejects a NUL byte in a text file and nowhere else (Д-
   await fs.writeFile(path.join(root, "SKILL.md"), Buffer.concat([
     Buffer.from("# Confluent\n\n"), Buffer.alloc(150), Buffer.from("\n\nOfficial docs\n")
   ]));
-  await fs.writeFile(path.join(root, "LICENSE"), Buffer.from("MIT\0"));
-  // Images are binary and are meant to carry NULs.
+  await fs.writeFile(path.join(root, "notes.txt"), Buffer.from("text\0"));
+  // Images are binary and are meant to carry NULs; so is a program a skill
+  // ships without an extension (Д-132).
   await fs.writeFile(path.join(root, "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0x0d]));
+  await fs.mkdir(path.join(root, "bin"));
+  await fs.writeFile(path.join(root, "bin", "tool"), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0, 0, 0]));
   await fs.writeFile(path.join(root, "clean.md"), "# Clean\n");
   const audit = await auditDistributionTree(root);
   assert.deepEqual(audit.findings, [
-    { rule: "nul-byte-in-text", path: "LICENSE" },
+    { rule: "nul-byte-in-text", path: "notes.txt" },
     { rule: "nul-byte-in-text", path: "SKILL.md" }
   ]);
   assert.throws(() => assertCleanDistribution(audit, "public seed"), /nul-byte-in-text: SKILL\.md/);

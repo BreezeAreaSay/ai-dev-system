@@ -252,7 +252,9 @@ writers apart without stopping them — the cross-process rebuild lock, refreshe
 taken around the helper's writes too, SQLite's write lock waited for between turns of the event
 loop, a checkpoint that never waits for readers, and a damaged file set aside, retried while
 another process on Windows still has it open; and the skill registry those documents come from
-is rebuilt first when its skills changed on disk (`core/skill-registry-freshness.mjs`);
+is rebuilt first when its skills changed on disk (`core/skill-registry-freshness.mjs` — the
+registry is dated by when its sources were read, so a change made during a rebuild is seen by the
+next look, and a rebuild that could not put it right is retried after a growing pause);
 `core/search-documents.mjs` and `core/search-semantic.mjs` reproduce the helper's documents,
 hashes and sparse vectors byte for byte — with `core/python-compat.mjs` and `core/blake2b.mjs`
 for the arithmetic the two languages disagree on — so either engine reads what the other wrote,

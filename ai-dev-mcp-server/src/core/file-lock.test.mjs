@@ -205,18 +205,46 @@ test("the hooks' synchronous lock excludes the server's and is released the same
 
 test("a heartbeat keeps a long-held lock live past its staleness bound, from any host's point of view", async () => {
   const target = await tempFile();
-  const release = await acquireFileLock(target, { staleMs: 300, heartbeatMs: 50 });
+  // Beats 16 times per bound: only a stall of most of a second could age it.
+  const release = await acquireFileLock(target, { staleMs: 800, heartbeatMs: 50 });
   const first = JSON.parse(await fs.readFile(lockPathFor(target), "utf8"));
-  await new Promise((resolve) => setTimeout(resolve, 450));
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
   const later = await readLock(lockPathFor(target));
   assert.ok(later.holder, "a reader never finds the holder half-rewritten");
   assert.equal(later.holder.token, first.token, "the same holder, rewritten in place");
   assert.ok(later.holder.acquired_at > first.acquired_at, "with a fresh acquired_at");
   // Another host cannot check the pid; the refreshed time is what keeps it held.
-  assert.equal(lockIsLive(later, { staleMs: 300, host: "another-host" }), true);
-  await assert.rejects(withFileLock(target, async () => undefined, { timeoutMs: 150, staleMs: 300 }), /Timed out/);
+  assert.equal(lockIsLive(later, { staleMs: 800, host: "another-host" }), true);
+  await assert.rejects(withFileLock(target, async () => undefined, { timeoutMs: 150, staleMs: 800 }), /Timed out/);
   await release();
-  await withFileLock(target, async () => undefined, { timeoutMs: 500, staleMs: 300 });
+  await withFileLock(target, async () => undefined, { timeoutMs: 500, staleMs: 800 });
+});
+
+test("a heartbeat whose file cannot be closed does not take the process down (Д-129)", async () => {
+  const target = await tempFile();
+  const realOpen = fs.open;
+  let failedCloses = 0;
+  // What a network file system can do: report a deferred write error at close.
+  fs.open = async (file, flags, ...rest) => {
+    const handle = await realOpen(file, flags, ...rest);
+    if (flags !== "r+") return handle;
+    const close = handle.close.bind(handle);
+    handle.close = async () => {
+      await close();
+      failedCloses += 1;
+      throw Object.assign(new Error("EIO: i/o error, close"), { code: "EIO" });
+    };
+    return handle;
+  };
+  try {
+    const release = await acquireFileLock(target, { heartbeatMs: 20 });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await release();
+  } finally {
+    fs.open = realOpen;
+  }
+  assert.ok(failedCloses >= 3, `the beats ran into the failing close: ${failedCloses}`);
+  await assert.rejects(fs.stat(lockPathFor(target)), { code: "ENOENT" });
 });
 
 test("a lock from another host that stopped beating is broken once its bound has passed", async () => {
@@ -242,6 +270,40 @@ test("a process that exits while holding a lock removes it on the way out", asyn
   `], { encoding: "utf8" });
   assert.equal(child.status, 0, child.stderr);
   await assert.rejects(fs.stat(lockPathFor(target)), { code: "ENOENT" });
+});
+
+test("an exit in the middle of a release still removes the lock, and never one someone else took (Д-132)", async () => {
+  const { spawnSync } = await import("node:child_process");
+  const moduleUrl = new URL("./file-lock.mjs", import.meta.url).href;
+  const run = (target, body) => spawnSync(process.execPath, ["--input-type=module", "-e", `
+    const { acquireFileLock, lockPathFor } = await import(${JSON.stringify(moduleUrl)});
+    const fs = await import("node:fs");
+    const fsp = (await import("node:fs/promises")).default;
+    const target = ${JSON.stringify(target)};
+    ${body}
+  `], { encoding: "utf8" });
+
+  // A SIGTERM handler exits while the release is reading the lock back.
+  const releasing = await tempFile();
+  const first = run(releasing, `
+    const release = await acquireFileLock(target);
+    const realOpen = fsp.open;
+    fsp.open = async (file, flags, ...rest) => { if (flags === "r") process.exit(0); return realOpen(file, flags, ...rest); };
+    await release();
+    process.exit(3);
+  `);
+  assert.equal(first.status, 0, first.stderr);
+  await assert.rejects(fs.stat(lockPathFor(releasing)), { code: "ENOENT" });
+
+  // The lock was broken and taken by another process before this one exits.
+  const retaken = await tempFile();
+  const second = run(retaken, `
+    await acquireFileLock(target);
+    fs.writeFileSync(lockPathFor(target), JSON.stringify({ pid: 1, host: "elsewhere", token: "theirs", acquired_at: Date.now() }));
+    process.exit(0);
+  `);
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(JSON.parse(await fs.readFile(lockPathFor(retaken), "utf8")).token, "theirs");
 });
 
 test("a reader racing the heartbeat always finds a whole holder", async () => {

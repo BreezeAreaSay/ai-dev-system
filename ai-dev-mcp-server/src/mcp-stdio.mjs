@@ -99,7 +99,7 @@ import {
 } from "./core/context-compiler.mjs";
 import { loadContextExtras } from "./core/context-extras.mjs";
 import { routeSkills } from "./core/skill-router.mjs";
-import { createSkillRegistryReader } from "./core/skill-registry-freshness.mjs";
+import { createSkillRegistryReader, keepSkillRegistryDate } from "./core/skill-registry-freshness.mjs";
 import { writeSkillSubgroupNotes } from "./core/skill-group-notes.mjs";
 import { prioritizeKnowledgeResults } from "./core/knowledge-router.mjs";
 import {
@@ -1426,7 +1426,7 @@ async function rebuildSkillTaxonomy({ sync_cards = true } = {}) {
     external: items.filter((item) => String(item.source || "").startsWith("external/"))
   };
 
-  await writeJson("03-skills-catalog/registries/skills.index.json", items);
+  await keepSkillRegistryDate(skillIndexPath, () => writeJson("03-skills-catalog/registries/skills.index.json", items));
   await writeJson("03-skills-catalog/registries/custom.skills.index.json", bySource.custom);
   await writeJson("03-skills-catalog/registries/design.skills.index.json", bySource.design);
   await writeJson("03-skills-catalog/registries/membrane.skills.index.json", bySource.membrane);

@@ -381,6 +381,38 @@ test("a changed document rewritten in place keeps its rowid, so ties come back i
   assert.deepEqual(rowids(), before, "documents and their text stay at the rowids a full rebuild gave them");
 });
 
+test("a refresh that changes the newest note and adds one walked before it stays in place (Д-127)", needsSqlite, async (t) => {
+  const vault = tempRoot(t);
+  const indexPath = path.join(tempRoot(t), "index.sqlite");
+  for (let index = 0; index < 20; index += 1) write(vault, `02-knowledge/n${String(index).padStart(2, "0")}.md`, `# Note ${index}\n\nbody ${index}`);
+  write(vault, "03-skills-catalog/registries/skills.index.json", "[]");
+  await rebuildIndex({ vaultRoot: vault, indexPath });
+  // Added by an in-place refresh, so it holds the highest rowid.
+  write(vault, "02-knowledge/session.md", "# Session\n\nfirst draft");
+  assert.equal((await rebuildIndex({ vaultRoot: vault, indexPath, inPlace: true })).write_mode, "in_place");
+  write(vault, "02-knowledge/session.md", "# Session\n\nsecond draft");
+  write(vault, "02-knowledge/a-new.md", "# New\n\nanother note");
+  const updated = await rebuildIndex({ vaultRoot: vault, indexPath, inPlace: true });
+  assert.deepEqual([updated.write_mode, updated.rewritten_documents], ["in_place", 3]);
+  const db = openDatabase(indexPath);
+  try {
+    const rows = db.prepare("SELECT d.rowid AS r, f.rowid AS f, d.path AS path FROM documents d JOIN docs_fts f ON f.id = d.id").all();
+    assert.equal(rows.length, 22);
+    assert.ok(rows.every((row) => row.r === row.f), "every document's text sits at its rowid");
+    const session = rows.find((row) => row.path === "02-knowledge/session.md");
+    const added = rows.find((row) => row.path === "02-knowledge/a-new.md");
+    assert.equal(session.r, 21, "the changed note kept its rowid");
+    assert.equal(added.r, 22, "the new one was appended after it");
+  } finally {
+    db.close();
+  }
+  assert.deepEqual(dump(indexPath), await (async () => {
+    const fresh = path.join(tempRoot(t), "fresh.sqlite");
+    await rebuildIndex({ vaultRoot: vault, indexPath: fresh });
+    return dump(fresh);
+  })(), "and it holds exactly what a full rebuild writes");
+});
+
 test("a rebuild waits for another writer without stopping the event loop", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const indexPath = path.join(tempRoot(t), "index.sqlite");
@@ -456,6 +488,13 @@ test("a reader lets go of the file when idle, and at once when the file is damag
   await new Promise((resolve) => setTimeout(resolve, 120));
   assert.equal(reader.isOpen(), false, "closed after the idle time");
   assert.equal(await reader.read((db) => db.prepare("SELECT count(*) AS n FROM documents").get().n), 5, "and opened again on the next read");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+
+  // A read that fails with an ordinary SQL error lets go of the file too (Д-132).
+  await assert.rejects(reader.read((db) => db.prepare("SELECT no_such_column FROM documents").all()), /no such column/);
+  assert.equal(reader.isOpen(), true);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(reader.isOpen(), false, "closed after the idle time, after a failed read as well");
 
   const damaged = path.join(tempRoot(t), "damaged.sqlite");
   fs.writeFileSync(damaged, Buffer.alloc(4096, 9));

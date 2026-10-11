@@ -279,7 +279,7 @@ test("an old mtime put back on a file changed just now does not make it trusted:
   assert.equal(later.entries.size, 1, "once both are out of the window it is");
 });
 
-test("on Windows a linked folder is entered, as os.walk enters a junction, and only once per real folder", { skip: !symlinks && "needs symlinks" }, (t) => {
+test("on Windows a linked folder is entered, as os.walk enters a junction, but not one into its own ancestry", { skip: !symlinks && "needs symlinks" }, (t) => {
   // Node reports an NTFS junction as a symlink; Python does not count it as
   // one and walks into it. Symlinks stand in for junctions here.
   const vault = tempRoot(t, "search-vault-");
@@ -292,6 +292,22 @@ test("on Windows a linked folder is entered, as os.walk enters a junction, and o
   const paths = (platform) => collectDocuments({ vaultRoot: vault, platform }).docs.map((doc) => doc.path).sort();
   assert.deepEqual(paths("win32"), ["02-knowledge/linked/linked.md", "02-knowledge/own.md"], "the linked note once, and no loop");
   assert.deepEqual(paths("linux"), ["02-knowledge/own.md"], "elsewhere a symlinked folder stays out, as os.walk leaves it");
+});
+
+test("on Windows a junction to a folder of the vault never takes that folder's notes away (Д-130)", { skip: !symlinks && "needs symlinks" }, (t) => {
+  for (const [real, link] of [
+    ["02-knowledge/deep/target", "02-knowledge/link"],
+    ["02-knowledge/aaa-real", "02-knowledge/zzz-link"],
+    ["02-knowledge/zzz-real", "02-knowledge/aaa-link"]
+  ]) {
+    const vault = tempRoot(t, "search-vault-");
+    write(vault, `${real}/note.md`, "# Note\n\nLives in the real folder.");
+    write(vault, "03-skills-catalog/registries/skills.index.json", "[]");
+    fs.symlinkSync(path.join(vault, real), path.join(vault, link), "junction");
+    const paths = (platform) => collectDocuments({ vaultRoot: vault, platform }).docs.map((doc) => doc.path).sort();
+    assert.deepEqual(paths("win32"), [`${link}/note.md`, `${real}/note.md`].sort(), `${link} -> ${real}: both paths, as os.walk indexes them`);
+    assert.deepEqual(paths("linux"), [`${real}/note.md`]);
+  }
 });
 
 test("dense passages and their hashes are the helper's", { skip: !symlinks && "the fixture has symlinks" }, (t) => {

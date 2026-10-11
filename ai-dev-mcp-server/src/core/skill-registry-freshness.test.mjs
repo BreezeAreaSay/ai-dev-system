@@ -7,6 +7,8 @@ import test from "node:test";
 import {
   checkSkillRegistry,
   createSkillRegistryReader,
+  dateSkillRegistry,
+  keepSkillRegistryDate,
   skillRegistryStaleness
 } from "./skill-registry-freshness.mjs";
 
@@ -188,7 +190,7 @@ test("concurrent readers share one rebuild, and reads made by the rebuild do not
   assert.equal(inner.length, 2, "the rebuild's own read saw the registry as it stood");
 });
 
-test("a rebuild that fails is reported once and not retried until the registry changes", async (t) => {
+test("a rebuild that fails is retried after a pause, or at once when the registry changes", async (t) => {
   const fixture = await makeCatalog(t);
   const clock = { now: Date.now() };
   const errors = [];
@@ -197,6 +199,7 @@ test("a rebuild that fails is reported once and not retried until the registry c
     registryPath: fixture.registryPath,
     catalogRoot: fixture.catalog,
     now: () => clock.now,
+    retryDelays: [60_000, 120_000],
     onError: (error) => errors.push(error.message),
     async rebuild() {
       attempts += 1;
@@ -205,18 +208,24 @@ test("a rebuild that fails is reported once and not retried until the registry c
   });
   await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
   assert.equal((await reader.read()).length, 2, "the registry on disk is served as it is");
-  clock.now += 60_000;
-  assert.equal((await reader.ensureFresh()).action, "stale");
+  clock.now += 30_000;
+  assert.equal((await reader.ensureFresh()).action, "stale", "inside the pause it is not tried again");
   assert.equal(attempts, 1);
   assert.deepEqual(errors, ["read-only vault"]);
+  clock.now += 30_000;
+  assert.equal((await reader.ensureFresh()).action, "failed", "after the pause it is");
+  assert.equal(attempts, 2);
+  clock.now += 60_000;
+  assert.equal((await reader.ensureFresh()).action, "stale", "the second pause is longer");
+  assert.equal(attempts, 2);
 
   // Someone rebuilds it by hand: the next look starts afresh.
   await fs.writeFile(fixture.registryPath, JSON.stringify([{ path: "sources/external/pack/skills/beta/SKILL.md" }]));
-  clock.now += 60_000;
+  clock.now += 1_000;
   assert.equal((await reader.ensureFresh()).action, "current");
 });
 
-test("a rebuild that leaves the registry stale is not run in a loop", async (t) => {
+test("a rebuild that leaves the registry stale is not run in a loop, but is tried again later", async (t) => {
   const fixture = await makeCatalog(t);
   const clock = { now: Date.now() };
   const errors = [];
@@ -225,6 +234,7 @@ test("a rebuild that leaves the registry stale is not run in a loop", async (t) 
     registryPath: fixture.registryPath,
     catalogRoot: fixture.catalog,
     now: () => clock.now,
+    retryDelays: [60_000],
     onError: (error) => errors.push(error.message),
     async rebuild() {
       attempts += 1;
@@ -235,12 +245,77 @@ test("a rebuild that leaves the registry stale is not run in a loop", async (t) 
   await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
   assert.equal((await reader.ensureFresh()).action, "rebuilt");
   for (let round = 0; round < 3; round += 1) {
-    clock.now += 60_000;
+    clock.now += 10_000;
     assert.equal((await reader.ensureFresh()).action, "stale");
   }
   assert.equal(attempts, 1);
   assert.equal(errors.length, 1);
   assert.match(errors[0], /still out of date after a rebuild: missing sources\/custom\/ghost\/SKILL\.md/);
+  clock.now += 60_000;
+  assert.equal((await reader.ensureFresh()).action, "rebuilt");
+  assert.equal(attempts, 2);
+});
+
+test("skills changed, added or removed while the rebuild runs are put right by the next looks (Д-128)", async (t) => {
+  const fixture = await makeCatalog(t);
+  const clock = { now: Date.now() };
+  const put = async (relative, text) => {
+    await fs.mkdir(path.dirname(path.join(fixture.catalog, relative)), { recursive: true });
+    await fs.writeFile(path.join(fixture.catalog, relative), text);
+  };
+  let duringRebuild = async () => {};
+  const rebuilds = [];
+  const reader = createSkillRegistryReader({
+    registryPath: fixture.registryPath,
+    catalogRoot: fixture.catalog,
+    now: () => clock.now,
+    intervalMs: 0,
+    retryDelays: [1_000],
+    // As rebuild_index does it: note the time, read the sources, write, date the registry.
+    async rebuild() {
+      const sourcesReadAt = new Date();
+      const entries = [];
+      for (const group of ["custom", "external/pack/skills"]) {
+        const root = path.join(fixture.catalog, "sources", group);
+        for (const name of await fs.readdir(root)) {
+          const relative = `sources/${group}/${name}/SKILL.md`;
+          entries.push({ path: relative, body: await fs.readFile(path.join(fixture.catalog, relative), "utf8") });
+        }
+      }
+      rebuilds.push(entries.map((entry) => `${entry.path.split("/").at(-2)}=${entry.body.trim()}`).sort().join(" "));
+      await duringRebuild();
+      duringRebuild = async () => {};
+      await fs.writeFile(fixture.registryPath, JSON.stringify(entries));
+      await dateSkillRegistry(fixture.registryPath, sourcesReadAt);
+    }
+  });
+  // A pull lands while the first rebuild runs: a skill rewritten, one added, one removed.
+  await put("sources/custom/alpha/SKILL.md", "v2");
+  duringRebuild = async () => {
+    await put("sources/external/pack/skills/beta/SKILL.md", "v2");
+    await put("sources/custom/gamma/SKILL.md", "v1");
+    await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
+  };
+  assert.equal((await reader.ensureFresh()).action, "rebuilt");
+  clock.now += 1_000;
+  assert.equal((await reader.ensureFresh()).action, "rebuilt", "the next look sees what the pull did under the rebuild");
+  clock.now += 1_000;
+  assert.equal((await reader.ensureFresh()).action, "current");
+  assert.equal(rebuilds.at(-1), "beta=v2 gamma=v1");
+  const registry = JSON.parse(await fs.readFile(fixture.registryPath, "utf8"));
+  assert.deepEqual(registry.map((entry) => entry.path).sort(), ["sources/custom/gamma/SKILL.md", "sources/external/pack/skills/beta/SKILL.md"]);
+});
+
+test("a rewrite of the registry from itself keeps the date of the sources it describes", async (t) => {
+  const fixture = await makeCatalog(t);
+  const before = (await fs.stat(fixture.registryPath)).mtimeMs;
+  await keepSkillRegistryDate(fixture.registryPath, () => fs.writeFile(fixture.registryPath, "[]"));
+  const after = (await fs.stat(fixture.registryPath)).mtimeMs;
+  assert.ok(after <= before && before - after < 0.01, `kept to the microsecond, never later: ${before} -> ${after}`);
+  // A skill changed before the rewrite is still newer than the registry.
+  await fs.writeFile(path.join(fixture.catalog, "sources/custom/alpha/SKILL.md"), "# alpha, pulled\n");
+  await keepSkillRegistryDate(fixture.registryPath, () => fs.writeFile(fixture.registryPath, JSON.stringify(fixture.skills.map((relative) => ({ path: relative })))));
+  assert.equal((await checkSkillRegistry({ registryPath: fixture.registryPath, catalogRoot: fixture.catalog })).stale, true);
 });
 
 test("without a registry the reader neither builds one nor hides the missing file", async (t) => {

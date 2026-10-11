@@ -16,6 +16,8 @@ import http from "node:http";
 import https from "node:https";
 import net from "node:net";
 import tls from "node:tls";
+import { promisify } from "node:util";
+import zlib from "node:zlib";
 
 const MAX_REDIRECTS = 10;
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
@@ -224,6 +226,37 @@ async function openUrl(target, { method = "GET", headers = {}, body, env = proce
   }
 }
 
+/**
+ * What `proxyFetch` asks for, as `fetch` does. A registry document is a
+ * tenth of its size compressed — typescript's is 15.8 MB as sent plain and
+ * 2.0 MB gzipped — and the supply-chain hook has three seconds for it
+ * (docs/DEFECTS.md, Д-167). The download asks for none: a `Range` resumes
+ * bytes of the file itself.
+ */
+const ACCEPT_ENCODING = "gzip, deflate, br";
+const gunzip = promisify(zlib.gunzip);
+const inflate = promisify(zlib.inflate);
+const inflateRaw = promisify(zlib.inflateRaw);
+const brotliDecompress = promisify(zlib.brotliDecompress);
+
+/**
+ * A body decoded by its `content-encoding`, the last coding first. A stream
+ * cut short of its trailer gives what arrived, as `fetch` does; "deflate"
+ * comes with the zlib wrapper or, from some servers, without it.
+ */
+async function decodeBody(bytes, encoding) {
+  const codings = String(encoding ?? "").split(",").map((name) => name.trim().toLowerCase()).filter((name) => name && name !== "identity");
+  let result = bytes;
+  for (const coding of codings.reverse()) {
+    if (!result.length) break;
+    if (coding === "gzip" || coding === "x-gzip") result = await gunzip(result, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
+    else if (coding === "deflate") result = await ((result[0] & 0x0f) === 0x08 ? inflate : inflateRaw)(result, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
+    else if (coding === "br") result = await brotliDecompress(result, { finishFlush: zlib.constants.BROTLI_OPERATION_FLUSH });
+    else throw new Error(`the answer came ${coding}-encoded, which was not asked for`);
+  }
+  return result;
+}
+
 async function readBody(body, signal) {
   const chunks = [];
   const stop = () => body.destroy(signal.reason);
@@ -239,7 +272,8 @@ async function readBody(body, signal) {
 /**
  * The part of `fetch` the supply-chain check uses, through the proxy. A
  * deadline from `AbortSignal.timeout` rejects with its TimeoutError, as
- * `fetch` does. Same contract as the server's `proxyFetch`.
+ * `fetch` does, and answers come compressed and are decoded, as `fetch` does
+ * them. Same contract as the server's `proxyFetch`.
  *
  * @param {string|URL} target
  * @param {{ method?: string, headers?: Record<string, string>, body?: string, signal?: AbortSignal, env?: Record<string, string|undefined>, ca?: string|Buffer }} [init]
@@ -248,10 +282,10 @@ export async function proxyFetch(target, { method = "GET", headers = {}, body, s
   const rethrow = (error) => {
     throw signal?.aborted && signal.reason?.name === "TimeoutError" ? signal.reason : error;
   };
-  const response = await openUrl(target, { method, headers, body, signal, env, ca }).catch(rethrow);
+  const response = await openUrl(target, { method, headers: { "accept-encoding": ACCEPT_ENCODING, ...headers }, body, signal, env, ca }).catch(rethrow);
   let consumed = null;
   const bytes = () => {
-    consumed ??= readBody(response.body, signal).catch(rethrow);
+    consumed ??= readBody(response.body, signal).then((raw) => decodeBody(raw, response.headers["content-encoding"])).catch(rethrow);
     return consumed;
   };
   return {

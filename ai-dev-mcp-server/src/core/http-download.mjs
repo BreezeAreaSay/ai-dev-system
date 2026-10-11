@@ -11,16 +11,19 @@
  * that name the host and say what to try.
  *
  * It is deliberately small: redirects, a request body for the JSON APIs, no
- * keep-alive, no decompression. The response body is handed back as a stream,
- * so the caller decides how bytes reach the disk — and where a `Range`
- * resumes them. `proxyFetch` wraps it in the part of `fetch` the security
- * checks use, so they go through the proxy as well (docs/DEFECTS.md, Д-145).
+ * keep-alive. The response body is handed back as a stream, as sent, so the
+ * caller decides how bytes reach the disk — and where a `Range` resumes
+ * them. `proxyFetch` wraps it in the part of `fetch` the security checks use,
+ * compression included, so they go through the proxy as well
+ * (docs/DEFECTS.md, Д-145, Д-167).
  */
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
 import process from "node:process";
 import tls from "node:tls";
+import { promisify } from "node:util";
+import zlib from "node:zlib";
 
 /** Redirects followed before a source is given up on. */
 export const MAX_REDIRECTS = 10;
@@ -374,6 +377,37 @@ export async function openUrl(target, { method = "GET", headers = {}, body, env 
   }
 }
 
+/**
+ * What `proxyFetch` asks for, as `fetch` does. A registry document is a
+ * tenth of its size compressed — typescript's is 15.8 MB as sent plain and
+ * 2.0 MB gzipped — and the supply-chain hook has three seconds for it
+ * (docs/DEFECTS.md, Д-167). The download asks for none: a `Range` resumes
+ * bytes of the file itself.
+ */
+const ACCEPT_ENCODING = "gzip, deflate, br";
+const gunzip = promisify(zlib.gunzip);
+const inflate = promisify(zlib.inflate);
+const inflateRaw = promisify(zlib.inflateRaw);
+const brotliDecompress = promisify(zlib.brotliDecompress);
+
+/**
+ * A body decoded by its `content-encoding`, the last coding first. A stream
+ * cut short of its trailer gives what arrived, as `fetch` does; "deflate"
+ * comes with the zlib wrapper or, from some servers, without it.
+ */
+async function decodeBody(bytes, encoding) {
+  const codings = String(encoding ?? "").split(",").map((name) => name.trim().toLowerCase()).filter((name) => name && name !== "identity");
+  let result = bytes;
+  for (const coding of codings.reverse()) {
+    if (!result.length) break;
+    if (coding === "gzip" || coding === "x-gzip") result = await gunzip(result, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
+    else if (coding === "deflate") result = await ((result[0] & 0x0f) === 0x08 ? inflate : inflateRaw)(result, { finishFlush: zlib.constants.Z_SYNC_FLUSH });
+    else if (coding === "br") result = await brotliDecompress(result, { finishFlush: zlib.constants.BROTLI_OPERATION_FLUSH });
+    else throw new Error(`the answer came ${coding}-encoded, which was not asked for`);
+  }
+  return result;
+}
+
 /** The whole body, unless the signal ends it first. */
 async function readBody(body, signal) {
   const chunks = [];
@@ -394,7 +428,8 @@ async function readBody(body, signal) {
  * `run_security_scan` offered no fix versions (docs/DEFECTS.md, Д-145).
  *
  * A deadline from `AbortSignal.timeout` rejects with its `TimeoutError`, as
- * `fetch` does, so callers that name a timeout keep naming it.
+ * `fetch` does, so callers that name a timeout keep naming it. Answers come
+ * compressed when the server can, and are decoded, as `fetch` does them.
  *
  * @param {string|URL} target
  * @param {{ method?: string, headers?: Record<string, string>, body?: string|Buffer, signal?: AbortSignal, env?: Record<string, string|undefined> }} [init]
@@ -404,10 +439,10 @@ export async function proxyFetch(target, { method = "GET", headers = {}, body, s
   const rethrow = (error) => {
     throw signal?.aborted && signal.reason?.name === "TimeoutError" ? signal.reason : error;
   };
-  const response = await openUrl(target, { method, headers, body, signal, env }).catch(rethrow);
+  const response = await openUrl(target, { method, headers: { "accept-encoding": ACCEPT_ENCODING, ...headers }, body, signal, env }).catch(rethrow);
   let consumed = null;
   const bytes = () => {
-    consumed ??= readBody(response.body, signal).catch(rethrow);
+    consumed ??= readBody(response.body, signal).then((raw) => decodeBody(raw, response.headers["content-encoding"])).catch(rethrow);
     return consumed;
   };
   return {

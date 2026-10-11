@@ -187,6 +187,7 @@ function scenarioEnv(base, { home, aiDevHome, explicitRoots }) {
     if (/^(AI_DEV_|BGE_M3_)/.test(key)) delete env[key];
   }
   delete env.XDG_CONFIG_HOME;
+  delete env.CODEX_HOME;
   if (aiDevHome) env.AI_DEV_HOME = aiDevHome;
   if (explicitRoots) {
     // What docker/Dockerfile sets next to AI_DEV_HOME, in 2.x and now.
@@ -493,22 +494,83 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     allowFailure: true
   });
   check(`${label}: the 2.x SessionStart hook runs`, hook.status === 0, `exit ${hook.status}`);
-  if (!aiDevHome) {
-    check(`${label}: the 2.x hook still sees the open task`, hook.stdout.includes(expected.taskId));
-    return;
-  }
   // A 2.x hook computes the old, doubled path, so it cannot see the migrated
   // task; re-installing the hooks with the upgraded server is the documented fix.
+  if (!aiDevHome) check(`${label}: the 2.x hook still sees the open task`, hook.stdout.includes(expected.taskId));
+
+  // Re-installed, the hook runs through the Node launcher, which finds Node
+  // without it on PATH: a client opened from the Dock has none (Д-103).
   await withServer({ command: local.command, args: local.args, env: serverEnv, cwd: path.dirname(local.args[0]) }, (client) => (
     call(client, "install_agent_hooks", { project_path: project, targets: ["claude"] })
   ));
-  const refreshed = run(hookCommand === "node" ? process.execPath : hookCommand, hookArgs, {
-    cwd: project,
-    env,
-    input: JSON.stringify({ session_id: `upgrade-${label}-refreshed`, cwd: project, source: "startup" }),
-    allowFailure: true
-  });
-  check(`${label}: after install_agent_hooks the hook sees the migrated task`, refreshed.status === 0 && refreshed.stdout.includes(expected.taskId), `exit ${refreshed.status}`);
+  const reinstalled = (await readJson(path.join(project, ".claude", "settings.json"))).hooks?.SessionStart?.[0]?.hooks?.[0]?.command || "";
+  const input = JSON.stringify({ session_id: `upgrade-${label}-refreshed`, cwd: project, source: "startup" });
+  let refreshed;
+  if (process.platform === "win32") {
+    const [command, ...args] = reinstalled.split(" ");
+    refreshed = run(command === "node" ? process.execPath : command, args, { cwd: project, env, input, allowFailure: true });
+  } else {
+    check(`${label}: install_agent_hooks writes the 3.0 hook command`, reinstalled === "/bin/sh .ai-dev/hooks/with-node.sh session-start.mjs", reinstalled);
+    // A PATH with git and nothing else: no node, not even coreutils.
+    const bin = path.join(temp, `only-git-${label.replace(/[^a-z]+/gi, "-")}`);
+    await fs.mkdir(bin, { recursive: true });
+    await fs.symlink(run("/bin/sh", ["-c", "command -v git"]).stdout.trim(), path.join(bin, "git")).catch(() => undefined);
+    const bare = run("/bin/sh", ["-c", "node -v"], { env: { ...env, PATH: bin }, allowFailure: true });
+    check(`${label}: on that PATH there is no node`, bare.status === 127, `exit ${bare.status}`);
+    refreshed = run("/bin/sh", ["-c", reinstalled], { cwd: project, env: { ...env, PATH: bin }, input, allowFailure: true });
+  }
+  check(`${label}: the re-installed hook runs with no Node on PATH and sees the task`, refreshed.status === 0 && refreshed.stdout.includes(expected.taskId), `exit ${refreshed.status} ${refreshed.stderr.slice(0, 160)}`);
+
+  await verifyClientMigration({ label, baseRoot, env, local });
+}
+
+/**
+ * 3.0 writes one name. `npm run clients:install` (`ai-dev clients install`)
+ * takes out the 2.x local entry `ai-dev-system`, replaces the 2.x Docker
+ * `ai-dev` with this install, keeps a backup of each file, and the command it
+ * writes answers `initialize` with instructions (Д-95).
+ */
+async function verifyClientMigration({ label, baseRoot, env, local }) {
+  const serverDir = path.join(baseRoot, "ai-dev-mcp-server");
+  const cli = path.join(serverDir, "bin", "ai-dev.mjs");
+  const cursorFile = path.join(env.HOME, ".cursor", "mcp.json");
+  const before = await readJson(cursorFile);
+  const foreign = Object.keys(before.mcpServers ?? {}).filter((name) => name !== "ai-dev" && name !== "ai-dev-system");
+  const installed = run(process.execPath, [cli, "clients", "install", "--json"], { cwd: serverDir, env, allowFailure: true });
+  const results = (() => {
+    try {
+      return JSON.parse(installed.stdout).clients ?? [];
+    } catch {
+      return [];
+    }
+  })();
+  const written = results.filter((result) => result.status !== "skipped");
+  check(`${label}: clients install writes every client 2.x configured`, installed.status === 0
+    && ["claude-code", "claude-desktop", "cursor", "vscode", "codex", "gemini"].every((id) => written.some((result) => result.client === id && result.status === "updated")),
+    written.map((result) => `${result.client}:${result.status}`).join(" ") || installed.stderr.slice(0, 200));
+  const cursor = written.find((result) => result.client === "cursor");
+  check(`${label}: it says what it replaced: the Docker entry, and the 2.x name it removed`, cursor?.previous === "docker" && cursor?.migrated?.includes("ai-dev-system") && existsSync(cursor?.backup ?? ""),
+    JSON.stringify({ previous: cursor?.previous, migrated: cursor?.migrated }));
+  const after = await readJson(cursorFile);
+  check(`${label}: one ai-dev entry is left, running this install; the other servers stay`,
+    !("ai-dev-system" in after.mcpServers) && after.mcpServers["ai-dev"]?.command === process.execPath
+      && JSON.stringify(after.mcpServers["ai-dev"]?.args) === JSON.stringify([cli, "mcp"])
+      && foreign.every((name) => JSON.stringify(after.mcpServers[name]) === JSON.stringify(before.mcpServers[name])),
+    Object.keys(after.mcpServers).join(", "));
+  check(`${label}: the 2.x entry it replaced pointed at the same clone`, path.resolve(local.args[0]).startsWith(path.resolve(serverDir)), local.args[0]);
+  const doctor = run(process.execPath, [cli, "clients", "doctor", "--json"], { cwd: serverDir, env, allowFailure: true });
+  const answers = (() => {
+    try {
+      return JSON.parse(doctor.stdout).clients ?? [];
+    } catch {
+      return [];
+    }
+  })();
+  check(`${label}: every client's ai-dev command answers initialize with instructions`,
+    doctor.status === 0 && answers.length >= 6 && answers.every((answer) => answer.ok === true && answer.instructions > 0),
+    answers.map((answer) => `${answer.client}:${answer.ok}`).join(" ") || doctor.stdout.slice(0, 200));
+  const again = run(process.execPath, [cli, "clients", "install"], { cwd: serverDir, env, allowFailure: true });
+  check(`${label}: a second install changes nothing`, again.status === 0 && /No changes: every client already runs this install\./.test(again.stdout), again.stdout.split("\n").at(-2) ?? "");
 }
 
 async function main() {

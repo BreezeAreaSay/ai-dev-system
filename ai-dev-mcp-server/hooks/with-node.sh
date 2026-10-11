@@ -15,7 +15,11 @@
 # were installed with on this machine (.node-path next to this file, which
 # git ignores); `node` on PATH; the places installers put it.
 
-dir=$(dirname "$0")
+# The folder of this file, without `dirname`: the PATH may hold nothing.
+case $0 in
+  */*) dir=${0%/*} ;;
+  *) dir=. ;;
+esac
 script=$1
 if [ -z "$script" ]; then
   echo "ai-dev hook: with-node.sh needs the hook script to run" >&2

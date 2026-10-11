@@ -76,14 +76,14 @@ export const FIRST_RUN_STEPS = Object.freeze([
     // and HTTPS_PROXY when they are set (Д-62, Д-98).
     detail: "About 600 MB of checksum-verified ONNX weights for dense search; a broken download continues. No Python.",
     optional: true,
-    flag: "--dense"
+    flag: "--model"
   }),
   Object.freeze({
     id: "dense_index",
     title: "Dense vectors",
     detail: "Embeddings for the documents already indexed; the dense half of hybrid search reads them.",
     optional: true,
-    flag: "--dense",
+    flag: "--model",
     // Nothing to embed with until the model is there.
     requires: "dense_model"
   })
@@ -145,7 +145,7 @@ export function planFirstRun({ present = {}, stale = {}, want = {}, force = fals
  *
  * Vectors another model made — a 2.x index from the Python backend — are
  * named as such: hybrid search does not compare them, so they wait for
- * `--dense` like documents with none (docs/DEFECTS.md, Д-148).
+ * `--model` like documents with none (docs/DEFECTS.md, Д-148).
  *
  * @param {{ current_document_count?: number, dense_documents?: number, dense_pending_documents?: number, dense_other_model_documents?: number }|null} status
  * @returns {string}
@@ -156,9 +156,9 @@ export function describeDenseCoverage(status) {
   const dense = Number(status.dense_documents || 0);
   const pending = Number(status.dense_pending_documents || 0);
   const other = Number(status.dense_other_model_documents || 0);
-  if (!dense && !pending) return `Indexed: ${documents} document(s), none embedded yet (--dense embeds them).`;
+  if (!dense && !pending) return `Indexed: ${documents} document(s), none embedded yet (--model embeds them).`;
   return `Indexed: ${documents} document(s), ${dense} with a dense vector, ${pending} waiting for one`
-    + (other ? ` (${other} with a vector of another model, which hybrid search does not compare; --dense embeds them again).` : ".");
+    + (other ? ` (${other} with a vector of another model, which hybrid search does not compare; --model embeds them again).` : ".");
 }
 
 function pick(step) {

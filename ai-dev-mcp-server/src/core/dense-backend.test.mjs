@@ -49,7 +49,7 @@ test("without the model it is a state with two ways out, and in a container the 
   const missing = selectDenseBackend({ onnxReady: false });
   assert.equal(missing.available, false);
   assert.match(missing.reason, /^Dense search is not installed: the model is not on this machine\./);
-  assert.match(missing.reason, /npm run setup -- --dense/);
+  assert.match(missing.reason, /npm run setup -- --model/);
   assert.match(missing.reason, /npm run model -- import <folder or \.zip>/);
   assert.doesNotMatch(missing.reason, /virtualenv|--dense-python|\.venv/, "nothing of the removed backend is advised");
   const container = selectDenseBackend({ onnxReady: false, inContainer: true });
@@ -61,15 +61,15 @@ test("the sentence names what the check found: other files, some missing, a stop
   const all = ["config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "onnx/model_int8.onnx"];
   const tampered = selectDenseBackend({ files: { dir, present: all.slice(0, 4), missing: [], mismatched: ["onnx/model_int8.onnx"] } });
   assert.equal(tampered.reason, `Dense search is not ready: onnx/model_int8.onnx in ${dir} is not the pinned file (the sha256 differs from the manifest). `
-    + "Run `npm run setup -- --dense`: it fetches it again.");
+    + "Run `npm run setup -- --model`: it fetches it again.");
   assert.doesNotMatch(tampered.reason, /not on this machine/, "the files are there");
   const several = selectDenseBackend({ files: { dir, present: [], missing: [], mismatched: all } });
   assert.match(several.reason, /config\.json, tokenizer\.json, .* are not the pinned files .* it fetches them again\.$/);
   const stopped = selectDenseBackend({ files: { dir, present: all.slice(0, 4), missing: ["onnx/model_int8.onnx"], mismatched: [], partial: ["onnx/model_int8.onnx"] } });
   assert.equal(stopped.reason, "Dense search is not installed yet: the download of the model stopped partway (onnx/model_int8.onnx). "
-    + "Run `npm run setup -- --dense` to continue it from there.");
+    + "Run `npm run setup -- --model` to continue it from there.");
   const lacking = selectDenseBackend({ files: { dir, present: all.slice(0, 4), missing: ["onnx/model_int8.onnx"], mismatched: [] } });
-  assert.match(lacking.reason, /^Dense search is not ready: the model in .* lacks onnx\/model_int8\.onnx\. Run `npm run setup -- --dense` to fetch it, or `npm run model -- import/);
+  assert.match(lacking.reason, /^Dense search is not ready: the model in .* lacks onnx\/model_int8\.onnx\. Run `npm run setup -- --model` to fetch it, or `npm run model -- import/);
   const empty = selectDenseBackend({ files: { dir, present: [], missing: all, mismatched: [] } });
   assert.match(empty.reason, /^Dense search is not installed: the model is not on this machine\./, "nothing there is the only 'not on this machine'");
   const mounted = selectDenseBackend({ inContainer: true, files: { dir: "/models/bge-m3-onnx", present: all.slice(1), missing: [], mismatched: ["config.json"] } });

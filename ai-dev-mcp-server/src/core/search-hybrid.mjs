@@ -253,7 +253,7 @@ function semanticCandidates(db, filters, cache) {
  * vectors from the model that embedded the question, when the caller says
  * which: a 2.x index holds the Python backend's fp32 vectors, and a dot
  * product across two models ranks by nothing (decision D3, docs/DEFECTS.md,
- * Д-98). Those wait for `npm run setup -- --dense` to embed them again.
+ * Д-98). Those wait for `npm run setup -- --model` to embed them again.
  */
 function denseCandidates(db, filters, cache, provenance = null) {
   const where = [...filters.where];

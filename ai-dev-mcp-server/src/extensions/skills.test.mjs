@@ -269,7 +269,7 @@ test("near duplicates are confirmed by the model, and without it keep their lexi
   assert.deepEqual(calls.filter(([name]) => name === "embedTexts"), [["embedTexts", 2]]);
 
   host.embedTexts = async () => {
-    throw new Error("Dense search is not installed: the model is not on this machine. Run `npm run setup -- --dense` to download it.");
+    throw new Error("Dense search is not installed: the model is not on this machine. Run `npm run setup -- --model` to download it.");
   };
   const lexical = await registry.handlers.get("validate_skill_library")(args);
   assert.equal(lexical.duplicates.semantic_evaluated, 0);

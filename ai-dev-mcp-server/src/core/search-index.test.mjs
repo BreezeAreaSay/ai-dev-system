@@ -187,9 +187,9 @@ test("a cancel between batches keeps every stored slice, skips the closing write
 
 test("a dense rebuild with no model says what to install instead of reaching for an interpreter (Д-98)", async (t) => {
   const { runtime, of } = await createFixture(t, {
-    describe: async () => ({ backend: "onnx", available: false, reason: "Dense search is not installed. Run `npm run setup -- --dense`." })
+    describe: async () => ({ backend: "onnx", available: false, reason: "Dense search is not installed. Run `npm run setup -- --model`." })
   });
-  await assert.rejects(runtime.rebuild({ dense_embeddings: true }), /no embedding model can run here\. Dense search is not installed\. Run `npm run setup -- --dense`/);
+  await assert.rejects(runtime.rebuild({ dense_embeddings: true }), /no embedding model can run here\. Dense search is not installed\. Run `npm run setup -- --model`/);
   assert.equal(of("rebuild").length, 0, "nothing is written");
   assert.equal(of("embedQuery").length, 0);
 });
@@ -387,7 +387,7 @@ test("a missing model degrades the search instead of ending it", async (t) => {
   const { runtime, of } = await createFixture(t, {
     answers: { hybrid: [{ path: "01-system/Operating Model.md", title: "Operating Model", score: 1 }] },
     embed: async () => {
-      throw new Error("Dense search is not installed. Run `npm run setup -- --dense`.");
+      throw new Error("Dense search is not installed. Run `npm run setup -- --model`.");
     }
   });
   const results = await runtime.hybridSearch({ query: "operating model", dense_weight: 0.35, ensure_fresh: false });
@@ -404,7 +404,7 @@ test("vectors all from another model: the search says the dense half had nothing
     answers: { hybrid: () => Object.defineProperty([{ path: "a.md", title: "A", score: 1 }], "dense_unmatched", { value: true }) }
   });
   const results = await runtime.hybridSearch({ query: "operating model", dense_weight: 0.35, ensure_fresh: false });
-  assert.equal(results.dense_unavailable, "no indexed document has a vector of the installed model yet; `npm run setup -- --dense` embeds them");
+  assert.equal(results.dense_unavailable, "no indexed document has a vector of the installed model yet; `npm run setup -- --model` embeds them");
   assert.equal(JSON.parse(JSON.stringify(results)).length, 1);
 });
 

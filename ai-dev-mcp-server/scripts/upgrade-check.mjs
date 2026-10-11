@@ -426,11 +426,11 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
       const notes = embedding.dense_backend?.legacy?.notes ?? [];
       check(`${label}: embedding_status names what is left of the Python backend, with the one command`,
         notes.some((note) => note.startsWith("AI_DEV_DENSE_BACKEND=python")) && notes.some((note) => note.startsWith("BGE_M3_PYTHON is set"))
-          && notes.some((note) => note.includes("torch weights")) && embedding.dense_backend?.legacy?.command === "npm run setup -- --dense",
+          && notes.some((note) => note.includes("torch weights")) && embedding.dense_backend?.legacy?.command === "npm run setup -- --model",
         notes.join(" | ").slice(0, 300));
       const health = await call(client, "system_health_check", { include_search_smoke: false, include_dense_smoke: false, include_search_eval: false });
       const verdict = (health.checks ?? []).find((item) => item.name === "embedding_backend");
-      check(`${label}: the health check warns, with the command, instead of failing`, verdict?.status === "warn" && /npm run setup -- --dense/.test(verdict.summary ?? ""),
+      check(`${label}: the health check warns, with the command, instead of failing`, verdict?.status === "warn" && /npm run setup -- --model/.test(verdict.summary ?? ""),
         `${verdict?.status}: ${String(verdict?.summary ?? "").slice(0, 160)}`);
       const dense = await call(client, "hybrid_search", { query: "code review checklist", dense_weight: 0.35 });
       const denseHits = Array.isArray(dense) ? dense : (dense.results ?? []);
@@ -440,7 +440,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
   });
 
   if (pythonBackend) {
-    // The one command the notes give — `npm run setup -- --dense` — with the
+    // The one command the notes give — `npm run setup -- --model` — with the
     // five-kilobyte stand-in served from a local mirror where huggingface.co
     // would be: it downloads the model and embeds the documents again. Not
     // `model import`, which embeds whatever it finds: the advice is what has
@@ -454,7 +454,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     const mirror = await startModelHost({ files });
     let moved;
     try {
-      moved = await runAsync(process.execPath, [path.join(baseRoot, "ai-dev-mcp-server", "scripts", "first-run.mjs"), "--dense", "--no-health"], {
+      moved = await runAsync(process.execPath, [path.join(baseRoot, "ai-dev-mcp-server", "scripts", "first-run.mjs"), "--model", "--no-health"], {
         cwd: path.join(baseRoot, "ai-dev-mcp-server"),
         env: { ...env, AI_DEV_MODEL_MANIFEST: manifestFile, AI_DEV_MODEL_MIRROR: mirror.base.replace(/\/m$/, "") }
       });
@@ -470,7 +470,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     check(`${label}: the one command moves it over — every vector the new model's, none left of Python, the index whole`,
       moved.status === 0 && status.dense_backend === "onnx" && Number(status.dense_documents) === eligible && Number(status.dense_pending_documents) === 0
         && !Number(status.dense_other_model_documents) && rows.count === eligible && indexedDocuments(status) === Number(status.current_document_count),
-      `setup --dense exit ${moved.status} (${embeddedLine.trim().slice(0, 90) || moved.stderr.slice(0, 200)}), backend ${status.dense_backend}, `
+      `setup --model exit ${moved.status} (${embeddedLine.trim().slice(0, 90) || moved.stderr.slice(0, 200)}), backend ${status.dense_backend}, `
         + `${status.dense_documents} of ${eligible} embedded, ${status.dense_pending_documents} pending, ${indexedDocuments(status)} document(s) indexed`);
   }
 

@@ -62,7 +62,7 @@ export function createDenseRuntime({
    * every file is read again, as `embedding_status {refresh: true}` asks.
    *
    * An install, import or remove rewrites the verification record, in this
-   * process or another, and that ends the minute early: `setup -- --dense`
+   * process or another, and that ends the minute early: `setup -- --model`
    * asks before the download and embeds right after it, and a stale "not
    * installed" made the second step refuse (docs/DEFECTS.md, Д-148).
    */

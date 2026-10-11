@@ -197,7 +197,7 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
           return {
             ok: false,
             detail: `these do not match the manifest: ${status.mismatched.join(", ")}`,
-            advice: "Run `npm run setup -- --dense`: it fetches the files that do not match again. "
+            advice: "Run `npm run setup -- --model`: it fetches the files that do not match again. "
               + "`npm run model -- remove` clears the folder first, if you would rather start clean."
           };
         }
@@ -205,14 +205,14 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
         return {
           ok: false,
           detail: `missing from ${status.dir}: ${status.missing.join(", ")}${partial.length ? `; a download stopped partway: ${partial.join(", ")}` : ""}`,
-          advice: `Run \`npm run setup -- --dense\` to ${partial.length ? "continue" : "start"} the download (about 600 MB, no Python). ${BLOCKED_DOWNLOAD_ADVICE}`
+          advice: `Run \`npm run setup -- --model\` to ${partial.length ? "continue" : "start"} the download (about 600 MB, no Python). ${BLOCKED_DOWNLOAD_ADVICE}`
         };
       }
     },
     {
       key: "load",
       title: "model loads",
-      advice: "The files verified but the runtime would not load them. Run `npm run model -- remove`, then `npm run setup -- --dense`.",
+      advice: "The files verified but the runtime would not load them. Run `npm run model -- remove`, then `npm run setup -- --model`.",
       run: async () => {
         const loaded = await loadModel(manifest);
         return { ok: true, detail: `loaded in ${loaded.seconds}s` };

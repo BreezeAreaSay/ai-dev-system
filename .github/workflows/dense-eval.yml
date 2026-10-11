@@ -80,7 +80,7 @@ jobs:
         working-directory: ai-dev-mcp-server
         env:
           AI_DEV_DENSE_BACKEND: onnx
-        run: npm run setup -- --dense --no-health
+        run: npm run setup -- --model --no-health
 
       - name: Dense search is READY
         working-directory: ai-dev-mcp-server

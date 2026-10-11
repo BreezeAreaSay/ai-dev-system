@@ -86,7 +86,7 @@ npm run clients:install
 настраивает — см.
 [INSTALL](docs/ru/INSTALL.md#из-клона-codex-и-claude-desktop). Это вся
 установка, и на своей машине стоит идти именно этим путём. Локальная
-dense-модель здесь — один флаг: `npm run setup -- --dense` скачивает пиннутый
+dense-модель здесь — один флаг: `npm run setup -- --model` скачивает пиннутый
 ONNX-экспорт BGE-M3 со сверкой sha256 (оборванная загрузка продолжается с места
 обрыва; `AI_DEV_MODEL_MIRROR` и `HTTPS_PROXY` учитываются) и запускает его в Node,
 без Python; `npm run model -- import <папка или .zip>` копирует модель с машины, где

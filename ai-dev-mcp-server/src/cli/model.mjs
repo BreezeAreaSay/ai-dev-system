@@ -240,7 +240,7 @@ export async function run(argv, io) {
           ? `Model in place: ${dir} — ${placed.downloaded} file(s) fetched${placed.resumed ? `, ${placed.resumed} continued` : ""}, ${formatBytes(placed.bytes)} over the network.`
           : `Model in place: ${dir} — ${placed.copied.length} file(s) copied from ${placed.from}, ${placed.skipped.length} already here.`);
         const embedded = values.index && support.supported ? await embedDocuments({ say, progress, signal: stop.signal }) : null;
-        if (!values.index) say("Documents not embedded (--no-index): `npm run setup -- --dense` does it later.");
+        if (!values.index) say("Documents not embedded (--no-index): `npm run setup -- --model` does it later.");
         return { ok: true, model: placed, index: embedded };
       }
       case "remove": {

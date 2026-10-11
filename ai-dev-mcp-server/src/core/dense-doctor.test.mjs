@@ -79,7 +79,7 @@ test("an empty model directory stops at the files stage and names the command", 
   assert.match(report, /Dense search: UNAVAILABLE/);
   assert.match(report, /Stopped at: model files present and unmodified/);
   assert.match(report, /missing from \/models\/bge-m3-onnx: config\.json, onnx\/model_int8\.onnx/);
-  assert.match(report, /What to do: Run `npm run setup -- --dense` to start the download \(about 600 MB, no Python\)\./);
+  assert.match(report, /What to do: Run `npm run setup -- --model` to start the download \(about 600 MB, no Python\)\./);
   assert.match(report, /AI_DEV_MODEL_MIRROR .* HTTPS_PROXY.*npm run model -- import <folder or \.zip>/s, "and the ways round a blocked download");
   assert.doesNotMatch(report, /AI_DEV_DENSE_BACKEND|python for the legacy/i);
 });
@@ -97,7 +97,7 @@ test("a download that stopped partway is named, and continuing it is the advice"
   });
   const report = renderDenseDoctorReport(result);
   assert.match(report, /a download stopped partway: onnx\/model_int8\.onnx \(312 MB so far\)/);
-  assert.match(report, /What to do: Run `npm run setup -- --dense` to continue the download/);
+  assert.match(report, /What to do: Run `npm run setup -- --model` to continue the download/);
 });
 
 test("a machine with no runtime build is told so at the runtime stage, and nothing is loaded", async () => {

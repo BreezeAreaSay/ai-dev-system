@@ -61,5 +61,5 @@ test("the workflow measures the ONNX export alone, and keeps nothing of the Pyth
   // the 2.x line, whose copy of the workflow keeps both jobs.
   assert.doesNotMatch(denseEval, /^ {2}python:$/m);
   assert.doesNotMatch(denseEval, /BGE_M3_PYTHON_REVISION|--dense-python|setup-python/);
-  assert.match(denseEval, /npm run setup -- --dense --no-health/);
+  assert.match(denseEval, /npm run setup -- --model --no-health/);
 });

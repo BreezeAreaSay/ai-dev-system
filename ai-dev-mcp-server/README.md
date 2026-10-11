@@ -234,7 +234,7 @@ from `/models/bge-m3-onnx`.
 ### From a source checkout
 
 ```bash
-npm run setup -- --dense
+npm run setup -- --model
 ```
 
 That downloads the pinned ONNX export `Xenova/bge-m3` — five files, int8, each
@@ -245,7 +245,7 @@ runs in Node through `onnxruntime-node`: no Python packages, no torch. Both halv
 show progress and stop cleanly on Ctrl-C: the download keeps its `.part` and the
 next run continues from that byte, the embedding stores every 64 documents and the
 next run starts where it stopped. Adding notes later leaves them without a vector
-until the next `npm run setup -- --dense`, which embeds only what changed.
+until the next `npm run setup -- --model`, which embeds only what changed.
 `npm run dense:doctor` walks the model check stage by stage and names the one that
 stopped.
 
@@ -272,13 +272,13 @@ it at a five-kilobyte stand-in for BGE-M3 (`src/core/synthetic-model.mjs`) and r
 import, embedding and hybrid search through the real server with it.
 
 An Intel Mac has no onnxruntime-node 1.30 build, so the model cannot run there:
-`dense:doctor` and the health check say so, `setup -- --dense` refuses before
+`dense:doctor` and the health check say so, `setup -- --model` refuses before
 downloading, and keyword and sparse search work as everywhere else.
 
 ### Coming from the Python backend
 
 2.x could embed with a Python virtualenv and torch (`--dense-python`,
-`AI_DEV_DENSE_BACKEND=python`). 3.0 removed that backend. `npm run setup -- --dense`
+`AI_DEV_DENSE_BACKEND=python`). 3.0 removed that backend. `npm run setup -- --model`
 moves an install over: it installs the ONNX model and embeds the documents again —
 vectors made by the Python backend belong to another model, are never compared
 with ONNX questions, and are replaced by this run. `--dense-python` still works as a

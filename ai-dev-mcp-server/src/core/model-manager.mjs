@@ -1,6 +1,6 @@
 /**
  * The local model as one thing a person installs, checks, copies in and
- * removes: the commands behind `npm run model`, the `--dense` step of setup,
+ * removes: the commands behind `ai-dev model`, the `--model` step of setup,
  * the dense runtime's "is it there" and, later, the interface's model screen.
  *
  * Before this the model was a download inside setup and nothing else. A

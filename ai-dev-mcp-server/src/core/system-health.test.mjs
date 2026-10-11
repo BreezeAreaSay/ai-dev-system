@@ -187,7 +187,7 @@ test("search index freshness reports drift counts", () => {
   const otherModel = evaluateSearchIndexFreshness({ stale: false, current_document_count: 825, dense_other_model_documents: 365 });
   assert.equal(otherModel.status, "warn");
   assert.equal(otherModel.summary, "Search index is current with 825 document(s). 365 document(s) have dense vectors of another model, "
-    + "which hybrid search does not compare; run `npm run setup -- --dense` to embed them with the installed one.");
+    + "which hybrid search does not compare; run `npm run setup -- --model` to embed them with the installed one.");
 });
 
 test("frontend QA runner check needs both the runner and its manifest", () => {
@@ -395,9 +395,9 @@ test("smoke checks require results, and the dense smoke requires dense scores", 
   assert.deepEqual(Object.keys(evaluateDenseSmoke(results).details.results[0]), ["title", "path", "score", "dense_score"]);
   assert.equal(evaluateDenseSmoke([{ ...results[0], dense_score: 0 }]).status, "fail");
   assert.equal(evaluateDenseSmoke([]).status, "fail");
-  const unavailable = evaluateDenseSmoke([], { unavailable: "Dense search is not installed: the model is not on this machine. Run `npm run setup -- --dense` …" });
+  const unavailable = evaluateDenseSmoke([], { unavailable: "Dense search is not installed: the model is not on this machine. Run `npm run setup -- --model` …" });
   assert.equal(unavailable.status, "fail", "asked for, and it cannot run");
-  assert.match(unavailable.summary, /^Dense search cannot run here, so the smoke test had nothing to test\. Dense search is not installed: .*npm run setup -- --dense/);
+  assert.match(unavailable.summary, /^Dense search cannot run here, so the smoke test had nothing to test\. Dense search is not installed: .*npm run setup -- --model/);
 });
 
 test("search eval check maps eval status and lists failed cases", () => {

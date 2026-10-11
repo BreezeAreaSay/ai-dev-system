@@ -142,7 +142,7 @@ test("import → embed → hybrid search with dense, through the real worker and
   assert.ok(keywordResults.every((item) => !item.dense_score), "no model, no dense half");
   const refused = await toolJson(after, "embed_texts", { text: "hello" });
   assert.equal(refused.isError, true);
-  assert.match(refused.text, /Dense search is not installed: the model is not on this machine\. Run `npm run setup -- --dense`/);
+  assert.match(refused.text, /Dense search is not installed: the model is not on this machine\. Run `npm run setup -- --model`/);
   const health = await toolJson(after, "embedding_status", {});
   assert.equal(health.json.installed, false);
   await after.close();

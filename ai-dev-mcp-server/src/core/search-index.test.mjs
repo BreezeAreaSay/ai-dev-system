@@ -90,6 +90,15 @@ test("search refuses to run on a Node without FTS5 and says which Node it needs"
     () => runtime.searchKnowledge({ query: "x" }), () => runtime.rebuild(), () => runtime.exportGalaxy()]) {
     await assert.rejects(call, /Node\.js 22\.16 or newer/);
   }
+  // The project tools rebuild as a courtesy: their own work stands, and the index is reported as skipped (Д-141).
+  assert.deepEqual(await runtime.rebuildIfSupported({ include_external_project_files: true }), { skipped: reason });
+});
+
+test("where search runs, the courtesy rebuild is the rebuild", async (t) => {
+  const { runtime, of } = await createFixture(t);
+  const rebuilt = await runtime.rebuildIfSupported({ include_external_project_files: true });
+  assert.deepEqual([rebuilt.document_count, rebuilt.engine], [3, "node"]);
+  assert.equal(of("rebuild").length, 1);
 });
 
 test("status asks the index about the vault and reports the dirty reason", async (t) => {
@@ -162,6 +171,19 @@ test("the legacy Python backend embeds through the same path and the index is wr
   await runtime.rebuild({ dense_embeddings: true });
   assert.equal(of("embedQuery").length, 1);
   assert.equal(of("rebuild")[0].options.denseBackend, "python");
+});
+
+test("a dense rebuild hands the embedder the model folder and device the caller named (Д-138)", async (t) => {
+  const legacy = { backend: "python", available: true, reason: "legacy", provenance: { backend: "python", revision: "unpinned", dtype: "fp32", dimensions: 3 } };
+  const { runtime, of } = await createFixture(t, { describe: async () => legacy, answers: { densePlan: { records: [{ id: "a", content_hash: "h", text: "passage: t" }] } } });
+  await runtime.rebuild({ dense_embeddings: true, dense_model_dir: "/custom/bge-m3", dense_device: "cuda" });
+  const { payload } = of("embedQuery")[0];
+  assert.deepEqual([payload.model_dir, payload.device], ["/custom/bge-m3", "cuda"]);
+  assert.equal(of("rebuild")[0].options.denseModelDir, path.resolve("/custom/bge-m3"), "the index records the folder the vectors came from");
+  // Unnamed, they are the defaults the legacy worker would take itself.
+  await runtime.rebuild({ dense_embeddings: true });
+  const fallback = of("embedQuery")[1].payload;
+  assert.deepEqual([fallback.model_dir, fallback.device], [process.env.BGE_M3_MODEL_DIR || "/models/bge-m3", process.env.BGE_M3_DEVICE || "cpu"]);
 });
 
 test("a fresh index is left alone; a stale one is rebuilt once", async (t) => {

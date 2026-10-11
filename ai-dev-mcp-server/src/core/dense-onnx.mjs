@@ -2,11 +2,12 @@
  * The ONNX dense backend: text in, a normalized 1024-dimension vector out, with
  * no Python anywhere in the path.
  *
- * This is the backend Д-62 chose. The legacy one in `embedding-workers.mjs`
- * reaches the same contract through a virtualenv, a CPU build of torch and
- * `sentence-transformers`; this one reaches it through `@huggingface/transformers`
- * over `onnxruntime-node`, both ordinary npm dependencies, so `npm run setup --
- * --dense` is a download and a checksum rather than a build.
+ * This is the backend Д-62 chose, and since 3.0 the only one: the legacy
+ * Python pool reached the same contract through a virtualenv, a CPU build of
+ * torch and `sentence-transformers`; this one reaches it through
+ * `@huggingface/transformers` over `onnxruntime-node`, both ordinary npm
+ * dependencies, so installing the model is a download and a checksum rather
+ * than a build.
  *
  * ## Why a worker thread and not batches with `await`
  *
@@ -34,16 +35,38 @@ import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 /** Most texts one worker message may carry, so a batch cannot grow unbounded. */
 export const MAX_ONNX_BATCH = 32;
 
+/** Most texts one `embed_texts` call may carry. */
+export const MAX_EMBED_TEXTS = 32;
+
+/** Longest single text one `embed_texts` call may carry. */
+export const MAX_EMBED_TEXT_LENGTH = 12000;
+
+/**
+ * Validate and clean the texts of one `embed_texts` request: an MCP client
+ * decides how much it sends, and a model in a worker thread is not the place
+ * to find out it sent ten thousand.
+ *
+ * @param {{ texts?: string[], text?: string }} input
+ * @returns {string[]}
+ */
+export function cleanEmbedTexts({ texts, text } = {}) {
+  const inputTexts = Array.isArray(texts) ? texts : (typeof text === "string" && text ? [text] : []);
+  const cleanTexts = inputTexts.map((value) => String(value ?? "").trim()).filter(Boolean);
+  if (!cleanTexts.length) throw new Error("texts or text is required.");
+  if (cleanTexts.length > MAX_EMBED_TEXTS) throw new Error(`embed_texts accepts at most ${MAX_EMBED_TEXTS} texts per call.`);
+  for (const value of cleanTexts) {
+    if (value.length > MAX_EMBED_TEXT_LENGTH) throw new Error(`Each text must be ${MAX_EMBED_TEXT_LENGTH} characters or less.`);
+  }
+  return cleanTexts;
+}
+
 /** How long one batch may take before the caller is told rather than left hanging. */
 export const DEFAULT_ONNX_TIMEOUT_MS = 600_000;
 
 /**
- * Round one vector the way the Python backend rounds its own.
- *
- * The two backends' vectors are never mixed in one index — that is what the
- * provenance in `dense-manifest.mjs` prevents — but they travel through the
- * same JSON, the same sqlite blob and the same scoring code, so they are the
- * same shape of number by construction rather than by luck.
+ * Round one vector to the precision the index stores — six places, as the 2.x
+ * Python backend stored its own, so vectors from a 2.x index and from this one
+ * are the same shape of number in the same JSON and the same sqlite blob.
  *
  * @param {ArrayLike<number>} values
  * @param {number} precision
@@ -176,8 +199,8 @@ export function createOnnxDenseRuntime({
   }
 
   /**
-   * Embed one set of texts, in batches, and answer in the shape the Python
-   * backend answers in so callers do not branch on which one is running.
+   * Embed one set of texts, in batches, and answer in the shape 2.x answered
+   * in, so callers and clients of `embed_texts` read it as they always did.
    *
    * @param {object} options
    * @returns {Promise<object>}
@@ -259,12 +282,9 @@ export function createOnnxDenseRuntime({
 }
 
 /**
- * Where the ONNX export lives, kept apart from the legacy Python weights.
- *
- * The two directories hold different files for the same model — `config.json`
- * and `onnx/model_int8.onnx` here, `pytorch_model.bin` and `modules.json` there
- * — and a single directory holding some of each would satisfy neither check
- * while looking installed to both.
+ * Where the ONNX export lives: `BGE_M3_ONNX_DIR`, or `models/bge-m3-onnx` in the
+ * runtime home. 2.x kept the Python backend's torch weights beside it in
+ * `models/bge-m3`; that folder is never read and never written here.
  *
  * @param {object} [options]
  * @param {Record<string, string|undefined>} [options.env]

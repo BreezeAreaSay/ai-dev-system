@@ -45,7 +45,7 @@ const benchmark = await fs.readFile(new URL("dense-benchmark.mjs", import.meta.u
 
 test("every dense-eval measurement is handed the case count the dispatch asked for", () => {
   const invocations = denseEval.match(/node scripts\/dense-benchmark\.mjs[^\n]*/g) ?? [];
-  assert.equal(invocations.length, 2, "one measurement per backend");
+  assert.equal(invocations.length, 1, "one measurement: the ONNX export is the only backend since 3.0");
   for (const invocation of invocations) {
     assert.match(invocation, /--max-cases "\$\{\{ inputs\.max_cases \}\}"/, invocation);
   }
@@ -55,20 +55,11 @@ test("the benchmark scores the count it was given, not a number of its own", () 
   assert.match(benchmark, /run_search_eval", \{ include_dense: true, max_cases: options\.maxCases \}/);
 });
 
-test("the sha this workflow prints has somewhere to go", () => {
-  // The other half of Д-62 point 1. The wiring inside the server was already
-  // there — `BGE_M3_PYTHON_REVISION` reaches `snapshot_download` and the index
-  // records `unpinned` when it is empty — but the workflow that prints the sha
-  // never defined the variable it told the owner to set, and the cache key read
-  // it from an environment where nothing had put it. A pin could be written
-  // down and still not be used by anything.
-  const python = denseEval.slice(denseEval.indexOf("\n  python:"), denseEval.indexOf("\n  compare:"));
-
-  assert.match(
-    python,
-    /^ {4}env:\n {6}BGE_M3_PYTHON_REVISION: \$\{\{ inputs\.python_revision \|\| vars\.BGE_M3_PYTHON_REVISION \}\}$/m,
-    "the legacy job defines the pin, from the dispatch or from the repository variable"
-  );
-  assert.match(python, /key: bge-m3-torch-\$\{\{ env\.BGE_M3_PYTHON_REVISION/, "the cache is keyed on it");
-  assert.match(denseEval, /^ {6}python_revision:$/m, "and one dispatch can try a pin without a settings page");
+test("the workflow measures the ONNX export alone, and keeps nothing of the Python job", () => {
+  // The Python backend went in 3.0 (D3, docs/DEFECTS.md, Д-98); its job, its
+  // torch cache and its revision pin went with it. The comparison is taken on
+  // the 2.x line, whose copy of the workflow keeps both jobs.
+  assert.doesNotMatch(denseEval, /^ {2}python:$/m);
+  assert.doesNotMatch(denseEval, /BGE_M3_PYTHON_REVISION|--dense-python|setup-python/);
+  assert.match(denseEval, /npm run setup -- --dense --no-health/);
 });

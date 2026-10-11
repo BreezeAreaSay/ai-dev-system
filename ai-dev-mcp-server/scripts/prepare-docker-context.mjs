@@ -91,10 +91,7 @@ async function copyRuntime(stage) {
     ["frontend-qa/package.json", "runtime/frontend-qa/package.json"],
     ["frontend-qa/pnpm-lock.yaml", "runtime/frontend-qa/pnpm-lock.yaml"],
     ["search-eval/search_eval_cases.json", "runtime/search-eval/search_eval_cases.json"],
-    ["search-eval/skill_routing_eval_cases.json", "runtime/search-eval/skill_routing_eval_cases.json"],
-    ["embeddings/bge_m3_embed.py", "runtime/embeddings/bge_m3_embed.py"],
-    ["embeddings/bge_m3_worker.py", "runtime/embeddings/bge_m3_worker.py"],
-    ["embeddings/requirements-bge-m3.txt", "runtime/embeddings/requirements-bge-m3.txt"]
+    ["search-eval/skill_routing_eval_cases.json", "runtime/search-eval/skill_routing_eval_cases.json"]
   ];
   for (const [source, target] of runtimeFiles) {
     await copyFile(path.join(repositoryRoot, source), stage, target);

@@ -56,11 +56,9 @@ import {
 } from "./core/skill-recommendation.mjs";
 import { listSearchPresets } from "./core/search-runtime.mjs";
 import { createSearchIndexRuntime } from "./core/search-index.mjs";
-import { createEmbeddingRuntime } from "./core/embedding-workers.mjs";
 import { createDenseRuntime } from "./core/dense-runtime.mjs";
-import { createOnnxDenseRuntime, defaultOnnxModelDir } from "./core/dense-onnx.mjs";
+import { createOnnxDenseRuntime } from "./core/dense-onnx.mjs";
 import { readDenseManifest } from "./core/dense-manifest.mjs";
-import { EMBEDDING_MODEL_REQUIREMENTS } from "./core/embedding-health.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
 import {
   isPathInside,
@@ -285,7 +283,6 @@ const searchEvalCasesPath = path.join(runtimeAssets.searchEvalDir, "search_eval_
 // compares the report against this, so editing the cases asks for a rerun
 // instead of being invisible.
 const skillRoutingEvalCasesPath = path.join(runtimeAssets.searchEvalDir, "skill_routing_eval_cases.json");
-const embeddingsDir = runtimeAssets.embeddingsDir;
 const frontendQaRunnerPath = path.join(runtimeAssets.frontendQaDir, "frontend_qa_runner.mjs");
 const frontendQaPackagePath = path.join(runtimeAssets.frontendQaDir, "package.json");
 const uiUxProMaxRoot = path.join(
@@ -315,13 +312,8 @@ const sessionStore = new SessionStore({ stateRoot: taskStateRoot });
 const instinctStore = new InstinctStore({ stateRoot: taskStateRoot });
 const skillOutcomeStore = new SkillOutcomeStore({ stateRoot: taskStateRoot });
 const pilotStore = new PilotStore({ stateRoot: taskStateRoot });
-const bgeM3EmbedCliPath = path.join(embeddingsDir, "bge_m3_embed.py");
-const bgeM3WorkerCliPath = path.join(embeddingsDir, "bge_m3_worker.py");
-const defaultBgeM3ModelDir = path.resolve(
-  aiDevRuntimePath("BGE_M3_MODEL_DIR", ["models", "bge-m3"])
-);
-// The ONNX export lives beside the legacy weights, not among them: the two hold
-// different files for the same model (docs/DEFECTS.md, Д-62).
+// The ONNX export. 2.x kept the Python backend's torch weights beside it in
+// models/bge-m3; that folder is only looked at to say it can go (D3, Д-98).
 const defaultBgeM3OnnxDir = path.resolve(
   aiDevRuntimePath("BGE_M3_ONNX_DIR", ["models", "bge-m3-onnx"])
 );
@@ -335,20 +327,8 @@ let searchHardNegativeCache = null;
  * surface, the system extension's health checks read them, and writers all over
  * this module call `markSearchIndexDirty` so the next query rebuilds the index.
  * Both are created here because only this module knows where the vault, the
- * cache directory and the Python runtimes are.
+ * cache directory and the model are.
  */
-const embeddingRuntime = createEmbeddingRuntime({
-  embedCliPath: bgeM3EmbedCliPath,
-  workerCliPath: bgeM3WorkerCliPath,
-  defaultModelDir: defaultBgeM3ModelDir,
-  searchIndexDir,
-  searchIndexPath,
-  vaultRoot,
-  pythonCommand: () => embeddingPythonCommand(),
-  pathExists: (target) => pathExists(target),
-  fileStatus: (target) => fileStatus(target),
-  execFile: (command, args, options) => execFile(command, args, options)
-});
 const onnxDenseRuntime = createOnnxDenseRuntime({
   modelDir: defaultBgeM3OnnxDir,
   manifest: denseManifest,
@@ -358,25 +338,23 @@ const onnxDenseRuntime = createOnnxDenseRuntime({
   )
 });
 /**
- * Which dense backend runs. Asked here once so `embedding_status`, the health
- * check and a rebuild cannot each answer differently (docs/DEFECTS.md, Д-62).
+ * Whether dense search runs, asked here once so `embedding_status`, the health
+ * check, a rebuild and every embedding cannot each answer differently
+ * (docs/DEFECTS.md, Д-62, Д-133, Д-144).
  */
 const denseRuntime = createDenseRuntime({
   manifest: denseManifest,
   onnxModelDir: defaultBgeM3OnnxDir,
   onnxRuntime: onnxDenseRuntime,
-  pythonRuntime: embeddingRuntime,
-  pythonReady: async () => {
-    const status = await embeddingRuntime.status();
-    return EMBEDDING_MODEL_REQUIREMENTS.every((key) => status.availability?.[key]?.exists);
-  },
+  stampDir: path.join(runtimeStateRoot, "cache", "dense-model"),
+  legacyModelDir: process.env.BGE_M3_MODEL_DIR || path.join(runtimeStateRoot, "models", "bge-m3"),
   env: process.env
 });
 const searchRuntime = createSearchIndexRuntime({
   vaultRoot,
   searchIndexDir,
   searchIndexPath,
-  defaultModelDir: defaultBgeM3ModelDir,
+  defaultModelDir: defaultBgeM3OnnxDir,
   embedQuery: (payload, options) => denseRuntime.embed(payload, options),
   denseIndexBackend: { describe: () => denseRuntime.describe() },
   hardNegativeRules: () => activeSearchHardNegativeRules(),
@@ -1822,14 +1800,6 @@ function truncateOutput(value, max = 6000) {
   return `${text.slice(0, max)}\n...[truncated ${text.length - max} chars]`;
 }
 
-
-function embeddingPythonCommand() {
-  if (process.env.BGE_M3_PYTHON) return process.env.BGE_M3_PYTHON;
-  if (process.env.AI_DEV_EMBEDDINGS_PYTHON) return process.env.AI_DEV_EMBEDDINGS_PYTHON;
-  return process.platform === "win32"
-    ? path.join(embeddingsDir, ".venv", "Scripts", "python.exe")
-    : path.join(embeddingsDir, ".venv", "bin", "python");
-}
 
 async function runUiUxProMax(args, { json = false } = {}) {
   if (!(await pathExists(uiUxProMaxSearchPath))) {
@@ -4439,18 +4409,12 @@ const extensions = createExtensionTools({
   // drives; the named wrappers below are what the system extension's health
   // checks ask for, and `runSearchEval` is the search extension's own tool
   // reached the same way `prepare_pull_request` is.
-  search: searchRuntime, embeddings: embeddingRuntime, dense: denseRuntime,
+  search: searchRuntime, dense: denseRuntime,
   searchIndexStatus: (args) => searchRuntime.status(args),
   rebuildSearchIndex: (args) => searchRuntime.rebuild(args),
   searchIndex: (args) => searchRuntime.search(args),
   hybridSearchIndex: (args) => searchRuntime.hybridSearch(args),
-  // The health check grades this payload, so it carries the backend choice too:
-  // with ONNX selected, a missing Python stack is not what "dense search is not
-  // set up" means, and the advice differs (docs/DEFECTS.md, Д-62).
-  embeddingStatus: async (args) => ({
-    ...await embeddingRuntime.status(args),
-    dense_backend: await denseRuntime.describe()
-  }),
+  embeddingStatus: (args) => denseRuntime.status(args),
   runSearchEval: (args) => extensions.handlers.get("run_search_eval")(args),
   // The sibling tools the lifecycle extension drives. Reached through the
   // registry rather than `callTool`, so a composed run records one ledger entry
@@ -4466,7 +4430,7 @@ const extensions = createExtensionTools({
   skillCatalogRoot, skillSourcesRoot: sourcesRoot, skillRegistryDir: registryDir,
   collectCustomSkills, collectDesignSkills, collectMembraneSkills, collectExternalSkills,
   writeSkillTaxonomyArtifacts, syncSkillCards, projectRecommendationContext,
-  embedTexts: (args) => embeddingRuntime.embedTexts(args),
+  embedTexts: (args) => denseRuntime.embed(args),
   // Frontend product state and project-card writers. The state readers stay here
   // because `compile_project_context`, `verify_task` and the product tools that
   // have not been extracted yet all read them; the frontend extensions reach
@@ -4850,10 +4814,9 @@ export {
   activeProfiles,
   assertNotProtectedProjectRoot,
   callTool,
-  // Where the runtime keeps the two things a first run builds. Exported so
+  // Where the runtime keeps what a first run builds. Exported so
   // `scripts/first-run.mjs` asks the runtime instead of re-deriving the
   // fallback chain — the mismatch that made a checkout look empty.
-  embeddingsDir,
   extensionReadOnlyTools,
   resolveTaskProjectRoot,
   safeProjectRoot,

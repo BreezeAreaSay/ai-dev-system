@@ -39,16 +39,17 @@ function quotedList(text) {
   return [...text.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 }
 
-/** The folder the image expects the model directories in, from the Dockerfile. */
+/**
+ * The folder the image expects the model directory in, from the Dockerfile.
+ * Since 3.0 there is one: the ONNX export's (the Python backend's torch folder
+ * went with it, decision D3).
+ */
 async function imageModelRoot() {
   const dockerfile = await read("docker/Dockerfile");
-  const roots = ["BGE_M3_ONNX_DIR", "BGE_M3_MODEL_DIR"].map((name) => {
-    const match = dockerfile.match(new RegExp(`${name}=(\\S+)`));
-    assert.ok(match, `the Dockerfile no longer sets ${name}`);
-    return path.posix.dirname(match[1]);
-  });
-  assert.equal(roots[0], roots[1], "both backends' model directories share one parent in the image");
-  return roots[0];
+  const match = dockerfile.match(/BGE_M3_ONNX_DIR=(\S+)/);
+  assert.ok(match, "the Dockerfile no longer sets BGE_M3_ONNX_DIR");
+  assert.doesNotMatch(dockerfile, /BGE_M3_MODEL_DIR=/, "the Python backend's folder is not set in the image");
+  return path.posix.dirname(match[1]);
 }
 
 test("every copy mounts the model folder where the image looks for the models (Д-88)", async () => {

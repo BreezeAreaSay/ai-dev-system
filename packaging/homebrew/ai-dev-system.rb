@@ -14,7 +14,6 @@ class AiDevSystem < Formula
   def install
     libexec.install "ai-dev-mcp-server"
     libexec.install "docker"
-    libexec.install "embeddings"
     libexec.install "frontend-qa"
     libexec.install "search-eval"
     libexec.install "bootstrap.sh"

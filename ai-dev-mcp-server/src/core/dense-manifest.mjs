@@ -18,6 +18,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
+import process from "node:process";
 import { createRequire } from "node:module";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
@@ -84,7 +85,12 @@ export function parseDenseManifest(raw) {
 }
 
 /**
- * The shipped manifest, read once per process.
+ * The manifest in force: the shipped one, or the file `AI_DEV_MODEL_MANIFEST`
+ * names — another export or dtype pinned the same way, or the five-kilobyte
+ * stand-in the tests build (`synthetic-model.mjs`), so the server, setup and
+ * `npm run model` run end to end on a machine without the real weights. The
+ * index records each vector's revision and dtype, so a different manifest
+ * never mixes its vectors with another's.
  *
  * `createRequire` rather than `fs` so the JSON travels with the package the way
  * every other shipped asset does, and so a syntactically broken manifest fails
@@ -93,7 +99,7 @@ export function parseDenseManifest(raw) {
  * @param {string} [manifestPath]
  * @returns {object}
  */
-export function readDenseManifest(manifestPath = DENSE_MANIFEST_PATH) {
+export function readDenseManifest(manifestPath = process.env.AI_DEV_MODEL_MANIFEST || DENSE_MANIFEST_PATH) {
   const require = createRequire(import.meta.url);
   return parseDenseManifest(require(manifestPath));
 }

@@ -48,15 +48,15 @@ function createFixture({ results = [hit()], cases = [], searchResults = null } =
         return typeof results === "function" ? results(args) : results;
       }
     },
-    embeddings: {
-      embedTexts: async (args) => {
-        calls.push(["embedTexts", args]);
-        return { embeddings: [[0.1]] };
-      },
-      status: async (args) => {
-        calls.push(["embeddingStatus", args]);
-        return { backend: "bge-m3-local" };
+    dense: {
+      embed: async (args) => {
+        calls.push(["denseEmbed", args]);
+        return { backend: "onnx", embeddings: [[0.1]] };
       }
+    },
+    embeddingStatus: async (args) => {
+      calls.push(["embeddingStatus", args]);
+      return { backend: "onnx" };
     },
     readSearchEvalCases: async (casesPath) => {
       calls.push(["readSearchEvalCases", casesPath]);
@@ -251,35 +251,23 @@ test("include_dense=false zeroes the dense weight unless the case set one", asyn
   assert.equal(searches[1][1].dense_weight, 0.9);
 });
 
-test("embedding tools hand their arguments to the backend untouched", async () => {
+test("embedding tools hand their arguments to the dense runtime, the texts cleaned", async () => {
   const { registry, calls } = createFixture();
-  await call(registry, "embed_texts", { text: "hello", use_worker: false });
-  await call(registry, "embedding_status", { device: "cuda" });
-  assert.deepEqual(calls[0], ["embedTexts", { text: "hello", use_worker: false }]);
-  assert.deepEqual(calls[1], ["embeddingStatus", { device: "cuda" }]);
+  await call(registry, "embed_texts", { text: "  hello  ", use_worker: false });
+  await call(registry, "embedding_status", { device: "cuda", refresh: true });
+  assert.deepEqual(calls[0], ["denseEmbed", { text: "  hello  ", use_worker: false, texts: ["hello"] }]);
+  assert.deepEqual(calls[1], ["embeddingStatus", { device: "cuda", refresh: true }]);
 });
 
-test("embed_texts embeds through the selected backend, and without one says what to install (Д-133)", async () => {
+test("embed_texts refuses what no model should be sent, and without one says what to install (Д-133)", async () => {
   const { host, registry, calls } = createFixture();
-  let selected = { backend: "onnx", available: true, reason: "The verified ONNX export is on disk; no Python is involved." };
-  host.dense = {
-    describe: async () => selected,
-    embed: async (args) => {
-      calls.push(["denseEmbed", args]);
-      return { backend: "onnx", embeddings: [[0.6, 0.8]] };
-    }
+  await assert.rejects(call(registry, "embed_texts", { texts: Array.from({ length: 33 }, (_, index) => `t${index}`) }), /at most 32 texts per call/);
+  await assert.rejects(call(registry, "embed_texts", {}), /texts or text is required/);
+  assert.deepEqual(calls, [], "refused before the model is asked");
+  host.dense.embed = async () => {
+    throw new Error("Dense search is not installed: the model is not on this machine. Run `npm run setup -- --dense` to download it.");
   };
-  assert.deepEqual(await call(registry, "embed_texts", { text: "hello" }), { backend: "onnx", embeddings: [[0.6, 0.8]] });
-  assert.deepEqual(calls, [["denseEmbed", { text: "hello" }]], "the legacy pool is not touched");
-
-  selected = { backend: "python", available: true, reason: "No ONNX export here, but the legacy Python stack is installed; using it." };
-  await call(registry, "embed_texts", { text: "hello", use_worker: false });
-  assert.deepEqual(calls.at(-1), ["embedTexts", { text: "hello", use_worker: false }]);
-
-  selected = { backend: "onnx", available: false, reason: "Dense search is not installed. Run `npm run setup -- --dense` to download the model (no Python needed)." };
-  const before = calls.length;
-  await assert.rejects(call(registry, "embed_texts", { text: "hello" }), /^Error: Dense search is not installed\. Run `npm run setup -- --dense`/);
-  assert.equal(calls.length, before, "neither backend is asked");
+  await assert.rejects(call(registry, "embed_texts", { text: "hello" }), /^Error: Dense search is not installed: the model is not on this machine\. Run `npm run setup -- --dense`/);
 });
 
 test("the narrow wrappers pin their own scope", async () => {

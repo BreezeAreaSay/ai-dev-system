@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { resolvePythonCommand } from "./core/python-command.mjs";
 import { callTool, usageLedger } from "./mcp-stdio.mjs";
 import { createAiDevServer } from "./server.mjs";
 
@@ -99,10 +101,6 @@ test("SDK runtime exposes tools, resources, prompts, and structured results", as
     name: "query_ui_ux_knowledge",
     arguments: { query: "keyboard focus", domain: "ux", max_results: 1 }
   });
-  assert.equal(uiUxKnowledge.isError, false);
-  assert.equal(uiUxKnowledge.structuredContent?.result?.source?.skill, "ui-ux-pro-max");
-  assert.equal(uiUxKnowledge.structuredContent?.result?.result?.count, 1);
-
   const designSystem = await client.callTool({
     name: "generate_ui_ux_design_system",
     arguments: {
@@ -113,9 +111,25 @@ test("SDK runtime exposes tools, resources, prompts, and structured results", as
       density: 7
     }
   });
-  assert.equal(designSystem.isError, false);
-  assert.ok(designSystem.structuredContent?.result?.design_system?.style);
-  assert.equal(designSystem.structuredContent?.result?.persistence, null);
+  // The two UI UX Pro Max tools run the dataset's own Python script, the only
+  // tools here that need an interpreter. Without one they answer with what to
+  // install, and nothing else needs it — the suite included (docs/DEFECTS.md, Д-137).
+  const python = spawnSync(resolvePythonCommand(), ["--version"], { encoding: "utf8", shell: false, windowsHide: true });
+  if (!python.error && python.status === 0 && /Python 3/.test(`${python.stdout}${python.stderr}`)) {
+    assert.equal(uiUxKnowledge.isError, false);
+    assert.equal(uiUxKnowledge.structuredContent?.result?.source?.skill, "ui-ux-pro-max");
+    assert.equal(uiUxKnowledge.structuredContent?.result?.result?.count, 1);
+    assert.equal(designSystem.isError, false);
+    assert.ok(designSystem.structuredContent?.result?.design_system?.style);
+    assert.equal(designSystem.structuredContent?.result?.persistence, null);
+  } else if (python.error?.code === "ENOENT") {
+    for (const answer of [uiUxKnowledge, designSystem]) {
+      assert.equal(answer.isError, true);
+      assert.match(answer.content[0].text, /run a Python helper, and no Python was found here .*AI_DEV_PYTHON/);
+    }
+  } else {
+    t.diagnostic(`the UI UX tools were not checked: ${resolvePythonCommand()} --version did not answer as Python 3`);
+  }
 });
 
 

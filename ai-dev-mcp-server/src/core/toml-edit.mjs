@@ -288,27 +288,80 @@ function refuseInline(scan, prefix) {
   }
 }
 
+/** Only spaces, tabs and line breaks: a byte order mark is not blank. */
+const BLANK = /^[ \t\r\n]*$/;
+
 /**
  * A table's span with one blank line that separated it: the one in front of
- * it (the one an append puts there), or else the one after it.
+ * it (the one an append puts there), or else the one after it. A byte order
+ * mark belongs to the file, not to its first line, and stays.
  */
 function spanWithBlank(text, table) {
-  if (table.start > 0) {
-    const previous = text.lastIndexOf("\n", table.start - 2) + 1;
-    if (!text.slice(previous, table.start).trim()) return [previous, table.end];
+  const first = text.charCodeAt(0) === 0xfeff ? 1 : 0;
+  if (table.start > first) {
+    const previous = Math.max(first, text.lastIndexOf("\n", table.start - 2) + 1);
+    if (BLANK.test(text.slice(previous, table.start))) return [previous, table.end];
   }
   const newline = text.indexOf("\n", table.end);
   const next = newline < 0 ? text.length : newline + 1;
-  if (table.end < text.length && !text.slice(table.end, next).trim()) return [table.start, next];
+  if (table.end < text.length && BLANK.test(text.slice(table.end, next))) return [table.start, next];
   return [table.start, table.end];
 }
 
+/**
+ * The text with each span, `[start, end, insert]` in the original's offsets,
+ * replaced. Two tables in a row can both claim the blank line between them;
+ * the spans then overlap and are taken as one. Cut one at a time, the second
+ * cut used offsets the first had already moved and ate the first character of
+ * whatever followed — the `[` of the next header (docs/DEFECTS.md, Д-166).
+ */
 function cut(text, spans) {
-  let result = text;
-  for (const [start, end, insert = ""] of [...spans].sort((left, right) => right[0] - left[0])) {
-    result = `${result.slice(0, start)}${insert}${result.slice(end)}`;
+  let result = "";
+  let at = 0;
+  for (const [start, end, insert = ""] of [...spans].sort((left, right) => left[0] - right[0])) {
+    result += text.slice(at, Math.max(at, start)) + insert;
+    at = Math.max(at, end);
   }
-  return result;
+  return result + text.slice(at);
+}
+
+/** Every table and key outside `prefix`, in order: what an edit must not touch. */
+function foreignShape(scan, prefix) {
+  return JSON.stringify([
+    scan.tables.filter((table) => !startsWith(table.path, prefix)).map((table) => [table.path, table.array]),
+    scan.keys.filter((key) => !startsWith(key.table, prefix)).map((key) => [key.table, key.path])
+  ]);
+}
+
+/** The tables and keys of `prefix`, in order. */
+function ownShape(scan, prefix) {
+  return JSON.stringify([
+    tablesUnder(scan, prefix).map((table) => [table.path, table.array]),
+    scan.keys.filter((key) => startsWith(key.table, prefix)).map((key) => [key.table, key.path])
+  ]);
+}
+
+/**
+ * The edited text, read again before anyone writes it: it must still scan,
+ * keep every table and key outside `prefix` as it was, and hold under
+ * `prefix` exactly what the edit put there. A file that fails is never
+ * written — a `config.toml` Codex cannot read loses every server in it.
+ */
+function verified(text, scan, edited, prefix, section) {
+  const line = text.slice(0, tablesUnder(scan, prefix)[0]?.start ?? 0).split("\n").length;
+  let after;
+  try {
+    after = scanToml(edited);
+  } catch (error) {
+    throw new TomlEditError(`editing [${prefix.map(tomlKey).join(".")}] here would leave a file that cannot be read `
+      + `(${error.message}); this file is left as it is`, line);
+  }
+  const expected = section ? ownShape(scanToml(section), prefix) : ownShape({ tables: [], keys: [] }, prefix);
+  if (foreignShape(after, prefix) !== foreignShape(scan, prefix) || ownShape(after, prefix) !== expected) {
+    throw new TomlEditError(`editing [${prefix.map(tomlKey).join(".")}] here would change other tables; `
+      + "this file is left as it is", line);
+  }
+  return edited;
 }
 
 /**
@@ -328,9 +381,9 @@ export function upsertTables(text, prefix, section) {
     let head = text;
     if (head && !head.endsWith("\n")) head += scan.eol;
     if (head.trim()) head += scan.eol;
-    return `${head}${section}`;
+    return verified(text, scan, `${head}${section}`, prefix, section);
   }
-  return cut(text, [[first.start, first.end, section], ...rest.map((table) => spanWithBlank(text, table))]);
+  return verified(text, scan, cut(text, [[first.start, first.end, section], ...rest.map((table) => spanWithBlank(text, table))]), prefix, section);
 }
 
 /**
@@ -345,5 +398,5 @@ export function removeTables(text, prefix) {
   refuseInline(scan, prefix);
   const tables = tablesUnder(scan, prefix);
   if (!tables.length) return text;
-  return cut(text, tables.map((table) => spanWithBlank(text, table)));
+  return verified(text, scan, cut(text, tables.map((table) => spanWithBlank(text, table))), prefix);
 }

@@ -12,7 +12,8 @@ npm run upgrade:test                 # base: 8f647df, production main when 3.0 s
 npm run upgrade:test -- --base <commit> --keep
 ```
 
-It needs Node 22.12+, git, Python 3 (until the search moves to Node) and about two minutes. In a
+It needs Node 22.16+ (on an older Node the checks of the Node search engine are left out), git,
+Python 3 (the 2.x side runs on it, and hybrid search still does) and about two minutes. In a
 scratch directory it:
 
 1. checks the base commit out as a git worktree and installs it the way 2.x documented,
@@ -25,13 +26,17 @@ scratch directory it:
      the home plus explicit state, index and artifact roots, run without a container;
 
    and for each: a task with a checkpoint, a decision, an instinct, a session handoff, the
-   search index, Claude hooks in a git repository, and client configurations written by both
-   2.x installers (local and Docker);
+   search index with dense vectors — written by the 2.x helper as its ONNX path writes them,
+   from synthetic numbers — Claude hooks in a git repository, and client configurations written
+   by both 2.x installers (local and Docker);
 3. upgrades the same checkout to the working tree in front of it, as `git pull` would, and runs
    plain `npm ci`;
 4. starts the server through the command the 2.x client configuration holds and checks that
    the task, its checkpoint, the decision, the instinct and the handoff are found, that the
-   search index is read without a rebuild and answers, that nothing is left in
+   Node search engine finds the 2.x index current without rebuilding it, every vector untouched,
+   that a rebuild keeps every vector still used byte for byte (a 2.x older than the Д-91 fix also
+   embedded Membrane's connectors; those are dropped, as Д-91 intends), that keyword and hybrid
+   search answer, that nothing is left in
    `$AI_DEV_HOME/.ai-dev`, and that the 2.x hook still runs — and, where its copy of the old
    path cannot see the migrated task, sees it after `install_agent_hooks`.
 

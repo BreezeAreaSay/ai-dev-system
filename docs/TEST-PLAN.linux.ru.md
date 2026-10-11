@@ -77,7 +77,7 @@ ldd --version | head -1
 glibc; **на Alpine и других musl-системах они, по ожиданию, не заработают**. Если вы тестируете
 именно на такой — это отдельный прогон, и от вас нужен точный текст ошибки (см. 10.1).
 
-### Node.js 22.12 или новее
+### Node.js 22.16 или новее (или 24+)
 
 ```bash
 node -v
@@ -297,7 +297,7 @@ npm run dense:doctor
 ```
 Dense search: UNAVAILABLE
 
-[  ok  ] Node 22.12.0 or newer — this is vXX.X.X
+[  ok  ] Node 22.16.0 or newer — this is vXX.X.X
 [  ok  ] onnxruntime-node loads — native binding available
 [  ok  ] model manifest reads — Xenova/bge-m3 @ 4de132583038, int8
 [ FAIL ] model files present and unmodified — missing from …: config.json, tokenizer.json, …
@@ -354,7 +354,7 @@ npm run dense:doctor
 ```
 Dense search: READY
 
-[  ok  ] Node 22.12.0 or newer — …
+[  ok  ] Node 22.16.0 or newer — …
 [  ok  ] onnxruntime-node loads — native binding available
 [  ok  ] model manifest reads — Xenova/bge-m3 @ 4de132583038, int8
 [  ok  ] model files present and unmodified — 5 file(s) verified in …

@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The search index, its status and keyword search run in Node**
+  (`src/core/search-store.mjs`, `search-query.mjs`, `search-documents.mjs`,
+  `search-semantic.mjs`). On Node 22.16+ and 24+, `search_all`, `search_notes`,
+  `search_projects`, `search_skill_registry`, `search_index_status`,
+  `rebuild_search_index`, `prepare_project` and `refresh_project_memory` need no
+  Python, and `npm run setup` without Python builds every step (Health then fails only
+  `hybrid_smoke_no_dense`; hybrid search, the galaxy export and
+  `query_ui_ux_knowledge` move in the next phase). The file stays what the Python
+  helper wrote — a Node rebuild of the public seed equals the Python one in every
+  table — so the helper's hybrid search reads it unchanged, and a 2.x index, dense
+  vectors and all, is read as current without a rebuild. Measured over MCP on the
+  seed (3,444 documents): warm `search_all` median 2 ms (was 69), with its freshness
+  check 26 ms (was 540), a full rebuild 2.6–3.5 s (was 5.0–5.3), a search right
+  after a note changed 0.23 s (was 6.0: the index is now refreshed in place, only
+  the changed documents rewritten). WAL and a cross-process rebuild lock that honours
+  `AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT` let several clients share the index; the
+  `node:sqlite` ExperimentalWarning is suppressed and no other warning is.
+  `search_index_status` and `rebuild_search_index` say which engine answered
+  (`engine`, `engine_reason`).
+- **`npm run search:parity -- --vault <dir>`** — builds the index with both engines,
+  compares the files row by row, and runs the golden cases of `search-eval/*.json`
+  and 300 document titles through both keyword searches and the hybrid search over
+  both files, explaining every discrepancy. On the public seed: the files are equal,
+  top-3 and top-k identical in 85 of 85, 300 of 300 and 85 of 85.
+
 - **`npm run upgrade:test` — a 2.x install upgraded in place** (`docs/UPGRADE-TEST.md`).
   It checks the production 2.x commit out into a git worktree, has the 2.x server
   create what three users have — the defaults, `AI_DEV_HOME` set, and the Docker
@@ -16,7 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   session handoff, the search index, Claude hooks in a repository and client
   configurations from both 2.x installers, then upgrades the checkout to the
   working tree with plain `npm ci` and starts the server through the 2.x client
-  entry. 41 checks; the container half is a written scenario for CI.
+  entry. The 2.x index also carries dense vectors (written by the 2.x helper from
+  synthetic numbers), which the upgraded server must find current, keep byte for
+  byte through a rebuild, and search. 56 checks; the container half is a written
+  scenario for CI.
 
 - **The `ar-security-review` skill** (`docker/public-seed/03-skills-catalog/sources/custom/ar-security-review`).
   The workflow the tools above add up to: scan with `run_security_scan`, treat
@@ -199,6 +227,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Node.js 22.16 or newer (or 24+) is required** — `engines` is
+  `^22.16.0 || >=24.0.0`, the CI floor job runs 22.16, `dense:doctor` names 22.16.
+  `node:sqlite` is unflagged from 22.13, but measured on the release builds its SQLite
+  has no FTS5 in 22.13–22.15 and 23.x, and the index is an FTS5 table. On such a
+  Node — or with `AI_DEV_SEARCH_ENGINE=python`, the way back — search runs through
+  the Python helper exactly as in 2.x. `.nvmrc` stays `22`, which nvm resolves to the
+  newest 22.x. Upgrading from a 2.x older than the Д-91 fix: the first rebuild drops
+  the vectors 2.x had embedded for Membrane's connectors, as Д-91 intends, and keeps
+  every other one.
+
 - **`AI_DEV_HOME` is the runtime folder itself, and a 2.x tree moves there**
   (`docs/DEFECTS.md`, Д-90; owner decision D2). The documentation and the
   Dockerfile always meant it that way; the code appended `.ai-dev`, so
@@ -283,6 +321,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 
 ### Fixed
+
+- **A damaged search index no longer stops search for good** (docs/DEFECTS.md, Д-116).
+  A file that is not a database was the answer to every `status` and `rebuild`
+  until someone deleted it; it is now reported (`index_unreadable`), set aside as
+  `<index>.corrupt` and rebuilt.
+- **Two project cards for one repository no longer break the index** (Д-114): the
+  rebuild died on the documents' primary key, and with it every search. One document
+  per id is kept.
+- **One unreadable `.md` no longer aborts the index** (Д-115): a broken symlink, or a
+  folder named `*.md` among the project cards, ended `rebuild` and `status` alike.
+- **AND, OR, NOT and NEAR in capitals are words in keyword search** (Д-117): "frontend
+  AND backend testing" was an FTS5 syntax error and found nothing. Hybrid search's
+  keyword half follows in the next phase.
 
 - **Claude on Windows with Docker gets dense search** (Д-88). `ClaudeMcpProxy.cs`
   mounted the model folder at `/models/bge-m3`, one level below where the image

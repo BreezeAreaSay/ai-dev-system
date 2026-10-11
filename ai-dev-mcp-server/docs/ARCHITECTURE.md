@@ -240,11 +240,18 @@ and `core/reference-factory.mjs` already held the state machine and the manifest
 touched: both are pinned in the static gate's `MODULE_LINE_EXCEPTIONS` and may only shrink.
 
 `search` is the MCP surface over three layers. `core/search-index.mjs` owns the sqlite index:
-when to rebuild it (writers call `markDirty`, the next query rebuilds once, concurrent queries
-share that rebuild), what to ask the Python helper, and what to do with the answer — the dense
-query vector is embedded in-process and handed over as a file, results are reranked against the
-golden cases, and deterministic intent routing can place a routed workflow skill above
-everything the index found. `core/embedding-workers.mjs` owns the BGE-M3 pool: one long-lived
+which engine serves it, when to refresh it (writers call `markDirty`, the next query refreshes
+once — in place with the Node engine — and concurrent queries share that refresh), what to ask
+the Python helper for hybrid search, and what to do with the answer — the dense query vector is
+embedded in-process and handed over as a file, results are reranked against the golden cases,
+and deterministic intent routing can place a routed workflow skill above everything the index
+found. The Node engine, used wherever `node:sqlite` has FTS5 (22.16+, 24+), writes and checks
+the file in `core/search-store.mjs` (WAL, the cross-process rebuild lock, writing in place,
+dense vectors reconciled where they lie) and answers keyword queries in `core/search-query.mjs`;
+`core/search-documents.mjs` and `core/search-semantic.mjs` reproduce the helper's documents,
+hashes and sparse vectors byte for byte — with `core/python-compat.mjs` and `core/blake2b.mjs`
+for the arithmetic the two languages disagree on — so either engine reads what the other wrote,
+and `npm run search:parity` checks that they agree. `core/embedding-workers.mjs` owns the BGE-M3 pool: one long-lived
 worker per model/device pair, newline-delimited JSON over stdin/stdout, and a one-shot fallback.
 `core/search-runtime.mjs` and `core/search-eval.mjs` are pure: the presets an agent actually
 names (`code`, `docs`, `skills`, …), weight normalization, the per-result score explanation, and

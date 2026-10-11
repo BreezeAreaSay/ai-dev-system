@@ -15,7 +15,9 @@ evidence-bound task completion.
 - `src/extensions/`: tools added as extensions, registered in `src/tool-extensions.mjs`.
 - `src/core/`: path, command, process, project identity, context, task, routing, outcome, dashboard,
   overlay, frontend-quality, and distribution modules.
-- Node.js: 22.12+ on `PATH` (any distribution). No agent-specific runtime is required.
+- Node.js: 22.16+ or 24+ on `PATH` (any distribution) — the search index lives in `node:sqlite`,
+  which has FTS5 from 22.16; on an older Node, search falls back to the Python helper. No
+  agent-specific runtime is required.
 - Regenerable runtime data lives under the **AI Dev home** — `AI_DEV_HOME`, default `~/.ai-dev`:
   - `~/.ai-dev/state` — task lifecycle, skill outcomes, pilots (override: `AI_DEV_STATE_ROOT`)
   - `~/.ai-dev/cache/search-index` — SQLite + dense index (override: `AI_DEV_SEARCH_INDEX_DIR`)

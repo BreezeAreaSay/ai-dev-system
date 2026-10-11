@@ -18,12 +18,15 @@ scratch directory it:
 
 1. checks the base commit out as a git worktree and installs it the way 2.x documented,
    `npm ci --ignore-scripts`;
-2. creates the state three users have, each with its own home directory:
+2. creates the state four users have, each with its own home directory:
    - **default** — no `AI_DEV_HOME`;
    - **AI_DEV_HOME** — set to a folder of its own, where 2.x wrote everything one level too
      deep, into `$AI_DEV_HOME/.ai-dev` (docs/DEFECTS.md, Д-90);
    - **Docker volume layout** — the environment `docker/Dockerfile` sets: `AI_DEV_HOME` under
      the home plus explicit state, index and artifact roots, run without a container;
+   - **Python dense backend** — a client configuration with `AI_DEV_DENSE_BACKEND=python` and
+     `BGE_M3_PYTHON`, the torch weights 2.x downloaded in `~/.ai-dev/models/bge-m3`, and vectors
+     labelled with the Python backend's provenance (3.0 removed that backend, decision D3);
 
    and for each: a task with a checkpoint, a decision, an instinct, a session handoff, the
    search index with dense vectors — written by the 2.x helper as its ONNX path writes them,
@@ -41,7 +44,12 @@ scratch directory it:
    Membrane's connectors, which a 2.x older than the Д-91 fix embedded — leaving the rewritten
    ones to the next embedding run; that keyword and hybrid search answer, that nothing is left in
    `$AI_DEV_HOME/.ai-dev`, and that the 2.x hook still runs — and, where its copy of the old
-   path cannot see the migrated task, sees it after `install_agent_hooks`.
+   path cannot see the migrated task, sees it after `install_agent_hooks`. For the Python dense
+   backend user it also checks that `embedding_status` names each leftover setting with the one
+   command that replaces it, that the health check warns instead of failing, that hybrid search
+   answers without comparing the Python vectors with anything, and that the one command —
+   `npm run model -- import` with a synthetic model standing in for BGE-M3 — gives every eligible
+   document a vector of the new model while the index stays whole.
 
 Each check prints `✓` or `✗`; the last line is `N of M checks passed`, and any `✗` makes the
 exit code 1.

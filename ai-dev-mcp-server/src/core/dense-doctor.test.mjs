@@ -33,7 +33,7 @@ function deps(overrides = {}) {
 const doctor = (overrides) => runDenseDoctor(denseDoctorStages(deps(overrides)));
 
 test("versions compare by number, not by string", () => {
-  assert.ok(compareVersions("22.12.0", MINIMUM_NODE) === 0);
+  assert.ok(compareVersions("22.16.0", MINIMUM_NODE) === 0);
   assert.ok(compareVersions("v24.1.0", "22.12.0") > 0);
   assert.ok(compareVersions("22.9.0", "22.12.0") < 0, "22.9 is older than 22.12, though it sorts later as text");
   assert.ok(compareVersions("22", "22.0.0") === 0);

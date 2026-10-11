@@ -99,6 +99,14 @@ export function denseRuntimeSupport({ platform = process.platform, arch = proces
   };
 }
 
+/** Why a lock file could not be created beside the model folder. */
+const LOCK_FAILURES = Object.freeze({
+  EACCES: "this account may not write in the folder above it",
+  EPERM: "this account may not write in the folder above it",
+  EROFS: "it is on a read-only file system",
+  ENOTDIR: "a part of the path is a file, not a folder"
+});
+
 /**
  * Run `operation` holding the lock for `dir`, or say who holds it.
  *
@@ -112,6 +120,13 @@ export async function withModelLock(dir, operation) {
   try {
     release = await acquireFileLock(path.resolve(dir), { timeoutMs: MODEL_LOCK_TIMEOUT_MS, heartbeatMs: 10_000 });
   } catch (error) {
+    // Only a lock someone holds is "another operation"; a folder that cannot
+    // be written beside is said as that (docs/DEFECTS.md, Д-154).
+    if (error?.code) {
+      const reason = LOCK_FAILURES[error.code] ?? String(error.message ?? error);
+      throw new Error(`Cannot work in ${path.resolve(dir)}: ${reason} (${error.code}). `
+        + "Point --dir or BGE_M3_ONNX_DIR at a folder this account can write.");
+    }
     const holder = String(error?.message ?? "").match(/held by pid (\d+)/)?.[1];
     throw new Error(`Another model operation is working in ${path.resolve(dir)}${holder ? ` (pid ${holder})` : ""}. `
       + "Wait for it to finish; one that was killed lets go within 30 s.");
@@ -349,7 +364,13 @@ export async function importModel({ manifest, source, dir, stampDir = defaultSta
       }
       if (found.length === 1 && path.resolve(found[0]) === resolved) {
         const verification = await verifyModel({ manifest, dir: resolved, stampDir, onProgress });
-        return { ready: verification.ready, dir: resolved, source: origin, copied: [], skipped: verification.present, from: resolved, mismatched: verification.mismatched };
+        if (!verification.ready) {
+          // Nothing to copy from: the source is the folder being checked (Д-156).
+          throw new Error(`${origin} is the model folder itself, and ${[...verification.missing, ...verification.mismatched].join(", ")} in it `
+            + "is not the pinned file; there is no other copy here to take it from. Import from another copy, or "
+            + "`npm run model -- install` fetches it.");
+        }
+        return { ready: true, dir: resolved, source: origin, copied: [], skipped: verification.present, from: resolved, mismatched: [] };
       }
       candidates = found.map((folder) => ({
         label: folder,
@@ -415,6 +436,18 @@ export async function importModel({ manifest, source, dir, stampDir = defaultSta
 }
 
 /**
+ * Whether a folder holds anything of this model: a file whose sha256 the
+ * manifest pins, or a download of one that stopped partway.
+ */
+async function holdsModelFiles({ manifest, dir, stampDir }) {
+  for (const relative of Object.keys(manifest.files)) {
+    if ((await usablePart(path.join(dir, ...relative.split("/")), { revision: manifest.revision, sha256: manifest.files[relative] })).bytes > 0) return true;
+  }
+  const verification = await verifyDenseModelDirectory({ manifest, dir, stampFile: verifiedStampPath(stampDir, dir), trustStamp: true });
+  return verification.present.length > 0;
+}
+
+/**
  * Delete the model: the files the manifest names, their unfinished downloads
  * and the record of their check. Anything else in the folder is left, and
  * said, because the folder can be one a person chose with `BGE_M3_ONNX_DIR`.
@@ -428,15 +461,25 @@ export async function importModel({ manifest, source, dir, stampDir = defaultSta
 export async function removeModel({ manifest, dir, stampDir = defaultStampDir() }) {
   const resolved = path.resolve(dir);
   return withModelLock(resolved, async () => {
+    // Names alone are not enough: `config.json` and `manifest.json` are
+    // common, and a --dir pointed at the wrong folder deleted another
+    // program's (docs/DEFECTS.md, Д-153).
+    if (!fs.existsSync(resolved)) return { dir: resolved, removed: [], freed: 0, freed_text: formatBytes(0), kept: [] };
+    const ours = await readInstalledDenseManifest(resolved);
+    if (!ours && !await holdsModelFiles({ manifest, dir: resolved, stampDir })) {
+      throw new Error(`${resolved} does not look like the model's folder: it has no manifest.json from an install or an import, `
+        + "no file the manifest pins and no download of one that stopped partway. Nothing was removed.");
+    }
     const removed = [];
     let freed = 0;
-    const names = [...Object.keys(manifest.files), "manifest.json"];
+    const names = [...Object.keys(manifest.files), ...(ours ? ["manifest.json"] : [])];
     for (const relative of names) {
       const target = path.join(resolved, ...relative.split("/"));
       const folder = path.dirname(target);
       const base = path.basename(target);
       const siblings = await fsp.readdir(folder).catch(() => []);
-      const legacy = new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.(?:\\d+|import-\\d+)\\.part$`);
+      const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const legacy = new RegExp(`^${escaped}\\.(?:(?:\\d+|import-\\d+)\\.part|part\\.json\\.\\d+\\.tmp)$`);
       const doomed = [base, `${base}${PART_SUFFIX}`, `${base}${PART_META_SUFFIX}`, ...siblings.filter((name) => legacy.test(name))];
       for (const name of new Set(doomed)) {
         const file = path.join(folder, name);

@@ -114,7 +114,9 @@ export function createDenseRuntime({
    * Embed through whichever backend is running.
    *
    * The two runtimes answer in the same shape, so callers — a hybrid query, an
-   * index rebuild, the `embed_texts` tool — do not branch on the backend.
+   * index rebuild — do not branch on the backend. `embed_texts` asks
+   * {@link describe} first only to hand the legacy pool its own arguments
+   * (docs/DEFECTS.md, Д-133).
    *
    * @param {object} payload
    * @param {object} [options]

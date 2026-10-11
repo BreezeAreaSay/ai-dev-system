@@ -131,6 +131,22 @@ requireText(formula, /sha256 "ca99b696f024d3d0688088ff63f68add9c122577fbecb23a96
 requireText(formula, /inreplace launcher, "@AI_DEV_SYSTEM_ROOT@", libexec/, "Homebrew formula");
 requireText(formula, /launcher\.chmod 0755/, "Homebrew formula");
 
+// What the two recipes copy has to exist: both were left naming `search-index`
+// after it was deleted, and makepkg stops at the first `cp` that fails while
+// this check, reading only text, passed (docs/DEFECTS.md, Д-136).
+const pkgbuildCopy = /cp -a \\\n([\s\S]*?)\s+"\$root\/"/.exec(pkgbuild)?.[1] ?? "";
+const pkgbuildPaths = pkgbuildCopy.split("\n").map((line) => line.replace(/\\$/, "").trim()).filter(Boolean);
+const formulaPaths = [...formula.matchAll(/libexec\.install "([^"]+)"/g)].map((match) => match[1]);
+assert.ok(pkgbuildPaths.length > 0, "PKGBUILD: the package() copy list was not found");
+assert.ok(formulaPaths.length > 0, "Homebrew formula: no libexec.install lines were found");
+for (const [label, paths] of [["PKGBUILD", pkgbuildPaths], ["Homebrew formula", formulaPaths]]) {
+  for (const relative of paths) {
+    await fs.access(path.join(repositoryRoot, relative)).catch(() => {
+      throw new Error(`${label} installs ${relative}, which is not in the repository`);
+    });
+  }
+}
+
 const packagingAudit = assertCleanDistribution(
   await auditDistributionTree(path.join(repositoryRoot, "packaging"), {
     forbiddenTerms: [os.homedir(), ownerUsername()]
@@ -142,5 +158,6 @@ process.stdout.write(`${JSON.stringify({
   status: "passed",
   image: publishedImage,
   packaging_files: packagingAudit.total_files,
-  packaging_bytes: packagingAudit.total_bytes
+  packaging_bytes: packagingAudit.total_bytes,
+  installed_paths: { pkgbuild: pkgbuildPaths.length, homebrew: formulaPaths.length }
 }, null, 2)}\n`);

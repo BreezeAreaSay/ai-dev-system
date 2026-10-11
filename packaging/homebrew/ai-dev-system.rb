@@ -17,7 +17,6 @@ class AiDevSystem < Formula
     libexec.install "embeddings"
     libexec.install "frontend-qa"
     libexec.install "search-eval"
-    libexec.install "search-index"
     libexec.install "bootstrap.sh"
     libexec.install "LICENSE"
     libexec.install "THIRD_PARTY_NOTICES.md"

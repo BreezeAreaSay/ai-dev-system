@@ -86,7 +86,9 @@ again changes nothing. Codex and Claude Desktop are not covered by it yet — se
 [INSTALL](docs/INSTALL.md#from-a-clone-codex-and-claude-desktop). That is the
 whole install, and it is the path to take on your own machine. The local dense
 model is one flag here — `npm run setup -- --dense` downloads a pinned, checksum-verified ONNX
-export of BGE-M3 and runs it through Node, with no Python packages;
+export of BGE-M3 (a broken download continues where it stopped; `AI_DEV_MODEL_MIRROR`
+and `HTTPS_PROXY` are honoured) and runs it through Node, with no Python;
+`npm run model -- import <folder or .zip>` copies it from a machine that has it, and
 `npm run dense:doctor` says whether it worked. In the packaged path the weights
 are mounted instead.
 

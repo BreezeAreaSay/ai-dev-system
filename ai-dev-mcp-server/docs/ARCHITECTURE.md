@@ -101,7 +101,8 @@ file. The line ceiling below covers that directory too.
 `core/` is not only pure logic. A handful of modules there are services: they run processes
 or own state, but know nothing about MCP and take everything environment-specific as a
 dependency. `process-runner.mjs` and `input-process-runner.mjs` were the first; stage 1.4
-added `search-index.mjs` and `embedding-workers.mjs`, and stage 1.5 `project-detection.mjs`.
+added `search-index.mjs` and the embedding pool (since 3.0, `dense-runtime.mjs` over the ONNX
+worker), and stage 1.5 `project-detection.mjs`.
 The rule they follow is that the launcher, the paths and the collaborators arrive as
 arguments, so the module is testable against a stub rather than against an installed
 toolchain.
@@ -264,14 +265,18 @@ sparse vectors the 2.x Python helper wrote, byte for byte — with `core/python-
 `core/blake2b.mjs` for the arithmetic the two languages disagree on — so a 2.x index is read
 without a rebuild and a 2.x server rolled back reads what Node wrote; `npm run search:parity`
 takes the helper from git history and checks the files, the rankings and the galaxy export.
-`core/embedding-workers.mjs` owns the BGE-M3 pool: one long-lived worker per model/device pair,
-newline-delimited JSON over stdin/stdout, and a one-shot fallback.
+`core/dense-runtime.mjs` answers whether the local BGE-M3 model can run and embeds through it —
+`core/dense-onnx.mjs` keeps one worker thread (`src/workers/dense-onnx-worker.mjs`) running
+onnxruntime-node — for hybrid queries, index rebuilds, `embed_texts` and the semantic duplicate
+check alike. `core/model-manager.mjs` installs, imports, verifies and removes the model
+(`core/dense-download.mjs` over `core/http-download.mjs`, which honours proxies; `core/model-archive.mjs`
+reads a `.zip`); a check that hashed a file right leaves a record so the next one does not read it.
 `core/search-runtime.mjs` and `core/search-eval.mjs` are pure: the presets an agent actually
 names (`code`, `docs`, `skills`, …), weight normalization, the per-result score explanation, and
 the golden-case verdicts and ranking metrics.
 
 Both services are created once in `mcp-stdio.mjs` and handed to the host as `search` and
-`embeddings`, because they are shared rather than owned by the extension: the system extension's
+`dense`, because they are shared rather than owned by the extension: the system extension's
 health checks query them, fourteen writers across the runtime call `markSearchIndexDirty`, and
 `prepare_project` rebuilds the index directly. The reverse direction goes through
 `extensions.handlers`, as everywhere else.

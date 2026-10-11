@@ -9,6 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The local model is one command, and gets through a broken connection, a proxy and a
+  mirror** (`docs/DEFECTS.md`, Д-98; Д-73's missing resume). `npm run model -- install`
+  (and `npm run setup -- --dense`, which uses it) keeps a broken download as `<file>.part`
+  with a `.part.json` naming the revision and sha256 it is the start of; the next run hashes
+  those bytes again and asks for the rest with `Range` — measured: a transfer cut at 50 % of
+  a file is continued from the byte on disk, every byte crosses the network once and the
+  file hashes right (was: the whole file again, 1,572,864 bytes for 1,048,576). Sources are
+  `AI_DEV_MODEL_MIRROR`, then `HF_ENDPOINT`, then huggingface.co; one that fails (an HTTP
+  error, a reset, a stall, wrong bytes) hands its partial file to the next. Requests read
+  `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` (names, suffixes, ports, CIDR blocks) without
+  `NODE_USE_ENV_PROXY`, tunnel HTTPS with `CONNECT` and take credentials from the proxy
+  URL; a refused `CONNECT`, an unresolvable name or an untrusted certificate is a sentence
+  with the next step instead of `fetch failed`. Progress — bytes, total, speed, time left —
+  is one line in a terminal and a line every few seconds in a log; Ctrl-C stops and keeps
+  what arrived.
+- **`npm run model -- status | install | import <folder or .zip> | verify | remove`**
+  (`src/core/model-manager.mjs`, `scripts/model.mjs`). `import` copies the model from a
+  machine that has it — the model folder, any folder above it, a Hugging Face cache (the
+  snapshot named for the pinned revision first) or a `.zip` of any of them, plain or ZIP64 —
+  checking every file against the manifest on the way in, with no unpacking to a temporary
+  folder. `remove` deletes the files the manifest names, their partials and their record, and
+  leaves anything else in the folder, saying what it left. Writers share a lock beside the
+  model folder. `--dir`, `--mirror`, `--no-index`, `--json`; exit codes 0, 1, 2 and 130.
+- **The documents are embedded with progress, and a cancel keeps what was embedded.** A
+  rebuild with `dense_embeddings` stores every 64 vectors as it goes
+  (`storeDenseVectors`) instead of writing all of them at the end, so Ctrl-C, a crash or a
+  closed laptop costs at most 64 documents and the next run starts where this one stopped;
+  in-process callers (setup, `npm run model`) get a progress callback and an `AbortSignal`.
+  Membrane connectors are left out, as before.
+- **A five-kilobyte stand-in for BGE-M3** (`src/core/synthetic-model.mjs`): the pinned
+  export's five file names, an XLM-RoBERTa Unigram tokenizer and a 1024-wide ONNX graph,
+  written from code. Through it the real worker — transformers.js 4.3.0, onnxruntime-node
+  1.30 — loads and embeds in the test suite, and an end-to-end test imports it from a zip,
+  embeds a vault and runs a hybrid search through the real MCP server whose winner only the
+  dense half can find (Д-101). `AI_DEV_MODEL_MANIFEST` names a manifest other than the
+  shipped one, which is how the tests point everything at it.
+
 - **All of search runs in Node, and Python is optional** (`docs/DEFECTS.md`, Д-85, Д-102;
   the Python part of Д-98). The index, its status and keyword search
   (`src/core/search-store.mjs`, `search-query.mjs`, `search-documents.mjs`,
@@ -24,7 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `generate_ui_ux_design_system`, which run the UI UX Pro Max dataset's own script — without
   it they say what to install, and the health check reports `ui_ux_knowledge` as skipped
   unless the interpreter answers `--version` as Python 3 (a moved path or the Windows Store
-  alias is not one) — and to the legacy dense backend. The file stays what the 2.x helper wrote, so a 2.x index,
+  alias is not one). The file stays what the 2.x helper wrote, so a 2.x index,
   dense vectors and all, is read as current without a rebuild, and a 2.x server rolled back
   reads what Node wrote. Measured over MCP: warm `search_all` median 2 ms (was 69), with its
   freshness check 26 ms (was 540); a full rebuild of 3,444 documents 2.6–3.5 s (was
@@ -351,6 +388,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- **The Python dense backend** (decision D3; `docs/DEFECTS.md`, Д-98): `embeddings/`
+  (`bge_m3_embed.py`, `bge_m3_worker.py`, `requirements-bge-m3.txt`), the worker pool in
+  `src/core/embedding-workers.mjs`, the image's `INSTALL_BGE_M3` stack, its
+  `AI_DEV_DENSE_INSTALLED` and `BGE_M3_MODEL_DIR`, `python3-venv`, the Python job of
+  `dense-eval.yml` (the int8-against-fp32 comparison stays on the 2.x line) and the pip entry
+  in Dependabot. Nothing is silently ignored: `AI_DEV_DENSE_BACKEND=python`, `BGE_M3_PYTHON`,
+  `AI_DEV_EMBEDDINGS_PYTHON`, `AI_DEV_PYTHON_BASE`, `BGE_M3_PYTHON_REVISION`,
+  `BGE_M3_MODEL_DIR` and a `models/bge-m3` folder of torch weights are each named by the
+  health check, `npm run setup` and `dense:doctor`, with the one command that moves an
+  install over: `npm run setup -- --dense`. It installs the ONNX model and embeds the
+  documents again; the Python vectors are another model's, so hybrid search no longer
+  compares them with ONNX questions, and this run replaces them while the rest of the index
+  stays. `--dense-python` still works as a name for `--dense`, with a note, and a Docker
+  build with `INSTALL_BGE_M3=1` says what replaced it.
 - **The Python search helper** — `search-index/search_cli.py`, its `unittest` suite
   (`test_search_freshness.py`, now `src/core/search-freshness.test.mjs`) and
   `npm run test:search-helper` — and with them the Docker image's
@@ -362,6 +413,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now fails on a path either recipe names that the repository does not have).
 
 ### Fixed
+
+- **`setup -- --dense` no longer embeds after the download failed, and its advice is
+  true** (Д-98). The vector step needs the model step and is skipped, with that said, when
+  the download failed — it used to fail again and advise the command that had just failed.
+  `dense:doctor` no longer offers `AI_DEV_DENSE_BACKEND=python`; for a missing model it
+  names the download, the mirror and proxy variables and `npm run model -- import`; for a
+  download that stopped partway, that it continues; for files that do not match, that the
+  download replaces them.
+- **An Intel Mac is told the model cannot run there** (Д-101). onnxruntime-node 1.30 ships
+  no `darwin-x64` build; `dense:doctor` said `Cannot find module '…/darwin/x64/
+  onnxruntime_binding.node'` with a require stack and advised `npm rebuild`, which cannot
+  build it. Now the runtime stage, the health check and `embedding_status` say so in a
+  sentence, `setup -- --dense` refuses before downloading 600 MB that cannot load, and
+  `npm run model -- install` still fetches the files, for a container to mount.
+- **The server no longer hashes the model every minute** (Д-143). Whether the model is
+  installed was answered by hashing all five files — about 570 MB, 1.0–1.1 s on a fast disk —
+  on the first hybrid search and again every minute of use. A check that hashes a file right
+  now leaves a record (size, times, inode) in the runtime cache, and an unchanged file is not
+  read again; `npm run model -- verify` and `dense:doctor` still hash everything.
+- **`validate_skill_library` with semantic duplicates uses the installed model** (Д-144).
+  It went to the Python worker pool whatever backend was selected, and its failure took the
+  whole quality report down; now it embeds through the same model as search, and without one
+  the pairs keep their lexical verdict and the report says why.
 
 - **Writers of the search index no longer wait each other out or stop the server**
   (`docs/DEFECTS.md`, Д-120 … Д-122, found by the review of the Node index). A rebuild lock

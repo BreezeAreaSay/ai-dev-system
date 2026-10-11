@@ -36,9 +36,10 @@ needs.
 
 Python is optional. `query_ui_ux_knowledge` and `generate_ui_ux_design_system`
 run the UI UX Pro Max dataset's own Python script (`python3`; `python` on Windows;
-or whatever `AI_DEV_PYTHON` names), and the legacy dense backend (`--dense-python`)
-needs one. Without Python those two tools answer with what to install, the health
-check marks `ui_ux_knowledge` skipped, and nothing else changes. On Windows you can use the bundled runtime
+or whatever `AI_DEV_PYTHON` names). Without Python those two tools answer with
+what to install, the health check marks `ui_ux_knowledge` skipped, and nothing else
+changes. The local model needs no Python either: 3.0 removed the Python dense
+backend (see [Coming from the Python backend](#coming-from-the-python-backend)). On Windows you can use the bundled runtime
 described in the [server README](../ai-dev-mcp-server/README.md).
 
 For the packaged path you need Docker instead:
@@ -102,10 +103,9 @@ Two ways to run it, and they speak the same protocol:
 vectors it computes need Python. A container runs with no network, so the weights
 cannot be downloaded inside it at all: they are downloaded on the host and mounted
 at `/models` (see [The local model in a container](#the-local-model-in-a-container)).
-The image says so about itself through
-`AI_DEV_DENSE_INSTALLED`, and the health check reads it: inside a container
-`embedding_backend` reports dense search as not set up and points at the mount,
-rather than at a `npm run setup` no container can run.
+The image says so about itself (`AI_DEV_RUNTIME=docker`), and the health check reads
+it: inside a container `embedding_backend` reports dense search as not set up and
+points at the mount, rather than at a `npm run setup` no container can run.
 
 ## One command on Windows
 
@@ -473,8 +473,14 @@ the host:
 
 ```bash
 cd ai-dev-mcp-server
-npm run setup -- --dense
+npm run model -- install --no-index
 ```
+
+(`npm run setup -- --dense` does the same and also embeds the host's own index; a
+container embeds its own.) A download that breaks — a dropped connection, a laptop
+lid, Ctrl-C — keeps what arrived, and the next run continues from that byte. If the
+host cannot reach huggingface.co, see
+[When the download is blocked](#when-the-download-is-blocked).
 
 **Room to put them.** About 600 MB of weights, and the download refuses to start
 on a disk that cannot hold them plus 512 MB left over — it says what it needs and
@@ -483,19 +489,56 @@ them and not much more still works, and says once that it may be slow: writing
 near a full disk is where a download that crawls usually comes from, and it looks
 exactly like a dead connection from the outside.
 
-They land in `~/.ai-dev/models/bge-m3-onnx` (override with `BGE_M3_ONNX_DIR`).
-Mount the folder *above* them — `~/.ai-dev/models` — read-only; the container
-reads the weights and never writes them. One mount serves both backends, which
-live side by side under it as `bge-m3-onnx/` and `bge-m3/`.
+They land in `~/.ai-dev/models/bge-m3-onnx` (override with `BGE_M3_ONNX_DIR`, or
+`--dir` for one run). Mount the folder *above* them — `~/.ai-dev/models` —
+read-only; the container reads the weights and never writes them, from
+`bge-m3-onnx/` under the mount.
 
-**The legacy Python backend** is still there and still off by default, because
-building torch into every image would cost everyone the install whether they use
-it or not. It is only needed if you deliberately want the old path:
+### When the download is blocked
+
+The download reads `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` the way npm and curl
+do — credentials go in the proxy URL, `http://user:password@proxy:3128` — with no
+`NODE_USE_ENV_PROXY`. A Hugging Face mirror is one variable:
 
 ```bash
-npm --prefix ai-dev-mcp-server run docker:prepare
-docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker/build-context
+AI_DEV_MODEL_MIRROR=https://hf-mirror.com npm run setup -- --dense
 ```
+
+`AI_DEV_MODEL_MIRROR` (or `HF_ENDPOINT`, which other Hugging Face tools read) is
+tried first, then huggingface.co; a source that fails hands over to the next, which
+continues the same partial file. Every file is checked against the manifest's
+sha256 whichever source sent it.
+
+No route at all? Copy the model from a machine that has one — the folder, a folder
+above it, a Hugging Face cache, or a `.zip` of any of them:
+
+```bash
+npm run model -- import /media/usb/bge-m3-onnx.zip
+```
+
+`npm run model -- status` says what is installed and what stopped partway,
+`verify` hashes every file, `remove` deletes the model's files and nothing else.
+
+### Coming from the Python backend
+
+2.x could run dense search on a Python virtualenv with torch and 2.3 GB of
+weights (`--dense-python`, `AI_DEV_DENSE_BACKEND=python`, an image built with
+`INSTALL_BGE_M3=1`). 3.0 removed it (decision D3). One command moves you over:
+
+```bash
+npm run setup -- --dense
+```
+
+It installs the ONNX model and embeds the documents again: vectors made by the
+Python backend are another model's and are not compared with ONNX questions, so
+they wait for this run and are replaced by it; the rest of the index is kept.
+Until you run it, search works without its dense half. Every leftover setting —
+`AI_DEV_DENSE_BACKEND=python`, `BGE_M3_PYTHON`, `AI_DEV_EMBEDDINGS_PYTHON`,
+`AI_DEV_PYTHON_BASE`, `BGE_M3_PYTHON_REVISION`, `BGE_M3_MODEL_DIR` — is no longer
+read; the health check names each one it finds, and the `~/.ai-dev/models/bge-m3`
+folder of torch weights can be deleted. `--dense-python` still works as a name
+and does what `--dense` does; a Docker build passing `INSTALL_BGE_M3=1` says
+what replaced it.
 
 ### Running it, either way
 
@@ -518,8 +561,7 @@ configurations bootstrap writes carry `AI_DEV_MODEL_PATH`, so the cold fallback
 launch mounts it too. `AI_DEV_MODEL_PATH` in the environment is the default for
 `--model-path`; on Windows the switch is `-ModelPath`.
 
-With the launcher scripts directly (`AI_DEV_IMAGE` is only needed for the legacy
-`ai-dev-system:bge` build):
+With the launcher scripts directly:
 
 ```bash
 export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
@@ -531,18 +573,15 @@ With Compose, uncomment the model mount in your `compose.local.yaml` — the
 example file carries it with the same variable — and run:
 
 ```bash
-export AI_DEV_IMAGE=ai-dev-system:bge
 export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
 docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
 ```
 
-Both attach the folder at `/models`, where `BGE_M3_ONNX_DIR` and
-`BGE_M3_MODEL_DIR` point inside the image (`/models/bge-m3-onnx` and
-`/models/bge-m3`). `compose.yaml` runs with `network_mode: none`, and that
-does not get in the way: the embedding helpers set `TRANSFORMERS_OFFLINE=1` and
-`HF_HUB_OFFLINE=1` before loading, so the model is read from the mount and
-nothing reaches for the network. It is also why the weights have to arrive by
-mount rather than by a download inside the container.
+Both attach the folder at `/models`; inside the image `BGE_M3_ONNX_DIR` points at
+`/models/bge-m3-onnx`. `compose.yaml` runs with `network_mode: none`, and that does
+not get in the way: the worker loads the model with remote models turned off, so
+it is read from the mount and nothing reaches for the network. It is also why the
+weights have to arrive by mount rather than by a download inside the container.
 
 ### If you want the weights inside the image
 
@@ -575,20 +614,15 @@ run, and with it `ok`.
 npm --prefix ai-dev-mcp-server run -s doctor
 ```
 
-For the detail behind that one line, the `embedding_status` tool says which
-backend is selected and why. Read `dense_backend`: `backend` is `onnx` or
-`python`, `available` says whether it can run, and `reason` is a sentence rather
-than a flag. Under `dense_backend.onnx`, `missing` lists files that are not
-there and `mismatched` lists files that are there and are not the pinned export
-— the first means the mount did not arrive, the second means the bytes are
-wrong. From a checkout, `npm run dense:doctor` walks the same ground in six
-stages and names the one that stopped.
-
-The legacy backend is graded the same way it always was: four entries under
-`availability` read `exists: true` — `embeddings_python`, `model_dir`,
-`model_file` and `modules_file` — and a missing interpreter means the image was
-built without `INSTALL_BGE_M3=1`. With the ONNX backend selected those entries
-say nothing about whether dense search works.
+For the detail behind that one line, the `embedding_status` tool says whether the
+model can run and why: `installed` and `available` are the answer, `reason` is a
+sentence rather than a flag, and `partial` lists downloads that stopped partway.
+Under `dense_backend.onnx`, `missing` lists files that are not there and
+`mismatched` lists files that are there and are not the pinned export — the first
+means the mount did not arrive, the second means the bytes are wrong. Anything
+left of a 2.x Python install is under `dense_backend.legacy`, and makes the health
+check a `warn` until it is cleaned up. From a checkout, `npm run dense:doctor`
+walks the same ground in six stages and names the one that stopped.
 
 Then `search_index_status` reports `dense_documents` against
 `dense_pending_documents`: a fresh index has vectors for none of its documents

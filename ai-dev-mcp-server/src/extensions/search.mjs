@@ -501,7 +501,16 @@ export function createSearchTools(host) {
       preset_search: (args) => presetSearch(host, args),
       explain_search: (args) => explainSearch(host, args),
       run_search_eval: (args) => runSearchEval(host, args),
-      embed_texts: (args) => host.embeddings.embedTexts(args),
+      // Through the backend `host.dense` selects, as hybrid search and the
+      // rebuild embed: the legacy pool only when Python is the one selected,
+      // and with none installed, the reason and the command that installs one
+      // (docs/DEFECTS.md, Д-133).
+      embed_texts: async (args) => {
+        if (!host.dense) return host.embeddings.embedTexts(args);
+        const selected = await host.dense.describe();
+        if (!selected.available) throw new Error(selected.reason);
+        return selected.backend === "python" ? host.embeddings.embedTexts(args) : host.dense.embed(args);
+      },
       // One payload, both backends: the legacy files and worker state as before,
       // plus which backend is actually selected and why (docs/DEFECTS.md, Д-62).
       embedding_status: async (args) => {

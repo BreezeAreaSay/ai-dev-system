@@ -259,6 +259,29 @@ test("embedding tools hand their arguments to the backend untouched", async () =
   assert.deepEqual(calls[1], ["embeddingStatus", { device: "cuda" }]);
 });
 
+test("embed_texts embeds through the selected backend, and without one says what to install (Д-133)", async () => {
+  const { host, registry, calls } = createFixture();
+  let selected = { backend: "onnx", available: true, reason: "The verified ONNX export is on disk; no Python is involved." };
+  host.dense = {
+    describe: async () => selected,
+    embed: async (args) => {
+      calls.push(["denseEmbed", args]);
+      return { backend: "onnx", embeddings: [[0.6, 0.8]] };
+    }
+  };
+  assert.deepEqual(await call(registry, "embed_texts", { text: "hello" }), { backend: "onnx", embeddings: [[0.6, 0.8]] });
+  assert.deepEqual(calls, [["denseEmbed", { text: "hello" }]], "the legacy pool is not touched");
+
+  selected = { backend: "python", available: true, reason: "No ONNX export here, but the legacy Python stack is installed; using it." };
+  await call(registry, "embed_texts", { text: "hello", use_worker: false });
+  assert.deepEqual(calls.at(-1), ["embedTexts", { text: "hello", use_worker: false }]);
+
+  selected = { backend: "onnx", available: false, reason: "Dense search is not installed. Run `npm run setup -- --dense` to download the model (no Python needed)." };
+  const before = calls.length;
+  await assert.rejects(call(registry, "embed_texts", { text: "hello" }), /^Error: Dense search is not installed\. Run `npm run setup -- --dense`/);
+  assert.equal(calls.length, before, "neither backend is asked");
+});
+
 test("the narrow wrappers pin their own scope", async () => {
   const { registry, calls } = createFixture();
   await call(registry, "search_projects", { query: "atlas", project: "one" });

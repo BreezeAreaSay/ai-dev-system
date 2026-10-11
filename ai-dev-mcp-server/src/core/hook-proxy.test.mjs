@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import https from "node:https";
 import test from "node:test";
-import { proxyFetch as serverFetch, proxyFor as serverProxyFor } from "./http-download.mjs";
+import zlib from "node:zlib";
+import { openUrl, proxyFetch as serverFetch, proxyFor as serverProxyFor } from "./http-download.mjs";
 import { fetchPackageMetadata } from "./security-fix-registry.mjs";
 import { proxyFetch as hookFetch, proxyFor as hookProxyFor } from "../../hooks/http-proxy.mjs";
 import { checkSupplyChain } from "../../hooks/supply-chain.mjs";
@@ -185,4 +186,52 @@ test("a 301 after a POST is followed with a GET and no body; a 307 sends the bod
     assert.equal(await (await fetchVia(`${base}/temporary`, { method: "POST", body: "y", env: {} })).text(), "ok");
     assert.deepEqual(seen, ["POST /moved x", "GET /here ", "POST /temporary y", "POST /here y"]);
   }
+});
+
+test("answers come compressed and are decoded in both copies; the model download still asks for none (Д-167)", async (t) => {
+  const document = JSON.stringify({ name: "typescript", readme: "a long readme ".repeat(5000) });
+  const encoders = {
+    gzip: zlib.gzipSync,
+    deflate: zlib.deflateSync,
+    "raw-deflate": zlib.deflateRawSync,
+    br: zlib.brotliCompressSync,
+    identity: (bytes) => bytes
+  };
+  const seen = [];
+  const server = http.createServer((request, response) => {
+    seen.push(`${request.url} ${request.headers["accept-encoding"]}`);
+    const coding = request.url.slice(1);
+    if (coding === "zstd") {
+      response.writeHead(200, { "content-encoding": "zstd" });
+      return response.end("not zstd at all");
+    }
+    if (coding === "no-content") {
+      response.writeHead(204, { "content-encoding": "gzip" });
+      return response.end();
+    }
+    if (coding === "no-trailer") {
+      const whole = zlib.gzipSync(document);
+      response.writeHead(200, { "content-encoding": "gzip" });
+      return response.end(whole.subarray(0, whole.length - 8));
+    }
+    response.writeHead(200, { "content-type": "application/json", "content-encoding": coding === "raw-deflate" ? "deflate" : coding });
+    return response.end(encoders[coding](Buffer.from(document)));
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  for (const fetchVia of [hookFetch, serverFetch]) {
+    seen.length = 0;
+    for (const coding of Object.keys(encoders)) {
+      const response = await fetchVia(`${base}/${coding}`, { env: {} });
+      assert.deepEqual(await response.json(), JSON.parse(document), coding);
+    }
+    assert.equal(await (await fetchVia(`${base}/no-trailer`, { env: {} })).text(), document, "a gzip stream cut before its trailer");
+    assert.equal(await (await fetchVia(`${base}/no-content`, { env: {} })).text(), "", "a 204 has nothing to decode");
+    await assert.rejects((await fetchVia(`${base}/zstd`, { env: {} })).text(), /the answer came zstd-encoded, which was not asked for/);
+    assert.ok(seen.every((line) => line.endsWith(" gzip, deflate, br")), seen.join("\n"));
+  }
+  const download = await openUrl(`${base}/identity`, { env: {} });
+  download.body.resume();
+  assert.equal(seen.at(-1), "/identity identity", "a download resumes bytes of the file itself");
 });

@@ -4142,7 +4142,7 @@ r6/toml-overlap.mjs   removeTables → "model = \"o3\"\n[mcp_servers.github]\nco
 
 ## Д-167. Хук supply-chain и подсказки исправлений качают документы реестра без сжатия
 
-**Статус:** открыт. Нашло независимое ревью фазы 6; закроет она же.
+**Статус:** закрыт фазой 6 (2026-10-11). Нашло её независимое ревью.
 
 Исправление Д-145 перевело обе проверки на `proxyFetch`, а запросы `http-download.mjs` (и его копии в хуках) просят
 `accept-encoding: identity` — так нужно загрузке модели с `Range`, а документам реестра — нет. `fetch` 2.x просил gzip:
@@ -4164,7 +4164,22 @@ registry.npmjs.org (curl)    typescript identity 15 783 773 байт / gzip 2 01
 **Как закроется.** `proxyFetch` в обеих копиях просит `gzip, deflate, br` и распаковывает ответ; загрузка модели
 по-прежнему просит `identity`.
 
+**Замер после.** Обе копии `proxyFetch` просят `gzip, deflate, br`, как `fetch`, и распаковывают ответ по
+`content-encoding` (deflate — с обёрткой zlib и без, поток без хвоста gzip — то, что пришло); незаказанная кодировка —
+ошибка с её именем. `openUrl`, которым качается модель, по-прежнему просит `identity`.
+
+```
+r6/slow-registry.mjs, та же проба:
+  0e7775e (proxyFetch, identity)   3 004 мс, «typescript@latest was not fully checked: … no answer in 3s.»
+  после (три прогона)              1 045 / 1 020 / 1 040 мс, предупреждений нет
+r6/big/probe.mjs, fetchPackageMetadata, документ 66,5 МБ без сжатия (0,2 МБ gzip):
+  0e7775e   ok=false «… is 67 MB, over the 40 MB cap»
+  после     ok=true, 2000 версий
+тест hook-proxy: gzip, deflate (zlib и raw), br, identity, gzip без хвоста, 204, zstd → ошибка; обе копии; загрузка
+просит identity. Без исправления тест падает.
+```
 ---
+
 
 ## Д-168. Конфиг клиента, записанный от root, меняет владельца на root
 

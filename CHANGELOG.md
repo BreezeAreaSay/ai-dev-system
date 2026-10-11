@@ -383,6 +383,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AND, OR, NOT and NEAR in capitals are words in keyword search** (Д-117): "frontend
   AND backend testing" was an FTS5 syntax error and found nothing. Hybrid search's
   keyword half follows in the next phase.
+- **No NUL bytes in the bundled skill texts** (Д-113). Upstream's Membrane `confluent`
+  skill carries 150 NUL bytes where its one-line description should be, and
+  `read_skill` passed all 150 to the agent; they are dropped, and nothing else in the
+  file differs from upstream. The distribution audit — `docker:seed:verify`, the seed
+  refresh, the Docker context and skill import — now rejects a NUL byte in any text
+  file. `docker:seed:verify` runs that audit over the committed seed (it used to check
+  only the manifest), and `--write` no longer refuses in a checkout that has rendered
+  the galaxy or written project cards: generated output is neither in the manifest nor
+  in the image.
 
 - **Claude on Windows with Docker gets dense search** (Д-88). `ClaudeMcpProxy.cs`
   mounted the model folder at `/models/bge-m3`, one level below where the image

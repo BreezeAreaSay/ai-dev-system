@@ -30,7 +30,11 @@ connector whose own page describes a different product than its name (its
 documentation link or entity list belongs to something else) was removed as
 well.
 
-The skill files that remain are unchanged upstream text. To restore a removed
+The skill files that remain are unchanged upstream text, with one exception:
+upstream's `confluent/SKILL.md` has 150 NUL bytes where its one-line
+description should be (at the revision above and on upstream `main` as of
+2026-10-11), and this seed drops them with the blank line after them. Every
+other byte of that file is upstream's. To restore a removed
 connector, take its `skills/<name>/` directory from the upstream revision above
 or from this repository's history, then run `npm run docker:seed:verify -- --write`
 in `ai-dev-mcp-server`.

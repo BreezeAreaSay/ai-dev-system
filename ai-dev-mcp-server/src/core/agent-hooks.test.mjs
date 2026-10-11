@@ -642,7 +642,12 @@ test("a hook runs with no Node on PATH: the 2.x command fails, the launcher find
   const settings = JSON.parse(await fs.readFile(path.join(projectRoot, ".claude", "settings.json"), "utf8"));
   const command = settings.hooks.SessionStart[0].hooks[0].command;
   assert.equal(command, "/bin/sh .ai-dev/hooks/with-node.sh session-start.mjs");
-  const noNode = { PATH: "/usr/bin:/bin", HOME: root, AI_DEV_HOME: path.join(root, "runtime") };
+  // A PATH with git and nothing else: no node, not even `dirname`.
+  const bin = path.join(root, "only-git");
+  await fs.mkdir(bin);
+  const gitPath = spawnSync("/bin/sh", ["-c", "command -v git"], { encoding: "utf8" }).stdout.trim();
+  await fs.symlink(gitPath, path.join(bin, "git"));
+  const noNode = { PATH: bin, HOME: root, AI_DEV_HOME: path.join(root, "runtime") };
   const runLine = (line, env) => spawnSync("/bin/sh", ["-c", line], {
     cwd: projectRoot,
     env,

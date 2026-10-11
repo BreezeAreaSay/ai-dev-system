@@ -20,10 +20,12 @@
  *   package's protocol (`file-lock.mjs`), since Node has no `flock`;
  * - a file that is no longer a database is set aside and built again instead
  *   of failing every search (docs/DEFECTS.md, Д-116).
+ *
+ * The lock, the write transaction's start and the checkpoint live in
+ * `search-writer.mjs`.
  */
 import fs from "node:fs";
 import os from "node:os";
-import { acquireFileLock, lockPathFor } from "./file-lock.mjs";
 import { pythonRound } from "./python-compat.mjs";
 import {
   collectDocuments,
@@ -34,6 +36,7 @@ import {
 } from "./search-documents.mjs";
 import { buildSemanticVector, SEMANTIC_DIMENSIONS, semanticVectorJson } from "./search-semantic.mjs";
 import { createIndexReader, isCorruptError, openDatabase, tableColumns, tableExists, wholeText } from "./search-sqlite.mjs";
+import { beginImmediate, checkpoint, setAside, withRebuildLock } from "./search-writer.mjs";
 
 /** `meta.schema_version` of the format this module reads and writes. */
 export const INDEX_SCHEMA_VERSION = 2;
@@ -42,12 +45,6 @@ export const DENSE_DIMENSIONS = 1024;
 export const LEGACY_DENSE_BACKEND = "python";
 export const LEGACY_DENSE_DTYPE = "fp32";
 export const UNPINNED_REVISION = "unpinned";
-
-/** How long a rebuild waits for another one, unless the environment says otherwise. */
-export const DEFAULT_REBUILD_LOCK_TIMEOUT_SECONDS = 600;
-
-/** A rebuild lock this old is abandoned even if its pid looks alive (a reused pid). */
-const REBUILD_LOCK_STALE_MS = 30 * 60_000;
 
 /** Above this share of documents changed, rewriting everything is as cheap. */
 const IN_PLACE_LIMIT = 0.5;
@@ -115,43 +112,6 @@ const isTrue = (value) => String(value ?? "false").toLowerCase() === "true";
 function readMeta(db) {
   if (!tableExists(db, "meta")) return {};
   return Object.fromEntries(db.prepare("SELECT key, value FROM meta").all().map((row) => [String(row.key), String(row.value)]));
-}
-
-/**
- * The rebuild lock's wait, from `AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT` in
- * seconds; a value that is not a number leaves the default.
- *
- * @param {NodeJS.ProcessEnv} [env]
- * @returns {number} milliseconds
- */
-export function rebuildLockTimeoutMs(env = process.env) {
-  const raw = env.AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT;
-  const seconds = raw === undefined || String(raw).trim() === "" ? Number.NaN : Number(raw);
-  return Math.max(0, Number.isNaN(seconds) ? DEFAULT_REBUILD_LOCK_TIMEOUT_SECONDS : seconds) * 1000;
-}
-
-/**
- * Run `operation` holding the index's rebuild lock, across processes.
- *
- * @template T
- * @param {string} indexPath
- * @param {() => Promise<T>} operation
- * @param {{ env?: NodeJS.ProcessEnv }} [options]
- * @returns {Promise<T>}
- */
-export async function withRebuildLock(indexPath, operation, { env = process.env } = {}) {
-  let release;
-  try {
-    release = await acquireFileLock(indexPath, { timeoutMs: rebuildLockTimeoutMs(env), staleMs: REBUILD_LOCK_STALE_MS });
-  } catch (error) {
-    if (!/^Timed out/.test(String(error?.message))) throw error;
-    throw new Error(`Timed out waiting for search-index rebuild lock: ${lockPathFor(indexPath)}`, { cause: error });
-  }
-  try {
-    return await operation();
-  } finally {
-    await release();
-  }
 }
 
 /** What the index file holds, for a status check. */
@@ -379,16 +339,24 @@ function reconcileDenseVectors(db, docs, settings, supplied) {
   return { eligible: records.length, reused, encoded, pending: records.length - reused - encoded, documents: kept.size };
 }
 
-/** Insert one document's rows: `documents`, `docs_fts` at the same rowid, `semantic_vectors`. */
+/**
+ * Insert one document's rows: `documents`, `docs_fts` at the same rowid,
+ * `semantic_vectors`. Given a rowid, the document goes back where it was:
+ * results that tie on score come back in rowid order, and a document rewritten
+ * in place keeps the place a full rebuild gives it.
+ */
 function documentWriter(db) {
   const insertDocument = db.prepare(
     "INSERT INTO documents(id, scope, title, path, source, categories, preview, mtime, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
   );
+  const insertDocumentAt = db.prepare(
+    "INSERT INTO documents(rowid, id, scope, title, path, source, categories, preview, mtime, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  );
   const insertText = db.prepare("INSERT INTO docs_fts(rowid, id, title, body, path, source, categories) VALUES (?, ?, ?, ?, ?, ?, ?)");
   const insertVector = db.prepare("INSERT INTO semantic_vectors(id, vector, norm) VALUES (?, ?, ?)");
-  return (doc) => {
-    const { lastInsertRowid } = insertDocument.run(doc.id, doc.scope, doc.title, doc.path, doc.source, doc.categories,
-      doc.preview, doc.mtime, doc.content_hash);
+  return (doc, rowid = null) => {
+    const fields = [doc.id, doc.scope, doc.title, doc.path, doc.source, doc.categories, doc.preview, doc.mtime, doc.content_hash];
+    const { lastInsertRowid } = rowid === null ? insertDocument.run(...fields) : insertDocumentAt.run(rowid, ...fields);
     insertText.run(lastInsertRowid, doc.id, doc.title, doc.body, doc.path, doc.source, doc.categories);
     const { entries, norm } = buildSemanticVector(doc);
     insertVector.run(doc.id, semanticVectorJson(entries), norm);
@@ -445,7 +413,8 @@ async function writeChangedDocuments(db, docs, previousMeta) {
   }
   const write = documentWriter(db);
   for (let index = 0; index < written.length; index += 1) {
-    write(written[index]);
+    // A changed document goes back to its own rowid; only a new one is appended.
+    write(written[index], indexed.get(written[index].id)?.rowid ?? null);
     if (index % YIELD_EVERY === YIELD_EVERY - 1) await yieldToEventLoop();
   }
   const touch = db.prepare("UPDATE documents SET mtime = ? WHERE id = ?");
@@ -463,23 +432,15 @@ function writeMeta(db, values) {
   for (const [key, value] of Object.entries(values)) insert.run(key, String(value));
 }
 
-/** Set a file that is not a database aside, with its WAL files, so a new one can take its place. */
-function setAside(indexPath) {
-  const target = `${indexPath}.corrupt`;
-  fs.rmSync(target, { force: true });
-  fs.renameSync(indexPath, target);
-  for (const suffix of ["-wal", "-shm", "-journal"]) fs.rmSync(`${indexPath}${suffix}`, { force: true });
-}
-
 /** A writer connection in WAL mode, the file set aside first if it is not a database. */
-function openWriter(indexPath) {
+async function openWriter(indexPath) {
   let db = openDatabase(indexPath);
   try {
     db.prepare("SELECT count(*) AS n FROM sqlite_master").get();
   } catch (error) {
     db.close();
     if (!isCorruptError(error)) throw error;
-    setAside(indexPath);
+    await setAside(indexPath);
     db = openDatabase(indexPath);
   }
   const mode = String(db.prepare("PRAGMA journal_mode = WAL").get()?.journal_mode ?? "").toLowerCase();
@@ -495,7 +456,7 @@ function openWriter(indexPath) {
  * it commits and the whole new one after.
  */
 async function writeIndex(db, docs, options) {
-  db.exec("BEGIN IMMEDIATE");
+  await beginImmediate(db);
   try {
     const previousMeta = readMeta(db);
     const settings = denseSettings(options, previousMeta);
@@ -625,7 +586,7 @@ export async function rebuildIndex(options) {
       vaultRoot: options.vaultRoot,
       includeExternalProjectFiles: options.includeExternalProjectFiles !== false
     });
-    let db = openWriter(options.indexPath);
+    let db = await openWriter(options.indexPath);
     try {
       let summary;
       try {
@@ -636,8 +597,8 @@ export async function rebuildIndex(options) {
         // table) surfaces here; the file is a cache, so it is replaced.
         db.close();
         db = null;
-        setAside(options.indexPath);
-        db = openWriter(options.indexPath);
+        await setAside(options.indexPath);
+        db = await openWriter(options.indexPath);
         summary = await writeIndex(db, docs, { ...options, inPlace: false });
       }
       if (summary.write_mode === "full") checkpoint(db);
@@ -694,16 +655,4 @@ export async function densePlan({
     provenance: full,
     records: pending.map(({ id, text, content_hash }) => ({ id, text, content_hash }))
   };
-}
-
-/**
- * Fold the WAL back into the file after a full rewrite, so it does not stay
- * the size of the whole index. Best effort: a reader mid-read keeps it.
- */
-function checkpoint(db) {
-  try {
-    db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
-  } catch {
-    // Busy readers, or no WAL: the next checkpoint does it.
-  }
 }

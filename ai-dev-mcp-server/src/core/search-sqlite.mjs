@@ -23,6 +23,9 @@ export const BUSY_TIMEOUT_MS = 10_000;
 /** Pauses between attempts at a read that found the file busy, as `search_cli.py` had them. */
 export const READ_RETRY_DELAYS_MS = [150, 350, 750];
 
+/** A read connection unused this long is closed, so the file is not held open between searches. */
+export const READER_IDLE_MS = 5_000;
+
 const SQLITE_BUSY = 5;
 const SQLITE_LOCKED = 6;
 const SQLITE_CORRUPT = 11;
@@ -132,18 +135,25 @@ export function openDatabase(filePath) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * One long-lived read connection to a file, reopened when the file it was
- * opened on has been deleted or replaced, and closed while there is no file.
+ * One read connection to a file, reopened when the file it was opened on has
+ * been deleted or replaced, and closed while there is no file, after
+ * `idleMs` without a read, and on finding the file damaged. On Windows an open
+ * SQLite file cannot be renamed or deleted by anyone, so a connection kept
+ * open for good by one client's server would stop every other client from
+ * replacing a damaged index.
  *
  * @param {string} filePath
- * @param {{ delays?: number[] }} [options] - Pauses between attempts at a busy read.
- * @returns {{ read: <T>(fn: (db: import("node:sqlite").DatabaseSync) => T) => Promise<T|null>, close: () => void }}
+ * @param {{ delays?: number[], idleMs?: number }} [options] - Pauses between attempts at a busy read; idle time before closing.
+ * @returns {{ read: <T>(fn: (db: import("node:sqlite").DatabaseSync) => T) => Promise<T|null>, close: () => void, isOpen: () => boolean }}
  */
-export function createIndexReader(filePath, { delays = READ_RETRY_DELAYS_MS } = {}) {
+export function createIndexReader(filePath, { delays = READ_RETRY_DELAYS_MS, idleMs = READER_IDLE_MS } = {}) {
   let db = null;
   let identity = "";
+  let idle = null;
 
   function close() {
+    if (idle) clearTimeout(idle);
+    idle = null;
     try {
       db?.close();
     } catch {
@@ -151,6 +161,12 @@ export function createIndexReader(filePath, { delays = READ_RETRY_DELAYS_MS } = 
     }
     db = null;
     identity = "";
+  }
+
+  function closeWhenIdle() {
+    if (idle) clearTimeout(idle);
+    idle = db ? setTimeout(close, idleMs) : null;
+    idle?.unref?.();
   }
 
   function connection() {
@@ -179,17 +195,21 @@ export function createIndexReader(filePath, { delays = READ_RETRY_DELAYS_MS } = 
     for (let attempt = 0; attempt <= delays.length; attempt += 1) {
       try {
         const db = connection();
-        return db ? fn(db) : null;
+        const result = db ? fn(db) : null;
+        closeWhenIdle();
+        return result;
       } catch (error) {
+        if (isCorruptError(error)) close();
         if (!isBusyError(error)) throw error;
         lastError = error;
         if (attempt < delays.length) await sleep(delays[attempt]);
       }
     }
+    closeWhenIdle();
     throw new Error(`SQLite index remained busy after ${delays.length + 1} attempts: ${filePath}`, { cause: lastError });
   }
 
-  return { read, close };
+  return { read, close, isOpen: () => db !== null };
 }
 
 /** Whether a table (or view) exists. */
@@ -202,7 +222,8 @@ export function tableColumns(db, name) {
   return new Set(db.prepare(`PRAGMA table_info(${name})`).all().map((row) => row.name));
 }
 
-const UTF8 = new TextDecoder();
+// `ignoreBOM` keeps a leading U+FEFF, as Python keeps it in the text it stored.
+const UTF8 = new TextDecoder("utf-8", { ignoreBOM: true });
 
 /**
  * A text column read whole. `node:sqlite` cuts a TEXT value at its first NUL

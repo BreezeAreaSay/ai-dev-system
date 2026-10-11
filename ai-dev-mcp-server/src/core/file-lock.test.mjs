@@ -202,3 +202,58 @@ test("the hooks' synchronous lock excludes the server's and is released the same
   assert.equal(hookLib.withFileLockSync(target, () => "ran", { timeoutMs: 1_000 }), "ran");
   await assert.rejects(fs.stat(lockPathFor(target)), { code: "ENOENT" });
 });
+
+test("a heartbeat keeps a long-held lock live past its staleness bound, from any host's point of view", async () => {
+  const target = await tempFile();
+  const release = await acquireFileLock(target, { staleMs: 300, heartbeatMs: 50 });
+  const first = JSON.parse(await fs.readFile(lockPathFor(target), "utf8"));
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  const later = await readLock(lockPathFor(target));
+  assert.ok(later.holder, "a reader never finds the holder half-rewritten");
+  assert.equal(later.holder.token, first.token, "the same holder, rewritten in place");
+  assert.ok(later.holder.acquired_at > first.acquired_at, "with a fresh acquired_at");
+  // Another host cannot check the pid; the refreshed time is what keeps it held.
+  assert.equal(lockIsLive(later, { staleMs: 300, host: "another-host" }), true);
+  await assert.rejects(withFileLock(target, async () => undefined, { timeoutMs: 150, staleMs: 300 }), /Timed out/);
+  await release();
+  await withFileLock(target, async () => undefined, { timeoutMs: 500, staleMs: 300 });
+});
+
+test("a lock from another host that stopped beating is broken once its bound has passed", async () => {
+  const target = await tempFile();
+  // A container killed mid-rebuild: its host is not this one and its pid means nothing here.
+  await fs.writeFile(lockPathFor(target), JSON.stringify({ pid: process.pid, host: "dead-container", token: "gone", acquired_at: Date.now() - 400 }));
+  const started = Date.now();
+  await withFileLock(target, async () => undefined, { timeoutMs: 2_000, staleMs: 300 });
+  assert.ok(Date.now() - started < 1_000);
+});
+
+test("a process that exits while holding a lock removes it on the way out", async () => {
+  const target = await tempFile();
+  const { spawnSync } = await import("node:child_process");
+  const moduleUrl = new URL("./file-lock.mjs", import.meta.url).href;
+  // What a SIGTERM handler that calls process.exit does: no finally runs.
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+    const { acquireFileLock, lockPathFor } = await import(${JSON.stringify(moduleUrl)});
+    const fs = await import("node:fs");
+    await acquireFileLock(${JSON.stringify(target)}, { heartbeatMs: 1000 });
+    if (!fs.existsSync(lockPathFor(${JSON.stringify(target)}))) process.exit(2);
+    process.exit(0);
+  `], { encoding: "utf8" });
+  assert.equal(child.status, 0, child.stderr);
+  await assert.rejects(fs.stat(lockPathFor(target)), { code: "ENOENT" });
+});
+
+test("a reader racing the heartbeat always finds a whole holder", async () => {
+  const target = await tempFile();
+  const release = await acquireFileLock(target, { staleMs: 60_000, heartbeatMs: 1 });
+  try {
+    for (let round = 0; round < 400; round += 1) {
+      const seen = await readLock(lockPathFor(target));
+      assert.ok(seen?.holder?.token, `round ${round}: ${JSON.stringify(seen)}`);
+    }
+  } finally {
+    await release();
+  }
+});
+

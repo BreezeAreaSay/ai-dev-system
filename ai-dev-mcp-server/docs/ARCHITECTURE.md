@@ -246,8 +246,13 @@ the Python helper for hybrid search, and what to do with the answer — the dens
 embedded in-process and handed over as a file, results are reranked against the golden cases,
 and deterministic intent routing can place a routed workflow skill above everything the index
 found. The Node engine, used wherever `node:sqlite` has FTS5 (22.16+, 24+), writes and checks
-the file in `core/search-store.mjs` (WAL, the cross-process rebuild lock, writing in place,
-dense vectors reconciled where they lie) and answers keyword queries in `core/search-query.mjs`;
+the file in `core/search-store.mjs` (WAL, writing in place, dense vectors reconciled where they
+lie) and answers keyword queries in `core/search-query.mjs`; `core/search-writer.mjs` keeps
+writers apart without stopping them — the cross-process rebuild lock, refreshed while held and
+taken around the helper's writes too, SQLite's write lock waited for between turns of the event
+loop, a checkpoint that never waits for readers, and a damaged file set aside, retried while
+another process on Windows still has it open; and the skill registry those documents come from
+is rebuilt first when its skills changed on disk (`core/skill-registry-freshness.mjs`);
 `core/search-documents.mjs` and `core/search-semantic.mjs` reproduce the helper's documents,
 hashes and sparse vectors byte for byte — with `core/python-compat.mjs` and `core/blake2b.mjs`
 for the arithmetic the two languages disagree on — so either engine reads what the other wrote,

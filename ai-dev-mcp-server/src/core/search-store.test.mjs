@@ -5,13 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createDocumentCache } from "./search-documents.mjs";
-import {
-  DEFAULT_REBUILD_LOCK_TIMEOUT_SECONDS,
-  densePlan,
-  indexStatus,
-  rebuildIndex,
-  rebuildLockTimeoutMs
-} from "./search-store.mjs";
+import { densePlan, indexStatus, rebuildIndex } from "./search-store.mjs";
+import { DEFAULT_REBUILD_LOCK_TIMEOUT_SECONDS, rebuildLockTimeoutMs, setAside } from "./search-writer.mjs";
 import { createIndexReader, isBusyError, isCorruptError, loadSqlite, openDatabase, sqliteSupport, wholeText } from "./search-sqlite.mjs";
 
 const supported = sqliteSupport().available;
@@ -363,3 +358,109 @@ test("errors are told apart: a lock to wait for, a file to replace", () => {
   assert.equal(wholeText(null), "");
   assert.equal(wholeText("plain"), "plain");
 });
+
+test("a changed document rewritten in place keeps its rowid, so ties come back in the same order", needsSqlite, async (t) => {
+  const vault = tempRoot(t);
+  const indexPath = path.join(tempRoot(t), "index.sqlite");
+  for (let index = 1; index <= 5; index += 1) write(vault, `02-knowledge/tie${index}.md`, "# Tie\n\nThe same words in every note.");
+  write(vault, "03-skills-catalog/registries/skills.index.json", "[]");
+  await rebuildIndex({ vaultRoot: vault, indexPath });
+  const rowids = () => {
+    const db = openDatabase(indexPath);
+    try {
+      return db.prepare("SELECT d.rowid AS r, d.id AS id, f.rowid AS f FROM documents d JOIN docs_fts f ON f.id = d.id ORDER BY d.path").all()
+        .map((row) => [row.r, row.f]);
+    } finally {
+      db.close();
+    }
+  };
+  const before = rowids();
+  write(vault, "02-knowledge/tie2.md", "# Tie\n\nThe same words in every note, and two more.");
+  const updated = await rebuildIndex({ vaultRoot: vault, indexPath, inPlace: true });
+  assert.equal(updated.write_mode, "in_place");
+  assert.deepEqual(rowids(), before, "documents and their text stay at the rowids a full rebuild gave them");
+});
+
+test("a rebuild waits for another writer without stopping the event loop", needsSqlite, async (t) => {
+  const vault = tempRoot(t);
+  const indexPath = path.join(tempRoot(t), "index.sqlite");
+  buildVault(vault, { notes: 3, skills: 3 });
+  await rebuildIndex({ vaultRoot: vault, indexPath });
+  // Another process's writer, as the Python helper is: it holds the write lock.
+  const other = openDatabase(indexPath);
+  other.exec("BEGIN IMMEDIATE");
+  let ticks = 0;
+  const ticker = setInterval(() => { ticks += 1; }, 10);
+  setTimeout(() => other.exec("COMMIT"), 400);
+  const started = Date.now();
+  const summary = await rebuildIndex({ vaultRoot: vault, indexPath, inPlace: true });
+  clearInterval(ticker);
+  other.close();
+  assert.ok(Date.now() - started >= 350, "it did wait for the other writer");
+  assert.ok(ticks >= 15, `the loop kept turning while it waited (${ticks} ticks)`);
+  assert.equal(summary.document_count, 7);
+});
+
+test("a full rewrite does not wait for a reader holding an old snapshot", needsSqlite, async (t) => {
+  const vault = tempRoot(t);
+  const indexPath = path.join(tempRoot(t), "index.sqlite");
+  buildVault(vault, { notes: 20, skills: 20 });
+  await rebuildIndex({ vaultRoot: vault, indexPath });
+  // A hybrid search or galaxy export in another client, mid-read.
+  const reader = openDatabase(indexPath);
+  reader.exec("BEGIN");
+  reader.prepare("SELECT count(*) AS n FROM documents").get();
+  buildVault(vault, { notes: 20, skills: 200 });
+  const started = Date.now();
+  const summary = await rebuildIndex({ vaultRoot: vault, indexPath });
+  const took = Date.now() - started;
+  reader.exec("COMMIT");
+  reader.close();
+  assert.equal(summary.write_mode, "full");
+  assert.ok(took < 5_000, `the checkpoint gave way to the reader instead of waiting out busy_timeout (${took} ms)`);
+});
+
+test("a damaged index another process holds open is set aside once it lets go, and reported if it never does", async () => {
+  const calls = [];
+  const fake = (busyRenames) => ({
+    existsSync: () => true,
+    rmSync: (target) => calls.push(["rm", path.basename(target)]),
+    renameSync: () => {
+      calls.push(["rename"]);
+      if (busyRenames-- > 0) throw Object.assign(new Error("resource busy or locked"), { code: "EBUSY" });
+    }
+  });
+  await setAside("/x/index.sqlite", { fsImpl: fake(2), delays: [1, 1, 1] });
+  assert.equal(calls.filter(([name]) => name === "rename").length, 3, "two refusals, then the rename");
+  calls.length = 0;
+  await assert.rejects(
+    setAside("/x/index.sqlite", { fsImpl: fake(99), delays: [1, 1] }),
+    /damaged and another process still has it open \(EBUSY\)/
+  );
+  assert.equal(calls.filter(([name]) => name === "rename").length, 3);
+  await assert.rejects(setAside("/x/index.sqlite", {
+    fsImpl: { existsSync: () => true, rmSync: () => {}, renameSync: () => { throw Object.assign(new Error("no space"), { code: "ENOSPC" }); } },
+    delays: [1]
+  }), /no space/, "anything but a file in use is not waited for");
+});
+
+test("a reader lets go of the file when idle, and at once when the file is damaged", needsSqlite, async (t) => {
+  const vault = tempRoot(t);
+  const indexPath = path.join(tempRoot(t), "index.sqlite");
+  buildVault(vault, { notes: 2, skills: 2 });
+  await rebuildIndex({ vaultRoot: vault, indexPath });
+  const reader = createIndexReader(indexPath, { idleMs: 50 });
+  t.after(() => reader.close());
+  assert.equal(await reader.read((db) => db.prepare("SELECT count(*) AS n FROM documents").get().n), 5);
+  assert.equal(reader.isOpen(), true);
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.equal(reader.isOpen(), false, "closed after the idle time");
+  assert.equal(await reader.read((db) => db.prepare("SELECT count(*) AS n FROM documents").get().n), 5, "and opened again on the next read");
+
+  const damaged = path.join(tempRoot(t), "damaged.sqlite");
+  fs.writeFileSync(damaged, Buffer.alloc(4096, 9));
+  const broken = createIndexReader(damaged, { idleMs: 60_000 });
+  await assert.rejects(broken.read((db) => db.prepare("SELECT 1 FROM sqlite_master").get()), (error) => isCorruptError(error));
+  assert.equal(broken.isOpen(), false, "a damaged file is not held open for someone else to fail to replace");
+});
+

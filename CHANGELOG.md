@@ -24,7 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   check 26 ms (was 540), a full rebuild 2.6–3.5 s (was 5.0–5.3), a search right
   after a note changed 0.23 s (was 6.0: the index is now refreshed in place, only
   the changed documents rewritten). WAL and a cross-process rebuild lock that honours
-  `AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT` let several clients share the index; the
+  `AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT` — held around the Python helper's writes as well, and
+  refreshed while held so a holder killed mid-rebuild frees it within a minute — let several
+  clients share the index; the
   `node:sqlite` ExperimentalWarning is suppressed and no other warning is.
   `search_index_status` and `rebuild_search_index` say which engine answered
   (`engine`, `engine_reason`).
@@ -337,6 +339,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Writers of the search index no longer wait each other out or stop the server**
+  (`docs/DEFECTS.md`, Д-120 … Д-122, found by the review of the Node index). A rebuild lock
+  left by a process that died — a container killed mid-refresh on a shared volume — held
+  every other refresh for half an hour; now the holder refreshes the lock every 10 s, one not
+  refreshed for a minute is abandoned whatever host it names, and a process exiting on a
+  signal removes its locks (a dead container's lock: 13 ms, was a timeout). A Python-engine
+  write took no part in the Node lock (now it waits for it: 1.6 s behind a 1.5 s holder, was
+  105 ms); a foreign writer froze the event loop inside `busy_timeout` and then failed the
+  refresh (now 0.56 s with the loop turning, was 10.0 s and "database is locked"); the
+  checkpoint after a full rewrite waited out any reader on an old snapshot (39 ms, was
+  10.1 s).
+- **Windows: a damaged index is replaced even while another client has it open, and
+  junction folders are indexed** (Д-123, Д-124 — written to the documentation of Node and
+  Windows, not yet run on Windows). Setting a damaged file aside is retried for a few
+  seconds, every reader closes the file after 5 s idle and on finding it damaged, and the
+  walk enters a linked folder once per real path, as `os.walk` enters a junction.
+- **The status cache trusts a file only when its ctime is old too** (Д-125), and five
+  smaller divergences from the Python helper are gone (Д-126): a document rewritten in
+  place keeps its rowid, so tied results keep their order; a leading BOM survives; exact
+  ties of large numbers round as Python rounds them (0 of 200,000 random ties differ, were
+  3,100); `dense:doctor` no longer passes Node 23; the Д-117 test for `NOT` tests something.
 - **A pull that removes skills takes them out of routing and search** (`docs/DEFECTS.md`,
   Д-119). The generated skill registry never counted as out of date: after `git pull`,
   `npm ci` and `npm run setup` — the documented update — setup answered "already built",

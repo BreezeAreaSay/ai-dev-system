@@ -8,10 +8,10 @@
  * `src/core/first-run.mjs`; this does it and says what happened.
  *
  * Nothing here reaches the network unless asked: `--frontend-qa` installs the
- * QA runner's dependencies, `--dense` downloads the pinned BGE-M3 ONNX export
- * (about 600 MB, checksum-verified, no Python), and `--dense-python` builds the
- * legacy virtualenv and downloads the 2.3 GB torch weights instead
- * (docs/DEFECTS.md, Д-62).
+ * QA runner's dependencies, and `--dense` installs the pinned BGE-M3 ONNX
+ * model (about 600 MB, checksum-verified, resumable, no Python) and embeds the
+ * documents with it. Ctrl-C during either keeps what is done: the next run
+ * continues the download and the embedding (docs/DEFECTS.md, Д-98).
  */
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -19,21 +19,21 @@ import path from "node:path";
 import process from "node:process";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { downloadDenseModel } from "../src/core/dense-download.mjs";
+import { legacyDenseNotes } from "../src/core/dense-backend.mjs";
 import { defaultOnnxModelDir } from "../src/core/dense-onnx.mjs";
-import { readDenseManifest, verifyDenseModelDirectory } from "../src/core/dense-manifest.mjs";
+import { readDenseManifest } from "../src/core/dense-manifest.mjs";
+import { denseRuntimeSupport, installModel, modelStatus } from "../src/core/model-manager.mjs";
+import { createProgressPrinter } from "../src/core/progress-line.mjs";
 import { frontendQaInstallCommands, frontendQaInstalled, pinnedPnpmVersion } from "../src/core/frontend-qa-install.mjs";
 import { LAUNCH_UNKNOWN, classifyFrontendQaLaunchFailure } from "../src/core/frontend-qa-launch.mjs";
 import { resolveSpawnInvocation } from "../src/core/process-runner.mjs";
-import { resolvePythonCommand } from "../src/core/python-command.mjs";
 import { resolveRuntimeStateRoot } from "../src/core/runtime-home.mjs";
 import { prepareRuntimeHome } from "../src/core/runtime-home-migration.mjs";
 import {
   describeDenseCoverage,
   firstRunSucceeded,
   planFirstRun,
-  renderFirstRunReport,
-  venvPythonPath
+  renderFirstRunReport
 } from "../src/core/first-run.mjs";
 import {
   createRequiredActions,
@@ -54,6 +54,7 @@ function parseArgs(argv) {
   for (const argument of argv) {
     if (argument === "--dense") Object.assign(options.want, { dense_model: true, dense_index: true });
     else if (argument === "--dense-python") {
+      // Kept as a name so a 2.x command line still works; what it built is gone.
       Object.assign(options.want, { dense_model: true, dense_index: true });
       options.densePython = true;
     }
@@ -71,14 +72,14 @@ function usage() {
   return [
     "Build what a fresh clone does not ship.",
     "",
-    "Usage: npm run setup -- [--frontend-qa] [--dense] [--dense-python] [--all] [--force] [--no-health]",
+    "Usage: npm run setup -- [--frontend-qa] [--dense] [--all] [--force] [--no-health]",
     "",
     "  (no flags)      skill registry, search index, routing benchmark",
     "  --frontend-qa   also install the Frontend QA runner's dependencies",
-    "  --dense         also download the pinned BGE-M3 ONNX export (about 600 MB,",
-    "                  checksum-verified, no Python) and embed the indexed documents",
-    "  --dense-python  the legacy path instead: a Python virtualenv, torch, and the",
-    "                  2.3 GB weights. Same search, four more things to go wrong.",
+    "  --dense         also install the pinned BGE-M3 ONNX model (about 600 MB,",
+    "                  checksum-verified, resumable, no Python) and embed the",
+    "                  indexed documents. Behind a firewall: AI_DEV_MODEL_MIRROR,",
+    "                  HTTPS_PROXY, or `npm run model -- import <folder or .zip>`",
     "  --all           everything above",
     "  --force         rebuild what is already there",
     "  --no-health     skip the closing diagnostic"
@@ -152,7 +153,7 @@ function frontendQaStatus({ launch = true } = {}) {
 // finds it (docs/DEFECTS.md, Д-90).
 await prepareRuntimeHome();
 const {
-  callTool, shutdownBgeWorkers, vaultRoot, searchIndexPath, embeddingsDir, skillRoutingEvalCasesPath
+  callTool, shutdownBgeWorkers, vaultRoot, searchIndexPath, skillRoutingEvalCasesPath
 } = await import("../src/mcp-stdio.mjs");
 
 let options;
@@ -168,18 +169,41 @@ if (options.help) {
   process.exit(0);
 }
 
-const modelDir = process.env.BGE_M3_MODEL_DIR
-  || path.join(resolveRuntimeStateRoot(), "models", "bge-m3");
-const venvDir = path.join(embeddingsDir, ".venv");
-const densePython = process.env.AI_DEV_PYTHON || venvPythonPath({ venvDir, exists: existsSync });
-
-// Which dense backend this run installs. `--dense` is the ONNX export and
-// nothing else; the legacy virtualenv is asked for by name, or by the same
-// environment variable that selects it at runtime (docs/DEFECTS.md, Д-62).
+// The model is the ONNX export and nothing else. What a 2.x install left of
+// the Python backend — the flag, its variables, its torch weights — is named
+// once here, with what replaced it (decision D3, docs/DEFECTS.md, Д-98).
 const denseManifest = readDenseManifest();
 const onnxModelDir = defaultOnnxModelDir({ env: process.env });
-const useLegacyDense = Boolean(options.densePython)
-  || String(process.env.AI_DEV_DENSE_BACKEND ?? "").trim().toLowerCase() === "python";
+const legacyWeightsDir = path.join(process.env.BGE_M3_MODEL_DIR || path.join(resolveRuntimeStateRoot(), "models", "bge-m3"));
+const legacyNotes = [
+  ...(options.densePython ? ["--dense-python asked for the Python backend, which 3.0 removed; installing the ONNX model instead (the same as --dense)."] : []),
+  ...legacyDenseNotes(process.env, { legacyWeightsDir: existsSync(path.join(legacyWeightsDir, "pytorch_model.bin")) ? legacyWeightsDir : "" })
+];
+
+const progress = createProgressPrinter();
+let cancelled = false;
+
+/**
+ * Run the model download or the embedding so that Ctrl-C stops it between two
+ * pieces of work and keeps what is done; a second Ctrl-C does not wait.
+ */
+async function cancellable(work) {
+  const controller = new AbortController();
+  const stop = () => {
+    if (controller.signal.aborted) process.exit(130);
+    progress.end();
+    process.stdout.write("   Stopping after the current piece — what is done is kept. Ctrl-C again to quit now.\n");
+    cancelled = true;
+    controller.abort();
+  };
+  process.on("SIGINT", stop);
+  try {
+    return await work(controller.signal);
+  } finally {
+    process.off("SIGINT", stop);
+    progress.end();
+  }
+}
 
 // The three steps no install can do without are built by the same code the
 // container entrypoint runs, so the two paths cannot drift apart again
@@ -204,9 +228,7 @@ const present = {
     status: qaDependencies ? await frontendQaStatus({ launch: Boolean(options.want.frontend_qa) }) : null,
     requireLaunch: Boolean(options.want.frontend_qa)
   }),
-  dense_model: useLegacyDense
-    ? existsSync(path.join(modelDir, "pytorch_model.bin"))
-    : (await verifyDenseModelDirectory({ manifest: denseManifest, dir: onnxModelDir })).ready,
+  dense_model: (await modelStatus({ manifest: denseManifest, dir: onnxModelDir, env: process.env })).installed,
   dense_index: Number(indexStatus?.dense_documents || 0) > 0
 };
 
@@ -229,49 +251,38 @@ const ACTIONS = {
     return `pnpm@${pnpmVersion} install --frozen-lockfile, playwright install chromium; ${verdict.summary}`;
   },
   async dense_model() {
-    if (!useLegacyDense) {
-      // Download and verify, nothing more: five files, each checked against the
-      // sha256 the manifest pins, into a directory of their own.
-      const status = await downloadDenseModel({
-        manifest: denseManifest,
-        targetDir: onnxModelDir,
-        log: (line) => process.stdout.write(`   ${line}\n`)
-      });
-      if (!status.ready) {
-        throw new Error(`Model directory is still incomplete: ${[...status.missing, ...status.mismatched].join(", ")}`);
+    // Where the runtime has no build, 600 MB that cannot load is not a favour
+    // (docs/DEFECTS.md, Д-101); `npm run model -- install` still fetches them
+    // for a container to mount.
+    const support = denseRuntimeSupport();
+    if (!support.supported) throw new Error(support.reason);
+    const result = await cancellable((signal) => installModel({
+      manifest: denseManifest,
+      dir: onnxModelDir,
+      env: process.env,
+      signal,
+      onProgress: progress,
+      log: (line) => {
+        progress.end();
+        process.stdout.write(`   ${line}\n`);
       }
-      return `${denseManifest.export} @ ${String(denseManifest.revision).slice(0, 12)} (${denseManifest.dtype}) `
-        + `in ${onnxModelDir}, ${status.downloaded} file(s) fetched`;
+    }));
+    if (!result.ready) {
+      throw new Error(`Model directory is still incomplete: ${[...result.missing, ...result.mismatched].join(", ")}`);
     }
-    if (!existsSync(venvPythonPath({ venvDir, exists: existsSync }))) {
-      await runOrThrow("python -m venv", process.env.AI_DEV_PYTHON_BASE || resolvePythonCommand(), ["-m", "venv", venvDir]);
-    }
-    const python = venvPythonPath({ venvDir, exists: existsSync });
-    await runOrThrow("pip install", python, [
-      "-m", "pip", "install", "--disable-pip-version-check",
-      "-r", path.join(embeddingsDir, "requirements-bge-m3.txt")
-    ]);
-    await fs.mkdir(modelDir, { recursive: true });
-    // The revision is passed rather than left to float: an unpinned
-    // `snapshot_download` is exactly the upstream-can-change-under-you problem
-    // the ONNX manifest solves for the other path (docs/DEFECTS.md, Д-62,
-    // point 1). Unset means the old behaviour, and the index records the
-    // vectors as coming from an unpinned download.
-    const legacyRevision = String(process.env.BGE_M3_PYTHON_REVISION ?? "").trim();
-    await runOrThrow("model download", python, ["-c", [
-      "from huggingface_hub import snapshot_download",
-      `snapshot_download("BAAI/bge-m3", local_dir=${JSON.stringify(modelDir)},`,
-      legacyRevision ? ` revision=${JSON.stringify(legacyRevision)},` : "",
-      ' allow_patterns=["*.json", "*.model", "sentencepiece.bpe.model", "pytorch_model.bin"])'
-    ].filter(Boolean).join("\n")]);
-    return `model in ${modelDir}, interpreter ${python}`;
+    return `${denseManifest.export} @ ${String(denseManifest.revision).slice(0, 12)} (${denseManifest.dtype}) `
+      + `in ${onnxModelDir}, ${result.downloaded} file(s) fetched${result.resumed ? `, ${result.resumed} continued` : ""}`;
   },
   async dense_index() {
-    const result = await callTool("rebuild_search_index", {
+    // In this process the rebuild takes a progress callback and a signal;
+    // over MCP the same arguments are JSON and carry neither.
+    const result = await cancellable((signal) => callTool("rebuild_search_index", {
       include_external_project_files: true,
       dense_embeddings: true,
-      dense_incremental: true
-    });
+      dense_incremental: true,
+      onProgress: progress,
+      signal
+    }));
     return summarize(result, (doc) => (
       `${doc.dense_documents ?? "?"} document(s) embedded, ${doc.dense_pending_documents ?? 0} still pending`
     ));
@@ -287,10 +298,9 @@ const stale = {
 const plan = planFirstRun({ present, stale, want: options.want, force: options.force });
 console.log(`Vault: ${vaultRoot}`);
 console.log(`Search index: ${searchIndexPath}`);
-console.log(useLegacyDense
-  ? `Dense model: ${modelDir} (legacy Python backend, interpreter ${densePython})`
-  : `Dense model: ${onnxModelDir} (ONNX backend, ${denseManifest.export} @ ${String(denseManifest.revision).slice(0, 12)})`);
+console.log(`Dense model: ${onnxModelDir} (ONNX, ${denseManifest.export} @ ${String(denseManifest.revision).slice(0, 12)})`);
 if (indexStatus) console.log(describeDenseCoverage(indexStatus));
+for (const note of legacyNotes) console.log(`Note: ${note}`);
 console.log("");
 
 const results = await runFirstRunPlan(
@@ -326,4 +336,4 @@ if (options.health) {
 }
 
 await shutdownBgeWorkers();
-process.exitCode = firstRunSucceeded(results) ? 0 : 1;
+process.exitCode = cancelled ? 130 : firstRunSucceeded(results) ? 0 : 1;

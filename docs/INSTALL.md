@@ -320,7 +320,7 @@ configures all six clients; for the Docker path, bootstrap does.
 
 | Client | Config file | Entry |
 | --- | --- | --- |
-| Claude Code | `~/.claude.json` | `mcpServers.ai-dev`, with `type: "stdio"` |
+| Claude Code | `~/.claude.json`, or `$CLAUDE_CONFIG_DIR/.claude.json` when that is set (Claude Code reads only that one then) | `mcpServers.ai-dev`, with `type: "stdio"` |
 | Claude Desktop | macOS `~/Library/Application Support/Claude/claude_desktop_config.json`; Windows `%APPDATA%\Claude\claude_desktop_config.json`, and the Microsoft Store build's own copy under `%LOCALAPPDATA%\Packages\Claude_*`; Linux builds `~/.config/Claude/claude_desktop_config.json` | `mcpServers.ai-dev` |
 | Cursor | `~/.cursor/mcp.json` | `mcpServers.ai-dev` |
 | VS Code | `Code/User/mcp.json` in the user config folder (`%APPDATA%`, `~/Library/Application Support`, `~/.config`) | `servers.ai-dev`, with `type: "stdio"` |

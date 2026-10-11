@@ -98,8 +98,14 @@ export function clientLocations({ home = os.homedir(), env = process.env, platfo
       ? env.APPDATA || paths.join(home, "AppData", "Roaming")
       : env.XDG_CONFIG_HOME || paths.join(home, ".config");
   const codexHome = env.CODEX_HOME ? paths.resolve(env.CODEX_HOME) : paths.join(home, ".codex");
+  // With CLAUDE_CONFIG_DIR set, Claude Code keeps its global config — user
+  // servers included — in that folder's .claude.json and never reads
+  // ~/.claude.json (measured with Claude Code 2.1.296; docs/DEFECTS.md, Д-173).
+  const claudeHome = env.CLAUDE_CONFIG_DIR ? paths.resolve(env.CLAUDE_CONFIG_DIR) : "";
   return {
-    "claude-code": { file: paths.join(home, ".claude.json"), markers: [paths.join(home, ".claude.json"), paths.join(home, ".claude")] },
+    "claude-code": claudeHome
+      ? { file: paths.join(claudeHome, ".claude.json"), markers: [claudeHome] }
+      : { file: paths.join(home, ".claude.json"), markers: [paths.join(home, ".claude.json"), paths.join(home, ".claude")] },
     "claude-desktop": { file: paths.join(appData, "Claude", "claude_desktop_config.json"), markers: [paths.join(appData, "Claude")] },
     cursor: { file: paths.join(home, ".cursor", "mcp.json"), markers: [paths.join(home, ".cursor")] },
     vscode: { file: paths.join(appData, "Code", "User", "mcp.json"), markers: [paths.join(appData, "Code")] },

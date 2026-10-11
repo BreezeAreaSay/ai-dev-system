@@ -48,6 +48,7 @@ export function resolveLauncher(options, platform = process.platform) {
 export function localPaths({
   home = os.homedir(),
   appData,
+  claudeConfigDir = process.env.CLAUDE_CONFIG_DIR,
   platform = process.platform
 } = {}) {
   const pathApi = platform === "win32" ? path.win32 : path.posix;
@@ -63,7 +64,9 @@ export function localPaths({
     cursor: pathApi.join(home, ".cursor", "mcp.json"),
     gemini: pathApi.join(home, ".gemini", "settings.json"),
     vscode: pathApi.join(resolvedAppData, "Code", "User", "mcp.json"),
-    claude: pathApi.join(home, ".claude.json"),
+    // Where Claude Code reads its user servers from: CLAUDE_CONFIG_DIR, when
+    // set, holds its .claude.json instead of HOME (docs/DEFECTS.md, Д-173).
+    claude: pathApi.join(claudeConfigDir ? pathApi.resolve(claudeConfigDir) : home, ".claude.json"),
     claudeDesktop: pathApi.join(resolvedAppData, "Claude", "claude_desktop_config.json")
   };
 }

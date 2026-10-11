@@ -562,6 +562,10 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
   // This machine's Node, for the launcher: forward slashes, which Git's shell
   // on Windows reads too. The hooks are committed; this file is not.
   await writeManaged(`${HOOKS_RELATIVE_DIR}/.gitignore`, `${NODE_PATH_FILE}\n`);
+  // Shell scripts keep the line endings they are written with: Git for Windows
+  // with core.autocrlf checks text out with CRLF, and a shell script with CRLF
+  // is a syntax error (docs/DEFECTS.md, Д-171).
+  await writeManaged(`${HOOKS_RELATIVE_DIR}/.gitattributes`, "*.sh text eol=lf\n");
   if (nodePath) await writeManaged(`${HOOKS_RELATIVE_DIR}/${NODE_PATH_FILE}`, `${platform === "win32" ? nodePath.replaceAll("\\", "/") : nodePath}\n`);
 
   const policyPath = path.join(root, ...POLICY_RELATIVE_PATH.split("/"));
@@ -620,6 +624,8 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
         // lost its executable bit to a checkout, an unzip, or a copy.
         if (!dryRun) await fs.chmod(path.join(root, ...relativePath.split("/")), 0o755).catch(() => undefined);
       }
+      // The stubs are shell scripts without an extension: all of them LF (Д-171).
+      await writeManaged(`${GIT_HOOKS_RELATIVE_DIR}/.gitattributes`, "* text eol=lf\n");
       if (foreign) {
         warnings.push(`core.hooksPath already points at ${configured}; it was left alone. Point it at ${GIT_HOOKS_RELATIVE_DIR}, or copy the two stubs there, to run these hooks.`);
       } else if (dryRun) {

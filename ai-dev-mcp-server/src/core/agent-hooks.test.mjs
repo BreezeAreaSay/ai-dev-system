@@ -666,8 +666,33 @@ test("a hook runs with no Node on PATH: the 2.x command fails, the launcher find
   assert.deepEqual((await fs.readFile(marker, "utf8")).trim().split("\n"), ["recorded-node", "chosen-node"], "AI_DEV_NODE comes first");
 
   const missing = runLine("/bin/sh .ai-dev/hooks/with-node.sh", noNode);
-  assert.equal(missing.status, 2);
+  assert.equal(missing.status, 1, "1, not 2: Claude Code reads 2 as \"block\" (Д-171)");
   assert.match(missing.stderr, /with-node\.sh needs the hook script to run/);
+
+  // Node's bin folder in AI_DEV_NODE is a slip, not the end of every hook (Д-171).
+  const folder = runLine(command, { ...noNode, AI_DEV_NODE: path.dirname(chosen) });
+  assert.equal(folder.status, 0, folder.stderr);
+  assert.match(folder.stderr, /AI_DEV_NODE=.* is not a Node executable; looking for Node elsewhere/);
+  assert.deepEqual((await fs.readFile(marker, "utf8")).trim().split("\n"), ["recorded-node", "chosen-node", "recorded-node"]);
+});
+
+test("the launcher and the git stubs are checked out with LF where core.autocrlf would give them CRLF (Д-171)", { skip: process.platform === "win32" && "the launcher is the POSIX form" }, async (t) => {
+  const { root, projectRoot } = await fixture(t);
+  await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude", "git"], nodePath: "" });
+  assert.equal(await fs.readFile(path.join(projectRoot, ".ai-dev", "hooks", ".gitattributes"), "utf8"), "*.sh text eol=lf\n");
+  assert.equal(await fs.readFile(path.join(projectRoot, ".ai-dev", "git-hooks", ".gitattributes"), "utf8"), "* text eol=lf\n");
+  runGit(projectRoot, ["add", "-A"]);
+  runGit(projectRoot, ["-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "hooks"]);
+  const clone = path.join(root, "clone");
+  runGit(root, ["-c", "core.autocrlf=true", "clone", "-q", "--config", "core.autocrlf=true", projectRoot, clone]);
+  const crlf = await fs.readFile(path.join(clone, "index.js"), "utf8");
+  assert.ok(crlf.includes("\r\n"), "the clone does turn text into CRLF");
+  for (const relative of [".ai-dev/hooks/with-node.sh", ".ai-dev/git-hooks/pre-commit", ".ai-dev/git-hooks/pre-push"]) {
+    assert.ok(!(await fs.readFile(path.join(clone, ...relative.split("/")), "utf8")).includes("\r"), relative);
+  }
+  const run = spawnSync("/bin/sh", [".ai-dev/hooks/with-node.sh"], { cwd: clone, encoding: "utf8" });
+  assert.equal(run.status, 1, "the clone's launcher parses");
+  assert.match(run.stderr, /needs the hook script to run/);
 });
 
 test("a re-install keeps the hooks a person added to an AI Dev group (Д-165)", () => {

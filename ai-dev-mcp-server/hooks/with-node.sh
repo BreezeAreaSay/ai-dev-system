@@ -14,6 +14,9 @@
 # Node is taken from, in order: AI_DEV_NODE; the Node this repository's hooks
 # were installed with on this machine (.node-path next to this file, which
 # git ignores); `node` on PATH; the places installers put it.
+#
+# A mistake here exits 1, never 2: Claude Code reads 2 from a hook as "block",
+# and a launcher called wrongly would refuse every tool call (Д-171).
 
 # The folder of this file, without `dirname`: the PATH may hold nothing.
 case $0 in
@@ -23,9 +26,20 @@ esac
 script=$1
 if [ -z "$script" ]; then
   echo "ai-dev hook: with-node.sh needs the hook script to run" >&2
-  exit 2
+  exit 1
 fi
 shift
+
+# A Node is an executable file. `-x` alone is true of a folder as well, and
+# AI_DEV_NODE naming Node's bin folder ended every hook in "Permission
+# denied", exit 126, without trying anything else (Д-171).
+runnable() {
+  [ -n "$1" ] && [ -f "$1" ] && [ -x "$1" ]
+}
+
+if [ -n "$AI_DEV_NODE" ] && ! runnable "$AI_DEV_NODE"; then
+  echo "ai-dev hook: AI_DEV_NODE=$AI_DEV_NODE is not a Node executable; looking for Node elsewhere" >&2
+fi
 
 recorded=""
 if [ -r "$dir/.node-path" ]; then
@@ -33,7 +47,7 @@ if [ -r "$dir/.node-path" ]; then
 fi
 
 for candidate in "$AI_DEV_NODE" "$recorded"; do
-  if [ -n "$candidate" ] && [ -x "$candidate" ]; then
+  if runnable "$candidate"; then
     exec "$candidate" "$dir/$script" "$@"
   fi
 done
@@ -50,7 +64,7 @@ for candidate in \
   "$HOME/.asdf/shims/node" \
   "$HOME/.local/share/mise/shims/node" \
   "$HOME/.local/bin/node"; do
-  if [ -x "$candidate" ]; then
+  if runnable "$candidate"; then
     exec "$candidate" "$dir/$script" "$@"
   fi
 done

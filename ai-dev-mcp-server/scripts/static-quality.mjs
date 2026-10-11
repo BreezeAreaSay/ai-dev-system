@@ -43,10 +43,14 @@ async function sourceFiles(directory) {
   return files.sort();
 }
 
+// `hooks/` is copied into other people's repositories and runs there: the
+// syntax check and the forbidden calls hold for it as well; the line ceiling
+// does not, as each hook is one file by design (docs/DEFECTS.md, Д-172).
 const files = [
   ...await sourceFiles(path.join(root, "bin")),
   ...await sourceFiles(path.join(root, "src")),
-  ...await sourceFiles(path.join(root, "scripts"))
+  ...await sourceFiles(path.join(root, "scripts")),
+  ...await sourceFiles(path.join(root, "hooks"))
 ];
 const findings = [];
 const modules = [];
@@ -76,6 +80,14 @@ for (const file of files) {
   // too, and in the CLI (`bin/`, `src/cli/`).
   if (["bin/", "src/cli/", "src/core/", "src/extensions/", "src/galaxy/"].some((prefix) => relative.startsWith(prefix))) {
     modules.push({ path: relative, lines: countLines(source) });
+  }
+}
+
+// The hook launcher is a shell script, parsed by the shell that runs it.
+if (process.platform !== "win32") {
+  for (const name of (await fs.readdir(path.join(root, "hooks"))).filter((entry) => entry.endsWith(".sh")).sort()) {
+    const parsed = spawnSync("/bin/sh", ["-n", path.join(root, "hooks", name)], { cwd: root, encoding: "utf8", windowsHide: true });
+    if (parsed.status !== 0) findings.push(`hooks/${name}: sh -n failed: ${(parsed.stderr || parsed.stdout).trim()}`);
   }
 }
 

@@ -305,6 +305,41 @@ test("written by root in someone else's home, every file and folder stays theirs
   assert.equal((await fs.stat(path.join(home, ".cursor", "mcp.json"))).mode & 0o777, 0o600, "the mode is kept as well");
 });
 
+test("a client folder linked from elsewhere, with no config yet: remove gives back no file at all (Д-172)", { skip: process.platform === "win32" && "a symlink needs Developer Mode on Windows" }, async (t) => {
+  const home = await tempHome(t);
+  await fs.mkdir(path.join(home, "dotfiles", "cursor"), { recursive: true });
+  await fs.symlink(path.join(home, "dotfiles", "cursor"), path.join(home, ".cursor"));
+  const statePath = path.join(home, ".ai-dev", "state", "mcp-clients.json");
+  const targets = (await discoverClients({ home, env: env(home), platform: "linux" })).filter((target) => target.client === "cursor");
+  assert.deepEqual((await installServer({ targets, entryFor: (target) => clientEntry(target, LAUNCH), statePath })).map((result) => result.status), ["added"]);
+  assert.deepEqual(Object.keys(JSON.parse(await fs.readFile(statePath, "utf8")).files), [path.join(await fs.realpath(path.join(home, "dotfiles")), "cursor", "mcp.json")]);
+  assert.deepEqual((await removeServer({ targets, statePath })).map((result) => result.status), ["restored"]);
+  assert.deepEqual((await fs.readdir(path.join(home, "dotfiles", "cursor"))).filter((name) => !name.includes(".backup-")), [], "no {\"mcpServers\": {}} left behind");
+  assert.deepEqual(JSON.parse(await fs.readFile(statePath, "utf8")).files, {});
+});
+
+test("a config that is not UTF-8 is refused and left byte for byte, on install and on remove (Д-172)", async (t) => {
+  const home = await tempHome(t);
+  // "серверы" in cp1251, in a comment, as an editor set to Windows-1251 saves it.
+  const cp1251 = Buffer.concat([Buffer.from("{\n  // "), Buffer.from([0xf1, 0xe5, 0xf0, 0xe2, 0xe5, 0xf0, 0xfb]), Buffer.from("\n  \"mcpServers\": {}\n}\n")]);
+  await fs.mkdir(path.join(home, ".cursor"));
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), cp1251);
+  const targets = (await discoverClients({ home, env: env(home), platform: "linux" })).filter((target) => target.client === "cursor");
+  for (const results of [
+    await installServer({ targets, entryFor: (target) => clientEntry(target, LAUNCH) }),
+    await removeServer({ targets }),
+    await readServerEntries(targets)
+  ]) {
+    assert.match(results[0].error, /^not UTF-8 text, so it is left as it is\. Save it as UTF-8/);
+  }
+  assert.deepEqual(await fs.readFile(path.join(home, ".cursor", "mcp.json")), cp1251);
+  assert.deepEqual((await fs.readdir(path.join(home, ".cursor"))), ["mcp.json"], "no backup either: nothing was written");
+  // A byte order mark is UTF-8 and stays.
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), "\uFEFF{\"mcpServers\": {}}\n");
+  assert.equal((await installServer({ targets, entryFor: (target) => clientEntry(target, LAUNCH) }))[0].status, "added");
+  assert.ok((await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).startsWith("\uFEFF{"));
+});
+
 test("plans are pure: what install and remove would do to a text", () => {
   const cursor = MCP_CLIENTS.find((client) => client.id === "cursor");
   const plan = planInstall(cursor, "", LAUNCH);

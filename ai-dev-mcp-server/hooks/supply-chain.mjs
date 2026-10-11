@@ -279,7 +279,8 @@ export function verdictFor(checked, settings, now = Date.now()) {
   if (serious.length) {
     warns.push(`[supply-chain] ${label} has ${serious.length} known high or critical vulnerabilit${serious.length === 1 ? "y" : "ies"} (${serious.map((item) => item.id).slice(0, 4).join(", ")})${checked.safe ? `; ${checked.name}@${checked.safe} is the first release outside them` : "; no later release is outside them"}.`);
   }
-  for (const problem of checked.problems) warns.push(`[supply-chain] ${label} was not fully checked: ${problem}.`);
+  // A reason that is a sentence already keeps its one full stop: "(HTTP 403).." read as a typo (docs/DEFECTS.md, Д-172).
+  for (const problem of checked.problems) warns.push(`[supply-chain] ${label} was not fully checked: ${String(problem).replace(/[.\s]+$/, "")}.`);
   return { blocks, warns };
 }
 

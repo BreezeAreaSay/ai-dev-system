@@ -4330,7 +4330,7 @@ AI_DEV_NODE=<папка bin> x.mjs      «exec: …/nodebin: Permission denied»
 
 ## Д-172. Мелочи ревью фазы 6
 
-**Статус:** открыт. Нашло независимое ревью фазы 6; закроет она же.
+**Статус:** закрыт фазой 6 (2026-10-11). Нашло её независимое ревью.
 
 1. Папка клиента — симлинк (dotfiles), конфига ещё нет: `realTarget` возвращает несвёрнутый путь, запись о записи
    ложится под ним, а `remove` ищет по свёрнутому — вместо «restored» пишет «removed», оставляет
@@ -4364,7 +4364,32 @@ AI_DEV_NODE=<папка bin> x.mjs      «exec: …/nodebin: Permission denied»
 
 **Как закроется.** Каждая — правкой в своём месте; не UTF-8 — отказ с объяснением вместо переписывания.
 
+**Замер после** (те же пробы на коде фазы; где пробы нет — тест):
+
+```
+1. ~/.cursor → dotfiles/cursor: install «added», запись под свёрнутым путём; remove «restored», mcp.json нет
+   (тест; без исправления ключ записи — ~/.cursor/mcp.json, а не dotfiles/cursor/mcp.json)
+2. pty, Ctrl-C на «Connect ai-dev to Cursor? [Y/n]»   → «Stopped with Ctrl-C at a question, before anything was changed.», EXIT=130;
+   конфиг Cursor не тронут
+3. "github": {} // GitHub + вставка                  → "github": {}, // GitHub, наша запись строкой ниже; удаление после
+   "github": {}, // GitHub — "github": {} // GitHub; вставка и удаление — исходный текст байт в байт
+   фузз ревью 20 000 документов: 0 ошибок; точный возврат на непустых списках серверов — 3 381 из 3 381 (до: 3 465 из 3 465)
+4. комментарий cp1251, clients install                → «FAILED — ~/.cursor/mcp.json: not UTF-8 text, so it is left as it is. Save it as
+   UTF-8 …», exit 1, U+FFFD: 0, файл байт в байт; так же remove и list; BOM — UTF-8 и остаётся
+5. "\uFEFF[mcp_servers.ai-dev]…" removeTables         → BOM kept: true (исправлено вместе с Д-166)
+6. installDockerMcpClients без apply                   → status dry-run, клиент «would-add», файл не тронут; с apply — «added»
+7. agent_hooks_status на win32 с регистрациями 3.0      → bare_node_commands 0; те же строки не на Windows — больше 0 (тест)
+8. обёртка без --clients                               → cursor, gemini, vscode, claude-code, как 2.x; --clients claude — claude-code
+   (тест); заголовок и CHANGELOG больше не обещают «тот же JSON»
+9. clients doctor --timeout=abc | 0 | -1 | ""          → exit 2, «--timeout takes the seconds each command has to answer, a number above 0»;
+   флаг описан в `ai-dev clients --help` и в INSTALL (EN/RU)
+10. причина с точкой                                   → «… (HTTP 403).» — одна точка (тест)
+11. static-quality: 398 → 411 файлов (13 хуков: синтаксис, eval, new Function, shell:true, exec; `sh -n` для with-node.sh);
+    security-check смотрит hooks/. Подброшенные hooks/zz-probe.mjs с eval и ключом и zz-probe.sh с ошибкой — все три
+    пойманы; потолок строк на hooks/ не распространяется
+```
 ---
+
 
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 

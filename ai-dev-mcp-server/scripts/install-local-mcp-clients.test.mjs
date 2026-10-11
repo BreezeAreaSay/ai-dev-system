@@ -38,8 +38,19 @@ test("the 2.x installer is a dry run without --apply, and says what replaced it"
   const result = run([], home);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stderr, /install-local-mcp-clients\.mjs is `ai-dev clients install` now/);
-  assert.deepEqual(JSON.parse(result.stdout).clients.filter((item) => item.status !== "skipped").map((item) => [item.client, item.status]), [["cursor", "would-add"]]);
+  assert.deepEqual(JSON.parse(result.stdout).clients.map((item) => [item.client, item.status]),
+    [["claude-code", "would-add"], ["cursor", "would-add"], ["vscode", "would-add"], ["gemini", "would-add"]], "the four 2.x wrote, installed or not");
   assert.equal(fs.existsSync(path.join(home, ".cursor", "mcp.json")), false);
+});
+
+test("`--clients claude` is Claude Code alone, as in 2.x (Д-172)", (t) => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "local-installer-"));
+  t.after(() => fs.rmSync(home, { recursive: true, force: true }));
+  for (const args of [["--clients", "claude"], ["--clients=claude,cursor"]]) {
+    const result = run(args, home);
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(result.stdout).clients.map((item) => item.client), args.join(" ").includes("cursor") ? ["claude-code", "cursor"] : ["claude-code"]);
+  }
 });
 
 test("--apply writes ai-dev and takes out the ai-dev-system entry 2.x wrote (Д-95)", (t) => {

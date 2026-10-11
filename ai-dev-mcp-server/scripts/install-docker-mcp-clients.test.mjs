@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   buildCodexMcpSection,
   buildDockerClientServerConfig,
   clientInstallTargets,
+  installDockerMcpClients,
   localPaths,
   mergeCodexDocument,
   mergeDockerClientDocument,
@@ -190,4 +194,20 @@ test("Codex configuration appends and replaces only the ai-dev MCP section", () 
   assert.match(twice, /AI_DEV_IMAGE = "new-image"/);
   assert.equal((twice.match(/\[mcp_servers\.ai-dev\]/g) || []).length, 1);
   assert.match(twice, /\[mcp_servers\.other\]/);
+});
+
+test("called without apply, the installer says what it would write and writes nothing (Д-172)", async (t) => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "docker-installer-"));
+  t.after(() => fs.rm(home, { recursive: true, force: true }));
+  const launcher = path.join(home, "run-mcp.sh");
+  await fs.writeFile(launcher, "#!/bin/sh\n");
+  await fs.mkdir(path.join(home, ".cursor"));
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), "{\"mcpServers\": {}}\n");
+  const result = await installDockerMcpClients({ launcher, image: "img", project_path: home, clients: ["cursor"], home, platform: "linux" });
+  assert.equal(result.status, "dry-run");
+  assert.deepEqual(result.clients.map((item) => item.status), ["would-add"]);
+  assert.equal(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8"), "{\"mcpServers\": {}}\n");
+  const applied = await installDockerMcpClients({ launcher, image: "img", project_path: home, clients: ["cursor"], home, platform: "linux", apply: true });
+  assert.equal(applied.status, "applied");
+  assert.deepEqual(applied.clients.map((item) => item.status), ["added"]);
 });

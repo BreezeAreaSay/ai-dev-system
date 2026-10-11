@@ -234,7 +234,7 @@ export async function installDockerMcpClients(options) {
       const config = buildDockerClientServerConfig(asked.get(target.file), normalized);
       return target.format === "toml" ? codexEntry(config) : config;
     },
-    apply: options.apply,
+    apply: Boolean(options.apply),
     statePath: pathApi.join(paths.home, ".ai-dev", "state", "mcp-clients.json")
   });
   const failed = results.filter((result) => result.status === "failed");

@@ -99,9 +99,9 @@ sh ./docker/run-mcp.sh
 
 Сразу после первого старта `system_health_check` даёт `degraded` и ноль критичных провалов.
 Остаются предупреждения, которые собираются работой, а не установкой: отчёт о качестве скиллов и
-пустой реестр проектов. `embedding_backend` в опубликованном образе — `skipped`: dense там
-выключен намеренно, и совет ведёт к монтированию весов, а не к `npm run setup -- --dense`,
-который в контейнере выполнить нельзя (Д-59).
+пустой реестр проектов. `embedding_backend` в опубликованном образе — `skipped`: весов в нём нет
+намеренно, и совет ведёт к монтированию весов, а не к `npm run setup -- --dense`, который в
+контейнере выполнить нельзя (Д-59).
 
 Frontend QA в образе работает: Playwright и Chromium в нём есть, а раннер находит сервер по
 `/opt/ai-dev/ai-dev-mcp-server` — символьной ссылке на `/opt/ai-dev/app`, которую создаёт
@@ -312,34 +312,25 @@ glob-паттернами, каталог исполняется как файл
 ## Локальная BGE-M3
 
 Модель — не дополнение, а половина поиска: без неё остаётся совпадение по словам, с ней
-появляется совпадение по смыслу. В контейнере она работает, но образ не несёт ни того, ни
-другого её куска — по разным причинам.
-
-**Python-часть выключена по умолчанию**, чтобы не платить установкой те, кто ею не пользуется.
-Включается аргументом сборки:
-
-```bash
-npm --prefix ai-dev-mcp-server run docker:prepare
-docker build \
-  --build-arg INSTALL_BGE_M3=1 \
-  --tag ai-dev-system:bge \
-  .docker/build-context
-```
-
-Аргумент строит виртуальное окружение в `/opt/ai-dev/embeddings/.venv` — ровно там, где сервер
-его и ищет.
+появляется совпадение по смыслу. В контейнере она работает: ONNX-рантайм — обычная
+npm-зависимость и уже в образе, Python ей не нужен. Не хватает только весов.
 
 **Весов в образе нет никогда.** Они ваши, а не дистрибутива. Скачиваются один
-раз на хосте:
+раз на хосте — с докачкой, через `AI_DEV_MODEL_MIRROR` и `HTTPS_PROXY`, если они заданы:
 
 ```bash
 cd ai-dev-mcp-server
-npm run setup -- --dense
+npm run model -- install --no-index
 ```
 
-Каталог по умолчанию — `~/.ai-dev/models/bge-m3-onnx`, переопределяется через `BGE_M3_ONNX_DIR`.
-Монтируется папка над ним — `~/.ai-dev/models`: под одной точкой лежат оба бэкенда,
-`bge-m3-onnx/` (по умолчанию) и `bge-m3/` (legacy, для `--dense-python`).
+Без сети — `npm run model -- import <папка или .zip>` с машины, где модель есть. Каталог по
+умолчанию — `~/.ai-dev/models/bge-m3-onnx`, переопределяется через `BGE_M3_ONNX_DIR` или ключ
+`--dir`. Монтируется папка над ним — `~/.ai-dev/models`.
+
+**Python-бэкенда больше нет** (3.0, решение D3). Аргумент сборки `INSTALL_BGE_M3=1`, который его
+ставил, ничего не делает и при сборке говорит, что пришло на смену. Векторы, построенные им,
+относятся к другой модели и с вопросами ONNX не сравниваются; `npm run setup -- --dense` строит их
+заново.
 
 ### Запуск с моделью
 
@@ -355,7 +346,7 @@ sh ./bootstrap.sh --model-path "$HOME/.ai-dev/models"
 (`pytorch_model.bin`, `config.json`, `onnx/`), — значение до 2.1; лаунчеры его распознают и
 останавливаются с подсказкой, а не монтируют на уровень глубже (Д-68).
 
-Лаунчером напрямую (`AI_DEV_IMAGE` нужен только для legacy-сборки `ai-dev-system:bge`):
+Лаунчером напрямую:
 
 ```bash
 export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
@@ -367,14 +358,13 @@ sh ./docker/run-mcp.sh
 (в `compose.local.example.yaml` оно уже есть, с той же переменной):
 
 ```bash
-export AI_DEV_IMAGE="ai-dev-system:bge"
 export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
 docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
 ```
 
-Оба способа подключают каталог read-only в `/models` — туда же смотрят
-`BGE_M3_ONNX_DIR` и `BGE_M3_MODEL_DIR` внутри образа. `network_mode: none` этому не мешает: помощники выставляют
-`TRANSFORMERS_OFFLINE=1` и `HF_HUB_OFFLINE=1` до загрузки модели и в сеть не ходят.
+Оба способа подключают каталог read-only в `/models`; внутри образа `BGE_M3_ONNX_DIR` смотрит в
+`/models/bge-m3-onnx`. `network_mode: none` этому не мешает: воркер загружает модель с выключенной
+загрузкой из сети и в сеть не ходит.
 
 ### Образ с весами внутри
 
@@ -383,24 +373,24 @@ docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T a
 
 ```dockerfile
 # Dockerfile.bge
-FROM ai-dev-system:bge
-COPY --chown=node:node bge-m3/ /models/bge-m3/
+FROM ghcr.io/stonebridgeway/ai-dev-system:latest
+COPY --chown=node:node bge-m3-onnx/ /models/bge-m3-onnx/
 ```
 
 ```bash
 docker build -f Dockerfile.bge -t ai-dev-system:bge-bundled "$HOME/.ai-dev/models"
 ```
 
-Ни тома, ни переменной такому образу не нужно: `/models/bge-m3` уже на месте. Публикуемый
+Ни тома, ни переменной такому образу не нужно: `/models/bge-m3-onnx` уже на месте. Публикуемый
 образ при этом остаётся маленьким — веса не попадают ни в allowlist-контекст, ни в GHCR.
 
 ### Как убедиться
 
 В диагностике (`npm --prefix ai-dev-mcp-server run -s doctor`) смотрите проверку
 `embedding_backend`: без модели — `skipped` с названием нужной команды, с моделью — `ok`.
-Подробности даёт инструмент `embedding_status`: четыре записи в `availability` должны быть
-`exists: true` — `embeddings_python`, `model_dir`, `model_file`, `modules_file`. Первая ложная
-означает образ без `INSTALL_BGE_M3=1`, остальные — что том с весами не подключён.
+Подробности даёт инструмент `embedding_status`: `installed` и `available` — ответ, `reason` —
+фраза, а `dense_backend.onnx.missing` перечисляет файлы, которых нет: обычно это значит, что том с
+весами не подключён.
 
 ## GHCR
 

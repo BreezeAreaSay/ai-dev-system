@@ -22,7 +22,7 @@ file rather than replacing it.
 | `ai-dev-mcp-server/src/*.mjs` | the tool surface, coupled to a content vault |
 | `docker/` | launchers, compose files, and `public-seed/` (the clean bundled vault) |
 | `packaging/` | Arch `PKGBUILD` and Homebrew formula |
-| `embeddings/`, `search-eval/`, `frontend-qa/` | the legacy Python embedding worker, the search golden cases, the Playwright runner |
+| `search-eval/`, `frontend-qa/` | the search golden cases, the Playwright runner |
 | `docs/`, `docs/ru/` | the guides the two READMEs link to, in English and Russian |
 
 `README.md` and `README.ru.md` answer what the project is and why to install it;
@@ -45,9 +45,9 @@ A standalone checkout resolves its content root to `docker/public-seed`.
 - Git
 - Docker Desktop / Engine — only for the Docker and packaging paths
 - No Python for the server or its tests. It is optional at run time — the two UI UX Pro Max tools
-  run the dataset's Python script — and needed for two development checks only: the legacy
-  embedding worker under `embeddings/` (`--dense-python`), and `npm run search:parity`, which
-  takes the 2.x search helper from git history and checks that Node search answers as it did
+  run the dataset's Python script — and needed for one development check only:
+  `npm run search:parity`, which takes the 2.x search helper from git history and checks that
+  Node search answers as it did
 
 ## Package-manager policy
 

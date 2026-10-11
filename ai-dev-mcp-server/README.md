@@ -24,8 +24,8 @@ evidence-bound task completion.
   - `~/.ai-dev/artifacts/frontend-qa` — QA screenshots (override: `AI_DEV_FRONTEND_QA_ARTIFACT_ROOT`)
   - `~/.ai-dev/models/bge-m3-onnx` — the ONNX embedding model `--dense` installs
     (override: `BGE_M3_ONNX_DIR`)
-  - `~/.ai-dev/models/bge-m3` — the legacy Python weights, only for `--dense-python`
-    (override: `BGE_M3_MODEL_DIR`)
+  - `~/.ai-dev/cache/dense-model` — the record of which model files hashed right, so a
+    check does not read 570 MB again
   - A pre-existing `~/.codex/<...>` layout is used automatically if the `~/.ai-dev` path is absent,
     so installs migrated from the Codex-only runtime keep their history.
 
@@ -229,9 +229,7 @@ Hybrid search works without a model: SQLite FTS, sparse aliases, and determinist
 intent routing are always on. The optional local BGE-M3 model improves concept and
 document retrieval. The Docker image never bundles the weights; the launchers mount
 the folder above them read-only at `/models`, and the image reads the ONNX export
-from `/models/bge-m3-onnx`. The exception is the Windows Claude proxy — the launcher
-bootstrap gives both Claude Code and Claude Desktop there — which still mounts it at
-`/models/bge-m3` (docs/DEFECTS.md, Д-88).
+from `/models/bge-m3-onnx`.
 
 ### From a source checkout
 
@@ -242,67 +240,58 @@ npm run setup -- --dense
 That downloads the pinned ONNX export `Xenova/bge-m3` — five files, int8, each
 checked against the sha256 in `models/bge-m3.manifest.json` — into
 `~/.ai-dev/models/bge-m3-onnx` (`$BGE_M3_ONNX_DIR` overrides it), and then embeds
-the documents already in the search index. The model runs in Node through
-`onnxruntime-node`: no Python packages, no torch. The embedding is the part that
-makes a query semantic; the weights on their own do not do it. Adding notes later
-leaves them without a vector until the next `npm run setup -- --dense`, which
-re-embeds only what changed and reports the coverage it ended with.
+the documents already in the search index, Membrane connectors left out. The model
+runs in Node through `onnxruntime-node`: no Python packages, no torch. Both halves
+show progress and stop cleanly on Ctrl-C: the download keeps its `.part` and the
+next run continues from that byte, the embedding stores every 64 documents and the
+next run starts where it stopped. Adding notes later leaves them without a vector
+until the next `npm run setup -- --dense`, which embeds only what changed.
 `npm run dense:doctor` walks the model check stage by stage and names the one that
 stopped.
 
-### The legacy Python path
+### The model command
 
-`npm run setup -- --dense-python` builds the old stack instead: a Python virtualenv,
-torch, and the 2.3 GB `BAAI/bge-m3` weights in `~/.ai-dev/models/bge-m3`
-(`$BGE_M3_MODEL_DIR`). `AI_DEV_DENSE_BACKEND=python` selects it explicitly; for a
-query the default, `auto`, uses it only when no verified ONNX export is on disk and the
-legacy stack is complete. Building vectors picks the same way, and with neither installed
-`rebuild_search_index` with `dense_embeddings` refuses with what to install instead of
-reaching for an interpreter that is not there (docs/DEFECTS.md, Д-98). Set
-`BGE_M3_DEVICE=cuda` to run it on a GPU; the
-loader checks for `pytorch_model.bin` and says so plainly when it is missing.
+```bash
+npm run model -- status            # installed, missing, stopped partway, where it downloads from
+npm run model -- install           # download (resumable), then embed the documents
+npm run model -- import <path>     # copy from a folder or a .zip made on another machine, then embed
+npm run model -- verify            # hash every file against the manifest
+npm run model -- remove            # delete the model's files and nothing else
+```
 
-By hand, if you would rather do each legacy step yourself (paths are for a plain
-checkout; in an Obsidian vault the helper trees live under `09-mcp/`):
+`--dir <path>` works on another folder, `--mirror <url>` uses a Hugging Face mirror
+for one run, `--no-index` skips the embedding, `--json` prints the result. Sources
+are `AI_DEV_MODEL_MIRROR`, then `HF_ENDPOINT`, then huggingface.co, a failing one
+handing its partial file to the next; `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`
+are honoured without `NODE_USE_ENV_PROXY`. `AI_DEV_OFFLINE=1` forbids downloads,
+leaving `import`. Exit codes: 0 done, 1 failed, 2 a usage mistake, 130 stopped with
+Ctrl-C.
 
-1. Install the Python helper dependencies:
+`AI_DEV_MODEL_MANIFEST` names another manifest pinned the same way — the tests point
+it at a five-kilobyte stand-in for BGE-M3 (`src/core/synthetic-model.mjs`) and run
+import, embedding and hybrid search through the real server with it.
 
-   ```bash
-   python3 -m venv embeddings/.venv
-   embeddings/.venv/bin/pip install -r embeddings/requirements-bge-m3.txt
-   ```
+An Intel Mac has no onnxruntime-node 1.30 build, so the model cannot run there:
+`dense:doctor` and the health check say so, `setup -- --dense` refuses before
+downloading, and keyword and sparse search work as everywhere else.
 
-2. Download the weights:
+### Coming from the Python backend
 
-   ```bash
-   embeddings/.venv/bin/python - <<'PY'
-   from pathlib import Path
-   from huggingface_hub import snapshot_download
-   target = Path.home() / ".ai-dev" / "models" / "bge-m3"
-   snapshot_download(
-       "BAAI/bge-m3",
-       local_dir=target,
-       allow_patterns=["*.json", "*.model", "sentencepiece.bpe.model", "pytorch_model.bin"],
-   )
-   print("downloaded to", target)
-   PY
-   ```
-
-3. Keep that venv where it is (or point `BGE_M3_PYTHON` at another interpreter with
-   the packages installed), then call `rebuild_search_index` with
-   `dense_embeddings: true` to embed the index, and `run_search_eval` /
-   `system_health_check` to confirm the dense backend is picked up.
+2.x could embed with a Python virtualenv and torch (`--dense-python`,
+`AI_DEV_DENSE_BACKEND=python`). 3.0 removed that backend. `npm run setup -- --dense`
+moves an install over: it installs the ONNX model and embeds the documents again —
+vectors made by the Python backend belong to another model, are never compared
+with ONNX questions, and are replaced by this run. `--dense-python` still works as a
+name for `--dense`; the old variables are no longer read, and the health check names
+any that are still set. See
+[INSTALL](../docs/INSTALL.md#coming-from-the-python-backend).
 
 ### With the Docker image
 
 The default image already carries the ONNX runtime. Download the weights on the
-host with `npm run setup -- --dense`, then set `AI_DEV_MODEL_PATH` to the folder
-*above* them — `~/.ai-dev/models` — and the launcher mounts it read-only as
-`/models`. Only the legacy Python backend needs its own image variant:
-
-```bash
-docker build --build-arg INSTALL_BGE_M3=1 --tag ai-dev-system:bge .docker/build-context
-```
+host with `npm run model -- install --no-index`, then set `AI_DEV_MODEL_PATH` to the
+folder *above* them — `~/.ai-dev/models` — and the launcher mounts it read-only as
+`/models`.
 
 ## Frontend QA Config
 
@@ -382,8 +371,10 @@ AI_DEV_SEARCH_INDEX_DIR   search index dir (default $AI_DEV_HOME/cache/search-in
 AI_DEV_FRONTEND_QA_ARTIFACT_ROOT   QA artifacts (default $AI_DEV_HOME/artifacts/frontend-qa)
 AI_DEV_PYTHON       python for the two UI UX Pro Max tools (default: python3; python on Windows)
 BGE_M3_ONNX_DIR     ONNX embedding model dir (default $AI_DEV_HOME/models/bge-m3-onnx)
-BGE_M3_MODEL_DIR    legacy Python model dir (default $AI_DEV_HOME/models/bge-m3)
-BGE_M3_DEVICE       cpu | cuda, legacy Python backend only
+AI_DEV_MODEL_MIRROR Hugging Face mirror tried first for the model (HF_ENDPOINT format)
+AI_DEV_MODEL_MANIFEST  another pinned manifest instead of models/bge-m3.manifest.json
+AI_DEV_OFFLINE      1 forbids model downloads; `npm run model -- import` still works
+HTTPS_PROXY / HTTP_PROXY / NO_PROXY   honoured by the model download
 ```
 
 `AI_DEV_HOME` is the runtime folder itself: `state/`, `cache/` and `models/` sit directly in

@@ -12,6 +12,13 @@
  * `npm ci`. The current server is then started through the command the 2.x
  * client configuration holds, and has to find all of it.
  *
+ * Each user's 2.x index also carries dense vectors, written by the 2.x helper
+ * the way its ONNX path writes real ones (`dense-plan`, then `rebuild
+ * --dense-vectors-json`), from synthetic numbers since no model is needed to
+ * check that they survive: the upgraded server must find the index current
+ * without rebuilding it, keep every vector byte for byte through a refresh, and
+ * search it (program phase 3).
+ *
  * Three users are simulated: one with the defaults; one who set
  * `AI_DEV_HOME`, whose 2.x data sits one level deeper than documented
  * (docs/DEFECTS.md, Д-90) and must be migrated without loss; and the layout of
@@ -31,7 +38,8 @@
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import crypto from "node:crypto";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -40,6 +48,8 @@ import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { resolveSpawnInvocation } from "../src/core/process-runner.mjs";
+import { resolvePythonCommand } from "../src/core/python-command.mjs";
+import { openDatabase, sqliteSupport } from "../src/core/search-sqlite.mjs";
 
 export const DEFAULT_BASE_COMMIT = "8f647df";
 
@@ -175,6 +185,57 @@ async function listFiles(root) {
     .sort();
 }
 
+/**
+ * One hash over the stored dense vectors and their ids — all of them, or only
+ * those of documents that are not Membrane's connectors — with their count;
+ * an empty hash where this Node cannot read the file.
+ */
+function denseDigest(indexPath, { withoutMembrane = false } = {}) {
+  if (!sqliteSupport().available || !existsSync(indexPath)) return { count: 0, digest: "" };
+  const db = openDatabase(indexPath);
+  try {
+    const hash = crypto.createHash("sha256");
+    const rows = db.prepare(`SELECT v.id, v.vector, v.backend, v.revision, v.dtype FROM dense_vectors v
+      JOIN documents d ON d.id = v.id ${withoutMembrane ? "WHERE lower(d.source) NOT LIKE '%membrane%'" : ""} ORDER BY v.id`).all();
+    for (const row of rows) {
+      hash.update(`${row.id}\0${row.backend}\0${row.revision}\0${row.dtype}\0`);
+      hash.update(row.vector);
+    }
+    return { count: rows.length, digest: hash.digest("hex") };
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Dense vectors in the 2.x index, written by the 2.x helper exactly as its
+ * ONNX path writes them; the numbers are synthetic, which is all a check of
+ * their survival needs.
+ */
+function seedLegacyVectors({ baseRoot, env, indexPath }) {
+  const helper = path.join(baseRoot, "search-index", "search_cli.py");
+  const python = resolvePythonCommand({ env });
+  const common = ["--vault-root", path.join(baseRoot, "docker", "public-seed"), "--index-path", indexPath, "--include-external-project-files"];
+  const provenance = ["--dense-backend", "onnx", "--dense-revision", "upgrade-fixture", "--dense-dtype", "int8"];
+  const plan = JSON.parse(run(python, [helper, "dense-plan", ...common, ...provenance], { env }).stdout);
+  const vectors = plan.records.map((record, index) => ({
+    id: record.id,
+    content_hash: record.content_hash,
+    vector: Array.from({ length: 1024 }, (_, position) => ((index * 7 + position) % 101) / 101 - 0.5)
+  }));
+  const file = path.join(path.dirname(indexPath), "upgrade-fixture-vectors.json");
+  writeFileSync(file, JSON.stringify({ vectors }));
+  try {
+    const rebuilt = JSON.parse(run(python, [helper, "rebuild", ...common, "--dense-embeddings", "--dense-vectors-json", file, ...provenance], { env }).stdout);
+    // A 2.x older than the Д-91 fix embedded Membrane's connectors as well;
+    // they are the vectors a rebuild is now meant to drop.
+    const kept = denseDigest(indexPath, { withoutMembrane: true });
+    return { vectors: rebuilt.dense_documents, digest: denseDigest(indexPath).digest, keepable: kept.count, keepableDigest: kept.digest };
+  } finally {
+    rmSync(file, { force: true });
+  }
+}
+
 /** Everything the 2.x server writes for one user, recorded so it can be found again. */
 async function createLegacyState({ baseServer, env, project }) {
   return withServer({ command: process.execPath, args: [path.join(baseServer, "src", "server.mjs")], env, cwd: baseServer }, async (client) => {
@@ -186,8 +247,11 @@ async function createLegacyState({ baseServer, env, project }) {
     await call(client, "record_instinct", { project_path: project, trigger: "when exporting CSV for the upgrade fixture", action: "write a header row first" });
     await call(client, "save_session", { project_path: project, topic: "Upgrade fixture handoff", building: "A CSV export.", next_step: "Run verify_task." });
     await call(client, "install_agent_hooks", { project_path: project, targets: ["claude"] });
+    const built = await call(client, "search_index_status", {});
+    const dense = seedLegacyVectors({ baseRoot: path.resolve(baseServer, ".."), env, indexPath: built.index_path });
     const status = await call(client, "search_index_status", {});
-    return { taskId, documents: indexedDocuments(status) };
+    assert.equal(Number(status.dense_documents), dense.vectors, "2.x reports the vectors it was given");
+    return { taskId, documents: indexedDocuments(status), dense };
   });
 }
 
@@ -238,9 +302,28 @@ async function verifyUpgradedScenario({ label, baseRoot, env, project, expected,
     const status = await call(client, "search_index_status", {});
     const documents = indexedDocuments(status);
     check(`${label}: the 2.x search index is read without a rebuild`, documents > 0 && documents === expected.documents, `${documents} document(s), 2.x had ${expected.documents}`);
+    if (sqliteSupport().available) {
+      check(`${label}: the Node engine answers, and finds the 2.x index current`, status.engine === "node" && status.stale === false,
+        `engine ${status.engine}, stale ${status.stale}${status.reasons?.length ? ` (${status.reasons.join(", ")})` : ""}`);
+    }
+    const { vectors, digest, keepable, keepableDigest } = expected.dense;
+    check(`${label}: the 2.x dense vectors are all there`, vectors > 0 && Number(status.dense_documents) === vectors && status.dense_backend === "onnx",
+      `${status.dense_documents} of ${vectors}, backend ${status.dense_backend}`);
+    if (digest) {
+      check(`${label}: the 2.x vectors are untouched, byte for byte`, denseDigest(status.index_path).digest === digest);
+      const refreshed = await call(client, "rebuild_search_index", {});
+      const after = denseDigest(status.index_path);
+      check(`${label}: a rebuild keeps every 2.x vector it still uses, byte for byte`,
+        refreshed.dense_preserved === true && keepable > 0 && refreshed.dense_documents === keepable && after.digest === keepableDigest && refreshed.dense_pending_documents === 0,
+        `${refreshed.dense_documents} of ${vectors} kept, ${vectors - keepable} Membrane connector vector(s) dropped as Д-91 intends, `
+          + `${refreshed.dense_pending_documents} pending, engine ${refreshed.engine}`);
+    }
     const found = await call(client, "search_all", { query: "code review" });
     const hits = Array.isArray(found) ? found.length : (found.results?.length ?? 0);
     check(`${label}: search answers on the upgraded install`, hits > 0, `${hits} result(s)`);
+    const hybrid = await call(client, "hybrid_search", { query: "code review checklist", dense_weight: 0 });
+    const hybridHits = Array.isArray(hybrid) ? hybrid.length : (hybrid.results?.length ?? 0);
+    check(`${label}: hybrid search (still the Python helper) reads the index the upgraded server keeps`, hybridHits > 0, `${hybridHits} result(s)`);
   });
 
   if (aiDevHome) {

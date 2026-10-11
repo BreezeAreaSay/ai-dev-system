@@ -436,6 +436,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   It went to the Python worker pool whatever backend was selected, and its failure took the
   whole quality report down; now it embeds through the same model as search, and without one
   the pairs keep their lexical verdict and the report says why.
+- **Why dense search cannot run is said for what was found** (Д-146). `embedding_status`,
+  `embed_texts` and a dense rebuild said "the model is not on this machine" also when all
+  its files were there and one was not the pinned file, or when a download had stopped
+  partway. They now name the files that differ and the command that fetches them again, the
+  download that continues, or the files a folder lacks; "not on this machine" is kept for a
+  folder with none of them.
+- **The health check advises a dense smoke only where the model runs** (Д-147). Taking that
+  advice on a machine without the optional model turned a healthy install into "fail" with
+  "did not return dense-scored results"; a dense smoke asked for there still fails, with the
+  reason and the command.
+- **A download no source could serve names the ways round it.** Behind a proxy that refuses
+  huggingface.co, `setup -- --dense` said exactly that and stopped; the error now adds
+  `AI_DEV_MODEL_MIRROR`, `HTTPS_PROXY` and `npm run model -- import`.
 
 - **Writers of the search index no longer wait each other out or stop the server**
   (`docs/DEFECTS.md`, Д-120 … Д-122, found by the review of the Node index). A rebuild lock

@@ -357,15 +357,21 @@ async function systemHealthCheck(host, {
   }
 
   if (include_dense_smoke) {
-    await report.runCheck("dense_smoke", true, async () => evaluateDenseSmoke(await host.hybridSearchIndex({
-      query: DENSE_SMOKE_QUERY,
-      scope: "knowledge",
-      limit: safeSmokeLimit,
-      keyword_weight: 0.25,
-      semantic_weight: 0.25,
-      dense_weight: 0.50,
-      ensure_fresh: false
-    })));
+    await report.runCheck("dense_smoke", true, async () => {
+      // Asked for where the model cannot run, it still fails — the test was
+      // asked for — but says why (docs/DEFECTS.md, Д-147).
+      const dense = await host.embeddingStatus({});
+      if (!dense.available) return evaluateDenseSmoke([], { unavailable: dense.reason });
+      return evaluateDenseSmoke(await host.hybridSearchIndex({
+        query: DENSE_SMOKE_QUERY,
+        scope: "knowledge",
+        limit: safeSmokeLimit,
+        keyword_weight: 0.25,
+        semantic_weight: 0.25,
+        dense_weight: 0.50,
+        ensure_fresh: false
+      }));
+    });
   } else {
     report.skip("dense_smoke", false, "Dense smoke skipped. Set include_dense_smoke=true to test BGE-M3 end-to-end.");
   }

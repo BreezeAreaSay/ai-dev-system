@@ -213,24 +213,51 @@ test("dense vectors count when the index has them and the caller embedded the qu
   assert.ok(zeroWeight.every((item) => item.dense_score === 0));
 });
 
+/**
+ * Rows handed back by the statements that read sparse vectors, counted as
+ * they are read: one statement prepared for a document, or for all of them,
+ * says nothing about how many documents it read (docs/DEFECTS.md, Д-140).
+ */
+function countVectorReads(db) {
+  const reads = { rows: 0 };
+  const prepare = db.prepare.bind(db);
+  db.prepare = (sql) => {
+    const statement = prepare(sql);
+    if (!/v\.vector AS BLOB/.test(sql)) return statement;
+    return {
+      get: (...args) => {
+        const row = statement.get(...args);
+        if (row) reads.rows += 1;
+        return row;
+      },
+      all: (...args) => {
+        const rows = statement.all(...args);
+        reads.rows += rows.length;
+        return rows;
+      },
+      * iterate(...args) {
+        for (const row of statement.iterate(...args)) {
+          reads.rows += 1;
+          yield row;
+        }
+      }
+    };
+  };
+  return reads;
+}
+
 test("the cache keeps parsed vectors between searches and drops what the index no longer has", needsSqlite, async (t) => {
   const { vault, indexPath } = await buildFixture(t);
   const db = openDatabase(indexPath);
   t.after(() => db.close());
   const cache = createHybridCache();
-  const reads = [];
-  const prepare = db.prepare.bind(db);
-  db.prepare = (sql) => {
-    if (/v\.vector AS BLOB/.test(sql)) reads.push(sql);
-    return prepare(sql);
-  };
+  const reads = countVectorReads(db);
   const first = hybridSearch(db, { query: "code review", limit: 10, cache });
   assert.equal(cache.documents.size, 7);
-  const readsAfterFirst = reads.length;
-  assert.ok(readsAfterFirst > 0);
+  assert.equal(reads.rows, 7, "a cold cache reads each document once");
   const again = hybridSearch(db, { query: "code review", limit: 10, cache });
   assert.deepEqual(again, first);
-  assert.equal(reads.length, readsAfterFirst, "a warm search reads no vector");
+  assert.equal(reads.rows, 7, "a warm search reads no vector");
 
   // A note rewritten, one removed: the next search reads that one note again and forgets the other.
   write(vault, "02-knowledge/code-review.md", "# Code review checklist\n\nWhat a reviewer checks: tests and naming.");
@@ -238,7 +265,63 @@ test("the cache keeps parsed vectors between searches and drops what the index n
   await rebuildIndex({ vaultRoot: vault, indexPath, inPlace: true });
   const after = hybridSearch(db, { query: "code review", limit: 10, cache });
   assert.equal(cache.documents.size, 6);
-  assert.equal(reads.length, readsAfterFirst + 1, "one vector read: the rewritten note's");
+  assert.equal(reads.rows, 8, "one vector read: the rewritten note's");
   assert.ok(after.some((item) => item.path === "02-knowledge/code-review.md"));
   assert.ok(!after.some((item) => item.path === "07-quality-gates/release-gate.md"));
+});
+
+test("a cold cache over many documents reads them in one pass, and answers as reading them one by one does", needsSqlite, async (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "search-hybrid-bulk-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const vault = path.join(root, "vault");
+  const topics = ["release review", "deploy rollback", "code review checklist", "database migration", "frontend testing"];
+  for (let index = 0; index < 80; index += 1) {
+    const folder = index < 40 ? "first" : "second";
+    write(vault, `02-knowledge/${folder}/note-${String(index).padStart(2, "0")}.md`, `# Note ${index}\n\nAbout ${topics[index % topics.length]}, part ${index}.`);
+  }
+  const indexPath = path.join(root, "index.sqlite");
+  await rebuildIndex({ vaultRoot: vault, indexPath });
+  const db = openDatabase(indexPath);
+  t.after(() => db.close());
+  const reads = countVectorReads(db);
+
+  // 80 documents missing: more than the 64 read one statement each.
+  const bulk = createHybridCache();
+  const first = hybridSearch(db, { query: "release review", limit: 20, cache: bulk });
+  assert.equal(reads.rows, 80, "one pass over the table");
+  assert.equal(bulk.documents.size, 80);
+
+  // The same cache filled 40 documents at a time, one statement per document.
+  const single = createHybridCache();
+  hybridSearch(db, { query: "release review", folders: "02-knowledge/first", cache: single });
+  hybridSearch(db, { query: "release review", folders: "02-knowledge/second", cache: single });
+  assert.equal(reads.rows, 160);
+  assert.deepEqual(hybridSearch(db, { query: "release review", limit: 20, cache: single }), first);
+  assert.equal(reads.rows, 160, "nothing left to read");
+});
+
+test("all-zero weights fall back to the defaults, as the helper's did", needsSqlite, async (t) => {
+  const { db } = await buildFixture(t);
+  const defaults = hybridSearch(db, { query: "code review", limit: 10, denseWeight: 0 });
+  // The defaults on this fixture are the ones pinned against the helper above.
+  assert.equal(defaults[0].path, "03-skills-catalog/sources/custom/code-reviewer/SKILL.md");
+  assert.deepEqual(hybridSearch(db, { query: "code review", limit: 10, keywordWeight: 0, semanticWeight: 0, denseWeight: 0 }), defaults);
+  assert.deepEqual(
+    hybridSearch(db, { query: "code review", limit: 10, keywordWeight: -1, semanticWeight: "x", denseWeight: 0 }).map((item) => item.path),
+    hybridSearch(db, { query: "code review", limit: 10, keywordWeight: 0, semanticWeight: 0.2, denseWeight: 0 }).map((item) => item.path),
+    "a negative weight is 0, a word is the default"
+  );
+});
+
+test("a search that fails partway leaves no transaction open behind it", needsSqlite, async (t) => {
+  const { db } = await buildFixture(t);
+  const prepare = db.prepare.bind(db);
+  db.prepare = (sql) => {
+    if (/JOIN semantic_vectors/.test(sql)) throw new Error("disk I/O error");
+    return prepare(sql);
+  };
+  assert.throws(() => hybridSearch(db, { query: "code review", limit: 10 }), /disk I\/O error/);
+  db.prepare = prepare;
+  assert.equal(db.isTransaction, false);
+  assert.ok(hybridSearch(db, { query: "code review", limit: 3 }).length > 0, "the next search begins its own transaction");
 });

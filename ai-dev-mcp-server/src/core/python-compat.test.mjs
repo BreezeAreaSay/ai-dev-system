@@ -99,6 +99,12 @@ test("round(x, 8) rounds the exact value, ties to even", () => {
     ["-0.005859375", "-0.00585938"], ["-0.009765625", "-0.00976562"], ["2.001953125", "2.00195312"]];
   for (const [value, rounded] of [...random, ...ties]) assert.equal(pythonRound(Number(value), 8), Number(rounded), value);
   assert.notEqual(Number((0.001953125).toFixed(8)), pythonRound(0.001953125, 8), "toFixed sends a tie up");
+  // round(x, 0) between 1e15 and 2 ** 52, as CPython 3.13 prints it (Д-132).
+  for (const [value, rounded] of [
+    [1e15 + 0.5, 1000000000000000.0], [1e15 + 1.5, 1000000000000002.0], [1e15 + 0.25, 1000000000000000.0],
+    [2 ** 51 + 0.5, 2251799813685248.0], [-(1e15 + 0.5), -1000000000000000.0], [4503599627370495.5, 4503599627370496.0]
+  ]) assert.equal(pythonRound(value, 0), rounded, String(value));
+  assert.equal(pythonRound(2 ** 53 + 2, 0), 2 ** 53 + 2, "past 2 ** 52 a double is its own rounding");
 });
 
 test("sum() compensates as CPython 3.12+ does", () => {

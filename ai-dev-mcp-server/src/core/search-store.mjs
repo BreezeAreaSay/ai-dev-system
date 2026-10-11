@@ -412,9 +412,15 @@ async function writeChangedDocuments(db, docs, previousMeta) {
     deleteVector.run(id);
   }
   const write = documentWriter(db);
-  for (let index = 0; index < written.length; index += 1) {
-    // A changed document goes back to its own rowid; only a new one is appended.
-    write(written[index], indexed.get(written[index].id)?.rowid ?? null);
+  // A changed document goes back to its own rowid; only a new one is appended.
+  // The changed ones go first: appended before them, a new document could take
+  // the rowid one of them is coming back to (docs/DEFECTS.md, Д-127).
+  const ordered = [
+    ...written.filter((doc) => indexed.has(doc.id)),
+    ...written.filter((doc) => !indexed.has(doc.id))
+  ];
+  for (let index = 0; index < ordered.length; index += 1) {
+    write(ordered[index], indexed.get(ordered[index].id)?.rowid ?? null);
     if (index % YIELD_EVERY === YIELD_EVERY - 1) await yieldToEventLoop();
   }
   const touch = db.prepare("UPDATE documents SET mtime = ? WHERE id = ?");

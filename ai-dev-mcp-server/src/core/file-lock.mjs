@@ -124,7 +124,9 @@ async function refreshLock(lockPath, token, id) {
   } catch {
     // Unreadable for a moment, or gone: the next beat tries again.
   } finally {
-    await handle.close();
+    // A network file system can report a deferred write error here; nothing
+    // waits for a beat, so a throw would end the process (docs/DEFECTS.md, Д-129).
+    await handle.close().catch(() => {});
   }
 }
 
@@ -281,12 +283,17 @@ export async function acquireFileLock(filePath, { timeoutMs = LOCK_TIMEOUT_MS, s
         await handle.close();
       }
       holdLock(lockPath, token);
-      const beat = heartbeatMs > 0 ? setInterval(() => refreshLock(lockPath, token, id), heartbeatMs) : null;
+      const beat = heartbeatMs > 0 ? setInterval(() => refreshLock(lockPath, token, id).catch(() => {}), heartbeatMs) : null;
       beat?.unref?.();
       return async () => {
         if (beat) clearInterval(beat);
-        if (held.get(lockPath) === token) held.delete(lockPath);
-        await releaseLock(lockPath, token);
+        try {
+          await releaseLock(lockPath, token);
+        } finally {
+          // Only once the file is gone: an exit in the middle of the release
+          // still finds the lock to remove (docs/DEFECTS.md, Д-132).
+          if (held.get(lockPath) === token) held.delete(lockPath);
+        }
       };
     } catch (error) {
       if (error?.code === "ENOENT") {

@@ -21,6 +21,13 @@
  * never seen. A time in the future says nothing about the order of two writes
  * (a tree unpacked from a machine whose clock ran ahead), so it is not counted:
  * otherwise no rebuild could ever make the registry current again.
+ *
+ * The registry's time is the moment its sources were read, not the moment it
+ * was written: `rebuild_index` dates it back to its own start
+ * ({@link dateSkillRegistry}), and a rewrite from the registry itself — the
+ * taxonomy, the overlays — keeps the date it had ({@link keepSkillRegistryDate}).
+ * A skill changed while a rebuild ran is then newer than the registry, and the
+ * next look sees it (docs/DEFECTS.md, Д-128).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
@@ -28,6 +35,14 @@ import path from "node:path";
 
 /** How long a verdict on the registry is trusted before the files are looked at again. */
 export const SKILL_REGISTRY_CHECK_INTERVAL_MS = 5_000;
+
+/**
+ * Pauses before a rebuild that failed, or left the registry naming files that
+ * are not there, is tried again while the registry stays the same. A pull that
+ * removed a skill under a running rebuild is put right by the next one; a
+ * rebuild that cannot succeed is not run in a loop.
+ */
+export const SKILL_REGISTRY_RETRY_DELAYS_MS = Object.freeze([30_000, 60_000, 120_000, 300_000, 600_000]);
 
 const EXAMPLES = 5;
 
@@ -96,6 +111,42 @@ export function skillRegistryStaleness({ catalogRoot, builtAtMs, paths, nowMs = 
 }
 
 /**
+ * Date a freshly written registry by when its sources were read.
+ *
+ * @param {string} registryPath
+ * @param {Date} sourcesReadAt - Taken before the first `SKILL.md` was read.
+ * @returns {Promise<void>}
+ */
+export async function dateSkillRegistry(registryPath, sourcesReadAt) {
+  try {
+    await fs.promises.utimes(registryPath, sourcesReadAt, sourcesReadAt);
+  } catch (error) {
+    // No registry on disk (a host that keeps it elsewhere): nothing to date.
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
+
+/**
+ * Rewrite the registry from itself without making it look newer than the
+ * sources it describes.
+ *
+ * @template T
+ * @param {string} registryPath
+ * @param {() => Promise<T>} write
+ * @returns {Promise<T>}
+ */
+export async function keepSkillRegistryDate(registryPath, write) {
+  const before = statOrUndefined(registryPath);
+  const result = await write();
+  // In seconds, a microsecond early: a Date would round to the millisecond,
+  // possibly up, and a registry dated even a little late hides a change.
+  if (before && statOrUndefined(registryPath)) {
+    await fs.promises.utimes(registryPath, before.atimeMs / 1000, (before.mtimeMs - 0.001) / 1000);
+  }
+  return result;
+}
+
+/**
  * Read a registry file the way the server always has: UTF-8, BOM tolerated.
  *
  * @param {string} registryPath
@@ -128,10 +179,11 @@ export async function checkSkillRegistry({ registryPath, catalogRoot, nowMs = Da
  * the same; at most one rebuild at a time, which concurrent readers wait for.
  * Reads made by the rebuild itself go straight to the file — waiting there
  * would be the rebuild waiting for itself. A rebuild that fails, or that writes
- * a registry still naming a file that is not there, is not retried until the
- * registry file changes: the registry on disk is served as it is, and
- * `onError` hears why. Files that changed while it ran are simply seen by the
- * next look.
+ * a registry still naming a file that is not there, is tried again after the
+ * next of `retryDelays`, or at once when the registry file changes; until then
+ * the registry on disk is served as it is, and `onError` hears why. Files that
+ * changed while a rebuild ran are newer than the registry it wrote, so the
+ * next look rebuilds again.
  *
  * @param {object} input
  * @param {string} input.registryPath
@@ -140,6 +192,7 @@ export async function checkSkillRegistry({ registryPath, catalogRoot, nowMs = Da
  * @param {number} [input.intervalMs]
  * @param {() => number} [input.now]
  * @param {(error: Error) => void} [input.onError]
+ * @param {readonly number[]} [input.retryDelays] - Milliseconds before the 1st, 2nd, … retry.
  * @returns {{ read: () => Promise<object[]>, ensureFresh: () => Promise<{ action: string, verdict?: object, error?: string }> }}
  */
 export function createSkillRegistryReader({
@@ -148,7 +201,8 @@ export function createSkillRegistryReader({
   rebuild,
   intervalMs = SKILL_REGISTRY_CHECK_INTERVAL_MS,
   now = Date.now,
-  onError = () => {}
+  onError = () => {},
+  retryDelays = SKILL_REGISTRY_RETRY_DELAYS_MS
 }) {
   const rebuilding = new AsyncLocalStorage();
   let inFlight = null;
@@ -156,7 +210,16 @@ export function createSkillRegistryReader({
   let checkedAt = -Infinity;
   let pathsKey = "";
   let paths = [];
-  let givenUpKey = "";
+  // The registry a rebuild could not put right, and when to try it again.
+  let failedKey = "";
+  let failures = 0;
+  let retryAt = 0;
+
+  function failed(key) {
+    failedKey = key;
+    failures += 1;
+    retryAt = now() + retryDelays[Math.min(failures, retryDelays.length) - 1];
+  }
 
   const keyOf = (info) => `${info.mtimeMs}:${info.size}`;
 
@@ -175,7 +238,7 @@ export function createSkillRegistryReader({
       await rebuild(verdict);
     } catch (error) {
       const info = statOrUndefined(registryPath);
-      givenUpKey = info ? keyOf(info) : "";
+      failed(info ? keyOf(info) : "");
       onError(error instanceof Error ? error : new Error(String(error)));
       return { action: "failed", verdict, error: String(error?.message ?? error) };
     }
@@ -185,8 +248,11 @@ export function createSkillRegistryReader({
     checkedKey = keyOf(info);
     checkedAt = now();
     if (after.missing > 0) {
-      givenUpKey = checkedKey;
+      failed(checkedKey);
       onError(new Error(`skill registry still out of date after a rebuild: ${after.examples.join("; ")}`));
+    } else {
+      failedKey = "";
+      failures = 0;
     }
     return { action: "rebuilt", verdict };
   }
@@ -202,7 +268,7 @@ export function createSkillRegistryReader({
     checkedKey = key;
     checkedAt = now();
     if (!verdict.stale) return { action: "current", verdict };
-    if (key === givenUpKey) return { action: "stale", verdict };
+    if (key === failedKey && now() < retryAt) return { action: "stale", verdict };
     if (inFlight) return inFlight;
     inFlight = rebuilding.run(true, () => runRebuild(verdict)).finally(() => {
       inFlight = null;

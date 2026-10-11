@@ -383,6 +383,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **AND, OR, NOT and NEAR in capitals are words in keyword search** (Д-117): "frontend
   AND backend testing" was an FTS5 syntax error and found nothing. Hybrid search's
   keyword half follows in the next phase.
+- **What the second review of the Node index found is fixed** (`docs/DEFECTS.md`, Д-127 … Д-132).
+  A refresh that both changed a note and added one fell back to rewriting the whole index (7 of
+  8 trials; 731 ms instead of 60 ms on the seed) — changed documents now go back to their rowids
+  before new ones are appended. The skill registry is dated by when its sources were read, so a
+  skill changed or removed while it is rebuilt is seen by the next look, and a rebuild that could
+  not put it right is retried after 30 s, 1, 2, 5 and 10 min instead of never. A failed `close()`
+  in the rebuild lock's heartbeat no longer ends the process (EIO, exit 1); a lock is forgotten
+  only once its file is gone, so an exit during its release no longer leaves it behind. On
+  Windows a junction to a folder of the vault no longer takes that folder's notes away (both
+  paths are indexed, as `os.walk` indexes them). After a pull that changed skills, `npm run setup`
+  reports the dense vectors the index holds instead of "not installed". Smaller: the index reader
+  lets go of the file after a failed read too, `ensure-skill-index` rebuilds an out-of-date
+  registry before the tests start, the NUL rule leaves extensionless programs alone, and
+  `pythonRound(x, 0)` rounds 1e15 ≤ |x| < 2^52 as Python does.
 - **No NUL bytes in the bundled skill texts** (Д-113). Upstream's Membrane `confluent`
   skill carries 150 NUL bytes where its one-line description should be, and
   `read_skill` passed all 150 to the agent; they are dropped, and nothing else in the

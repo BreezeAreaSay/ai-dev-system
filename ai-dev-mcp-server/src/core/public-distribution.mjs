@@ -248,9 +248,11 @@ export async function auditDistributionTree(root, options = {}) {
     }
     findings.push(...distributionPathFindings(entry.relative));
     const content = await fs.readFile(entry.absolute);
-    if (TEXT_EXTENSIONS.has(path.extname(entry.absolute).toLowerCase()) && content.includes(0)) {
+    const extension = path.extname(entry.absolute).toLowerCase();
+    if (extension && TEXT_EXTENSIONS.has(extension) && content.includes(0)) {
       // Any reader that takes text as a C string stops at the first NUL, and
       // node:sqlite returns a TEXT column only up to it (docs/DEFECTS.md, Д-113).
+      // A file without an extension may be a program a skill ships (Д-132).
       findings.push({ rule: "nul-byte-in-text", path: entry.relative });
     }
     if (looksTextual(content, entry.absolute)) {

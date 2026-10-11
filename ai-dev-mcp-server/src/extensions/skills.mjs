@@ -19,6 +19,7 @@ import { analyzeDuplicateSkills, enrichSkillQuality } from "../skill-quality.mjs
 import { isPathInside } from "../core/path-policy.mjs";
 import { applySkillOverlays } from "../core/skill-overlays.mjs";
 import { applySkillOutcome } from "../core/skill-outcomes.mjs";
+import { dateSkillRegistry } from "../core/skill-registry-freshness.mjs";
 import { stripBom } from "../core/text-format.mjs";
 import {
   SKILL_REGISTRY_FILES,
@@ -50,6 +51,9 @@ const MAX_SEMANTIC_DUPLICATE_PATHS = 32;
  * which have not been extracted yet.
  */
 async function rebuildIndex(host) {
+  // Before the first SKILL.md is read: the registry is dated by it, so a skill
+  // changed while this runs is newer than the registry (docs/DEFECTS.md, Д-128).
+  const sourcesReadAt = new Date();
   await fs.mkdir(host.skillRegistryDir, { recursive: true });
 
   const [outcomeStatus, overlays] = await Promise.all([
@@ -77,6 +81,7 @@ async function rebuildIndex(host) {
   await host.writeText(SKILL_REGISTRY_FILES.membraneMarkdown, renderMembraneSkillsMarkdown(membrane));
   await host.writeText(SKILL_REGISTRY_FILES.externalMarkdown, renderExternalSkillsMarkdown(external));
   const skillCards = await host.syncSkillCards({ include_membrane: false });
+  await dateSkillRegistry(path.join(host.skillRegistryDir, path.basename(SKILL_REGISTRY_FILES.combined)), sourcesReadAt);
   host.markSearchIndexDirty("skill registry rebuilt");
 
   return buildRebuildIndexReport({

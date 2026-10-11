@@ -247,9 +247,13 @@ function realPathOrEmpty(target) {
  * true symlinks as links — while Node reports junctions and symlinks alike as
  * links. Leaving them out would drop the notes of a vault that links folders
  * in with `mklink /J`, vectors and all, on the first refresh after an upgrade;
- * so on Windows a linked folder is entered, once per real path, which is what
- * keeps a junction to an ancestor from looping. A true directory symlink is
- * entered too — Node cannot tell it from a junction; Python would not.
+ * so on Windows a linked folder is entered too. A real folder always is, as
+ * `os.walk` enters it, so a junction to a folder of the vault never takes the
+ * folder's own notes away from it (docs/DEFECTS.md, Д-130); both paths are
+ * indexed, as they were by Python. The one link not followed is one into its
+ * own ancestry, which `os.walk` would follow until the path grew too long. A
+ * true directory symlink is entered too — Node cannot tell it from a
+ * junction; Python would not.
  *
  * A directory every note of which {@link shouldSkipMarkdown} would drop is not
  * entered at all. The result is the same, and the vendored skill sources —
@@ -261,10 +265,11 @@ function realPathOrEmpty(target) {
  */
 function walk(root, visit, { platform = process.platform } = {}) {
   const followLinks = platform === "win32";
-  const entered = followLinks ? new Set([realPathOrEmpty(root)]) : null;
-  const stack = [root];
+  // With links followed, each directory carries the real paths of the
+  // directories it was reached through, to see a link back into them.
+  const stack = [{ directory: root, ancestry: followLinks ? [realPathOrEmpty(root)] : [] }];
   while (stack.length) {
-    const directory = stack.pop();
+    const { directory, ancestry } = stack.pop();
     const directories = [];
     const files = [];
     let handle;
@@ -285,14 +290,14 @@ function walk(root, visit, { platform = process.platform } = {}) {
       if (SKIP_DIRS.has(name)) continue;
       const child = path.join(directory, name);
       if (shouldSkipMarkdown(`${path.relative(root, child).split(path.sep).join("/")}/`)) continue;
-      if (followLinks) {
-        const real = realPathOrEmpty(child);
-        if (!real || entered.has(real)) continue;
-        entered.add(real);
-      } else if (fs.lstatSync(child, { throwIfNoEntry: false })?.isSymbolicLink()) {
+      const isLink = fs.lstatSync(child, { throwIfNoEntry: false })?.isSymbolicLink();
+      if (!followLinks) {
+        if (!isLink) stack.push({ directory: child, ancestry });
         continue;
       }
-      stack.push(child);
+      const real = realPathOrEmpty(child);
+      if (!real || (isLink && ancestry.includes(real))) continue;
+      stack.push({ directory: child, ancestry: [...ancestry, real] });
     }
   }
 }

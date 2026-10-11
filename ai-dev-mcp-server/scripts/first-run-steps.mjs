@@ -22,6 +22,7 @@ import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { checkSkillRegistry } from "../src/core/skill-registry-freshness.mjs";
+import { indexStatus as readIndexFileStatus } from "../src/core/search-store.mjs";
 
 /**
  * The steps of `FIRST_RUN_STEPS` that no install can do without.
@@ -175,11 +176,19 @@ export async function readRequiredState({ paths, callTool, serverRoot, skillRout
     catalogRoot: path.dirname(paths.registriesDir)
   }).catch(() => null);
   const registryStale = Boolean(registry?.stale);
-  const indexStatus = !registryStale && existsSync(paths.searchIndexPath)
-    ? await callTool("search_index_status", { include_external_project_files: true })
-      .then(parseToolResult)
-      .catch(() => null)
-    : null;
+  // With the registry out of date the index file is asked directly: what it
+  // holds now, dense vectors included, is still what setup reports, and only
+  // the tool would rebuild the registry on the way (docs/DEFECTS.md, Д-131).
+  const indexStatus = !existsSync(paths.searchIndexPath) ? null
+    : registryStale
+      ? await readIndexFileStatus({
+        vaultRoot: path.dirname(path.dirname(paths.registriesDir)),
+        indexPath: paths.searchIndexPath,
+        includeExternalProjectFiles: true
+      }).catch(() => null)
+      : await callTool("search_index_status", { include_external_project_files: true })
+        .then(parseToolResult)
+        .catch(() => null);
   const present = {
     skill_registry: existsSync(paths.skillRegistryPath),
     search_index: existsSync(paths.searchIndexPath),

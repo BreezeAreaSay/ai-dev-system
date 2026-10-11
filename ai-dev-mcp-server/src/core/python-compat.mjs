@@ -163,7 +163,9 @@ export function pythonFloatRepr(x) {
  * @returns {number}
  */
 export function pythonRound(x, digits) {
-  if (!Number.isFinite(x) || x === 0 || Math.abs(x) >= 1e15) return x;
+  // From 2 ** 52 every double is an integer; below it `round(x, 0)` still has
+  // a fraction to settle (docs/DEFECTS.md, Д-132).
+  if (!Number.isFinite(x) || x === 0 || Math.abs(x) >= 2 ** 52) return x;
   const scaled = x * 2 ** (digits + 1);
   if (Number.isInteger(scaled) && Math.abs(scaled % 2) === 1) {
     // In BigInt: `scaled * 5 ** digits` leaves 2 ** 53 behind for ties above

@@ -226,7 +226,16 @@ function denseEligibleDocuments(indexPath) {
  */
 function removedSkills(base) {
   const listed = run("git", ["-C", repoRoot, "diff", "--name-only", "--diff-filter=D", base, "--", "docker/public-seed/03-skills-catalog/sources"]).stdout;
-  return listed.split("\n").filter((line) => line.endsWith("/SKILL.md")).map((line) => path.basename(path.dirname(line)));
+  return listed.split("\n").filter((line) => line.endsWith("/SKILL.md")).map((line) => ({
+    name: path.basename(path.dirname(line)),
+    // As the registry records it: relative to 03-skills-catalog.
+    path: line.replace(/^docker\/public-seed\/03-skills-catalog\//, "")
+  }));
+}
+
+/** Whether the pull changed anything under the seed at all. */
+function seedChanged(base) {
+  return run("git", ["-C", repoRoot, "diff", "--name-only", base, "--", "docker/public-seed"]).stdout.trim() !== "";
 }
 
 /**
@@ -328,12 +337,16 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     const pulledAway = removedSkills(base);
     check(`${label}: the 2.x search index is read as it is, nothing rewritten by a status call`, documents > 0 && documents === expected.documents, `${documents} document(s), 2.x had ${expected.documents}`);
     if (sqliteSupport().available) {
+      // Skills removed: the index has to be stale. Nothing changed: it has to
+      // be current. Other changes may or may not touch what it indexes.
+      const expectStale = pulledAway.length > 0 ? true : (seedChanged(base) ? null : false);
       check(`${label}: the Node engine answers, and sees what the pull changed in the catalogue`,
-        status.engine === "node" && status.stale === (pulledAway.length > 0),
+        status.engine === "node" && (expectStale === null || status.stale === expectStale),
         `engine ${status.engine}, stale ${status.stale}${status.reasons?.length ? ` (${status.reasons.join(", ")})` : ""}, ${pulledAway.length} skill(s) removed by the pull`);
     }
     const registry = await readJson(path.join(baseRoot, "docker", "public-seed", "03-skills-catalog", "registries", "skills.index.json"));
-    const listedGone = registry.filter((item) => pulledAway.includes(item.name) && String(item.source).includes("membrane"));
+    const removedPaths = new Set(pulledAway.map((skill) => skill.path));
+    const listedGone = registry.filter((item) => removedPaths.has(String(item.path)));
     check(`${label}: the skill registry follows the pulled catalogue`, listedGone.length === 0 && (pulledAway.length === 0 || registry.length < expected.skills),
       `${registry.length} skill(s), 2.x had ${expected.skills}; ${listedGone.length} removed one(s) still listed`);
     const { vectors, digest, byId } = expected.dense;
@@ -356,7 +369,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
           + `${refreshed.dense_pending_documents} pending of ${eligible}, engine ${refreshed.engine}`);
     }
     if (pulledAway.length > 0) {
-      const gone = pulledAway[0];
+      const gone = pulledAway[0].name;
       const found = await call(client, "search_skill_registry", { query: gone, limit: 20 });
       const stillThere = (Array.isArray(found) ? found : []).filter((item) => String(item.path || "").includes(`/skills/${gone}/`));
       check(`${label}: a skill the pull removed is not found any more`, stillThere.length === 0, `${gone}: ${stillThere.length} result(s)`);

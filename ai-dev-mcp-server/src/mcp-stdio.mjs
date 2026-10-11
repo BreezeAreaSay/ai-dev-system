@@ -3387,7 +3387,7 @@ async function prepareProject({
 
   let search_index = null;
   if (rebuild_search) {
-    search_index = await searchRuntime.rebuild({ include_external_project_files: true });
+    search_index = await searchRuntime.rebuildIfSupported({ include_external_project_files: true });
   }
 
   return {
@@ -3952,7 +3952,7 @@ async function refreshProjectMemory({
 
   let search_index = null;
   if (rebuild_search) {
-    search_index = await searchRuntime.rebuild({ include_external_project_files: true });
+    search_index = await searchRuntime.rebuildIfSupported({ include_external_project_files: true });
   }
 
   return {

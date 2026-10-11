@@ -221,6 +221,7 @@ export function createSearchIndexRuntime({
     include_external_project_files = true,
     dense_embeddings = false,
     dense_model_dir = process.env.BGE_M3_MODEL_DIR || defaultModelDir,
+    dense_device = process.env.BGE_M3_DEVICE || "cpu",
     dense_batch_size = 8,
     dense_text_limit = 1200,
     dense_include_membrane = false,
@@ -251,7 +252,16 @@ export function createSearchIndexRuntime({
       suppliedVectors = planned.records.length
         ? await embedDensePlan({
           records: planned.records,
-          embed: (texts) => embedQuery({ texts, normalize: true, include_embeddings: true, batch_size: batchSize }, { timeoutMs: 3600000 }),
+          // The model and device the caller named, as the 2.x helper was given
+          // them; the ONNX backend has its own and ignores both (Д-138).
+          embed: (texts) => embedQuery({
+            texts,
+            normalize: true,
+            include_embeddings: true,
+            batch_size: batchSize,
+            model_dir: dense_model_dir,
+            device: dense_device
+          }, { timeoutMs: 3600000 }),
           dimensions: plan.provenance.dimensions,
           batchSize
         })
@@ -277,6 +287,22 @@ export function createSearchIndexRuntime({
     lastStatus = null;
     lastStatusAt = 0;
     return stamped(rebuilt);
+  }
+
+  /**
+   * A rebuild for callers whose own work does not depend on search —
+   * `prepare_project`, `refresh_project_memory`. On a Node where search cannot
+   * run, what they wrote stands and the answer says the index was skipped and
+   * why, instead of reporting their finished work as failed (docs/DEFECTS.md,
+   * Д-141).
+   */
+  async function rebuildIfSupported(options) {
+    try {
+      engine();
+    } catch (error) {
+      return { skipped: error.message };
+    }
+    return rebuild(options);
   }
 
   /**
@@ -512,6 +538,7 @@ export function createSearchIndexRuntime({
     dirtyReason: dirtyReasonNow,
     status,
     rebuild,
+    rebuildIfSupported,
     ensureFresh,
     search,
     searchKnowledge,

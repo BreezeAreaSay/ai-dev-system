@@ -25,6 +25,17 @@ replaced: only previous AI Dev entries are rewritten. Re-running refreshes the
 scripts and keeps your policy rules. `agent_hooks_status` reports what is
 installed.
 
+On macOS and Linux each registration runs its script through a launcher —
+`/bin/sh .ai-dev/hooks/with-node.sh guard.mjs bash` — because an editor or a Git
+client opened from the Dock does not have your shell's `PATH`, and a bare `node`
+is not found there when Node came from nvm, fnm, Volta or Homebrew. The launcher
+takes `AI_DEV_NODE` first, then the Node the hooks were installed with on this
+machine (`.ai-dev/hooks/.node-path`, which git ignores), then `node` on `PATH`,
+then the usual install locations. On Windows the registrations call `node`, which
+apps started from the Start menu find on the user's `PATH`. Hooks 2.x installed
+call a bare `node`: `agent_hooks_status` counts them (`bare_node_commands`), and
+running `install_agent_hooks` again rewrites them.
+
 The hooks block a command before it runs (git-hook bypasses, destructive and
 publishing commands), block a write before it lands (secret-bearing paths,
 secrets in content, weakened linter configuration), format edited files, inject
@@ -101,8 +112,9 @@ dlx|bunx` that names a registry package is checked against GitHub's advisories
 - **known high or critical vulnerabilities** are warned about, with the first
   release outside them.
 
-A check that cannot be made — no network, a private registry, a timeout — warns
-and never blocks. A lockfile install (`npm ci`, `pnpm install`) names no
+The lookups go through `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` the way npm and
+curl read them. A check that cannot be made — no network, a private registry, a
+timeout — warns and never blocks. A lockfile install (`npm ci`, `pnpm install`) names no
 package and is not checked; `run_security_scan` covers what the lockfile holds.
 
 Two more hooks make "every change gets a security look" hold without the agent

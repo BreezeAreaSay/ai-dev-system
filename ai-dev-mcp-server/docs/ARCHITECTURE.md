@@ -351,7 +351,10 @@ Providers must be cheap, read-only, and must not throw. A provider that fails is
 `<project>/.ai-dev/hooks/` and registers them with the agent — `.claude/settings.json` for Claude
 Code, `.cursor/hooks.json` for Cursor — merging into whatever is already there and
 replacing only previous AI Dev entries. The agent then spawns each script per event, with the event
-JSON on stdin.
+JSON on stdin — on macOS and Linux through `hooks/with-node.sh`, which finds Node without relying
+on the client's PATH (docs/DEFECTS.md, Д-103). The hooks reach the network only in the
+supply-chain check, through `hooks/http-proxy.mjs`, their own copy of the server's proxy-aware
+client (Д-145).
 
 The Cursor side is a versioned adapter: `CURSOR_HOOKS_CONTRACT` (in `core/agent-hooks.mjs`) pins the
 `hooks.json` format version, the event names, the deny-response shape, the date all three were last
@@ -584,7 +587,10 @@ reject, each verified by breaking it deliberately against a throwaway module and
   `runtime-distribution.example.json` in the repository root shows what
   `prepare_runtime_distribution` writes — the real file is git-ignored because it
   embeds machine-specific absolute paths.
-- `scripts/ai-dev.mjs` exposes doctor, dashboard, reindex, acceptance, backup, and distribution commands.
+- `bin/ai-dev.mjs` is the CLI: `setup`, `clients`, `model`, `mcp`, `doctor` and the maintenance commands, in
+  `src/cli/`, parsed by `core/cli-args.mjs`. `scripts/ai-dev.mjs` is its 2.x name, kept until 4.0.
+- `core/mcp-clients.mjs` writes the `ai-dev` entry into every client's config, for the CLI and the
+  Docker installer, through `core/jsonc-edit.mjs` and `core/toml-edit.mjs`.
 - Remote HTTP is intentionally absent. The future VPS profile is rejected until TLS, authentication,
   allowlists, rate limiting, and threat review exist.
 

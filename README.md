@@ -74,23 +74,32 @@ npm ci
 npm run setup
 ```
 
-Then connect your clients and restart them:
+At a terminal, `setup` builds the search index, then asks whether to connect the AI
+clients it finds — Claude Code, Claude Desktop, Cursor, VS Code, Codex and Gemini
+CLI — and whether to fetch the local search model; `npm run setup -- --yes` takes the
+defaults without asking (clients yes, model no). Each client gets one entry, `ai-dev`,
+that starts this Node by its full path, so a client opened from the Dock or the Start
+menu finds it too. Every other server in those files stays as it was, each file is
+backed up before it changes, an `ai-dev-system` entry from 2.x is replaced, and
+running it again changes nothing. Restart the clients afterwards. That is the whole
+install, and it is the path to take on your own machine.
+
+The same steps one at a time go through the `ai-dev` command line — from a clone,
+`npm run ai-dev -- <command>`, or `ai-dev <command>` after `npm link`:
 
 ```bash
-npm run clients:install
+npm run ai-dev -- clients list      # which clients are here, and what their ai-dev entry runs
+npm run ai-dev -- clients install   # connect them (npm run clients:install is the same)
+npm run ai-dev -- clients doctor    # start each one's ai-dev command and check that it answers
+npm run ai-dev -- clients remove    # take ai-dev out; an untouched file goes back byte for byte
 ```
 
-It adds the server to Claude Code, Cursor, VS Code and Gemini, keeps every other
-server in those files, and backs each file up before changing it; running it
-again changes nothing. Codex and Claude Desktop are not covered by it yet — see
-[INSTALL](docs/INSTALL.md#from-a-clone-codex-and-claude-desktop). That is the
-whole install, and it is the path to take on your own machine. The local dense
-model is one flag here — `npm run setup -- --model` downloads a pinned, checksum-verified ONNX
-export of BGE-M3 (a broken download continues where it stopped; `AI_DEV_MODEL_MIRROR`
-and `HTTPS_PROXY` are honoured) and runs it through Node, with no Python;
-`npm run model -- import <folder or .zip>` copies it from a machine that has it, and
-`npm run dense:doctor` says whether it worked. In the packaged path the weights
-are mounted instead.
+The local dense model is one flag here — `npm run setup -- --model` downloads a
+pinned, checksum-verified ONNX export of BGE-M3 (a broken download continues where it
+stopped; `AI_DEV_MODEL_MIRROR` and `HTTPS_PROXY` are honoured) and runs it through
+Node, with no Python; `npm run model -- import <folder or .zip>` copies it from a
+machine that has it, and `npm run dense:doctor` says whether it worked. In the
+packaged path the weights are mounted instead.
 
 **Packaged, through Docker** — for a machine that should not hold a personal
 vault, or a team that wants one image everybody runs the same way:

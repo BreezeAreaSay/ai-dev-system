@@ -27,6 +27,7 @@ here: a standalone checkout resolves its content root to `docker/public-seed`.
 | pure logic, no vault, no MCP | `ai-dev-mcp-server/src/core/<name>.mjs` + `<name>.test.mjs` beside it |
 | a new MCP tool | an extension: `ai-dev-mcp-server/src/extensions/<area>.mjs` |
 | a hook that runs inside a user's repository | `ai-dev-mcp-server/hooks/` |
+| a command of the `ai-dev` CLI | `ai-dev-mcp-server/src/cli/<command>.mjs`, listed in `src/cli/main.mjs` |
 
 **New tools are added as extensions, never by growing `mcp-stdio.mjs`.** Each
 extension exports one factory:
@@ -50,7 +51,8 @@ it couples pure logic to a vault. Take what you need from `host`.
 ## Three rules that look arbitrary and are not
 
 **1. Modules are capped at 800 lines** (`MODULE_LINE_CEILING`), enforced by
-`npm run check` over `src/core/`, `src/extensions/` and `src/galaxy/`. Two modules were already
+`npm run check` over `bin/`, `src/cli/`, `src/core/`, `src/extensions/` and
+`src/galaxy/`. Two modules were already
 over it when the rule landed and are pinned at that day's size in
 `MODULE_LINE_EXCEPTIONS` — they may shrink, never grow, and once one is back
 under 800 the gate tells you to drop its pin. `src/mcp-stdio.mjs` has

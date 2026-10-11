@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **One command line, `ai-dev`** (`ai-dev-mcp-server/bin/ai-dev.mjs`, `src/cli/`): `setup`,
+  `clients list | install | remove | doctor`, `model status | install | import | verify | remove
+  | doctor`, `mcp`, `doctor`, `version`, `help`, and the 2.x maintenance commands (`dashboard`,
+  `galaxy`, `reindex`, `refresh`, `distribution`, `acceptance`, `backup`). One parser
+  (`src/core/cli-args.mjs`) gives every command `--flag`, `--no-flag`, `--name=value`, `-y`
+  and `--`, and every mistake one sentence that names the command and the nearest real option
+  or subcommand; exit codes are 0 done, 1 failed, 2 wrong usage, 130 stopped with Ctrl-C.
+  Commands load on demand, so `help`, `version` and a typo neither start the runtime nor
+  touch data. From a clone it is `npm run ai-dev -- <command>`, or `ai-dev` after `npm link`;
+  `npm run setup`, `doctor`, `clients:install`, `model`, `dense:doctor`, `dashboard`,
+  `galaxy`, `refresh`, `backup` and `distribution` are its aliases.
+- **`npm run setup` connects the AI clients** (`docs/DEFECTS.md`, Д-95). At a terminal it
+  asks: connect the clients found here, download the local model, install Frontend QA;
+  `--yes` takes the defaults (clients yes, downloads no), `--clients=<names>`,
+  `--no-clients`, `--model` and `--frontend-qa` answer ahead of time, and without a terminal
+  or `--yes` no client config is written unless `--clients` names some. Measured in an empty
+  home holding six clients' configs with servers of their own: `node bin/ai-dev.mjs setup
+  --yes --clients all` builds the four steps, adds `ai-dev` to all six and ends `Health: ok`,
+  in 3.8 s.
+- **`ai-dev clients install | remove | list | doctor`** (`src/core/mcp-clients.mjs`): the
+  `ai-dev` entry in Claude Code, Claude Desktop (with the Microsoft Store build's own config),
+  Cursor, VS Code, Codex (`$CODEX_HOME` honoured) and Gemini CLI — this Node by its full
+  path, then `bin/ai-dev.mjs mcp`, so a client started from the Dock or the Start menu finds
+  it. Files are edited as text (`jsonc-edit.mjs`, `toml-edit.mjs`): other servers, comments
+  and formatting stay byte for byte, and a Codex server is found with its subtables and in any
+  spelling of its name. Writes go through a temp file and a rename after a re-read, keep the
+  previous bytes as `<file>.backup-<time>`, follow a symlinked config, and keep the file's
+  mode; `ai-dev-system`, the 2.x local name, is removed and a Docker `ai-dev` replaced, with
+  the output saying which; a second run says `No changes`. `remove` gives a file nothing else
+  touched back byte for byte (measured on all six) and otherwise cuts out only the entry;
+  `doctor` starts each entry's command and checks that it answers `initialize` with
+  instructions (six of six, 313–361 ms); `--dry-run` shows what would change.
+
 - **The local model is one command, and gets through a broken connection, a proxy and a
   mirror** (`docs/DEFECTS.md`, Д-98; Д-73's missing resume). `npm run model -- install`
   (and `npm run setup -- --dense`, which uses it) keeps a broken download as `<file>.part`
@@ -279,6 +312,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Hooks run through a Node launcher on macOS and Linux** (`docs/DEFECTS.md`, Д-103, the
+  phase-6 half). `install_agent_hooks` registers `/bin/sh .ai-dev/hooks/with-node.sh
+  <script>`, and the git hook stubs go through it too: it takes `AI_DEV_NODE`, then the Node
+  the hooks were installed with on this machine (`.ai-dev/hooks/.node-path`, git-ignored),
+  then `node` on `PATH`, then the usual install locations, and needs no other command.
+  Measured with a `PATH` that holds git and nothing else: 0 of 9 registered commands ran
+  before (`node: not found`), 9 of 9 now. Windows keeps `node`. Hooks 2.x installed keep
+  working where `node` is on the client's `PATH`; `agent_hooks_status` counts them
+  (`bare_node_commands`), and running `install_agent_hooks` again rewrites them.
+- **The setup flag for the local model is `--model`**; `--dense`, and 2.x's `--dense-python`,
+  still work as its names, and every hint that said `npm run setup -- --dense` says `--model`.
+- **The Docker installer writes through the same module as the CLI**: its flags and its
+  entries are unchanged, it now also removes an `ai-dev-system` entry, and a failed client
+  makes the run `partial` with exit 1 instead of stopping it.
+- **`upgrade:test` covers 2.x client configs and hooks**: for each of its four 2.x users,
+  `clients install` moves both installers' configs to one `ai-dev` entry with a backup,
+  every written command answers `initialize`, a second run changes nothing, and the
+  re-installed hook runs with no Node on `PATH` — 122 checks (was 88).
+
 - **The bundled skill catalogue keeps the skills for coding and for working with
   models, and nothing else.** Membrane's 3,074 application connectors are cut to the
   460 for developer tools and AI models: code hosting, CI/CD, cloud and hosting,
@@ -386,6 +438,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   READMEs and the ten documents behind them cover what the two READMEs did,
   the local-first install path and the local model in a container included.
 
+### Deprecated
+
+- **`node scripts/ai-dev.mjs`, `scripts/start-local.ps1` and
+  `scripts/install-local-mcp-clients.mjs`** are `ai-dev`, `ai-dev mcp` and
+  `ai-dev clients install` now. Each still works, with a note on stderr, and goes in 4.0;
+  `install-local-mcp-clients.mjs` keeps its dry run without `--apply` and its JSON.
+  `scripts/first-run.mjs`, `scripts/model.mjs` and `scripts/dense-doctor.mjs` run the same
+  commands as before.
+- **The server name `ai-dev-system`** in client configs. 2.x entries that use it keep
+  working; `npm run clients:install` (or `npm run setup`) replaces them with `ai-dev`.
+
 ### Removed
 
 - **The Python dense backend** (decision D3; `docs/DEFECTS.md`, Д-98): `embeddings/`
@@ -413,6 +476,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now fails on a path either recipe names that the repository does not have).
 
 ### Fixed
+
+- **`node scripts/ai-dev.mjs start` served nothing, and a typo moved data**
+  (`docs/DEFECTS.md`, Д-161). `start` imported a server that runs only when started directly
+  and exited 0 after 292 ms with nothing on stdout; it now serves MCP (the `initialize` answer
+  carries 1,048 characters of instructions). An unknown command migrated `AI_DEV_HOME` and
+  loaded the whole runtime before printing the help; it now answers in about 50 ms with exit
+  2 and touches nothing.
+- **The Docker client installer stopped halfway and could break Codex's config** (Д-162). An
+  empty `mcp.json` or a comment in Gemini's `settings.json` ended the run with a stack trace,
+  some clients written and some not; a `[mcp_servers.ai-dev.env]` subtable or a quoted
+  `[mcp_servers."ai-dev"]` header left a second definition, and a TOML reader then refused
+  the whole file. Now the empty and the JSONC file are written (the comment kept), a broken
+  file fails only its own client, and the Codex result parses.
+- **An interrupted client install could leave `~/.claude.json` empty** (Д-163). Both
+  installers rewrote the file in place; killed during the write, a 21 MB `~/.claude.json`
+  was left at 0 bytes in 10 of 10 runs. Writes go through a temp file and a rename now — 0 of
+  20 torn — with a re-read before the rename, so a client saving the file at the same moment
+  keeps its change; a temp file a killed run left behind is removed on the next run.
+- **The supply-chain hook and the fix-version lookup ignored `HTTPS_PROXY`** (Д-145).
+  Behind a proxy every lookup failed with `fetch failed`: the hook warned "not fully
+  checked" on every install and `run_security_scan` offered no fix versions. Both now go
+  through the proxy — the hook through its own copy of the server's client
+  (`hooks/http-proxy.mjs`) — including the POSTs to the advisory endpoint and OSV.
 
 - **`setup -- --dense` no longer embeds after the download failed, and its advice is
   true** (Д-98). The vector step needs the model step and is skipped, with that said, when

@@ -64,7 +64,7 @@ or behind a proxy (docs/DEFECTS.md, Д-86); `npm install` behaves the same.
 `npm run setup` builds the three things a clone does not ship — the skill
 registry, the search index and the routing benchmark — and prints the health
 check. The container builds the same three on its first start, from the same
-code, so the two paths cannot end up with different installs. Add `--frontend-qa` for the QA runner's dependencies, `--dense` for the
+code, so the two paths cannot end up with different installs. Add `--frontend-qa` for the QA runner's dependencies, `--model` for the
 local BGE-M3 model and the embeddings built with it (about 600 MB); neither runs
 unless asked. `--frontend-qa` installs exactly `frontend-qa/pnpm-lock.yaml` with the pnpm
 version the runner pins (fetched through `npm exec`; no pnpm on your PATH is needed), then the
@@ -73,30 +73,37 @@ needs `registry.npmjs.org` and Playwright's download host; behind a mirror, set
 `PLAYWRIGHT_DOWNLOAD_HOST`. No Obsidian vault is needed: without one the server reads the
 bundled seed and its helper trees from the repository itself.
 
-Then connect your clients:
+At a terminal, `npm run setup` then asks three questions: connect the AI clients it
+found here, download the local model, install Frontend QA. `--yes` answers them with the
+defaults — clients yes, both downloads no — and `--clients=<names>`, `--no-clients`,
+`--model` and `--frontend-qa` answer them ahead of time. With neither a terminal nor
+`--yes` (CI, a pipe), no client config is touched unless `--clients` names some. Restart
+the clients it connected; that is the whole install. What connecting a client writes,
+and how to take it out again, is in [Connecting AI agents](#connecting-ai-agents).
 
-```bash
-npm run clients:install
-```
+Every step is a command of the `ai-dev` CLI as well — from a clone,
+`npm run ai-dev -- <command>`; `npm link` once puts `ai-dev` itself on your PATH:
 
-It writes the server into Claude Code (`~/.claude.json`), Cursor, VS Code and
-Gemini, keeps every other server in those files, backs each changed file up
-first, and changes nothing when run again. Restart the clients afterwards. Codex
-and Claude Desktop are not covered by it yet; for them see
-[From a clone: Codex and Claude Desktop](#from-a-clone-codex-and-claude-desktop).
-That is the whole install.
+| Command | What it does |
+| --- | --- |
+| `ai-dev setup` | The above (`npm run setup`). |
+| `ai-dev clients list \| install \| remove \| doctor` | The `ai-dev` entry in each client (`npm run clients:install`). |
+| `ai-dev model status \| install \| import \| verify \| remove \| doctor` | The local model (`npm run model -- …`, `npm run dense:doctor`). |
+| `ai-dev mcp` | The stdio MCP server a client starts (`npm start` runs the same server). |
+| `ai-dev doctor` | The health check, as JSON (`npm run doctor`). |
+| `ai-dev help [command]` | Every command and its options. |
 
-It writes the Python interpreter the server itself would pick for its optional Python tools:
-`python` on Windows, `python3` elsewhere, or whatever `AI_DEV_PYTHON` names when you run it. If
-you ran it on Windows with an earlier version, run it once more: those wrote `python3`, which a
-Windows Python does not answer to (docs/DEFECTS.md, Д-94).
+Exit codes are the same for every command: 0 done, 1 failed, 2 wrong usage, 130 stopped
+with Ctrl-C. A mistyped command or option is answered before anything is read or moved.
+`node ai-dev-mcp-server/scripts/ai-dev.mjs`, the 2.x CLI, still runs every command, with
+a note on stderr, until 4.0.
 
 Two ways to run it, and they speak the same protocol:
 
 | | |
 | --- | --- |
-| `npm start` | One stdio process per client. The default, and what `npm run clients:install` configures. |
-| `npm run daemon` | **Experimental.** One warm process on a local socket (a named pipe on Windows). No client can connect to it yet — nothing bridges a client's stdio to the socket — and it fails to start when the socket path is longer than 108 bytes (docs/DEFECTS.md, Д-97). Use `npm start`. |
+| `ai-dev mcp` (`npm start`) | One stdio process per client. The default, and what `clients install` configures. |
+| `npm run daemon` | **Experimental.** One warm process on a local socket (a named pipe on Windows). No client can connect to it yet — nothing bridges a client's stdio to the socket — and it fails to start when the socket path is longer than 108 bytes (docs/DEFECTS.md, Д-97). Use `ai-dev mcp`. |
 
 **Why local first.** The dense model is the reason. Locally it is one flag —
 `npm run setup -- --model` — and it lands in `~/.ai-dev`; neither the model nor the
@@ -305,44 +312,55 @@ scan in which not one scanner ran comes back `unchecked`, never `pass`.
 
 ## Connecting AI agents
 
-Do not edit these files by hand when an installer covers the client. From a
-clone, `npm run clients:install` configures Claude Code, Cursor, VS Code and
-Gemini (see [Quick start](#quick-start-run-it-locally)); for the Docker path,
-bootstrap configures all six clients.
+Do not edit these files by hand when an installer covers the client. From a clone,
+`npm run setup` — or on its own, `npm run clients:install` (`ai-dev clients install`) —
+configures all six clients; for the Docker path, bootstrap does.
 
-### From a clone: Codex and Claude Desktop
+### From a clone
 
-`npm run clients:install` does not configure these two yet, so add the server by
-hand. Use absolute paths: a client started from the Dock or the Start menu does
-not see your shell's `PATH`. `node -p process.execPath` prints the one for Node.
+| Client | Config file | Entry |
+| --- | --- | --- |
+| Claude Code | `~/.claude.json` | `mcpServers.ai-dev`, with `type: "stdio"` |
+| Claude Desktop | macOS `~/Library/Application Support/Claude/claude_desktop_config.json`; Windows `%APPDATA%\Claude\claude_desktop_config.json`, and the Microsoft Store build's own copy under `%LOCALAPPDATA%\Packages\Claude_*`; Linux builds `~/.config/Claude/claude_desktop_config.json` | `mcpServers.ai-dev` |
+| Cursor | `~/.cursor/mcp.json` | `mcpServers.ai-dev` |
+| VS Code | `Code/User/mcp.json` in the user config folder (`%APPDATA%`, `~/Library/Application Support`, `~/.config`) | `servers.ai-dev`, with `type: "stdio"` |
+| Codex | `~/.codex/config.toml`, or `$CODEX_HOME/config.toml` | `[mcp_servers.ai-dev]`, with `startup_timeout_sec = 120` and `tool_timeout_sec = 3600` |
+| Gemini CLI | `~/.gemini/settings.json` | `mcpServers.ai-dev` |
 
-Codex — `~/.codex/config.toml`:
+Every entry runs the same command: this Node by its full path, then
+`<clone>/ai-dev-mcp-server/bin/ai-dev.mjs mcp`. A client started from the Dock or the
+Start menu does not see your shell's `PATH`, and a bare `node` is not found there when
+Node came from nvm, fnm, Volta or Homebrew. A vault install also passes
+`AI_DEV_VAULT_ROOT`.
 
-```toml
-[mcp_servers.ai-dev-system]
-command = "/absolute/path/to/node"
-args = ["/absolute/path/to/clone/ai-dev-mcp-server/src/server.mjs"]
-startup_timeout_sec = 120
-tool_timeout_sec = 3600
-```
+What the installer does with the files:
 
-Claude Desktop — `~/Library/Application Support/Claude/claude_desktop_config.json`
-on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows:
+- **Which clients.** By default every client installed here — its folder exists.
+  `--clients=cursor,vscode` names them instead (`claude` is both Claude apps), and a
+  client named that way is written even where it is not found.
+- **Nothing else changes.** The file is edited where the entry goes: every other server,
+  comment (VS Code and Gemini accept JSONC) and line stays byte for byte. In Codex the
+  server's table is found with its subtables and in any spelling of its name.
+- **Safely.** The file is written through a temp file and a rename, after a check that
+  the client did not save it in the meantime; its previous bytes stay next to it as
+  `<file>.backup-<time>`. A config that is a symlink (a dotfiles repository) is written
+  through the link.
+- **One name.** An `ai-dev-system` entry — what the 2.x local installer wrote — is
+  removed, and an `ai-dev` entry that ran the Docker launcher is replaced; the output
+  says which.
+- **A broken file is one failure.** It is left as it was and named with the line where
+  it breaks; the other clients are still written, and the command exits 1.
+- **Again is a no-op.** A second run says `No changes`.
 
-```json
-{
-  "mcpServers": {
-    "ai-dev-system": {
-      "command": "/absolute/path/to/node",
-      "args": ["/absolute/path/to/clone/ai-dev-mcp-server/src/server.mjs"]
-    }
-  }
-}
-```
+`ai-dev clients list` shows every client and what its entry runs. `ai-dev clients doctor`
+starts each entry's command the way the client would and checks that it answers
+`initialize` with instructions — the check to make when a client shows the server as
+failed. `ai-dev clients remove` takes `ai-dev` (and `ai-dev-system`) out again: a file
+nothing else has changed since gets back exactly what it held, and from any other only
+the entry is cut. `--dry-run` shows what `install` or `remove` would change.
 
-No `AI_DEV_PYTHON` is needed: only the two UI UX Pro Max tools run Python, and
-without it the server picks `python3`, or `python` on Windows. Restart the client
-afterwards.
+Entries 2.x wrote keep working without a reinstall: `node <clone>/ai-dev-mcp-server/src/server.mjs`
+is still a working entry point.
 
 **The Docker path.** The blocks below show the shape of what the Docker installer writes — on Windows
 it also sets `AI_DEV_MCP_LAUNCHER`, and Claude gets `ClaudeMcpProxy.exe` instead of
@@ -702,8 +720,13 @@ command:
   `ai-dev` CLI move it up when they start, without overwriting anything; `npm run doctor`
   reports what was moved and anything left behind (check `runtime_home`). Hooks you installed
   into a repository look for the old place until you run `install_agent_hooks` there again.
-- **Windows clients.** Run `npm run clients:install` once more: earlier versions wrote
-  `AI_DEV_PYTHON=python3`, which a Windows Python does not answer to (Д-94).
+- **Client configs.** What 2.x wrote keeps working. `npm run clients:install` (or `npm run
+  setup`) replaces it with the 3.0 entry: one server, `ai-dev`, instead of `ai-dev-system`
+  next to a Docker `ai-dev`, and without the `AI_DEV_PYTHON=python3` the 2.x local
+  installer wrote even on Windows, where a Windows Python does not answer to it (Д-94, Д-95).
+- **Hooks.** Hooks 2.x installed into a repository keep running wherever `node` is on the
+  client's PATH. Run `install_agent_hooks` there again for the 3.0 registrations, which
+  find Node without it (Д-103).
 - **Docker on Windows.** Run `bootstrap.ps1` once more, so Claude's `ClaudeMcpProxy.exe` is
   rebuilt and mounts the model folder where the image looks (Д-88).
 - **Docker.** `docker pull` the new image; the runtime tree in the `/data` volume moves the

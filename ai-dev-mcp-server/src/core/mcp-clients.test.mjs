@@ -304,3 +304,20 @@ test("entries read back for the list, a broken file as an error of its own", asy
   assert.deepEqual(rows.find((row) => row.client === "cursor").entries, { "ai-dev": undefined, "ai-dev-system": undefined });
   assert.match(rows.find((row) => row.client === "gemini").error, /line 1, column 3/);
 });
+
+test("a temp file a killed run left next to the config is removed; a live writer's is not", async (t) => {
+  const home = await tempHome(t);
+  await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), "{}\n");
+  const dead = path.join(home, ".cursor", ".mcp.json.2147483646.0f0e.tmp");
+  const live = path.join(home, ".cursor", `.mcp.json.${process.ppid}.0f0e.tmp`);
+  const foreign = path.join(home, ".cursor", ".other.json.2147483646.0f0e.tmp");
+  for (const file of [dead, live, foreign]) await fs.writeFile(file, "partial");
+  const targets = (await discoverClients({ home, env: env(home), platform: "linux" })).filter((target) => target.detected);
+  await installServer({ targets, entryFor: (target) => clientEntry(target, LAUNCH), apply: false });
+  await fs.access(dead);
+  await installServer({ targets, entryFor: (target) => clientEntry(target, LAUNCH) });
+  await assert.rejects(fs.access(dead), "the dead writer's temp file is gone");
+  await fs.access(live);
+  await fs.access(foreign);
+});

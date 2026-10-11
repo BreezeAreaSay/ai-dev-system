@@ -308,14 +308,41 @@ function sameBytes(left, right) {
   return Buffer.compare(left, right) === 0;
 }
 
+/**
+ * Who is to own what is written for `file`: the owner of the file, or of the
+ * nearest folder above it that exists — when root writes it. `sudo` with the
+ * user's HOME left every config, backup and folder it touched to root, and
+ * the user's own client could no longer read its config (docs/DEFECTS.md,
+ * Д-168). Anyone but root creates what is theirs already: null.
+ */
+async function ownerFor(file) {
+  if (process.getuid?.() !== 0) return null;
+  for (let at = path.resolve(file); ; at = path.dirname(at)) {
+    const stat = await fs.stat(at).catch(() => null);
+    if (stat) return stat.uid === 0 && stat.gid === 0 ? null : { uid: stat.uid, gid: stat.gid };
+    if (path.dirname(at) === at) return null;
+  }
+}
+
+/** `mkdir -p`, with the folders it made given to `owner`. */
+async function makeDirectory(directory, owner) {
+  const first = await fs.mkdir(directory, { recursive: true });
+  if (!first || !owner) return;
+  for (let at = directory; ; at = path.dirname(at)) {
+    await fs.chown(at, owner.uid, owner.gid);
+    if (at === first || path.dirname(at) === at) return;
+  }
+}
+
 /** Keep `bytes` next to `file`, under a name no earlier backup has. */
-async function writeBackup(file, bytes, date) {
+async function writeBackup(file, bytes, date, owner = null) {
   const stamp = date.toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z");
   for (let attempt = 1; ; attempt += 1) {
     const candidate = `${file}.backup-${stamp}${attempt > 1 ? `-${attempt}` : ""}`;
     try {
       // A config can hold tokens: the copy is the owner's alone.
       await fs.writeFile(candidate, bytes, { flag: "wx", mode: 0o600 });
+      if (owner) await fs.chown(candidate, owner.uid, owner.gid);
       return candidate;
     } catch (error) {
       if (error?.code !== "EEXIST" || attempt >= 100) throw error;
@@ -356,14 +383,15 @@ async function sweepStaleTemps(file) {
  *
  * @returns {Promise<boolean>} Whether the file was replaced.
  */
-async function replaceIfUnchanged(file, expected, next, mode) {
+async function replaceIfUnchanged(file, expected, next, mode, owner = null) {
   const directory = path.dirname(file);
-  await fs.mkdir(directory, { recursive: true });
+  await makeDirectory(directory, owner);
   const temp = path.join(directory, `.${path.basename(file)}.${process.pid}.${crypto.randomUUID()}.tmp`);
   let handle;
   try {
     handle = await fs.open(temp, "wx", mode ?? 0o666);
     await handle.writeFile(next, "utf8");
+    if (owner) await handle.chown(owner.uid, owner.gid);
     if (mode !== undefined) await handle.chmod(mode);
     await handle.sync();
     await handle.close();
@@ -401,7 +429,14 @@ async function readState(statePath) {
  */
 async function saveState(statePath, state) {
   if (!statePath || !state?.dirty) return;
-  await atomicWriteJson(statePath, { version: 1, files: state.files }).catch(() => undefined);
+  try {
+    const owner = await ownerFor(statePath);
+    await makeDirectory(path.dirname(statePath), owner);
+    await atomicWriteJson(statePath, { version: 1, files: state.files });
+    if (owner) await fs.chown(statePath, owner.uid, owner.gid);
+  } catch {
+    // Kept or not, the configs are written.
+  }
 }
 
 /**
@@ -464,8 +499,9 @@ async function installOne(target, value, { apply, state, now }) {
     const status = plan.previous === undefined ? "added" : "updated";
     if (!apply) return { ...base, status: status === "added" ? "would-add" : "would-update" };
     const mode = before ? (await fs.stat(file)).mode & 0o7777 : undefined;
-    const backup = before ? await writeBackup(target.file, before, now()) : null;
-    if (await replaceIfUnchanged(file, before, plan.next, mode)) {
+    const owner = await ownerFor(file);
+    const backup = before ? await writeBackup(target.file, before, now(), owner) : null;
+    if (await replaceIfUnchanged(file, before, plan.next, mode, owner)) {
       remember(state, file, { before, written: plan.next, backup, at: now().toISOString() });
       return { ...base, status, ...(backup ? { backup } : {}) };
     }
@@ -512,9 +548,10 @@ async function removeOne(target, { apply, state, now }) {
     }
     const base = { ...resultBase(target), ...(removed.length ? { removed } : {}) };
     if (!apply) return { ...base, status: restore ? "would-restore" : "would-remove" };
-    const backup = await writeBackup(target.file, before, now());
+    const owner = await ownerFor(file);
+    const backup = await writeBackup(target.file, before, now(), owner);
     const mode = (await fs.stat(file)).mode & 0o7777;
-    const done = next === null ? await deleteIfUnchanged(file, before) : await replaceIfUnchanged(file, before, next, mode);
+    const done = next === null ? await deleteIfUnchanged(file, before) : await replaceIfUnchanged(file, before, next, mode, owner);
     if (done) {
       forget(state, file);
       return { ...base, status: restore ? "restored" : "removed", backup };

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bypassesProxy, describeNetworkError, openUrl, proxyFor, readSnippet } from "./http-download.mjs";
+import { bypassesProxy, describeNetworkError, openUrl, proxyFor, readSnippet, redactCredentials } from "./http-download.mjs";
 import { startModelHost, startProxy, TEST_HOST, TEST_TLS } from "../../test/fixtures/model-host.mjs";
 
 const FILES = { "config.json": "{\"model_type\":\"xlm-roberta\"}" };
@@ -81,6 +81,28 @@ test("HTTPS goes through a CONNECT tunnel, and TLS is with the host, not the pro
   assert.equal(await read(response.body), FILES["config.json"]);
   assert.deepEqual(proxy.seen, [`CONNECT ${TEST_HOST}:${host.port}`], "the proxy saw an address and no request");
   assert.equal(host.requests[0].host, `${TEST_HOST}:${host.port}`);
+});
+
+test("through the tunnel an IP-literal host is held to its own address, not the proxy's name (Д-152)", async (t) => {
+  const host = await startModelHost({ files: FILES, tls: true });
+  t.after(() => host.close());
+  // The certificate names models.example.test, localhost and 127.0.0.1 — not this address.
+  const proxy = await startProxy({ hosts: { "10.255.255.1": host.port } });
+  t.after(() => proxy.close());
+  await assert.rejects(openUrl("https://10.255.255.1/m/config.json", { env: { HTTPS_PROXY: proxy.url }, ca: TEST_TLS.cert }),
+    (error) => error.code === "ERR_TLS_CERT_ALTNAME_INVALID" && /10\.255\.255\.1/.test(error.message));
+  assert.deepEqual(proxy.seen, ["CONNECT 10.255.255.1:443"], "it was the tunnel, and the check that refused");
+});
+
+test("credentials in a proxy or mirror address never reach a message (Д-151)", () => {
+  const secret = ["s3cret", "PW"].join("");
+  assert.equal(redactCredentials(`http://alice:${secret}@proxy.corp:3128`), "http://***@proxy.corp:3128");
+  assert.equal(redactCredentials(`https://token${secret}@mirror.example/Xenova`), "https://***@mirror.example/Xenova", "a token as the user name too");
+  assert.equal(redactCredentials(`alice:${secret}@proxy.corp:3128`), "***@proxy.corp:3128", "a value written without a scheme");
+  assert.equal(redactCredentials("https://hf-mirror.com/Xenova/bge-m3"), "https://hf-mirror.com/Xenova/bge-m3", "nothing to hide, nothing changed");
+  assert.equal(redactCredentials("https://example.com/a@b"), "https://example.com/a@b", "an @ in the path is not a user");
+  assert.throws(() => proxyFor(new URL("https://huggingface.co/x"), { HTTPS_PROXY: `http://alice:${secret}@proxy.corp:80800` }),
+    (error) => /The proxy setting "http:\/\/\*\*\*@proxy\.corp:80800" is not a URL/.test(error.message) && !error.message.includes(secret));
 });
 
 test("a proxy that refuses says which proxy, which host and what status; 407 asks for credentials", async (t) => {

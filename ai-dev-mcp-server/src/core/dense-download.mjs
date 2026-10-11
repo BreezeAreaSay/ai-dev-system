@@ -41,7 +41,7 @@ import path from "node:path";
 import process from "node:process";
 import { freeSpaceFor, formatBytes, judgeDiskSpace } from "./disk-space.mjs";
 import { sha256File } from "./dense-manifest.mjs";
-import { openUrl, readSnippet } from "./http-download.mjs";
+import { openUrl, readSnippet, redactCredentials } from "./http-download.mjs";
 
 /**
  * No byte has arrived for this long, so the transfer is dead.
@@ -122,7 +122,7 @@ export function modelSources(manifest, env = process.env) {
       // Said below with the variable's name.
     }
     if (!url || (url.protocol !== "http:" && url.protocol !== "https:")) {
-      throw new Error(`${name}=${endpoint} is not an http(s) address. Set it to a Hugging Face endpoint, such as https://hf-mirror.com.`);
+      throw new Error(`${name}=${redactCredentials(endpoint)} is not an http(s) address. Set it to a Hugging Face endpoint, such as https://hf-mirror.com.`);
     }
     add(`${endpoint.replace(/\/+$/, "")}/${manifest.export}/resolve/${manifest.revision}`);
   }
@@ -139,6 +139,56 @@ function sourceName(source) {
     return new URL(source).host;
   } catch {
     return String(source);
+  }
+}
+
+/**
+ * Write all of `chunk`: a write may take fewer bytes than offered, and the
+ * running hash covers every byte of the stream, so a short write left
+ * unfinished would name wrong bytes on disk as verified (docs/DEFECTS.md, Д-150).
+ */
+export async function writeAll(handle, chunk) {
+  let written = 0;
+  while (written < chunk.length) {
+    const { bytesWritten } = await handle.write(chunk, written, chunk.length - written);
+    if (!(bytesWritten > 0)) throw Object.assign(new Error("the disk took no bytes"), { code: "EIO" });
+    written += bytesWritten;
+  }
+}
+
+/** What a failed write means, in words a person can act on. */
+const WRITE_FAILURES = Object.freeze({
+  EDQUOT: "this account's disk quota is used up",
+  EFBIG: "the file is larger than this system or file system allows",
+  EROFS: "the file system is read-only",
+  EACCES: "this account may not write there",
+  EPERM: "this account may not write there",
+  EIO: "the disk reported an input/output error"
+});
+
+/**
+ * A disk that would not take the file, said as that and not as a broken
+ * connection — a quota, a read-only mount and a folder without rights all
+ * used to read "the connection … closed" (docs/DEFECTS.md, Д-150).
+ *
+ * @param {Error & { code?: string }} error
+ * @param {{ relative: string, target: string, kept: number|null }} where
+ * @returns {Error} Final: another source would fail the same way.
+ */
+export function describeWriteFailure(error, { relative, target, kept }) {
+  const reason = WRITE_FAILURES[error?.code] ?? String(error?.message ?? error);
+  return finalError(`Could not write ${relative} into ${path.dirname(target)}: ${reason}${error?.code ? ` (${error.code})` : ""}.`
+    + (kept ? ` ${formatBytes(kept)} of it are kept; once that is fixed, running the install again continues from there.`
+      : " Once that is fixed, run the install again."),
+  { code: error?.code, writeFailed: true });
+}
+
+/** Run a step that touches the disk, marking what it throws as the disk's. */
+async function onDisk(step) {
+  try {
+    return await step();
+  } catch (error) {
+    throw Object.assign(error, { writeFailed: true });
   }
 }
 
@@ -309,7 +359,7 @@ function createProgress({ onProgress, total, filesTotal, now = Date.now }) {
  */
 async function fetchFile({ url, target, relative, expected, revision, env, signal, stallMs, statfs, progress, request, log }) {
   const part = `${target}${PART_SUFFIX}`;
-  await fsp.mkdir(path.dirname(target), { recursive: true });
+  await onDisk(() => fsp.mkdir(path.dirname(target), { recursive: true }));
   await sweepOrphanParts(target);
   const existing = await usablePart(target, { revision, sha256: expected });
   if (existing.stale) {
@@ -331,13 +381,14 @@ async function fetchFile({ url, target, relative, expected, revision, env, signa
   };
   const combined = signal ? AbortSignal.any([signal, stall.signal]) : stall.signal;
   let resumedFrom = offset;
+  let response = null;
   armStallTimer();
   try {
     if (offset > 0 && size !== null && offset === size) {
       // Every byte arrived and the rename did not: nothing to ask for.
       return await finish();
     }
-    const response = await request(url, { headers: offset > 0 ? { range: `bytes=${offset}-` } : {}, env, signal: combined });
+    response = await request(url, { headers: offset > 0 ? { range: `bytes=${offset}-` } : {}, env, signal: combined });
     let total = null;
     if (offset > 0 && response.status === 416) {
       const range = parseContentRange(response.headers["content-range"]);
@@ -364,7 +415,7 @@ async function fetchFile({ url, target, relative, expected, revision, env, signa
       total = Number.isFinite(declared) && declared > 0 ? declared : null;
     } else {
       const snippet = await readSnippet(response.body);
-      throw new Error(`${url} returned HTTP ${response.status}${snippet ? `: ${snippet}` : ""}`);
+      throw new Error(`${redactCredentials(url)} returned HTTP ${response.status}${snippet ? `: ${snippet}` : ""}`);
     }
     if (total !== null && size !== null && total !== size) {
       log(`${relative}: the source says ${total} bytes where the partial download expected ${size}`);
@@ -379,25 +430,25 @@ async function fetchFile({ url, target, relative, expected, revision, env, signa
         throw finalError(room.message, { outOfSpace: true });
       }
     }
-    await writePartMeta(target, { revision, sha256: expected, size, source: url });
+    await onDisk(() => writePartMeta(target, { revision, sha256: expected, size, source: redactCredentials(url) }));
     const restarted = offset === 0;
     const running = restarted ? crypto.createHash("sha256") : hash;
     progress.start(relative, sourceName(url), offset);
     // One awaited write per chunk rather than a pipeline: when the connection
     // breaks, every byte that was hashed is on disk, and a pipeline tearing
     // down its file stream would drop what it still had buffered.
-    const out = await fsp.open(part, restarted ? "w" : "a");
+    const out = await onDisk(() => fsp.open(part, restarted ? "w" : "a"));
     let received = 0;
     try {
       for await (const chunk of response.body) {
         armStallTimer();
         running.update(chunk);
-        await out.write(chunk);
+        await onDisk(() => writeAll(out, chunk));
         received += chunk.length;
         progress.chunk(chunk.length);
       }
     } catch (error) {
-      if (signal?.aborted || stall.signal.aborted || error?.code === "ENOSPC") throw error;
+      if (signal?.aborted || stall.signal.aborted || error?.code === "ENOSPC" || error?.writeFailed) throw error;
       const expectedBytes = size === null ? "" : ` of ${formatBytes(size - offset)}`;
       throw new Error(`the connection to ${sourceName(url)} closed after ${formatBytes(received)}${expectedBytes}.`);
     } finally {
@@ -413,13 +464,18 @@ async function fetchFile({ url, target, relative, expected, revision, env, signa
       );
     }
     if (stall.signal.aborted) {
-      throw new Error(`${relative}: no data for ${Math.round(stallMs / 1000)}s from ${sourceName(url)}. `
-        + "The source accepted the connection and then stopped sending.");
+      throw Object.assign(new Error(`${relative}: no data for ${Math.round(stallMs / 1000)}s from ${sourceName(url)}. `
+        + "The source accepted the connection and then stopped sending."), { stalled: true });
     }
     if (error?.code === "ENOSPC") throw finalError(describeOutOfSpace(target), { outOfSpace: true });
+    // The disk, not the network: another source would fail the same way.
+    if (error?.writeFailed && !error.final) throw describeWriteFailure(error, { relative, target, kept: await fileSize(part) });
     throw error;
   } finally {
     clearTimeout(stallTimer);
+    // A response left unread — the disk refused the file, the range was
+    // wrong — would hold its connection open until the host gave up on it.
+    if (response && !response.body.readableEnded) response.body.destroy();
   }
 
   async function finish(running = null) {
@@ -450,16 +506,26 @@ async function fetchFile({ url, target, relative, expected, revision, env, signa
  *
  * @returns {Promise<number|null>}
  */
-async function probeSize({ relative, sources, env, request, signal }) {
+async function probeSize({ relative, sources, env, request, signal, stallMs, silent }) {
   for (const source of sources) {
+    if (silent.has(source)) continue;
+    // The same window as a GET: a source, or a proxy, that takes the
+    // connection and never answers held the install here for ever
+    // (docs/DEFECTS.md, Д-149).
+    const stall = new AbortController();
+    const timer = setTimeout(() => stall.abort(), stallMs);
     try {
-      const response = await request(fileUrl(source, relative), { method: "HEAD", env, signal });
+      const response = await request(fileUrl(source, relative), { method: "HEAD", env, signal: signal ? AbortSignal.any([signal, stall.signal]) : stall.signal });
       response.body.resume();
       if (response.status < 200 || response.status >= 300) continue;
       const declared = Number(response.headers["content-length"]);
       if (Number.isFinite(declared) && declared > 0) return declared;
     } catch {
+      if (signal?.aborted) return null;
+      if (stall.signal.aborted) silent.add(source);
       // A source that will not answer a HEAD may still serve the file.
+    } finally {
+      clearTimeout(timer);
     }
   }
   return null;
@@ -515,13 +581,15 @@ export async function downloadDenseModel({
   }
 
   // Sizes once, before anything is fetched: the free-space check and the
-  // progress total both need them.
+  // progress total both need them. A source that went silent is asked last
+  // from then on, so one dead mirror costs one wait, not one per file.
+  const silent = new Set();
   let total = 0;
   let unknown = 0;
   let needed = 0;
   for (const file of pending) {
     const part = await usablePart(file.target, { revision: manifest.revision, sha256: file.digest });
-    file.size = part.size ?? await probeSize({ relative: file.relative, sources, env, request, signal });
+    file.size = part.size ?? await probeSize({ relative: file.relative, sources, env, request, signal, stallMs, silent });
     if (file.size === null) {
       unknown += 1;
       continue;
@@ -539,7 +607,7 @@ export async function downloadDenseModel({
   let resumed = 0;
   for (const file of pending) {
     let lastError = null;
-    for (const source of sources) {
+    for (const source of [...sources.filter((entry) => !silent.has(entry)), ...sources.filter((entry) => silent.has(entry))]) {
       const url = fileUrl(source, file.relative);
       try {
         let outcome;
@@ -559,6 +627,7 @@ export async function downloadDenseModel({
         break;
       } catch (error) {
         if (error?.final) throw error;
+        if (error?.stalled) silent.add(source);
         lastError = error;
         progress.restart();
         log(`source failed for ${file.relative}: ${error.message}`);

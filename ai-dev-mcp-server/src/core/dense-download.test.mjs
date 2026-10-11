@@ -1,18 +1,21 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   BLOCKED_DOWNLOAD_ADVICE,
   describeOutOfSpace,
+  describeWriteFailure,
   downloadDenseModel,
   modelSources,
   PART_META_SUFFIX,
   PART_SUFFIX,
   readPartMeta,
-  sweepOrphanParts
+  sweepOrphanParts,
+  writeAll
 } from "./dense-download.mjs";
 import { parseDenseManifest } from "./dense-manifest.mjs";
 import { openUrl } from "./http-download.mjs";
@@ -356,6 +359,75 @@ test("a source that goes silent is given up on within the stall window, and its 
   assert.match(failure.message, /no data for 0s from 127\.0\.0\.1:\d+\. The source accepted the connection and then stopped sending\./);
   assert.ok(Date.now() - started < 5000);
   assert.equal((await fs.stat(`${weightsAt(dir)}${PART_SUFFIX}`)).size, 10_000);
+});
+
+test("a source that takes the connection and never answers the size probe costs one stall window, then the next serves (Д-149)", async (t) => {
+  // Reads and never answers; reading is what lets it see the client hang up.
+  const silent = net.createServer((socket) => socket.resume());
+  await new Promise((resolve) => silent.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => silent.close(resolve)));
+  const host = await startModelHost({ files: FILES });
+  t.after(() => host.close());
+  const started = Date.now();
+  const result = await downloadDenseModel({
+    manifest: manifestFor([`http://127.0.0.1:${silent.address().port}/m`, host.base]), targetDir: await stageDir(t), log: quiet, statfs: roomy, env: {}, stallMs: 300
+  });
+  assert.equal(result.ready, true);
+  assert.ok(Date.now() - started < 3000, `took ${Date.now() - started} ms: once for the probe, not once per file and request`);
+  // A proxy that never answers CONNECT is the same wait, then a sentence.
+  const proxy = net.createServer((socket) => socket.resume());
+  await new Promise((resolve) => proxy.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => proxy.close(resolve)));
+  const tunnelled = Date.now();
+  const failure = await attempt({ manifest: manifestFor(["https://models.example.test/m"]), targetDir: await stageDir(t), stallMs: 300, env: { HTTPS_PROXY: `http://127.0.0.1:${proxy.address().port}` } });
+  assert.match(failure.message, /no data for 0s from models\.example\.test/);
+  assert.ok(Date.now() - tunnelled < 3000);
+});
+
+test("a disk that will not take the file is said as the disk's, once, not blamed on the network (Д-150)", async (t) => {
+  const host = await startModelHost({ files: FILES });
+  t.after(() => host.close());
+  const dir = await stageDir(t);
+  // The partial file's name taken by a folder: the open fails with EISDIR.
+  await fs.mkdir(`${weightsAt(dir)}${PART_SUFFIX}`, { recursive: true });
+  const second = await startModelHost({ files: FILES });
+  t.after(() => second.close());
+  const failure = await attempt({ manifest: manifestFor([host.base, second.base]), targetDir: dir });
+  assert.match(failure.message, /^Could not write onnx\/model_int8\.onnx into .*onnx: .*\(EISDIR\)\. Once that is fixed, run the install again\.$/);
+  assert.equal(failure.final, true);
+  assert.equal(gets(second).length, 0, "another source would fail the same way, so none is asked");
+  assert.doesNotMatch(failure.message, /connection/);
+  const quota = describeWriteFailure(Object.assign(new Error("quota"), { code: "EDQUOT" }), { relative: "onnx/model_int8.onnx", target: "/m/onnx/model_int8.onnx", kept: 300 * MB });
+  assert.equal(quota.message, "Could not write onnx/model_int8.onnx into /m/onnx: this account's disk quota is used up (EDQUOT). "
+    + "300 MB of it are kept; once that is fixed, running the install again continues from there.");
+});
+
+test("a short write is finished before the next chunk, so the bytes on disk are the bytes hashed (Д-150)", async () => {
+  const written = [];
+  const trickle = { write: async (buffer, offset, length) => { written.push(buffer.subarray(offset, offset + Math.min(3, length))); return { bytesWritten: Math.min(3, length) }; } };
+  await writeAll(trickle, Buffer.from("0123456789"));
+  assert.equal(Buffer.concat(written).toString(), "0123456789");
+  const stuck = { write: async () => ({ bytesWritten: 0 }) };
+  await assert.rejects(writeAll(stuck, Buffer.from("x")), (error) => error.code === "EIO");
+});
+
+test("a mirror's password stays out of messages and the partial file's record (Д-151)", async (t) => {
+  const dead = await startModelHost({ files: FILES, fail: new Map([["config.json", 503]]) });
+  t.after(() => dead.close());
+  const secret = ["mirror", "PW", "42"].join("");
+  const withPassword = dead.base.replace("http://", `http://bob:${secret}@`);
+  const logged = [];
+  const failure = await downloadDenseModel({ manifest: manifestFor([withPassword]), targetDir: await stageDir(t), log: (line) => logged.push(line), statfs: roomy, env: {} })
+    .then(() => null, (error) => error);
+  assert.match(failure.message, /http:\/\/\*\*\*@127\.0\.0\.1:\d+\/m\/config\.json returned HTTP 503/);
+  assert.equal([failure.message, ...logged].some((line) => line.includes(secret)), false);
+  const cut = await startModelHost({ files: FILES, cutAfter: new Map([["onnx/model_int8.onnx", 1000]]) });
+  t.after(() => cut.close());
+  const dir = await stageDir(t);
+  await attempt({ manifest: manifestFor([cut.base.replace("http://", `http://bob:${secret}@`)]), targetDir: dir });
+  const meta = await readPartMeta(weightsAt(dir));
+  assert.match(meta.source, /^http:\/\/\*\*\*@127\.0\.0\.1:/);
+  assert.throws(() => modelSources(manifestFor([]), { AI_DEV_MODEL_MIRROR: `ftp://bob:${secret}@mirror` }), (error) => !error.message.includes(secret));
 });
 
 test("a slow source that keeps sending is not cut off", async (t) => {

@@ -28,6 +28,7 @@ import { createRequire } from "node:module";
 import { discardPart, downloadDenseModel, modelSources, PART_META_SUFFIX, PART_SUFFIX, usablePart } from "./dense-download.mjs";
 import { fileIdentity, readInstalledDenseManifest, stampVerifiedFiles, verifiedStampPath, verifyDenseModelDirectory } from "./dense-manifest.mjs";
 import { formatBytes } from "./disk-space.mjs";
+import { redactCredentials } from "./http-download.mjs";
 import { acquireFileLock } from "./file-lock.mjs";
 import { looksLikeZip, openZipEntry, readZipEntries } from "./model-archive.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
@@ -145,7 +146,8 @@ export async function modelStatus({ manifest, dir, stampDir = defaultStampDir(),
   let sources = [];
   let sourcesError = "";
   try {
-    sources = modelSources(manifest, env);
+    // Shown and printed as JSON: a mirror's password stays out (Д-151).
+    sources = modelSources(manifest, env).map(redactCredentials);
   } catch (error) {
     sourcesError = error.message;
   }

@@ -29,6 +29,23 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 const USER_AGENT = "ai-dev-system-model-download";
 
 /**
+ * A URL, or a setting meant to be one, with its credentials replaced by `***`.
+ *
+ * Proxy and mirror addresses carry a user name and password when the network
+ * wants them — the documentation says to put them there — and every message,
+ * `--json` answer and `.part.json` that names a source is the kind of text
+ * that ends up pasted into an issue (docs/DEFECTS.md, Д-151).
+ *
+ * @param {string|URL} text
+ * @returns {string}
+ */
+export function redactCredentials(text) {
+  return String(text ?? "")
+    .replace(/(\/\/)[^/@\s]+@/g, "$1***@")
+    .replace(/^[^/:@\s]+:[^/@\s]*@/, "***@");
+}
+
+/**
  * A proxy variable as npm and undici read it: the lower-case spelling first.
  *
  * @param {Record<string, string|undefined>} env
@@ -127,7 +144,7 @@ export function proxyFor(target, env = process.env) {
   try {
     proxy = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(value) ? value : `http://${value}`);
   } catch {
-    throw new Error(`The proxy setting "${value}" is not a URL. Write it as http://host:port.`);
+    throw new Error(`The proxy setting "${redactCredentials(value)}" is not a URL. Write it as http://host:port.`);
   }
   if (proxy.protocol !== "http:" && proxy.protocol !== "https:") {
     throw new Error(`The proxy ${proxy.protocol}//${proxy.host} is not an HTTP proxy, and only HTTP proxies are supported. `
@@ -265,8 +282,13 @@ function requestOnce(url, { method, headers, env, signal, ca }) {
         signal,
         createConnection: (_options, done) => {
           tunnel(proxy, host, port, signal).then((socket) => {
+            // `host` is what the certificate is checked against; without it
+            // Node falls back to the name the socket was opened with — the
+            // proxy's — and an IP-literal target was never checked against
+            // its own address (docs/DEFECTS.md, Д-152). SNI takes names only.
             const secure = tls.connect({
               socket,
+              host,
               ...(net.isIP(host) ? {} : { servername: host }),
               ...(ca ? { ca } : {}),
               ALPNProtocols: ["http/1.1"]

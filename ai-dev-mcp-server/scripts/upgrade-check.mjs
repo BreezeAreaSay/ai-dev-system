@@ -188,6 +188,7 @@ function scenarioEnv(base, { home, aiDevHome, explicitRoots }) {
   }
   delete env.XDG_CONFIG_HOME;
   delete env.CODEX_HOME;
+  delete env.CLAUDE_CONFIG_DIR;
   if (aiDevHome) env.AI_DEV_HOME = aiDevHome;
   if (explicitRoots) {
     // What docker/Dockerfile sets next to AI_DEV_HOME, in 2.x and now.

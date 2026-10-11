@@ -73,6 +73,12 @@ test("each platform's config paths, with APPDATA, XDG_CONFIG_HOME and CODEX_HOME
   const xdg = clientLocations({ home: "/home/u", env: { XDG_CONFIG_HOME: "/cfg", CODEX_HOME: "/srv/codex" }, platform: "linux" });
   assert.equal(xdg.vscode.file, "/cfg/Code/User/mcp.json");
   assert.equal(xdg.codex.file, "/srv/codex/config.toml");
+  assert.equal(linux["claude-code"].file, "/home/u/.claude.json");
+  // Claude Code reads its user servers from CLAUDE_CONFIG_DIR when it is set, and ~/.claude.json no more (Д-173).
+  const profile = clientLocations({ home: "/home/u", env: { CLAUDE_CONFIG_DIR: "/home/u/profiles/work" }, platform: "linux" });
+  assert.deepEqual(profile["claude-code"], { file: "/home/u/profiles/work/.claude.json", markers: ["/home/u/profiles/work"] });
+  assert.equal(clientLocations({ home: "C:\\Users\\u", env: { CLAUDE_CONFIG_DIR: "D:\\claude" }, platform: "win32" })["claude-code"].file, "D:\\claude\\.claude.json");
+  assert.equal(clientLocations({ home: "/home/u", env: { CLAUDE_CONFIG_DIR: "" }, platform: "linux" })["claude-code"].file, "/home/u/.claude.json", "empty is unset");
   const mac = clientLocations({ home: "/Users/u", env: {}, platform: "darwin" });
   assert.equal(mac["claude-desktop"].file, "/Users/u/Library/Application Support/Claude/claude_desktop_config.json");
   assert.equal(mac.vscode.file, "/Users/u/Library/Application Support/Code/User/mcp.json");

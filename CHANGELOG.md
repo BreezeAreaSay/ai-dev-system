@@ -29,8 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   --yes --clients all` builds the four steps, adds `ai-dev` to all six and ends `Health: ok`,
   in 3.8 s.
 - **`ai-dev clients install | remove | list | doctor`** (`src/core/mcp-clients.mjs`): the
-  `ai-dev` entry in Claude Code, Claude Desktop (with the Microsoft Store build's own config),
-  Cursor, VS Code, Codex (`$CODEX_HOME` honoured) and Gemini CLI — this Node by its full
+  `ai-dev` entry in Claude Code (`$CLAUDE_CONFIG_DIR` honoured, as Claude Code does), Claude
+  Desktop (with the Microsoft Store build's own config), Cursor, VS Code, Codex (`$CODEX_HOME`
+  honoured) and Gemini CLI — this Node by its full
   path, then `bin/ai-dev.mjs mcp`, so a client started from the Dock or the Start menu finds
   it. Files are edited as text (`jsonc-edit.mjs`, `toml-edit.mjs`): other servers, comments
   and formatting stay byte for byte, and a Codex server is found with its subtables and in any

@@ -146,6 +146,7 @@ test("Claude installs preserve separate Code and Desktop configuration targets",
   const windowsPaths = localPaths({
     home: "C:\\Users\\dev",
     appData: "C:\\Users\\dev\\AppData\\Roaming",
+    claudeConfigDir: "",
     platform: "win32"
   });
   const targets = clientInstallTargets("claude", windowsPaths);
@@ -210,4 +211,10 @@ test("called without apply, the installer says what it would write and writes no
   const applied = await installDockerMcpClients({ launcher, image: "img", project_path: home, clients: ["cursor"], home, platform: "linux", apply: true });
   assert.equal(applied.status, "applied");
   assert.deepEqual(applied.clients.map((item) => item.status), ["added"]);
+});
+
+test("Claude Code's config follows CLAUDE_CONFIG_DIR, as Claude Code does (Д-173)", () => {
+  assert.equal(localPaths({ home: "/home/dev", claudeConfigDir: "/home/dev/profiles/work", platform: "linux" }).claude, "/home/dev/profiles/work/.claude.json");
+  assert.equal(localPaths({ home: "/home/dev", claudeConfigDir: "", platform: "linux" }).claude, "/home/dev/.claude.json");
+  assert.equal(localPaths({ home: "C:\\Users\\dev", appData: "C:\\Users\\dev\\AppData\\Roaming", claudeConfigDir: "D:\\claude", platform: "win32" }).claude, "D:\\claude\\.claude.json");
 });

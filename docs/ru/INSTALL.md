@@ -302,7 +302,7 @@ glob-паттернами, каталог исполняется как файл
 
 | Клиент | Файл конфигурации | Запись |
 | --- | --- | --- |
-| Claude Code | `~/.claude.json` | `mcpServers.ai-dev`, с `type: "stdio"` |
+| Claude Code | `~/.claude.json` или `$CLAUDE_CONFIG_DIR/.claude.json`, если переменная задана (тогда Claude Code читает только его) | `mcpServers.ai-dev`, с `type: "stdio"` |
 | Claude Desktop | macOS `~/Library/Application Support/Claude/claude_desktop_config.json`; Windows `%APPDATA%\Claude\claude_desktop_config.json` и собственная копия версии из Microsoft Store в `%LOCALAPPDATA%\Packages\Claude_*`; сборки для Linux `~/.config/Claude/claude_desktop_config.json` | `mcpServers.ai-dev` |
 | Cursor | `~/.cursor/mcp.json` | `mcpServers.ai-dev` |
 | VS Code | `Code/User/mcp.json` в папке пользовательских настроек (`%APPDATA%`, `~/Library/Application Support`, `~/.config`) | `servers.ai-dev`, с `type: "stdio"` |

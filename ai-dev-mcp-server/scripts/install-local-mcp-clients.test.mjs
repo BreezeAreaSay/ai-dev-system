@@ -24,6 +24,7 @@ function run(args, home) {
       LOCALAPPDATA: path.join(home, "AppData", "Local"),
       XDG_CONFIG_HOME: path.join(home, ".config"),
       CODEX_HOME: "",
+      CLAUDE_CONFIG_DIR: "",
       AI_DEV_HOME: ""
     },
     encoding: "utf8",

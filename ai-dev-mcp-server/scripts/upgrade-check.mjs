@@ -19,12 +19,15 @@
  * without rebuilding it, keep every vector byte for byte through a refresh, and
  * search it (program phase 3).
  *
- * Three users are simulated: one with the defaults; one who set
+ * Four users are simulated: one with the defaults; one who set
  * `AI_DEV_HOME`, whose 2.x data sits one level deeper than documented
- * (docs/DEFECTS.md, Д-90) and must be migrated without loss; and the layout of
+ * (docs/DEFECTS.md, Д-90) and must be migrated without loss; the layout of
  * the Docker image's /data volume — `AI_DEV_HOME` under the home plus explicit
  * state, index and artifact roots, the environment the Dockerfile sets — run
- * here without a container.
+ * here without a container; and one on the Python dense backend 3.0 removed
+ * (decision D3), whose index holds the Python backend's vectors and whose
+ * client config still says `AI_DEV_DENSE_BACKEND=python`: told what replaced
+ * it, nothing of the index lost, and moved over by the one command.
  *
  * The container half itself — pulling the 2.x image, keeping its volume, the
  * launchers the clients hold — cannot run where the published image is not
@@ -50,6 +53,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { resolveSpawnInvocation } from "../src/core/process-runner.mjs";
 import { resolvePythonCommand } from "../src/core/python-command.mjs";
 import { openDatabase, sqliteSupport } from "../src/core/search-sqlite.mjs";
+import { writeSyntheticModel } from "../src/core/synthetic-model.mjs";
 
 export const DEFAULT_BASE_COMMIT = "8f647df";
 
@@ -238,16 +242,22 @@ function seedChanged(base) {
   return run("git", ["-C", repoRoot, "diff", "--name-only", base, "--", "docker/public-seed"]).stdout.trim() !== "";
 }
 
+/** How the 2.x ONNX path and the 2.x Python backend labelled the vectors they wrote. */
+const LEGACY_PROVENANCE = Object.freeze({
+  onnx: ["--dense-backend", "onnx", "--dense-revision", "upgrade-fixture", "--dense-dtype", "int8"],
+  python: ["--dense-backend", "python", "--dense-revision", "unpinned", "--dense-dtype", "fp32"]
+});
+
 /**
  * Dense vectors in the 2.x index, written by the 2.x helper exactly as its
- * ONNX path writes them; the numbers are synthetic, which is all a check of
- * their survival needs.
+ * ONNX path — or its Python backend — writes them; the numbers are
+ * synthetic, which is all a check of their survival needs.
  */
-function seedLegacyVectors({ baseRoot, env, indexPath }) {
+function seedLegacyVectors({ baseRoot, env, indexPath, backend = "onnx" }) {
   const helper = path.join(baseRoot, "search-index", "search_cli.py");
   const python = resolvePythonCommand({ env });
   const common = ["--vault-root", path.join(baseRoot, "docker", "public-seed"), "--index-path", indexPath, "--include-external-project-files"];
-  const provenance = ["--dense-backend", "onnx", "--dense-revision", "upgrade-fixture", "--dense-dtype", "int8"];
+  const provenance = LEGACY_PROVENANCE[backend];
   const plan = JSON.parse(run(python, [helper, "dense-plan", ...common, ...provenance], { env }).stdout);
   const vectors = plan.records.map((record, index) => ({
     id: record.id,
@@ -259,14 +269,14 @@ function seedLegacyVectors({ baseRoot, env, indexPath }) {
   try {
     const rebuilt = JSON.parse(run(python, [helper, "rebuild", ...common, "--dense-embeddings", "--dense-vectors-json", file, ...provenance], { env }).stdout);
     const stored = denseDigest(indexPath);
-    return { vectors: rebuilt.dense_documents, digest: stored.digest, byId: stored.byId };
+    return { vectors: rebuilt.dense_documents, digest: stored.digest, byId: stored.byId, backend };
   } finally {
     rmSync(file, { force: true });
   }
 }
 
 /** Everything the 2.x server writes for one user, recorded so it can be found again. */
-async function createLegacyState({ baseServer, env, project }) {
+async function createLegacyState({ baseServer, env, project, denseBackend = "onnx" }) {
   return withServer({ command: process.execPath, args: [path.join(baseServer, "src", "server.mjs")], env, cwd: baseServer }, async (client) => {
     const begun = await call(client, "begin_task", { project_path: project, task: "Upgrade fixture: add CSV export" });
     const taskId = begun.task?.id || begun.task_id || begun.id;
@@ -277,7 +287,7 @@ async function createLegacyState({ baseServer, env, project }) {
     await call(client, "save_session", { project_path: project, topic: "Upgrade fixture handoff", building: "A CSV export.", next_step: "Run verify_task." });
     await call(client, "install_agent_hooks", { project_path: project, targets: ["claude"] });
     const built = await call(client, "search_index_status", {});
-    const dense = seedLegacyVectors({ baseRoot: path.resolve(baseServer, ".."), env, indexPath: built.index_path });
+    const dense = seedLegacyVectors({ baseRoot: path.resolve(baseServer, ".."), env, indexPath: built.index_path, backend: denseBackend });
     const status = await call(client, "search_index_status", {});
     assert.equal(Number(status.dense_documents), dense.vectors, "2.x reports the vectors it was given");
     const registry = await readJson(path.join(baseServer, "..", "docker", "public-seed", "03-skills-catalog", "registries", "skills.index.json"));
@@ -308,7 +318,7 @@ async function readJson(file) {
   return JSON.parse(await fs.readFile(file, "utf8"));
 }
 
-async function verifyUpgradedScenario({ label, base, baseRoot, env, project, expected, aiDevHome, doubledBefore = [] }) {
+async function verifyUpgradedScenario({ label, base, baseRoot, env, project, expected, aiDevHome, doubledBefore = [], pythonBackend = false, temp }) {
   const cursor = await readJson(path.join(env.HOME, ".cursor", "mcp.json"));
   const local = cursor.mcpServers?.["ai-dev-system"];
   check(`${label}: the 2.x local client entry is still there`, local?.command && Array.isArray(local.args), JSON.stringify(local?.args ?? null));
@@ -350,7 +360,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     check(`${label}: the skill registry follows the pulled catalogue`, listedGone.length === 0 && (pulledAway.length === 0 || registry.length < expected.skills),
       `${registry.length} skill(s), 2.x had ${expected.skills}; ${listedGone.length} removed one(s) still listed`);
     const { vectors, digest, byId } = expected.dense;
-    check(`${label}: the 2.x dense vectors are all there`, vectors > 0 && Number(status.dense_documents) === vectors && status.dense_backend === "onnx",
+    check(`${label}: the 2.x dense vectors are all there`, vectors > 0 && Number(status.dense_documents) === vectors && status.dense_backend === expected.dense.backend,
       `${status.dense_documents} of ${vectors}, backend ${status.dense_backend}`);
     if (digest) {
       check(`${label}: the 2.x vectors are untouched, byte for byte`, denseDigest(status.index_path).digest === digest);
@@ -380,7 +390,54 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     const hybrid = await call(client, "hybrid_search", { query: "code review checklist", dense_weight: 0 });
     const hybridHits = Array.isArray(hybrid) ? hybrid.length : (hybrid.results?.length ?? 0);
     check(`${label}: hybrid search reads the index the upgraded server keeps`, hybridHits > 0, `${hybridHits} result(s)`);
+    if (pythonBackend) {
+      // D3: the backend is gone, and saying so is the server's job.
+      const embedding = await call(client, "embedding_status", {});
+      const notes = embedding.dense_backend?.legacy?.notes ?? [];
+      check(`${label}: embedding_status names what is left of the Python backend, with the one command`,
+        notes.some((note) => note.startsWith("AI_DEV_DENSE_BACKEND=python")) && notes.some((note) => note.startsWith("BGE_M3_PYTHON is set"))
+          && notes.some((note) => note.includes("torch weights")) && embedding.dense_backend?.legacy?.command === "npm run setup -- --dense",
+        notes.join(" | ").slice(0, 300));
+      const health = await call(client, "system_health_check", { include_search_smoke: false, include_dense_smoke: false, include_search_eval: false });
+      const verdict = (health.checks ?? []).find((item) => item.name === "embedding_backend");
+      check(`${label}: the health check warns, with the command, instead of failing`, verdict?.status === "warn" && /npm run setup -- --dense/.test(verdict.summary ?? ""),
+        `${verdict?.status}: ${String(verdict?.summary ?? "").slice(0, 160)}`);
+      const dense = await call(client, "hybrid_search", { query: "code review checklist", dense_weight: 0.35 });
+      const denseHits = Array.isArray(dense) ? dense : (dense.results ?? []);
+      check(`${label}: hybrid search answers without the model, and no Python vector is compared`,
+        denseHits.length > 0 && denseHits.every((item) => !item.dense_score), `${denseHits.length} result(s)`);
+    }
   });
+
+  if (pythonBackend) {
+    // The one command, with the five-kilobyte stand-in where the real model
+    // would be downloaded: install the model, embed the documents again.
+    const usb = path.join(temp, "usb-model", "bge-m3-onnx");
+    const { manifest } = await writeSyntheticModel(usb);
+    const manifestFile = path.join(temp, "synthetic.manifest.json");
+    writeFileSync(manifestFile, JSON.stringify(manifest));
+    const moved = run(process.execPath, [path.join(baseRoot, "ai-dev-mcp-server", "scripts", "model.mjs"), "import", usb, "--json"], {
+      cwd: path.join(baseRoot, "ai-dev-mcp-server"),
+      env: { ...env, AI_DEV_MODEL_MANIFEST: manifestFile },
+      allowFailure: true
+    });
+    let answer = {};
+    try {
+      answer = JSON.parse(moved.stdout);
+    } catch {
+      answer = { error: moved.stdout.slice(0, 300) || moved.stderr.slice(0, 300) };
+    }
+    const status = await withServer({ command: local.command, args: local.args, env: { ...serverEnv, AI_DEV_MODEL_MANIFEST: manifestFile }, cwd: path.dirname(local.args[0]) }, (client) => (
+      call(client, "search_index_status", {})
+    ));
+    const rows = denseDigest(status.index_path);
+    const eligible = denseEligibleDocuments(status.index_path);
+    check(`${label}: the one command moves it over — every vector the new model's, none left of Python, the index whole`,
+      moved.status === 0 && status.dense_backend === "onnx" && Number(status.dense_documents) === eligible && Number(status.dense_pending_documents) === 0
+        && rows.count === eligible && indexedDocuments(status) === Number(status.current_document_count),
+      `exit ${moved.status}${answer.error ? ` (${answer.error})` : ""}, backend ${status.dense_backend}, ${status.dense_documents} of ${eligible} embedded, `
+        + `${status.dense_pending_documents} pending, ${indexedDocuments(status)} document(s) indexed`);
+  }
 
   if (aiDevHome) {
     const left = await listFiles(path.join(aiDevHome, ".ai-dev"));
@@ -439,15 +496,24 @@ async function main() {
     const scenarios = [
       { label: "default", home: path.join(temp, "home-default") },
       { label: "AI_DEV_HOME", home: path.join(temp, "home-custom"), aiDevHome: path.join(temp, "home-custom", "ai-dev-data") },
-      { label: "Docker volume layout", home: dockerHome, aiDevHome: path.join(dockerHome, ".ai-dev"), explicitRoots: true }
+      { label: "Docker volume layout", home: dockerHome, aiDevHome: path.join(dockerHome, ".ai-dev"), explicitRoots: true },
+      { label: "Python dense backend", home: path.join(temp, "home-python"), pythonBackend: true }
     ];
     for (const scenario of scenarios) {
       await fs.mkdir(scenario.home, { recursive: true });
       scenario.env = scenarioEnv(process.env, scenario);
+      if (scenario.pythonBackend) {
+        // What a 2.x user on the Python backend has: the variables in the
+        // client config and the shell, and the torch weights on disk.
+        Object.assign(scenario.env, { AI_DEV_DENSE_BACKEND: "python", BGE_M3_PYTHON: path.join(scenario.home, "venv", "bin", "python") });
+        const weights = path.join(scenario.home, ".ai-dev", "models", "bge-m3");
+        await fs.mkdir(weights, { recursive: true });
+        await fs.writeFile(path.join(weights, "pytorch_model.bin"), "2.x torch weights stand-in");
+      }
       scenario.project = path.join(temp, `project-${scenario.label.toLowerCase().replace(/[^a-z]+/g, "-")}`);
       await makeRepository(scenario.project);
       npm(["run", "setup", "--", "--no-health"], { cwd: baseServer, env: scenario.env });
-      scenario.expected = await createLegacyState({ baseServer, env: scenario.env, project: scenario.project });
+      scenario.expected = await createLegacyState({ baseServer, env: scenario.env, project: scenario.project, denseBackend: scenario.pythonBackend ? "python" : "onnx" });
       writeLegacyClientConfigs({ baseRoot, env: scenario.env, project: scenario.project });
       if (scenario.aiDevHome) scenario.doubledBefore = await listFiles(path.join(scenario.aiDevHome, ".ai-dev"));
       if (scenario.aiDevHome && !scenario.explicitRoots) {
@@ -465,7 +531,7 @@ async function main() {
     }
 
     for (const scenario of scenarios) {
-      await verifyUpgradedScenario({ ...scenario, base: options.base, baseRoot });
+      await verifyUpgradedScenario({ ...scenario, base: options.base, baseRoot, temp });
     }
   } finally {
     run("git", ["-C", repoRoot, "worktree", "remove", "--force", baseRoot], { allowFailure: true });

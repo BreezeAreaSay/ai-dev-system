@@ -34,7 +34,6 @@ package() {
     embeddings \
     frontend-qa \
     search-eval \
-    search-index \
     bootstrap.sh \
     LICENSE \
     THIRD_PARTY_NOTICES.md \

@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 132 записи. Закрыто 110, открыто 22. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 133 записи. Закрыто 114, открыто 19. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -42,13 +42,13 @@ Pro x64 и Arch Linux. Пять из этих девяти пришли отчё
 Номера зафиксированы брифом заранее, поэтому запись из слитой позже ветки галактики получила
 Д-109. Д-100 — расхождения документации с замером — закрыта первой фазой; девять — Д-86, Д-87,
 Д-88, Д-90, Д-91, Д-92, Д-93, Д-94, Д-96 — второй. Д-110 нашёлся при ревью первой фазы, Д-111 и
-Д-112 — во второй, и Д-112, дефект самой фазы, ею же закрыт; Д-113 … Д-118 — в третьей, и четыре из них (Д-114, Д-115, Д-116, Д-118) ею же
-закрыты. Д-119 нашёлся при урезании каталога skills по решению владельца и тогда же закрыт. Д-120 … Д-126 — дефекты фазы 3, найденные её независимым ревью; пять из них ею же закрыты, Д-123 и Д-124 (Windows) ждут проверки владельца. Ход
+Д-112 — во второй, и Д-112, дефект самой фазы, ею же закрыт; Д-113 … Д-118 — в третьей, и пять из них (Д-113 … Д-116, Д-118) ею же
+закрыты. Д-119 нашёлся при урезании каталога skills по решению владельца и тогда же закрыт. Д-120 … Д-126 — дефекты фазы 3, найденные её независимым ревью; пять из них ею же закрыты, Д-123 и Д-124 (Windows) ждут проверки владельца. Д-127 … Д-132 нашло второе ревью фазы 3; закрыты все, кроме Д-130 (Windows), который тоже ждёт владельца. Фаза 4 закрыла Д-85, Д-102, Д-117 и питоновскую часть Д-98; Д-133 нашёлся в ней и ею же закрыт. Ход
 программы — `docs/program/PROGRESS.md`.
 
-Открыто двадцать два: четырнадцать записей программы (Д-85, Д-89, Д-95, Д-97 … Д-99, Д-101 …
-Д-108), Д-110, Д-111, Д-113, Д-117, Д-123 и Д-124, у каждой своя фаза, и две старые, которые кодом из песочницы не
-закрываются:
+Открыто девятнадцать: двенадцать записей программы (Д-89, Д-95, Д-97 … Д-99, Д-101, Д-103 …
+Д-108), Д-110, Д-111, Д-123, Д-124 и Д-130, у каждой своя фаза или проверка владельца, и две старые, которые кодом
+из песочницы не закрываются:
 
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
   закрывается: двадцать минут в самом Cursor по четырём пунктам, `npm run verify:cursor`
@@ -568,8 +568,9 @@ changed file too»; с исправлением проходит.
 
 ## Д-85. Поиск требует Python, хотя README обещает «Node и больше ничего»
 
-**Статус:** открыт. Закроет фаза 4 программы «одна команда + exe» (`docs/program/BRIEF.md`).
-Нашёл разбор 2026-10-06, замер повторён 2026-10-10.
+**Статус:** **закрыт** фазой 4 программы «одна команда + exe» (`docs/program/BRIEF.md`; коммиты
+`f0d7a93`, `7d0a395`, `9a01449`, `b1d7b46`). Нашёл разбор 2026-10-06, замер повторён 2026-10-10.
+Замер до и после ниже.
 
 Поиск ходит через питоновский хелпер `search-index/search_cli.py`: интерпретатор выбирает
 `pythonCommand()` (`src/mcp-stdio.mjs:1833`), вызов — `runSearchCli` (`src/core/search-index.mjs:109`).
@@ -635,6 +636,44 @@ rebuild_search_index, list_search_presets, embedding_status, search_knowledge �
 с Python: hybrid_search без dense — медиана 141 мс и один процесс Python на вызов
   (полный каталог 2.x — 316 мс); run_search_eval — 38 из 45, 45 процессов Python, 6,3 с
 ```
+
+**Как закрыт.** Гибридный поиск (`src/core/search-hybrid.mjs`), экспорт галактики
+(`galaxy-export.mjs`) и `search_knowledge` (`search-knowledge.mjs`) переехали на `node:sqlite` вслед
+за индексом (фаза 3); `search-index/search_cli.py`, его тесты и питоновский движок удалены. Без
+FTS5 (Node 22.13–22.15, 23.x) поиск отвечает ошибкой с нужной версией Node, а не уходит в Python.
+Python остался двум необязательным инструментам UI UX Pro Max и legacy-бэкенду векторов. CI-джоб
+`no-python` на ubuntu, macos и windows (`scripts/no-python-check.mjs`) прячет из `PATH` все
+интерпретаторы и скрипты, которые запускает Python, отказывается идти дальше, если `python3`,
+`python` или `py` всё ещё стартуют, и проходит `npm ci`, `npm run setup`, `npm run doctor` и
+протокольный smoke. Документация EN/RU: «Node.js 22.16+ и больше ничего».
+
+**Замер после** (2026-10-11). Чистый worktree `7d0a395`, пустой HOME, тот же сценарий, что
+CI-джоб (`node scripts/no-python-check.mjs`):
+
+```
+No Python on PATH: python3, python and py do not start.
+▶ npm ci              added 136 packages in 9s
+▶ npm run setup       ✓ Skill registry (1.4s): 614 skill(s) indexed
+                      ✓ Search index (0.9s): 825 document(s) indexed
+                      4 built, 3 skipped, 0 failed.
+                      Health: ok — 24 check(s), 0 not passing.
+▶ npm run doctor      24 проверки: ok, кроме пропущенных frontend_qa_environment, ui_ux_knowledge,
+                      embedding_backend, dense_smoke, search_eval
+▶ npm run protocol:smoke   pass, 135 tools
+No Python: install, setup, 24 health checks and the protocol smoke all passed.      15 с
+```
+
+По MCP без Python (`b1d7b46`, чистая копия seed, проба `measure2.mjs`) отвечают все 13 поисковых
+инструментов: `search_all`, `search_notes`, `search_projects`, `search_skill_registry`,
+`search_index_status`, `rebuild_search_index`, `hybrid_search`, `preset_search`, `explain_search`,
+`run_search_eval` (38 из 45, MRR 0,514 — как с Python до фазы), `list_search_presets`,
+`embedding_status`, а `embed_texts` без модели — «Dense search is not installed. Run `npm run setup
+-- --dense` …» (Д-133). Отвечают `search_knowledge`, `render_knowledge_galaxy`, `prepare_project` и
+`refresh_project_memory`. Два инструмента UI UX Pro Max честно отказывают: «query_ui_ux_knowledge and
+generate_ui_ux_design_system run a Python helper, and no Python was found here (tried "python3").
+Install Python 3 …». С Python в `PATH` за сессию из 40 вызовов сервер запустил три процесса Python —
+все от инструментов UI UX (до фазы — 80). На Node 22.15 `search_all` и `hybrid_search` отвечают
+«Search needs Node.js 22.16 or newer (or 24+), where node:sqlite has FTS5; this is Node v22.15.0 …».
 
 ---
 
@@ -1247,7 +1286,7 @@ daemon.json при открытой сессии → { …, "sessions": 0 }
 
 ## Д-98. Без ONNX-модели векторы молча уходят на legacy `.venv`, а `dense:doctor` обещает «no Python needed»
 
-**Статус:** открыт. Закроют фазы 4 (питоновская часть) и 5 (менеджер модели).
+**Статус:** открыт; питоновская часть закрыта фазой 4, остальное закроет фаза 5 (менеджер модели).
 
 `npm run setup -- --dense` делает два шага: качает модель и строит векторы документов. Если модель
 не скачалась, второй шаг всё равно запускается. `rebuild_search_index` с `dense_embeddings` при
@@ -1285,6 +1324,22 @@ What to do: Run `npm run setup -- --dense` to download the model (about 600 MB, 
 `dense_embeddings` при недоступном ONNX по-прежнему отдаёт запись Python-хелперу с
 legacy-интерпретатором — `command: dense_embeddings && !useOnnx ? embeddingPythonCommand() :
 pythonCommand()`. Без `embeddings/.venv` это `spawn …/.venv/bin/python ENOENT`.
+
+**Питоновская часть закрыта фазой 4** (`f0d7a93`, `9a01449`). Векторы пишет Node; бэкенд для них
+выбирает тот же `selectDenseBackend`, что и для запроса, и без бэкенда, который может работать,
+перестройка с `dense_embeddings` отказывает с причиной выбора и командой установки, не трогая
+индекс. `embed_texts` идёт через выбранный бэкенд (Д-133). Остаётся фазе 5: менеджер модели (докачка,
+зеркала, прокси, прогресс), `setup -- --dense`, который после неудачной загрузки не идёт дальше, и
+`dense:doctor` с правдивым советом.
+
+**Замер после фазы 4** (`b1d7b46`, по MCP, модели нет, Python спрятан):
+
+```
+rebuild_search_index {dense_embeddings: true} → «Dense vectors were asked for, but no embedding model
+    can run here. Dense search is not installed. Run `npm run setup -- --dense` to download the model
+    (no Python needed).»; built_at и число документов индекса до и после — те же
+embed_texts → «Dense search is not installed. Run `npm run setup -- --dense` …»
+```
 
 ---
 
@@ -1477,7 +1532,7 @@ lockfile, доказательство — вывод `npm ls sharp` без не
 
 ## Д-102. `search_knowledge` читает все `.md` на каждый вызов
 
-**Статус:** открыт. Закроет фаза 4.
+**Статус:** **закрыт** фазой 4 программы (`f0d7a93`). Замер до и после ниже.
 
 `searchKnowledge` (`src/mcp-stdio.mjs:4548-4565`) на каждый вызов перечисляет все `.md`
 хранилища и читает каждый целиком. Индекс, по которому `search_all` отвечает за десятки
@@ -1506,6 +1561,23 @@ search_knowledge "testing"        2 066 мс
 ```
 seed (614 skills, 525 файлов .md без Membrane):    медиана 233 мс, p90 248 мс
 полный каталог 2.x (4 189 файлов, 3 228 skills):   медиана 439 мс, p90 505 мс
+```
+
+**Как закрыт.** `search_knowledge` считает ту же оценку (каждое слово вопроса в пути или первых
+8 000 символах — 1, весь вопрос — ещё 3) по документам индекса, а не по файлам
+(`src/core/search-knowledge.mjs`). Пониженный текст и превью каждого документа кэшируются по его
+хешу содержимого; Membrane и файлы проектов вне хранилища, как и раньше, не участвуют. Формат
+ответа прежний — `{ path, score, preview }`, лучшие первыми, равные по пути. Что изменилось: текстом
+skill считаются его запись в реестре и карточка, а не все файлы под `sources/`, и сгенерированные
+папки, которых нет в индексе, нет и здесь. Свежесть — как у остальных инструментов поиска: правка
+через сервер видна сразу, правка снаружи — не позже чем через секунду (вердикт свежести доверяется
+одну секунду, так было и в 2.x).
+
+**Замер после** (`b1d7b46`, тёплый сервер по MCP, те же 15 вопросов по два раза, без Python):
+
+```
+seed:                  медиана 3 мс, p90 4 мс     (было 233 и 248)
+полный каталог 2.x:    медиана 10 мс, p90 18 мс   (было 439 и 505)
 ```
 
 ---
@@ -1978,9 +2050,9 @@ search_all("code review") → 10 результатов; рядом лежит a
 
 ## Д-117. Прописные AND, OR, NOT в вопросе ломают поиск по словам
 
-**Статус:** открыт наполовину. Поиск по словам (`search_all`, `search_notes`, `search_projects`,
-`search_skill_registry`) **закрыт** фазой 3 — он переехал на Node; ключевая половина `hybrid_search`
-закроется фазой 4, вместе с переездом hybrid. Нашёлся в фазе 3, при переносе запроса.
+**Статус:** **закрыт**: поиск по словам (`search_all`, `search_notes`, `search_projects`,
+`search_skill_registry`) — фазой 3, ключевая половина `hybrid_search` — фазой 4 (`f0d7a93`), вместе
+с переездом hybrid на Node. Нашёлся в фазе 3, при переносе запроса.
 
 `fts_query` в `search-index/search_cli.py` превращает вопрос в запрос FTS5 из голых слов:
 `frontend AND backend` → `frontend* AND* backend*`. Для FTS5 прописные `AND`, `OR`, `NOT` и
@@ -2014,6 +2086,13 @@ search_all("code AND review") → 10 результатов
 ```
 
 `hybrid_search` в фазе 3 ещё питоновский, и его ключевая половина на таких вопросах по-прежнему 0.
+
+**Замер после фазы 4.** Hybrid на Node строит ключевую половину тем же запросом, что поиск по
+словам. По MCP (`b1d7b46`, seed, без Python): `hybrid_search("frontend AND backend testing",
+dense_weight 0)` → 10 результатов, у 7 `keyword_score` больше нуля (было 0 у всех десяти). Во всём
+остальном hybrid на Node отвечает как помощник: `npm run search:parity` — на seed и на полном каталоге
+2.x (3 443 документа) 385 из 385 ответов совпадают поле в поле, с синтетическими dense-векторами — 85
+из 85; вопросы с `AND`/`OR`/`NOT`/`NEAR` — единственное, где ответы расходятся, и намеренно.
 
 ---
 
@@ -2562,7 +2641,7 @@ read-only инструменты поиска через автоматичес�
 
 ## Д-133. `embed_texts` всегда идёт в legacy-бэкенд на Python, даже когда выбрана ONNX-модель
 
-**Статус:** открыт. Нашёлся в фазе 4 программы, при замере инструментов поиска без Python.
+**Статус:** **закрыт** в фазе 4. Нашёлся в ней же, при замере инструментов поиска без Python.
 
 `embed_texts` (`src/extensions/search.mjs:504`) зовёт `host.embeddings.embedTexts` — пул
 legacy-воркеров на Python (`src/core/embedding-workers.mjs`) — мимо `host.dense`, который выбирает
@@ -2587,9 +2666,17 @@ ONNX выбран и доступен:  embed_texts → ERROR BGE-M3 Python runt
 По MCP без Python и без модели (`measure2.mjs`, чистая копия seed): `embed_texts` → «BGE-M3 Python
 runtime not found: …/embeddings/.venv/bin/python».
 
-**Как закроется.** В фазе 4: `embed_texts` спрашивает `host.dense`, какой бэкенд выбран; ONNX
-считает через него, legacy-пул остаётся только когда выбран Python, а без бэкенда ответ — причина
-выбора с командой установки.
+**Как закрыт** (`9a01449`). `embed_texts` спрашивает `host.dense`, какой бэкенд выбран: ONNX считает
+через него, legacy-пул остаётся только когда выбран Python, а без бэкенда ответ — причина выбора с
+командой установки. Тест — `src/extensions/search.test.mjs`.
+
+**Замер после** (та же проба `d133.mjs`, затем по MCP без Python и без модели):
+
+```
+ONNX выбран и доступен:  embed_texts → {"ok":true,"backend":"onnx","embeddings":[[0.6,0.8]]} | ONNX backend called 1 time(s)
+бэкенда нет:             embed_texts → ERROR Dense search is not installed. Run `npm run setup -- --dense` to download the model (no Python needed).
+по MCP:                  embed_texts → «Dense search is not installed. Run `npm run setup -- --dense` …»
+```
 
 ---
 

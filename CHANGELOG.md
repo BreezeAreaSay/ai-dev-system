@@ -9,32 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **The search index, its status and keyword search run in Node**
+- **All of search runs in Node, and Python is optional** (`docs/DEFECTS.md`, Д-85, Д-102;
+  the Python part of Д-98). The index, its status and keyword search
   (`src/core/search-store.mjs`, `search-query.mjs`, `search-documents.mjs`,
-  `search-semantic.mjs`). On Node 22.16+ and 24+, `search_all`, `search_notes`,
-  `search_projects`, `search_skill_registry`, `search_index_status`,
-  `rebuild_search_index`, `prepare_project` and `refresh_project_memory` need no
-  Python, and `npm run setup` without Python builds every step (Health then fails only
-  `hybrid_smoke_no_dense`; hybrid search, the galaxy export and
-  `query_ui_ux_knowledge` move in the next phase). The file stays what the Python
-  helper wrote — a Node rebuild of the public seed equals the Python one in every
-  table — so the helper's hybrid search reads it unchanged, and a 2.x index, dense
-  vectors and all, is read as current without a rebuild. Measured over MCP on the
-  seed (3,444 documents): warm `search_all` median 2 ms (was 69), with its freshness
-  check 26 ms (was 540), a full rebuild 2.6–3.5 s (was 5.0–5.3), a search right
-  after a note changed 0.23 s (was 6.0: the index is now refreshed in place, only
-  the changed documents rewritten). WAL and a cross-process rebuild lock that honours
-  `AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT` — held around the Python helper's writes as well, and
-  refreshed while held so a holder killed mid-rebuild frees it within a minute — let several
-  clients share the index; the
-  `node:sqlite` ExperimentalWarning is suppressed and no other warning is.
-  `search_index_status` and `rebuild_search_index` say which engine answered
-  (`engine`, `engine_reason`).
-- **`npm run search:parity -- --vault <dir>`** — builds the index with both engines,
-  compares the files row by row, and runs the golden cases of `search-eval/*.json`
-  and 300 document titles through both keyword searches and the hybrid search over
-  both files, explaining every discrepancy. On the public seed: the files are equal,
-  top-3 and top-k identical in 85 of 85, 300 of 300 and 85 of 85.
+  `search-semantic.mjs`), hybrid search (`search-hybrid.mjs`), `search_knowledge`
+  (`search-knowledge.mjs`), the knowledge galaxy's export (`galaxy-export.mjs`) and the
+  dense vectors' plan and write run on `node:sqlite` (Node 22.16+, 24+); the Python helper
+  `search-index/search_cli.py` is gone. On a machine without Python `npm ci`, `npm run setup`
+  (4 built, 0 failed), `npm run doctor` (`ok`, 24 checks) and the protocol smoke pass, and
+  all thirteen search tools, `search_knowledge`, `render_knowledge_galaxy`,
+  `prepare_project` and `refresh_project_memory` answer; a CI job runs exactly that on
+  Linux, macOS and Windows with every interpreter taken off `PATH`
+  (`scripts/no-python-check.mjs`). Python is left to `query_ui_ux_knowledge` and
+  `generate_ui_ux_design_system`, which run the UI UX Pro Max dataset's own script — without
+  it they say what to install and the health check reports `ui_ux_knowledge` as skipped —
+  and to the legacy dense backend. The file stays what the 2.x helper wrote, so a 2.x index,
+  dense vectors and all, is read as current without a rebuild, and a 2.x server rolled back
+  reads what Node wrote. Measured over MCP: warm `search_all` median 2 ms (was 69), with its
+  freshness check 26 ms (was 540); a full rebuild of 3,444 documents 2.6–3.5 s (was
+  5.0–5.3); a search right after a note changed 0.23 s (was 6.0: refreshed in place);
+  `hybrid_search` without dense 11 ms on the seed and 21 ms on the full 2.x catalogue (was
+  141 and 316, one Python process per call); `search_knowledge` 3 and 10 ms (was 233 and
+  439, every `.md` read per call); `run_search_eval` 38 of 45 in 0.7 s on the seed (was 38 of
+  45 and 45 Python processes). WAL and a cross-process rebuild lock that honours
+  `AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT`, refreshed while held so a holder killed mid-rebuild
+  frees it within a minute, let several clients share the index; the `node:sqlite`
+  ExperimentalWarning is suppressed and no other warning is.
+- **`npm run search:parity -- --vault <dir>`** — takes the 2.x helper from git history and
+  builds the index with it and with Node, compares the files row by row, runs the golden
+  cases of `search-eval/*.json` and 300 document titles through both keyword searches and
+  both hybrid searches (answer for answer, then again with synthetic dense vectors), and
+  compares the galaxy export byte for byte, explaining every discrepancy. On the public
+  seed: the files and the galaxy export are equal; keyword top-k identical in 85 of 85 and
+  300 of 300; hybrid answers identical field for field in 385 of 385, and in 85 of 85 with
+  dense vectors.
 
 - **`npm run upgrade:test` — a 2.x install upgraded in place** (`docs/UPGRADE-TEST.md`).
   It checks the production 2.x commit out into a git worktree, has the 2.x server
@@ -248,9 +256,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `^22.16.0 || >=24.0.0`, the CI floor job runs 22.16, `dense:doctor` names 22.16.
   `node:sqlite` is unflagged from 22.13, but measured on the release builds its SQLite
   has no FTS5 in 22.13–22.15 and 23.x, and the index is an FTS5 table. On such a
-  Node — or with `AI_DEV_SEARCH_ENGINE=python`, the way back — search runs through
-  the Python helper exactly as in 2.x. `.nvmrc` stays `22`, which nvm resolves to the
-  newest 22.x. Upgrading from a 2.x older than the Д-91 fix: the first rebuild drops
+  Node the server starts, and every search tool answers with the Node version it needs.
+  `.nvmrc` stays `22`, which nvm resolves to the newest 22.x. Upgrading from a 2.x older than the Д-91 fix: the first rebuild drops
   the vectors 2.x had embedded for Membrane's connectors, as Д-91 intends, and keeps
   every other one.
 
@@ -336,6 +343,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   READMEs and the ten documents behind them cover what the two READMEs did,
   the local-first install path and the local model in a container included.
 
+### Removed
+
+- **The Python search helper** — `search-index/search_cli.py`, its `unittest` suite
+  (`test_search_freshness.py`, now `src/core/search-freshness.test.mjs`) and
+  `npm run test:search-helper` — and with them the Docker image's
+  `/opt/ai-dev/search-index` and its link in the `/data` volume, which nothing reads any
+  more. A 2.x volume keeps a dangling `09-mcp/search-index` link, which the index skips.
+  `AI_DEV_SEARCH_ENGINE`, the way back to the helper that the previous phase added, never
+  shipped and is gone too. `scripts/run-acceptance.ps1` no longer runs Python tests.
 
 ### Fixed
 
@@ -344,10 +360,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   left by a process that died — a container killed mid-refresh on a shared volume — held
   every other refresh for half an hour; now the holder refreshes the lock every 10 s, one not
   refreshed for a minute is abandoned whatever host it names, and a process exiting on a
-  signal removes its locks (a dead container's lock: 13 ms, was a timeout). A Python-engine
-  write took no part in the Node lock (now it waits for it: 1.6 s behind a 1.5 s holder, was
-  105 ms); a foreign writer froze the event loop inside `busy_timeout` and then failed the
-  refresh (now 0.56 s with the loop turning, was 10.0 s and "database is locked"); the
+  signal removes its locks (a dead container's lock: 13 ms, was a timeout). A foreign writer
+  froze the event loop inside `busy_timeout` and then failed the refresh (now 0.56 s with the loop turning, was 10.0 s and "database is locked"); the
   checkpoint after a full rewrite waited out any reader on an old snapshot (39 ms, was
   10.1 s).
 - **Windows: a damaged index is replaced even while another client has it open, and
@@ -380,9 +394,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per id is kept.
 - **One unreadable `.md` no longer aborts the index** (Д-115): a broken symlink, or a
   folder named `*.md` among the project cards, ended `rebuild` and `status` alike.
-- **AND, OR, NOT and NEAR in capitals are words in keyword search** (Д-117): "frontend
-  AND backend testing" was an FTS5 syntax error and found nothing. Hybrid search's
-  keyword half follows in the next phase.
+- **AND, OR, NOT and NEAR in capitals are words in keyword and hybrid search** (Д-117):
+  "frontend AND backend testing" was an FTS5 syntax error, found nothing by keyword, and
+  left hybrid search ranking by its semantic half alone (keyword score 0 for all ten
+  results; now 7 of 10 score on keywords).
+- **`embed_texts` embeds through the backend the server selected** (Д-133). It always
+  called the legacy Python worker pool, so with the ONNX model installed and no legacy
+  virtualenv it refused with "BGE-M3 Python runtime not found"; with no model at all it
+  now answers with the command that installs one, as hybrid search and the rebuild do.
+- **Dense vectors asked for with no model that can run are refused, not attempted with
+  an interpreter that is not there** (the Python part of Д-98). `rebuild_search_index`
+  with `dense_embeddings` handed the write to `embeddings/.venv/bin/python` whenever the
+  ONNX export was missing — "spawn …/.venv/bin/python ENOENT"; it now answers "Dense
+  search is not installed. Run `npm run setup -- --dense` …" and leaves the index as it
+  was. The manager that downloads and resumes the model is the next phase.
 - **What the second review of the Node index found is fixed** (`docs/DEFECTS.md`, Д-127 … Д-132).
   A refresh that both changed a note and added one fell back to rewriting the whole index (7 of
   8 trials; 731 ms instead of 60 ms on the seed) — changed documents now go back to their rowids

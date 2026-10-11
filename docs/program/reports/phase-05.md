@@ -58,15 +58,15 @@ PR: — работа идёт прямо в `main` форка по указан�
 | При 503 загрузка проходит со второго источника | `download-probe.mjs` (b, b2); тест `a source answering 503 hands over …` | два источника, первый 503 → ready, второй — 4 запроса; зеркало при мёртвом источнике манифеста → ready | ✅ |
 | Без модели hybrid работает без dense, ни одного spawn python | `probes.mjs`: пользователь 2.x с `AI_DEV_DENSE_BACKEND=python`, Python на PATH — подставной, считает вызовы | `hybrid_search` — 5 результатов, dense-оценок 0; вызовов Python на `embedding_status`, `hybrid_search`, `embed_texts`, `rebuild_search_index`, `validate_skill_library` — 0 (потом `system_health_check` — один `python3 --version`: проверка инструментов UI UX, Д-139) | ✅ |
 | Сквозной тест на синтетике зелёный | `node --test scripts/model-e2e.test.mjs` | 2 из 2: import из zip → 4 заметки с вектором → по MCP hybrid «sql database query» — первым `persistence.md`, dense_score > 0,9; remove → поиск по словам работает, `embed_texts` отказывает с командой | ✅ |
-| `check`, `acceptance`, `upgrade:test` зелёные | раздел 4 | check — 1 548 тестов, 0 упали; acceptance — прогон на `b734589` идёт; upgrade:test — 88 из 88 на `7793128`, прогон на `b734589` — после acceptance | ✅ |
+| `check`, `acceptance`, `upgrade:test` зелёные | раздел 4 | check — 1 548 тестов, 0 упали; acceptance — «0 падений из 10» на `b734589`; upgrade:test — 88 из 88 на `b734589` | ✅ |
 | В чек-лист владельца: настоящая загрузка, обрыв и докачка, время эмбеддинга, dense smoke, RSS | — | раздел 8 | ✅ |
 
 ### 4. Проверки
 
 - `npm run check` на `b734589`: exit 0; 1 548 тестов, 1 531 прошёл, 0 упали, 17 пропущены; покрытие строк 97,66 %;
   52 с (в конце фазы 4 — 1 521 тест, 97,51 %).
-- `npm run acceptance`: `72b986a` — «0 падений из 10» (54–61 с); `7793128` — «1 падений из 10», тест свежести реестра (Д-159, исправлен); на `b734589` прогон идёт.
-- `npm run upgrade:test`: 88 из 88 за 108 с на `7793128` (под нагрузкой acceptance); прогон на `b734589` — после acceptance. Четыре пользователя: по умолчанию, `AI_DEV_HOME`,
+- `npm run acceptance`: «0 падений из 10» на итоговом `b734589` (прогоны 50–56 с, без параллельной нагрузки). До него: `72b986a` — «0 падений из 10» (54–61 с); `7793128` — «1 падений из 10» под нагрузкой (параллельно шли `upgrade:test` и пробы): тест свежести реестра skills (Д-159, исправлен).
+- `npm run upgrade:test`: 88 из 88 за 103 с на `b734589` (и 88 из 88 за 108 с на `7793128` под нагрузкой acceptance). Четыре пользователя: по умолчанию, `AI_DEV_HOME`,
   том Docker и новый — на Python-бэкенде: его векторы целы и ждут пересчёта («0 of the current model, 3444 of another»),
   `embedding_status` называет каждую настройку 2.x и команду, health — warn, hybrid отвечает без них, а советуемая
   команда `npm run setup -- --dense` с локального зеркала пересчитывает 365 из 365, индекс цел. Векторы ONNX 2.x

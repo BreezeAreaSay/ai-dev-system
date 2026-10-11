@@ -624,6 +624,18 @@ Health: fail — 23 check(s), 1 not passing.
 нужен Python: `hybrid_search`, `preset_search`, `explain_search`, `run_search_eval` (0 из 45, все на
 hybrid), `render_knowledge_galaxy`, `query_ui_ux_knowledge` — их и закрывает фаза 4.
 
+**Замер до фазы 4** (2026-10-11, `babb7e2`, чистая копия seed, `PATH` — только каталог `node`; по MCP):
+
+```
+hybrid_search, preset_search, explain_search, render_knowledge_galaxy, query_ui_ux_knowledge
+                                       → spawn python3 ENOENT
+run_search_eval                        → status fail, 0 из 45
+search_all, search_notes, search_projects, search_skill_registry, search_index_status,
+rebuild_search_index, list_search_presets, embedding_status, search_knowledge → отвечают
+с Python: hybrid_search без dense — медиана 141 мс и один процесс Python на вызов
+  (полный каталог 2.x — 316 мс); run_search_eval — 38 из 45, 45 процессов Python, 6,3 с
+```
+
 ---
 
 ## Д-86. `npm install` без `--ignore-scripts` падает на postinstall onnxruntime-node
@@ -1269,6 +1281,11 @@ What to do: Run `npm run setup -- --dense` to download the model (about 600 MB, 
 зеркала, прокси, прогресс, и вместо тихого фолбэка — ясная ошибка «модель не установлена,
 выполните …».
 
+**Замер до фазы 4 по коду** (`babb7e2`, `src/core/search-index.mjs`): `rebuild_search_index` с
+`dense_embeddings` при недоступном ONNX по-прежнему отдаёт запись Python-хелперу с
+legacy-интерпретатором — `command: dense_embeddings && !useOnnx ? embeddingPythonCommand() :
+pythonCommand()`. Без `embeddings/.venv` это `spawn …/.venv/bin/python ENOENT`.
+
 ---
 
 ## Д-99. Docker: векторы документов не строятся, веса внутри не скачать, `cp -n` не обновляет seed
@@ -1481,6 +1498,15 @@ search_knowledge "testing"        2 066 мс
 
 **Как закроется.** Фаза 4: `search_knowledge` идёт через индекс, формат ответа прежний; цель —
 не дольше 100 мс.
+
+**Замер до фазы 4** (2026-10-11, `babb7e2`, тёплый сервер по MCP, 15 вопросов по два раза).
+Д-91 в фазе 2 убрал из перебора 3 074 коннектора Membrane, а урезание каталога — ещё больше
+файлов, поэтому секунд уже нет, но каждый вызов по-прежнему читает все `.md`:
+
+```
+seed (614 skills, 525 файлов .md без Membrane):    медиана 233 мс, p90 248 мс
+полный каталог 2.x (4 189 файлов, 3 228 skills):   медиана 439 мс, p90 505 мс
+```
 
 ---
 

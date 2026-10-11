@@ -107,8 +107,9 @@ test("error details survive non-Error throws", () => {
   assert.deepEqual(healthErrorDetails("plain"), { message: "plain", name: "Error" });
 });
 
-test("recommendations name every failure and warning, plus the dense smoke hint", () => {
+test("recommendations name every failure and warning, plus the dense smoke hint where the model runs", () => {
   const recommendations = healthRecommendations([
+    { name: "embedding_backend", status: "ok", summary: "ready" },
     { name: "dense_smoke", status: "skipped", summary: "skipped" },
     { name: "search_smoke", status: "fail", summary: "no results" },
     { name: "required_notes", status: "warn", summary: "1 missing" },
@@ -119,6 +120,10 @@ test("recommendations name every failure and warning, plus the dense smoke hint"
   assert.equal(recommendations[1], "Fix failed check: search_smoke - no results");
   assert.equal(recommendations[2], "Review warning: required_notes - 1 missing");
   assert.deepEqual(healthRecommendations([{ name: "dense_smoke", status: "ok", summary: "ran" }]), []);
+  // Д-147: without the model the advice only turned a healthy install into a failure.
+  for (const backend of [[], [{ name: "embedding_backend", status: "skipped", summary: "not installed" }]]) {
+    assert.deepEqual(healthRecommendations([...backend, { name: "dense_smoke", status: "skipped", summary: "skipped" }]), []);
+  }
 });
 
 test("health report records checks in order, turns throws into failures, and finishes", async () => {
@@ -385,6 +390,9 @@ test("smoke checks require results, and the dense smoke requires dense scores", 
   assert.deepEqual(Object.keys(evaluateDenseSmoke(results).details.results[0]), ["title", "path", "score", "dense_score"]);
   assert.equal(evaluateDenseSmoke([{ ...results[0], dense_score: 0 }]).status, "fail");
   assert.equal(evaluateDenseSmoke([]).status, "fail");
+  const unavailable = evaluateDenseSmoke([], { unavailable: "Dense search is not installed: the model is not on this machine. Run `npm run setup -- --dense` …" });
+  assert.equal(unavailable.status, "fail", "asked for, and it cannot run");
+  assert.match(unavailable.summary, /^Dense search cannot run here, so the smoke test had nothing to test\. Dense search is not installed: .*npm run setup -- --dense/);
 });
 
 test("search eval check maps eval status and lists failed cases", () => {

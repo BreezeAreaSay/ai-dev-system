@@ -150,7 +150,10 @@ export function healthErrorDetails(err) {
  */
 export function healthRecommendations(checks) {
   const recommendations = [];
-  if (checks.some((check) => check.name === "dense_smoke" && check.status === "skipped")) {
+  // Only where the model runs: elsewhere the advice turned a healthy install
+  // without the optional model into a failure (docs/DEFECTS.md, Д-147).
+  const denseRuns = checks.some((check) => check.name === "embedding_backend" && check.status === "ok");
+  if (denseRuns && checks.some((check) => check.name === "dense_smoke" && check.status === "skipped")) {
     recommendations.push("Run system_health_check with include_dense_smoke=true after MCP restarts or embedding changes.");
   }
   for (const check of checks) {
@@ -618,14 +621,17 @@ export function evaluateHybridSmoke(results) {
 
 /**
  * @param {object[]} results - Hybrid smoke search results run with dense weighting.
+ * @param {{ unavailable?: string }} [options] - Why the model cannot run, when it cannot.
  */
-export function evaluateDenseSmoke(results) {
+export function evaluateDenseSmoke(results, { unavailable = "" } = {}) {
   const hasDense = results.some((item) => Number(item.dense_score) > 0);
   return {
     status: results.length && hasDense ? "ok" : "fail",
     summary: results.length && hasDense
       ? `Dense hybrid search returned ${results.length} result(s) with dense scores.`
-      : "Dense hybrid search did not return dense-scored results.",
+      : unavailable
+        ? `Dense search cannot run here, so the smoke test had nothing to test. ${unavailable}`
+        : "Dense hybrid search did not return dense-scored results.",
     details: {
       results: results.map((item) => ({
         title: item.title,

@@ -3170,6 +3170,36 @@ f228435  embedding_status.reason и embed_texts → «Dense search is not instal
 
 ---
 
+## Д-147. Проверка здоровья советует dense smoke машине без модели, а сам smoke падает без причины
+
+**Статус:** открыт. Нашёлся пробой фазы 5 (проверка здоровья у пользователя 2.x без модели); закроет она же.
+
+`healthRecommendations` (`src/core/system-health.mjs`) советует «Run system_health_check with
+include_dense_smoke=true …» всякий раз, когда dense smoke пропущен, — и там, где модели нет. Кто последует
+совету (`npm run doctor -- --dense-smoke`), получает вместо `ok` статус `fail` с единственной фразой «Dense
+hybrid search did not return dense-scored results.»: ни что модели нет, ни что с этим делать. Причину знает
+соседняя проверка `embedding_backend`, но smoke её не спрашивает.
+
+**Чем грозит.** Здоровая установка без модели (обычное состояние: модель необязательна, Д-59) по совету самой
+проверки становится «fail», и человек ищет поломку, которой нет, — та же петля «совет ведёт к той же
+ошибке», что Д-98 закрывает для `dense:doctor`.
+
+**Замер до** (`13bb95d` и `49a2849` одинаково; пустой HOME, модели нет, индекс построен поиском):
+
+```
+system_health_check {include_dense_smoke: false} → ok; dense_smoke skipped;
+    recommendations: «Run system_health_check with include_dense_smoke=true after MCP restarts or embedding changes.»
+system_health_check {include_dense_smoke: true}  → fail; dense_smoke fail: «Dense hybrid search did not return
+    dense-scored results.»
+```
+
+**Как закроется.** Совет — только когда `embedding_backend` говорит, что модель работает. Smoke, о котором
+попросили там, где модель работать не может, по-прежнему `fail` (просили проверить BGE-M3 — он не работает;
+ожидание `docs/RETEST.ru.md` #66 «выполняется, а не skipped» сохраняется), но говорит почему: причина и
+команда из `embedding_status`.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

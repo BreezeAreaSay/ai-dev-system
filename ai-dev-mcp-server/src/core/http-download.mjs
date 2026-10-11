@@ -160,6 +160,27 @@ function proxyAuthorization(proxy) {
   return { "proxy-authorization": `Basic ${Buffer.from(credentials).toString("base64")}` };
 }
 
+/**
+ * What a 407 asks of the person. A proxy that offers only NTLM, Negotiate or
+ * Kerberos cannot be answered with a password in its URL, however many times
+ * it is typed there; one that offers Basic and still refuses did not take the
+ * one given.
+ *
+ * @param {URL} proxy
+ * @param {string|string[]|undefined} challenge - `Proxy-Authenticate`.
+ * @returns {string}
+ */
+function signInHint(proxy, challenge) {
+  const schemes = [challenge ?? []].flat().join(",").toLowerCase();
+  if (schemes && !/\bbasic\b/.test(schemes)) {
+    const named = /negotiate|kerberos/.test(schemes) ? "Negotiate (Kerberos)" : /ntlm/.test(schemes) ? "NTLM" : "a sign-in";
+    return ` The proxy asks for ${named}, which this download does not speak: point HTTPS_PROXY at a local proxy that `
+      + "signs in for it (cntlm, px), or copy the model from a machine that has it: `npm run model -- import <folder or .zip>`.";
+  }
+  if (proxy.username || proxy.password) return " The proxy did not accept the user name and password in the proxy URL.";
+  return " The proxy wants credentials: put them in the proxy URL, as http://user:password@host:port.";
+}
+
 /** A proxy named without its credentials, for messages. */
 function describeProxy(proxy) {
   return `${proxy.protocol}//${proxy.host}`;
@@ -231,9 +252,7 @@ function tunnel(proxy, host, port, signal) {
       if (response.statusCode !== 200) {
         socket.destroy();
         const status = response.statusCode;
-        const hint = status === 407
-          ? " The proxy wants credentials: put them in the proxy URL, as http://user:password@host:port."
-          : "";
+        const hint = status === 407 ? signInHint(proxy, response.headers["proxy-authenticate"]) : "";
         const refused = new Error(`the proxy ${describeProxy(proxy)} refused to connect to ${authority(host, port)} (HTTP ${status}).${hint}`);
         refused.proxyRefusal = true;
         refused.status = status;

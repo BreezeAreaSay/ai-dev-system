@@ -255,6 +255,30 @@ test("semantic duplicate refinement is off by default and reaches the embedder w
   assert.equal(semantic.duplicates.semantic_evaluated, 0);
 });
 
+test("near duplicates are confirmed by the model, and without it keep their lexical verdict and say why (Д-144)", async (t) => {
+  const copy = registryItem({ name: "feature-builder-copy", path: "custom/feature-builder-copy/SKILL.md" });
+  const { registry, calls, host, vaultRoot } = await createFixture(t, { skills: [registryItem(), copy] });
+  const folder = path.join(vaultRoot, "03-skills-catalog", "sources", "custom", "feature-builder-copy");
+  await fs.mkdir(folder, { recursive: true });
+  await fs.writeFile(path.join(folder, "SKILL.md"), SKILL_MARKDOWN.replace(/feature-builder/g, "feature-builder-copy"), "utf8");
+  const args = { include_semantic_duplicates: true, duplicate_threshold: 0.5, write_report: false };
+
+  const confirmed = await registry.handlers.get("validate_skill_library")(args);
+  assert.equal(confirmed.duplicates.semantic_evaluated, 1);
+  assert.equal(confirmed.duplicates.near[0].semantic_confirmed, true);
+  assert.deepEqual(calls.filter(([name]) => name === "embedTexts"), [["embedTexts", 2]]);
+
+  host.embedTexts = async () => {
+    throw new Error("Dense search is not installed: the model is not on this machine. Run `npm run setup -- --dense` to download it.");
+  };
+  const lexical = await registry.handlers.get("validate_skill_library")(args);
+  assert.equal(lexical.duplicates.semantic_evaluated, 0);
+  assert.equal(lexical.duplicates.near.length, 1, "the lexical pair stands");
+  assert.equal(lexical.duplicates.near[0].semantic_confirmed, undefined);
+  assert.match(lexical.duplicates.semantic_unavailable, /^Dense search is not installed/);
+  assert.ok(lexical.summary ?? lexical.status, "and the report itself is there");
+});
+
 test("duplicate analysis can be turned off entirely", async (t) => {
   const { registry } = await createFixture(t);
   const result = await registry.handlers.get("validate_skill_library")({ include_duplicates: false, write_report: false });

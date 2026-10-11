@@ -31,7 +31,6 @@ package() {
   cp -a \
     ai-dev-mcp-server \
     docker \
-    embeddings \
     frontend-qa \
     search-eval \
     bootstrap.sh \

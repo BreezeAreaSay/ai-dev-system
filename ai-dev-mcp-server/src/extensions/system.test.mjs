@@ -158,11 +158,13 @@ async function createFixture(t) {
       summary: { passed: 2, failed: 0, skipped: 0 }, cases: []
     }),
     embeddingStatus: async () => ({
-      backend: "bge-m3-local", dense_model: "BAAI/bge-m3", dense_dimensions: 1024, configured_device: "cpu",
-      paths: {}, workers: { count: 1, states: [] },
-      availability: Object.fromEntries([
-        "search_index", "embeddings_python", "embed_helper", "worker_helper", "model_dir", "model_file", "modules_file"
-      ].map((key) => [key, { exists: true }]))
+      backend: "onnx", dense_model: "BAAI/bge-m3", dense_dimensions: 1024, model_dir: "/models/bge-m3-onnx",
+      installed: true, available: true, partial: [], worker: { started: false },
+      dense_backend: {
+        backend: "onnx", available: true, reason: "The verified ONNX export is on disk; no Python is involved.",
+        onnx: { ready: true, dir: "/models/bge-m3-onnx", export: "Xenova/bge-m3", revision: "4de13258303883538bd53b696b452bf8099f0858", dtype: "int8", missing: [], mismatched: [] },
+        legacy: { notes: [], command: "" }
+      }
     }),
     frontendQaEnvironmentStatus: async () => ({
       playwright_available: true, chromium_available: true, browser_launch_ok: true, playwright_source: "vault"

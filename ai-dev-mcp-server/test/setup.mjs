@@ -25,7 +25,7 @@ process.env.AI_DEV_STATE_ROOT = path.join(stateHome, "state");
 process.env.AI_DEV_SEARCH_INDEX_DIR = path.join(stateHome, "cache", "search-index");
 process.env.AI_DEV_FRONTEND_QA_ARTIFACT_ROOT = path.join(stateHome, "artifacts", "frontend-qa");
 process.env.AI_DEV_ARCHIFY_ARTIFACT_ROOT = path.join(stateHome, "artifacts", "archify");
-process.env.BGE_M3_MODEL_DIR = path.join(stateHome, "models", "bge-m3");
+process.env.BGE_M3_ONNX_DIR = path.join(stateHome, "models", "bge-m3-onnx");
 
 // Python helpers must never drop __pycache__/*.pyc into the repo or the seed.
 process.env.PYTHONDONTWRITEBYTECODE = "1";

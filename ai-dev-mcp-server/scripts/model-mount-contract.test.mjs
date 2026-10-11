@@ -176,6 +176,13 @@ test("the built proxy mounts the folder above the models at /models and refuses 
   await fs.mkdir(empty);
   const warned = await runProxy(built, empty);
   assert.equal(warned.status, 0, warned.stderr);
-  assert.match(warned.stderr, /holds neither bge-m3-onnx/);
+  assert.match(warned.stderr, /holds no bge-m3-onnx/);
   assert.match(warned.recorded, /target=\/models,readonly/);
+
+  // Only the removed Python backend's weights: said as that (Д-158).
+  const legacy = path.join(built.work, "legacy");
+  await fs.mkdir(path.join(legacy, "bge-m3"), { recursive: true });
+  const named = await runProxy(built, legacy);
+  assert.equal(named.status, 0, named.stderr);
+  assert.match(named.stderr, /holds bge-m3\\, the weights of the Python backend 3\.0 removed, and no bge-m3-onnx\\; .*npm run model -- install --dir /);
 });

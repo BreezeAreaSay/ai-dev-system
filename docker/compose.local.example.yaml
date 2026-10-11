@@ -25,6 +25,6 @@ services:
       # of starting the image agrees; scripts/model-mount-contract.test.mjs holds
       # them to it.
       # - type: bind
-      #   source: ${AI_DEV_MODEL_PATH:?Set AI_DEV_MODEL_PATH to the folder holding bge-m3-onnx/ and/or bge-m3/}
+      #   source: ${AI_DEV_MODEL_PATH:?Set AI_DEV_MODEL_PATH to the folder holding bge-m3-onnx/}
       #   target: /models
       #   read_only: true

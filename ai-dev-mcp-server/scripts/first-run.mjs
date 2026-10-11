@@ -312,7 +312,12 @@ const results = await runFirstRunPlan(
 console.log("");
 console.log(renderFirstRunReport(results));
 
-if (options.health) {
+if (cancelled) {
+  // A stop is not a fault, and a health check after it says nothing new
+  // (docs/DEFECTS.md, Д-158).
+  console.log("");
+  console.log("Stopped with Ctrl-C. What was done is kept; run setup again to continue from there.");
+} else if (options.health) {
   console.log("");
   const health = await callTool("system_health_check", {
     include_search_smoke: true,

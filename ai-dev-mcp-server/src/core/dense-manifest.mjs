@@ -308,7 +308,7 @@ export function describeDenseModelDirectory(status) {
  * ranking. Everything that can change the numbers goes in the key.
  *
  * @param {object} manifest
- * @param {string} backend - "onnx" or "python".
+ * @param {string} backend - "onnx", the one backend since 3.0; a 2.x index may also hold "python".
  * @returns {{ backend: string, model: string, revision: string, dtype: string, dimensions: number }}
  */
 export function denseVectorProvenance(manifest, backend) {

@@ -60,7 +60,7 @@ test("the folder above the models is mounted read-only as /models", async (conte
     assert.equal(result.status, 0, result.stderr);
     const realModels = await fs.realpath(models);
     assert.ok(result.recorded.includes(`type=bind,source=${realModels},target=/models,readonly`), `mount missing from: ${result.recorded}`);
-    assert.doesNotMatch(result.stderr, /holds neither/);
+    assert.doesNotMatch(result.stderr, /holds (?:no bge-m3-onnx|bge-m3[\\/],)/);
   } finally {
     await fs.rm(models, { recursive: true, force: true });
   }
@@ -72,8 +72,21 @@ test("a model folder with no model in it launches, and says why dense will be mi
     const result = await launchWithModelPath(models, context);
     if (result === null) return;
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /holds neither bge-m3-onnx\/ nor bge-m3\//);
+    assert.match(result.stderr, /holds no bge-m3-onnx\/; dense search will report that it is not set up/);
     assert.match(result.recorded, /target=\/models,readonly/);
+  } finally {
+    await fs.rm(models, { recursive: true, force: true });
+  }
+});
+
+test("a model folder with only the removed Python backend's weights is named as that (Д-158)", async (context) => {
+  const models = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-"));
+  await fs.mkdir(path.join(models, "bge-m3"));
+  try {
+    const result = await launchWithModelPath(models, context);
+    if (result === null) return;
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stderr, /holds bge-m3\/, the weights of the Python backend 3\.0 removed, and no bge-m3-onnx\/; .*npm run model -- install --dir .*bge-m3-onnx/);
   } finally {
     await fs.rm(models, { recursive: true, force: true });
   }
@@ -160,7 +173,7 @@ test("the PowerShell launcher mounts the folder above the models read-only as /m
     assert.ok(mount, `mount missing from: ${result.recorded}`);
     // Resolve-Path keeps a symlinked temp directory as written; sh's realpath does not.
     assert.ok([models, await fs.realpath(models)].includes(mount[1]), `unexpected mount source ${mount[1]}`);
-    assert.doesNotMatch(result.stderr, /holds neither/);
+    assert.doesNotMatch(result.stderr, /holds (?:no bge-m3-onnx|bge-m3[\\/],)/);
   } finally {
     await fs.rm(models, { recursive: true, force: true });
   }
@@ -172,7 +185,7 @@ test("the PowerShell launcher warns about a model folder with no model in it, an
     const result = await launchPowerShellWithModelPath(models, context);
     if (result === null) return;
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /holds neither bge-m3-onnx\\ nor bge-m3/);
+    assert.match(result.stderr, /holds no bge-m3-onnx\\; dense search will report that it is not set up/);
     assert.match(result.recorded, /target=\/models,readonly/);
   } finally {
     await fs.rm(models, { recursive: true, force: true });

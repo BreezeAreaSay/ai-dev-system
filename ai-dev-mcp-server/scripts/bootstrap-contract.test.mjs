@@ -347,7 +347,7 @@ test("the fast-start runtime mounts the model folder read-only as /models", asyn
     assert.match(result.recorded, new RegExp(`type=bind,source=${realModels.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")},target=/models,readonly`), "the runtime container was started without the model mount");
     assert.match(result.stdout, /mounted read-only from .* as \/models/, "the install did not say what it mounted");
     // A folder that does hold a model directory earns no warning.
-    assert.doesNotMatch(result.stderr, /holds neither/);
+    assert.doesNotMatch(result.stderr, /holds (?:no bge-m3-onnx|bge-m3[\\/],)/);
   } finally {
     await fs.rm(models, { recursive: true, force: true });
   }
@@ -359,7 +359,7 @@ test("a model folder without a model in it is a warning, not a refusal", async (
     const result = await bootstrapWithModelPath(models, context);
     if (result === null) return;
     assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /holds neither bge-m3-onnx\/ nor bge-m3\//);
+    assert.match(result.stderr, /holds no bge-m3-onnx\/ yet; dense search will report that it is not set up/);
     assert.match(result.recorded, /target=\/models,readonly/);
   } finally {
     await fs.rm(models, { recursive: true, force: true });

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { bundledPythonPath, resolvePythonCommand } from "./python-command.mjs";
+import { bundledPythonPath, probePython, resolvePythonCommand } from "./python-command.mjs";
 
 const nothing = () => false;
 
@@ -23,4 +25,30 @@ test("a runtime that ships Python beside Node uses it, on either separator", () 
   const posix = bundledPythonPath({ platform: "linux", execPath: "/opt/runtime/node/bin/node" });
   assert.equal(posix, "/opt/runtime/python/bin/python");
   assert.equal(resolvePythonCommand({ env: {}, platform: "linux", execPath: "/opt/runtime/node/bin/node", exists: (file) => file === posix }), posix);
+});
+
+test("a Python counts only when it answers --version as Python 3 (Д-139)", async () => {
+  const locate = async (command) => (command.startsWith("/") ? command : `/usr/bin/${command}`);
+  const answering = (answer) => async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "", timedOut: false, ...answer });
+  assert.deepEqual(await probePython("python3", { locate, runner: answering({ stdout: "Python 3.13.16\n" }) }), { command: "python3", version: "3.13.16" });
+  assert.deepEqual(await probePython("python", { locate: async () => "" }), { command: "python", missing: true }, "not on PATH: nothing is run");
+  const moved = await probePython("/gone/bin/python3", {
+    locate,
+    runner: async () => { throw Object.assign(new Error("spawn /gone/bin/python3 ENOENT"), { code: "ENOENT" }); }
+  });
+  assert.deepEqual(moved, { command: "/gone/bin/python3", missing: true }, "a path the locator returned as given, and that is not there");
+  const store = await probePython("python", {
+    locate,
+    runner: answering({ ok: false, exitCode: 9009, stderr: "Python was not found; run without arguments to install from the Microsoft Store, or disable this shortcut from Settings > Manage App Execution Aliases.\r\n" })
+  });
+  assert.match(store.failure, /^Python was not found; run without arguments to install from the Microsoft Store/);
+  assert.deepEqual(await probePython("python", { locate, runner: answering({ stderr: "Python 2.7.18\n" }) }), { command: "python", failure: "Python 2.7.18" });
+  assert.deepEqual(await probePython("python3", { locate, runner: answering({ ok: false, exitCode: null, timedOut: true }) }), { command: "python3", failure: "it did not answer in time" });
+});
+
+test("the probe runs the real thing: a missing file is missing, a program that is not Python is not one", async () => {
+  assert.deepEqual(await probePython(path.join(os.tmpdir(), "no-such-dir", "python3")), { command: path.join(os.tmpdir(), "no-such-dir", "python3"), missing: true });
+  const node = await probePython(process.execPath);
+  assert.equal(node.version, undefined);
+  assert.match(node.failure, /^v\d+\./, "node --version answers, but not as Python");
 });

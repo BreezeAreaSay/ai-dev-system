@@ -95,6 +95,9 @@ async function createFixture(t) {
     locateExecutable: async (executable) => `/usr/bin/${executable}`,
     runProcess: async (options) => {
       calls.push({ tool: "runProcess", options });
+      if (options.args?.[0] === "--version" && /python/.test(options.executable)) {
+        return { ok: true, exitCode: 0, stdout: "Python 3.12.1\n", stderr: "", timedOut: false };
+      }
       return { ok: true, exitCode: 0, stdout: "cargo-audit-audit 0.21.0", stderr: "", timedOut: false };
     },
     vaultRoot,
@@ -199,8 +202,8 @@ test("health check runs every check through the host", async (t) => {
   assert.equal(result.status, "ok");
   assert.deepEqual(result.summary, { ok: 22, warn: 0, fail: 0, skipped: 2 });
   const uiUx = result.checks.find((check) => check.name === "ui_ux_knowledge");
-  assert.equal(uiUx.details.path, `/usr/bin/${resolvePythonCommand()}`);
-  assert.match(uiUx.summary, /^query_ui_ux_knowledge and generate_ui_ux_design_system run their helper with /);
+  assert.deepEqual([uiUx.status, uiUx.details.version, uiUx.details.command], ["ok", "3.12.1", resolvePythonCommand()]);
+  assert.match(uiUx.summary, /^query_ui_ux_knowledge and generate_ui_ux_design_system run their helper with .*\(Python 3\.12\.1\)/);
   const scanners = result.checks.find((check) => check.name === "security_scanners");
   assert.match(scanners.summary, /10 of 10 security scanners installed/);
   assert.equal(result.recommendations.length, 1);

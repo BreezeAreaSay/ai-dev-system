@@ -23,7 +23,7 @@
    frontend quality, and runtime distribution.
 6. `extensions/`: capabilities registered from outside `mcp-stdio.mjs` (see below).
 7. `hooks/`: standalone scripts run by the *agent*, not by the server (see below).
-8. `09-mcp/search-index`: FTS and BGE-M3 hybrid retrieval.
+8. `core/search-*.mjs`: the SQLite FTS index on `node:sqlite` and BGE-M3 hybrid retrieval (see `search` below).
 9. Obsidian: human-readable knowledge, generated project cards, workflows, and reports.
 10. `${AI_DEV_HOME}/state` (default `~/.ai-dev/state`): runtime task state and evidence that should not clutter the vault.
 
@@ -240,26 +240,32 @@ and `core/reference-factory.mjs` already held the state machine and the manifest
 touched: both are pinned in the static gate's `MODULE_LINE_EXCEPTIONS` and may only shrink.
 
 `search` is the MCP surface over three layers. `core/search-index.mjs` owns the sqlite index:
-which engine serves it, when to refresh it (writers call `markDirty`, the next query refreshes
-once — in place with the Node engine — and concurrent queries share that refresh), what to ask
-the Python helper for hybrid search, and what to do with the answer — the dense query vector is
-embedded in-process and handed over as a file, results are reranked against the golden cases,
-and deterministic intent routing can place a routed workflow skill above everything the index
-found. The Node engine, used wherever `node:sqlite` has FTS5 (22.16+, 24+), writes and checks
-the file in `core/search-store.mjs` (WAL, writing in place, dense vectors reconciled where they
-lie) and answers keyword queries in `core/search-query.mjs`; `core/search-writer.mjs` keeps
-writers apart without stopping them — the cross-process rebuild lock, refreshed while held and
-taken around the helper's writes too, SQLite's write lock waited for between turns of the event
-loop, a checkpoint that never waits for readers, and a damaged file set aside, retried while
-another process on Windows still has it open; and the skill registry those documents come from
-is rebuilt first when its skills changed on disk (`core/skill-registry-freshness.mjs` — the
+whether this Node can serve it at all (`node:sqlite` with FTS5, 22.16+ and 24+ — anywhere else
+every search tool says which Node it needs), when to refresh it (writers call `markDirty`, the
+next query refreshes once, in place, and concurrent queries share that refresh), and what to do
+with an answer — the dense query vector is embedded in-process, results are reranked against the
+golden cases, and deterministic intent routing can place a routed workflow skill above everything
+the index found. Everything under it is Node: `core/search-store.mjs` writes and checks the file
+(WAL, writing in place, dense vectors reconciled where they lie, vectors embedded elsewhere
+written with the rebuild — `core/dense-index.mjs` embeds the plan); `core/search-query.mjs`
+answers keyword queries; `core/search-hybrid.mjs` ranks hybrid ones — keyword rank, sparse and
+dense vectors, weights, the lexical boost, Membrane damped, results collapsed — keeping parsed
+vectors by content hash between questions; `core/search-knowledge.mjs` scores `search_knowledge`
+over the indexed text instead of reading the vault; and `core/galaxy-export.mjs` reads the index
+into what the knowledge galaxy draws. `core/search-writer.mjs` keeps writers apart without
+stopping them — the cross-process rebuild lock, refreshed while held, SQLite's write lock
+waited for between turns of the event loop, a checkpoint that never waits for readers, and a
+damaged file set aside, retried while another process on Windows still has it open; and the
+skill registry those documents come from is rebuilt first when its skills changed on disk (`core/skill-registry-freshness.mjs` — the
 registry is dated by when its sources were read, so a change made during a rebuild is seen by the
 next look, and a rebuild that could not put it right is retried after a growing pause);
-`core/search-documents.mjs` and `core/search-semantic.mjs` reproduce the helper's documents,
-hashes and sparse vectors byte for byte — with `core/python-compat.mjs` and `core/blake2b.mjs`
-for the arithmetic the two languages disagree on — so either engine reads what the other wrote,
-and `npm run search:parity` checks that they agree. `core/embedding-workers.mjs` owns the BGE-M3 pool: one long-lived
-worker per model/device pair, newline-delimited JSON over stdin/stdout, and a one-shot fallback.
+`core/search-documents.mjs` and `core/search-semantic.mjs` reproduce the documents, hashes and
+sparse vectors the 2.x Python helper wrote, byte for byte — with `core/python-compat.mjs` and
+`core/blake2b.mjs` for the arithmetic the two languages disagree on — so a 2.x index is read
+without a rebuild and a 2.x server rolled back reads what Node wrote; `npm run search:parity`
+takes the helper from git history and checks the files, the rankings and the galaxy export.
+`core/embedding-workers.mjs` owns the BGE-M3 pool: one long-lived worker per model/device pair,
+newline-delimited JSON over stdin/stdout, and a one-shot fallback.
 `core/search-runtime.mjs` and `core/search-eval.mjs` are pure: the presets an agent actually
 names (`code`, `docs`, `skills`, …), weight normalization, the per-result score explanation, and
 the golden-case verdicts and ranking metrics.

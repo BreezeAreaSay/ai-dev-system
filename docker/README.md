@@ -16,7 +16,7 @@ MCP tools.
 - чистые правила, промпты, quality gates и шаблоны;
 - публичный набор custom skills;
 - MIT-лицензированные `taste-skill` и `ui-ux-pro-max`;
-- Python CLI для локального поиска;
+- Python 3 для скрипта набора UI UX Pro Max (`query_ui_ux_knowledge`, `generate_ui_ux_design_system`);
 - Playwright и Chromium для frontend QA.
 
 В образ не входят:

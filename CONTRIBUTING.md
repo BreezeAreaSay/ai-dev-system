@@ -22,7 +22,7 @@ file rather than replacing it.
 | `ai-dev-mcp-server/src/*.mjs` | the tool surface, coupled to a content vault |
 | `docker/` | launchers, compose files, and `public-seed/` (the clean bundled vault) |
 | `packaging/` | Arch `PKGBUILD` and Homebrew formula |
-| `embeddings/`, `search-index/`, `search-eval/`, `frontend-qa/` | Python and Playwright helpers, each with its own tests |
+| `embeddings/`, `search-eval/`, `frontend-qa/` | the legacy Python embedding worker, the search golden cases, the Playwright runner |
 | `docs/`, `docs/ru/` | the guides the two READMEs link to, in English and Russian |
 
 `README.md` and `README.ru.md` answer what the project is and why to install it;
@@ -39,14 +39,15 @@ A standalone checkout resolves its content root to `docker/public-seed`.
 ## Prerequisites
 
 - Node.js ≥ 22.16, or 24+ (`.nvmrc` says `22`, which nvm resolves to the newest 22.x). 22.13–22.15
-  and 23.x have `node:sqlite` without FTS5, and the search index needs it; on them the Node search
-  engine's tests skip and the server falls back to the Python helper.
+  and 23.x have `node:sqlite` without FTS5, and the search index needs it; on them the search tests
+  skip and the search tools answer with the Node version they need.
 - npm (the server); pnpm only if you work on `frontend-qa/`
 - Git
 - Docker Desktop / Engine — only for the Docker and packaging paths
-- Python 3.11+ — only for the embeddings, search-index and search-eval helpers. The search-index
-  helper still serves hybrid search and the galaxy export; `npm run search:parity -- --vault <dir>`
-  builds the index with it and with the Node engine and checks that the two agree
+- No Python for the server or its tests. It is optional at run time — the two UI UX Pro Max tools
+  run the dataset's Python script — and needed for two development checks only: the legacy
+  embedding worker under `embeddings/` (`--dense-python`), and `npm run search:parity`, which
+  takes the 2.x search helper from git history and checks that Node search answers as it did
 
 ## Package-manager policy
 
@@ -83,7 +84,8 @@ npm test
 
 What CI runs (`.github/workflows/`):
 
-- `ci.yml` → `mcp-server`: `npm run lint`, `npm run security`, `npm run packaging:check`, `npm run test:core`, and the search helper's Python suite
+- `ci.yml` → `mcp-server`: `npm run lint`, `npm run security`, `npm run packaging:check`, `npm run test:core`
+- `ci.yml` → `no-python` (Linux, macOS, Windows): `node scripts/no-python-check.mjs` — `npm ci`, `npm run setup`, `npm run doctor` and the protocol smoke with every Python interpreter taken off `PATH`
 - `ci.yml` → `vault-suite`: `npm run skills:ensure-index`, then `npm test`, `npm run protocol:smoke`, `npm run lifecycle:smoke`
 - `docker-publish.yml`: privacy policy test, allowlisted context audit, image build, `docker:smoke`, and (on `main` / tags) the GHCR publish
 

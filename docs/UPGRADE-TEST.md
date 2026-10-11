@@ -13,7 +13,7 @@ npm run upgrade:test -- --base <commit> --keep
 ```
 
 It needs Node 22.16+ (on an older Node the checks of the Node search engine are left out), git,
-Python 3 (the 2.x side runs on it, and hybrid search still does) and about two minutes. In a
+Python 3 (the 2.x side runs on it; the upgraded side does not need it) and about two minutes. In a
 scratch directory it:
 
 1. checks the base commit out as a git worktree and installs it the way 2.x documented,

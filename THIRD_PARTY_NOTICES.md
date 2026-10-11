@@ -38,8 +38,10 @@ repository ships none and states its licence in each file instead, as noted belo
 
 ## Membrane application skills
 
-- Source: https://github.com/membranedev/application-skills (complete import:
-  3,074 `skills/<app>` integration skills)
+- Source: https://github.com/membranedev/application-skills (curated import:
+  460 of the repository's 3,074 `skills/<app>` integration skills — the
+  developer tools and AI-model connectors; the rule and the full list are in
+  `03-skills-catalog/sources/external/membrane/CURATION.md`)
 - Included revision: `f484c8265e70ec910a57342389cca5c5de7d8167`
 - License: MIT, as declared by the upstream README and by the `license: MIT`
   field in every imported `SKILL.md`. The upstream repository ships no LICENSE

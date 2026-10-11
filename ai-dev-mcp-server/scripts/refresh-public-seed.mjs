@@ -199,7 +199,7 @@ async function countSkillFiles(root) {
  *
  * `copySkillSources` reads the owner's vault, which has never held these — they
  * came from imports recorded in `THIRD_PARTY_NOTICES.md`. Without this step the
- * refresh replaces the seed with a tree missing 3,084 skills, and the manifest
+ * refresh replaces the seed with a tree missing every vendored skill (471 today), and the manifest
  * it writes makes the loss look intentional.
  *
  * The source is the repository's own `docker/public-seed`, read before the

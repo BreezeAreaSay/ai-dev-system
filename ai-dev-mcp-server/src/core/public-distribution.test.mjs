@@ -182,14 +182,14 @@ test("a whole vendored catalogue set reports nothing missing", () => {
 test("a catalogue the seed refresh dropped is reported, not passed over", () => {
   // The defect this guards: `copySkillSources` reads an allowlist of vault
   // directories, the vendored catalogues live only in the checkout, and the
-  // refresh replaces the seed wholesale — so a missing entry means 3,074 skills
+  // refresh replaces the seed wholesale — so a missing entry means 460 skills
   // silently leave the distribution.
   const counts = Object.fromEntries(
     VENDORED_SEED_CATALOGUES.map(({ relative, minimumSkills }) => [relative, minimumSkills])
   );
   delete counts["external/membrane"];
   assert.deepEqual(missingVendoredCatalogues(counts), [
-    { relative: "external/membrane", expected: 3074, found: 0 }
+    { relative: "external/membrane", expected: 460, found: 0 }
   ]);
 });
 

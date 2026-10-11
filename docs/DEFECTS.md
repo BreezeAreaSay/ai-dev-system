@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 145 записей. Закрыто 122, открыто 23. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 147 записей. Закрыто 127, открыто 20. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -43,11 +43,11 @@ Pro x64 и Arch Linux. Пять из этих девяти пришли отчё
 Д-109. Д-100 — расхождения документации с замером — закрыта первой фазой; девять — Д-86, Д-87,
 Д-88, Д-90, Д-91, Д-92, Д-93, Д-94, Д-96 — второй. Д-110 нашёлся при ревью первой фазы, Д-111 и
 Д-112 — во второй, и Д-112, дефект самой фазы, ею же закрыт; Д-113 … Д-118 — в третьей, и пять из них (Д-113 … Д-116, Д-118) ею же
-закрыты. Д-119 нашёлся при урезании каталога skills по решению владельца и тогда же закрыт. Д-120 … Д-126 — дефекты фазы 3, найденные её независимым ревью; пять из них ею же закрыты, Д-123 и Д-124 (Windows) ждут проверки владельца. Д-127 … Д-132 нашло второе ревью фазы 3; закрыты все, кроме Д-130 (Windows), который тоже ждёт владельца. Фаза 4 закрыла Д-85, Д-102, Д-117 и питоновскую часть Д-98; Д-133 … Д-135 нашлись в ней, Д-133 и Д-134 ею же закрыты, Д-135 записан на фазу 7; Д-136 … Д-142 нашло её независимое ревью, и все семь ею же закрыты. Д-143 … Д-145 нашлись в фазе 5; Д-145 записан на фазу 6. Ход
+закрыты. Д-119 нашёлся при урезании каталога skills по решению владельца и тогда же закрыт. Д-120 … Д-126 — дефекты фазы 3, найденные её независимым ревью; пять из них ею же закрыты, Д-123 и Д-124 (Windows) ждут проверки владельца. Д-127 … Д-132 нашло второе ревью фазы 3; закрыты все, кроме Д-130 (Windows), который тоже ждёт владельца. Фаза 4 закрыла Д-85, Д-102, Д-117 и питоновскую часть Д-98; Д-133 … Д-135 нашлись в ней, Д-133 и Д-134 ею же закрыты, Д-135 записан на фазу 7; Д-136 … Д-142 нашло её независимое ревью, и все семь ею же закрыты. Фаза 5 закрыла Д-98; Д-143 … Д-147 нашлись в ней, и все, кроме Д-145 (записан на фазу 6), ею же закрыты; Д-101 ждёт настоящих весов — чек-лист владельца. Ход
 программы — `docs/program/PROGRESS.md`.
 
-Открыты двадцать три: двенадцать записей программы (Д-89, Д-95, Д-97 … Д-99, Д-101, Д-103 … Д-108), Д-110,
-Д-111, Д-123, Д-124, Д-130, Д-135 и Д-143 … Д-145, у каждой своя фаза или проверка владельца, и две старые, которые кодом
+Открыты двадцать: одиннадцать записей программы (Д-89, Д-95, Д-97, Д-99, Д-101, Д-103 … Д-108), Д-110,
+Д-111, Д-123, Д-124, Д-130, Д-135 и Д-145, у каждой своя фаза или проверка владельца, и две старые, которые кодом
 из песочницы не закрываются:
 
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
@@ -146,6 +146,12 @@ check, отдельный шаг проверяет `gitleaks version` офла�
 заново целиком. Это осознанно (`.part` не может доказать, от какой он ревизии), но ТЗ обещало
 тестировщику «дочитывает недостающее» — формулировка про **файлы**, а не про байты внутри файла,
 и Windows-прогон справедливо счёл её противоречием. Текст ТЗ уточнён.
+
+**Ограничение снято фазой 5 программы (2026-10-11, Д-98).** Теперь `.part` может доказать, от чего он:
+рядом лежит `<файл>.part.json` с ревизией, sha256 и размером. Совпали — загрузка продолжается с последнего
+байта на диске запросом `Range`; не совпали — начинается заново. Обрыв на 50 % файла в 1 МБ: было
+отдано 1 572 864 байт, стало 1 048 576 (второй запрос — `bytes=524288-`, ответ 206), sha256 совпадает.
+Сироты 2.x (`<файл>.<pid>.part`) по-прежнему подметаются по возрасту.
 
 ---
 
@@ -1286,7 +1292,7 @@ daemon.json при открытой сессии → { …, "sessions": 0 }
 
 ## Д-98. Без ONNX-модели векторы молча уходят на legacy `.venv`, а `dense:doctor` обещает «no Python needed»
 
-**Статус:** открыт; питоновская часть закрыта фазой 4, остальное закроет фаза 5 (менеджер модели).
+**Статус:** закрыт. Питоновская часть — фазой 4, остальное — фазой 5 (менеджер модели), 2026-10-11.
 
 `npm run setup -- --dense` делает два шага: качает модель и строит векторы документов. Если модель
 не скачалась, второй шаг всё равно запускается. `rebuild_search_index` с `dense_embeddings` при
@@ -1366,6 +1372,72 @@ HTTP_PROXY/HTTPS_PROXY заданы:     «Could not fetch config.json: fetch fa
 упала. «fetch failed» без причины: `fetch` в Node не читает `HTTPS_PROXY` без `NODE_USE_ENV_PROXY`, а
 в сети за прокси имя huggingface.co не разрешается (`ENOTFOUND`) — curl с тем же окружением доходит до
 прокси и получает 403. `dense:doctor` рекламирует удаляемый legacy-путь.
+
+**Как закрыто (фаза 5).**
+
+- Свой HTTP-клиент на `node:http`/`node:https` (`src/core/http-download.mjs`): `HTTPS_PROXY`, `HTTP_PROXY`
+  и `NO_PROXY` читаются сами, без `NODE_USE_ENV_PROXY` (HTTPS — туннель `CONNECT`, HTTP — запрос в
+  absolute-form, Basic-авторизация из URL прокси); редиректы сохраняют `Range`; ошибки — фразами: «the proxy
+  … refused to connect to huggingface.co:443 (HTTP 403)», «… could not be resolved (ENOTFOUND). If this
+  network reaches the internet through a proxy, set HTTPS_PROXY», недоверенный сертификат — с
+  `NODE_EXTRA_CA_CERTS`.
+- Загрузчик (`src/core/dense-download.mjs`): докачка по `Range` с `.part.json` (ревизия, sha256, размер),
+  источники — `AI_DEV_MODEL_MIRROR`, затем `HF_ENDPOINT`, затем манифест; мёртвый источник передаёт `.part`
+  следующему; прогресс (байты, всего, скорость, ETA) и отмена через `AbortSignal` с сохранением принятого;
+  проверка места учитывает уже скачанное. Если ни один источник ничего не отдал, ошибка называет выходы:
+  зеркало, прокси, `npm run model -- import`.
+- Менеджер (`src/core/model-manager.mjs`) и `npm run model -- status|install|import|verify|remove`; `import` —
+  из папки или zip (в том числе ZIP64). `setup -- --dense` и `dense:doctor` идут через него; шаг векторов не
+  запускается после неудачной загрузки; на машине без сборки onnxruntime (Intel Mac, Д-101) `setup` отказывает
+  до загрузки.
+- Legacy-путь удалён (D3); у кого остались его переменные или веса — фраза и одна команда (`upgrade:test`,
+  пользователь «Python dense backend»).
+
+**Замер после** (`0bf8054`; чистый worktree, пустой HOME, тот же прокси песочницы):
+
+```
+npm run setup -- --dense --no-health                                  5,9 с, exit 1
+   source failed for config.json: the proxy http://127.0.0.1:33095 refused to connect to huggingface.co:443 (HTTP 403).
+✗ Local BGE-M3 model (1.6s): Could not fetch config.json: the proxy http://127.0.0.1:33095 refused to connect to
+    huggingface.co:443 (HTTP 403). If this network blocks the download, set AI_DEV_MODEL_MIRROR to a Hugging Face
+    mirror or HTTPS_PROXY to a proxy that reaches it, or copy the model from a machine that has it:
+    `npm run model -- import <folder or .zip>`.
+· Dense vectors: not run: Local BGE-M3 model failed above, and this step needs it
+4 built, 2 skipped, 1 failed.
+
+npm run dense:doctor                                                  exit 1
+Download from: huggingface.co (through the proxy 127.0.0.1:33095)
+[ FAIL ] model files present and unmodified — missing from …: config.json, tokenizer.json, …
+What to do: Run `npm run setup -- --dense` to start the download (about 600 MB, no Python). If this network blocks
+    the download, set AI_DEV_MODEL_MIRROR … or … `npm run model -- import <folder or .zip>`.
+```
+
+Проба загрузчика `download-probe.mjs` — та же для обоих деревьев, хосты отвечают на `Range` и находят файл по
+суффиксу пути, как CDN и зеркало Hugging Face (`13bb95d` → `0bf8054`):
+
+```
+обрыв на 50 %, второй запуск      GET, GET без Range: 524 288 + 1 048 576 = 1 572 864 байт
+                                  → GET 524 288 + GET bytes=524288- (206) 524 288 = 1 048 576 байт; sha256 совпадает
+AI_DEV_MODEL_MIRROR, источник 503 «… returned HTTP 503», к зеркалу 0 запросов → ready, к зеркалу 4 (HEAD, GET)
+два источника, первый 503         ready → ready (переход к следующему источнику был и раньше)
+HTTP_PROXY и HTTPS_PROXY          «fetch failed», прокси не увидел ничего → ready, прокси увидел 4 запроса
+                                  (HEAD и GET http://models.internal.test/m/config.json …)
+прогресс и отмена                 нет ни onProgress, ни signal → события {phase, file, bytes, total, speed,
+                                  etaSeconds}; отмена — «Download cancelled.», name AbortError
+```
+
+Вживую через прокси песочницы (`openUrl`, без `NODE_USE_ENV_PROXY`): raw.githubusercontent.com — туннель
+`CONNECT`, 206 на `Range: bytes=0-99`; huggingface.co — «the proxy http://127.0.0.1:33095 refused to connect to
+huggingface.co:443 (HTTP 403).»; registry.npmjs.org (в `NO_PROXY`) — напрямую, 206.
+
+Ctrl-C в `npm run model -- install` на половине файла в 24 МБ (локальное зеркало, 4 МБ/с; проба фазы по
+MCP): exit 130, «Download cancelled. 12.0 MB of onnx/model_int8.onnx are kept; running the install again
+continues from there.»; `model status` — «Stopped partway: onnx/model_int8.onnx, 12.0 MB of 24.0 MB»; второй
+запуск — `GET … range=bytes=12582912-`, exit 0 за 3,4 с, sha256 совпадает.
+
+Сквозной путь — `scripts/model-e2e.test.mjs`: `model import` из zip → векторы заметок → `hybrid_search` по
+MCP находит заметку, с которой у вопроса нет ни одного общего слова, по dense-половине (dense_score > 0,9);
+`model remove` → поиск по словам работает, `embed_texts` отказывает с командой.
 
 ---
 
@@ -1509,8 +1581,10 @@ DEMO.md дословно передаёт этот вывод. Литерал в
 
 ## Д-101. transformers 4.3.0 и onnxruntime 1.30 не проверены на настоящих весах; override sharp лишний
 
-**Статус:** открыт. Закроет фаза 5. Настоящие веса в песочнице не скачать (huggingface.co — 403),
-поэтому проверка на них — в чек-листе владельца.
+**Статус:** открыт до прогона на настоящих весах (чек-лист владельца). Всё, что проверяется без них,
+сделано фазой 5 (2026-10-11): связка подтверждена на синтетической модели через настоящий воркер, Intel Mac
+получает правду вместо ложного совета, лишнего override sharp нет с фазы 2. Настоящие веса в песочнице не
+скачать (huggingface.co — 403).
 
 Единственный живой прогон с весами — macOS, 2026-09-15 (Д-62): transformers 3.7.5 и
 onnxruntime-node 1.21. Обе зависимости подняты после него:
@@ -1567,6 +1641,40 @@ binary; `npm rebuild onnxruntime-node` builds one.
 
 Совет ложный: `npm rebuild` не собирает onnxruntime из исходников, а `npm run setup -- --dense` на такой
 машине скачал бы 600 МБ, которые не загрузятся.
+
+**Замер после фазы 5** (`0bf8054`).
+
+Синтетическая модель формы BGE-M3 (`src/core/synthetic-model.mjs`: protobuf ONNX, opset 13, выход
+`last_hidden_state [batch, 1, 1024]`; токенизатор XLM-RoBERTa с Unigram-словарём; пять файлов, около 5 КБ)
+через настоящий воркер, transformers 4.3.0 и onnxruntime-node 1.30.0:
+
+```
+npm run dense:doctor        (BGE_M3_ONNX_DIR и AI_DEV_MODEL_MANIFEST — на синтетику)
+Dense search: READY
+[  ok  ] model loads — loaded in 0.36s
+[  ok  ] trial embedding — 1024 dimensions, norm 1, 0.002s
+
+scripts/model-e2e.test.mjs  import из zip → 4 из 4 заметок с вектором → по MCP hybrid_search «sql database query»:
+                            первым persistence.md, dense_score > 0,9; embed_texts — 1024 измерения
+```
+
+Intel Mac (`process.platform`/`process.arch` подменены до импорта, стадии `dense:doctor` настоящие;
+`denseRuntimeSupport` смотрит, какие сборки лежат в `onnxruntime-node/bin`):
+
+```
+[ FAIL ] onnxruntime-node loads — onnxruntime-node 1.30.0 has no build for darwin-x64 (Intel Mac), so the local
+    model cannot run on this machine. Keyword and sparse search work without it; dense search needs another
+    machine or the Docker image.
+What to do: Dense search needs a machine with a build, or the Docker image; keyword and sparse search work here
+    without it.
+```
+
+`setup -- --dense` на такой машине отказывает той же фразой до загрузки; `npm run model -- install` качает с
+пометкой — для контейнера или другой машины. `npm ls sharp` → `sharp@0.35.4` без «overridden».
+
+**Что осталось — чек-лист владельца:** настоящая загрузка (около 568 МБ) с замером времени, обрыв и докачка
+на настоящем CDN, `npm run dense:doctor` (загрузка модели, пробный вектор), эмбеддинг всех документов seed
+(время), `npm run doctor -- --dense-smoke`, RSS сервера с загруженной моделью.
 
 ---
 
@@ -3062,7 +3170,7 @@ CAPABILITIES EN/RU обновлены); заголовок `search-knowledge.mjs
 
 ## Д-143. Сервер заново хеширует веса модели каждую минуту
 
-**Статус:** открыт. Нашёлся при разборе dense-рантайма в фазе 5; закроет она же (менеджер модели).
+**Статус:** закрыт фазой 5 (2026-10-11). Нашёлся при разборе dense-рантайма в той же фазе.
 
 `createDenseRuntime` (`src/core/dense-runtime.mjs`) отвечает на вопрос «готова ли модель» через
 `verifyDenseModelDirectory` — sha256 всех пяти файлов, около 570 МБ. Ответ живёт `DENSE_PROBE_TTL_MS` =
@@ -3089,11 +3197,34 @@ first describe (server start): 1122 ms
 чтения; любое изменение — и он хешируется заново. Полную проверку по-прежнему делают `model verify` и
 `dense:doctor`.
 
+**Как закрыто.** `verifyDenseModelDirectory` пишет после проверки отметку в
+`<runtime>/cache/dense-model/verified-<16 hex>.json`: размер, время изменения (нс), ctime и номер файла
+каждого сошедшегося файла. Рантайм сервера (`src/core/dense-runtime.mjs`) доверяет ей, пока все четыре
+числа те же; любое расхождение — и файл читается заново. `install` и `import` оставляют отметку сами, поэтому
+после них и первый вопрос сервера обходится без чтения. `embedding_status {refresh: true}`, `model verify` и
+`dense:doctor` по-прежнему читают каждый байт.
+
+**Замер после** (`0bf8054`; те же 568 000 000 байт и манифест, рантайм — как его строит сервер, с каталогом
+отметок; проба `rehash-after.mjs`):
+
+```
+first describe (server start):    1410 ms   один раз: отметки ещё нет
+30 s later:                          0 ms
+61 s later:                          1 ms   было 998
+122 s later:                         1 ms   было 1045
+restart, first describe:             1 ms   отметка переживает перезапуск
+weights touched, 61 s later:      1194 ms   изменился mtime — файл прочитан заново
+refresh: true:                    1277 ms   полное чтение по просьбе
+```
+
+Тот же `rehash.mjs` на `13bb95d` в этом прогоне: 1157 / 0 / 1170 / 1017 мс. Сквозной тест проверяет, что
+сразу после `model import` `model status` не хеширует ничего (`hashed: []`).
+
 ---
 
 ## Д-144. `validate_skill_library` с семантическими дублями идёт в legacy-пул Python мимо выбранного бэкенда
 
-**Статус:** открыт. Нашёлся в фазе 5 при удалении legacy-пути; закроет она же.
+**Статус:** закрыт фазой 5 (2026-10-11), в которой и нашёлся при удалении legacy-пути.
 
 Тот же дефект, что Д-133, во втором месте. `refineDuplicatePairsWithBge` (`src/extensions/skills.mjs:131`)
 зовёт `host.embedTexts`, а в `src/mcp-stdio.mjs:4469` это `embeddingRuntime.embedTexts` — пул Python-воркеров.
@@ -3112,6 +3243,20 @@ validate_skill_library {include_duplicates: true, include_semantic_duplicates: t
 
 **Как закроется.** Эмбеддинги — через тот же dense-рантайм, что поиск; без модели отчёт строится по
 лексическому сходству и говорит, почему семантического уточнения нет.
+
+**Как закрыто.** `host.embedTexts` — это `denseRuntime.embed`, тот же выбор бэкенда, что у поиска.
+Семантическое уточнение ловит отказ и отдаёт `{evaluated: 0, unavailable: <причина>}`; в отчёте —
+`duplicates.semantic_unavailable`, лексические дубли на месте.
+
+**Замер после** (`0bf8054`; та же проба в процессе, Python есть, `.venv` нет):
+
+```
+без модели             ok за 1,2 с; duplicates.semantic_evaluated 0, semantic_unavailable «Dense search is not
+                       installed: the model is not on this machine. Run `npm run setup -- --dense` …»
+синтетическая модель   ok за 1,9 с; semantic_evaluated 6 — пары уточнены настоящим воркером
+по MCP, пользователь 2.x с AI_DEV_DENSE_BACKEND=python (проба фазы) — semantic_evaluated 0 с причиной,
+                       вызовов Python 0
+```
 
 ---
 
@@ -3141,7 +3286,7 @@ supply-chain hook:     warns: ["[supply-chain] left-pad@latest was not fully che
 
 ## Д-146. Модель с чужими файлами сервер называет отсутствующей: «the model is not on this machine»
 
-**Статус:** открыт. Нашёлся пробой фазы 5 по MCP (подменённый файл весов); закроет она же.
+**Статус:** закрыт фазой 5 (2026-10-11), пробой которой нашёлся (подменённый файл весов).
 
 Причина, по которой dense-поиск не работает, у `embedding_status`, `embed_texts`, `hybrid_search` и
 перестройки с векторами одна — `selectDenseBackend` (`src/core/dense-backend.mjs`). Ему передают только
@@ -3168,11 +3313,31 @@ f228435  embedding_status.reason и embed_texts → «Dense search is not instal
 которая скачает их заново; часть файлов есть — названы недостающие; остановленная загрузка — сказано, что
 она продолжится; «нет на машине» — только когда в каталоге нет ни одного файла модели.
 
+**Как закрыто.** `selectDenseBackend` получает, что нашла проверка (`files: {dir, present, missing,
+mismatched, partial}`), и строит фразу из этого; рантайм находит остановленные загрузки по `.part.json`
+(stat и чтение маленького JSON на недостающий файл, только пока модель не готова).
+
+**Замер после** (`49a2849`):
+
+```
+пять чужих файлов, манифест штатный:
+  embedding_status.reason и embed_texts → «Dense search is not ready: config.json, tokenizer.json,
+  tokenizer_config.json, special_tokens_map.json, onnx/model_int8.onnx in … are not the pinned files (the sha256
+  differs from the manifest). Run `npm run setup -- --dense`: it fetches them again.»
+подменённый файл весов, по MCP (проба фазы) → «… onnx/model_int8.onnx in … is not the pinned file …: it fetches
+  it again.»; hybrid_search — 5 результатов без dense, `model verify` — exit 1
+загрузка остановилась на весах → «Dense search is not installed yet: the download of the model stopped partway
+  (onnx/model_int8.onnx). Run `npm run setup -- --dense` to continue it from there.»
+нет только весов → «Dense search is not ready: the model in … lacks onnx/model_int8.onnx. Run `npm run setup --
+  --dense` to fetch it, or `npm run model -- import <folder or .zip>` …»
+пустой каталог → «Dense search is not installed: the model is not on this machine. …» (как было)
+```
+
 ---
 
 ## Д-147. Проверка здоровья советует dense smoke машине без модели, а сам smoke падает без причины
 
-**Статус:** открыт. Нашёлся пробой фазы 5 (проверка здоровья у пользователя 2.x без модели); закроет она же.
+**Статус:** закрыт фазой 5 (2026-10-11), пробой которой нашёлся (проверка здоровья у пользователя 2.x без модели).
 
 `healthRecommendations` (`src/core/system-health.mjs`) советует «Run system_health_check with
 include_dense_smoke=true …» всякий раз, когда dense smoke пропущен, — и там, где модели нет. Кто последует
@@ -3197,6 +3362,17 @@ system_health_check {include_dense_smoke: true}  → fail; dense_smoke fail: «D
 попросили там, где модель работать не может, по-прежнему `fail` (просили проверить BGE-M3 — он не работает;
 ожидание `docs/RETEST.ru.md` #66 «выполняется, а не skipped» сохраняется), но говорит почему: причина и
 команда из `embedding_status`.
+
+**Замер после** (`0bf8054`, то же окружение):
+
+```
+system_health_check {include_dense_smoke: false} → ok; dense_smoke skipped; советов про dense нет
+system_health_check {include_dense_smoke: true}  → fail; dense_smoke fail: «Dense search cannot run here, so the
+    smoke test had nothing to test. Dense search is not installed: the model is not on this machine. Run `npm run
+    setup -- --dense` … or `npm run model -- import <folder or .zip>` …»; dense-запрос не отправлен
+с синтетической моделью и векторами: без smoke → ok и совет его запустить; со smoke → ok, «Dense hybrid
+    search returned 2 result(s) with dense scores.»
+```
 
 ---
 

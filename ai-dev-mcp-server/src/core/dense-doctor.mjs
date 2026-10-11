@@ -18,6 +18,7 @@
  * machine cannot reach, having no weights on it — is covered by tests that
  * stand in for the dependency rather than install it.
  */
+import { BLOCKED_DOWNLOAD_ADVICE } from "./dense-download.mjs";
 import { formatBytes } from "./disk-space.mjs";
 
 /**
@@ -131,9 +132,6 @@ export function renderDenseDoctorReport(result) {
   return lines.join("\n");
 }
 
-/** Where the model comes from when the download is blocked. */
-const BLOCKED_ADVICE = "Behind a firewall set AI_DEV_MODEL_MIRROR (a Hugging Face mirror) or HTTPS_PROXY, "
-  + "or copy the model from a machine that has it: `npm run model -- import <folder or .zip>`.";
 
 /**
  * Build the stage list.
@@ -207,7 +205,7 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
         return {
           ok: false,
           detail: `missing from ${status.dir}: ${status.missing.join(", ")}${partial.length ? `; a download stopped partway: ${partial.join(", ")}` : ""}`,
-          advice: `Run \`npm run setup -- --dense\` to ${partial.length ? "continue" : "start"} the download (about 600 MB, no Python). ${BLOCKED_ADVICE}`
+          advice: `Run \`npm run setup -- --dense\` to ${partial.length ? "continue" : "start"} the download (about 600 MB, no Python). ${BLOCKED_DOWNLOAD_ADVICE}`
         };
       }
     },

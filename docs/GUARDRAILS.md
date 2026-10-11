@@ -31,7 +31,10 @@ client opened from the Dock does not have your shell's `PATH`, and a bare `node`
 is not found there when Node came from nvm, fnm, Volta or Homebrew. The launcher
 takes `AI_DEV_NODE` first, then the Node the hooks were installed with on this
 machine (`.ai-dev/hooks/.node-path`, which git ignores), then `node` on `PATH`,
-then the usual install locations. On Windows the registrations call `node`, which
+then the usual install locations; an `AI_DEV_NODE` that is not a Node executable
+(Node's `bin` folder, say) is reported and passed over. The launcher and the Git
+stubs are shell scripts, so `.gitattributes` next to them keeps them LF in a clone
+with `core.autocrlf`. On Windows the registrations call `node`, which
 apps started from the Start menu find on the user's `PATH`. Hooks 2.x installed
 call a bare `node`: `agent_hooks_status` counts them (`bare_node_commands`), and
 running `install_agent_hooks` again rewrites them.

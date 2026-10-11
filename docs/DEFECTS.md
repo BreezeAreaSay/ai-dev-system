@@ -4291,7 +4291,7 @@ XDG_CONFIG_HOME — роль APPDATA там играет она. Проба `d17
 
 ## Д-171. Лаунчер хуков: папка в AI_DEV_NODE, блокирующий код выхода и CRLF-копия
 
-**Статус:** открыт. Нашло независимое ревью фазы 6; закроет она же.
+**Статус:** закрыт фазой 6 (2026-10-11). Нашло её независимое ревью.
 
 `hooks/with-node.sh`: `[ -x ]` верно и для папки, и `AI_DEV_NODE=/opt/node/bin` кончается `exec` с кодом 126, не
 пробуя `node` из PATH; вызов без имени скрипта выходит с 2 — для Claude Code это блокирующий код (PreToolUse
@@ -4311,7 +4311,22 @@ with-node.sh с CRLF                                      → «: not found», �
 **Как закроется.** Кандидат — только исполняемый файл; ошибка вызова — код 1; рядом с хуками и заглушками ложится
 `.gitattributes` с `eol=lf`.
 
+**Замер после.** Кандидат — `[ -f ] && [ -x ]`; `AI_DEV_NODE`, который не исполняемый файл, лаунчер называет в stderr
+и ищет Node дальше; вызов без скрипта — код 1. `install_agent_hooks` кладёт `.ai-dev/hooks/.gitattributes`
+(`*.sh text eol=lf`) и `.ai-dev/git-hooks/.gitattributes` (`* text eol=lf`). Проба `d171` (лаунчер в своей папке,
+`AI_DEV_NODE` — папка с симлинком на node):
+
+```
+                                   0e7775e                                      после
+AI_DEV_NODE=<папка bin> x.mjs      «exec: …/nodebin: Permission denied», 126    «… is not a Node executable; looking for Node elsewhere», x.mjs ran, 0
+без скрипта                        2                                            1
+клон с core.autocrlf=true          (тест) index.js с CRLF; with-node.sh, pre-commit, pre-push — без \r, лаунчер разбирается
+```
+
+Без исправления новый тест и обновлённый тест Д-103 падают. CRLF-копия, сделанная мимо git, по-прежнему не
+запустится — от этого `.gitattributes` не спасает.
 ---
+
 
 ## Д-172. Мелочи ревью фазы 6
 

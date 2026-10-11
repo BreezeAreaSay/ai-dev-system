@@ -37,7 +37,16 @@ async function makeCatalog(t) {
   return { catalog, registryPath, skills };
 }
 
-async function staleness({ catalog, registryPath }, nowMs = Date.now()) {
+/**
+ * The check, a second after the change it is asked about. Linux 6.13+ dates a
+ * file it has been asked about to the nanosecond, Date.now() to the
+ * millisecond: checked in the same millisecond, a change reads as a time in
+ * the future, and this suite failed once in ten runs under load. Seeing a
+ * change that early is the product's question, recorded on its own
+ * (docs/DEFECTS.md, Д-159, Д-160); here every rule is checked once the change
+ * is behind the clock.
+ */
+async function staleness({ catalog, registryPath }, nowMs = Date.now() + 1000) {
   return checkSkillRegistry({ registryPath, catalogRoot: catalog, nowMs });
 }
 

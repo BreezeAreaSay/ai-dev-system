@@ -75,7 +75,8 @@ try {
   const { modelSources } = await import("../src/core/dense-download.mjs");
   const sources = modelSources(readDenseManifest(), process.env);
   const proxy = sources.length ? proxyFor(sources[0], process.env) : null;
-  process.stdout.write(`Download from: ${sources.map((source) => new URL(source).host).join(", ")}${proxy ? ` (through the proxy ${proxy.host})` : ""}\n`);
+  process.stdout.write(`Download from: ${sources.map((source) => new URL(source).host).join(", ") || "nowhere, the manifest lists no sources"}`
+    + `${proxy ? ` (through the proxy ${proxy.host})` : ""}\n`);
 } catch (error) {
   process.stdout.write(`Download from: ${error.message}\n`);
 }

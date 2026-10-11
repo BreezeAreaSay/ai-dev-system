@@ -139,7 +139,7 @@ async function run() {
       if (status.missing.length) say(`Missing: ${status.missing.join(", ")}`);
       if (status.mismatched.length) say(`Not the pinned files: ${status.mismatched.join(", ")} — \`npm run model -- install\` fetches them again.`);
       for (const part of status.partial) say(`Stopped partway: ${part.file}, ${formatBytes(part.bytes)}${part.size ? ` of ${formatBytes(part.size)}` : ""} — \`npm run model -- install\` continues it.`);
-      say(`Download from: ${status.sources_error || status.sources.map((source) => new URL(source).host).join(", ")}`);
+      say(`Download from: ${status.sources_error || status.sources.map((source) => new URL(source).host).join(", ") || "nowhere, the manifest lists no sources"}`);
       if (!status.supported) say(status.support_reason);
       for (const note of notes) say(`Note: ${note}`);
       return { ok: status.installed };

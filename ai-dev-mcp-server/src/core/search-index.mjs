@@ -27,14 +27,14 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { embedDensePlan } from "./dense-index.mjs";
+import { DENSE_COMMIT_EVERY, embedDensePlan } from "./dense-index.mjs";
 import { exportGalaxy } from "./galaxy-export.mjs";
 import { createDocumentCache } from "./search-documents.mjs";
 import { createHybridCache, hybridSearch as rankHybrid } from "./search-hybrid.mjs";
 import { createKnowledgeCache, knowledgeSearch } from "./search-knowledge.mjs";
 import { keywordSearch, MAX_RESULTS } from "./search-query.mjs";
 import { createIndexReader, sqliteSupport } from "./search-sqlite.mjs";
-import { densePlan, indexStatus, rebuildIndex } from "./search-store.mjs";
+import { densePlan, indexStatus, rebuildIndex, storeDenseVectors } from "./search-store.mjs";
 import { csvValue } from "./text-format.mjs";
 
 /** How long a fresh-index verdict is trusted before it is checked again. */
@@ -91,6 +91,7 @@ export function createNodeSearchEngine({ vaultRoot, searchIndexPath, env = proce
       reader: reader()
     }),
     densePlan: (options) => densePlan({ vaultRoot, indexPath: searchIndexPath, ...options }),
+    storeDense: (options) => storeDenseVectors({ indexPath: searchIndexPath, env, ...options }),
     rebuild: (options) => {
       closeReader();
       return rebuildIndex({ vaultRoot, indexPath: searchIndexPath, env, ...options });
@@ -210,78 +211,141 @@ export function createSearchIndexRuntime({
   }
 
   /**
+   * Embed the planned passages a slice at a time, storing each slice as soon
+   * as it is done, with progress after every batch. A cancel between batches
+   * keeps every slice already stored and says how many are left.
+   *
+   * @returns {Promise<number>} Passages embedded and stored.
+   */
+  async function embedAndStore({ chosen, planned, plan, batchSize, textLimit, includeMembrane, embed, onProgress, signal }) {
+    const { records } = planned;
+    const started = Date.now();
+    let done = 0;
+    const report = (count) => {
+      if (!onProgress) return;
+      const elapsed = (Date.now() - started) / 1000;
+      onProgress({
+        phase: "embedding",
+        done: count,
+        total: records.length,
+        eligible: planned.eligible,
+        reused: planned.reusable,
+        etaSeconds: count > 0 ? Math.round((elapsed / count) * (records.length - count)) : null
+      });
+    };
+    report(0);
+    for (let index = 0; index < records.length; index += DENSE_COMMIT_EVERY) {
+      let vectors;
+      try {
+        vectors = await embedDensePlan({
+          records: records.slice(index, index + DENSE_COMMIT_EVERY),
+          embed,
+          dimensions: plan.provenance.dimensions,
+          batchSize,
+          onProgress: (count) => report(done + count),
+          signal
+        });
+      } catch (error) {
+        if (!error?.cancelled) throw error;
+        throw Object.assign(new Error(`Embedding cancelled: ${done} of ${records.length} document(s) were embedded and are kept; `
+          + `the other ${records.length - done} wait for the next run.`), { name: "AbortError", cancelled: true, embedded: done });
+      }
+      await chosen.storeDense({ vectors, provenance: plan.provenance, textLimit, includeMembrane, eligible: planned.eligible });
+      done += vectors.length;
+      report(done);
+    }
+    return done;
+  }
+
+  /**
    * Rebuild the index. Dense embeddings are opt-in and expensive; without them
    * the existing dense vectors are preserved by default rather than dropped.
-   * With them, the passages that need a vector are planned here, embedded by
-   * the installed backend and written in the same rebuild. Without a backend
-   * the answer is an error that says what to install — never an interpreter
-   * that is not there (docs/DEFECTS.md, Д-98).
+   *
+   * With them: the documents are brought up to date first, the passages that
+   * need a vector are planned and embedded by the model a slice at a time,
+   * each slice stored as it is done, and the closing rebuild keeps what was
+   * stored. `onProgress` hears after every batch and `signal` stops between
+   * batches; either way nothing embedded is lost (docs/DEFECTS.md, Д-98).
+   * Without a model the answer is an error that says what to install.
+   *
+   * `onProgress` and `signal` reach here only from callers in this process —
+   * setup, the model command; what arrives over MCP is JSON and has neither.
    */
   async function rebuild({
     include_external_project_files = true,
     dense_embeddings = false,
-    dense_model_dir = process.env.BGE_M3_MODEL_DIR || defaultModelDir,
+    dense_model_dir = defaultModelDir,
     dense_device = process.env.BGE_M3_DEVICE || "cpu",
     dense_batch_size = 8,
     dense_text_limit = 1200,
     dense_include_membrane = false,
     dense_incremental = true,
     preserve_dense = true,
-    in_place = false
+    in_place = false,
+    onProgress,
+    signal
   } = {}) {
     const chosen = engine();
     await freshRegistry();
     await fs.mkdir(searchIndexDir, { recursive: true });
     const textLimit = Math.max(300, Math.min(Number(dense_text_limit) || 1200, 12000));
     const batchSize = Math.max(1, Math.min(Number(dense_batch_size) || 8, 32));
+    const includeMembrane = Boolean(dense_embeddings && dense_include_membrane);
     let plan = null;
     let planned = null;
-    let suppliedVectors = [];
+    let embedded = 0;
     if (dense_embeddings) {
       plan = denseIndexBackend ? await denseIndexBackend.describe() : null;
       if (!plan?.available) {
         throw new Error(`Dense vectors were asked for, but no embedding model can run here. ${plan?.reason ?? "No dense backend is configured."}`);
       }
+      // Every vector embedded below needs its document in the index already.
+      await chosen.rebuild({ includeExternalProjectFiles: Boolean(include_external_project_files), inPlace: true, preserveDense: true });
       planned = await chosen.densePlan({
         includeExternalProjectFiles: Boolean(include_external_project_files),
         textLimit,
-        includeMembrane: Boolean(dense_include_membrane),
+        includeMembrane,
         incremental: dense_incremental !== false,
         provenance: plan.provenance
       });
-      suppliedVectors = planned.records.length
-        ? await embedDensePlan({
-          records: planned.records,
-          // The model and device the caller named, as the 2.x helper was given
-          // them; the ONNX backend has its own and ignores both (Д-138).
-          embed: (texts) => embedQuery({
-            texts,
-            normalize: true,
-            include_embeddings: true,
-            batch_size: batchSize,
-            model_dir: dense_model_dir,
-            device: dense_device
-          }, { timeoutMs: 3600000 }),
-          dimensions: plan.provenance.dimensions,
-          batchSize
-        })
-        : [];
+      embedded = await embedAndStore({
+        chosen,
+        planned,
+        plan,
+        batchSize,
+        textLimit,
+        includeMembrane,
+        onProgress: typeof onProgress === "function" ? onProgress : null,
+        signal: typeof signal?.aborted === "boolean" ? signal : null,
+        // The model and device the caller named, as the 2.x helper was given
+        // them; the ONNX model has its own and ignores both (Д-138).
+        embed: (texts) => embedQuery({
+          texts,
+          normalize: true,
+          include_embeddings: true,
+          batch_size: batchSize,
+          model_dir: dense_model_dir,
+          device: dense_device
+        }, { timeoutMs: 3600000 })
+      });
     }
     const rebuilt = await chosen.rebuild({
       includeExternalProjectFiles: Boolean(include_external_project_files),
       inPlace: Boolean(in_place) && !dense_embeddings,
       preserveDense: !dense_embeddings && Boolean(preserve_dense),
       denseEmbeddings: Boolean(dense_embeddings),
-      suppliedVectors,
+      suppliedVectors: [],
       denseModelDir: path.resolve(String(dense_model_dir || defaultModelDir)),
       denseTextLimit: dense_embeddings ? textLimit : 1200,
-      denseIncludeMembrane: Boolean(dense_embeddings && dense_include_membrane),
-      denseIncremental: dense_incremental !== false,
+      denseIncludeMembrane: includeMembrane,
+      // What was planned is stored by now: the closing write keeps what still
+      // fits, whether or not the caller asked to reuse old vectors.
+      denseIncremental: true,
       ...(plan ? { denseBackend: plan.provenance.backend, denseRevision: plan.provenance.revision, denseDtype: plan.provenance.dtype } : {})
     });
     if (planned) {
       rebuilt.dense_planned_documents = planned.records.length;
-      rebuilt.dense_embedded_documents = suppliedVectors.length;
+      rebuilt.dense_embedded_documents = embedded;
     }
     dirtyReason = "";
     lastStatus = null;
@@ -418,7 +482,7 @@ export function createSearchIndexRuntime({
     semantic_weight = 0.20,
     keyword_weight = 0.45,
     dense_weight = 0.35,
-    dense_model_dir = process.env.BGE_M3_MODEL_DIR || defaultModelDir,
+    dense_model_dir = defaultModelDir,
     dense_device = process.env.BGE_M3_DEVICE || "cpu",
     intent_routing = false,
     rerank = true,
@@ -435,6 +499,7 @@ export function createSearchIndexRuntime({
     if (ensure_fresh) await ensureFresh();
 
     let denseQueryVector = null;
+    let denseProvenance = null;
     // Why the dense half did not run, when it did not. Hybrid search is
     // keyword + sparse + dense, and the first two need no model: a missing
     // BGE-M3 used to throw out of here and take the whole search with it,
@@ -455,6 +520,9 @@ export function createSearchIndexRuntime({
         const vector = denseQuery.embeddings?.[0];
         if (Array.isArray(vector) && vector.length) denseQueryVector = vector;
         else denseIssue = "the embedding backend returned no vector for this query";
+        if (denseQuery.backend && denseQuery.revision && denseQuery.dtype) {
+          denseProvenance = { backend: denseQuery.backend, revision: denseQuery.revision, dtype: denseQuery.dtype };
+        }
       } catch (error) {
         denseIssue = String(error?.message ?? error).replace(/\s+/g, " ").trim();
       }
@@ -471,7 +539,8 @@ export function createSearchIndexRuntime({
       semanticWeight: Number.isFinite(Number(semantic_weight)) ? Number(semantic_weight) : 0.20,
       keywordWeight: Number.isFinite(Number(keyword_weight)) ? Number(keyword_weight) : 0.45,
       denseWeight: selectedDenseWeight,
-      denseQueryVector
+      denseQueryVector,
+      denseProvenance
     });
     let ranked = results;
     if (

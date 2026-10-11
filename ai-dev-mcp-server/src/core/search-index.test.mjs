@@ -43,6 +43,7 @@ async function createFixture(t, { answers = {}, ranking = {}, embed, describe = 
   const engine = {
     status: async (options) => ({ stale: false, ...(answer("status", options) ?? {}) }),
     densePlan: async (options) => answer("densePlan", options) ?? { records: [] },
+    storeDense: async (options) => answer("storeDense", options) ?? { stored: options.vectors.length },
     rebuild: async (options) => ({ document_count: 3, ...(answer("rebuild", options) ?? {}) }),
     keyword: async (options) => answer("keyword", options) ?? [],
     hybrid: async (options) => answer("hybrid", options) ?? [],
@@ -134,26 +135,54 @@ test("a plain rebuild preserves existing dense vectors and clears the dirty flag
   assert.equal(of("embedQuery").length, 0);
 });
 
-test("a dense rebuild plans, embeds with the installed backend and writes in one go, its knobs clamped", async (t) => {
+test("a dense rebuild brings the documents up to date, then embeds and stores slice by slice, its knobs clamped", async (t) => {
   const records = [{ id: "a", content_hash: "ha", text: "passage: a" }, { id: "b", content_hash: "hb", text: "passage: b" }];
-  const { runtime, of } = await createFixture(t, { answers: { densePlan: { records } } });
+  const { runtime, of, calls } = await createFixture(t, { answers: { densePlan: { records, eligible: 5, reusable: 3 } } });
+  const events = [];
   const rebuilt = await runtime.rebuild({
     dense_embeddings: true,
     dense_batch_size: 999,
     dense_text_limit: 1,
     dense_include_membrane: true,
     dense_incremental: false,
-    in_place: true
+    in_place: true,
+    onProgress: (event) => events.push(event)
   });
+  assert.deepEqual(calls.map((call) => call.method).filter((name) => name !== "status"), ["rebuild", "densePlan", "embedQuery", "storeDense", "rebuild"],
+    "documents first, then plan, embed, store, and the closing write");
+  assert.deepEqual([of("rebuild")[0].options.inPlace, of("rebuild")[0].options.preserveDense, of("rebuild")[0].options.denseEmbeddings], [true, true, undefined]);
   assert.deepEqual(of("densePlan")[0].options, {
     includeExternalProjectFiles: true, textLimit: 300, includeMembrane: true, incremental: false, provenance: ONNX.provenance
   });
   assert.equal(of("embedQuery")[0].payload.batch_size, 32);
-  const options = of("rebuild")[0].options;
-  assert.deepEqual(options.suppliedVectors.map((vector) => vector.id), ["a", "b"]);
-  assert.deepEqual([options.denseEmbeddings, options.preserveDense, options.inPlace, options.denseTextLimit], [true, false, false, 300]);
-  assert.deepEqual([options.denseBackend, options.denseRevision, options.denseDtype], ["onnx", "abc", "int8"]);
+  const stored = of("storeDense")[0].options;
+  assert.deepEqual(stored.vectors.map((vector) => vector.id), ["a", "b"]);
+  assert.deepEqual([stored.provenance, stored.textLimit, stored.includeMembrane, stored.eligible], [ONNX.provenance, 300, true, 5]);
+  const closing = of("rebuild")[1].options;
+  assert.deepEqual(closing.suppliedVectors, [], "the vectors are stored already");
+  assert.deepEqual([closing.denseEmbeddings, closing.preserveDense, closing.inPlace, closing.denseTextLimit, closing.denseIncremental], [true, false, false, 300, true]);
+  assert.deepEqual([closing.denseBackend, closing.denseRevision, closing.denseDtype], ["onnx", "abc", "int8"]);
   assert.deepEqual([rebuilt.dense_planned_documents, rebuilt.dense_embedded_documents], [2, 2]);
+  assert.deepEqual(events.map((event) => [event.phase, event.done, event.total]), [["embedding", 0, 2], ["embedding", 2, 2], ["embedding", 2, 2]]);
+  assert.deepEqual([events[0].eligible, events[0].reused, events[0].etaSeconds], [5, 3, null]);
+});
+
+test("a cancel between batches keeps every stored slice, skips the closing write and says how many are left", async (t) => {
+  const records = Array.from({ length: 150 }, (_, index) => ({ id: `d${index}`, content_hash: `h${index}`, text: `passage: ${index}` }));
+  const controller = new AbortController();
+  const { runtime, of } = await createFixture(t, {
+    answers: { densePlan: { records, eligible: 150, reusable: 0 } },
+    embed: async (payload) => {
+      if (of("storeDense").length === 1) controller.abort();
+      return { embeddings: payload.texts.map(() => [0.1, 0.2, 0.3]) };
+    }
+  });
+  const failure = await runtime.rebuild({ dense_embeddings: true, dense_batch_size: 8, signal: controller.signal }).then(() => null, (error) => error);
+  assert.equal(failure?.name, "AbortError");
+  assert.match(failure.message, /^Embedding cancelled: 64 of 150 document\(s\) were embedded and are kept; the other 86 wait for the next run\.$/);
+  assert.equal(of("storeDense").length, 1, "one slice of 64 was stored");
+  assert.equal(of("rebuild").length, 1, "the documents were refreshed; the closing write did not happen");
+  assert.equal(runtime.dirtyReason(), "", "nothing marked dirty by a cancel");
 });
 
 test("a dense rebuild with no model says what to install instead of reaching for an interpreter (Д-98)", async (t) => {
@@ -165,25 +194,15 @@ test("a dense rebuild with no model says what to install instead of reaching for
   assert.equal(of("embedQuery").length, 0);
 });
 
-test("the legacy Python backend embeds through the same path and the index is written here", async (t) => {
-  const legacy = { backend: "python", available: true, reason: "legacy", provenance: { backend: "python", revision: "unpinned", dtype: "fp32", dimensions: 3 } };
-  const { runtime, of } = await createFixture(t, { describe: async () => legacy, answers: { densePlan: { records: [{ id: "a", content_hash: "h", text: "t" }] } } });
-  await runtime.rebuild({ dense_embeddings: true });
-  assert.equal(of("embedQuery").length, 1);
-  assert.equal(of("rebuild")[0].options.denseBackend, "python");
-});
-
 test("a dense rebuild hands the embedder the model folder and device the caller named (Д-138)", async (t) => {
-  const legacy = { backend: "python", available: true, reason: "legacy", provenance: { backend: "python", revision: "unpinned", dtype: "fp32", dimensions: 3 } };
-  const { runtime, of } = await createFixture(t, { describe: async () => legacy, answers: { densePlan: { records: [{ id: "a", content_hash: "h", text: "passage: t" }] } } });
-  await runtime.rebuild({ dense_embeddings: true, dense_model_dir: "/custom/bge-m3", dense_device: "cuda" });
+  const { runtime, of } = await createFixture(t, { answers: { densePlan: { records: [{ id: "a", content_hash: "h", text: "passage: t" }] } } });
+  await runtime.rebuild({ dense_embeddings: true, dense_model_dir: "/custom/bge-m3-onnx", dense_device: "cuda" });
   const { payload } = of("embedQuery")[0];
-  assert.deepEqual([payload.model_dir, payload.device], ["/custom/bge-m3", "cuda"]);
-  assert.equal(of("rebuild")[0].options.denseModelDir, path.resolve("/custom/bge-m3"), "the index records the folder the vectors came from");
-  // Unnamed, they are the defaults the legacy worker would take itself.
+  assert.deepEqual([payload.model_dir, payload.device], ["/custom/bge-m3-onnx", "cuda"]);
+  assert.equal(of("rebuild")[1].options.denseModelDir, path.resolve("/custom/bge-m3-onnx"), "the index records the folder the vectors came from");
   await runtime.rebuild({ dense_embeddings: true });
   const fallback = of("embedQuery")[1].payload;
-  assert.deepEqual([fallback.model_dir, fallback.device], [process.env.BGE_M3_MODEL_DIR || "/models/bge-m3", process.env.BGE_M3_DEVICE || "cpu"]);
+  assert.deepEqual([fallback.model_dir, fallback.device], ["/models/bge-m3", process.env.BGE_M3_DEVICE || "cpu"], "unnamed, the runtime's own folder");
 });
 
 test("a fresh index is left alone; a stale one is rebuilt once", async (t) => {

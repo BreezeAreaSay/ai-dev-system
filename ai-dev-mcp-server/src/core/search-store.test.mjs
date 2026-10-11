@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createDocumentCache } from "./search-documents.mjs";
-import { densePlan, indexStatus, rebuildIndex } from "./search-store.mjs";
+import { densePlan, indexStatus, rebuildIndex, storeDenseVectors } from "./search-store.mjs";
 import { DEFAULT_REBUILD_LOCK_TIMEOUT_SECONDS, rebuildLockTimeoutMs, setAside } from "./search-writer.mjs";
 import { createIndexReader, isBusyError, isCorruptError, loadSqlite, openDatabase, sqliteSupport, wholeText } from "./search-sqlite.mjs";
 
@@ -282,6 +282,44 @@ test("supplied vectors are stored where their passage still matches, and kept by
 
   const dropped = await rebuildIndex({ vaultRoot: vault, indexPath, preserveDense: false });
   assert.deepEqual([dropped.dense_enabled, dropped.dense_documents], [false, 0]);
+});
+
+test("vectors stored a slice at a time are in the index at once, and a later rebuild keeps them (Д-98)", needsSqlite, async (t) => {
+  const vault = tempRoot(t);
+  const indexPath = path.join(tempRoot(t), "index.sqlite");
+  buildVault(vault);
+  await assert.rejects(storeDenseVectors({ indexPath, vectors: [] }), /has no documents yet/);
+  // A 2.x index: everything embedded by the Python backend.
+  await rebuildIndex({ vaultRoot: vault, indexPath });
+  const legacy = { backend: "python", revision: "unpinned", dtype: "fp32" };
+  const legacyPlan = await densePlan({ vaultRoot: vault, indexPath, provenance: legacy });
+  await rebuildIndex({ vaultRoot: vault, indexPath, denseEmbeddings: true, suppliedVectors: vectorsFor(legacyPlan), denseBackend: "python", denseRevision: "unpinned", denseDtype: "fp32" });
+
+  const provenance = { backend: "onnx", revision: "abc123", dtype: "int8" };
+  const plan = await densePlan({ vaultRoot: vault, indexPath, provenance });
+  assert.equal(plan.records.length, 33, "another model's vectors are all to be made again");
+  const vectors = vectorsFor(plan);
+  const first = await storeDenseVectors({
+    indexPath,
+    vectors: [...vectors.slice(0, 10), { id: "nobody", content_hash: "x", vector: vectors[0].vector }, { ...vectors[11], vector: [1, 2] }],
+    provenance,
+    eligible: plan.eligible
+  });
+  assert.deepEqual(first, { stored: 10, documents: 10, pending: 23 }, "an unknown document and a wrong width are skipped");
+  const status = await indexStatus({ vaultRoot: vault, indexPath });
+  assert.deepEqual([status.dense_backend, status.dense_documents, status.dense_pending_documents], ["onnx", 10, 23]);
+  assert.equal((await densePlan({ vaultRoot: vault, indexPath, provenance })).records.length, 23, "the next run starts where this one stopped");
+
+  // A cancelled run, then an ordinary refresh: the stored slice survives,
+  // and the Python vectors that were never redone go.
+  const kept = await rebuildIndex({ vaultRoot: vault, indexPath, preserveDense: true, inPlace: true });
+  assert.deepEqual([kept.dense_backend, kept.dense_documents, kept.dense_pending_documents], ["onnx", 10, 23]);
+  const rows = dump(indexPath).dense_vectors.map((row) => JSON.parse(row));
+  assert.ok(rows.every((row) => row[4] === "onnx"), "one vector space in the index");
+
+  await storeDenseVectors({ indexPath, vectors: vectors.slice(10), provenance, eligible: plan.eligible });
+  const closing = await rebuildIndex({ vaultRoot: vault, indexPath, denseEmbeddings: true, suppliedVectors: [], denseIncremental: true, denseBackend: "onnx", denseRevision: "abc123", denseDtype: "int8" });
+  assert.deepEqual([closing.dense_documents, closing.dense_reused_documents, closing.dense_pending_documents], [33, 33, 0]);
 });
 
 test("vectors stored without their provenance are never reused", needsSqlite, async (t) => {

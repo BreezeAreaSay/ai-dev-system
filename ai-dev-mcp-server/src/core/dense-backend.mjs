@@ -100,9 +100,12 @@ export function legacyDenseNotes(env = {}, { legacyWeightsDir = "" } = {}) {
  * @param {boolean} [options.supported] - onnxruntime has a build for this machine.
  * @param {string} [options.supportReason]
  * @param {boolean} [options.inContainer]
+ * @param {{ dir?: string, present?: string[], missing?: string[], mismatched?: string[], partial?: string[] }} [options.files]
+ *   What the check found, so the sentence says which of "not here", "not all here",
+ *   "stopped partway" and "not the pinned files" it is (docs/DEFECTS.md, Д-146).
  * @returns {{ backend: string, available: boolean, reason: string, requested: string }}
  */
-export function selectDenseBackend({ requested = "auto", onnxReady = false, supported = true, supportReason = "", inContainer = false } = {}) {
+export function selectDenseBackend({ requested = "auto", onnxReady = false, supported = true, supportReason = "", inContainer = false, files = {} } = {}) {
   const choice = DENSE_BACKEND_CHOICES.includes(requested) ? requested : "auto";
   if (!supported) {
     return { backend: DENSE_ONNX_BACKEND, available: false, requested: choice, reason: supportReason || "This machine has no build of onnxruntime-node." };
@@ -117,14 +120,33 @@ export function selectDenseBackend({ requested = "auto", onnxReady = false, supp
         : "The verified ONNX export is on disk; no Python is involved."
     };
   }
-  return {
-    backend: DENSE_ONNX_BACKEND,
-    available: false,
-    requested: choice,
-    reason: inContainer
-      ? "Dense search is not installed in this container: mount a folder holding bge-m3-onnx/ at /models "
-        + "(AI_DEV_MODEL_PATH with docker/run-mcp.sh)."
-      : `Dense search is not installed: the model is not on this machine. Run \`${DENSE_INSTALL_COMMAND}\` to download it `
-        + `(about 600 MB, no Python), or \`${DENSE_IMPORT_COMMAND}\` to copy it from another machine.`
-  };
+  return { backend: DENSE_ONNX_BACKEND, available: false, requested: choice, reason: notReadyReason({ inContainer, files }) };
+}
+
+const MOUNT_ADVICE = "mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH with docker/run-mcp.sh).";
+
+/** The model is not usable; say which way, and what changes it. */
+function notReadyReason({ inContainer, files }) {
+  const { dir = "", present = [], missing = [], mismatched = [], partial = [] } = files ?? {};
+  const where = dir ? ` in ${dir}` : "";
+  const names = (list) => list.join(", ");
+  if (mismatched.length) {
+    const one = mismatched.length === 1;
+    return `Dense search is not ready: ${names(mismatched)}${where} ${one ? "is not the pinned file" : "are not the pinned files"} `
+      + `(the sha256 differs from the manifest). `
+      + (inContainer ? `In this container, ${MOUNT_ADVICE}` : `Run \`${DENSE_INSTALL_COMMAND}\`: it fetches ${one ? "it" : "them"} again.`);
+  }
+  if (partial.length && !inContainer) {
+    return `Dense search is not installed yet: the download of the model stopped partway (${names(partial)}). `
+      + `Run \`${DENSE_INSTALL_COMMAND}\` to continue it from there.`;
+  }
+  if (present.length && missing.length) {
+    return `Dense search is not ready: the model${where} lacks ${names(missing)}. `
+      + (inContainer ? `In this container, ${MOUNT_ADVICE}`
+        : `Run \`${DENSE_INSTALL_COMMAND}\` to fetch ${missing.length === 1 ? "it" : "them"}, or \`${DENSE_IMPORT_COMMAND}\` to copy the model from another machine.`);
+  }
+  return inContainer
+    ? `Dense search is not installed in this container: ${MOUNT_ADVICE}`
+    : `Dense search is not installed: the model is not on this machine. Run \`${DENSE_INSTALL_COMMAND}\` to download it `
+      + `(about 600 MB, no Python), or \`${DENSE_IMPORT_COMMAND}\` to copy it from another machine.`;
 }

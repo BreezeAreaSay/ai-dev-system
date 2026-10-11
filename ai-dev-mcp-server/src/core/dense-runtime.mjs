@@ -77,12 +77,20 @@ export function createDenseRuntime({
     const { requested, note } = requestedDenseBackend(env);
     supportAnswer ??= support();
     const onnx = await onnxStatus({ refresh });
+    // A stat and a small JSON read per missing file, and only while the model
+    // is not ready: what a stopped download left is what the sentence says.
+    const partial = [];
+    for (const relative of onnx.ready ? [] : onnx.missing ?? []) {
+      const part = await usablePart(path.join(path.resolve(onnxModelDir), relative), { revision: manifest.revision, sha256: manifest.files[relative] });
+      if (part.bytes > 0) partial.push({ file: relative, bytes: part.bytes, size: part.size });
+    }
     const choice = selectDenseBackend({
       requested,
       onnxReady: onnx.ready,
       supported: supportAnswer.supported,
       supportReason: supportAnswer.reason,
-      inContainer: String(env.AI_DEV_RUNTIME ?? "") === "docker"
+      inContainer: String(env.AI_DEV_RUNTIME ?? "") === "docker",
+      files: { dir: onnx.dir, present: onnx.present, missing: onnx.missing, mismatched: onnx.mismatched, partial: partial.map((part) => part.file) }
     });
     const legacyWeightsDir = legacyModelDir && exists(path.join(legacyModelDir, "pytorch_model.bin")) ? path.resolve(legacyModelDir) : "";
     const legacy = legacyDenseNotes(env, { legacyWeightsDir });
@@ -90,6 +98,7 @@ export function createDenseRuntime({
       ...choice,
       note,
       provenance: denseVectorProvenance(manifest, choice.backend),
+      partial,
       onnx: {
         ready: onnx.ready,
         dir: onnx.dir,
@@ -124,12 +133,7 @@ export function createDenseRuntime({
    * @returns {Promise<object>}
    */
   async function status({ refresh = false } = {}) {
-    const selected = await describe({ refresh: Boolean(refresh) });
-    const partial = [];
-    for (const relative of selected.onnx.missing ?? []) {
-      const part = await usablePart(path.join(path.resolve(onnxModelDir), relative), { revision: manifest.revision, sha256: manifest.files[relative] });
-      if (part.bytes > 0) partial.push({ file: relative, bytes: part.bytes, size: part.size });
-    }
+    const { partial, ...selected } = await describe({ refresh: Boolean(refresh) });
     return {
       backend: selected.backend,
       dense_model: manifest.model,

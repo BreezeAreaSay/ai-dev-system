@@ -14,7 +14,7 @@ const MANIFEST = Object.freeze({
   files: Object.freeze({ "config.json": "a".repeat(64), "onnx/model_int8.onnx": "b".repeat(64) })
 });
 
-function runtimeWith({ ready = true, supported = true, env = {}, now, legacyModelDir = "", exists, onnxModelDir = "/models/bge-m3-onnx", stampDir = "" } = {}) {
+function runtimeWith({ ready = true, supported = true, env = {}, now, legacyModelDir = "", exists, onnxModelDir = "/models/bge-m3-onnx", stampDir = "", found = null } = {}) {
   const calls = { verify: [], embed: [], shutdown: 0 };
   const runtime = createDenseRuntime({
     manifest: MANIFEST,
@@ -35,7 +35,7 @@ function runtimeWith({ ready = true, supported = true, env = {}, now, legacyMode
     },
     verify: async (options) => {
       calls.verify.push(options);
-      return { ready, dir: onnxModelDir, missing: ready ? [] : ["onnx/model_int8.onnx"], mismatched: [] };
+      return found ?? { ready, dir: onnxModelDir, missing: ready ? [] : ["onnx/model_int8.onnx"], mismatched: [] };
     },
     support: () => ({ supported, reason: supported ? "" : "no build for darwin-x64 (Intel Mac)" }),
     ...(exists ? { exists } : {}),
@@ -64,6 +64,10 @@ test("without the model, embedding is refused with the reason and the commands",
   assert.match((await inContainer.runtime.describe()).reason, /mount a folder holding bge-m3-onnx/);
   const intel = runtimeWith({ supported: false });
   assert.match((await intel.runtime.describe()).reason, /darwin-x64/);
+  // Files that are there but not the pinned ones are not "not on this machine" (Д-146).
+  const tampered = runtimeWith({ found: { ready: false, dir: "/models/bge-m3-onnx", present: ["config.json"], missing: [], mismatched: ["onnx/model_int8.onnx"] } });
+  await assert.rejects(tampered.runtime.embed({ texts: ["x"] }),
+    /^Error: Dense search is not ready: onnx\/model_int8\.onnx in \/models\/bge-m3-onnx is not the pinned file \(the sha256 differs from the manifest\)\. Run `npm run setup -- --dense`: it fetches it again\.$/);
 });
 
 test("the check trusts the record for a minute, and a refresh reads every file", async () => {
@@ -110,6 +114,8 @@ test("status is the embedding_status payload: backend, folder, partial downloads
   const status = await runtime.status({});
   assert.deepEqual([status.backend, status.installed, status.available, status.model_dir], ["onnx", false, false, dir]);
   assert.deepEqual(status.partial, [{ file: "onnx/model_int8.onnx", bytes: 300, size: 1000 }]);
+  assert.match(status.reason, /^Dense search is not installed yet: the download of the model stopped partway \(onnx\/model_int8\.onnx\)\. Run `npm run setup -- --dense` to continue it from there\.$/);
+  assert.equal("partial" in status.dense_backend, false, "said once, at the top");
   assert.deepEqual(status.worker, { started: true, pending_requests: 0, load_seconds: 0.2 });
   assert.equal(status.dense_backend.backend, "onnx");
   assert.equal(status.dense_revision, MANIFEST.revision);

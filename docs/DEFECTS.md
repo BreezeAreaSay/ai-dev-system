@@ -3139,6 +3139,37 @@ supply-chain hook:     warns: ["[supply-chain] left-pad@latest was not fully che
 
 ---
 
+## Д-146. Модель с чужими файлами сервер называет отсутствующей: «the model is not on this machine»
+
+**Статус:** открыт. Нашёлся пробой фазы 5 по MCP (подменённый файл весов); закроет она же.
+
+Причина, по которой dense-поиск не работает, у `embedding_status`, `embed_texts`, `hybrid_search` и
+перестройки с векторами одна — `selectDenseBackend` (`src/core/dense-backend.mjs`). Ему передают только
+«модель готова: да или нет», поэтому любое «нет» он объясняет одинаково: модели на машине нет, скачайте
+600 МБ. Так же — когда все пять файлов на месте, но не те (подмена, обрыв старой версии, чужая ревизия), и
+когда загрузка остановилась на середине. Проверка здоровья в том же состоянии говорит верно: «files … do
+not match the manifest … fetches those files again».
+
+**Чем грозит.** Человек, у которого модель лежит на диске, читает, что её нет, и идёт качать 600 МБ — или
+ищет, куда пропала папка. Две разные причины в одном сервере: проверка здоровья и `embed_texts` спорят.
+
+**Замер до.** Каталог модели с пятью файлами под нужными именами и чужим содержимым, манифест штатный:
+
+```
+13bb95d  embed_texts → «Dense search is not installed. Run `npm run setup -- --dense` to download the model
+         (no Python needed).»; embedding_status: onnx.mismatched — все 5, onnx.missing — 0
+f228435  embedding_status.reason и embed_texts → «Dense search is not installed: the model is not on this
+         machine. Run `npm run setup -- --dense` to download it (about 600 MB, no Python), or `npm run model --
+         import …`»; system_health_check embedding_backend → warn «The model files in … do not match the
+         manifest (config.json, …). Run `npm run setup -- --dense`: it fetches those files again.»
+```
+
+**Как закроется.** Причина строится из того, что проверка нашла: не те файлы — названы они и команда,
+которая скачает их заново; часть файлов есть — названы недостающие; остановленная загрузка — сказано, что
+она продолжится; «нет на машине» — только когда в каталоге нет ни одного файла модели.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

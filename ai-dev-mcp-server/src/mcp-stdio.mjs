@@ -38,7 +38,6 @@ import {
   groupWikiLink,
   isDesignSkill,
   isMembraneSkill,
-  catalogSourceOfPath,
   membraneSourceLayout,
   MEMBRANE_SOURCE_IDS,
   skillCardPath,
@@ -90,6 +89,7 @@ import {
 import { loadImportGraph, renderImportGraphMarkdown } from "./core/import-graph.mjs";
 import { configureRuntimeStateRoot, resolveProjectIdentity } from "./core/project-identity.mjs";
 import { resolvePythonCommand } from "./core/python-command.mjs";
+import { optionalPythonFailure, UI_UX_PYTHON_TOOLS } from "./core/python-failure.mjs";
 import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
 import { resolveRuntimeAssets } from "./core/runtime-assets.mjs";
 import { resolveRuntimeStateRoot, resolveUserHome } from "./core/runtime-home.mjs";
@@ -270,7 +270,6 @@ const runtimeAssets = resolveRuntimeAssets({
   vaultRoot,
   repositoryRoot: path.resolve(serverDir, "..", "..")
 });
-const searchSourceDir = runtimeAssets.searchIndexDir;
 const searchIndexDir = path.resolve(
   aiDevRuntimePath(
     "AI_DEV_SEARCH_INDEX_DIR",
@@ -279,7 +278,6 @@ const searchIndexDir = path.resolve(
   )
 );
 const searchIndexPath = path.join(searchIndexDir, "ai-dev-search.sqlite");
-const searchCliPath = path.join(searchSourceDir, "search_cli.py");
 const searchEvalCasesPath = path.join(runtimeAssets.searchEvalDir, "search_eval_cases.json");
 // The routing benchmark's golden cases. `skillRoutingEvalRelativePath` above is
 // what a report prints; this is where the file actually is, which in a plain
@@ -376,15 +374,9 @@ const denseRuntime = createDenseRuntime({
 });
 const searchRuntime = createSearchIndexRuntime({
   vaultRoot,
-  searchCliPath,
   searchIndexDir,
   searchIndexPath,
   defaultModelDir: defaultBgeM3ModelDir,
-  // The client installer writes the same answer into every client's config (Д-94).
-  pythonCommand: () => resolvePythonCommand(),
-  embeddingPythonCommand: () => embeddingPythonCommand(),
-  pathExists: (target) => pathExists(target),
-  execFile: (command, args, options) => execFile(command, args, options),
   embedQuery: (payload, options) => denseRuntime.embed(payload, options),
   denseIndexBackend: { describe: () => denseRuntime.describe() },
   hardNegativeRules: () => activeSearchHardNegativeRules(),
@@ -1848,11 +1840,9 @@ async function runUiUxProMax(args, { json = false } = {}) {
     allowAbsolute: false,
     allowRoot: false
   });
-  const output = await execFile(
-    resolvePythonCommand(),
-    [scriptPath, ...args],
-    { cwd: uiUxProMaxRoot, timeoutMs: 120000 }
-  );
+  const python = resolvePythonCommand();
+  const output = await execFile(python, [scriptPath, ...args], { cwd: uiUxProMaxRoot, timeoutMs: 120000 })
+    .catch((failure) => { throw optionalPythonFailure(failure, { tool: UI_UX_PYTHON_TOOLS, interpreter: python }); });
   if (!json) return output.stdout.trim();
   try {
     return JSON.parse(stripBom(output.stdout));
@@ -4528,19 +4518,6 @@ function visibleTools() {
   return profiledTools;
 }
 
-async function searchKnowledge({ query, limit = 10 }) {
-  if (!query || typeof query !== "string") throw new Error("query is required.");
-  const files = await listMarkdownFiles(vaultRoot);
-  const matches = [];
-  for (const file of files) {
-    if (isMembraneSkill({ source: catalogSourceOfPath(file) })) continue;
-    const text = await readText(file);
-    const score = scoreText(query, [file, text.slice(0, 8000)]);
-    if (score > 0) matches.push({ path: file, score, preview: text.replace(/\s+/g, " ").slice(0, 240) });
-  }
-  return matches.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path)).slice(0, limit);
-}
-
 async function projectRecommendationContext({ project, project_path } = {}) {
   const identifier = project_path || project;
   if (!identifier) {
@@ -4670,7 +4647,8 @@ async function readSkill({ name, source }) {
 }
 
 async function dispatchTool(name, args) {
-  if (name === "search_knowledge") return textContent(await searchKnowledge(args));
+  // Over the search index, not every file on disk (docs/DEFECTS.md, Д-102).
+  if (name === "search_knowledge") return textContent(await searchRuntime.searchKnowledge(args));
   if (name === "read_knowledge") return textContent(await readText(args.path));
   if (name === "search_skills") return textContent(await searchSkills(args));
   if (name === "read_skill") return textContent(await readSkill(args));

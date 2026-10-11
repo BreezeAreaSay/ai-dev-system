@@ -15,14 +15,12 @@ function Resolve-Runtime([string]$explicit, [string]$name, [string]$codexRelativ
   if ($onPath) { return $onPath.Source }
   $codex = Join-Path $env:USERPROFILE $codexRelative
   if (Test-Path -LiteralPath $codex -PathType Leaf) { return $codex }
-  throw "$name not found. Install it, or set AI_DEV_NODE / AI_DEV_PYTHON."
+  throw "$name not found. Install it, or set AI_DEV_NODE."
 }
 
 $node = Resolve-Runtime $env:AI_DEV_NODE "node" ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
-$python = Resolve-Runtime $env:AI_DEV_PYTHON "python" ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
 $server = Join-Path $VaultRoot "09-mcp\ai-dev-mcp-server"
 $frontendQa = Join-Path $VaultRoot "09-mcp\frontend-qa"
-$search = Join-Path $VaultRoot "09-mcp\search-index"
 
 Push-Location $server
 try {
@@ -42,28 +40,6 @@ Push-Location $frontendQa
 try {
   & $node --test
   if ($LASTEXITCODE -ne 0) { throw "Frontend QA tests failed." }
-} finally { Pop-Location }
-
-Push-Location $search
-try {
-  # Python's unittest runner writes normal progress to stderr. PowerShell 5
-  # surfaces that stream as NativeCommandError when Stop is active, so merge
-  # the streams and trust the native exit code.
-  $previousErrorActionPreference = $ErrorActionPreference
-  $ErrorActionPreference = "Continue"
-  try {
-    & $python -m unittest discover -s . -p "test_*.py" -v 2>&1 |
-      ForEach-Object {
-        $line = [string]$_
-        if ($line -ne "System.Management.Automation.RemoteException") {
-          Write-Output $line
-        }
-      }
-    $pythonExitCode = $LASTEXITCODE
-  } finally {
-    $ErrorActionPreference = $previousErrorActionPreference
-  }
-  if ($pythonExitCode -ne 0) { throw "Search index tests failed." }
 } finally { Pop-Location }
 
 if ($IncludeDense) {

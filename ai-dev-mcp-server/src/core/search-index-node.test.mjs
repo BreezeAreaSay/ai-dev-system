@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { chooseSearchEngine, createSearchIndexRuntime } from "./search-index.mjs";
+import { createSearchIndexRuntime } from "./search-index.mjs";
 import { sqliteSupport } from "./search-sqlite.mjs";
 
 const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
@@ -22,8 +22,8 @@ function write(root, rel, content) {
   fs.writeFileSync(target, content);
 }
 
-/** A runtime over a real vault and index whose Python helper must never be needed unless a test says so. */
-function createFixture(t, { describe = null, embed = null, helper = null, refreshSkillRegistry } = {}) {
+/** A runtime over a real vault and index; every embedding request is recorded. */
+function createFixture(t, { describe = null, embed = null, refreshSkillRegistry } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "search-node-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const vaultRoot = path.join(root, "vault");
@@ -38,18 +38,9 @@ function createFixture(t, { describe = null, embed = null, helper = null, refres
   const searchIndexDir = path.join(root, "cache");
   const runtime = createSearchIndexRuntime({
     vaultRoot,
-    searchCliPath: "/no/search_cli.py",
     searchIndexDir,
     searchIndexPath: path.join(searchIndexDir, "ai-dev-search.sqlite"),
     defaultModelDir: path.join(root, "models", "bge-m3"),
-    pythonCommand: () => "python",
-    embeddingPythonCommand: () => "embedding-python",
-    pathExists: async () => true,
-    execFile: async (command, args) => {
-      calls.push({ command, args, lockHeld: fs.existsSync(path.join(searchIndexDir, "ai-dev-search.sqlite.lock")) });
-      if (!helper) throw new Error(`the Python helper was called: ${args[1]}`);
-      return { stdout: JSON.stringify(helper(args)), stderr: "" };
-    },
     embedQuery: async (payload) => {
       calls.push({ command: "embedQuery", payload });
       return embed ? embed(payload) : { embeddings: [] };
@@ -63,15 +54,6 @@ function createFixture(t, { describe = null, embed = null, helper = null, refres
   });
   return { runtime, calls, vaultRoot, indexPath: path.join(searchIndexDir, "ai-dev-search.sqlite") };
 }
-
-test("the engine is Node's where node:sqlite has FTS5, the helper otherwise or when asked", () => {
-  const yes = () => ({ available: true, reason: "" });
-  const no = () => ({ available: false, reason: "no FTS5 here" });
-  assert.deepEqual(chooseSearchEngine({ env: {}, support: yes }), { engine: "node", reason: "" });
-  assert.deepEqual(chooseSearchEngine({ env: {}, support: no }), { engine: "python", reason: "no FTS5 here" });
-  assert.deepEqual(chooseSearchEngine({ env: { AI_DEV_SEARCH_ENGINE: "Python " }, support: yes }), { engine: "python", reason: "AI_DEV_SEARCH_ENGINE=python" });
-  assert.deepEqual(chooseSearchEngine({ env: { AI_DEV_SEARCH_ENGINE: "node" }, support: no }).engine, "python", "it cannot be forced onto a Node without FTS5");
-});
 
 test("status, the first search and its rebuild run without Python", needsSqlite, async (t) => {
   const { runtime, calls } = createFixture(t);
@@ -150,21 +132,43 @@ test("ONNX vectors are planned, embedded and stored in one rebuild, without Pyth
   assert.equal((await runtime.status()).dense_documents, 5);
 });
 
-test("the legacy Python dense backend and hybrid search still go to the helper", needsSqlite, async (t) => {
+test("the legacy Python backend embeds the passages, and Node writes them into the index", needsSqlite, async (t) => {
+  const legacy = { backend: "python", available: true, reason: "legacy", provenance: { backend: "python", revision: "unpinned", dtype: "fp32", dimensions: 1024 } };
   const { runtime, calls } = createFixture(t, {
-    describe: async () => ({ backend: "python", available: true, provenance: { backend: "python", revision: "unpinned", dtype: "fp32", dimensions: 1024 } }),
-    helper: (args) => (args[1] === "hybrid" ? [{ title: "Deploy runbook", path: "02-knowledge/deploy.md", scope: "knowledge", score: 1 }] : { document_count: 5 })
+    describe: async () => legacy,
+    embed: (payload) => ({ embeddings: payload.texts.map(() => Array.from({ length: 1024 }, (_, index) => (index === 0 ? 1 : 0))) })
+  });
+  const built = await runtime.rebuild({ dense_embeddings: true });
+  assert.equal(built.engine, "node");
+  assert.ok(built.dense_documents > 0, JSON.stringify(built));
+  assert.equal(built.dense_documents, built.dense_embedded_documents);
+  assert.ok(calls.some((call) => call.command === "embedQuery"));
+  const status = await runtime.status();
+  assert.deepEqual([status.dense_backend, status.dense_documents], ["python", built.dense_documents]);
+});
+
+test("a dense rebuild with no model leaves the index as it was and says what to install (Д-98)", needsSqlite, async (t) => {
+  const { runtime, calls } = createFixture(t, {
+    describe: async () => ({ backend: "onnx", available: false, reason: "Dense search is not installed. Run `npm run setup -- --dense`." })
   });
   await runtime.rebuild();
-  const legacy = await runtime.rebuild({ dense_embeddings: true });
-  assert.equal(legacy.engine, "node", "the engine is the process's; the helper only embedded and wrote");
-  const rebuildCall = calls.find((call) => call.args?.[1] === "rebuild");
-  assert.equal(rebuildCall.command, "embedding-python");
-  assert.ok(rebuildCall.args.includes("--dense-embeddings"));
-  assert.equal(rebuildCall.lockHeld, true, "the helper writes under the Node engine's rebuild lock too");
-  const hybrid = await runtime.hybridSearch({ query: "deploy", dense_weight: 0 });
-  assert.equal(hybrid[0].title, "Deploy runbook");
-  assert.ok(calls.some((call) => call.args?.[1] === "hybrid"));
+  const before = await runtime.status();
+  await assert.rejects(runtime.rebuild({ dense_embeddings: true }), /no embedding model can run here\. Dense search is not installed/);
+  const after = await runtime.status();
+  assert.deepEqual([after.indexed_document_count, after.built_at, after.stale], [before.indexed_document_count, before.built_at, false], "the index is untouched");
+  assert.equal(calls.filter((call) => call.command === "embedQuery").length, 0);
+});
+
+test("hybrid search runs in Node: the question embedded here, a missing model only drops the dense half", needsSqlite, async (t) => {
+  const { runtime, calls } = createFixture(t, { embed: () => { throw new Error("model not installed"); } });
+  const results = await runtime.hybridSearch({ query: "deploy production" });
+  assert.equal(results[0].title, "Deploy runbook");
+  assert.equal(results[0].mode, "hybrid");
+  assert.ok(results[0].keyword_score > 0 && results[0].semantic_score > 0, JSON.stringify(results[0]));
+  assert.equal(results[0].dense_score, 0);
+  assert.match(results.dense_unavailable, /model not installed/);
+  assert.equal(calls.filter((call) => call.command === "embedQuery").length, 1, "the question was embedded once, here");
+  assert.deepEqual([...await runtime.hybridSearch({ query: "   " })], [], "a blank question finds nothing rather than everything");
 });
 
 test("status and rebuild bring the skill registry up to date first, and survive it failing (Д-119)", needsSqlite, async (t) => {

@@ -5,7 +5,7 @@
  * - The module is there unflagged from Node 22.13, but its SQLite is built
  *   without FTS5 until 22.16 (and on 23.x), and the index is an FTS5 table. So
  *   support is measured, not inferred from the version, and where it is
- *   missing the runtime keeps using the Python helper.
+ *   missing search says which Node it needs.
  * - Loading the module prints "ExperimentalWarning: SQLite is an experimental
  *   feature" on every server start. That one warning is swallowed while the
  *   module loads; every other warning is left alone.

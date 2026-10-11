@@ -1,31 +1,19 @@
 import assert from "node:assert/strict";
-import { execFile, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 import { createExtensionTools } from "../tool-extensions.mjs";
 import { GALAXY_OUTPUT_PATH } from "../core/galaxy.mjs";
+import { exportGalaxy } from "../core/galaxy-export.mjs";
+import { openDatabase, sqliteSupport } from "../core/search-sqlite.mjs";
+import { rebuildIndex } from "../core/search-store.mjs";
 import { createGalaxyTools } from "./galaxy.mjs";
 
-const run = promisify(execFile);
-const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
-const searchCli = path.resolve(serverRoot, "..", "search-index", "search_cli.py");
+const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
 
-/** The first Python on PATH that answers, or "" (the helper tests skip the same way). */
-function findPython() {
-  for (const candidate of process.env.AI_DEV_PYTHON ? [process.env.AI_DEV_PYTHON] : ["python3", "python"]) {
-    const probe = spawnSync(candidate, ["--version"], { stdio: "ignore", windowsHide: true });
-    if (!probe.error && probe.status === 0) return candidate;
-  }
-  return "";
-}
-
-/** A host whose search half is the real Python helper on a throwaway vault. */
-async function hostFor(root, python) {
+/** A host whose search half is the real Node index on a throwaway vault. */
+async function hostFor(root) {
   const vault = path.join(root, "My Vault");
   const index = path.join(root, "cache", "index.sqlite");
   const notes = {
@@ -42,7 +30,7 @@ async function hostFor(root, python) {
   }
   await fs.mkdir(path.join(vault, "03-skills-catalog", "registries"), { recursive: true });
   await fs.writeFile(path.join(vault, "03-skills-catalog", "registries", "skills.index.json"), "[]\n", "utf8");
-  const calls = { ensureFresh: 0, exports: [] };
+  const calls = { ensureFresh: 0, exports: 0 };
   const writes = new Map();
   return {
     calls,
@@ -55,13 +43,17 @@ async function hostFor(root, python) {
         ensureFresh: async () => {
           calls.ensureFresh += 1;
           await fs.mkdir(path.dirname(index), { recursive: true });
-          await run(python, [searchCli, "rebuild", "--vault-root", vault, "--index-path", index]);
+          await rebuildIndex({ vaultRoot: vault, indexPath: index });
           return { action: "rebuilt" };
         },
-        exportGalaxy: async ({ outDir }) => {
-          calls.exports.push(outDir);
-          const { stdout } = await run(python, [searchCli, "galaxy-export", "--index-path", index, "--out-dir", outDir]);
-          return JSON.parse(stdout);
+        exportGalaxy: async () => {
+          calls.exports += 1;
+          const db = openDatabase(index);
+          try {
+            return exportGalaxy(db);
+          } finally {
+            db.close();
+          }
         }
       },
       safePath: (relative) => path.join(vault, relative),
@@ -74,12 +66,10 @@ async function hostFor(root, python) {
   };
 }
 
-const python = existsSync(searchCli) ? findPython() : "";
-
-test("render_knowledge_galaxy draws the vault the Python helper exported", { skip: python ? false : "needs Python and search-index/search_cli.py" }, async (t) => {
+test("render_knowledge_galaxy draws the vault exported from the search index", needsSqlite, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "galaxy-tool-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const { host, calls, writes, vault } = await hostFor(root, python);
+  const { host, calls, writes, vault } = await hostFor(root);
   const tools = createExtensionTools(host, [createGalaxyTools]);
   assert.deepEqual(tools.readOnly, [], "it writes a file into the vault");
 
@@ -94,8 +84,7 @@ test("render_knowledge_galaxy draws the vault the Python helper exported", { ski
   assert.equal(result.link_edges, 1);
   assert.equal(result.isolated_documents, 0);
   assert.equal(calls.ensureFresh, 1);
-  // The export's scratch directory does not outlive the call.
-  assert.equal(existsSync(calls.exports[0]), false);
+  assert.equal(calls.exports, 1, "read once, in memory: no scratch files");
 
   const html = writes.get(GALAXY_OUTPUT_PATH);
   assert.equal(Buffer.byteLength(html, "utf8"), result.bytes);
@@ -130,28 +119,19 @@ test("render_knowledge_galaxy draws the vault the Python helper exported", { ski
   );
 });
 
-test("a failed export leaves no scratch directory behind", async (t) => {
+test("an export of another schema is refused before anything is written", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "galaxy-tool-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
-  let scratch = "";
   const host = {
     vaultRoot: root,
     searchIndexPath: path.join(root, "index.sqlite"),
     search: {
       ensureFresh: async () => ({ action: "current" }),
-      exportGalaxy: async ({ outDir }) => {
-        scratch = outDir;
-        await fs.mkdir(outDir, { recursive: true });
-        await fs.writeFile(path.join(outDir, "nodes.json"), "{\"schema\": 99}", "utf8");
-        await fs.writeFile(path.join(outDir, "semantic.f32"), "");
-        return {};
-      }
+      exportGalaxy: async () => ({ manifest: { schema: 99 }, semanticBytes: new Uint8Array(0), denseBytes: new Uint8Array(0) })
     },
     safePath: (relative) => path.join(root, relative),
     writeText: async () => assert.fail("nothing is written when the export is wrong")
   };
   const tools = createExtensionTools(host, [createGalaxyTools]);
   await assert.rejects(tools.handlers.get("render_knowledge_galaxy")({}), /schema 99/);
-  assert.ok(scratch.startsWith(root));
-  assert.equal(existsSync(scratch), false);
 });

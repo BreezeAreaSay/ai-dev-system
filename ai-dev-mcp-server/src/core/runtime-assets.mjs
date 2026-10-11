@@ -1,14 +1,14 @@
 /**
  * Where the runtime's helper trees are, in a vault and in a plain checkout.
  *
- * Four things the server runs rather than reads: the SQLite search helper, the
- * search-eval cases, the BGE-M3 embedding scripts, and the Frontend QA runner.
- * In an Obsidian vault they live under `09-mcp/`, next to the server itself,
- * and every path in the runtime was written for that layout.
+ * Three things the server runs rather than reads: the search-eval cases, the
+ * BGE-M3 embedding scripts, and the Frontend QA runner. (The fourth, the Python
+ * search helper `search-index/`, is gone: search runs in Node.) In an Obsidian
+ * vault they live under `09-mcp/`, next to the server itself, and every path
+ * in the runtime was written for that layout.
  *
- * A standalone checkout of this repository has all four — at `search-index/`,
- * `search-eval/`, `embeddings/` and `frontend-qa/` in the root — and no
- * `09-mcp/` at all. `resolveVaultRoot` falls back to the bundled
+ * A standalone checkout of this repository has all three — at `search-eval/`,
+ * `embeddings/` and `frontend-qa/` in the root — and no `09-mcp/` at all. `resolveVaultRoot` falls back to the bundled
  * `docker/public-seed` tree, which carries the notes and the skill catalogue
  * but not the helpers, so a cloned repository reported "Search helper not
  * found: …/docker/public-seed/09-mcp/search-index/search_cli.py" — a path that
@@ -28,7 +28,6 @@ import path from "node:path";
  * in a vault, and where it sits in a checkout of this repository.
  */
 export const RUNTIME_ASSET_TREES = Object.freeze({
-  searchIndex: Object.freeze({ vault: ["09-mcp", "search-index"], repository: ["search-index"] }),
   searchEval: Object.freeze({ vault: ["09-mcp", "search-eval"], repository: ["search-eval"] }),
   embeddings: Object.freeze({ vault: ["09-mcp", "embeddings"], repository: ["embeddings"] }),
   frontendQa: Object.freeze({ vault: ["09-mcp", "frontend-qa"], repository: ["frontend-qa"] })
@@ -151,7 +150,7 @@ export function resolveAssetTree({ tree, vaultRoot, repositoryRoot, exists = exi
  * @param {string} input.vaultRoot
  * @param {string} input.repositoryRoot
  * @param {(target: string) => boolean} [input.exists]
- * @returns {{ searchIndexDir: string, searchEvalDir: string, embeddingsDir: string, frontendQaDir: string, sources: Record<string, string> }}
+ * @returns {{ searchEvalDir: string, embeddingsDir: string, frontendQaDir: string, sources: Record<string, string> }}
  */
 export function resolveRuntimeAssets({ vaultRoot, repositoryRoot, exists = existsSync }) {
   const resolved = Object.fromEntries(Object.entries(RUNTIME_ASSET_TREES).map(([name, tree]) => [
@@ -159,7 +158,6 @@ export function resolveRuntimeAssets({ vaultRoot, repositoryRoot, exists = exist
     resolveAssetTree({ tree, vaultRoot, repositoryRoot, exists })
   ]));
   return {
-    searchIndexDir: resolved.searchIndex.dir,
     searchEvalDir: resolved.searchEval.dir,
     embeddingsDir: resolved.embeddings.dir,
     frontendQaDir: resolved.frontendQa.dir,

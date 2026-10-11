@@ -13,7 +13,7 @@ import { detectCommunities, labelCommunities } from "./galaxy-clusters.mjs";
 import { layoutGalaxy } from "./galaxy-layout.mjs";
 import { buildGalaxyModel } from "./galaxy-page.mjs";
 
-/** The export format this module reads (`search_cli.py galaxy-export`). */
+/** The export format this module reads (`galaxy-export.mjs`). */
 export const GALAXY_EXPORT_SCHEMA = 1;
 
 /** The scopes the search index sorts documents into. */
@@ -46,7 +46,7 @@ function floats(bytes) {
  */
 export function parseGalaxyExport({ manifest, semanticBytes, denseBytes }) {
   if (!manifest || manifest.schema !== GALAXY_EXPORT_SCHEMA) {
-    throw new Error(`Galaxy export schema ${manifest?.schema ?? "missing"} is not ${GALAXY_EXPORT_SCHEMA}; the search helper and the server disagree.`);
+    throw new Error(`Galaxy export schema ${manifest?.schema ?? "missing"} is not ${GALAXY_EXPORT_SCHEMA}; the export and the renderer disagree.`);
   }
   const nodes = Array.isArray(manifest.nodes) ? manifest.nodes : [];
   const semanticDimensions = Number(manifest.semantic_dimensions) || 0;

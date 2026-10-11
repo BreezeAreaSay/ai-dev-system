@@ -379,7 +379,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     check(`${label}: search answers on the upgraded install`, hits > 0, `${hits} result(s)`);
     const hybrid = await call(client, "hybrid_search", { query: "code review checklist", dense_weight: 0 });
     const hybridHits = Array.isArray(hybrid) ? hybrid.length : (hybrid.results?.length ?? 0);
-    check(`${label}: hybrid search (still the Python helper) reads the index the upgraded server keeps`, hybridHits > 0, `${hybridHits} result(s)`);
+    check(`${label}: hybrid search reads the index the upgraded server keeps`, hybridHits > 0, `${hybridHits} result(s)`);
   });
 
   if (aiDevHome) {

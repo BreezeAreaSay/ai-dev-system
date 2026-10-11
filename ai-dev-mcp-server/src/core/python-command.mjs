@@ -1,12 +1,12 @@
 /**
- * Which Python interpreter runs the search helper — one answer for the server
- * and for the client installer, which writes it into every client's config.
+ * Which Python interpreter runs the optional Python helpers — the UI UX Pro Max
+ * script behind `query_ui_ux_knowledge` and the legacy dense backend. Search
+ * does not need one (docs/DEFECTS.md, Д-85).
  *
- * The two used to decide separately: the server fell back to `python` on
- * Windows, the installer to `python3` everywhere, and a client configured on
- * Windows overrode a working interpreter with one that is not there
- * (docs/DEFECTS.md, Д-94). Python leaves the search path altogether in a later
- * release; until then this is the only place that picks it.
+ * The server and the client installer used to decide separately: the server
+ * fell back to `python` on Windows, the installer to `python3` everywhere, and
+ * a client configured on Windows overrode a working interpreter with one that
+ * is not there (Д-94). This is the only place that picks it.
  */
 import { existsSync } from "node:fs";
 import path from "node:path";

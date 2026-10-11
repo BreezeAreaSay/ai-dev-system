@@ -25,20 +25,18 @@ test("a vault keeps its own layout, and nothing else is consulted", () => {
     vaultRoot: "/vault",
     repositoryRoot: "/repo",
     exists: fakeExists([
-      "/vault/09-mcp/search-index",
       "/vault/09-mcp/search-eval",
       "/vault/09-mcp/embeddings",
       "/vault/09-mcp/frontend-qa",
       // Also present in the checkout, and not used: a deployment with a vault
       // runs the vault's copies.
-      "/repo/search-index",
+      "/repo/search-eval",
       "/repo/embeddings"
     ])
   });
-  assert.equal(assets.searchIndexDir, path.resolve("/vault", "09-mcp", "search-index"));
+  assert.equal(assets.searchEvalDir, path.resolve("/vault", "09-mcp", "search-eval"));
   assert.equal(assets.embeddingsDir, path.resolve("/vault", "09-mcp", "embeddings"));
   assert.deepEqual(assets.sources, {
-    searchIndex: "vault",
     searchEval: "vault",
     embeddings: "vault",
     frontendQa: "vault"
@@ -52,35 +50,34 @@ test("a checkout with no vault answers from the repository root", () => {
   const assets = resolveRuntimeAssets({
     vaultRoot: "/repo/docker/public-seed",
     repositoryRoot: "/repo",
-    exists: fakeExists(["/repo/search-index", "/repo/search-eval", "/repo/embeddings", "/repo/frontend-qa"])
+    exists: fakeExists(["/repo/search-eval", "/repo/embeddings", "/repo/frontend-qa"])
   });
-  assert.equal(assets.searchIndexDir, path.resolve("/repo", "search-index"));
   assert.equal(assets.searchEvalDir, path.resolve("/repo", "search-eval"));
   assert.equal(assets.embeddingsDir, path.resolve("/repo", "embeddings"));
   assert.equal(assets.frontendQaDir, path.resolve("/repo", "frontend-qa"));
-  assert.deepEqual(Object.values(assets.sources), ["repository", "repository", "repository", "repository"]);
+  assert.deepEqual(Object.values(assets.sources), ["repository", "repository", "repository"]);
 });
 
 test("one tree can come from the vault and another from the checkout", () => {
   const assets = resolveRuntimeAssets({
     vaultRoot: "/vault",
     repositoryRoot: "/repo",
-    exists: fakeExists(["/vault/09-mcp/search-index", "/repo/embeddings", "/repo/frontend-qa"])
+    exists: fakeExists(["/vault/09-mcp/search-eval", "/repo/embeddings"])
   });
-  assert.equal(assets.sources.searchIndex, "vault");
+  assert.equal(assets.sources.searchEval, "vault");
   assert.equal(assets.sources.embeddings, "repository");
-  assert.equal(assets.sources.searchEval, "missing");
+  assert.equal(assets.sources.frontendQa, "missing");
 });
 
 test("when a tree is nowhere, the answer names the layout the deployment expected", () => {
   const missing = resolveAssetTree({
-    tree: RUNTIME_ASSET_TREES.searchIndex,
+    tree: RUNTIME_ASSET_TREES.searchEval,
     vaultRoot: "/vault",
     repositoryRoot: "/repo",
     exists: fakeExists([])
   });
   assert.equal(missing.source, "missing");
-  assert.equal(missing.dir, path.resolve("/vault", "09-mcp", "search-index"));
+  assert.equal(missing.dir, path.resolve("/vault", "09-mcp", "search-eval"));
 });
 
 test("over a real checkout every helper tree resolves to a directory that is there", async () => {
@@ -90,7 +87,6 @@ test("over a real checkout every helper tree resolves to a directory that is the
     repositoryRoot
   });
   for (const [name, dir] of Object.entries({
-    searchIndex: assets.searchIndexDir,
     searchEval: assets.searchEvalDir,
     embeddings: assets.embeddingsDir,
     frontendQa: assets.frontendQaDir
@@ -100,7 +96,6 @@ test("over a real checkout every helper tree resolves to a directory that is the
   }
   // The files the runtime actually runs.
   for (const file of [
-    path.join(assets.searchIndexDir, "search_cli.py"),
     path.join(assets.searchEvalDir, "search_eval_cases.json"),
     path.join(assets.embeddingsDir, "bge_m3_worker.py"),
     path.join(assets.frontendQaDir, "frontend_qa_runner.mjs")
@@ -113,8 +108,8 @@ test("a directory that is neither answers as missing rather than throwing", asyn
   const empty = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-assets-"));
   t.after(() => fs.rm(empty, { recursive: true, force: true }));
   const assets = resolveRuntimeAssets({ vaultRoot: empty, repositoryRoot: empty });
-  assert.deepEqual(Object.values(assets.sources), ["missing", "missing", "missing", "missing"]);
-  assert.equal(assets.searchIndexDir, path.resolve(empty, "09-mcp", "search-index"));
+  assert.deepEqual(Object.values(assets.sources), ["missing", "missing", "missing"]);
+  assert.equal(assets.searchEvalDir, path.resolve(empty, "09-mcp", "search-eval"));
 });
 
 test("an expected note is read through whichever layout this install has", () => {

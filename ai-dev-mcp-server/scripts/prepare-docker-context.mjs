@@ -90,7 +90,6 @@ async function copyRuntime(stage) {
     ["frontend-qa/frontend_qa_runner.mjs", "runtime/frontend-qa/frontend_qa_runner.mjs"],
     ["frontend-qa/package.json", "runtime/frontend-qa/package.json"],
     ["frontend-qa/pnpm-lock.yaml", "runtime/frontend-qa/pnpm-lock.yaml"],
-    ["search-index/search_cli.py", "runtime/search-index/search_cli.py"],
     ["search-eval/search_eval_cases.json", "runtime/search-eval/search_eval_cases.json"],
     ["search-eval/skill_routing_eval_cases.json", "runtime/search-eval/skill_routing_eval_cases.json"],
     ["embeddings/bge_m3_embed.py", "runtime/embeddings/bge_m3_embed.py"],

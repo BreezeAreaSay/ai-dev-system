@@ -5,8 +5,8 @@
  * damaged file set aside (docs/DEFECTS.md, Д-116, Д-120 … Д-123).
  *
  * `search-store.mjs` writes the index; this is what keeps several writers —
- * other clients' servers, the Python helper, another container on the same
- * volume — from stepping on each other or waiting each other out.
+ * other clients' servers, a 2.x server's Python helper, another container on
+ * the same volume — from stepping on each other or waiting each other out.
  */
 import fs from "node:fs";
 import { acquireFileLock, lockPathFor } from "./file-lock.mjs";

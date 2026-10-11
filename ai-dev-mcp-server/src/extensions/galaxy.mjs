@@ -1,14 +1,14 @@
 /**
  * `render_knowledge_galaxy`: the vault as a galaxy you can fly through.
  *
- * The I/O around `src/core/galaxy.mjs`: bring the search index up to date, have
- * the search helper export what the galaxy is drawn from, compose the model,
- * inline the viewer (`src/galaxy/`) and write one HTML file into the vault. The file opens from disk in any browser with WebGL and makes
- * no request of any kind.
+ * The I/O around `src/core/galaxy.mjs`: bring the search index up to date, read
+ * what the galaxy is drawn from out of it (`src/core/galaxy-export.mjs`), compose
+ * the model, inline the viewer (`src/galaxy/`) and write one HTML file into the
+ * vault. The file opens from disk in any browser with WebGL and makes no
+ * request of any kind.
  */
 import fs from "node:fs/promises";
 import path from "node:path";
-import process from "node:process";
 import { pathToFileURL } from "node:url";
 import {
   GALAXY_OUTPUT_PATH,
@@ -37,16 +37,6 @@ export async function readGalaxyViewer() {
   return inlineModules(modules);
 }
 
-/** Read the three files `galaxy-export` writes. */
-async function readExport(directory) {
-  const [manifest, semanticBytes, denseBytes] = await Promise.all([
-    fs.readFile(path.join(directory, "nodes.json"), "utf8").then((text) => JSON.parse(text.replace(/^﻿/, ""))),
-    fs.readFile(path.join(directory, "semantic.f32")),
-    fs.readFile(path.join(directory, "dense.f32")).catch(() => new Uint8Array(0))
-  ]);
-  return parseGalaxyExport({ manifest, semanticBytes, denseBytes });
-}
-
 /**
  * @param {object} host
  * @param {{ scopes?: string[], neighbors?: number, refresh_index?: boolean, obsidian_vault?: string, seed?: number }} [args]
@@ -57,17 +47,7 @@ async function renderKnowledgeGalaxy(host, args = {}) {
     ? { action: "skipped" }
     : await host.search.ensureFresh();
 
-  const scratch = path.join(
-    path.dirname(host.searchIndexPath),
-    `.galaxy-${process.pid}-${Date.now()}`
-  );
-  let exported;
-  try {
-    await host.search.exportGalaxy({ outDir: scratch });
-    exported = await readExport(scratch);
-  } finally {
-    await fs.rm(scratch, { recursive: true, force: true }).catch(() => {});
-  }
+  const exported = parseGalaxyExport(await host.search.exportGalaxy());
 
   const vault = path.basename(path.resolve(host.vaultRoot));
   const obsidianVault = typeof args.obsidian_vault === "string" && args.obsidian_vault.trim()

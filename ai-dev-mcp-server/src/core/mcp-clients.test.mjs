@@ -136,7 +136,8 @@ test("six clients with servers of their own: added once, unchanged the second ti
   assert.deepEqual(first.map((result) => [result.client, result.status]), MCP_CLIENTS.map((client) => [client.id, "added"]));
   for (const result of first) {
     assert.equal(await fs.readFile(result.backup, "utf8"), before[path.relative(home, result.file)], `${result.client} backup holds the original`);
-    assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
+    // Windows keeps no owner-only bit for Node to set (docs/DEFECTS.md, Д-170).
+    if (process.platform !== "win32") assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
   }
   const after = await snapshot(home, files);
   assert.deepEqual(readJsonc(after[".claude.json"]).mcpServers, { github: { type: "stdio", command: "gh-mcp" }, "ai-dev": { type: "stdio", ...LAUNCH } });
@@ -267,7 +268,7 @@ test("the client saving the file mid-write keeps its change: the edit is planned
   assert.match(stubborn[0].error, /changed again each time it was about to be written \(is Cursor saving it right now\?\)\. Nothing was changed/);
 });
 
-test("a symlinked config is written through the link, and the file's mode is kept", async (t) => {
+test("a symlinked config is written through the link, and the file's mode is kept", { skip: process.platform === "win32" && "a symlink and a 0600 mode both need POSIX" }, async (t) => {
   const home = await tempHome(t);
   const dotfiles = path.join(home, "dotfiles");
   await fs.mkdir(dotfiles, { recursive: true });

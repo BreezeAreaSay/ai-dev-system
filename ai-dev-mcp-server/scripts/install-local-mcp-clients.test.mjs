@@ -14,7 +14,18 @@ const script = path.join(serverRoot, "scripts", "install-local-mcp-clients.mjs")
 function run(args, home) {
   return spawnSync(process.execPath, [script, ...args], {
     cwd: serverRoot,
-    env: { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, ".config"), AI_DEV_HOME: "" },
+    // Every place a client keeps its config, Windows's APPDATA and LOCALAPPDATA
+    // included, inside the test's home (docs/DEFECTS.md, Д-170).
+    env: {
+      ...process.env,
+      HOME: home,
+      USERPROFILE: home,
+      APPDATA: path.join(home, "AppData", "Roaming"),
+      LOCALAPPDATA: path.join(home, "AppData", "Local"),
+      XDG_CONFIG_HOME: path.join(home, ".config"),
+      CODEX_HOME: "",
+      AI_DEV_HOME: ""
+    },
     encoding: "utf8",
     windowsHide: true
   });

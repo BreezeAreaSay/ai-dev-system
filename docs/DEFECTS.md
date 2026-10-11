@@ -4256,7 +4256,8 @@ node bin/ai-dev.mjs clients doctor   → «Cursor  ai-dev-system: FAILED — it 
 
 ## Д-170. На Windows тест CLI пишет в настоящие конфиги клиентов, а два теста ядра падают
 
-**Статус:** открыт. Нашло независимое ревью фазы 6; закроет она же.
+**Статус:** закрыт фазой 6 (2026-10-11). Нашло её независимое ревью. Windows-половина проверена по коду; прогон на
+Windows — в чек-листе владельца.
 
 `src/cli/cli.test.mjs` подменяет HOME, USERPROFILE и XDG_CONFIG_HOME, но не APPDATA и LOCALAPPDATA, а на Windows
 конфиги VS Code и Claude Desktop (и Store-копия) живут под ними: `clients install` в тесте пишет `ai-dev` в настоящие
@@ -4272,7 +4273,21 @@ node bin/ai-dev.mjs clients doctor   → «Cursor  ai-dev-system: FAILED — it 
 
 **Как закроется.** Тесты подменяют APPDATA, LOCALAPPDATA и CODEX_HOME; проверка 0600 — не на Windows.
 
+**Замер после.** Каждый запуск CLI в `cli.test.mjs` и в `install-local-mcp-clients.test.mjs` получает HOME, USERPROFILE,
+APPDATA, LOCALAPPDATA, XDG_CONFIG_HOME и пустой CODEX_HOME внутри временной папки теста. Права 0600 резервной копии
+проверяются не на Windows; тест конфига-симлинка на Windows пропускается (симлинк без режима разработчика не создать,
+и 0600 там нет); тест владельца от root на Windows не запускается и так. На Linux та же утечка видна через
+XDG_CONFIG_HOME — роль APPDATA там играет она. Проба `d170`: «настоящий» конфиг VS Code разработчика в
+`XDG_CONFIG_HOME` с записью `ai-dev`, которая отмечает каждый свой запуск; оба файла тестов на коде этой фазы:
+
+```
+тесты 0e7775e   8 из 8 зелёные; запись разработчика запущена 1 раз (clients doctor в тесте «Node is gone»)
+тесты после     8 из 8 зелёные; запусков 0; конфиг не тронут
+```
+
+Не проверено: прогон на настоящем Windows (в песочнице его нет) — пункт чек-листа владельца.
 ---
+
 
 ## Д-171. Лаунчер хуков: папка в AI_DEV_NODE, блокирующий код выхода и CRLF-копия
 

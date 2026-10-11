@@ -12,6 +12,25 @@ const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const cli = path.join(serverRoot, "bin", "ai-dev.mjs");
 const INITIALIZE = `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } } })}\n`;
 
+/**
+ * Every place a client keeps its config, inside `home`: on Windows VS Code's
+ * and Claude Desktop's live under APPDATA and LOCALAPPDATA, not under HOME,
+ * and a test that left them alone wrote to the developer's own files
+ * (docs/DEFECTS.md, Д-170).
+ */
+function homeEnv(home, extra = {}) {
+  return {
+    HOME: home,
+    USERPROFILE: home,
+    APPDATA: path.join(home, "AppData", "Roaming"),
+    LOCALAPPDATA: path.join(home, "AppData", "Local"),
+    XDG_CONFIG_HOME: path.join(home, ".config"),
+    CODEX_HOME: "",
+    AI_DEV_HOME: "",
+    ...extra
+  };
+}
+
 async function tempDir(t, prefix = "ai-dev-cli-") {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
@@ -82,7 +101,7 @@ test("a mistyped command touches no data: the 2.x runtime folder stays where it 
   await fs.mkdir(path.join(runtime, ".ai-dev", "state"), { recursive: true });
   await fs.writeFile(path.join(runtime, ".ai-dev", "state", "instincts.json"), "{}\n");
   for (const args of [[cli, "statsu"], [cli, "setup", "--forse"], [path.join(serverRoot, "scripts", "ai-dev.mjs"), "statsu"]]) {
-    const result = await runNode(args, { env: { HOME: home, USERPROFILE: home, AI_DEV_HOME: runtime } });
+    const result = await runNode(args, { env: homeEnv(home, { AI_DEV_HOME: runtime }) });
     assert.equal(result.code, 2);
   }
   assert.deepEqual(await fs.readdir(runtime), [".ai-dev"]);
@@ -92,7 +111,7 @@ test("a mistyped command touches no data: the 2.x runtime folder stays where it 
 test("`ai-dev mcp`, its synonym `start` and the 2.x `scripts/ai-dev.mjs start` serve MCP with instructions (Д-161)", async (t) => {
   const home = await tempDir(t);
   for (const args of [[cli, "mcp"], [cli, "start"], [path.join(serverRoot, "scripts", "ai-dev.mjs"), "start"], [path.join(serverRoot, "src", "server.mjs")]]) {
-    const result = await runNode(args, { env: { HOME: home, USERPROFILE: home }, input: INITIALIZE, untilLine: /\n/ });
+    const result = await runNode(args, { env: homeEnv(home), input: INITIALIZE, untilLine: /\n/ });
     const [line] = result.stdout.split("\n");
     const message = JSON.parse(line);
     assert.equal(message.id, 1, args.join(" "));
@@ -109,7 +128,7 @@ test("clients install, list, doctor and remove through the CLI, in a home with a
   await fs.writeFile(path.join(home, ".cursor", "mcp.json"), original);
   await fs.mkdir(path.join(home, ".codex"), { recursive: true });
   await fs.writeFile(path.join(home, ".codex", "config.toml"), "model = \"gpt-5\"\n");
-  const env = { HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, ".config"), CODEX_HOME: "", AI_DEV_HOME: "" };
+  const env = homeEnv(home);
 
   const install = await runNode([cli, "clients", "install", "--json"], { env });
   assert.equal(install.code, 0, install.stderr);
@@ -142,7 +161,7 @@ test("clients doctor names a config whose Node is gone, and exits 1", async (t) 
   const home = await tempDir(t);
   await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
   await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: path.join(home, "gone", "node"), args: [cli, "mcp"] } } }));
-  const doctor = await runNode([cli, "clients", "doctor"], { env: { HOME: home, USERPROFILE: home } });
+  const doctor = await runNode([cli, "clients", "doctor"], { env: homeEnv(home) });
   assert.equal(doctor.code, 1);
   assert.match(doctor.stdout, /Cursor\s+FAILED — .*gone[\\/]node does not exist/);
 });

@@ -160,12 +160,13 @@ const RACY_WINDOW_MS = 2_000;
  * ids and hashes, and re-reading every note and the 9 MB skill registry for
  * them is most of their cost. A file whose inode, size, mtime and ctime are all
  * unchanged has not changed — except within one timestamp tick, so a file
- * written in the last two seconds is not remembered.
+ * whose mtime or ctime is in the last two seconds is not remembered.
  *
- * @returns {{ entries: Map<string, { key: string, value: unknown }>, visited: Set<string> }}
+ * @param {{ now?: () => number }} [options] - The clock the two seconds are measured on.
+ * @returns {{ entries: Map<string, { key: string, value: unknown }>, visited: Set<string>, now: () => number }}
  */
-export function createDocumentCache() {
-  return { entries: new Map(), visited: new Set() };
+export function createDocumentCache({ now = Date.now } = {}) {
+  return { entries: new Map(), visited: new Set(), now };
 }
 
 /**
@@ -187,7 +188,12 @@ function memoFor(cache) {
     const hit = cache.entries.get(entry);
     if (hit?.key === key) return hit.value;
     const value = compute();
-    if (Date.now() - Number(stat.mtimeNs / 1_000_000n) > RACY_WINDOW_MS) cache.entries.set(entry, { key, value });
+    // Both times have to be out of the window: a file rewritten to the same
+    // size with its old mtime put back differs from the cached one only by
+    // ctime, and where ctime moves in coarse ticks (Linux before 6.13, NTFS)
+    // a rewrite inside one tick would otherwise keep the old content.
+    const newest = stat.mtimeNs > stat.ctimeNs ? stat.mtimeNs : stat.ctimeNs;
+    if ((cache.now ?? Date.now)() - Number(newest / 1_000_000n) > RACY_WINDOW_MS) cache.entries.set(entry, { key, value });
     else cache.entries.delete(entry);
     return value;
   };
@@ -225,9 +231,25 @@ function entryIsDirectory(entry, fullPath) {
   }
 }
 
+function realPathOrEmpty(target) {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return "";
+  }
+}
+
 /**
  * `os.walk(root)` top-down, pruning {@link SKIP_DIRS}: each directory's files
  * in listing order, then its subdirectories, never through a symlink.
+ *
+ * On Windows `os.walk` does go through an NTFS junction — Python counts only
+ * true symlinks as links — while Node reports junctions and symlinks alike as
+ * links. Leaving them out would drop the notes of a vault that links folders
+ * in with `mklink /J`, vectors and all, on the first refresh after an upgrade;
+ * so on Windows a linked folder is entered, once per real path, which is what
+ * keeps a junction to an ancestor from looping. A true directory symlink is
+ * entered too — Node cannot tell it from a junction; Python would not.
  *
  * A directory every note of which {@link shouldSkipMarkdown} would drop is not
  * entered at all. The result is the same, and the vendored skill sources —
@@ -235,8 +257,11 @@ function entryIsDirectory(entry, fullPath) {
  *
  * @param {string} root
  * @param {(directory: string, name: string) => void} visit - Called per non-directory entry.
+ * @param {{ platform?: string }} [options]
  */
-function walk(root, visit) {
+function walk(root, visit, { platform = process.platform } = {}) {
+  const followLinks = platform === "win32";
+  const entered = followLinks ? new Set([realPathOrEmpty(root)]) : null;
   const stack = [root];
   while (stack.length) {
     const directory = stack.pop();
@@ -260,7 +285,13 @@ function walk(root, visit) {
       if (SKIP_DIRS.has(name)) continue;
       const child = path.join(directory, name);
       if (shouldSkipMarkdown(`${path.relative(root, child).split(path.sep).join("/")}/`)) continue;
-      if (fs.lstatSync(child, { throwIfNoEntry: false })?.isSymbolicLink()) continue;
+      if (followLinks) {
+        const real = realPathOrEmpty(child);
+        if (!real || entered.has(real)) continue;
+        entered.add(real);
+      } else if (fs.lstatSync(child, { throwIfNoEntry: false })?.isSymbolicLink()) {
+        continue;
+      }
       stack.push(child);
     }
   }
@@ -305,9 +336,10 @@ function noteDoc(filePath, rel, name) {
  * @param {string} vaultRoot
  * @param {Function} [memo] - From {@link memoFor}.
  * @param {(doc: object) => object} [finish]
+ * @param {string} [platform] - Decides whether linked folders are entered (see `walk`).
  * @returns {object[]}
  */
-export function loadNoteDocs(vaultRoot, memo = direct, finish = asIs) {
+export function loadNoteDocs(vaultRoot, memo = direct, finish = asIs, platform = process.platform) {
   const docs = [];
   walk(vaultRoot, (directory, name) => {
     if (!name.toLowerCase().endsWith(".md")) return;
@@ -319,7 +351,7 @@ export function loadNoteDocs(vaultRoot, memo = direct, finish = asIs) {
       return built && finish(built);
     });
     if (doc) docs.push(doc);
-  });
+  }, { platform });
   return docs;
 }
 
@@ -583,7 +615,7 @@ export function collectDocuments({ vaultRoot, includeExternalProjectFiles = true
   const memo = memoFor(cache);
   const finish = cache ? withoutBody : asIs;
   const all = [
-    ...loadNoteDocs(root, memo, finish),
+    ...loadNoteDocs(root, memo, finish, platform),
     ...loadSkillDocs(root, memo, finish),
     ...(includeExternalProjectFiles ? loadProjectFileDocs(root, { platform, memo, finish }) : [])
   ];

@@ -218,7 +218,8 @@ test("a status cache answers from stats, without bodies, and sees every change",
   const note = write(root, "notes/a.md", "# A\none");
   write(root, "notes/b.md", "# B");
   for (const file of ["notes/a.md", "notes/b.md"]) fs.utimesSync(path.join(root, file), old, old);
-  const cache = createDocumentCache();
+  // utimes sets ctime to now; a clock an hour on puts both times out of the window.
+  const cache = createDocumentCache({ now: () => Date.now() + 3_600_000 });
   const first = collectDocuments({ vaultRoot: root, cache }).docs;
   assert.equal(first[0].body, undefined, "a status check needs no bodies");
   assert.equal(cache.entries.size, 2);
@@ -260,6 +261,37 @@ test("a file written just now is not trusted by its stat", (t) => {
   const cache = createDocumentCache();
   collectDocuments({ vaultRoot: root, cache });
   assert.equal(cache.entries.size, 0);
+});
+
+test("an old mtime put back on a file changed just now does not make it trusted: ctime counts too", (t) => {
+  // Same size, old mtime restored: only ctime tells this file from the one
+  // cached a moment ago, and where ctime moves in coarse ticks a cached entry
+  // keyed on it could match the new content. So a fresh ctime is not trusted.
+  const root = tempRoot(t, "search-docs-");
+  const note = write(root, "notes/a.md", "# A\none");
+  const old = new Date(Date.now() - 3_600_000);
+  fs.utimesSync(note, old, old);
+  const cache = createDocumentCache();
+  collectDocuments({ vaultRoot: root, cache });
+  assert.equal(cache.entries.size, 0, "mtime an hour old, ctime now: not remembered");
+  const later = createDocumentCache({ now: () => Date.now() + 3_600_000 });
+  collectDocuments({ vaultRoot: root, cache: later });
+  assert.equal(later.entries.size, 1, "once both are out of the window it is");
+});
+
+test("on Windows a linked folder is entered, as os.walk enters a junction, and only once per real folder", { skip: !symlinks && "needs symlinks" }, (t) => {
+  // Node reports an NTFS junction as a symlink; Python does not count it as
+  // one and walks into it. Symlinks stand in for junctions here.
+  const vault = tempRoot(t, "search-vault-");
+  const elsewhere = tempRoot(t, "search-linked-");
+  write(elsewhere, "linked.md", "# Linked\n\nA note in a folder linked into the vault.");
+  write(vault, "02-knowledge/own.md", "# Own");
+  fs.symlinkSync(elsewhere, path.join(vault, "02-knowledge", "linked"), "junction");
+  fs.symlinkSync(path.join(vault, "02-knowledge"), path.join(vault, "02-knowledge", "loop"), "junction");
+  write(vault, "03-skills-catalog/registries/skills.index.json", "[]");
+  const paths = (platform) => collectDocuments({ vaultRoot: vault, platform }).docs.map((doc) => doc.path).sort();
+  assert.deepEqual(paths("win32"), ["02-knowledge/linked/linked.md", "02-knowledge/own.md"], "the linked note once, and no loop");
+  assert.deepEqual(paths("linux"), ["02-knowledge/own.md"], "elsewhere a symlinked folder stays out, as os.walk leaves it");
 });
 
 test("dense passages and their hashes are the helper's", { skip: !symlinks && "the fixture has symlinks" }, (t) => {

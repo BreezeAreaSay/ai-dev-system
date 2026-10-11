@@ -26,6 +26,20 @@
 export const MINIMUM_NODE = "22.16.0";
 
 /**
+ * Whether this Node can run the server: `engines` is `^22.16.0 || >=24.0.0`.
+ * 23.x is newer than {@link MINIMUM_NODE} and still unsupported — its SQLite
+ * has no FTS5 — so "newer" alone is not the test.
+ *
+ * @param {string} version
+ * @returns {boolean}
+ */
+export function nodeVersionSupported(version) {
+  const major = Number.parseInt(String(version).replace(/^v/, ""), 10);
+  if (major === 23) return false;
+  return compareVersions(version, MINIMUM_NODE) >= 0;
+}
+
+/**
  * Compare two dotted version strings.
  *
  * @param {string} left
@@ -133,10 +147,10 @@ export function denseDoctorStages({ nodeVersion, loadRuntime, readManifest, veri
   return [
     {
       key: "node",
-      title: `Node ${MINIMUM_NODE} or newer`,
-      advice: `Install Node ${MINIMUM_NODE} or newer and run this again.`,
+      title: `Node ${MINIMUM_NODE} or newer, or 24+`,
+      advice: `Install Node 24, or ${MINIMUM_NODE} or a later 22.x, and run this again.`,
       run: async () => ({
-        ok: compareVersions(nodeVersion, MINIMUM_NODE) >= 0,
+        ok: nodeVersionSupported(nodeVersion),
         detail: `this is ${nodeVersion}`
       })
     },

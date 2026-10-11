@@ -32,6 +32,7 @@ import { createDocumentCache } from "./search-documents.mjs";
 import { keywordSearch, MAX_RESULTS } from "./search-query.mjs";
 import { createIndexReader, sqliteSupport } from "./search-sqlite.mjs";
 import { densePlan, indexStatus, rebuildIndex } from "./search-store.mjs";
+import { withRebuildLock } from "./search-writer.mjs";
 import { csvValue, stripBom } from "./text-format.mjs";
 import { pythonFailureMessage } from "./python-failure.mjs";
 
@@ -366,10 +367,13 @@ export function createSearchIndexRuntime({
     }
 
     try {
-      const rebuilt = await runSearchCli(args, {
+      // The helper locks with flock on a file of its own, which no Node engine
+      // takes; holding the Node engine's lock around it as well keeps the two
+      // engines' writers apart, whichever engine each client runs.
+      const rebuilt = await withRebuildLock(searchIndexPath, () => runSearchCli(args, {
         timeoutMs: dense_embeddings ? 3600000 : 600000,
         command: dense_embeddings && !useOnnx ? embeddingPythonCommand() : pythonCommand()
-      });
+      }), { env });
       dirtyReason = "";
       lastStatus = null;
       lastStatusAt = 0;

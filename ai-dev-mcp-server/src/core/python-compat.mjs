@@ -166,10 +166,15 @@ export function pythonRound(x, digits) {
   if (!Number.isFinite(x) || x === 0 || Math.abs(x) >= 1e15) return x;
   const scaled = x * 2 ** (digits + 1);
   if (Number.isInteger(scaled) && Math.abs(scaled % 2) === 1) {
-    const doubled = scaled * 5 ** digits;
-    const lower = (doubled - 1) / 2;
-    const even = lower % 2 === 0 ? lower : lower + 1;
-    return even / 10 ** digits;
+    // In BigInt: `scaled * 5 ** digits` leaves 2 ** 53 behind for ties above
+    // about 4.5e7, and a Number then rounds the tie it is meant to settle. The
+    // even neighbour, read back from its decimal form, is the double nearest to
+    // it, which is what Python returns.
+    const doubled = BigInt(scaled) * 5n ** BigInt(digits);
+    const lower = (doubled - 1n) / 2n;
+    const even = lower % 2n === 0n ? lower : lower + 1n;
+    if (even === 0n) return x < 0 ? -0 : 0;
+    return Number(`${even}e-${digits}`);
   }
   return Number(x.toFixed(digits));
 }

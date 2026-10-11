@@ -19,9 +19,9 @@ import {
   LEGACY_DENSE_BACKEND,
   LEGACY_DENSE_DTYPE,
   rebuildIndex,
-  UNPINNED_REVISION,
-  withRebuildLock
+  UNPINNED_REVISION
 } from "./search-store.mjs";
+import { withRebuildLock } from "./search-writer.mjs";
 
 const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
 

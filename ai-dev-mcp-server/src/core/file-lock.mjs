@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { readFileSync, rmSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -27,7 +28,14 @@ import path from "node:path";
  *   and only if it is still the very file judged stale — same file identity,
  *   same holder — so two processes breaking one abandoned lock cannot remove each
  *   other's fresh one, and nothing is ever renamed away and put back;
- * - release deletes the lock only if it still carries this holder's token.
+ * - release deletes the lock only if it still carries this holder's token;
+ * - a holder that keeps a lock for long (the search-index rebuild) refreshes
+ *   `acquired_at` while it holds it, so a short staleness bound can tell an
+ *   abandoned lock from a busy one even across hosts, where the pid cannot be
+ *   checked — a container killed mid-rebuild leaves a lock that every other
+ *   container sharing the volume would otherwise wait out;
+ * - a process that exits — `process.exit` on SIGTERM included — removes the
+ *   locks it still holds on the way out.
  */
 
 /** Suffix of the lock file that sits beside the file it guards. */
@@ -61,6 +69,64 @@ export const BREAK_LOCK_STALE_MS = 5_000;
 const TRANSIENT_CODES = new Set(["EPERM", "EBUSY", "EACCES"]);
 
 const MAX_BACKOFF_MS = 50;
+
+/** Locks this process holds, lock path → token, for the exit handler. */
+const held = new Map();
+let exitHandlerInstalled = false;
+
+/**
+ * Remove, synchronously, every lock this process still holds. `process.exit`
+ * runs no `finally`, so a signal handler that exits would otherwise leave them
+ * behind for others to wait out.
+ */
+function releaseHeldLocksSync() {
+  for (const [lockPath, token] of held) {
+    try {
+      if (JSON.parse(readFileSync(lockPath, "utf8"))?.token === token) rmSync(lockPath, { force: true });
+    } catch {
+      // Gone already, or not readable: nothing of ours to remove.
+    }
+  }
+  held.clear();
+}
+
+function holdLock(lockPath, token) {
+  held.set(lockPath, token);
+  if (!exitHandlerInstalled) {
+    exitHandlerInstalled = true;
+    process.once("exit", releaseHeldLocksSync);
+  }
+}
+
+/**
+ * Prove a held lock alive: rewrite its holder with a new `acquired_at`, through
+ * a descriptor on the very file this holder created, and only while it still
+ * carries this holder's token — never over a lock someone else has taken since.
+ */
+async function refreshLock(lockPath, token, id) {
+  let handle;
+  try {
+    handle = await fs.open(lockPath, "r+");
+  } catch {
+    return;
+  }
+  try {
+    const stat = await handle.stat({ bigint: true });
+    if (`${stat.dev}:${stat.ino}` !== id) return;
+    const holder = JSON.parse(await handle.readFile("utf8"));
+    if (holder?.token !== token) return;
+    // Written over the old holder, then cut to length: never an empty file in
+    // between for another process to read. The new record is as long as the
+    // old one but for the rare extra digit, and one small write is read whole.
+    const text = JSON.stringify({ ...holder, acquired_at: Date.now() });
+    await handle.write(text, 0, "utf8");
+    await handle.truncate(Buffer.byteLength(text));
+  } catch {
+    // Unreadable for a moment, or gone: the next beat tries again.
+  } finally {
+    await handle.close();
+  }
+}
 
 /**
  * Path of the lock file guarding `filePath`.
@@ -194,10 +260,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * abandoned one.
  *
  * @param {string} filePath - The file the lock guards (not the lock itself).
- * @param {{ timeoutMs?: number, staleMs?: number }} [options]
+ * @param {{ timeoutMs?: number, staleMs?: number, heartbeatMs?: number }} [options] - `heartbeatMs`
+ *   refreshes the holder that often while the lock is held; it has to be well under `staleMs`.
  * @returns {Promise<() => Promise<void>>} release
  */
-export async function acquireFileLock(filePath, { timeoutMs = LOCK_TIMEOUT_MS, staleMs = LOCK_STALE_MS } = {}) {
+export async function acquireFileLock(filePath, { timeoutMs = LOCK_TIMEOUT_MS, staleMs = LOCK_STALE_MS, heartbeatMs = 0 } = {}) {
   const lockPath = lockPathFor(filePath);
   const token = crypto.randomUUID();
   const deadline = Date.now() + timeoutMs;
@@ -205,12 +272,22 @@ export async function acquireFileLock(filePath, { timeoutMs = LOCK_TIMEOUT_MS, s
   for (;;) {
     try {
       const handle = await fs.open(lockPath, "wx", 0o600);
+      let id;
       try {
         await handle.writeFile(JSON.stringify({ pid: process.pid, host: os.hostname(), token, acquired_at: Date.now() }));
+        const stat = await handle.stat({ bigint: true });
+        id = `${stat.dev}:${stat.ino}`;
       } finally {
         await handle.close();
       }
-      return () => releaseLock(lockPath, token);
+      holdLock(lockPath, token);
+      const beat = heartbeatMs > 0 ? setInterval(() => refreshLock(lockPath, token, id), heartbeatMs) : null;
+      beat?.unref?.();
+      return async () => {
+        if (beat) clearInterval(beat);
+        if (held.get(lockPath) === token) held.delete(lockPath);
+        await releaseLock(lockPath, token);
+      };
     } catch (error) {
       if (error?.code === "ENOENT") {
         await fs.mkdir(path.dirname(lockPath), { recursive: true });

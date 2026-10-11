@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   MINIMUM_NODE,
+  nodeVersionSupported,
   compareVersions,
   denseDoctorStages,
   renderDenseDoctorReport,
@@ -37,6 +38,11 @@ test("versions compare by number, not by string", () => {
   assert.ok(compareVersions("v24.1.0", "22.12.0") > 0);
   assert.ok(compareVersions("22.9.0", "22.12.0") < 0, "22.9 is older than 22.12, though it sorts later as text");
   assert.ok(compareVersions("22", "22.0.0") === 0);
+});
+
+test("the supported Node is 22.16 or a later 22.x, or 24 and newer — not 23", () => {
+  for (const version of ["v22.16.0", "22.22.0", "v24.0.0", "26.1.0"]) assert.equal(nodeVersionSupported(version), true, version);
+  for (const version of ["v22.15.1", "22.12.0", "v23.11.0", "23.0.0", "20.19.0"]) assert.equal(nodeVersionSupported(version), false, version);
 });
 
 test("a normalized vector is recognised and a raw one is not", () => {

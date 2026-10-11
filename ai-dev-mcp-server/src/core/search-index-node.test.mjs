@@ -46,7 +46,7 @@ function createFixture(t, { describe = null, embed = null, helper = null, refres
     embeddingPythonCommand: () => "embedding-python",
     pathExists: async () => true,
     execFile: async (command, args) => {
-      calls.push({ command, args });
+      calls.push({ command, args, lockHeld: fs.existsSync(path.join(searchIndexDir, "ai-dev-search.sqlite.lock")) });
       if (!helper) throw new Error(`the Python helper was called: ${args[1]}`);
       return { stdout: JSON.stringify(helper(args)), stderr: "" };
     },
@@ -114,10 +114,16 @@ test("search filters by scope, source and folder as the helper did", needsSqlite
 });
 
 test("a question with AND, OR or NOT in capitals still finds its documents (\u0414-117)", needsSqlite, async (t) => {
-  const { runtime } = createFixture(t);
+  const { runtime, vaultRoot } = createFixture(t);
+  write(vaultRoot, "02-knowledge/fridays.md", "# Release notes\n\nThe pipeline does not deploy on Fridays.");
   await runtime.rebuild();
   assert.deepEqual((await runtime.search({ query: "deploy AND production" })).map((item) => item.title), ["Deploy runbook"]);
-  assert.ok((await runtime.search({ query: "code review NOT approving" })).every((item) => item.score < 0));
+  // A word, not an operator: as FTS5's NOT it would have kept the runbook and
+  // dropped the note that mentions Fridays; as a word both "not" and
+  // "Fridays" are required, and only the note has them.
+  assert.deepEqual((await runtime.search({ query: "deploy NOT Fridays" })).map((item) => item.title), ["Release notes"]);
+  assert.deepEqual((await runtime.search({ query: "deploy OR rollback" })).map((item) => item.title), [],
+    "OR is a word too: no document has deploy, or* and rollback together");
 });
 
 test("searching an index that is not there says so", needsSqlite, async (t) => {
@@ -155,6 +161,7 @@ test("the legacy Python dense backend and hybrid search still go to the helper",
   const rebuildCall = calls.find((call) => call.args?.[1] === "rebuild");
   assert.equal(rebuildCall.command, "embedding-python");
   assert.ok(rebuildCall.args.includes("--dense-embeddings"));
+  assert.equal(rebuildCall.lockHeld, true, "the helper writes under the Node engine's rebuild lock too");
   const hybrid = await runtime.hybridSearch({ query: "deploy", dense_weight: 0 });
   assert.equal(hybrid[0].title, "Deploy runbook");
   assert.ok(calls.some((call) => call.args?.[1] === "hybrid"));

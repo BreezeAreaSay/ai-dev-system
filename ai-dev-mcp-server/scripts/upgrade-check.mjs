@@ -40,9 +40,9 @@
  * (docs/DEFECTS.md, Д-112).
  */
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -54,6 +54,7 @@ import { resolveSpawnInvocation } from "../src/core/process-runner.mjs";
 import { resolvePythonCommand } from "../src/core/python-command.mjs";
 import { openDatabase, sqliteSupport } from "../src/core/search-sqlite.mjs";
 import { writeSyntheticModel } from "../src/core/synthetic-model.mjs";
+import { startModelHost } from "../test/fixtures/model-host.mjs";
 
 export const DEFAULT_BASE_COMMIT = "8f647df";
 
@@ -81,6 +82,22 @@ function run(command, args, { cwd, env = process.env, allowFailure = false, inpu
     throw new Error(`${command} ${args.join(" ")} exited ${result.status}:\n${(result.stderr || result.stdout || "").slice(-4000)}`);
   }
   return result;
+}
+
+/**
+ * `run` for a child that talks to a server in this process — the model mirror:
+ * a synchronous spawn would stop the event loop the server answers on.
+ */
+function runAsync(command, args, { cwd, env = process.env } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { cwd, env, windowsHide: true, shell: false });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (status) => resolve({ status, stdout, stderr }));
+  });
 }
 
 /** npm without a shell: on Windows `npm` is a `.cmd`, which the spawn adapter rewrites to `node npm-cli.js`. */
@@ -242,11 +259,16 @@ function seedChanged(base) {
   return run("git", ["-C", repoRoot, "diff", "--name-only", base, "--", "docker/public-seed"]).stdout.trim() !== "";
 }
 
-/** How the 2.x ONNX path and the 2.x Python backend labelled the vectors they wrote. */
-const LEGACY_PROVENANCE = Object.freeze({
-  onnx: ["--dense-backend", "onnx", "--dense-revision", "upgrade-fixture", "--dense-dtype", "int8"],
-  python: ["--dense-backend", "python", "--dense-revision", "unpinned", "--dense-dtype", "fp32"]
-});
+/**
+ * How 2.x labelled the vectors it wrote: its ONNX path with the revision and
+ * dtype its manifest pins — the model 3.0 still runs, so they are reused —
+ * and its Python backend as "unpinned" fp32, another model's.
+ */
+function legacyProvenance(backend, baseRoot) {
+  if (backend === "python") return ["--dense-backend", "python", "--dense-revision", "unpinned", "--dense-dtype", "fp32"];
+  const pinned = JSON.parse(readFileSync(path.join(baseRoot, "ai-dev-mcp-server", "models", "bge-m3.manifest.json"), "utf8"));
+  return ["--dense-backend", "onnx", "--dense-revision", pinned.revision, "--dense-dtype", pinned.dtype];
+}
 
 /**
  * Dense vectors in the 2.x index, written by the 2.x helper exactly as its
@@ -257,7 +279,7 @@ function seedLegacyVectors({ baseRoot, env, indexPath, backend = "onnx" }) {
   const helper = path.join(baseRoot, "search-index", "search_cli.py");
   const python = resolvePythonCommand({ env });
   const common = ["--vault-root", path.join(baseRoot, "docker", "public-seed"), "--index-path", indexPath, "--include-external-project-files"];
-  const provenance = LEGACY_PROVENANCE[backend];
+  const provenance = legacyProvenance(backend, baseRoot);
   const plan = JSON.parse(run(python, [helper, "dense-plan", ...common, ...provenance], { env }).stdout);
   const vectors = plan.records.map((record, index) => ({
     id: record.id,
@@ -360,8 +382,16 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     check(`${label}: the skill registry follows the pulled catalogue`, listedGone.length === 0 && (pulledAway.length === 0 || registry.length < expected.skills),
       `${registry.length} skill(s), 2.x had ${expected.skills}; ${listedGone.length} removed one(s) still listed`);
     const { vectors, digest, byId } = expected.dense;
-    check(`${label}: the 2.x dense vectors are all there`, vectors > 0 && Number(status.dense_documents) === vectors && status.dense_backend === expected.dense.backend,
-      `${status.dense_documents} of ${vectors}, backend ${status.dense_backend}`);
+    // Counted for the model that answers now: the ONNX path's vectors are its
+    // own, the Python backend's another model's, kept and waiting (Д-148).
+    const kept = Number(status.dense_documents) + Number(status.dense_other_model_documents || 0);
+    check(`${label}: the 2.x dense vectors are all there`, vectors > 0 && kept === vectors && status.dense_backend === expected.dense.backend,
+      `${kept} of ${vectors}, backend ${status.dense_backend}`);
+    check(`${label}: ${pythonBackend ? "they are another model's, so every one waits for the new model" : "they are the model 3.0 runs, so none waits"}`,
+      pythonBackend
+        ? Number(status.dense_documents) === 0 && Number(status.dense_other_model_documents) === vectors && Number(status.dense_pending_documents) >= vectors
+        : Number(status.dense_documents) === vectors && !Number(status.dense_other_model_documents),
+      `${status.dense_documents} of the current model, ${status.dense_other_model_documents ?? 0} of another, ${status.dense_pending_documents} waiting`);
     if (digest) {
       check(`${label}: the 2.x vectors are untouched, byte for byte`, denseDigest(status.index_path).digest === digest);
       const refreshed = await call(client, "rebuild_search_index", {});
@@ -410,33 +440,38 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
   });
 
   if (pythonBackend) {
-    // The one command, with the five-kilobyte stand-in where the real model
-    // would be downloaded: install the model, embed the documents again.
+    // The one command the notes give — `npm run setup -- --dense` — with the
+    // five-kilobyte stand-in served from a local mirror where huggingface.co
+    // would be: it downloads the model and embeds the documents again. Not
+    // `model import`, which embeds whatever it finds: the advice is what has
+    // to work (docs/DEFECTS.md, Д-148).
     const usb = path.join(temp, "usb-model", "bge-m3-onnx");
     const { manifest } = await writeSyntheticModel(usb);
     const manifestFile = path.join(temp, "synthetic.manifest.json");
     writeFileSync(manifestFile, JSON.stringify(manifest));
-    const moved = run(process.execPath, [path.join(baseRoot, "ai-dev-mcp-server", "scripts", "model.mjs"), "import", usb, "--json"], {
-      cwd: path.join(baseRoot, "ai-dev-mcp-server"),
-      env: { ...env, AI_DEV_MODEL_MANIFEST: manifestFile },
-      allowFailure: true
-    });
-    let answer = {};
+    const files = {};
+    for (const relative of Object.keys(manifest.files)) files[relative] = readFileSync(path.join(usb, relative));
+    const mirror = await startModelHost({ files });
+    let moved;
     try {
-      answer = JSON.parse(moved.stdout);
-    } catch {
-      answer = { error: moved.stdout.slice(0, 300) || moved.stderr.slice(0, 300) };
+      moved = await runAsync(process.execPath, [path.join(baseRoot, "ai-dev-mcp-server", "scripts", "first-run.mjs"), "--dense", "--no-health"], {
+        cwd: path.join(baseRoot, "ai-dev-mcp-server"),
+        env: { ...env, AI_DEV_MODEL_MANIFEST: manifestFile, AI_DEV_MODEL_MIRROR: mirror.base.replace(/\/m$/, "") }
+      });
+    } finally {
+      await mirror.close();
     }
     const status = await withServer({ command: local.command, args: local.args, env: { ...serverEnv, AI_DEV_MODEL_MANIFEST: manifestFile }, cwd: path.dirname(local.args[0]) }, (client) => (
       call(client, "search_index_status", {})
     ));
     const rows = denseDigest(status.index_path);
     const eligible = denseEligibleDocuments(status.index_path);
+    const embeddedLine = moved.stdout.split("\n").find((line) => /^[✓✗·] Dense vectors/.test(line)) ?? "";
     check(`${label}: the one command moves it over — every vector the new model's, none left of Python, the index whole`,
       moved.status === 0 && status.dense_backend === "onnx" && Number(status.dense_documents) === eligible && Number(status.dense_pending_documents) === 0
-        && rows.count === eligible && indexedDocuments(status) === Number(status.current_document_count),
-      `exit ${moved.status}${answer.error ? ` (${answer.error})` : ""}, backend ${status.dense_backend}, ${status.dense_documents} of ${eligible} embedded, `
-        + `${status.dense_pending_documents} pending, ${indexedDocuments(status)} document(s) indexed`);
+        && !Number(status.dense_other_model_documents) && rows.count === eligible && indexedDocuments(status) === Number(status.current_document_count),
+      `setup --dense exit ${moved.status} (${embeddedLine.trim().slice(0, 90) || moved.stderr.slice(0, 200)}), backend ${status.dense_backend}, `
+        + `${status.dense_documents} of ${eligible} embedded, ${status.dense_pending_documents} pending, ${indexedDocuments(status)} document(s) indexed`);
   }
 
   if (aiDevHome) {

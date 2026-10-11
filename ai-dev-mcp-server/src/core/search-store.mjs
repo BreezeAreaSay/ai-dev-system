@@ -120,7 +120,17 @@ function readIndexState(db) {
   if (!tables.has("documents")) return { hasDocuments: false };
   const schemaCurrent = tableColumns(db, "documents").has("content_hash");
   const rows = db.prepare(`SELECT id, CAST(path AS BLOB) AS path, ${schemaCurrent ? "content_hash" : "'' AS content_hash"} FROM documents`).all();
-  return { hasDocuments: true, schemaCurrent, rows, meta: tables.has("meta") ? readMeta(db) : {} };
+  return { hasDocuments: true, schemaCurrent, rows, meta: tables.has("meta") ? readMeta(db) : {}, denseModels: readDenseModels(db) };
+}
+
+/**
+ * How many stored vectors each model made: a 2.x index can hold another
+ * model's, which hybrid search does not compare (docs/DEFECTS.md, Д-148).
+ */
+function readDenseModels(db) {
+  if (!tableExists(db, "dense_vectors") || !DENSE_COLUMNS.every((column) => tableColumns(db, "dense_vectors").has(column))) return [];
+  return db.prepare("SELECT backend, revision, dtype, count(*) AS documents FROM dense_vectors GROUP BY backend, revision, dtype").all()
+    .map((row) => ({ backend: String(row.backend), revision: String(row.revision), dtype: String(row.dtype), documents: Number(row.documents) }));
 }
 
 /**
@@ -215,7 +225,9 @@ export async function indexStatus({ vaultRoot, indexPath, includeExternalProject
     dense_revision: meta.dense_revision ?? "",
     dense_dtype: meta.dense_dtype ?? "",
     dense_documents: metaInt(meta.dense_documents),
-    dense_pending_documents: metaInt(meta.dense_pending_documents)
+    dense_pending_documents: metaInt(meta.dense_pending_documents),
+    dense_eligible_documents: metaInt(meta.dense_eligible_documents),
+    dense_models: state.denseModels ?? []
   };
 }
 

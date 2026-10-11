@@ -53,18 +53,32 @@ export function createDenseRuntime({
 }) {
   let probe = null;
   let probedAt = 0;
+  let probedRecord = "";
   let supportAnswer = null;
   const stampFile = stampDir ? verifiedStampPath(stampDir, onnxModelDir) : "";
 
   /**
    * Verify the export, at most once a minute unless forced. Forced means
    * every file is read again, as `embedding_status {refresh: true}` asks.
+   *
+   * An install, import or remove rewrites the verification record, in this
+   * process or another, and that ends the minute early: `setup -- --dense`
+   * asks before the download and embeds right after it, and a stale "not
+   * installed" made the second step refuse (docs/DEFECTS.md, Д-148).
    */
   async function onnxStatus({ refresh = false } = {}) {
-    if (!refresh && probe && now() - probedAt < DENSE_PROBE_TTL_MS) return probe;
+    if (!refresh && probe && now() - probedAt < DENSE_PROBE_TTL_MS && await recordState() === probedRecord) return probe;
     probe = await verify({ manifest, dir: onnxModelDir, stampFile, trustStamp: !refresh });
     probedAt = now();
+    probedRecord = await recordState();
     return probe;
+  }
+
+  /** Which verification record is on disk now, as a comparable string. */
+  async function recordState() {
+    if (!stampFile) return "";
+    const stats = await fs.promises.stat(stampFile).catch(() => null);
+    return stats ? `${stats.size}:${stats.mtimeMs}:${stats.ino}` : "none";
   }
 
   /**

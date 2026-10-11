@@ -143,7 +143,11 @@ export function planFirstRun({ present = {}, stale = {}, want = {}, force = fals
  * a vector, 0 without" tells a reader their documents are covered when none of
  * them is.
  *
- * @param {{ current_document_count?: number, dense_documents?: number, dense_pending_documents?: number }|null} status
+ * Vectors another model made — a 2.x index from the Python backend — are
+ * named as such: hybrid search does not compare them, so they wait for
+ * `--dense` like documents with none (docs/DEFECTS.md, Д-148).
+ *
+ * @param {{ current_document_count?: number, dense_documents?: number, dense_pending_documents?: number, dense_other_model_documents?: number }|null} status
  * @returns {string}
  */
 export function describeDenseCoverage(status) {
@@ -151,8 +155,10 @@ export function describeDenseCoverage(status) {
   const documents = Number(status.current_document_count || 0);
   const dense = Number(status.dense_documents || 0);
   const pending = Number(status.dense_pending_documents || 0);
+  const other = Number(status.dense_other_model_documents || 0);
   if (!dense && !pending) return `Indexed: ${documents} document(s), none embedded yet (--dense embeds them).`;
-  return `Indexed: ${documents} document(s), ${dense} with a dense vector, ${pending} waiting for one.`;
+  return `Indexed: ${documents} document(s), ${dense} with a dense vector, ${pending} waiting for one`
+    + (other ? ` (${other} with a vector of another model, which hybrid search does not compare; --dense embeds them again).` : ".");
 }
 
 function pick(step) {

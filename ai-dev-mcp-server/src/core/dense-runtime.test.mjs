@@ -90,6 +90,27 @@ test("the check trusts the record for a minute, and a refresh reads every file",
   assert.equal(noStamp.calls.verify[0].stampFile, "", "no record kept without a place for it");
 });
 
+test("a record rewritten by an install, import or remove ends the cached answer early (Д-148)", async (t) => {
+  const stampDir = await fs.mkdtemp(path.join(os.tmpdir(), "dense-runtime-stamp-"));
+  t.after(() => fs.rm(stampDir, { recursive: true, force: true }));
+  let clock = 0;
+  const { runtime, calls } = runtimeWith({ now: () => clock, stampDir });
+  await runtime.describe();
+  clock = 1_000;
+  await runtime.describe();
+  assert.equal(calls.verify.length, 1, "nothing changed: the answer is kept");
+  // What `setup -- --dense` does between asking and embedding: the model goes in, the record is written.
+  await fs.writeFile(calls.verify[0].stampFile, JSON.stringify({ format: 1, files: {} }));
+  clock = 2_000;
+  await runtime.describe();
+  assert.equal(calls.verify.length, 2, "a new record is a new question, inside the minute too");
+  await runtime.describe();
+  assert.equal(calls.verify.length, 2, "and its answer is kept in turn");
+  await fs.rm(calls.verify[0].stampFile);
+  await runtime.describe();
+  assert.equal(calls.verify.length, 3, "a removed record too");
+});
+
 test("2.x settings and weights left behind are named, with the one command", async () => {
   const { runtime } = runtimeWith({
     env: { AI_DEV_DENSE_BACKEND: "python", BGE_M3_PYTHON: "/venv/bin/python" },

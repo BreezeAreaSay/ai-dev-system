@@ -27,7 +27,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { DENSE_COMMIT_EVERY, embedDensePlan } from "./dense-index.mjs";
+import { DENSE_COMMIT_EVERY, denseCoverage, embedDensePlan } from "./dense-index.mjs";
 import { exportGalaxy } from "./galaxy-export.mjs";
 import { createDocumentCache } from "./search-documents.mjs";
 import { createHybridCache, hybridSearch as rankHybrid } from "./search-hybrid.mjs";
@@ -207,6 +207,11 @@ export function createSearchIndexRuntime({
     await freshRegistry();
     const result = await chosen.status({ includeExternalProjectFiles: Boolean(include_external_project_files) });
     result.dirty_reason = dirtyReason;
+    // Coverage is what the current model can use; another model's vectors wait.
+    if (denseIndexBackend) {
+      const current = await denseIndexBackend.describe().catch(() => null);
+      denseCoverage(result, current?.provenance ?? null);
+    }
     return stamped(result);
   }
 
@@ -542,6 +547,12 @@ export function createSearchIndexRuntime({
       denseQueryVector,
       denseProvenance
     });
+    // A question embedded, and not one document has a vector of its model —
+    // a 2.x index made by another one (docs/DEFECTS.md, Д-148): the dense half
+    // did not run, and the answer says so instead of ranking as if it had.
+    if (results.dense_unmatched && !denseIssue) {
+      denseIssue = "no indexed document has a vector of the installed model yet; `npm run setup -- --dense` embeds them";
+    }
     let ranked = results;
     if (
       intent_routing

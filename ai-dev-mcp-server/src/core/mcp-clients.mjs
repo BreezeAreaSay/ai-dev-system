@@ -283,15 +283,23 @@ function sha256(bytes) {
   return crypto.createHash("sha256").update(bytes).digest("hex");
 }
 
-/** The file a path names, through symlinks (a dangling one included). */
+/**
+ * The file a path names, through symlinks: a dangling one, and the folders of
+ * a file not written yet. A client folder linked from a dotfiles repository
+ * was recorded under the link's path at install and looked up under the real
+ * one at remove, which then took the entry out instead of giving the file
+ * back (docs/DEFECTS.md, Д-172).
+ */
 async function realTarget(file) {
   try {
     return await fs.realpath(file);
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
-    const link = await fs.readlink(file).catch(() => "");
-    return link ? path.resolve(path.dirname(file), link) : file;
   }
+  const link = await fs.readlink(file).catch(() => "");
+  if (link) return realTarget(path.resolve(path.dirname(file), link));
+  const parent = path.dirname(file);
+  return parent === file ? file : path.join(await realTarget(parent), path.basename(file));
 }
 
 async function readBytes(file) {
@@ -300,6 +308,22 @@ async function readBytes(file) {
   } catch (error) {
     if (error?.code === "ENOENT") return null;
     throw error;
+  }
+}
+
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+/**
+ * A config's text. A file that is not UTF-8 — a comment saved from an editor
+ * in cp1251, a UTF-16 file from Notepad — is refused: decoded anyway, its
+ * bytes came back as U+FFFD and were written over the original
+ * (docs/DEFECTS.md, Д-172).
+ */
+function decode(bytes) {
+  try {
+    return UTF8.decode(bytes);
+  } catch {
+    throw new Error("not UTF-8 text, so it is left as it is. Save it as UTF-8 (a comment in another encoding is the usual cause) and run this again.");
   }
 }
 
@@ -480,7 +504,7 @@ function failure(target, error) {
 const ATTEMPTS = 3;
 
 function stillChanging(target) {
-  return new Error(`${target.file} changed again each time it was about to be written (is ${target.label} saving it right now?). `
+  return new Error(`it changed again each time it was about to be written (is ${target.label} saving it right now?). `
     + "Nothing was changed; run the command again.");
 }
 
@@ -489,7 +513,7 @@ async function installOne(target, value, { apply, state, now }) {
   if (apply) await sweepStaleTemps(file);
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
     const before = await readBytes(file);
-    const plan = planInstall(target, before ? before.toString("utf8") : "", value);
+    const plan = planInstall(target, before ? decode(before) : "", value);
     const base = {
       ...resultBase(target),
       ...(plan.previous !== undefined ? { previous: describeEntry(plan.previous, value).kind } : {}),
@@ -531,14 +555,14 @@ async function removeOne(target, { apply, state, now }) {
       } else {
         const original = await readBytes(record.original);
         if (original) {
-          next = planRemove(target, original.toString("utf8")).next;
+          next = planRemove(target, decode(original)).next;
           restore = true;
         }
       }
     }
     let removed = [];
     if (!restore) {
-      const plan = planRemove(target, before.toString("utf8"));
+      const plan = planRemove(target, decode(before));
       if (!plan.changed) {
         forget(state, file);
         return { ...resultBase(target), status: "absent" };
@@ -641,7 +665,7 @@ export async function readServerEntries(targets) {
       rows.push({
         ...target,
         exists: Boolean(bytes),
-        entries: bytes ? readEntries(target, bytes.toString("utf8"), [SERVER_NAME, ...LEGACY_SERVER_NAMES]) : {}
+        entries: bytes ? readEntries(target, decode(bytes), [SERVER_NAME, ...LEGACY_SERVER_NAMES]) : {}
       });
     } catch (error) {
       rows.push({ ...target, exists: true, entries: {}, error: String(error?.message ?? error) });

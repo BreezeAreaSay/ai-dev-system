@@ -443,7 +443,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`node scripts/ai-dev.mjs`, `scripts/start-local.ps1` and
   `scripts/install-local-mcp-clients.mjs`** are `ai-dev`, `ai-dev mcp` and
   `ai-dev clients install` now. Each still works, with a note on stderr, and goes in 4.0;
-  `install-local-mcp-clients.mjs` keeps its dry run without `--apply` and its JSON.
+  `install-local-mcp-clients.mjs` keeps its flags: a dry run without `--apply`, the
+  four clients 2.x wrote (Cursor, Gemini, VS Code, Claude Code) unless `--clients` names
+  others, and `claude` for Claude Code alone; its JSON is `clients install --json`'s.
   `scripts/first-run.mjs`, `scripts/model.mjs` and `scripts/dense-doctor.mjs` run the same
   commands as before.
 - **The server name `ai-dev-system`** in client configs. 2.x entries that use it keep

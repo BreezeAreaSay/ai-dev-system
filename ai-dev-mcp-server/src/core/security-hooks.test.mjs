@@ -182,6 +182,14 @@ test("the guard asks nothing when there is nothing to ask, or when it is switche
   const many = await checkSupplyChain([["npm", "i", "a1", "a2", "a3"]], { fetchImpl, now: NOW, env: {}, policy: { supply_chain: { max_packages: 2 } } });
   assert.ok(many.warns.some((line) => /only the first 2 of 3 packages/.test(line)));
   assert.deepEqual(verdictFor({ name: "p", want: "1", version: "1", published: "", malware: [], vulnerabilities: [], problems: [] }, SUPPLY_CHAIN_DEFAULTS, NOW), { blocks: [], warns: [] });
+  const unchecked = verdictFor({
+    name: "p", want: "1", version: "1", published: "", malware: [], vulnerabilities: [],
+    problems: ["the registry could not be read: the proxy refused to connect to registry.npmjs.org:443 (HTTP 403).", "OSV could not be read: no answer in 3s"]
+  }, SUPPLY_CHAIN_DEFAULTS, NOW);
+  assert.deepEqual(unchecked.warns, [
+    "[supply-chain] p@1 was not fully checked: the registry could not be read: the proxy refused to connect to registry.npmjs.org:443 (HTTP 403).",
+    "[supply-chain] p@1 was not fully checked: OSV could not be read: no answer in 3s."
+  ], "one full stop, not two (Д-172)");
 });
 
 test("a changed manifest or lockfile is a note to the agent; other edits are not", () => {

@@ -617,7 +617,11 @@ test("the installer records this machine's Node out of git, and nothing from ins
   const status = await agentHooksStatus(projectRoot);
   assert.equal(status.recorded_node, "/opt/node/bin/node");
   assert.equal(status.recorded_node_exists, false);
-  assert.equal(status.bare_node_commands, process.platform === "win32" ? status.claude_entries : 0);
+  assert.equal(status.bare_node_commands, 0, "on Windows `node …` is the 3.0 registration, not a 2.x one (Д-172)");
+  const windowsEntries = { hooks: claudeHookEntries("standard", { platform: "win32" }) };
+  await fs.writeFile(path.join(projectRoot, ".claude", "settings.json"), JSON.stringify(windowsEntries));
+  assert.equal((await agentHooksStatus(projectRoot, { platform: "win32" })).bare_node_commands, 0);
+  assert.ok((await agentHooksStatus(projectRoot, { platform: "linux" })).bare_node_commands > 0, "the same lines elsewhere are 2.x ones");
 
   const windows = await fixture(t);
   await installAgentHooks({ projectRoot: windows.projectRoot, hooksSourceDir, targets: ["git"], platform: "win32", nodePath: "C:\\Program Files\\nodejs\\node.exe" });

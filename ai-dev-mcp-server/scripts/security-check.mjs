@@ -29,7 +29,8 @@ for (const [packagePath, metadata] of Object.entries(lock.packages ?? {})) {
   }
 }
 
-const scanRoots = ["bin", "src", "scripts"];
+// `hooks/` ships into other people's repositories: a key there would travel with them (Д-172).
+const scanRoots = ["bin", "src", "scripts", "hooks"];
 const secretPatterns = [
   { name: "private key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
   { name: "AWS access key", pattern: /\bAKIA[0-9A-Z]{16}\b/ },

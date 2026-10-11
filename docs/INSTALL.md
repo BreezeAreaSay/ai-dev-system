@@ -355,7 +355,7 @@ What the installer does with the files:
 `ai-dev clients list` shows every client and what its entry runs. `ai-dev clients doctor`
 starts each entry's command the way the client would and checks that it answers
 `initialize` with instructions — the check to make when a client shows the server as
-failed. `ai-dev clients remove` takes `ai-dev` (and `ai-dev-system`) out again: a file
+failed; each command has 30 seconds, `--timeout=<seconds>` gives it more. `ai-dev clients remove` takes `ai-dev` (and `ai-dev-system`) out again: a file
 nothing else has changed since gets back exactly what it held, and from any other only
 the entry is cut. `--dry-run` shows what `install` or `remove` would change.
 

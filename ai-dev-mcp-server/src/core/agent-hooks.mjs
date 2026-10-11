@@ -672,9 +672,10 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
  * Report what is installed.
  *
  * @param {string} projectRoot
+ * @param {{ platform?: NodeJS.Platform }} [options]
  * @returns {Promise<object>}
  */
-export async function agentHooksStatus(projectRoot) {
+export async function agentHooksStatus(projectRoot, { platform = process.platform } = {}) {
   const root = path.resolve(projectRoot);
   const files = {};
   for (const name of [...HOOK_FILES, "patterns.json"]) {
@@ -722,7 +723,9 @@ export async function agentHooksStatus(projectRoot) {
     cursor_contract: CURSOR_HOOKS_CONTRACT,
     // Registrations still written by 2.x run a bare `node`, which a client
     // started from the Dock may not find; install_agent_hooks rewrites them.
-    bare_node_commands: commands.filter((line) => /^node\s/.test(line)).length,
+    // On Windows `node …` is what it writes, so there is nothing to rewrite
+    // (docs/DEFECTS.md, Д-172).
+    bare_node_commands: platform === "win32" ? 0 : commands.filter((line) => /^node\s/.test(line)).length,
     recorded_node: recordedNode,
     recorded_node_exists: recordedNode ? await fs.access(recordedNode).then(() => true, () => false) : null
   };

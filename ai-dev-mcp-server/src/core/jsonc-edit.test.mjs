@@ -48,6 +48,28 @@ test("comments, trailing commas, CRLF and tabs survive an edit untouched", () =>
   assert.equal(removeMember(written, ["mcpServers"], "ai-dev"), original);
 });
 
+test("a comment after a member's value stays with that member, on insert and on remove (Д-172)", () => {
+  const original = "{\n  \"mcpServers\": {\n    \"github\": {} // GitHub\n  }\n}\n";
+  const written = setMember(original, ["mcpServers"], "ai-dev", { command: "n" });
+  assert.equal(written, "{\n  \"mcpServers\": {\n    \"github\": {}, // GitHub\n    \"ai-dev\": {\n      \"command\": \"n\"\n    }\n  }\n}\n");
+  assert.equal(removeMember(written, ["mcpServers"], "ai-dev"), original);
+
+  const trailing = "{\n  \"servers\": {\n    \"x\": { \"command\": \"y\" }, /* keep */\n  },\n}\n";
+  const withOurs = setMember(trailing, ["servers"], "ai-dev", { command: "n" });
+  assert.ok(withOurs.includes("\"x\": { \"command\": \"y\" }, /* keep */\n    \"ai-dev\": {"), withOurs);
+  assert.deepEqual(readJsonc(withOurs).servers["ai-dev"], { command: "n" });
+  assert.equal(removeMember(withOurs, ["servers"], "ai-dev"), trailing);
+
+  // Written by the earlier insert, which left the comment on the member it came after.
+  assert.equal(removeMember("{\n  \"mcpServers\": {\n    \"github\": {}, // GitHub\n    \"ai-dev\": { \"command\": \"n\" }\n  }\n}\n", ["mcpServers"], "ai-dev"),
+    "{\n  \"mcpServers\": {\n    \"github\": {} // GitHub\n  }\n}\n");
+  // In the middle: its own comment goes with it, its neighbours keep theirs.
+  assert.equal(removeMember("{\n  \"a\": 1, // A\n  \"ai-dev-system\": { \"command\": \"old\" }, // 2.x\n  \"b\": 2 // B\n}\n", [], "ai-dev-system"),
+    "{\n  \"a\": 1, // A\n  \"b\": 2 // B\n}\n");
+  // Members that share a line are cut as before.
+  assert.equal(removeMember("{\"mcpServers\":{\"a\":1,\"ai-dev\":{\"command\":\"n\"}}}", ["mcpServers"], "ai-dev"), "{\"mcpServers\":{\"a\":1}}");
+});
+
 test("a missing container is created, an empty file becomes a document, an empty object gets one member", () => {
   const themed = setMember("{\n    \"theme\": \"dark\"\n}\n", ["mcpServers"], "ai-dev", ENTRY);
   assert.deepEqual(readJsonc(themed), { theme: "dark", mcpServers: { "ai-dev": ENTRY } });

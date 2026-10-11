@@ -35,6 +35,7 @@ export function usage() {
     "                      claude-desktop, cursor, vscode, codex, gemini (claude = both Claude apps).",
     "                      A client named here is written even where it does not look installed.",
     "  --dry-run           install and remove: say what would change, write nothing",
+    "  --timeout=<seconds> doctor: how long each command has to answer initialize (30)",
     "  --json              print the result as JSON",
     "",
     "Each changed file keeps its previous bytes as <file>.backup-<time>."
@@ -223,7 +224,12 @@ async function doctor(values, io) {
   const targets = await discoverClients({ home, env: io.env });
   const { chosen } = chooseTargets(targets, values.clients);
   const rows = await readServerEntries(chosen);
-  const timeoutMs = Math.max(1, Number(values.timeout ?? 30)) * 1000;
+  const seconds = values.timeout === undefined ? 30 : Number(values.timeout);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    // A bad value used to run the check anyway and report "within NaN s" (docs/DEFECTS.md, Д-172).
+    throw new CliUsageError(`--timeout takes the seconds each command has to answer, a number above 0; "${values.timeout}" is not one.`);
+  }
+  const timeoutMs = seconds * 1000;
   const report = [];
   for (const row of rows) {
     const named = [SERVER_NAME, ...Object.keys(row.entries).filter((name) => name !== SERVER_NAME)]

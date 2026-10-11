@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { EXIT } from "../core/cli-args.mjs";
 
 /** `ai-dev-mcp-server/` of this install. */
 export const SERVER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -77,6 +78,12 @@ export function createIo({
         const answer = (await prompt.question(`${question} ${fallback ? "[Y/n]" : "[y/N]"} `)).trim().toLowerCase();
         if (!answer) return fallback;
         return answer === "y" || answer === "yes" || answer === "д" || answer === "да";
+      } catch (error) {
+        // Ctrl-C at a question is the same stop as Ctrl-C anywhere else: 130,
+        // not a failure with readline's "Aborted with Ctrl+C" (docs/DEFECTS.md, Д-172).
+        if (error?.code !== "ABORT_ERR" && error?.name !== "AbortError") throw error;
+        stdout.write("\n");
+        throw Object.assign(new Error("Stopped with Ctrl-C at a question, before anything was changed."), { exitCode: EXIT.interrupted });
       } finally {
         prompt.close();
       }

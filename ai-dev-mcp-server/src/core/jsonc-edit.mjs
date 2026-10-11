@@ -368,6 +368,36 @@ function splice(text, start, end, insert) {
   return `${text.slice(0, start)}${insert}${text.slice(end)}`;
 }
 
+/**
+ * What follows a value on its line, when that is nothing but blanks, one
+ * comma and comments: where the line break is, where the comma is (-1 for
+ * none), and whether there is a comment. Null when anything else follows.
+ */
+function restOfLine(text, offset) {
+  let at = offset;
+  let comma = -1;
+  let comment = false;
+  for (;;) {
+    while (text[at] === " " || text[at] === "\t") at += 1;
+    if (text[at] === "," && comma < 0) {
+      comma = at;
+      at += 1;
+    } else if (text.startsWith("//", at)) {
+      comment = true;
+      while (at < text.length && text[at] !== "\n" && !text.startsWith("\r\n", at)) at += 1;
+    } else if (text.startsWith("/*", at)) {
+      const close = text.indexOf("*/", at + 2);
+      if (close < 0 || text.slice(at, close).includes("\n")) return null;
+      comment = true;
+      at = close + 2;
+    } else {
+      break;
+    }
+  }
+  if (at < text.length && text[at] !== "\n" && !text.startsWith("\r\n", at)) return null;
+  return { end: at, comma, comment };
+}
+
 /** Wrap `value` in objects named by `path`, innermost last. */
 function nest(path, key, value) {
   let inner = { [key]: value };
@@ -414,6 +444,16 @@ export function setMember(text, path, key, value) {
     const last = object.members.at(-1);
     const indent = multiline ? indentOf(text, object.members[0].keyStart) : "";
     const printed = printValue(memberValue, { ...style, indent, inline: !multiline });
+    const rest = multiline ? restOfLine(text, last.valueEnd) : null;
+    if (rest?.comment) {
+      // A comment after the last value stays with that value: the comma goes
+      // before it, the new member on a line of its own after it. Inserted at
+      // the value, the comment ended up after the new member, and removing
+      // the member took it along (docs/DEFECTS.md, Д-172).
+      const trailing = rest.comma >= 0;
+      const withLine = splice(text, rest.end, rest.end, `${style.eol}${indent}${JSON.stringify(memberName)}: ${printed}${trailing ? "," : ""}`);
+      return trailing ? withLine : splice(withLine, last.valueEnd, last.valueEnd, ",");
+    }
     const separator = multiline ? `,${style.eol}${indent}` : ", ";
     return splice(text, last.valueEnd, last.valueEnd, `${separator}${JSON.stringify(memberName)}: ${printed}`);
   }
@@ -425,10 +465,34 @@ export function setMember(text, path, key, value) {
   return splice(text, object.open + 1, object.open + 1, entry);
 }
 
+/**
+ * Cut a member that has lines of its own, with whatever else is on them —
+ * its comma, a comment about it — and nothing else: a comment on the line
+ * before stays with the member it was written after. Null when the member
+ * shares a line.
+ */
+function cutMemberLines(text, object, index) {
+  const member = object.members[index];
+  const start = lineStartOf(text, member.keyStart);
+  if (text.slice(start, member.keyStart).trim()) return null;
+  const rest = restOfLine(text, member.valueEnd);
+  if (!rest || (member.comma ?? -1) !== rest.comma) return null;
+  const end = text.startsWith("\r\n", rest.end) ? rest.end + 2 : rest.end + (text[rest.end] === "\n" ? 1 : 0);
+  const cut = splice(text, start, end, "");
+  const previous = object.members[index - 1];
+  // The last member gone, the one before it is last and needs no comma.
+  if (member.comma === undefined && previous?.comma !== undefined) return splice(cut, previous.comma, previous.comma + 1, "");
+  return cut;
+}
+
 /** Cut one member out, with the punctuation and lines that belong to it. */
 function cutMember(text, object, index) {
   const member = object.members[index];
   const end = member.comma === undefined ? member.valueEnd : member.comma + 1;
+  if (object.members.length > 1) {
+    const cut = cutMemberLines(text, object, index);
+    if (cut !== null) return cut;
+  }
   if (index > 0) {
     // From the end of the previous value: its comma, the line break, this
     // member. The exact inverse of an insertion after the previous member.

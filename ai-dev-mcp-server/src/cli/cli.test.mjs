@@ -6,7 +6,9 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { readJsonc } from "../core/jsonc-edit.mjs";
+import { createIo } from "./context.mjs";
 import { parseSetupArgs } from "./setup.mjs";
+import { PassThrough } from "node:stream";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = path.join(serverRoot, "bin", "ai-dev.mjs");
@@ -164,6 +166,11 @@ test("clients doctor names a config whose Node is gone, and exits 1", async (t) 
   const doctor = await runNode([cli, "clients", "doctor"], { env: homeEnv(home) });
   assert.equal(doctor.code, 1);
   assert.match(doctor.stdout, /Cursor\s+FAILED — .*gone[\\/]node does not exist/);
+  for (const value of ["abc", "0", "-5"]) {
+    const wrong = await runNode([cli, "clients", "doctor", `--timeout=${value}`], { env: homeEnv(home) });
+    assert.equal(wrong.code, 2, value);
+    assert.match(wrong.stderr, /--timeout takes the seconds each command has to answer, a number above 0/);
+  }
 });
 
 test("setup's flags: --model, its 2.x names --dense and --dense-python, --all, --no-clients and --no-health", () => {
@@ -176,4 +183,18 @@ test("setup's flags: --model, its 2.x names --dense and --dense-python, --all, -
   assert.equal(parseSetupArgs(["--clients", "cursor,claude"]).clients, "cursor,claude");
   assert.equal(parseSetupArgs(["--no-health"]).health, false);
   assert.equal(parseSetupArgs(["-y"]).yes, true);
+});
+
+test("Ctrl-C at a question stops with 130, as Ctrl-C anywhere else does (Д-172)", async () => {
+  const terminal = () => Object.assign(new PassThrough(), { isTTY: true, columns: 80, setRawMode() { return this; } });
+  const ask = (typed, fallback) => {
+    const stdin = terminal();
+    const io = createIo({ stdin, stdout: terminal(), stderr: new PassThrough(), interactive: true });
+    setTimeout(() => stdin.write(typed), 20);
+    return io.ask("Connect ai-dev to Cursor?", fallback);
+  };
+  await assert.rejects(ask("\u0003", true), (error) => error.exitCode === 130 && error.message === "Stopped with Ctrl-C at a question, before anything was changed.");
+  assert.equal(await ask("да\r", false), true);
+  assert.equal(await ask("n\r", true), false);
+  assert.equal(await ask("\r", true), true, "Enter takes the default");
 });

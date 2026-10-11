@@ -449,6 +449,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A download no source could serve names the ways round it.** Behind a proxy that refuses
   huggingface.co, `setup -- --dense` said exactly that and stopped; the error now adds
   `AI_DEV_MODEL_MIRROR`, `HTTPS_PROXY` and `npm run model -- import`.
+- **A 2.x index the Python backend embedded is re-embedded by `setup -- --dense`** (Д-148).
+  It counted as fully embedded, so the step the migration notes point to was skipped, and
+  hybrid search — which compares only its own model's vectors — silently ran without its
+  dense half. The index status now counts vectors per model (`dense_other_model_documents`
+  for another model's, which wait); the step runs; a hybrid search with no vector of its
+  model says so; the freshness check warns.
+- **The model download cannot hang in its size probe** (Д-149): a source or proxy that takes
+  the connection and never answers costs one stall window, and is asked last afterwards.
+- **A disk that will not take the model is said as that** (Д-150): quota, read-only, rights
+  or I/O errors no longer read "the connection closed", and a short write is finished
+  before the next chunk.
+- **Proxy and mirror passwords stay out of messages, `--json` and `.part.json`** (Д-151).
+- **Through a proxy, an IP-literal source's certificate is checked against that address**
+  (Д-152), not against the proxy's name.
+- **`npm run model -- remove` acts only on a folder it recognises as the model's** (Д-153);
+  a lock it cannot create says why (Д-154); zips written with `\` between folders import
+  (Д-155); `install` and `import` exit 1 when the model is not whole (Д-156).
+- **Inside a container the health check gives the mount, not `npm run setup`** (Д-157).
+- **The Docker launchers no longer take `bge-m3/` for a model** (Д-158): `run-mcp.sh`,
+  `run-mcp.ps1`, both bootstraps and `ClaudeMcpProxy` recognise `bge-m3-onnx/` only and name
+  a lone `bge-m3/` as the removed Python backend's weights. After Ctrl-C, `setup` says it
+  stopped instead of running the health check and calling it a failure.
 
 - **Writers of the search index no longer wait each other out or stop the server**
   (`docs/DEFECTS.md`, Д-120 … Д-122, found by the review of the Node index). A rebuild lock

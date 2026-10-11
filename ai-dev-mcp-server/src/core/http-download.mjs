@@ -10,9 +10,11 @@
  * the proxy with `CONNECT`, and turns the network's failures into sentences
  * that name the host and say what to try.
  *
- * It is deliberately small: GET and HEAD, redirects, no keep-alive, no
- * decompression. The response body is handed back as a stream, so the caller
- * decides how bytes reach the disk — and where a `Range` resumes them.
+ * It is deliberately small: redirects, a request body for the JSON APIs, no
+ * keep-alive, no decompression. The response body is handed back as a stream,
+ * so the caller decides how bytes reach the disk — and where a `Range`
+ * resumes them. `proxyFetch` wraps it in the part of `fetch` the security
+ * checks use, so they go through the proxy as well (docs/DEFECTS.md, Д-145).
  */
 import http from "node:http";
 import https from "node:https";
@@ -272,11 +274,17 @@ function tunnel(proxy, host, port, signal) {
  *
  * @returns {Promise<import("node:http").IncomingMessage>}
  */
-function requestOnce(url, { method, headers, env, signal, ca }) {
+function requestOnce(url, { method, headers, env, signal, ca, body }) {
   const proxy = proxyFor(url, env);
   const host = bareHost(url.hostname);
   const port = urlPort(url);
-  const sent = { "user-agent": USER_AGENT, accept: "*/*", "accept-encoding": "identity", ...headers };
+  const sent = {
+    "user-agent": USER_AGENT,
+    accept: "*/*",
+    "accept-encoding": "identity",
+    ...(body === undefined ? {} : { "content-length": String(Buffer.byteLength(body)) }),
+    ...headers
+  };
   return new Promise((resolve, reject) => {
     let request;
     if (!proxy) {
@@ -320,35 +328,38 @@ function requestOnce(url, { method, headers, env, signal, ca }) {
     }
     request.once("response", resolve);
     request.once("error", (error) => reject(describeNetworkError(error, url, proxy)));
-    request.end();
+    request.end(body);
   });
 }
 
 /**
- * Open a URL with GET or HEAD and follow its redirects.
+ * Open a URL and follow its redirects.
  *
  * Headers travel with every hop, `Range` included: a model host answers with a
  * redirect to a CDN, and the CDN is the one that has to resume. A 303 turns
- * the request into a GET, as the standard says.
+ * the request into a GET, and so does a 301 or 302 after a POST, as `fetch`
+ * does; 307 and 308 send the body again.
  *
  * @param {string|URL} target
  * @param {object} [options]
- * @param {"GET"|"HEAD"} [options.method]
+ * @param {string} [options.method] - GET, HEAD or POST.
  * @param {Record<string, string>} [options.headers]
+ * @param {string|Buffer} [options.body]
  * @param {Record<string, string|undefined>} [options.env] - Where the proxy variables are read.
  * @param {AbortSignal} [options.signal]
  * @param {number} [options.maxRedirects]
  * @param {string|Buffer} [options.ca] - Trust only this CA; tests serve TLS with their own. Users have NODE_EXTRA_CA_CERTS.
  * @returns {Promise<{ status: number, headers: object, body: import("node:http").IncomingMessage, url: string }>}
  */
-export async function openUrl(target, { method = "GET", headers = {}, env = process.env, signal, maxRedirects = MAX_REDIRECTS, ca } = {}) {
+export async function openUrl(target, { method = "GET", headers = {}, body, env = process.env, signal, maxRedirects = MAX_REDIRECTS, ca } = {}) {
   let url = new URL(String(target));
   let verb = method;
+  let payload = body;
   for (let hop = 0; ; hop += 1) {
     if (url.protocol !== "http:" && url.protocol !== "https:") {
       throw new Error(`${url.href} is not an http(s) address.`);
     }
-    const response = await requestOnce(url, { method: verb, headers, env, signal, ca });
+    const response = await requestOnce(url, { method: verb, headers, env, signal, ca, body: payload });
     const location = response.headers.location;
     if (!REDIRECTS.has(response.statusCode) || !location) {
       return { status: response.statusCode, headers: response.headers, body: response, url: url.href };
@@ -356,8 +367,62 @@ export async function openUrl(target, { method = "GET", headers = {}, env = proc
     response.resume();
     if (hop >= maxRedirects) throw new Error(`${target} redirected more than ${maxRedirects} times.`);
     url = new URL(location, url);
-    if (response.statusCode === 303 && verb !== "HEAD") verb = "GET";
+    if ((response.statusCode === 303 && verb !== "HEAD") || ((response.statusCode === 301 || response.statusCode === 302) && verb === "POST")) {
+      verb = "GET";
+      payload = undefined;
+    }
   }
+}
+
+/** The whole body, unless the signal ends it first. */
+async function readBody(body, signal) {
+  const chunks = [];
+  const stop = () => body.destroy(signal.reason);
+  signal?.addEventListener("abort", stop, { once: true });
+  try {
+    for await (const chunk of body) chunks.push(chunk);
+    return Buffer.concat(chunks);
+  } finally {
+    signal?.removeEventListener("abort", stop);
+  }
+}
+
+/**
+ * The part of `fetch` the registry and advisory lookups use, through the
+ * proxy the environment names: `fetch` itself ignores `HTTPS_PROXY`, so
+ * behind a corporate proxy those lookups failed with "fetch failed" and
+ * `run_security_scan` offered no fix versions (docs/DEFECTS.md, Д-145).
+ *
+ * A deadline from `AbortSignal.timeout` rejects with its `TimeoutError`, as
+ * `fetch` does, so callers that name a timeout keep naming it.
+ *
+ * @param {string|URL} target
+ * @param {{ method?: string, headers?: Record<string, string>, body?: string|Buffer, signal?: AbortSignal, env?: Record<string, string|undefined> }} [init]
+ * @returns {Promise<{ ok: boolean, status: number, url: string, headers: { get: (name: string) => string | null }, text: () => Promise<string>, json: () => Promise<unknown> }>}
+ */
+export async function proxyFetch(target, { method = "GET", headers = {}, body, signal, env = process.env } = {}) {
+  const rethrow = (error) => {
+    throw signal?.aborted && signal.reason?.name === "TimeoutError" ? signal.reason : error;
+  };
+  const response = await openUrl(target, { method, headers, body, signal, env }).catch(rethrow);
+  let consumed = null;
+  const bytes = () => {
+    consumed ??= readBody(response.body, signal).catch(rethrow);
+    return consumed;
+  };
+  return {
+    ok: response.status >= 200 && response.status < 300,
+    status: response.status,
+    url: response.url,
+    headers: {
+      get: (name) => {
+        const value = response.headers[String(name).toLowerCase()];
+        return value === undefined ? null : [value].flat().join(", ");
+      }
+    },
+    text: async () => (await bytes()).toString("utf8"),
+    json: async () => JSON.parse((await bytes()).toString("utf8"))
+  };
 }
 
 /**

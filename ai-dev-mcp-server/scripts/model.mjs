@@ -162,6 +162,12 @@ async function run() {
         } })
         : await importModel({ manifest, source: options.source, dir, signal: controller.signal, onProgress: progress });
       progress.end();
+      // A model that is not whole is a failure, whatever got copied on the way (Д-156).
+      if (!placed.ready) {
+        const wrong = [...(placed.missing ?? []), ...(placed.mismatched ?? [])];
+        throw new Error(`The model in ${dir} is not complete${wrong.length ? `: ${wrong.join(", ")} missing or not the pinned file` : ""}. `
+          + "`npm run model -- status` says what is there.");
+      }
       say(options.command === "install"
         ? `Model in place: ${dir} — ${placed.downloaded} file(s) fetched${placed.resumed ? `, ${placed.resumed} continued` : ""}, ${formatBytes(placed.bytes)} over the network.`
         : `Model in place: ${dir} — ${placed.copied.length} file(s) copied from ${placed.from}, ${placed.skipped.length} already here.`);

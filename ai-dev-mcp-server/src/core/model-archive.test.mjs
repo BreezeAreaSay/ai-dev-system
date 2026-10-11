@@ -68,6 +68,13 @@ test("a file that is not an archive, or a damaged one, says so instead of readin
   await fs.writeFile(damaged, broken);
   await assert.rejects(readZipEntries(damaged), /central directory is damaged at entry 2 of 2/);
 
+  // A directory larger than the file: refused before a buffer is allocated for it (Д-158).
+  const huge = Buffer.from(good);
+  huge.writeUInt32LE(0xfffffff0, good.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])) + 12);
+  const crafted = path.join(dir, "crafted.zip");
+  await fs.writeFile(crafted, huge);
+  await assert.rejects(readZipEntries(crafted), /its central directory says it is 4294967280 bytes at \d+, past the end of a \d+-byte file/);
+
   const wide = makeZip([{ name: "a.json", data: "{}" }], { zip64: true });
   const noLocator = Buffer.from(wide);
   noLocator.writeUInt32LE(0, wide.lastIndexOf(Buffer.from([0x50, 0x4b, 0x06, 0x07])));

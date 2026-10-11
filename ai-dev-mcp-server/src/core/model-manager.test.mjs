@@ -136,9 +136,19 @@ test("import from the model folder, from a folder above it, and from a cache wit
 
   const self = await importModel({ manifest: MANIFEST, source: dir, dir, stampDir });
   assert.deepEqual([self.ready, self.copied], [true, []], "importing a model folder into itself is a verify");
+  // ... which fails, and says why, when a file in it is not the pinned one (Д-156).
+  await fs.writeFile(path.join(dir, "onnx", "model_int8.onnx"), FILES["onnx/model_int8.onnx"].subarray(0, 100));
+  await assert.rejects(importModel({ manifest: MANIFEST, source: dir, dir, stampDir }),
+    /bge-m3-onnx is the model folder itself, and onnx\/model_int8\.onnx in it is not the pinned file; there is no other copy here/);
 });
 
-test("import from a zip, nested one folder deep, plain or ZIP64", async (t) => {
+test("import from a zip, nested one folder deep, plain or ZIP64, with / or \\ between folders", async (t) => {
+  // Windows archivers write `\` (Д-155).
+  const backslashed = await setup(t);
+  const windowsZip = path.join(backslashed.root, "bge-m3.zip");
+  await fs.writeFile(windowsZip, makeZip(Object.entries(FILES).map(([name, data]) => ({ name: `bge-m3-onnx\\${name.split("/").join("\\")}`, data }))));
+  const fromWindows = await importModel({ manifest: MANIFEST, source: windowsZip, dir: backslashed.dir, stampDir: backslashed.stampDir });
+  assert.deepEqual([fromWindows.ready, fromWindows.copied.length], [true, 5]);
   for (const zip64 of [false, true]) {
     const { root, dir, stampDir } = await setup(t);
     const archive = path.join(root, "bge-m3.zip");
@@ -200,13 +210,14 @@ test("remove deletes the model, its partials and its record, and leaves anything
   const { dir, stampDir } = await setup(t);
   await writeModel(dir);
   await verifyModel({ manifest: MANIFEST, dir, stampDir });
-  await fs.writeFile(path.join(dir, "manifest.json"), "{}");
+  await fs.writeFile(path.join(dir, "manifest.json"), JSON.stringify(MANIFEST));
   await fs.writeFile(path.join(dir, "onnx", `model_int8.onnx${PART_SUFFIX}`), "partial");
   await fs.writeFile(path.join(dir, "onnx", `model_int8.onnx${PART_META_SUFFIX}`), "{}");
   await fs.writeFile(path.join(dir, "onnx", "model_int8.onnx.4242.part"), "2.x leftover");
+  await fs.writeFile(path.join(dir, "onnx", `model_int8.onnx${PART_META_SUFFIX}.4243.tmp`), "a killed write's record");
   await fs.writeFile(path.join(dir, "my-notes.md"), "mine");
   const result = await removeModel({ manifest: MANIFEST, dir, stampDir });
-  assert.equal(result.removed.length, 9);
+  assert.equal(result.removed.length, 10);
   assert.ok(result.freed > Object.values(FILES).reduce((sum, body) => sum + body.length, 0));
   assert.deepEqual(result.kept, ["my-notes.md"]);
   assert.deepEqual(await fs.readdir(dir), ["my-notes.md"], "onnx/ went with its files; the folder stays for what is not ours");
@@ -217,6 +228,38 @@ test("remove deletes the model, its partials and its record, and leaves anything
   await removeModel({ manifest: MANIFEST, dir, stampDir });
   await assert.rejects(fs.access(dir), /ENOENT/, "an emptied folder goes too");
   assert.deepEqual((await removeModel({ manifest: MANIFEST, dir, stampDir })).removed, [], "removing nothing is not an error");
+});
+
+test("remove refuses a folder that is not the model's, and leaves it whole (Д-153)", async (t) => {
+  const { root, stampDir } = await setup(t);
+  const app = path.join(root, "my-app");
+  await fs.mkdir(app, { recursive: true });
+  await fs.writeFile(path.join(app, "manifest.json"), JSON.stringify({ name: "my-app", version: "1.0.0" }));
+  await fs.writeFile(path.join(app, "config.json"), JSON.stringify({ theme: "dark" }));
+  await assert.rejects(removeModel({ manifest: MANIFEST, dir: app, stampDir }), /my-app does not look like the model's folder: .*Nothing was removed\./);
+  assert.deepEqual((await fs.readdir(app)).sort(), ["config.json", "manifest.json"]);
+  // A download that stopped partway is the model's, with nothing else to show for it.
+  const stopped = path.join(root, "stopped");
+  await fs.mkdir(path.join(stopped, "onnx"), { recursive: true });
+  await fs.writeFile(path.join(stopped, "onnx", `model_int8.onnx${PART_SUFFIX}`), "partial");
+  await fs.writeFile(path.join(stopped, "onnx", `model_int8.onnx${PART_META_SUFFIX}`), JSON.stringify({
+    format: 1, revision: MANIFEST.revision, sha256: MANIFEST.files["onnx/model_int8.onnx"], size: FILES["onnx/model_int8.onnx"].length
+  }));
+  assert.deepEqual((await removeModel({ manifest: MANIFEST, dir: stopped, stampDir })).removed.sort(),
+    [`onnx/model_int8.onnx${PART_SUFFIX}`, `onnx/model_int8.onnx${PART_META_SUFFIX}`].sort());
+  // A copy of the model's files, without the manifest an install writes: recognised by their sha256.
+  const copied = path.join(root, "copied");
+  await writeModel(copied);
+  assert.equal((await removeModel({ manifest: MANIFEST, dir: copied, stampDir })).removed.length, 5);
+});
+
+test("a lock that cannot be taken for another reason says that reason, not another operation (Д-154)", async (t) => {
+  const { root } = await setup(t);
+  const file = path.join(root, "not-a-folder");
+  await fs.writeFile(file, "a file where a folder should be");
+  await assert.rejects(withModelLock(path.join(file, "bge-m3-onnx"), async () => "ran"),
+    (error) => /^Cannot work in .*bge-m3-onnx: .*\([A-Z]+\)\. Point --dir or BGE_M3_ONNX_DIR at a folder this account can write\.$/.test(error.message)
+      && !/Another model operation/.test(error.message));
 });
 
 test("two operations on one directory do not interleave: the second is told who holds it", async (t) => {

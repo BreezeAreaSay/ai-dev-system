@@ -112,6 +112,11 @@ export async function readZipEntries(file) {
   try {
     const { size } = await handle.stat();
     const { entries, directorySize, directoryOffset } = await locateDirectory(handle, size, file);
+    // A directory the file cannot hold is a damaged — or crafted — archive,
+    // not a buffer to allocate (docs/DEFECTS.md, Д-158).
+    if (directoryOffset + directorySize > size) {
+      throw new Error(`${file}: its central directory says it is ${directorySize} bytes at ${directoryOffset}, past the end of a ${size}-byte file.`);
+    }
     const directory = await readAt(handle, directoryOffset, directorySize);
     const result = new Map();
     let offset = 0;
@@ -127,7 +132,9 @@ export async function readZipEntries(file) {
       const extraLength = directory.readUInt16LE(offset + 30);
       const commentLength = directory.readUInt16LE(offset + 32);
       let localHeaderOffset = directory.readUInt32LE(offset + 42);
-      const name = directory.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
+      // Windows archivers write `\` between folders; the names only ever
+      // select manifest files, so reading it as `/` opens no way out (Д-155).
+      const name = directory.subarray(offset + 46, offset + 46 + nameLength).toString("utf8").replace(/\\/g, "/");
       const extra = directory.subarray(offset + 46 + nameLength, offset + 46 + nameLength + extraLength);
       const wide = zip64Values(extra, {
         size: entrySize === 0xffffffff,

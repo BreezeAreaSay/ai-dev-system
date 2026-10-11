@@ -105,6 +105,20 @@ test("credentials in a proxy or mirror address never reach a message (Д-151)", 
     (error) => /The proxy setting "http:\/\/\*\*\*@proxy\.corp:80800" is not a URL/.test(error.message) && !error.message.includes(secret));
 });
 
+test("a proxy that asks for NTLM or Negotiate is told apart from one that wants a password, or did not take it", async (t) => {
+  const target = `https://${TEST_HOST}/m/config.json`;
+  for (const [challenge, said] of [["NTLM", /asks for NTLM, which this download does not speak: point HTTPS_PROXY at a local proxy that signs in for it \(cntlm, px\)/],
+    ["Negotiate", /asks for Negotiate \(Kerberos\)/]]) {
+    const proxy = await startProxy({ credentials: "u:p", challenge });
+    t.after(() => proxy.close());
+    await assert.rejects(openUrl(target, { env: { HTTPS_PROXY: proxy.url.replace("http://", "http://u:wrong@") } }), (error) => said.test(error.message) && !/wrong/.test(error.message));
+  }
+  const basic = await startProxy({ credentials: "u:p" });
+  t.after(() => basic.close());
+  await assert.rejects(openUrl(target, { env: { HTTPS_PROXY: basic.url.replace("http://", "http://u:wrong@") } }),
+    /HTTP 407\)\. The proxy did not accept the user name and password in the proxy URL\./);
+});
+
 test("a proxy that refuses says which proxy, which host and what status; 407 asks for credentials", async (t) => {
   const refusing = await startProxy({ refuseStatus: 403 });
   const guarded = await startProxy({ credentials: "u:p" });

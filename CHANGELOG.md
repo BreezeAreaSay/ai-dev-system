@@ -460,7 +460,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A disk that will not take the model is said as that** (Д-150): quota, read-only, rights
   or I/O errors no longer read "the connection closed", and a short write is finished
   before the next chunk.
-- **Proxy and mirror passwords stay out of messages, `--json` and `.part.json`** (Д-151).
+- **Proxy and mirror passwords stay out of messages, `--json` and `.part.json`** (Д-151). A
+  proxy that answers 407 is told apart: one that wants NTLM or Kerberos is pointed at a local
+  forwarding proxy (cntlm, px), and one that refused the password in the proxy URL says so.
 - **Through a proxy, an IP-literal source's certificate is checked against that address**
   (Д-152), not against the proxy's name.
 - **`npm run model -- remove` acts only on a folder it recognises as the model's** (Д-153);

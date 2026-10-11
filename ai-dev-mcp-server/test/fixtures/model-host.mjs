@@ -200,9 +200,10 @@ export async function startModelHost({
  * @param {Record<string, number>} [options.hosts] - Host name → port on 127.0.0.1.
  * @param {string} [options.credentials] - `user:password` the proxy demands (407 otherwise).
  * @param {number} [options.refuseStatus] - Answer every CONNECT with this status.
+ * @param {string} [options.challenge] - The `Proxy-Authenticate` a 407 carries.
  * @returns {Promise<{ url: string, port: number, seen: string[], authorizations: string[], close: () => Promise<void> }>}
  */
-export async function startProxy({ hosts = {}, credentials = "", refuseStatus = 0 } = {}) {
+export async function startProxy({ hosts = {}, credentials = "", refuseStatus = 0, challenge = "Basic realm=\"test\"" } = {}) {
   const seen = [];
   const authorizations = [];
   const expected = credentials ? `Basic ${Buffer.from(credentials).toString("base64")}` : "";
@@ -211,7 +212,7 @@ export async function startProxy({ hosts = {}, credentials = "", refuseStatus = 
     seen.push(`${request.method} ${request.url}`);
     authorizations.push(String(request.headers["proxy-authorization"] ?? ""));
     if (expected && request.headers["proxy-authorization"] !== expected) {
-      response.writeHead(407, { "proxy-authenticate": "Basic realm=\"test\"" });
+      response.writeHead(407, { "proxy-authenticate": challenge });
       response.end();
       return;
     }
@@ -233,7 +234,7 @@ export async function startProxy({ hosts = {}, credentials = "", refuseStatus = 
     seen.push(`CONNECT ${request.url}`);
     authorizations.push(String(request.headers["proxy-authorization"] ?? ""));
     if (expected && request.headers["proxy-authorization"] !== expected) {
-      socket.end("HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm=\"test\"\r\n\r\n");
+      socket.end(`HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: ${challenge}\r\n\r\n`);
       return;
     }
     if (refuseStatus) {

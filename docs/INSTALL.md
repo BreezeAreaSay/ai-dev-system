@@ -498,7 +498,10 @@ read-only; the container reads the weights and never writes them, from
 
 The download reads `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` the way npm and curl
 do — credentials go in the proxy URL, `http://user:password@proxy:3128` — with no
-`NODE_USE_ENV_PROXY`. A Hugging Face mirror is one variable:
+`NODE_USE_ENV_PROXY`. A proxy that signs in with NTLM or Kerberos rather than a
+password is reached through a local forwarding proxy that does the sign-in, such as
+cntlm or px, named in `HTTPS_PROXY`; the error says so when that is the case. A
+Hugging Face mirror is one variable:
 
 ```bash
 AI_DEV_MODEL_MIRROR=https://hf-mirror.com npm run setup -- --dense

@@ -2,8 +2,8 @@
   "schema_version": 1,
   "policy": "explicit allowlist; no private vault zones or local runtime state",
   "total_files": 1575,
-  "total_bytes": 21893558,
-  "content_fingerprint": "37a48e61da9317e99809750d6c187c14cf530fd6bb397eba6ad0500eaff0997f",
+  "total_bytes": 21893684,
+  "content_fingerprint": "67c133f4e63f4148f6cacd6bbc62a10fceba6dcbc6e1a2774f1fa67a12485193",
   "files": [
     {
       "path": "01-system/Agent Rules.md",
@@ -4932,8 +4932,8 @@
     },
     {
       "path": "03-skills-catalog/sources/external/membrane/CURATION.md",
-      "bytes": 8718,
-      "sha256": "e88fe08cfe95f5d6602ea84b35bf70c66f60ddc150d9ec3a73187ba70f6e0321"
+      "bytes": 8996,
+      "sha256": "0541ef741a7c7aba77c412d534eb5c8dc6dd296b2164cc400f5811823a8d2f84"
     },
     {
       "path": "03-skills-catalog/sources/external/membrane/README.md",
@@ -5462,8 +5462,8 @@
     },
     {
       "path": "03-skills-catalog/sources/external/membrane/skills/confluent/SKILL.md",
-      "bytes": 8469,
-      "sha256": "7714e47feacf3511418dcb3f5613c1f696db96e3be571b0dbe526dc44200d871"
+      "bytes": 8317,
+      "sha256": "082a9b8781c2322e9a2c643e83409b8aa683f16eb96e618bcb8751ed22fbea41"
     },
     {
       "path": "03-skills-catalog/sources/external/membrane/skills/conjur/SKILL.md",

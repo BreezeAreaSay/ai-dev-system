@@ -123,7 +123,9 @@ git-ignored; only the `sources/` and hand-written seed docs are committed.
 `public-seed.manifest.json` records the size and SHA-256 of every committed seed
 file, and the image audit trusts it — so a manifest that has drifted from the
 files makes "what was built is what was audited" a formality. CI runs
-`npm run docker:seed:verify` to catch that. When it fails, rebuild the seed from
+`npm run docker:seed:verify` to catch that; it also runs the distribution audit
+over the committed seed, so a secret, a forbidden path or a NUL byte in a text
+file fails it too. When the manifest has drifted, rebuild the seed from
 the full vault with `npm run docker:seed`; in a checkout without the vault,
 recompute the manifest from the committed tree:
 

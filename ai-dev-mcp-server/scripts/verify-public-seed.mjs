@@ -7,10 +7,11 @@
  *   node scripts/verify-public-seed.mjs --write   # recompute the manifest
  *
  * The image audit trusts the manifest, so a manifest that has drifted from the
- * files turns "what was built is what was audited" into a formality. Three
- * things are checked: the manifest agrees with itself (counts and fingerprint),
- * every file it lists is on disk with the same bytes and hash, and no file on
- * disk is missing from it.
+ * files turns "what was built is what was audited" into a formality. Four
+ * things are checked: the seed passes the distribution audit (no secrets, no
+ * forbidden paths, no NUL bytes in text files), the manifest agrees with itself
+ * (counts and fingerprint), every file it lists is on disk with the same bytes
+ * and hash, and no file on disk is missing from it.
  *
  * `03-skills-catalog/{registries,cards,groups}` is skipped on both sides: those
  * are rebuilt on demand by `npm run skills:ensure-index` in a standalone
@@ -91,12 +92,19 @@ const write = process.argv.includes("--write");
 const audit = await auditDistributionTree(seedRoot);
 const onDisk = index(audit.files);
 
+// What the audit rejects is wrong in the seed itself, whatever the manifest
+// says: a secret, a forbidden path, or a text cut short by a NUL byte
+// (docs/DEFECTS.md, Д-113). Generated output is judged by neither mode: it is
+// not shipped from here, and a used checkout has project cards and a rendered
+// galaxy whose embedded data can look like a key.
+const auditFindings = audit.findings.filter((finding) => !skipped(finding.path));
+
 if (write) {
   // The manifest describes the seed without itself, exactly as
   // refresh-public-seed.mjs computes it before writing the file. Generated
   // output is left out so the fingerprint depends only on committed content
   // and stays reproducible from a clean checkout.
-  assertCleanDistribution(audit, "public seed");
+  assertCleanDistribution({ ok: auditFindings.length === 0, findings: auditFindings }, "public seed");
   const files = [...onDisk.values()];
   const manifest = {
     schema_version: 1,
@@ -115,6 +123,19 @@ if (write) {
     fingerprint: manifest.content_fingerprint
   }, null, 2)}\n`);
   process.exit(0);
+}
+
+if (auditFindings.length) {
+  const shown = auditFindings.slice(0, 25);
+  process.stderr.write([
+    `Public seed fails the distribution audit (${auditFindings.length} finding(s)):`,
+    ...shown.map((finding) => `- ${finding.rule}: ${finding.path}`),
+    ...(auditFindings.length > shown.length ? [`- ... and ${auditFindings.length - shown.length} more`] : []),
+    "",
+    "Fix the files themselves: `--write` refuses to record a seed with audit findings.",
+    ""
+  ].join("\n"));
+  process.exit(1);
 }
 
 const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));

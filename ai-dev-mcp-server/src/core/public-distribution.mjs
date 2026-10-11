@@ -231,7 +231,8 @@ async function walk(root, current = root) {
 
 /**
  * Recursively audit a prepared distribution tree: reject symlinks, run path and
- * text privacy checks on every file, and record a SHA-256 per file.
+ * text privacy checks on every file, reject NUL bytes in text files, and record
+ * a SHA-256 per file.
  *
  * @param {string} root - Distribution root directory.
  * @param {{ forbiddenTerms?: string[] }} [options] - Passed to {@link distributionTextFindings}.
@@ -247,6 +248,11 @@ export async function auditDistributionTree(root, options = {}) {
     }
     findings.push(...distributionPathFindings(entry.relative));
     const content = await fs.readFile(entry.absolute);
+    if (TEXT_EXTENSIONS.has(path.extname(entry.absolute).toLowerCase()) && content.includes(0)) {
+      // Any reader that takes text as a C string stops at the first NUL, and
+      // node:sqlite returns a TEXT column only up to it (docs/DEFECTS.md, Д-113).
+      findings.push({ rule: "nul-byte-in-text", path: entry.relative });
+    }
     if (looksTextual(content, entry.absolute)) {
       findings.push(...distributionTextFindings(
         content.toString("utf8"),

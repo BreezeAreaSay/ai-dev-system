@@ -127,6 +127,25 @@ test("distribution audit blocks owner context without exposing source text", asy
   assert.deepEqual(audit.findings, [{ rule: "private-owner-context", path: "note.md" }]);
 });
 
+test("distribution audit rejects a NUL byte in a text file and nowhere else (Д-113)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-nul-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  // The shape upstream shipped: a run of NULs where a skill's description was.
+  await fs.writeFile(path.join(root, "SKILL.md"), Buffer.concat([
+    Buffer.from("# Confluent\n\n"), Buffer.alloc(150), Buffer.from("\n\nOfficial docs\n")
+  ]));
+  await fs.writeFile(path.join(root, "LICENSE"), Buffer.from("MIT\0"));
+  // Images are binary and are meant to carry NULs.
+  await fs.writeFile(path.join(root, "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0x0d]));
+  await fs.writeFile(path.join(root, "clean.md"), "# Clean\n");
+  const audit = await auditDistributionTree(root);
+  assert.deepEqual(audit.findings, [
+    { rule: "nul-byte-in-text", path: "LICENSE" },
+    { rule: "nul-byte-in-text", path: "SKILL.md" }
+  ]);
+  assert.throws(() => assertCleanDistribution(audit, "public seed"), /nul-byte-in-text: SKILL\.md/);
+});
+
 test("ownerUsername returns a string without throwing", () => {
   assert.equal(typeof ownerUsername(), "string");
 });

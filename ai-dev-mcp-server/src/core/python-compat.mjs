@@ -285,15 +285,35 @@ export class PythonFloat {
   }
 }
 
+/** A number token written as a float, or an integer of 16 digits or more. */
+const FLOAT_OR_LONG_NUMBER = /[:,[][\t\n\r ]*-?(?:\d+\.\d+(?:[eE][+-]?\d+)?|\d+[eE][+-]?\d+|\d{16,})/g;
+
+/** Whether `JSON.parse` alone would lose something `str()` prints: `87.0`, `1e5`, a long integer. */
+function needsExactNumbers(text) {
+  FLOAT_OR_LONG_NUMBER.lastIndex = 0;
+  for (let match = FLOAT_OR_LONG_NUMBER.exec(text); match; match = FLOAT_OR_LONG_NUMBER.exec(text)) {
+    const value = Number(match[0].replace(/^[:,[][\t\n\r ]*/, ""));
+    if (Number.isInteger(value)) return true;
+  }
+  return false;
+}
+
 /**
  * `json.loads(text)` with Python's int and float kept apart: a number written
  * with a fraction or an exponent becomes a {@link PythonFloat}, an integer too
  * large for a double a BigInt.
  *
+ * Only where it matters, though: telling them apart takes a reviver, which
+ * makes parsing the 9 MB skill registry eight times slower, and a non-integral
+ * float or a short integer prints the same either way. So the reviver runs
+ * only when a token might be an integral float or a long integer — a match
+ * inside a string is a false alarm that costs time, not correctness.
+ *
  * @param {string} text
  * @returns {unknown}
  */
 export function parsePythonJson(text) {
+  if (!needsExactNumbers(text)) return JSON.parse(text);
   return JSON.parse(text, (_key, value, context) => {
     if (typeof value !== "number") return value;
     const source = typeof context?.source === "string" ? context.source : String(value);

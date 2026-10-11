@@ -64,6 +64,12 @@ export function parseDenseManifest(raw) {
     if (!/^[0-9a-f]{64}$/i.test(String(digest))) {
       throw new Error(`Dense model manifest has no sha256 for ${relative}.`);
     }
+    // Names are joined onto a model directory that `remove` deletes from: a
+    // name that climbs out of it, or starts at a root, is not a model file.
+    if (!relative || relative.includes("\\") || path.posix.isAbsolute(relative) || /^[A-Za-z]:/.test(relative)
+      || relative.split("/").some((part) => part === ".." || part === "." || part === "")) {
+      throw new Error(`Dense model manifest names a file outside its directory: ${relative}.`);
+    }
   }
   const dimensions = Number(value.dimensions);
   if (!Number.isInteger(dimensions) || dimensions <= 0) {
@@ -113,6 +119,91 @@ export async function sha256File(file) {
 }
 
 /**
+ * What a file is on disk without reading it: size, modification and change
+ * times in nanoseconds, and its inode (the file ID on Windows), as strings.
+ *
+ * @param {string} file
+ * @returns {Promise<{ size: string, mtime: string, ctime: string, ino: string }|null>} Null when it is not a file.
+ */
+export async function fileIdentity(file) {
+  try {
+    const stats = await fsp.stat(file, { bigint: true });
+    if (!stats.isFile()) return null;
+    return { size: String(stats.size), mtime: String(stats.mtimeNs), ctime: String(stats.ctimeNs), ino: String(stats.ino) };
+  } catch (error) {
+    if (["ENOENT", "ENOTDIR", "EISDIR"].includes(error?.code)) return null;
+    throw error;
+  }
+}
+
+const sameIdentity = (left, right) => ["size", "mtime", "ctime", "ino"].every((key) => String(left?.[key]) === String(right?.[key]));
+
+/**
+ * Where the verification record for one model directory is kept.
+ *
+ * Beside the cache rather than beside the weights: in a container the model
+ * directory is a read-only mount, and the record must still be writable.
+ *
+ * @param {string} stampDir
+ * @param {string} modelDir
+ * @returns {string}
+ */
+export function verifiedStampPath(stampDir, modelDir) {
+  const key = crypto.createHash("sha256").update(path.resolve(String(modelDir))).digest("hex").slice(0, 16);
+  return path.join(path.resolve(String(stampDir)), `verified-${key}.json`);
+}
+
+async function readVerifiedStamp(stampFile) {
+  try {
+    const stamp = JSON.parse(await fsp.readFile(stampFile, "utf8"));
+    return stamp?.format === 1 && stamp.files && typeof stamp.files === "object" ? stamp : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Record, beside the cache, which files of `dir` were found to hash right and
+ * what they looked like then. Best effort: a record that cannot be written
+ * costs the next check a hash, nothing more.
+ *
+ * @param {string} stampFile
+ * @param {{ dir: string, manifest: object, files: Record<string, { sha256: string, size: string, mtime: string, ctime: string, ino: string }> }} record
+ * @returns {Promise<void>}
+ */
+export async function writeVerifiedStamp(stampFile, { dir, manifest, files }) {
+  const body = { format: 1, dir: path.resolve(String(dir)), revision: manifest.revision, dtype: manifest.dtype, files };
+  const temporary = `${stampFile}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    await fsp.mkdir(path.dirname(stampFile), { recursive: true });
+    await fsp.writeFile(temporary, `${JSON.stringify(body, null, 2)}\n`);
+    await fsp.rename(temporary, stampFile);
+  } catch {
+    await fsp.rm(temporary, { force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Record files just checked some other way — the download hashed every byte
+ * on its way in — so the next check trusts them without reading them again.
+ *
+ * @param {{ stampFile: string, dir: string, manifest: object, verified: string[] }} options
+ * @returns {Promise<void>}
+ */
+export async function stampVerifiedFiles({ stampFile, dir, manifest, verified }) {
+  if (!stampFile) return;
+  const resolved = path.resolve(String(dir));
+  const previous = await readVerifiedStamp(stampFile);
+  const files = previous?.dir === resolved ? { ...previous.files } : {};
+  for (const relative of Object.keys(files)) if (!Object.hasOwn(manifest.files, relative)) delete files[relative];
+  for (const relative of verified) {
+    const identity = await fileIdentity(path.join(resolved, relative));
+    if (identity) files[relative] = { sha256: String(manifest.files[relative]).toLowerCase(), ...identity };
+  }
+  await writeVerifiedStamp(stampFile, { dir: resolved, manifest, files });
+}
+
+/**
  * Check a model directory against a manifest, file by file.
  *
  * Absent and wrong are reported apart on purpose: a missing file means the
@@ -121,23 +212,54 @@ export async function sha256File(file) {
  * that moved. The first is "run setup again", the second is not, and the doctor
  * says so differently.
  *
+ * With `trustStamp`, a file whose size, times and inode are what they were when
+ * it last hashed right is taken as verified without being read: the server asks
+ * this on every hybrid search, and reading 570 MB to answer was a second a
+ * minute (docs/DEFECTS.md, Д-143). Any change to the file — rewritten, touched,
+ * renamed over — and it is hashed again. `model verify` and `dense:doctor`
+ * hash everything regardless.
+ *
  * @param {object} options
  * @param {object} options.manifest
  * @param {string} options.dir - Model directory.
  * @param {(file: string) => Promise<string|null>} [options.hashFile] - Injected for tests.
+ * @param {string} [options.stampFile] - Where the record of verified files is kept; none, no record.
+ * @param {boolean} [options.trustStamp] - Skip reading files the record vouches for.
  * @returns {Promise<{ ready: boolean, dir: string, model: string, revision: string, dtype: string,
- *   dimensions: number, missing: string[], mismatched: string[], present: string[] }>}
+ *   dimensions: number, missing: string[], mismatched: string[], present: string[], hashed: string[] }>}
  */
-export async function verifyDenseModelDirectory({ manifest, dir, hashFile = sha256File }) {
+export async function verifyDenseModelDirectory({ manifest, dir, hashFile = sha256File, stampFile = "", trustStamp = false }) {
   const resolved = path.resolve(String(dir || ""));
+  const stamp = stampFile ? await readVerifiedStamp(stampFile) : null;
+  const recorded = stamp?.dir === resolved ? stamp.files : {};
   const missing = [];
   const mismatched = [];
   const present = [];
+  const hashed = [];
+  const verified = {};
   for (const [relative, digest] of Object.entries(manifest.files)) {
-    const actual = await hashFile(path.join(resolved, relative));
+    const file = path.join(resolved, relative);
+    const expected = String(digest).toLowerCase();
+    const before = stampFile ? await fileIdentity(file) : null;
+    const entry = recorded[relative];
+    if (trustStamp && before && entry?.sha256 === expected && sameIdentity(entry, before)) {
+      present.push(relative);
+      verified[relative] = entry;
+      continue;
+    }
+    const actual = await hashFile(file);
+    hashed.push(relative);
     if (actual === null) missing.push(relative);
-    else if (actual.toLowerCase() !== String(digest).toLowerCase()) mismatched.push(relative);
-    else present.push(relative);
+    else if (actual.toLowerCase() !== expected) mismatched.push(relative);
+    else {
+      present.push(relative);
+      const after = stampFile ? await fileIdentity(file) : null;
+      // Changed while it was being read: right now, but not worth vouching for.
+      if (before && after && sameIdentity(before, after)) verified[relative] = { sha256: expected, ...after };
+    }
+  }
+  if (stampFile && JSON.stringify(verified) !== JSON.stringify(recorded)) {
+    await writeVerifiedStamp(stampFile, { dir: resolved, manifest, files: verified });
   }
   return {
     ready: missing.length === 0 && mismatched.length === 0,
@@ -148,7 +270,8 @@ export async function verifyDenseModelDirectory({ manifest, dir, hashFile = sha2
     dimensions: manifest.dimensions,
     missing,
     mismatched,
-    present
+    present,
+    hashed
   };
 }
 

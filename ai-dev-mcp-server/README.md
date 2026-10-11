@@ -35,10 +35,11 @@ Start:
 AI_DEV_VAULT_ROOT="/path/to/vault" node src/server.mjs
 ```
 
-From a plain clone no vault is needed, and `npm run clients:install` writes an equivalent
-entry into Claude Code, Cursor, VS Code and Gemini for you: the absolute path of the Node that
-ran it, this clone's `src/server.mjs`, no vault variable, `"type": "stdio"` for VS Code and
-Claude Code, and `servers` instead of `mcpServers` for VS Code.
+From a plain clone no vault is needed, and `npm run setup` — or `npm run clients:install` on its
+own — writes the entry into Claude Code, Claude Desktop, Cursor, VS Code, Codex and Gemini for
+you: the absolute path of the Node that ran it, then `bin/ai-dev.mjs mcp`, no vault variable,
+`"type": "stdio"` for VS Code and Claude Code, and `servers` instead of `mcpServers` for VS Code.
+`node src/server.mjs`, what 2.x configs run, starts the same server.
 
 The server negotiates MCP over stdio and exposes structured tool results, Resources, resource
 templates, Prompts, progress notifications, and tool annotations. Any stdio MCP client works —
@@ -47,9 +48,9 @@ Claude Code / Desktop, Cursor, VS Code, Gemini, Codex. Minimal client entry:
 ```jsonc
 {
   "mcpServers": {
-    "ai-dev-system": {
-      "command": "node",
-      "args": ["/path/to/vault/09-mcp/ai-dev-mcp-server/src/server.mjs"],
+    "ai-dev": {
+      "command": "/absolute/path/to/node",
+      "args": ["/path/to/vault/09-mcp/ai-dev-mcp-server/bin/ai-dev.mjs", "mcp"],
       "env": { "AI_DEV_VAULT_ROOT": "/path/to/vault" }
     }
   }
@@ -424,28 +425,35 @@ coverage thresholds, static modularity checks, and local security checks.
 
 ## Local Operations
 
-```bash
-./scripts/start-local.ps1   # or: node src/server.mjs
-node scripts/ai-dev.mjs doctor
-node scripts/ai-dev.mjs dashboard
-node scripts/ai-dev.mjs reindex
-node scripts/ai-dev.mjs refresh --full
-node scripts/ai-dev.mjs distribution
-```
-
-Install or refresh the same local stdio server for Cursor, Gemini Code Assist, native VS Code MCP,
-and Claude Code. Existing JSON files are merged and backed up before they are changed:
+Everything a person does with the server is one command line, `bin/ai-dev.mjs` — from a clone
+`npm run ai-dev -- <command>`, or `ai-dev <command>` after `npm link`:
 
 ```bash
-node scripts/install-local-mcp-clients.mjs           # dry run
-node scripts/install-local-mcp-clients.mjs --apply
+ai-dev setup [--yes] [--model] [--frontend-qa] [--clients=all|<names>]
+ai-dev clients list | install | remove | doctor [--clients=<names>] [--dry-run] [--json]
+ai-dev model status | install | import <path> | verify | remove | doctor
+ai-dev mcp                       # the stdio server a client starts
+ai-dev doctor [--dense-smoke] [--search-eval]
+ai-dev dashboard | galaxy [scope...] | reindex | refresh [flags] | distribution
+ai-dev help [command]
 ```
 
-Client configurations point to this repository's `src/server.mjs` (set `AI_DEV_VAULT_ROOT` to
-override the vault root) and to `node`; the Python they name is used by the two UI UX Pro Max
-tools alone. Restart or reload each client after
-installation. Any model selected inside an MCP-capable client can use the same tools; a raw model
-endpoint still needs an MCP-capable host.
+Exit codes: 0 done, 1 failed, 2 wrong usage, 130 stopped with Ctrl-C. `npm run setup`,
+`doctor`, `clients:install`, `model`, `dense:doctor`, `dashboard`, `galaxy`, `refresh`,
+`backup` and `distribution` run the same commands. The 2.x paths still work until 4.0, with a
+note on stderr where they were documented: `node scripts/ai-dev.mjs <command>`,
+`scripts/start-local.ps1` (now `ai-dev mcp`), `scripts/install-local-mcp-clients.mjs [--apply]`
+(now `ai-dev clients install`; a dry run without `--apply`, as before).
+
+`ai-dev clients install` writes one entry, `ai-dev`, into Claude Code, Claude Desktop (and its
+Microsoft Store copy), Cursor, VS Code, Codex and Gemini: the absolute path of this Node, this
+clone's `bin/ai-dev.mjs` and `mcp`, plus `AI_DEV_VAULT_ROOT` for a vault install. Each file is
+edited in place — other servers, comments and formatting stay byte for byte — written through a
+temp file and a rename, and backed up as `<file>.backup-<time>`; `ai-dev-system`, the 2.x
+name, is removed. `clients doctor` starts each entry's command and checks that it answers
+`initialize` with instructions; `clients remove` gives an untouched file back exactly. Restart or
+reload each client after installation. Any model selected inside an MCP-capable client can use
+the same tools; a raw model endpoint still needs an MCP-capable host.
 
 The shipped runtime profile is local stdio. A future remote profile is configuration scaffolding,
 not an enabled network server: remote mode remains blocked until TLS, authentication, allowlists,

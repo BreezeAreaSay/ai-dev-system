@@ -44,12 +44,19 @@ scratch directory it:
    Membrane's connectors, which a 2.x older than the Д-91 fix embedded — leaving the rewritten
    ones to the next embedding run; that keyword and hybrid search answer, that nothing is left in
    `$AI_DEV_HOME/.ai-dev`, and that the 2.x hook still runs — and, where its copy of the old
-   path cannot see the migrated task, sees it after `install_agent_hooks`. For the Python dense
+   path cannot see the migrated task, sees it after `install_agent_hooks`; that the hook
+   command `install_agent_hooks` writes now (`/bin/sh .ai-dev/hooks/with-node.sh …`) runs with a
+   PATH holding git and nothing else (docs/DEFECTS.md, Д-103); and that `npm run
+   clients:install` moves the client configurations both 2.x installers wrote to 3.0 —
+   `ai-dev-system` removed, the Docker `ai-dev` replaced, all six clients written with a backup,
+   every written command answering `initialize` with instructions, a second run changing
+   nothing (Д-95). For the Python dense
    backend user it also checks that `embedding_status` names each leftover setting with the one
    command that replaces it, that the health check warns instead of failing, that hybrid search
-   answers without comparing the Python vectors with anything, and that the one command —
-   `npm run model -- import` with a synthetic model standing in for BGE-M3 — gives every eligible
-   document a vector of the new model while the index stays whole.
+   answers without comparing the Python vectors with anything, and that the one command the
+   notes give — `npm run setup -- --model`, with a synthetic model standing in for BGE-M3 on a
+   local mirror where huggingface.co would be — gives every eligible document a vector of the
+   new model while the index stays whole.
 
 Each check prints `✓` or `✗`; the last line is `N of M checks passed`, and any `✗` makes the
 exit code 1.

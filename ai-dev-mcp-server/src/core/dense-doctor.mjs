@@ -19,8 +19,11 @@
  * stand in for the dependency rather than install it.
  */
 
-/** The Node the ONNX runtime and this repository both require. */
-export const MINIMUM_NODE = "22.12.0";
+/**
+ * The Node this repository requires: the ONNX runtime runs on older ones, but
+ * the search index needs `node:sqlite` with FTS5, which arrived in 22.16.
+ */
+export const MINIMUM_NODE = "22.16.0";
 
 /**
  * Compare two dotted version strings.

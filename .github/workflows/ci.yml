@@ -80,7 +80,10 @@ jobs:
         run: python3 -m unittest test_search_freshness
 
   mcp-server-node-floor:
-    name: MCP server (Node 22.12 floor)
+    # The oldest Node the package supports: node:sqlite with FTS5 arrived in
+    # 22.16 (22.13-22.15 and 23.x bundle SQLite without it), and the search
+    # index runs on it. The core tests include the Node search engine's.
+    name: MCP server (Node 22.16 floor)
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -89,7 +92,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "22.12"
+          node-version: "22.16"
           cache: npm
           cache-dependency-path: ai-dev-mcp-server/package-lock.json
 

@@ -237,6 +237,23 @@ test("a status cache answers from stats, without bodies, and sees every change",
   assert.equal(uncached[0].body, "# A\ntwo");
 });
 
+test("a cached status reads a project card as a card, though it is a note as well", (t) => {
+  const vault = tempRoot(t, "search-vault-");
+  const project = fs.realpathSync(tempRoot(t, "search-project-"));
+  write(project, "AGENTS.md", "# Agents");
+  const card = write(vault, "02-knowledge/Projects/one.md", `project_path: "${project}"\n# One\n`);
+  const old = new Date(Date.now() - 3_600_000);
+  fs.utimesSync(card, old, old);
+  fs.utimesSync(path.join(project, "AGENTS.md"), old, old);
+  const cache = createDocumentCache();
+  const uncached = collectDocuments({ vaultRoot: vault }).docs.map((doc) => [doc.path, doc.content_hash]);
+  for (let round = 0; round < 3; round += 1) {
+    const cached = collectDocuments({ vaultRoot: vault, cache }).docs.map((doc) => [doc.path, doc.content_hash]);
+    assert.deepEqual(cached, uncached, `round ${round}`);
+  }
+  assert.equal(uncached.length, 2, "the card as a note, and the project's AGENTS.md");
+});
+
 test("a file written just now is not trusted by its stat", (t) => {
   const root = tempRoot(t, "search-docs-");
   write(root, "notes/fresh.md", "# Fresh");

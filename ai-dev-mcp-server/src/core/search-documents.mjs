@@ -168,11 +168,15 @@ export function createDocumentCache() {
   return { entries: new Map(), visited: new Set() };
 }
 
-/** `(filePath, compute) => compute()`, through `cache` when there is one. */
+/**
+ * `(kind, filePath, compute) => compute()`, through `cache` when there is one.
+ * The kind keeps apart what one file is read as: a project card is a note too.
+ */
 function memoFor(cache) {
-  if (!cache) return (_filePath, compute) => compute();
-  return (filePath, compute) => {
-    cache.visited.add(filePath);
+  if (!cache) return (_kind, _filePath, compute) => compute();
+  return (kind, filePath, compute) => {
+    const entry = `${kind}:${filePath}`;
+    cache.visited.add(entry);
     let stat;
     try {
       stat = fs.statSync(filePath, { bigint: true });
@@ -180,16 +184,16 @@ function memoFor(cache) {
       return compute();
     }
     const key = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
-    const hit = cache.entries.get(filePath);
+    const hit = cache.entries.get(entry);
     if (hit?.key === key) return hit.value;
     const value = compute();
-    if (Date.now() - Number(stat.mtimeNs / 1_000_000n) > RACY_WINDOW_MS) cache.entries.set(filePath, { key, value });
-    else cache.entries.delete(filePath);
+    if (Date.now() - Number(stat.mtimeNs / 1_000_000n) > RACY_WINDOW_MS) cache.entries.set(entry, { key, value });
+    else cache.entries.delete(entry);
     return value;
   };
 }
 
-const direct = (_filePath, compute) => compute();
+const direct = (_kind, _filePath, compute) => compute();
 const asIs = (doc) => doc;
 
 /** A document without its body: what a status check keeps. */
@@ -310,7 +314,7 @@ export function loadNoteDocs(vaultRoot, memo = direct, finish = asIs) {
     const filePath = path.join(directory, name);
     const rel = path.relative(vaultRoot, filePath).split(path.sep).join("/");
     if (shouldSkipMarkdown(rel)) return;
-    const doc = memo(filePath, () => {
+    const doc = memo("note", filePath, () => {
       const built = noteDoc(filePath, rel, name);
       return built && finish(built);
     });
@@ -412,7 +416,7 @@ function skillDocs(registry, finish) {
 export function loadSkillDocs(vaultRoot, memo = direct, finish = asIs) {
   const registry = path.join(vaultRoot, ...SKILL_REGISTRY);
   if (!fs.existsSync(registry)) return [];
-  return memo(registry, () => skillDocs(registry, finish));
+  return memo("registry", registry, () => skillDocs(registry, finish));
 }
 
 const PROJECT_PATH_PATTERNS = [
@@ -532,7 +536,7 @@ export function loadProjectFileDocs(vaultRoot, { platform = process.platform, me
   const docs = [];
   for (const card of projectCards(projectsDir, platform)) {
     if (path.basename(card).toLowerCase() === "projects index.md") continue;
-    const declared = memo(card, () => {
+    const declared = memo("card", card, () => {
       if (!isReadableFile(card)) return "";
       try {
         return parseProjectPath(readPythonText(card));
@@ -549,7 +553,7 @@ export function loadProjectFileDocs(vaultRoot, { platform = process.platform, me
         ? projectRoot.text + relative
         : projectRoot.text + projectRoot.separator + relative;
       if (!fs.existsSync(filePath) || !insideRealRoot(projectRoot.text, filePath, platform) || !isReadableFile(filePath)) continue;
-      const doc = memo(filePath, () => {
+      const doc = memo("project-file", filePath, () => {
         const built = projectFileDoc(projectRoot, segments, source, categories, filePath, relative);
         return built && finish(built);
       });
@@ -584,7 +588,7 @@ export function collectDocuments({ vaultRoot, includeExternalProjectFiles = true
     ...(includeExternalProjectFiles ? loadProjectFileDocs(root, { platform, memo, finish }) : [])
   ];
   if (cache) {
-    for (const filePath of cache.entries.keys()) if (!cache.visited.has(filePath)) cache.entries.delete(filePath);
+    for (const entry of cache.entries.keys()) if (!cache.visited.has(entry)) cache.entries.delete(entry);
     cache.visited.clear();
   }
   const seen = new Set();

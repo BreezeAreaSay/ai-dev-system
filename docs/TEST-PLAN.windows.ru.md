@@ -86,13 +86,13 @@ winget install --id Microsoft.PowerShell --source winget
 После установки в меню «Пуск» появится **PowerShell 7** — открывайте именно его, не «Windows
 PowerShell». Все команды из этого документа рассчитаны на него.
 
-### Node.js 22.12 или новее
+### Node.js 22.16 или новее (или 24+)
 
 ```powershell
 node -v
 ```
 
-Если не найден или версия ниже 22.12:
+Если не найден или версия ниже 22.16:
 
 ```powershell
 winget install --id OpenJS.NodeJS.LTS --source winget
@@ -331,7 +331,7 @@ npm run dense:doctor
 ```
 Dense search: UNAVAILABLE
 
-[  ok  ] Node 22.12.0 or newer — this is vXX.X.X
+[  ok  ] Node 22.16.0 or newer — this is vXX.X.X
 [  ok  ] onnxruntime-node loads — native binding available
 [  ok  ] model manifest reads — Xenova/bge-m3 @ 4de132583038, int8
 [ FAIL ] model files present and unmodified — missing from …: config.json, tokenizer.json, …
@@ -398,7 +398,7 @@ npm run dense:doctor
 ```
 Dense search: READY
 
-[  ok  ] Node 22.12.0 or newer — …
+[  ok  ] Node 22.16.0 or newer — …
 [  ok  ] onnxruntime-node loads — native binding available
 [  ok  ] model manifest reads — Xenova/bge-m3 @ 4de132583038, int8
 [  ok  ] model files present and unmodified — 5 file(s) verified in …

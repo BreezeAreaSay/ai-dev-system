@@ -60,10 +60,11 @@ scene by scene, including the verification failure and the fix.
 
 ## Install
 
-**Locally, from a clone** — Node.js 22.12+, and Python 3 on `PATH` (the standard
-library only, no packages): the search index, the search tools and project
-preparation still run through a small Python helper, and moving them to Node is
-in progress.
+**Locally, from a clone** — Node.js 22.16+ (or 24+). The search index, keyword
+search and project preparation run in Node. Python 3 on `PATH` (the standard
+library only, no packages) is still needed for hybrid search, the knowledge galaxy
+and the UI/UX knowledge tool, until they move to Node too. On Node 22.12–22.15 the
+server works as 2.x did, with the Python helper doing all of search.
 
 ```bash
 cd ai-dev-mcp-server

@@ -27,12 +27,18 @@ To start an agent with a narrowed tool surface, add `AI_DEV_PROFILES` to the
 
 ## Requirements
 
-To run it locally — the path this page recommends — you need Node.js 22.12+ and
-npm, and Python 3 on `PATH` (`python3`; `python` on Windows). Only the standard
-library: the search index is still built and queried by a small Python helper,
-and without an interpreter `npm run setup` fails at the search index and most
-search tools answer `spawn python3 ENOENT`. Moving search to Node is in
-progress; until then Python stays a requirement. On Windows you can use the
+To run it locally — the path this page recommends — you need Node.js 22.16+ (or
+24+) and npm. The search index, its status and keyword search (`search_all`,
+`search_notes`, `search_projects`, `search_skill_registry`) run in Node, on
+`node:sqlite`; Node 22.13–22.15 and 23.x ship it without the FTS5 the index needs.
+Python 3 on `PATH` (`python3`; `python` on Windows; the standard library only) is
+still needed for hybrid search (`hybrid_search`, `preset_search`, `explain_search`,
+`run_search_eval`), the knowledge galaxy and `query_ui_ux_knowledge`: without it
+`npm run setup` builds everything and the health check fails only
+`hybrid_smoke_no_dense`. Moving those to Node is next. On an older Node the server
+falls back to the Python helper for all of search, as 2.x did, and says so in
+`search_index_status` (`engine`, `engine_reason`); `AI_DEV_SEARCH_ENGINE=python`
+does the same on purpose. On Windows you can use the
 bundled runtime described in the
 [server README](../ai-dev-mcp-server/README.md).
 
@@ -93,9 +99,9 @@ Two ways to run it, and they speak the same protocol:
 | `npm run daemon` | **Experimental.** One warm process on a local socket (a named pipe on Windows). No client can connect to it yet — nothing bridges a client's stdio to the socket — and it fails to start when the socket path is longer than 108 bytes (docs/DEFECTS.md, Д-97). Use `npm start`. |
 
 **Why local first.** The dense model is the reason. Locally it is one flag —
-`npm run setup -- --dense` — and it lands in `~/.ai-dev`; the model needs no Python
-packages, though the vectors it computes are still written into the index by the
-standard-library Python helper. A container runs with no network, so the weights
+`npm run setup -- --dense` — and it lands in `~/.ai-dev`; on Node 22.16+ the model
+and the vectors it computes need no Python at all (on an older Node the
+standard-library Python helper still writes them into the index). A container runs with no network, so the weights
 cannot be downloaded inside it at all: they are downloaded on the host and mounted
 at `/models` (see [The local model in a container](#the-local-model-in-a-container)).
 The image says so about itself through

@@ -73,7 +73,7 @@ Apple Silicon (M1/M2/M3/M4) и Intel. Это два разных прогона 
 
 **Терминал** — Программы → Утилиты → Терминал. Все команды из этого документа вводятся туда.
 
-### Node.js 22.12 или новее
+### Node.js 22.16 или новее (или 24+)
 
 Проверьте, есть ли уже:
 
@@ -81,7 +81,7 @@ Apple Silicon (M1/M2/M3/M4) и Intel. Это два разных прогона 
 node -v
 ```
 
-Если команда не найдена или версия ниже 22.12 — поставьте. Самый простой способ:
+Если команда не найдена или версия ниже 22.16 — поставьте. Самый простой способ:
 зайти на **nodejs.org**, скачать **macOS Installer (.pkg)** версии LTS и пройти установщик.
 Либо, если есть Homebrew:
 
@@ -302,7 +302,7 @@ npm run dense:doctor
 ```
 Dense search: UNAVAILABLE
 
-[  ok  ] Node 22.12.0 or newer — this is vXX.X.X
+[  ok  ] Node 22.16.0 or newer — this is vXX.X.X
 [  ok  ] onnxruntime-node loads — native binding available
 [  ok  ] model manifest reads — Xenova/bge-m3 @ 4de132583038, int8
 [ FAIL ] model files present and unmodified — missing from …: config.json, tokenizer.json, …
@@ -359,7 +359,7 @@ npm run dense:doctor
 ```
 Dense search: READY
 
-[  ok  ] Node 22.12.0 or newer — …
+[  ok  ] Node 22.16.0 or newer — …
 [  ok  ] onnxruntime-node loads — native binding available
 [  ok  ] model manifest reads — Xenova/bge-m3 @ 4de132583038, int8
 [  ok  ] model files present and unmodified — 5 file(s) verified in …

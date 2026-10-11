@@ -38,11 +38,15 @@ A standalone checkout resolves its content root to `docker/public-seed`.
 
 ## Prerequisites
 
-- Node.js ≥ 22.12 (`.nvmrc` pins `22`)
+- Node.js ≥ 22.16, or 24+ (`.nvmrc` says `22`, which nvm resolves to the newest 22.x). 22.13–22.15
+  and 23.x have `node:sqlite` without FTS5, and the search index needs it; on them the Node search
+  engine's tests skip and the server falls back to the Python helper.
 - npm (the server); pnpm only if you work on `frontend-qa/`
 - Git
 - Docker Desktop / Engine — only for the Docker and packaging paths
-- Python 3.11+ — only for the embeddings, search-index and search-eval helpers
+- Python 3.11+ — only for the embeddings, search-index and search-eval helpers. The search-index
+  helper still serves hybrid search and the galaxy export; `npm run search:parity -- --vault <dir>`
+  builds the index with it and with the Node engine and checks that the two agree
 
 ## Package-manager policy
 

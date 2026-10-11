@@ -54,7 +54,7 @@ Narrowing affects the listing only — `tools/call` still accepts every tool by 
 
 | Tool | Profile | Read-only | Required arguments | What it does |
 | --- | --- | --- | --- | --- |
-| `search_knowledge` | `core` | yes | `query` | Search Markdown knowledge files in the AI Dev System vault. |
+| `search_knowledge` | `core` | yes | `query` | Search vault notes, skills and project cards through the search index. |
 | `read_knowledge` | `core` | yes | `path` | Read a Markdown knowledge file by path relative to the AI Dev System root. |
 | `query_ui_ux_knowledge` | `frontend` | yes | `query` | Query the pinned local UI UX Pro Max dataset for focused product, UX, style, color, typography, chart, icon, motion, web, or stack guidance. Results are recommendations, not visual proof. |
 | `search_all` | `core` | yes | `query` | Search the self-refreshing local SQLite FTS index across knowledge, projects, workflows, quality notes, and skills. |

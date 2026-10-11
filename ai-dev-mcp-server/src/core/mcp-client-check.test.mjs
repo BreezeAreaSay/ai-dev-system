@@ -62,6 +62,54 @@ test("each way a client would see a red dot is named", async () => {
   }
 });
 
+test("a command that died is named by its error, not by Node's version, its stack or its code (Д-169)", async () => {
+  const stderrs = [
+    [[
+      "node:internal/modules/cjs/loader:1228",
+      "  throw err;",
+      "  ^",
+      "",
+      "Error: Cannot find module '/old/clone/ai-dev-mcp-server/src/server.mjs'",
+      "    at Function._resolveFilename (node:internal/modules/cjs/loader:1225:15)",
+      "    at node:internal/main/run_main_module:36:49 {",
+      "  code: 'MODULE_NOT_FOUND',",
+      "  requireStack: []",
+      "}",
+      "",
+      "Node.js v22.22.0",
+      ""
+    ], "Error: Cannot find module '/old/clone/ai-dev-mcp-server/src/server.mjs'"],
+    [[
+      "file:///opt/ai-dev/src/server.mjs:3",
+      "throw new Error(\"vault missing\");",
+      "^",
+      "",
+      "Error: vault missing",
+      "    at file:///opt/ai-dev/src/server.mjs:3:7",
+      "  [cause]: Error: ENOENT: no such file or directory, stat '/vault'",
+      "",
+      "Node.js v24.1.0"
+    ], "Error: vault missing"],
+    [["Warning: something", "  [errors]: [ AggregateError: two failed ]"], "[errors]: [ AggregateError: two failed ]"],
+    [["Traceback (most recent call last):", "  File \"x.py\", line 1, in <module>", "ModuleNotFoundError: No module named 'mcp'"], "ModuleNotFoundError: No module named 'mcp'"],
+    [["docker: Error response from daemon: pull access denied for ai-dev.", "See 'docker run --help'."], "docker: Error response from daemon: pull access denied for ai-dev."],
+    [["ai-dev: the vault folder /v does not exist.", "Set AI_DEV_VAULT_ROOT to it."], "Set AI_DEV_VAULT_ROOT to it."],
+    [["", "Node.js v22.22.0", ""], ""]
+  ];
+  for (const [lines, said] of stderrs) {
+    const result = await checkServerCommand({ command: "node", args: [] }, {
+      spawnProcess: fakeSpawn((child) => {
+        child.stderr.write(lines.join("\r\n"));
+        setImmediate(() => child.emit("close", 1, null));
+      })
+    });
+    assert.equal(result.error, `it exited with code 1 before answering${said ? `: ${said}` : ""}`, lines.join("\n"));
+  }
+  const moved = await checkServerCommand({ command: process.execPath, args: ["/old/clone/ai-dev-mcp-server/src/server.mjs"] });
+  assert.equal(moved.ok, false);
+  assert.match(moved.error, /^it exited with code 1 before answering: Error: Cannot find module '\/old\/clone\/ai-dev-mcp-server\/src\/server\.mjs'/);
+});
+
 test("a command that does not exist, an empty one, and one that never answers", async () => {
   const missing = await checkServerCommand({ command: "/nonexistent/node-that-is-not-there", args: [] });
   assert.equal(missing.ok, false);

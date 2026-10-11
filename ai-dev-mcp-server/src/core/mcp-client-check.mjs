@@ -18,8 +18,27 @@ const INITIALIZE = {
   params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "ai-dev clients doctor", version: "1" } }
 };
 
-function lastLine(text) {
-  return text.trim().split(/\r?\n/).at(-1)?.slice(0, 300) ?? "";
+/** What Node prints around an uncaught error that says nothing about it. */
+const NOISE = [
+  /^Node\.js v\d/, // the version, printed last
+  /^\s+at\s/, // the stack
+  /^\s*\^+\s*$/, // the caret under the line that threw
+  /^\s*[{}]\s*$/, // the error's own properties…
+  /^\s+[\w$]+: /, // …one per line
+  /^(?:node:|file:\/\/)\S+:\d+$/ // where it was thrown
+];
+
+/**
+ * The line of a command's stderr that says why it stopped: the last one that
+ * names an error — one not indented first, as Node prints the error itself
+ * and indents its causes — else the last that is not noise. The last line
+ * itself was Node's version, and a moved clone was reported as "Node.js
+ * v22.22.0" (docs/DEFECTS.md, Д-169).
+ */
+function errorLine(text) {
+  const lines = text.split(/\r?\n/).filter((line) => line.trim() && !NOISE.some((pattern) => pattern.test(line)));
+  const named = (line) => /\b(?:error|exception)\b/i.test(line);
+  return (lines.findLast((line) => named(line) && !/^\s/.test(line)) ?? lines.findLast(named) ?? lines.at(-1) ?? "").trim().slice(0, 300);
 }
 
 /**
@@ -110,7 +129,8 @@ export function checkServerCommand(entry, { timeoutMs = 30_000, env = process.en
     });
     child.on("close", (code, signal) => {
       const why = signal ? `was stopped by ${signal}` : `exited with code ${code}`;
-      finish({ ok: false, error: `it ${why} before answering${stderr.trim() ? `: ${lastLine(stderr)}` : ""}` });
+      const said = errorLine(stderr);
+      finish({ ok: false, error: `it ${why} before answering${said ? `: ${said}` : ""}` });
     });
     child.stdin.write(`${JSON.stringify(INITIALIZE)}\n`);
   });

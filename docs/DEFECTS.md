@@ -4224,7 +4224,7 @@ node bin/ai-dev.mjs clients install --clients cursor   → mcp.json 0:0 600, mcp
 
 ## Д-169. `clients doctor` называет причиной сбоя строку с версией Node
 
-**Статус:** открыт. Нашло независимое ревью фазы 6; закроет она же.
+**Статус:** закрыт фазой 6 (2026-10-11). Нашло её независимое ревью.
 
 `mcp-client-check.mjs` берёт последнюю строку stderr, а Node после необработанной ошибки печатает последней
 `Node.js v22.22.0`. Самый частый сбой — клон переехал, и в записи старый путь к `server.mjs`.
@@ -4240,7 +4240,19 @@ node bin/ai-dev.mjs clients doctor   → «Cursor  ai-dev-system: FAILED — it 
 **Как закроется.** Из stderr берётся строка ошибки (`Error: Cannot find module …`), а не версия, не строки стека и не
 кусок кода с `^`.
 
+**Замер после.** Из stderr отбрасываются версия Node, стек, `^`, свойства ошибки в фигурных скобках и строка «где
+брошено»; из остального берётся последняя строка, которая называет ошибку (сначала без отступа — так Node печатает саму
+ошибку, а причины — с отступом), иначе последняя оставшаяся. Проба `d169/probe.sh`, та же запись Cursor:
+
+```
+0e7775e   Cursor  ai-dev-system: FAILED — it exited with code 1 before answering: Node.js v22.22.0
+после     Cursor  ai-dev-system: FAILED — it exited with code 1 before answering: Error: Cannot find module '/old/clone/ai-dev-mcp-server/src/server.mjs'
+          (doctor выходит с 1)
+тест: CJS- и ESM-ошибка Node, ошибка с [cause], AggregateError, трейсбек Python, docker, сообщение без слова error,
+только версия; и настоящий Node с несуществующим server.mjs
+```
 ---
+
 
 ## Д-170. На Windows тест CLI пишет в настоящие конфиги клиентов, а два теста ядра падают
 

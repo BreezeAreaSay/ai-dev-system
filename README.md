@@ -36,7 +36,7 @@ One task, start to finish. This is the whole product:
 ```mermaid
 flowchart LR
     A["You: add authentication<br/>to the API"] --> B["begin_task<br/><i>loads project context:<br/>stack, conventions,<br/>past decisions</i>"]
-    B --> C["routes 3 skills<br/><i>out of 3,228</i>"]
+    B --> C["routes 3 skills<br/><i>out of 614</i>"]
     C --> D["agent writes<br/>the code"]
     D --> E["checkpoint_task<br/><i>+ snapshot of<br/>the working tree</i>"]
     E --> F["verify_task<br/><i>tests, quality gate,<br/>security scan</i>"]
@@ -51,7 +51,7 @@ Four things the agent could not do before:
 | | |
 | --- | --- |
 | 🧠 **It remembers the project** | `begin_task` compiles a context pack: the stack, the conventions, the architectural decisions on record, the handoff from the last session, and the instincts learned across sessions. You stop re-explaining. |
-| 🎯 **It finds the knowledge that applies** | Hybrid search (keyword + sparse + optional local BGE-M3) routes the request to at most three skills out of 3,228 — enough to be useful, few enough to stay in context. |
+| 🎯 **It finds the knowledge that applies** | Hybrid search (keyword + sparse + optional local BGE-M3) routes the request to at most three skills out of 614 — enough to be useful, few enough to stay in context. |
 | 🔒 **It works inside a lifecycle** | Begin, checkpoint, verify, complete. Every checkpoint snapshots the working tree, so any turn can be undone without touching your branch, stash or index. |
 | ✅ **It cannot just say it is done** | `complete_task` lints the completion report against the checks that actually ran. "Should work", "pre-existing issue", "skipping tests for now" come back refused, with the rule and what is missing. |
 
@@ -149,7 +149,7 @@ flowchart TB
     end
     agent <-->|stdio, no network port| server["ai-dev server<br/>135 tools in 8 profiles"]
     server --> ctx["Project context<br/><i>stack, conventions,<br/>decisions, handoffs</i>"]
-    server --> skills["Skill library<br/><i>3,228 skills,<br/>hybrid search</i>"]
+    server --> skills["Skill library<br/><i>614 skills,<br/>hybrid search</i>"]
     server --> life["Task lifecycle<br/><i>snapshots, quality gate,<br/>completion linter</i>"]
     ctx & skills & life --> disk[("Your machine only<br/><i>~/.ai-dev + .ai-dev/ in the repo</i>")]
 ```
@@ -192,7 +192,8 @@ MIT, ships its licence text beside its own files under
 `docker/public-seed/03-skills-catalog/sources/`, and is recorded in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) with the revision that was
 imported: [Membrane application-skills](https://github.com/membranedev/application-skills)
-(3,074), [ECC — Everything Claude Code](THIRD_PARTY_NOTICES.md) (101),
+(460 of its 3,074 connectors — the developer tools and AI models, see
+[CURATION.md](docker/public-seed/03-skills-catalog/sources/external/membrane/CURATION.md)), [ECC — Everything Claude Code](THIRD_PARTY_NOTICES.md) (101),
 [Understand Anything](https://github.com/Egonex-AI/Understand-Anything) (9),
 [mattpocock/skills](https://github.com/mattpocock/skills) (1), and the
 [taste-skill](https://github.com/Leonxlnx/taste-skill), [ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) and [Archify](https://github.com/tt-a1i/archify) design and diagram tooling.

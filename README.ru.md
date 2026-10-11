@@ -36,7 +36,7 @@ Coding-агент способный и беспамятный. В каждой 
 ```mermaid
 flowchart LR
     A["Вы: добавить авторизацию<br/>в API"] --> B["begin_task<br/><i>грузит контекст проекта:<br/>стек, соглашения,<br/>прошлые решения</i>"]
-    B --> C["выбирает 3 skills<br/><i>из 3 228</i>"]
+    B --> C["выбирает 3 skills<br/><i>из 614</i>"]
     C --> D["агент пишет<br/>код"]
     D --> E["checkpoint_task<br/><i>+ снапшот<br/>рабочего дерева</i>"]
     E --> F["verify_task<br/><i>тесты, quality gate,<br/>скан безопасности</i>"]
@@ -51,7 +51,7 @@ flowchart LR
 | | |
 | --- | --- |
 | 🧠 **Он помнит проект** | `begin_task` компилирует пакет контекста: стек, соглашения, записанные архитектурные решения, передачу из прошлой сессии и инстинкты, накопленные между сессиями. Объяснять заново не нужно. |
-| 🎯 **Он находит подходящие знания** | Гибридный поиск (ключевые слова + sparse + опциональная локальная BGE-M3) направляет запрос максимум к трём skills из 3 228 — достаточно, чтобы помочь, и мало, чтобы уместиться в контекст. |
+| 🎯 **Он находит подходящие знания** | Гибридный поиск (ключевые слова + sparse + опциональная локальная BGE-M3) направляет запрос максимум к трём skills из 614 — достаточно, чтобы помочь, и мало, чтобы уместиться в контекст. |
 | 🔒 **Он работает внутри жизненного цикла** | Начать, зачекпоинтить, проверить, завершить. Каждый чекпоинт снимает снапшот рабочего дерева, поэтому любой ход можно отменить, не трогая ветку, stash и индекс. |
 | ✅ **Он не может просто заявить, что закончил** | `complete_task` сверяет отчёт с проверками, которые действительно выполнялись. «Должно работать», «pre-existing issue», «тесты пока пропустим» возвращаются отказом с названием правила и тем, чего не хватает. |
 
@@ -150,7 +150,7 @@ flowchart TB
     end
     agent <-->|stdio, без сетевого порта| server["сервер ai-dev<br/>135 инструментов в 8 профилях"]
     server --> ctx["Контекст проекта<br/><i>стек, соглашения,<br/>решения, передачи</i>"]
-    server --> skills["Библиотека skills<br/><i>3 228 skills,<br/>гибридный поиск</i>"]
+    server --> skills["Библиотека skills<br/><i>614 skills,<br/>гибридный поиск</i>"]
     server --> life["Жизненный цикл задачи<br/><i>снапшоты, quality gate,<br/>линтер завершения</i>"]
     ctx & skills & life --> disk[("Только ваша машина<br/><i>~/.ai-dev + .ai-dev/ в репозитории</i>")]
 ```
@@ -192,7 +192,8 @@ flowchart TB
 `docker/public-seed/03-skills-catalog/sources/`, и каждый записан в
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) с импортированной ревизией:
 [Membrane application-skills](https://github.com/membranedev/application-skills)
-(3 074), [ECC — Everything Claude Code](THIRD_PARTY_NOTICES.md) (101),
+(460 из 3 074 коннекторов — инструменты разработки и модели ИИ, см.
+[CURATION.md](docker/public-seed/03-skills-catalog/sources/external/membrane/CURATION.md)), [ECC — Everything Claude Code](THIRD_PARTY_NOTICES.md) (101),
 [Understand Anything](https://github.com/Egonex-AI/Understand-Anything) (9),
 [mattpocock/skills](https://github.com/mattpocock/skills) (1), а также
 [taste-skill](https://github.com/Leonxlnx/taste-skill), [ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) и [Archify](https://github.com/tt-a1i/archify).

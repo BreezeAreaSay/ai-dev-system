@@ -227,6 +227,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The bundled skill catalogue keeps the skills for coding and for working with
+  models, and nothing else.** Membrane's 3,074 application connectors are cut to the
+  460 for developer tools and AI models: code hosting, CI/CD, cloud and hosting,
+  databases, monitoring and incidents, testing, security, application auth, APIs,
+  feature flags, issue trackers for software teams, model APIs, vector databases and
+  ML platforms. Payments, CRM, marketing, e-commerce, HR, scheduling, forms, chat,
+  consumer apps and the rest are gone; the rule and the list are in
+  `docker/public-seed/03-skills-catalog/sources/external/membrane/CURATION.md`. The
+  other 154 skills all stay. Measured over MCP on the seed: 614 skills instead of
+  3,228; 825 index documents instead of 3,444, rebuilt in 0.84 s instead of 2.8 s,
+  the index file 7.6 MB instead of 25.3 MB; the skill registry built in 1.4 s instead
+  of 3.8 s; the seed 1,575 files and 21.9 MB instead of 4,188 and 40.4 MB. The
+  routing benchmark (40/40) and the search eval (37 of 45, MRR 0.510) are unchanged;
+  a task that names Stripe or HubSpot no longer pulls their connectors in.
+
 - **Node.js 22.16 or newer (or 24+) is required** — `engines` is
   `^22.16.0 || >=24.0.0`, the CI floor job runs 22.16, `dense:doctor` names 22.16.
   `node:sqlite` is unflagged from 22.13, but measured on the release builds its SQLite

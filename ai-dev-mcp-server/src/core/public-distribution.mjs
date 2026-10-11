@@ -473,13 +473,15 @@ export function ownerUsername() {
  * this project's own but ships from here for the same reason. The refresh
  * carries them forward from the checkout and then asserts they survived.
  *
- * `minimumSkills` is the count imported, so a partial copy fails the build
- * rather than shipping a seed that is quietly missing most of its catalogue.
+ * `minimumSkills` is the count the seed carries, so a partial copy fails the
+ * build rather than shipping a seed that is quietly missing most of its
+ * catalogue. Membrane's is the curated set described in its `CURATION.md`, not
+ * the 3,074 connectors upstream publishes.
  *
  * @type {ReadonlyArray<{ relative: string, minimumSkills: number }>}
  */
 export const VENDORED_SEED_CATALOGUES = Object.freeze([
-  Object.freeze({ relative: "external/membrane", minimumSkills: 3074 }),
+  Object.freeze({ relative: "external/membrane", minimumSkills: 460 }),
   Object.freeze({ relative: "external/understand-anything", minimumSkills: 9 }),
   Object.freeze({ relative: "external/mattpocock-skills", minimumSkills: 1 }),
   Object.freeze({ relative: "custom/grill-me", minimumSkills: 1 })

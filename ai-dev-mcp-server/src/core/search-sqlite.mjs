@@ -136,9 +136,10 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * opened on has been deleted or replaced, and closed while there is no file.
  *
  * @param {string} filePath
+ * @param {{ delays?: number[] }} [options] - Pauses between attempts at a busy read.
  * @returns {{ read: <T>(fn: (db: import("node:sqlite").DatabaseSync) => T) => Promise<T|null>, close: () => void }}
  */
-export function createIndexReader(filePath) {
+export function createIndexReader(filePath, { delays = READ_RETRY_DELAYS_MS } = {}) {
   let db = null;
   let identity = "";
 
@@ -170,21 +171,22 @@ export function createIndexReader(filePath) {
 
   /**
    * Run a synchronous read; null when the file does not exist. A busy file is
-   * retried after {@link READ_RETRY_DELAYS_MS}; anything else is thrown.
+   * retried after each of `delays`; anything else is thrown, and a file busy
+   * through every attempt is an error, never an empty answer.
    */
   async function read(fn) {
     let lastError;
-    for (let attempt = 0; attempt <= READ_RETRY_DELAYS_MS.length; attempt += 1) {
+    for (let attempt = 0; attempt <= delays.length; attempt += 1) {
       try {
         const db = connection();
         return db ? fn(db) : null;
       } catch (error) {
         if (!isBusyError(error)) throw error;
         lastError = error;
-        if (attempt < READ_RETRY_DELAYS_MS.length) await sleep(READ_RETRY_DELAYS_MS[attempt]);
+        if (attempt < delays.length) await sleep(delays[attempt]);
       }
     }
-    throw new Error(`SQLite index remained busy after ${READ_RETRY_DELAYS_MS.length + 1} attempts: ${filePath}`, { cause: lastError });
+    throw new Error(`SQLite index remained busy after ${delays.length + 1} attempts: ${filePath}`, { cause: lastError });
   }
 
   return { read, close };

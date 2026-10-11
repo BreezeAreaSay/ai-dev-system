@@ -9,7 +9,12 @@
  * is not there (Д-94). This is the only place that picks it.
  */
 import { existsSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { locateExecutable, runProcess } from "./process-runner.mjs";
+
+/** How long `python --version` may take; a first start on Windows can take a second. */
+export const PYTHON_PROBE_TIMEOUT_MS = 10_000;
 
 /**
  * The interpreter a bundled runtime ships beside Node:
@@ -47,4 +52,37 @@ export function resolvePythonCommand({
   const bundled = bundledPythonPath({ platform, execPath });
   if (exists(bundled)) return bundled;
   return platform === "win32" ? "python" : "python3";
+}
+
+/**
+ * Whether `command` is a Python 3 that runs: found where a spawn would look,
+ * and answering `--version` as one. Finding the file is not enough — an
+ * explicit path that moved is returned by the locator as given, and on Windows
+ * the Store's `python.exe` alias is a file that opens the Store instead
+ * (docs/DEFECTS.md, Д-139).
+ *
+ * @param {string} command
+ * @param {{ locate?: (command: string) => Promise<string>, runner?: typeof runProcess, timeoutMs?: number }} [options]
+ * @returns {Promise<{ command: string, version?: string, missing?: true, failure?: string }>}
+ */
+export async function probePython(command, {
+  locate = locateExecutable,
+  runner = runProcess,
+  timeoutMs = PYTHON_PROBE_TIMEOUT_MS
+} = {}) {
+  const binary = await locate(command).catch(() => "");
+  if (!binary) return { command, missing: true };
+  let answer;
+  try {
+    answer = await runner({ executable: binary, args: ["--version"], cwd: os.tmpdir(), timeoutMs });
+  } catch (error) {
+    if (error?.code === "ENOENT") return { command, missing: true };
+    return { command, failure: String(error?.message ?? error).split(/\r?\n/)[0] };
+  }
+  const said = `${answer?.stdout ?? ""}\n${answer?.stderr ?? ""}`;
+  const version = /^Python (3\.\d+\S*)/m.exec(said)?.[1];
+  if (answer?.ok && version) return { command, version };
+  const first = said.split(/\r?\n/).map((line) => line.trim()).find(Boolean) ?? "";
+  if (answer?.timedOut) return { command, failure: "it did not answer in time" };
+  return { command, failure: first ? first.slice(0, 160) : `it exited with ${answer?.exitCode}` };
 }

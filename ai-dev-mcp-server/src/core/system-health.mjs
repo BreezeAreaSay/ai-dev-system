@@ -285,23 +285,27 @@ export function evaluateFrontendQaRunner({ runner, manifest, artifactsRoot }) {
  * Whether the UI UX Pro Max tools can run. They read the vendored dataset
  * through that project's own Python script — the only tools here that still
  * need an interpreter — so no Python is a skipped option, not a fault:
- * everything else runs without it.
+ * everything else runs without it. "Can run" means the interpreter answered
+ * `--version` as Python 3 ({@link import("./python-command.mjs").probePython}),
+ * not that a file of that name exists (docs/DEFECTS.md, Д-139).
  *
- * @param {{ command: string, path: string }} python - The interpreter asked for, and where it was found ("" when not).
+ * @param {{ command: string, version?: string, missing?: boolean, failure?: string }} python - What the probe found.
  * @returns {{ status: string, summary: string, details: object }}
  */
-export function evaluateUiUxKnowledge({ command, path: located }) {
-  if (located) {
+export function evaluateUiUxKnowledge({ command, version, missing, failure }) {
+  if (version) {
     return {
       status: "ok",
-      summary: `${UI_UX_PYTHON_TOOLS} run their helper with ${command} (${located}).`,
-      details: { command, path: located }
+      summary: `${UI_UX_PYTHON_TOOLS} run their helper with ${command} (Python ${version}).`,
+      details: { command, version }
     };
   }
+  const named = /^(?:[A-Za-z]:)?[\\/]/.test(command) ? `"${command}" is not there` : `"${command}" is not on PATH`;
+  const why = missing || !failure ? named : `"${command}" did not run as Python 3 (${failure})`;
   return {
     status: "skipped",
-    summary: `${UI_UX_PYTHON_TOOLS} need Python 3, and "${command}" is not on PATH. They are optional: every other tool runs without Python. Install Python 3, or set AI_DEV_PYTHON.`,
-    details: { optional: true, command }
+    summary: `${UI_UX_PYTHON_TOOLS} need Python 3, and ${why}. They are optional: every other tool runs without Python. Install Python 3, or set AI_DEV_PYTHON.`,
+    details: { optional: true, command, ...(failure ? { failure } : {}) }
   };
 }
 

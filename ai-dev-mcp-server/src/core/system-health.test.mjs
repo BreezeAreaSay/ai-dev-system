@@ -543,10 +543,18 @@ test("a Frontend QA runner that never started is not reported as Playwright miss
 });
 
 test("no Python only skips the UI UX check: it is optional, and says how to get it", () => {
-  const found = evaluateUiUxKnowledge({ command: "python3", path: "/usr/bin/python3" });
-  assert.deepEqual([found.status, found.details.path], ["ok", "/usr/bin/python3"]);
-  const missing = evaluateUiUxKnowledge({ command: "python", path: "" });
+  const found = evaluateUiUxKnowledge({ command: "python3", version: "3.13.1" });
+  assert.deepEqual([found.status, found.details.version], ["ok", "3.13.1"]);
+  assert.match(found.summary, /run their helper with python3 \(Python 3\.13\.1\)\.$/);
+  const missing = evaluateUiUxKnowledge({ command: "python", missing: true });
   assert.equal(missing.status, "skipped");
   assert.equal(missing.details.optional, true);
   assert.match(missing.summary, /^query_ui_ux_knowledge and generate_ui_ux_design_system need Python 3, and "python" is not on PATH\. They are optional.*AI_DEV_PYTHON/);
+  const moved = evaluateUiUxKnowledge({ command: "C:\\Tools\\Python312\\python.exe", missing: true });
+  assert.ok(moved.summary.includes('"C:\\Tools\\Python312\\python.exe" is not there.'), moved.summary);
+  // A file that is there but is not a Python 3 — the Store's alias, a Python 2 — is no better (Д-139).
+  const stub = evaluateUiUxKnowledge({ command: "python", failure: "Python was not found; run without arguments to install from the Microsoft Store" });
+  assert.equal(stub.status, "skipped");
+  assert.match(stub.summary, /"python" did not run as Python 3 \(Python was not found; run without arguments/);
+  assert.equal(stub.details.failure, "Python was not found; run without arguments to install from the Microsoft Store");
 });

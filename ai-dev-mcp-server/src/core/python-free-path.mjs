@@ -10,9 +10,12 @@
  * A folder cannot simply be dropped: on Linux `/usr/bin` holds `python3` next
  * to `sh`, which npm runs scripts with, and `git`. So off Windows a folder with
  * an interpreter in it is replaced by a mirror — a fresh folder of links to
- * everything else in it. On Windows interpreters live in folders of their own
- * (the tool cache's Python, the Store's aliases, `C:\Windows` with the `py`
- * launcher), and links there need a privilege, so those folders are dropped.
+ * everything else in it. The scripts Python runs go too (`pip3`,
+ * `lsb_release`, `semgrep`: anything whose first line names python), since a
+ * machine without Python does not have them either. On Windows interpreters
+ * live in folders of their own (the tool cache's Python and its `Scripts`
+ * with `pip.exe`, the Store's aliases, `C:\Windows` with the `py` launcher),
+ * and links there need a privilege, so those folders are dropped.
  */
 
 /** Interpreter names off Windows: `python`, `python3`, `python3.13`. */
@@ -24,6 +27,9 @@ const POSIX_PYTHON = /^python(?:\d+(?:\.\d+)*)?$/;
  * launcher. The Store's app execution aliases are listed as `python.exe` too.
  */
 const WINDOWS_PYTHON = /^(?:pythonw?(?:\d+(?:\.\d+)*)?|pyw?)\.(?:exe|cmd|bat)$/i;
+
+/** Launchers that start a Python by its absolute path: `pip.exe` in an install's `Scripts`. */
+const WINDOWS_PYTHON_LAUNCHERS = /^pip(?:\d+(?:\.\d+)*)?\.exe$/i;
 
 /**
  * Whether a file name is a Python interpreter, or a shim that starts one.
@@ -37,19 +43,31 @@ export function isPythonExecutable(name, platform = process.platform) {
 }
 
 /**
- * What to do with each PATH entry to leave no interpreter on it: keep it, drop
- * it, or (off Windows) replace it with a mirror of the names listed. A folder
- * that cannot be listed is dropped — a lookup may still find a file in a
- * folder it may not list, and what cannot be looked at cannot be vouched for.
- * Empty entries go too: on POSIX one means the current directory.
+ * Whether the start of a file is a script's first line that names Python:
+ * `#!/usr/bin/python3`, `#!/usr/bin/env python3 -I`.
  *
- * @param {{ pathValue: string, platform?: string, listDirectory: (directory: string) => string[] }} options
+ * @param {string} head - The first bytes of the file, as text.
+ * @returns {boolean}
+ */
+export function isPythonShebang(head) {
+  const firstLine = String(head ?? "").split(/\r?\n/, 1)[0];
+  return firstLine.startsWith("#!") && /python[\d.]*(?:\s|$)/.test(firstLine);
+}
+
+/**
+ * What to do with each PATH entry to leave no Python on it: keep it, drop it,
+ * or (off Windows) replace it with a mirror of the names listed. A folder that
+ * cannot be listed is dropped — a lookup may still find a file in a folder it
+ * may not list, and what cannot be looked at cannot be vouched for. Empty
+ * entries go too: on POSIX one means the current directory.
+ *
+ * @param {{ pathValue: string, platform?: string, listDirectory: (directory: string) => string[], isPythonScript?: (directory: string, name: string) => boolean }} options
  * @returns {Array<{ directory: string, action: "keep" } | { directory: string, action: "drop", reason: string } | { directory: string, action: "mirror", names: string[] }>}
  */
-export function planPythonFreePath({ pathValue, platform = process.platform, listDirectory }) {
-  const delimiter = platform === "win32" ? ";" : ":";
+export function planPythonFreePath({ pathValue, platform = process.platform, listDirectory, isPythonScript = () => false }) {
+  const windows = platform === "win32";
   const plan = [];
-  for (const directory of String(pathValue ?? "").split(delimiter)) {
+  for (const directory of String(pathValue ?? "").split(windows ? ";" : ":")) {
     if (!directory) continue;
     let names;
     try {
@@ -58,10 +76,13 @@ export function planPythonFreePath({ pathValue, platform = process.platform, lis
       plan.push({ directory, action: "drop", reason: "cannot be listed" });
       continue;
     }
-    const interpreters = names.filter((name) => isPythonExecutable(name, platform));
-    if (!interpreters.length) plan.push({ directory, action: "keep" });
-    else if (platform === "win32") plan.push({ directory, action: "drop", reason: `holds ${interpreters.join(", ")}` });
-    else plan.push({ directory, action: "mirror", names: names.filter((name) => !interpreters.includes(name)) });
+    const hidden = names.filter((name) => (
+      isPythonExecutable(name, platform)
+      || (windows ? WINDOWS_PYTHON_LAUNCHERS.test(name) : isPythonScript(directory, name))
+    ));
+    if (!hidden.length) plan.push({ directory, action: "keep" });
+    else if (windows) plan.push({ directory, action: "drop", reason: `holds ${hidden.join(", ")}` });
+    else plan.push({ directory, action: "mirror", names: names.filter((name) => !hidden.includes(name)) });
   }
   return plan;
 }

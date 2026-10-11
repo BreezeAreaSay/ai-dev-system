@@ -35,12 +35,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it. Files are edited as text (`jsonc-edit.mjs`, `toml-edit.mjs`): other servers, comments
   and formatting stay byte for byte, and a Codex server is found with its subtables and in any
   spelling of its name. Writes go through a temp file and a rename after a re-read, keep the
-  previous bytes as `<file>.backup-<time>`, follow a symlinked config, and keep the file's
-  mode; `ai-dev-system`, the 2.x local name, is removed and a Docker `ai-dev` replaced, with
+  previous bytes as `<file>.backup-<time>`, follow a symlinked config or client folder, and
+  keep the file's mode — and its owner when run with `sudo`; a comment after a server stays
+  with that server; an edited `config.toml` is read again before it is written, and a file
+  that is not UTF-8 is refused rather than rewritten. `ai-dev-system`, the 2.x local name, is
+  removed and a Docker `ai-dev` replaced, with
   the output saying which; a second run says `No changes`. `remove` gives a file nothing else
   touched back byte for byte (measured on all six) and otherwise cuts out only the entry;
   `doctor` starts each entry's command and checks that it answers `initialize` with
-  instructions (six of six, 313–361 ms); `--dry-run` shows what would change.
+  instructions (six of six, 313–361 ms), naming a command that died by its error line;
+  `--timeout=<seconds>` gives each more than 30 s; `--dry-run` shows what would change.
 
 - **The local model is one command, and gets through a broken connection, a proxy and a
   mirror** (`docs/DEFECTS.md`, Д-98; Д-73's missing resume). `npm run model -- install`
@@ -316,7 +320,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   phase-6 half). `install_agent_hooks` registers `/bin/sh .ai-dev/hooks/with-node.sh
   <script>`, and the git hook stubs go through it too: it takes `AI_DEV_NODE`, then the Node
   the hooks were installed with on this machine (`.ai-dev/hooks/.node-path`, git-ignored),
-  then `node` on `PATH`, then the usual install locations, and needs no other command.
+  then `node` on `PATH`, then the usual install locations, and needs no other command; an
+  `AI_DEV_NODE` that is not a Node executable is named and passed over, and `.gitattributes`
+  keeps the launcher and the stubs LF in a clone with `core.autocrlf`.
   Measured with a `PATH` that holds git and nothing else: 0 of 9 registered commands ran
   before (`node: not found`), 9 of 9 now. Windows keeps `node`. Hooks 2.x installed keep
   working where `node` is on the client's `PATH`; `agent_hooks_status` counts them
@@ -505,7 +511,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Behind a proxy every lookup failed with `fetch failed`: the hook warned "not fully
   checked" on every install and `run_security_scan` offered no fix versions. Both now go
   through the proxy — the hook through its own copy of the server's client
-  (`hooks/http-proxy.mjs`) — including the POSTs to the advisory endpoint and OSV.
+  (`hooks/http-proxy.mjs`) — including the POSTs to the advisory endpoint and OSV, and ask
+  for compressed answers as `fetch` did (Д-167): typescript's registry document is 2.0 MB
+  gzipped and 15.8 MB plain, and the hook has three seconds for it.
 
 - **`setup -- --dense` no longer embeds after the download failed, and its advice is
   true** (Д-98). The vector step needs the model step and is skipped, with that said, when

@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { readJsonc } from "../core/jsonc-edit.mjs";
+import { parseSetupArgs } from "./setup.mjs";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = path.join(serverRoot, "bin", "ai-dev.mjs");
@@ -144,4 +145,16 @@ test("clients doctor names a config whose Node is gone, and exits 1", async (t) 
   const doctor = await runNode([cli, "clients", "doctor"], { env: { HOME: home, USERPROFILE: home } });
   assert.equal(doctor.code, 1);
   assert.match(doctor.stdout, /Cursor\s+FAILED — .*gone[\\/]node does not exist/);
+});
+
+test("setup's flags: --model, its 2.x names --dense and --dense-python, --all, --no-clients and --no-health", () => {
+  assert.equal(parseSetupArgs([]).model, undefined, "unset: asked at a terminal, no elsewhere");
+  for (const flags of [["--model"], ["--dense"], ["--dense-python"], ["--all"]]) assert.equal(parseSetupArgs(flags).model, true, flags.join(" "));
+  assert.equal(parseSetupArgs(["--no-model"]).model, false);
+  assert.equal(parseSetupArgs(["--all"]).frontendQa, true);
+  assert.equal(parseSetupArgs(["--dense-python"]).densePython, true);
+  assert.equal(parseSetupArgs(["--no-clients"]).clients, false);
+  assert.equal(parseSetupArgs(["--clients", "cursor,claude"]).clients, "cursor,claude");
+  assert.equal(parseSetupArgs(["--no-health"]).health, false);
+  assert.equal(parseSetupArgs(["-y"]).yes, true);
 });

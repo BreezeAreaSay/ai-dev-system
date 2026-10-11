@@ -8,7 +8,7 @@ const payload = ({ available = true, onnx = ONNX, notes = [], partial = [], reas
   model_dir: onnx.dir,
   partial,
   worker: { started: false },
-  dense_backend: { backend: "onnx", available, reason, onnx, legacy: { notes, command: notes.length ? "npm run setup -- --dense" : "" } }
+  dense_backend: { backend: "onnx", available, reason, onnx, legacy: { notes, command: notes.length ? "npm run setup -- --model" : "" } }
 });
 
 test("a verified model is ok, and says which export and that no Python is involved", () => {
@@ -18,7 +18,7 @@ test("a verified model is ok, and says which export and that no Python is involv
 });
 
 test("no model is skipped — optional — with the reason the runtime gave", () => {
-  const reason = "Dense search is not installed: the model is not on this machine. Run `npm run setup -- --dense` to download it.";
+  const reason = "Dense search is not installed: the model is not on this machine. Run `npm run setup -- --model` to download it.";
   const verdict = evaluateEmbeddingBackend(payload({ available: false, reason, onnx: { ...ONNX, ready: false, missing: ["config.json"] } }));
   assert.deepEqual([verdict.status, verdict.summary, verdict.details.optional], ["skipped", reason, true]);
   assert.equal(evaluateEmbeddingBackend({}).status, "skipped", "an empty payload is not a crash");
@@ -31,13 +31,13 @@ test("a download that stopped partway is skipped with what is kept and how to co
     partial: [{ file: "onnx/model_int8.onnx", bytes: 312 * 1024 * 1024, size: 568 * 1024 * 1024 }]
   }));
   assert.equal(verdict.status, "skipped");
-  assert.match(verdict.summary, /a model download stopped partway \(312 MB of onnx\/model_int8\.onnx\)\. `npm run setup -- --dense` continues it from there\./);
+  assert.match(verdict.summary, /a model download stopped partway \(312 MB of onnx\/model_int8\.onnx\)\. `npm run setup -- --model` continues it from there\./);
 });
 
 test("files that are there and wrong are a warning that names them and the fix", () => {
   const verdict = evaluateEmbeddingBackend(payload({ available: false, onnx: { ...ONNX, ready: false, mismatched: ["onnx/model_int8.onnx"] } }));
   assert.equal(verdict.status, "warn");
-  assert.match(verdict.summary, /^The model files in \/m\/bge-m3-onnx do not match the manifest \(onnx\/model_int8\.onnx\)\. Run `npm run setup -- --dense`: it fetches those files again\.$/);
+  assert.match(verdict.summary, /^The model files in \/m\/bge-m3-onnx do not match the manifest \(onnx\/model_int8\.onnx\)\. Run `npm run setup -- --model`: it fetches those files again\.$/);
   // In a container the folder is a read-only mount: the fix is on the host (Д-157).
   const mounted = evaluateEmbeddingBackend({ ...payload({ available: false, onnx: { ...ONNX, ready: false, mismatched: ["tokenizer.json"] } }), in_container: true });
   assert.match(mounted.summary, /\(tokenizer\.json\)\. In this container, mount a folder holding bge-m3-onnx\/ at \/models/);

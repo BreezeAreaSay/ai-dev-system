@@ -264,7 +264,7 @@ export function evaluateSearchIndexFreshness(status) {
   const other = Number(status.dense_other_model_documents || 0);
   const otherModel = other
     ? ` ${other} document(s) have dense vectors of another model, which hybrid search does not compare; `
-      + "run `npm run setup -- --dense` to embed them with the installed one."
+      + "run `npm run setup -- --model` to embed them with the installed one."
     : "";
   return {
     status: status.stale || other ? "warn" : "ok",

@@ -98,7 +98,7 @@ Two stars far apart are only *less* similar, by no particular amount.
 The galaxy uses the best vectors the search index has:
 
 - **BGE-M3** vectors, for every document that has one. Build them with
-  `npm run setup -- --dense` ([Install](INSTALL.md)).
+  `npm run setup -- --model` ([Install](INSTALL.md)).
 - The index's **keyword vectors** place the rest, weighted so a word every note
   carries does not pull them all together.
 

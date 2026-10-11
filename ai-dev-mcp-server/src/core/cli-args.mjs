@@ -73,7 +73,8 @@ function namedOption(message, options) {
   const quoted = /'([^']+)'/.exec(message)?.[1] ?? "";
   const long = /--([\w-]+)/.exec(quoted)?.[1];
   if (long) return { written: `--${long}`, name: long };
-  const short = /(?:^|\s)-(\w)/.exec(quoted)?.[1] ?? "";
+  const short = /(?:^|\s)-(\w)/.exec(quoted)?.[1];
+  if (!short) return { written: quoted, name: "" };
   const name = Object.keys(options).find((key) => options[key].short === short) ?? "";
   return { written: `-${short}`, name };
 }
@@ -109,13 +110,26 @@ function describeRefusal(error, options, command) {
  */
 export function parseCommandLine(argv, { command, options = {}, positionals = {} }) {
   const all = { help: { type: "boolean", short: "h" }, ...options };
+  // `parseArgs` negates only switches; `--no-clients` turns a valued option
+  // off as well, and reads as `clients: false`.
+  const negated = [];
+  const terminator = argv.indexOf("--");
+  const args = argv.filter((argument, index) => {
+    const name = argument.startsWith("--no-") && (terminator < 0 || index < terminator) ? argument.slice(5) : "";
+    if (all[name]?.type !== "string") return true;
+    negated.push(name);
+    return false;
+  });
   let parsed;
   try {
-    parsed = parseArgs({ args: argv, options: all, allowPositionals: true, allowNegative: true, strict: true });
+    parsed = parseArgs({ args, options: all, allowPositionals: true, allowNegative: true, strict: true });
   } catch (error) {
     throw new CliUsageError(describeRefusal(error, all, command));
   }
-  if (parsed.values.help) return { values: parsed.values, positionals: parsed.positionals };
+  // A plain object: `parseArgs` hands back one without a prototype.
+  const values = { ...parsed.values };
+  for (const name of negated) values[name] = false;
+  if (values.help) return { values, positionals: parsed.positionals };
   const { min = 0, max = 0, names = "argument" } = positionals;
   const count = parsed.positionals.length;
   if (count > max) {
@@ -124,5 +138,5 @@ export function parseCommandLine(argv, { command, options = {}, positionals = {}
       + `See \`ai-dev help ${command}\`.`);
   }
   if (count < min) throw new CliUsageError(`\`ai-dev ${command}\` needs ${min === 1 ? `a ${names}` : `${min} ${names}`}. See \`ai-dev help ${command}\`.`);
-  return { values: parsed.values, positionals: parsed.positionals };
+  return { values, positionals: parsed.positionals };
 }

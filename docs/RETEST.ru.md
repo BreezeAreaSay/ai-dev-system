@@ -78,7 +78,7 @@ npm run doctor
 
 ```bash
 rm ~/.ai-dev/models/bge-m3-onnx/config.json
-npm run setup -- --dense    # должен взять только этот файл, секунды
+npm run setup -- --model    # должен взять только этот файл, секунды
 npm run dense:doctor        # снова READY
 ```
 

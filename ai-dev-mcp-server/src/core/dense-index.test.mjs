@@ -87,7 +87,7 @@ test("the default batch size is the documented one", async () => {
   assert.deepEqual(seen, [DENSE_PLAN_BATCH, 1]);
 });
 
-test("coverage counts the current model's vectors; another model's wait for --dense (Д-148)", () => {
+test("coverage counts the current model's vectors; another model's wait for --model (Д-148)", () => {
   const onnx = { backend: "onnx", revision: "4de1", dtype: "int8" };
   const python = { backend: "python", revision: "unpinned", dtype: "fp32" };
   const status = () => ({

@@ -265,9 +265,9 @@ test("embed_texts refuses what no model should be sent, and without one says wha
   await assert.rejects(call(registry, "embed_texts", {}), /texts or text is required/);
   assert.deepEqual(calls, [], "refused before the model is asked");
   host.dense.embed = async () => {
-    throw new Error("Dense search is not installed: the model is not on this machine. Run `npm run setup -- --dense` to download it.");
+    throw new Error("Dense search is not installed: the model is not on this machine. Run `npm run setup -- --model` to download it.");
   };
-  await assert.rejects(call(registry, "embed_texts", { text: "hello" }), /^Error: Dense search is not installed: the model is not on this machine\. Run `npm run setup -- --dense`/);
+  await assert.rejects(call(registry, "embed_texts", { text: "hello" }), /^Error: Dense search is not installed: the model is not on this machine\. Run `npm run setup -- --model`/);
 });
 
 test("the narrow wrappers pin their own scope", async () => {

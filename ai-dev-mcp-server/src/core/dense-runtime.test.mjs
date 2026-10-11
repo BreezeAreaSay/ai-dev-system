@@ -58,7 +58,7 @@ test("a verified export is the backend, with the manifest's provenance, and embe
 
 test("without the model, embedding is refused with the reason and the commands", async () => {
   const { runtime, calls } = runtimeWith({ ready: false });
-  await assert.rejects(runtime.embed({ texts: ["x"] }), /Dense search is not installed: the model is not on this machine\. Run `npm run setup -- --dense`/);
+  await assert.rejects(runtime.embed({ texts: ["x"] }), /Dense search is not installed: the model is not on this machine\. Run `npm run setup -- --model`/);
   assert.deepEqual(calls.embed, []);
   const inContainer = runtimeWith({ ready: false, env: { AI_DEV_RUNTIME: "docker" } });
   assert.match((await inContainer.runtime.describe()).reason, /mount a folder holding bge-m3-onnx/);
@@ -67,7 +67,7 @@ test("without the model, embedding is refused with the reason and the commands",
   // Files that are there but not the pinned ones are not "not on this machine" (Д-146).
   const tampered = runtimeWith({ found: { ready: false, dir: "/models/bge-m3-onnx", present: ["config.json"], missing: [], mismatched: ["onnx/model_int8.onnx"] } });
   await assert.rejects(tampered.runtime.embed({ texts: ["x"] }),
-    /^Error: Dense search is not ready: onnx\/model_int8\.onnx in \/models\/bge-m3-onnx is not the pinned file \(the sha256 differs from the manifest\)\. Run `npm run setup -- --dense`: it fetches it again\.$/);
+    /^Error: Dense search is not ready: onnx\/model_int8\.onnx in \/models\/bge-m3-onnx is not the pinned file \(the sha256 differs from the manifest\)\. Run `npm run setup -- --model`: it fetches it again\.$/);
 });
 
 test("the check trusts the record for a minute, and a refresh reads every file", async () => {
@@ -99,7 +99,7 @@ test("a record rewritten by an install, import or remove ends the cached answer 
   clock = 1_000;
   await runtime.describe();
   assert.equal(calls.verify.length, 1, "nothing changed: the answer is kept");
-  // What `setup -- --dense` does between asking and embedding: the model goes in, the record is written.
+  // What `setup -- --model` does between asking and embedding: the model goes in, the record is written.
   await fs.writeFile(calls.verify[0].stampFile, JSON.stringify({ format: 1, files: {} }));
   clock = 2_000;
   await runtime.describe();
@@ -121,7 +121,7 @@ test("2.x settings and weights left behind are named, with the one command", asy
   assert.equal(chosen.available, true, "python asked for, onnx installed: the model there is used");
   assert.match(chosen.note, /AI_DEV_DENSE_BACKEND=python asks for the Python backend, which 3\.0 removed/);
   assert.equal(chosen.legacy.notes.length, 3);
-  assert.equal(chosen.legacy.command, "npm run setup -- --dense");
+  assert.equal(chosen.legacy.command, "npm run setup -- --model");
   assert.ok(chosen.legacy.notes.some((note) => note.includes("torch weights")));
 });
 
@@ -135,7 +135,7 @@ test("status is the embedding_status payload: backend, folder, partial downloads
   const status = await runtime.status({});
   assert.deepEqual([status.backend, status.installed, status.available, status.model_dir], ["onnx", false, false, dir]);
   assert.deepEqual(status.partial, [{ file: "onnx/model_int8.onnx", bytes: 300, size: 1000 }]);
-  assert.match(status.reason, /^Dense search is not installed yet: the download of the model stopped partway \(onnx\/model_int8\.onnx\)\. Run `npm run setup -- --dense` to continue it from there\.$/);
+  assert.match(status.reason, /^Dense search is not installed yet: the download of the model stopped partway \(onnx\/model_int8\.onnx\)\. Run `npm run setup -- --model` to continue it from there\.$/);
   assert.equal("partial" in status.dense_backend, false, "said once, at the top");
   assert.deepEqual(status.worker, { started: true, pending_requests: 0, load_seconds: 0.2 });
   assert.equal(status.dense_backend.backend, "onnx");

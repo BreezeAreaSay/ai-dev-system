@@ -304,7 +304,7 @@ Dense search: UNAVAILABLE
 [  --  ] model loads
 [  --  ] trial embedding
 
-What to do: Run `npm run setup -- --dense` to download the model (about 600 MB, no Python needed).
+What to do: Run `npm run setup -- --model` to download the model (about 600 MB, no Python needed).
 ```
 
 **Ошибкой считается:** вместо этого вывалилась «портянка» с трассировкой стека; или `FAIL`
@@ -314,7 +314,7 @@ What to do: Run `npm run setup -- --dense` to download the model (about 600 MB, 
 ### B2. Скачивание модели — НИКОГДА НЕ ВЫПОЛНЯЛОСЬ, СМОТРЕТЬ ВНИМАТЕЛЬНО
 
 ```bash
-npm run setup -- --dense
+npm run setup -- --model
 ```
 
 Скачиваются пять файлов, каждый сверяется по контрольной сумме. Объём ≈ 600 МБ, основной файл
@@ -381,7 +381,7 @@ npm run doctor
 ### B5. Повторный запуск ничего не ломает
 
 ```bash
-npm run setup -- --dense
+npm run setup -- --model
 ```
 
 **Ожидается:** ничего не скачивается заново — файлы уже на месте и сходятся по контрольным
@@ -403,7 +403,7 @@ npm run dense:doctor
 Чиним обратно:
 
 ```bash
-npm run setup -- --dense   # докачает только испорченный файл
+npm run setup -- --model   # докачает только испорченный файл
 npm run dense:doctor       # снова READY
 ```
 
@@ -557,7 +557,7 @@ npm run verify:cursor
 
 ### 10.2. Обрыв сети посреди скачивания
 
-Начните `npm run setup -- --dense`, на середине отключите сеть.
+Начните `npm run setup -- --model`, на середине отключите сеть.
 **Ожидается:** понятное сообщение об ошибке, без «портянки», не позже чем через минуту тишины
 (дольше — находка). После включения сети повторный запуск берётся за **файлы**, которых ещё нет:
 уже скачанные и сошедшиеся по контрольной сумме он пропускает. Недокачанный файл качается заново
@@ -576,7 +576,7 @@ npm run verify:cursor
 **Известно заранее:** загрузчик, скорее всего, прокси не увидит. Вторая попытка:
 
 ```bash
-NODE_USE_ENV_PROXY=1 npm run setup -- --dense
+NODE_USE_ENV_PROXY=1 npm run setup -- --model
 ```
 
 **Записать:** сработало ли без переменной и с ней.
@@ -593,7 +593,7 @@ NODE_USE_ENV_PROXY=1 npm run setup -- --dense
 
 ### 10.7. Два запуска одновременно
 
-Запустите `npm run setup -- --dense` в двух терминалах сразу.
+Запустите `npm run setup -- --model` в двух терминалах сразу.
 **Ожидание:** каталог модели не должен остаться повреждённым.
 
 ### 10.8. Домашний каталог на сетевой файловой системе

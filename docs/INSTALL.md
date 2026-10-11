@@ -99,7 +99,7 @@ Two ways to run it, and they speak the same protocol:
 | `npm run daemon` | **Experimental.** One warm process on a local socket (a named pipe on Windows). No client can connect to it yet — nothing bridges a client's stdio to the socket — and it fails to start when the socket path is longer than 108 bytes (docs/DEFECTS.md, Д-97). Use `npm start`. |
 
 **Why local first.** The dense model is the reason. Locally it is one flag —
-`npm run setup -- --dense` — and it lands in `~/.ai-dev`; neither the model nor the
+`npm run setup -- --model` — and it lands in `~/.ai-dev`; neither the model nor the
 vectors it computes need Python. A container runs with no network, so the weights
 cannot be downloaded inside it at all: they are downloaded on the host and mounted
 at `/models` (see [The local model in a container](#the-local-model-in-a-container)).
@@ -476,7 +476,7 @@ cd ai-dev-mcp-server
 npm run model -- install --no-index
 ```
 
-(`npm run setup -- --dense` does the same and also embeds the host's own index; a
+(`npm run setup -- --model` does the same and also embeds the host's own index; a
 container embeds its own.) A download that breaks — a dropped connection, a laptop
 lid, Ctrl-C — keeps what arrived, and the next run continues from that byte. If the
 host cannot reach huggingface.co, see
@@ -504,7 +504,7 @@ cntlm or px, named in `HTTPS_PROXY`; the error says so when that is the case. A
 Hugging Face mirror is one variable:
 
 ```bash
-AI_DEV_MODEL_MIRROR=https://hf-mirror.com npm run setup -- --dense
+AI_DEV_MODEL_MIRROR=https://hf-mirror.com npm run setup -- --model
 ```
 
 `AI_DEV_MODEL_MIRROR` (or `HF_ENDPOINT`, which other Hugging Face tools read) is
@@ -529,7 +529,7 @@ weights (`--dense-python`, `AI_DEV_DENSE_BACKEND=python`, an image built with
 `INSTALL_BGE_M3=1`). 3.0 removed it (decision D3). One command moves you over:
 
 ```bash
-npm run setup -- --dense
+npm run setup -- --model
 ```
 
 It installs the ONNX model and embeds the documents again: vectors made by the
@@ -546,7 +546,7 @@ what replaced it.
 ### Running it, either way
 
 `AI_DEV_MODEL_PATH` names the folder *above* the models — `~/.ai-dev/models`, the one
-`npm run setup -- --dense` fills — not a model directory. A folder that holds model
+`npm run setup -- --model` fills — not a model directory. A folder that holds model
 files itself (`pytorch_model.bin`, `config.json`, `onnx/`) is the value the variable
 had before 2.1, and the launchers refuse it with directions rather than mounting it one
 level too deep. That includes `ClaudeMcpProxy.exe`, Claude's launcher on Windows, which
@@ -629,7 +629,7 @@ walks the same ground in six stages and names the one that stopped.
 
 Then `search_index_status` reports `dense_documents` against
 `dense_pending_documents`: a fresh index has vectors for none of its documents
-until `npm run setup -- --dense` has embedded them.
+until `npm run setup -- --model` has embedded them.
 
 Running from source instead? Then none of this applies: `npm run setup --
 --dense` is the whole of it. See

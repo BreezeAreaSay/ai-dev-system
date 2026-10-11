@@ -149,7 +149,7 @@ test("the legacy Python backend embeds the passages, and Node writes them into t
 
 test("a dense rebuild with no model leaves the index as it was and says what to install (Д-98)", needsSqlite, async (t) => {
   const { runtime, calls } = createFixture(t, {
-    describe: async () => ({ backend: "onnx", available: false, reason: "Dense search is not installed. Run `npm run setup -- --dense`." })
+    describe: async () => ({ backend: "onnx", available: false, reason: "Dense search is not installed. Run `npm run setup -- --model`." })
   });
   await runtime.rebuild();
   const before = await runtime.status();

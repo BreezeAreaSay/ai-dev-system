@@ -70,7 +70,7 @@ export async function embedDensePlan({ records, embed, dimensions, batchSize = D
  * Hybrid search compares only vectors of the model that embeds the question
  * (`backend/revision/dtype`), so a vector another model made — the 2.x Python
  * backend's, an older revision's — is a document still waiting for one, not a
- * document that has one. Counted that way, `setup -- --dense` re-embeds them
+ * document that has one. Counted that way, `setup -- --model` re-embeds them
  * instead of calling the step done (docs/DEFECTS.md, Д-148).
  *
  * @param {object} status - `search_index_status`, with `dense_models` from the store.

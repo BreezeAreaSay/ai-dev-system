@@ -123,7 +123,7 @@ function frontendQaStatus(vaultRoot, { launch = true } = {}) {
   });
 }
 
-function parseSetupArgs(argv) {
+export function parseSetupArgs(argv) {
   const { values } = parseCommandLine(argv, {
     command: "setup",
     options: {

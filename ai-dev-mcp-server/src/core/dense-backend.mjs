@@ -20,7 +20,7 @@ export const DENSE_ONNX_BACKEND = "onnx";
 export const DENSE_BACKEND_CHOICES = Object.freeze(["auto", DENSE_ONNX_BACKEND]);
 
 /** The one command that installs the model and embeds the documents with it. */
-export const DENSE_INSTALL_COMMAND = "npm run setup -- --dense";
+export const DENSE_INSTALL_COMMAND = "npm run setup -- --model";
 
 /** The command that copies the model from a folder or archive another machine made. */
 export const DENSE_IMPORT_COMMAND = "npm run model -- import <folder or .zip>";

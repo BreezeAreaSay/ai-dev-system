@@ -551,7 +551,7 @@ export function createSearchIndexRuntime({
     // a 2.x index made by another one (docs/DEFECTS.md, Д-148): the dense half
     // did not run, and the answer says so instead of ranking as if it had.
     if (results.dense_unmatched && !denseIssue) {
-      denseIssue = "no indexed document has a vector of the installed model yet; `npm run setup -- --dense` embeds them";
+      denseIssue = "no indexed document has a vector of the installed model yet; `npm run setup -- --model` embeds them";
     }
     let ranked = results;
     if (

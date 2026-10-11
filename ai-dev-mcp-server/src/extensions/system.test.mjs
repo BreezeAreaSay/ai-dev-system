@@ -266,7 +266,7 @@ test("health check honours the include flags and the smoke limit", async (t) => 
 
 test("without the model the dense smoke is not advised, and asked for it fails with the reason (Д-147)", async (t) => {
   const { host, registry } = await createFixture(t);
-  const reason = "Dense search is not installed: the model is not on this machine. Run `npm run setup -- --dense` to download it.";
+  const reason = "Dense search is not installed: the model is not on this machine. Run `npm run setup -- --model` to download it.";
   host.embeddingStatus = async () => ({
     backend: "onnx", installed: false, available: false, reason, partial: [], worker: { started: false },
     dense_backend: { backend: "onnx", available: false, reason, onnx: { ready: false, dir: "/m", missing: ["config.json"], mismatched: [] }, legacy: { notes: [], command: "" } }

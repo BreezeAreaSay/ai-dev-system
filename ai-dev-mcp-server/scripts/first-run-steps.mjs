@@ -21,6 +21,7 @@
 import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { checkSkillRegistry } from "../src/core/skill-registry-freshness.mjs";
 
 /**
  * The steps of `FIRST_RUN_STEPS` that no install can do without.
@@ -165,7 +166,16 @@ async function modifiedAt(target) {
  * @returns {Promise<{ indexStatus: object|null, present: Record<string, boolean>, stale: Record<string, boolean> }>}
  */
 export async function readRequiredState({ paths, callTool, serverRoot, skillRoutingEvalCasesPath }) {
-  const indexStatus = existsSync(paths.searchIndexPath)
+  // A registry whose skills changed on disk — a pull that removed or rewrote
+  // some — is out of date, and so is everything built from it (Д-119). Asking
+  // the index first would rebuild the registry inside that call and leave the
+  // plan saying "already built".
+  const registry = await checkSkillRegistry({
+    registryPath: paths.skillRegistryPath,
+    catalogRoot: path.dirname(paths.registriesDir)
+  }).catch(() => null);
+  const registryStale = Boolean(registry?.stale);
+  const indexStatus = !registryStale && existsSync(paths.searchIndexPath)
     ? await callTool("search_index_status", { include_external_project_files: true })
       .then(parseToolResult)
       .catch(() => null)
@@ -176,21 +186,22 @@ export async function readRequiredState({ paths, callTool, serverRoot, skillRout
     routing_benchmark: existsSync(paths.routingReportPath),
     skill_quality_report: existsSync(paths.skillQualityReportPath)
   };
-  const stale = { search_index: Boolean(indexStatus?.stale) };
+  const stale = { skill_registry: registryStale, search_index: registryStale || Boolean(indexStatus?.stale) };
   if (present.routing_benchmark) {
     const report = await modifiedAt(paths.routingReportPath);
     const inputs = await Promise.all([
       modifiedAt(skillRoutingEvalCasesPath),
-      modifiedAt(path.join(serverRoot, "src", "core", "skill-router.mjs"))
+      modifiedAt(path.join(serverRoot, "src", "core", "skill-router.mjs")),
+      modifiedAt(paths.skillRegistryPath)
     ]);
-    stale.routing_benchmark = report < Math.max(...inputs);
+    stale.routing_benchmark = registryStale || report < Math.max(...inputs);
   }
   if (present.skill_quality_report) {
     // The report describes the registry, so a registry rebuilt since is a
     // report that no longer describes anything. A report at least as new as the
     // registry is the second start rebuilding nothing.
     const report = await modifiedAt(paths.skillQualityReportPath);
-    stale.skill_quality_report = report < await modifiedAt(paths.skillRegistryPath);
+    stale.skill_quality_report = registryStale || report < await modifiedAt(paths.skillRegistryPath);
   }
   return { indexStatus, present, stale };
 }

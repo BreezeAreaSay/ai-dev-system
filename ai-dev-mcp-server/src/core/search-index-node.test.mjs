@@ -23,7 +23,7 @@ function write(root, rel, content) {
 }
 
 /** A runtime over a real vault and index whose Python helper must never be needed unless a test says so. */
-function createFixture(t, { describe = null, embed = null, helper = null } = {}) {
+function createFixture(t, { describe = null, embed = null, helper = null, refreshSkillRegistry } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "search-node-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   const vaultRoot = path.join(root, "vault");
@@ -57,6 +57,7 @@ function createFixture(t, { describe = null, embed = null, helper = null } = {})
     denseIndexBackend: describe ? { describe } : undefined,
     hardNegativeRules: async () => [],
     readSkillIndex: async () => [],
+    refreshSkillRegistry,
     ranking: PASSTHROUGH_RANKING,
     env: {}
   });
@@ -157,4 +158,29 @@ test("the legacy Python dense backend and hybrid search still go to the helper",
   const hybrid = await runtime.hybridSearch({ query: "deploy", dense_weight: 0 });
   assert.equal(hybrid[0].title, "Deploy runbook");
   assert.ok(calls.some((call) => call.args?.[1] === "hybrid"));
+});
+
+test("status and rebuild bring the skill registry up to date first, and survive it failing (Д-119)", needsSqlite, async (t) => {
+  // The index takes its skill documents from the registry; a registry still
+  // listing skills a pull removed would put them straight back in the index.
+  const order = [];
+  let fail = false;
+  const { runtime, vaultRoot } = createFixture(t, {
+    refreshSkillRegistry: async () => {
+      order.push("registry");
+      if (fail) throw new Error("read-only vault");
+      write(vaultRoot, "03-skills-catalog/registries/skills.index.json", JSON.stringify([
+        { name: "code-reviewer", source: "custom", categories: ["code-review"], description: "Reviews code for defects.", path: "sources/custom/code-reviewer/SKILL.md" }
+      ]));
+    }
+  });
+  const built = await runtime.rebuild({});
+  assert.equal(order[0], "registry");
+  assert.equal(built.document_count, 4, "three notes and the one skill the refreshed registry lists");
+  order.length = 0;
+  const status = await runtime.status();
+  assert.deepEqual([order[0], status.stale], ["registry", false]);
+  fail = true;
+  const still = await runtime.status();
+  assert.equal(still.stale, false, "a registry that cannot be rebuilt leaves status answering as before");
 });

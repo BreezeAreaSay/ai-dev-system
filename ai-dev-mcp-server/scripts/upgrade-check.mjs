@@ -186,25 +186,47 @@ async function listFiles(root) {
 }
 
 /**
- * One hash over the stored dense vectors and their ids — all of them, or only
- * those of documents that are not Membrane's connectors — with their count;
- * an empty hash where this Node cannot read the file.
+ * One hash over the stored dense vectors and their ids, with their count, and
+ * the same per vector — id to the hash of its row; empty where this Node
+ * cannot read the file.
  */
-function denseDigest(indexPath, { withoutMembrane = false } = {}) {
-  if (!sqliteSupport().available || !existsSync(indexPath)) return { count: 0, digest: "" };
+function denseDigest(indexPath) {
+  if (!sqliteSupport().available || !existsSync(indexPath)) return { count: 0, digest: "", byId: new Map() };
   const db = openDatabase(indexPath);
   try {
     const hash = crypto.createHash("sha256");
-    const rows = db.prepare(`SELECT v.id, v.vector, v.backend, v.revision, v.dtype FROM dense_vectors v
-      JOIN documents d ON d.id = v.id ${withoutMembrane ? "WHERE lower(d.source) NOT LIKE '%membrane%'" : ""} ORDER BY v.id`).all();
+    const byId = new Map();
+    const rows = db.prepare("SELECT id, vector, backend, revision, dtype, content_hash FROM dense_vectors ORDER BY id").all();
     for (const row of rows) {
-      hash.update(`${row.id}\0${row.backend}\0${row.revision}\0${row.dtype}\0`);
+      const head = `${row.id}\0${row.backend}\0${row.revision}\0${row.dtype}\0${row.content_hash}\0`;
+      hash.update(head);
       hash.update(row.vector);
+      byId.set(row.id, crypto.createHash("sha256").update(head).update(row.vector).digest("hex"));
     }
-    return { count: rows.length, digest: hash.digest("hex") };
+    return { count: rows.length, digest: hash.digest("hex"), byId };
   } finally {
     db.close();
   }
+}
+
+/** Documents in an index that get a dense vector: everything but Membrane's connectors (Д-91). */
+function denseEligibleDocuments(indexPath) {
+  if (!sqliteSupport().available || !existsSync(indexPath)) return 0;
+  const db = openDatabase(indexPath);
+  try {
+    return db.prepare("SELECT count(*) AS n FROM documents WHERE lower(source) NOT LIKE '%membrane%'").get().n;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * The skills a checkout of the working tree no longer has that `base` had —
+ * what `git pull` deletes from a 2.x clone's catalogue — by name.
+ */
+function removedSkills(base) {
+  const listed = run("git", ["-C", repoRoot, "diff", "--name-only", "--diff-filter=D", base, "--", "docker/public-seed/03-skills-catalog/sources"]).stdout;
+  return listed.split("\n").filter((line) => line.endsWith("/SKILL.md")).map((line) => path.basename(path.dirname(line)));
 }
 
 /**
@@ -227,10 +249,8 @@ function seedLegacyVectors({ baseRoot, env, indexPath }) {
   writeFileSync(file, JSON.stringify({ vectors }));
   try {
     const rebuilt = JSON.parse(run(python, [helper, "rebuild", ...common, "--dense-embeddings", "--dense-vectors-json", file, ...provenance], { env }).stdout);
-    // A 2.x older than the Д-91 fix embedded Membrane's connectors as well;
-    // they are the vectors a rebuild is now meant to drop.
-    const kept = denseDigest(indexPath, { withoutMembrane: true });
-    return { vectors: rebuilt.dense_documents, digest: denseDigest(indexPath).digest, keepable: kept.count, keepableDigest: kept.digest };
+    const stored = denseDigest(indexPath);
+    return { vectors: rebuilt.dense_documents, digest: stored.digest, byId: stored.byId };
   } finally {
     rmSync(file, { force: true });
   }
@@ -251,7 +271,8 @@ async function createLegacyState({ baseServer, env, project }) {
     const dense = seedLegacyVectors({ baseRoot: path.resolve(baseServer, ".."), env, indexPath: built.index_path });
     const status = await call(client, "search_index_status", {});
     assert.equal(Number(status.dense_documents), dense.vectors, "2.x reports the vectors it was given");
-    return { taskId, documents: indexedDocuments(status), dense };
+    const registry = await readJson(path.join(baseServer, "..", "docker", "public-seed", "03-skills-catalog", "registries", "skills.index.json"));
+    return { taskId, documents: indexedDocuments(status), skills: registry.length, dense };
   });
 }
 
@@ -278,7 +299,7 @@ async function readJson(file) {
   return JSON.parse(await fs.readFile(file, "utf8"));
 }
 
-async function verifyUpgradedScenario({ label, baseRoot, env, project, expected, aiDevHome, doubledBefore = [] }) {
+async function verifyUpgradedScenario({ label, base, baseRoot, env, project, expected, aiDevHome, doubledBefore = [] }) {
   const cursor = await readJson(path.join(env.HOME, ".cursor", "mcp.json"));
   const local = cursor.mcpServers?.["ai-dev-system"];
   check(`${label}: the 2.x local client entry is still there`, local?.command && Array.isArray(local.args), JSON.stringify(local?.args ?? null));
@@ -299,24 +320,46 @@ async function verifyUpgradedScenario({ label, baseRoot, env, project, expected,
     check(`${label}: the 2.x instinct is listed`, instincts.includes("when exporting CSV for the upgrade fixture"));
     const sessions = JSON.stringify(await call(client, "list_sessions", { project_path: project }));
     check(`${label}: the 2.x session handoff is listed`, sessions.includes("Upgrade fixture handoff"));
+    // The pull may have removed skills from the catalogue (the curation of
+    // 2026-10-11 removed 2,614): the server has to notice, not go on routing
+    // to them (Д-119). Status reads the index as 2.x left it and says so.
     const status = await call(client, "search_index_status", {});
     const documents = indexedDocuments(status);
-    check(`${label}: the 2.x search index is read without a rebuild`, documents > 0 && documents === expected.documents, `${documents} document(s), 2.x had ${expected.documents}`);
+    const pulledAway = removedSkills(base);
+    check(`${label}: the 2.x search index is read as it is, nothing rewritten by a status call`, documents > 0 && documents === expected.documents, `${documents} document(s), 2.x had ${expected.documents}`);
     if (sqliteSupport().available) {
-      check(`${label}: the Node engine answers, and finds the 2.x index current`, status.engine === "node" && status.stale === false,
-        `engine ${status.engine}, stale ${status.stale}${status.reasons?.length ? ` (${status.reasons.join(", ")})` : ""}`);
+      check(`${label}: the Node engine answers, and sees what the pull changed in the catalogue`,
+        status.engine === "node" && status.stale === (pulledAway.length > 0),
+        `engine ${status.engine}, stale ${status.stale}${status.reasons?.length ? ` (${status.reasons.join(", ")})` : ""}, ${pulledAway.length} skill(s) removed by the pull`);
     }
-    const { vectors, digest, keepable, keepableDigest } = expected.dense;
+    const registry = await readJson(path.join(baseRoot, "docker", "public-seed", "03-skills-catalog", "registries", "skills.index.json"));
+    const listedGone = registry.filter((item) => pulledAway.includes(item.name) && String(item.source).includes("membrane"));
+    check(`${label}: the skill registry follows the pulled catalogue`, listedGone.length === 0 && (pulledAway.length === 0 || registry.length < expected.skills),
+      `${registry.length} skill(s), 2.x had ${expected.skills}; ${listedGone.length} removed one(s) still listed`);
+    const { vectors, digest, byId } = expected.dense;
     check(`${label}: the 2.x dense vectors are all there`, vectors > 0 && Number(status.dense_documents) === vectors && status.dense_backend === "onnx",
       `${status.dense_documents} of ${vectors}, backend ${status.dense_backend}`);
     if (digest) {
       check(`${label}: the 2.x vectors are untouched, byte for byte`, denseDigest(status.index_path).digest === digest);
       const refreshed = await call(client, "rebuild_search_index", {});
       const after = denseDigest(status.index_path);
-      check(`${label}: a rebuild keeps every 2.x vector it still uses, byte for byte`,
-        refreshed.dense_preserved === true && keepable > 0 && refreshed.dense_documents === keepable && after.digest === keepableDigest && refreshed.dense_pending_documents === 0,
-        `${refreshed.dense_documents} of ${vectors} kept, ${vectors - keepable} Membrane connector vector(s) dropped as Д-91 intends, `
-          + `${refreshed.dense_pending_documents} pending, engine ${refreshed.engine}`);
+      // Every vector the rebuild keeps is a 2.x vector, unchanged; those of
+      // documents gone or rewritten (Membrane's connectors, by Д-91, and the
+      // group notes the smaller catalogue rewrote) are dropped and the
+      // documents wait for an embedding run.
+      const altered = [...after.byId].filter(([id, row]) => byId.get(id) !== row).length;
+      const eligible = denseEligibleDocuments(status.index_path);
+      check(`${label}: a rebuild keeps byte for byte every 2.x vector whose document it still has unchanged`,
+        refreshed.dense_preserved === true && after.count > 0 && altered === 0 && refreshed.dense_documents === after.count
+          && refreshed.dense_pending_documents === eligible - after.count,
+        `${after.count} of ${vectors} kept, ${altered} altered, ${vectors - after.count} dropped with their documents gone or rewritten, `
+          + `${refreshed.dense_pending_documents} pending of ${eligible}, engine ${refreshed.engine}`);
+    }
+    if (pulledAway.length > 0) {
+      const gone = pulledAway[0];
+      const found = await call(client, "search_skill_registry", { query: gone, limit: 20 });
+      const stillThere = (Array.isArray(found) ? found : []).filter((item) => String(item.path || "").includes(`/skills/${gone}/`));
+      check(`${label}: a skill the pull removed is not found any more`, stillThere.length === 0, `${gone}: ${stillThere.length} result(s)`);
     }
     const found = await call(client, "search_all", { query: "code review" });
     const hits = Array.isArray(found) ? found.length : (found.results?.length ?? 0);
@@ -409,7 +452,7 @@ async function main() {
     }
 
     for (const scenario of scenarios) {
-      await verifyUpgradedScenario({ ...scenario, baseRoot });
+      await verifyUpgradedScenario({ ...scenario, base: options.base, baseRoot });
     }
   } finally {
     run("git", ["-C", repoRoot, "worktree", "remove", "--force", baseRoot], { allowFailure: true });

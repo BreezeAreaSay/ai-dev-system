@@ -8,6 +8,7 @@ import { createExtensionTools } from "../tool-extensions.mjs";
 import { SKILL_GROUPS } from "../skill-taxonomy.mjs";
 import { SKILL_SCHEMA_VERSION } from "../skill-quality.mjs";
 import { createSkillOverlayDocument } from "../core/skill-overlays.mjs";
+import { resolvePythonCommand } from "../core/python-command.mjs";
 import { REQUIRED_SEARCH_PRESETS, REQUIRED_SYSTEM_NOTES } from "../core/system-health.mjs";
 import { createSystemTools } from "./system.mjs";
 
@@ -188,7 +189,7 @@ test("health check runs every check through the host", async (t) => {
 
   assert.deepEqual(result.checks.map((check) => check.name), [
     "vault_root", "runtime_home", "required_notes", "search_index_file", "search_index_freshness", "frontend_qa_runner",
-    "frontend_qa_environment", "security_scanners", "embedding_backend", "skill_registry", "skill_taxonomy",
+    "frontend_qa_environment", "security_scanners", "ui_ux_knowledge", "embedding_backend", "skill_registry", "skill_taxonomy",
     "skill_visual_graph", "skill_quality", "skill_routing_benchmark", "skill_outcomes", "skill_cards",
     "project_registry", "auto_commands", "search_presets", "search_smoke", "hybrid_smoke_no_dense",
     "dense_smoke", "search_eval"
@@ -196,7 +197,10 @@ test("health check runs every check through the host", async (t) => {
   const failing = result.checks.filter((check) => check.status !== "ok" && check.status !== "skipped");
   assert.deepEqual(failing, [], `unexpected non-ok checks: ${JSON.stringify(failing)}`);
   assert.equal(result.status, "ok");
-  assert.deepEqual(result.summary, { ok: 21, warn: 0, fail: 0, skipped: 2 });
+  assert.deepEqual(result.summary, { ok: 22, warn: 0, fail: 0, skipped: 2 });
+  const uiUx = result.checks.find((check) => check.name === "ui_ux_knowledge");
+  assert.equal(uiUx.details.path, `/usr/bin/${resolvePythonCommand()}`);
+  assert.match(uiUx.summary, /^query_ui_ux_knowledge and generate_ui_ux_design_system run their helper with /);
   const scanners = result.checks.find((check) => check.name === "security_scanners");
   assert.match(scanners.summary, /10 of 10 security scanners installed/);
   assert.equal(result.recommendations.length, 1);

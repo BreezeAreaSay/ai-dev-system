@@ -1,14 +1,16 @@
-// The node:test port of `search-index/test_search_freshness.py` (program
-// phase 3): the same cases, against the Node engine. The hybrid candidate pool
-// and the galaxy export stay with the Python helper until phase 4, and so do
-// their tests in that file.
+// The node:test port of `search-index/test_search_freshness.py`, the Python
+// helper's own suite, deleted with the helper in phase 4 of the program: the
+// same cases, against the Node engine.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { collectDocuments, denseContentHash, densePassageText, isMembraneSource, shaId } from "./search-documents.mjs";
+import { galaxyPreview, exportGalaxy, semanticRow } from "./galaxy-export.mjs";
+import { HYBRID_CANDIDATE_LIMIT, hybridSearch } from "./search-hybrid.mjs";
 import { collapseSearchResults } from "./search-query.mjs";
+import { SEMANTIC_DIMENSIONS } from "./search-semantic.mjs";
 import { semanticTerms } from "./search-semantic.mjs";
 import { createIndexReader, openDatabase, sqliteSupport } from "./search-sqlite.mjs";
 import {
@@ -261,4 +263,99 @@ test("an unrelated skill-group note is not collapsed by title", () => {
     { scope: "skills", title: "Frontend", path: "03-skills-catalog/groups/frontend-index.md", source: "vault-note", score: 0.8 }
   ]);
   assert.equal(results.length, 2);
+});
+
+test("the hybrid candidate pool does not depend on the output limit", needsSqlite, async (t) => {
+  const fixture = setUp(t);
+  await rebuildIndex(fixture.options({ preserveDense: false }));
+  const db = openDatabase(fixture.indexPath);
+  t.after(() => db.close());
+  const limits = [];
+  const prepare = db.prepare.bind(db);
+  db.prepare = (sql) => {
+    const statement = prepare(sql);
+    if (!/bm25\(docs_fts\) AS raw_score/.test(sql)) return statement;
+    return { all: (...params) => { limits.push(params.at(-1)); return statement.all(...params); } };
+  };
+  const base = { query: "searchable content", semanticWeight: 0.2, keywordWeight: 0.8, denseWeight: 0 };
+  hybridSearch(db, { ...base, limit: 1 });
+  hybridSearch(db, { ...base, limit: 20 });
+  assert.deepEqual(limits, [HYBRID_CANDIDATE_LIMIT, HYBRID_CANDIDATE_LIMIT]);
+});
+
+test("the galaxy export holds one row per document in both spaces", needsSqlite, async (t) => {
+  const fixture = setUp(t);
+  fs.writeFileSync(
+    path.join(fixture.vault, "02-knowledge", "linked.md"),
+    "# Linked\n\nSee [[sample]], [[Sample|again]], [[other#heading]] and ![[diagram.png]].\n"
+  );
+  await rebuildIndex(fixture.options({ preserveDense: false }));
+  seedDenseVector(fixture, "onnx", "4de1325", "int8");
+  const db = openDatabase(fixture.indexPath);
+  t.after(() => db.close());
+  const { manifest, semanticBytes, denseBytes, summary } = exportGalaxy(db);
+  assert.equal(manifest.document_count, 2);
+  assert.equal(manifest.dense_documents, 1);
+  assert.equal(manifest.dense_dimensions, DENSE_DIMENSIONS);
+  assert.equal(semanticBytes.byteLength, 2 * 4 * SEMANTIC_DIMENSIONS);
+  assert.equal(denseBytes.byteLength, 4 * DENSE_DIMENSIONS);
+  assert.deepEqual(manifest.nodes.map((node) => node.dense).sort(), [-1, 0]);
+  const linked = manifest.nodes.find((node) => node.title === "Linked");
+  // Alias and heading are stripped, repeats collapse, and an embed is a link
+  // too: the renderer drops what no note answers to.
+  assert.deepEqual(linked.links, ["sample", "Sample", "other", "diagram.png"]);
+  assert.equal(summary.wikilinks, 4);
+});
+
+test("the galaxy export folds a skill card into its skill", needsSqlite, async (t) => {
+  const fixture = setUp(t);
+  fs.writeFileSync(path.join(fixture.vault, "03-skills-catalog", "registries", "skills.index.json"), JSON.stringify([{
+    name: "sample-skill",
+    source: "custom",
+    path: "sources/custom/sample-skill/SKILL.md",
+    description: "Review a change for the defects a careful reader would catch first."
+  }]));
+  const card = path.join(fixture.vault, "03-skills-catalog", "cards", "custom", "sample-skill.md");
+  fs.mkdirSync(path.dirname(card), { recursive: true });
+  fs.writeFileSync(card, "---\ncard_kind: skill-card\n---\n# sample-skill\n\nPart of [[Security]].\n");
+  await rebuildIndex(fixture.options({ preserveDense: false }));
+  const db = openDatabase(fixture.indexPath);
+  t.after(() => db.close());
+  const { manifest, summary } = exportGalaxy(db);
+  const skills = manifest.nodes.filter((node) => node.title === "sample-skill");
+  assert.equal(skills.length, 1);
+  assert.equal(summary.collapsed_documents, 1);
+  // The registry entry wins, as it does in search; the card's link and path survive on it.
+  assert.equal(skills[0].path, "03-skills-catalog/sources/custom/sample-skill/SKILL.md");
+  assert.deepEqual(skills[0].also, ["03-skills-catalog/cards/custom/sample-skill.md"]);
+  assert.deepEqual(skills[0].links, ["Security"]);
+  assert.equal(skills[0].preview, "Review a change for the defects a careful reader would catch first.");
+});
+
+test("the galaxy export refuses an index without its tables", needsSqlite, async (t) => {
+  const fixture = setUp(t);
+  fs.mkdirSync(path.dirname(fixture.indexPath), { recursive: true });
+  const db = openDatabase(fixture.indexPath);
+  t.after(() => db.close());
+  assert.throws(() => exportGalaxy(db), /predates the galaxy export\. Rebuild it first/);
+});
+
+test("the galaxy preview skips frontmatter, the title and markup", () => {
+  const body = "---\ncard_kind: skill-card\nname: x\n---\n# Title\n\nFirst **bold** [[a/b|line]].\n- Second `code`.\n";
+  assert.equal(galaxyPreview(body, "stored"), "First bold line. Second code.");
+  assert.equal(galaxyPreview("", "stored"), "stored");
+  assert.equal(galaxyPreview("# Only a title", "stored"), "stored");
+  const registryBody = "name\ncustom\nA description long enough to be the line a reader wants.\nshort";
+  assert.equal(galaxyPreview(registryBody, "stored", false), "A description long enough to be the line a reader wants.");
+  assert.equal(galaxyPreview("name\ncustom", "stored", false), "stored");
+});
+
+test("a semantic row ignores dimensions outside the space", () => {
+  const row = new Float32Array(SEMANTIC_DIMENSIONS);
+  semanticRow(JSON.stringify({ 3: 0.5, "-1": 1.0, 99999: 1.0, x: 1.0 }), row);
+  assert.equal(row[3], 0.5);
+  assert.equal(row.filter((value) => value).length, 1);
+  const empty = new Float32Array(SEMANTIC_DIMENSIONS);
+  semanticRow("not json", empty);
+  assert.equal(empty.reduce((sum, value) => sum + value, 0), 0);
 });

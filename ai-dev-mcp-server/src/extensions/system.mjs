@@ -8,6 +8,7 @@ import {
   renderSystemDashboard
 } from "../core/system-dashboard.mjs";
 import { locateExecutable } from "../core/process-runner.mjs";
+import { resolvePythonCommand } from "../core/python-command.mjs";
 import { resolveRuntimeNote } from "../core/runtime-assets.mjs";
 import {
   evaluateSecurityScanners,
@@ -21,6 +22,7 @@ import {
   evaluateDenseSmoke,
   evaluateFrontendQaEnvironment,
   evaluateFrontendQaRunner,
+  evaluateUiUxKnowledge,
   evaluateHybridSmoke,
   evaluateProjectRegistry,
   evaluateRequiredNotes,
@@ -222,6 +224,13 @@ async function systemHealthCheck(host, {
       locate: host.locateExecutable ?? locateExecutable,
       ...(host.runProcess ? { runner: host.runProcess } : {})
     }));
+  });
+
+  // Optional, like the scanners: the UI UX Pro Max dataset is read through its
+  // own Python script, by the only two tools that still need an interpreter.
+  await report.runCheck("ui_ux_knowledge", false, async () => {
+    const command = resolvePythonCommand();
+    return evaluateUiUxKnowledge({ command, path: await (host.locateExecutable ?? locateExecutable)(command) });
   });
 
   if (include_embedding_status) {

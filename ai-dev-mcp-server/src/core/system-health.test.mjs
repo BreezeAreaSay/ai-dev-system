@@ -13,6 +13,7 @@ import {
   evaluateAutoCommands,
   evaluateDenseSmoke,
   evaluateFrontendQaEnvironment,
+  evaluateUiUxKnowledge,
   evaluateFrontendQaRunner,
   evaluateHybridSmoke,
   evaluateProjectRegistry,
@@ -539,4 +540,13 @@ test("a Frontend QA runner that never started is not reported as Playwright miss
   assert.equal(other.status, "warn");
   assert.match(other.summary, /did not start\. Command timed out/);
   assert.doesNotMatch(other.summary, /--frontend-qa/);
+});
+
+test("no Python only skips the UI UX check: it is optional, and says how to get it", () => {
+  const found = evaluateUiUxKnowledge({ command: "python3", path: "/usr/bin/python3" });
+  assert.deepEqual([found.status, found.details.path], ["ok", "/usr/bin/python3"]);
+  const missing = evaluateUiUxKnowledge({ command: "python", path: "" });
+  assert.equal(missing.status, "skipped");
+  assert.equal(missing.details.optional, true);
+  assert.match(missing.summary, /^query_ui_ux_knowledge and generate_ui_ux_design_system need Python 3, and "python" is not on PATH\. They are optional.*AI_DEV_PYTHON/);
 });

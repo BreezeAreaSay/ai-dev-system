@@ -118,7 +118,6 @@ RUN npm install --global pnpm@11.9.0 --ignore-scripts --no-audit --no-fund \
     && rm -rf /var/lib/apt/lists/*
 COPY runtime/frontend-qa/frontend_qa_runner.mjs ./
 
-COPY runtime/search-index/ /opt/ai-dev/search-index/
 COPY runtime/search-eval/ /opt/ai-dev/search-eval/
 COPY runtime/embeddings/ /opt/ai-dev/embeddings/
 # The legacy backend only. The default image has dense search through ONNX and

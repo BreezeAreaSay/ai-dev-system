@@ -1,24 +1,20 @@
 /**
- * Embedding the vault with a backend that does not live in the indexer.
+ * Embedding the vault's passages for the dense half of hybrid search.
  *
- * The sqlite index is written by `search-index/search_cli.py`, and the ONNX
- * model runs in Node (docs/DEFECTS.md, Д-62). Neither half can move: the helper
- * owns the schema, the document collection and the locking, and the model is
- * the whole point of not needing Python. So the two meet over two files and one
- * extra pass:
+ * Planning, embedding and writing are three steps, each where it belongs:
  *
- *   1. `dense-plan` collects the documents and prints only the passages whose
- *      vectors are missing or stale for this backend, revision and dtype;
- *   2. this module embeds them in batches through the injected backend;
- *   3. `rebuild --dense-vectors-json` writes them, loading no model at all.
+ *   1. `densePlan` (`search-store.mjs`) collects the documents and returns only
+ *      the passages whose vectors are missing or stale for this backend,
+ *      revision and dtype;
+ *   2. this module embeds them in batches through the installed backend — the
+ *      ONNX model in a worker thread (docs/DEFECTS.md, Д-62), or the legacy
+ *      Python worker while it lasts;
+ *   3. `rebuildIndex` writes them with the rebuild, loading no model at all.
  *
  * A document edited between (1) and (3) has a different content hash by then,
- * so the helper declines the stale vector and counts the document as pending
+ * so the writer declines the stale vector and counts the document as pending
  * rather than storing a vector against text it no longer has. The next rebuild
- * picks it up. That is why the pending count is no longer forced to zero.
- *
- * The legacy Python backend does not come through here: it loads its model
- * inside the helper, as it always has.
+ * picks it up. That is why the pending count is not forced to zero.
  */
 
 /** Most passages to hand the backend in one call. */
@@ -48,8 +44,8 @@ export async function embedDensePlan({ records, embed, dimensions, batchSize = D
     for (let offset = 0; offset < slice.length; offset += 1) {
       const vector = rows[offset];
       // A vector of the wrong width would be written into the index and then
-      // silently score zero against every query, because the helper's dot
-      // product returns 0.0 for a length mismatch. Refuse it here instead.
+      // silently score zero against every query, because the dense dot
+      // product is 0.0 for a length mismatch. Refuse it here instead.
       if (!Array.isArray(vector) || vector.length !== dimensions) {
         throw new Error(
           `Dense backend returned a ${Array.isArray(vector) ? vector.length : "non-array"} vector; `
@@ -61,59 +57,4 @@ export async function embedDensePlan({ records, embed, dimensions, batchSize = D
     if (onProgress) onProgress(vectors.length, records.length);
   }
   return vectors;
-}
-
-/**
- * The `rebuild` arguments that carry a run's provenance.
- *
- * Every run passes these, legacy included, so a vector's origin is recorded by
- * the same code path whichever backend produced it.
- *
- * @param {{ backend: string, revision: string, dtype: string }} provenance
- * @returns {string[]}
- */
-export function denseProvenanceArgs(provenance) {
-  return [
-    "--dense-backend", String(provenance.backend),
-    "--dense-revision", String(provenance.revision),
-    "--dense-dtype", String(provenance.dtype)
-  ];
-}
-
-/**
- * Run the plan/embed half and hand back the file the rebuild should read.
- *
- * @param {object} deps
- * @param {(args: string[], options?: object) => Promise<object>} deps.runPlan
- * @param {string[]} deps.planArgs - Everything but the provenance flags.
- * @param {(texts: string[]) => Promise<object>} deps.embed
- * @param {{ backend: string, revision: string, dtype: string, dimensions: number }} deps.provenance
- * @param {(target: string, value: object) => Promise<void>} deps.writeJson
- * @param {string} deps.vectorsPath
- * @param {number} [deps.batchSize]
- * @param {(done: number, total: number) => void} [deps.onProgress]
- * @returns {Promise<{ planned: number, embedded: number, reusable: number, vectorsPath: string }>}
- */
-export async function planAndEmbedDenseVectors({
-  runPlan,
-  planArgs,
-  embed,
-  provenance,
-  writeJson,
-  vectorsPath,
-  batchSize = DENSE_PLAN_BATCH,
-  onProgress
-}) {
-  const plan = await runPlan(["dense-plan", ...planArgs, ...denseProvenanceArgs(provenance)]);
-  const records = plan.records ?? [];
-  const vectors = records.length
-    ? await embedDensePlan({ records, embed, dimensions: provenance.dimensions, batchSize, onProgress })
-    : [];
-  await writeJson(vectorsPath, { provenance, vectors });
-  return {
-    planned: records.length,
-    embedded: vectors.length,
-    reusable: Number(plan.reusable || 0),
-    vectorsPath
-  };
 }

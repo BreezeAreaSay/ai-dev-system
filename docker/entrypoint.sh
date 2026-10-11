@@ -33,7 +33,6 @@ link_runtime() {
 
 link_runtime /opt/ai-dev/app "${vault_root}/09-mcp/ai-dev-mcp-server"
 link_runtime /opt/ai-dev/frontend-qa "${vault_root}/09-mcp/frontend-qa"
-link_runtime /opt/ai-dev/search-index "${vault_root}/09-mcp/search-index"
 link_runtime /opt/ai-dev/search-eval "${vault_root}/09-mcp/search-eval"
 link_runtime /opt/ai-dev/embeddings "${vault_root}/09-mcp/embeddings"
 

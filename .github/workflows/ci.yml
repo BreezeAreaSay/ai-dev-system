@@ -73,11 +73,32 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: npm run test:core
 
-      # The SQLite search helper is Python and has its own suite. It shipped
-      # for months without anything running it.
-      - name: Search helper tests
-        working-directory: search-index
-        run: python3 -m unittest test_search_freshness
+  no-python:
+    # Every runner image carries Python, so nothing saw that search needed it:
+    # setup failed on a clean machine with "spawn python3 ENOENT" while CI was
+    # green (docs/DEFECTS.md, Д-85). The script takes every interpreter off
+    # PATH, refuses to go on while one still starts, then installs, runs the
+    # first run, the health check and the protocol smoke.
+    name: No Python (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ai-dev-mcp-server/package-lock.json
+
+      - name: Install, set up, check health and speak MCP with no Python on PATH
+        working-directory: ai-dev-mcp-server
+        run: node scripts/no-python-check.mjs
 
   mcp-server-node-floor:
     # The oldest Node the package supports: node:sqlite with FTS5 arrived in

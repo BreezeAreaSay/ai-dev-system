@@ -10,6 +10,7 @@
  */
 import { dashboardSourceFingerprint } from "./system-dashboard.mjs";
 import { LAUNCH_MISSING_FILE, LAUNCH_UNKNOWN } from "./frontend-qa-launch.mjs";
+import { UI_UX_PYTHON_TOOLS } from "./python-failure.mjs";
 
 /**
  * The `mcp-stdio.mjs` line budget. `scripts/static-quality.mjs` enforces it and
@@ -277,6 +278,30 @@ export function evaluateFrontendQaRunner({ runner, manifest, artifactsRoot }) {
       ? "Frontend QA runner and package manifest exist."
       : "Frontend QA runner exists, but package manifest is missing.",
     details: { runner, package: manifest, artifacts_root: artifactsRoot }
+  };
+}
+
+/**
+ * Whether the UI UX Pro Max tools can run. They read the vendored dataset
+ * through that project's own Python script — the only tools here that still
+ * need an interpreter — so no Python is a skipped option, not a fault:
+ * everything else runs without it.
+ *
+ * @param {{ command: string, path: string }} python - The interpreter asked for, and where it was found ("" when not).
+ * @returns {{ status: string, summary: string, details: object }}
+ */
+export function evaluateUiUxKnowledge({ command, path: located }) {
+  if (located) {
+    return {
+      status: "ok",
+      summary: `${UI_UX_PYTHON_TOOLS} run their helper with ${command} (${located}).`,
+      details: { command, path: located }
+    };
+  }
+  return {
+    status: "skipped",
+    summary: `${UI_UX_PYTHON_TOOLS} need Python 3, and "${command}" is not on PATH. They are optional: every other tool runs without Python. Install Python 3, or set AI_DEV_PYTHON.`,
+    details: { optional: true, command }
   };
 }
 

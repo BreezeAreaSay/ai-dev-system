@@ -57,6 +57,9 @@ const PROJECT_FILES = [
   [["AGENTS.md"], "project-agents", "project, rules"]
 ];
 
+/** Sources of the documents read from project repositories rather than the vault. */
+export const PROJECT_FILE_SOURCES = new Set(PROJECT_FILES.map(([, source]) => source));
+
 /** Folders whose notes are generated from other notes, or are the index's own files. */
 const SKIPPED_PREFIXES = [
   "03-skills-catalog/groups/all-skills/",

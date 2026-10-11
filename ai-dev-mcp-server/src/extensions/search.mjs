@@ -82,7 +82,7 @@ async function explainSearch(host, options = {}) {
     ...denseNote(results),
     notes: [
       "weighted_score_before_adjustments is computed from returned component scores and normalized weights.",
-      "score_adjustment captures lexical boosts, vault-note preference, and source penalties applied inside the search helper."
+      "score_adjustment captures lexical boosts, vault-note preference, and source penalties applied inside hybrid search."
     ],
     tuning_notes: explainSearchTuningNotes(results, weights),
     results: results.map((item, index) => explainSearchResult(item, index, weights))

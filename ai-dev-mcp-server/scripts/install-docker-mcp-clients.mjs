@@ -3,8 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 import { isDirectExecution } from "../src/core/direct-execution.mjs";
+import { MCP_CLIENTS, installServer } from "../src/core/mcp-clients.mjs";
+import { renderTable, upsertTables } from "../src/core/toml-edit.mjs";
 
 export const SUPPORTED_DOCKER_CLIENTS = new Set(["codex", "cursor", "gemini", "vscode", "claude"]);
 
@@ -165,83 +166,31 @@ export function mergeDockerClientDocument(client, current, serverConfig) {
   return document;
 }
 
-function tomlString(value) {
-  return JSON.stringify(String(value));
+/** The Codex entry: the launcher, plus the timeouts a cold container start needs. */
+function codexEntry(serverConfig) {
+  return { command: serverConfig.command, args: serverConfig.args, env: serverConfig.env, startup_timeout_sec: 120, tool_timeout_sec: 3600 };
 }
 
 export function buildCodexMcpSection(serverConfig, eol = "\n") {
-  const args = serverConfig.args.map(tomlString).join(", ");
-  const env = Object.entries(serverConfig.env)
-    .map(([key, value]) => `${key} = ${tomlString(value)}`)
-    .join(", ");
-  return [
-    "[mcp_servers.ai-dev]",
-    `command = ${tomlString(serverConfig.command)}`,
-    `args = [${args}]`,
-    `env = { ${env} }`,
-    "startup_timeout_sec = 120",
-    "tool_timeout_sec = 3600"
-  ].join(eol);
+  return renderTable(["mcp_servers", "ai-dev"], codexEntry(serverConfig), eol).replace(new RegExp(`${eol}$`), "");
 }
 
+/**
+ * The Codex config with the ai-dev server's tables replaced, subtables and
+ * quoted spellings included, through the same editor the CLI uses. A regular
+ * expression over the header used to leave `[mcp_servers.ai-dev.env]` behind,
+ * and a file Codex refuses to read (docs/DEFECTS.md, Д-162).
+ */
 export function mergeCodexDocument(current, serverConfig) {
   const eol = current.includes("\r\n") ? "\r\n" : "\n";
-  const section = buildCodexMcpSection(serverConfig, eol);
-  const header = /^\[mcp_servers\.ai-dev\]\s*$/m;
-  const match = header.exec(current);
-  if (!match) return `${current.trimEnd()}${current.trim() ? `${eol}${eol}` : ""}${section}${eol}`;
-  const following = /^\[[^\r\n]+\]\s*$/gm;
-  following.lastIndex = match.index + match[0].length;
-  const next = following.exec(current);
-  const end = next ? next.index : current.length;
-  return `${current.slice(0, match.index)}${section}${eol}${current.slice(end)}`;
+  return upsertTables(current, ["mcp_servers", "ai-dev"], renderTable(["mcp_servers", "ai-dev"], codexEntry(serverConfig), eol));
 }
 
-async function readJsonDocument(target) {
-  try {
-    return JSON.parse(await fs.readFile(target, "utf8"));
-  } catch (error) {
-    if (error?.code === "ENOENT") return {};
-    throw new Error(`Cannot parse ${target}: ${error.message}`);
-  }
-}
-
-async function readTextDocument(target) {
-  try {
-    return await fs.readFile(target, "utf8");
-  } catch (error) {
-    if (error?.code === "ENOENT") return "";
-    throw error;
-  }
-}
-
-function backupSuffix() {
-  return new Date().toISOString().replaceAll(":", "-").replace(/\.\d{3}Z$/, "Z");
-}
-
-async function writeWithBackup(target, next, apply) {
-  const current = await readTextDocument(target);
-  if (current === next) return { status: "current", backup: null };
-  if (!apply) return { status: "would-update", backup: null };
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  let backup = null;
-  if (current) {
-    backup = `${target}.backup-${backupSuffix()}`;
-    await fs.copyFile(target, backup);
-  }
-  await fs.writeFile(target, next, "utf8");
-  return { status: "updated", backup };
-}
-
-async function installDockerClient(client, target, options, resultClient = client) {
-  const config = buildDockerClientServerConfig(client, options);
-  if (client === "codex") {
-    const next = mergeCodexDocument(await readTextDocument(target), config);
-    return { client: resultClient, target, ...(await writeWithBackup(target, next, options.apply)) };
-  }
-  const current = await readJsonDocument(target);
-  const next = `${JSON.stringify(mergeDockerClientDocument(client, current, config), null, 2)}\n`;
-  return { client: resultClient, target, ...(await writeWithBackup(target, next, options.apply)) };
+/** The shared module's description of a target, by this installer's client name. */
+function sharedTarget(name, file) {
+  const id = name === "claude-desktop-msix" ? "claude-desktop" : name;
+  const client = MCP_CLIENTS.find((item) => item.id === id);
+  return { client: id, ...client, file, detected: true, marker: file, ...(name === "claude-desktop-msix" ? { variant: "store" } : {}) };
 }
 
 export async function installDockerMcpClients(options) {
@@ -266,14 +215,38 @@ export async function installDockerMcpClients(options) {
   const runtimeContainer = options.runtime_container || options.runtimeContainer;
   const modelPath = options.model_path || options.modelPath || "";
   const normalized = { ...options, launcher, claudeLauncher, runtimeContainer, projectPath, modelPath, platform };
-  const clients = options.clients || [...SUPPORTED_DOCKER_CLIENTS];
-  const results = [];
-  for (const client of clients) {
+  const targets = [];
+  const asked = new Map();
+  for (const client of options.clients || [...SUPPORTED_DOCKER_CLIENTS]) {
     for (const destination of await localClientInstallTargets(client, paths, platform)) {
-      results.push(await installDockerClient(client, destination.target, normalized, destination.client));
+      targets.push(sharedTarget(destination.client, destination.target));
+      asked.set(destination.target, client);
     }
   }
-  return { status: options.apply ? "applied" : "dry-run", transport: "docker-stdio", clients: results };
+  // One file at a time, through the module the CLI writes with: an empty or
+  // unreadable file is that client's failure and the rest are still written;
+  // each write goes through a temp file after a re-read (Д-162, Д-163). The
+  // record of writes sits in the host's runtime home, where `ai-dev clients
+  // remove` reads it — this may run in a container with another HOME.
+  const results = await installServer({
+    targets,
+    entryFor: (target) => {
+      const config = buildDockerClientServerConfig(asked.get(target.file), normalized);
+      return target.format === "toml" ? codexEntry(config) : config;
+    },
+    apply: options.apply,
+    statePath: pathApi.join(paths.home, ".ai-dev", "state", "mcp-clients.json")
+  });
+  const failed = results.filter((result) => result.status === "failed");
+  return {
+    status: failed.length ? (failed.length === results.length ? "failed" : "partial") : options.apply ? "applied" : "dry-run",
+    transport: "docker-stdio",
+    clients: results.map((result) => ({
+      ...result,
+      client: result.variant === "store" ? "claude-desktop-msix" : result.client,
+      target: result.file
+    }))
+  };
 }
 
 function usage() {
@@ -288,9 +261,18 @@ function usage() {
 if (await isDirectExecution(import.meta.url)) {
   try {
     const options = parseArgs(process.argv.slice(2));
-    process.stdout.write(options.help ? `${usage()}\n` : `${JSON.stringify(await installDockerMcpClients(options), null, 2)}\n`);
+    if (options.help) {
+      process.stdout.write(`${usage()}\n`);
+    } else {
+      const result = await installDockerMcpClients(options);
+      process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      for (const item of result.clients.filter((entry) => entry.status === "failed")) {
+        process.stderr.write(`${item.client}: ${item.target}: ${item.error}\n`);
+      }
+      if (result.status === "failed" || result.status === "partial") process.exitCode = 1;
+    }
   } catch (error) {
-    process.stderr.write(`${error.stack || error.message}\n`);
+    process.stderr.write(`${error.message}\n`);
     process.exitCode = 1;
   }
 }

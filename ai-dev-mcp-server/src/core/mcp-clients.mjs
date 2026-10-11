@@ -323,6 +323,32 @@ async function writeBackup(file, bytes, date) {
   }
 }
 
+function processAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === "EPERM";
+  }
+}
+
+/**
+ * Temp files a run killed between writing and renaming left next to `file` —
+ * as big as the config, tens of megabytes for `~/.claude.json`. One whose
+ * writer is gone is removed; a live writer's is its own business.
+ */
+async function sweepStaleTemps(file) {
+  const prefix = `.${path.basename(file)}.`;
+  const names = await fs.readdir(path.dirname(file)).catch(() => []);
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith(".tmp")) continue;
+    const pid = Number(name.slice(prefix.length).split(".")[0]);
+    if (Number.isInteger(pid) && pid > 0 && pid !== process.pid && !processAlive(pid)) {
+      await fs.unlink(path.join(path.dirname(file), name)).catch(() => undefined);
+    }
+  }
+}
+
 /**
  * Write `next` over `file` unless the file no longer holds `expected` — a
  * client that saved it since then keeps its change, and the caller plans
@@ -369,9 +395,13 @@ async function readState(statePath) {
   }
 }
 
+/**
+ * Keep the record. It only makes a later `remove` exact, so a home that
+ * cannot take it (a container whose HOME is `/`) costs that, not the install.
+ */
 async function saveState(statePath, state) {
   if (!statePath || !state?.dirty) return;
-  await atomicWriteJson(statePath, { version: 1, files: state.files });
+  await atomicWriteJson(statePath, { version: 1, files: state.files }).catch(() => undefined);
 }
 
 /**
@@ -421,6 +451,7 @@ function stillChanging(target) {
 
 async function installOne(target, value, { apply, state, now }) {
   const file = await realTarget(target.file);
+  if (apply) await sweepStaleTemps(file);
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
     const before = await readBytes(file);
     const plan = planInstall(target, before ? before.toString("utf8") : "", value);
@@ -445,6 +476,7 @@ async function installOne(target, value, { apply, state, now }) {
 
 async function removeOne(target, { apply, state, now }) {
   const file = await realTarget(target.file);
+  if (apply) await sweepStaleTemps(file);
   for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
     const before = await readBytes(file);
     if (!before) {

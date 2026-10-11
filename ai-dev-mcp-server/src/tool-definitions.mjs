@@ -11,7 +11,7 @@ export function buildToolDefinitions({
   return [
   {
     name: "search_knowledge",
-    description: "Search Markdown knowledge files in the AI Dev System vault.",
+    description: "Search vault notes, skills and project cards through the search index.",
     inputSchema: {
       type: "object",
       properties: {

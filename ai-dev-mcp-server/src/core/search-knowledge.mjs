@@ -10,10 +10,15 @@
  * outside the vault stay out, as they did. The answer keeps its shape —
  * `{ path, score, preview }`, best first, ties by path.
  *
- * What changes is what counts as the vault's text: a skill is its registry
- * entry and its card, not every file under `sources/`, and the folders the
- * index leaves out (generated registries, the all-skills group) are left out
- * here too.
+ * What changes is what counts as the vault's text, and it is narrower
+ * (docs/DEFECTS.md, Д-142): a skill is its registry entry and its card, not
+ * every file under `sources/` — its references are read with `read_skill` —
+ * and whatever the index leaves out is left out here too: the generated
+ * registries' Markdown, the all-skills group pages, and notes in folders named
+ * `build`, `dist`, `env`, `venv`, `.venv`, `.next`, `.nuxt`, `.svelte-kit` or
+ * `__pycache__` (`SKIP_DIRS`). On the seed that is 149 of the 515 files the
+ * old scan read. A change made outside the server is seen within a second, as
+ * by every other search tool.
  */
 import { isMembraneSource, PROJECT_FILE_SOURCES } from "./search-documents.mjs";
 import { wholeText } from "./search-sqlite.mjs";

@@ -22,8 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Linux, macOS and Windows with every interpreter taken off `PATH`
   (`scripts/no-python-check.mjs`). Python is left to `query_ui_ux_knowledge` and
   `generate_ui_ux_design_system`, which run the UI UX Pro Max dataset's own script — without
-  it they say what to install and the health check reports `ui_ux_knowledge` as skipped —
-  and to the legacy dense backend. The file stays what the 2.x helper wrote, so a 2.x index,
+  it they say what to install, and the health check reports `ui_ux_knowledge` as skipped
+  unless the interpreter answers `--version` as Python 3 (a moved path or the Windows Store
+  alias is not one) — and to the legacy dense backend. The file stays what the 2.x helper wrote, so a 2.x index,
   dense vectors and all, is read as current without a rebuild, and a 2.x server rolled back
   reads what Node wrote. Measured over MCP: warm `search_all` median 2 ms (was 69), with its
   freshness check 26 ms (was 540); a full rebuild of 3,444 documents 2.6–3.5 s (was
@@ -31,7 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `hybrid_search` without dense 11 ms on the seed and 21 ms on the full 2.x catalogue (was
   141 and 316, one Python process per call); `search_knowledge` 3 and 10 ms (was 233 and
   439, every `.md` read per call); `run_search_eval` 38 of 45 in 0.7 s on the seed (was 38 of
-  45 and 45 Python processes). WAL and a cross-process rebuild lock that honours
+  45 and 45 Python processes). `search_knowledge` now searches what the index holds — notes,
+  skills as their registry entry and card, project cards — so a skill's other files (its
+  references: `read_skill` reads them), the generated all-skills and registry pages, and notes
+  in folders such as `build`, `env`, `venv` or `.next` are no longer found by it: 149 of the 515
+  files the old scan read on the seed (Д-142). WAL and a cross-process rebuild lock that honours
   `AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT`, refreshed while held so a holder killed mid-rebuild
   frees it within a minute, let several clients share the index; the `node:sqlite`
   ExperimentalWarning is suppressed and no other warning is.
@@ -256,8 +261,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `^22.16.0 || >=24.0.0`, the CI floor job runs 22.16, `dense:doctor` names 22.16.
   `node:sqlite` is unflagged from 22.13, but measured on the release builds its SQLite
   has no FTS5 in 22.13–22.15 and 23.x, and the index is an FTS5 table. On such a
-  Node the server starts, and every search tool answers with the Node version it needs.
-  `.nvmrc` stays `22`, which nvm resolves to the newest 22.x. Upgrading from a 2.x older than the Д-91 fix: the first rebuild drops
+  Node the server starts, every search tool answers with the Node version it needs, and
+  `prepare_project` and `refresh_project_memory` do their work and report the index as
+  skipped. `.nvmrc` stays `22`, which nvm resolves to the newest 22.x. Upgrading from a 2.x older than the Д-91 fix: the first rebuild drops
   the vectors 2.x had embedded for Membrane's connectors, as Д-91 intends, and keeps
   every other one.
 
@@ -351,7 +357,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/opt/ai-dev/search-index` and its link in the `/data` volume, which nothing reads any
   more. A 2.x volume keeps a dangling `09-mcp/search-index` link, which the index skips.
   `AI_DEV_SEARCH_ENGINE`, the way back to the helper that the previous phase added, never
-  shipped and is gone too. `scripts/run-acceptance.ps1` no longer runs Python tests.
+  shipped and is gone too. `scripts/run-acceptance.ps1` no longer runs Python tests, and the
+  unpublished AUR and Homebrew recipes no longer install the folder (`npm run packaging:check`
+  now fails on a path either recipe names that the repository does not have).
 
 ### Fixed
 

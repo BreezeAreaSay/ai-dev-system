@@ -93,7 +93,7 @@ Run the same gate locally before opening a PR:
 
 ```bash
 cd ai-dev-mcp-server
-npm run check          # static-quality + seed index + coverage + security + search helper + protocol/lifecycle smokes
+npm run check          # static-quality + seed index + coverage + security + protocol/lifecycle smokes
 npm run docker:prepare && npm run docker:audit   # if you touched the Docker context or seed
 npm run docker:seed:verify                       # if you touched the seed
 ```

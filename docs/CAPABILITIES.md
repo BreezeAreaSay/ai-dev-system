@@ -74,10 +74,10 @@ Measured as what a client actually receives: the `tools` array of the
 
 | Setting | Tools listed | `tools/list` schema |
 | --- | --- | --- |
-| `core` | 25 | 22,847 bytes (~23 KB) |
-| `core,git` | 34 | 32,726 bytes (~33 KB) |
-| `core,coding,git,memory` | 69 | 69,554 bytes (~70 KB) |
-| unset / `all` | 135 | 139,134 bytes (~139 KB) |
+| `core` | 25 | 22,858 bytes (~23 KB) |
+| `core,git` | 34 | 32,737 bytes (~33 KB) |
+| `core,coding,git,memory` | 69 | 69,565 bytes (~70 KB) |
+| unset / `all` | 135 | 139,145 bytes (~139 KB) |
 
 To measure it yourself (macOS / Linux shell; change `AI_DEV_PROFILES` per row,
 empty for all):

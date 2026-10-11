@@ -52,6 +52,9 @@ async function writeText(target, content) {
 
 async function copyApplication(stage) {
   await copyFile(path.join(serverRoot, "package.json"), stage, "app/package.json");
+  // The CLI: `scripts/ai-dev.mjs` and the doctor command the runtime
+  // distribution names run through it.
+  await copyFile(path.join(serverRoot, "bin", "ai-dev.mjs"), stage, "app/bin/ai-dev.mjs");
   await copyFile(path.join(serverRoot, "package-lock.json"), stage, "app/package-lock.json");
   await copyDistributionTree(path.join(serverRoot, "src"), path.join(stage, "app", "src"), {
     exclude: (relative, entry) => /\.test\.mjs$/i.test(entry.name)

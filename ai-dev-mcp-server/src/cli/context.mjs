@@ -1,0 +1,113 @@
+/**
+ * What every `ai-dev` command shares: where the install is, how it talks to
+ * the person running it, and the command line clients are given to start it.
+ */
+import { existsSync, readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import readline from "node:readline/promises";
+import { fileURLToPath } from "node:url";
+
+/** `ai-dev-mcp-server/` of this install. */
+export const SERVER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+
+/** The CLI's own file: what client configs run, with `mcp`. */
+export const CLI_PATH = path.join(SERVER_ROOT, "bin", "ai-dev.mjs");
+
+/** The version in this install's package.json. */
+export function packageVersion() {
+  try {
+    return String(JSON.parse(readFileSync(path.join(SERVER_ROOT, "package.json"), "utf8")).version ?? "unknown");
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * @typedef {object} CliIo
+ * @property {(line?: string) => void} out - A line on stdout.
+ * @property {(line?: string) => void} err - A line on stderr.
+ * @property {NodeJS.WritableStream & { isTTY?: boolean, columns?: number }} stdout
+ * @property {NodeJS.ProcessEnv} env
+ * @property {boolean} interactive - A person at a terminal can be asked.
+ * @property {(question: string, fallback: boolean) => Promise<boolean>} ask - A yes/no
+ *   question; the fallback is the answer to a bare Enter, and to anything when nobody can be asked.
+ */
+
+let pipeWatched = false;
+
+/**
+ * A reader that stops early (`ai-dev clients list | head -3`, a client that
+ * went away) closes stdout; the next write is EPIPE, which Node raises as an
+ * uncaught error with a stack trace. The output was not wanted any more: stop.
+ */
+function quietOnClosedPipe(stream) {
+  if (stream !== process.stdout || pipeWatched) return;
+  pipeWatched = true;
+  stream.on("error", (error) => {
+    if (error?.code !== "EPIPE") throw error;
+    process.exit(process.exitCode ?? 0);
+  });
+}
+
+/**
+ * The real terminal, or the streams a test hands in.
+ *
+ * @param {{ stdout?: NodeJS.WritableStream, stderr?: NodeJS.WritableStream, stdin?: NodeJS.ReadableStream, env?: NodeJS.ProcessEnv, interactive?: boolean }} [streams]
+ * @returns {CliIo}
+ */
+export function createIo({
+  stdout = process.stdout,
+  stderr = process.stderr,
+  stdin = process.stdin,
+  env = process.env,
+  interactive = Boolean(process.stdin.isTTY && process.stdout.isTTY)
+} = {}) {
+  quietOnClosedPipe(stdout);
+  return {
+    stdout,
+    env,
+    interactive,
+    out: (line = "") => stdout.write(`${line}\n`),
+    err: (line = "") => stderr.write(`${line}\n`),
+    async ask(question, fallback) {
+      if (!interactive) return fallback;
+      const prompt = readline.createInterface({ input: stdin, output: stdout });
+      try {
+        const answer = (await prompt.question(`${question} ${fallback ? "[Y/n]" : "[y/N]"} `)).trim().toLowerCase();
+        if (!answer) return fallback;
+        return answer === "y" || answer === "yes" || answer === "д" || answer === "да";
+      } finally {
+        prompt.close();
+      }
+    }
+  };
+}
+
+/** A path as a person reads it: the home directory as `~`. */
+export function tildify(target, home = os.homedir()) {
+  if (!home || !target) return target;
+  const relative = path.relative(home, target);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return target;
+  return `~${path.sep}${relative}`;
+}
+
+/** The Obsidian vault this server sits in, if it sits in one (`<vault>/09-mcp/ai-dev-mcp-server`). */
+function vaultAround(serverRoot) {
+  const candidate = path.resolve(serverRoot, "..", "..");
+  return existsSync(path.join(candidate, "03-skills-catalog")) || existsSync(path.join(candidate, "01-system")) ? candidate : "";
+}
+
+/**
+ * The command line a client starts this install with: this Node, by its full
+ * path, so a client that does not inherit the shell's PATH (Claude Desktop on
+ * macOS, any GUI app launched from the Dock) still finds it; this CLI's file;
+ * `mcp`. A vault install passes its vault on, as 2.x did.
+ *
+ * @param {{ env?: NodeJS.ProcessEnv, execPath?: string, cliPath?: string, serverRoot?: string }} [options]
+ * @returns {{ command: string, args: string[], env: Record<string, string> }}
+ */
+export function localLaunch({ env = process.env, execPath = process.execPath, cliPath = CLI_PATH, serverRoot = SERVER_ROOT } = {}) {
+  const vault = env.AI_DEV_VAULT_ROOT ? path.resolve(env.AI_DEV_VAULT_ROOT) : vaultAround(serverRoot);
+  return { command: execPath, args: [cliPath, "mcp"], env: vault ? { AI_DEV_VAULT_ROOT: vault } : {} };
+}

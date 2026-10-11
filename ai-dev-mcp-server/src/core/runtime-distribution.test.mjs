@@ -55,10 +55,10 @@ test("runtime flavor follows the platform unless the image marks itself", () => 
 test("the Windows layout is the one that shipped (Д-61 changes nothing there)", () => {
   const expectations = distributionExpectations("windows");
   assert.deepEqual(expectations.commands, {
-    start: "powershell -File scripts/start-local.ps1",
-    doctor: "node scripts/ai-dev.mjs doctor",
-    acceptance: "node scripts/ai-dev.mjs acceptance",
-    backup: "node scripts/ai-dev.mjs backup <label>"
+    start: "node bin/ai-dev.mjs mcp",
+    doctor: "node bin/ai-dev.mjs doctor",
+    acceptance: "node bin/ai-dev.mjs acceptance",
+    backup: "node bin/ai-dev.mjs backup <label>"
   });
   assert.deepEqual(expectations.recovery, {
     backup_script: "09-mcp/scripts/backup-ai-dev-system.ps1",
@@ -68,7 +68,7 @@ test("the Windows layout is the one that shipped (Д-61 changes nothing there)",
   assert.deepEqual(plan, {
     entrypoint: { applicable: true, path: path.join("/srv", "src", "server.mjs") },
     local_launcher: { applicable: true, path: path.join("/srv", "scripts", "start-local.ps1") },
-    cli: { applicable: true, path: path.join("/srv", "scripts", "ai-dev.mjs") },
+    cli: { applicable: true, path: path.join("/srv", "bin", "ai-dev.mjs") },
     config_example: { applicable: true, path: path.join("/srv", "config", "runtime.example.json") },
     acceptance: { applicable: true, path: path.join("/vault", "09-mcp", "scripts", "run-acceptance.ps1") },
     backup: { applicable: true, path: path.join("/vault", "09-mcp", "scripts", "backup-ai-dev-system.ps1") },
@@ -78,7 +78,7 @@ test("the Windows layout is the one that shipped (Д-61 changes nothing there)",
 
 test("POSIX expects the cross-platform runner and claims no PowerShell", () => {
   const expectations = distributionExpectations("posix");
-  assert.equal(expectations.commands.start, "npm start");
+  assert.equal(expectations.commands.start, "node bin/ai-dev.mjs mcp");
   assert.equal(expectations.commands.acceptance, "node scripts/acceptance.mjs");
   assert.equal(expectations.commands.backup, undefined);
   const plan = distributionFilePlan("posix", { serverRoot: "/srv", vaultRoot: "/vault" });
@@ -102,7 +102,7 @@ test("Docker expects neither a host launcher nor in-image acceptance or backup",
   assert.match(expectations.commands.doctor, /ai-dev\.mjs doctor$/);
   const plan = distributionFilePlan("docker", { serverRoot: "/opt/ai-dev/app", vaultRoot: "/data/ai-dev-system" });
   assert.equal(plan.entrypoint.path, path.join("/opt/ai-dev/app", "src", "server.mjs"));
-  assert.equal(plan.cli.path, path.join("/opt/ai-dev/app", "scripts", "ai-dev.mjs"));
+  assert.equal(plan.cli.path, path.join("/opt/ai-dev/app", "bin", "ai-dev.mjs"));
   for (const key of ["local_launcher", "acceptance", "backup", "restore"]) {
     assert.equal(plan[key].applicable, false, key);
   }
@@ -125,11 +125,11 @@ test("readiness counts applicable files only", () => {
   assert.deepEqual(summary.not_applicable.map((item) => item.key), ["backup", "restore"]);
 
   const incomplete = summarizeDistributionFiles({
-    cli: { applicable: true, path: "/srv/scripts/ai-dev.mjs", exists: false },
+    cli: { applicable: true, path: "/srv/bin/ai-dev.mjs", exists: false },
     backup: { applicable: false, reason: "not here" }
   });
   assert.equal(incomplete.ready, false);
-  assert.deepEqual(incomplete.missing, [{ key: "cli", path: "/srv/scripts/ai-dev.mjs" }]);
+  assert.deepEqual(incomplete.missing, [{ key: "cli", path: "/srv/bin/ai-dev.mjs" }]);
   assert.equal(incomplete.missing.some((item) => item.key === "backup"), false);
 });
 
@@ -145,8 +145,8 @@ test("the rendered document names no script the flavor does not have", () => {
     runtime_flavor: "windows",
     ...distributionExpectations("windows")
   });
-  assert.match(windows, /- Start: `powershell -File scripts\/start-local\.ps1`/);
-  assert.match(windows, /- Backup: `node scripts\/ai-dev\.mjs backup <label>`/);
+  assert.match(windows, /- Start: `node bin\/ai-dev\.mjs mcp`/);
+  assert.match(windows, /- Backup: `node bin\/ai-dev\.mjs backup <label>`/);
   assert.match(windows, /- Backup script: `09-mcp\/scripts\/backup-ai-dev-system\.ps1`/);
 
   for (const flavor of ["posix", "docker"]) {

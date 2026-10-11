@@ -44,6 +44,7 @@ async function sourceFiles(directory) {
 }
 
 const files = [
+  ...await sourceFiles(path.join(root, "bin")),
   ...await sourceFiles(path.join(root, "src")),
   ...await sourceFiles(path.join(root, "scripts"))
 ];
@@ -71,8 +72,9 @@ for (const file of files) {
   ) {
     findings.push(`${relative}: child_process.exec is forbidden; use argv-based execution.`);
   }
-  // `src/galaxy/` is browser code, but code all the same: the ceiling holds there too.
-  if (relative.startsWith("src/core/") || relative.startsWith("src/extensions/") || relative.startsWith("src/galaxy/")) {
+  // `src/galaxy/` is browser code, but code all the same: the ceiling holds there
+  // too, and in the CLI (`bin/`, `src/cli/`).
+  if (["bin/", "src/cli/", "src/core/", "src/extensions/", "src/galaxy/"].some((prefix) => relative.startsWith(prefix))) {
     modules.push({ path: relative, lines: countLines(source) });
   }
 }

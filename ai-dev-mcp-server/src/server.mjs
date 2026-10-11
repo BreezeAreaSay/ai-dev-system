@@ -528,7 +528,13 @@ export async function startServer() {
   return server;
 }
 
-if (await isDirectExecution(import.meta.url)) {
+/**
+ * Serve MCP on stdin/stdout until a signal ends the process: what
+ * `node src/server.mjs` (every 2.x client config) and `ai-dev mcp` run.
+ *
+ * @returns {Promise<ReturnType<typeof createAiDevServer>>}
+ */
+export async function runStdioServer() {
   const server = await startServer();
   const shutdown = async (code) => {
     shutdownBgeWorkers();
@@ -537,4 +543,9 @@ if (await isDirectExecution(import.meta.url)) {
   };
   process.once("SIGINT", () => shutdown(130));
   process.once("SIGTERM", () => shutdown(143));
+  return server;
+}
+
+if (await isDirectExecution(import.meta.url)) {
+  await runStdioServer();
 }

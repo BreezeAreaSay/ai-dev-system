@@ -84,17 +84,17 @@ const EXPECTATIONS = {
     files: {
       entrypoint: { root: "server", segments: ["src", "server.mjs"] },
       local_launcher: { root: "server", segments: ["scripts", "start-local.ps1"] },
-      cli: { root: "server", segments: ["scripts", "ai-dev.mjs"] },
+      cli: { root: "server", segments: ["bin", "ai-dev.mjs"] },
       config_example: { root: "server", segments: ["config", "runtime.example.json"] },
       acceptance: { root: "vault", segments: ["09-mcp", "scripts", "run-acceptance.ps1"] },
       backup: { root: "vault", segments: ["09-mcp", "scripts", "backup-ai-dev-system.ps1"] },
       restore: { root: "vault", segments: ["09-mcp", "scripts", "restore-ai-dev-system.ps1"] }
     },
     commands: {
-      start: "powershell -File scripts/start-local.ps1",
-      doctor: "node scripts/ai-dev.mjs doctor",
-      acceptance: "node scripts/ai-dev.mjs acceptance",
-      backup: "node scripts/ai-dev.mjs backup <label>"
+      start: "node bin/ai-dev.mjs mcp",
+      doctor: "node bin/ai-dev.mjs doctor",
+      acceptance: "node bin/ai-dev.mjs acceptance",
+      backup: "node bin/ai-dev.mjs backup <label>"
     },
     recovery: {
       backup_script: "09-mcp/scripts/backup-ai-dev-system.ps1",
@@ -104,16 +104,16 @@ const EXPECTATIONS = {
   posix: {
     files: {
       entrypoint: { root: "server", segments: ["src", "server.mjs"] },
-      local_launcher: { reason: "`npm start` runs the entry point directly; no launcher script ships for this platform." },
-      cli: { root: "server", segments: ["scripts", "ai-dev.mjs"] },
+      local_launcher: { reason: "`ai-dev mcp` (bin/ai-dev.mjs) is the entry point; no launcher script ships for this platform." },
+      cli: { root: "server", segments: ["bin", "ai-dev.mjs"] },
       config_example: { root: "server", segments: ["config", "runtime.example.json"] },
       acceptance: { root: "server", segments: ["scripts", "acceptance.mjs"] },
       backup: { reason: "No cross-platform backup script ships with this runtime; the PowerShell one is Windows-only." },
       restore: { reason: "No cross-platform restore script ships with this runtime; the PowerShell one is Windows-only." }
     },
     commands: {
-      start: "npm start",
-      doctor: "node scripts/ai-dev.mjs doctor",
+      start: "node bin/ai-dev.mjs mcp",
+      doctor: "node bin/ai-dev.mjs doctor",
       acceptance: "node scripts/acceptance.mjs"
     },
     recovery: {
@@ -124,7 +124,7 @@ const EXPECTATIONS = {
     files: {
       entrypoint: { root: "server", segments: ["src", "server.mjs"] },
       local_launcher: { reason: "The launcher (docker/run-mcp.sh) runs on the host, outside the image." },
-      cli: { root: "server", segments: ["scripts", "ai-dev.mjs"] },
+      cli: { root: "server", segments: ["bin", "ai-dev.mjs"] },
       config_example: { root: "server", segments: ["config", "runtime.example.json"] },
       acceptance: { reason: "Acceptance runs in a source checkout; the image ships neither the tests nor the dev dependencies." },
       backup: { reason: "The /data volume is the backup unit; see docker/README.md." },
@@ -132,7 +132,7 @@ const EXPECTATIONS = {
     },
     commands: {
       start: "sh docker/run-mcp.sh",
-      doctor: `node ${DOCKER_APP_ROOT}/scripts/ai-dev.mjs doctor`
+      doctor: `node ${DOCKER_APP_ROOT}/bin/ai-dev.mjs doctor`
     },
     command_context: "`Start` runs on the host; the rest run inside the container.",
     recovery: {

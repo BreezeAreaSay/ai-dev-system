@@ -90,6 +90,53 @@ test("removing tables keeps the blank lines tidy at the start, the middle and th
   assert.equal(removeTables("a = 1\n", PREFIX), "a = 1\n", "absent: unchanged");
 });
 
+test("tables that share the blank line between them are cut whole, and the next header keeps its [ (Д-166)", () => {
+  const removed = removeTables([
+    "model = \"o3\"",
+    "[mcp_servers.ai-dev]",
+    "command = \"/bin/sh\"",
+    "",
+    "[mcp_servers.ai-dev.env]",
+    "AI_DEV_IMAGE = \"old\"",
+    "[mcp_servers.github]",
+    "command = \"gh\"",
+    ""
+  ].join("\n"), PREFIX);
+  assert.equal(removed, "model = \"o3\"\n[mcp_servers.github]\ncommand = \"gh\"\n");
+  assert.deepEqual(Object.keys(servers(removed)), ["github"]);
+  const upserted = upsertTables([
+    "[mcp_servers.ai-dev]",
+    "c = 1",
+    "[mcp_servers.ai-dev.a]",
+    "x = 1",
+    "",
+    "[mcp_servers.ai-dev.b]",
+    "y = 2",
+    "# keep",
+    "[other]",
+    "z = 3",
+    ""
+  ].join("\n"), PREFIX, SECTION);
+  assert.equal(upserted, `${SECTION}# keep\n[other]\nz = 3\n`);
+  assert.deepEqual(parseTomlLite(upserted).data.other, { z: 3 });
+});
+
+test("an edit that would break the file or touch another table is refused, and nothing is returned to write (Д-166)", () => {
+  // A section that is not one table of the prefix: the guard, not the cut, stops it.
+  for (const section of ["[mcp_servers.ai-dev]\ncommand = \"n\"\n[other]\n", "[mcp_servers.ai-dev]\ncommand = \n\"n\"\n", "[mcp_servers.github]\n"]) {
+    for (const text of ["", "model = \"o3\"\n", "[mcp_servers.ai-dev]\nc = 1\n"]) {
+      assert.throws(() => upsertTables(text, PREFIX, section), (error) => error instanceof TomlEditError
+        && /editing \[mcp_servers\.ai-dev\] here would (?:leave a file that cannot be read \(line \d+: [^)]+\)|change other tables); this file is left as it is/.test(error.message), JSON.stringify([text, section]));
+    }
+  }
+});
+
+test("a byte order mark is not a blank line: it stays when the first table goes", () => {
+  assert.equal(removeTables("\uFEFF[mcp_servers.ai-dev]\nc = 1\n\n[b]\nd = 2\n", PREFIX), "\uFEFF[b]\nd = 2\n");
+  assert.equal(removeTables("\uFEFF\n[mcp_servers.ai-dev]\nc = 1\n", PREFIX), "\uFEFF");
+  assert.equal(upsertTables("\uFEFF", PREFIX, SECTION), `\uFEFF\n${SECTION}`);
+});
+
 test("CRLF files get CRLF, a file without a final newline gets one before the append", () => {
   const crlf = "model = \"o3\"\r\n";
   const written = upsertTables(crlf, PREFIX, renderTable(PREFIX, { command: "n" }, scanToml(crlf).eol));

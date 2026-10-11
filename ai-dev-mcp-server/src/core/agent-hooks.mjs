@@ -4,7 +4,7 @@ import { atomicWriteFile } from "./atomic-files.mjs";
 import { runProcess } from "./process-runner.mjs";
 import { LEFTOVER_PATTERNS, PLACEHOLDER_VALUE, PROTECTED_CONFIG_FILES, SECRET_FILE_PATTERN, SECRET_PATTERNS } from "./change-hygiene.mjs";
 
-export const HOOK_FILES = ["lib.mjs", "semver-lite.mjs", "supply-chain.mjs", "fact-force.mjs", "git-hooks.mjs", "guard.mjs", "post-edit.mjs", "session-start.mjs", "session-end.mjs", "cost-capture.mjs", "compact-advisor.mjs", "stop-check.mjs"];
+export const HOOK_FILES = ["lib.mjs", "semver-lite.mjs", "http-proxy.mjs", "supply-chain.mjs", "fact-force.mjs", "git-hooks.mjs", "guard.mjs", "post-edit.mjs", "session-start.mjs", "session-end.mjs", "cost-capture.mjs", "compact-advisor.mjs", "stop-check.mjs", "with-node.sh"];
 export const HOOK_TARGETS = ["claude", "cursor", "git"];
 export const HOOK_PROFILES = ["minimal", "standard", "strict"];
 export const HOOKS_RELATIVE_DIR = ".ai-dev/hooks";
@@ -14,6 +14,14 @@ export const GIT_HOOKS_RELATIVE_DIR = ".ai-dev/git-hooks";
 /** The git hooks we install. Each is a stub that hands the work to `git-hooks.mjs`. */
 export const GIT_HOOK_NAMES = ["pre-commit", "pre-push"];
 const COMMAND_MARKER = ".ai-dev/hooks/";
+/**
+ * The shell script that finds Node for a hook (hooks/with-node.sh). A hook
+ * command used to be a bare `node`, which an editor or Git client opened from
+ * the Dock or a launcher does not have on its PATH (docs/DEFECTS.md, Д-103).
+ */
+export const NODE_LAUNCHER = "with-node.sh";
+/** The Node the hooks were installed with, on this machine; git ignores it. */
+export const NODE_PATH_FILE = ".node-path";
 
 /**
  * Default `.ai-dev/policy.json`: hookify-style rules the project can extend.
@@ -146,17 +154,32 @@ export function renderHookPatterns() {
   };
 }
 
-function command(script, ...args) {
-  return { type: "command", command: ["node", `${HOOKS_RELATIVE_DIR}/${script}`, ...args].join(" ") };
+/**
+ * The command line that runs one hook script. On macOS and Linux it goes
+ * through the Node launcher; on Windows an app started from the Start menu
+ * has the user's PATH, where the Node installer and nvm-windows put `node`,
+ * and a `/bin/sh` command would need Git's shell to run at all.
+ *
+ * @param {string} script
+ * @param {string[]} args
+ * @param {string} [platform]
+ * @returns {string}
+ */
+export function hookCommandLine(script, args = [], platform = process.platform) {
+  return platform === "win32"
+    ? ["node", `${HOOKS_RELATIVE_DIR}/${script}`, ...args].join(" ")
+    : ["/bin/sh", `${HOOKS_RELATIVE_DIR}/${NODE_LAUNCHER}`, script, ...args].join(" ");
 }
 
 /**
  * Claude Code hook registrations for a profile.
  *
  * @param {string} profile
+ * @param {{ platform?: string }} [options]
  * @returns {Record<string, object[]>}
  */
-export function claudeHookEntries(profile = "standard") {
+export function claudeHookEntries(profile = "standard", { platform = process.platform } = {}) {
+  const command = (script, ...args) => ({ type: "command", command: hookCommandLine(script, args, platform) });
   const full = profile !== "minimal";
   const hooks = {
     PreToolUse: [
@@ -302,9 +325,9 @@ export function cursorVerificationPlan({ contract = CURSOR_HOOKS_CONTRACT, state
   };
 }
 
-function cursorHooksV1(profile) {
+function cursorHooksV1(profile, platform) {
   const full = profile !== "minimal";
-  const entry = (script, ...args) => ({ command: ["node", `${HOOKS_RELATIVE_DIR}/${script}`, ...args, "--cursor"].join(" ") });
+  const entry = (script, ...args) => ({ command: hookCommandLine(script, [...args, "--cursor"], platform) });
   const hooks = {
     beforeShellExecution: [entry("guard.mjs", "bash")],
     sessionEnd: [entry("session-end.mjs")],
@@ -328,13 +351,13 @@ export const CURSOR_HOOKS_FORMATS = [...CURSOR_HOOKS_BUILDERS.keys()];
  * format version.
  *
  * @param {string} profile
- * @param {{ version?: number }} [options]
+ * @param {{ version?: number, platform?: string }} [options]
  * @returns {object}
  */
-export function cursorHooksDocument(profile = "standard", { version = CURSOR_HOOKS_FORMAT_VERSION } = {}) {
+export function cursorHooksDocument(profile = "standard", { version = CURSOR_HOOKS_FORMAT_VERSION, platform = process.platform } = {}) {
   const build = CURSOR_HOOKS_BUILDERS.get(Number(version));
   if (!build) throw new Error(`Unknown .cursor/hooks.json format version: ${version}. Known: ${CURSOR_HOOKS_FORMATS.join(", ")}`);
-  return build(HOOK_PROFILES.includes(profile) ? profile : "standard");
+  return build(HOOK_PROFILES.includes(profile) ? profile : "standard", platform);
 }
 
 function isOurs(entry) {
@@ -413,9 +436,9 @@ export function cursorHookWarnings(current, ours) {
 /**
  * The stub git runs. It is three lines of `sh` rather than a Node script so the
  * shebang question never comes up: Git for Windows runs hooks through its own
- * shell, and `node` is looked up on PATH exactly as it is on a Unix box. The
- * path to the implementation is relative to the stub, so moving or cloning the
- * repository keeps it working.
+ * shell. Node is found by the launcher, not by PATH alone: a Git client opened
+ * from the Dock commits without the shell's PATH (Д-103). Paths are relative
+ * to the stub, so moving or cloning the repository keeps it working.
  *
  * @param {string} hook - `pre-commit` or `pre-push`.
  * @returns {string}
@@ -425,7 +448,7 @@ export function gitHookStub(hook) {
     "#!/bin/sh",
     "# Installed by ai-dev-system (install_agent_hooks, targets: [\"git\"]).",
     "# Delete .ai-dev/git-hooks or unset core.hooksPath to remove it.",
-    `exec node "$(dirname "$0")/../hooks/git-hooks.mjs" ${hook} "$@"`,
+    `exec /bin/sh "$(dirname "$0")/../hooks/${NODE_LAUNCHER}" git-hooks.mjs ${hook} "$@"`,
     ""
   ].join("\n");
 }
@@ -478,10 +501,14 @@ async function readText(target) {
  * Install the hook scripts, patterns, policy, and harness registrations into
  * a repository.
  *
- * @param {{ projectRoot: string, hooksSourceDir: string, targets?: string[], profile?: string, overwrite?: boolean, dryRun?: boolean, cursorFormatVersion?: number }} input
+ * `nodePath` is recorded for the Node launcher (`.ai-dev/hooks/.node-path`,
+ * kept out of git): the Node running this server, which the client found. In
+ * a container that Node is not the host's, so nothing is recorded there.
+ *
+ * @param {{ projectRoot: string, hooksSourceDir: string, targets?: string[], profile?: string, overwrite?: boolean, dryRun?: boolean, cursorFormatVersion?: number, platform?: string, nodePath?: string }} input
  * @returns {Promise<{ profile: string, targets: string[], written: string[], updated: string[], skipped: string[], planned: string[], backups: string[], warnings: string[], cursor_format_version: number }>}
  */
-export async function installAgentHooks({ projectRoot, hooksSourceDir, targets = ["claude"], profile = "standard", overwrite = false, dryRun = false, cursorFormatVersion = CURSOR_HOOKS_FORMAT_VERSION }) {
+export async function installAgentHooks({ projectRoot, hooksSourceDir, targets = ["claude"], profile = "standard", overwrite = false, dryRun = false, cursorFormatVersion = CURSOR_HOOKS_FORMAT_VERSION, platform = process.platform, nodePath = process.env.AI_DEV_RUNTIME === "docker" ? "" : process.execPath }) {
   if (!HOOK_PROFILES.includes(profile)) throw new Error(`Unknown hook profile: ${profile}. Known: ${HOOK_PROFILES.join(", ")}`);
   for (const target of targets) {
     if (!HOOK_TARGETS.includes(target)) throw new Error(`Unknown hooks target: ${target}. Known: ${HOOK_TARGETS.join(", ")}`);
@@ -514,6 +541,13 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
     await writeManaged(`${HOOKS_RELATIVE_DIR}/${name}`, source);
   }
   await writeManaged(`${HOOKS_RELATIVE_DIR}/patterns.json`, `${JSON.stringify(renderHookPatterns(), null, 2)}\n`);
+  // The launcher runs through `/bin/sh`, but an executable bit costs nothing
+  // and lets a person run it by hand.
+  if (!dryRun) await fs.chmod(path.join(root, ...HOOKS_RELATIVE_DIR.split("/"), NODE_LAUNCHER), 0o755).catch(() => undefined);
+  // This machine's Node, for the launcher: forward slashes, which Git's shell
+  // on Windows reads too. The hooks are committed; this file is not.
+  await writeManaged(`${HOOKS_RELATIVE_DIR}/.gitignore`, `${NODE_PATH_FILE}\n`);
+  if (nodePath) await writeManaged(`${HOOKS_RELATIVE_DIR}/${NODE_PATH_FILE}`, `${platform === "win32" ? nodePath.replaceAll("\\", "/") : nodePath}\n`);
 
   const policyPath = path.join(root, ...POLICY_RELATIVE_PATH.split("/"));
   const existingPolicy = await readText(policyPath);
@@ -536,7 +570,7 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
   if (targets.includes("claude")) {
     const settingsPath = path.join(root, ".claude", "settings.json");
     const current = await readJson(settingsPath);
-    const next = mergeClaudeSettings(current, claudeHookEntries(profile));
+    const next = mergeClaudeSettings(current, claudeHookEntries(profile, { platform }));
     const nextText = `${JSON.stringify(next, null, 2)}\n`;
     const currentText = current === null ? null : await readText(settingsPath);
     if (currentText === nextText) {
@@ -586,7 +620,7 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
   if (targets.includes("cursor")) {
     const cursorPath = path.join(root, ".cursor", "hooks.json");
     const current = await readJson(cursorPath);
-    const ours = cursorHooksDocument(profile, { version: cursorFormatVersion });
+    const ours = cursorHooksDocument(profile, { version: cursorFormatVersion, platform });
     warnings.push(...cursorHookWarnings(current, ours));
     await writeManaged(".cursor/hooks.json", `${JSON.stringify(mergeCursorHooks(current, ours), null, 2)}\n`);
   }
@@ -641,6 +675,11 @@ export async function agentHooksStatus(projectRoot) {
   const cursor = await readJson(path.join(root, ".cursor", "hooks.json")).catch(() => null);
   const count = (document) => Object.values(document?.hooks ?? {}).flat().filter(isOurs).length;
   const cursorVersion = cursor === null ? null : Number(cursor?.version) || null;
+  const recordedNode = (await readText(path.join(root, ...HOOKS_RELATIVE_DIR.split("/"), NODE_PATH_FILE)))?.trim() || null;
+  const commands = [claude, cursor].flatMap((document) => Object.values(document?.hooks ?? {}).flat())
+    .flatMap((entry) => (Array.isArray(entry?.hooks) ? entry.hooks : [entry]))
+    .map((hook) => String(hook?.command ?? ""))
+    .filter((line) => line.includes(COMMAND_MARKER));
   return {
     project_path: root,
     hooks_dir: HOOKS_RELATIVE_DIR,
@@ -659,6 +698,11 @@ export async function agentHooksStatus(projectRoot) {
     // A file written for a format this adapter does not build is the signal to
     // add a builder, not to overwrite it.
     cursor_format_supported: cursorVersion === null ? null : CURSOR_HOOKS_FORMATS.includes(cursorVersion),
-    cursor_contract: CURSOR_HOOKS_CONTRACT
+    cursor_contract: CURSOR_HOOKS_CONTRACT,
+    // Registrations still written by 2.x run a bare `node`, which a client
+    // started from the Dock may not find; install_agent_hooks rewrites them.
+    bare_node_commands: commands.filter((line) => /^node\s/.test(line)).length,
+    recorded_node: recordedNode,
+    recorded_node_exists: recordedNode ? await fs.access(recordedNode).then(() => true, () => false) : null
   };
 }

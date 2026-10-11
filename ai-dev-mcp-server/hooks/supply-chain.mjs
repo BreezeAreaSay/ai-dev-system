@@ -17,6 +17,9 @@
 // A check that cannot be made — no network, a private registry, a timeout —
 // warns and never blocks: an install that is refused for want of an answer
 // teaches people to turn the guard off. Zero dependencies, like every hook.
+// The lookups go through HTTPS_PROXY (`http-proxy.mjs`): `fetch` alone ignores
+// it, and behind a corporate proxy nothing was ever checked (Д-145).
+import { proxyFetch } from "./http-proxy.mjs";
 import { compareVersions, isPrerelease, parseVersion, satisfies } from "./semver-lite.mjs";
 
 export const SUPPLY_CHAIN_DEFAULTS = Object.freeze({
@@ -186,7 +189,7 @@ function reasonOf(error, timeoutMs) {
  * @param {object} options
  * @returns {Promise<object>}
  */
-export async function inspectSpec(spec, { fetchImpl = globalThis.fetch, registry, osvApi, settings, now = Date.now() }) {
+export async function inspectSpec(spec, { fetchImpl = proxyFetch, registry, osvApi, settings, now = Date.now() }) {
   const result = { ...spec, version: "", published: "", malware: [], vulnerabilities: [], problems: [], previous: "", safe: "" };
   let document;
   try {
@@ -290,7 +293,7 @@ export function verdictFor(checked, settings, now = Date.now()) {
 export async function checkSupplyChain(segments, {
   policy = {},
   env = process.env,
-  fetchImpl = globalThis.fetch,
+  fetchImpl = (url, init) => proxyFetch(url, { ...init, env }),
   now = Date.now()
 } = {}) {
   const settings = supplyChainSettings(policy, env);

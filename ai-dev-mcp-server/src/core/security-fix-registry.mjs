@@ -13,6 +13,7 @@
  * abbreviated one installs use, so that is what is fetched — with a size cap,
  * because a document like `typescript`'s is 15 MB.
  */
+import { proxyFetch } from "./http-download.mjs";
 import { compareVersions, isPrerelease, parseVersion, satisfies, upgradeKind } from "./semver-lite.mjs";
 
 export const DEFAULT_REGISTRY = "https://registry.npmjs.org";
@@ -48,7 +49,8 @@ export function registryUrl(env = process.env) {
  * @returns {Promise<{ ok: boolean, reason?: string, versions?: string[], time?: Record<string, string>, deprecated?: Record<string, string> }>}
  */
 export async function fetchPackageMetadata(name, {
-  fetchImpl = globalThis.fetch,
+  // Through HTTPS_PROXY, which `fetch` ignores (docs/DEFECTS.md, Д-145).
+  fetchImpl = proxyFetch,
   registry = registryUrl(),
   timeoutMs = REGISTRY_TIMEOUT_MS
 } = {}) {

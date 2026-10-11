@@ -15,6 +15,8 @@ import {
   cursorHooksDocument,
   cursorVerificationPlan,
   defaultPolicy,
+  gitHookStub,
+  hookCommandLine,
   installAgentHooks,
   mergeClaudeSettings,
   mergeCursorHooks,
@@ -83,11 +85,11 @@ test("installer writes hooks, patterns, policy, and merges harness registrations
   const settings = JSON.parse(await fs.readFile(path.join(projectRoot, ".claude", "settings.json"), "utf8"));
   assert.deepEqual(settings.permissions, { allow: ["Bash(npm test)"] });
   assert.equal(settings.hooks.PreToolUse[0].hooks[0].command, "node my-own-hook.js", "foreign entries are preserved");
-  assert.ok(settings.hooks.PreToolUse.some((entry) => entry.hooks[0].command === "node .ai-dev/hooks/guard.mjs bash"));
+  assert.ok(settings.hooks.PreToolUse.some((entry) => entry.hooks[0].command === hookCommandLine("guard.mjs", ["bash"])));
   assert.ok(settings.hooks.SessionStart);
-  assert.deepEqual(settings.hooks.Stop[0].hooks.map((hook) => hook.command), [".ai-dev/hooks/session-end.mjs", ".ai-dev/hooks/cost-capture.mjs", ".ai-dev/hooks/stop-check.mjs"].map((script) => `node ${script}`));
+  assert.deepEqual(settings.hooks.Stop[0].hooks.map((hook) => hook.command), ["session-end.mjs", "cost-capture.mjs", "stop-check.mjs"].map((script) => hookCommandLine(script)));
   const cursor = JSON.parse(await fs.readFile(path.join(projectRoot, ".cursor", "hooks.json"), "utf8"));
-  assert.equal(cursor.hooks.beforeShellExecution[0].command, "node .ai-dev/hooks/guard.mjs bash --cursor");
+  assert.equal(cursor.hooks.beforeShellExecution[0].command, hookCommandLine("guard.mjs", ["bash", "--cursor"]));
 
   const second = await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude", "cursor"], profile: "standard" });
   assert.equal(second.written.length + second.updated.length, 0, "second install is a no-op");
@@ -273,7 +275,7 @@ test("installing for Cursor records the format version and reports what it could
   const document = JSON.parse(await fs.readFile(path.join(projectRoot, ".cursor", "hooks.json"), "utf8"));
   assert.equal(document.version, 1);
   assert.equal(document.hooks.beforeShellExecution[0].command, "node audit.js");
-  assert.equal(document.hooks.beforeShellExecution[1].command, "node .ai-dev/hooks/guard.mjs bash --cursor");
+  assert.equal(document.hooks.beforeShellExecution[1].command, hookCommandLine("guard.mjs", ["bash", "--cursor"]));
 
   const status = await agentHooksStatus(projectRoot);
   assert.equal(status.cursor_format_version, 1);
@@ -589,4 +591,76 @@ test("cost capture reads a real transcript in whole lines, chunk by chunk", asyn
 
   assert.deepEqual(sumAssistantUsage(""), { offset: 0, messages: 0, models: [] });
   assert.deepEqual(sumAssistantUsage(path.join(fixturesDir, "does-not-exist.jsonl"), { fromOffset: 12 }), { offset: 12, messages: 0, models: [] });
+});
+
+test("hook commands find Node through the launcher on macOS and Linux, and stay `node` on Windows (Д-103)", () => {
+  assert.equal(hookCommandLine("guard.mjs", ["bash"], "darwin"), "/bin/sh .ai-dev/hooks/with-node.sh guard.mjs bash");
+  assert.equal(hookCommandLine("session-start.mjs", [], "linux"), "/bin/sh .ai-dev/hooks/with-node.sh session-start.mjs");
+  assert.equal(hookCommandLine("guard.mjs", ["bash", "--cursor"], "win32"), "node .ai-dev/hooks/guard.mjs bash --cursor");
+  const linux = Object.values(claudeHookEntries("strict", { platform: "linux" })).flat().flatMap((entry) => entry.hooks.map((hook) => hook.command));
+  assert.ok(linux.length >= 9 && linux.every((command) => command.startsWith("/bin/sh .ai-dev/hooks/with-node.sh ")), linux.join("\n"));
+  const cursor = Object.values(cursorHooksDocument("standard", { platform: "darwin" }).hooks).flat().map((entry) => entry.command);
+  assert.ok(cursor.every((command) => command.startsWith("/bin/sh .ai-dev/hooks/with-node.sh ") && command.endsWith(" --cursor")), cursor.join("\n"));
+  // Git runs hooks through its own sh on every platform, Windows included.
+  assert.match(gitHookStub("pre-commit"), /^exec \/bin\/sh "\$\(dirname "\$0"\)\/\.\.\/hooks\/with-node\.sh" git-hooks\.mjs pre-commit "\$@"$/m);
+});
+
+test("the installer records this machine's Node out of git, and nothing from inside a container", async (t) => {
+  const { projectRoot } = await fixture(t);
+  const hooksDir = path.join(projectRoot, ".ai-dev", "hooks");
+  const installed = await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], nodePath: "/opt/node/bin/node" });
+  assert.ok(installed.written.includes(".ai-dev/hooks/with-node.sh"));
+  assert.equal(await fs.readFile(path.join(hooksDir, ".node-path"), "utf8"), "/opt/node/bin/node\n");
+  assert.equal(await fs.readFile(path.join(hooksDir, ".gitignore"), "utf8"), ".node-path\n");
+  const ignored = spawnSync("git", ["-C", projectRoot, "check-ignore", ".ai-dev/hooks/.node-path"], { encoding: "utf8", windowsHide: true });
+  assert.equal(ignored.status, 0, "git ignores the recorded path");
+  const status = await agentHooksStatus(projectRoot);
+  assert.equal(status.recorded_node, "/opt/node/bin/node");
+  assert.equal(status.recorded_node_exists, false);
+  assert.equal(status.bare_node_commands, process.platform === "win32" ? status.claude_entries : 0);
+
+  const windows = await fixture(t);
+  await installAgentHooks({ projectRoot: windows.projectRoot, hooksSourceDir, targets: ["git"], platform: "win32", nodePath: "C:\\Program Files\\nodejs\\node.exe" });
+  assert.equal(await fs.readFile(path.join(windows.projectRoot, ".ai-dev", "hooks", ".node-path"), "utf8"), "C:/Program Files/nodejs/node.exe\n",
+    "forward slashes, which Git's shell reads");
+
+  const container = await fixture(t);
+  await installAgentHooks({ projectRoot: container.projectRoot, hooksSourceDir, targets: ["claude"], nodePath: "" });
+  await assert.rejects(fs.access(path.join(container.projectRoot, ".ai-dev", "hooks", ".node-path")));
+});
+
+test("a hook runs with no Node on PATH: the 2.x command fails, the launcher finds the recorded Node (Д-103)", { skip: process.platform === "win32" && "the launcher is the POSIX form" }, async (t) => {
+  const { root, projectRoot } = await fixture(t);
+  const marker = path.join(root, "used.log");
+  const fakeNode = async (name) => {
+    const file = path.join(root, name);
+    await fs.writeFile(file, `#!/bin/sh\nprintf '%s\\n' ${name} >> '${marker}'\nexec '${process.execPath}' "$@"\n`, { mode: 0o755 });
+    return file;
+  };
+  const recorded = await fakeNode("recorded-node");
+  await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], nodePath: recorded });
+  const settings = JSON.parse(await fs.readFile(path.join(projectRoot, ".claude", "settings.json"), "utf8"));
+  const command = settings.hooks.SessionStart[0].hooks[0].command;
+  assert.equal(command, "/bin/sh .ai-dev/hooks/with-node.sh session-start.mjs");
+  const noNode = { PATH: "/usr/bin:/bin", HOME: root, AI_DEV_HOME: path.join(root, "runtime") };
+  const runLine = (line, env) => spawnSync("/bin/sh", ["-c", line], {
+    cwd: projectRoot,
+    env,
+    input: JSON.stringify({ hook_event_name: "SessionStart", source: "startup", cwd: projectRoot }),
+    encoding: "utf8"
+  });
+
+  const before = runLine("node .ai-dev/hooks/session-start.mjs", noNode);
+  assert.equal(before.status, 127, "the 2.x registration: node is not on this PATH");
+  const after = runLine(command, noNode);
+  assert.equal(after.status, 0, after.stderr);
+  assert.deepEqual((await fs.readFile(marker, "utf8")).trim().split("\n"), ["recorded-node"]);
+
+  const chosen = await fakeNode("chosen-node");
+  assert.equal(runLine(command, { ...noNode, AI_DEV_NODE: chosen }).status, 0);
+  assert.deepEqual((await fs.readFile(marker, "utf8")).trim().split("\n"), ["recorded-node", "chosen-node"], "AI_DEV_NODE comes first");
+
+  const missing = runLine("/bin/sh .ai-dev/hooks/with-node.sh", noNode);
+  assert.equal(missing.status, 2);
+  assert.match(missing.stderr, /with-node\.sh needs the hook script to run/);
 });

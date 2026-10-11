@@ -32,11 +32,14 @@ scratch directory it:
 3. upgrades the same checkout to the working tree in front of it, as `git pull` would, and runs
    plain `npm ci`;
 4. starts the server through the command the 2.x client configuration holds and checks that
-   the task, its checkpoint, the decision, the instinct and the handoff are found, that the
-   Node search engine finds the 2.x index current without rebuilding it, every vector untouched,
-   that a rebuild keeps every vector still used byte for byte (a 2.x older than the Д-91 fix also
-   embedded Membrane's connectors; those are dropped, as Д-91 intends), that keyword and hybrid
-   search answer, that nothing is left in
+   the task, its checkpoint, the decision, the instinct and the handoff are found; that the
+   Node search engine reads the 2.x index as it is — a status call rewrites nothing and leaves
+   every vector untouched — and sees what the pull changed: skills the pull removed (the
+   catalogue curation of 2026-10-11 removed 2,614 connectors) leave the skill registry and are
+   no longer found (docs/DEFECTS.md, Д-119); that a rebuild keeps byte for byte every vector whose
+   document is still there unchanged and drops those of documents gone or rewritten — among them
+   Membrane's connectors, which a 2.x older than the Д-91 fix embedded — leaving the rewritten
+   ones to the next embedding run; that keyword and hybrid search answer, that nothing is left in
    `$AI_DEV_HOME/.ai-dev`, and that the 2.x hook still runs — and, where its copy of the old
    path cannot see the migrated task, sees it after `install_agent_hooks`.
 

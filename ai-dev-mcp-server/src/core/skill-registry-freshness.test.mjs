@@ -1,0 +1,253 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import {
+  checkSkillRegistry,
+  createSkillRegistryReader,
+  skillRegistryStaleness
+} from "./skill-registry-freshness.mjs";
+
+const PAST = new Date(Date.now() - 120_000);
+
+/**
+ * A catalogue with two skills and a registry written after them, every source
+ * file and directory dated two minutes back.
+ */
+async function makeCatalog(t) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "skill-registry-freshness-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const catalog = path.join(root, "03-skills-catalog");
+  const skills = ["sources/custom/alpha/SKILL.md", "sources/external/pack/skills/beta/SKILL.md"];
+  for (const relative of skills) {
+    await fs.mkdir(path.dirname(path.join(catalog, relative)), { recursive: true });
+    await fs.writeFile(path.join(catalog, relative), `# ${relative}\n`);
+  }
+  for (const relative of [...skills, "sources/custom/alpha", "sources/external/pack/skills/beta", "sources/external/pack/skills",
+    "sources/external/pack", "sources/external", "sources/custom", "sources"]) {
+    await fs.utimes(path.join(catalog, relative), PAST, PAST);
+  }
+  const registryPath = path.join(catalog, "registries", "skills.index.json");
+  await fs.mkdir(path.dirname(registryPath), { recursive: true });
+  await fs.writeFile(registryPath, `﻿${JSON.stringify(skills.map((relative) => ({ name: path.basename(path.dirname(relative)), path: relative })))}`);
+  return { catalog, registryPath, skills };
+}
+
+async function staleness({ catalog, registryPath }, nowMs = Date.now()) {
+  return checkSkillRegistry({ registryPath, catalogRoot: catalog, nowMs });
+}
+
+test("a registry written after its skills is current", async (t) => {
+  const fixture = await makeCatalog(t);
+  const verdict = await staleness(fixture);
+  assert.deepEqual(verdict, { stale: false, missing: 0, changed: 0, directories: 0, examples: [] });
+});
+
+test("no registry is not an out-of-date registry", async (t) => {
+  const fixture = await makeCatalog(t);
+  await fs.rm(fixture.registryPath);
+  assert.equal(await staleness(fixture), null);
+});
+
+test("a skill removed, as a pull removes it, makes the registry stale", async (t) => {
+  const fixture = await makeCatalog(t);
+  await fs.rm(path.join(fixture.catalog, "sources/external/pack/skills/beta"), { recursive: true });
+  const verdict = await staleness(fixture);
+  assert.equal(verdict.stale, true);
+  assert.equal(verdict.missing, 1);
+  assert.deepEqual(verdict.examples, ["missing sources/external/pack/skills/beta/SKILL.md"]);
+});
+
+test("a skill rewritten after the registry makes it stale", async (t) => {
+  const fixture = await makeCatalog(t);
+  await fs.writeFile(path.join(fixture.catalog, "sources/custom/alpha/SKILL.md"), "# alpha, rewritten\n");
+  const verdict = await staleness(fixture);
+  assert.equal(verdict.stale, true);
+  assert.equal(verdict.changed, 1);
+  assert.deepEqual(verdict.examples, ["changed sources/custom/alpha/SKILL.md"]);
+});
+
+test("a skill added next to the others makes the registry stale", async (t) => {
+  const fixture = await makeCatalog(t);
+  await fs.mkdir(path.join(fixture.catalog, "sources/external/pack/skills/gamma"));
+  const verdict = await staleness(fixture);
+  assert.equal(verdict.stale, true);
+  assert.equal(verdict.directories, 1);
+  assert.deepEqual(verdict.examples, ["directory sources/external/pack/skills"]);
+});
+
+test("a whole new source is seen from the folder above it", async (t) => {
+  const fixture = await makeCatalog(t);
+  await fs.mkdir(path.join(fixture.catalog, "sources/external/another/skills/delta"), { recursive: true });
+  const verdict = await staleness(fixture);
+  assert.equal(verdict.stale, true);
+  assert.deepEqual(verdict.examples, ["directory sources/external"]);
+});
+
+test("files inside a skill's own folder do not count: caches and vendored modules live there", async (t) => {
+  const fixture = await makeCatalog(t);
+  await fs.mkdir(path.join(fixture.catalog, "sources/custom/alpha/__pycache__"));
+  await fs.writeFile(path.join(fixture.catalog, "sources/custom/alpha/__pycache__/x.pyc"), "");
+  assert.equal((await staleness(fixture)).stale, false);
+});
+
+test("a time in the future is not evidence: no rebuild could get past it", async (t) => {
+  const fixture = await makeCatalog(t);
+  const ahead = new Date(Date.now() + 3_600_000);
+  await fs.utimes(path.join(fixture.catalog, "sources/custom/alpha/SKILL.md"), ahead, ahead);
+  assert.equal((await staleness(fixture)).stale, false);
+  assert.equal((await staleness(fixture, Date.now() + 7_200_000)).stale, true, "once that time has passed it counts");
+});
+
+test("the pure check takes a stat function and the registry's own time", () => {
+  const files = new Map([
+    ["/v/03-skills-catalog/sources/custom/a/SKILL.md", { mtimeMs: 5 }],
+    ["/v/03-skills-catalog/sources/custom", { mtimeMs: 5 }],
+    ["/v/03-skills-catalog/sources", { mtimeMs: 50 }]
+  ]);
+  const verdict = skillRegistryStaleness({
+    catalogRoot: "/v/03-skills-catalog",
+    builtAtMs: 10,
+    paths: ["sources/custom/a/SKILL.md", "sources/custom/b/SKILL.md"],
+    nowMs: 100,
+    stat: (target) => files.get(target.replaceAll("\\", "/").replace(/^[A-Za-z]:/, ""))
+  });
+  assert.deepEqual(verdict, {
+    stale: true,
+    missing: 1,
+    changed: 0,
+    directories: 1,
+    examples: ["missing sources/custom/b/SKILL.md", "directory sources"]
+  });
+});
+
+/** A reader over the fixture whose rebuild rewrites the registry from what is on disk. */
+function readerFor(fixture, { onRebuild = async () => {}, clock = { now: Date.now() }, ...options } = {}) {
+  const rebuilds = [];
+  const reader = createSkillRegistryReader({
+    registryPath: fixture.registryPath,
+    catalogRoot: fixture.catalog,
+    now: () => clock.now,
+    async rebuild(verdict) {
+      rebuilds.push(verdict);
+      await onRebuild();
+      const present = [];
+      for (const relative of fixture.skills) {
+        if (await fs.stat(path.join(fixture.catalog, relative)).then(() => true, () => false)) present.push({ path: relative });
+      }
+      await fs.writeFile(fixture.registryPath, JSON.stringify(present));
+    },
+    ...options
+  });
+  return { reader, rebuilds, clock };
+}
+
+test("the reader serves a current registry as it is and rebuilds a stale one first", async (t) => {
+  const fixture = await makeCatalog(t);
+  const { reader, rebuilds } = readerFor(fixture, { intervalMs: 0 });
+  assert.equal((await reader.read()).length, 2, "a leading BOM is read as it always was");
+  assert.equal(rebuilds.length, 0);
+
+  await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
+  const after = await reader.read();
+  assert.equal(rebuilds.length, 1);
+  assert.deepEqual(after.map((item) => item.path), ["sources/external/pack/skills/beta/SKILL.md"]);
+  assert.equal(rebuilds[0].missing, 1);
+});
+
+test("the reader looks at the files at most once per interval while the registry stays the same", async (t) => {
+  const fixture = await makeCatalog(t);
+  const clock = { now: Date.now() };
+  const { reader, rebuilds } = readerFor(fixture, { clock, intervalMs: 5_000 });
+  assert.equal((await reader.ensureFresh()).action, "current");
+  await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
+  assert.equal((await reader.ensureFresh()).action, "current", "inside the interval the last verdict stands");
+  assert.equal(rebuilds.length, 0);
+  clock.now += 5_000;
+  assert.equal((await reader.ensureFresh()).action, "rebuilt");
+  assert.equal(rebuilds.length, 1);
+});
+
+test("concurrent readers share one rebuild, and reads made by the rebuild do not wait for it", async (t) => {
+  const fixture = await makeCatalog(t);
+  let inner;
+  const { reader, rebuilds } = readerFor(fixture, {
+    // The registry rebuild reads the registry itself (cards, taxonomy); were
+    // that read to wait for the rebuild, it would wait forever.
+    onRebuild: async () => {
+      inner = await reader.read();
+    }
+  });
+  await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
+  const [first, second] = await Promise.all([reader.read(), reader.read()]);
+  assert.equal(rebuilds.length, 1, "one rebuild for both");
+  assert.equal(first.length, 1);
+  assert.equal(second.length, 1, "the second reader waited for the rebuild instead of reading the old registry");
+  assert.equal(inner.length, 2, "the rebuild's own read saw the registry as it stood");
+});
+
+test("a rebuild that fails is reported once and not retried until the registry changes", async (t) => {
+  const fixture = await makeCatalog(t);
+  const clock = { now: Date.now() };
+  const errors = [];
+  let attempts = 0;
+  const reader = createSkillRegistryReader({
+    registryPath: fixture.registryPath,
+    catalogRoot: fixture.catalog,
+    now: () => clock.now,
+    onError: (error) => errors.push(error.message),
+    async rebuild() {
+      attempts += 1;
+      throw new Error("read-only vault");
+    }
+  });
+  await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
+  assert.equal((await reader.read()).length, 2, "the registry on disk is served as it is");
+  clock.now += 60_000;
+  assert.equal((await reader.ensureFresh()).action, "stale");
+  assert.equal(attempts, 1);
+  assert.deepEqual(errors, ["read-only vault"]);
+
+  // Someone rebuilds it by hand: the next look starts afresh.
+  await fs.writeFile(fixture.registryPath, JSON.stringify([{ path: "sources/external/pack/skills/beta/SKILL.md" }]));
+  clock.now += 60_000;
+  assert.equal((await reader.ensureFresh()).action, "current");
+});
+
+test("a rebuild that leaves the registry stale is not run in a loop", async (t) => {
+  const fixture = await makeCatalog(t);
+  const clock = { now: Date.now() };
+  const errors = [];
+  let attempts = 0;
+  const reader = createSkillRegistryReader({
+    registryPath: fixture.registryPath,
+    catalogRoot: fixture.catalog,
+    now: () => clock.now,
+    onError: (error) => errors.push(error.message),
+    async rebuild() {
+      attempts += 1;
+      // Writes a registry that still names a file that is not there.
+      await fs.writeFile(fixture.registryPath, JSON.stringify([{ path: "sources/custom/ghost/SKILL.md" }]));
+    }
+  });
+  await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
+  assert.equal((await reader.ensureFresh()).action, "rebuilt");
+  for (let round = 0; round < 3; round += 1) {
+    clock.now += 60_000;
+    assert.equal((await reader.ensureFresh()).action, "stale");
+  }
+  assert.equal(attempts, 1);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /still out of date after a rebuild: missing sources\/custom\/ghost\/SKILL\.md/);
+});
+
+test("without a registry the reader neither builds one nor hides the missing file", async (t) => {
+  const fixture = await makeCatalog(t);
+  await fs.rm(fixture.registryPath);
+  const { reader, rebuilds } = readerFor(fixture);
+  assert.equal((await reader.ensureFresh()).action, "absent");
+  await assert.rejects(reader.read(), { code: "ENOENT" });
+  assert.equal(rebuilds.length, 0);
+});

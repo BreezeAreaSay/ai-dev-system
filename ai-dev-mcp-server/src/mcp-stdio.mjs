@@ -99,6 +99,8 @@ import {
 } from "./core/context-compiler.mjs";
 import { loadContextExtras } from "./core/context-extras.mjs";
 import { routeSkills } from "./core/skill-router.mjs";
+import { createSkillRegistryReader } from "./core/skill-registry-freshness.mjs";
+import { writeSkillSubgroupNotes } from "./core/skill-group-notes.mjs";
 import { prioritizeKnowledgeResults } from "./core/knowledge-router.mjs";
 import {
   hardNegativeRulesFromCases,
@@ -387,6 +389,7 @@ const searchRuntime = createSearchIndexRuntime({
   denseIndexBackend: { describe: () => denseRuntime.describe() },
   hardNegativeRules: () => activeSearchHardNegativeRules(),
   readSkillIndex: () => readSkillIndex(),
+  refreshSkillRegistry: () => skillRegistry.ensureFresh(),
   ranking: {
     repairSearchMojibake,
     prioritizeKnowledgeResults,
@@ -469,10 +472,9 @@ async function readText(relativePath) {
   return fs.readFile(safePath(relativePath), "utf8");
 }
 
-async function readSkillIndex() {
-  const raw = await fs.readFile(skillIndexPath, "utf8");
-  return JSON.parse(raw.replace(/^\uFEFF/, ""));
-}
+// Rebuilt first when its skills changed on disk (docs/DEFECTS.md, Д-119).
+const skillRegistry = createSkillRegistryReader({ registryPath: skillIndexPath, catalogRoot: skillCatalogRoot, rebuild: () => rebuildIndex(), onError: (error) => console.error(`[ai-dev] skill registry: ${error.message}`) });
+const readSkillIndex = () => skillRegistry.read();
 
 async function pathExists(target) {
   try {
@@ -1252,16 +1254,7 @@ async function writeSkillTaxonomyArtifacts(items) {
     await writeText(skillGroupNotePath(group.id), renderSkillGroupNote(group, members, graphGroup));
   }
 
-  for (const group of groups) {
-    for (const subgroup of group.subgroups) {
-      const members = items.filter((item) => item.primary_group === group.id && (item.subgroups || []).includes(subgroup.id));
-      if (!members.length) continue;
-      await writeText(
-        `${skillGroupsRelativeDir}/${group.id}/${subgroup.id}.md`,
-        renderSkillSubgroupNote(group, subgroup, members)
-      );
-    }
-  }
+  await writeSkillSubgroupNotes({ groupsRoot: safePath(skillGroupsRelativeDir), groups, items, render: renderSkillSubgroupNote, writeText: (relative, text) => writeText(`${skillGroupsRelativeDir}/${relative}`, text) });
   const visualGraph = await writeSkillGraphArtifacts(graphPlan, groups);
   return { schema_version: SKILL_TAXONOMY_SCHEMA_VERSION, total: items.length, groups, visual_graph: visualGraph };
 }

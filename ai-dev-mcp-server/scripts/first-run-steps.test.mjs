@@ -146,7 +146,7 @@ test("an empty vault needs every required step and a built one needs none", asyn
     skill_registry: true, search_index: true, routing_benchmark: true, skill_quality_report: true
   });
   assert.deepEqual(second.stale, {
-    search_index: false, routing_benchmark: false, skill_quality_report: false
+    skill_registry: false, search_index: false, routing_benchmark: false, skill_quality_report: false
   });
   // The second container start rebuilds nothing.
   assert.deepEqual(planFirstRun({ present: second.present, stale: second.stale })
@@ -171,7 +171,7 @@ test("an index the vault has moved past, and a benchmark older than its cases, a
     serverRoot: path.resolve("."),
     skillRoutingEvalCasesPath: casesPath
   });
-  assert.deepEqual(state.stale, { search_index: true, routing_benchmark: true });
+  assert.deepEqual(state.stale, { skill_registry: false, search_index: true, routing_benchmark: true });
   assert.deepEqual(
     planFirstRun({ present: state.present, stale: state.stale }).filter((step) => step.run).map((step) => step.id),
     ["skill_quality_report", "search_index", "routing_benchmark"]
@@ -213,6 +213,56 @@ test("the skill quality report is rebuilt only when the registry has moved past 
     .find((item) => item.id === "skill_quality_report");
   assert.equal(step.run, false, "the second start rebuilds nothing");
   assert.match(step.reason, /already built/);
+});
+
+test("a registry whose skills changed on disk is rebuilt, and everything built from it (Д-119)", async (t) => {
+  // What a pull that removes a skill leaves: the generated registry still
+  // lists it, the file is gone. Before, setup said "already built" to all four.
+  const registry = JSON.stringify([
+    { name: "kept", path: "sources/custom/kept/SKILL.md" },
+    { name: "gone", path: "sources/custom/gone/SKILL.md" }
+  ]);
+  const root = await makeVault(t, {
+    "03-skills-catalog/sources/custom/kept/SKILL.md": "# kept\n",
+    "03-skills-catalog/sources/custom/gone/SKILL.md": "# gone\n",
+    "03-skills-catalog/registries/skills.index.json": registry,
+    "03-skills-catalog/registries/skill-routing-eval.json": "{}",
+    "03-skills-catalog/registries/skill-quality.index.json": "{}",
+    "cache/ai-dev-search.sqlite": "",
+    "cases.json": "[]"
+  });
+  const catalog = path.join(root, "03-skills-catalog");
+  const past = new Date(Date.now() - 120_000);
+  for (const relative of ["sources/custom/kept/SKILL.md", "sources/custom/gone/SKILL.md", "sources/custom/kept", "sources/custom/gone", "sources/custom", "sources"]) {
+    await fs.utimes(path.join(catalog, relative), past, past);
+  }
+  const later = new Date(Date.now() + 60_000);
+  for (const name of ["skill-routing-eval.json", "skill-quality.index.json"]) {
+    await fs.utimes(path.join(catalog, "registries", name), later, later);
+  }
+  const paths = requiredArtefactPaths({ vaultRoot: root, searchIndexPath: path.join(root, "cache", "ai-dev-search.sqlite") });
+  let asked = 0;
+  const read = () => readRequiredState({
+    paths,
+    callTool: async () => { asked += 1; return toolResult({ stale: false, dense_documents: 0 }); },
+    serverRoot: path.resolve("."),
+    skillRoutingEvalCasesPath: path.join(root, "cases.json")
+  });
+
+  const current = await read();
+  assert.equal(current.stale.skill_registry, false, "nothing changed: the registry is current");
+  assert.equal(asked, 1);
+
+  await fs.rm(path.join(catalog, "sources", "custom", "gone"), { recursive: true });
+  const pulled = await read();
+  assert.deepEqual(pulled.stale, {
+    skill_registry: true, search_index: true, routing_benchmark: true, skill_quality_report: true
+  });
+  assert.equal(asked, 1, "the index is not asked: that call would rebuild the registry itself");
+  assert.deepEqual(
+    planFirstRun({ present: pulled.present, stale: pulled.stale }).filter((step) => step.run).map((step) => step.id),
+    [...REQUIRED_STEP_IDS]
+  );
 });
 
 test("running a plan reports every step, including the ones this caller cannot run", async () => {

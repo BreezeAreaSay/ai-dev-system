@@ -337,6 +337,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A pull that removes skills takes them out of routing and search** (`docs/DEFECTS.md`,
+  Д-119). The generated skill registry never counted as out of date: after `git pull`,
+  `npm ci` and `npm run setup` — the documented update — setup answered "already built",
+  and the skills the pull deleted went on being recommended (`recommend_skills` named
+  `stripe` for a payments task), found, and indexed from the registry (3,444 documents
+  where the pulled catalogue has 825). The server now compares the registry with the
+  `SKILL.md` files and the folders above them and rebuilds it before reading it, and the
+  search index asks for that before its status and rebuild; setup rebuilds an out-of-date
+  registry and everything built from it; a subgroup that lost its skills loses its
+  generated note. `npm run upgrade:test` checks it: 62 of 62.
+
 - **A damaged search index no longer stops search for good** (docs/DEFECTS.md, Д-116).
   A file that is not a database was the answer to every `status` and `rebuild`
   until someone deleted it; it is now reported (`index_unreadable`), set aside as

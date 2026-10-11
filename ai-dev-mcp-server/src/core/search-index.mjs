@@ -70,6 +70,8 @@ export function chooseSearchEngine({ env = process.env, support = sqliteSupport 
  * @param {(payload: object, options?: object) => Promise<object>} deps.embedQuery - Dense query embedding.
  * @param {() => Promise<object[]>} deps.hardNegativeRules - Reranker guardrails.
  * @param {() => Promise<object[]>} deps.readSkillIndex - Registry, for intent routing.
+ * @param {() => Promise<unknown>} [deps.refreshSkillRegistry] - Rebuilds the skill registry when
+ *   its skills changed on disk; the index's skill documents are read from it (docs/DEFECTS.md, Д-119).
  * @param {object} deps.ranking - Pure ranking collaborators.
  * @returns {object} The runtime.
  */
@@ -100,6 +102,7 @@ export function createSearchIndexRuntime({
   denseIndexBackend,
   hardNegativeRules,
   readSkillIndex,
+  refreshSkillRegistry = async () => {},
   ranking,
   env = process.env
 }) {
@@ -180,8 +183,14 @@ export function createSearchIndexRuntime({
     }
   }
 
+  /** The skill registry brought up to date first; a failure there leaves the registry as it is. */
+  async function freshRegistry() {
+    await Promise.resolve().then(refreshSkillRegistry).catch(() => {});
+  }
+
   /** What the index holds against what the vault says: counts, schema, staleness. */
   async function status({ include_external_project_files = true } = {}) {
+    await freshRegistry();
     const chosen = engine();
     let result;
     if (chosen.engine === "node") {
@@ -276,6 +285,7 @@ export function createSearchIndexRuntime({
     preserve_dense = true,
     in_place = false
   } = {}) {
+    await freshRegistry();
     await fs.mkdir(searchIndexDir, { recursive: true });
     const chosen = engine();
     // Which backend embeds decides who writes. The ONNX one embeds in this

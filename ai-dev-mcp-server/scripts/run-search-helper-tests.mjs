@@ -11,6 +11,11 @@
  * gated nothing: no npm script and no CI job ran them, which is why this file
  * exists.
  *
+ * The Node engine that now writes and reads the index where `node:sqlite` has
+ * FTS5 has its own port of the same cases, `src/core/search-freshness.test.mjs`;
+ * this suite still guards the helper, which hybrid search and the galaxy export
+ * use until phase 4 of the program and which older Node versions fall back to.
+ *
  * Python is optional for this repository — a checkout that never builds the
  * embedding environment does not have it — so a missing interpreter is a skip
  * with the reason printed, never a failure. CI runs the same suite directly on

@@ -4,12 +4,12 @@
  * Planning, embedding and writing are three steps, each where it belongs:
  *
  *   1. `densePlan` (`search-store.mjs`) collects the documents and returns only
- *      the passages whose vectors are missing or stale for this backend,
+ *      the passages whose vectors are missing or stale for this model,
  *      revision and dtype;
- *   2. this module embeds them in batches through the installed backend — the
- *      ONNX model in a worker thread (docs/DEFECTS.md, Д-62), or the legacy
- *      Python worker while it lasts;
- *   3. `rebuildIndex` writes them with the rebuild, loading no model at all.
+ *   2. this module embeds them in batches through the ONNX model in a worker
+ *      thread (docs/DEFECTS.md, Д-62);
+ *   3. `storeDenseVectors` writes each slice as it is done, and the closing
+ *      rebuild keeps them — so a cancelled run keeps what it embedded.
  *
  * A document edited between (1) and (3) has a different content hash by then,
  * so the writer declines the stale vector and counts the document as pending
@@ -20,6 +20,9 @@
 /** Most passages to hand the backend in one call. */
 export const DENSE_PLAN_BATCH = 16;
 
+/** Passages embedded between two writes to the index: what a cancel or a crash can cost. */
+export const DENSE_COMMIT_EVERY = 64;
+
 /**
  * Turn a plan into vectors.
  *
@@ -29,12 +32,14 @@ export const DENSE_PLAN_BATCH = 16;
  * @param {number} deps.dimensions - What the manifest promises.
  * @param {number} [deps.batchSize]
  * @param {(done: number, total: number) => void} [deps.onProgress]
+ * @param {AbortSignal} [deps.signal] - Checked before each batch.
  * @returns {Promise<object[]>} `{ id, content_hash, vector }`.
  */
-export async function embedDensePlan({ records, embed, dimensions, batchSize = DENSE_PLAN_BATCH, onProgress }) {
+export async function embedDensePlan({ records, embed, dimensions, batchSize = DENSE_PLAN_BATCH, onProgress, signal }) {
   const limit = Math.max(1, Number(batchSize) || DENSE_PLAN_BATCH);
   const vectors = [];
   for (let index = 0; index < records.length; index += limit) {
+    if (signal?.aborted) throw Object.assign(new Error("Embedding cancelled."), { name: "AbortError", cancelled: true });
     const slice = records.slice(index, index + limit);
     const answer = await embed(slice.map((record) => record.text));
     const rows = answer?.embeddings ?? [];

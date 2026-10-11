@@ -248,15 +248,27 @@ function semanticCandidates(db, filters, cache) {
   return rows.map((row) => ({ id: row.id, entry: cache.documents.get(row.id) })).filter((row) => row.entry);
 }
 
-/** The documents a filter admits that have a dense vector, with it. */
-function denseCandidates(db, filters, cache) {
+/**
+ * The documents a filter admits that have a dense vector, with it — only
+ * vectors from the model that embedded the question, when the caller says
+ * which: a 2.x index holds the Python backend's fp32 vectors, and a dot
+ * product across two models ranks by nothing (decision D3, docs/DEFECTS.md,
+ * Д-98). Those wait for `npm run setup -- --dense` to embed them again.
+ */
+function denseCandidates(db, filters, cache, provenance = null) {
+  const where = [...filters.where];
+  const params = [...filters.params];
+  if (provenance) {
+    where.push("v.backend = ?", "v.revision = ?", "v.dtype = ?");
+    params.push(String(provenance.backend), String(provenance.revision), String(provenance.dtype));
+  }
   const rows = db.prepare(`
     SELECT d.id AS id, v.content_hash AS dense_hash, v.backend AS backend, v.revision AS revision,
       v.dtype AS dtype, v.mtime AS mtime, v.dimensions AS dimensions, octet_length(v.vector) AS bytes
     FROM documents d
     JOIN dense_vectors v ON v.id = d.id
-    ${whereClause(filters)}
-  `).all(...filters.params);
+    ${whereClause({ where })}
+  `).all(...params);
   const read = db.prepare("SELECT vector FROM dense_vectors WHERE id = ?");
   const result = [];
   for (const row of rows) {
@@ -349,6 +361,7 @@ function sortByScore(ranked) {
  * @param {number} [options.keywordWeight]
  * @param {number} [options.denseWeight]
  * @param {ArrayLike<number>|null} [options.denseQueryVector] - The question embedded by the caller; without it the dense half does not run.
+ * @param {{ backend: string, revision: string, dtype: string }|null} [options.denseProvenance] - The model that embedded the question; only its vectors are compared.
  * @param {ReturnType<typeof createHybridCache>} [options.cache]
  * @returns {object[]} results with `score`, `keyword_score`, `semantic_score`, `dense_score` and `mode: "hybrid"`
  */
@@ -380,6 +393,7 @@ function rankHybrid(db, {
   keywordWeight = HYBRID_DEFAULT_WEIGHTS.keyword,
   denseWeight = HYBRID_DEFAULT_WEIGHTS.dense,
   denseQueryVector = null,
+  denseProvenance = null,
   cache = createHybridCache()
 }) {
   const question = pythonStrip(String(query ?? ""));
@@ -439,7 +453,7 @@ function rankHybrid(db, {
 
   if (denseQuery && dense > 0) {
     const denseRanked = [];
-    for (const { id, vector } of denseCandidates(db, filters, cache)) {
+    for (const { id, vector } of denseCandidates(db, filters, cache, denseProvenance)) {
       const score = denseDot(denseQuery, vector);
       if (score > 0) denseRanked.push({ id, score });
     }

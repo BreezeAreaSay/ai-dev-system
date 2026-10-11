@@ -211,6 +211,13 @@ test("dense vectors count when the index has them and the caller embedded the qu
   assert.ok(wrongWidth.every((item) => item.dense_score === 0), "a vector of another width scores nothing");
   const zeroWeight = hybridSearch(db, { query: "pull request", limit: 10, denseQueryVector: query, denseWeight: 0 });
   assert.ok(zeroWeight.every((item) => item.dense_score === 0));
+
+  // Vectors from another model — a 2.x index's Python fp32 ones — are not in
+  // the question's space and are not compared with it (D3, Д-98).
+  const same = hybridSearch(db, { query: "pull request", limit: 10, denseQueryVector: query, denseProvenance: provenance });
+  assert.equal(same.find((item) => item.path === "07-quality-gates/release-gate.md")?.dense_score, 1);
+  const other = hybridSearch(db, { query: "pull request", limit: 10, denseQueryVector: query, denseProvenance: { backend: "python", revision: "unpinned", dtype: "fp32" } });
+  assert.ok(other.every((item) => item.dense_score === 0), "another model's vectors score nothing");
 });
 
 /**

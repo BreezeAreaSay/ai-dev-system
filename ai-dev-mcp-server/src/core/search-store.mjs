@@ -616,6 +616,78 @@ export async function rebuildIndex(options) {
 }
 
 /**
+ * Store vectors for documents already in the index, and nothing else: no
+ * document is rewritten and no other vector is touched.
+ *
+ * Embedding a vault takes minutes, and a rebuild writes once at the end — so
+ * a cancel, a crash or a closed laptop lost every vector of the run. This is
+ * the write in between: a batch at a time, each committed, with `meta` saying
+ * what the vectors are, so a later rebuild keeps them and the next embedding
+ * run starts where this one stopped (docs/DEFECTS.md, Д-98). A vector for a
+ * document the index does not have is skipped; the closing rebuild drops any
+ * whose passage has changed since.
+ *
+ * @param {object} options
+ * @param {string} options.indexPath
+ * @param {Array<{ id: string, content_hash: string, vector: number[] }>} options.vectors
+ * @param {{ backend?: string, revision?: string, dtype?: string }} options.provenance
+ * @param {number} [options.textLimit] - Of the plan the vectors came from.
+ * @param {boolean} [options.includeMembrane]
+ * @param {number} [options.eligible] - Documents the plan wants a vector for.
+ * @param {NodeJS.ProcessEnv} [options.env]
+ * @returns {Promise<{ stored: number, documents: number, pending: number }>}
+ */
+export async function storeDenseVectors({ indexPath, vectors, provenance = {}, textLimit = DEFAULT_DENSE_TEXT_LIMIT, includeMembrane = false, eligible = 0, env }) {
+  return withRebuildLock(indexPath, async () => {
+    const db = await openWriter(indexPath);
+    try {
+      if (!tableExists(db, "documents") || !tableExists(db, "meta")) throw new Error(`Search index has no documents yet: ${indexPath}. Rebuild it first.`);
+      await beginImmediate(db);
+      try {
+        ensureDenseTable(db);
+        const full = fullProvenance(provenance);
+        const documentAt = db.prepare("SELECT mtime FROM documents WHERE id = ?");
+        const replace = db.prepare(`INSERT OR REPLACE INTO dense_vectors(${DENSE_COLUMNS.join(", ")}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        let stored = 0;
+        for (const entry of vectors) {
+          const document = documentAt.get(String(entry?.id ?? ""));
+          if (!document || !Array.isArray(entry.vector) || entry.vector.length !== DENSE_DIMENSIONS) continue;
+          replace.run(String(entry.id), vectorBlob(entry.vector), DENSE_DIMENSIONS, DENSE_MODEL_NAME, full.backend, full.revision, full.dtype,
+            String(entry.content_hash ?? ""), Number(document.mtime) || 0);
+          stored += 1;
+        }
+        const documents = db.prepare("SELECT count(*) AS n FROM dense_vectors WHERE backend = ? AND revision = ? AND dtype = ?")
+          .get(full.backend, full.revision, full.dtype).n;
+        const pending = Math.max(0, Number(eligible) - documents);
+        const upsert = db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)");
+        for (const [key, value] of Object.entries({
+          dense_enabled: "true",
+          dense_backend: full.backend,
+          dense_revision: full.revision,
+          dense_dtype: full.dtype,
+          dense_text_limit: textLimit,
+          dense_include_membrane: includeMembrane ? "true" : "false",
+          dense_documents: documents,
+          dense_eligible_documents: eligible,
+          dense_pending_documents: pending
+        })) upsert.run(key, String(value));
+        db.exec("COMMIT");
+        return { stored, documents, pending };
+      } catch (error) {
+        try {
+          db.exec("ROLLBACK");
+        } catch {
+          // The transaction is already gone.
+        }
+        throw error;
+      }
+    } finally {
+      db.close();
+    }
+  }, { env });
+}
+
+/**
  * Which documents still need a dense vector for this backend, revision and
  * dtype — the helper's `dense-plan`, for an embedder that lives elsewhere.
  *

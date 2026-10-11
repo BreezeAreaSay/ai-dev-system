@@ -2,15 +2,23 @@
  * The sqlite search index: keeping it fresh, querying it, and merging the
  * hybrid ranking on top of what the Python helper returns.
  *
- * The index itself lives in `09-mcp/search-index/search_cli.py`; this module
- * owns when to rebuild it, what to ask it, and what to do with the answer. Three
- * things make the answer more than a passthrough: the dense query vector, which
- * is embedded here and handed to the helper as a file; the rerankers, which
- * re-order results against the golden cases; and deterministic intent routing,
- * which can put a routed workflow skill above everything the index found.
+ * Two engines write and read the same file. Node's own (`search-store.mjs`,
+ * `search-query.mjs`) serves status, rebuilds and keyword search wherever
+ * `node:sqlite` has FTS5 — Node 22.16+ and 24+. Elsewhere, or with
+ * `AI_DEV_SEARCH_ENGINE=python`, the Python helper (`search_cli.py`) does, as it
+ * did in 2.x. Hybrid search, the galaxy export and the legacy Python dense
+ * backend stay with the helper for now, reading whichever engine wrote the
+ * file: the format is the same to the byte.
+ *
+ * Three things make a hybrid answer more than a passthrough: the dense query
+ * vector, which is embedded here and handed to the helper as a file; the
+ * rerankers, which re-order results against the golden cases; and
+ * deterministic intent routing, which can put a routed workflow skill above
+ * everything the index found.
  *
  * Freshness is tracked, not recomputed: writers call `markDirty()` and the next
- * search rebuilds once. Concurrent searches share one rebuild.
+ * search refreshes once — in place, with the Node engine, rewriting only what
+ * changed. Concurrent searches share one refresh.
  *
  * Nothing here is pure. The preset resolution and the score explanations that
  * sit around it are in `src/core/search-runtime.mjs`.
@@ -19,15 +27,32 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { atomicWriteJson } from "./atomic-files.mjs";
-import { denseProvenanceArgs, planAndEmbedDenseVectors } from "./dense-index.mjs";
+import { denseProvenanceArgs, embedDensePlan, planAndEmbedDenseVectors } from "./dense-index.mjs";
+import { createDocumentCache } from "./search-documents.mjs";
+import { keywordSearch, MAX_RESULTS } from "./search-query.mjs";
+import { createIndexReader, sqliteSupport } from "./search-sqlite.mjs";
+import { densePlan, indexStatus, rebuildIndex } from "./search-store.mjs";
 import { csvValue, stripBom } from "./text-format.mjs";
 import { pythonFailureMessage } from "./python-failure.mjs";
 
 /** How long a fresh-index verdict is trusted before it is checked again. */
 const FRESHNESS_CACHE_MS = 1000;
 
-/** Result ceiling per request, whatever the caller asks for. */
-const MAX_RESULTS = 50;
+/**
+ * Which engine serves status, rebuilds and keyword search: Node's own where
+ * `node:sqlite` has FTS5, the Python helper otherwise. `AI_DEV_SEARCH_ENGINE=python`
+ * forces the helper — the way back if the Node engine misbehaves somewhere.
+ *
+ * @param {{ env?: NodeJS.ProcessEnv, support?: () => { available: boolean, reason: string } }} [options]
+ * @returns {{ engine: "node"|"python", reason: string }}
+ */
+export function chooseSearchEngine({ env = process.env, support = sqliteSupport } = {}) {
+  if (String(env.AI_DEV_SEARCH_ENGINE ?? "").trim().toLowerCase() === "python") {
+    return { engine: "python", reason: "AI_DEV_SEARCH_ENGINE=python" };
+  }
+  const { available, reason } = support();
+  return available ? { engine: "node", reason: "" } : { engine: "python", reason };
+}
 
 /**
  * Create the search index runtime.
@@ -75,7 +100,8 @@ export function createSearchIndexRuntime({
   denseIndexBackend,
   hardNegativeRules,
   readSkillIndex,
-  ranking
+  ranking,
+  env = process.env
 }) {
   const {
     repairSearchMojibake,
@@ -89,6 +115,36 @@ export function createSearchIndexRuntime({
   let dirtyReason = "";
   let lastStatus = null;
   let lastStatusAt = 0;
+  let selected = null;
+  let indexReader = null;
+  const documentCache = createDocumentCache();
+
+  /** The engine, chosen on first use and kept: one process does not switch mid-flight. */
+  function engine() {
+    selected ??= chooseSearchEngine({ env });
+    return selected;
+  }
+
+  /** The long-lived read connection the Node engine searches through. */
+  function reader() {
+    indexReader ??= createIndexReader(searchIndexPath);
+    return indexReader;
+  }
+
+  /** Let go of the file, so a damaged one can be renamed away even on Windows. */
+  function closeReader() {
+    indexReader?.close();
+    indexReader = null;
+  }
+
+  /** Which engine answered, on what the caller gets back. */
+  function stamped(result, { engine: name, reason }) {
+    if (result && typeof result === "object" && !Array.isArray(result)) {
+      result.engine = name;
+      if (reason) result.engine_reason = reason;
+    }
+    return result;
+  }
 
   /**
    * Record that something a search would read has changed. The cached freshness
@@ -124,19 +180,84 @@ export function createSearchIndexRuntime({
     }
   }
 
-  /** What the helper thinks of the index: counts, schema, staleness. */
+  /** What the index holds against what the vault says: counts, schema, staleness. */
   async function status({ include_external_project_files = true } = {}) {
-    const args = [
-      "status",
-      "--vault-root",
-      vaultRoot,
-      "--index-path",
-      searchIndexPath
-    ];
-    if (include_external_project_files) args.push("--include-external-project-files");
-    const result = await runSearchCli(args, { timeoutMs: 120000, command: pythonCommand() });
+    const chosen = engine();
+    let result;
+    if (chosen.engine === "node") {
+      result = await indexStatus({
+        vaultRoot,
+        indexPath: searchIndexPath,
+        includeExternalProjectFiles: Boolean(include_external_project_files),
+        cache: documentCache,
+        reader: reader()
+      });
+    } else {
+      const args = [
+        "status",
+        "--vault-root",
+        vaultRoot,
+        "--index-path",
+        searchIndexPath
+      ];
+      if (include_external_project_files) args.push("--include-external-project-files");
+      result = await runSearchCli(args, { timeoutMs: 120000, command: pythonCommand() });
+    }
     result.dirty_reason = dirtyReason;
-    return result;
+    return stamped(result, chosen);
+  }
+
+  /**
+   * A rebuild by the Node engine. With dense embeddings the passages that need
+   * a vector are planned here, embedded by the ONNX backend and written in the
+   * same rebuild — no files handed between processes.
+   */
+  async function rebuildWithNode({ include_external_project_files, dense_embeddings, plan, dense_batch_size, dense_text_limit,
+    dense_include_membrane, dense_incremental, preserve_dense, dense_model_dir, in_place }) {
+    const textLimit = Math.max(300, Math.min(Number(dense_text_limit) || 1200, 12000));
+    const batchSize = Math.max(1, Math.min(Number(dense_batch_size) || 8, 32));
+    let suppliedVectors = [];
+    let planned = null;
+    if (dense_embeddings) {
+      planned = await densePlan({
+        vaultRoot,
+        indexPath: searchIndexPath,
+        includeExternalProjectFiles: Boolean(include_external_project_files),
+        textLimit,
+        includeMembrane: Boolean(dense_include_membrane),
+        incremental: dense_incremental !== false,
+        provenance: plan.provenance
+      });
+      suppliedVectors = planned.records.length
+        ? await embedDensePlan({
+          records: planned.records,
+          embed: (texts) => embedQuery({ texts, normalize: true, include_embeddings: true, batch_size: batchSize }, { timeoutMs: 3600000 }),
+          dimensions: plan.provenance.dimensions,
+          batchSize
+        })
+        : [];
+    }
+    closeReader();
+    const rebuilt = await rebuildIndex({
+      vaultRoot,
+      indexPath: searchIndexPath,
+      includeExternalProjectFiles: Boolean(include_external_project_files),
+      inPlace: Boolean(in_place) && !dense_embeddings,
+      preserveDense: !dense_embeddings && Boolean(preserve_dense),
+      denseEmbeddings: Boolean(dense_embeddings),
+      suppliedVectors,
+      denseModelDir: path.resolve(String(dense_model_dir || defaultModelDir)),
+      denseTextLimit: dense_embeddings ? textLimit : 1200,
+      denseIncludeMembrane: Boolean(dense_embeddings && dense_include_membrane),
+      denseIncremental: dense_incremental !== false,
+      ...(plan ? { denseBackend: plan.provenance.backend, denseRevision: plan.provenance.revision, denseDtype: plan.provenance.dtype } : {}),
+      env
+    });
+    if (planned) {
+      rebuilt.dense_planned_documents = planned.records.length;
+      rebuilt.dense_embedded_documents = suppliedVectors.length;
+    }
+    return rebuilt;
   }
 
   /**
@@ -152,9 +273,27 @@ export function createSearchIndexRuntime({
     dense_text_limit = 1200,
     dense_include_membrane = false,
     dense_incremental = true,
-    preserve_dense = true
+    preserve_dense = true,
+    in_place = false
   } = {}) {
     await fs.mkdir(searchIndexDir, { recursive: true });
+    const chosen = engine();
+    // Which backend embeds decides who writes. The ONNX one embeds in this
+    // process, so either engine can store its vectors; the legacy one loads its
+    // model inside the Python helper, which then writes the index itself
+    // (docs/DEFECTS.md, Д-62).
+    const plan = dense_embeddings && denseIndexBackend ? await denseIndexBackend.describe() : null;
+    const useOnnx = Boolean(plan && plan.backend === "onnx" && plan.available);
+    if (chosen.engine === "node" && (!dense_embeddings || useOnnx)) {
+      const rebuilt = await rebuildWithNode({
+        include_external_project_files, dense_embeddings, plan, dense_batch_size, dense_text_limit,
+        dense_include_membrane, dense_incremental, preserve_dense, dense_model_dir, in_place
+      });
+      dirtyReason = "";
+      lastStatus = null;
+      lastStatusAt = 0;
+      return stamped(rebuilt, chosen);
+    }
     const args = [
       "rebuild",
       "--vault-root",
@@ -165,13 +304,9 @@ export function createSearchIndexRuntime({
     if (include_external_project_files) args.push("--include-external-project-files");
     if (!dense_embeddings && preserve_dense) args.push("--preserve-dense");
 
-    // Which backend embeds decides which interpreter runs the helper. The ONNX
-    // one embeds here and hands the helper its numbers, so the helper needs no
-    // more than a stdlib Python; the legacy one loads its model inside the
-    // helper, which is why that path still needs the virtualenv
-    // (docs/DEFECTS.md, Д-62).
-    const plan = dense_embeddings && denseIndexBackend ? await denseIndexBackend.describe() : null;
-    const useOnnx = Boolean(plan && plan.backend === "onnx" && plan.available);
+    // The helper's interpreter: the ONNX backend hands it numbers, so a stdlib
+    // Python does; the legacy backend loads its model inside the helper, which
+    // is why that path still needs the virtualenv.
     let vectorsPath = "";
     let denseNote = null;
 
@@ -232,7 +367,7 @@ export function createSearchIndexRuntime({
         rebuilt.dense_planned_documents = denseNote.planned;
         rebuilt.dense_embedded_documents = denseNote.embedded;
       }
-      return rebuilt;
+      return stamped(rebuilt, chosen);
     } finally {
       if (vectorsPath) await fs.rm(vectorsPath, { force: true }).catch(() => {});
     }
@@ -268,7 +403,8 @@ export function createSearchIndexRuntime({
       const rebuilt = await rebuild({
         include_external_project_files: true,
         dense_embeddings: false,
-        preserve_dense: true
+        preserve_dense: true,
+        in_place: true
       });
       const refreshed = await status({ include_external_project_files: true });
       lastStatus = refreshed;
@@ -310,6 +446,20 @@ export function createSearchIndexRuntime({
       throw new Error("query is required.");
     }
     if (ensure_fresh) await ensureFresh();
+    const capped = Math.max(1, Math.min(Number(limit) || 10, MAX_RESULTS));
+    if (engine().engine === "node") {
+      const results = await reader().read((db) => keywordSearch(db, {
+        query,
+        scope: scope || "all",
+        limit: capped,
+        project: project || "",
+        source: csvValue(source),
+        categories: csvValue(categories),
+        folders: csvValue(folders)
+      }));
+      if (results === null) throw new Error(`Search index does not exist: ${searchIndexPath}`);
+      return results;
+    }
     return runSearchCli([
       "search",
       "--index-path",
@@ -319,7 +469,7 @@ export function createSearchIndexRuntime({
       "--scope",
       scope || "all",
       "--limit",
-      String(Math.max(1, Math.min(Number(limit) || 10, MAX_RESULTS))),
+      String(capped),
       "--project",
       project || "",
       "--source",
@@ -500,5 +650,15 @@ export function createSearchIndexRuntime({
     }
   }
 
-  return { markDirty, dirtyReason: dirtyReasonNow, status, rebuild, ensureFresh, search, hybridSearch, exportGalaxy };
+  return {
+    markDirty,
+    dirtyReason: dirtyReasonNow,
+    status,
+    rebuild,
+    ensureFresh,
+    search,
+    hybridSearch,
+    exportGalaxy,
+    engine: () => ({ ...engine() })
+  };
 }

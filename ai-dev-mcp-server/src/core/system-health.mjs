@@ -259,11 +259,18 @@ export function evaluateSearchIndexFile(status) {
  * @param {object} status - `search_index_status` payload.
  */
 export function evaluateSearchIndexFreshness(status) {
+  // Vectors another model made are kept but never compared: the documents
+  // look embedded and the dense half of every search skips them (Д-148).
+  const other = Number(status.dense_other_model_documents || 0);
+  const otherModel = other
+    ? ` ${other} document(s) have dense vectors of another model, which hybrid search does not compare; `
+      + "run `npm run setup -- --dense` to embed them with the installed one."
+    : "";
   return {
-    status: status.stale ? "warn" : "ok",
-    summary: status.stale
+    status: status.stale || other ? "warn" : "ok",
+    summary: (status.stale
       ? `Search index is stale: ${status.added_count} added, ${status.changed_count} changed, ${status.deleted_count} deleted.`
-      : `Search index is current with ${status.current_document_count} document(s).`,
+      : `Search index is current with ${status.current_document_count} document(s).`) + otherModel,
     details: status
   };
 }

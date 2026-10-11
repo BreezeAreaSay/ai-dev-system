@@ -408,7 +408,12 @@ function rankHybrid(db, {
 
   const denseAvailable = tableExists(db, "dense_vectors") && tableExists(db, "meta")
     && String(db.prepare("SELECT value FROM meta WHERE key = 'dense_enabled'").get()?.value ?? "false") === "true";
-  const denseQuery = denseAvailable && dense > 0 && denseQueryVector?.length ? Float32Array.from(denseQueryVector) : null;
+  let denseQuery = denseAvailable && dense > 0 && denseQueryVector?.length ? Float32Array.from(denseQueryVector) : null;
+  // Not one stored vector of the question's model: the dense half has nothing
+  // to compare, so it is left out of the weights rather than scoring everyone
+  // zero, and the caller is told (docs/DEFECTS.md, Д-148).
+  const unmatched = Boolean(denseQuery && denseProvenance && !hasDenseVectorsOf(db, denseProvenance));
+  if (unmatched) denseQuery = null;
   if (!denseQuery) dense = 0;
 
   let total = keyword + semantic + dense;
@@ -495,5 +500,13 @@ function rankHybrid(db, {
   combined.sort((left, right) => right.score - left.score || comparePythonStrings(left.path, right.path));
   const shown = collapseSearchResults(combined).slice(0, capped);
   const snippets = snippetsFor(db, match, shown.map((item) => item[DOCUMENT_ID]).filter((id) => keywordScores.has(id)));
-  return shown.map(({ [DOCUMENT_ID]: id, ...item }) => (snippets.get(id) ? { ...item, preview: snippets.get(id) } : item));
+  const answer = shown.map(({ [DOCUMENT_ID]: id, ...item }) => (snippets.get(id) ? { ...item, preview: snippets.get(id) } : item));
+  if (unmatched) Object.defineProperty(answer, "dense_unmatched", { value: true, enumerable: false });
+  return answer;
+}
+
+/** Whether any stored vector was made by this model. */
+function hasDenseVectorsOf(db, provenance) {
+  return Boolean(db.prepare("SELECT 1 FROM dense_vectors WHERE backend = ? AND revision = ? AND dtype = ? LIMIT 1")
+    .get(String(provenance.backend), String(provenance.revision), String(provenance.dtype)));
 }

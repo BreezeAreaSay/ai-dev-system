@@ -183,6 +183,11 @@ test("search index freshness reports drift counts", () => {
   const fresh = evaluateSearchIndexFreshness({ stale: false, current_document_count: 900 });
   assert.equal(fresh.status, "ok");
   assert.match(fresh.summary, /900 document\(s\)/);
+  // Current documents, but their vectors are another model's: a warning with the command (Д-148).
+  const otherModel = evaluateSearchIndexFreshness({ stale: false, current_document_count: 825, dense_other_model_documents: 365 });
+  assert.equal(otherModel.status, "warn");
+  assert.equal(otherModel.summary, "Search index is current with 825 document(s). 365 document(s) have dense vectors of another model, "
+    + "which hybrid search does not compare; run `npm run setup -- --dense` to embed them with the installed one.");
 });
 
 test("frontend QA runner check needs both the runner and its manifest", () => {

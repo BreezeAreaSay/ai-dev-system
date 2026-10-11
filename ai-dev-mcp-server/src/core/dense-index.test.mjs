@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DENSE_PLAN_BATCH, embedDensePlan } from "./dense-index.mjs";
+import { DENSE_PLAN_BATCH, denseCoverage, embedDensePlan } from "./dense-index.mjs";
 
 const records = (count) => new Array(count).fill(0).map((_value, index) => ({
   id: `doc-${index}`,
@@ -85,4 +85,26 @@ test("the default batch size is the documented one", async () => {
     dimensions: 4
   });
   assert.deepEqual(seen, [DENSE_PLAN_BATCH, 1]);
+});
+
+test("coverage counts the current model's vectors; another model's wait for --dense (Д-148)", () => {
+  const onnx = { backend: "onnx", revision: "4de1", dtype: "int8" };
+  const python = { backend: "python", revision: "unpinned", dtype: "fp32" };
+  const status = () => ({
+    dense_documents: 365,
+    dense_pending_documents: 0,
+    dense_eligible_documents: 365,
+    dense_models: [{ ...python, documents: 300 }, { ...onnx, documents: 65 }]
+  });
+  const mixed = denseCoverage(status(), onnx);
+  assert.deepEqual([mixed.dense_documents, mixed.dense_pending_documents, mixed.dense_other_model_documents], [65, 300, 300]);
+  const fromPython = denseCoverage({ ...status(), dense_models: [{ ...python, documents: 365 }] }, onnx);
+  assert.deepEqual([fromPython.dense_documents, fromPython.dense_pending_documents, fromPython.dense_other_model_documents], [0, 365, 365]);
+  const current = denseCoverage({ ...status(), dense_models: [{ ...onnx, documents: 360 }], dense_pending_documents: 5 }, onnx);
+  assert.deepEqual([current.dense_documents, current.dense_pending_documents, current.dense_other_model_documents], [360, 5, 0]);
+  const noEligibleKey = denseCoverage({ dense_documents: 10, dense_pending_documents: 2, dense_models: [{ ...python, documents: 10 }] }, onnx);
+  assert.equal(noEligibleKey.dense_pending_documents, 12, "an index without the key: what it had plus what waited");
+  const untouched = { dense_documents: 7, dense_pending_documents: 1 };
+  assert.deepEqual(denseCoverage({ ...untouched }, onnx), untouched, "no per-model counts, nothing to say");
+  assert.deepEqual(denseCoverage({ ...status() }, null), status(), "no model to compare with, nothing changed");
 });

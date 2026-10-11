@@ -63,3 +63,30 @@ export async function embedDensePlan({ records, embed, dimensions, batchSize = D
   }
   return vectors;
 }
+
+/**
+ * The index's dense coverage as the model that answers now sees it.
+ *
+ * Hybrid search compares only vectors of the model that embeds the question
+ * (`backend/revision/dtype`), so a vector another model made — the 2.x Python
+ * backend's, an older revision's — is a document still waiting for one, not a
+ * document that has one. Counted that way, `setup -- --dense` re-embeds them
+ * instead of calling the step done (docs/DEFECTS.md, Д-148).
+ *
+ * @param {object} status - `search_index_status`, with `dense_models` from the store.
+ * @param {{ backend: string, revision: string, dtype: string }|null} provenance - The current model's.
+ * @returns {object} The same status: `dense_documents` and `dense_pending_documents`
+ *   for the current model, `dense_other_model_documents` for the rest.
+ */
+export function denseCoverage(status, provenance) {
+  const models = Array.isArray(status?.dense_models) ? status.dense_models : null;
+  if (!models || !provenance?.backend) return status;
+  const same = (entry) => entry.backend === provenance.backend && entry.revision === provenance.revision && entry.dtype === provenance.dtype;
+  const current = models.filter(same).reduce((sum, entry) => sum + entry.documents, 0);
+  const other = models.filter((entry) => !same(entry)).reduce((sum, entry) => sum + entry.documents, 0);
+  const eligible = Number(status.dense_eligible_documents) || Number(status.dense_documents || 0) + Number(status.dense_pending_documents || 0);
+  status.dense_documents = current;
+  status.dense_other_model_documents = other;
+  status.dense_pending_documents = Math.max(0, eligible - current);
+  return status;
+}

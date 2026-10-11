@@ -399,6 +399,29 @@ test("a missing model degrades the search instead of ending it", async (t) => {
   assert.equal(Object.keys(results[0]).includes("dense_unavailable"), false);
 });
 
+test("vectors all from another model: the search says the dense half had nothing to compare (Д-148)", async (t) => {
+  const { runtime } = await createFixture(t, {
+    answers: { hybrid: () => Object.defineProperty([{ path: "a.md", title: "A", score: 1 }], "dense_unmatched", { value: true }) }
+  });
+  const results = await runtime.hybridSearch({ query: "operating model", dense_weight: 0.35, ensure_fresh: false });
+  assert.equal(results.dense_unavailable, "no indexed document has a vector of the installed model yet; `npm run setup -- --dense` embeds them");
+  assert.equal(JSON.parse(JSON.stringify(results)).length, 1);
+});
+
+test("status counts the current model's vectors and names another model's as waiting (Д-148)", async (t) => {
+  const python = { backend: "python", revision: "unpinned", dtype: "fp32" };
+  const { runtime } = await createFixture(t, {
+    answers: { status: { dense_documents: 365, dense_pending_documents: 0, dense_eligible_documents: 365, dense_models: [{ ...python, documents: 365 }] } }
+  });
+  const status = await runtime.status();
+  assert.deepEqual([status.dense_documents, status.dense_pending_documents, status.dense_other_model_documents], [0, 365, 365]);
+  const broken = await createFixture(t, {
+    answers: { status: { dense_documents: 5, dense_pending_documents: 0, dense_models: [{ ...python, documents: 5 }] } },
+    describe: async () => { throw new Error("no runtime"); }
+  });
+  assert.equal((await broken.runtime.status()).dense_documents, 5, "a backend that cannot answer leaves the index's own numbers");
+});
+
 test("a dense query that works leaves no complaint behind", async (t) => {
   const { runtime, of } = await createFixture(t, { answers: { hybrid: [{ path: "a.md", title: "A", score: 1 }] } });
   const results = await runtime.hybridSearch({ query: "operating model", dense_weight: 0.35, ensure_fresh: false });

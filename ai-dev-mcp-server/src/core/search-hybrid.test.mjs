@@ -218,6 +218,14 @@ test("dense vectors count when the index has them and the caller embedded the qu
   assert.equal(same.find((item) => item.path === "07-quality-gates/release-gate.md")?.dense_score, 1);
   const other = hybridSearch(db, { query: "pull request", limit: 10, denseQueryVector: query, denseProvenance: { backend: "python", revision: "unpinned", dtype: "fp32" } });
   assert.ok(other.every((item) => item.dense_score === 0), "another model's vectors score nothing");
+  // Not one vector of the question's model: the dense half is left out of the
+  // weights, as with no model at all, and the answer says why (Д-148).
+  assert.equal(other.dense_unmatched, true);
+  assert.equal(Object.keys(other).includes("dense_unmatched"), false, "not part of the JSON a client gets");
+  assert.deepEqual(other.map((item) => [item.path, item.score]), without.map((item) => [item.path, item.score]),
+    "ranked exactly as without a question vector");
+  assert.equal(same.dense_unmatched, undefined);
+  assert.equal(without.dense_unmatched, undefined, "no question vector is not the same thing");
 });
 
 /**

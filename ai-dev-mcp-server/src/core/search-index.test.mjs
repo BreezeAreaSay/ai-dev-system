@@ -5,6 +5,13 @@ import path from "node:path";
 import test from "node:test";
 import { createSearchIndexRuntime } from "./search-index.mjs";
 
+/**
+ * These tests drive the Python helper path, which stays the engine where
+ * `node:sqlite` lacks FTS5 and behind `AI_DEV_SEARCH_ENGINE=python`; the Node
+ * engine has its own tests in `search-index-node.test.mjs`.
+ */
+const PYTHON_ENGINE = { AI_DEV_SEARCH_ENGINE: "python" };
+
 /** Ranking collaborators that do nothing, so a test sees the raw merge. */
 const PASSTHROUGH_RANKING = {
   repairSearchMojibake: (value) => value,
@@ -29,6 +36,7 @@ async function createFixture(t, { responses = [], ranking = {}, exists = true, e
   const calls = [];
   const queue = [...responses];
   const runtime = createSearchIndexRuntime({
+    env: PYTHON_ENGINE,
     vaultRoot: "/vault",
     searchCliPath: "/vault/09-mcp/search-index/search_cli.py",
     searchIndexDir: path.join(root, "cache"),
@@ -66,6 +74,7 @@ test("a helper that answers with something other than JSON is a clear error", as
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "search-index-bad-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const runtime = createSearchIndexRuntime({
+    env: PYTHON_ENGINE,
     vaultRoot: "/vault",
     searchCliPath: "/cli.py",
     searchIndexDir: root,
@@ -172,6 +181,7 @@ test("a caller arriving mid-rebuild joins it instead of starting another", async
     unblock = resolve;
   });
   const runtime = createSearchIndexRuntime({
+    env: PYTHON_ENGINE,
     vaultRoot: "/vault",
     searchCliPath: "/cli.py",
     searchIndexDir: root,
@@ -304,6 +314,7 @@ test("a routed skill present in the registry is prepended and de-duplicated", as
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "search-index-routed-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const runtime = createSearchIndexRuntime({
+    env: PYTHON_ENGINE,
     vaultRoot: "/vault",
     searchCliPath: "/cli.py",
     searchIndexDir: root,

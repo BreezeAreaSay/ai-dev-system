@@ -331,3 +331,22 @@ test("the first run counts the documents the rebuild actually reported", async (
   });
   assert.equal(await actions.search_index(), "3442 document(s) indexed");
 });
+
+test("the vectors are not attempted after the model step failed, and say why (Д-98)", async () => {
+  const plan = planFirstRun({ present: {}, stale: {}, want: { dense_model: true, dense_index: true } });
+  const ran = [];
+  const results = await runFirstRunPlan(plan, {
+    dense_model: async () => { throw new Error("Could not fetch config.json: huggingface.co could not be resolved (ENOTFOUND)."); },
+    dense_index: async () => { ran.push("dense_index"); return "never"; }
+  });
+  const byId = Object.fromEntries(results.map((item) => [item.id, item]));
+  assert.equal(byId.dense_model.status, "failed");
+  assert.equal(byId.dense_index.status, "skipped");
+  assert.equal(byId.dense_index.reason, "not run: Local BGE-M3 model failed above, and this step needs it");
+  assert.deepEqual(ran, []);
+
+  // A model already installed is not "failed": the vectors run.
+  const installed = planFirstRun({ present: { dense_model: true }, stale: {}, want: { dense_model: true, dense_index: true } });
+  const again = await runFirstRunPlan(installed, { dense_index: async () => "12 document(s) embedded" });
+  assert.equal(again.find((item) => item.id === "dense_index").status, "done");
+});

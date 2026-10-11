@@ -16,24 +16,24 @@
  * into the vault, so building it after the index leaves the index stale the
  * moment the first run finishes (docs/DEFECTS.md, Д-63).
  *
- * And one thing is downloaded rather than built: the BGE-M3 weights, 2.3 GB,
- * which is a decision a person makes rather than something a setup command does
- * behind their back. So the model step exists here too, and it only ever runs
- * when it is asked for by name.
+ * And one thing is downloaded rather than built: the BGE-M3 model, about
+ * 600 MB, which is a decision a person makes rather than something a setup
+ * command does behind their back. So the model step exists here too, and it
+ * only ever runs when it is asked for by name.
  *
  * The weights on their own change nothing: documents are embedded during a
  * rebuild, not on the way past a query, so an install that downloaded the model
  * and stopped there had a working embedding backend and an index almost none of
  * whose documents had a vector — dense search answered from whatever had been
  * embedded before. Downloading the model and embedding with it are therefore
- * two steps behind the same flag.
+ * two steps behind the same flag — and the second needs the first: a vector
+ * step that ran after a failed download only failed again, with advice to run
+ * the command that had just failed (docs/DEFECTS.md, Д-98).
  *
  * This module decides *what* to do from what is already on disk. Doing it —
- * calling the tools, spawning pip — is `scripts/first-run.mjs`, so the plan can
+ * calling the tools, downloading — is `scripts/first-run.mjs`, so the plan can
  * be read and tested without building anything.
  */
-
-import path from "node:path";
 
 /** The steps, in the order a first run does them. */
 export const FIRST_RUN_STEPS = Object.freeze([
@@ -71,11 +71,10 @@ export const FIRST_RUN_STEPS = Object.freeze([
   Object.freeze({
     id: "dense_model",
     title: "Local BGE-M3 model",
-    // What `--dense` actually does since Д-62: the pinned ONNX export, checked
-    // against the manifest, run through Node. The Python stack and its 2.3 GB
-    // are `--dense-python` now, and describing them here told a user watching
-    // the download that they were getting something they were not.
-    detail: "About 600 MB of checksum-verified ONNX weights, for dense search and reranking. No Python.",
+    // The pinned ONNX export, checked against the manifest, run through Node;
+    // continued where a broken download stopped, through AI_DEV_MODEL_MIRROR
+    // and HTTPS_PROXY when they are set (Д-62, Д-98).
+    detail: "About 600 MB of checksum-verified ONNX weights for dense search; a broken download continues. No Python.",
     optional: true,
     flag: "--dense"
   }),
@@ -84,7 +83,9 @@ export const FIRST_RUN_STEPS = Object.freeze([
     title: "Dense vectors",
     detail: "Embeddings for the documents already indexed; the dense half of hybrid search reads them.",
     optional: true,
-    flag: "--dense"
+    flag: "--dense",
+    // Nothing to embed with until the model is there.
+    requires: "dense_model"
   })
 ]);
 
@@ -135,32 +136,6 @@ export function planFirstRun({ present = {}, stale = {}, want = {}, force = fals
 }
 
 /**
- * The interpreter a virtual environment keeps, on whichever platform this is.
- *
- * Windows puts it in `Scripts\python.exe`, everything else in `bin/python`.
- * The setup header hard-coded the POSIX one, so a Windows run printed an
- * interpreter path that could never exist and told the reader their model was
- * broken when it was not — the step itself already looked in both places.
- *
- * An environment that is not built yet has neither, so the answer is the one
- * this platform would create.
- *
- * @param {object} input
- * @param {string} input.venvDir
- * @param {string} [input.platform] - As `process.platform`.
- * @param {(target: string) => boolean} input.exists
- * @returns {string}
- */
-export function venvPythonPath({ venvDir, platform = process.platform, exists }) {
-  const candidates = [
-    path.join(venvDir, "bin", "python"),
-    path.join(venvDir, "Scripts", "python.exe")
-  ];
-  return candidates.find((candidate) => exists(candidate))
-    || (platform === "win32" ? candidates[1] : candidates[0]);
-}
-
-/**
  * How much of the index the dense half of hybrid search can actually see.
  *
  * Zero and zero is not half-built, it is never built: an index rebuilt without
@@ -181,7 +156,7 @@ export function describeDenseCoverage(status) {
 }
 
 function pick(step) {
-  return { id: step.id, title: step.title, detail: step.detail };
+  return { id: step.id, title: step.title, detail: step.detail, ...(step.requires ? { requires: step.requires } : {}) };
 }
 
 /**

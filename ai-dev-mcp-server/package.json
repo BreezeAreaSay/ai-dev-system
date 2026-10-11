@@ -15,6 +15,7 @@
     "demo": "node scripts/ensure-skill-index.mjs && node scripts/demo.mjs",
     "doctor": "node scripts/ai-dev.mjs doctor",
     "dense:doctor": "node scripts/dense-doctor.mjs",
+    "model": "node scripts/model.mjs",
     "dashboard": "node scripts/ai-dev.mjs dashboard",
     "galaxy": "node scripts/ai-dev.mjs galaxy",
     "refresh": "node scripts/ai-dev.mjs refresh",

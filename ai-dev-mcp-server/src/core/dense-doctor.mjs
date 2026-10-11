@@ -18,6 +18,7 @@
  * machine cannot reach, having no weights on it — is covered by tests that
  * stand in for the dependency rather than install it.
  */
+import { formatBytes } from "./disk-space.mjs";
 
 /**
  * The Node this repository requires: the ONNX runtime runs on older ones, but
@@ -130,19 +131,24 @@ export function renderDenseDoctorReport(result) {
   return lines.join("\n");
 }
 
+/** Where the model comes from when the download is blocked. */
+const BLOCKED_ADVICE = "Behind a firewall set AI_DEV_MODEL_MIRROR (a Hugging Face mirror) or HTTPS_PROXY, "
+  + "or copy the model from a machine that has it: `npm run model -- import <folder or .zip>`.";
+
 /**
  * Build the stage list.
  *
  * @param {object} deps
  * @param {string} deps.nodeVersion
+ * @param {() => { supported: boolean, reason: string }} [deps.support] - Whether onnxruntime has a build for this machine.
  * @param {() => Promise<object>} deps.loadRuntime - Imports `onnxruntime-node`.
  * @param {() => object} deps.readManifest
- * @param {(manifest: object) => Promise<object>} deps.verifyFiles
+ * @param {(manifest: object) => Promise<object>} deps.verifyFiles - Hashes every file; `partial` lists stopped downloads.
  * @param {(manifest: object) => Promise<object>} deps.loadModel - Resolves when loaded.
  * @param {(manifest: object) => Promise<object>} deps.embedProbe - One trial embedding.
  * @returns {object[]}
  */
-export function denseDoctorStages({ nodeVersion, loadRuntime, readManifest, verifyFiles, loadModel, embedProbe }) {
+export function denseDoctorStages({ nodeVersion, support = () => ({ supported: true, reason: "" }), loadRuntime, readManifest, verifyFiles, loadModel, embedProbe }) {
   let manifest = null;
   return [
     {
@@ -157,9 +163,19 @@ export function denseDoctorStages({ nodeVersion, loadRuntime, readManifest, veri
     {
       key: "runtime",
       title: "onnxruntime-node loads",
-      advice: "Run `npm ci` in ai-dev-mcp-server/. If it still fails, the platform may have no prebuilt binary; "
-        + "`npm rebuild onnxruntime-node` builds one.",
+      advice: "Run `npm ci` in ai-dev-mcp-server/ to restore the package. If it still fails, the message above names "
+        + "what the system lacks.",
       run: async () => {
+        // A machine with no build is a fact to state, not an error to dig
+        // through: no command makes one (docs/DEFECTS.md, Д-101).
+        const answer = support();
+        if (!answer.supported) {
+          return {
+            ok: false,
+            detail: answer.reason,
+            advice: "Dense search needs a machine with a build, or the Docker image; keyword and sparse search work here without it."
+          };
+        }
         const runtime = await loadRuntime();
         return { ok: Boolean(runtime?.InferenceSession), detail: "native binding available" };
       }
@@ -183,20 +199,22 @@ export function denseDoctorStages({ nodeVersion, loadRuntime, readManifest, veri
           return {
             ok: false,
             detail: `these do not match the manifest: ${status.mismatched.join(", ")}`,
-            advice: `Delete ${status.dir} and run \`npm run setup -- --dense\` again — the bytes there are not the pinned export.`
+            advice: "Run `npm run setup -- --dense`: it fetches the files that do not match again. "
+              + "`npm run model -- remove` clears the folder first, if you would rather start clean."
           };
         }
+        const partial = (status.partial ?? []).map((entry) => `${entry.file} (${formatBytes(entry.bytes)} so far)`);
         return {
           ok: false,
-          detail: `missing from ${status.dir}: ${status.missing.join(", ")}`,
-          advice: "Run `npm run setup -- --dense` to download the model (about 600 MB, no Python needed)."
+          detail: `missing from ${status.dir}: ${status.missing.join(", ")}${partial.length ? `; a download stopped partway: ${partial.join(", ")}` : ""}`,
+          advice: `Run \`npm run setup -- --dense\` to ${partial.length ? "continue" : "start"} the download (about 600 MB, no Python). ${BLOCKED_ADVICE}`
         };
       }
     },
     {
       key: "load",
       title: "model loads",
-      advice: "The files verified but the runtime would not load them. Delete the model directory and download it again.",
+      advice: "The files verified but the runtime would not load them. Run `npm run model -- remove`, then `npm run setup -- --dense`.",
       run: async () => {
         const loaded = await loadModel(manifest);
         return { ok: true, detail: `loaded in ${loaded.seconds}s` };

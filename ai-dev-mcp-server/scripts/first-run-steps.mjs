@@ -220,7 +220,9 @@ export async function readRequiredState({ paths, callTool, serverRoot, skillRout
  *
  * A step with no action is reported as it was planned: `planFirstRun` knows
  * about optional steps this runner has no action for, and a caller that only
- * has the required actions still gets a full report.
+ * has the required actions still gets a full report. A step that `requires`
+ * one that failed in this run is skipped and says so: the vectors after a
+ * model download that failed only failed again (docs/DEFECTS.md, Д-98).
  *
  * @param {Array<{ id: string, run: boolean }>} plan - From `planFirstRun`.
  * @param {Record<string, () => Promise<string>>} actions
@@ -232,6 +234,11 @@ export async function runFirstRunPlan(plan, actions, onStep = () => {}) {
   for (const step of plan) {
     if (!step.run || !actions[step.id]) {
       results.push({ ...step, status: "skipped" });
+      continue;
+    }
+    const needed = step.requires ? results.find((item) => item.id === step.requires) : null;
+    if (needed?.status === "failed") {
+      results.push({ ...step, status: "skipped", reason: `not run: ${needed.title} failed above, and this step needs it` });
       continue;
     }
     onStep(step);

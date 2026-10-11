@@ -5,8 +5,7 @@ import {
   describeDenseCoverage,
   firstRunSucceeded,
   planFirstRun,
-  renderFirstRunReport,
-  venvPythonPath
+  renderFirstRunReport
 } from "./first-run.mjs";
 
 const byId = (plan) => Object.fromEntries(plan.map((item) => [item.id, item]));
@@ -123,22 +122,6 @@ test("the coverage line separates a half-embedded index from one never embedded"
     "Indexed: 3672 document(s), 300 with a dense vector, 382 waiting for one."
   );
   assert.equal(describeDenseCoverage(null), "No search index yet.");
-});
-
-test("the interpreter the setup header prints is the one this platform has", () => {
-  // Measured on Windows: setup printed `embeddings\\.venv\\bin\\python`, which
-  // Windows never creates, while the step that builds it looked in both places
-  // and worked. The header was the only thing that was wrong, and it was the
-  // part a person reads.
-  const nothing = () => false;
-  assert.match(venvPythonPath({ venvDir: "/e/.venv", platform: "win32", exists: nothing }), /Scripts.python\.exe$/);
-  assert.match(venvPythonPath({ venvDir: "/e/.venv", platform: "linux", exists: nothing }), /bin.python$/);
-
-  // What is on disk wins over what the platform would have created: a POSIX
-  // environment reached through an interpreter Windows can run is still that
-  // environment's interpreter.
-  const posixOnly = (target) => target.endsWith("python");
-  assert.match(venvPythonPath({ venvDir: "/e/.venv", platform: "win32", exists: posixOnly }), /bin.python$/);
 });
 
 test("the report names every step, including the ones that did not run", () => {

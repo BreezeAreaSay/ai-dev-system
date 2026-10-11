@@ -79,7 +79,42 @@ test("an empty model directory stops at the files stage and names the command", 
   assert.match(report, /Dense search: UNAVAILABLE/);
   assert.match(report, /Stopped at: model files present and unmodified/);
   assert.match(report, /missing from \/models\/bge-m3-onnx: config\.json, onnx\/model_int8\.onnx/);
-  assert.match(report, /What to do: Run `npm run setup -- --dense`/);
+  assert.match(report, /What to do: Run `npm run setup -- --dense` to start the download \(about 600 MB, no Python\)\./);
+  assert.match(report, /AI_DEV_MODEL_MIRROR .* HTTPS_PROXY.*npm run model -- import <folder or \.zip>/s, "and the ways round a blocked download");
+  assert.doesNotMatch(report, /AI_DEV_DENSE_BACKEND|python for the legacy/i);
+});
+
+test("a download that stopped partway is named, and continuing it is the advice", async () => {
+  const result = await doctor({
+    verifyFiles: async () => ({
+      ready: false,
+      dir: "/models/bge-m3-onnx",
+      present: ["config.json"],
+      missing: ["onnx/model_int8.onnx"],
+      mismatched: [],
+      partial: [{ file: "onnx/model_int8.onnx", bytes: 312 * 1024 * 1024, size: 568 * 1024 * 1024 }]
+    })
+  });
+  const report = renderDenseDoctorReport(result);
+  assert.match(report, /a download stopped partway: onnx\/model_int8\.onnx \(312 MB so far\)/);
+  assert.match(report, /What to do: Run `npm run setup -- --dense` to continue the download/);
+});
+
+test("a machine with no runtime build is told so at the runtime stage, and nothing is loaded", async () => {
+  let loaded = 0;
+  const result = await doctor({
+    support: () => ({ supported: false, reason: "onnxruntime-node 1.30.0 has no build for darwin-x64 (Intel Mac), so the local model cannot run on this machine." }),
+    loadRuntime: async () => {
+      loaded += 1;
+      return {};
+    }
+  });
+  assert.equal(result.failed.key, "runtime");
+  assert.equal(loaded, 0, "importing it would only produce a require stack");
+  const report = renderDenseDoctorReport(result);
+  assert.match(report, /darwin-x64 \(Intel Mac\)/);
+  assert.match(report, /What to do: Dense search needs a machine with a build, or the Docker image/);
+  assert.doesNotMatch(report, /npm rebuild/);
 });
 
 test("files that are there but wrong get different advice from files that are absent", async () => {
@@ -94,8 +129,8 @@ test("files that are there but wrong get different advice from files that are ab
   });
   const report = renderDenseDoctorReport(result);
   assert.match(report, /do not match the manifest/);
-  assert.match(report, /Delete \/models\/bge-m3-onnx/);
-  assert.ok(!/download the model \(about 600 MB/.test(report), "re-downloading into a dirty directory is not the fix");
+  assert.match(report, /it fetches the files that do not match again/, "the download replaces a file that does not hash right");
+  assert.ok(!/start the download/.test(report), "not the advice for files that are absent");
 });
 
 test("stages after a failure are skipped rather than run into a worse error", async () => {
@@ -137,7 +172,8 @@ test("a native binding that will not load is a sentence, never a stack trace", a
   assert.equal(result.failed.key, "runtime");
   const report = renderDenseDoctorReport(result);
   assert.match(report, /cannot open shared object file/);
-  assert.match(report, /npm rebuild onnxruntime-node/);
+  assert.match(report, /Run `npm ci` in ai-dev-mcp-server\//);
+  assert.doesNotMatch(report, /npm rebuild/, "no command builds onnxruntime from source");
   assert.ok(!report.includes("    at Object"), "no stack frames reach the user");
 });
 

@@ -65,6 +65,11 @@ export const PART_SUFFIX = ".part";
 /** What an unfinished file is the start of: revision, sha256, size. */
 export const PART_META_SUFFIX = ".part.json";
 
+/** The ways round a network that will not hand the model over. */
+export const BLOCKED_DOWNLOAD_ADVICE = "If this network blocks the download, set AI_DEV_MODEL_MIRROR to a Hugging Face mirror "
+  + "or HTTPS_PROXY to a proxy that reaches it, or copy the model from a machine that has it: "
+  + "`npm run model -- import <folder or .zip>`.";
+
 const PART_FORMAT = 1;
 
 /** Weight of the newest sample in the smoothed speed. */
@@ -562,8 +567,12 @@ export async function downloadDenseModel({
     if (lastError) {
       const kept = await fileSize(`${file.target}${PART_SUFFIX}`);
       const reason = String(lastError.message).trim();
+      // Kept bytes mean a source answered, so running again is the advice;
+      // nothing kept, and nothing that merely did not match, means no source
+      // could be reached from here.
       throw new Error(`Could not fetch ${file.relative}: ${reason}${/[.!?]$/.test(reason) ? "" : "."}`
-        + (kept ? ` ${formatBytes(kept)} of it are kept; running the install again continues from there.` : ""));
+        + (kept ? ` ${formatBytes(kept)} of it are kept; running the install again continues from there.`
+          : lastError.mismatch ? "" : ` ${BLOCKED_DOWNLOAD_ADVICE}`));
     }
   }
   progress.end();

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  BLOCKED_DOWNLOAD_ADVICE,
   describeOutOfSpace,
   downloadDenseModel,
   modelSources,
@@ -232,10 +233,17 @@ test("a source that breaks mid-file hands its .part to the next source, which co
   assert.ok(from > half * 0.75 && from <= half, `continued from ${range}`);
 });
 
-test("every source failing reports the last reason; no sources and offline both say so first", async (t) => {
+test("every source failing reports the last reason and the ways round it; no sources and offline both say so first", async (t) => {
   const dead = await startModelHost({ files: FILES, fail: new Map([["config.json", 500]]) });
   t.after(() => dead.close());
-  assert.match((await attempt({ manifest: manifestFor([dead.base]), targetDir: await stageDir(t) })).message, /Could not fetch config\.json: .*HTTP 500/s);
+  const failed = await attempt({ manifest: manifestFor([dead.base]), targetDir: await stageDir(t) });
+  assert.match(failed.message, /Could not fetch config\.json: .*HTTP 500/s);
+  assert.ok(failed.message.endsWith(` ${BLOCKED_DOWNLOAD_ADVICE}`), "nothing came through, so the mirror, the proxy and the import are named");
+  assert.match(BLOCKED_DOWNLOAD_ADVICE, /AI_DEV_MODEL_MIRROR.*HTTPS_PROXY.*`npm run model -- import <folder or \.zip>`/s);
+  const corrupt = await startModelHost({ files: FILES, corrupt: new Set(["config.json"]) });
+  t.after(() => corrupt.close());
+  const mismatch = await attempt({ manifest: manifestFor([corrupt.base]), targetDir: await stageDir(t) });
+  assert.doesNotMatch(mismatch.message, /AI_DEV_MODEL_MIRROR/, "a source that answered with other bytes is not a blocked network");
   assert.match((await attempt({ manifest: manifestFor([]), targetDir: await stageDir(t) })).message, /lists no sources/);
   const offline = await attempt({ manifest: manifestFor(["http://127.0.0.1:1/m"]), targetDir: await stageDir(t), env: { AI_DEV_OFFLINE: "1" } });
   assert.match(offline.message, /AI_DEV_OFFLINE=1 prevents downloads.*npm run model -- import/s);

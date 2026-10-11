@@ -366,6 +366,19 @@ function isOurs(entry) {
 }
 
 /**
+ * A registration group with the AI Dev commands taken out, or null when
+ * nothing else was in it. Dropping the whole group took with it the hooks a
+ * person had added next to ours — and Claude Code's `/hooks` adds a hook for
+ * an event without a matcher to the group already there (docs/DEFECTS.md, Д-165).
+ */
+function withoutOurs(entry) {
+  if (!Array.isArray(entry?.hooks)) return isOurs(entry) ? null : entry;
+  const kept = entry.hooks.filter((hook) => !String(hook?.command || "").includes(COMMAND_MARKER));
+  if (!kept.length) return null;
+  return kept.length === entry.hooks.length ? entry : { ...entry, hooks: kept };
+}
+
+/**
  * Merge our registrations into an existing Claude Code settings document:
  * previous AI Dev entries are replaced, everything else is preserved.
  *
@@ -377,7 +390,7 @@ export function mergeClaudeSettings(current, entries) {
   const document = current && typeof current === "object" && !Array.isArray(current) ? structuredClone(current) : {};
   const hooks = document.hooks && typeof document.hooks === "object" ? { ...document.hooks } : {};
   for (const event of Object.keys(hooks)) {
-    if (Array.isArray(hooks[event])) hooks[event] = hooks[event].filter((entry) => !isOurs(entry));
+    if (Array.isArray(hooks[event])) hooks[event] = hooks[event].map(withoutOurs).filter(Boolean);
     if (!hooks[event]?.length) delete hooks[event];
   }
   for (const [event, list] of Object.entries(entries)) {
@@ -437,8 +450,10 @@ export function cursorHookWarnings(current, ours) {
  * The stub git runs. It is three lines of `sh` rather than a Node script so the
  * shebang question never comes up: Git for Windows runs hooks through its own
  * shell. Node is found by the launcher, not by PATH alone: a Git client opened
- * from the Dock commits without the shell's PATH (Д-103). Paths are relative
- * to the stub, so moving or cloning the repository keeps it working.
+ * from the Dock commits without the shell's PATH (Д-103), and the stub's own
+ * folder comes from `${0%/*}` rather than `dirname`, which needs one too.
+ * Paths are relative to the stub, so moving or cloning the repository keeps
+ * it working.
  *
  * @param {string} hook - `pre-commit` or `pre-push`.
  * @returns {string}
@@ -448,7 +463,7 @@ export function gitHookStub(hook) {
     "#!/bin/sh",
     "# Installed by ai-dev-system (install_agent_hooks, targets: [\"git\"]).",
     "# Delete .ai-dev/git-hooks or unset core.hooksPath to remove it.",
-    `exec /bin/sh "$(dirname "$0")/../hooks/${NODE_LAUNCHER}" git-hooks.mjs ${hook} "$@"`,
+    `exec /bin/sh "\${0%/*}/../hooks/${NODE_LAUNCHER}" git-hooks.mjs ${hook} "$@"`,
     ""
   ].join("\n");
 }

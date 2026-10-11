@@ -602,7 +602,7 @@ test("hook commands find Node through the launcher on macOS and Linux, and stay 
   const cursor = Object.values(cursorHooksDocument("standard", { platform: "darwin" }).hooks).flat().map((entry) => entry.command);
   assert.ok(cursor.every((command) => command.startsWith("/bin/sh .ai-dev/hooks/with-node.sh ") && command.endsWith(" --cursor")), cursor.join("\n"));
   // Git runs hooks through its own sh on every platform, Windows included.
-  assert.match(gitHookStub("pre-commit"), /^exec \/bin\/sh "\$\(dirname "\$0"\)\/\.\.\/hooks\/with-node\.sh" git-hooks\.mjs pre-commit "\$@"$/m);
+  assert.match(gitHookStub("pre-commit"), /^exec \/bin\/sh "\$\{0%\/\*\}\/\.\.\/hooks\/with-node\.sh" git-hooks\.mjs pre-commit "\$@"$/m);
 });
 
 test("the installer records this machine's Node out of git, and nothing from inside a container", async (t) => {
@@ -668,4 +668,19 @@ test("a hook runs with no Node on PATH: the 2.x command fails, the launcher find
   const missing = runLine("/bin/sh .ai-dev/hooks/with-node.sh", noNode);
   assert.equal(missing.status, 2);
   assert.match(missing.stderr, /with-node\.sh needs the hook script to run/);
+});
+
+test("a re-install keeps the hooks a person added to an AI Dev group (Д-165)", () => {
+  const ours = () => claudeHookEntries("standard", { platform: "linux" });
+  const installed = mergeClaudeSettings({}, ours());
+  installed.hooks.Stop[0].hooks.push({ type: "command", command: "./scripts/notify-me.sh" });
+  installed.hooks.PreToolUse.find((entry) => entry.matcher === "Bash").hooks.push({ type: "command", command: "./scripts/audit-bash.sh" });
+  const again = mergeClaudeSettings(installed, ours());
+  const text = JSON.stringify(again);
+  assert.ok(text.includes("notify-me.sh") && text.includes("audit-bash.sh"), "the person's hooks stay");
+  assert.deepEqual(again.hooks.PreToolUse.find((entry) => entry.hooks.some((hook) => hook.command === "./scripts/audit-bash.sh")),
+    { matcher: "Bash", hooks: [{ type: "command", command: "./scripts/audit-bash.sh" }] }, "in their group, under its matcher, without ours");
+  const commands = (document) => Object.values(document.hooks).flat().flatMap((entry) => entry.hooks.map((hook) => hook.command));
+  assert.equal(commands(again).filter((command) => command.includes(".ai-dev/hooks/")).length, commands(mergeClaudeSettings({}, ours())).length, "ours once each, not twice");
+  assert.deepEqual(mergeClaudeSettings(again, ours()), again, "and a third install changes nothing");
 });

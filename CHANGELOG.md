@@ -494,6 +494,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was left at 0 bytes in 10 of 10 runs. Writes go through a temp file and a rename now — 0 of
   20 torn — with a re-read before the rename, so a client saving the file at the same moment
   keeps its change; a temp file a killed run left behind is removed on the next run.
+- **Re-running `install_agent_hooks` dropped hooks a person had added next to ours** (Д-165).
+  A registration group holding one AI Dev command was replaced whole, and with it any hook the
+  person had put in the same group — Claude Code's `/hooks` adds a hook for an event without a
+  matcher to the group already there. Only the AI Dev commands are taken out now; the group
+  stays with the rest. The re-install is the step that moves 2.x hooks to the Node launcher.
 - **The supply-chain hook and the fix-version lookup ignored `HTTPS_PROXY`** (Д-145).
   Behind a proxy every lookup failed with `fetch failed`: the hook warned "not fully
   checked" on every install and `run_security_scan` offered no fix versions. Both now go

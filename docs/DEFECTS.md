@@ -2560,6 +2560,39 @@ read-only инструменты поиска через автоматичес�
 
 ---
 
+## Д-133. `embed_texts` всегда идёт в legacy-бэкенд на Python, даже когда выбрана ONNX-модель
+
+**Статус:** открыт. Нашёлся в фазе 4 программы, при замере инструментов поиска без Python.
+
+`embed_texts` (`src/extensions/search.mjs:504`) зовёт `host.embeddings.embedTexts` — пул
+legacy-воркеров на Python (`src/core/embedding-workers.mjs`) — мимо `host.dense`, который выбирает
+бэкенд для гибридного поиска и перестройки индекса (Д-62). Комментарий в `src/core/dense-runtime.mjs`
+называет `embed_texts` среди тех, кто идёт через выбранный бэкенд, — для этого инструмента это
+неправда с тех пор, как бэкендом по умолчанию стал ONNX.
+
+**Чем грозит.** С установленной ONNX-моделью и без legacy `.venv` — обычная установка с `--dense`
+после Д-62 — `embed_texts` отказывает «BGE-M3 Python runtime not found: …/embeddings/.venv/bin/python»,
+хотя модель на месте и Python ей не нужен. Без модели та же ошибка вместо «модель не установлена,
+выполните …» (это часть Д-98).
+
+**Замер до** (`7d0a395`). Живой ONNX-модели в песочнице нет — huggingface закрыт, — поэтому проба
+`d133.mjs` берёт настоящее расширение `search` и настоящий `createEmbeddingRuntime`, а `host.dense`
+подменяет:
+
+```
+ONNX выбран и доступен:  embed_texts → ERROR BGE-M3 Python runtime not found: …/embeddings/.venv/bin/python | ONNX backend called 0 time(s)
+бэкенда нет:             embed_texts → ERROR BGE-M3 Python runtime not found: …/embeddings/.venv/bin/python
+```
+
+По MCP без Python и без модели (`measure2.mjs`, чистая копия seed): `embed_texts` → «BGE-M3 Python
+runtime not found: …/embeddings/.venv/bin/python».
+
+**Как закроется.** В фазе 4: `embed_texts` спрашивает `host.dense`, какой бэкенд выбран; ONNX
+считает через него, legacy-пул остаётся только когда выбран Python, а без бэкенда ответ — причина
+выбора с командой установки.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

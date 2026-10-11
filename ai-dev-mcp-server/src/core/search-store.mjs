@@ -1,0 +1,709 @@
+/**
+ * The search index file: its schema, whether it is current, and writing it.
+ *
+ * A port of `status`, `rebuild` and `dense-plan` from
+ * `search-index/search_cli.py` onto `node:sqlite` that keeps the file what it
+ * was — the same tables, columns, meta keys and rows — because the Python
+ * hybrid search still reads it and every 2.x install already has one.
+ * `search-documents.mjs` and `search-semantic.mjs` make the rows equal; this
+ * module makes the file equal. What it adds:
+ *
+ * - writing in place: a refresh after a few notes changed rewrites those
+ *   documents, not all of them (a rebuild asked for by name, a schema change
+ *   or a vault that mostly changed still rewrite everything);
+ * - dense vectors are reconciled where they are — kept while their passage and
+ *   provenance still match, dropped otherwise — rather than read out and
+ *   written back, so a rebuild never holds every stored vector in memory;
+ * - WAL, so a rebuild in one process never blocks a search in another;
+ * - a cross-process rebuild lock honouring `AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT`
+ *   (seconds, 600 by default) like the helper's — a lock file in this
+ *   package's protocol (`file-lock.mjs`), since Node has no `flock`;
+ * - a file that is no longer a database is set aside and built again instead
+ *   of failing every search (docs/DEFECTS.md, Д-116).
+ */
+import fs from "node:fs";
+import os from "node:os";
+import { acquireFileLock, lockPathFor } from "./file-lock.mjs";
+import { pythonRound } from "./python-compat.mjs";
+import {
+  collectDocuments,
+  DEFAULT_DENSE_TEXT_LIMIT,
+  denseDocRecords,
+  pythonPath,
+  sourceFingerprint
+} from "./search-documents.mjs";
+import { buildSemanticVector, SEMANTIC_DIMENSIONS, semanticVectorJson } from "./search-semantic.mjs";
+import { createIndexReader, isCorruptError, openDatabase, tableColumns, tableExists, wholeText } from "./search-sqlite.mjs";
+
+/** `meta.schema_version` of the format this module reads and writes. */
+export const INDEX_SCHEMA_VERSION = 2;
+export const DENSE_MODEL_NAME = "BAAI/bge-m3";
+export const DENSE_DIMENSIONS = 1024;
+export const LEGACY_DENSE_BACKEND = "python";
+export const LEGACY_DENSE_DTYPE = "fp32";
+export const UNPINNED_REVISION = "unpinned";
+
+/** How long a rebuild waits for another one, unless the environment says otherwise. */
+export const DEFAULT_REBUILD_LOCK_TIMEOUT_SECONDS = 600;
+
+/** A rebuild lock this old is abandoned even if its pid looks alive (a reused pid). */
+const REBUILD_LOCK_STALE_MS = 30 * 60_000;
+
+/** Above this share of documents changed, rewriting everything is as cheap. */
+const IN_PLACE_LIMIT = 0.5;
+
+/** Documents written between two turns of the event loop. */
+const YIELD_EVERY = 64;
+
+const DENSE_COLUMNS = ["id", "vector", "dimensions", "model", "backend", "revision", "dtype", "content_hash", "mtime"];
+
+const CREATE_DOCUMENT_TABLES = `
+  CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE documents(
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL,
+    title TEXT NOT NULL,
+    path TEXT NOT NULL,
+    source TEXT NOT NULL,
+    categories TEXT NOT NULL,
+    preview TEXT NOT NULL,
+    mtime REAL NOT NULL,
+    content_hash TEXT NOT NULL
+  );
+  CREATE VIRTUAL TABLE docs_fts USING fts5(
+    id UNINDEXED,
+    title,
+    body,
+    path,
+    source,
+    categories,
+    tokenize='unicode61'
+  );
+  CREATE TABLE semantic_vectors(
+    id TEXT PRIMARY KEY,
+    vector TEXT NOT NULL,
+    norm REAL NOT NULL
+  );
+`;
+
+const CREATE_DENSE_TABLE = `
+  CREATE TABLE dense_vectors(
+    id TEXT PRIMARY KEY,
+    vector BLOB NOT NULL,
+    dimensions INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    backend TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    dtype TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    mtime REAL NOT NULL
+  );
+  CREATE INDEX dense_vectors_hash_idx ON dense_vectors(content_hash);
+`;
+
+const yieldToEventLoop = () => new Promise((resolve) => setImmediate(resolve));
+
+/** `int(value or 0)` for a meta value; a value Python could not read counts as `fallback`. */
+function metaInt(value, fallback = 0) {
+  const text = String(value ?? "").trim();
+  return /^[-+]?\d+$/.test(text) ? Number(text) : fallback;
+}
+
+const isTrue = (value) => String(value ?? "false").toLowerCase() === "true";
+
+/** Every meta row, as strings. */
+function readMeta(db) {
+  if (!tableExists(db, "meta")) return {};
+  return Object.fromEntries(db.prepare("SELECT key, value FROM meta").all().map((row) => [String(row.key), String(row.value)]));
+}
+
+/**
+ * The rebuild lock's wait, from `AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT` in
+ * seconds; a value that is not a number leaves the default.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {number} milliseconds
+ */
+export function rebuildLockTimeoutMs(env = process.env) {
+  const raw = env.AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT;
+  const seconds = raw === undefined || String(raw).trim() === "" ? Number.NaN : Number(raw);
+  return Math.max(0, Number.isNaN(seconds) ? DEFAULT_REBUILD_LOCK_TIMEOUT_SECONDS : seconds) * 1000;
+}
+
+/**
+ * Run `operation` holding the index's rebuild lock, across processes.
+ *
+ * @template T
+ * @param {string} indexPath
+ * @param {() => Promise<T>} operation
+ * @param {{ env?: NodeJS.ProcessEnv }} [options]
+ * @returns {Promise<T>}
+ */
+export async function withRebuildLock(indexPath, operation, { env = process.env } = {}) {
+  let release;
+  try {
+    release = await acquireFileLock(indexPath, { timeoutMs: rebuildLockTimeoutMs(env), staleMs: REBUILD_LOCK_STALE_MS });
+  } catch (error) {
+    if (!/^Timed out/.test(String(error?.message))) throw error;
+    throw new Error(`Timed out waiting for search-index rebuild lock: ${lockPathFor(indexPath)}`, { cause: error });
+  }
+  try {
+    return await operation();
+  } finally {
+    await release();
+  }
+}
+
+/** What the index file holds, for a status check. */
+function readIndexState(db) {
+  const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')").all().map((row) => row.name));
+  if (!tables.has("documents")) return { hasDocuments: false };
+  const schemaCurrent = tableColumns(db, "documents").has("content_hash");
+  const rows = db.prepare(`SELECT id, CAST(path AS BLOB) AS path, ${schemaCurrent ? "content_hash" : "'' AS content_hash"} FROM documents`).all();
+  return { hasDocuments: true, schemaCurrent, rows, meta: tables.has("meta") ? readMeta(db) : {} };
+}
+
+/**
+ * Whether the index reflects the vault, and if not why — the helper's
+ * `status`, key for key.
+ *
+ * @param {object} options
+ * @param {string} options.vaultRoot
+ * @param {string} options.indexPath
+ * @param {boolean} [options.includeExternalProjectFiles]
+ * @param {object} [options.cache] - From `createDocumentCache()`; the status is the same without it.
+ * @param {ReturnType<typeof createIndexReader>} [options.reader] - A long-lived connection to reuse.
+ * @returns {Promise<object>}
+ */
+export async function indexStatus({ vaultRoot, indexPath, includeExternalProjectFiles = true, cache = null, reader = null }) {
+  const { docs } = collectDocuments({ vaultRoot, includeExternalProjectFiles, cache });
+  const current = new Map(docs.map((doc) => [doc.id, doc]));
+  const fingerprint = sourceFingerprint(docs);
+  const unbuilt = (reasons, indexExists, extra = {}) => ({
+    index_path: indexPath,
+    index_exists: indexExists,
+    stale: true,
+    schema_current: false,
+    reasons,
+    built_at: "",
+    indexed_document_count: 0,
+    current_document_count: docs.length,
+    added_count: docs.length,
+    changed_count: 0,
+    deleted_count: 0,
+    added: docs.slice(0, 20).map((doc) => doc.path),
+    changed: [],
+    deleted: [],
+    source_fingerprint: fingerprint,
+    indexed_fingerprint: "",
+    dense_enabled: false,
+    dense_documents: 0,
+    dense_pending_documents: 0,
+    ...extra
+  });
+  if (!fs.existsSync(indexPath)) return unbuilt(["index_missing"], false);
+
+  const connection = reader ?? createIndexReader(indexPath);
+  let state;
+  try {
+    state = await connection.read(readIndexState);
+  } catch (error) {
+    if (!isCorruptError(error)) throw error;
+    return unbuilt(["index_unreadable"], true, { error: String(error.message) });
+  } finally {
+    if (!reader) connection.close();
+  }
+  if (state === null) return unbuilt(["index_missing"], false);
+  if (!state.hasDocuments) return unbuilt(["documents_table_missing"], true);
+
+  const { schemaCurrent, meta } = state;
+  const indexed = new Map(state.rows.map((row) => [String(row.id), row]));
+  const addedIds = [...current.keys()].filter((id) => !indexed.has(id)).sort();
+  const deletedIds = [...indexed.keys()].filter((id) => !current.has(id)).sort();
+  const changedIds = [...current.keys()]
+    .filter((id) => indexed.has(id) && (!schemaCurrent || String(indexed.get(id).content_hash || "") !== current.get(id).content_hash))
+    .sort();
+  const reasons = [];
+  if (!schemaCurrent) reasons.push("schema_outdated");
+  if (addedIds.length) reasons.push("sources_added");
+  if (changedIds.length) reasons.push("sources_changed");
+  if (deletedIds.length) reasons.push("sources_deleted");
+  const indexedFingerprint = meta.source_fingerprint ?? "";
+  if (schemaCurrent && !reasons.length && indexedFingerprint && indexedFingerprint !== fingerprint) {
+    reasons.push("source_fingerprint_mismatch");
+  }
+  return {
+    index_path: indexPath,
+    index_exists: true,
+    stale: reasons.length > 0,
+    schema_current: schemaCurrent,
+    schema_version: metaInt(meta.schema_version),
+    reasons,
+    built_at: meta.built_at ?? "",
+    indexed_document_count: indexed.size,
+    current_document_count: docs.length,
+    added_count: addedIds.length,
+    changed_count: changedIds.length,
+    deleted_count: deletedIds.length,
+    added: addedIds.slice(0, 20).map((id) => current.get(id).path),
+    changed: changedIds.slice(0, 20).map((id) => current.get(id).path),
+    deleted: deletedIds.slice(0, 20).map((id) => wholeText(indexed.get(id).path)),
+    source_fingerprint: fingerprint,
+    indexed_fingerprint: indexedFingerprint,
+    dense_enabled: isTrue(meta.dense_enabled),
+    dense_backend: meta.dense_backend ?? "",
+    dense_revision: meta.dense_revision ?? "",
+    dense_dtype: meta.dense_dtype ?? "",
+    dense_documents: metaInt(meta.dense_documents),
+    dense_pending_documents: metaInt(meta.dense_pending_documents)
+  };
+}
+
+/** The provenance a run's vectors are written with, defaults filled as the helper fills them. */
+function fullProvenance({ backend, revision, dtype }) {
+  return {
+    model: DENSE_MODEL_NAME,
+    dimensions: DENSE_DIMENSIONS,
+    backend: backend || LEGACY_DENSE_BACKEND,
+    revision: revision || UNPINNED_REVISION,
+    dtype: dtype || LEGACY_DENSE_DTYPE
+  };
+}
+
+/** Whether a stored vector may stand for this passage, unchanged. */
+function denseCacheHit(row, record, provenance) {
+  if (!row || row.content_hash !== record.content_hash || row.model !== provenance.model) return false;
+  if (Number(row.dimensions || 0) !== provenance.dimensions) return false;
+  return ["backend", "revision", "dtype"].every((column) => row[column] === provenance[column]);
+}
+
+/** The stored vectors' provenance and passage hashes, without the vectors; empty when unusable. */
+function readDenseRows(db) {
+  if (!tableExists(db, "dense_vectors")) return new Map();
+  const columns = tableColumns(db, "dense_vectors");
+  if (!DENSE_COLUMNS.every((column) => columns.has(column))) return new Map();
+  const rows = db.prepare("SELECT id, dimensions, model, backend, revision, dtype, content_hash, mtime FROM dense_vectors").all();
+  return new Map(rows.map((row) => [String(row.id), row]));
+}
+
+/** `str(Path(value).expanduser())`. */
+function expandedPath(value) {
+  const text = String(value ?? "");
+  const expanded = text === "~" || text.startsWith("~/") || text.startsWith("~\\") ? os.homedir() + text.slice(1) : text;
+  return pythonPath(expanded).text;
+}
+
+/** Plain JSON-compatible numbers from a vector, as float32 bytes. */
+function vectorBlob(values) {
+  const floats = Float32Array.from(values, Number);
+  return new Uint8Array(floats.buffer, floats.byteOffset, floats.byteLength);
+}
+
+/**
+ * The settings of a rebuild, filled from the previous index where the helper
+ * did: a refresh that keeps vectors also keeps how they were made.
+ */
+function denseSettings(options, previousMeta) {
+  const preserve = Boolean(options.preserveDense && isTrue(previousMeta.dense_enabled));
+  const settings = {
+    embeddings: Boolean(options.denseEmbeddings),
+    preserve,
+    textLimit: options.denseTextLimit ?? DEFAULT_DENSE_TEXT_LIMIT,
+    includeMembrane: Boolean(options.denseIncludeMembrane),
+    incremental: options.denseIncremental !== false,
+    backend: options.denseBackend ?? LEGACY_DENSE_BACKEND,
+    revision: options.denseRevision ?? "",
+    dtype: options.denseDtype ?? ""
+  };
+  if (preserve && !settings.embeddings) {
+    settings.textLimit = metaInt(previousMeta.dense_text_limit, settings.textLimit) || settings.textLimit;
+    settings.includeMembrane = isTrue(previousMeta.dense_include_membrane);
+    settings.backend = previousMeta.dense_backend || LEGACY_DENSE_BACKEND;
+    settings.revision = previousMeta.dense_revision || UNPINNED_REVISION;
+    settings.dtype = previousMeta.dense_dtype || LEGACY_DENSE_DTYPE;
+  }
+  settings.active = settings.embeddings || preserve;
+  settings.provenance = fullProvenance(settings);
+  return settings;
+}
+
+/** `dense_vectors` with the columns this format needs, recreated empty otherwise. */
+function ensureDenseTable(db) {
+  if (tableExists(db, "dense_vectors")) {
+    const columns = tableColumns(db, "dense_vectors");
+    if (columns.size === DENSE_COLUMNS.length && DENSE_COLUMNS.every((column) => columns.has(column))) return;
+    db.exec("DROP TABLE dense_vectors");
+  }
+  db.exec(CREATE_DENSE_TABLE);
+}
+
+/**
+ * Leave in `dense_vectors` exactly the rows the helper's rebuild would have
+ * written: stored vectors still valid for their passage and provenance, plus
+ * supplied vectors for passages they were embedded from.
+ */
+function reconcileDenseVectors(db, docs, settings, supplied) {
+  ensureDenseTable(db);
+  if (!settings.active) {
+    db.exec("DELETE FROM dense_vectors");
+    return { eligible: 0, reused: 0, encoded: 0, pending: 0, documents: 0 };
+  }
+  const records = denseDocRecords(docs, { textLimit: settings.textLimit, includeMembrane: settings.includeMembrane });
+  const reuse = !settings.embeddings || settings.incremental;
+  const stored = reuse ? readDenseRows(db) : new Map();
+  if (!reuse) db.exec("DELETE FROM dense_vectors");
+  const touch = db.prepare("UPDATE dense_vectors SET mtime = ? WHERE id = ?");
+  const replace = db.prepare(`INSERT OR REPLACE INTO dense_vectors(${DENSE_COLUMNS.join(", ")}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const remove = db.prepare("DELETE FROM dense_vectors WHERE id = ?");
+  const { provenance } = settings;
+  const kept = new Set();
+  let reused = 0;
+  let encoded = 0;
+  for (const record of records) {
+    const row = stored.get(record.id);
+    if (denseCacheHit(row, record, provenance)) {
+      if (row.mtime !== record.mtime) touch.run(record.mtime, record.id);
+      kept.add(record.id);
+      reused += 1;
+      continue;
+    }
+    const offered = settings.embeddings ? supplied?.get(record.id) : undefined;
+    if (offered && offered.content_hash === record.content_hash) {
+      replace.run(record.id, offered.blob, DENSE_DIMENSIONS, DENSE_MODEL_NAME, provenance.backend, provenance.revision,
+        provenance.dtype, record.content_hash, record.mtime);
+      kept.add(record.id);
+      encoded += 1;
+    }
+  }
+  for (const id of stored.keys()) if (!kept.has(id)) remove.run(id);
+  return { eligible: records.length, reused, encoded, pending: records.length - reused - encoded, documents: kept.size };
+}
+
+/** Insert one document's rows: `documents`, `docs_fts` at the same rowid, `semantic_vectors`. */
+function documentWriter(db) {
+  const insertDocument = db.prepare(
+    "INSERT INTO documents(id, scope, title, path, source, categories, preview, mtime, content_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  );
+  const insertText = db.prepare("INSERT INTO docs_fts(rowid, id, title, body, path, source, categories) VALUES (?, ?, ?, ?, ?, ?, ?)");
+  const insertVector = db.prepare("INSERT INTO semantic_vectors(id, vector, norm) VALUES (?, ?, ?)");
+  return (doc) => {
+    const { lastInsertRowid } = insertDocument.run(doc.id, doc.scope, doc.title, doc.path, doc.source, doc.categories,
+      doc.preview, doc.mtime, doc.content_hash);
+    insertText.run(lastInsertRowid, doc.id, doc.title, doc.body, doc.path, doc.source, doc.categories);
+    const { entries, norm } = buildSemanticVector(doc);
+    insertVector.run(doc.id, semanticVectorJson(entries), norm);
+  };
+}
+
+/** Rewrite every document: the helper's rebuild. */
+async function writeAllDocuments(db, docs) {
+  db.exec(`
+    DROP TABLE IF EXISTS documents;
+    DROP TABLE IF EXISTS docs_fts;
+    DROP TABLE IF EXISTS semantic_vectors;
+    DROP TABLE IF EXISTS meta;
+    ${CREATE_DOCUMENT_TABLES}
+  `);
+  const write = documentWriter(db);
+  for (let index = 0; index < docs.length; index += 1) {
+    write(docs[index]);
+    if (index % YIELD_EVERY === YIELD_EVERY - 1) await yieldToEventLoop();
+  }
+  return docs.length;
+}
+
+/** Whether the file is this format, complete, so documents can be rewritten one by one. */
+function updatableInPlace(db, previousMeta) {
+  if (String(previousMeta.schema_version) !== String(INDEX_SCHEMA_VERSION)) return false;
+  if (!["documents", "docs_fts", "semantic_vectors", "meta"].every((name) => tableExists(db, name))) return false;
+  return tableColumns(db, "documents").has("content_hash");
+}
+
+/**
+ * Rewrite only the documents that were added, changed or deleted since the
+ * index was built, or return -1 to have everything rewritten instead: when
+ * most of the vault changed, or when `docs_fts` is not row for row beside
+ * `documents` (an index this module did not write, or a damaged one).
+ */
+async function writeChangedDocuments(db, docs, previousMeta) {
+  if (!updatableInPlace(db, previousMeta)) return -1;
+  const indexed = new Map(db.prepare("SELECT rowid, id, content_hash, mtime FROM documents").all().map((row) => [String(row.id), row]));
+  const current = new Map(docs.map((doc) => [doc.id, doc]));
+  const removed = [...indexed.keys()].filter((id) => !current.has(id) || indexed.get(id).content_hash !== current.get(id).content_hash);
+  const written = docs.filter((doc) => !indexed.has(doc.id) || indexed.get(doc.id).content_hash !== doc.content_hash);
+  if (removed.length + written.length > IN_PLACE_LIMIT * Math.max(docs.length, 1)) return -1;
+  const textAt = db.prepare("SELECT id FROM docs_fts WHERE rowid = ?");
+  if (removed.some((id) => textAt.get(indexed.get(id).rowid)?.id !== id)) return -1;
+
+  const deleteText = db.prepare("DELETE FROM docs_fts WHERE rowid = ?");
+  const deleteDocument = db.prepare("DELETE FROM documents WHERE id = ?");
+  const deleteVector = db.prepare("DELETE FROM semantic_vectors WHERE id = ?");
+  for (const id of removed) {
+    deleteText.run(indexed.get(id).rowid);
+    deleteDocument.run(id);
+    deleteVector.run(id);
+  }
+  const write = documentWriter(db);
+  for (let index = 0; index < written.length; index += 1) {
+    write(written[index]);
+    if (index % YIELD_EVERY === YIELD_EVERY - 1) await yieldToEventLoop();
+  }
+  const touch = db.prepare("UPDATE documents SET mtime = ? WHERE id = ?");
+  for (const doc of docs) {
+    const row = indexed.get(doc.id);
+    if (row && row.content_hash === doc.content_hash && row.mtime !== doc.mtime) touch.run(doc.mtime, doc.id);
+  }
+  db.exec("DELETE FROM meta");
+  return removed.length + written.length;
+}
+
+/** Write `meta`, key for key and in the helper's order. */
+function writeMeta(db, values) {
+  const insert = db.prepare("INSERT INTO meta(key, value) VALUES (?, ?)");
+  for (const [key, value] of Object.entries(values)) insert.run(key, String(value));
+}
+
+/** Set a file that is not a database aside, with its WAL files, so a new one can take its place. */
+function setAside(indexPath) {
+  const target = `${indexPath}.corrupt`;
+  fs.rmSync(target, { force: true });
+  fs.renameSync(indexPath, target);
+  for (const suffix of ["-wal", "-shm", "-journal"]) fs.rmSync(`${indexPath}${suffix}`, { force: true });
+}
+
+/** A writer connection in WAL mode, the file set aside first if it is not a database. */
+function openWriter(indexPath) {
+  let db = openDatabase(indexPath);
+  try {
+    db.prepare("SELECT count(*) AS n FROM sqlite_master").get();
+  } catch (error) {
+    db.close();
+    if (!isCorruptError(error)) throw error;
+    setAside(indexPath);
+    db = openDatabase(indexPath);
+  }
+  const mode = String(db.prepare("PRAGMA journal_mode = WAL").get()?.journal_mode ?? "").toLowerCase();
+  if (mode === "wal") db.exec("PRAGMA synchronous = NORMAL");
+  // Without WAL a spilled write transaction locks readers out; this
+  // process's own searches would wait on a writer that waits on them.
+  else db.exec("PRAGMA cache_spill = OFF");
+  return db;
+}
+
+/**
+ * The write itself, inside one transaction: readers see the old index until
+ * it commits and the whole new one after.
+ */
+async function writeIndex(db, docs, options) {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const previousMeta = readMeta(db);
+    const settings = denseSettings(options, previousMeta);
+    let rewritten = -1;
+    if (options.inPlace) {
+      // Anything unexpected while rewriting in place — a row already at the
+      // rowid a new one needs, say — undoes just that and rewrites everything.
+      db.exec("SAVEPOINT in_place");
+      try {
+        rewritten = await writeChangedDocuments(db, docs, previousMeta);
+        db.exec("RELEASE in_place");
+      } catch (error) {
+        db.exec("ROLLBACK TO in_place");
+        db.exec("RELEASE in_place");
+        if (isCorruptError(error)) throw error;
+        rewritten = -1;
+      }
+    }
+    const mode = rewritten < 0 ? "full" : "in_place";
+    if (rewritten < 0) rewritten = await writeAllDocuments(db, docs);
+
+    const denseStarted = performance.now();
+    const supplied = new Map();
+    for (const entry of options.suppliedVectors ?? []) {
+      if (Array.isArray(entry?.vector) && entry.vector.length === DENSE_DIMENSIONS) {
+        supplied.set(entry.id, { content_hash: entry.content_hash ?? "", blob: vectorBlob(entry.vector) });
+      }
+    }
+    const dense = reconcileDenseVectors(db, docs, settings, supplied);
+    const denseSeconds = settings.active ? pythonRound((performance.now() - denseStarted) / 1000, 3) : 0;
+
+    const semanticDocuments = db.prepare("SELECT count(*) AS n FROM semantic_vectors WHERE vector != '{}'").get().n;
+    const fingerprint = sourceFingerprint(docs);
+    const eligible = settings.active ? dense.eligible : 0;
+    const pending = Math.max(0, dense.pending);
+    const { provenance } = settings;
+    writeMeta(db, {
+      schema_version: INDEX_SCHEMA_VERSION,
+      built_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+      source_fingerprint: fingerprint,
+      document_count: docs.length,
+      semantic_dimensions: SEMANTIC_DIMENSIONS,
+      semantic_documents: semanticDocuments,
+      dense_enabled: settings.active ? "true" : "false",
+      dense_model: DENSE_MODEL_NAME,
+      dense_model_dir: expandedPath(options.denseModelDir ?? ""),
+      dense_dimensions: DENSE_DIMENSIONS,
+      dense_backend: provenance.backend,
+      dense_revision: provenance.revision,
+      dense_dtype: provenance.dtype,
+      dense_documents: dense.documents,
+      dense_reused_documents: dense.reused,
+      dense_encoded_documents: dense.encoded,
+      dense_eligible_documents: eligible,
+      dense_pending_documents: pending,
+      dense_skipped_documents: Math.max(0, docs.length - eligible),
+      dense_include_membrane: settings.includeMembrane ? "true" : "false",
+      dense_incremental: settings.incremental ? "true" : "false",
+      dense_text_limit: settings.textLimit
+    });
+    db.exec("COMMIT");
+
+    const byScope = {};
+    for (const doc of docs) byScope[doc.scope] = (byScope[doc.scope] ?? 0) + 1;
+    return {
+      index_path: options.indexPath,
+      document_count: docs.length,
+      semantic_documents: semanticDocuments,
+      semantic_dimensions: SEMANTIC_DIMENSIONS,
+      schema_version: INDEX_SCHEMA_VERSION,
+      source_fingerprint: fingerprint,
+      dense_enabled: settings.active,
+      dense_documents: dense.documents,
+      dense_reused_documents: dense.reused,
+      dense_encoded_documents: dense.encoded,
+      dense_eligible_documents: eligible,
+      dense_pending_documents: pending,
+      dense_skipped_documents: settings.active ? Math.max(0, docs.length - eligible) : docs.length,
+      dense_preserved: settings.preserve && !settings.embeddings,
+      dense_include_membrane: settings.includeMembrane,
+      dense_incremental: settings.incremental,
+      dense_dimensions: settings.active ? DENSE_DIMENSIONS : 0,
+      dense_seconds: denseSeconds,
+      dense_model: settings.active ? DENSE_MODEL_NAME : "",
+      dense_backend: settings.active ? provenance.backend : "",
+      dense_revision: settings.active ? provenance.revision : "",
+      dense_dtype: settings.active ? provenance.dtype : "",
+      by_scope: byScope,
+      write_mode: mode,
+      rewritten_documents: rewritten
+    };
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // The transaction is already gone.
+    }
+    throw error;
+  }
+}
+
+/**
+ * Build the index from the vault — the helper's `rebuild`, plus writing in
+ * place when asked to.
+ *
+ * @param {object} options
+ * @param {string} options.vaultRoot
+ * @param {string} options.indexPath
+ * @param {boolean} [options.includeExternalProjectFiles]
+ * @param {boolean} [options.inPlace] - Rewrite only what changed when the file allows it.
+ * @param {boolean} [options.preserveDense] - Keep stored vectors that still fit.
+ * @param {boolean} [options.denseEmbeddings] - Store `suppliedVectors` (embedded elsewhere).
+ * @param {Array<{ id: string, content_hash: string, vector: number[] }>} [options.suppliedVectors]
+ * @param {string} [options.denseModelDir] - Recorded in `meta`.
+ * @param {number} [options.denseTextLimit]
+ * @param {boolean} [options.denseIncludeMembrane]
+ * @param {boolean} [options.denseIncremental] - Reuse stored vectors when embedding.
+ * @param {string} [options.denseBackend]
+ * @param {string} [options.denseRevision]
+ * @param {string} [options.denseDtype]
+ * @param {NodeJS.ProcessEnv} [options.env] - For the lock timeout.
+ * @returns {Promise<object>} The helper's summary, plus `write_mode` and `rewritten_documents`.
+ */
+export async function rebuildIndex(options) {
+  return withRebuildLock(options.indexPath, async () => {
+    const { docs } = collectDocuments({
+      vaultRoot: options.vaultRoot,
+      includeExternalProjectFiles: options.includeExternalProjectFiles !== false
+    });
+    let db = openWriter(options.indexPath);
+    try {
+      let summary;
+      try {
+        summary = await writeIndex(db, docs, options);
+      } catch (error) {
+        if (!isCorruptError(error)) throw error;
+        // Damage the first read did not reach (a malformed page under a
+        // table) surfaces here; the file is a cache, so it is replaced.
+        db.close();
+        db = null;
+        setAside(options.indexPath);
+        db = openWriter(options.indexPath);
+        summary = await writeIndex(db, docs, { ...options, inPlace: false });
+      }
+      if (summary.write_mode === "full") checkpoint(db);
+      return summary;
+    } finally {
+      db?.close();
+    }
+  }, { env: options.env });
+}
+
+/**
+ * Which documents still need a dense vector for this backend, revision and
+ * dtype — the helper's `dense-plan`, for an embedder that lives elsewhere.
+ *
+ * @param {object} options
+ * @param {string} options.vaultRoot
+ * @param {string} options.indexPath
+ * @param {boolean} [options.includeExternalProjectFiles]
+ * @param {number} [options.textLimit]
+ * @param {boolean} [options.includeMembrane]
+ * @param {boolean} [options.incremental] - Count stored vectors that still fit as done.
+ * @param {{ backend?: string, revision?: string, dtype?: string }} [options.provenance]
+ * @returns {Promise<{ index_path: string, document_count: number, eligible: number, reusable: number, provenance: object, records: object[] }>}
+ */
+export async function densePlan({
+  vaultRoot,
+  indexPath,
+  includeExternalProjectFiles = true,
+  textLimit = DEFAULT_DENSE_TEXT_LIMIT,
+  includeMembrane = false,
+  incremental = true,
+  provenance = {}
+}) {
+  const { docs } = collectDocuments({ vaultRoot, includeExternalProjectFiles });
+  const records = denseDocRecords(docs, { textLimit, includeMembrane });
+  const full = fullProvenance(provenance);
+  let stored = new Map();
+  if (incremental && fs.existsSync(indexPath)) {
+    const reader = createIndexReader(indexPath);
+    try {
+      stored = (await reader.read(readDenseRows)) ?? new Map();
+    } catch (error) {
+      if (!isCorruptError(error)) throw error;
+    } finally {
+      reader.close();
+    }
+  }
+  const pending = records.filter((record) => !denseCacheHit(stored.get(record.id), record, full));
+  return {
+    index_path: indexPath,
+    document_count: docs.length,
+    eligible: records.length,
+    reusable: records.length - pending.length,
+    provenance: full,
+    records: pending.map(({ id, text, content_hash }) => ({ id, text, content_hash }))
+  };
+}
+
+/**
+ * Fold the WAL back into the file after a full rewrite, so it does not stay
+ * the size of the whole index. Best effort: a reader mid-read keeps it.
+ */
+function checkpoint(db) {
+  try {
+    db.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
+  } catch {
+    // Busy readers, or no WAL: the next checkpoint does it.
+  }
+}

@@ -283,6 +283,27 @@ test("a symlinked config is written through the link, and the file's mode is kep
   assert.equal(path.dirname(result.backup), home, "the backup sits next to the link, not in the dotfiles repository");
 });
 
+test("written by root in someone else's home, every file and folder stays theirs (Д-168)", { skip: process.getuid?.() !== 0 && "only root gives files away" }, async (t) => {
+  const home = await tempHome(t);
+  await fs.mkdir(path.join(home, ".cursor"));
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), "{\"mcpServers\": {}}\n", { mode: 0o600 });
+  for (const item of [home, path.join(home, ".cursor"), path.join(home, ".cursor", "mcp.json")]) await fs.chown(item, 1000, 1000);
+  const statePath = path.join(home, ".ai-dev", "state", "mcp-clients.json");
+  const targets = (await discoverClients({ home, env: env(home), platform: "linux" })).filter((target) => ["cursor", "codex"].includes(target.client));
+  const installed = await installServer({ targets, entryFor: (target) => clientEntry(target, LAUNCH), statePath });
+  assert.deepEqual(installed.map((result) => result.status), ["added", "added"]);
+  const removed = await removeServer({ targets, statePath });
+  assert.deepEqual(removed.map((result) => result.status), ["restored", "restored"]);
+  const owners = [];
+  for (const relative of [".ai-dev", ".ai-dev/state", ".ai-dev/state/mcp-clients.json", ".codex", ".cursor/mcp.json", ...installed.concat(removed).flatMap((result) => result.backup ? [path.relative(home, result.backup)] : [])]) {
+    const stat = await fs.stat(path.join(home, relative));
+    owners.push(`${relative} ${stat.uid}:${stat.gid}`);
+  }
+  assert.ok(owners.length >= 7, owners.join("\n"));
+  assert.deepEqual(owners.filter((line) => !line.endsWith(" 1000:1000")), [], owners.join("\n"));
+  assert.equal((await fs.stat(path.join(home, ".cursor", "mcp.json"))).mode & 0o777, 0o600, "the mode is kept as well");
+});
+
 test("plans are pure: what install and remove would do to a text", () => {
   const cursor = MCP_CLIENTS.find((client) => client.id === "cursor");
   const plan = planInstall(cursor, "", LAUNCH);

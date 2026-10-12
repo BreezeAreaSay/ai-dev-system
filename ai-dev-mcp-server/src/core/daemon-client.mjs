@@ -128,10 +128,10 @@ export async function logTail(count = 4, env = process.env) {
  * @param {{ cliPath: string, serverRoot: string, env: NodeJS.ProcessEnv, spawnImpl?: typeof spawn }} options
  * @returns {import("node:child_process").ChildProcess}
  */
-export function spawnDaemon({ cliPath, serverRoot, env, spawnImpl = spawn }) {
+export function spawnDaemon({ cliPath, serverRoot, env, spawnImpl = spawn, execPath = process.execPath }) {
   const log = openLog(env);
   try {
-    const child = spawnImpl(process.execPath, [cliPath, "daemon", "run"], {
+    const child = spawnImpl(execPath, [cliPath, "daemon", "run"], {
       cwd: serverRoot,
       env,
       detached: true,
@@ -178,15 +178,21 @@ async function reach(info, options, build) {
  * @param {number} [options.timeoutMs]
  * @param {typeof spawn} [options.spawnImpl]
  * @param {number} [options.restartAfterMs] - for tests
+ * @param {string} [options.execPath] - The Node the daemon runs on, and its build counts: the caller's own
+ *   when the caller is that Node, the Node the clients run when it is not (the desktop app).
+ * @param {boolean} [options.start] - Start a daemon when none serves this build; false fails with code
+ *   `ENOTRUNNING` instead.
  * @returns {Promise<{ socket: import("node:net").Socket, welcome: Record<string, any>, rest: Buffer, info: object, build: object, started: boolean }>}
  *   `started` is true only when this call started the daemon that answered.
  */
-export async function connectDaemon({ serverRoot, cliPath, version, env: given = process.env, mode = "mcp", profiles = null, timeoutMs = startTimeoutMs(given), spawnImpl = spawn, restartAfterMs = RESTART_AFTER_MS }) {
+export async function connectDaemon({ serverRoot, cliPath, version, env: given = process.env, mode = "mcp", profiles = null, timeoutMs = startTimeoutMs(given), spawnImpl = spawn, restartAfterMs = RESTART_AFTER_MS, execPath = process.execPath, start: startOne = true }) {
   // The daemon runs in another folder than its caller: a relative path in the
   // environment means, for it too, what it means here (docs/DEFECTS.md, Д-194,
   // Д-201); and it runs with the settings applied (Д-218).
   const env = daemonEnvironment(given);
-  const build = await describeBuild({ serverRoot, version, env });
+  // The build includes the Node the daemon runs on: a caller that is not
+  // that Node — the desktop app is Electron — names it (`execPath`).
+  const build = await describeBuild({ serverRoot, version, env, execPath });
   // The daemon's runtime home is the one `env` names, which need not be this
   // process's: the desktop app reaches the daemon of the environment it shows.
   const descriptor = daemonInfoPath(build.id, env);
@@ -194,12 +200,13 @@ export async function connectDaemon({ serverRoot, cliPath, version, env: given =
   const running = await readDaemonInfo(descriptor);
   const channel = await reach(running, options, build);
   if (channel) return { ...channel, info: running, build, started: false };
+  if (!startOne) throw new ChannelError("The ai-dev daemon is not running.", { code: "ENOTRUNNING" });
 
   let child;
   let exited = null;
   let starts = 0;
   const start = () => {
-    child = spawnDaemon({ cliPath, serverRoot, env, spawnImpl });
+    child = spawnDaemon({ cliPath, serverRoot, env, spawnImpl, execPath });
     starts += 1;
     exited = null;
     child.once("exit", (code, signal) => {

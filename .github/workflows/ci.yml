@@ -129,6 +129,45 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: npm run test:core
 
+  desktop:
+    # The desktop app (desktop/): its unit tests, then the app itself driven by
+    # Playwright's Electron driver, on a real daemon, under a virtual display.
+    # The Electron binary is fetched on first use, not by an install script.
+    name: Desktop app (Electron, xvfb)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            ai-dev-mcp-server/package-lock.json
+            desktop/package-lock.json
+
+      - name: Install the server's dependencies
+        working-directory: ai-dev-mcp-server
+        run: npm ci --no-audit --no-fund
+
+      - name: Install the app's dependencies
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+
+      - name: Desktop tests (unit, then end to end under xvfb-run)
+        working-directory: desktop
+        run: npm test
+
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-screenshots
+          path: desktop/test-results/
+          if-no-files-found: ignore
+
   vault-suite:
     name: MCP server (vault-coupled suite + smokes)
     runs-on: ubuntu-latest

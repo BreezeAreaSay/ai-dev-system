@@ -41,11 +41,15 @@ export class DaemonClientTransport {
    * @param {string | null} [options.profiles] - The session's capability profiles; empty for the default
    *   surface, `control` (with or without others) for the desktop app's tools.
    * @param {number} [options.timeoutMs] - How long to wait for a daemon this transport starts.
+   * @param {string} [options.execPath] - The Node the daemon runs on; needed where this process is not
+   *   that Node (Electron): the daemon's build includes it, and a client's `ai-dev mcp` runs on it.
+   * @param {boolean} [options.start] - false: reach a running daemon only; `start()` then fails with
+   *   code `ENOTRUNNING` when there is none.
    */
-  constructor({ serverRoot, env = process.env, profiles = String(env.AI_DEV_PROFILES ?? ""), timeoutMs } = {}) {
+  constructor({ serverRoot, env = process.env, profiles = String(env.AI_DEV_PROFILES ?? ""), timeoutMs, execPath, start = true } = {}) {
     if (!serverRoot) throw new Error("DaemonClientTransport needs the serverRoot of the install whose daemon it reaches.");
     const version = JSON.parse(readFileSync(path.join(serverRoot, "package.json"), "utf8")).version;
-    this.#options = { serverRoot, cliPath: path.join(serverRoot, "bin", "ai-dev.mjs"), version, env, profiles, timeoutMs };
+    this.#options = { serverRoot, cliPath: path.join(serverRoot, "bin", "ai-dev.mjs"), version, env, profiles, timeoutMs, start, ...(execPath ? { execPath } : {}) };
   }
 
   /** Connect: called by the SDK's `Client.connect`. */

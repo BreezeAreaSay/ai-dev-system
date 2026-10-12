@@ -16,7 +16,7 @@
  */
 
 /** The contract's version; `system_status` answers it as `api_version`. */
-export const CONTROL_API_VERSION = "1.0.0";
+export const CONTROL_API_VERSION = "1.1.0";
 
 const string = { type: "string" };
 const count = { type: "integer", minimum: 0 };
@@ -97,7 +97,13 @@ const SERVED_BY = object({
   description: "The process that answered: the daemon every client shares, or a client's own server."
 });
 
-const CHECK = object({ name: string, status: string, summary: string });
+const CHECK = object({
+  name: string,
+  status: { type: "string", description: "ok, warn, fail or skipped." },
+  summary: string,
+  critical: { type: "boolean", description: "Whether the install fails without it (1.1)." },
+  details: { type: "object", description: "What the check found, as it reports it: paths, counts, versions (1.1)." }
+}, { optional: ["critical", "details"] });
 
 /** When a setting's change takes effect (`settings.mjs`). */
 const APPLIES = {

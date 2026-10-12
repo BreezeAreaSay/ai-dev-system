@@ -178,6 +178,7 @@ container runs with no network, no capabilities, and a read-only root filesystem
 | --- | --- |
 | [**Demo**](docs/DEMO.md) | One real task end to end, including the failure and the fix. |
 | [**Install**](docs/INSTALL.md) | Every platform, every client, Docker, packaging, diagnostics. |
+| [**Desktop app**](docs/DESKTOP.md) | The tray, the first-run wizard and the Status screen. |
 | [**Workflow**](docs/WORKFLOW.md) | The task lifecycle, epics, undoing a turn, memory and learning. |
 | [**Capabilities**](docs/CAPABILITIES.md) | The eight profiles and how to narrow the tool surface. |
 | [**Knowledge Galaxy**](docs/GALAXY.md) | The vault as a 3D galaxy to fly through, in place of Obsidian's graph view. |

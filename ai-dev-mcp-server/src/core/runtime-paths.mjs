@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -128,28 +129,88 @@ export function daemonAddressCandidates({ platform = process.platform, name = ra
  */
 export async function prepareSocketDirectory(directory, { uid = process.getuid?.() } = {}) {
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
-  const stat = await fs.lstat(directory);
-  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new Error(`${directory} is not a plain directory.`);
-  if (uid !== undefined && stat.uid !== uid) throw new Error(`${directory} belongs to uid ${stat.uid}, not to this user (${uid}).`);
-  if ((stat.mode & 0o077) !== 0) await fs.chmod(directory, 0o700);
+  // Checked and changed through one handle that never followed a link (Д-226).
+  let handle;
+  try {
+    handle = await fs.open(directory, FOLDER_FLAGS);
+  } catch (error) {
+    if (error?.code === "ELOOP" || error?.code === "ENOTDIR") throw new Error(`${directory} is not a plain directory.`);
+    throw error;
+  }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isDirectory()) throw new Error(`${directory} is not a plain directory.`);
+    if (uid !== undefined && stat.uid !== uid) throw new Error(`${directory} belongs to uid ${stat.uid}, not to this user (${uid}).`);
+    if ((stat.mode & 0o077) !== 0) await handle.chmod(0o700);
+  } finally {
+    await handle.close();
+  }
 }
+
+/** Open a folder itself, never a link in its place: what is checked is what is changed (docs/DEFECTS.md, Д-226). */
+const FOLDER_FLAGS = fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0);
 
 /**
  * Make a folder of this user's private when group or others can get into it:
- * the daemon's run folder, found as a 2.x install, a migration or an older
- * lock left it (docs/DEFECTS.md, Д-215). A link, another user's folder, or
- * Windows, where modes do not guard folders, is left as it is.
+ * the daemon's run folder, as the lock race before Д-213's fix or the 2.x
+ * layout's migration left it (docs/DEFECTS.md, Д-215). The folder is opened
+ * without following a link, checked and changed through that handle, and
+ * checked again — a file system that takes the change and keeps its mode
+ * says so (Д-225).
  *
  * @param {string} directory
  * @param {{ uid?: number, platform?: string }} [options]
- * @returns {Promise<boolean>} whether the mode was changed
+ * @returns {Promise<{ state: "private" | "tightened" | "open" | "left", why?: string }>}
+ *   `private`: it already was; `tightened`: it is now; `open`: it stays open
+ *   to others, `why` says why; `left`: not a plain folder of this user's — a
+ *   link, another user's, gone — or Windows, where modes do not guard folders.
  */
 export async function tightenFolder(directory, { uid = process.getuid?.(), platform = process.platform } = {}) {
-  if (platform === "win32") return false;
-  const stat = await fs.lstat(directory).catch(() => null);
-  if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return false;
-  if (uid !== undefined && stat.uid !== uid) return false;
-  if ((stat.mode & 0o077) === 0) return false;
-  await fs.chmod(directory, 0o700);
-  return true;
+  if (platform === "win32") return { state: "left", why: "modes do not guard folders on Windows" };
+  let handle;
+  try {
+    handle = await fs.open(directory, FOLDER_FLAGS);
+  } catch (error) {
+    const why = error?.code === "ELOOP" || error?.code === "ENOTDIR" ? "it is not a plain folder (a link?)" : `it cannot be opened (${error?.code ?? error})`;
+    return { state: "left", why };
+  }
+  try {
+    const before = await handle.stat();
+    if (!before.isDirectory()) return { state: "left", why: "it is not a folder" };
+    if (uid !== undefined && before.uid !== uid) return { state: "left", why: `it belongs to uid ${before.uid}` };
+    if ((before.mode & 0o077) === 0) return { state: "private" };
+    try {
+      await handle.chmod(0o700);
+    } catch (error) {
+      return { state: "open", why: `its mode cannot be changed (${error?.code ?? error})` };
+    }
+    const after = await handle.stat();
+    return (after.mode & 0o077) === 0 ? { state: "tightened" } : { state: "open", why: "its file system keeps the mode it has" };
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * The folders from `start` up to `top`, both included — what a daemon
+ * leaving removes when they are empty — or none when `top` is not `start` or
+ * one of its parents. `top` is as `fs.mkdir` returned it, on Windows in the
+ * `\\?\` namespace, so both are compared that way (docs/DEFECTS.md, Д-224).
+ *
+ * @param {string} start
+ * @param {string} top
+ * @param {{ pathApi?: typeof path }} [options]
+ * @returns {string[]}
+ */
+export function foldersUpTo(start, top, { pathApi = path } = {}) {
+  if (!start || !top) return [];
+  const target = pathApi.toNamespacedPath(top);
+  const folders = [];
+  for (let folder = start; ; folder = pathApi.dirname(folder)) {
+    const spelled = pathApi.toNamespacedPath(folder);
+    if (spelled !== target && !spelled.startsWith(`${target}${pathApi.sep}`)) return [];
+    folders.push(folder);
+    if (spelled === target) return folders;
+    if (pathApi.dirname(folder) === folder) return [];
+  }
 }

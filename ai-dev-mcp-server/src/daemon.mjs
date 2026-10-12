@@ -31,7 +31,7 @@
  * bytes and always said `sessions: 0` (docs/DEFECTS.md, Д-97); its Windows pipe
  * had a name anyone could take first (Д-107).
  */
-import { fstatSync, statSync } from "node:fs";
+import { existsSync, fstatSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
@@ -61,6 +61,7 @@ import {
   daemonAddressCandidates,
   daemonInfoPath,
   daemonLogPath,
+  foldersUpTo,
   prepareSocketDirectory,
   retiredDaemonPath,
   runtimeDir,
@@ -254,7 +255,11 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   const build = await describeBuild({ serverRoot, version: VERSION, env });
   const descriptor = daemonInfoPath(build.id);
   await fs.mkdir(runtimeDir(), { recursive: true, mode: 0o700 });
-  if (await tightenFolder(runtimeDir()).catch(() => false)) log(`${runtimeDir()} was open to other users; it is 0700 now`);
+  // The journal says what is true of run/, not what was attempted (Д-225).
+  const tightened = await tightenFolder(runtimeDir()).catch((error) => ({ state: "open", why: String(error?.message ?? error) }));
+  if (tightened.state === "tightened") log(`${runtimeDir()} was open to other users; it is 0700 now`);
+  else if (tightened.state === "open") log(`${runtimeDir()} is open to other users and stays so: ${tightened.why}`);
+  else if (tightened.state === "left" && tightened.why && process.platform !== "win32") log(`${runtimeDir()}: its mode is left as it is, ${tightened.why}`);
   const taken = await acquireLock({ descriptor, log });
   if (!taken.lock) {
     log(`another daemon (pid ${taken.holder || "unknown"}) ${taken.serving ? "serves" : "is starting for"} this build in ${runtimeDir()}; this one is not needed`);
@@ -327,10 +332,18 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     // A folder made again here — the runtime home was deleted under this
     // daemon — goes when the daemon does, if it is still empty (Д-213).
     // Each folder made again is the start of the same path to run/: the
-    // shortest is the highest (Д-214).
-    const made = await fs.mkdir(path.dirname(retiredDaemonPath(process.pid)), { recursive: true, mode: 0o700 }).catch(() => undefined);
-    if (made && (!madeFolder || made.length < madeFolder.length)) madeFolder = made;
+    // shortest is the highest (Д-214). The record's lock makes the folder
+    // itself when it went again in between: the highest one missing before
+    // counts as made too (Д-226) — removed only if empty, it is never a
+    // neighbour's folder with something in it.
+    const run = path.dirname(retiredDaemonPath(process.pid));
+    let missing = null;
+    for (let folder = run; !existsSync(folder) && path.dirname(folder) !== folder; folder = path.dirname(folder)) missing = folder;
+    const made = await fs.mkdir(run, { recursive: true, mode: 0o700 }).catch(() => undefined);
     const taken = await tryAcquireFileLock(retiredDaemonPath(process.pid), { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS, directoryMode: 0o700 }).catch(() => ({}));
+    for (const folder of [made, taken.release && missing && existsSync(missing) ? missing : null]) {
+      if (folder && (!madeFolder || path.toNamespacedPath(folder).length < path.toNamespacedPath(madeFolder).length)) madeFolder = folder;
+    }
     retiredLock = taken.release ? taken : null;
     return Boolean(retiredLock);
   };
@@ -387,11 +400,8 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     await retiredLock?.release().catch(() => undefined);
     if (address && !isPipe(address)) await fs.rm(address, { force: true }).catch(() => undefined);
     // Empty folders only: a neighbour's files keep theirs (`rmdir` refuses).
-    const under = (folder) => folder === madeFolder || folder.startsWith(`${madeFolder}${path.sep}`);
-    for (let folder = runtimeDir(); madeFolder && under(folder); folder = path.dirname(folder)) {
-      await fs.rmdir(folder).catch(() => undefined);
-      if (folder === madeFolder) break;
-    }
+    // On Windows `mkdir` named the folder in the `\\?\` namespace (Д-224).
+    for (const folder of foldersUpTo(runtimeDir(), madeFolder)) await fs.rmdir(folder).catch(() => undefined);
     log(`exits: ${reason}`);
     process.exit(0);
   };

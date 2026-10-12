@@ -16,16 +16,30 @@ api.onProgress((event) => listeners.get(event?.id)?.(event));
  * @param {object} [args]
  * @param {{ onProgress?: (event: { progress: number, total?: number, message?: string }) => void, onStart?: (id: string) => void }} [options]
  */
-export async function call(tool, args = {}, { onProgress, onStart } = {}) {
+export function call(tool, args = {}, options = {}) {
+  return invoke(api.call, tool, args, options);
+}
+
+/**
+ * Run a tool from the tool console. As `call`, and a tool that changes
+ * something runs only after the person confirms it: when they do not, the
+ * Error's `notConfirmed` is true.
+ */
+export function consoleCall(tool, args = {}, options = {}) {
+  return invoke(api.consoleCall, tool, args, options);
+}
+
+async function invoke(channel, tool, args, { onProgress, onStart } = {}) {
   counter += 1;
   const id = `call-${Date.now().toString(36)}-${counter}`;
   if (onProgress) listeners.set(id, onProgress);
   onStart?.(id);
   try {
-    const answer = await api.call(tool, args, id);
+    const answer = await channel(tool, args, id);
     if (answer?.ok) return answer.result;
     const error = new Error(answer?.error ?? "No answer.");
     error.cancelled = Boolean(answer?.cancelled);
+    error.notConfirmed = answer?.confirmed === false;
     throw error;
   } finally {
     listeners.delete(id);
@@ -37,6 +51,8 @@ export function cancel(id) {
   return api.cancel(id);
 }
 
+export const tools = () => api.tools();
+export const reconnect = () => api.reconnect();
 export const state = () => api.state();
 export const connect = (start) => api.connect(start);
 export const chooseFolder = (purpose) => api.chooseFolder(purpose);

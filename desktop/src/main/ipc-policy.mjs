@@ -1,9 +1,11 @@
 /**
  * What the page may ask the main process for. The preload exposes exactly
  * these channels; the main process answers only these, only from the app's
- * own page, and calls only the tools named here — a page that something
- * managed to run script in still cannot reach a tool the interface has no
- * button for.
+ * own page. The screens call only the tools named here; any other tool goes
+ * through the tool console, where one that changes something runs only after
+ * the person confirms it in the main process (console-policy.mjs) — a page
+ * that something managed to run script in still cannot change anything the
+ * person did not agree to.
  */
 
 /** Every channel the page invokes, and what it does. */
@@ -13,7 +15,10 @@ export const INVOKE_CHANNELS = Object.freeze({
   call: "ai-dev:call",
   cancel: "ai-dev:cancel",
   chooseFolder: "ai-dev:choose-folder",
-  setLanguage: "ai-dev:set-language"
+  setLanguage: "ai-dev:set-language",
+  tools: "ai-dev:tools",
+  consoleCall: "ai-dev:console-call",
+  reconnect: "ai-dev:reconnect"
 });
 
 /** Every channel the main process sends the page. */
@@ -23,9 +28,10 @@ export const EVENT_CHANNELS = Object.freeze({
 });
 
 /**
- * The tools the interface calls. The rest of the control API (`model_remove`,
- * `clients_remove`) and the agent's tools are not here: phase 11's tool
- * console calls them behind a confirmation the main process shows itself.
+ * The tools the screens call: the control API's buttons and the read-only
+ * tools the data screens show. The rest of the control API (`model_remove`,
+ * `clients_remove`) and the agent's tools that change something are not here:
+ * the tool console calls them behind a confirmation the main process shows.
  */
 export const PAGE_TOOLS = Object.freeze([
   "system_status",
@@ -39,17 +45,35 @@ export const PAGE_TOOLS = Object.freeze([
   "settings_get",
   "settings_set",
   "workspace_overview",
-  "rebuild_search_index"
+  "rebuild_search_index",
+  "list_projects",
+  "read_project",
+  "list_tasks",
+  "epic_status",
+  "list_decisions",
+  "list_sessions",
+  "usage_report",
+  "search_skills",
+  "read_skill",
+  "list_skill_groups",
+  "browse_skill_group"
 ]);
 
 const CALL_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_ARGUMENT_BYTES = 64 * 1024;
 
-/** Why a call from the page is refused, or null when it may go on. */
+/** Why a call from a screen is refused, or null when it may go on. */
 export function refuseCall(request) {
   if (!request || typeof request !== "object" || Array.isArray(request)) return "A call is an object with tool, arguments and id.";
+  if (typeof request.tool !== "string" || !PAGE_TOOLS.includes(request.tool)) return `The interface does not call ${JSON.stringify(String(request.tool)).slice(0, 80)}.`;
+  return refuseRequest(request);
+}
+
+/** Why a call is malformed — its id, its arguments — or null; which tool it names is the caller's rule. */
+export function refuseRequest(request) {
+  if (!request || typeof request !== "object" || Array.isArray(request)) return "A call is an object with tool, arguments and id.";
   const { tool, args = {}, id } = request;
-  if (typeof tool !== "string" || !PAGE_TOOLS.includes(tool)) return `The interface does not call ${JSON.stringify(String(tool)).slice(0, 80)}.`;
+  if (typeof tool !== "string" || !tool) return "A call names a tool.";
   if (typeof id !== "string" || !CALL_ID.test(id)) return "A call's id is 1 to 64 letters, digits, - or _.";
   if (!args || typeof args !== "object" || Array.isArray(args)) return "A call's arguments are an object.";
   let size;

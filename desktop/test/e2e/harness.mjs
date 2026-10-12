@@ -3,6 +3,7 @@
 // in it through Playwright's Electron driver, with the real daemon behind it.
 // Nothing touches the person's home: every path an AI client or AI Dev reads
 // is inside the test's folder.
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -124,4 +125,51 @@ export function mainCall(app, tool, args = {}) {
 /** The tray as the main process has it: its state and its menu. */
 export function trayNow(app) {
   return app.evaluate(() => ({ state: globalThis.aiDevTest.tray.state(), menu: globalThis.aiDevTest.tray.menu() }));
+}
+
+/**
+ * Work for the data screens, made through the app's own session the way an AI
+ * client makes it: the skill registry and index (setup_run), a git repository
+ * registered as a project, a task split into an epic of two, a decision, a
+ * session handoff and recorded usage. Returns the project's path and the epic's id.
+ */
+export async function seedWork(app, s) {
+  const repo = path.join(s.root, "projects", "shop");
+  await fs.mkdir(repo, { recursive: true });
+  await fs.writeFile(path.join(repo, "package.json"), `${JSON.stringify({ name: "shop", version: "1.0.0", scripts: { test: "node -e 0" } }, null, 2)}\n`);
+  await fs.writeFile(path.join(repo, "README.md"), "# Shop\n\nA small web shop.\n");
+  const git = (...args) => execFileSync("git", ["-C", repo, ...args], { stdio: "ignore", windowsHide: true });
+  git("init", "-q");
+  git("add", ".");
+  git("-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-q", "-m", "init");
+  const must = async (tool, args) => {
+    const answer = await mainCall(app, tool, args);
+    if (!answer.ok) throw new Error(`${tool}: ${answer.error}`);
+    return answer.result;
+  };
+  await must("setup_run", {});
+  await must("register_project", { project_path: repo, description: "A small web shop." });
+  const task = await must("begin_task", { project_path: repo, task: "Add a checkout page", acceptance_criteria: ["The cart total is shown", "Payment errors are explained"] });
+  await must("decompose_task", { task_id: task.id, subtasks: [{ task: "Draw the checkout form", key: "form" }, { task: "Wire the payment call", depends_on: ["form"] }] });
+  await must("record_decision", { project_path: repo, title: "Use Stripe for payments", context: "Card payments are needed.", decision: "Payments go through Stripe Checkout.", alternatives: ["PayPal"], tags: ["payments"] });
+  await must("save_session", { project_path: repo, task_id: task.id, topic: "Checkout page", building: "A checkout page for the shop.", next_step: "Wire the payment call.", worked: [{ item: "Form layout", evidence: "a screenshot" }] });
+  await must("record_usage", { project_path: repo, task_id: task.id, model: "claude-sonnet-4-5", input_tokens: 12000, output_tokens: 3400, cost_usd: 0.42, source: "manual" });
+  return { repo, epicId: task.id };
+}
+
+/** The system's message box answers with the button at `response` (0 is Run, 1 Cancel), and remembers what it was asked. */
+export function answerMessageBox(app, response) {
+  return app.evaluate(({ dialog }, answer) => {
+    globalThis.aiDevTestDialogs ??= [];
+    dialog.showMessageBox = async (...args) => {
+      const options = args.find((arg) => arg && typeof arg === "object" && "buttons" in arg);
+      globalThis.aiDevTestDialogs.push({ message: options?.message, detail: options?.detail, buttons: options?.buttons, defaultId: options?.defaultId, cancelId: options?.cancelId, type: options?.type });
+      return { response: answer, checkboxChecked: false };
+    };
+  }, response);
+}
+
+/** The message boxes shown so far. */
+export function messageBoxes(app) {
+  return app.evaluate(() => globalThis.aiDevTestDialogs ?? []);
 }

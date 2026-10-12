@@ -8,6 +8,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import electron from "electron";
 import { pickLanguage, translate } from "../renderer/i18n.js";
+import { confirmationDialog, consoleDecision, consoleTools } from "./console-policy.mjs";
 import { DaemonLink } from "./daemon-link.mjs";
 import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, validCallId } from "./ipc-policy.mjs";
 import { findNode } from "./node-runtime.mjs";
@@ -115,16 +116,30 @@ if (!app.requestSingleInstanceLock()) {
       await link.connect({ start: request?.start === true });
       return publicState();
     });
+    const progressTo = (sender, id) => ({ progress, total, message }) => {
+      if (!sender.isDestroyed()) sender.send(EVENT_CHANNELS.progress, { id, progress, total, message });
+    };
     handle(INVOKE_CHANNELS.call, (event, request) => {
       const refused = refuseCall(request);
       if (refused) return { ok: false, error: refused, cancelled: false };
-      const sender = event.sender;
-      return link.call(request.tool, request.args ?? {}, {
-        id: request.id,
-        onProgress: ({ progress, total, message }) => {
-          if (!sender.isDestroyed()) sender.send(EVENT_CHANNELS.progress, { id: request.id, progress, total, message });
-        }
-      });
+      return link.call(request.tool, request.args ?? {}, { id: request.id, onProgress: progressTo(event.sender, request.id) });
+    });
+    handle(INVOKE_CHANNELS.tools, async () => consoleTools(await link.tools()));
+    // The tool console: what the daemon lists, a tool that changes something
+    // only after the person says so in a dialog of this process (console-policy.mjs).
+    handle(INVOKE_CHANNELS.consoleCall, async (event, request) => {
+      const decision = consoleDecision(request, consoleTools(await link.tools()));
+      if (decision.refused) return { ok: false, error: decision.refused, cancelled: false };
+      if (decision.confirm) {
+        const parent = BrowserWindow.fromWebContents(event.sender) ?? window;
+        const { response } = await dialog.showMessageBox(parent, confirmationDialog(decision.tool, decision.args, t));
+        if (response !== 0) return { ok: false, error: t("console.notConfirmed"), cancelled: true, confirmed: false };
+      }
+      return link.call(decision.tool.name, decision.args, { id: decision.id, onProgress: progressTo(event.sender, decision.id) });
+    });
+    handle(INVOKE_CHANNELS.reconnect, async () => {
+      await link.reconnect();
+      return publicState();
     });
     handle(INVOKE_CHANNELS.cancel, (_event, id) => validCallId(id) && link.cancel(id));
     handle(INVOKE_CHANNELS.chooseFolder, async () => {

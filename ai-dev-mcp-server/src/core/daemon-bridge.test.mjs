@@ -70,6 +70,54 @@ test("lines are read whole however they are cut, CRLF and blank lines included",
   assert.deepEqual(invalid, ["not json"]);
 });
 
+test("a character cut between two chunks arrives whole, in both directions (Д-188)", async () => {
+  const messages = [];
+  const read = lineReader((message) => messages.push(message), () => assert.fail("no invalid line"));
+  const bytes = Buffer.from(`${JSON.stringify({ text: "я — ёжик 🦔" })}\n`, "utf8");
+  // Every possible cut, including those inside the two-byte я and the four-byte hedgehog.
+  for (let cut = 1; cut < bytes.length; cut += 1) {
+    read(bytes.subarray(0, cut));
+    read(bytes.subarray(cut));
+  }
+  assert.equal(messages.length, bytes.length - 1);
+  assert.ok(messages.every((message) => message.text === "я — ёжик 🦔"));
+
+  // Through the bridge: the client's line in one-byte chunks, the daemon's answer in three-byte chunks.
+  const answer = "Проверка кириллицы — ".repeat(2000);
+  const upstream = fakeUpstream("daemon", { answer: false });
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let read2 = Buffer.alloc(0);
+  output.on("data", (chunk) => {
+    read2 = Buffer.concat([read2, chunk]);
+  });
+  const bridge = new StdioBridge({ input, output, note: () => undefined, connect: async () => assert.fail("no reconnect") });
+  const done = bridge.run(upstream);
+  const request = Buffer.from(`${JSON.stringify({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { arguments: { content: answer } } })}\n`);
+  for (let at = 0; at < request.length; at += 1) input.write(request.subarray(at, at + 1));
+  await settle();
+  assert.equal(upstream.sent[0].params.arguments.content, answer);
+  const reply = Buffer.from(`${JSON.stringify({ jsonrpc: "2.0", id: 7, result: { text: answer } })}\n`);
+  // The socket side reads with the same function: the daemon's reply, cut every three bytes.
+  const fromDaemon = lineReader((message) => upstream.onMessage(message), () => assert.fail("no invalid line"));
+  for (let at = 0; at < reply.length; at += 3) fromDaemon(reply.subarray(at, at + 3));
+  await settle();
+  assert.equal(JSON.parse(read2.toString("utf8")).result.text, answer);
+  input.end();
+  await done;
+});
+
+test("a line of many megabytes costs what its size does", () => {
+  const messages = [];
+  const read = lineReader((message) => messages.push(message), () => assert.fail("no invalid line"));
+  const line = Buffer.from(`${JSON.stringify({ text: "ж".repeat(16 * 1024 * 1024) })}\n`);
+  const started = performance.now();
+  for (let at = 0; at < line.length; at += 64 * 1024) read(line.subarray(at, at + 64 * 1024));
+  const elapsed = performance.now() - started;
+  assert.equal(messages[0].text.length, 16 * 1024 * 1024);
+  assert.ok(elapsed < 2_000, `32 MB in 64 KB chunks took ${Math.round(elapsed)} ms`);
+});
+
 test("MCP passes through both ways, the handshake included", async () => {
   const upstream = fakeUpstream("daemon-1");
   const client = bridgeOver(upstream, async () => assert.fail("no reconnect expected"));

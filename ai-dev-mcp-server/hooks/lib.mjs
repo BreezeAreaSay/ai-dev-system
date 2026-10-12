@@ -116,25 +116,42 @@ function hashKey(key) {
   return crypto.createHash("sha256").update(process.platform === "win32" ? key.toLowerCase() : key).digest("hex").slice(0, 20);
 }
 
-/**
- * The project a hook fired in `cwd` works in — derived as the server's
- * resolveProjectIdentity derives it: the nearest project boundary at or above
- * `cwd` first, the Git root only when there is none, then `cwd` itself. The
- * hook used to start from the Git root, so in a package of a monorepo it keyed
- * its memory to the repository while the server keyed it to the package
- * (docs/DEFECTS.md, Д-164).
- */
-export function projectRootOf(cwd) {
-  const canonical = realpathOf(cwd);
-  const boundary = projectBoundaryOf(canonical);
-  if (boundary) return realpathOf(boundary);
+/** The Git root of `cwd`, when it may stand for a project; "" otherwise. */
+function gitRootOf(cwd) {
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
-  if (!top) return canonical;
+  if (!top) return "";
   // A dotfiles clone in `~` answers `--show-toplevel` with the home directory
   // for every project below it, which is the server's `rawGitRoot` fallback and
   // is gated there the same way (docs/DEFECTS.md, Д-48).
   const root = realpathOf(top);
-  return isProjectBoundaryCandidate(root, { homeDir: canonicalUserHome() }) ? root : canonical;
+  return isProjectBoundaryCandidate(root, { homeDir: canonicalUserHome() }) ? root : "";
+}
+
+/**
+ * The workspace a hook fired in `cwd` works in: the Git root, or `cwd` outside
+ * Git. Its `.ai-dev/policy.json` and `hooks/patterns.json` are the ones
+ * `install_agent_hooks` wrote, `git status` paths are relative to it, its
+ * `node_modules/.bin` holds the formatter. In a package of a monorepo this is
+ * the repository, not the package (docs/DEFECTS.md, Д-189).
+ */
+export function projectRootOf(cwd) {
+  return gitRootOf(cwd) || realpathOf(cwd);
+}
+
+/**
+ * The project the server would name for `cwd` — derived as its
+ * resolveProjectIdentity derives it: the nearest project boundary at or above
+ * `cwd` first, the Git root only when there is none, then `cwd` itself. The
+ * memory a hook reads and writes is keyed by it, so that a session in
+ * `<repo>/apps/web` meets the memory the server keeps for `apps/web`
+ * (docs/DEFECTS.md, Д-164). For everything else the hooks use
+ * {@link projectRootOf}.
+ */
+export function identityRootOf(cwd) {
+  const canonical = realpathOf(cwd);
+  const boundary = projectBoundaryOf(canonical);
+  if (boundary) return realpathOf(boundary);
+  return gitRootOf(cwd) || canonical;
 }
 
 /** Same normalization as the server's project identity: POSIX separators, case-folded on Windows. */
@@ -745,19 +762,42 @@ export function tokensOf(segment) {
 }
 
 /** The task a project is working on right now, or null. Shared by stop-check and cost-capture. */
-export function activeTaskFor(projectRoot) {
-  const directory = path.join(stateRoot(), "tasks");
+/** Whether `directory` is `root` or lies below it, compared the way the platform compares paths. */
+export function isWithin(directory, root) {
+  if (!directory || !root) return false;
+  const inner = normalizePath(directory);
+  const outer = normalizePath(root);
+  return inner === outer || inner.startsWith(`${outer}/`);
+}
+
+/**
+ * The open tasks (active or verified) whose project holds `directory`, the
+ * nearest project first: a task begun for the repository covers a session in
+ * one of its packages, and a task begun for the package does too.
+ *
+ * @param {string} directory - Usually {@link identityRootOf} the hook's `cwd`.
+ * @returns {object[]}
+ */
+export function openTasksFor(directory) {
+  const folder = path.join(stateRoot(), "tasks");
   let names = [];
   try {
-    names = fs.readdirSync(directory).filter((name) => name.endsWith(".json"));
+    names = fs.readdirSync(folder).filter((name) => name.endsWith(".json"));
   } catch {
-    return null;
+    return [];
   }
+  const tasks = [];
   for (const name of names) {
-    const record = readJson(path.join(directory, name));
-    if (record && ["active", "verified"].includes(record.status) && samePath(record.project?.path, projectRoot)) return record;
+    const record = readJson(path.join(folder, name));
+    if (record && ["active", "verified"].includes(record.status) && isWithin(directory, record.project?.path)) tasks.push(record);
   }
-  return null;
+  return tasks.sort((left, right) => normalizePath(right.project.path).length - normalizePath(left.project.path).length
+    || String(right.updated_at).localeCompare(String(left.updated_at)));
+}
+
+/** The task a hook in `directory` works under: the nearest open one, or null. */
+export function activeTaskFor(directory) {
+  return openTasksFor(directory)[0] ?? null;
 }
 
 /** The usage ledger the server reads (`src/core/usage-ledger.mjs`). */

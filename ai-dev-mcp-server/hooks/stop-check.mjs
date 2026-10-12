@@ -11,7 +11,7 @@
 // says nothing, so it can never hold a session in a loop.
 import fs from "node:fs";
 import path from "node:path";
-import { activeTaskFor, compileRegex, git, hooksDisabled, isCursor, loadPolicy, log, normalizeInput, profileAllows, projectRootOf, readJson, readStdin } from "./lib.mjs";
+import { activeTaskFor, compileRegex, git, hooksDisabled, identityRootOf, isCursor, loadPolicy, log, normalizeInput, profileAllows, projectRootOf, readJson, readStdin } from "./lib.mjs";
 
 /** Where run_security_scan leaves the time of its last run in a project. */
 export const SECURITY_SCAN_STAMP = path.join(".ai-dev", "security", "last-scan.json");
@@ -92,7 +92,7 @@ async function main() {
     for (const item of secrets) if (item.regex.test(content)) findings.push(`possible ${item.id.replaceAll("_", " ")} in ${file}`);
   }
   for (const finding of findings) log(`[ai-dev stop-check] WARNING: ${finding}`);
-  const task = activeTaskFor(projectRoot);
+  const task = activeTaskFor(identityRootOf(input.cwd));
   if (task) log(`[ai-dev stop-check] Task ${task.id} is ${task.status} with ${files.length} uncommitted file(s): run checkpoint_task and verify_task before claiming completion.`);
   const mode = ["block", "remind", "off"].includes(policy.security_review_on_stop) ? policy.security_review_on_stop : "block";
   const unreviewed = mode === "off" ? [] : unreviewedChanges(projectRoot, files);

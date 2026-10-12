@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import {
+  FILE_CLOCK_MARGIN_MS,
   checkSkillRegistry,
   createSkillRegistryReader,
   dateSkillRegistry,
@@ -298,7 +299,9 @@ test("skills changed, added or removed while the rebuild runs are put right by t
       await duringRebuild();
       duringRebuild = async () => {};
       await fs.writeFile(fixture.registryPath, JSON.stringify(entries));
-      await dateSkillRegistry(fixture.registryPath, sourcesReadAt);
+      // On the process's clock alone: this test is about the looks after a
+      // rebuild, and every write here lands within the file-clock margin.
+      await dateSkillRegistry(fixture.registryPath, sourcesReadAt, { marginMs: 0 });
     }
   });
   // A pull lands while the first rebuild runs: a skill rewritten, one added, one removed.
@@ -316,6 +319,38 @@ test("skills changed, added or removed while the rebuild runs are put right by t
   assert.equal(rebuilds.at(-1), "beta=v2 gamma=v1");
   const registry = JSON.parse(await fs.readFile(fixture.registryPath, "utf8"));
   assert.deepEqual(registry.map((entry) => entry.path).sort(), ["sources/custom/gamma/SKILL.md", "sources/external/pack/skills/beta/SKILL.md"]);
+});
+
+test("a skill rewritten just after the rebuild noted its time is newer than the registry, stamped a tick early or not (Д-135)", async (t) => {
+  const fixture = await makeCatalog(t);
+  const skill = path.join(fixture.catalog, "sources/custom/alpha/SKILL.md");
+  const sourcesReadAt = new Date(Date.now() - 10_000);
+  // The pull rewrites the skill after that moment, and the file clock stamps it
+  // a coarse tick before it — what Linux before 6.13, Windows and HFS+ do.
+  await fs.writeFile(skill, "# alpha, pulled\n");
+  const stamped = new Date(sourcesReadAt.getTime() - 5);
+  await fs.utimes(skill, stamped, stamped);
+  await dateSkillRegistry(fixture.registryPath, sourcesReadAt);
+  assert.equal((await staleness(fixture)).stale, true, "seen with the margin");
+  await dateSkillRegistry(fixture.registryPath, sourcesReadAt, { marginMs: 0 });
+  assert.equal((await staleness(fixture)).stale, false, "without it the rewrite reads as older than the registry");
+  const registryTime = (await fs.stat(fixture.registryPath)).mtimeMs;
+  await dateSkillRegistry(fixture.registryPath, sourcesReadAt);
+  assert.equal(registryTime - (await fs.stat(fixture.registryPath)).mtimeMs, FILE_CLOCK_MARGIN_MS);
+});
+
+test("a change stamped finer than Date.now(), in the same millisecond, is not from the future (Д-160)", () => {
+  const verdict = (mtimeMs) => skillRegistryStaleness({
+    catalogRoot: "/v/03-skills-catalog",
+    builtAtMs: 10,
+    paths: ["sources/custom/a/SKILL.md"],
+    nowMs: 100,
+    stat: (target) => (target.replaceAll("\\", "/").endsWith("SKILL.md") ? { mtimeMs } : { mtimeMs: 1 })
+  }).changed;
+  assert.equal(verdict(100.6), 1, "this millisecond");
+  assert.equal(verdict(100), 1);
+  assert.equal(verdict(101), 0, "the next millisecond is still the future");
+  assert.equal(verdict(3_600_100), 0);
 });
 
 test("a rewrite of the registry from itself keeps the date of the sources it describes", async (t) => {

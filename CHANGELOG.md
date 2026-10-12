@@ -508,6 +508,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   person had put in the same group — Claude Code's `/hooks` adds a hook for an event without a
   matcher to the group already there. Only the AI Dev commands are taken out now; the group
   stays with the rest. The re-install is the step that moves 2.x hooks to the Node launcher.
+- **A skill rewritten while the skill registry was being rebuilt could stay unseen**
+  (`docs/DEFECTS.md`, Д-135, Д-160). The registry is dated by when its sources were read,
+  and the clock that stamps files lags the process's own by up to a tick (a second on
+  HFS+, two on FAT): a skill a `git pull` rewrote just after that moment was stamped
+  earlier and missed in 284 of 300 runs. The registry is now dated two seconds earlier
+  still, at the cost of one extra rebuild at most, and a change stamped in the current
+  millisecond no longer reads as one from the future — 0 of 300 for both.
 - **The supply-chain hook and the fix-version lookup ignored `HTTPS_PROXY`** (Д-145).
   Behind a proxy every lookup failed with `fetch failed`: the hook warned "not fully
   checked" on every install and `run_security_scan` offered no fix versions. Both now go

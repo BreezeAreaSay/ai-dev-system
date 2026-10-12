@@ -20,14 +20,20 @@
  * of counting it is one rebuild too many, the cost of not counting it a change
  * never seen. A time in the future says nothing about the order of two writes
  * (a tree unpacked from a machine whose clock ran ahead), so it is not counted:
- * otherwise no rebuild could ever make the registry current again.
+ * otherwise no rebuild could ever make the registry current again. The future
+ * starts after the current millisecond: files are stamped finer than
+ * `Date.now()` counts, and a change in this very millisecond is not one from
+ * the future (docs/DEFECTS.md, Д-160).
  *
  * The registry's time is the moment its sources were read, not the moment it
  * was written: `rebuild_index` dates it back to its own start
  * ({@link dateSkillRegistry}), and a rewrite from the registry itself — the
  * taxonomy, the overlays — keeps the date it had ({@link keepSkillRegistryDate}).
  * A skill changed while a rebuild ran is then newer than the registry, and the
- * next look sees it (docs/DEFECTS.md, Д-128).
+ * next look sees it (docs/DEFECTS.md, Д-128). It is dated a little earlier
+ * still, by {@link FILE_CLOCK_MARGIN_MS}: the clock that stamps files lags the
+ * process's own, and a skill rewritten just after the rebuild noted its time
+ * was stamped before that time in 284 runs of 300 (Д-135).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
@@ -35,6 +41,16 @@ import path from "node:path";
 
 /** How long a verdict on the registry is trusted before the files are looked at again. */
 export const SKILL_REGISTRY_CHECK_INTERVAL_MS = 5_000;
+
+/**
+ * How far a file's stamp may sit before the moment it was written, as the
+ * process's clock tells it: Linux before 6.13 stamps from a clock that moves
+ * in ticks (4 ms), Windows in ~16 ms ones, HFS+ keeps seconds and FAT two. The
+ * registry is dated this much before its sources were read; the cost is one
+ * rebuild too many when a skill changed in the two seconds before a rebuild
+ * began (docs/DEFECTS.md, Д-135).
+ */
+export const FILE_CLOCK_MARGIN_MS = 2_000;
 
 /**
  * Pauses before a rebuild that failed, or left the registry naming files that
@@ -72,7 +88,9 @@ function inside(root, target) {
  */
 export function skillRegistryStaleness({ catalogRoot, builtAtMs, paths, nowMs = Date.now(), stat = statOrUndefined }) {
   const sourcesRoot = path.join(catalogRoot, "sources");
-  const newer = (info) => info.mtimeMs >= builtAtMs && info.mtimeMs <= nowMs;
+  // Up to the end of the current millisecond: a stamp finer than Date.now() in
+  // the same millisecond is now, not the future (Д-160).
+  const newer = (info) => info.mtimeMs >= builtAtMs && info.mtimeMs < nowMs + 1;
   const examples = [];
   const note = (text) => {
     if (examples.length < EXAMPLES) examples.push(text);
@@ -111,15 +129,18 @@ export function skillRegistryStaleness({ catalogRoot, builtAtMs, paths, nowMs = 
 }
 
 /**
- * Date a freshly written registry by when its sources were read.
+ * Date a freshly written registry by when its sources were read, less the
+ * margin the file clock may lag by.
  *
  * @param {string} registryPath
  * @param {Date} sourcesReadAt - Taken before the first `SKILL.md` was read.
+ * @param {{ marginMs?: number }} [options]
  * @returns {Promise<void>}
  */
-export async function dateSkillRegistry(registryPath, sourcesReadAt) {
+export async function dateSkillRegistry(registryPath, sourcesReadAt, { marginMs = FILE_CLOCK_MARGIN_MS } = {}) {
+  const at = new Date(sourcesReadAt.getTime() - marginMs);
   try {
-    await fs.promises.utimes(registryPath, sourcesReadAt, sourcesReadAt);
+    await fs.promises.utimes(registryPath, at, at);
   } catch (error) {
     // No registry on disk (a host that keeps it elsewhere): nothing to date.
     if (error?.code !== "ENOENT") throw error;

@@ -114,6 +114,16 @@ secret and the daemon proves it back (see
 [SECURITY.md](../ai-dev-mcp-server/docs/SECURITY.md#the-daemon)). A home whose path is too long
 for a socket puts it in `$XDG_RUNTIME_DIR/ai-dev` or `/tmp/ai-dev-<uid>` instead.
 
+**Settings.** `~/.ai-dev/config.json` keeps what the desktop app — or the `settings_set` tool —
+changes: the capability profiles (`AI_DEV_PROFILES`), the model mirror (`AI_DEV_MODEL_MIRROR`), the
+model's folder (`BGE_M3_ONNX_DIR`), the daemon's idle time (`AI_DEV_IDLE_TIMEOUT_MS`, in minutes
+there), the projects folder, autostart and the interface's language. Every `ai-dev` command started
+afterwards — and so every client `clients install` connected — reads it, and a variable set in the
+environment still wins. A value is checked before it is stored; one that is no longer valid is
+reported by `settings_get` and not used. The tools an app drives the install with — its status,
+setup, the model, the clients, logs, settings — are the opt-in `control` profile:
+[CONTROL-API.md](../ai-dev-mcp-server/docs/CONTROL-API.md).
+
 **Why local first.** The dense model is the reason. Locally it is one flag —
 `npm run setup -- --model` — and it lands in `~/.ai-dev`; neither the model nor the
 vectors it computes need Python. A container runs with no network, so the weights

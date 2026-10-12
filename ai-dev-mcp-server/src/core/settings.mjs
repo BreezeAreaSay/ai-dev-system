@@ -12,25 +12,37 @@
  *
  * The rest (`projects_root`, `daemon_autostart`, `language`) are the
  * interface's own; the server stores and validates them.
+ *
+ * When a change takes effect is each setting's `applies`: `now` — read at
+ * every use, in a session already connected too; `new_session` — a session
+ * reads it when it starts, and the model folder belongs to the daemon, whose
+ * search runtime loaded it (a new folder is a new daemon); `next_daemon` —
+ * the daemon reads it when it starts; `app` — the interface reads it.
  */
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { atomicWriteFile, withExclusiveFile } from "./atomic-files.mjs";
+import { idleTimeoutMs } from "./daemon-idle.mjs";
 import { findProfile, parseProfileSetting } from "./tool-profiles.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
+import { environmentObject } from "./session-env.mjs";
 
 /** The file's format. A file of a newer one is read for the keys this version knows. */
 export const SETTINGS_SCHEMA_VERSION = 1;
 
 const nonEmpty = (value) => String(value ?? "").trim();
 
+/** The environment cuts a value at a NUL, and a process given one does not start (Д-223, Д-231). */
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+
 function absolutePath(name) {
   return (value) => {
     const text = nonEmpty(value);
     if (!text) return "";
     // The environment cuts a value at a NUL: every process would use another folder (Д-223).
-    if (text.includes("\0")) throw new Error(`${name} must not hold a NUL character.`);
+    if (CONTROL_CHARACTERS.test(text)) throw new Error(`${name} must not hold a NUL or another control character.`);
     if (!path.isAbsolute(text)) throw new Error(`${name} must be an absolute path, not ${JSON.stringify(text)}.`);
     return path.resolve(text);
   };
@@ -44,6 +56,7 @@ export const SETTINGS = Object.freeze({
   projects_root: {
     type: "string",
     default: "",
+    applies: "app",
     description: "The folder your projects are in; the interface opens and lists projects from it.",
     validate: absolutePath("projects_root")
   },
@@ -51,6 +64,7 @@ export const SETTINGS = Object.freeze({
     type: "string",
     default: "",
     env: "AI_DEV_PROFILES",
+    applies: "new_session",
     description: "Capability profiles listed to a client that sets no AI_DEV_PROFILES of its own; empty lists every profile an agent gets. The opt-in control profile is not one of them: a client that wants it names it itself.",
     validate(value) {
       const text = nonEmpty(value);
@@ -60,7 +74,15 @@ export const SETTINGS = Object.freeze({
       // This is what every agent client without its own AI_DEV_PROFILES gets:
       // the desktop app's tools stay out of it (docs/DEFECTS.md, Д-223).
       const optIn = parsed.ids.filter((id) => findProfile(id)?.optIn);
-      if (optIn.length) throw new Error(`profiles cannot name ${optIn.join(", ")}: it is the desktop app's, and a client that wants it sets AI_DEV_PROFILES=${optIn.join(",")} itself.`);
+      if (optIn.length) {
+        // A value stored before this check keeps the rest of what it names:
+        // `core,control` read back is `core`, not every profile (Д-233).
+        const rest = parsed.ids.filter((id) => !optIn.includes(id));
+        throw Object.assign(new Error(`profiles cannot name ${optIn.join(", ")}: it is the desktop app's, and a client that wants it sets AI_DEV_PROFILES=${optIn.join(",")} itself.`), {
+          kept: parsed.all ? "" : rest.join(","),
+          keptNote: rest.length ? `${rest.join(",")} is kept.` : "The default is used."
+        });
+      }
       return parsed.all ? "" : parsed.ids.join(",");
     }
   },
@@ -68,10 +90,12 @@ export const SETTINGS = Object.freeze({
     type: "string",
     default: "",
     env: "AI_DEV_MODEL_MIRROR",
+    applies: "now",
     description: "A Hugging Face mirror the local model is downloaded from first, such as https://hf-mirror.com.",
     validate(value) {
       const text = nonEmpty(value).replace(/\/+$/, "");
       if (!text) return "";
+      if (CONTROL_CHARACTERS.test(text)) throw new Error("model_mirror must not hold a NUL or another control character.");
       let url;
       try {
         url = new URL(text);
@@ -87,6 +111,7 @@ export const SETTINGS = Object.freeze({
     type: "string",
     default: "",
     env: "BGE_M3_ONNX_DIR",
+    applies: "new_session",
     description: "Where the local model lives; empty is <AI Dev home>/models/bge-m3-onnx.",
     validate: absolutePath("model_dir")
   },
@@ -94,8 +119,10 @@ export const SETTINGS = Object.freeze({
     type: "number",
     default: 30,
     env: "AI_DEV_IDLE_TIMEOUT_MS",
+    applies: "next_daemon",
     toEnv: (minutes) => String(Math.round(minutes * 60_000)),
-    fromEnv: (text) => Number(text) / 60_000,
+    // What the daemon makes of the variable, whatever it holds (Д-233).
+    fromEnv: (text) => idleTimeoutMs({ AI_DEV_IDLE_TIMEOUT_MS: text }) / 60_000,
     description: "How long the daemon stays without a client, in minutes, from 1 to 10080 (a week); 0 keeps it until it is stopped.",
     validate(value) {
       // A number, not something that converts to one: an emptied field is
@@ -109,6 +136,7 @@ export const SETTINGS = Object.freeze({
   daemon_autostart: {
     type: "boolean",
     default: true,
+    applies: "app",
     description: "Whether the desktop app starts the daemon when it starts.",
     validate(value) {
       if (typeof value !== "boolean") throw new Error("daemon_autostart must be true or false.");
@@ -118,6 +146,7 @@ export const SETTINGS = Object.freeze({
   language: {
     type: "string",
     default: "",
+    applies: "app",
     description: "The interface's language: ru, en, or empty for the system's.",
     validate(value) {
       const text = nonEmpty(value).toLowerCase();
@@ -157,18 +186,69 @@ function readStored(file) {
 }
 
 /**
+ * The name `env` holds `name` under: itself, or — on Windows, where a name
+ * ignores case and a plain copy of the environment keeps the spelling it was
+ * given — the spelling it has there (docs/DEFECTS.md, Д-203, Д-232).
+ */
+function environmentKey(env, name, platform) {
+  if (platform !== "win32" || Object.hasOwn(env, name)) return name;
+  const wanted = name.toUpperCase();
+  return Object.keys(env).find((key) => key.toUpperCase() === wanted) ?? name;
+}
+
+/** A short fingerprint of a value the file put into the environment. */
+const fingerprint = (value) => crypto.createHash("sha256").update(String(value)).digest("hex").slice(0, 8);
+
+/**
+ * The variables the settings file put into `env`, each with the fingerprint
+ * of the value it put there: `AI_DEV_SETTINGS_APPLIED=NAME:1a2b3c4d,…`. A
+ * variable that holds something else now was set by hand since — in a shell
+ * that inherited the list — and is the person's (Д-233); so is one listed
+ * without a fingerprint, which says nothing of its value.
+ */
+function appliedVariables(env, platform) {
+  const marks = new Map();
+  for (const entry of String(env[environmentKey(env, "AI_DEV_SETTINGS_APPLIED", platform)] ?? "").split(",")) {
+    const [name, mark] = entry.split(":");
+    if (name) marks.set(platform === "win32" ? name.toUpperCase() : name, mark ?? null);
+  }
+  return {
+    has(name) {
+      const key = platform === "win32" ? name.toUpperCase() : name;
+      if (!marks.has(key)) return false;
+      const mark = marks.get(key);
+      return mark !== null && mark === fingerprint(nonEmpty(env[environmentKey(env, name, platform)]));
+    },
+    set(name, value) {
+      marks.set(platform === "win32" ? name.toUpperCase() : name, fingerprint(value));
+    },
+    delete(name) {
+      marks.delete(platform === "win32" ? name.toUpperCase() : name);
+    },
+    text: () => [...marks.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([name, mark]) => (mark ? `${name}:${mark}` : name)).join(",")
+  };
+}
+
+/**
  * The settings: each stored value checked, defaults for the rest, and where
  * the value in force comes from — the environment overrides the file.
  *
- * @param {{ env?: NodeJS.ProcessEnv, file?: string }} [options]
+ * @param {{ env?: NodeJS.ProcessEnv, file?: string, platform?: string }} [options]
  * @returns {{ file: string, schema_version: number, settings: Record<string, unknown>, stored: Record<string, unknown>, sources: Record<string, string>, problems: string[] }}
+ *   `schema_version`: the file's own; a newer one than this version knows is a problem too.
  */
-export function readSettings({ env = process.env, file = settingsPath(env) } = {}) {
+export function readSettings({ env = process.env, file = settingsPath(env), platform = process.platform } = {}) {
   const stored = readStored(file);
   const settings = {};
   const kept = {};
   const sources = {};
   const problems = [];
+  const fileSchema = Number(stored.schema_version);
+  const schemaVersion = Number.isInteger(fileSchema) && fileSchema > 0 ? fileSchema : SETTINGS_SCHEMA_VERSION;
+  if (schemaVersion > SETTINGS_SCHEMA_VERSION) {
+    problems.push(`${file} was written by a newer AI Dev (settings schema ${schemaVersion}, this one knows ${SETTINGS_SCHEMA_VERSION}): the settings this version knows are read, and it does not change the file.`);
+  }
+  const applied = appliedVariables(env, platform);
   for (const [name, setting] of Object.entries(SETTINGS)) {
     let value = setting.default;
     let source = "default";
@@ -178,18 +258,42 @@ export function readSettings({ env = process.env, file = settingsPath(env) } = {
         kept[name] = value;
         source = "file";
       } catch (error) {
-        problems.push(`${name}: ${error.message} The default is used.`);
+        if (error?.kept !== undefined) {
+          value = error.kept;
+          kept[name] = value;
+          source = "file";
+        }
+        problems.push(`${name}: ${error.message} ${error?.keptNote ?? "The default is used."}`);
       }
     }
-    if (setting.env && nonEmpty(env[setting.env]) && !(env.AI_DEV_SETTINGS_APPLIED ?? "").split(",").includes(setting.env)) {
+    const variable = setting.env ? nonEmpty(env[environmentKey(env, setting.env, platform)]) : "";
+    if (variable && !applied.has(setting.env)) {
       // The value in force is the variable's, which the file does not change (Д-223).
       source = `environment (${setting.env})`;
-      value = setting.fromEnv ? setting.fromEnv(nonEmpty(env[setting.env])) : nonEmpty(env[setting.env]);
+      value = setting.fromEnv ? setting.fromEnv(variable) : variable;
     }
     settings[name] = value;
     sources[name] = source;
   }
-  return { file, schema_version: SETTINGS_SCHEMA_VERSION, settings, stored: kept, sources, problems };
+  return { file, schema_version: schemaVersion, settings, stored: kept, sources, problems };
+}
+
+/**
+ * Where to write `file`: the file a link names — a dotfiles repository keeps
+ * its link (Д-222), and one whose file is not made yet gets it there (Д-233)
+ * — or the path itself. A hard link to it is not kept: the file is replaced
+ * whole.
+ */
+async function writeTarget(file) {
+  try {
+    return await fs.promises.realpath(file);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  const stat = await fs.promises.lstat(file).catch(() => null);
+  if (!stat?.isSymbolicLink()) return file;
+  const target = path.resolve(path.dirname(file), await fs.promises.readlink(file));
+  return path.join(await fs.promises.realpath(path.dirname(target)), path.basename(target));
 }
 
 /**
@@ -198,10 +302,11 @@ export function readSettings({ env = process.env, file = settingsPath(env) } = {
  * whole, under a lock, with mode 0600.
  *
  * @param {Record<string, unknown>} changes
- * @param {{ env?: NodeJS.ProcessEnv, file?: string }} [options]
- * @returns {Promise<{ changed: string[], settings: Record<string, unknown> }>}
+ * @param {{ env?: NodeJS.ProcessEnv, file?: string, platform?: string }} [options]
+ * @returns {Promise<{ changed: string[], settings: Record<string, unknown>, applies: Record<string, string> }>}
+ *   `applies`: when each changed setting takes effect (`now`, `new_session`, `next_daemon`, `app`).
  */
-export async function writeSettings(changes, { env = process.env, file = settingsPath(env) } = {}) {
+export async function writeSettings(changes, { env = process.env, file = settingsPath(env), platform = process.platform } = {}) {
   if (!changes || typeof changes !== "object" || Array.isArray(changes)) throw new Error("settings_set takes an object of settings to change.");
   const unknown = Object.keys(changes).filter((name) => !Object.hasOwn(SETTINGS, name));
   if (unknown.length) throw new Error(`There is no setting ${unknown.map((name) => JSON.stringify(name)).join(", ")}. The settings are ${Object.keys(SETTINGS).join(", ")}.`);
@@ -224,52 +329,86 @@ export async function writeSettings(changes, { env = process.env, file = setting
     }
     if (changed.length) {
       // Replaced whole and flushed, through a link to wherever the file
-      // really lives — a dotfiles repository keeps its link (Д-222).
-      const target = await fs.promises.realpath(file).catch(() => file);
-      await atomicWriteFile(target, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+      // really lives (Д-222).
+      await atomicWriteFile(await writeTarget(file), `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     }
-    return { changed, settings: readSettings({ env, file }).settings };
+    const applies = Object.fromEntries(changed.map((name) => [name, SETTINGS[name].applies]));
+    return { changed, settings: readSettings({ env, file, platform }).settings, applies };
   });
 }
 
 /**
  * Put the file's values into `env` for every variable it leaves unset, and
- * remember which ones came from the file, so a later change of the file can
- * replace them and a variable set by hand is never touched.
+ * remember which ones came from the file — with the value each got — so a
+ * later change of the file can replace them and a variable set by hand is
+ * never touched.
  *
  * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ only?: string[], platform?: string }} [options] - `only`: these variables, and no other.
  * @returns {string[]} the variables set from the file
  */
-export function applySettingsToEnvironment(env = process.env) {
+export function applySettingsToEnvironment(env = process.env, { only, platform = process.platform } = {}) {
   let current;
   try {
-    current = readSettings({ env });
+    current = readSettings({ env, platform });
   } catch {
     // A broken file is reported where settings are read on purpose; a process
     // starting up goes on with its environment as it is.
     return [];
   }
-  const ours = new Set(String(env.AI_DEV_SETTINGS_APPLIED ?? "").split(",").filter(Boolean));
+  const applied = appliedVariables(env, platform);
+  const ours = new Set(Object.values(SETTINGS).map((setting) => setting.env).filter((name) => name && applied.has(name)));
   for (const [name, setting] of Object.entries(SETTINGS)) {
-    if (!setting.env) continue;
-    const explicit = nonEmpty(env[setting.env]) && !ours.has(setting.env);
-    if (explicit) continue;
+    if (!setting.env || (only && !only.includes(setting.env))) continue;
+    const key = environmentKey(env, setting.env, platform);
+    if (nonEmpty(env[key]) && !ours.has(setting.env)) {
+      // Set by hand: the person's, and no longer the file's to replace.
+      applied.delete(setting.env);
+      continue;
+    }
     if (Object.hasOwn(current.stored, name)) {
       const value = current.stored[name];
       const text = setting.toEnv ? setting.toEnv(value) : String(value);
       if (text === "" && setting.type === "string") {
-        delete env[setting.env];
+        delete env[key];
+        applied.delete(setting.env);
         ours.delete(setting.env);
       } else {
-        env[setting.env] = text;
+        env[key] = text;
+        applied.set(setting.env, text);
         ours.add(setting.env);
       }
-    } else if (ours.has(setting.env)) {
-      delete env[setting.env];
+    } else {
+      if (ours.has(setting.env)) delete env[key];
+      applied.delete(setting.env);
       ours.delete(setting.env);
     }
   }
-  if (ours.size) env.AI_DEV_SETTINGS_APPLIED = [...ours].sort().join(",");
-  else delete env.AI_DEV_SETTINGS_APPLIED;
+  const markKey = environmentKey(env, "AI_DEV_SETTINGS_APPLIED", platform);
+  const text = applied.text();
+  if (text) env[markKey] = text;
+  else delete env[markKey];
   return [...ours].sort();
+}
+
+/** The variables of the settings read at every use, in a session already connected too. */
+const READ_AT_EVERY_USE = Object.values(SETTINGS).filter((setting) => setting.env && setting.applies === "now").map((setting) => setting.env);
+
+/**
+ * A session's environment as a tool that acts for it reads it: a copy that —
+ * on Windows, as the daemon's own environment does — finds a variable
+ * whatever the case of its name (Д-232), with the settings that apply at once
+ * read again: a mirror saved a moment ago counts in this very session, and a
+ * variable the client set itself still wins (Д-218). The model folder is not
+ * one of them: the daemon's search loaded its folder when it started, and the
+ * tools must look where it does — a new folder is a new session's (Д-228).
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ platform?: string }} [options]
+ * @returns {NodeJS.ProcessEnv}
+ */
+export function sessionEnvironment(env = process.env, { platform = process.platform } = {}) {
+  const view = environmentObject({ ...env }, { platform });
+  applySettingsToEnvironment(view, { only: READ_AT_EVERY_USE, platform });
+  return view;
 }

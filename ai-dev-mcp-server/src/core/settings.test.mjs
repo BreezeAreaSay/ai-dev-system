@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { SETTINGS, applySettingsToEnvironment, readSettings, settingsPath, writeSettings } from "./settings.mjs";
+import { SETTINGS, applySettingsToEnvironment, readSettings, sessionEnvironment, settingsPath, writeSettings } from "./settings.mjs";
 
 async function home(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-settings-"));
@@ -61,7 +61,10 @@ test("a wrong value is refused with what is wrong, and nothing of the change is 
     [{ daemon_idle_minutes: [7] }, /daemon_idle_minutes must be a number/],
     [{ daemon_idle_minutes: 0.0001 }, /from 1 to 10080/],
     [{ daemon_idle_minutes: 10081 }, /from 1 to 10080/],
-    [{ model_dir: `${path.resolve("/models")}\u0000evil` }, /must not hold a NUL character/],
+    [{ model_dir: `${path.resolve("/models")}\u0000evil` }, /must not hold a NUL/],
+    // The environment cuts a value at a NUL, and a process given one does not start (Д-231).
+    [{ model_mirror: "https://hf-mirror.com/\u0000" }, /model_mirror must not hold a NUL/],
+    [{ model_mirror: "https://hf-mirror.com/a\nb" }, /model_mirror must not hold a NUL or another control character/],
     [{ daemon_autostart: "yes" }, /daemon_autostart must be true or false/],
     [{ language: "de" }, /language must be ru, en or empty/],
     [{ colour: "blue" }, /There is no setting "colour"/],
@@ -142,4 +145,97 @@ test("the value in force is a variable's where one overrides the file (Д-223)",
   const current = readSettings({ env: { ...env, AI_DEV_MODEL_MIRROR: "https://from-env.example", AI_DEV_IDLE_TIMEOUT_MS: "90000" } });
   assert.deepEqual([current.settings.model_mirror, current.sources.model_mirror], ["https://from-env.example", "environment (AI_DEV_MODEL_MIRROR)"]);
   assert.deepEqual([current.settings.daemon_idle_minutes, current.stored.daemon_idle_minutes], [1.5, 5], "in minutes, and the file's own beside it");
+});
+
+test("a change says when it takes effect; a variable the file did not set is applied only when asked for (Д-228)", async (t) => {
+  const env = await home(t);
+  const result = await writeSettings({ model_mirror: "https://hf-mirror.com", model_dir: path.resolve("/models/chosen"), profiles: "core", daemon_idle_minutes: 3, language: "en" }, { env });
+  assert.deepEqual(result.applies, { model_mirror: "now", model_dir: "new_session", profiles: "new_session", daemon_idle_minutes: "next_daemon", language: "app" });
+  assert.deepEqual(Object.fromEntries(Object.entries(SETTINGS).map(([name, setting]) => [name, setting.applies])), {
+    projects_root: "app", profiles: "new_session", model_mirror: "now", model_dir: "new_session", daemon_idle_minutes: "next_daemon", daemon_autostart: "app", language: "app"
+  });
+  const session = { ...env };
+  assert.deepEqual(applySettingsToEnvironment(session, { only: ["AI_DEV_MODEL_MIRROR"] }), ["AI_DEV_MODEL_MIRROR"]);
+  assert.equal(session.AI_DEV_MODEL_MIRROR, "https://hf-mirror.com");
+  assert.equal(session.BGE_M3_ONNX_DIR, undefined, "the model folder is not this call's to change");
+});
+
+test("a value the file put in the environment and a person changed since is the person's (Д-233)", async (t) => {
+  const env = await home(t);
+  await writeSettings({ model_mirror: "https://from-file.example" }, { env });
+  const shell = { ...env };
+  applySettingsToEnvironment(shell);
+  assert.match(shell.AI_DEV_SETTINGS_APPLIED, /^AI_DEV_MODEL_MIRROR:[0-9a-f]{8}$/, "the list holds what it put there");
+  // A shell that inherited the list; the person sets the mirror by hand.
+  shell.AI_DEV_MODEL_MIRROR = "https://by-hand.example";
+  await writeSettings({ model_mirror: "https://changed-file.example" }, { env });
+  applySettingsToEnvironment(shell);
+  assert.equal(shell.AI_DEV_MODEL_MIRROR, "https://by-hand.example");
+  assert.equal(shell.AI_DEV_SETTINGS_APPLIED, undefined, "and it is no longer listed as the file's");
+  assert.equal(readSettings({ env: shell }).sources.model_mirror, "environment (AI_DEV_MODEL_MIRROR)");
+  // A name listed without a fingerprint says nothing of its value: the person's too.
+  const listed = { ...env, AI_DEV_MODEL_MIRROR: "https://typed-by-hand.example", AI_DEV_SETTINGS_APPLIED: "AI_DEV_MODEL_MIRROR" };
+  applySettingsToEnvironment(listed);
+  assert.equal(listed.AI_DEV_MODEL_MIRROR, "https://typed-by-hand.example");
+});
+
+test("on Windows a variable set by hand in another case is the one in force, and the file adds no second spelling (Д-232)", async (t) => {
+  const env = await home(t);
+  await writeSettings({ model_dir: path.resolve("/models/from-file"), model_mirror: "https://hf-mirror.com" }, { env });
+  const client = { ...env, Bge_M3_Onnx_Dir: "C:\\models\\mine", ai_dev_settings_applied: "" };
+  applySettingsToEnvironment(client, { platform: "win32" });
+  assert.equal(Object.keys(client).filter((key) => key.toUpperCase() === "BGE_M3_ONNX_DIR").length, 1, "one spelling");
+  assert.equal(client.Bge_M3_Onnx_Dir, "C:\\models\\mine");
+  assert.equal(client.AI_DEV_MODEL_MIRROR, "https://hf-mirror.com");
+  assert.equal(readSettings({ env: client, platform: "win32" }).sources.model_dir, "environment (BGE_M3_ONNX_DIR)");
+  // Off Windows a name is its case: the same spelling is another variable.
+  const posix = { ...env, Bge_M3_Onnx_Dir: "/mine" };
+  applySettingsToEnvironment(posix, { platform: "linux" });
+  assert.equal(posix.BGE_M3_ONNX_DIR, path.resolve("/models/from-file"));
+});
+
+test("what is shown is what the daemon makes of the variable, a stored opt-in profile drops alone, and a newer file says so (Д-233)", async (t) => {
+  const env = await home(t);
+  const shown = (value) => readSettings({ env: { ...env, AI_DEV_IDLE_TIMEOUT_MS: value } }).settings.daemon_idle_minutes;
+  assert.equal(shown("abc"), 30, "a variable that is no number: the daemon's default");
+  assert.equal(shown("-60000"), 0, "a negative one: kept until stopped, as the daemon does");
+  assert.equal(shown("90000"), 1.5);
+  await fs.writeFile(settingsPath(env), JSON.stringify({ schema_version: 1, profiles: "core,control" }));
+  const repaired = readSettings({ env });
+  assert.equal(repaired.settings.profiles, "core", "what the old file named besides control is kept");
+  assert.match(repaired.problems.join(" "), /profiles cannot name control.*core is kept/);
+  const process1 = { ...env };
+  applySettingsToEnvironment(process1);
+  assert.equal(process1.AI_DEV_PROFILES, "core");
+  await fs.writeFile(settingsPath(env), JSON.stringify({ schema_version: 2, language: "en" }));
+  const newer = readSettings({ env });
+  assert.equal(newer.schema_version, 2, "the file's own version");
+  assert.match(newer.problems.join(" "), /written by a newer AI Dev \(settings schema 2, this one knows 1\)/);
+  assert.equal(newer.settings.language, "en");
+});
+
+test("a link to a settings file not made yet is written through, and stays a link (Д-233)", async (t) => {
+  const env = await home(t);
+  const dotfiles = path.join(env.AI_DEV_HOME, "dotfiles");
+  await fs.mkdir(dotfiles);
+  try {
+    await fs.symlink(path.join(dotfiles, "ai-dev.json"), settingsPath(env));
+  } catch (error) {
+    if (process.platform === "win32") return t.skip(`no symbolic links here: ${error.code}`);
+    throw error;
+  }
+  await writeSettings({ language: "ru" }, { env });
+  assert.equal((await fs.lstat(settingsPath(env))).isSymbolicLink(), true, "the link stays");
+  assert.equal(JSON.parse(await fs.readFile(path.join(dotfiles, "ai-dev.json"), "utf8")).language, "ru");
+});
+
+test("a session's environment for the tools: the mirror read again, the model folder its own, a name found whatever its case on Windows (Д-228, Д-232)", async (t) => {
+  const env = await home(t);
+  await writeSettings({ model_mirror: "https://hf-mirror.com", model_dir: path.resolve("/models/from-file") }, { env });
+  const session = sessionEnvironment({ ...env, BGE_M3_ONNX_DIR: path.resolve("/models/started-with") }, { platform: "linux" });
+  assert.equal(session.AI_DEV_MODEL_MIRROR, "https://hf-mirror.com");
+  assert.equal(session.BGE_M3_ONNX_DIR, path.resolve("/models/started-with"), "the folder the session started with");
+  const windows = sessionEnvironment({ ...env, Bge_M3_Onnx_Dir: "C:\\models\\mine" }, { platform: "win32" });
+  assert.equal(windows.BGE_M3_ONNX_DIR, "C:\\models\\mine", "read as Windows reads it");
+  assert.equal(Object.keys(windows).filter((key) => key.toUpperCase() === "BGE_M3_ONNX_DIR").length, 1);
 });

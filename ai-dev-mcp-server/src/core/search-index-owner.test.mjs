@@ -95,38 +95,62 @@ test("an index written before claims existed goes to the vault it was built from
   assert.equal(vaultIndexPath({ dir: unknown, vaultRoot: b }).reason, "claimed");
 });
 
-test("a vault holding copies of every note of the index is not the one it was built from; the one that is keeps it with its notes changed since (Д-219)", needsSqlite, (t) => {
+test("a vault holding only some of the index's notes is not the one it was built from, however they came; the one that is keeps it, edited, pulled or cloned again in place (Д-219, Д-229)", needsSqlite, (t) => {
   const root = tempRoot(t);
   const owner = path.join(root, "vault-a");
-  const copy = path.join(root, "vault-b");
-  // The owner: a catalog and notes; the other vault: the same files, copied
-  // later — the case of two copies of the seed, where every path exists in both.
-  const notes = Array.from({ length: 40 }, (_, index) => (index < 30 ? `03-skills-catalog/skill-${index}.md` : `02-knowledge/note-${index}.md`));
-  for (const relative of notes) {
-    note(owner, relative);
-    note(copy, relative, 60);
-  }
-  const dir = path.join(root, "index");
-  earlierIndex(path.join(dir, DEFAULT_INDEX_FILE), { builtFrom: owner, notes });
-  assert.equal(vaultIndexPath({ dir, vaultRoot: copy }).reason, "another-vault", "the copy, starting first, does not take it");
+  const seedCopy = path.join(root, "vault-b");
+  const stranger = path.join(root, "vault-c");
+  // The owner: the seed's notes and ten of its own; the other vault: a copy
+  // of the seed made later — every seed path exists in both.
+  const seed = Array.from({ length: 30 }, (_, index) => `03-skills-catalog/skill-${index}.md`);
+  const own = Array.from({ length: 10 }, (_, index) => `02-knowledge/note-${index}.md`);
+  const notes = [...seed, ...own];
+  for (const relative of notes) note(owner, relative);
+  for (const relative of seed) note(seedCopy, relative, 60);
+  const indexIn = (name) => {
+    const dir = path.join(root, name);
+    earlierIndex(path.join(dir, DEFAULT_INDEX_FILE), { builtFrom: owner, notes });
+    return dir;
+  };
+  const dir = indexIn("index");
+  assert.equal(vaultIndexPath({ dir, vaultRoot: seedCopy }).reason, "another-vault", "the seed's copy, starting first, does not take it");
   assert.equal(fs.existsSync(path.join(dir, `${DEFAULT_INDEX_FILE}${CLAIM_SUFFIX}`)), false);
+
+  // A vault of its own with one of the owner's notes copied over, time and all.
+  for (const relative of ["02-knowledge/mine-1.md", "02-knowledge/mine-2.md"]) note(stranger, relative, 30, `# ${relative}\n`);
+  fs.mkdirSync(path.join(stranger, "02-knowledge"), { recursive: true });
+  fs.copyFileSync(path.join(owner, own[0]), path.join(stranger, own[0]));
+  const { atime, mtime } = fs.statSync(path.join(owner, own[0]));
+  fs.utimesSync(path.join(stranger, own[0]), atime, mtime);
+  assert.equal(vaultIndexPath({ dir: indexIn("copied-note"), vaultRoot: stranger }).reason, "another-vault", "one note of the sample is not the index's vault");
+
   // The owner edited some notes after the index was built: still its index.
   for (const relative of notes.slice(0, 15)) note(owner, relative, 10);
   const kept = vaultIndexPath({ dir, vaultRoot: owner });
   assert.deepEqual([path.basename(kept.path), kept.reason], [DEFAULT_INDEX_FILE, "claimed"]);
+  for (const relative of notes.slice(0, 15)) note(owner, relative);
 
-  // A pull removed most of the notes since; those left are as they were: still its index.
-  const pulled = path.join(root, "pulled");
-  earlierIndex(path.join(pulled, DEFAULT_INDEX_FILE), { builtFrom: owner, notes });
-  const removed = notes.slice(0, 28);
-  for (const relative of removed) fs.rmSync(path.join(owner, relative));
+  // A pull removed a few notes and changed a few: still its index.
+  const pulled = indexIn("pulled");
+  for (const relative of notes.slice(0, 5)) fs.rmSync(path.join(owner, relative));
+  for (const relative of notes.slice(5, 10)) note(owner, relative, 5, "# changed by the pull\n");
   assert.equal(vaultIndexPath({ dir: pulled, vaultRoot: owner }).reason, "claimed");
-  for (const relative of removed) note(owner, relative);
+  for (const relative of notes.slice(0, 10)) note(owner, relative);
+
+  // Cloned again into the same folder: every note the same bytes, written now.
+  const recloned = indexIn("recloned");
+  for (const relative of notes) note(owner, relative, 1);
+  assert.equal(vaultIndexPath({ dir: recloned, vaultRoot: owner }).reason, "claimed", "a reinstall in place keeps it");
+  for (const relative of notes) note(owner, relative);
+
+  // A copy of the whole vault cannot be told from it: the first to start takes it.
+  const whole = path.join(root, "whole-copy");
+  for (const relative of notes) note(whole, relative, 60);
+  assert.equal(vaultIndexPath({ dir: indexIn("whole"), vaultRoot: whole }).reason, "claimed");
 
   // Most notes changed since: in doubt, a file of its own rather than another's index.
-  const changed = path.join(root, "changed");
-  earlierIndex(path.join(changed, DEFAULT_INDEX_FILE), { builtFrom: owner, notes });
-  for (const relative of notes.slice(0, 30)) note(owner, relative, 5);
+  const changed = indexIn("changed");
+  for (const relative of notes.slice(0, 30)) note(owner, relative, 5, "# rewritten\n");
   assert.equal(vaultIndexPath({ dir: changed, vaultRoot: owner }).reason, "another-vault");
 
   // A note of the same name written in the same instant — files written
@@ -136,8 +160,8 @@ test("a vault holding copies of every note of the index is not the one it was bu
   const twinOther = path.join(twin, "vault-b");
   for (const relative of ["02-knowledge/storage.md", "02-knowledge/deploy.md", "02-knowledge/auth.md"]) note(twinOwner, relative, 100, `# ${relative} A\n`);
   note(twinOther, "02-knowledge/storage.md", 100, "# Storage B\n");
-  const { atime, mtime } = fs.statSync(path.join(twinOwner, "02-knowledge", "storage.md"));
-  fs.utimesSync(path.join(twinOther, "02-knowledge", "storage.md"), atime, mtime);
+  const instant = fs.statSync(path.join(twinOwner, "02-knowledge", "storage.md"));
+  fs.utimesSync(path.join(twinOther, "02-knowledge", "storage.md"), instant.atime, instant.mtime);
   assert.equal(noteIdentity(twinOther, "02-knowledge/storage.md").mtime, noteIdentity(twinOwner, "02-knowledge/storage.md").mtime, "the same instant");
   earlierIndex(path.join(twin, "index", DEFAULT_INDEX_FILE), { builtFrom: twinOwner, notes: ["02-knowledge/storage.md", "02-knowledge/deploy.md", "02-knowledge/auth.md"] });
   assert.equal(vaultIndexPath({ dir: path.join(twin, "index"), vaultRoot: twinOther }).reason, "another-vault");
@@ -146,7 +170,7 @@ test("a vault holding copies of every note of the index is not the one it was bu
   // No note to tell by — only documents every vault has — goes to the first vault, as before.
   const noNotes = path.join(root, "no-notes");
   earlierIndex(path.join(noNotes, DEFAULT_INDEX_FILE), { others: ["03-skills-catalog/registries/s"] });
-  assert.equal(vaultIndexPath({ dir: noNotes, vaultRoot: copy }).reason, "claimed");
+  assert.equal(vaultIndexPath({ dir: noNotes, vaultRoot: seedCopy }).reason, "claimed");
 });
 
 test("a claim that cannot be read is nobody's to share, and a folder that takes no claim keeps the old file", (t) => {

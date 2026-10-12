@@ -48,11 +48,12 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * and the model folder the settings name (docs/DEFECTS.md, Д-218).
  *
  * @param {NodeJS.ProcessEnv} given
+ * @param {{ platform?: string }} [options] - On Windows a variable's name ignores case (Д-232).
  * @returns {Record<string, string>} a copy
  */
-export function daemonEnvironment(given) {
+export function daemonEnvironment(given, { platform = process.platform } = {}) {
   const env = absolutePathVariables(given);
-  applySettingsToEnvironment(env);
+  applySettingsToEnvironment(env, { platform });
   return env;
 }
 

@@ -99,8 +99,7 @@ Build what a fresh install does not ship — the skill registry, its quality rep
 
 **Answer** (`structuredContent.result`):
 
-- `succeeded` — boolean. The run finished and nothing in it failed: false when it was cancelled, or a step or a client failed.
-- `cancelled` — boolean
+- `succeeded` — boolean. Nothing in the run failed: no step and no client. A run the client cancels gets no answer — MCP drops the answer to a cancelled request; what it built stays, and system_status shows it.
 - `steps` — array of objects
   - `id` — string
   - `title` — string
@@ -296,7 +295,7 @@ No arguments.
 **Answer** (`structuredContent.result`):
 
 - `file` — string
-- `schema_version` — integer
+- `schema_version` — integer. The file's own; one newer than this version knows is listed in problems.
 - `settings` — object
 - `sources` — object. Per setting: default, file, or environment (NAME) when a variable overrides the file.
 - `problems` — array of string
@@ -305,11 +304,12 @@ No arguments.
   - `type` — `"string"`, `"number"`, `"boolean"`
   - `default` — any
   - `env` — string or null
+  - `applies` — `"now"`, `"new_session"`, `"next_daemon"`, `"app"`. now: at once, in a session already connected too; new_session: in sessions started afterwards (reconnect); next_daemon: when the daemon starts next; app: the desktop app's own.
   - `description` — string
 
 ## `settings_set`
 
-Change settings: each value is checked first, and nothing is written when one is wrong; null puts a setting back to its default. Clients and commands started afterwards use them; a variable set in a client's environment still wins.
+Change settings: each value is checked first, and nothing is written when one is wrong; null puts a setting back to its default. The answer says when each change takes effect: the mirror at once, the model folder and the profiles for sessions started afterwards (reconnect to use them), the idle time for the daemon started next. A variable set in a client's environment still wins.
 
 **Input:**
 
@@ -319,6 +319,7 @@ Change settings: each value is checked first, and nothing is written when one is
 
 - `changed` — array of string
 - `settings` — object
+- `applies` — object. Per changed setting: when the change takes effect.
 - `note` — string
 
 ## `workspace_overview` (read-only)

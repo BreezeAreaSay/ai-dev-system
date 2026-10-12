@@ -27,7 +27,7 @@ import { MAX_TAIL_LINES, resolveLogFile, tailLines } from "../core/log-tail.mjs"
 import { importModel, installModel, modelStatus, removeModel, verifyModel } from "../core/model-manager.mjs";
 import { logsDir } from "../core/runtime-paths.mjs";
 import { servingProcess } from "../core/serving-process.mjs";
-import { SETTINGS, applySettingsToEnvironment, readSettings, writeSettings } from "../core/settings.mjs";
+import { SETTINGS, readSettings, sessionEnvironment, writeSettings } from "../core/settings.mjs";
 import { inspectSetup, loadSetupSteps, runSetup } from "../core/setup-runner.mjs";
 import { workspaceOverview } from "../core/workspace-overview.mjs";
 
@@ -91,15 +91,20 @@ function countChanges(results) {
   };
 }
 
-/**
- * The session's environment with the settings file applied now: a mirror or a
- * model folder saved a moment ago — in this very session too — counts, and a
- * variable the client set itself still wins (docs/DEFECTS.md, Д-218).
- */
-function sessionEnvironment() {
-  const env = { ...process.env };
-  applySettingsToEnvironment(env);
-  return env;
+/** What `settings_set` says of when its changes take effect. */
+const APPLIES_NOTE = {
+  now: "in force now, in this session too",
+  new_session: "used by sessions started from now on — this one keeps what it started with until it reconnects",
+  next_daemon: "used by the daemon started next — the running one keeps its own until it stops",
+  app: "read by the desktop app"
+};
+
+function settingsNote(applies) {
+  const names = Object.keys(applies);
+  if (!names.length) return "Nothing changed: every value was already this.";
+  const groups = new Map();
+  for (const name of names) groups.set(applies[name], [...(groups.get(applies[name]) ?? []), name]);
+  return `Saved. ${[...groups].map(([when, group]) => `${group.join(", ")}: ${APPLIES_NOTE[when]}`).join("; ")}. A variable set in a client's environment still wins over the file.`;
 }
 
 /** The model as the contract shows it. */
@@ -195,7 +200,7 @@ export function createControlTools(host) {
         lines: { type: "integer", minimum: 1, maximum: MAX_TAIL_LINES, default: 200 }
       }),
       tool("settings_get", "The settings the desktop app changes, from ~/.ai-dev/config.json: each value in force — an environment variable's where one overrides the file — where it comes from (default, the file, or that variable), the file's own values, what each setting means, and any stored value that is not valid. Read-only.", {}),
-      tool("settings_set", "Change settings: each value is checked first, and nothing is written when one is wrong; null puts a setting back to its default. Clients and commands started afterwards use them; a variable set in a client's environment still wins.", {
+      tool("settings_set", "Change settings: each value is checked first, and nothing is written when one is wrong; null puts a setting back to its default. The answer says when each change takes effect: the mirror at once, the model folder and the profiles for sessions started afterwards (reconnect to use them), the idle time for the daemon started next. A variable set in a client's environment still wins.", {
         settings: { type: "object", description: `Settings to change: ${Object.keys(SETTINGS).join(", ")}.` }
       }, ["settings"]),
       tool("workspace_overview", "The work at a glance: the registered projects, the tasks open and lately finished, the epics and how far each has come, the latest decisions, and what the work has cost. Read-only.", {
@@ -269,7 +274,6 @@ export function createControlTools(host) {
         const connected = clients && !cancelled ? await installClients({ spec: clients, env }) : null;
         return {
           succeeded: !cancelled && !results.some((step) => step.status === "failed") && !connected?.some((result) => result.status === "failed"),
-          cancelled,
           steps: results.map((step) => ({
             id: step.id,
             title: step.title,
@@ -356,6 +360,7 @@ export function createControlTools(host) {
             type: setting.type,
             default: setting.default,
             env: setting.env ?? null,
+            applies: setting.applies,
             description: setting.description
           }))
         };
@@ -364,12 +369,7 @@ export function createControlTools(host) {
       async settings_set(args = {}) {
         only(args, ["settings"]);
         const result = await writeSettings(args.settings, { env: process.env });
-        return {
-          ...result,
-          note: result.changed.length
-            ? "Saved. Clients and commands started from now on use them; a client already connected keeps its session as it is."
-            : "Nothing changed: every value was already this."
-        };
+        return { ...result, note: settingsNote(result.applies) };
       },
 
       async workspace_overview(args = {}) {

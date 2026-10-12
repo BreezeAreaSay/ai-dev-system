@@ -233,4 +233,16 @@ test("the settings file counts for the app's transport as for a client: its mode
   assert.equal(placed.ready, true);
   assert.equal(placed.dir, folder);
   assert.ok(host.requests.slice(before).some((request) => request.path.includes("/resolve/")), "the files came from the mirror");
+
+  // A model folder saved in this session is the next session's: the daemon's
+  // search loaded the folder it started with, and these tools look where it
+  // does (Д-228).
+  const chosen = path.join(root, "models-chosen");
+  const saved = await call(client, "settings_set", { settings: { model_dir: chosen } });
+  assert.equal(saved.applies.model_dir, "new_session");
+  assert.match(saved.note, /model_dir: used by sessions started from now on/);
+  assert.equal((await call(client, "system_status", { checks: false })).model.dir, folder, "this session keeps its folder");
+  assert.equal((await call(client, "model_install", {})).dir, folder, "and installs where its search looks");
+  const next = await connect(t, { ...env, AI_DEV_MODEL_MANIFEST: manifestFile });
+  assert.equal((await call(next, "system_status", { checks: false })).model.dir, chosen, "a session started afterwards has the new one");
 });

@@ -99,11 +99,19 @@ const SERVED_BY = object({
 
 const CHECK = object({ name: string, status: string, summary: string });
 
+/** When a setting's change takes effect (`settings.mjs`). */
+const APPLIES = {
+  type: "string",
+  enum: ["now", "new_session", "next_daemon", "app"],
+  description: "now: at once, in a session already connected too; new_session: in sessions started afterwards (reconnect); next_daemon: when the daemon starts next; app: the desktop app's own."
+};
+
 const SETTING = object({
   name: string,
   type: choice("string", "number", "boolean"),
   default: {},
   env: nullable(string),
+  applies: APPLIES,
   description: string
 });
 
@@ -136,8 +144,7 @@ export const CONTROL_RESULTS = Object.freeze({
     checks: list(CHECK)
   }),
   setup_run: object({
-    succeeded: { type: "boolean", description: "The run finished and nothing in it failed: false when it was cancelled, or a step or a client failed." },
-    cancelled: boolean,
+    succeeded: { type: "boolean", description: "Nothing in the run failed: no step and no client. A run the client cancels gets no answer — MCP drops the answer to a cancelled request; what it built stays, and system_status shows it." },
     steps: list(STEP),
     clients: nullable(list(CLIENT_RESULT))
   }),
@@ -179,7 +186,7 @@ export const CONTROL_RESULTS = Object.freeze({
   }),
   settings_get: object({
     file: string,
-    schema_version: count,
+    schema_version: { type: "integer", minimum: 1, description: "The file's own; one newer than this version knows is listed in problems." },
     settings: { type: "object" },
     sources: { type: "object", description: "Per setting: default, file, or environment (NAME) when a variable overrides the file." },
     problems: strings,
@@ -188,6 +195,7 @@ export const CONTROL_RESULTS = Object.freeze({
   settings_set: object({
     changed: strings,
     settings: { type: "object" },
+    applies: { type: "object", additionalProperties: APPLIES, description: "Per changed setting: when the change takes effect." },
     note: string
   }),
   workspace_overview: object({

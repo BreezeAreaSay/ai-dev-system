@@ -230,12 +230,13 @@ export async function readRequiredState({ paths, callTool, serverRoot, skillRout
  * one that failed in this run is skipped and says so: the vectors after a
  * model download that failed only failed again (docs/DEFECTS.md, Д-98).
  *
- * @param {Array<{ id: string, run: boolean }>} plan - From `planFirstRun`.
- * @param {Record<string, () => Promise<string>>} actions
  * A stop (`signal`) is not a fault (Д-158): the step it cuts short and the
  * steps after it are skipped and say so, and none of the rest is announced
- * (Д-223).
+ * (Д-223). A step that fails of something else as the stop comes — a full
+ * disk — failed, and says so (Д-233).
  *
+ * @param {Array<{ id: string, run: boolean }>} plan - From `planFirstRun`.
+ * @param {Record<string, () => Promise<string>>} actions
  * @param {(line: string) => void} [onStep] - Called before each step that runs.
  * @param {{ signal?: AbortSignal }} [options]
  * @returns {Promise<Array<object>>} The plan entries with `status` and timing.
@@ -263,7 +264,8 @@ export async function runFirstRunPlan(plan, actions, onStep = () => {}, { signal
       results.push({ ...step, status: "done", reason, duration_ms: Date.now() - started });
     } catch (error) {
       const message = String(error?.message ?? error).split("\n")[0];
-      results.push(signal?.aborted
+      const stopped = signal?.aborted && (error === signal.reason || error?.name === "AbortError" || error?.cancelled === true);
+      results.push(stopped
         ? { ...step, status: "skipped", reason: `stopped: ${message}`, duration_ms: Date.now() - started }
         : { ...step, status: "failed", error: message, duration_ms: Date.now() - started });
     }

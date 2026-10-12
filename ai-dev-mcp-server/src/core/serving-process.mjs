@@ -10,17 +10,19 @@ let daemon = null;
 /**
  * Called by the daemon when it starts serving.
  *
- * @param {{ build: string, startedAt: string, idleTimeoutMs: number, sessions: () => number }} info
+ * @param {{ build: string, startedAt: string, idleTimeoutMs: number, sessions: () => number, retired?: () => ({ reason: string } | null) }} info
+ *   `retired` — whether a daemon of newer code has taken over, so this one only finishes its sessions.
  */
 export function markServingDaemon(info) {
   daemon = info;
 }
 
 /**
- * @returns {{ kind: "daemon" | "process", pid: number, build?: string, sessions?: number, started_at?: string, idle_timeout_ms?: number }}
+ * @returns {{ kind: "daemon" | "process", pid: number, build?: string, sessions?: number, started_at?: string, idle_timeout_ms?: number, retired?: boolean, retired_reason?: string }}
  */
 export function servingProcess() {
   if (!daemon) return { kind: "process", pid: process.pid };
+  const retired = daemon.retired?.() ?? null;
   return {
     kind: "daemon",
     pid: process.pid,
@@ -28,6 +30,9 @@ export function servingProcess() {
     sessions: daemon.sessions(),
     started_at: daemon.startedAt,
     // A whole number, as the contract says, whatever fraction the variable held (Д-223).
-    idle_timeout_ms: Math.round(daemon.idleTimeoutMs)
+    idle_timeout_ms: Math.round(daemon.idleTimeoutMs),
+    // A program that stays connected — the desktop app — moves to the daemon
+    // of the new code instead of keeping this one alive (docs/DEFECTS.md, Д-245).
+    ...(retired ? { retired: true, retired_reason: String(retired.reason ?? "") } : {})
   };
 }

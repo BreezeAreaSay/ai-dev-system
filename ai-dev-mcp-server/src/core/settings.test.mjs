@@ -26,6 +26,11 @@ test("a change is checked, stored with mode 0600, and a null puts the default ba
   assert.deepEqual(result.changed.sort(), ["daemon_idle_minutes", "language", "model_mirror", "profiles"]);
   assert.equal(result.settings.model_mirror, "https://hf-mirror.com");
   assert.equal(result.settings.profiles, "core,git", "in the profiles' own order");
+  // `all` alone is no setting at all; beside the opt-in control it stays.
+  assert.equal((await writeSettings({ profiles: "control, all" }, { env })).settings.profiles, "all,control");
+  assert.equal((await writeSettings({ profiles: "all" }, { env })).settings.profiles, "");
+  assert.equal((await writeSettings({ profiles: "control" }, { env })).settings.profiles, "core,control");
+  await writeSettings({ profiles: "git,core" }, { env });
   assert.equal(result.settings.language, "ru");
   const stored = JSON.parse(await fs.readFile(settingsPath(env), "utf8"));
   assert.equal(stored.schema_version, 1);

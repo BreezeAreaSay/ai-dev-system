@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { withExclusiveFile } from "./atomic-files.mjs";
-import { parseProfileSetting } from "./tool-profiles.mjs";
+import { ALL_PROFILES, findProfile, parseProfileSetting } from "./tool-profiles.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 
 /** The file's format. A file of a newer one is read for the keys this version knows. */
@@ -49,13 +49,16 @@ export const SETTINGS = Object.freeze({
     type: "string",
     default: "",
     env: "AI_DEV_PROFILES",
-    description: "Capability profiles listed to a client that sets no AI_DEV_PROFILES of its own; empty lists every tool.",
+    description: "Capability profiles listed to a client that sets no AI_DEV_PROFILES of its own; empty lists every profile an agent gets — all but the opt-in control.",
     validate(value) {
       const text = nonEmpty(value);
       if (!text) return "";
       const parsed = parseProfileSetting(text);
       if (parsed.unknown.length) throw new Error(`profiles names ${parsed.unknown.map((name) => JSON.stringify(name)).join(", ")}, which ${parsed.unknown.length === 1 ? "is not a profile" : "are not profiles"}.`);
-      return parsed.all ? "" : parsed.ids.join(",");
+      // `all` with an opt-in profile keeps both: `all,control` is not `all`.
+      const optIn = parsed.ids.filter((id) => findProfile(id)?.optIn);
+      if (parsed.all) return optIn.length ? [ALL_PROFILES, ...optIn].join(",") : "";
+      return parsed.ids.join(",");
     }
   },
   model_mirror: {

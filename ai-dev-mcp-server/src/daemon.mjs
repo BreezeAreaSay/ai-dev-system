@@ -31,7 +31,7 @@
  * bytes and always said `sessions: 0` (docs/DEFECTS.md, Д-97); its Windows pipe
  * had a name anyone could take first (Д-107).
  */
-import { existsSync, fstatSync, statSync } from "node:fs";
+import { fstatSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
@@ -333,15 +333,11 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     // daemon — goes when the daemon does, if it is still empty (Д-213).
     // Each folder made again is the start of the same path to run/: the
     // shortest is the highest (Д-214). The record's lock makes the folder
-    // itself when it went again in between: the highest one missing before
-    // counts as made too (Д-226) — removed only if empty, it is never a
-    // neighbour's folder with something in it.
+    // itself when it went again in between, and says which (Д-226).
     const run = path.dirname(retiredDaemonPath(process.pid));
-    let missing = null;
-    for (let folder = run; !existsSync(folder) && path.dirname(folder) !== folder; folder = path.dirname(folder)) missing = folder;
     const made = await fs.mkdir(run, { recursive: true, mode: 0o700 }).catch(() => undefined);
     const taken = await tryAcquireFileLock(retiredDaemonPath(process.pid), { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS, directoryMode: 0o700 }).catch(() => ({}));
-    for (const folder of [made, taken.release && missing && existsSync(missing) ? missing : null]) {
+    for (const folder of [made, taken.madeFolder]) {
       if (folder && (!madeFolder || path.toNamespacedPath(folder).length < path.toNamespacedPath(madeFolder).length)) madeFolder = folder;
     }
     retiredLock = taken.release ? taken : null;

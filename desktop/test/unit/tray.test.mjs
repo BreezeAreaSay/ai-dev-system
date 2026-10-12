@@ -47,14 +47,14 @@ test("the tray's colour follows system_status, and its menu what can be done now
   assert.deepEqual(items({ online: false, rebuilding: null }).filter(([, , enabled]) => !enabled).map(([id]) => id), ["rebuild", "stop"]);
 });
 
-test("each state is drawn in its own colour, and a failed rebuild is said in the menu (Д-254, Д-257 п. 5)", async () => {
+/** A tray on a stand-in Electron: what it was given, as the person sees it. */
+async function standInTray(options = {}) {
   const { EventEmitter } = await import("node:events");
   const { createTray } = await import("../../src/main/tray.mjs");
-  const made = [];
   const set = [];
   let menu = [];
   const electron = {
-    nativeImage: { createFromBuffer: (buffer) => { const image = { buffer }; made.push(image); return image; } },
+    nativeImage: { createFromBuffer: (buffer) => ({ buffer }) },
     Tray: class {
       setImage(image) { set.push(image); }
       setToolTip(text) { this.tip = text; }
@@ -64,8 +64,22 @@ test("each state is drawn in its own colour, and a failed rebuild is said in the
     Menu: { buildFromTemplate: (template) => template }
   };
   const link = Object.assign(new EventEmitter(), { state: { phase: "online" }, status: null });
-  const t = (key, params) => translate("en", key, params);
-  const tray = createTray({ electron, link, t, actions: { open() {}, rebuild() {}, stop() {}, quit() {} } });
+  const view = { language: "en" };
+  const t = (key, params) => translate(view.language, key, params);
+  const tray = createTray({ electron, link, t, actions: { open() {}, rebuild() {}, stop() {}, quit() {} }, ...options });
+  const goes = (phase) => {
+    link.state = { phase };
+    link.emit("state", link.state);
+  };
+  const item = (id) => {
+    const found = menu.find((entry) => entry.id === id);
+    return [found.label, found.enabled ?? true];
+  };
+  return { tray, link, view, set, goes, item, menu: () => menu };
+}
+
+test("each state is drawn in its own colour, and a failed rebuild is said in the menu (Д-254, Д-257 п. 5)", async () => {
+  const { tray, link, set, goes, item, menu } = await standInTray();
   const colours = Object.keys(TRAY_COLOURS);
   assert.equal(new Set(colours.map((state) => String(TRAY_COLOURS[state]))).size, colours.length, "four different colours");
   for (const state of ["ok", "degraded", "failed"]) {
@@ -74,36 +88,73 @@ test("each state is drawn in its own colour, and a failed rebuild is said in the
     assert.equal(tray.state(), state);
     assert.ok(set.at(-1).buffer.equals(circlePng(TRAY_COLOURS[state], 32)), `${state} is drawn in its colour`);
   }
-  link.state = { phase: "offline" };
-  link.emit("state", link.state);
+  goes("offline");
   assert.ok(set.at(-1).buffer.equals(circlePng(TRAY_COLOURS.offline, 32)));
+  goes("online");
   tray.setRebuilding(null, "The index folder is a file.");
-  assert.equal(tray.menu().find((item) => item.id === "rebuild").label, "Rebuild failed — try again");
+  assert.deepEqual(item("rebuild"), ["Rebuild failed — try again", true]);
+  assert.equal(tray.menu().find((entry) => entry.id === "rebuild").label, "Rebuild failed — try again");
   assert.match(tray.tray.tip, /\nThe last rebuild failed: The index folder is a file\.$/, "and why, in the tooltip");
+  // Offline, "try again" cannot be pressed: the item says nothing of it, the tooltip still does (Д-280).
+  goes("offline");
+  assert.deepEqual(item("rebuild"), ["Rebuild search index", false]);
+  assert.match(tray.tray.tip, /The last rebuild failed: The index folder is a file\./);
+  goes("online");
   tray.setRebuilding(10);
-  assert.equal(tray.menu().find((item) => item.id === "rebuild").label, "Rebuilding the index… 10%");
+  assert.deepEqual(item("rebuild"), ["Rebuilding the index… 10%", false]);
   tray.setRebuilding(null);
-  assert.equal(tray.menu().find((item) => item.id === "rebuild").label, "Rebuild search index");
-  assert.ok(menu.length > 0);
-  // A Stop that failed is said too, with why in the tooltip, until the next one (Д-271, п. 6) —
-  // in the menu Electron is given, which is the one the person sees (Д-275).
-  const native = () => menu.find((item) => item.id === "stop");
-  link.state = { phase: "online" };
-  tray.setStopFailed("No handshake within 5000 ms");
-  assert.deepEqual([native().label, native().enabled], ["Stop failed — try again", true]);
-  assert.deepEqual(tray.menu().find((item) => item.id === "stop"), { id: "stop", label: "Stop failed — try again", enabled: true });
-  assert.match(tray.tray.tip, /The daemon did not stop: No handshake within 5000 ms/);
-  assert.equal(tray.tooltip(), tray.tray.tip);
+  assert.deepEqual(item("rebuild"), ["Rebuild search index", true]);
+  assert.ok(menu().length > 0);
+});
+
+test("a rebuild the link ended is said again in the language chosen after (Д-280)", async () => {
+  const { tray, view, goes } = await standInTray();
+  tray.setRebuilding(null, { key: "link.wentAway", text: "The daemon went away." });
+  goes("offline");
+  assert.match(tray.tooltip(), /The last rebuild failed: The daemon went away\.$/);
+  view.language = "ru";
+  tray.refresh();
+  assert.equal(tray.tooltip(), "AI Dev: демон не запущен\nПоследняя перестройка не удалась: Демон пропал.");
+  // The daemon's own words are kept as they came.
+  tray.setRebuilding(null, { text: "The index folder is a file." });
+  assert.match(tray.tooltip(), /Последняя перестройка не удалась: The index folder is a file\.$/);
+});
+
+test("a Stop that failed is said while a daemon it names runs — offline too — and Stop is offered again (Д-271 п. 6, Д-273, Д-277)", async () => {
+  const running = new Set([4242]);
+  const { tray, goes, item } = await standInTray({ runs: (pid) => running.has(pid), lookEveryMs: 5 });
+  // While a Stop runs, the item says so and cannot be pressed (Д-278).
+  tray.setStopping();
+  assert.deepEqual(item("stop"), ["Stopping the daemon…", false]);
+  assert.deepEqual(tray.menu().find((entry) => entry.id === "stop"), { id: "stop", label: "Stopping the daemon…", enabled: false });
+  // The app's own daemon stopped, another one would not: the app is offline, the note holds.
+  goes("offline");
+  tray.setStopFailed({ message: "No handshake within 5000 ms", pids: [4242] });
+  assert.deepEqual(item("stop"), ["Stop failed — try again", true], "offline, and Stop can be pressed again");
+  assert.equal(tray.tooltip(), "AI Dev: the daemon is not running\nThe daemon did not stop: No handshake within 5000 ms");
+  assert.equal(tray.tooltip(), tray.tray.tip, "as Electron was given it");
+  goes("online");
+  goes("offline");
+  assert.deepEqual(item("stop"), ["Stop failed — try again", true], "a move or a reconnect does not drop it");
+  // The daemon ends — nothing else tells the tray: the note goes within a look.
+  running.delete(4242);
+  for (const deadline = Date.now() + 2_000; item("stop")[0] !== "Stop the daemon" && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(item("stop"), ["Stop the daemon", false]);
+  assert.doesNotMatch(tray.tooltip(), /did not stop/);
+  // A Stop whose request failed names no daemon: its note is about the one the app is on, and goes once the app is off it (Д-276, п. 1).
+  goes("online");
+  tray.setStopping();
+  tray.setStopFailed({ message: "EPERM", pids: [] });
+  assert.deepEqual(item("stop"), ["Stop failed — try again", true]);
+  goes("offline");
+  assert.deepEqual(item("stop"), ["Stop the daemon", false]);
+  goes("online");
+  assert.deepEqual(item("stop"), ["Stop the daemon", true], "not back on the next daemon");
+  // A new Stop drops the last note at once; one that stops everything leaves none.
+  running.add(4343);
+  tray.setStopFailed({ message: "it is still running", pids: [4343] });
+  tray.setStopping();
+  assert.doesNotMatch(tray.tooltip(), /did not stop/);
   tray.setStopFailed(null);
-  assert.equal(native().label, "Stop the daemon");
-  assert.doesNotMatch(tray.tray.tip, /did not stop/);
-  // The note was about the daemon the app was on: once the app is off it, it goes (Д-276, п. 1).
-  tray.setStopFailed("No handshake within 5000 ms");
-  link.state = { phase: "offline" };
-  link.emit("state", link.state);
-  assert.equal(native().label, "Stop the daemon");
-  assert.doesNotMatch(tray.tray.tip, /did not stop/);
-  link.state = { phase: "online" };
-  link.emit("state", link.state);
-  assert.equal(native().label, "Stop the daemon", "not back on the next daemon");
+  assert.deepEqual(item("stop"), ["Stop the daemon", true]);
 });

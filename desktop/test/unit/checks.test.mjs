@@ -62,6 +62,8 @@ test("a settings problem is listed under the summary only when the summary does 
   assert.deepEqual(unsaidProblems({ summary: problem, settings_problems: [problem] }), [], "said by the summary: not again");
   const full = "the search index is not built (setup_run builds it); required_notes: 2 required notes are missing.; search_index_file: SQLite search index is missing.";
   assert.deepEqual(unsaidProblems({ summary: full, settings_problems: [problem] }), [problem], "a full summary: the list says it");
+  // The summary is the first problems joined: one among them is said already (Д-281).
+  assert.deepEqual(unsaidProblems({ summary: `the search index is not built (setup_run builds it); ${problem}`, settings_problems: [problem] }), []);
   assert.deepEqual(unsaidProblems({ summary: full }), []);
   assert.deepEqual(unsaidProblems(null), []);
 });

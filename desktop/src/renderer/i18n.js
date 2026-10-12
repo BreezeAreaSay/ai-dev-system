@@ -194,7 +194,8 @@ export const MESSAGES = Object.freeze({
     "tray.rebuildFailed": "Rebuild failed — try again",
     "tray.rebuildFailedTip": "The last rebuild failed: {message}",
     "tray.stopFailed": "Stop failed — try again",
-    "tray.stopFailedTip": "The daemon did not stop: {message}"
+    "tray.stopFailedTip": "The daemon did not stop: {message}",
+    "tray.stopping": "Stopping the daemon…"
   }),
   ru: Object.freeze({
     "app.title": "AI Dev",
@@ -385,7 +386,8 @@ export const MESSAGES = Object.freeze({
     "tray.rebuildFailed": "Перестройка не удалась — повторить",
     "tray.rebuildFailedTip": "Последняя перестройка не удалась: {message}",
     "tray.stopFailed": "Остановка не удалась — повторить",
-    "tray.stopFailedTip": "Демон не остановился: {message}"
+    "tray.stopFailedTip": "Демон не остановился: {message}",
+    "tray.stopping": "Останавливаю демон…"
   })
 });
 

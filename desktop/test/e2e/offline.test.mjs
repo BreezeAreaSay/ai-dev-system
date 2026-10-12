@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
-import { NO_SANDBOX, clientEnvironment, desktopRoot, launch, mainCall, serverModule, shot, stage, trayNow } from "./harness.mjs";
+import { NO_SANDBOX, clientEnvironment, desktopRoot, launch, mainCall, serverModule, serverRoot, shot, stage, trayNow } from "./harness.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -65,6 +65,40 @@ test("the tray's Stop brings the window back to the Start screen", { timeout: 18
   const tray = await trayNow(app);
   assert.equal(tray.state, "offline");
   assert.equal(tray.menu.find((item) => item.id === "stop").label, "Stop the daemon");
+});
+
+test("a daemon of another build that will not stop keeps the Stop's note, offline too, and Stop is offered again (Д-277)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  // Another build in the same runtime home — another vault, the same AI_DEV_HOME: its client starts its own daemon.
+  const otherVault = path.join(s.root, "other-vault");
+  await fs.mkdir(path.join(otherVault, "02-knowledge"), { recursive: true });
+  const { openControlClient } = await serverModule("src/core/control-client.mjs");
+  const { client } = await openControlClient({ serverRoot, env: { ...clientEnvironment(s.env), AI_DEV_VAULT_ROOT: otherVault }, execPath: process.execPath, start: true, name: "client-of-another-build" });
+  t.after(() => client.close().catch(() => undefined));
+  const other = (await client.callTool({ name: "system_status", arguments: { checks: false } })).structuredContent.result.served_by.pid;
+  assert.notEqual(other, await app.evaluate(() => globalThis.aiDevTest.link.status.served_by.pid));
+  process.kill(other, "SIGSTOP");
+  t.after(() => {
+    try { process.kill(other, "SIGCONT"); } catch { /* gone */ }
+  });
+  const stopItem = async () => (await trayNow(app)).menu.find((item) => item.id === "stop");
+  const stopping = app.evaluate(() => globalThis.aiDevTest.stop());
+  // While it runs, the item says so and cannot be pressed (Д-278).
+  assert.deepEqual(await stopItem(), { id: "stop", label: "Stopping the daemon…", enabled: false });
+  await stopping;
+  // The app's own daemon stopped, the other did not: offline, and the note holds.
+  await page.waitForSelector('[data-screen="offline"]', { timeout: 30_000 });
+  assert.deepEqual(await stopItem(), { id: "stop", label: "Stop failed — try again", enabled: true });
+  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /^AI Dev: the daemon is not running\nThe daemon did not stop: No handshake/);
+  // It comes back, and the Stop pressed again stops it: the note goes, nothing of this runtime home runs.
+  process.kill(other, "SIGCONT");
+  await app.evaluate(() => globalThis.aiDevTest.stop());
+  assert.deepEqual(await stopItem(), { id: "stop", label: "Stop the daemon", enabled: false });
+  assert.doesNotMatch(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /did not stop/);
+  const { listDaemons } = await serverModule("src/core/daemon-client.mjs");
+  assert.deepEqual((await listDaemons({ env: s.env })).map((entry) => entry.info.pid), []);
 });
 
 test("without Node.js the app says what it needs, and Try again finds one installed since (Д-251)", { timeout: 120_000 }, async (t) => {

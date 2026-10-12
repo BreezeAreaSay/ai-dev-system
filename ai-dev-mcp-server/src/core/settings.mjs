@@ -346,18 +346,33 @@ async function writeTarget(file) {
   throw Object.assign(new Error(`${file} is a chain of more than ${MAX_LINKS} links: one of them leads back to another.`), { code: "ELOOP" });
 }
 
+/** Whether the file gives `name` a value this version reads — one the person set. */
+function names(stored, name) {
+  if (!Object.hasOwn(stored, name)) return false;
+  try {
+    SETTINGS[name].validate(stored[name]);
+    return true;
+  } catch (error) {
+    return error?.kept !== undefined;
+  }
+}
+
 /**
  * Change some settings: each value checked first, nothing written when one is
  * wrong; `null` puts a setting back to its default. The file is rewritten
  * whole, under a lock, with mode 0600.
  *
  * @param {Record<string, unknown>} changes
- * @param {{ env?: NodeJS.ProcessEnv, file?: string, platform?: string }} [options]
+ * @param {{ env?: NodeJS.ProcessEnv, file?: string, platform?: string, unsetOnly?: boolean, lockTimeoutMs?: number }} [options]
+ *   `unsetOnly`: a setting the file already gives a value it reads keeps it —
+ *   decided under the lock, so a value written meanwhile is not written over
+ *   (the desktop app's language, docs/DEFECTS.md, Д-279); `lockTimeoutMs`: how
+ *   long to wait for the file's lock.
  * @returns {Promise<{ changed: string[], settings: Record<string, unknown>, pending: Record<string, unknown>, applies: Record<string, string> }>}
  *   `applies`: when each changed setting takes effect (`now`, `new_session`, `next_daemon`, `app`);
  *   `settings` and `pending` as {@link readSettings} has them.
  */
-export async function writeSettings(changes, { env = process.env, file = settingsPath(env), platform = process.platform } = {}) {
+export async function writeSettings(changes, { env = process.env, file = settingsPath(env), platform = process.platform, unsetOnly = false, lockTimeoutMs } = {}) {
   if (!changes || typeof changes !== "object" || Array.isArray(changes)) throw new Error("settings_set takes an object of settings to change.");
   const unknown = Object.keys(changes).filter((name) => !Object.hasOwn(SETTINGS, name));
   if (unknown.length) throw new Error(`There is no setting ${unknown.map((name) => JSON.stringify(name)).join(", ")}. The settings are ${Object.keys(SETTINGS).join(", ")}.`);
@@ -373,6 +388,7 @@ export async function writeSettings(changes, { env = process.env, file = setting
     const next = { ...stored, schema_version: SETTINGS_SCHEMA_VERSION };
     const changed = [];
     for (const [name, value] of Object.entries(checked)) {
+      if (unsetOnly && names(stored, name)) continue;
       const before = Object.hasOwn(stored, name) ? stored[name] : undefined;
       if (value === null) delete next[name];
       else next[name] = value;
@@ -386,7 +402,7 @@ export async function writeSettings(changes, { env = process.env, file = setting
     const applies = Object.fromEntries(changed.map((name) => [name, SETTINGS[name].applies]));
     const after = readSettings({ env, file, platform });
     return { changed, settings: after.settings, pending: after.pending, applies };
-  });
+  }, { timeoutMs: lockTimeoutMs });
 }
 
 /**

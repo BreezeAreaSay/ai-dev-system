@@ -133,3 +133,23 @@ export async function prepareSocketDirectory(directory, { uid = process.getuid?.
   if (uid !== undefined && stat.uid !== uid) throw new Error(`${directory} belongs to uid ${stat.uid}, not to this user (${uid}).`);
   if ((stat.mode & 0o077) !== 0) await fs.chmod(directory, 0o700);
 }
+
+/**
+ * Make a folder of this user's private when group or others can get into it:
+ * the daemon's run folder, found as a 2.x install, a migration or an older
+ * lock left it (docs/DEFECTS.md, Д-215). A link, another user's folder, or
+ * Windows, where modes do not guard folders, is left as it is.
+ *
+ * @param {string} directory
+ * @param {{ uid?: number, platform?: string }} [options]
+ * @returns {Promise<boolean>} whether the mode was changed
+ */
+export async function tightenFolder(directory, { uid = process.getuid?.(), platform = process.platform } = {}) {
+  if (platform === "win32") return false;
+  const stat = await fs.lstat(directory).catch(() => null);
+  if (!stat || stat.isSymbolicLink() || !stat.isDirectory()) return false;
+  if (uid !== undefined && stat.uid !== uid) return false;
+  if ((stat.mode & 0o077) === 0) return false;
+  await fs.chmod(directory, 0o700);
+  return true;
+}

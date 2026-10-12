@@ -343,13 +343,19 @@ test("a lock held for a process's life is taken now or its holder named, never w
 
 test("a folder the lock has to make gets the mode its owner asks for, and the usual one otherwise (Д-213)", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lock-mode-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  // Under a umask of 077 the folder comes out 0700 with the option or without
+  // it, and the test would prove nothing: it sets the usual one (Д-216).
+  const umask = process.umask(0o022);
+  t.after(() => {
+    process.umask(umask);
+    return fs.rm(root, { recursive: true, force: true });
+  });
   const owned = await tryAcquireFileLock(path.join(root, "run", "daemon-0123456789abcdef.json"), { directoryMode: 0o700 });
   assert.ok(owned.release);
   assert.equal((await fs.stat(path.join(root, "run"))).mode & 0o777, 0o700);
   await owned.release();
   const plain = await tryAcquireFileLock(path.join(root, "state", "tasks.json"));
-  assert.equal((await fs.stat(path.join(root, "state"))).mode & 0o777, 0o777 & ~process.umask());
+  assert.equal((await fs.stat(path.join(root, "state"))).mode & 0o777, 0o755);
   await plain.release();
 });
 

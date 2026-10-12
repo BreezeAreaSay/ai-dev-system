@@ -18,7 +18,8 @@ import {
   retiredDaemonPath,
   runtimeDir,
   socketDirectoryCandidates,
-  tasksStateRoot
+  tasksStateRoot,
+  tightenFolder
 } from "./runtime-paths.mjs";
 
 // AI_DEV_HOME names the runtime folder itself (owner decision D2,
@@ -134,4 +135,26 @@ test("a socket directory is made this user's alone: 0700, a plain directory, own
 
   // Someone else's directory, as /tmp/ai-dev-<uid> created first by another user.
   await assert.rejects(prepareSocketDirectory(fresh, { uid: (process.getuid?.() ?? 0) + 1 }), /belongs to uid/);
+});
+
+test("a run folder open to others is made private; a link, another user's folder and Windows are left alone (Д-215)", { skip: process.platform === "win32" && "POSIX modes and owners" }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-tighten-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const run = path.join(root, "run");
+  await fs.mkdir(run);
+  await fs.chmod(run, 0o755);
+  assert.equal(await tightenFolder(run), true);
+  assert.equal((await fs.stat(run)).mode & 0o777, 0o700);
+  assert.equal(await tightenFolder(run), false, "a private folder is not touched again");
+
+  const elsewhere = path.join(root, "elsewhere");
+  await fs.mkdir(elsewhere);
+  await fs.chmod(elsewhere, 0o755);
+  const link = path.join(root, "link");
+  await fs.symlink(elsewhere, link);
+  assert.equal(await tightenFolder(link), false, "a link is not followed");
+  assert.equal(await tightenFolder(elsewhere, { uid: (process.getuid?.() ?? 0) + 1 }), false, "nor is another user's folder changed");
+  assert.equal(await tightenFolder(elsewhere, { platform: "win32" }), false);
+  assert.equal((await fs.stat(elsewhere)).mode & 0o777, 0o755);
+  assert.equal(await tightenFolder(path.join(root, "missing")), false);
 });

@@ -269,6 +269,28 @@ test("a git pull where the code lies: the next client gets a daemon of the new c
   assert.equal(existsSync(retired), false, "and not to come back");
 });
 
+test("a retired daemon whose run folder and then whole runtime home were deleted takes neither with it nor leaves them behind (Д-214)", { skip: process.platform === "win32" && "a folder in use cannot be deleted on Windows" }, async (t) => {
+  const { env, home, run } = await stage(t);
+  const runtimeHome = path.join(home, ".ai-dev");
+  const one = await client(t, env, "one");
+  // The descriptor is written again when the session is counted: taken away
+  // before that, it would only come back.
+  const info = await until(() => descriptors(run).length && daemonInfo(run).sessions === 1 && daemonInfo(run), "the daemon with its session");
+  // Its descriptor taken away, it retires and keeps its session.
+  await fs.rm(path.join(run, `daemon-${info.build}.json`), { force: true });
+  const record = path.join(run, `retired-${info.pid}.json`);
+  await until(() => existsSync(record), "the retired record", 20_000);
+  // run/ deleted, then the whole runtime home: each time the record comes back
+  // in a folder made again, the second time one level higher.
+  await fs.rm(run, { recursive: true, force: true });
+  await until(() => existsSync(record), "the record in run/ made again", 15_000);
+  await fs.rm(runtimeHome, { recursive: true, force: true });
+  await until(() => existsSync(record), "the record in the runtime home made again", 15_000);
+  await one.session.close();
+  await until(() => gone(info.pid), "the retired daemon to leave after its last session", 20_000);
+  assert.equal(existsSync(runtimeHome), false, "the runtime home it made again goes with it, empty");
+});
+
 test("requests piped in and the input closed still get their answers, cold and warm (Д-192)", async (t) => {
   const { env } = await stage(t);
   const lines = [

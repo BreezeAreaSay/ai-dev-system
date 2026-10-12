@@ -198,6 +198,14 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: node --test "src/core/project-identity.test.mjs" "src/core/agent-hooks.test.mjs"
 
+      # Every client config runs the daemon since 3.0. Its socket under a long
+      # home, the session's own environment in real child processes and the log
+      # rotation are exercised by real processes only here and on Windows
+      # (docs/DEFECTS.md, Д-201).
+      - name: Daemon tests
+        working-directory: ai-dev-mcp-server
+        run: node --import ./test/setup.mjs --test src/cli/daemon.test.mjs
+
       - name: First run builds what a clone ships without
         working-directory: ai-dev-mcp-server
         run: npm run setup
@@ -266,3 +274,11 @@ jobs:
       - name: Agent hook tests
         working-directory: ai-dev-mcp-server
         run: node --import ./test/setup.mjs --test src/core/agent-hooks.test.mjs src/extensions/hooks.test.mjs
+
+      # The daemon on a named pipe: a random name per start, `stop` by a control
+      # request, a retired daemon still answering on its pipe, the session's
+      # environment with names that ignore case, and a log copied and cut while
+      # the daemon holds it open (docs/DEFECTS.md, Д-201).
+      - name: Daemon tests
+        working-directory: ai-dev-mcp-server
+        run: node --import ./test/setup.mjs --test src/cli/daemon.test.mjs

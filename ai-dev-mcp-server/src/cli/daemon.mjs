@@ -127,6 +127,6 @@ export async function run(argv, io) {
   if (subcommand === "stop") return stop(values, io);
   const { runDaemon } = await import("../daemon.mjs");
   if (await runDaemon({ env: io.env })) return null;
-  io.err("Another daemon already serves this runtime home: `ai-dev daemon status` shows it.");
+  io.err("A daemon of this build already serves this runtime home, or is starting: `ai-dev daemon status` shows it.");
   return EXIT.ok;
 }

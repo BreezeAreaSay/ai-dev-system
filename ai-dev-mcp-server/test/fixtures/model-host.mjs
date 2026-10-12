@@ -203,12 +203,12 @@ export async function startModelHost({
  * @param {string} [options.challenge] - The `Proxy-Authenticate` a 407 carries.
  * @returns {Promise<{ url: string, port: number, seen: string[], authorizations: string[], close: () => Promise<void> }>}
  */
-export async function startProxy({ hosts = {}, credentials = "", refuseStatus = 0, challenge = "Basic realm=\"test\"" } = {}) {
+export async function startProxy({ hosts = {}, credentials = "", refuseStatus = 0, challenge = "Basic realm=\"test\"", tls = false } = {}) {
   const seen = [];
   const authorizations = [];
   const expected = credentials ? `Basic ${Buffer.from(credentials).toString("base64")}` : "";
   const route = (host, port) => (Object.hasOwn(hosts, host) ? { host: "127.0.0.1", port: hosts[host] } : { host, port: Number(port) });
-  const server = http.createServer((request, response) => {
+  const handle = (request, response) => {
     seen.push(`${request.method} ${request.url}`);
     authorizations.push(String(request.headers["proxy-authorization"] ?? ""));
     if (expected && request.headers["proxy-authorization"] !== expected) {
@@ -229,7 +229,9 @@ export async function startProxy({ hosts = {}, credentials = "", refuseStatus = 
       response.end();
     });
     request.pipe(upstream);
-  });
+  };
+  // An `https://` proxy, with the test certificate (it names localhost too).
+  const server = tls ? https.createServer({ key: TEST_TLS.key, cert: TEST_TLS.cert }, handle) : http.createServer(handle);
   server.on("connect", (request, socket, head) => {
     seen.push(`CONNECT ${request.url}`);
     authorizations.push(String(request.headers["proxy-authorization"] ?? ""));
@@ -254,5 +256,5 @@ export async function startProxy({ hosts = {}, credentials = "", refuseStatus = 
   });
   const sockets = track(server);
   const port = await listen(server);
-  return { url: `http://127.0.0.1:${port}`, port, seen, authorizations, close: closer(server, sockets) };
+  return { url: tls ? `https://localhost:${port}` : `http://127.0.0.1:${port}`, port, seen, authorizations, close: closer(server, sockets) };
 }

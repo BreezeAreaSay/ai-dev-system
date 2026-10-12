@@ -27,10 +27,14 @@ import {
 } from "./daemon-channel.mjs";
 import { randomDaemonName } from "./runtime-paths.mjs";
 
-/** A fresh local address: a short socket path, or a pipe on Windows. */
+/**
+ * A fresh local address: a short socket path, or a pipe on Windows. Under
+ * /tmp, not the temp folder: with a long TMPDIR libuv cuts a socket path short,
+ * and two sockets of one folder become one (docs/DEFECTS.md, Д-201).
+ */
 async function localAddress(t) {
   if (process.platform === "win32") return `\\\\.\\pipe\\${randomDaemonName()}`;
-  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "dc-"));
+  const directory = await fs.mkdtemp(path.join("/tmp", "dc-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   return path.join(directory, "s.sock");
 }
@@ -151,7 +155,7 @@ test("a session line that is not an environment, or is too long, is refused", as
   await session(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" })}\n`);
   await session(`${JSON.stringify({ environment: { A: "x".repeat(SESSION_LINE_BYTES) } })}\n`);
   assert.deepEqual(refused.slice(0, 2), ["The client sent no environment for its session.", "The client sent no environment for its session."]);
-  assert.match(refused[2], /longer than any handshake/);
+  assert.equal(refused[2], "The other side sent a session environment of more than 1048576 bytes.");
 });
 
 test("a daemon that will not take a client says why", async (t) => {
@@ -279,7 +283,7 @@ test("a descriptor is written whole with mode 0600, read only in this version's 
   assert.equal(await readDaemonInfo(file), null);
 });
 
-test("a build is the code, its version and the daemon-wide variables; what one client sets for itself is not", async (t) => {
+test("a build is the code, its version and where its data is; what one client sets for itself is not", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dc-build-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.mkdir(path.join(root, "src"), { recursive: true });
@@ -287,14 +291,15 @@ test("a build is the code, its version and the daemon-wide variables; what one c
   await fs.writeFile(path.join(root, "src", "a.mjs"), "export const a = 1;\n");
   await fs.writeFile(path.join(root, "src", "a.test.mjs"), "// a test\n");
   const env = { HOME: "/home/ivan", PATH: "/usr/bin", AI_DEV_VAULT_ROOT: "/v" };
-  const build = await describeBuild({ serverRoot: root, version: "3.0.0", env, platform: "linux" });
+  const describe = (version, environment, more = {}) => describeBuild({ serverRoot: root, version, env: environment, platform: "linux", execPath: "/usr/bin/node", ...more });
+  const build = await describe("3.0.0", env);
   assert.match(build.id, /^[0-9a-f]{16}$/);
   assert.equal(build.version, "3.0.0");
   assert.equal(build.root, await fs.realpath(root));
-  assert.deepEqual(Object.keys(build.environment), ["AI_DEV_VAULT_ROOT", "HOME"]);
-  assert.match(build.environment.HOME, /^[0-9a-f]{12}$/, "a digest, never the value");
+  assert.ok(Object.keys(build.environment).includes("AI_DEV_VAULT_ROOT"));
+  assert.match(build.environment.AI_DEV_VAULT_ROOT, /^[0-9a-f]{12}$/, "a digest, never the value");
   assert.ok(!JSON.stringify(build).includes("/home/ivan"));
-  const id = async (version, environment) => (await describeBuild({ serverRoot: root, version, env: environment, platform: "linux" })).id;
+  const id = async (version, environment, more) => (await describe(version, environment, more)).id;
   assert.equal(await id("3.0.0", env), build.id);
   // What each session brings along: its programs, its network, its profiles,
   // its hooks' switches, the daemon's lifetime (docs/DEFECTS.md, Д-191).
@@ -315,15 +320,26 @@ test("a build is the code, its version and the daemon-wide variables; what one c
     AI_DEV_IDLE_TIMEOUT_MS: "5",
     AI_DEV_IMAGE: "ghcr.io/x"
   }), build.id);
+  // One place, spelled two ways, is one build (Д-199).
   assert.equal(await id("3.0.0", { ...env, AI_DEV_STATE_ROOT: "  " }), build.id, "a blank variable is an unset one, as the server reads it");
+  assert.equal(await id("3.0.0", { ...env, AI_DEV_VAULT_ROOT: "/v/" }), build.id, "a trailing slash");
+  assert.equal(await id("3.0.0", { ...env, AI_DEV_HOME: "/home/ivan/.ai-dev" }), build.id, "AI_DEV_HOME set to where it is anyway");
+  assert.equal(await id("3.0.0", { ...env, AI_DEV_STATE_ROOT: "/home/ivan/.ai-dev/state" }), build.id);
+  const windows = { USERPROFILE: "C:\\Users\\ivan", AI_DEV_VAULT_ROOT: "C:\\Vault" };
+  const onWindows = (environment) => id("3.0.0", environment, { platform: "win32", execPath: "C:\\node\\node.exe" });
+  assert.equal(await onWindows({ ...windows, HOME: "C:\\Users\\ivan\\msys" }), await onWindows(windows), "Git Bash's HOME beside the profile: one home on Windows");
+  assert.equal(await onWindows({ ...windows, AI_DEV_VAULT_ROOT: "c:\\vault" }), await onWindows(windows), "Windows paths ignore case");
+  // Another place, another build.
   assert.notEqual(await id("3.0.1", env), build.id);
   assert.notEqual(await id("3.0.0", { ...env, AI_DEV_VAULT_ROOT: "/w" }), build.id);
   assert.notEqual(await id("3.0.0", { ...env, BGE_M3_ONNX_DIR: "/models" }), build.id);
+  assert.notEqual(await id("3.0.0", { ...env, HOME: "/home/maria" }), build.id);
+  assert.notEqual(await id("3.0.0", env, { execPath: "/opt/node24/bin/node" }), build.id, "another Node: its children find another node and npm");
   assert.notEqual(await id("3.0.0", { ...env, AI_DEV_SOMETHING_NEW: "1" }), build.id, "an AI Dev variable nobody classified yet splits rather than leaks");
   await fs.writeFile(path.join(root, "src", "a.test.mjs"), "// a longer test file\n");
   assert.equal(await id("3.0.0", env), build.id, "a test file is not the code a daemon runs");
   await fs.writeFile(path.join(root, "src", "a.mjs"), "export const a = 2; // edited\n");
-  const pulled = await describeBuild({ serverRoot: root, version: "3.0.0", env, platform: "linux" });
+  const pulled = await describe("3.0.0", env);
   assert.notEqual(pulled.id, build.id, "a git pull that changes the code");
   assert.notEqual(pulled.source, build.source);
 });
@@ -334,8 +350,10 @@ test("why another daemon is not this one, said by name, and which one the new co
   assert.deepEqual(buildDifferences(mine, { ...mine, version: "2.9.0" }), ["ai-dev 2.9.0 (here: 3.0.0)"]);
   assert.deepEqual(buildDifferences(mine, { ...mine, root: "/other" }), ["the code at /other (here: /app)"]);
   assert.deepEqual(buildDifferences(mine, { ...mine, source: "s0" }), ["the code as it was before it changed on disk"]);
-  assert.deepEqual(buildDifferences(mine, { ...mine, environment: { AI_DEV_VAULT_ROOT: "b", HOME: "h", AI_DEV_STATE_ROOT: "s" } }),
-    ["another environment: AI_DEV_VAULT_ROOT set differently; AI_DEV_STATE_ROOT set only for it; BGE_M3_DEVICE set only here"]);
+  assert.deepEqual(buildDifferences(mine, { ...mine, environment: { ...mine.environment, AI_DEV_VAULT_ROOT: "b" } }),
+    ["another environment: AI_DEV_VAULT_ROOT differs"]);
+  assert.deepEqual(buildDifferences(mine, { ...mine, environment: { AI_DEV_VAULT_ROOT: "b", HOME: "x", AI_DEV_STATE_ROOT: "s" } }),
+    ["another environment: AI_DEV_VAULT_ROOT, HOME differ; AI_DEV_STATE_ROOT set only for it; BGE_M3_DEVICE set only here"]);
   assert.deepEqual(buildDifferences(mine, undefined), ["a build it does not describe"]);
 
   assert.equal(isSupersededBy(mine, { ...mine, source: "s0" }), true, "a git pull where it lies");

@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DAEMON_PROTOCOL, acceptHandshake, describeBuild, newSecret, readLine, writeDaemonInfo, writeLine } from "./daemon-channel.mjs";
+import { tryAcquireFileLock } from "./file-lock.mjs";
 import { DEFAULT_START_TIMEOUT_MS, connectDaemon, daemonDisabled, daemonStatus, listDaemons, logTail, spawnDaemon, startTimeoutMs, stopDaemons } from "./daemon-client.mjs";
 import { daemonInfoPath, daemonLogPath, retiredDaemonPath, runtimeDir } from "./runtime-paths.mjs";
 
@@ -95,9 +96,10 @@ const ownBuild = () => describeBuild({ serverRoot: process.cwd(), version: "3.0.
  * channel in this test process that answers for it — `status` with what it is
  * told, `stop` by ending the process.
  */
-async function standIn(t, { build, buildParts, retired = false, sessions = 1 }) {
+async function standIn(t, { build, buildParts, retired = false, sessions = 1, clientName = "cursor", answersStatus = true }) {
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-  const directory = process.platform === "win32" ? "" : await fs.mkdtemp(path.join(os.tmpdir(), "dcl-"));
+  // Under /tmp: a long TMPDIR would cut the socket path short (Д-201).
+  const directory = process.platform === "win32" ? "" : await fs.mkdtemp(path.join("/tmp", "dcl-"));
   const address = process.platform === "win32" ? `\\\\.\\pipe\\ai-dev-test-${process.pid}-${child.pid}` : path.join(directory, "s.sock");
   const secret = newSecret();
   const sockets = new Set();
@@ -107,7 +109,11 @@ async function standIn(t, { build, buildParts, retired = false, sessions = 1 }) 
     try {
       const accepted = await acceptHandshake(socket, { secret, pid: child.pid, version: "3.0.0", build });
       const { message } = await readLine(socket, { buffered: accepted.rest });
-      if (message.control === "status") await writeLine(socket, { ok: true, pid: child.pid, version: "3.0.0", build, sessions, clients: [{ name: "cursor", version: "1" }], retired, ...(retired ? { retired_reason: "its code was replaced" } : {}) });
+      if (message.control === "status" && !answersStatus) {
+        socket.destroy();
+        return;
+      }
+      if (message.control === "status") await writeLine(socket, { ok: true, pid: child.pid, version: "3.0.0", build, sessions, clients: [{ name: clientName, version: "1" }], retired, ...(retired ? { retired_reason: "its code was replaced" } : {}) });
       if (message.control === "stop") {
         await writeLine(socket, { ok: true, stopping: true, sessions });
         child.kill();
@@ -127,8 +133,14 @@ async function standIn(t, { build, buildParts, retired = false, sessions = 1 }) 
   const info = { protocol: DAEMON_PROTOCOL, pid: child.pid, version: "3.0.0", build, build_parts: buildParts, address, secret, sessions };
   const file = retired ? retiredDaemonPath(child.pid) : daemonInfoPath(build);
   await fs.mkdir(runtimeDir(), { recursive: true });
+  // As a real daemon does: its lock beside its descriptor, or its retired record, for as long as it lives.
+  const lock = await tryAcquireFileLock(file, { heartbeatMs: 1_000 });
+  child.once("exit", () => lock.release?.().catch(() => undefined));
   await writeDaemonInfo(file, info);
-  t.after(() => fs.rm(file, { force: true }));
+  t.after(async () => {
+    await lock.release?.().catch(() => undefined);
+    await fs.rm(file, { force: true });
+  });
   return { child, info, file };
 }
 
@@ -201,7 +213,7 @@ test("status shows the daemons of other builds and the retired ones with why; st
   assert.equal(status.sessions, 2);
   assert.equal(status.secret, undefined, "status never carries the secret");
   const others = Object.fromEntries(status.others.map((daemon) => [daemon.pid, daemon]));
-  assert.deepEqual(others[otherVault.child.pid].differences, ["another environment: AI_DEV_VAULT_ROOT set only for it"]);
+  assert.deepEqual(others[otherVault.child.pid].differences, ["another environment: AI_DEV_VAULT_ROOT differs"]);
   assert.equal(others[otherVault.child.pid].retired, false);
   assert.equal(others[old.child.pid].retired, true);
   assert.equal(others[old.child.pid].retired_reason, "its code was replaced");
@@ -212,4 +224,45 @@ test("status shows the daemons of other builds and the retired ones with why; st
   assert.ok(stopped.daemons.every((daemon) => daemon.stopped), JSON.stringify(stopped));
   assert.deepEqual(stopped.daemons.map((daemon) => daemon.sessions).sort(), [1, 2, 3]);
   for (const { child } of [mine, otherVault, old]) assert.equal(gone(child.pid), true);
+});
+
+test("a status answer of any reasonable length is read, and a daemon that does not answer status still takes stop (Д-196)", async (t) => {
+  await fs.rm(runtimeDir(), { recursive: true, force: true });
+  t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
+  const build = await ownBuild();
+  const long = await standIn(t, { build: build.id, buildParts: build, clientName: "x".repeat(20_000) });
+  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: {} });
+  assert.equal(status.running, true);
+  assert.equal(status.clients[0].name.length, 20_000);
+  const mute = await standIn(t, { build: "3333333333333333", buildParts: { ...build, source: "other" }, answersStatus: false });
+  const stopped = await stopDaemons({ timeoutMs: 5_000 });
+  assert.deepEqual(stopped.daemons.map((daemon) => [daemon.pid, daemon.stopped]).sort(), [[long.child.pid, true], [mute.child.pid, true]].sort());
+  assert.equal(gone(long.child.pid), true);
+  assert.equal(gone(mute.child.pid), true);
+});
+
+test("a retired daemon nobody can reach is still shown; its record goes once nobody holds its lock, whoever has its pid (Д-197, Д-198)", async (t) => {
+  await fs.rm(runtimeDir(), { recursive: true, force: true });
+  t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
+  const build = await ownBuild();
+  // A process that is not a daemon now has the pid the record names.
+  const unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  t.after(() => unrelated.kill());
+  await fs.mkdir(runtimeDir(), { recursive: true });
+  const record = retiredDaemonPath(unrelated.pid);
+  await writeDaemonInfo(record, { protocol: DAEMON_PROTOCOL, pid: unrelated.pid, build: build.id, address: path.join(runtimeDir(), "gone.sock"), secret: newSecret(), retired: true });
+  // While its lock is held — by a retired daemon still finishing a session — it stays.
+  const held = await tryAcquireFileLock(record, { heartbeatMs: 100 });
+  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: {} });
+  assert.equal(status.running, false);
+  assert.deepEqual(status.others.map((daemon) => [daemon.pid, daemon.retired, Boolean(daemon.unreachable)]), [[unrelated.pid, true, true]], "shown, not hidden");
+  const first = await stopDaemons({ timeoutMs: 200 });
+  assert.equal(first.daemons[0].stopped, false);
+  assert.equal(existsSync(record), true);
+  // Its daemon gone: the lock is not held any more, and stop clears the record.
+  await held.release();
+  const second = await stopDaemons({ timeoutMs: 200 });
+  assert.deepEqual(second.daemons.map((daemon) => [daemon.pid, daemon.stopped, daemon.gone]), [[unrelated.pid, true, true]]);
+  assert.equal(existsSync(record), false);
+  assert.equal(gone(unrelated.pid), false, "the process that has the pid now is left alone");
 });

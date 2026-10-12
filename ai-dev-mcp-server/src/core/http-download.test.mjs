@@ -211,3 +211,40 @@ test("a session's own NODE_EXTRA_CA_CERTS is trusted, as its own process would h
   assert.ok(trustedAuthorities({ NODE_EXTRA_CA_CERTS: file }).includes(TEST_TLS.cert));
   assert.deepEqual(trustedAuthorities({ NODE_EXTRA_CA_CERTS: path.join(directory, "missing.pem") }), [...tls.rootCertificates], "an unreadable file is skipped, as Node skips it");
 });
+
+test("an https:// proxy is trusted by the session's own certificates too, and a proxy that is not is named (Д-200)", async (t) => {
+  const host = await startModelHost({ files: FILES, tls: true });
+  const proxy = await startProxy({ hosts: { [TEST_HOST]: host.port }, tls: true });
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-ca-"));
+  t.after(() => Promise.all([host.close(), proxy.close(), fs.rm(directory, { recursive: true, force: true })]));
+  const file = path.join(directory, "corp.pem");
+  await fs.writeFile(file, TEST_TLS.cert);
+  const url = `https://${TEST_HOST}:${host.port}/m/config.json`;
+  const response = await openUrl(url, { env: { HTTPS_PROXY: proxy.url, NODE_EXTRA_CA_CERTS: file } });
+  assert.equal(response.status, 200);
+  assert.equal(await read(response.body), FILES["config.json"]);
+  assert.deepEqual(proxy.seen, [`CONNECT ${TEST_HOST}:${host.port}`]);
+  await assert.rejects(
+    openUrl(url, { env: { HTTPS_PROXY: proxy.url } }),
+    (error) => /^the TLS certificate the proxy https:\/\/localhost:\d+ presented is not trusted/.test(error.message)
+  );
+  // Plain HTTP through the same proxy: the TLS is with the proxy alone.
+  const plain = await startModelHost({ files: FILES });
+  t.after(() => plain.close());
+  const viaPlain = await openUrl(`http://127.0.0.1:${plain.port}/m/config.json`, { env: { HTTP_PROXY: proxy.url, NO_PROXY: "", NODE_EXTRA_CA_CERTS: file } });
+  assert.equal(viaPlain.status, 200);
+  await read(viaPlain.body);
+});
+
+test("a session that asks for the system's store gets it, and only then", () => {
+  const own = { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS ?? "" };
+  const bundled = tls.rootCertificates.length;
+  const system = trustedAuthorities({ ...own, NODE_OPTIONS: "--max-old-space-size=4096 --use-system-ca" });
+  if (typeof tls.getCACertificates === "function" && !process.execArgv.includes("--use-system-ca")) {
+    assert.ok(system.length >= bundled, "the bundled roots and the system's");
+    assert.deepEqual(trustedAuthorities({ ...own, NODE_USE_SYSTEM_CA: "1" }), system);
+  }
+  if (!process.execArgv.includes("--use-system-ca")) {
+    assert.equal(trustedAuthorities({ ...own, NODE_OPTIONS: "--use-system-ca-not" }), undefined, "a flag that only starts like it is not it");
+  }
+});

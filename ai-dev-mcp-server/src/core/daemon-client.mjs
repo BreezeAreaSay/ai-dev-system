@@ -15,6 +15,7 @@ import process from "node:process";
 import { ChannelError, buildDifferences, controlRequest, describeBuild, openChannel, readDaemonInfo, removeDaemonInfo } from "./daemon-channel.mjs";
 import { EMPTY_LOCK_GRACE_MS, processAlive, tryAcquireFileLock } from "./file-lock.mjs";
 import { DAEMON_DESCRIPTOR_NAME, RETIRED_DAEMON_NAME, daemonInfoPath, daemonLogPath, runtimeDir } from "./runtime-paths.mjs";
+import { absolutePathVariables } from "./session-env.mjs";
 
 /** How long a client waits for a daemon it started. A first start fills the vault and loads the tools. */
 export const DEFAULT_START_TIMEOUT_MS = 20_000;
@@ -157,7 +158,10 @@ async function reach(info, options, build) {
  * @returns {Promise<{ socket: import("node:net").Socket, welcome: Record<string, any>, rest: Buffer, info: object, build: object, started: boolean }>}
  *   `started` is true only when this call started the daemon that answered.
  */
-export async function connectDaemon({ serverRoot, cliPath, version, env = process.env, mode = "mcp", profiles = null, timeoutMs = startTimeoutMs(env), spawnImpl = spawn, restartAfterMs = RESTART_AFTER_MS }) {
+export async function connectDaemon({ serverRoot, cliPath, version, env: given = process.env, mode = "mcp", profiles = null, timeoutMs = startTimeoutMs(given), spawnImpl = spawn, restartAfterMs = RESTART_AFTER_MS }) {
+  // The daemon runs in another folder than its caller: a relative path in the
+  // environment means, for it too, what it means here (docs/DEFECTS.md, Д-194, Д-201).
+  const env = absolutePathVariables(given);
   const build = await describeBuild({ serverRoot, version, env });
   const descriptor = daemonInfoPath(build.id);
   const options = { mode, profiles, environment: env, timeoutMs: 3_000 };
@@ -199,17 +203,12 @@ export async function connectDaemon({ serverRoot, cliPath, version, env = proces
 }
 
 /**
- * Remove the descriptor of a daemon that is gone — its process ended, or its
- * lock went stale because no daemon refreshes it — and only then: taking the
- * descriptor's lock proves nobody serves it. A retired daemon's record has no
- * lock, and goes when its pid is not running.
+ * Remove the descriptor or retired record of a daemon that is gone — its
+ * process ended, or its lock went stale because nothing refreshes it — and
+ * only then: taking the file's lock proves no daemon holds it, whatever
+ * process now has its pid (docs/DEFECTS.md, Д-198).
  */
-async function removeStale(file, info, retired) {
-  if (retired) {
-    if (processAlive(info.pid)) return false;
-    await fsp.rm(file, { force: true });
-    return true;
-  }
+async function removeStale(file, info) {
   const taken = await tryAcquireFileLock(file, { staleMs: DAEMON_LOCK_STALE_MS });
   if (!taken.release) return false;
   try {
@@ -260,7 +259,7 @@ export async function listDaemons({ clean = false } = {}) {
       found.push({ file, info, retired, status });
       continue;
     }
-    const removed = clean ? await removeStale(file, info, retired).catch(() => false) : false;
+    const removed = clean ? await removeStale(file, info).catch(() => false) : false;
     found.push({ file, info, retired, unreachable, gone, removed });
   }
   return found;
@@ -293,12 +292,14 @@ function summary(entry, build) {
  * @returns {Promise<Record<string, any>>}
  */
 export async function daemonStatus({ serverRoot, version, env = process.env }) {
-  const build = await describeBuild({ serverRoot, version, env });
+  const build = await describeBuild({ serverRoot, version, env: absolutePathVariables(env) });
   const daemons = await listDaemons();
   const mine = daemons.find((entry) => !entry.retired && entry.status && entry.info.build === build.id);
-  const others = daemons.filter((entry) => entry !== mine && (entry.status || entry.info.build !== build.id)).map((entry) => summary(entry, build));
+  const stale = mine ? null : daemons.find((entry) => !entry.retired && !entry.status && entry.info.build === build.id);
+  // Every other daemon is shown, a retired one that does not answer too: it
+  // still has sessions, and `stop` is told why it cannot reach it (Д-197).
+  const others = daemons.filter((entry) => entry !== mine && entry !== stale).map((entry) => summary(entry, build));
   if (mine) return { running: true, ...mine.status, ok: undefined, current: true, others };
-  const stale = daemons.find((entry) => !entry.retired && !entry.status && entry.info.build === build.id);
   return {
     running: false,
     build: build.id,
@@ -321,10 +322,12 @@ export async function stopDaemons({ timeoutMs = 10_000 } = {}) {
   for (const entry of await listDaemons({ clean: true })) {
     const { info, retired } = entry;
     const base = { pid: info.pid, build: info.build, retired };
-    if (!entry.status) {
-      results.push(entry.removed ? { ...base, stopped: true, gone: true } : { ...base, stopped: false, reason: entry.unreachable });
+    if (entry.removed || entry.gone) {
+      results.push({ ...base, stopped: true, gone: true });
       continue;
     }
+    // A daemon that did not answer `status` may still take `stop`: the answer
+    // it could not give is not the request it cannot take (Д-196).
     let answer;
     try {
       answer = await controlRequest(info, "stop");

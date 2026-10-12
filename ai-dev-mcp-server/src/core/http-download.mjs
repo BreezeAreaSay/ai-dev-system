@@ -35,38 +35,53 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 /** What the requests say they are. Mirrors log it; nothing depends on it. */
 const USER_AGENT = "ai-dev-system-model-download";
 
-/** The extra certificates this process started with: Node trusts them already. */
-const STARTED_WITH_EXTRA_CA = String(process.env.NODE_EXTRA_CA_CERTS ?? "");
+/** Whether an environment asks Node for the system's certificate store as well as its own. */
+function usesSystemStore(env, execArgv = []) {
+  return String(env?.NODE_USE_SYSTEM_CA ?? "").trim() === "1"
+    || /(?:^|\s)--use-system-ca(?:\s|$)/.test(String(env?.NODE_OPTIONS ?? ""))
+    || execArgv.includes("--use-system-ca");
+}
+
+/** The certificate authorities this process started with: Node trusts them already. */
+const STARTED_WITH = Object.freeze({
+  extra: String(process.env.NODE_EXTRA_CA_CERTS ?? ""),
+  system: usesSystemStore(process.env, process.execArgv)
+});
 
 /** Each extra-certificate file read, by its path, size and time, so a changed one is read again. */
 const extraCaFiles = new Map();
 
 /**
- * The certificate authorities a request trusts when its environment names
- * other extra certificates than this process started with — `undefined` when
- * Node's own store is the right one already. Node reads `NODE_EXTRA_CA_CERTS`
- * once, at start; the daemon serves clients whose environments differ, and
- * each session's downloads trust what that client's own process would have:
- * the bundled roots, and its own extra file if it names one (docs/DEFECTS.md,
- * Д-191). A file that cannot be read is skipped, as Node skips it.
+ * The certificate authorities a request trusts when its environment asks for
+ * other ones than this process started with — `undefined` when Node's own store
+ * is the right one already. Node reads `NODE_EXTRA_CA_CERTS` and
+ * `--use-system-ca` once, at start; the daemon serves clients whose
+ * environments differ, and each session's connections — to the host, and to
+ * an `https://` proxy on the way — trust what that client's own process would
+ * have: the bundled roots, the system's store if it asks for it, and its own
+ * extra file if it names one (docs/DEFECTS.md, Д-191, Д-200). A file that
+ * cannot be read is skipped, as Node skips it.
  *
  * @param {NodeJS.ProcessEnv} env
  * @returns {string[] | undefined}
  */
 export function trustedAuthorities(env) {
-  const wanted = String(env?.NODE_EXTRA_CA_CERTS ?? "");
-  if (wanted === STARTED_WITH_EXTRA_CA) return undefined;
-  if (!wanted) return [...tls.rootCertificates];
+  const wanted = { extra: String(env?.NODE_EXTRA_CA_CERTS ?? ""), system: usesSystemStore(env) };
+  if (wanted.extra === STARTED_WITH.extra && wanted.system === STARTED_WITH.system) return undefined;
+  const store = [...tls.rootCertificates];
+  if (wanted.system && typeof tls.getCACertificates === "function") store.push(...tls.getCACertificates("system"));
+  if (!wanted.extra) return store;
   let extra = "";
   try {
-    const stat = fs.statSync(wanted);
-    const key = `${wanted}:${stat.size}:${stat.mtimeMs}`;
-    extra = extraCaFiles.get(key) ?? fs.readFileSync(wanted, "utf8");
+    const stat = fs.statSync(wanted.extra);
+    const key = `${wanted.extra}:${stat.size}:${stat.mtimeMs}`;
+    extra = extraCaFiles.get(key) ?? fs.readFileSync(wanted.extra, "utf8");
     extraCaFiles.set(key, extra);
   } catch {
     extra = "";
   }
-  return extra ? [...tls.rootCertificates, extra] : [...tls.rootCertificates];
+  if (extra) store.push(extra);
+  return store;
 }
 
 /**
@@ -261,7 +276,8 @@ export function describeNetworkError(error, url, proxy) {
   } else if (code === "ETIMEDOUT" || code === "ENETUNREACH" || code === "EHOSTUNREACH") {
     message = `${host}${via} could not be reached (${code}).`;
   } else if (/CERT|SELF_SIGNED|UNABLE_TO|ERR_TLS/.test(code)) {
-    message = `the TLS certificate ${host} presented${via} is not trusted (${code}). If your network inspects TLS, `
+    const presented = error?.atProxy && proxy ? `the proxy ${describeProxy(proxy)} presented` : `${host} presented${via}`;
+    message = `the TLS certificate ${presented} is not trusted (${code}). If your network inspects TLS, `
       + "point NODE_EXTRA_CA_CERTS at its CA certificate.";
   } else {
     message = `${host}${via}: ${error?.message ?? error}`;
@@ -273,21 +289,23 @@ export function describeNetworkError(error, url, proxy) {
 }
 
 /**
- * A socket to `host:port` through the proxy, opened with `CONNECT`.
+ * A socket to `host:port` through the proxy, opened with `CONNECT`. An
+ * `https://` proxy is reached over TLS that trusts `ca`, as the host is.
  *
  * @returns {Promise<import("node:net").Socket>}
  */
-function tunnel(proxy, host, port, signal) {
+function tunnel(proxy, host, port, signal, ca) {
   return new Promise((resolve, reject) => {
-    const client = proxy.protocol === "https:" ? https : http;
-    const request = client.request({
+    const secure = proxy.protocol === "https:";
+    const request = (secure ? https : http).request({
       host: bareHost(proxy.hostname),
       port: urlPort(proxy),
       method: "CONNECT",
       path: authority(host, port),
       headers: { host: authority(host, port), "user-agent": USER_AGENT, ...proxyAuthorization(proxy) },
       agent: false,
-      signal
+      signal,
+      ...(secure && ca ? { ca } : {})
     });
     request.once("connect", (response, socket, head) => {
       if (response.statusCode !== 200) {
@@ -303,7 +321,8 @@ function tunnel(proxy, host, port, signal) {
       if (head?.length) socket.unshift(head);
       resolve(socket);
     });
-    request.once("error", reject);
+    // Whatever fails here fails with the proxy, not the host behind it.
+    request.once("error", (error) => reject(Object.assign(error, { atProxy: true })));
     request.end();
   });
 }
@@ -331,15 +350,18 @@ function requestOnce(url, { method, headers, env, signal, ca: given, body }) {
       request = (url.protocol === "https:" ? https : http).request(url, { method, headers: sent, agent: false, signal, ...(ca ? { ca } : {}) });
     } else if (url.protocol === "http:") {
       // Plain HTTP goes to the proxy in absolute form; the proxy fetches it.
-      request = (proxy.protocol === "https:" ? https : http).request({
+      const secureProxy = proxy.protocol === "https:";
+      request = (secureProxy ? https : http).request({
         host: bareHost(proxy.hostname),
         port: urlPort(proxy),
         method,
         path: url.href,
         headers: { ...sent, host: url.host, ...proxyAuthorization(proxy) },
         agent: false,
-        signal
+        signal,
+        ...(secureProxy && ca ? { ca } : {})
       });
+      request.once("error", (error) => Object.assign(error, { atProxy: true }));
     } else {
       // HTTPS through the proxy: a CONNECT tunnel, then TLS to the host itself,
       // so the proxy sees an address and never the request.
@@ -348,7 +370,7 @@ function requestOnce(url, { method, headers, env, signal, ca: given, body }) {
         headers: sent,
         signal,
         createConnection: (_options, done) => {
-          tunnel(proxy, host, port, signal).then((socket) => {
+          tunnel(proxy, host, port, signal, ca).then((socket) => {
             // `host` is what the certificate is checked against; without it
             // Node falls back to the name the socket was opened with — the
             // proxy's — and an IP-literal target was never checked against

@@ -50,9 +50,9 @@ async function stage(t) {
 }
 
 /** `ai-dev <args>`: exit code and output. */
-function ai(env, args, { command = cli } = {}) {
+function ai(env, args, { command = cli, cwd = serverRoot } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [command, ...args], { cwd: serverRoot, env, windowsHide: true });
+    const child = spawn(process.execPath, [command, ...args], { cwd, env, windowsHide: true });
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -221,7 +221,7 @@ test("clients of another vault get a daemon of their own; status shows both and 
   const status = await ai(env, ["daemon", "status"]);
   assert.equal(status.code, 0, status.stderr);
   assert.match(status.stdout, /Running: pid \d+, ai-dev .*, 2 session\(s\)/);
-  assert.match(status.stdout, /Also running: pid \d+, ai-dev [^,]+, 1 session\(s\) — another environment: AI_DEV_VAULT_ROOT set differently; AI_DEV_SEARCH_INDEX_DIR set only for it\./);
+  assert.match(status.stdout, /Also running: pid \d+, ai-dev [^,]+, 1 session\(s\) — another environment: AI_DEV_VAULT_ROOT, AI_DEV_SEARCH_INDEX_DIR differ\./);
   assert.doesNotMatch(status.stdout, /daemon start/, "no advice that would replace the other clients' daemon");
 
   const stopped = await ai(env, ["daemon", "stop"]);
@@ -312,6 +312,25 @@ test("stop with only the descriptor of a daemon long gone says it is not running
   assert.equal(stopped.code, 0, stopped.stdout);
   assert.equal(stopped.stdout.trim(), "Not running.");
   assert.equal(existsSync(stale), false);
+});
+
+test("ai-dev daemon start, status and stop take a relative AI_DEV_HOME as the folder they run in means it (Д-201)", async (t) => {
+  const { base, env } = await stage(t);
+  const project = path.join(base, "project");
+  await fs.mkdir(project);
+  const relative = { ...env, AI_DEV_HOME: "rel-home" };
+  // Whatever happens below: the same home, named absolutely, from a folder that outlives the stage.
+  t.after(() => ai({ ...env, AI_DEV_HOME: path.join(project, "rel-home") }, ["daemon", "stop"]));
+  const started = await ai(relative, ["daemon", "start"], { cwd: project });
+  assert.equal(started.code, 0, started.stdout + started.stderr);
+  assert.match(started.stdout, /^Started: pid \d+\./);
+  assert.equal(descriptors(path.join(project, "rel-home", "run")).length, 1, "the runtime home is the project's rel-home");
+  assert.equal(existsSync(path.join(serverRoot, "rel-home")), false, "and not one inside the server's own tree");
+  const status = await ai(relative, ["daemon", "status"], { cwd: project });
+  assert.equal(status.code, 0, status.stdout);
+  assert.match(status.stdout, /^Running: pid \d+/);
+  const stopped = await ai(relative, ["daemon", "stop"], { cwd: project });
+  assert.match(stopped.stdout, /^Stopped: pid \d+/);
 });
 
 test("when no daemon can start, the client is served in its own process and stderr says why", async (t) => {

@@ -26,7 +26,7 @@ import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { renameOver } from "./atomic-files.mjs";
-import { daemonWideEnvironment } from "./session-env.mjs";
+import { daemonIdentity } from "./session-env.mjs";
 
 /** The handshake's version. A daemon that speaks another is replaced, never half-understood. */
 export const DAEMON_PROTOCOL = 1;
@@ -43,6 +43,14 @@ const HANDSHAKE_LINE_BYTES = 16 * 1024;
  * a few kilobytes; a megabyte is far past any real one.
  */
 export const SESSION_LINE_BYTES = 1024 * 1024;
+
+/**
+ * The longest answer to a control request. `status` lists every client with
+ * the name and version it gave itself; a client with a long name, or a few
+ * hundred sessions, made the answer longer than a handshake line and both
+ * `status` and `stop` fail (docs/DEFECTS.md, Д-196).
+ */
+export const CONTROL_ANSWER_BYTES = 1024 * 1024;
 
 const HEX_SECRET = /^[0-9a-f]{64}$/;
 const HEX_NONCE = /^[0-9a-f]{32}$/;
@@ -85,10 +93,11 @@ export function sameProof(left, right) {
  * paused, so nothing more is read until the next reader is attached.
  *
  * @param {import("node:net").Socket} socket
- * @param {{ timeoutMs?: number, buffered?: Buffer, maxBytes?: number }} [options]
+ * @param {{ timeoutMs?: number, buffered?: Buffer, maxBytes?: number, kind?: string }} [options] - `kind`
+ *   names the line in the error a line past `maxBytes` ends with.
  * @returns {Promise<{ message: Record<string, unknown>, rest: Buffer }>}
  */
-export function readLine(socket, { timeoutMs = HANDSHAKE_TIMEOUT_MS, buffered = Buffer.alloc(0), maxBytes = HANDSHAKE_LINE_BYTES } = {}) {
+export function readLine(socket, { timeoutMs = HANDSHAKE_TIMEOUT_MS, buffered = Buffer.alloc(0), maxBytes = HANDSHAKE_LINE_BYTES, kind = "handshake line" } = {}) {
   return new Promise((resolve, reject) => {
     let buffer = buffered;
     let settled = false;
@@ -108,7 +117,7 @@ export function readLine(socket, { timeoutMs = HANDSHAKE_TIMEOUT_MS, buffered = 
       // Measured whether or not the line is whole yet: one that arrives in a
       // single read is as much too long as one that arrives in many.
       if ((end < 0 ? buffer.length : end) > maxBytes) {
-        finish(new ChannelError("The other side sent a handshake line longer than any handshake."));
+        finish(new ChannelError(`The other side sent a ${kind} of more than ${maxBytes} bytes.`, { code: "E2BIG" }));
         return;
       }
       if (end < 0) return;
@@ -192,7 +201,7 @@ export async function acceptHandshake(socket, { secret, pid, version, build, wel
   if (mode !== "mcp") return { mode, profiles, environment: null, rest };
   // The client sends its environment only now, once this daemon has proven
   // itself: a process that took over the address never sees it.
-  const { message: session, rest: after } = await readLine(socket, { timeoutMs, buffered: rest, maxBytes: SESSION_LINE_BYTES });
+  const { message: session, rest: after } = await readLine(socket, { timeoutMs, buffered: rest, maxBytes: SESSION_LINE_BYTES, kind: "session environment" });
   const environment = session.environment;
   if (!environment || typeof environment !== "object" || Array.isArray(environment) || Object.values(environment).some((value) => typeof value !== "string")) {
     socket.end();
@@ -270,7 +279,7 @@ export async function controlRequest(info, command, { timeoutMs = HANDSHAKE_TIME
   const { socket, rest } = await openChannel(info, { mode: "control", timeoutMs });
   try {
     await writeLine(socket, { control: command });
-    const { message } = await readLine(socket, { timeoutMs, buffered: rest });
+    const { message } = await readLine(socket, { timeoutMs, buffered: rest, maxBytes: CONTROL_ANSWER_BYTES, kind: "control answer" });
     return message;
   } finally {
     socket.destroy();
@@ -393,37 +402,39 @@ const digest = (value) => crypto.createHash("sha256").update(String(value)).dige
 
 /**
  * Which build of the server a daemon is: its version, where its code is and
- * what that code is now, and the daemon-wide variables (`session-env.mjs`). A
- * client of another build — a `git pull`, a new package, another
- * `AI_DEV_VAULT_ROOT` — is served by a daemon of its own build, never by a
- * stale one. Variables appear as digests of their values: the build is
- * printed by `ai-dev daemon status` and kept in the descriptor, and a value
- * may be a path a person would rather not show.
+ * what that code is now, and where its data is (`daemonIdentity` in
+ * `session-env.mjs`). A client of another build — a `git pull`, a new package,
+ * another vault — is served by a daemon of its own build, never by a stale
+ * one; two spellings of one folder are one build (docs/DEFECTS.md, Д-199).
+ * Each part appears as a digest: the build is printed by
+ * `ai-dev daemon status` and kept in the descriptor, and a path may be one a
+ * person would rather not show.
  *
- * @param {{ serverRoot: string, version: string, env?: NodeJS.ProcessEnv, platform?: string }} options
+ * @param {{ serverRoot: string, version: string, env?: NodeJS.ProcessEnv, platform?: string, execPath?: string }} options
  * @returns {Promise<{ id: string, version: string, root: string, source: string, environment: Record<string, string> }>}
  */
-export async function describeBuild({ serverRoot, version, env = process.env, platform = process.platform }) {
+export async function describeBuild({ serverRoot, version, env = process.env, platform = process.platform, execPath = process.execPath }) {
   const root = await fs.realpath(serverRoot).catch(() => path.resolve(serverRoot));
   const source = (await sourceFingerprint(root)).slice(0, 16);
-  const environment = Object.fromEntries(daemonWideEnvironment(env, { platform }).map(([name, value]) => [name, digest(value)]));
+  const identity = daemonIdentity({ serverRoot: root, env, platform, execPath });
+  const environment = Object.fromEntries(Object.entries(identity).map(([name, value]) => [name, digest(value)]));
   const id = crypto.createHash("sha256").update(JSON.stringify({ version, root, source, environment })).digest("hex").slice(0, 16);
   return { id, version, root, source, environment };
 }
 
-/** Two builds' daemon-wide variables: the names that differ, and how. */
+/** Two builds' environments: what differs, named as a person would change it. */
 function environmentDifferences(mine = {}, theirs = {}) {
-  const differently = [];
+  const differ = [];
   const onlyHere = [];
   const onlyThere = [];
-  for (const name of [...new Set([...Object.keys(mine), ...Object.keys(theirs)])].sort()) {
+  for (const name of new Set([...Object.keys(mine), ...Object.keys(theirs)])) {
     if (mine[name] === theirs[name]) continue;
     if (mine[name] === undefined) onlyThere.push(name);
     else if (theirs[name] === undefined) onlyHere.push(name);
-    else differently.push(name);
+    else differ.push(name);
   }
   return [
-    ...(differently.length ? [`${differently.join(", ")} set differently`] : []),
+    ...(differ.length ? [`${differ.join(", ")} ${differ.length === 1 ? "differs" : "differ"}`] : []),
     ...(onlyThere.length ? [`${onlyThere.join(", ")} set only for it`] : []),
     ...(onlyHere.length ? [`${onlyHere.join(", ")} set only here`] : [])
   ];

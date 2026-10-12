@@ -21,6 +21,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { noteIdentity } from "./search-documents.mjs";
 import { loadSqlite, sqliteSupport } from "./search-sqlite.mjs";
 import { canonicalFolder } from "./session-env.mjs";
 
@@ -81,12 +82,6 @@ function claim(claimFile, vaultRoot) {
 /** How many of an index's notes are looked at in a vault to tell whether it was built from it. */
 const SAMPLE_NOTES = 200;
 
-/** A file's modification time as an index records it: `os.stat().st_mtime`, seconds and nanoseconds added as CPython adds them. */
-function recordedMtime(file) {
-  const { mtimeNs } = fs.statSync(file, { bigint: true });
-  return Number(mtimeNs / 1_000_000_000n) + Number(mtimeNs % 1_000_000_000n) * 1e-9;
-}
-
 /**
  * Which vault an index file not yet claimed was built from, as far as it
  * says: `this`, `another`, or `unknown` — no documents to tell by, or not an
@@ -105,12 +100,13 @@ export function indexOrigin(file, vaultRoot, same) {
     const recorded = db.prepare("SELECT value FROM meta WHERE key = 'vault_root'").get()?.value;
     if (recorded) return same(String(recorded), vaultRoot) ? "this" : "another";
     // A 2.x index names no vault. The notes it was built from are the files
-    // whose modification times it recorded; the same notes in another vault —
-    // a copy of the seed, a clone, the skill catalog every vault has — are
-    // other files, with times of their own. That a path exists says nothing:
-    // a vault sharing the catalog took the index that way (docs/DEFECTS.md,
-    // Д-219). The sample is spread over the table by id, not one folder.
-    const notes = db.prepare("SELECT path, mtime FROM documents WHERE source = 'vault-note' ORDER BY id LIMIT ?").all(SAMPLE_NOTES)
+    // whose content and modification time it recorded; the same notes in
+    // another vault — a copy of the seed, a clone, the skill catalog every
+    // vault has — are other files, with times of their own, and a note of the
+    // same name written in the same instant has other content. That a path
+    // exists says nothing: a vault sharing the catalog took the index that way
+    // (docs/DEFECTS.md, Д-219). The sample is spread over the table by id.
+    const notes = db.prepare("SELECT path, mtime, content_hash FROM documents WHERE source = 'vault-note' ORDER BY id LIMIT ?").all(SAMPLE_NOTES)
       .filter((row) => {
         const relative = String(row.path ?? "");
         return relative && !path.isAbsolute(relative) && !path.win32.isAbsolute(relative);
@@ -122,14 +118,10 @@ export function indexOrigin(file, vaultRoot, same) {
     let present = 0;
     let unchanged = 0;
     for (const row of notes) {
-      let mtime;
-      try {
-        mtime = recordedMtime(path.join(vaultRoot, ...String(row.path).split("/")));
-      } catch {
-        continue;
-      }
+      const note = noteIdentity(vaultRoot, String(row.path));
+      if (!note) continue;
       present += 1;
-      if (Math.abs(mtime - Number(row.mtime)) < 1e-6) unchanged += 1;
+      if (note.contentHash === row.content_hash && Math.abs(note.mtime - Number(row.mtime)) < 1e-6) unchanged += 1;
     }
     // In doubt — nothing of it here, or most of it other files — a file of
     // its own rather than another vault's index.

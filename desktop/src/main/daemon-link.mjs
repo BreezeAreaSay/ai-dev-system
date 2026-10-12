@@ -45,6 +45,14 @@ export class DaemonLink extends EventEmitter {
   #checking = null;
   #quick = "";
   #leaving = null;
+  // close() moves it on: a session that opens after it is given up (docs/DEFECTS.md, Д-266, п. 10).
+  #generation = 0;
+  // The attempt under way is the offline look, which does not start a daemon.
+  #lookOnly = false;
+  // The daemon retired while calls were in flight: move once they end (Д-263).
+  #moveWhenIdle = false;
+  // The calls the person cancelled, told apart from the ones the link ended.
+  #byPerson = new WeakSet();
 
   /** `connecting`, `starting`, `reconnecting`, `online`, `offline`, `no-node` or `broken`, with what goes with it. */
   state = { phase: "connecting" };
@@ -93,19 +101,30 @@ export class DaemonLink extends EventEmitter {
   connect({ start = false, reconnecting = false } = {}) {
     if (!this.#server || !this.#execPath) return Promise.resolve(this.state);
     if (this.#client) return Promise.resolve(this.state);
-    this.#connecting ??= this.#connect(start, reconnecting).finally(() => {
+    if (this.#connecting) {
+      // The offline look does not start a daemon: Start pressed meanwhile waits for it, then starts one (Д-266, п. 10).
+      if (start && this.#lookOnly) return this.#connecting.then(() => this.connect({ start, reconnecting }));
+      return this.#connecting;
+    }
+    this.#connecting = this.#connect(start, reconnecting).finally(() => {
       this.#connecting = null;
     });
     return this.#connecting;
   }
 
   async #open(start) {
+    const generation = this.#generation;
     const { client } = await this.#server.openControlClient({
       env: this.#env,
       execPath: this.#execPath,
       start,
       name: "ai-dev-desktop"
     });
+    // The link was closed while the session opened — the app quits: give it up.
+    if (generation !== this.#generation) {
+      await client.close().catch(() => undefined);
+      return;
+    }
     // The client's own close callback: the SDK keeps the transport's for
     // itself (it ends the calls in flight), and calls this one after.
     client.onclose = () => this.#lost(client);
@@ -114,6 +133,8 @@ export class DaemonLink extends EventEmitter {
     this.#quick = "";
     this.status = null;
     await this.refreshStatus({ checks: true }).catch(() => this.refreshStatus({ checks: false })).catch(() => null);
+    // The daemon went away while it answered: #lost has said so and looks for one again (Д-262).
+    if (this.#client !== client) return;
     this.#set({ phase: "online", needsSetup: !this.status?.index?.exists, served_by: this.status?.served_by ?? null });
     this.#arm();
   }
@@ -143,10 +164,12 @@ export class DaemonLink extends EventEmitter {
   #retry() {
     clearTimeout(this.#retryTimer);
     if (this.state.phase !== "offline") return;
-    this.#retryTimer = setTimeout(async () => {
+    this.#retryTimer = setTimeout(() => {
       if (this.#client || this.#connecting || this.state.phase !== "offline") return;
+      this.#lookOnly = true;
       this.#connecting = this.#open(false).catch(() => this.#retry()).finally(() => {
         this.#connecting = null;
+        this.#lookOnly = false;
       });
     }, this.#timing.retryEveryMs);
     this.#retryTimer.unref?.();
@@ -182,6 +205,7 @@ export class DaemonLink extends EventEmitter {
     if (client && client !== this.#client) return;
     if (!this.#client) return;
     this.#client = null;
+    this.#moveWhenIdle = false;
     this.#stopTimers();
     for (const call of this.#calls.values()) call.abort(this.#t("link.wentAway"));
     this.#calls.clear();
@@ -246,6 +270,12 @@ export class DaemonLink extends EventEmitter {
    */
   #moveOn() {
     if (this.#leaving) return;
+    // A call in flight is the retired daemon's to finish; the move waits for it (Д-263).
+    if (this.#calls.size) {
+      this.#moveWhenIdle = true;
+      return;
+    }
+    this.#moveWhenIdle = false;
     this.reconnect().catch(() => undefined);
   }
 
@@ -272,10 +302,14 @@ export class DaemonLink extends EventEmitter {
       else if (!READS_ONLY.has(tool)) this.refreshStatus({ checks: true }).catch(() => undefined);
       return { ok: true, result: answer };
     } catch (error) {
-      const cancelled = controller.signal.aborted;
-      return { ok: false, error: cancelled ? String(controller.signal.reason ?? this.#t("link.cancelled")) : String(error?.message ?? error), cancelled };
+      // Cancelled is what the person asked for; a call the link ended — the
+      // daemon went away, the app quits — failed, in the link's words (Д-263).
+      if (this.#byPerson.has(controller)) return { ok: false, error: this.#t("link.cancelled"), cancelled: true };
+      const reason = controller.signal.aborted ? controller.signal.reason : null;
+      return { ok: false, error: String(reason ?? error?.message ?? error), cancelled: false };
     } finally {
       this.#calls.delete(id);
+      if (this.#moveWhenIdle && !this.#calls.size) this.#moveOn();
     }
   }
 
@@ -283,6 +317,7 @@ export class DaemonLink extends EventEmitter {
   cancel(id) {
     const controller = this.#calls.get(id);
     if (!controller) return false;
+    this.#byPerson.add(controller);
     controller.abort(this.#t("link.cancelled"));
     return true;
   }
@@ -290,10 +325,14 @@ export class DaemonLink extends EventEmitter {
   /** Stop every daemon of this runtime home (the tray's "Stop the daemon"). */
   async stopDaemon() {
     this.#leaving = "stopped";
-    const stopped = await this.#server.stopDaemons({ env: this.#env, timeoutMs: 10_000 });
-    this.#lost(this.#client);
-    this.#leaving = null;
-    return stopped;
+    try {
+      const stopped = await this.#server.stopDaemons({ env: this.#env, timeoutMs: 10_000 });
+      this.#lost(this.#client);
+      return stopped;
+    } finally {
+      // Whatever came of it, a later loss is unasked again (Д-266, п. 10).
+      this.#leaving = null;
+    }
   }
 
   /**
@@ -302,12 +341,17 @@ export class DaemonLink extends EventEmitter {
    */
   async reconnect() {
     this.#leaving = "reconnect";
-    await this.close(this.#t("link.reconnected"));
-    this.#leaving = null;
+    try {
+      await this.close(this.#t("link.reconnected"));
+    } finally {
+      this.#leaving = null;
+    }
     return this.connect({ start: true, reconnecting: true });
   }
 
   async close(reason = this.#t("link.closing")) {
+    this.#generation += 1;
+    this.#moveWhenIdle = false;
     this.#stopTimers();
     for (const call of this.#calls.values()) call.abort(reason);
     this.#calls.clear();

@@ -95,6 +95,11 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   await page.waitForSelector('[data-screen="status"]');
   await page.click('[data-nav="wizard"]');
   assert.equal(await page.textContent('[data-step="index"] [data-field="index-result"]'), result);
+  // And it builds again from there — the way back from Status's "Run setup again" (Д-261).
+  await page.evaluate(() => { document.querySelector('[data-field="index-result"]').dataset.before = "1"; });
+  await page.click('[data-action="build-index"]');
+  await page.waitForSelector('[data-field="index-result"]:not([data-before])', { timeout: 240_000 });
+  assert.match(await page.textContent('[data-field="index-result"]'), /, 0 failed$/);
   await page.click('[data-action="next"]');
 
   // 5. Done, and on to Status.

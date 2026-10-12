@@ -12,7 +12,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { ChannelError, buildDifferences, controlRequest, describeBuild, openChannel, readDaemonInfo, removeDaemonInfo } from "./daemon-channel.mjs";
+import { ChannelError, addressListening, buildDifferences, controlRequest, describeBuild, openChannel, readDaemonInfo, removeDaemonInfo } from "./daemon-channel.mjs";
 import { EMPTY_LOCK_GRACE_MS, processAlive, tryAcquireFileLock } from "./file-lock.mjs";
 import { DAEMON_DESCRIPTOR_NAME, RETIRED_DAEMON_NAME, daemonInfoPath, daemonLogPath, runtimeDir } from "./runtime-paths.mjs";
 import { absolutePathVariables } from "./session-env.mjs";
@@ -206,9 +206,12 @@ export async function connectDaemon({ serverRoot, cliPath, version, env: given =
  * Remove the descriptor or retired record of a daemon that is gone — its
  * process ended, or its lock went stale because nothing refreshes it — and
  * only then: taking the file's lock proves no daemon holds it, whatever
- * process now has its pid (docs/DEFECTS.md, Д-198).
+ * process now has its pid (docs/DEFECTS.md, Д-198). A daemon hung past its
+ * lock's life still takes connections at its address: its record stays, and
+ * `stop` asks it like any other (Д-204).
  */
 async function removeStale(file, info) {
+  if (await addressListening(info.address)) return false;
   const taken = await tryAcquireFileLock(file, { staleMs: DAEMON_LOCK_STALE_MS });
   if (!taken.release) return false;
   try {

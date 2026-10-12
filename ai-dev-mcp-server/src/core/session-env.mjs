@@ -179,19 +179,34 @@ const RESOLVED_VARIABLES = new Set([
 ]);
 
 /**
- * A folder as the platform compares folders: through links where it exists,
- * with one kind of separator, no trailing one, and on Windows without case.
+ * A path with its deepest existing folder resolved through links and the rest
+ * appended as written: the answer stays the same when the rest is created, so
+ * a runtime home under a link (`/var` on macOS, a moved home, an 8.3 name) is
+ * one folder before the bridge makes it and after (docs/DEFECTS.md, Д-202).
+ */
+function realPrefix(resolved, paths) {
+  const rest = [];
+  let current = resolved;
+  for (;;) {
+    try {
+      return paths.join(realpathSync.native(current), ...rest.reverse());
+    } catch {
+      const parent = paths.dirname(current);
+      if (parent === current) return resolved;
+      rest.push(paths.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * A folder as the platform compares folders: through links, with one kind of
+ * separator, no trailing one, and on Windows without case.
  */
 function canonicalFolder(value, platform) {
   const paths = platform === "win32" ? path.win32 : path.posix;
   let resolved = paths.resolve(String(value ?? ""));
-  if (platform === process.platform) {
-    try {
-      resolved = realpathSync.native(resolved);
-    } catch {
-      // Not there yet: the path as written is what the server will make.
-    }
-  }
+  if (platform === process.platform) resolved = realPrefix(resolved, paths);
   const plain = resolved.replaceAll("\\", "/").replace(/(.)\/+$/, "$1");
   return platform === "win32" ? plain.toLowerCase() : plain;
 }
@@ -211,14 +226,23 @@ function canonicalFolder(value, platform) {
  * @returns {Record<string, string>} each entry named by what a person sets to change it
  */
 export function daemonIdentity({ serverRoot, env = process.env, platform = process.platform, execPath = process.execPath }) {
-  const read = (name) => String(env?.[name] ?? "").trim();
+  // On Windows a name ignores case, as `process.env` does there: the bridge
+  // hands a plain copy, the daemon its own environment, and both must read
+  // `Ai_Dev_Vault_Root` as the vault (docs/DEFECTS.md, Д-203).
+  const view = platform === "win32" ? environmentObject(env, { platform }) : env;
+  const read = (name) => String(view?.[name] ?? "").trim();
   const folder = (value) => (value ? canonicalFolder(value, platform) : "");
-  const layout = resolveInstallLayout({ serverRoot, env });
+  const layout = resolveInstallLayout({ serverRoot, env: view });
   const runtime = layout.runtimeRoot;
   const under = (name, ...segments) => folder(read(name) || path.join(runtime, ...segments));
   const home = platform === "win32" ? read("USERPROFILE") || read("HOME") : read("HOME") || read("USERPROFILE");
+  // The runtime tree and the protected project root read `USERPROFILE` first
+  // everywhere (`resolveUserHome`); where that is another folder than the home
+  // — WSL passing the Windows profile on — it is a part of its own (Д-205).
+  const profile = folder(read("USERPROFILE") || read("HOME"));
   const identity = {
     "the home folder": folder(home),
+    ...(profile !== folder(home) ? { USERPROFILE: profile } : {}),
     AI_DEV_HOME: folder(runtime),
     AI_DEV_VAULT_ROOT: folder(layout.contentRoot),
     AI_DEV_STATE_ROOT: under("AI_DEV_STATE_ROOT", "state"),
@@ -234,7 +258,7 @@ export function daemonIdentity({ serverRoot, env = process.env, platform = proce
     AI_DEV_RUNTIME: read("AI_DEV_RUNTIME").toLowerCase() === "docker" ? "docker" : "",
     "the Node executable": folder(execPath)
   };
-  for (const [name, value] of daemonWideEnvironment(env, { platform })) {
+  for (const [name, value] of daemonWideEnvironment(view, { platform })) {
     if (!RESOLVED_VARIABLES.has(name)) identity[name] = value;
   }
   return identity;

@@ -36,7 +36,7 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 const USER_AGENT = "ai-dev-system-model-download";
 
 /** Whether an environment asks Node for the system's certificate store as well as its own. */
-function usesSystemStore(env, execArgv = []) {
+export function usesSystemStore(env, execArgv = []) {
   return String(env?.NODE_USE_SYSTEM_CA ?? "").trim() === "1"
     || /(?:^|\s)--use-system-ca(?:\s|$)/.test(String(env?.NODE_OPTIONS ?? ""))
     || execArgv.includes("--use-system-ca");
@@ -289,6 +289,24 @@ export function describeNetworkError(error, url, proxy) {
 }
 
 /**
+ * The connection to an `https://` proxy, its certificate checked against the
+ * proxy's own name — or its address, for a proxy named by one. Node's HTTPS
+ * client takes the name to check from the Host header, and through a proxy
+ * that header names the target: a proxy's certificate was held against
+ * huggingface.co (docs/DEFECTS.md, Д-206).
+ *
+ * @param {URL} proxy
+ * @param {string[] | undefined} ca
+ * @returns {{ createConnection: () => import("node:tls").TLSSocket }}
+ */
+function overProxyTls(proxy, ca) {
+  const host = bareHost(proxy.hostname);
+  return {
+    createConnection: () => tls.connect({ host, port: urlPort(proxy), ...(net.isIP(host) ? {} : { servername: host }), ...(ca ? { ca } : {}) })
+  };
+}
+
+/**
  * A socket to `host:port` through the proxy, opened with `CONNECT`. An
  * `https://` proxy is reached over TLS that trusts `ca`, as the host is.
  *
@@ -296,16 +314,14 @@ export function describeNetworkError(error, url, proxy) {
  */
 function tunnel(proxy, host, port, signal, ca) {
   return new Promise((resolve, reject) => {
-    const secure = proxy.protocol === "https:";
-    const request = (secure ? https : http).request({
+    const request = http.request({
       host: bareHost(proxy.hostname),
       port: urlPort(proxy),
       method: "CONNECT",
       path: authority(host, port),
       headers: { host: authority(host, port), "user-agent": USER_AGENT, ...proxyAuthorization(proxy) },
-      agent: false,
       signal,
-      ...(secure && ca ? { ca } : {})
+      ...(proxy.protocol === "https:" ? overProxyTls(proxy, ca) : { agent: false })
     });
     request.once("connect", (response, socket, head) => {
       if (response.statusCode !== 200) {
@@ -350,16 +366,14 @@ function requestOnce(url, { method, headers, env, signal, ca: given, body }) {
       request = (url.protocol === "https:" ? https : http).request(url, { method, headers: sent, agent: false, signal, ...(ca ? { ca } : {}) });
     } else if (url.protocol === "http:") {
       // Plain HTTP goes to the proxy in absolute form; the proxy fetches it.
-      const secureProxy = proxy.protocol === "https:";
-      request = (secureProxy ? https : http).request({
+      request = http.request({
         host: bareHost(proxy.hostname),
         port: urlPort(proxy),
         method,
         path: url.href,
         headers: { ...sent, host: url.host, ...proxyAuthorization(proxy) },
-        agent: false,
         signal,
-        ...(secureProxy && ca ? { ca } : {})
+        ...(proxy.protocol === "https:" ? overProxyTls(proxy, ca) : { agent: false })
       });
       request.once("error", (error) => Object.assign(error, { atProxy: true }));
     } else {

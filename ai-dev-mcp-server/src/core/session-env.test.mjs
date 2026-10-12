@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -148,6 +149,31 @@ test("the identity a build carries is where the data is, resolved as the server 
     const paths = platform === "win32" ? path.win32 : path.posix;
     assert.equal(identity(env, platform, "C:\\node.exe")["the home folder"], paths.resolve(expected).replaceAll("\\", "/")[platform === "win32" ? "toLowerCase" : "toString"](), JSON.stringify(env));
   }
+});
+
+test("a data folder under a link is one folder before it exists and after; a Windows name is read without case (Д-202, Д-203, Д-205)", (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai-dev-identity-"));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(root, "real"));
+  fs.symlinkSync(path.join(root, "real"), path.join(root, "link"), "dir");
+  const identity = (home) => daemonIdentity({ serverRoot, env: { HOME: "/home/ivan", AI_DEV_HOME: home, AI_DEV_VAULT_ROOT: "/data/vault" }, platform: process.platform });
+  const before = identity(path.join(root, "link", "aidev"));
+  for (const folder of ["aidev", path.join("aidev", "state"), path.join("aidev", "models", "bge-m3-onnx")]) {
+    fs.mkdirSync(path.join(root, "real", folder), { recursive: true });
+    assert.deepEqual(identity(path.join(root, "link", "aidev")), before, `after ${folder} appears`);
+  }
+  assert.deepEqual(identity(path.join(root, "real", "aidev")), before, "the link and the folder it names are one");
+
+  // The bridge hashes a plain copy, the Windows daemon its own case-blind environment.
+  const windows = (env) => daemonIdentity({ serverRoot, env, platform: "win32", execPath: "C:\\node.exe" });
+  const client = (vault) => ({ USERPROFILE: "C:\\Users\\me", Ai_Dev_Vault_Root: vault });
+  assert.deepEqual(windows(client("D:\\VaultA")), windows(environmentObject(client("D:\\VaultA"), { platform: "win32" })));
+  assert.notDeepEqual(windows(client("D:\\VaultA")), windows(client("D:\\VaultB")));
+
+  // Where `USERPROFILE` is another folder than the home, it is a part of its own.
+  const posix = (env) => daemonIdentity({ serverRoot, env: { AI_DEV_HOME: "/data/ai", AI_DEV_VAULT_ROOT: "/data/vault", ...env }, platform: "linux", execPath: "/usr/bin/node" });
+  assert.notDeepEqual(posix({ HOME: "/home/a", USERPROFILE: "/mnt/c/Users/a" }), posix({ HOME: "/home/a", USERPROFILE: "/mnt/c/Users/b" }));
+  assert.equal(posix({ HOME: "/home/a" }).USERPROFILE, undefined, "and no part at all where it is not set");
 });
 
 test("the daemon's process.env cannot be frozen, and shows what it holds", () => {

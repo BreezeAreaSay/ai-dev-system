@@ -344,3 +344,45 @@ test("when no daemon can start, the client is served in its own process and stde
   const found = await session.callTool({ name: "search_all", arguments: { query: "postgres", limit: 1 } });
   assert.match(text(found), /Storage/);
 });
+
+test("a home reached through a link: the first start finds the daemon it started, and the data folders appearing change nothing (Д-202)", async (t) => {
+  const { base, env } = await stage(t);
+  // As `/var` is a link to `/private/var` on macOS: the home is reached through
+  // a link, and its runtime folder is not made yet.
+  const real = path.join(base, "real-home");
+  const linked = path.join(base, "linked-home");
+  await fs.mkdir(real, { recursive: true });
+  await fs.symlink(real, linked, process.platform === "win32" ? "junction" : "dir");
+  const linkEnv = { ...env, HOME: linked, USERPROFILE: linked };
+  t.after(() => ai(linkEnv, ["daemon", "stop"]).catch(() => undefined));
+  const started = await ai(linkEnv, ["daemon", "start"]);
+  assert.equal(started.code, 0, started.stdout + started.stderr);
+  assert.match(started.stdout, /^Started: pid \d+\./);
+  // What the server makes as it works: each of these used to change the build.
+  for (const folder of ["state", path.join("cache", "search-index"), path.join("models", "bge-m3-onnx")]) {
+    await fs.mkdir(path.join(real, ".ai-dev", folder), { recursive: true });
+  }
+  const again = await ai(linkEnv, ["daemon", "start"]);
+  assert.match(again.stdout, /^Already running: pid \d+\./, again.stdout + again.stderr);
+  const status = await ai(linkEnv, ["daemon", "status"]);
+  assert.equal(status.code, 0, status.stdout);
+  assert.doesNotMatch(status.stdout, /Also running/);
+});
+
+test("the socket a gone daemon left is cleared on the next start, whoever has its pid now (Д-205)", { skip: process.platform === "win32" && "a named pipe leaves no file behind" }, async (t) => {
+  const { base, env, run } = await stage(t);
+  const { describeBuild } = await import("../core/daemon-channel.mjs");
+  const { absolutePathVariables } = await import("../core/session-env.mjs");
+  const version = JSON.parse(readFileSync(path.join(serverRoot, "package.json"), "utf8")).version;
+  const build = await describeBuild({ serverRoot, version, env: absolutePathVariables(env) });
+  // Another program has the pid; the address is what the crashed daemon left.
+  const unrelated = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  t.after(() => unrelated.kill());
+  const left = path.join(base, "left.sock");
+  await fs.writeFile(left, "");
+  await fs.mkdir(run, { recursive: true, mode: 0o700 });
+  await fs.writeFile(path.join(run, `daemon-${build.id}.json`), JSON.stringify({ protocol: 1, pid: unrelated.pid, build: build.id, address: left, secret: "a".repeat(64) }), { mode: 0o600 });
+  const started = await ai(env, ["daemon", "start"]);
+  assert.match(started.stdout, /^Started: pid \d+\./, started.stdout + started.stderr);
+  assert.equal(existsSync(left), false, "nothing took connections there: it is cleared");
+});

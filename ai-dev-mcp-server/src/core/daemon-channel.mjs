@@ -268,6 +268,35 @@ export async function openChannel(info, { mode = "mcp", profiles = null, environ
 }
 
 /**
+ * Whether something takes connections at a daemon's address: a daemon that is
+ * alive — even one hung in a debugger, whose lock went stale, as the kernel
+ * still accepts into its backlog — or nothing, when the process that listened
+ * there is gone, whoever has its pid now (docs/DEFECTS.md, Д-204). An address
+ * that neither takes nor refuses within the time counts as taken.
+ *
+ * @param {string} address
+ * @param {{ timeoutMs?: number }} [options]
+ * @returns {Promise<boolean>}
+ */
+export function addressListening(address, { timeoutMs = 1_000 } = {}) {
+  return new Promise((resolve) => {
+    if (!address) {
+      resolve(false);
+      return;
+    }
+    const socket = net.connect(address);
+    const done = (value) => {
+      clearTimeout(timer);
+      socket.destroy();
+      resolve(value);
+    };
+    const timer = setTimeout(() => done(true), timeoutMs);
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+}
+
+/**
  * One control request — `status`, `stop`, `retire` — and its answer.
  *
  * @param {object} info
@@ -464,7 +493,9 @@ export function buildDifferences(mine, theirs) {
  * place: the same folder and environment, another version or source — a
  * `git pull`, an update of the package where it lies. Such a daemon is asked
  * to retire; a daemon of another folder or environment serves clients of its
- * own and is left alone.
+ * own and is left alone. New code may count other parts of a build than the
+ * code it replaced: the parts both builds have decide, or a daemon of the old
+ * code would never be asked to go (docs/DEFECTS.md, Д-205).
  *
  * @param {{ version: string, root: string, source: string, environment: Record<string, string> }} newer
  * @param {object | null | undefined} older
@@ -472,6 +503,9 @@ export function buildDifferences(mine, theirs) {
  */
 export function isSupersededBy(newer, older) {
   if (!older || older.root !== newer.root) return false;
-  if (environmentDifferences(newer.environment, older.environment).length) return false;
-  return older.version !== newer.version || older.source !== newer.source;
+  if (older.version === newer.version && older.source === newer.source) return false;
+  const mine = newer.environment ?? {};
+  const theirs = older.environment ?? {};
+  const shared = Object.keys(mine).filter((name) => Object.hasOwn(theirs, name));
+  return shared.length > 0 && shared.every((name) => mine[name] === theirs[name]);
 }

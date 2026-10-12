@@ -40,6 +40,35 @@ export const TEST_TLS = Object.freeze({
   ].join("\n")
 });
 
+// The `https://` proxy's own certificate: self-signed, for localhost and
+// 127.0.0.1 only, as a real proxy's names the proxy and not the hosts behind
+// it — the one that caught a proxy's certificate checked against the target's
+// name (docs/DEFECTS.md, Д-206). Made the same way, valid until 2126.
+export const TEST_PROXY_TLS = Object.freeze({
+  key: [
+    ARMOUR(["PRIVATE", "KEY"].join(" "), "BEGIN"),
+    "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgZ4jRuSbvMk9Au77w",
+    "OfO6NUr7Y9T4Hhjd2lu3Zhk2nT6hRANCAARVjLqgML+KpGPdljaOlehr8SmLWwDw",
+    "JYY5Y43uySUV8mIUqq9o8Vp0t/QpojyjklaILsEySBMNSfDlpCP9DKZu",
+    ARMOUR(["PRIVATE", "KEY"].join(" "), "END"),
+    ""
+  ].join("\n"),
+  cert: [
+    ARMOUR("CERTIFICATE", "BEGIN"),
+    "MIIBnDCCAUGgAwIBAgIUPWifioDKmt/CfnYhfWKpKF7vi9QwCgYIKoZIzj0EAwIw",
+    "FDESMBAGA1UEAwwJbG9jYWxob3N0MCAXDTI2MTAxMjA2NTgyM1oYDzIxMjYwOTE4",
+    "MDY1ODIzWjAUMRIwEAYDVQQDDAlsb2NhbGhvc3QwWTATBgcqhkjOPQIBBggqhkjO",
+    "PQMBBwNCAARVjLqgML+KpGPdljaOlehr8SmLWwDwJYY5Y43uySUV8mIUqq9o8Vp0",
+    "t/QpojyjklaILsEySBMNSfDlpCP9DKZuo28wbTAdBgNVHQ4EFgQUzOMzLHra9XH9",
+    "FSi0WH4oQOKMenUwHwYDVR0jBBgwFoAUzOMzLHra9XH9FSi0WH4oQOKMenUwGgYD",
+    "VR0RBBMwEYIJbG9jYWxob3N0hwR/AAABMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZI",
+    "zj0EAwIDSQAwRgIhAMzi63Azhu7CamDaUl+Irywf+o3AqrCKJ4tIxpm13hTMAiEA",
+    "9dfinSn9nloU1U+NkRfbEKRbA1/ZtRfaHA4DSnlY4Rs=",
+    ARMOUR("CERTIFICATE", "END"),
+    ""
+  ].join("\n")
+});
+
 /** The one name the test certificate and the proxy's host table share. */
 export const TEST_HOST = "models.example.test";
 
@@ -230,8 +259,8 @@ export async function startProxy({ hosts = {}, credentials = "", refuseStatus = 
     });
     request.pipe(upstream);
   };
-  // An `https://` proxy, with the test certificate (it names localhost too).
-  const server = tls ? https.createServer({ key: TEST_TLS.key, cert: TEST_TLS.cert }, handle) : http.createServer(handle);
+  // An `https://` proxy, with a certificate of its own that names localhost alone.
+  const server = tls ? https.createServer({ key: TEST_PROXY_TLS.key, cert: TEST_PROXY_TLS.cert }, handle) : http.createServer(handle);
   server.on("connect", (request, socket, head) => {
     seen.push(`CONNECT ${request.url}`);
     authorizations.push(String(request.headers["proxy-authorization"] ?? ""));

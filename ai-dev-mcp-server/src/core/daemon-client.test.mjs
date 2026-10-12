@@ -266,3 +266,44 @@ test("a retired daemon nobody can reach is still shown; its record goes once nob
   assert.equal(existsSync(record), false);
   assert.equal(gone(unrelated.pid), false, "the process that has the pid now is left alone");
 });
+
+test("a retired daemon hung past its lock's life keeps its record while its address takes connections, and stop says it did not stop (Д-204)", async (t) => {
+  await fs.rm(runtimeDir(), { recursive: true, force: true });
+  t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
+  const build = await ownBuild();
+  // Hung: its kernel still takes connections, nothing answers the handshake.
+  const directory = process.platform === "win32" ? "" : await fs.mkdtemp(path.join("/tmp", "dcl-"));
+  const address = process.platform === "win32" ? `\\\\.\\pipe\\ai-dev-test-hung-${process.pid}` : path.join(directory, "s.sock");
+  const sockets = new Set();
+  const hung = net.createServer((socket) => {
+    sockets.add(socket);
+    socket.on("error", () => undefined);
+  });
+  await new Promise((resolve) => hung.listen(address, resolve));
+  t.after(() => new Promise((resolve) => {
+    for (const socket of sockets) socket.destroy();
+    hung.close(() => (directory ? fs.rm(directory, { recursive: true, force: true }).then(resolve, resolve) : resolve()));
+  }));
+  const holder = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
+  t.after(() => holder.kill());
+  await fs.mkdir(runtimeDir(), { recursive: true });
+  const record = retiredDaemonPath(holder.pid);
+  await writeDaemonInfo(record, { protocol: DAEMON_PROTOCOL, pid: holder.pid, build: build.id, address, secret: newSecret(), retired: true });
+  // Its lock stopped beating two minutes ago.
+  const lockFile = `${record}.lock`;
+  await fs.writeFile(lockFile, JSON.stringify({ pid: holder.pid, host: os.hostname(), token: "hung", acquired_at: Date.now() - 120_000 }));
+  const old = new Date(Date.now() - 120_000);
+  await fs.utimes(lockFile, old, old);
+  const result = await stopDaemons({ timeoutMs: 200 });
+  assert.deepEqual(result.daemons.map((daemon) => [daemon.pid, daemon.retired, daemon.stopped]), [[holder.pid, true, false]]);
+  assert.match(result.daemons[0].reason, /./, "and says why");
+  assert.equal(existsSync(record), true, "its record stays for when it wakes");
+  // Gone for good — nothing takes connections at its address — and the record goes.
+  await new Promise((resolve) => {
+    for (const socket of sockets) socket.destroy();
+    hung.close(resolve);
+  });
+  const after = await stopDaemons({ timeoutMs: 200 });
+  assert.deepEqual(after.daemons.map((daemon) => [daemon.pid, daemon.stopped, daemon.gone]), [[holder.pid, true, true]]);
+  assert.equal(existsSync(record), false);
+});

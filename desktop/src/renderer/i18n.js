@@ -278,6 +278,8 @@ export const MESSAGES = Object.freeze({
     "console.confirm.changes": "This tool changes something: files, settings or records.",
     "console.confirm.destructive": "This tool deletes something, and it cannot be undone.",
     "console.confirm.arguments": "With these arguments:",
+    "console.confirm.noArguments": "(no arguments)",
+    "console.confirm.longer": "({count} characters in all)",
     "console.confirm.run": "Run"
   }),
   ru: Object.freeze({
@@ -553,6 +555,8 @@ export const MESSAGES = Object.freeze({
     "console.confirm.changes": "Этот инструмент что-то меняет: файлы, настройки или записи.",
     "console.confirm.destructive": "Этот инструмент удаляет данные, и это нельзя отменить.",
     "console.confirm.arguments": "С такими аргументами:",
+    "console.confirm.noArguments": "(без аргументов)",
+    "console.confirm.longer": "(всего символов: {count})",
     "console.confirm.run": "Выполнить"
   })
 });

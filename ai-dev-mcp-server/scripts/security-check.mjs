@@ -52,7 +52,7 @@ if (hasDesktop) {
 }
 
 // `hooks/` ships into other people's repositories: a key there would travel with them (Д-172).
-// The desktop app's code, scripts and tests are searched too.
+// The desktop app's code, scripts and tests are searched too, its page (HTML, CSS) among them (Д-266, п. 3).
 const scanRoots = ["bin", "src", "scripts", "hooks", ...(hasDesktop ? ["../desktop/src", "../desktop/scripts", "../desktop/test"] : [])];
 const secretPatterns = [
   { name: "private key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
@@ -70,7 +70,7 @@ async function walk(directory) {
     const target = path.join(directory, entry.name);
     if (entry.isDirectory()) {
       if (entry.name !== "node_modules") await walk(target);
-    } else if (entry.isFile() && /\.(?:mjs|cjs|js|json|md)$/i.test(entry.name)) {
+    } else if (entry.isFile() && /\.(?:mjs|cjs|js|json|md|html|css)$/i.test(entry.name)) {
       const source = await fs.readFile(target, "utf8");
       for (const rule of secretPatterns) {
         if (rule.pattern.test(source)) {

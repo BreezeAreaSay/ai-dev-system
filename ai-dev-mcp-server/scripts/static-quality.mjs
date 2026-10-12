@@ -56,9 +56,10 @@ const files = [
 // The desktop app (`desktop/`, beside this package in the repository) is held
 // to the same rules: the syntax check, the forbidden calls and the line
 // ceiling (docs/DEFECTS.md, Д-256). Its tests call eval and new Function inside
-// the page on purpose — to show the page's policy refuses them — so the
-// forbidden calls are looked for in its code, not in its tests. A copy of this
-// package without the app (the npm package, the image) has nothing to check.
+// the page on purpose — to show the page's policy refuses them — so those two
+// are looked for in its code only; shell:true and exec in its tests too
+// (Д-266, п. 3). A copy of this package without the app (the npm package, the
+// image) has nothing to check.
 const desktopRoot = path.join(root, "..", "desktop");
 const DESKTOP_EXTENSIONS = [".mjs", ".js", ".cjs"];
 const desktopFiles = await fs.stat(path.join(desktopRoot, "package.json")).then(() => true, () => false)
@@ -74,17 +75,17 @@ for (const file of desktopFiles) {
   const relative = path.relative(path.dirname(root), file).replaceAll("\\", "/");
   const syntax = spawnSync(node, ["--check", file], { cwd: desktopRoot, encoding: "utf8", windowsHide: true });
   if (syntax.status !== 0) findings.push(`${relative}: syntax check failed: ${(syntax.stderr || syntax.stdout).trim()}`);
-  if (relative.startsWith("desktop/test/")) continue;
+  const inTests = relative.startsWith("desktop/test/");
   const source = await fs.readFile(file, "utf8");
-  if (/\beval\s*\(/.test(source)) findings.push(`${relative}: eval() is forbidden.`);
-  if (/\bnew\s+Function\s*\(/.test(source)) findings.push(`${relative}: new Function() is forbidden.`);
+  if (!inTests && /\beval\s*\(/.test(source)) findings.push(`${relative}: eval() is forbidden.`);
+  if (!inTests && /\bnew\s+Function\s*\(/.test(source)) findings.push(`${relative}: new Function() is forbidden.`);
   if (/\bshell\s*:\s*true\b/.test(source)) findings.push(`${relative}: shell:true is forbidden.`);
   const importsExec = /from\s+["'](?:node:)?child_process["']/.test(source) && /import\s*\{[^}]*\bexec\b[^}]*\}/s.test(source);
   const requiresExec = /\{[^}]*\bexec\b[^}]*\}\s*=\s*require\(\s*["'](?:node:)?child_process["']\s*\)|require\(\s*["'](?:node:)?child_process["']\s*\)\.exec\b/s.test(source);
   if (importsExec || requiresExec) {
     findings.push(`${relative}: child_process.exec is forbidden; use argv-based execution.`);
   }
-  modules.push({ path: relative, lines: countLines(source) });
+  if (!inTests) modules.push({ path: relative, lines: countLines(source) });
 }
 for (const file of files) {
   const relative = path.relative(root, file).replaceAll("\\", "/");

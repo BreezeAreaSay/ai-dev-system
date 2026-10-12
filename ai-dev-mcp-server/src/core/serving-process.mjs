@@ -27,6 +27,7 @@ export function servingProcess() {
     build: daemon.build,
     sessions: daemon.sessions(),
     started_at: daemon.startedAt,
-    idle_timeout_ms: daemon.idleTimeoutMs
+    // A whole number, as the contract says, whatever fraction the variable held (Д-223).
+    idle_timeout_ms: Math.round(daemon.idleTimeoutMs)
   };
 }

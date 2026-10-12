@@ -16,8 +16,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { withExclusiveFile } from "./atomic-files.mjs";
-import { ALL_PROFILES, findProfile, parseProfileSetting } from "./tool-profiles.mjs";
+import { atomicWriteFile, withExclusiveFile } from "./atomic-files.mjs";
+import { findProfile, parseProfileSetting } from "./tool-profiles.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 
 /** The file's format. A file of a newer one is read for the keys this version knows. */
@@ -29,6 +29,8 @@ function absolutePath(name) {
   return (value) => {
     const text = nonEmpty(value);
     if (!text) return "";
+    // The environment cuts a value at a NUL: every process would use another folder (Д-223).
+    if (text.includes("\0")) throw new Error(`${name} must not hold a NUL character.`);
     if (!path.isAbsolute(text)) throw new Error(`${name} must be an absolute path, not ${JSON.stringify(text)}.`);
     return path.resolve(text);
   };
@@ -49,16 +51,17 @@ export const SETTINGS = Object.freeze({
     type: "string",
     default: "",
     env: "AI_DEV_PROFILES",
-    description: "Capability profiles listed to a client that sets no AI_DEV_PROFILES of its own; empty lists every profile an agent gets — all but the opt-in control.",
+    description: "Capability profiles listed to a client that sets no AI_DEV_PROFILES of its own; empty lists every profile an agent gets. The opt-in control profile is not one of them: a client that wants it names it itself.",
     validate(value) {
       const text = nonEmpty(value);
       if (!text) return "";
       const parsed = parseProfileSetting(text);
       if (parsed.unknown.length) throw new Error(`profiles names ${parsed.unknown.map((name) => JSON.stringify(name)).join(", ")}, which ${parsed.unknown.length === 1 ? "is not a profile" : "are not profiles"}.`);
-      // `all` with an opt-in profile keeps both: `all,control` is not `all`.
+      // This is what every agent client without its own AI_DEV_PROFILES gets:
+      // the desktop app's tools stay out of it (docs/DEFECTS.md, Д-223).
       const optIn = parsed.ids.filter((id) => findProfile(id)?.optIn);
-      if (parsed.all) return optIn.length ? [ALL_PROFILES, ...optIn].join(",") : "";
-      return parsed.ids.join(",");
+      if (optIn.length) throw new Error(`profiles cannot name ${optIn.join(", ")}: it is the desktop app's, and a client that wants it sets AI_DEV_PROFILES=${optIn.join(",")} itself.`);
+      return parsed.all ? "" : parsed.ids.join(",");
     }
   },
   model_mirror: {
@@ -92,11 +95,15 @@ export const SETTINGS = Object.freeze({
     default: 30,
     env: "AI_DEV_IDLE_TIMEOUT_MS",
     toEnv: (minutes) => String(Math.round(minutes * 60_000)),
-    description: "How long the daemon stays without a client, in minutes; 0 keeps it until it is stopped.",
+    fromEnv: (text) => Number(text) / 60_000,
+    description: "How long the daemon stays without a client, in minutes, from 1 to 10080 (a week); 0 keeps it until it is stopped.",
     validate(value) {
-      const minutes = Number(value);
-      if (!Number.isFinite(minutes) || minutes < 0 || minutes > 7 * 24 * 60) throw new Error("daemon_idle_minutes must be a number of minutes from 0 to 10080 (a week).");
-      return minutes;
+      // A number, not something that converts to one: an emptied field is
+      // not 0, and a fraction of a minute is not a timeout (docs/DEFECTS.md, Д-221).
+      if (typeof value !== "number" || !Number.isFinite(value) || (value !== 0 && (value < 1 || value > 7 * 24 * 60))) {
+        throw new Error(`daemon_idle_minutes must be a number of minutes from 1 to 10080 (a week), or 0 to keep the daemon until it is stopped, not ${JSON.stringify(value)}.`);
+      }
+      return value;
     }
   },
   daemon_autostart: {
@@ -175,7 +182,9 @@ export function readSettings({ env = process.env, file = settingsPath(env) } = {
       }
     }
     if (setting.env && nonEmpty(env[setting.env]) && !(env.AI_DEV_SETTINGS_APPLIED ?? "").split(",").includes(setting.env)) {
+      // The value in force is the variable's, which the file does not change (Д-223).
       source = `environment (${setting.env})`;
+      value = setting.fromEnv ? setting.fromEnv(nonEmpty(env[setting.env])) : nonEmpty(env[setting.env]);
     }
     settings[name] = value;
     sources[name] = source;
@@ -200,6 +209,11 @@ export async function writeSettings(changes, { env = process.env, file = setting
   for (const [name, value] of Object.entries(changes)) checked[name] = value === null ? null : SETTINGS[name].validate(value);
   return withExclusiveFile(file, async () => {
     const stored = readStored(file);
+    // A file a newer AI Dev wrote keeps its format: this version would write
+    // its own schema over keys it does not know the meaning of (Д-223).
+    if (Number(stored.schema_version) > SETTINGS_SCHEMA_VERSION) {
+      throw new Error(`${file} was written by a newer AI Dev (settings schema ${stored.schema_version}, this one knows ${SETTINGS_SCHEMA_VERSION}); change the settings with that version.`);
+    }
     const next = { ...stored, schema_version: SETTINGS_SCHEMA_VERSION };
     const changed = [];
     for (const [name, value] of Object.entries(checked)) {
@@ -209,9 +223,10 @@ export async function writeSettings(changes, { env = process.env, file = setting
       if (JSON.stringify(before) !== JSON.stringify(value === null ? undefined : value)) changed.push(name);
     }
     if (changed.length) {
-      const temp = `${file}.${process.pid}.tmp`;
-      fs.writeFileSync(temp, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
-      fs.renameSync(temp, file);
+      // Replaced whole and flushed, through a link to wherever the file
+      // really lives — a dotfiles repository keeps its link (Д-222).
+      const target = await fs.promises.realpath(file).catch(() => file);
+      await atomicWriteFile(target, `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     }
     return { changed, settings: readSettings({ env, file }).settings };
   });

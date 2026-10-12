@@ -230,5 +230,5 @@ export async function runSetup({ runtime, env, steps, inspection, want = {}, for
     ...(want.frontendQa ? { frontend_qa: true } : {})
   };
   const plan = planFirstRun({ present, stale, want: wanted, force });
-  return steps.runFirstRunPlan(plan, guarded, onStep);
+  return steps.runFirstRunPlan(plan, guarded, onStep, { signal });
 }

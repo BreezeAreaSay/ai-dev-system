@@ -25,7 +25,7 @@ const BIG_MODEL_BYTES = 48 * 1024 * 1024;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function stage(t, { bigModel = false } = {}) {
+async function stage(t, { bigModel = false, stall = true } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-control-"));
   const home = path.join(root, "home");
   const vault = path.join(root, "vault");
@@ -44,7 +44,7 @@ async function stage(t, { bigModel = false } = {}) {
     manifest = syntheticManifest(files);
     await fs.writeFile(path.join(usb, STALLED_FILE), files[STALLED_FILE]);
   }
-  const host = await startModelHost({ files, stallAfter: new Map([[STALLED_FILE, STALL_BYTES]]) });
+  const host = await startModelHost({ files, stallAfter: new Map(stall ? [[STALLED_FILE, STALL_BYTES]] : []) });
   const manifestFile = path.join(root, "synthetic.manifest.json");
   await fs.writeFile(manifestFile, JSON.stringify({ ...manifest, sources: [host.base] }));
   const env = {
@@ -110,6 +110,10 @@ test("the control tools answer through the daemon as the contract says, refuse w
   assert.equal(status.status, "failed", "nothing built yet");
   assert.match(await refusal(client, "system_status", { check: false }), /Unknown argument: check/);
 
+  // A misspelt client is refused before anything is built (Д-220).
+  assert.match(await refusal(client, "setup_run", { clients: "claude-code,notepad" }), /Not a client: notepad/);
+  assert.equal((await call(client, "system_status", { checks: false })).index.exists, false, "nothing was built for the refused call");
+
   // Setup: a cancelled run keeps what it did; the next one finishes.
   const controller = new AbortController();
   const cancelled = call(client, "setup_run", {}, { signal: controller.signal, onprogress: () => undefined });
@@ -148,6 +152,7 @@ test("the control tools answer through the daemon as the contract says, refuse w
   assert.match(await refusal(client, "model_import", { source: "relative/folder" }), /absolute path/);
   const imported = await call(client, "model_import", { source: usb });
   assert.equal(imported.ready, true);
+  assert.deepEqual([imported.present.length > 0, imported.missing], [true, []], "what is there after the import (Д-223)");
 
   // Clients: a dry run writes nothing; removing needs confirm.
   const clients = await call(client, "clients_list");
@@ -206,4 +211,26 @@ test("copying and checking the model stop when cancelled midway, and keep what i
   assert.match(String(verified.error), /cancel model_verify/);
   // The daemon answers on, and the next check runs whole.
   assert.equal((await call(client, "model_verify", {}, { onprogress: () => undefined })).ready, true);
+});
+
+test("the settings file counts for the app's transport as for a client: its model folder, and a mirror saved in the same session (Д-218)", { timeout: 300_000 }, async (t) => {
+  const { root, env, host } = await stage(t, { stall: false });
+  // No daemon runs, and the settings name a model folder: the daemon the
+  // transport starts applies them, and so must the transport, or it waits
+  // for a daemon of another build.
+  const folder = path.join(root, "models-from-settings");
+  await fs.mkdir(env.AI_DEV_HOME, { recursive: true });
+  await fs.writeFile(path.join(env.AI_DEV_HOME, "config.json"), JSON.stringify({ schema_version: 1, model_dir: folder }));
+  // The manifest's own source answers nothing: only a mirror can serve the model.
+  const manifestFile = path.join(root, "no-source.manifest.json");
+  await fs.writeFile(manifestFile, JSON.stringify({ ...JSON.parse(await fs.readFile(env.AI_DEV_MODEL_MANIFEST, "utf8")), sources: ["http://127.0.0.1:9/nowhere"] }));
+  const client = await connect(t, { ...env, AI_DEV_MODEL_MANIFEST: manifestFile });
+  assert.equal((await call(client, "system_status", { checks: false })).model.dir, folder, "the model folder the settings name");
+  // A mirror saved in this session is the one this session's download uses.
+  await call(client, "settings_set", { settings: { model_mirror: host.base } });
+  const before = host.requests.length;
+  const placed = await call(client, "model_install", {});
+  assert.equal(placed.ready, true);
+  assert.equal(placed.dir, folder);
+  assert.ok(host.requests.slice(before).some((request) => request.path.includes("/resolve/")), "the files came from the mirror");
 });

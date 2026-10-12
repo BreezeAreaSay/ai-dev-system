@@ -53,3 +53,16 @@ test("the number of lines is bounded both ways", async (t) => {
   assert.equal((await tailLines(file, { lines: 0 })).lines.length, 200, "0 is not a request for nothing: the default");
   assert.equal((await tailLines(file, { lines: -5 })).lines.length, 1);
 });
+
+test("a log that is a link to another file is refused, not followed (Д-223)", { skip: process.platform === "win32" && "symbolic links need privileges on Windows" }, async (t) => {
+  const root = await folder(t);
+  const logs = path.join(root, "logs");
+  await fs.mkdir(logs);
+  const secret = path.join(root, "secret.txt");
+  await fs.writeFile(secret, "TOP SECRET LINE\n");
+  await fs.symlink(secret, path.join(logs, "linked.log"));
+  const { file } = resolveLogFile(logs, "linked");
+  await assert.rejects(tailLines(file, { links: false }), /linked\.log is a link: only the logs folder's own files are read/);
+  assert.deepEqual((await tailLines(file)).lines, ["TOP SECRET LINE"], "a caller that allows links reads through them, as before");
+  assert.equal((await tailLines(path.join(logs, "missing.log"), { links: false })).exists, false);
+});

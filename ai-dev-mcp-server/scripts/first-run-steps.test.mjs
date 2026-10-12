@@ -322,6 +322,26 @@ test("running a plan reports every step, including the ones this caller cannot r
   assert.equal(results.length, plan.length);
 });
 
+test("a stop is no failure: the step it cuts short and those after it are skipped, and none of them announced (Д-223)", async () => {
+  const announced = [];
+  const stop = new AbortController();
+  const plan = planFirstRun({ present: {}, stale: {}, want: {} });
+  const results = await runFirstRunPlan(plan, {
+    skill_registry: async () => "614 skill(s) indexed",
+    skill_quality_report: async () => "614 skill(s) validated",
+    search_index: async () => {
+      stop.abort();
+      throw new Error("The rebuild was cancelled; the index is as it was before it.");
+    },
+    routing_benchmark: async () => "never"
+  }, (step) => announced.push(step.id), { signal: stop.signal });
+  assert.deepEqual(announced, ["skill_registry", "skill_quality_report", "search_index"]);
+  const byId = Object.fromEntries(results.map((item) => [item.id, item]));
+  assert.deepEqual([byId.search_index.status, byId.search_index.reason], ["skipped", "stopped: The rebuild was cancelled; the index is as it was before it."]);
+  assert.deepEqual([byId.routing_benchmark.status, byId.routing_benchmark.reason], ["skipped", "not run: setup was stopped"]);
+  assert.equal(results.filter((item) => item.status === "failed").length, 0);
+});
+
 test("the first run counts the documents the rebuild actually reported", async () => {
   // Д-75 (upstream #63): a fresh rebuild answers with `document_count`, which
   // was in none of the names this line read, so the first thing a new user saw

@@ -20,13 +20,14 @@ import process from "node:process";
 import { installClients, listClients, removeClients } from "../core/client-connections.mjs";
 import { CONTROL_API_VERSION, CONTROL_RESULTS, wrappedOutputSchema } from "../core/control-contract.mjs";
 import { readDenseManifest } from "../core/dense-manifest.mjs";
+import { parseClientSelection } from "../core/mcp-clients.mjs";
 import { defaultOnnxModelDir } from "../core/dense-onnx.mjs";
 import { currentInstallLayout } from "../core/install-layout.mjs";
 import { MAX_TAIL_LINES, resolveLogFile, tailLines } from "../core/log-tail.mjs";
 import { importModel, installModel, modelStatus, removeModel, verifyModel } from "../core/model-manager.mjs";
 import { logsDir } from "../core/runtime-paths.mjs";
 import { servingProcess } from "../core/serving-process.mjs";
-import { SETTINGS, readSettings, writeSettings } from "../core/settings.mjs";
+import { SETTINGS, applySettingsToEnvironment, readSettings, writeSettings } from "../core/settings.mjs";
 import { inspectSetup, loadSetupSteps, runSetup } from "../core/setup-runner.mjs";
 import { workspaceOverview } from "../core/workspace-overview.mjs";
 
@@ -90,6 +91,17 @@ function countChanges(results) {
   };
 }
 
+/**
+ * The session's environment with the settings file applied now: a mirror or a
+ * model folder saved a moment ago — in this very session too — counts, and a
+ * variable the client set itself still wins (docs/DEFECTS.md, Д-218).
+ */
+function sessionEnvironment() {
+  const env = { ...process.env };
+  applySettingsToEnvironment(env);
+  return env;
+}
+
 /** The model as the contract shows it. */
 function modelState(status) {
   return {
@@ -120,23 +132,28 @@ export function createControlTools(host) {
     }
   })();
   const model = () => {
-    const env = process.env;
+    const env = sessionEnvironment();
     return { env, manifest: readDenseManifest(), dir: defaultOnnxModelDir({ env }) };
   };
   const currentModel = async () => {
     const { env, manifest, dir } = model();
     return modelState(await modelStatus({ manifest, dir, env }));
   };
-  const modelChange = async (placed) => ({
-    ready: Boolean(placed.ready),
-    dir: placed.dir,
-    present: placed.present ?? [],
-    missing: placed.missing ?? [],
-    mismatched: placed.mismatched ?? [],
-    ...(placed.downloaded !== undefined ? { downloaded: placed.downloaded, resumed: placed.resumed ?? 0, bytes: placed.bytes ?? 0 } : {}),
-    ...(placed.copied ? { copied: placed.copied, skipped: placed.skipped ?? [], from: placed.from } : {}),
-    model: await currentModel()
-  });
+  const modelChange = async (placed) => {
+    const model = await currentModel();
+    return {
+      ready: Boolean(placed.ready),
+      dir: placed.dir,
+      // An import says what it copied; what is there after it is the model's
+      // own state (docs/DEFECTS.md, Д-223).
+      present: placed.present ?? model.present,
+      missing: placed.missing ?? model.missing,
+      mismatched: placed.mismatched ?? model.mismatched,
+      ...(placed.downloaded !== undefined ? { downloaded: placed.downloaded, resumed: placed.resumed ?? 0, bytes: placed.bytes ?? 0 } : {}),
+      ...(placed.copied ? { copied: placed.copied, skipped: placed.skipped ?? [], from: placed.from } : {}),
+      model
+    };
+  };
   const runtime = () => ({
     callTool: host.callTool,
     vaultRoot: host.vaultRoot,
@@ -147,7 +164,7 @@ export function createControlTools(host) {
   return {
     definitions: [
       tool("system_status", "What state this install is in, in one answer: ok, degraded or failed, and why — the version, where the data is, the process serving it, the local model, the search index, the AI clients connected, the settings' problems and the health checks. The desktop app's tray colour. Read-only.", {
-        checks: { type: "boolean", default: true, description: "Run the health checks (about a second); false answers from what is on disk only." }
+        checks: { type: "boolean", default: true, description: "Run the health checks (about a second, more while Frontend QA's browser starts); false answers from what is on disk only — what a tray that polls asks for." }
       }),
       tool("setup_run", "Build what a fresh install does not ship — the skill registry, its quality report, the search index, the routing benchmark — and, when asked, the local model with its document vectors, Frontend QA, and the AI clients' configs. What is already built and current is skipped. Reports progress; a cancelled run stops after the current piece and keeps what is done.", {
         model: { type: "boolean", default: false, description: "Also download the local BGE-M3 model (about 600 MB) and embed the documents." },
@@ -177,7 +194,7 @@ export function createControlTools(host) {
         log: { type: "string", default: "daemon", description: "daemon, daemon.1 (the part set aside at 1 MB), or another log's file name." },
         lines: { type: "integer", minimum: 1, maximum: MAX_TAIL_LINES, default: 200 }
       }),
-      tool("settings_get", "The settings the desktop app changes, from ~/.ai-dev/config.json: each value in force, where it comes from (default, the file, or an environment variable that overrides it), what each setting means, and any stored value that is not valid. Read-only.", {}),
+      tool("settings_get", "The settings the desktop app changes, from ~/.ai-dev/config.json: each value in force — an environment variable's where one overrides the file — where it comes from (default, the file, or that variable), the file's own values, what each setting means, and any stored value that is not valid. Read-only.", {}),
       tool("settings_set", "Change settings: each value is checked first, and nothing is written when one is wrong; null puts a setting back to its default. Clients and commands started afterwards use them; a variable set in a client's environment still wins.", {
         settings: { type: "object", description: `Settings to change: ${Object.keys(SETTINGS).join(", ")}.` }
       }, ["settings"]),
@@ -241,14 +258,17 @@ export function createControlTools(host) {
         const want = { model: flag(args, "model"), frontendQa: flag(args, "frontend_qa") };
         const force = flag(args, "force");
         const clients = args.clients === false ? undefined : clientSpec(args.clients);
-        const env = process.env;
+        // A misspelt client is refused before anything is built, as the CLI
+        // refuses it (docs/DEFECTS.md, Д-220).
+        if (clients) parseClientSelection(clients);
+        const env = sessionEnvironment();
         const steps = await loadSetupSteps();
         const inspection = await inspectSetup({ runtime: runtime(), env, steps });
         const results = await runSetup({ runtime: runtime(), env, steps, inspection, want, force, signal, onProgress, commandOutput: "capture" });
         const cancelled = Boolean(signal?.aborted);
         const connected = clients && !cancelled ? await installClients({ spec: clients, env }) : null;
         return {
-          succeeded: !results.some((step) => step.status === "failed") && !connected?.some((result) => result.status === "failed"),
+          succeeded: !cancelled && !results.some((step) => step.status === "failed") && !connected?.some((result) => result.status === "failed"),
           cancelled,
           steps: results.map((step) => ({
             id: step.id,
@@ -323,7 +343,7 @@ export function createControlTools(host) {
           throw new Error(`lines must be a whole number from 1 to ${MAX_TAIL_LINES}.`);
         }
         const { log, file } = resolveLogFile(logsDir(), args.log);
-        return { log, file, ...await tailLines(file, { lines: args.lines ?? 200 }) };
+        return { log, file, ...await tailLines(file, { lines: args.lines ?? 200, links: false }) };
       },
 
       async settings_get(args = {}) {

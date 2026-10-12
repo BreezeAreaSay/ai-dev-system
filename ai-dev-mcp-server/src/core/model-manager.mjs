@@ -366,7 +366,7 @@ export async function importModel({ manifest, source, dir, stampDir = defaultSta
         throw new Error(`No folder under ${origin} holds the whole model. The closest, ${closest.dir}, lacks ${missing.join(", ")}.`);
       }
       if (found.length === 1 && path.resolve(found[0]) === resolved) {
-        const verification = await verifyModel({ manifest, dir: resolved, stampDir, onProgress });
+        const verification = await verifyModel({ manifest, dir: resolved, stampDir, onProgress, signal });
         if (!verification.ready) {
           // Nothing to copy from: the source is the folder being checked (Д-156).
           throw new Error(`${origin} is the model folder itself, and ${[...verification.missing, ...verification.mismatched].join(", ")} in it `

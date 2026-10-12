@@ -78,7 +78,7 @@ const CLIENT_RESULT = object({
   file: string,
   status: {
     type: "string",
-    description: "added, updated, unchanged, removed, restored, absent, skipped or failed."
+    description: "added, updated, unchanged, removed, restored, absent, skipped or failed; with dry_run, would-add, would-update, would-remove or would-restore."
   },
   backup: nullable(string),
   reason: string,
@@ -136,7 +136,7 @@ export const CONTROL_RESULTS = Object.freeze({
     checks: list(CHECK)
   }),
   setup_run: object({
-    succeeded: boolean,
+    succeeded: { type: "boolean", description: "The run finished and nothing in it failed: false when it was cancelled, or a step or a client failed." },
     cancelled: boolean,
     steps: list(STEP),
     clients: nullable(list(CLIENT_RESULT))

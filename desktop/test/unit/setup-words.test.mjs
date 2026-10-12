@@ -1,0 +1,43 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { translate } from "../../src/renderer/i18n.js";
+import { clientChoice, clientResult, stepReason, stepTitle } from "../../src/renderer/setup-words.js";
+
+const view = (language = "en") => ({ t: (key, params) => translate(language, key, params) });
+
+test("a client's row says what its ai-dev entry runs; another program's entry is not chosen for the person (Д-248)", () => {
+  const row = (fields) => clientChoice(view(), { found: true, connected: false, entry: "none", ...fields });
+  assert.deepEqual(row({}), { note: "installed", checked: true, disabled: false });
+  assert.equal(row({ entry: "2.x" }).checked, true, "the 2.x entry is the same server under its old name");
+  for (const entry of ["local", "docker", "other", "invalid"]) {
+    const choice = row({ entry });
+    assert.equal(choice.checked, false, entry);
+    assert.match(choice.note, /replaces/, entry);
+  }
+  const broken = row({ entry: "unreadable", error: "line 1, column 19: expected a \"quoted\" member name" });
+  assert.deepEqual([broken.checked, broken.disabled], [false, true]);
+  assert.match(broken.note, /cannot be read: line 1, column 19/);
+  assert.deepEqual(row({ connected: true, entry: "this install" }), { note: "already connected", checked: false, disabled: false });
+  assert.deepEqual(clientChoice(view(), { found: false, entry: "none" }), { note: "not found on this computer", checked: false, disabled: true });
+  assert.match(clientChoice(view("ru"), { found: true, connected: false, entry: "docker" }).note, /Docker/);
+});
+
+test("after Connect, each client's line with the daemon's reason", () => {
+  assert.deepEqual(clientResult(view(), { client: "cursor", status: "failed", error: "line 1, column 19" }), { text: "cursor: failed", why: "line 1, column 19" });
+  assert.deepEqual(clientResult(view("ru"), { client: "cursor", label: "Cursor", status: "added" }), { text: "Cursor: подключён", why: "" });
+  assert.equal(clientResult(view(), { client: "x", label: "X", status: "would-add" }).text, "X: would-add", "a status without words stays as it is");
+});
+
+test("a step's title and reason in the page's words; a failed step shows its error (Д-248, Д-250, Д-257 п. 3)", () => {
+  const step = (fields) => ({ id: "search_index", title: "Search index", status: "done", ...fields });
+  assert.equal(stepTitle(view("ru"), step({})), "Поисковый индекс");
+  assert.equal(stepTitle(view("en"), step({ id: "a_new_step", title: "A new step" })), "A new step");
+  assert.equal(stepReason(view(), step({ status: "failed", reason: "missing", error: "EEXIST: file already exists" })), "EEXIST: file already exists");
+  assert.equal(stepReason(view(), step({ status: "skipped", reason: "already built; --force rebuilds it" })), "already built");
+  assert.equal(stepReason(view(), step({ id: "frontend_qa", status: "skipped", reason: "not installed — pass --frontend-qa to install it" })), "optional, not set up");
+  assert.equal(stepReason(view("ru"), step({ id: "dense_model", status: "skipped", reason: "not installed — pass --model to install it" })), "пропущена на шаге модели");
+  assert.equal(stepReason(view(), step({ reason: "614 skill(s) indexed" })), "614 skill(s) indexed", "what the step itself said stays as it is");
+  for (const reason of ["already built; --force rebuilds it", "not installed — pass --frontend-qa to install it", "out of date; --model rebuilds it"]) {
+    assert.doesNotMatch(stepReason(view(), step({ id: "frontend_qa", status: "skipped", reason })), /--/, reason);
+  }
+});

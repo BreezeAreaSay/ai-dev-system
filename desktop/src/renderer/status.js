@@ -1,42 +1,50 @@
-// The Status screen: where the system stands, every health check with its
-// details and what to do about it, and the buttons that do it.
+// The Status screen: where the system stands and why, every health check with
+// its details and what to do about it, and the buttons that do it.
 import * as api from "./api.js";
+import { DETAIL_ROWS, checkTitle, orderedChecks, recommendation, unsaidProblems } from "./checks.js";
 import { h, progressBar, show } from "./dom.js";
 
-const CHECK_WORDS = Object.freeze({ ui: "UI", ux: "UX", qa: "QA", fts: "FTS", mcp: "MCP" });
+/**
+ * The rebuild Status started, while it runs: its id for Cancel, its last
+ * progress, who to tell. It outlives a redraw — a person who goes to Setup
+ * and back finds it still there (docs/DEFECTS.md, Д-266, п. 6).
+ */
+let rebuilding = null;
 
-/** `frontend_qa_runner` → `Frontend QA runner`, as the dashboard writes it. */
-export function checkTitle(name) {
-  const title = String(name).split("_").filter(Boolean).map((word) => CHECK_WORDS[word] ?? word).join(" ");
-  return title.charAt(0).toUpperCase() + title.slice(1);
+function startRebuild() {
+  const running = { id: null, progress: {}, listeners: new Set(), ended: null };
+  running.ended = api.call("rebuild_search_index", {}, {
+    onStart: (id) => { running.id = id; },
+    onProgress: (event) => {
+      running.progress = event;
+      for (const listener of running.listeners) listener(event);
+    }
+  }).then(() => null, (error) => error).finally(() => {
+    if (rebuilding === running) rebuilding = null;
+  });
+  rebuilding = running;
+  return running;
 }
 
-/** What to do about a check that is not ok, in the page's language. */
-export function recommendation(view, check) {
-  if (check.status === "ok") return null;
-  const specific = `recommend.${check.name}`;
-  const text = view.t(specific);
-  if (text !== specific) return text;
-  return view.t(check.status === "fail" ? "recommend.default.fail" : "recommend.default.warn");
-}
-
-function detailRows(details) {
+function detailRows(view, details) {
   if (!details || typeof details !== "object") return null;
   const entries = Object.entries(details).filter(([, value]) => value !== undefined && value !== null && value !== "");
   if (!entries.length) return null;
-  return h("dl", { className: "details" }, entries.slice(0, 20).map(([key, value]) => [
-    h("dt", {}, key),
-    h("dd", {}, typeof value === "object" ? JSON.stringify(value) : String(value))
-  ]));
+  const rest = entries.length - DETAIL_ROWS;
+  return h("dl", { className: "details" },
+    entries.slice(0, DETAIL_ROWS).map(([key, value]) => [h("dt", {}, key), h("dd", {}, typeof value === "object" ? JSON.stringify(value) : String(value))]),
+    rest > 0 ? [h("dt", {}, "…"), h("dd", {}, view.t("status.moreDetails", { count: rest }))] : null);
 }
 
 function checkItem(view, check) {
   const advice = recommendation(view, check);
-  const details = detailRows(check.details);
-  return h("li", { className: `check check-${check.status}`, dataset: { check: check.name, status: check.status } },
+  const details = detailRows(view, check.details);
+  const critical = check.critical === true && check.status === "fail";
+  return h("li", { className: `check check-${check.status}`, dataset: { check: check.name, status: check.status, critical: String(check.critical === true) } },
     h("div", { className: "check-head" },
       h("span", { className: "badge" }, view.t(`status.check.${check.status}`)),
-      h("strong", {}, checkTitle(check.name))),
+      critical ? h("span", { className: "badge badge-critical" }, view.t("status.critical")) : null,
+      h("strong", {}, checkTitle(check.name, view.t))),
     h("p", {}, check.summary),
     advice ? h("p", { className: "advice" }, h("span", { className: "label" }, `${view.t("status.recommendation")}: `), advice) : null,
     details ? h("details", {}, h("summary", {}, view.t("status.details")), details) : null);
@@ -52,9 +60,24 @@ function overview(view, status) {
     h("dt", {}, view.t("status.clients")), h("dd", { dataset: { field: "clients" } }, view.t("status.clients.count", status.clients)));
 }
 
+/**
+ * Why the install is not ok, in the daemon's words, and the settings file's
+ * problems (Д-246) — each once: one the summary already says is not listed
+ * again (Д-266, п. 8).
+ */
+function why(view, status) {
+  if (status.status === "ok") return null;
+  const problems = unsaidProblems(status);
+  return h("div", { className: "why", dataset: { field: "why" } },
+    h("p", {}, h("span", { className: "label" }, `${view.t("status.why")}: `), status.summary),
+    problems.length
+      ? [h("p", { className: "label" }, view.t("status.settingsProblems")), h("ul", { dataset: { field: "settings-problems" } }, problems.map((problem) => h("li", {}, problem)))]
+      : null);
+}
+
 /** The Status screen; it loads the checks when drawn. */
 export function statusScreen(view, navigate) {
-  const body = h("div", { className: "status-body" }, h("p", { className: "muted" }, view.t("common.working")));
+  const body = h("div", { className: "status-body" }, h("p", { className: "muted", dataset: { state: "loading" } }, view.t("common.working")));
   const refresh = h("button", { type: "button", className: "secondary", dataset: { action: "refresh" } }, view.t("common.refresh"));
   const rebuild = h("button", { type: "button", className: "secondary", dataset: { action: "rebuild" } }, view.t("status.rebuild"));
   const setup = h("button", { type: "button", className: "secondary", dataset: { action: "setup" }, on: { click: () => navigate("wizard") } }, view.t("status.runSetup"));
@@ -63,24 +86,41 @@ export function statusScreen(view, navigate) {
   const load = () => api.call("system_status", { checks: true }).then((status) => {
     show(body,
       h("p", { className: `overall overall-${status.status}`, dataset: { field: "overall", status: status.status } }, view.t(`status.overall.${status.status}`)),
+      why(view, status),
       h("p", { className: "muted" }, view.t("status.version", { version: status.version, pid: status.served_by.pid, sessions: status.served_by.sessions ?? 0 })),
       overview(view, status),
       h("h2", {}, view.t("status.checks")),
-      h("ul", { className: "checks" }, status.checks.map((check) => checkItem(view, check))));
+      h("ul", { className: "checks" }, orderedChecks(status.checks).map((check) => checkItem(view, check))));
   }, (error) => show(body, h("p", { className: "error", role: "alert" }, view.t("common.error", { message: error.message }))));
 
-  refresh.addEventListener("click", load);
-  rebuild.addEventListener("click", () => {
+  // A rebuild running — started now, or before the screen was drawn again:
+  // its progress and Cancel. Started now, the focus moves to Cancel; when it
+  // ends, a focus left on Cancel goes back to Rebuild (Д-271, п. 1).
+  const showRebuild = (running, { focus = false } = {}) => {
     const bar = progressBar();
+    bar.update(running.progress);
+    const cancel = h("button", { type: "button", className: "secondary", dataset: { action: "cancel-rebuild" }, on: { click: () => running.id && api.cancel(running.id) } }, view.t("common.cancel"));
     rebuild.disabled = true;
-    show(work, bar.element);
-    api.call("rebuild_search_index", {}, { onProgress: (event) => bar.update(event) })
-      .then(() => show(work), (error) => show(work, h("p", { className: "error" }, view.t("common.error", { message: error.message }))))
-      .finally(() => {
-        rebuild.disabled = false;
-        load();
-      });
-  });
+    show(work, bar.element, cancel);
+    if (focus) cancel.focus();
+    const listener = (event) => bar.update(event);
+    running.listeners.add(listener);
+    running.ended.then((error) => {
+      running.listeners.delete(listener);
+      if (!work.isConnected) return;
+      const focused = document.activeElement;
+      const lost = !focused || focused === document.body || work.contains(focused);
+      rebuild.disabled = false;
+      if (lost) rebuild.focus();
+      if (!error) show(work);
+      else if (error.cancelled) show(work, h("p", { className: "notice" }, view.t("common.cancelled")));
+      else show(work, h("p", { className: "error" }, view.t("common.error", { message: error.message })));
+      load();
+    });
+  };
+  refresh.addEventListener("click", load);
+  rebuild.addEventListener("click", () => showRebuild(startRebuild(), { focus: true }));
+  if (rebuilding) showRebuild(rebuilding);
   load();
   return h("section", { dataset: { screen: "status" } },
     h("h1", { tabindex: "-1" }, view.t("status.title")),

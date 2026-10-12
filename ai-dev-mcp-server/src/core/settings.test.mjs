@@ -90,6 +90,10 @@ test("a stored value that is no longer valid is reported and replaced by its def
   await fs.writeFile(settingsPath(env), "{ not json");
   assert.throws(() => readSettings({ env }), /is not JSON\. Fix or remove it/);
   await assert.rejects(writeSettings({ language: "en" }, { env }), /is not JSON/);
+  // A folder in its place fails at the read, where Node names no file: the error names it (Д-274).
+  await fs.rm(settingsPath(env));
+  await fs.mkdir(settingsPath(env));
+  assert.throws(() => readSettings({ env }), (error) => error.code === "EISDIR" && error.message.startsWith(`${settingsPath(env)} cannot be read: EISDIR`));
 });
 
 test("the file sets the variables the environment leaves unset, and never one set by hand", async (t) => {

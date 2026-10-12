@@ -102,6 +102,10 @@ export const NOT_DAEMON_WIDE = Object.freeze({
     "AI_DEV_BOOTSTRAP_NODE_IMAGE",
     "AI_DEV_INSTALLER_LAUNCHER"
   ]),
+  // The desktop app's own: where its server is, its test hooks, its developer
+  // tools. A client never sets them, so the app would get a daemon of its own
+  // (docs/DEFECTS.md, Д-244).
+  desktop: Object.freeze(["AI_DEV_SERVER_ROOT", "AI_DEV_DESKTOP_TEST", "AI_DEV_DESKTOP_DEVTOOLS", "AI_DEV_DESKTOP_NO_SANDBOX"]),
   tooling: Object.freeze([
     "AI_DEV_FAKE_BACKEND",
     "AI_DEV_MCP_SERVER_PATH",

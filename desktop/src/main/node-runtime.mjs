@@ -80,11 +80,13 @@ export function supportedVersion(version) {
 }
 
 /**
- * Find the Node to run the daemon with.
+ * Find the Node to run the daemon with. Without one, `problem` says why in
+ * English and `reason` names the same words in the page's dictionary
+ * (`node.problem.*`), so the window says it in its language (Д-264).
  *
  * @param {{ env?: NodeJS.ProcessEnv, platform?: string, home?: string, clientNodes?: string[], versionOf?: (file: string) => string | null }} [options]
  *   `clientNodes` — the executables AI clients' ai-dev entries run, when known.
- * @returns {{ path: string, version: string, source: string } | { path: null, problem: string, tried: string[] }}
+ * @returns {{ path: string, version: string, source: string } | { path: null, problem: string, reason: { key: string, params?: object }, tried: string[] }}
  */
 export function findNode({ env = process.env, platform = process.platform, home = os.homedir(), clientNodes = [], versionOf = nodeVersion } = {}) {
   const candidates = [];
@@ -100,14 +102,17 @@ export function findNode({ env = process.env, platform = process.platform, home 
     seen.add(file);
     tried.push(file);
     if (!executable(file, platform)) {
-      if (candidate.only) return { path: null, problem: `AI_DEV_NODE names ${file}, which is not an executable file.`, tried };
+      if (candidate.only) return { path: null, problem: `AI_DEV_NODE names ${file}, which is not an executable file.`, reason: { key: "node.problem.notExecutable", params: { path: file } }, tried };
       continue;
     }
     const version = versionOf(file);
     if (supportedVersion(parseVersion(version))) return { path: file, version, source: candidate.source };
-    if (candidate.only) return { path: null, problem: `AI_DEV_NODE names Node ${version ?? "of an unknown version"}; AI Dev needs 22.16 or newer (not 23).`, tried };
+    if (candidate.only) {
+      const problem = `AI_DEV_NODE names Node ${version ?? "of an unknown version"}; AI Dev needs 22.16 or newer (not 23).`;
+      return { path: null, problem, reason: { key: version ? "node.problem.version" : "node.problem.unknownVersion", params: { path: file, version } }, tried };
+    }
   }
-  return { path: null, problem: "No Node.js 22.16 or newer was found.", tried };
+  return { path: null, problem: "No Node.js 22.16 or newer was found.", reason: { key: "node.problem.none" }, tried };
 }
 
 /** `node --version` of an executable, or null. */

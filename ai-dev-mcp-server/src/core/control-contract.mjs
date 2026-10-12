@@ -91,9 +91,11 @@ const SERVED_BY = object({
   build: string,
   sessions: count,
   started_at: string,
-  idle_timeout_ms: count
+  idle_timeout_ms: count,
+  retired: { type: "boolean", description: "The code this daemon runs was replaced in place and a daemon of the new code serves now: this one only finishes the sessions it has, so a program that stays connected should reconnect (1.1)." },
+  retired_reason: string
 }, {
-  optional: ["build", "sessions", "started_at", "idle_timeout_ms"],
+  optional: ["build", "sessions", "started_at", "idle_timeout_ms", "retired", "retired_reason"],
   description: "The process that answered: the daemon every client shares, or a client's own server."
 });
 

@@ -55,6 +55,8 @@ What state this install is in, in one answer: ok, degraded or failed, and why �
   - `sessions` — integer, optional
   - `started_at` — string, optional
   - `idle_timeout_ms` — integer, optional
+  - `retired` — boolean, optional. The code this daemon runs was replaced in place and a daemon of the new code serves now: this one only finishes the sessions it has, so a program that stays connected should reconnect (1.1).
+  - `retired_reason` — string, optional
 - `model` — object. Where the local model stands.
   - `installed` — boolean. Every file is there and matches the manifest.
   - `dir` — string

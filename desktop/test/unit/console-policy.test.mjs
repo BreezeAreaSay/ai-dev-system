@@ -28,23 +28,24 @@ test("the console's tools: the daemon's list, sorted, each read-only only on the
 
 test("a read-only tool runs at once, one that changes something asks first, one not listed is refused", () => {
   const tools = consoleTools(LISTED);
-  const read = consoleDecision({ tool: "list_projects", args: {}, id: "console-1" }, tools);
+  const read = consoleDecision({ tool: "list_projects", args: {}, id: "call-1" }, tools);
   assert.equal(read.confirm, false);
   assert.equal(read.tool.name, "list_projects");
-  const write = consoleDecision({ tool: "record_decision", args: { title: "x" }, id: "console-2" }, tools);
+  const write = consoleDecision({ tool: "record_decision", args: { title: "x" }, id: "call-2" }, tools);
   assert.equal(write.confirm, true);
   assert.deepEqual(write.args, { title: "x" });
   // The page says nothing that makes a writing tool read-only.
-  assert.equal(consoleDecision({ tool: "record_decision", args: {}, id: "c", readOnly: true, confirm: false }, tools).confirm, true);
-  assert.equal(consoleDecision({ tool: "model_remove", args: { confirm: true }, id: "c" }, tools).confirm, true);
-  assert.match(consoleDecision({ tool: "run_shell", args: {}, id: "c" }, tools).refused, /lists no tool "run_shell"/);
-  assert.match(consoleDecision({ tool: "list_projects", args: {}, id: "../x" }, tools).refused, /id is 1 to 64/);
-  assert.match(consoleDecision({ tool: "list_projects", args: "x", id: "c" }, tools).refused, /arguments are an object/);
-  assert.match(consoleDecision({ tool: "list_projects", args: { big: "x".repeat(70 * 1024) }, id: "c" }, tools).refused, /at most 65536 bytes/);
+  assert.equal(consoleDecision({ tool: "record_decision", args: {}, id: "call-c", readOnly: true, confirm: false }, tools).confirm, true);
+  assert.equal(consoleDecision({ tool: "model_remove", args: { confirm: true }, id: "call-c" }, tools).confirm, true);
+  assert.match(consoleDecision({ tool: "run_shell", args: {}, id: "call-c" }, tools).refused, /lists no tool "run_shell"/);
+  assert.match(consoleDecision({ tool: "list_projects", args: {}, id: "../x" }, tools).refused, /id is call- and/);
+  assert.match(consoleDecision({ tool: "list_projects", args: {}, id: "tray-rebuild" }, tools).refused, /id is call- and/, "the main process's own ids are not the console's");
+  assert.match(consoleDecision({ tool: "list_projects", args: "x", id: "call-c" }, tools).refused, /arguments are an object/);
+  assert.match(consoleDecision({ tool: "list_projects", args: { big: "x".repeat(70 * 1024) }, id: "call-c" }, tools).refused, /at most 65536 bytes/);
   assert.match(consoleDecision(null, tools).refused, /A call is an object/);
   const many = Object.fromEntries(Array.from({ length: 41 }, (_, index) => [`a${index}`, 1]));
-  assert.match(consoleDecision({ tool: "record_decision", args: many, id: "c" }, tools).refused, /at most 40 arguments/, "more than a confirmation can show is refused");
-  assert.match(consoleDecision({ args: {}, id: "c" }, tools).refused, /names a tool/);
+  assert.match(consoleDecision({ tool: "record_decision", args: many, id: "call-c" }, tools).refused, /at most 40 arguments/, "more than a confirmation can show is refused");
+  assert.match(consoleDecision({ args: {}, id: "call-c" }, tools).refused, /names a tool/);
 });
 
 test("the confirmation says what runs and with what, Cancel is the default, in the person's language", () => {

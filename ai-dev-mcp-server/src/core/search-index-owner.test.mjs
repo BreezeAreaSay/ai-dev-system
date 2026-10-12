@@ -5,16 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { noteIdentity } from "./search-documents.mjs";
 import { CLAIM_SUFFIX, DEFAULT_INDEX_FILE, vaultIndexPath } from "./search-index-owner.mjs";
 import { loadSqlite, sqliteSupport } from "./search-sqlite.mjs";
 
 const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
-
-/** A file's modification time as an index records it (`os.stat().st_mtime`). */
-function recordedMtime(file) {
-  const { mtimeNs } = fs.statSync(file, { bigint: true });
-  return Number(mtimeNs / 1_000_000_000n) + Number(mtimeNs % 1_000_000_000n) * 1e-9;
-}
 
 /**
  * An index as an earlier version left it: the notes of `builtFrom` at these
@@ -25,10 +20,13 @@ function earlierIndex(file, { builtFrom = "", notes = [], others = [], vaultRoot
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new (loadSqlite().DatabaseSync)(file);
   try {
-    db.exec("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT); CREATE TABLE documents(id TEXT PRIMARY KEY, path TEXT NOT NULL, source TEXT NOT NULL, mtime REAL NOT NULL)");
-    const insert = db.prepare("INSERT INTO documents(id, path, source, mtime) VALUES (?, ?, ?, ?)");
-    notes.forEach((relative, index) => insert.run(`note-${index}`, relative, "vault-note", recordedMtime(path.join(builtFrom, relative))));
-    others.forEach((relative, index) => insert.run(`other-${index}`, relative, "skill-registry", 0));
+    db.exec("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT); CREATE TABLE documents(id TEXT PRIMARY KEY, path TEXT NOT NULL, source TEXT NOT NULL, mtime REAL NOT NULL, content_hash TEXT NOT NULL)");
+    const insert = db.prepare("INSERT INTO documents(id, path, source, mtime, content_hash) VALUES (?, ?, ?, ?, ?)");
+    notes.forEach((relative, index) => {
+      const note = noteIdentity(builtFrom, relative);
+      insert.run(`note-${index}`, relative, "vault-note", note.mtime, note.contentHash);
+    });
+    others.forEach((relative, index) => insert.run(`other-${index}`, relative, "skill-registry", 0, ""));
     if (vaultRoot) db.prepare("INSERT INTO meta(key, value) VALUES ('vault_root', ?)").run(vaultRoot);
   } finally {
     db.close();
@@ -36,10 +34,10 @@ function earlierIndex(file, { builtFrom = "", notes = [], others = [], vaultRoot
 }
 
 /** A note at `relative` in `vault`, written `secondsAgo` before now. */
-function note(vault, relative, secondsAgo = 3600) {
+function note(vault, relative, secondsAgo = 3600, text = "# note\n") {
   const file = path.join(vault, relative);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, "# note\n");
+  fs.writeFileSync(file, text);
   const when = new Date(Date.now() - secondsAgo * 1000);
   fs.utimesSync(file, when, when);
 }
@@ -130,6 +128,20 @@ test("a vault holding copies of every note of the index is not the one it was bu
   earlierIndex(path.join(changed, DEFAULT_INDEX_FILE), { builtFrom: owner, notes });
   for (const relative of notes.slice(0, 30)) note(owner, relative, 5);
   assert.equal(vaultIndexPath({ dir: changed, vaultRoot: owner }).reason, "another-vault");
+
+  // A note of the same name written in the same instant — files written
+  // together share the clock's tick — is not the same note: its content differs.
+  const twin = path.join(root, "twin");
+  const twinOwner = path.join(twin, "vault-a");
+  const twinOther = path.join(twin, "vault-b");
+  for (const relative of ["02-knowledge/storage.md", "02-knowledge/deploy.md", "02-knowledge/auth.md"]) note(twinOwner, relative, 100, `# ${relative} A\n`);
+  note(twinOther, "02-knowledge/storage.md", 100, "# Storage B\n");
+  const { atime, mtime } = fs.statSync(path.join(twinOwner, "02-knowledge", "storage.md"));
+  fs.utimesSync(path.join(twinOther, "02-knowledge", "storage.md"), atime, mtime);
+  assert.equal(noteIdentity(twinOther, "02-knowledge/storage.md").mtime, noteIdentity(twinOwner, "02-knowledge/storage.md").mtime, "the same instant");
+  earlierIndex(path.join(twin, "index", DEFAULT_INDEX_FILE), { builtFrom: twinOwner, notes: ["02-knowledge/storage.md", "02-knowledge/deploy.md", "02-knowledge/auth.md"] });
+  assert.equal(vaultIndexPath({ dir: path.join(twin, "index"), vaultRoot: twinOther }).reason, "another-vault");
+  assert.equal(vaultIndexPath({ dir: path.join(twin, "index"), vaultRoot: twinOwner }).reason, "claimed");
 
   // No note to tell by — only documents every vault has — goes to the first vault, as before.
   const noNotes = path.join(root, "no-notes");

@@ -340,6 +340,20 @@ function noteDoc(filePath, rel, name) {
 }
 
 /**
+ * A note as an index records it — its content hash and modification time —
+ * or null when it is not there or cannot be read. `search-index-owner.mjs`
+ * compares them with an index's rows to tell the vault it was built from.
+ *
+ * @param {string} vaultRoot
+ * @param {string} rel - The note's path in the vault, with `/`.
+ * @returns {{ contentHash: string, mtime: number } | null}
+ */
+export function noteIdentity(vaultRoot, rel) {
+  const doc = noteDoc(path.join(vaultRoot, ...rel.split("/")), rel, rel.slice(rel.lastIndexOf("/") + 1));
+  return doc ? { contentHash: doc.content_hash, mtime: doc.mtime } : null;
+}
+
+/**
  * Every Markdown note of the vault, as `iter_markdown_docs` yields them.
  *
  * @param {string} vaultRoot

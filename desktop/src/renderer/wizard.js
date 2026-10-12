@@ -9,10 +9,11 @@ import { clientChoice, clientResult, stepReason, stepTitle } from "./setup-words
 const STEPS = ["projects", "clients", "model", "index", "done"];
 
 /**
- * Where the wizard is, and the long call running in it, if one is: which
- * step it belongs to, its id for Cancel, its last progress, and who to tell
- * when it ends. It outlives a redraw — a person who goes to Status and back
- * finds the download still there, with its Cancel (docs/DEFECTS.md, Д-249).
+ * Where the wizard is, the long call running in it, if one is — which step
+ * it belongs to, its id for Cancel, its last progress, and who to tell when
+ * it ends — and the outcome of the last one. Both outlive a redraw: a person
+ * who goes to Status and back finds the download still there, with its
+ * Cancel, and the build's outcome still shown (docs/DEFECTS.md, Д-249).
  */
 const wizard = { step: 0, modelInstalled: false, active: null, finished: null };
 
@@ -27,7 +28,7 @@ function start(view, step, { label, tool, args }) {
     }
   }).then((answer) => ({ answer }), (error) => ({ error })).then((outcome) => {
     wizard.active = null;
-    // Kept for a step drawn again after it ended — the person was elsewhere.
+    // Kept for the step drawn again — until the next call replaces it.
     wizard.finished = { step, outcome };
     active.outcome = outcome;
     return outcome;
@@ -59,7 +60,6 @@ function attach(view, body, footer, active, { onDone, onFail }) {
     if (!body.isConnected) return;
     footer.back.disabled = wizard.step === 0;
     footer.next.disabled = false;
-    wizard.finished = null;
     if (error) onFail(error);
     else onDone(answer);
     (body.querySelector("button") ?? footer.next).focus();
@@ -239,7 +239,6 @@ function indexStep(view, body, footer) {
   }
   if (wizard.finished?.step === "index") {
     const { outcome } = wizard.finished;
-    wizard.finished = null;
     if (outcome.error) handlers.onFail(outcome.error);
     else result(outcome.answer);
     return;

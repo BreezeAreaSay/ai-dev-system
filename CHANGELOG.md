@@ -366,22 +366,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   folder named with `--to`. In 2.x both were PowerShell scripts that worked only inside a full
   vault, and `ai-dev backup` refused every system but Windows.
 
-- **The control API** (`ai-dev-mcp-server/docs/CONTROL-API.md`, version 1.0.0): thirteen tools a
+- **The control API** (`ai-dev-mcp-server/docs/CONTROL-API.md`, version 1.1.0): thirteen tools a
   desktop app — or a script — drives the install with. `system_status` says in one answer whether
   the install is ok, degraded or failed and why: the version, where the data is, the process serving
-  it, the local model, the search index, the clients connected, the settings' problems and the
-  health checks. `setup_run` builds what a fresh install lacks and, when asked, the model, its
-  vectors, Frontend QA and the client configs; `model_install`, `model_import`, `model_verify` and
-  `model_remove` manage the local model; `clients_list`, `clients_install` and `clients_remove` the
-  AI clients; `logs_tail` reads the logs; `settings_get` and `settings_set` the settings;
-  `workspace_overview` gives the projects, tasks, epics, decisions and cost at a glance. The long
-  ones report progress and stop when the request is cancelled, keeping what is done — a download
-  continues from where it stopped. Each answer's schema is the tool's `outputSchema`, so an MCP SDK
-  client checks every answer; the document is generated from the same module. The tools make up the
-  `control` profile, which only a session that names it lists (`AI_DEV_PROFILES=control`, or
-  `all,control`): an agent's surface is the same 135 tools, byte for byte. Refused calls change
-  nothing; the two that cannot be taken back want `confirm: true`; `SECURITY.md` says what guards
-  the rest.
+  it — and whether it is a daemon retired by an update, which a client leaves for the new one — the
+  local model, the search index, the clients connected, the settings' problems and the health checks
+  it ran, each with what it found and whether it is critical. `setup_run` builds what a fresh
+  install lacks and, when asked, the model, its vectors, Frontend QA and the client configs;
+  `model_install`, `model_import`, `model_verify` and `model_remove` manage the local model;
+  `clients_list`, `clients_install` and `clients_remove` the AI clients; `logs_tail` reads the logs;
+  `settings_get` and `settings_set` the settings; `workspace_overview` gives the projects, tasks,
+  epics, decisions and cost at a glance. The long ones report progress and stop when the request is
+  cancelled, keeping what is done — a download continues from where it stopped. Each answer's schema
+  is the tool's `outputSchema`, so an MCP SDK client checks every answer; the document is generated
+  from the same module. The tools make up the `control` profile, which only a session that names it
+  lists (`AI_DEV_PROFILES=control`, or `all,control`): an agent's surface is the same 135 tools,
+  byte for byte. Refused calls change nothing; the two that cannot be taken back want `confirm:
+  true`; `SECURITY.md` says what guards the rest.
 - **`DaemonClientTransport`** (`src/core/daemon-transport.mjs`): the MCP SDK transport a program uses
   to reach the daemon of an install — it finds or starts the daemon, proves itself with the
   descriptor's secret, and runs the session in the environment it is given, with the settings
@@ -395,6 +396,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `settings_set` says when each change takes effect: the mirror at once, the model folder and the
   profiles for sessions started afterwards, the idle time when the daemon starts next. The default
   profiles cannot hold the opt-in `control`.
+
+- **The desktop app** (`desktop/`, `docs/DESKTOP.md`), on Electron 44.5.1 (pinned), in English
+  and Russian. A tray icon in the colour of the install's health — the verdict of every health
+  check, the one the Status screen shows, asked again when the daemon's state moves, after anything
+  the app changes and every five minutes — with Open, Rebuild the search index, Stop the daemon and
+  Quit. A first-run wizard: the projects folder; the AI clients found on the computer, each with
+  what connecting it would do; the local model downloaded with progress and Cancel, imported from a
+  folder or skipped; the search index, with each step's outcome in words; what to do next. A
+  download keeps running, with its Cancel, while the person looks at another screen. A Status
+  screen: whether the install is ok, degraded or failed and why, every check with its details,
+  the critical ones marked, and what to do about each. The app drives the daemon every AI client
+  shares through the control API, on the Node the clients run; it starts the daemon when it is not
+  running, or offers a Start button when autostart is off; comes back by itself when a client starts
+  it again; moves to the new daemon when an update retires the old one; and says in the window what
+  keeps it from starting — the server not found, its packages not installed, a broken settings
+  file — with Try again. The page is a local page and nothing more: served from the app's own folder
+  under `app://` in a session of its own, with a policy that allows its own files and nothing else,
+  no WebRTC past a proxy, isolated and sandboxed, with nine functions to the main process, which
+  calls only the tools the interface has a button for, with only the arguments it sends. No menu
+  with Reload or the developer tools; DevTools open only with `AI_DEV_DESKTOP_DEVTOOLS=1`. Tests:
+  unit tests, and Playwright's Electron driver on a real daemon under xvfb; a `desktop` CI job runs
+  them.
+- **`openControlClient`** (`src/core/control-client.mjs`): an MCP SDK client on the daemon of an
+  install, for a program that drives it — the desktop app, a script, a test — with the settings,
+  the daemon's log, the Node the configured clients run (`clientNodePaths`) and `stopDaemons`
+  beside it. `connectDaemon` and `DaemonClientTransport` take the Node the daemon runs on
+  (`execPath`), for a caller that is not that Node, and `start: false` to reach only a daemon that
+  runs (`ENOTRUNNING` otherwise).
 
 ### Changed
 
@@ -587,6 +616,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   A narrowed session's stderr note counts the opt-in tools apart.
 - **A stopped `ai-dev setup` reports no failures** (Д-223): the step Ctrl-C cut short and the ones
   after it are skipped, and none of them is announced.
+
+- **`npm run check` covers the desktop app**: the static gate checks the syntax of `desktop/`'s
+  code, refuses `eval`, `new Function`, `shell: true` and `child_process.exec` in it (its tests
+  aside) and holds it to the 800-line ceiling; the security gate looks for keys in it and holds its
+  dependencies to exact versions with an integrity hash in its lockfile.
 
 ### Deprecated
 

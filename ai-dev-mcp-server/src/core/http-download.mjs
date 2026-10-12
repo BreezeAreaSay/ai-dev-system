@@ -383,6 +383,9 @@ function requestOnce(url, { method, headers, env, signal, ca: given, body }) {
         method,
         headers: sent,
         signal,
+        // Without an agent the request has no port of its own, and Node wrote
+        // `Host: <name>:80` for an https:// address (docs/DEFECTS.md, Д-211).
+        defaultPort: 443,
         createConnection: (_options, done) => {
           tunnel(proxy, host, port, signal, ca).then((socket) => {
             // `host` is what the certificate is checked against; without it

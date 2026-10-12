@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import zlib from "node:zlib";
 import { openUrl, proxyFetch as serverFetch, proxyFor as serverProxyFor } from "./http-download.mjs";
@@ -158,6 +161,41 @@ test("an https:// proxy is checked by its own name in the hooks' copy too, for a
     hookFetch(plainUrl, { env: { HTTP_PROXY: proxy.url }, ca: TEST_TLS.cert }),
     /could not be reached through the proxy https:\/\/localhost:\d+: (?!ERR_TLS_CERT_ALTNAME_INVALID)/
   );
+});
+
+test("through a tunnel the Host header names the port only when the address does, in both copies (Д-211)", async (t) => {
+  const hosts = [];
+  const server = https.createServer({ key: TEST_TLS.key, cert: TEST_TLS.cert }, (request, response) => {
+    hosts.push(request.headers.host);
+    response.end("ok");
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const proxy = await startProxy({ hosts: { [TEST_HOST]: server.address().port } });
+  t.after(() => proxy.close());
+  // The server's copy trusts what the session's NODE_EXTRA_CA_CERTS names; the hooks' takes `ca`.
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-host-"));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const authority = path.join(directory, "ca.pem");
+  await fs.writeFile(authority, TEST_TLS.cert);
+  for (const fetchVia of [hookFetch, serverFetch]) {
+    for (const url of [`https://${TEST_HOST}/x`, `https://${TEST_HOST}:443/x`, `https://${TEST_HOST}:8443/x`]) {
+      const response = await fetchVia(url, { env: { HTTPS_PROXY: proxy.url, NODE_EXTRA_CA_CERTS: authority }, ...(fetchVia === hookFetch ? { ca: TEST_TLS.cert } : {}) });
+      assert.equal(response.status, 200);
+    }
+  }
+  const expected = [TEST_HOST, TEST_HOST, `${TEST_HOST}:8443`];
+  assert.deepEqual(hosts, [...expected, ...expected]);
+});
+
+test("a proxy that wants credentials is told apart from one that refused them, in both copies (Д-212)", async (t) => {
+  const proxy = await startProxy({ hosts: { [TEST_HOST]: 9 }, credentials: "alice:secret" });
+  t.after(() => proxy.close());
+  const port = new URL(proxy.url).port;
+  for (const fetchVia of [hookFetch, serverFetch]) {
+    await assert.rejects(fetchVia(`https://${TEST_HOST}/x`, { env: { HTTPS_PROXY: `http://127.0.0.1:${port}` } }), /\(HTTP 407\)\. The proxy wants credentials: put them in the proxy URL/);
+    await assert.rejects(fetchVia(`https://${TEST_HOST}/x`, { env: { HTTPS_PROXY: `http://alice:wrong@127.0.0.1:${port}` } }), /\(HTTP 407\)\. The proxy did not accept the user name and password in the proxy URL\./);
+  }
 });
 
 test("a lookup that hangs is named a timeout, through the proxy as without it", async (t) => {

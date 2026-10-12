@@ -267,7 +267,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * that it is still this holder's, and — with `heartbeatMs` — a beat that keeps
  * proving it alive.
  */
-async function createLock(lockPath, { record = {}, heartbeatMs = 0 } = {}) {
+async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMode } = {}) {
   const token = crypto.randomUUID();
   let handle;
   for (let attempt = 0; ; attempt += 1) {
@@ -276,7 +276,9 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0 } = {}) {
       break;
     } catch (error) {
       if (error?.code === "ENOENT" && attempt === 0) {
-        await fs.mkdir(path.dirname(lockPath), { recursive: true });
+        // A folder made here gets the mode its owner asked for: the daemon's
+        // run/ is 0700 however it comes to be made (docs/DEFECTS.md, Д-213).
+        await fs.mkdir(path.dirname(lockPath), { recursive: true, ...(directoryMode === undefined ? {} : { mode: directoryMode }) });
         continue;
       }
       // Windows answers EPERM for a lock file another process is deleting.
@@ -321,15 +323,16 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0 } = {}) {
  * reported, never waited for.
  *
  * @param {string} filePath - The file the lock guards (not the lock itself).
- * @param {{ staleMs?: number, heartbeatMs?: number, record?: Record<string, unknown> }} [options] - `record`
- *   adds fields to the holder; the protocol's own fields are always this process's.
+ * @param {{ staleMs?: number, heartbeatMs?: number, record?: Record<string, unknown>, directoryMode?: number }} [options] - `record`
+ *   adds fields to the holder; the protocol's own fields are always this process's. `directoryMode`: the mode of a
+ *   folder the lock has to make.
  * @returns {Promise<{ release: () => Promise<void>, holds: () => Promise<boolean>, token: string } | { observed: object | null }>}
  */
-export async function tryAcquireFileLock(filePath, { staleMs = LOCK_STALE_MS, heartbeatMs = 0, record = {} } = {}) {
+export async function tryAcquireFileLock(filePath, { staleMs = LOCK_STALE_MS, heartbeatMs = 0, record = {}, directoryMode } = {}) {
   const lockPath = lockPathFor(filePath);
   let observed = null;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const taken = await createLock(lockPath, { record, heartbeatMs });
+    const taken = await createLock(lockPath, { record, heartbeatMs, directoryMode });
     if (taken) return taken;
     observed = await readLock(lockPath);
     if (!observed) continue;

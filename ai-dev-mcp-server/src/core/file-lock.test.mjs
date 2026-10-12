@@ -341,6 +341,18 @@ test("a lock held for a process's life is taken now or its holder named, never w
   await third.release();
 });
 
+test("a folder the lock has to make gets the mode its owner asks for, and the usual one otherwise (Д-213)", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lock-mode-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const owned = await tryAcquireFileLock(path.join(root, "run", "daemon-0123456789abcdef.json"), { directoryMode: 0o700 });
+  assert.ok(owned.release);
+  assert.equal((await fs.stat(path.join(root, "run"))).mode & 0o777, 0o700);
+  await owned.release();
+  const plain = await tryAcquireFileLock(path.join(root, "state", "tasks.json"));
+  assert.equal((await fs.stat(path.join(root, "state"))).mode & 0o777, 0o777 & ~process.umask());
+  await plain.release();
+});
+
 test("a daemon's lock: a dead holder's is broken, an empty one in the making is left to its maker (Д-193)", async () => {
   const target = await tempFile("daemon.json");
   await fs.writeFile(lockPathFor(target), JSON.stringify({ pid: DEAD_PID, host: os.hostname(), token: "dead", acquired_at: Date.now() }));

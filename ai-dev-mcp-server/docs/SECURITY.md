@@ -22,8 +22,8 @@
 
 ## The Daemon
 
-`ai-dev mcp`, which every client config runs, hands the client to one daemon per user and
-runtime home (`src/daemon.mjs`). The daemon serves the vault, the projects' context and the
+`ai-dev mcp`, which every client config runs, hands the client to one daemon per user, runtime
+home and build (`src/daemon.mjs`). The daemon serves the vault, the projects' context and the
 state, so a process that could talk to it, or pass for it, would read what the agents read and
 tell them what to do. What stands in the way:
 
@@ -33,25 +33,41 @@ tell them what to do. What stands in the way:
   hold a socket is passed over, never used; the socket itself is created under umask 077 and is
   mode 0600. On Windows the daemon listens on a named pipe; the pipe's default security
   descriptor gives other users read access at most, and a client needs read and write.
-- **Who knows where it is.** The name is drawn at random (96 bits) on every start and published
-  only in `run/daemon.json`, mode 0600, inside the user's runtime home — on Windows, inside the
-  user's profile, whose ACL keeps other users out. A fixed name — `\\.\pipe\ai-dev-<user>` until
-  3.0 — could be created by any local process before the daemon, which would then receive every
-  client (docs/DEFECTS.md, Д-107).
-- **Who it talks to.** The first line each side sends proves it holds the 256-bit secret in
-  `daemon.json`, without sending it: the client answers the daemon's nonce with an HMAC-SHA256
+- **Who can take its place.** The name is drawn at random (96 bits) on every start and published
+  only in the daemon's descriptor, `run/daemon-<build>.json`, mode 0600, inside the user's
+  runtime home — on Windows, inside the user's profile, whose ACL keeps other users out. The
+  name is not a secret: Linux lists every socket path in `/proc/net/unix`, which anyone can read,
+  and any Windows user can list the names of the pipes. What the random name prevents is a
+  process creating the pipe first and waiting for clients on it: a fixed name —
+  `\\.\pipe\ai-dev-<user>` until 3.0 — could be taken before the daemon started (docs/DEFECTS.md,
+  Д-107). Access itself is decided by the directory, the pipe's permissions and the handshake.
+- **Who it talks to.** The first line each side sends proves it holds the 256-bit secret in the
+  descriptor, without sending it: the client answers the daemon's nonce with an HMAC-SHA256
   bound to both nonces, and the daemon answers the client's with another, bound to both nonces
-  and its pid, which must be the pid `daemon.json` names. A process that reached the socket
+  and its pid, which must be the pid the descriptor names. A process that reached the socket
   anyway is refused before any MCP message, and learns nothing it can replay; a client that
   reached something other than the daemon — an address another process took over after the
-  daemon exited — refuses it before it sends anything.
-- **What it serves.** A daemon serves only clients of its own build: the same code, version and
-  the variables that change what the server does (`AI_DEV_*`, `BGE_*`, the proxy, the home
-  folders). A client of another build makes it retire — it gives up its address at once and
-  keeps only the sessions it has — and gets a daemon of its own.
+  daemon exited — refuses it before it sends anything else.
+- **What each session sees.** Only then does the client send its environment, and the daemon
+  runs that session — its tools, the processes they start, its downloads — in it, as the
+  client's own process would have run in 2.x: one client's PATH, proxy or token never serves
+  another (Д-190). The environment stays in the daemon's memory for the session's life and is
+  not written anywhere.
+- **What it serves.** A daemon serves only clients of its own build: the same code and version
+  and the same daemon-wide variables — where the data is and which model is loaded
+  (`src/core/session-env.mjs` lists them; a variable it does not know counts as daemon-wide). A
+  client of another build gets a daemon of its own, with its own descriptor and lock; the
+  daemon of code replaced where it lies — a `git pull`, an update in place — retires: it takes
+  no new client, finishes the sessions it has and is listed in `run/retired-<pid>.json` until it
+  exits (Д-191). `ai-dev daemon status` shows every daemon of the runtime home and, by variable
+  name, why it is not this one; `ai-dev daemon stop` stops them all.
+- **One daemon per build.** Its lock, `run/daemon-<build>.json.lock`, follows the protocol every
+  lock of AI Dev does (`src/core/file-lock.mjs`): created exclusively, refreshed while the daemon
+  lives, broken only when its holder is gone or silent and only if it is still the lock judged
+  abandoned (Д-193).
 
-What it does not stand against: anything running as the same user (it can read `daemon.json`, as
-it can read the vault), an administrator or root, and a runtime home placed with `AI_DEV_HOME`
+What it does not stand against: anything running as the same user (it can read the descriptor,
+as it can read the vault), an administrator or root, and a runtime home placed with `AI_DEV_HOME`
 in a folder other users can read — on Windows outside the profile, where the folder's ACL decides.
 `AI_DEV_DAEMON=0` in a client's environment keeps that client out of the daemon altogether: it is
 served in its own process, as in 2.x.

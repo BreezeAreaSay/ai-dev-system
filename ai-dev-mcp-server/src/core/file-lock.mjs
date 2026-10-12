@@ -265,12 +265,12 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * Create the lock file, exclusively, holding this process's holder record; or
  * null when it already exists. The lock comes back with its release, a check
  * that it is still this holder's, and — with `heartbeatMs` — a beat that keeps
- * proving it alive.
+ * proving it alive. A folder made for it is handed to `madeFolder` at once,
+ * whether the lock is then taken or not (docs/DEFECTS.md, Д-235).
  */
-async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMode, makeDirectory = true } = {}) {
+async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMode, makeDirectory = true, madeFolder = () => {} } = {}) {
   const token = crypto.randomUUID();
   let handle;
-  let madeFolder;
   for (let attempt = 0; ; attempt += 1) {
     try {
       handle = await fs.open(lockPath, "wx", 0o600);
@@ -279,7 +279,7 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMod
       if (error?.code === "ENOENT" && attempt === 0 && makeDirectory) {
         // A folder made here gets the mode its owner asked for: the locks the
         // daemon takes in run/ make it 0700 (docs/DEFECTS.md, Д-213, Д-215).
-        madeFolder = await fs.mkdir(path.dirname(lockPath), { recursive: true, ...(directoryMode === undefined ? {} : { mode: directoryMode }) });
+        madeFolder(await fs.mkdir(path.dirname(lockPath), { recursive: true, ...(directoryMode === undefined ? {} : { mode: directoryMode }) }));
         continue;
       }
       // Windows answers EPERM for a lock file another process is deleting.
@@ -300,7 +300,6 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMod
   beat?.unref?.();
   return {
     token,
-    madeFolder,
     async holds() {
       const current = await readLock(lockPath).catch(() => null);
       return current?.id === id && current?.holder?.token === token;
@@ -328,27 +327,33 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMod
  * @param {{ staleMs?: number, heartbeatMs?: number, record?: Record<string, unknown>, directoryMode?: number, makeDirectory?: boolean }} [options] - `record`
  *   adds fields to the holder; the protocol's own fields are always this process's. `directoryMode`: the mode of a
  *   folder the lock has to make. `makeDirectory: false`: a missing folder is not made; there is no lock then.
- * @returns {Promise<{ release: () => Promise<void>, holds: () => Promise<boolean>, token: string, madeFolder?: string } | { observed: object | null }>}
- *   `madeFolder`: the highest folder the lock made for itself, as `fs.mkdir` names it (on Windows in the `\\?\` namespace).
+ * @returns {Promise<{ release: () => Promise<void>, holds: () => Promise<boolean>, token: string, madeFolder?: string } | { observed: object | null, madeFolder?: string }>}
+ *   `madeFolder`: the highest folder the tries made for the lock, as `fs.mkdir` names it (on Windows in the `\\?\`
+ *   namespace) — also when another process took the lock first (docs/DEFECTS.md, Д-235).
  */
 export async function tryAcquireFileLock(filePath, { staleMs = LOCK_STALE_MS, heartbeatMs = 0, record = {}, directoryMode, makeDirectory = true } = {}) {
   const lockPath = lockPathFor(filePath);
   let observed = null;
+  let made;
+  // Each folder made is the start of the same path to the lock: the shortest is the highest.
+  const madeFolder = (folder) => {
+    if (folder && (!made || folder.length < made.length)) made = folder;
+  };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let taken;
     try {
-      taken = await createLock(lockPath, { record, heartbeatMs, directoryMode, makeDirectory });
+      taken = await createLock(lockPath, { record, heartbeatMs, directoryMode, makeDirectory, madeFolder });
     } catch (error) {
       // The folder is gone and the caller wants none made: nothing to lock.
       if (!makeDirectory && error?.code === "ENOENT") return { observed: null };
       throw error;
     }
-    if (taken) return taken;
+    if (taken) return Object.assign(taken, { madeFolder: made });
     observed = await readLock(lockPath);
     if (!observed) continue;
-    if (lockIsLive(observed, { staleMs }) || !(await breakStaleLock(lockPath, observed, { staleMs }))) return { observed };
+    if (lockIsLive(observed, { staleMs }) || !(await breakStaleLock(lockPath, observed, { staleMs }))) return { observed, madeFolder: made };
   }
-  return { observed };
+  return { observed, madeFolder: made };
 }
 
 /**

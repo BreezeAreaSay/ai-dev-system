@@ -406,6 +406,34 @@ test("a lock that makes its folder names the highest one it made, and none when 
   await again.release();
 });
 
+test("the folder a lock made is named also when another process writes the lock first, held or abandoned (Д-235)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lock-made-lost-"));
+  const target = path.join(root, "home", "run", "retired-4194305.json");
+  const home = path.toNamespacedPath(path.join(root, "home"));
+  // The other process writes its lock between this one's mkdir and its open.
+  let theirs;
+  const mkdir = fs.mkdir;
+  fs.mkdir = async (...args) => {
+    const made = await mkdir.apply(fs, args);
+    await fs.writeFile(lockPathFor(target), JSON.stringify(theirs));
+    return made;
+  };
+  t.after(() => {
+    fs.mkdir = mkdir;
+    return fs.rm(root, { recursive: true, force: true });
+  });
+  theirs = { pid: process.pid, host: os.hostname(), token: "theirs", acquired_at: Date.now() };
+  const held = await tryAcquireFileLock(target, { directoryMode: 0o700 });
+  assert.equal(held.release, undefined, "the other process holds it");
+  assert.equal(path.toNamespacedPath(held.madeFolder), home);
+  await fs.rm(path.join(root, "home"), { recursive: true });
+  theirs = { pid: DEAD_PID, host: os.hostname(), token: "dead", acquired_at: Date.now() };
+  const later = await tryAcquireFileLock(target, { directoryMode: 0o700 });
+  assert.equal(typeof later.release, "function", "a dead holder's lock is broken and taken on the next try");
+  assert.equal(path.toNamespacedPath(later.madeFolder), home, "the folder the first try made");
+  await later.release();
+});
+
 test("a lock told to make no folder takes none when its folder is gone, and makes nothing (Д-226)", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lock-no-folder-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

@@ -5,9 +5,11 @@
  *   const client = new Client({ name: "my-app", version: "1.0.0" });
  *   await client.connect(new DaemonClientTransport({ serverRoot }));
  *
- * It finds the daemon this install runs, or starts one, proves itself with the
- * secret in `daemon.json` and checks the daemon's proof (`daemon-channel.mjs`);
- * after that the connection is plain MCP, one message per line.
+ * It finds the daemon of this install's build, or starts one, proves itself
+ * with the secret in the daemon's descriptor (`run/daemon-<build>.json`) and
+ * checks the daemon's proof (`daemon-channel.mjs`); the session then runs in
+ * the environment given here, as a client's does in its bridge's. After that
+ * the connection is plain MCP, one message per line.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -25,7 +27,7 @@ export class DaemonClientTransport {
   onerror;
   onmessage;
 
-  /** What `daemon.json` said about the daemon this transport reached, once started. */
+  /** What the descriptor said about the daemon this transport reached, once started. */
   info = null;
 
   /** The daemon's answer to the handshake: version, build, the session's tool counts. */
@@ -34,8 +36,10 @@ export class DaemonClientTransport {
   /**
    * @param {object} options
    * @param {string} options.serverRoot - `ai-dev-mcp-server/` of the install whose daemon to reach.
-   * @param {NodeJS.ProcessEnv} [options.env] - The environment the daemon is started with, and compared by.
-   * @param {string | null} [options.profiles] - The session's capability profiles; empty for every tool.
+   * @param {NodeJS.ProcessEnv} [options.env] - The session's environment: the build is computed from it,
+   *   a daemon this transport starts gets it, and the session's tools run in it.
+   * @param {string | null} [options.profiles] - The session's capability profiles; empty for the default
+   *   surface, `control` (with or without others) for the desktop app's tools.
    * @param {number} [options.timeoutMs] - How long to wait for a daemon this transport starts.
    */
   constructor({ serverRoot, env = process.env, profiles = String(env.AI_DEV_PROFILES ?? ""), timeoutMs } = {}) {

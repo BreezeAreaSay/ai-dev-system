@@ -171,7 +171,7 @@ export function readSettings({ env = process.env, file = settingsPath(env) } = {
         problems.push(`${name}: ${error.message} The default is used.`);
       }
     }
-    if (setting.env && nonEmpty(env[setting.env]) && !(env.__AI_DEV_SETTINGS_APPLIED ?? "").split(",").includes(setting.env)) {
+    if (setting.env && nonEmpty(env[setting.env]) && !(env.AI_DEV_SETTINGS_APPLIED ?? "").split(",").includes(setting.env)) {
       source = `environment (${setting.env})`;
     }
     settings[name] = value;
@@ -231,7 +231,7 @@ export function applySettingsToEnvironment(env = process.env) {
     // starting up goes on with its environment as it is.
     return [];
   }
-  const ours = new Set(String(env.__AI_DEV_SETTINGS_APPLIED ?? "").split(",").filter(Boolean));
+  const ours = new Set(String(env.AI_DEV_SETTINGS_APPLIED ?? "").split(",").filter(Boolean));
   for (const [name, setting] of Object.entries(SETTINGS)) {
     if (!setting.env) continue;
     const explicit = nonEmpty(env[setting.env]) && !ours.has(setting.env);
@@ -251,7 +251,7 @@ export function applySettingsToEnvironment(env = process.env) {
       ours.delete(setting.env);
     }
   }
-  if (ours.size) env.__AI_DEV_SETTINGS_APPLIED = [...ours].sort().join(",");
-  else delete env.__AI_DEV_SETTINGS_APPLIED;
+  if (ours.size) env.AI_DEV_SETTINGS_APPLIED = [...ours].sort().join(",");
+  else delete env.AI_DEV_SETTINGS_APPLIED;
   return [...ours].sort();
 }

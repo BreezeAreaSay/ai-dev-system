@@ -11,6 +11,7 @@
  * Exit codes: 0 done, 1 failed, 2 wrong usage, 130 stopped with Ctrl-C.
  */
 import { CliUsageError, EXIT, closest } from "../core/cli-args.mjs";
+import { applySettingsToEnvironment } from "../core/settings.mjs";
 import { createIo, packageVersion } from "./context.mjs";
 
 /** @typedef {{ summary: string, group: string, load: () => Promise<{ run: (argv: string[], io: import("./context.mjs").CliIo, name: string) => Promise<number | null | undefined>, usage?: (name: string) => string }> }} CommandEntry */
@@ -95,6 +96,10 @@ export async function main(argv, io = createIo()) {
     const name = SYNONYMS.get(first) ?? first;
     const entry = COMMANDS.get(name);
     if (!entry) throw unknownCommand(first);
+    // What the settings file says fills the variables the environment leaves
+    // unset, for this command and every process it starts: the daemon, the
+    // bridge's own server. A variable set by hand keeps the last word.
+    applySettingsToEnvironment(io.env);
     const module = await entry.load();
     return await module.run(rest, io, name);
   } catch (error) {

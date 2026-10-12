@@ -26,6 +26,8 @@
  * @property {string} title Human-readable name.
  * @property {string} summary One line: what a session gains by turning it on.
  * @property {boolean} always `true` when the profile cannot be switched off.
+ * @property {boolean} [optIn] `true` when only a session that names it lists it:
+ *   neither an empty setting nor `all` turns it on.
  * @property {readonly string[]} tools Tool names, in the order they are documented.
  */
 
@@ -235,6 +237,30 @@ export const TOOL_PROFILES = Object.freeze([
       "prepare_runtime_distribution",
       "runtime_distribution_status"
     ])
+  },
+  {
+    id: "control",
+    title: "Control",
+    summary: "What the desktop app drives: status, setup, the local model, client connections, logs, settings and an overview of the work. Listed only to a session that names it.",
+    always: false,
+    // An agent's context does not carry the app's buttons, and an agent is not
+    // handed `clients_remove` or `model_remove` unless its client asks for them.
+    optIn: true,
+    tools: Object.freeze([
+      "system_status",
+      "setup_run",
+      "model_install",
+      "model_import",
+      "model_verify",
+      "model_remove",
+      "clients_list",
+      "clients_install",
+      "clients_remove",
+      "logs_tail",
+      "settings_get",
+      "settings_set",
+      "workspace_overview"
+    ])
   }
 ]);
 
@@ -248,6 +274,9 @@ const PROFILE_OF_TOOL = new Map(
 
 /** Every profile id, in documentation order. @type {readonly string[]} */
 export const PROFILE_IDS = Object.freeze(TOOL_PROFILES.map((profile) => profile.id));
+
+/** The profiles an empty setting and `all` turn on: every one but the opt-in ones. @type {readonly string[]} */
+export const DEFAULT_PROFILE_IDS = Object.freeze(TOOL_PROFILES.filter((profile) => !profile.optIn).map((profile) => profile.id));
 
 /**
  * @param {string} id
@@ -270,30 +299,29 @@ export function profileOfTool(toolName) {
  * a typo should not silently cost a session half its tools, so an unknown name
  * is reported and everything else still resolves.
  *
- * An empty or absent value means the whole surface, so an installation that
- * never heard of profiles behaves exactly as it did before they existed.
+ * An empty or absent value means the whole surface an agent gets, so an
+ * installation that never heard of profiles behaves exactly as it did before
+ * they existed. `all` means the same; an opt-in profile (`control`) is listed
+ * only when named, beside `all` or on its own.
  *
  * @param {string | undefined | null} raw
- * @returns {{ ids: string[], all: boolean, unknown: string[] }}
+ * @returns {{ ids: string[], all: boolean, unknown: string[] }} `all`: every
+ *   default profile is on.
  */
 export function parseProfileSetting(raw) {
-  const text = String(raw ?? "").trim();
-  if (!text) return { ids: [...PROFILE_IDS], all: true, unknown: [] };
-
-  const requested = text
+  const requested = String(raw ?? "")
     .split(/[,\s]+/)
     .map((part) => part.trim().toLowerCase())
     .filter(Boolean);
-  if (requested.includes(ALL_PROFILES)) return { ids: [...PROFILE_IDS], all: true, unknown: [] };
-
   const unknown = [];
   const ids = new Set([ALWAYS_ON_PROFILE]);
+  if (!requested.length || requested.includes(ALL_PROFILES)) for (const id of DEFAULT_PROFILE_IDS) ids.add(id);
   for (const name of requested) {
     if (BY_ID.has(name)) ids.add(name);
-    else unknown.push(name);
+    else if (name !== ALL_PROFILES) unknown.push(name);
   }
   const ordered = PROFILE_IDS.filter((id) => ids.has(id));
-  return { ids: ordered, all: ordered.length === PROFILE_IDS.length, unknown };
+  return { ids: ordered, all: DEFAULT_PROFILE_IDS.every((id) => ids.has(id)), unknown };
 }
 
 /**

@@ -276,7 +276,9 @@ function toolDefinition(tool) {
   return {
     ...tool,
     title: tool.title || toolTitle(tool.name),
-    outputSchema: {
+    // A tool with a contract (the control tools) advertises it, so an SDK
+    // client checks every answer against it; the rest answer anything under `result`.
+    outputSchema: tool.outputSchema ?? {
       type: "object",
       properties: { result: {} },
       required: ["result"],
@@ -285,7 +287,7 @@ function toolDefinition(tool) {
     annotations: {
       title: tool.title || toolTitle(tool.name),
       readOnlyHint: readOnly,
-      destructiveHint: false,
+      destructiveHint: !readOnly && tool.annotations?.destructiveHint === true,
       idempotentHint: readOnly || /^(rebuild|sync|refresh|prepare|bootstrap|validate)/.test(tool.name),
       openWorldHint: OPEN_WORLD_TOOLS.has(tool.name)
     }
@@ -342,9 +344,11 @@ export function progressReporter(extra, { now = Date.now } = {}) {
     onProgress(event = {}) {
       const total = Math.max(0, Number(event.total) || 0);
       const done = Math.max(0, Number(event.done ?? event.bytes) || 0);
-      if (event.phase !== phase) {
+      // A step of a longer run (`setup_run`) has phases of its own: one bar for all.
+      const key = `${event.step ?? ""}/${event.phase ?? ""}`;
+      if (key !== phase) {
         base += phaseTotal;
-        phase = event.phase;
+        phase = key;
         phaseTotal = total;
       } else {
         phaseTotal = Math.max(phaseTotal, total);
@@ -430,7 +434,7 @@ function sessionProfiles(profiles) {
 function sessionTools(profiles) {
   if (typeof profiles !== "string") return visibleTools();
   const active = sessionProfiles(profiles);
-  return active.all ? legacyTools : filterToolsByProfiles(legacyTools, active.ids);
+  return filterToolsByProfiles(legacyTools, active.ids);
 }
 
 /**

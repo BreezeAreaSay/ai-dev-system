@@ -91,7 +91,13 @@ export function summarizeToolResult(result, describe) {
  * @param {(name: string, args: object) => Promise<object>} input.callTool
  * @returns {Record<string, () => Promise<string>>} Keyed by step id.
  */
-export function createRequiredActions({ callTool }) {
+export function createRequiredActions({ callTool, onProgress, signal }) {
+  // A caller that shows progress and can stop (`setup_run`) passes both on to
+  // the one long step; the others take seconds.
+  const along = {
+    ...(onProgress ? { onProgress: (event = {}) => onProgress({ ...event, step: "search_index" }) } : {}),
+    ...(signal ? { signal } : {})
+  };
   return {
     async skill_registry() {
       const result = await callTool("rebuild_index", {});
@@ -121,7 +127,7 @@ export function createRequiredActions({ callTool }) {
         // vectors or to try to make new ones.
         dense_embeddings: false,
         preserve_dense: true
-      });
+      }, along);
       return summarizeToolResult(result, (doc) => (
         // `document_count` is what the rebuild path of search_cli.py returns, and
         // none of the other three names existed on a first run — so the very

@@ -12,7 +12,10 @@ const invoke = {
   call: "ai-dev:call",
   cancel: "ai-dev:cancel",
   chooseFolder: "ai-dev:choose-folder",
-  setLanguage: "ai-dev:set-language"
+  setLanguage: "ai-dev:set-language",
+  tools: "ai-dev:tools",
+  consoleCall: "ai-dev:console-call",
+  reconnect: "ai-dev:reconnect"
 };
 const events = {
   state: "ai-dev:state-changed",
@@ -33,6 +36,12 @@ contextBridge.exposeInMainWorld("aiDev", Object.freeze({
   connect: (start) => ipcRenderer.invoke(invoke.connect, { start: start === true }),
   /** Call one of the interface's tools; `id` names the call for progress and cancel. */
   call: (tool, args, id) => ipcRenderer.invoke(invoke.call, { tool, args, id }),
+  /** Every tool the daemon lists to the app, for the tool console. */
+  tools: () => ipcRenderer.invoke(invoke.tools),
+  /** Run a tool from the console; one that changes something asks the person first. */
+  consoleCall: (tool, args, id) => ipcRenderer.invoke(invoke.consoleCall, { tool, args, id }),
+  /** Open a new session with the daemon, for a setting that applies to new sessions. */
+  reconnect: () => ipcRenderer.invoke(invoke.reconnect),
   /** Cancel a call by its id. */
   cancel: (id) => ipcRenderer.invoke(invoke.cancel, id),
   /** The folder the person picks in the system's dialog, or null. */

@@ -12,6 +12,13 @@ export const STATUS_EVERY_MS = 30_000;
 /** A call's longest silence: a download or a setup reports progress far more often. */
 const CALL_TIMEOUT_MS = 10 * 60_000;
 
+/**
+ * The profiles the app's own session lists: every tool an agent gets, for the
+ * screens and the tool console, and the control API. The `profiles` setting is
+ * what AI clients get; it does not narrow the app.
+ */
+export const APP_PROFILES = "all,control";
+
 export class DaemonLink extends EventEmitter {
   #server;
   #env;
@@ -21,6 +28,7 @@ export class DaemonLink extends EventEmitter {
   #calls = new Map();
   #timer = null;
   #connecting = null;
+  #tools = null;
 
   /** `connecting`, `starting`, `online`, `offline` or `no-node`, with what goes with it. */
   state = { phase: "connecting" };
@@ -64,6 +72,7 @@ export class DaemonLink extends EventEmitter {
         env: this.#env,
         execPath: this.#execPath,
         start,
+        profiles: APP_PROFILES,
         name: "ai-dev-desktop"
       });
       this.#client = client;
@@ -90,6 +99,7 @@ export class DaemonLink extends EventEmitter {
     if (!this.#client) return;
     this.#client = null;
     this.#transport = null;
+    this.#tools = null;
     clearInterval(this.#timer);
     for (const call of this.#calls.values()) call.abort("The daemon went away.");
     this.#calls.clear();
@@ -123,7 +133,8 @@ export class DaemonLink extends EventEmitter {
         ...(onProgress ? { onprogress: (progress) => onProgress(progress) } : {})
       });
       if (result.isError) return { ok: false, error: result.content?.[0]?.text ?? "The tool failed.", cancelled: false };
-      if (tool !== "system_status") this.refreshStatus().catch(() => undefined);
+      // A tool that changed something may have changed the tray's colour too.
+      if (!(await this.#readsOnly(tool))) this.refreshStatus().catch(() => undefined);
       return { ok: true, result: result.structuredContent?.result ?? null };
     } catch (error) {
       const cancelled = controller.signal.aborted;
@@ -131,6 +142,50 @@ export class DaemonLink extends EventEmitter {
     } finally {
       this.#calls.delete(id);
     }
+  }
+
+  /**
+   * Every tool the daemon lists to this session, as `tools/list` answers it
+   * (name, description, input schema, annotations); empty when offline.
+   * Asked once per connection.
+   */
+  async tools() {
+    if (!this.#client) return [];
+    const client = this.#client;
+    this.#tools ??= (async () => {
+      const listed = [];
+      let cursor;
+      do {
+        const page = await client.listTools(cursor ? { cursor } : undefined);
+        listed.push(...(page.tools ?? []));
+        cursor = page.nextCursor;
+      } while (cursor);
+      return listed;
+    })();
+    try {
+      return await this.#tools;
+    } catch (error) {
+      this.#tools = null;
+      throw error;
+    }
+  }
+
+  async #readsOnly(tool) {
+    if (tool === "system_status") return true;
+    if (!this.#tools) return false;
+    const listed = await this.#tools.catch(() => []);
+    return listed.some((entry) => entry.name === tool && entry.annotations?.readOnlyHint === true);
+  }
+
+  /**
+   * Drop this session and open a new one — for a setting that applies to
+   * sessions started afterwards. The daemon goes on; calls in flight end.
+   */
+  async reconnect() {
+    await this.close("The app reconnected to the daemon.");
+    this.#transport = null;
+    this.#tools = null;
+    return this.connect({ start: true });
   }
 
   /** Cancel a call by its id; false when there is none. */
@@ -148,9 +203,9 @@ export class DaemonLink extends EventEmitter {
     return stopped;
   }
 
-  async close() {
+  async close(reason = "The app is closing.") {
     clearInterval(this.#timer);
-    for (const call of this.#calls.values()) call.abort("The app is closing.");
+    for (const call of this.#calls.values()) call.abort(reason);
     const client = this.#client;
     this.#client = null;
     await client?.close().catch(() => undefined);

@@ -64,7 +64,7 @@ test("the page has no Node, no file system, no network, and reaches only the int
     };
   });
   assert.deepEqual(seen.globals, { require: "undefined", process: "undefined", module: "undefined", Buffer: "undefined", global: "undefined", ipcRenderer: "undefined", electron: "undefined" });
-  assert.deepEqual(seen.api, ["call", "cancel", "chooseFolder", "connect", "onProgress", "onState", "setLanguage", "state"]);
+  assert.deepEqual(seen.api, ["call", "cancel", "chooseFolder", "connect", "consoleCall", "onProgress", "onState", "reconnect", "setLanguage", "state", "tools"]);
   assert.equal(seen.apiFrozen, true);
   for (const key of ["file", "network", "evalCall", "newFunction", "worker"]) assert.match(seen[key], /^refused/, `${key}: ${seen[key]}`);
   assert.equal(seen.inline, "blocked", "no inline script runs");

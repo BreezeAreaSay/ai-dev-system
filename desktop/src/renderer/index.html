@@ -9,15 +9,22 @@
   <script type="module" src="app.js"></script>
 </head>
 <body data-phase="connecting">
+  <a class="skip-link" href="#screen" data-i18n="nav.skip">Skip to content</a>
   <header class="bar">
     <span class="brand" data-i18n="app.title">AI Dev</span>
     <nav aria-label="Main">
       <button type="button" data-nav="status" data-i18n="nav.status">Status</button>
+      <button type="button" data-nav="projects" data-i18n="nav.projects">Projects</button>
+      <button type="button" data-nav="costs" data-i18n="nav.costs">Costs</button>
+      <button type="button" data-nav="skills" data-i18n="nav.skills">Skills</button>
+      <button type="button" data-nav="console" data-i18n="nav.console">Console</button>
+      <button type="button" data-nav="log" data-i18n="nav.log">Log</button>
+      <button type="button" data-nav="settings" data-i18n="nav.settings">Settings</button>
       <button type="button" data-nav="wizard" data-i18n="nav.setup">Setup</button>
     </nav>
     <label class="language">
       <span data-i18n="nav.language">Language</span>
-      <select id="language">
+      <select id="language" aria-label="Language" data-i18n-label="nav.language">
         <option value="en">English</option>
         <option value="ru">Русский</option>
       </select>

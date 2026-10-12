@@ -159,3 +159,172 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
   padding: 8px;
   font-size: 12px;
 }
+
+/* Phase 11: navigation for more screens, the data screens, the tool console. */
+
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  padding: 6px 12px;
+  background: var(--surface);
+  color: var(--accent);
+  border: 2px solid var(--focus);
+  border-radius: 6px;
+  z-index: 10;
+}
+.skip-link:focus { top: 8px; }
+
+.bar nav { flex-wrap: wrap; }
+.bar nav button[aria-current="page"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+a:focus-visible, textarea:focus-visible, .card:focus-visible, .tool-button:focus-visible, pre:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+input[type="text"], input[type="search"], input[type="number"], textarea {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+textarea { width: 100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+input[aria-invalid="true"], textarea[aria-invalid="true"] { border-color: var(--fail); }
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 4px 0;
+  text-decoration: underline;
+}
+
+.small { font-size: 13px; }
+.help { margin: 4px 0; color: var(--muted); font-size: 13px; }
+.label { font-weight: 600; }
+.empty { padding: 16px; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted); }
+.empty p { margin: 0; }
+.error-state { padding: 8px 0; }
+.notice-box { padding: 12px 14px; margin: 12px 0; border: 1px solid var(--warn); border-radius: 6px; }
+.notice-box p { margin: 0 0 8px; }
+
+.cards { list-style: none; padding: 0; display: grid; gap: 8px; }
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+}
+.card-title { font-size: 16px; }
+
+.card-section { margin-top: 20px; }
+.section-body { margin-top: 4px; }
+.epics, .decisions, .handoffs { list-style: none; padding: 0; }
+.epics > li, .decisions > li, .handoffs > li { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.epics progress { display: block; width: 100%; max-width: 360px; margin: 6px 0; }
+.children { margin: 4px 0; }
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; margin: 4px 0 8px; font-size: 14px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+.numeric { text-align: right; white-space: nowrap; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 8px; margin: 12px 0; }
+.tile { display: flex; flex-direction: column; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+.tile-value { font-size: 20px; }
+
+.field-inline { display: inline-flex; align-items: center; gap: 6px; }
+.check-label { display: inline-flex; align-items: center; gap: 6px; }
+.search { display: flex; gap: 8px; margin: 12px 0; }
+.search input { flex: 1; }
+.groups { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border-radius: 16px; }
+
+.markdown pre, pre.code {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  overflow: auto;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+.markdown h2, .markdown h3, .markdown h4, .markdown h5, .markdown h6 { margin: 16px 0 6px; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+
+.settings .setting { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.field-row { display: flex; flex-direction: column; gap: 4px; }
+.field-row label { font-weight: 600; }
+.field-input { display: flex; gap: 8px; }
+.field-input input { flex: 1; min-width: 0; }
+
+.log-lines {
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 8px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+main:has(.console) { max-width: 1180px; }
+.console-grid { display: grid; grid-template-columns: minmax(220px, 320px) 1fr; gap: 20px; align-items: start; }
+.console-left input { width: 100%; margin-bottom: 8px; }
+.tools { list-style: none; padding: 0; margin: 0; max-height: 65vh; overflow: auto; }
+.tool-button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+.tool-button[aria-current="true"] { background: var(--bg); outline: 1px solid var(--accent); }
+.tool-name { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+.tool-head { display: flex; align-items: center; gap: 10px; }
+.tool-head h2 { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.badge-read { color: var(--ok); }
+.badge-write { color: var(--warn); }
+.badge-destructive { color: var(--fail); }
+.arg { margin: 10px 0; }
+.arg label { display: block; font-weight: 600; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+.arg input[type="text"], .arg input[type="number"], .arg select { width: 100%; }
+.required { color: var(--fail); }
+.field-error { margin: 2px 0; font-size: 13px; }
+.field-error:empty { display: none; }
+.result { margin-top: 16px; }
+.result-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.result-head h3 { margin: 0; }
+.tabs { display: flex; gap: 4px; margin-left: auto; }
+.tab[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.readable { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
+.readable dt { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+.readable dd { margin: 0; overflow-wrap: anywhere; }
+.readable-list { margin: 0; padding-left: 20px; }
+
+@media (max-width: 760px) {
+  .console-grid { grid-template-columns: 1fr; }
+}
+
+/* Eight screens fit one line of the header: smaller buttons, the language's label for screen readers only. */
+.bar { gap: 12px; padding: 8px 16px; }
+.bar nav button { padding: 5px 10px; font-size: 14px; }
+.language span {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

@@ -1,0 +1,91 @@
+import assert from "node:assert/strict";
+import path from "node:path";
+import test from "node:test";
+import { OWN_SERVER_ROOT, PACKAGE_NAME, hint, isEphemeralInstall, resolveInstallLayout } from "./install-layout.mjs";
+
+const home = path.resolve("/home/me");
+const env = (extra = {}) => ({ HOME: home, USERPROFILE: "", ...extra });
+
+/** A filesystem of the given paths, for `exists`. */
+function only(...paths) {
+  const present = new Set(paths.map((item) => path.resolve(item)));
+  return (target) => present.has(path.resolve(target));
+}
+
+test("a checkout of this repository is a clone: its content is the bundled seed", () => {
+  const layout = resolveInstallLayout({ serverRoot: OWN_SERVER_ROOT, env: env() });
+  assert.equal(layout.kind, "clone");
+  assert.equal(layout.contentRoot, path.join(path.dirname(OWN_SERVER_ROOT), "docker", "public-seed"));
+  assert.equal(layout.seedRoot, "", "a clone's seed is its content: nothing to sync");
+  assert.equal(layout.runtimeRoot, path.join(home, ".ai-dev"));
+});
+
+test("a full vault two levels above the server, or AI_DEV_VAULT_ROOT, is a vault", () => {
+  const server = path.resolve("/vault/09-mcp/ai-dev-mcp-server");
+  const inVault = resolveInstallLayout({ serverRoot: server, env: env(), exists: only("/vault/03-skills-catalog") });
+  assert.equal(inVault.kind, "vault");
+  assert.equal(inVault.contentRoot, path.resolve("/vault"));
+  const named = resolveInstallLayout({ serverRoot: OWN_SERVER_ROOT, env: env({ AI_DEV_VAULT_ROOT: "/elsewhere/notes" }) });
+  assert.equal(named.kind, "vault");
+  assert.equal(named.contentRoot, path.resolve("/elsewhere/notes"));
+});
+
+test("a package keeps its seed read-only and the user's vault under the runtime folder", () => {
+  const root = path.resolve("/usr/lib/node_modules/@stonebridgeway/ai-dev-system");
+  const server = path.join(root, "ai-dev-mcp-server");
+  const layout = resolveInstallLayout({
+    serverRoot: server,
+    env: env(),
+    exists: only(path.join(root, "distribution.json"), path.join(root, "seed", "public-seed.manifest.json"))
+  });
+  assert.equal(layout.kind, "package");
+  assert.equal(layout.root, root);
+  assert.equal(layout.seedRoot, path.join(root, "seed"));
+  assert.equal(layout.contentRoot, path.join(home, ".ai-dev", "vault"));
+  assert.equal(layout.ephemeral, false);
+  assert.equal(layout.appHome, false);
+
+  const custom = resolveInstallLayout({ serverRoot: server, env: env({ AI_DEV_HOME: "/data/ai" }), exists: only() });
+  assert.equal(custom.contentRoot, path.resolve("/data/ai/vault"), "AI_DEV_HOME is the runtime folder (D2)");
+  assert.equal(custom.seedRoot, "", "no marker, no seed: nothing is copied from a folder that is not a distribution");
+});
+
+test("the image is docker, whatever the folders say", () => {
+  const layout = resolveInstallLayout({ serverRoot: "/opt/ai-dev/app", env: env({ AI_DEV_RUNTIME: "Docker" }), exists: () => true });
+  assert.equal(layout.kind, "docker");
+  assert.equal(layout.contentRoot, path.resolve("/data/ai-dev-system"));
+  const named = resolveInstallLayout({ serverRoot: "/opt/ai-dev/app", env: env({ AI_DEV_RUNTIME: "docker", AI_DEV_VAULT_ROOT: "/data/vault" }) });
+  assert.equal(named.contentRoot, path.resolve("/data/vault"));
+});
+
+test("npx's cache, pnpm's and yarn's dlx and bunx are one-run folders; the app home is not", () => {
+  assert.equal(isEphemeralInstall("/home/me/.npm/_npx/0123abcd/node_modules/@stonebridgeway/ai-dev-system/ai-dev-mcp-server"), true);
+  assert.equal(isEphemeralInstall("C:\\Users\\Me\\AppData\\Local\\npm-cache\\_npx\\0123\\node_modules\\x"), true);
+  assert.equal(isEphemeralInstall("/home/me/.cache/pnpm/dlx/abc/node_modules/x"), true);
+  assert.equal(isEphemeralInstall("/tmp/xfs-1234/dlx-5678/node_modules/x"), true);
+  assert.equal(isEphemeralInstall("/tmp/bunx-1000-x@latest/node_modules/x"), true);
+  assert.equal(isEphemeralInstall("/home/me/.ai-dev/app/3.0.0/ai-dev-mcp-server"), false);
+  assert.equal(isEphemeralInstall("/home/me/src/npx-tools/ai-dev"), false, "a folder merely named like one is not");
+
+  const server = path.join(home, ".ai-dev", "app", "3.0.0", "ai-dev-mcp-server");
+  const layout = resolveInstallLayout({ serverRoot: server, env: env(), exists: only() });
+  assert.equal(layout.appHome, true);
+  assert.equal(layout.ephemeral, false);
+});
+
+test("hints are spelled the way each layout runs them", () => {
+  const clone = { kind: "clone", ephemeral: false, appHome: false };
+  const global = { kind: "package", ephemeral: false, appHome: false };
+  const npx = { kind: "package", ephemeral: true, appHome: false };
+  const appHome = { kind: "package", ephemeral: false, appHome: true };
+  assert.equal(hint("npm run setup -- --model", clone), "npm run setup -- --model");
+  assert.equal(hint("npm run setup -- --model", global), "ai-dev setup --model");
+  assert.equal(hint("npm run setup -- --model", npx), `npx ${PACKAGE_NAME} setup --model`);
+  assert.equal(hint("npm run setup", appHome), `npx ${PACKAGE_NAME} setup`);
+  assert.equal(hint("npm run dense:doctor", global), "ai-dev model doctor");
+  assert.equal(hint("npm run clients:install -- --clients all", global), "ai-dev clients install --clients all");
+  assert.equal(hint("npm run ai-dev -- clients doctor", global), "ai-dev clients doctor");
+  assert.equal(hint("npm run doctor", { kind: "docker", ephemeral: false, appHome: false }), "ai-dev doctor");
+  assert.equal(hint("npm run check", global), "npm run check", "a script only a checkout has stays as written");
+  assert.equal(hint("git pull", global), "git pull");
+});

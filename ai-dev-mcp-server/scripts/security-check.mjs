@@ -9,7 +9,10 @@ const manifest = JSON.parse(await fs.readFile(path.join(root, "package.json"), "
 const lock = JSON.parse(await fs.readFile(path.join(root, "package-lock.json"), "utf8"));
 
 if (Number(lock.lockfileVersion) < 3) findings.push("package-lock.json must use lockfileVersion 3 or newer.");
-for (const [name, range] of Object.entries(manifest.dependencies ?? {})) {
+// The local model's packages are optional (an install that cannot build them
+// still works, docs/DEFECTS.md, Д-174), not exempt: they are pinned the same way.
+const direct = { ...manifest.dependencies, ...manifest.optionalDependencies };
+for (const [name, range] of Object.entries(direct)) {
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(String(range))) {
     findings.push(`Direct dependency "${name}" must use an exact version, found "${range}".`);
   }
@@ -65,7 +68,7 @@ if (findings.length) {
 } else {
   console.log(JSON.stringify({
     status: "passed",
-    direct_dependencies: Object.keys(manifest.dependencies ?? {}).length,
+    direct_dependencies: Object.keys(direct).length,
     locked_packages: Math.max(0, Object.keys(lock.packages ?? {}).length - 1),
     checks: ["exact versions", "lock integrity", "HTTPS registry", "source secret patterns"]
   }, null, 2));

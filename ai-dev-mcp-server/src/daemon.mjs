@@ -182,7 +182,7 @@ async function answersWithin(info, ms) {
  */
 async function acquireLock({ descriptor, log }) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const taken = await tryAcquireFileLock(descriptor, { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS, record: { started_at: Date.now() } });
+    const taken = await tryAcquireFileLock(descriptor, { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS, record: { started_at: Date.now() }, directoryMode: 0o700 });
     if (taken.release) return { lock: taken };
     const { observed } = taken;
     if (!observed) continue;
@@ -284,6 +284,8 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   let served = 0;
   let retired = null;
   let retiredLock = null;
+  // The highest folder this daemon made again for its retired record, if any.
+  let madeFolder = "";
   let stopping = false;
   // Set once the daemon leaves: nothing it publishes after that may outlive it.
   let finishing = false;
@@ -320,8 +322,11 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     if (await retiredLock?.holds().catch(() => false)) return true;
     await retiredLock?.release().catch(() => undefined);
     retiredLock = null;
-    await fs.mkdir(path.dirname(retiredDaemonPath(process.pid)), { recursive: true, mode: 0o700 }).catch(() => undefined);
-    const taken = await tryAcquireFileLock(retiredDaemonPath(process.pid), { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS }).catch(() => ({}));
+    // A folder made again here — the runtime home was deleted under this
+    // daemon — goes when the daemon does, if it is still empty (Д-213).
+    const made = await fs.mkdir(path.dirname(retiredDaemonPath(process.pid)), { recursive: true, mode: 0o700 }).catch(() => undefined);
+    if (made && !madeFolder) madeFolder = made;
+    const taken = await tryAcquireFileLock(retiredDaemonPath(process.pid), { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS, directoryMode: 0o700 }).catch(() => ({}));
     retiredLock = taken.release ? taken : null;
     return Boolean(retiredLock);
   };
@@ -377,6 +382,11 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     await fs.rm(retiredDaemonPath(process.pid), { force: true }).catch(() => undefined);
     await retiredLock?.release().catch(() => undefined);
     if (address && !isPipe(address)) await fs.rm(address, { force: true }).catch(() => undefined);
+    // Empty folders only: a neighbour's files keep theirs (`rmdir` refuses).
+    for (let folder = runtimeDir(); madeFolder && folder.startsWith(madeFolder); folder = path.dirname(folder)) {
+      await fs.rmdir(folder).catch(() => undefined);
+      if (folder === madeFolder) break;
+    }
     log(`exits: ${reason}`);
     process.exit(0);
   };

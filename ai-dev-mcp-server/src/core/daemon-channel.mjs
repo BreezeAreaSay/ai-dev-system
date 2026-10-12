@@ -292,8 +292,9 @@ export const nothingListens = (error) => NOTHING_LISTENS.has(error?.code);
  * that neither takes nor refuses within the time counts as taken.
  *
  * On macOS a full queue is refused like a dead socket, so there a hung daemon
- * met by some hundreds of connections looks gone (Д-208); it publishes its
- * record again once it runs.
+ * met by some hundreds of connections looks gone (Д-208): a retired one puts
+ * its record back once it runs, a serving one finds its descriptor gone and
+ * retires.
  *
  * @param {string} address
  * @param {{ timeoutMs?: number }} [options]

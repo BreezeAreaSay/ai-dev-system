@@ -203,7 +203,7 @@ export async function openChannel(info, { mode = "mcp", profiles = null, timeout
     const nonce = newNonce();
     await writeLine(socket, { protocol: DAEMON_PROTOCOL, nonce, proof: clientProof(info.secret, hello.nonce, nonce), mode, profiles });
     const { message: welcome, rest } = await readLine(socket, { timeoutMs, buffered: early });
-    if (welcome.ok !== true) throw new ChannelError(`The daemon refused the connection: ${welcome.error ?? "no reason given"}.`, { code: "EAUTH" });
+    if (welcome.ok !== true) throw new ChannelError(`The daemon refused the connection: ${String(welcome.error ?? "no reason given").replace(/\.$/, "")}.`, { code: "EAUTH" });
     if (!sameProof(welcome.proof, serverProof(info.secret, hello.nonce, nonce, welcome.pid))) {
       throw new ChannelError(`What answers at ${info.address} cannot prove it is this user's daemon.`, { code: "EAUTH" });
     }

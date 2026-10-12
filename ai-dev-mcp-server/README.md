@@ -378,6 +378,9 @@ AI_DEV_MODEL_MIRROR Hugging Face mirror tried first for the model (HF_ENDPOINT f
 AI_DEV_MODEL_MANIFEST  another pinned manifest instead of models/bge-m3.manifest.json
 AI_DEV_OFFLINE      1 forbids model downloads; `npm run model -- import` still works
 HTTPS_PROXY / HTTP_PROXY / NO_PROXY   honoured by the model download
+AI_DEV_DAEMON       0 serves the client in its own process instead of the shared daemon
+AI_DEV_IDLE_TIMEOUT_MS   how long the daemon stays without a client (default 1800000; 0 = until stopped)
+AI_DEV_DAEMON_START_TIMEOUT_MS   how long `ai-dev mcp` waits for a daemon it started (default 20000)
 ```
 
 `AI_DEV_HOME` is the runtime folder itself: `state/`, `cache/` and `models/` sit directly in
@@ -442,7 +445,8 @@ Everything a person does with the server is one command line, `bin/ai-dev.mjs` �
 ai-dev setup [--yes] [--model] [--frontend-qa] [--clients=all|<names>]
 ai-dev clients list | install | remove | doctor [--clients=<names>] [--dry-run] [--json]
 ai-dev model status | install | import <path> | verify | remove | doctor
-ai-dev mcp                       # the stdio server a client starts
+ai-dev mcp                       # what a client starts: its stdio, bridged to the daemon
+ai-dev daemon start | stop | status | run [--json]
 ai-dev doctor [--dense-smoke] [--search-eval]
 ai-dev dashboard | galaxy [scope...] | reindex | refresh [flags] | distribution
 ai-dev help [command]
@@ -465,6 +469,18 @@ name, is removed. `clients doctor` starts each entry's command and checks that i
 `initialize` with instructions; `clients remove` gives an untouched file back exactly. Restart or
 reload each client after installation. Any model selected inside an MCP-capable client can use
 the same tools; a raw model endpoint still needs an MCP-capable host.
+
+`ai-dev mcp` does not serve the client itself: it hands the client's stdin and stdout to the
+daemon, one warm server for every client of this user, and starts it when none runs — so the
+index and the model are in memory once, not once per client, and the state has one writer. The handshake passes through, instructions included. A daemon that dies is
+replaced at the client's next request (the request it was running gets an error that says so);
+one that cannot start leaves the client served in its own process, with the reason on stderr.
+`ai-dev daemon status` shows the pid, the sessions, the memory and the log
+(`~/.ai-dev/logs/daemon.log`); `stop` stops it, and the next request of a client starts a new
+one. The channel — a random address per start, a secret in `run/daemon.json` that each side
+proves it holds — is described in [docs/SECURITY.md](docs/SECURITY.md#the-daemon).
+`AI_DEV_DAEMON=0` in a client's environment, `npm start`, and the 2.x entry `node src/server.mjs`
+serve in the client's own process, as 2.x did.
 
 The shipped runtime profile is local stdio. A future remote profile is configuration scaffolding,
 not an enabled network server: remote mode remains blocked until TLS, authentication, allowlists,

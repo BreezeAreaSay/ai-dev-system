@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **One daemon serves every client** (`docs/DEFECTS.md`, Д-97). `ai-dev mcp` — what each
+  client's config runs — hands the client's stdio to the daemon, starting it detached and
+  without a window when none runs; the index and the model are in memory once, and the state
+  has one writer. The handshake passes through, so the client gets the daemon's own
+  `initialize` answer with its instructions. Measured with three clients and the stand-in
+  model: 528 MB in three processes, each holding the model, before; 358 MB now (three 58 MB
+  bridges and one 183 MB daemon), the model loaded once; 3 × 200 `record_usage` → 600
+  records. A `kill -9` of the daemon answers the request it was running with an error that
+  says so, and the client's next request starts a new daemon, introduced with the client's own
+  `initialize` (1.1 s). When no daemon can start, the client is served in its own process and
+  stderr says why; `AI_DEV_DAEMON=0` asks for that outright.
+- **`ai-dev daemon start | stop | status | run`.** `status` gives the pid, version, sessions
+  (live — 2.x always said 0), the clients, memory, address and log
+  (`~/.ai-dev/logs/daemon.log`); `stop` is a control request on every system — Windows has no
+  signal to send. `npm run daemon` is `ai-dev daemon run`.
+- **Progress and cancellation reach the tools** (Д-187). A request's progress token and its
+  cancellation go with the call: `rebuild_search_index` reports the text index being written
+  and the documents being embedded as one rising count, and a cancelled rebuild rolls its
+  write back whole — measured on 6,000 notes, cancelled at 64 of them, the index unchanged.
+  Before, a call said 0 of 1 and 1 of 1, and a cancelled rebuild ran to the end.
+
 - **One command line, `ai-dev`** (`ai-dev-mcp-server/bin/ai-dev.mjs`, `src/cli/`): `setup`,
   `clients list | install | remove | doctor`, `model status | install | import | verify | remove
   | doctor`, `mcp`, `doctor`, `version`, `help`, and the 2.x maintenance commands (`dashboard`,
@@ -347,6 +368,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The daemon's channel is this user's** (`docs/DEFECTS.md`, Д-107). Each start draws a
+  random socket or pipe name (96 bits) and publishes it, with a 256-bit secret, only in
+  `run/daemon.json` (mode 0600); each side's first line proves it holds the secret with an
+  HMAC bound to both nonces, without sending it. A Unix socket is created under umask 077 in a
+  0700 directory of the user — a link, another uid's directory or one that cannot hold a socket
+  is passed over. The Windows pipe was `\\.\pipe\ai-dev-<user>`, a name anyone could create
+  first. Measured with a second local user: the socket answers EACCES, and with the
+  directories and socket opened to everyone the handshake is still refused.
+- **Each daemon session lists the tools of its client's own `AI_DEV_PROFILES`**; the bridge
+  prints the same note on stderr as the stdio server.
+- **A daemon serves only clients of its own build**: code, version and the variables that
+  change what the server does. A client of another build — after a `git pull`, an update, a
+  different `AI_DEV_VAULT_ROOT` — makes it retire: it gives up its address at once and keeps
+  the sessions it has until they close.
+
 - **Hooks run through a Node launcher on macOS and Linux** (`docs/DEFECTS.md`, Д-103, the
   phase-6 half). `install_agent_hooks` registers `/bin/sh .ai-dev/hooks/with-node.sh
   <script>`, and the git hook stubs go through it too: it takes `AI_DEV_NODE`, then the Node
@@ -541,6 +577,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is Codex's own and stays.
 
 ### Fixed
+
+- **The daemon died on a long home** (Д-97). A socket path over 107 bytes was cut short by
+  libuv, the next `chmod` failed and the lock stayed behind; a home of 181 bytes — or any home
+  below this session's 87-byte scratch folder — never started a daemon. The socket now moves
+  to `$XDG_RUNTIME_DIR/ai-dev` or `/tmp/ai-dev-<uid>` when the path, counted in bytes, would
+  pass 100; a 196-byte home serves three clients.
+- **A hook in a package of a monorepo keyed its memory to the repository** (Д-164). It went up
+  to the Git root before looking for a project boundary, so in `<repo>/apps/web` the hook and
+  the server named different projects; the hook now takes the nearest boundary from its own
+  directory, as the server does.
 
 - **`node scripts/ai-dev.mjs start` served nothing, and a typo moved data**
   (`docs/DEFECTS.md`, Д-161). `start` imported a server that runs only when started directly

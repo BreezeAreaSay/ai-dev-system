@@ -12,10 +12,13 @@
 
 1. `server.mjs`: official MCP SDK transport, protocol capabilities, resources, prompts, and tool registration.
 2. `daemon.mjs` + `transport/socket.mjs`: the same server over a local Unix socket or Windows
-   named pipe instead of one stdio process per client. One warm process serves many sessions,
-   so the search index and the embedding model load once; it takes a pid lock, publishes
-   `run/daemon.json`, and exits after `AI_DEV_IDLE_TIMEOUT_MS` of no sessions (default 30 min).
-   Optional — `npm start` remains the stdio path.
+   named pipe, one warm process for every client of the user, so the search index and the
+   embedding model load once and the state has one writer. `ai-dev mcp` — what client configs
+   run — bridges the client's stdio to it (`core/daemon-bridge.mjs`) and starts it when none runs
+   (`core/daemon-client.mjs`); the channel's random address, secret and mutual handshake are
+   `core/daemon-channel.mjs` (see SECURITY.md, "The Daemon"). It takes a lock, keeps
+   `run/daemon.json` current with its session count, and exits after `AI_DEV_IDLE_TIMEOUT_MS` of
+   no sessions (default 30 min). `AI_DEV_DAEMON=0` and `npm start` keep the stdio path.
 3. `mcp-stdio.mjs`: composed domain-service facade and legacy-compatible rollback handler.
 4. `tool-definitions.mjs`: typed MCP contracts separated from dispatch and implementation.
 5. `core/`: path policy, atomic storage, command policy, process execution, canonical project

@@ -1230,10 +1230,22 @@ four of those arrived as upstream issues #63–#66.
 - **The sixth phase 8 review's findings** (Д-214 … Д-216): a retired daemon remembered the first
   folder it made again, not the highest, so a runtime home deleted after its `run/` stayed behind,
   empty; `run/` could still come out 0755 when `ai-dev daemon stop` cleared a gone daemon's
-  descriptor as the folder went, or when it was already 0755 — left by 2.x, or moved up by the 2.x
-  layout's migration — and the socket lived elsewhere. The daemon now removes up to the highest
-  folder it made, `stop`'s lock makes `run/` private, and a starting daemon makes a looser `run/`
-  of this user's 0700.
+  descriptor as the folder went, or when it was already 0755 — left so by the lock race fixed in
+  Д-213, or moved up by the 2.x layout's migration — and the socket lived elsewhere. The daemon now
+  removes up to the highest folder it made, `stop`'s lock makes `run/` private, and a starting
+  daemon makes a looser `run/` of this user's 0700.
+- **The seventh phase 8 review's findings** (Д-224 … Д-226): on Windows `fs.mkdir` names the folder
+  it made in the `\\?\` namespace, so a retired daemon never matched it and removed nothing; the
+  folders are compared in that form now. A starting daemon said `run/` was 0700 without looking and
+  said nothing when it could not make it so; it now opens `run/` without following a link, changes
+  and checks the mode through that handle, and logs what came of it — made private, or open and
+  staying so, and why. `ai-dev daemon stop` makes no folder at all any more, so a runtime home
+  deleted under it stays deleted, and a folder the retired record's own lock made again is removed
+  with the others. A second daemon in the same deleted runtime home still leaves the folders it did
+  not make; SECURITY.md says so.
+- **A socket folder a file system leaves open is passed over** (Д-227): the daemon changed the mode
+  of its socket's folder without looking at what came of it, and on a mount that keeps its modes
+  listened in a `run/` that stayed 0755. It now checks again and listens in the next folder.
 
 ### Security
 

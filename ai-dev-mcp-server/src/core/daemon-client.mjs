@@ -237,8 +237,10 @@ export async function connectDaemon({ serverRoot, cliPath, version, env: given =
  */
 async function removeStale(file, info) {
   if (await addressListening(info.address)) return false;
-  // run/ may have gone meanwhile; a lock that makes it again makes it private (docs/DEFECTS.md, Д-215).
-  const taken = await tryAcquireFileLock(file, { staleMs: DAEMON_LOCK_STALE_MS, directoryMode: 0o700 });
+  // run/ may have gone meanwhile — a runtime home deleted, a daemon leaving
+  // took its empty folder — and then there is nothing left to remove: the
+  // lock makes no folder (docs/DEFECTS.md, Д-215, Д-226).
+  const taken = await tryAcquireFileLock(file, { staleMs: DAEMON_LOCK_STALE_MS, makeDirectory: false });
   if (!taken.release) return false;
   try {
     return await removeDaemonInfo(file, info.pid);

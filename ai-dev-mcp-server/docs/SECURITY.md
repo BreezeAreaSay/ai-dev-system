@@ -70,8 +70,9 @@ tell them what to do. What stands in the way:
   lock of AI Dev does (`src/core/file-lock.mjs`): created exclusively, refreshed while the daemon
   lives, broken only when its holder is gone or silent and only if it is still the lock judged
   abandoned (Д-193). A daemon whose lock went silent but whose address still takes connections —
-  hung in a debugger, stopped, swapped out — keeps its socket and its record: `stop` asks it and
-  says if it did not stop, and once it wakes it takes its lock again (Д-204, Д-205).
+  hung in a debugger, stopped, swapped out, its connection queue full — keeps its socket and its
+  record: `stop` asks it and says if it did not stop, and once it wakes it takes its lock again
+  and puts back a record taken away meanwhile (Д-204, Д-205, Д-208).
 
 What it does not stand against: anything running as the same user (it can read the descriptor,
 as it can read the vault), an administrator or root, and a runtime home placed with `AI_DEV_HOME`

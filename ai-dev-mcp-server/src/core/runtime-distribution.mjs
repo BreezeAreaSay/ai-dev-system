@@ -76,8 +76,18 @@ const COMMAND_LABELS = {
   start: "Start",
   doctor: "Doctor",
   acceptance: "Full acceptance",
-  backup: "Backup"
+  backup: "Backup",
+  restore: "Restore"
 };
+
+// Backup and restore are `ai-dev` commands on every system since 3.0; 2.x had
+// two PowerShell scripts that worked only inside a full vault (Д-104).
+const BACKUP_FILE = Object.freeze({ root: "server", segments: ["src", "cli", "backup.mjs"] });
+const BACKUP_COMMANDS = Object.freeze({
+  backup: "node bin/ai-dev.mjs backup <label>",
+  restore: "node bin/ai-dev.mjs restore <archive.zip> --confirm"
+});
+const RECOVERY = Object.freeze({ backup_command: BACKUP_COMMANDS.backup, restore_command: BACKUP_COMMANDS.restore });
 
 const EXPECTATIONS = {
   windows: {
@@ -86,20 +96,17 @@ const EXPECTATIONS = {
       local_launcher: { root: "server", segments: ["scripts", "start-local.ps1"] },
       cli: { root: "server", segments: ["bin", "ai-dev.mjs"] },
       config_example: { root: "server", segments: ["config", "runtime.example.json"] },
-      acceptance: { root: "vault", segments: ["09-mcp", "scripts", "run-acceptance.ps1"] },
-      backup: { root: "vault", segments: ["09-mcp", "scripts", "backup-ai-dev-system.ps1"] },
-      restore: { root: "vault", segments: ["09-mcp", "scripts", "restore-ai-dev-system.ps1"] }
+      acceptance: { root: "server", segments: ["scripts", "acceptance.mjs"] },
+      backup: BACKUP_FILE,
+      restore: BACKUP_FILE
     },
     commands: {
       start: "node bin/ai-dev.mjs mcp",
       doctor: "node bin/ai-dev.mjs doctor",
       acceptance: "node bin/ai-dev.mjs acceptance",
-      backup: "node bin/ai-dev.mjs backup <label>"
+      ...BACKUP_COMMANDS
     },
-    recovery: {
-      backup_script: "09-mcp/scripts/backup-ai-dev-system.ps1",
-      restore_script: "09-mcp/scripts/restore-ai-dev-system.ps1"
-    }
+    recovery: RECOVERY
   },
   posix: {
     files: {
@@ -108,17 +115,16 @@ const EXPECTATIONS = {
       cli: { root: "server", segments: ["bin", "ai-dev.mjs"] },
       config_example: { root: "server", segments: ["config", "runtime.example.json"] },
       acceptance: { root: "server", segments: ["scripts", "acceptance.mjs"] },
-      backup: { reason: "No cross-platform backup script ships with this runtime; the PowerShell one is Windows-only." },
-      restore: { reason: "No cross-platform restore script ships with this runtime; the PowerShell one is Windows-only." }
+      backup: BACKUP_FILE,
+      restore: BACKUP_FILE
     },
     commands: {
       start: "node bin/ai-dev.mjs mcp",
       doctor: "node bin/ai-dev.mjs doctor",
-      acceptance: "node scripts/acceptance.mjs"
+      acceptance: "node scripts/acceptance.mjs",
+      ...BACKUP_COMMANDS
     },
-    recovery: {
-      reason: "No cross-platform backup or restore script ships with this runtime. Copy the vault and the AI Dev home (AI_DEV_HOME) instead."
-    }
+    recovery: RECOVERY
   },
   docker: {
     files: {
@@ -294,7 +300,14 @@ export function renderRuntimeDistribution(manifest) {
   const commandContext = manifest.command_context ? `\n\n${manifest.command_context}` : "";
   // A flavor without scripts states why instead of printing a PowerShell path
   // it does not have (docs/DEFECTS.md, Д-61).
-  const recoveryLines = manifest.recovery?.backup_script
+  const recoveryLines = manifest.recovery?.backup_command
+    ? [
+      `- Backup: \`${manifest.recovery.backup_command}\``,
+      `- Restore: \`${manifest.recovery.restore_command}\``,
+      "- A backup holds the vault and AI Dev's state with the SHA-256 of every file, and leaves out indexes, caches, models and dependencies."
+    ].join("\n")
+    // What a 2.x install recorded, read back until it is rebuilt.
+    : manifest.recovery?.backup_script
     ? [
       `- Backup script: \`${manifest.recovery.backup_script}\``,
       `- Restore script: \`${manifest.recovery.restore_script}\``,

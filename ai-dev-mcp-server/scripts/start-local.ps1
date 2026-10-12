@@ -12,14 +12,10 @@ $ErrorActionPreference = "Stop"
 [Console]::Error.WriteLine("ai-dev: scripts/start-local.ps1 is ``ai-dev mcp`` now (node bin\ai-dev.mjs mcp); this script stays until 4.0.")
 $serverRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if (-not $Node) {
-  # Prefer node on PATH; fall back to a bundled Codex runtime if one is present.
+  # Node on PATH. The Codex desktop runtime's private Node is not looked for any
+  # more (docs/DEFECTS.md, Д-104): set AI_DEV_NODE to use one.
   $onPath = Get-Command node -CommandType Application -ErrorAction SilentlyContinue
-  if ($onPath) {
-    $Node = $onPath.Source
-  } else {
-    $codexNode = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe"
-    if (Test-Path -LiteralPath $codexNode -PathType Leaf) { $Node = $codexNode }
-  }
+  if ($onPath) { $Node = $onPath.Source }
 }
 if (-not $Node -or -not (Test-Path -LiteralPath $Node -PathType Leaf)) {
   throw "Node.js 24+ not found. Install Node, or pass -Node <path> / set AI_DEV_NODE."

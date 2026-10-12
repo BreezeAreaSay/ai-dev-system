@@ -22,11 +22,18 @@ import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
 import { openZipEntry, readZipEntries } from "./model-archive.mjs";
+import { isApprovedVendoredDependencyPath } from "./public-distribution.mjs";
 
 export const BACKUP_MANIFEST = "BACKUP-MANIFEST.json";
 export const BACKUP_FORMAT = "ai-dev-backup";
 
-/** Never data: dependencies, VCS, caches a tool rebuilds, and the indexes. */
+/**
+ * Never data: dependencies, VCS, caches a tool rebuilds, and the indexes. The
+ * one exception is the vendored tree a skill runs from (Archify's), which the
+ * seed ships and nothing reinstalls: a restored vault without it would keep
+ * it missing, since the seed sync takes a shipped file that is gone for one the
+ * user deleted.
+ */
 const SKIP_DIRECTORIES = new Set([".git", "node_modules", ".venv", "__pycache__", ".pytest_cache"]);
 const SKIP_FILES = /(?:\.sqlite(?:-(?:shm|wal))?|\.pyc|\.lock)$/i;
 const SKIP_PATHS = [/^\.obsidian\/cache\//];
@@ -56,7 +63,7 @@ function dosTime(date) {
  * descriptors carry the sizes, ZIP64 records the offsets once the archive
  * passes 4 GiB or 65 535 entries.
  */
-class ZipWriter {
+export class ZipWriter {
   /** @param {fsp.FileHandle} handle */
   constructor(handle) {
     this.handle = handle;
@@ -198,7 +205,8 @@ async function collectFiles(root, prefix, found, skipped) {
       if (entry.isSymbolicLink()) {
         skipped.push({ path: `${prefix}/${relative}`, reason: "a link" });
       } else if (entry.isDirectory()) {
-        if (!SKIP_DIRECTORIES.has(entry.name) && !SKIP_PATHS.some((pattern) => pattern.test(`${relative}/`))) await walk(full);
+        const keep = !SKIP_DIRECTORIES.has(entry.name) || isApprovedVendoredDependencyPath(relative);
+        if (keep && !SKIP_PATHS.some((pattern) => pattern.test(`${relative}/`))) await walk(full);
       } else if (entry.isFile() && !SKIP_FILES.test(entry.name) && !SKIP_PATHS.some((pattern) => pattern.test(relative))) {
         found.push({ name: `${prefix}/${relative}`, file: full });
       }

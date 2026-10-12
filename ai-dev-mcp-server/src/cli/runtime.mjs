@@ -1,7 +1,8 @@
 /**
  * The commands that run the server or one of its tools: `mcp`, `doctor`,
- * `reindex`, `refresh`, `dashboard`, `galaxy`, `distribution`, `acceptance`,
- * `backup` — what `scripts/ai-dev.mjs` did, under the one CLI.
+ * `reindex`, `refresh`, `dashboard`, `galaxy`, `distribution`, `acceptance` —
+ * what `scripts/ai-dev.mjs` did, under the one CLI. (`backup` and `restore`
+ * are in `backup.mjs`.)
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
@@ -29,8 +30,7 @@ const USAGE = {
   dashboard: ["Usage: ai-dev dashboard", "", "Regenerate the live Obsidian dashboard."],
   galaxy: ["Usage: ai-dev galaxy [scope...]", "", "Render the vault as a 3D galaxy to fly through (HTML); scopes narrow it, e.g. `ai-dev galaxy knowledge workflows`."],
   distribution: ["Usage: ai-dev distribution", "", "Validate the local or VPS distribution boundaries."],
-  acceptance: ["Usage: ai-dev acceptance [flags]", "", "Run the acceptance suite: ten consecutive `npm run check` runs. A source checkout only."],
-  backup: ["Usage: ai-dev backup [label]", "", "ZIP backup of the vault plus SHA-256 — Windows vault installs only."]
+  acceptance: ["Usage: ai-dev acceptance [flags]", "", "Run the acceptance suite: ten consecutive `npm run check` runs. A source checkout only."]
 };
 
 /** @param {string} name */
@@ -78,7 +78,7 @@ export async function run(argv, io, name) {
     return EXIT.ok;
   }
   const options = name === "doctor" ? { "dense-smoke": { type: "boolean" }, "search-eval": { type: "boolean" } } : {};
-  const positionals = name === "galaxy" ? { max: Infinity, names: "scopes" } : name === "backup" ? { max: 1, names: "label" } : {};
+  const positionals = name === "galaxy" ? { max: Infinity, names: "scopes" } : {};
   const { values, positionals: words } = passThrough
     ? { values: {}, positionals: argv }
     : parseCommandLine(argv, { command: name, options, positionals });
@@ -122,16 +122,6 @@ export async function run(argv, io, name) {
       }
       return runChild(process.execPath, [runner, ...words]);
     }
-    case "backup":
-      if (process.platform !== "win32") {
-        // Saying so beats spawning a powershell.exe that is not there (Д-61).
-        io.err("backup is Windows-only: it runs 09-mcp/scripts/backup-ai-dev-system.ps1, and no cross-platform backup "
-          + "script ships with this runtime. Copy the vault and the AI Dev home (AI_DEV_HOME) instead; in Docker, back up "
-          + "the /data volume (docker/README.md).");
-        return EXIT.failed;
-      }
-      return runChild("powershell.exe", ["-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-        path.resolve(SERVER_ROOT, "..", "scripts", "backup-ai-dev-system.ps1"), "-Label", words[0] || "cli"]);
     default:
       return EXIT.usage;
   }

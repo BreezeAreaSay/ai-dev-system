@@ -50,7 +50,7 @@ const FORBIDDEN_FILE_PATTERNS = [
   { rule: "log-file", pattern: /\.log$/i }
 ];
 
-function isApprovedVendoredDependencyPath(relativePath) {
+export function isApprovedVendoredDependencyPath(relativePath) {
   return /(?:^|\/)03-skills-catalog\/sources\/external\/archify\/node_modules(?:\/|$)/i.test(relativePath);
 }
 

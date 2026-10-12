@@ -151,3 +151,22 @@ test("Status shows each health check with its details and what to do, in Russian
   assert.equal(stored.language, "ru");
   await shot(page, "status-ru");
 });
+
+test("a download the daemon's going away ends, while the person is on Status, is said on the step when they come back (Д-263, Д-266 п. 7)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t, { stall: true });
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-step="projects"]', { timeout: 60_000 });
+  await page.click('[data-action="next"]');
+  await page.click('[data-action="next"]');
+  await page.click('[data-action="download-model"]');
+  await page.waitForSelector('[data-action="cancel"]');
+  await page.click('[data-nav="status"]');
+  await page.waitForSelector('[data-screen="status"]');
+  // The tray's Stop: the download ends, and not because the person cancelled it.
+  await app.evaluate(() => globalThis.aiDevTest.link.stopDaemon());
+  await page.waitForSelector("#start-daemon", { timeout: 30_000 });
+  await page.click("#start-daemon");
+  await page.waitForSelector('[data-step="model"] .step-body .error', { timeout: 60_000 });
+  assert.match(await page.textContent('[data-step="model"] .step-body .error'), /The daemon went away/);
+  assert.equal(await page.$('[data-step="model"] .notice'), null, "not called cancelled");
+});

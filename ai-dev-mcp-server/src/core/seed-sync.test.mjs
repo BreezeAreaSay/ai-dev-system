@@ -259,3 +259,42 @@ test("a package missing a seed file still fills the vault; the file arrives once
   assert.equal(await read(vault, "a/.gitignore"), "x\n");
   assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0" })).status, "current");
 });
+
+test("a seed rename by case only keeps the file; a linked folder of the user's is never written through (Д-182, Д-185)", async (t) => {
+  const root = await scratch(t);
+  // Case: on Windows and macOS both names are one file — a hard link stands in for that here.
+  const vault = path.join(root, "vault");
+  await syncSeed({ seedRoot: await writeSeed(path.join(root, "a1"), { "x/skill.md": "s\n" }), contentRoot: vault, version: "1.0.0" });
+  await fs.link(path.join(vault, "x", "skill.md"), path.join(vault, "x", "SKILL.md"));
+  const renamed = await syncSeed({ seedRoot: await writeSeed(path.join(root, "a2"), { "x/SKILL.md": "s\n" }), contentRoot: vault, version: "1.0.1" });
+  assert.equal(renamed.removed, 0, "the old name is the same file: not removed");
+  assert.equal(await read(vault, "x/skill.md"), "s\n");
+
+  // A skills folder linked to the user's own repository.
+  const linkedVault = path.join(root, "linked-vault");
+  const repository = path.join(root, "my-repository");
+  await syncSeed({ seedRoot: await writeSeed(path.join(root, "b1"), { "skills/a/SKILL.md": "a1\n", "skills/b/SKILL.md": "b1\n", "top.md": "t1\n" }), contentRoot: linkedVault, version: "1.0.0" });
+  await fs.cp(path.join(linkedVault, "skills"), repository, { recursive: true });
+  await fs.rm(path.join(linkedVault, "skills"), { recursive: true });
+  await fs.symlink(repository, path.join(linkedVault, "skills"));
+  const update = await syncSeed({ seedRoot: await writeSeed(path.join(root, "b2"), { "skills/a/SKILL.md": "a2\n", "top.md": "t2\n" }), contentRoot: linkedVault, version: "1.0.1" });
+  assert.equal(await fs.readFile(path.join(repository, "a", "SKILL.md"), "utf8"), "a1\n", "not rewritten through the link");
+  assert.equal(await fs.readFile(path.join(repository, "b", "SKILL.md"), "utf8"), "b1\n", "not removed through the link");
+  assert.equal(await read(linkedVault, "top.md"), "t2\n", "the rest of the vault is updated as ever");
+  assert.ok(update.kept.includes("skills/a/SKILL.md"));
+});
+
+test("a conflict resolved by deleting the file leaves no .seed-new behind; build metadata does not order versions (Д-185)", async (t) => {
+  const root = await scratch(t);
+  const vault = path.join(root, "vault");
+  await syncSeed({ seedRoot: await writeSeed(path.join(root, "s1"), { "n.md": "1\n" }), contentRoot: vault, version: "1.0.0" });
+  await fs.writeFile(path.join(vault, "n.md"), "mine\n");
+  await syncSeed({ seedRoot: await writeSeed(path.join(root, "s2"), { "n.md": "2\n" }), contentRoot: vault, version: "1.0.1" });
+  assert.equal(await read(vault, `n.md${SEED_NEW_SUFFIX}`), "2\n");
+  await fs.rm(path.join(vault, "n.md"));
+  await syncSeed({ seedRoot: await writeSeed(path.join(root, "s3"), { "n.md": "3\n" }), contentRoot: vault, version: "1.0.2" });
+  assert.equal(await exists(path.join(vault, `n.md${SEED_NEW_SUFFIX}`)), false);
+  assert.equal(await exists(path.join(vault, "n.md")), false, "and the file stays deleted");
+  assert.equal(compareVersions("3.0.0+build.1", "3.0.0"), 0);
+  assert.equal(compareVersions("3.0.1+a", "3.0.0+b"), 1);
+});

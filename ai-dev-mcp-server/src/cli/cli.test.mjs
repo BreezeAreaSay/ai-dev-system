@@ -208,7 +208,8 @@ test("`ai-dev backup` and `ai-dev restore` run on every system, and a restore as
   await fs.writeFile(path.join(vault, "01-system", "Agent Rules.md"), "mine\n");
   await fs.mkdir(path.join(runtime, "state"), { recursive: true });
   await fs.writeFile(path.join(runtime, "state", "instincts.json"), "{}\n");
-  const env = homeEnv(home, { AI_DEV_HOME: runtime, AI_DEV_VAULT_ROOT: vault });
+  // The state the server keeps under this runtime: the test setup's own AI_DEV_STATE_ROOT is not it.
+  const env = homeEnv(home, { AI_DEV_HOME: runtime, AI_DEV_VAULT_ROOT: vault, AI_DEV_STATE_ROOT: "" });
 
   const made = await runNode([cli, "backup", "before", "--to", path.join(home, "b"), "--json"], { env });
   assert.equal(made.code, 0, made.stderr);

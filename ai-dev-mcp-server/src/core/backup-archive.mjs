@@ -21,6 +21,7 @@ import path from "node:path";
 import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
+import { renameOver } from "./atomic-files.mjs";
 import { openZipEntry, readZipEntries } from "./model-archive.mjs";
 import { isApprovedVendoredDependencyPath } from "./public-distribution.mjs";
 
@@ -38,8 +39,28 @@ const SKIP_DIRECTORIES = new Set([".git", "node_modules", ".venv", "__pycache__"
 const SKIP_FILES = /(?:\.sqlite(?:-(?:shm|wal))?|\.pyc|\.lock)$/i;
 const SKIP_PATHS = [/^\.obsidian\/cache\//];
 
-/** A single entry over this needs ZIP64 sizes in its local header; a backup holds notes and state, not models. */
+/**
+ * The largest 32-bit field. The value itself means "see the ZIP64 record", so a
+ * size, offset or count reaching it needs ZIP64 (Д-180); a single entry that
+ * large needs ZIP64 sizes in its local header, which a backup of notes and
+ * state does not have.
+ */
 const ENTRY_LIMIT = 0xffff_ffff;
+const COUNT_LIMIT = 0xffff;
+
+/**
+ * Whether the end of the archive needs the ZIP64 records: a count, size or
+ * offset that does not fit its field — or fills it, since the all-ones value
+ * itself sends a reader to the ZIP64 record (Д-180).
+ *
+ * @param {number} count
+ * @param {number} directoryOffset
+ * @param {number} directorySize
+ * @returns {boolean}
+ */
+export function zip64Needed(count, directoryOffset, directorySize) {
+  return count >= COUNT_LIMIT || directoryOffset >= ENTRY_LIMIT || directorySize >= ENTRY_LIMIT;
+}
 
 const LOCAL = 0x04034b50;
 const CENTRAL = 0x02014b50;
@@ -49,9 +70,13 @@ const ZIP64_END = 0x06064b50;
 const ZIP64_LOCATOR = 0x07064b50;
 const UTF8_AND_DESCRIPTOR = 0x0808;
 const DEFLATED = 8;
+/** "Made by" Unix, so the external attributes carry the file's mode for any unzip. */
+const MADE_BY_UNIX = (3 << 8) | 45;
 
 function dosTime(date) {
-  const year = Math.max(1980, date.getFullYear());
+  // Seven bits of year from 1980: a file dated after 2107 (a wrong clock, an
+  // unpacked archive) is stamped 2107 rather than ending the backup (Д-180).
+  const year = Math.min(2107, Math.max(1980, date.getFullYear()));
   return {
     time: (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1),
     date: ((year - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate()
@@ -80,9 +105,10 @@ export class ZipWriter {
    * @param {string} name - Forward slashes, no leading slash.
    * @param {import("node:stream").Readable} source
    * @param {Date} modified
+   * @param {number} [mode] - Unix permission bits, kept in the central directory.
    * @returns {Promise<{ size: number, sha256: string }>}
    */
-  async add(name, source, modified) {
+  async add(name, source, modified, mode = 0o644) {
     const nameBytes = Buffer.from(name, "utf8");
     const offset = this.offset;
     const { time, date } = dosTime(modified);
@@ -117,7 +143,7 @@ export class ZipWriter {
       }
     });
     await pipeline(source, counter, zlib.createDeflateRaw(), sink);
-    if (size > ENTRY_LIMIT || compressed > ENTRY_LIMIT) throw new Error(`${name} is over 4 GiB, which a backup entry cannot hold.`);
+    if (size >= ENTRY_LIMIT || compressed >= ENTRY_LIMIT) throw new Error(`${name} is 4 GiB or more, which a backup entry cannot hold.`);
 
     const descriptor = Buffer.alloc(16);
     descriptor.writeUInt32LE(DESCRIPTOR, 0);
@@ -125,14 +151,14 @@ export class ZipWriter {
     descriptor.writeUInt32LE(compressed, 8);
     descriptor.writeUInt32LE(size, 12);
     await this.write(descriptor);
-    this.entries.push({ nameBytes, time, date, crc: crc >>> 0, compressed, size, offset });
+    this.entries.push({ nameBytes, time, date, crc: crc >>> 0, compressed, size, offset, mode: mode & 0o7777 });
     return { size, sha256: hash.digest("hex") };
   }
 
   async finish() {
     const directoryOffset = this.offset;
     for (const entry of this.entries) {
-      const wideOffset = entry.offset > ENTRY_LIMIT;
+      const wideOffset = entry.offset >= ENTRY_LIMIT;
       const extra = wideOffset ? Buffer.alloc(12) : Buffer.alloc(0);
       if (wideOffset) {
         extra.writeUInt16LE(0x0001, 0);
@@ -141,7 +167,7 @@ export class ZipWriter {
       }
       const record = Buffer.alloc(46);
       record.writeUInt32LE(CENTRAL, 0);
-      record.writeUInt16LE(45, 4);
+      record.writeUInt16LE(MADE_BY_UNIX, 4);
       record.writeUInt16LE(45, 6);
       record.writeUInt16LE(UTF8_AND_DESCRIPTOR, 8);
       record.writeUInt16LE(DEFLATED, 10);
@@ -152,12 +178,13 @@ export class ZipWriter {
       record.writeUInt32LE(entry.size, 24);
       record.writeUInt16LE(entry.nameBytes.length, 28);
       record.writeUInt16LE(extra.length, 30);
+      record.writeUInt32LE(((0o100000 | entry.mode) << 16) >>> 0, 38);
       record.writeUInt32LE(wideOffset ? 0xffff_ffff : entry.offset, 42);
       await this.write(Buffer.concat([record, entry.nameBytes, extra]));
     }
     const directorySize = this.offset - directoryOffset;
     const count = this.entries.length;
-    const wide = count > 0xffff || directoryOffset > ENTRY_LIMIT || directorySize > ENTRY_LIMIT;
+    const wide = zip64Needed(count, directoryOffset, directorySize);
     if (wide) {
       const zip64End = Buffer.alloc(56);
       zip64End.writeUInt32LE(ZIP64_END, 0);
@@ -234,17 +261,18 @@ async function sha256File(file) {
  * @param {object} input
  * @param {string} input.contentRoot - The vault, or what stands for it.
  * @param {string} input.runtimeRoot - `~/.ai-dev`, or `AI_DEV_HOME`.
+ * @param {string} [input.stateRoot] - Where the server keeps its state: `AI_DEV_STATE_ROOT`, else `<runtime>/state` (Д-179).
  * @param {string} input.destination - The folder the archive goes into.
  * @param {string} [input.label]
  * @param {string} [input.layout] - Recorded in the manifest.
  * @param {Date} [input.now]
  * @returns {Promise<{ archive: string, sha256: string, files: number, bytes: number, skipped: Array<{ path: string, reason: string }> }>}
  */
-export async function createBackup({ contentRoot, runtimeRoot, destination, label = "manual", layout = "", now = new Date() }) {
+export async function createBackup({ contentRoot, runtimeRoot, stateRoot = path.join(runtimeRoot, "state"), destination, label = "manual", layout = "", now = new Date() }) {
   const found = [];
   const skipped = [];
   await collectFiles(contentRoot, "vault", found, skipped);
-  await collectFiles(path.join(runtimeRoot, "state"), "runtime/state", found, skipped);
+  await collectFiles(stateRoot, "runtime/state", found, skipped);
   await fsp.mkdir(destination, { recursive: true });
   const archive = path.join(destination, backupFileName(label, now));
   const temp = `${archive}.${process.pid}.tmp`;
@@ -262,12 +290,13 @@ export async function createBackup({ contentRoot, runtimeRoot, destination, labe
         if (error?.code === "ENOENT") continue;
         throw error;
       }
-      if (stat.size > ENTRY_LIMIT) {
-        skipped.push({ path: item.name, reason: "over 4 GiB" });
+      if (stat.size >= ENTRY_LIMIT) {
+        skipped.push({ path: item.name, reason: "4 GiB or more" });
         continue;
       }
-      const { size, sha256 } = await zip.add(item.name, fs.createReadStream(item.file), stat.mtime);
-      files.push({ path: item.name, bytes: size, sha256 });
+      const mode = stat.mode & 0o777;
+      const { size, sha256 } = await zip.add(item.name, fs.createReadStream(item.file), stat.mtime, mode);
+      files.push({ path: item.name, bytes: size, sha256, mode });
       bytes += size;
     }
     const manifest = {
@@ -278,11 +307,12 @@ export async function createBackup({ contentRoot, runtimeRoot, destination, labe
       layout,
       content_root: contentRoot,
       runtime_root: runtimeRoot,
+      state_root: stateRoot,
       total_files: files.length,
       total_bytes: bytes,
       files
     };
-    await zip.add(BACKUP_MANIFEST, fsReadable(Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)), now);
+    await zip.add(BACKUP_MANIFEST, fsReadable(Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)), now, 0o600);
     await zip.finish();
     await handle.sync();
   } catch (error) {
@@ -291,7 +321,7 @@ export async function createBackup({ contentRoot, runtimeRoot, destination, labe
     throw error;
   }
   await handle.close();
-  await fsp.rename(temp, archive);
+  await renameOver(temp, archive);
   const sha256 = await sha256File(archive);
   await fsp.writeFile(`${archive}.sha256`, `${sha256}  ${path.basename(archive)}\n`, { mode: 0o600 });
   return { archive, sha256, files: files.length, bytes, skipped };
@@ -324,22 +354,27 @@ export function landingPath(root, name) {
  * Put a backup back.
  *
  * An archive this module wrote goes back where its parts belong — `vault/`
- * into the content root, `runtime/state/` into the runtime's `state/` — or,
- * with `target`, under that folder as it is laid out in the archive. One the
- * 2.x script wrote is a whole vault and needs `target`. Every file is checked
- * against the manifest's sha256 on its way out, the archive against its
- * `.sha256` when there is one, and nothing is written over an existing file
- * unless `overwrite` says so — checked for all of them before the first write.
+ * into the content root, `runtime/state/` into the state folder — or, with
+ * `target`, under that folder as it is laid out in the archive. One the 2.x
+ * script wrote is a whole vault and needs `target`. The archive is checked
+ * against its `.sha256` when there is one, and nothing is written over an
+ * existing file unless `overwrite` says so — checked for all of them first.
+ *
+ * All or nothing (Д-178): every file is unpacked beside where it goes and
+ * checked against its sha256 in the manifest before the first one is put in
+ * place; then each replaced file is set aside, and a failure while putting
+ * them in place puts the set-aside ones back.
  *
  * @param {object} input
  * @param {string} input.archive
  * @param {string} [input.contentRoot]
  * @param {string} [input.runtimeRoot]
+ * @param {string} [input.stateRoot] - Defaults to `<runtimeRoot>/state`.
  * @param {string} [input.target]
  * @param {boolean} [input.overwrite]
  * @returns {Promise<{ restored: number, schema: number, places: string[] }>}
  */
-export async function restoreBackup({ archive, contentRoot, runtimeRoot, target = "", overwrite = false }) {
+export async function restoreBackup({ archive, contentRoot, runtimeRoot, stateRoot = runtimeRoot ? path.join(runtimeRoot, "state") : "", target = "", overwrite = false }) {
   const sidecar = `${archive}.sha256`;
   const expected = await fsp.readFile(sidecar, "utf8").then((text) => text.trim().split(/\s+/)[0].toLowerCase(), () => "");
   if (expected && expected !== await sha256File(archive)) {
@@ -360,19 +395,19 @@ export async function restoreBackup({ archive, contentRoot, runtimeRoot, target 
       const [root, rest] = target
         ? [target, name]
         : name.startsWith("vault/") ? [contentRoot, name.slice("vault/".length)]
-          : name.startsWith("runtime/state/") ? [path.join(runtimeRoot, "state"), name.slice("runtime/state/".length)]
+          : name.startsWith("runtime/state/") ? [stateRoot, name.slice("runtime/state/".length)]
             : [null, ""];
       const landing = root ? landingPath(root, rest) : null;
       const entry = entries.get(name);
       if (!landing || !entry) throw new Error(`${archive}: the entry ${JSON.stringify(name)} cannot be restored (outside its folder, or missing from the archive).`);
-      plan.push({ entry, landing, sha256: String(file.sha256 ?? "") });
+      plan.push({ entry, landing, sha256: String(file.sha256 ?? ""), mode: Number.isInteger(file.mode) ? file.mode & 0o777 : null });
     }
   } else {
     for (const entry of entries.values()) {
       if (entry.name === BACKUP_MANIFEST) continue;
       const landing = landingPath(target, entry.name);
       if (!landing) throw new Error(`${archive}: the entry ${JSON.stringify(entry.name)} would land outside ${target}.`);
-      plan.push({ entry, landing, sha256: "" });
+      plan.push({ entry, landing, sha256: "", mode: null });
     }
   }
   if (!overwrite) {
@@ -385,28 +420,54 @@ export async function restoreBackup({ archive, contentRoot, runtimeRoot, target 
         + "Restore into an empty folder (--to), or pass --overwrite to replace them.");
     }
   }
-  for (const item of plan) {
-    await fsp.mkdir(path.dirname(item.landing), { recursive: true });
-    const temp = `${item.landing}.${process.pid}.restore`;
-    const hash = crypto.createHash("sha256");
-    const counter = new Transform({
-      transform(chunk, _encoding, done) {
-        hash.update(chunk);
-        done(null, chunk);
+
+  const tag = `${process.pid}.${crypto.randomUUID().slice(0, 8)}`;
+  try {
+    // 1. Everything unpacked and checked, nothing in place yet.
+    for (const item of plan) {
+      await fsp.mkdir(path.dirname(item.landing), { recursive: true });
+      item.temp = `${item.landing}.${tag}.restore`;
+      const hash = crypto.createHash("sha256");
+      const counter = new Transform({
+        transform(chunk, _encoding, done) {
+          hash.update(chunk);
+          done(null, chunk);
+        }
+      });
+      await pipeline(await openZipEntry(archive, item.entry), counter, fs.createWriteStream(item.temp, { flags: "wx" }));
+      if (item.sha256 && hash.digest("hex") !== item.sha256) {
+        throw new Error(`${item.entry.name} in ${archive} does not match its sha256 in the manifest; nothing was restored.`);
       }
-    });
-    try {
-      await pipeline(await openZipEntry(archive, item.entry), counter, fs.createWriteStream(temp, { flags: "wx", mode: 0o600 }));
-      const actual = hash.digest("hex");
-      if (item.sha256 && actual !== item.sha256) {
-        throw new Error(`${item.entry.name} in ${archive} does not match its sha256 in the manifest; the restore stopped there.`);
-      }
-      await fsp.rename(temp, item.landing);
-    } catch (error) {
-      await fsp.rm(temp, { force: true });
-      throw error;
+      if (item.mode !== null) await fsp.chmod(item.temp, item.mode);
     }
+  } catch (error) {
+    await Promise.all(plan.filter((item) => item.temp).map((item) => fsp.rm(item.temp, { force: true })));
+    throw error;
   }
-  const places = ours && !target ? [contentRoot, path.join(runtimeRoot, "state")] : [target];
+  // 2. In place, each replaced file set aside until all are.
+  const done = [];
+  try {
+    for (const item of plan) {
+      if (await fsp.lstat(item.landing).then(() => true, () => false)) {
+        item.aside = `${item.landing}.${tag}.restore-old`;
+        await renameOver(item.landing, item.aside);
+      }
+      await renameOver(item.temp, item.landing);
+      item.temp = "";
+      done.push(item);
+    }
+  } catch (error) {
+    for (const item of done.reverse()) {
+      if (item.aside) await renameOver(item.aside, item.landing).catch(() => undefined);
+      else await fsp.rm(item.landing, { force: true }).catch(() => undefined);
+    }
+    for (const item of plan) {
+      if (item.temp) await fsp.rm(item.temp, { force: true }).catch(() => undefined);
+      if (item.aside && !done.includes(item)) await renameOver(item.aside, item.landing).catch(() => undefined);
+    }
+    throw new Error(`${error.message} Nothing was restored: the files already put back were returned as they were.`);
+  }
+  await Promise.all(plan.filter((item) => item.aside).map((item) => fsp.rm(item.aside, { force: true })));
+  const places = ours && !target ? [contentRoot, stateRoot] : [target];
   return { restored: plan.length, schema: ours ? 2 : 1, places };
 }

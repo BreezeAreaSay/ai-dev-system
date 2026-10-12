@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
-import { BACKUP_MANIFEST, ZipWriter, backupFileName, createBackup, landingPath, restoreBackup } from "./backup-archive.mjs";
+import { BACKUP_MANIFEST, ZipWriter, backupFileName, createBackup, landingPath, restoreBackup, zip64Needed } from "./backup-archive.mjs";
 import { readZipEntries } from "./model-archive.mjs";
 
 async function scratch(t) {
@@ -162,3 +162,53 @@ async function writeZip(file, entries) {
     await handle.close();
   }
 }
+
+test("a restore over a live install with one bad entry in the middle changes nothing (Д-178)", async (t) => {
+  const root = await scratch(t);
+  const vault = path.join(root, "vault");
+  const runtime = path.join(root, ".ai-dev");
+  for (const name of ["a", "b", "c", "d", "e"]) await put(vault, { [`${name}.md`]: `backup ${name}\n` });
+  const made = await createBackup({ contentRoot: vault, runtimeRoot: runtime, destination: path.join(root, "b") });
+  for (const name of ["a", "b", "c", "d", "e"]) await fs.writeFile(path.join(vault, `${name}.md`), `current ${name}\n`);
+  // The archive alone, without its .sha256, and damaged inside c.md's data.
+  await fs.rm(`${made.archive}.sha256`);
+  const bytes = await fs.readFile(made.archive);
+  bytes[bytes.indexOf(Buffer.from("vault/c.md")) + "vault/c.md".length + 2] ^= 0xff;
+  await fs.writeFile(made.archive, bytes);
+  await assert.rejects(restoreBackup({ archive: made.archive, contentRoot: vault, runtimeRoot: runtime, overwrite: true }), /c\.md|nothing was restored|invalid/i);
+  for (const name of ["a", "b", "c", "d", "e"]) assert.equal(await read(vault, `${name}.md`), `current ${name}\n`, `${name}.md is as it was`);
+  assert.deepEqual((await fs.readdir(vault)).sort(), ["a.md", "b.md", "c.md", "d.md", "e.md"], "and nothing is left beside them");
+});
+
+test("the state comes from where the server keeps it, AI_DEV_STATE_ROOT included (Д-179)", async (t) => {
+  const root = await scratch(t);
+  const state = path.join(root, "my-state");
+  await put(state, { "tasks/t1.json": "{}\n" });
+  const made = await createBackup({ contentRoot: path.join(root, "vault"), runtimeRoot: path.join(root, ".ai-dev"), stateRoot: state, destination: path.join(root, "b") });
+  assert.equal(made.files, 1);
+  await fs.rm(state, { recursive: true });
+  await restoreBackup({ archive: made.archive, contentRoot: path.join(root, "vault"), runtimeRoot: path.join(root, ".ai-dev"), stateRoot: state });
+  assert.equal(await read(state, "tasks/t1.json"), "{}\n");
+});
+
+test("a file dated after 2107 is kept, the ZIP64 records start at the all-ones values, and modes come back (Д-180, Д-185)", async (t) => {
+  const root = await scratch(t);
+  const vault = path.join(root, "vault");
+  await put(vault, { "future.md": "x\n", "scan.sh": "#!/bin/sh\n", "note.md": "n\n" });
+  await fs.utimes(path.join(vault, "future.md"), new Date("2110-01-01"), new Date("2110-01-01"));
+  await fs.chmod(path.join(vault, "scan.sh"), 0o755);
+  await fs.chmod(path.join(vault, "note.md"), 0o644);
+  const made = await createBackup({ contentRoot: vault, runtimeRoot: path.join(root, ".ai-dev"), destination: path.join(root, "b") });
+  assert.equal(made.files, 3);
+  const back = path.join(root, "back");
+  await restoreBackup({ archive: made.archive, target: back });
+  if (process.platform !== "win32") {
+    const mode = async (name) => (await fs.stat(path.join(back, "vault", name))).mode & 0o777;
+    assert.equal(await mode("scan.sh"), 0o755);
+    assert.equal(await mode("note.md"), 0o644);
+  }
+  assert.equal(zip64Needed(65_534, 0, 0), false);
+  assert.equal(zip64Needed(65_535, 0, 0), true, "0xffff entries is the ZIP64 marker itself");
+  assert.equal(zip64Needed(10, 0xffff_ffff, 0), true);
+  assert.equal(zip64Needed(10, 0xffff_fffe, 0xffff_fffe), false);
+});

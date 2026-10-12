@@ -137,7 +137,7 @@ export function evaluateRuntimeHome(info) {
     };
   }
   const migrated = info.last_migration
-    ? ` On ${String(info.last_migration.at || "").slice(0, 10)} ${Number(info.last_migration.moved || 0) + Number(info.last_migration.merged || 0)} file(s) were moved here from ${info.last_migration.from}.`
+    ? ` On ${String(info.last_migration.at || "").slice(0, 10)} ${Number(info.last_migration.moved || 0) + Number(info.last_migration.merged || 0)} file(s) were moved here from ${info.last_migration.from}${info.last_migration.superseded ? `, and ${info.last_migration.superseded} older cache file(s) there were dropped` : ""}.`
     : "";
   const namesHome = info.ai_dev_home_names_home
     ? " AI_DEV_HOME names the home directory, which keeps its 2.x meaning (<home>/.ai-dev); set it to the runtime folder itself or unset it."

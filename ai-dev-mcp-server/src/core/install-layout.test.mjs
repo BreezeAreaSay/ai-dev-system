@@ -20,14 +20,29 @@ test("a checkout of this repository is a clone: its content is the bundled seed"
   assert.equal(layout.runtimeRoot, path.join(home, ".ai-dev"));
 });
 
-test("a full vault two levels above the server, or AI_DEV_VAULT_ROOT, is a vault", () => {
+test("a full vault two levels above the server is a vault; AI_DEV_VAULT_ROOT moves the content, not the kind", () => {
   const server = path.resolve("/vault/09-mcp/ai-dev-mcp-server");
   const inVault = resolveInstallLayout({ serverRoot: server, env: env(), exists: only("/vault/03-skills-catalog") });
   assert.equal(inVault.kind, "vault");
   assert.equal(inVault.contentRoot, path.resolve("/vault"));
   const named = resolveInstallLayout({ serverRoot: OWN_SERVER_ROOT, env: env({ AI_DEV_VAULT_ROOT: "/elsewhere/notes" }) });
-  assert.equal(named.kind, "vault");
+  assert.equal(named.kind, "clone", "the code is still a clone, and its commands are still npm run");
   assert.equal(named.contentRoot, path.resolve("/elsewhere/notes"));
+});
+
+test("a package npx runs with AI_DEV_VAULT_ROOT set is still a package in npx's cache (Д-177)", () => {
+  const root = path.resolve("/home/me/.npm/_npx/abc/node_modules/@stonebridgeway/ai-dev-system");
+  const layout = resolveInstallLayout({
+    serverRoot: path.join(root, "ai-dev-mcp-server"),
+    env: env({ AI_DEV_VAULT_ROOT: "/home/me/notes" }),
+    exists: only(path.join(root, "distribution.json"), path.join(root, "seed", "public-seed.manifest.json"))
+  });
+  assert.equal(layout.kind, "package");
+  assert.equal(layout.ephemeral, true, "so setup installs the app home, and clients are never pointed here");
+  assert.equal(layout.contentRoot, path.resolve("/home/me/notes"));
+  assert.equal(layout.seedRoot, "", "a vault of the user's own is not filled from the package's seed");
+  assert.equal(hint("npm run setup -- --model", layout), `npx ${PACKAGE_NAME} setup --model`);
+  assert.match(runtimeRepairHint(layout), /^run `npx @stonebridgeway\/ai-dev-system setup`/);
 });
 
 test("a package keeps its seed read-only and the user's vault under the runtime folder", () => {
@@ -85,7 +100,8 @@ test("hints are spelled the way each layout runs them", () => {
   assert.equal(hint("npm run dense:doctor", global), "ai-dev model doctor");
   assert.equal(hint("npm run clients:install -- --clients all", global), "ai-dev clients install --clients all");
   assert.equal(hint("npm run ai-dev -- clients doctor", global), "ai-dev clients doctor");
-  assert.equal(hint("npm run doctor", { kind: "docker", ephemeral: false, appHome: false }), "ai-dev doctor");
+  assert.equal(hint("npm run doctor", { kind: "docker", ephemeral: false, appHome: false, serverRoot: "/opt/ai-dev/app" }),
+    "node /opt/ai-dev/app/bin/ai-dev.mjs doctor", "the image has no ai-dev on PATH (Д-185)");
   assert.equal(hint("npm run check", global), "npm run check", "a script only a checkout has stays as written");
   assert.equal(hint("git pull", global), "git pull");
 });

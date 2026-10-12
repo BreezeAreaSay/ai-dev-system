@@ -69,12 +69,15 @@ export async function run(argv, io, name) {
   await prepareRuntimeHome({ env: io.env });
   const layout = currentInstallLayout();
   const runtimeRoot = layout.runtimeRoot;
+  // Where the server keeps its state: AI_DEV_STATE_ROOT moves it (Д-179).
+  const stateRoot = io.env.AI_DEV_STATE_ROOT ? path.resolve(io.env.AI_DEV_STATE_ROOT) : path.join(runtimeRoot, "state");
 
   if (name === "backup") {
     const destination = values.to ? path.resolve(values.to) : path.join(runtimeRoot, "backups");
     const result = await createBackup({
       contentRoot: layout.contentRoot,
       runtimeRoot,
+      stateRoot,
       destination,
       label: positionals[0] || "manual",
       layout: layout.kind
@@ -85,7 +88,7 @@ export async function run(argv, io, name) {
     }
     io.out(`Backup: ${tildify(result.archive)} (${result.files} file(s), ${formatBytes(result.bytes)} before compression).`);
     io.out(`SHA-256: ${result.sha256}`);
-    io.out(`It holds ${tildify(layout.contentRoot)} and ${tildify(path.join(runtimeRoot, "state"))}.`);
+    io.out(`It holds ${tildify(layout.contentRoot)} and ${tildify(stateRoot)}.`);
     if (result.skipped.length) io.out(`Left out: ${result.skipped.length} link(s) or oversized file(s), the first ${result.skipped[0].path} (${result.skipped[0].reason}).`);
     io.out(`To put it back: ${hint("npm run ai-dev -- restore")} "${result.archive}" --confirm`);
     return EXIT.ok;
@@ -99,6 +102,7 @@ export async function run(argv, io, name) {
     archive,
     contentRoot: layout.contentRoot,
     runtimeRoot,
+    stateRoot,
     target: values.to ? path.resolve(values.to) : "",
     overwrite: Boolean(values.overwrite)
   });

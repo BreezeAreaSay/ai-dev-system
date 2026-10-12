@@ -65,14 +65,19 @@ export async function migrateDoubledRuntimeHome({ env = process.env, now = () =>
  * made the server leave the Codex-era tasks and sessions behind without a word,
  * while the hooks had never read them at all (docs/DEFECTS.md, Д-104). Only
  * these folders are AI Dev's; the rest of `~/.codex` is Codex's own and stays.
+ *
+ * `cache` marks what is rebuilt or checked rather than kept: the search index
+ * and the model. A Codex-era copy of a file that `~/.ai-dev` already has is
+ * dropped, not a conflict for the user to settle — a binary index or half a
+ * download has nothing to compare (Д-183).
  */
 export const CODEX_LEGACY_FOLDERS = Object.freeze([
   { variable: "AI_DEV_STATE_ROOT", from: ["state", "ai-dev-system"], to: ["state"] },
   { variable: "AI_DEV_ARCHIFY_RECEIPTS_ROOT", from: ["state", "archify-receipts"], to: ["state", "archify-receipts"] },
-  { variable: "AI_DEV_SEARCH_INDEX_DIR", from: ["cache", "ai-dev-system", "search-index"], to: ["cache", "search-index"] },
+  { variable: "AI_DEV_SEARCH_INDEX_DIR", from: ["cache", "ai-dev-system", "search-index"], to: ["cache", "search-index"], cache: true },
   { variable: "AI_DEV_FRONTEND_QA_ARTIFACT_ROOT", from: ["artifacts", "frontend-qa"], to: ["artifacts", "frontend-qa"] },
   { variable: "AI_DEV_ARCHIFY_ARTIFACT_ROOT", from: ["artifacts", "archify"], to: ["artifacts", "archify"] },
-  { variable: "BGE_M3_ONNX_DIR", from: ["models", "bge-m3-onnx"], to: ["models", "bge-m3-onnx"] }
+  { variable: "BGE_M3_ONNX_DIR", from: ["models", "bge-m3-onnx"], to: ["models", "bge-m3-onnx"], cache: true }
 ]);
 
 /** The `~/.codex` folders of AI Dev's that this environment would read, existing or not. */
@@ -95,10 +100,10 @@ function codexLegacyFolders(env) {
  * sides stays in `~/.codex` and is reported; the move is recorded.
  *
  * @param {{ env?: NodeJS.ProcessEnv, now?: () => Date }} [options]
- * @returns {Promise<{ status: "clean"|"migrated", from?: string, to?: string, moved: number, merged: number, duplicates: number, conflicts: string[], errors: Array<{ path: string, code: string, message: string }> }>}
+ * @returns {Promise<{ status: "clean"|"migrated", from?: string, to?: string, moved: number, merged: number, duplicates: number, superseded: number, conflicts: string[], errors: Array<{ path: string, code: string, message: string }> }>}
  */
 export async function migrateCodexRuntime({ env = process.env, now = () => new Date() } = {}) {
-  const empty = () => ({ moved: 0, merged: 0, duplicates: 0, conflicts: [], errors: [] });
+  const empty = () => ({ moved: 0, merged: 0, duplicates: 0, superseded: 0, conflicts: [], errors: [] });
   const present = async () => {
     const found = [];
     for (const folder of codexLegacyFolders(env)) if (await isDirectory(folder.source)) found.push(folder);
@@ -113,11 +118,11 @@ export async function migrateCodexRuntime({ env = process.env, now = () => new D
     if (!folders.length) return { status: "clean", ...empty() };
     const counts = empty();
     for (const folder of folders) {
-      await mergeTree(folder.source, folder.destination, folder.codex, counts);
+      await mergeTree(folder.source, folder.destination, folder.codex, counts, { supersede: Boolean(folder.cache) });
       await removeEmptyDirectories(folder.source);
     }
     const result = { status: "migrated", kind: "codex", from: folders[0].codex, to: target, ...counts };
-    if (counts.moved || counts.merged || counts.duplicates || counts.conflicts.length || counts.errors.length) {
+    if (counts.moved || counts.merged || counts.duplicates || counts.superseded || counts.conflicts.length || counts.errors.length) {
       await recordMigration(target, { ...result, at: now().toISOString() });
     }
     return result;
@@ -154,7 +159,7 @@ async function sameContent(left, right) {
   }
 }
 
-async function mergeTree(sourceDir, targetDir, legacyRoot, counts) {
+async function mergeTree(sourceDir, targetDir, legacyRoot, counts, options = {}) {
   let entries;
   try {
     entries = await fs.readdir(sourceDir, { withFileTypes: true });
@@ -167,8 +172,8 @@ async function mergeTree(sourceDir, targetDir, legacyRoot, counts) {
     const source = path.join(sourceDir, entry.name);
     const destination = path.join(targetDir, entry.name);
     try {
-      if (entry.isDirectory()) await mergeTree(source, destination, legacyRoot, counts);
-      else if (entry.isFile() || entry.isSymbolicLink()) await mergeEntry(source, destination, entry, legacyRoot, counts);
+      if (entry.isDirectory()) await mergeTree(source, destination, legacyRoot, counts, options);
+      else if (entry.isFile() || entry.isSymbolicLink()) await mergeEntry(source, destination, entry, legacyRoot, counts, options);
       // A socket or a pipe a 2.x daemon left behind is not data.
     } catch (error) {
       if (error?.code !== "ENOENT") counts.errors.push(entryError(legacyRoot, source, error));
@@ -180,7 +185,7 @@ function entryError(legacyRoot, file, error) {
   return { path: path.relative(legacyRoot, file) || ".", code: String(error?.code ?? ""), message: String(error?.message ?? error).slice(0, 240) };
 }
 
-async function mergeEntry(source, destination, entry, legacyRoot, counts) {
+async function mergeEntry(source, destination, entry, legacyRoot, counts, options = {}) {
   const existing = await fs.lstat(destination).catch((error) => (error?.code === "ENOENT" ? null : Promise.reject(error)));
   if (!existing) {
     try {
@@ -190,7 +195,7 @@ async function mergeEntry(source, destination, entry, legacyRoot, counts) {
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
       // Something wrote the destination meanwhile: judge it like any other pair.
-      return mergeEntry(source, destination, entry, legacyRoot, counts);
+      return mergeEntry(source, destination, entry, legacyRoot, counts, options);
     }
   }
   if (entry.isFile() && existing.isFile()) {
@@ -204,6 +209,12 @@ async function mergeEntry(source, destination, entry, legacyRoot, counts) {
       counts.merged += 1;
       return;
     }
+  }
+  if (options.supersede && entry.isFile() && existing.isFile()) {
+    // A cache the runtime tree has its own of: the older copy is not data.
+    await fs.rm(source, { force: true });
+    counts.superseded += 1;
+    return;
   }
   counts.conflicts.push(path.relative(legacyRoot, source));
 }

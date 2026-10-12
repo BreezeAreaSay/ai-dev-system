@@ -102,6 +102,37 @@ async function removeIfSha(target, ...shas) {
   if (current !== null && shas.includes(current)) await fsp.rm(target, { force: true });
 }
 
+/**
+ * Whether a folder between the vault and this path is a link — a folder of the
+ * user's own, linked in. Nothing is written or removed through one: an update
+ * rewrote and deleted files in the repository a user had linked as a skills
+ * folder (Д-185).
+ */
+function linkedFolders(contentRoot) {
+  const known = new Map();
+  const linked = async (folder) => {
+    if (folder === contentRoot || !folder.startsWith(contentRoot + path.sep)) return false;
+    if (!known.has(folder)) {
+      known.set(folder, (async () => {
+        const stat = await fsp.lstat(folder).catch(() => null);
+        return Boolean(stat?.isSymbolicLink()) || linked(path.dirname(folder));
+      })());
+    }
+    return known.get(folder);
+  };
+  return (target) => linked(path.dirname(target));
+}
+
+/**
+ * Whether two paths are one file: on Windows and macOS `x/skill.md` and
+ * `x/SKILL.md` are, and removing the old name of a file the seed renamed by
+ * case removed the file itself (Д-182).
+ */
+async function sameFile(left, right) {
+  const [a, b] = await Promise.all([fsp.stat(left).catch(() => null), fsp.stat(right).catch(() => null)]);
+  return Boolean(a && b) && a.dev === b.dev && a.ino === b.ino;
+}
+
 /** Folders a removal left empty go too, up to the vault itself. */
 async function pruneEmptyParents(file, root) {
   for (let folder = path.dirname(file); folder.startsWith(root + path.sep); folder = path.dirname(folder)) {
@@ -123,7 +154,8 @@ async function pruneEmptyParents(file, root) {
  */
 export function compareVersions(left, right) {
   const parse = (value) => {
-    const [core, pre = ""] = String(value ?? "").trim().replace(/^v/, "").split(/-(.*)/s);
+    // Build metadata (`+build.1`) does not order versions (semver, rule 10).
+    const [core, pre = ""] = String(value ?? "").trim().replace(/^v/, "").replace(/\+.*$/s, "").split(/-(.*)/s);
     return { numbers: core.split(".").map((part) => Number.parseInt(part, 10) || 0), pre };
   };
   const a = parse(left);
@@ -196,6 +228,7 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
     const before = new Set(Array.isArray(state?.conflicts) ? state.conflicts.map(String) : []);
     const counts = { added: 0, updated: 0, unchanged: 0, removed: 0, kept: [], conflicts: [], missing: [] };
     const files = {};
+    const throughLink = linkedFolders(contentRoot);
     for (const entry of manifest.files) {
       const relative = String(entry.path);
       const sha = String(entry.sha256);
@@ -211,10 +244,18 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
         continue;
       }
       files[relative] = sha;
+      if (await throughLink(target)) {
+        counts.kept.push(relative);
+        continue;
+      }
       const kind = await entryKind(target);
       if (kind === "absent") {
-        // Shipped before and gone now: the user deleted it, and it stays deleted.
-        if (previous !== undefined) continue;
+        // Shipped before and gone now: the user deleted it, and it stays
+        // deleted — with the update's version, if one was waiting beside it.
+        if (previous !== undefined) {
+          if (before.has(relative)) await removeIfSha(target + SEED_NEW_SUFFIX, sha, previous);
+          continue;
+        }
         await copyOver(source, target);
         counts.added += 1;
         continue;
@@ -246,9 +287,15 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
         }
       }
     }
+    const byCase = new Map(Object.keys(files).map((relative) => [relative.toLowerCase(), relative]));
     for (const [relative, previous] of Object.entries(shipped)) {
       if (Object.hasOwn(files, relative)) continue;
       const target = inside(contentRoot, relative);
+      if (await throughLink(target)) continue;
+      // Renamed by case only: on a file system that ignores case it is the
+      // file the new name stands for.
+      const renamed = byCase.get(relative.toLowerCase());
+      if (renamed && await sameFile(target, inside(contentRoot, renamed))) continue;
       // A version of a file the seed no longer has is nothing to merge.
       await removeIfSha(target + SEED_NEW_SUFFIX, previous);
       const current = await fileSha(target);

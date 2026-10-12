@@ -17,6 +17,7 @@ import {
   randomDaemonName,
   retiredDaemonPath,
   runtimeDir,
+  foldersUpTo,
   socketDirectoryCandidates,
   tasksStateRoot,
   tightenFolder
@@ -137,24 +138,58 @@ test("a socket directory is made this user's alone: 0700, a plain directory, own
   await assert.rejects(prepareSocketDirectory(fresh, { uid: (process.getuid?.() ?? 0) + 1 }), /belongs to uid/);
 });
 
+test("a socket directory a file system leaves open after chmod is refused, so the next one is used (Д-227)", { skip: process.platform === "win32" && "POSIX modes" }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-sockdir-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const open = path.join(root, "open");
+  await fs.mkdir(open);
+  await fs.chmod(open, 0o755);
+  // A mount that takes chmod and keeps its mode: chmod through a handle does nothing.
+  const probe = await fs.open(root, "r");
+  const handles = Object.getPrototypeOf(probe);
+  await probe.close();
+  const chmod = handles.chmod;
+  handles.chmod = async () => undefined;
+  try {
+    await assert.rejects(prepareSocketDirectory(open), /stays open to other users: its file system keeps the mode it has/);
+  } finally {
+    handles.chmod = chmod;
+  }
+  await prepareSocketDirectory(open);
+  assert.equal((await fs.stat(open)).mode & 0o777, 0o700, "where chmod works, the folder is made private and used");
+});
+
 test("a run folder open to others is made private; a link, another user's folder and Windows are left alone (Д-215)", { skip: process.platform === "win32" && "POSIX modes and owners" }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-tighten-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const run = path.join(root, "run");
   await fs.mkdir(run);
   await fs.chmod(run, 0o755);
-  assert.equal(await tightenFolder(run), true);
+  assert.deepEqual(await tightenFolder(run), { state: "tightened" });
   assert.equal((await fs.stat(run)).mode & 0o777, 0o700);
-  assert.equal(await tightenFolder(run), false, "a private folder is not touched again");
+  assert.deepEqual(await tightenFolder(run), { state: "private" }, "a private folder is not touched again");
 
   const elsewhere = path.join(root, "elsewhere");
   await fs.mkdir(elsewhere);
   await fs.chmod(elsewhere, 0o755);
   const link = path.join(root, "link");
   await fs.symlink(elsewhere, link);
-  assert.equal(await tightenFolder(link), false, "a link is not followed");
-  assert.equal(await tightenFolder(elsewhere, { uid: (process.getuid?.() ?? 0) + 1 }), false, "nor is another user's folder changed");
-  assert.equal(await tightenFolder(elsewhere, { platform: "win32" }), false);
+  assert.deepEqual(await tightenFolder(link), { state: "left", why: "it is not a plain folder (a link?)" }, "a link is not followed");
+  assert.equal((await tightenFolder(elsewhere, { uid: (process.getuid?.() ?? 0) + 1 })).state, "left", "nor is another user's folder changed");
+  assert.equal((await tightenFolder(elsewhere, { platform: "win32" })).state, "left");
   assert.equal((await fs.stat(elsewhere)).mode & 0o777, 0o755);
-  assert.equal(await tightenFolder(path.join(root, "missing")), false);
+  assert.equal((await tightenFolder(path.join(root, "missing"))).state, "left");
+});
+
+test("the folders a leaving daemon removes run from run/ up to the highest it made, compared as Node names them (Д-214, Д-224)", () => {
+  // On Windows `fs.mkdir` answers in the \\?\ namespace.
+  assert.deepEqual(foldersUpTo("C:\\Users\\Me\\.ai-dev\\run", "\\\\?\\C:\\Users\\Me\\.ai-dev", { pathApi: path.win32 }),
+    ["C:\\Users\\Me\\.ai-dev\\run", "C:\\Users\\Me\\.ai-dev"]);
+  assert.deepEqual(foldersUpTo("\\\\server\\share\\me\\.ai-dev\\run", "\\\\?\\UNC\\server\\share\\me\\.ai-dev", { pathApi: path.win32 }),
+    ["\\\\server\\share\\me\\.ai-dev\\run", "\\\\server\\share\\me\\.ai-dev"]);
+  assert.deepEqual(foldersUpTo("/x/home/run", "/x/home", { pathApi: path.posix }), ["/x/home/run", "/x/home"]);
+  assert.deepEqual(foldersUpTo("/x/home/run", "/x/home/run", { pathApi: path.posix }), ["/x/home/run"]);
+  // A folder that only begins like it is not one of its parents.
+  assert.deepEqual(foldersUpTo("/x/home2/run", "/x/home", { pathApi: path.posix }), []);
+  assert.deepEqual(foldersUpTo("/x/home/run", "", { pathApi: path.posix }), []);
 });

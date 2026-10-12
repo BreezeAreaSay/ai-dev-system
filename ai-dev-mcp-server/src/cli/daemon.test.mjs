@@ -291,6 +291,21 @@ test("a retired daemon whose run folder and then whole runtime home were deleted
   assert.equal(existsSync(runtimeHome), false, "the runtime home it made again goes with it, empty");
 });
 
+test("a retired daemon whose runtime home goes between its mkdir and its record's lock takes the folders the lock made with it (Д-226)", { skip: process.platform === "win32" && "a folder in use cannot be deleted on Windows" }, async (t) => {
+  const { env, home, run } = await stage(t);
+  const runtimeHome = path.join(home, ".ai-dev");
+  const window = pathToFileURL(path.join(serverRoot, "test", "fixtures", "retired-window.mjs")).href;
+  const one = await client(t, { ...env, NODE_OPTIONS: `--import ${window}` }, "one");
+  const info = await until(() => descriptors(run).length && daemonInfo(run).sessions === 1 && daemonInfo(run), "the daemon with its session");
+  await fs.rm(path.join(run, `daemon-${info.build}.json`), { force: true });
+  const record = path.join(run, `retired-${info.pid}.json`);
+  // Its mkdir finds run/ there; the runtime home goes; the lock makes it again.
+  await until(() => existsSync(record) && !existsSync(path.join(runtimeHome, "logs")), "the record in the folders its lock made", 20_000);
+  await one.session.close();
+  await until(() => gone(info.pid), "the retired daemon to leave after its last session", 20_000);
+  assert.equal(existsSync(runtimeHome), false, "the runtime home its lock made goes with it, empty");
+});
+
 test("requests piped in and the input closed still get their answers, cold and warm (Д-192)", async (t) => {
   const { env } = await stage(t);
   const lines = [
@@ -344,6 +359,30 @@ test("stop with only the descriptor of a daemon long gone says it is not running
   assert.equal(stopped.code, 0, stopped.stdout);
   assert.equal(stopped.stdout.trim(), "Not running.");
   assert.equal(existsSync(stale), false);
+});
+
+test("stop makes no folder again when the runtime home goes while it looks at a gone daemon's descriptor (Д-226)", async (t) => {
+  const { env, home, run } = await stage(t);
+  await fs.mkdir(run, { recursive: true, mode: 0o700 });
+  await fs.writeFile(path.join(run, "daemon-0123456789abcdef.json"), JSON.stringify({ protocol: 1, pid: 4194305, address: "/nowhere.sock", secret: "a".repeat(64), build: "0123456789abcdef" }));
+  const window = pathToFileURL(path.join(serverRoot, "test", "fixtures", "stop-window.mjs")).href;
+  const stopped = await ai({ ...env, NODE_OPTIONS: `--import ${window}` }, ["daemon", "stop"]);
+  assert.equal(stopped.code, 0, stopped.stderr);
+  assert.equal(stopped.stdout.trim(), "Not running.");
+  assert.equal(existsSync(path.join(home, ".ai-dev")), false, "the runtime home deleted meanwhile stays deleted");
+});
+
+test("a daemon starting makes a run folder open to others private, and says so (Д-215, Д-225)", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
+  const { env, home, run } = await stage(t);
+  // As the lock race before Д-213's fix, or the 2.x layout's migration, left it;
+  // the home is too long for a socket, so the socket lives elsewhere.
+  await fs.mkdir(run, { recursive: true });
+  await fs.chmod(run, 0o755);
+  const started = await ai(env, ["daemon", "start"]);
+  assert.equal(started.code, 0, started.stderr);
+  assert.equal((await fs.stat(run)).mode & 0o777, 0o700);
+  const log = readFileSync(path.join(home, ".ai-dev", "logs", "daemon.log"), "utf8");
+  assert.match(log, /\/run was open to other users; it is 0700 now/);
 });
 
 test("ai-dev daemon start, status and stop take a relative AI_DEV_HOME as the folder they run in means it (Д-201)", async (t) => {

@@ -6,6 +6,29 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { CLAIM_SUFFIX, DEFAULT_INDEX_FILE, vaultIndexPath } from "./search-index-owner.mjs";
+import { loadSqlite, sqliteSupport } from "./search-sqlite.mjs";
+
+const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
+
+/** An index as an earlier version left it: documents at these paths, and the vault it names, if any. */
+function earlierIndex(file, paths, vaultRoot = "") {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const db = new (loadSqlite().DatabaseSync)(file);
+  try {
+    db.exec("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT); CREATE TABLE documents(id TEXT PRIMARY KEY, path TEXT NOT NULL)");
+    const insert = db.prepare("INSERT INTO documents(id, path) VALUES (?, ?)");
+    paths.forEach((relative, index) => insert.run(String(index), relative));
+    if (vaultRoot) db.prepare("INSERT INTO meta(key, value) VALUES ('vault_root', ?)").run(vaultRoot);
+  } finally {
+    db.close();
+  }
+}
+
+/** A note at `relative` in `vault`. */
+function note(vault, relative) {
+  fs.mkdirSync(path.dirname(path.join(vault, relative)), { recursive: true });
+  fs.writeFileSync(path.join(vault, relative), "# note\n");
+}
 
 function tempRoot(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "index-owner-"));
@@ -32,13 +55,31 @@ test("the first vault keeps the index file a runtime home always had; every othe
   assert.equal(vaultIndexPath({ dir, vaultRoot: path.join(root, "vault-b", "..", "vault-a", "") }).path, a.path);
 });
 
-test("an index written before claims existed is claimed by the first vault that opens it", (t) => {
+test("an index written before claims existed goes to the vault it was built from, whichever starts first", needsSqlite, (t) => {
   const root = tempRoot(t);
   const dir = path.join(root, "index");
-  fs.mkdirSync(dir);
-  fs.writeFileSync(path.join(dir, DEFAULT_INDEX_FILE), "an index 2.x built");
-  assert.equal(vaultIndexPath({ dir, vaultRoot: path.join(root, "vault-b") }).path, path.join(dir, DEFAULT_INDEX_FILE));
-  assert.notEqual(vaultIndexPath({ dir, vaultRoot: path.join(root, "vault-a") }).path, path.join(dir, DEFAULT_INDEX_FILE));
+  const a = path.join(root, "vault-a");
+  const b = path.join(root, "vault-b");
+  // vault-a: its own notes and the skills both vaults have; vault-b: the skills alone, as a seed beside a full vault.
+  for (const relative of ["02-knowledge/one.md", "02-knowledge/two.md", "05-projects/p.md", "03-skills-catalog/s.md"]) note(a, relative);
+  note(b, "03-skills-catalog/s.md");
+  earlierIndex(path.join(dir, DEFAULT_INDEX_FILE), ["02-knowledge/one.md", "02-knowledge/two.md", "05-projects/p.md", "03-skills-catalog/s.md", "/elsewhere/project/README.md"]);
+  const first = vaultIndexPath({ dir, vaultRoot: b });
+  assert.deepEqual([first.reason, path.basename(first.path) === DEFAULT_INDEX_FILE], ["another-vault", false], "a shell with another vault does not take it");
+  assert.equal(fs.existsSync(path.join(dir, `${DEFAULT_INDEX_FILE}${CLAIM_SUFFIX}`)), false, "and claims nothing");
+  assert.deepEqual([vaultIndexPath({ dir, vaultRoot: a }).path, vaultIndexPath({ dir, vaultRoot: a }).reason], [path.join(dir, DEFAULT_INDEX_FILE), "own"]);
+
+  // An index that names its vault goes to that vault.
+  const named = path.join(root, "named");
+  earlierIndex(path.join(named, DEFAULT_INDEX_FILE), ["03-skills-catalog/s.md"], b);
+  assert.equal(vaultIndexPath({ dir: named, vaultRoot: a }).reason, "another-vault");
+  assert.equal(vaultIndexPath({ dir: named, vaultRoot: path.join(b, "") }).reason, "claimed");
+
+  // No document to tell by, or not an index at all: the first vault takes it, as before.
+  const unknown = path.join(root, "unknown");
+  fs.mkdirSync(unknown);
+  fs.writeFileSync(path.join(unknown, DEFAULT_INDEX_FILE), "not a database");
+  assert.equal(vaultIndexPath({ dir: unknown, vaultRoot: b }).reason, "claimed");
 });
 
 test("a claim that cannot be read is nobody's to share, and a folder that takes no claim keeps the old file", (t) => {

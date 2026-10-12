@@ -17,6 +17,12 @@ export const serverRoot = path.resolve(process.env.AI_DEV_SERVER_ROOT || path.jo
 export const resultsDir = path.join(desktopRoot, "test-results");
 
 const fromServer = (relative) => import(pathToFileURL(path.join(serverRoot, relative)).href);
+
+/**
+ * The apps each test launched: closed before its install is removed, so
+ * Electron's last writes do not bring the test's folder back (Д-257, п. 11).
+ */
+const launched = new WeakMap();
 const { startModelHost } = await fromServer("test/fixtures/model-host.mjs");
 const { writeSyntheticModel } = await fromServer("src/core/synthetic-model.mjs");
 const { stopDaemons } = await fromServer("src/core/daemon-client.mjs");
@@ -75,6 +81,7 @@ export async function stage(t, { stall = false, seed = false, settings = null, e
     ...extra
   };
   t.after(async () => {
+    for (const app of launched.get(t) ?? []) await quitApp(app);
     await stopDaemons({ timeoutMs: 5000, env }).catch(() => undefined);
     await host.close();
     await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
@@ -83,22 +90,48 @@ export async function stage(t, { stall = false, seed = false, settings = null, e
 }
 
 /**
- * Launch the app in `env`; closed when the test ends.
+ * Whether Chromium runs without its own sandbox: as root it refuses one; on a
+ * Linux CI runner that forbids unprivileged user namespaces (Ubuntu 24.04's
+ * AppArmor) the workflow says so with AI_DEV_DESKTOP_NO_SANDBOX=1. The page
+ * keeps its sandbox flag either way.
+ */
+export const NO_SANDBOX = process.getuid?.() === 0 || process.env.AI_DEV_DESKTOP_NO_SANDBOX === "1";
+
+/**
+ * Launch the app in `env`; closed when the test ends, before its install goes.
  *
  * @returns {Promise<{ app: import("playwright-core").ElectronApplication, page: import("playwright-core").Page }>}
  */
 export async function launch(t, env) {
   const app = await electron.launch({
     executablePath: require("electron"),
-    // As root, Chromium wants no sandbox of its own; the page keeps its sandbox flag.
-    args: [...(process.getuid?.() === 0 ? ["--no-sandbox"] : []), desktopRoot],
+    args: [...(NO_SANDBOX ? ["--no-sandbox"] : []), desktopRoot],
     env,
     timeout: 60_000
   });
-  t.after(() => app.close().catch(() => undefined));
+  launched.set(t, [...(launched.get(t) ?? []), app]);
+  t.after(() => quitApp(app));
   const page = await app.firstWindow();
   await page.waitForLoadState("domcontentloaded");
   return { app, page };
+}
+
+/**
+ * Quit the app as its tray's Quit does. Playwright's own close shuts the
+ * window first, which the app keeps in the tray instead — it then waits a
+ * minute before quitting the app.
+ */
+const quit = new WeakSet();
+
+export async function quitApp(app) {
+  if (quit.has(app)) return;
+  quit.add(app);
+  const child = app.process();
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  await app.evaluate(({ app: electronApp }) => { electronApp.quit(); }).catch(() => undefined);
+  const timer = new Promise((resolve) => setTimeout(() => resolve("timeout"), 15_000));
+  if (await Promise.race([exited, timer]) === "timeout") await app.close().catch(() => undefined);
 }
 
 /** The system's folder dialog answers `folder` (null: cancelled). */
@@ -124,4 +157,16 @@ export function mainCall(app, tool, args = {}) {
 /** The tray as the main process has it: its state and its menu. */
 export function trayNow(app) {
   return app.evaluate(() => ({ state: globalThis.aiDevTest.tray.state(), menu: globalThis.aiDevTest.tray.menu() }));
+}
+
+/** The server's own modules, for a test that acts as an AI client would. */
+export function serverModule(relative) {
+  return fromServer(relative);
+}
+
+/** The environment an AI client of this install has: the app's own variables taken out. */
+export function clientEnvironment(env) {
+  const client = { ...env };
+  for (const name of ["AI_DEV_SERVER_ROOT", "AI_DEV_DESKTOP_TEST", "AI_DEV_NODE", "ELECTRON_DISABLE_SECURITY_WARNINGS"]) delete client[name];
+  return client;
 }

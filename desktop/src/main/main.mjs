@@ -11,10 +11,11 @@ import { pickLanguage, translate } from "../renderer/i18n.js";
 import { DaemonLink } from "./daemon-link.mjs";
 import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, validCallId } from "./ipc-policy.mjs";
 import { findNode } from "./node-runtime.mjs";
-import { APP_ORIGIN, APP_SCHEME, appFileHandler, isAppUrl, lockContents, lockSession, windowPreferences } from "./security.mjs";
+import { APP_ORIGIN, APP_SCHEME, PAGE_PARTITION, appFileHandler, isAppUrl, lockContents, lockSession, windowPreferences } from "./security.mjs";
+import { startupFailure } from "./startup.mjs";
 import { createTray } from "./tray.mjs";
 
-const { app, BrowserWindow, dialog, ipcMain, protocol, session } = electron;
+const { app, BrowserWindow, Menu, dialog, ipcMain, protocol, session } = electron;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(here, "..", "..");
@@ -28,6 +29,15 @@ function serverRoot() {
   return path.resolve(desktopRoot, "..", "ai-dev-mcp-server");
 }
 
+/**
+ * The menu: none on Windows and Linux; on macOS the app and Edit menus, which
+ * the system's copy and paste go through. Neither has Reload or the developer
+ * tools (docs/DEFECTS.md, Д-252).
+ */
+function applicationMenu() {
+  return process.platform === "darwin" ? Menu.buildFromTemplate([{ role: "appMenu" }, { role: "editMenu" }]) : null;
+}
+
 protocol.registerSchemesAsPrivileged([{ scheme: APP_SCHEME, privileges: { standard: true, secure: true } }]);
 
 if (!app.requestSingleInstanceLock()) {
@@ -35,11 +45,16 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   let window = null;
   let tray = null;
-  let link = null;
-  let language = "en";
+  let server = null;
+  let node = null;
+  let language = pickLanguage("", "");
   let quitting = false;
+  let starting = null;
   const env = { ...process.env };
+  const root = serverRoot();
   const t = (key, params) => translate(language, key, params);
+  const devTools = process.env.AI_DEV_DESKTOP_DEVTOOLS === "1";
+  const link = new DaemonLink({ env, t });
 
   const publicState = () => ({ ...link.state, language, platform: process.platform });
   const fromApp = (event) => isAppUrl(event.senderFrame?.url ?? "");
@@ -59,7 +74,7 @@ if (!app.requestSingleInstanceLock()) {
       title: t("app.title"),
       autoHideMenuBar: true,
       backgroundColor: "#f6f8fa",
-      webPreferences: windowPreferences(preload)
+      webPreferences: windowPreferences(preload, { devTools })
     });
     window.on("close", (event) => {
       if (!quitting && tray) {
@@ -75,22 +90,57 @@ if (!app.requestSingleInstanceLock()) {
 
   const quit = async () => {
     quitting = true;
-    await link?.close();
+    await link.close();
     app.quit();
   };
 
   const rebuildFromTray = async () => {
     tray.setRebuilding(0);
-    await link.call("rebuild_search_index", {}, {
+    const result = await link.call("rebuild_search_index", {}, {
       id: "tray-rebuild",
       onProgress: ({ progress, total }) => tray.setRebuilding(total ? Math.min(99, Math.floor((progress / total) * 100)) : 0)
     });
-    tray.setRebuilding(null);
+    // A failure is said where the rebuild was asked for (Д-257, п. 5).
+    tray.setRebuilding(null, result.ok || result.cancelled ? null : result.error);
+  };
+
+  /**
+   * Get going: the server, the settings, the Node the daemon runs on, the
+   * daemon. Whatever stops it is shown in the window with what to do — the
+   * app never sits there silent (docs/DEFECTS.md, Д-242). Run again by Try
+   * again, and when the app is launched a second time.
+   */
+  const startup = () => {
+    starting ??= (async () => {
+      try {
+        server ??= await import(pathToFileURL(path.join(root, "src", "core", "control-client.mjs")).href);
+        const settings = server.readSettings({ env }).settings;
+        language = pickLanguage(settings.language, app.getLocale());
+        window?.setTitle(t("app.title"));
+        tray?.refresh();
+        const clientNodes = await server.clientNodePaths({ env, cliPath: path.join(root, "bin", "ai-dev.mjs") }).catch(() => []);
+        node = findNode({ env, clientNodes });
+        link.attach({
+          server: { ...server, openControlClient: (options) => server.openControlClient({ serverRoot: root, ...options }) },
+          execPath: node.path,
+          noNode: node.problem
+        });
+        if (node.path) await link.connect({ start: settings.daemon_autostart !== false });
+      } catch (error) {
+        link.fail(startupFailure(error, { serverRoot: root, loaded: Boolean(server), t }));
+      }
+    })().finally(() => {
+      starting = null;
+    });
+    return starting;
   };
 
   const handle = (channel, listener) => ipcMain.handle(channel, (event, request) => (fromApp(event) ? listener(event, request) : null));
 
-  app.on("second-instance", openWindow);
+  app.on("second-instance", () => {
+    openWindow();
+    if (["broken", "no-node"].includes(link.state.phase)) startup();
+  });
   app.on("window-all-closed", () => {
     if (!tray) quit();
   });
@@ -100,19 +150,28 @@ if (!app.requestSingleInstanceLock()) {
   app.on("web-contents-created", (_event, contents) => lockContents(contents));
 
   app.whenReady().then(async () => {
-    protocol.handle(APP_SCHEME, appFileHandler(rendererRoot));
-    lockSession(session.defaultSession);
-    const root = serverRoot();
-    const server = await import(pathToFileURL(path.join(root, "src", "core", "control-client.mjs")).href);
-    const settings = server.readSettings({ env }).settings;
-    language = pickLanguage(settings.language, app.getLocale());
-    const node = findNode({ env, clientNodes: await server.clientNodePaths({ env, cliPath: path.join(root, "bin", "ai-dev.mjs") }).catch(() => []) });
-    link = new DaemonLink({ server: { ...server, openControlClient: (options) => server.openControlClient({ serverRoot: root, ...options }) }, env, execPath: node.path, noNode: node.problem });
+    // The page's session serves the app's files and nothing else; the default
+    // one is locked the same way, for any window that is not the app's.
+    const pageSession = session.fromPartition(PAGE_PARTITION);
+    pageSession.protocol.handle(APP_SCHEME, appFileHandler(rendererRoot));
+    await lockSession(pageSession);
+    await lockSession(session.defaultSession);
+    Menu.setApplicationMenu(applicationMenu());
     link.on("state", () => window?.webContents.send(EVENT_CHANNELS.state, publicState()));
 
+    // The page's channels first: whatever happens next, the window can ask.
     handle(INVOKE_CHANNELS.state, () => publicState());
     handle(INVOKE_CHANNELS.connect, async (_event, request) => {
       await link.connect({ start: request?.start === true });
+      return publicState();
+    });
+    handle(INVOKE_CHANNELS.retry, async () => {
+      if (link.state.phase === "broken" && link.state.restart) {
+        app.relaunch();
+        app.exit(0);
+        return publicState();
+      }
+      if (["broken", "no-node"].includes(link.state.phase)) await startup();
       return publicState();
     });
     handle(INVOKE_CHANNELS.call, (event, request) => {
@@ -136,7 +195,7 @@ if (!app.requestSingleInstanceLock()) {
       tray?.refresh();
       window?.setTitle(t("app.title"));
       if (link.state.phase === "online") await link.call("settings_set", { settings: { language } }, { id: "language" });
-      else await server.writeSettings({ language }, { env }).catch(() => undefined);
+      else await server?.writeSettings({ language }, { env }).catch(() => undefined);
       return publicState();
     });
 
@@ -144,7 +203,7 @@ if (!app.requestSingleInstanceLock()) {
     tray = createTray({ electron, link, t, actions: { open: openWindow, rebuild: rebuildFromTray, stop: () => link.stopDaemon(), quit } });
     // What the end-to-end tests read from the main process: the tray and the
     // daemon link (desktop/test/e2e). Nothing of it reaches the page.
-    if (process.env.AI_DEV_DESKTOP_TEST === "1") globalThis.aiDevTest = { tray, link, node };
-    if (node.path) link.connect({ start: settings.daemon_autostart !== false });
+    if (process.env.AI_DEV_DESKTOP_TEST === "1") globalThis.aiDevTest = { tray, link, node: () => node };
+    startup();
   });
 }

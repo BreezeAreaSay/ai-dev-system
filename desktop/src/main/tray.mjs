@@ -7,15 +7,17 @@ import { circlePng, TRAY_COLOURS, trayState } from "./tray-icon.mjs";
 /**
  * The tray's menu as a template, so a test can read it without a tray.
  *
- * @param {{ t: (key: string, params?: object) => string, online: boolean, rebuilding: number | null }} view
+ * @param {{ t: (key: string, params?: object) => string, online: boolean, rebuilding: number | null, failed?: string | null }} view
+ *   `failed` — why the last rebuild from the tray failed, until the next one.
  * @param {{ open: () => void, rebuild: () => void, stop: () => void, quit: () => void }} actions
  */
-export function trayMenuTemplate({ t, online, rebuilding }, actions) {
+export function trayMenuTemplate({ t, online, rebuilding, failed = null }, actions) {
+  const rebuildLabel = rebuilding !== null ? t("tray.rebuilding", { percent: rebuilding }) : failed ? t("tray.rebuildFailed") : t("tray.rebuild");
   return [
     { id: "open", label: t("tray.open"), click: actions.open },
     {
       id: "rebuild",
-      label: rebuilding === null ? t("tray.rebuild") : t("tray.rebuilding", { percent: rebuilding }),
+      label: rebuildLabel,
       enabled: online && rebuilding === null,
       click: actions.rebuild
     },
@@ -40,13 +42,14 @@ export function createTray({ electron, link, t, actions }) {
   }));
   let current = "offline";
   let rebuilding = null;
+  let failed = null;
   const tray = new Tray(images.offline);
   const refresh = () => {
     const online = link.state.phase === "online";
     current = online ? trayState(link.status) : "offline";
     tray.setImage(images[current]);
-    tray.setToolTip(t(`tray.tooltip.${current}`));
-    tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate({ t, online, rebuilding }, actions)));
+    tray.setToolTip(failed ? `${t(`tray.tooltip.${current}`)}\n${t("tray.rebuildFailedTip", { message: failed.slice(0, 120) })}` : t(`tray.tooltip.${current}`));
+    tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate({ t, online, rebuilding, failed }, actions)));
   };
   tray.on("click", actions.open);
   link.on("state", refresh);
@@ -55,13 +58,16 @@ export function createTray({ electron, link, t, actions }) {
   return {
     tray,
     refresh,
-    setRebuilding(percent) {
+    /** The rebuild's progress (null: not running); when it ends, why it failed, if it did. */
+    setRebuilding(percent, failure = null) {
       rebuilding = percent;
+      if (percent !== null) failed = null;
+      else failed = failure ? String(failure) : null;
       refresh();
     },
     state: () => current,
     /** The menu as it is now: each item's id, label and whether it is enabled. */
-    menu: () => trayMenuTemplate({ t, online: link.state.phase === "online", rebuilding }, actions)
+    menu: () => trayMenuTemplate({ t, online: link.state.phase === "online", rebuilding, failed }, actions)
       .filter((item) => item.id)
       .map(({ id, label, enabled = true }) => ({ id, label, enabled }))
   };

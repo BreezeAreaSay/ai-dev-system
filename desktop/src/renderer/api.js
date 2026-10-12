@@ -39,6 +39,7 @@ export function cancel(id) {
 
 export const state = () => api.state();
 export const connect = (start) => api.connect(start);
+export const retry = () => api.retry();
 export const chooseFolder = (purpose) => api.chooseFolder(purpose);
 export const setLanguage = (language) => api.setLanguage(language);
 export const onState = (callback) => api.onState(callback);

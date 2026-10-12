@@ -3,28 +3,52 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { EVENT_CHANNELS, INVOKE_CHANNELS, PAGE_TOOLS, refuseCall, validCallId } from "../../src/main/ipc-policy.mjs";
+import { EVENT_CHANNELS, INVOKE_CHANNELS, PAGE_TOOLS, PAGE_TOOL_ARGUMENTS, refuseCall, validCallId } from "../../src/main/ipc-policy.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 test("the page may call only the interface's tools, with a well-formed id and plain arguments", () => {
   assert.equal(refuseCall({ tool: "system_status", args: { checks: false }, id: "call-1" }), null);
-  assert.equal(refuseCall({ tool: "rebuild_search_index", id: "tray-rebuild" }), null, "no arguments is an empty object");
-  for (const tool of ["model_remove", "clients_remove", "record_decision", "run_command", "", undefined, 42]) {
-    assert.match(refuseCall({ tool, args: {}, id: "a" }), /The interface does not call/, String(tool));
+  assert.equal(refuseCall({ tool: "rebuild_search_index", id: "call-lx2-2" }), null, "no arguments is an empty object");
+  for (const tool of ["model_remove", "clients_remove", "record_decision", "run_command", "logs_tail", "workspace_overview", "model_verify", "", undefined, 42]) {
+    assert.match(refuseCall({ tool, args: {}, id: "call-a" }), /The interface does not call/, String(tool));
   }
-  assert.match(refuseCall({ tool: "system_status", args: {}, id: "../x" }), /id is 1 to 64/);
-  assert.match(refuseCall({ tool: "system_status", args: {}, id: "a".repeat(65) }), /id is 1 to 64/);
-  assert.match(refuseCall({ tool: "system_status", args: [], id: "a" }), /arguments are an object/);
-  assert.match(refuseCall({ tool: "system_status", args: { big: "x".repeat(70 * 1024) }, id: "a" }), /at most 65536 bytes/);
+  assert.match(refuseCall({ tool: "system_status", args: {}, id: "../x" }), /id is call- and/);
+  assert.match(refuseCall({ tool: "system_status", args: {}, id: "tray-rebuild" }), /id is call- and/, "the main process's own ids are not the page's");
+  assert.match(refuseCall({ tool: "system_status", args: {}, id: `call-${"a".repeat(60)}` }), /id is call- and/);
+  assert.match(refuseCall({ tool: "system_status", args: [], id: "call-a" }), /arguments are an object/);
+  assert.match(refuseCall({ tool: "model_import", args: { source: "x".repeat(70 * 1024) }, id: "call-a" }), /at most 65536 bytes/);
   const cyclic = {};
   cyclic.self = cyclic;
-  assert.match(refuseCall({ tool: "system_status", args: cyclic, id: "a" }), /plain JSON/);
+  assert.match(refuseCall({ tool: "system_status", args: cyclic, id: "call-a" }), /plain JSON/);
   assert.match(refuseCall(null), /A call is an object/);
   assert.match(refuseCall(["system_status"]), /A call is an object/);
   assert.equal(validCallId("call-lx2-1"), true);
+  assert.equal(validCallId("tray-rebuild"), false);
   assert.equal(validCallId("call 1"), false);
-  assert.equal(validCallId({ toString: () => "a" }), false);
+  assert.equal(validCallId({ toString: () => "call-1" }), false);
+});
+
+test("only the arguments the interface sends, of the kind it sends (Д-253)", () => {
+  const call = (tool, args) => refuseCall({ tool, args, id: "call-1" });
+  assert.equal(call("settings_set", { settings: { projects_root: "/home/me/code" } }), null);
+  for (const name of ["profiles", "model_dir", "model_mirror", "daemon_idle_minutes", "daemon_autostart", "language"]) {
+    assert.match(call("settings_set", { settings: { [name]: "x" } }), new RegExp(`does not change "${name}"`), name);
+  }
+  assert.match(call("settings_set", { settings: {} }), /names something to change/);
+  assert.match(call("settings_set", { settings: { projects_root: 7 } }), /is a path/);
+  assert.equal(call("setup_run", { model: true }), null);
+  for (const name of ["frontend_qa", "force", "clients"]) assert.match(call("setup_run", { [name]: true }), new RegExp(`does not send "${name}" to setup_run`));
+  assert.match(call("setup_run", { model: "yes" }), /model is true or false/);
+  assert.equal(call("clients_install", { clients: ["cursor", "claude-code"] }), null);
+  assert.match(call("clients_install", { clients: "all" }), /list of client names/);
+  assert.match(call("clients_install", { clients: ["Cursor; rm"] }), /list of client names/);
+  assert.match(call("clients_install", { clients: ["cursor"], dry_run: true }), /does not send "dry_run"/);
+  assert.equal(call("model_import", { source: "/media/usb/bge-m3-onnx" }), null);
+  assert.match(call("model_import", { source: "" }), /is a path/);
+  assert.match(call("model_install", { mirror: "http://x" }), /does not send "mirror"/);
+  assert.match(call("system_status", { checks: "no" }), /checks is true or false/);
+  assert.deepEqual(PAGE_TOOLS, Object.keys(PAGE_TOOL_ARGUMENTS));
 });
 
 test("nothing the page may call takes back what it cannot undo", () => {

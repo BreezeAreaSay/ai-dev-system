@@ -46,3 +46,42 @@ test("the tray's colour follows system_status, and its menu what can be done now
   assert.deepEqual(items({ online: true, rebuilding: 40 }).find(([id]) => id === "rebuild"), ["rebuild", "Rebuilding the index… 40%", false]);
   assert.deepEqual(items({ online: false, rebuilding: null }).filter(([, , enabled]) => !enabled).map(([id]) => id), ["rebuild", "stop"]);
 });
+
+test("each state is drawn in its own colour, and a failed rebuild is said in the menu (Д-254, Д-257 п. 5)", async () => {
+  const { EventEmitter } = await import("node:events");
+  const { createTray } = await import("../../src/main/tray.mjs");
+  const made = [];
+  const set = [];
+  let menu = [];
+  const electron = {
+    nativeImage: { createFromBuffer: (buffer) => { const image = { buffer }; made.push(image); return image; } },
+    Tray: class {
+      setImage(image) { set.push(image); }
+      setToolTip(text) { this.tip = text; }
+      setContextMenu(template) { menu = template; }
+      on() {}
+    },
+    Menu: { buildFromTemplate: (template) => template }
+  };
+  const link = Object.assign(new EventEmitter(), { state: { phase: "online" }, status: null });
+  const t = (key, params) => translate("en", key, params);
+  const tray = createTray({ electron, link, t, actions: { open() {}, rebuild() {}, stop() {}, quit() {} } });
+  const colours = Object.keys(TRAY_COLOURS);
+  assert.equal(new Set(colours.map((state) => String(TRAY_COLOURS[state]))).size, colours.length, "four different colours");
+  for (const state of ["ok", "degraded", "failed"]) {
+    link.status = { status: state };
+    link.emit("status", link.status);
+    assert.equal(tray.state(), state);
+    assert.ok(set.at(-1).buffer.equals(circlePng(TRAY_COLOURS[state], 32)), `${state} is drawn in its colour`);
+  }
+  link.state = { phase: "offline" };
+  link.emit("state", link.state);
+  assert.ok(set.at(-1).buffer.equals(circlePng(TRAY_COLOURS.offline, 32)));
+  tray.setRebuilding(null, "The index folder is a file.");
+  assert.equal(tray.menu().find((item) => item.id === "rebuild").label, "Rebuild failed — try again");
+  tray.setRebuilding(10);
+  assert.equal(tray.menu().find((item) => item.id === "rebuild").label, "Rebuilding the index… 10%");
+  tray.setRebuilding(null);
+  assert.equal(tray.menu().find((item) => item.id === "rebuild").label, "Rebuild search index");
+  assert.ok(menu.length > 0);
+});

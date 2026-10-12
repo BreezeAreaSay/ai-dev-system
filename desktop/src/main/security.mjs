@@ -10,6 +10,20 @@ import path from "node:path";
 
 /** The scheme the page is served under, and its one host. */
 export const APP_SCHEME = "app";
+
+/**
+ * The page's own session, in memory: the main process's network (an updater,
+ * later) keeps the default one, and nothing the page does is kept on disk.
+ */
+export const PAGE_PARTITION = "ai-dev-page";
+
+/**
+ * Where the page's session sends whatever goes past every other lock: a proxy
+ * that is not there. WebRTC is the one way out the policy and the session's
+ * request handler do not see — STUN over UDP is off for it, and TURN over TCP
+ * goes to a proxy, so it goes here and no further (docs/DEFECTS.md, Д-241).
+ */
+export const NOWHERE_PROXY = Object.freeze({ mode: "fixed_servers", proxyRules: "http://127.0.0.1:9", proxyBypassRules: "<-loopback>" });
 export const APP_HOST = "ai-dev";
 export const APP_ORIGIN = `${APP_SCHEME}://${APP_HOST}`;
 
@@ -44,10 +58,15 @@ const TYPES = Object.freeze({
   ".json": "application/json; charset=utf-8"
 });
 
-/** The `webPreferences` of every window: no Node, an isolated and sandboxed page. */
-export function windowPreferences(preload) {
+/**
+ * The `webPreferences` of every window: no Node, an isolated and sandboxed
+ * page in its own session. The developer tools are off unless asked for
+ * (`AI_DEV_DESKTOP_DEVTOOLS=1`, docs/DEFECTS.md, Д-252).
+ */
+export function windowPreferences(preload, { devTools = false } = {}) {
   return {
     preload,
+    partition: PAGE_PARTITION,
     contextIsolation: true,
     sandbox: true,
     nodeIntegration: false,
@@ -58,7 +77,7 @@ export function windowPreferences(preload) {
     webviewTag: false,
     navigateOnDragDrop: false,
     spellcheck: false,
-    devTools: true
+    devTools: devTools === true
   };
 }
 
@@ -139,11 +158,13 @@ export function appFileHandler(root) {
 /**
  * Close the session to everything but the app's own files: requests to any
  * other scheme are cancelled, permissions are refused, downloads are not
- * started.
+ * started, and what goes past all that — WebRTC — goes to a proxy that is not
+ * there.
  *
  * @param {import("electron").Session} session
  */
-export function lockSession(session) {
+export async function lockSession(session) {
+  await session.setProxy(NOWHERE_PROXY);
   session.webRequest.onBeforeRequest((details, callback) => {
     const allowed = details.url.startsWith(`${APP_ORIGIN}/`) || details.url.startsWith("devtools://");
     callback({ cancel: !allowed });
@@ -155,11 +176,14 @@ export function lockSession(session) {
 
 /**
  * Keep a page where it is: no navigation away from the app, no new windows,
- * no `<webview>`.
+ * no `<webview>`, and no WebRTC out of the machine — the policy does not
+ * cover WebRTC and the session never sees it, so a peer connection could
+ * otherwise send to any host (docs/DEFECTS.md, Д-241).
  *
  * @param {import("electron").WebContents} contents
  */
 export function lockContents(contents) {
+  contents.setWebRTCIPHandlingPolicy("disable_non_proxied_udp");
   contents.on("will-navigate", (event, url) => {
     if (!isAppUrl(url)) event.preventDefault();
   });

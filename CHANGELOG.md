@@ -366,6 +366,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   folder named with `--to`. In 2.x both were PowerShell scripts that worked only inside a full
   vault, and `ai-dev backup` refused every system but Windows.
 
+- **The control API** (`ai-dev-mcp-server/docs/CONTROL-API.md`, version 1.0.0): thirteen tools a
+  desktop app — or a script — drives the install with. `system_status` says in one answer whether
+  the install is ok, degraded or failed and why: the version, where the data is, the process serving
+  it, the local model, the search index, the clients connected, the settings' problems and the
+  health checks. `setup_run` builds what a fresh install lacks and, when asked, the model, its
+  vectors, Frontend QA and the client configs; `model_install`, `model_import`, `model_verify` and
+  `model_remove` manage the local model; `clients_list`, `clients_install` and `clients_remove` the
+  AI clients; `logs_tail` reads the logs; `settings_get` and `settings_set` the settings;
+  `workspace_overview` gives the projects, tasks, epics, decisions and cost at a glance. The long
+  ones report progress and stop when the request is cancelled, keeping what is done — a download
+  continues from where it stopped. Each answer's schema is the tool's `outputSchema`, so an MCP SDK
+  client checks every answer; the document is generated from the same module. The tools make up the
+  `control` profile, which only a session that names it lists (`AI_DEV_PROFILES=control`, or
+  `all,control`): an agent's surface is the same 135 tools, byte for byte. Refused calls change
+  nothing; the two that cannot be taken back want `confirm: true`; `SECURITY.md` says what guards
+  the rest.
+- **`DaemonClientTransport`** (`src/core/daemon-transport.mjs`): the MCP SDK transport a program uses
+  to reach the daemon of an install — it finds or starts the daemon, proves itself with the
+  descriptor's secret, and runs the session in the environment it is given, with the settings
+  applied as a client's bridge applies them. The control API's integration test is a client built
+  on it.
+- **Settings in `~/.ai-dev/config.json`**: the capability profiles, the model mirror, the model's
+  folder, the daemon's idle time, the projects folder, autostart and the interface's language, each
+  checked before it is stored and written whole, flushed and 0600, through a link to wherever the
+  file lives. Every `ai-dev` command started afterwards reads them, and so does the desktop app's
+  connection; a variable set in the environment still wins, and `settings_get` shows its value.
+  `settings_set` says when each change takes effect: the mirror at once, the model folder and the
+  profiles for sessions started afterwards, the idle time when the daemon starts next. The default
+  profiles cannot hold the opt-in `control`.
+
 ### Changed
 
 - **The daemon's channel is this user's** (`docs/DEFECTS.md`, Д-107). Each start draws a
@@ -538,6 +568,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `onnxruntime-node` are `optionalDependencies`, still pinned exactly (the security gate now
   checks optional dependencies too): an install whose onnxruntime-node postinstall cannot fetch
   its CUDA provider goes on, without dense search, and says how to get it.
+
+- **The dashboard's runtime rows are the health checks as they ran** (`docs/DEFECTS.md`, Д-106):
+  eight rows that said Ready whatever was true — the static, coverage and security gates, Archify,
+  the context compiler, outcome analytics, the reference factory, search ranking — are gone; each
+  check is a row with its verdict and evidence, and the page says when they ran. Before setup,
+  `ai-dev dashboard` says to run `ai-dev setup` instead of naming the file it could not open.
+- **A search index belongs to the vault it was built from** (Д-195, Д-219, Д-229). The first vault
+  keeps the index file a runtime home has always had, named by a claim beside it; any other vault
+  gets its own file, so two vaults on one runtime home no longer answer with each other's notes. An
+  index written before the claim goes only to the vault it was built from: at least half of the
+  notes it is checked by are the very files it indexed, untouched since, or every one of them is
+  there with the same content, as after a clone into the same folder. A command run first from a
+  shell with a vault that holds only some of them — a copy of the seed, a note copied over — does
+  not take it, or its vectors, from the clients; a copy of the whole vault cannot be told from it,
+  and takes it only by starting first.
+- **The tool reference counts 148 tools**: the 135 an agent sees and the 13 of the control API.
+  A narrowed session's stderr note counts the opt-in tools apart.
+- **A stopped `ai-dev setup` reports no failures** (Д-223): the step Ctrl-C cut short and the ones
+  after it are skipped, and none of them is announced.
 
 ### Deprecated
 
@@ -1253,6 +1302,47 @@ four of those arrived as upstream issues #63–#66.
   refuses to be opened is refused by its owner's uid again, not by a bare EACCES. New tests catch
   a `chmod` that changes nothing or is refused, and a highest folder spelled outside the `\\?\`
   namespace.
+
+- **`search_index_status` no longer says vectors came from Python when there are none** (Д-186):
+  an index without vectors has no backend, revision or type for them.
+- **A program reaching the daemon of another runtime home than its own** (Д-217): the client
+  looked for the daemon's descriptor, and opened its log, in its own runtime home, so it waited out
+  its limit beside a daemon that was listening. The daemon's paths now come from the environment
+  the client is given; `ai-dev daemon status` and `stop` read them the same way.
+- **HTTPS through a proxy sent `Host: <name>:80`** (Д-211): a request tunnelled through any proxy —
+  the model download and the supply-chain hook alike — named port 80 in its Host header for an
+  https:// address, which a virtual host, a CDN or a TLS-inspecting proxy may refuse. It names no
+  port now, and a port the address names.
+- **The supply-chain hook's message when a proxy refuses the credentials in its URL** (Д-212): it
+  advised putting them in the URL, where they already were; it now says the proxy did not accept
+  them, as the download says.
+- **The phase 9 review's findings** (Д-218 … Д-223): a stored model folder kept the app's
+  transport from reaching its daemon, and a stored mirror was used by no app session; a 2.x index
+  went to a vault that shares the skill catalog with its owner, who lost its vectors; `setup_run`
+  refused a misspelt client only after building everything; the idle time took text, booleans and
+  fractions of a minute; the settings file was not flushed and replaced a link with a file; and
+  eleven smaller ones — among them `logs_tail` following a link, a NUL in a path setting, the opt-in
+  `control` as everyone's default profile, and a fractional idle time breaking `system_status`'s
+  contract.
+- **The second phase 9 review's findings** (Д-228 … Д-233): a model folder saved in the middle of a
+  session moved the control tools to it while the daemon's search stayed in the old one, so setup
+  failed beside a model it had just installed; one note copied with its time made a vault the owner
+  of a 2.x index, and a clone into the same folder lost it; `upgrade:test`'s check of that never ran;
+  a NUL in the mirror kept every daemon from starting; on Windows a variable set by hand in another
+  case and the file's gave the daemon another build; and eleven smaller ones — among them
+  `logs_tail` reading a hard link, a real failure during a stop reported as skipped, and the idle
+  time shown otherwise than the daemon reads it.
+- **The third phase 9 review's findings** (Д-236 … Д-238): a set-up vault cloned again into its
+  folder lost its 2.x index and vectors, because the notes the server writes itself — skill and
+  project cards, group notes, dashboards — told against it; they no longer count. `settings_get`
+  called a model folder saved in the same session the one in force while the session's tools kept
+  the old one, and the model went to the folder just left; it now gives what the session uses and
+  lists the change as `pending`, and the model tools refuse to fill the folder the session is
+  leaving. And smaller ones: the settings file written through links as the system follows them,
+  `logs_tail` checking that it read the file it looked at (on Windows too) and never waiting on a
+  FIFO, `schema_version` read and written alike, Ctrl-C during the Frontend QA check reported as a
+  stop, the spelling of a variable Node passes on read on Windows, and the daemon transport's
+  default profiles taken from the settings.
 
 ### Security
 

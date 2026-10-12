@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
@@ -231,7 +231,11 @@ test("clients of another vault get a daemon of their own; status shows both and 
 });
 
 test("a git pull where the code lies: the next client gets a daemon of the new code, the old one finishes its session and goes", async (t) => {
-  const { base, env, run } = await stage(t);
+  const { base, env: staged, run } = await stage(t);
+  // The old daemon takes six seconds to let go of its record's lock as it
+  // leaves: its watch looks in that moment, and must not put the record back (Д-210).
+  const slowRelease = pathToFileURL(path.join(serverRoot, "test", "fixtures", "slow-retired-release.mjs")).href;
+  const env = { ...staged, NODE_OPTIONS: `--import ${slowRelease}` };
   // A copy of the server, so that its code can change under a running daemon.
   const copy = path.join(base, "server");
   for (const entry of ["bin", "config", "hooks", "models", "src", "package.json", "distribution.allowlist.json"]) {
@@ -259,8 +263,10 @@ test("a git pull where the code lies: the next client gets a daemon of the new c
   assert.equal((await old.session.callTool({ name: "search_index_status", arguments: {} })).isError, false);
   assert.equal((await fresh.session.callTool({ name: "search_index_status", arguments: {} })).isError, false);
   await old.session.close();
-  await until(() => gone(first.pid), "the retired daemon to leave after its last session");
+  await until(() => gone(first.pid), "the retired daemon to leave after its last session", 20_000);
   await until(() => !existsSync(retired), "its record to go with it");
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  assert.equal(existsSync(retired), false, "and not to come back");
 });
 
 test("requests piped in and the input closed still get their answers, cold and warm (Д-192)", async (t) => {

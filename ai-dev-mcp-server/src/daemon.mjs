@@ -285,6 +285,8 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   let retired = null;
   let retiredLock = null;
   let stopping = false;
+  // Set once the daemon leaves: nothing it publishes after that may outlive it.
+  let finishing = false;
   let idleTimer = null;
   let watch = null;
   let address = "";
@@ -328,7 +330,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   const publish = () => {
     publishing = publishing
       .then(async () => {
-        if (stopping) return undefined;
+        if (stopping || finishing) return undefined;
         if (!retired) return writeDaemonInfo(descriptor, describe());
         if (!(await holdRetiredRecord())) return undefined;
         return writeDaemonInfo(retiredDaemonPath(process.pid), describe());
@@ -364,7 +366,6 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     await lock.release().catch(() => undefined);
   };
 
-  let finishing = false;
   const finish = async (reason) => {
     if (finishing) return;
     finishing = true;
@@ -550,7 +551,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   let strikes = 0;
   watch = setInterval(async () => {
     await rotateLog().catch(() => undefined);
-    if (stopping) return;
+    if (stopping || finishing) return;
     if (retired) {
       // A record taken away while this daemon lives — counted gone while it
       // hung, its runtime home wiped — is published again, so `status` and

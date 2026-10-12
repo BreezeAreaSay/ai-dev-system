@@ -1227,6 +1227,13 @@ four of those arrived as upstream issues #63–#66.
   with mode 0755 when its lock had to make it, and a retired daemon whose runtime home was deleted
   left the folders it made again behind; both fixed, and the texts on a full connection queue now
   say what macOS does.
+- **The sixth phase 8 review's findings** (Д-214 … Д-216): a retired daemon remembered the first
+  folder it made again, not the highest, so a runtime home deleted after its `run/` stayed behind,
+  empty; `run/` could still come out 0755 when `ai-dev daemon stop` cleared a gone daemon's
+  descriptor as the folder went, or when it was already 0755 — left by 2.x, or moved up by the 2.x
+  layout's migration — and the socket lived elsewhere. The daemon now removes up to the highest
+  folder it made, `stop`'s lock makes `run/` private, and a starting daemon makes a looser `run/`
+  of this user's 0700.
 
 ### Security
 

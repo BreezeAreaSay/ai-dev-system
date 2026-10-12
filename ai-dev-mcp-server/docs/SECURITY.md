@@ -74,8 +74,11 @@ tell them what to do. What stands in the way:
   record: `stop` asks it and says if it did not stop, and once it wakes it takes its lock again
   and puts back a record taken away meanwhile (Д-204, Д-205, Д-208). On macOS a full queue is
   refused like a dead socket, so there such a daemon can be taken for gone: its record comes back
-  once it runs, its socket — if a new daemon removed it — does not. Its `run/` folder is 0700
-  however it comes to be made, and folders it made again for its record go when it does (Д-213).
+  once it runs, its socket — if a new daemon removed it — does not. Its `run/` folder is made
+  0700 by the daemon and by every lock taken in it, and a starting daemon makes a looser one it
+  finds 0700 — one left by 2.x or moved up by its layout's migration — when it is a plain folder
+  of this user's; the folders a retired daemon made again for its record, up to the highest, go
+  when it does (Д-213, Д-214, Д-215).
 
 What it does not stand against: anything running as the same user (it can read the descriptor,
 as it can read the vault), an administrator or root, and a runtime home placed with `AI_DEV_HOME`

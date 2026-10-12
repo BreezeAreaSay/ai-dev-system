@@ -1,0 +1,284 @@
+/**
+ * The user's vault, kept current with the seed an install ships.
+ *
+ * A package's folder belongs to npm (or the installer) and is replaced on the
+ * next update, so the server cannot write its notes, registries and project
+ * cards there. Outside a clone the seed is copied into a vault of the user's
+ * own, `~/.ai-dev/vault`, and each later version brings its changes by the
+ * seed's sha256 manifest:
+ *
+ * - a file the user has not touched since it was shipped is replaced;
+ * - a file the user changed stays — and when the update changed it too, that is
+ *   a conflict: the update's version is written beside it as
+ *   `<file>.seed-new` (pacman's `.pacnew`), and `doctor` names it until the
+ *   user has merged what they want and deleted the `.seed-new` file;
+ * - a file the user deleted stays deleted;
+ * - a file the seed dropped goes, unless the user changed it.
+ *
+ * An older version never rolls a vault back: two versions can share one vault
+ * for a while (a client whose config still names the previous one), and each
+ * start of the older would undo the newer's update.
+ *
+ * Docker's entrypoint copied with `cp -n`, which never updates a file that is
+ * there (docs/DEFECTS.md, Д-99); this is the update that `cp -n` was not.
+ *
+ * What was shipped is remembered in `<vault>/.ai-dev-seed.json`, beside the
+ * files it describes, so a vault restored from a backup carries its own record.
+ * Deleting that file makes the next sync start over: what the user deleted
+ * comes back, and every file they changed is kept and named as a conflict.
+ */
+import crypto from "node:crypto";
+import fs from "node:fs";
+import fsp from "node:fs/promises";
+import path from "node:path";
+import { pipeline } from "node:stream/promises";
+import { withFileLock } from "./file-lock.mjs";
+import { atomicWriteJson, renameOver } from "./atomic-files.mjs";
+
+export const SEED_STATE_FILE = ".ai-dev-seed.json";
+
+/** Beside a file the user changed, the version an update shipped of it. */
+export const SEED_NEW_SUFFIX = ".seed-new";
+
+const MANIFEST = "public-seed.manifest.json";
+
+async function sha256File(file) {
+  const hash = crypto.createHash("sha256");
+  await pipeline(fs.createReadStream(file), hash);
+  return hash.digest("hex");
+}
+
+async function readJson(file, fallback) {
+  try {
+    return JSON.parse(await fsp.readFile(file, "utf8"));
+  } catch (error) {
+    if (error?.code === "ENOENT") return fallback;
+    throw error;
+  }
+}
+
+/**
+ * What is at a path: a regular file, nothing, or something of the user's that
+ * is neither — a link, a folder, a file where a folder of the seed's should be.
+ */
+async function entryKind(target) {
+  try {
+    return (await fsp.lstat(target)).isFile() ? "file" : "other";
+  } catch (error) {
+    if (error?.code === "ENOENT") return "absent";
+    if (error?.code === "ENOTDIR") return "other";
+    throw error;
+  }
+}
+
+/** The sha256 of a regular file, or null when there is none at the path. */
+async function fileSha(target) {
+  return await entryKind(target) === "file" ? sha256File(target) : null;
+}
+
+/** A manifest path, checked to stay inside the folder it names a file of. */
+function inside(root, relative) {
+  if (!relative || /^[\\/]/.test(relative) || /^[A-Za-z]:/.test(relative) || relative.split(/[\\/]/).includes("..")) {
+    throw new Error(`The seed manifest names ${JSON.stringify(relative)}, which is not a path inside the seed.`);
+  }
+  return path.join(root, ...relative.split("/"));
+}
+
+/** Copy over a file only once the copy is whole: an interrupted update leaves the old file, not half a new one. */
+async function copyOver(source, target) {
+  await fsp.mkdir(path.dirname(target), { recursive: true });
+  const temp = path.join(path.dirname(target), `.${path.basename(target)}.${process.pid}.${crypto.randomUUID()}.tmp`);
+  try {
+    await fsp.copyFile(source, temp);
+    await renameOver(temp, target);
+  } finally {
+    await fsp.rm(temp, { force: true });
+  }
+}
+
+/** Remove a file only while it still holds one of the versions this module wrote there. */
+async function removeIfSha(target, ...shas) {
+  const current = await fileSha(target);
+  if (current !== null && shas.includes(current)) await fsp.rm(target, { force: true });
+}
+
+/** Folders a removal left empty go too, up to the vault itself. */
+async function pruneEmptyParents(file, root) {
+  for (let folder = path.dirname(file); folder.startsWith(root + path.sep); folder = path.dirname(folder)) {
+    try {
+      await fsp.rmdir(folder);
+    } catch {
+      return;
+    }
+  }
+}
+
+/**
+ * `-1`, `0` or `1` as version `left` is older than, the same as or newer than
+ * `right`; a prerelease is older than its release. Unreadable parts count as 0.
+ *
+ * @param {string} left
+ * @param {string} right
+ * @returns {number}
+ */
+export function compareVersions(left, right) {
+  const parse = (value) => {
+    const [core, pre = ""] = String(value ?? "").trim().replace(/^v/, "").split(/-(.*)/s);
+    return { numbers: core.split(".").map((part) => Number.parseInt(part, 10) || 0), pre };
+  };
+  const a = parse(left);
+  const b = parse(right);
+  for (let index = 0; index < Math.max(a.numbers.length, b.numbers.length); index += 1) {
+    const difference = (a.numbers[index] ?? 0) - (b.numbers[index] ?? 0);
+    if (difference) return Math.sign(difference);
+  }
+  if (a.pre === b.pre) return 0;
+  if (!a.pre || !b.pre) return a.pre ? -1 : 1;
+  return a.pre.localeCompare(b.pre, "en", { numeric: true }) < 0 ? -1 : 1;
+}
+
+/**
+ * The conflicts still open: the user's file is there, still differs from what
+ * was shipped, and the `.seed-new` beside it has not been deleted.
+ */
+async function openConflicts(contentRoot, state) {
+  const files = state?.files && typeof state.files === "object" ? state.files : {};
+  const open = [];
+  for (const relative of Array.isArray(state?.conflicts) ? state.conflicts : []) {
+    const target = inside(contentRoot, String(relative));
+    const current = await fileSha(target);
+    if (current !== null && current !== files[relative] && await entryKind(target + SEED_NEW_SUFFIX) === "file") open.push(String(relative));
+  }
+  return open;
+}
+
+/**
+ * Bring the vault up to the seed.
+ *
+ * @param {object} input
+ * @param {string} input.seedRoot - The shipped seed: `<package>/seed`.
+ * @param {string} input.contentRoot - The user's vault.
+ * @param {string} [input.version] - The shipping package's version; an older one leaves a newer vault alone.
+ * @param {() => Date} [input.now]
+ * @returns {Promise<{ status: "current"|"synced"|"newer", version: string, fingerprint: string, added: number, updated: number, unchanged: number, removed: number, kept: string[], conflicts: string[] }>}
+ */
+export async function syncSeed({ seedRoot, contentRoot, version = "", now = () => new Date() }) {
+  const manifest = await readJson(path.join(seedRoot, MANIFEST), null);
+  if (!manifest || !Array.isArray(manifest.files)) throw new Error(`${seedRoot} has no readable ${MANIFEST}.`);
+  const fingerprint = String(manifest.content_fingerprint ?? "");
+  const statePath = path.join(contentRoot, SEED_STATE_FILE);
+  const result = async (status, state, counts = {}) => ({
+    status,
+    version: String(state?.seed_version ?? version),
+    fingerprint: String(state?.seed_fingerprint ?? fingerprint),
+    added: 0,
+    updated: 0,
+    unchanged: 0,
+    removed: 0,
+    kept: [],
+    conflicts: counts.conflicts ?? await openConflicts(contentRoot, state),
+    ...counts
+  });
+  const settled = (state) => {
+    if (fingerprint && state?.seed_fingerprint === fingerprint) return "current";
+    if (version && state?.seed_version && compareVersions(state.seed_version, version) > 0) return "newer";
+    return "";
+  };
+  // Every start of the server asks; only a new seed costs more than a read.
+  const quick = await readJson(statePath, null);
+  if (settled(quick)) return result(settled(quick), quick);
+  await fsp.mkdir(contentRoot, { recursive: true });
+  return withFileLock(statePath, async () => {
+    const state = await readJson(statePath, null);
+    if (settled(state)) return result(settled(state), state);
+    const shipped = state?.files && typeof state.files === "object" ? state.files : {};
+    const before = new Set(Array.isArray(state?.conflicts) ? state.conflicts.map(String) : []);
+    const counts = { added: 0, updated: 0, unchanged: 0, removed: 0, kept: [], conflicts: [] };
+    const files = {};
+    for (const entry of manifest.files) {
+      const relative = String(entry.path);
+      const sha = String(entry.sha256);
+      files[relative] = sha;
+      const source = inside(seedRoot, relative);
+      const target = inside(contentRoot, relative);
+      const previous = shipped[relative];
+      const kind = await entryKind(target);
+      if (kind === "absent") {
+        // Shipped before and gone now: the user deleted it, and it stays deleted.
+        if (previous !== undefined) continue;
+        await copyOver(source, target);
+        counts.added += 1;
+        continue;
+      }
+      if (kind === "other") {
+        counts.kept.push(relative);
+        continue;
+      }
+      const current = await sha256File(target);
+      if (current === sha || current === previous) {
+        if (current === sha) {
+          counts.unchanged += 1;
+        } else {
+          await copyOver(source, target);
+          counts.updated += 1;
+        }
+        // The user took a shipped version: the copy beside it has nothing left to say.
+        if (before.has(relative)) await removeIfSha(target + SEED_NEW_SUFFIX, sha, previous);
+      } else {
+        // The user's file: changed since it was shipped, or there before the
+        // seed was. It stays; when this update changed it too, its version
+        // goes beside it.
+        counts.kept.push(relative);
+        if (previous !== sha) {
+          await copyOver(source, target + SEED_NEW_SUFFIX);
+          counts.conflicts.push(relative);
+        } else if (before.has(relative) && await entryKind(target + SEED_NEW_SUFFIX) === "file") {
+          counts.conflicts.push(relative);
+        }
+      }
+    }
+    for (const [relative, previous] of Object.entries(shipped)) {
+      if (Object.hasOwn(files, relative)) continue;
+      const target = inside(contentRoot, relative);
+      // A version of a file the seed no longer has is nothing to merge.
+      await removeIfSha(target + SEED_NEW_SUFFIX, previous);
+      const current = await fileSha(target);
+      if (current === null) continue;
+      if (current === previous) {
+        await fsp.rm(target, { force: true });
+        await pruneEmptyParents(target, contentRoot);
+        counts.removed += 1;
+      } else {
+        counts.kept.push(relative);
+      }
+    }
+    const next = {
+      schema_version: 1,
+      seed_version: version,
+      seed_fingerprint: fingerprint,
+      synced_at: now().toISOString(),
+      seed_root: seedRoot,
+      conflicts: counts.conflicts,
+      files
+    };
+    await atomicWriteJson(statePath, next);
+    return result("synced", next, counts);
+  });
+}
+
+/**
+ * What the last sync left for the user to look at, for `doctor`.
+ *
+ * @param {string} contentRoot
+ * @returns {Promise<{ synced: boolean, version: string, synced_at: string, seed_root: string, conflicts: string[] }>}
+ */
+export async function describeSeedSync(contentRoot) {
+  const state = await readJson(path.join(contentRoot, SEED_STATE_FILE), null);
+  return {
+    synced: Boolean(state),
+    version: String(state?.seed_version ?? ""),
+    synced_at: String(state?.synced_at ?? ""),
+    seed_root: String(state?.seed_root ?? ""),
+    conflicts: state ? await openConflicts(contentRoot, state) : []
+  };
+}

@@ -280,6 +280,29 @@ test("a place named by its variable is not taken from ~/.codex, and what could n
   assert.equal(evaluateRuntimeHome(await describeRuntimeHome({ env })).status, "ok");
 });
 
+test("a Codex-era index or half a download that ~/.ai-dev has its own of is dropped, not a conflict (Д-183)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-cache-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const codex = path.join(home, ".codex");
+  const runtime = path.join(home, ".ai-dev");
+  const env = { HOME: home };
+  await write(path.join(codex, "cache", "ai-dev-system", "search-index", "ai-dev-search.sqlite"), "codex-era index");
+  await write(path.join(runtime, "cache", "search-index", "ai-dev-search.sqlite"), "current index");
+  await write(path.join(codex, "models", "bge-m3-onnx", "onnx", "model_int8.onnx.part"), "half a model");
+  await write(path.join(runtime, "models", "bge-m3-onnx", "onnx", "model_int8.onnx.part"), "another half");
+  // State is never dropped: a task on both sides that differs stays a conflict.
+  await write(path.join(codex, "state", "ai-dev-system", "tasks", "t.json"), "{\"v\":1}\n");
+  await write(path.join(runtime, "state", "tasks", "t.json"), "{\"v\":2}\n");
+  const result = await migrateCodexRuntime({ env });
+  assert.equal(result.superseded, 2);
+  assert.deepEqual(result.conflicts, [path.join("state", "ai-dev-system", "tasks", "t.json")]);
+  assert.equal(await fs.readFile(path.join(runtime, "cache", "search-index", "ai-dev-search.sqlite"), "utf8"), "current index");
+  await assert.rejects(fs.stat(path.join(codex, "cache", "ai-dev-system", "search-index", "ai-dev-search.sqlite")));
+  const verdict = evaluateRuntimeHome(await describeRuntimeHome({ env }));
+  assert.match(verdict.summary, /1 file\(s\) of AI Dev's are still in/, "only the state conflict is left to settle");
+});
+
 test("the test runtime pins every place the migration takes from ~/.codex: a test run never moves a developer's data", () => {
   // test/setup.mjs runs before every test file and keeps HOME as it is.
   assert.deepEqual(CODEX_LEGACY_FOLDERS.filter((folder) => !process.env[folder.variable]).map((folder) => folder.variable), []);

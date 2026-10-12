@@ -24,6 +24,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { DISTRIBUTION_MARKER } from "./install-layout.mjs";
+import { atomicWriteJson } from "./atomic-files.mjs";
 import { verifyDistribution } from "./distribution-build.mjs";
 
 /** Written last into a finished copy; a folder without it is an install that stopped. */
@@ -43,7 +44,26 @@ const readJson = async (file) => JSON.parse(await fs.readFile(file, "utf8"));
  */
 export function appFolder(runtimeRoot, distribution) {
   const version = String(distribution.version || "0.0.0").replace(/[^0-9A-Za-z.+-]/g, "_");
-  return path.join(runtimeRoot, "app", `${version}-${String(distribution.content_fingerprint || "").slice(0, 8) || "unknown"}`);
+  // Hex only: a fingerprint of `../../..` named the runtime folder itself,
+  // which an install then removed (Д-185).
+  const fingerprint = String(distribution.content_fingerprint || "").replace(/[^0-9a-f]/gi, "").slice(0, 8) || "unknown";
+  return path.join(runtimeRoot, "app", `${version}-${fingerprint}`);
+}
+
+/**
+ * Rename a folder, again while Windows says a file in it is busy: an
+ * antivirus scanner opens what `npm ci` just wrote (Д-185).
+ */
+async function renameFolder(from, to) {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await fs.rename(from, to);
+      return;
+    } catch (error) {
+      if (attempt >= 9 || !["EACCES", "EPERM", "EBUSY"].includes(error?.code)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
+    }
+  }
 }
 
 /** The CLI inside a copy: what client configs run, with `mcp`. */
@@ -66,10 +86,13 @@ async function finished(folder, fingerprint) {
 const STOPPED_INSTALL_MS = 60 * 60 * 1000;
 
 /**
- * Keep the newest copies by the time they were installed; remove the rest and
- * any install that stopped partway. A folder without a marker that is not a
- * partial install is not this module's, and stays. Best effort: a copy a
- * running process holds open on Windows stays until the next time.
+ * Keep the copies setup chose last — not the ones installed last: choosing an
+ * installed copy again makes it the current one (Д-181) — and remove the rest
+ * and any install that stopped partway. A copy goes aside as `.partial` before
+ * it is removed, so one Windows refuses to remove completely (a running
+ * server holds it) is finished off by a later install instead of staying,
+ * without its marker, for good. A folder without a marker that is not a
+ * partial install is not this module's, and stays.
  */
 async function prune(appsRoot, keep, nowMs) {
   const entries = await fs.readdir(appsRoot, { withFileTypes: true }).catch(() => []);
@@ -83,12 +106,16 @@ async function prune(appsRoot, keep, nowMs) {
       continue;
     }
     const marker = await readJson(path.join(folder, APP_MARKER)).catch(() => null);
-    if (marker) copies.push({ folder, at: Date.parse(marker.installed_at ?? "") || 0 });
+    if (marker) copies.push({ folder, at: Date.parse(marker.chosen_at ?? marker.installed_at ?? "") || 0 });
   }
   copies.sort((left, right) => right.at - left.at);
   const removed = [];
   for (const { folder } of copies.slice(keep)) {
-    if (await fs.rm(folder, { recursive: true, force: true }).then(() => true, () => false)) removed.push(folder);
+    const aside = `${folder}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.partial`;
+    // In use on Windows: it cannot even be renamed, and stays until the next time.
+    if (!await fs.rename(folder, aside).then(() => true, () => false)) continue;
+    removed.push(folder);
+    await fs.rm(aside, { recursive: true, force: true }).catch(() => undefined);
   }
   for (const folder of partials) {
     const stat = await fs.stat(folder).catch(() => null);
@@ -111,7 +138,12 @@ export async function installAppHome({ packageRoot, runtimeRoot, runNpm, now = (
   const distribution = await readJson(path.join(packageRoot, DISTRIBUTION_MARKER));
   const folder = appFolder(runtimeRoot, distribution);
   const result = (status, removed = []) => ({ status, folder, cli: appCli(folder), version: String(distribution.version ?? ""), removed });
-  if (await finished(folder, distribution.content_fingerprint)) return result("present");
+  if (await finished(folder, distribution.content_fingerprint)) {
+    // Chosen again: it is the current copy now, and the one a prune keeps.
+    const marker = await readJson(path.join(folder, APP_MARKER));
+    await atomicWriteJson(path.join(folder, APP_MARKER), { ...marker, chosen_at: now().toISOString() });
+    return result("present");
+  }
 
   const stage = `${folder}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.partial`;
   await fs.mkdir(stage, { recursive: true });
@@ -129,18 +161,20 @@ export async function installAppHome({ packageRoot, runtimeRoot, runNpm, now = (
         + `(${[...check.missing, ...check.changed].slice(0, 3).join(", ")}); install it again.`);
     }
     await runNpm(["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline"], { cwd: stage });
+    const stamp = now().toISOString();
     await fs.writeFile(path.join(stage, APP_MARKER), `${JSON.stringify({
       schema_version: 1,
       name: distribution.name,
       version: distribution.version,
       content_fingerprint: distribution.content_fingerprint,
-      installed_at: now().toISOString(),
+      installed_at: stamp,
+      chosen_at: stamp,
       installed_from: packageRoot
     }, null, 2)}\n`);
     // A folder left by an install that stopped is replaced; a finished one of
     // this fingerprint was returned above.
     await fs.rm(folder, { recursive: true, force: true });
-    await fs.rename(stage, folder);
+    await renameFolder(stage, folder);
   } catch (error) {
     await fs.rm(stage, { recursive: true, force: true }).catch(() => undefined);
     throw error;

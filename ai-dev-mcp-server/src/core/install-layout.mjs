@@ -9,11 +9,20 @@
  * copied into a vault of the user's own, `~/.ai-dev/vault`, and kept current by
  * the seed's sha256 manifest (`seed-sync.mjs`).
  *
- * - `vault`   — `AI_DEV_VAULT_ROOT`, or a full vault two levels above the server.
- * - `clone`   — a checkout of this repository: the content is its `docker/public-seed`.
+ * `kind` is how the code got here, and decides how commands are spelled and
+ * whether a copy must be made to outlive npx's cache:
+ *
+ * - `vault`   — inside a full vault, two levels above the server;
+ * - `clone`   — a checkout of this repository: the content is its `docker/public-seed`;
  * - `package` — `npm run dist`'s folder, the npm package, the Windows install:
- *               `distribution.json` beside the server, the seed in `seed/`.
+ *               `distribution.json` beside the server, the seed in `seed/`;
  * - `docker`  — the image (`AI_DEV_RUNTIME=docker`); its entrypoint seeds `/data`.
+ *
+ * `AI_DEV_VAULT_ROOT` names the content root and nothing else: a full vault of
+ * the user's own is read where it is, whatever installed the code — and a
+ * package's seed is not copied into it. Deciding the kind by that variable
+ * made a package npx ran look like a vault, so its client configs pointed into
+ * npx's cache (docs/DEFECTS.md, Д-177).
  *
  * A package run by `npx` sits in npm's cache, which npm may clear at any time;
  * `ephemeral` says so, and `setup` copies it somewhere that stays.
@@ -57,7 +66,7 @@ export function isEphemeralInstall(folder) {
 
 /**
  * @typedef {object} InstallLayout
- * @property {"vault"|"clone"|"package"|"docker"} kind
+ * @property {"vault"|"clone"|"package"|"docker"} kind - How the code is installed.
  * @property {string} serverRoot - `ai-dev-mcp-server/`.
  * @property {string} root - The folder that holds the server and its helpers (`frontend-qa/`, `search-eval/`).
  * @property {string} contentRoot - The vault the server reads and writes.
@@ -78,25 +87,28 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
   const ephemeral = isEphemeralInstall(realOrSelf(server));
   const appHome = isInside(path.join(runtimeRoot, "app"), server);
   const explicit = String(env.AI_DEV_VAULT_ROOT ?? "").trim();
-  const base = { serverRoot: server, root, runtimeRoot, ephemeral, appHome };
-  if (String(env.AI_DEV_RUNTIME ?? "").trim().toLowerCase() === "docker") {
-    return { ...base, kind: "docker", contentRoot: path.resolve(explicit || "/data/ai-dev-system"), seedRoot: "" };
-  }
-  if (explicit) return { ...base, kind: "vault", contentRoot: path.resolve(explicit), seedRoot: "" };
   const vault = path.dirname(root);
-  if (exists(path.join(vault, "03-skills-catalog")) || exists(path.join(vault, "01-system"))) {
-    return { ...base, kind: "vault", contentRoot: vault, seedRoot: "" };
-  }
   const repositorySeed = path.join(root, "docker", "public-seed");
-  if (exists(repositorySeed)) {
-    return { ...base, kind: "clone", contentRoot: repositorySeed, seedRoot: "" };
-  }
   const shipped = path.join(root, "seed");
+  let kind = "package";
+  let ownContent = path.join(runtimeRoot, "vault");
+  if (String(env.AI_DEV_RUNTIME ?? "").trim().toLowerCase() === "docker") {
+    [kind, ownContent] = ["docker", "/data/ai-dev-system"];
+  } else if (exists(path.join(vault, "03-skills-catalog")) || exists(path.join(vault, "01-system"))) {
+    [kind, ownContent] = ["vault", vault];
+  } else if (exists(repositorySeed)) {
+    [kind, ownContent] = ["clone", repositorySeed];
+  }
+  const ownSeed = kind === "package" && exists(path.join(root, DISTRIBUTION_MARKER)) && exists(path.join(shipped, SEED_MANIFEST)) ? shipped : "";
   return {
-    ...base,
-    kind: "package",
-    contentRoot: path.join(runtimeRoot, "vault"),
-    seedRoot: exists(path.join(root, DISTRIBUTION_MARKER)) && exists(path.join(shipped, SEED_MANIFEST)) ? shipped : ""
+    serverRoot: server,
+    root,
+    runtimeRoot,
+    ephemeral,
+    appHome,
+    kind,
+    contentRoot: path.resolve(explicit || ownContent),
+    seedRoot: explicit ? "" : ownSeed
   };
 }
 
@@ -134,7 +146,7 @@ const ALIASES = new Map([
  * clone: a package's user runs `ai-dev setup --model`, or through `npx`.
  *
  * @param {string} command - `npm run <alias> [-- args]`, as a clone types it.
- * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome">} [layout]
+ * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome"> & { serverRoot?: string }} [layout]
  * @returns {string}
  */
 export function hint(command, layout = currentInstallLayout()) {
@@ -142,6 +154,8 @@ export function hint(command, layout = currentInstallLayout()) {
   const match = /^npm run ([\w:-]+)(?: -- ?(.*))?$/.exec(command.trim());
   if (!match || !ALIASES.has(match[1])) return command;
   const words = [ALIASES.get(match[1]), match[2] ?? ""].filter(Boolean).join(" ").trim();
+  // The image puts no `ai-dev` on PATH: inside it the CLI is run by its path.
+  if (layout.kind === "docker") return `node ${path.posix.join(layout.serverRoot || "/opt/ai-dev/app", "bin", "ai-dev.mjs")} ${words}`.trim();
   // `ai-dev` is on PATH for a global install; a copy npx left behind, or one
   // setup made in the app home, is reached through npx.
   return layout.ephemeral || layout.appHome ? `npx ${PACKAGE_NAME} ${words}`.trim() : `ai-dev ${words}`.trim();

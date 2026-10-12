@@ -92,7 +92,7 @@ import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
 import { currentInstallLayout } from "./core/install-layout.mjs";
 import { prepareUserVault } from "./core/seed-sync.mjs";
 import { resolveRuntimeAssets } from "./core/runtime-assets.mjs";
-import { resolveRuntimeStateRoot, resolveUserHome } from "./core/runtime-home.mjs";
+import { resolveUserHome } from "./core/runtime-home.mjs";
 import {
   compileContextPack,
   contextPackFreshness
@@ -198,13 +198,13 @@ const installLayout = currentInstallLayout();
 const vaultRoot = installLayout.contentRoot;
 
 // Home for regenerable runtime data (task state, search cache, models, QA
-// artifacts): ~/.ai-dev, overridable per directory with the AI_DEV_* env vars.
-// What 2.x left in AI_DEV_HOME/.ai-dev (Д-90) or in ~/.codex (Д-104) moves here
-// before any path is chosen; ~/.codex is not read any more.
+// artifacts): the layout's, as the hooks have it (Д-185), overridable per
+// directory with the AI_DEV_* env vars. What 2.x left in AI_DEV_HOME/.ai-dev
+// (Д-90) or in ~/.codex (Д-104) moves here first; ~/.codex is not read any more.
 await prepareRuntimeHome();
 const seedSync = await prepareUserVault(installLayout, { version: packageVersion });
 const userHome = resolveUserHome(vaultRoot);
-const runtimeStateRoot = configureRuntimeStateRoot(resolveRuntimeStateRoot(vaultRoot));
+const runtimeStateRoot = configureRuntimeStateRoot(installLayout.runtimeRoot);
 function aiDevRuntimePath(envVar, segments) {
   if (process.env[envVar]) return path.resolve(process.env[envVar]);
   return path.join(runtimeStateRoot, ...segments);

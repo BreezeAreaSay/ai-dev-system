@@ -108,4 +108,23 @@ test("the newest copies stay; older ones, stopped installs and nothing of anyone
 test("the folder is named by version and fingerprint, and nothing in either escapes it", () => {
   assert.equal(appFolder("/r", { version: "3.0.0", content_fingerprint: "0123456789abcdef" }), path.join("/r", "app", "3.0.0-01234567"));
   assert.equal(appFolder("/r", { version: "../../x", content_fingerprint: "" }), path.join("/r", "app", ".._.._x-unknown"));
+  assert.equal(appFolder("/r", { version: "3.0.0", content_fingerprint: "../../.." }), path.join("/r", "app", "3.0.0-unknown"), "Д-185");
+  assert.equal(appFolder("/r", { version: "3.0.0", content_fingerprint: "ab/../cd" }), path.join("/r", "app", "3.0.0-abcd"));
+});
+
+test("a copy setup chose again is the current one: the prune keeps it, not the one installed after it (Д-181)", async (t) => {
+  const root = await scratch(t);
+  const runtime = path.join(root, ".ai-dev");
+  let clock = Date.now();
+  const now = () => new Date((clock += 60_000));
+  const steps = [];
+  for (const [version, tag] of [["3.0.0", "a"], ["3.1.0", "b"], ["3.0.0", "a"], ["3.2.0", "c"]]) {
+    const pkg = await writePackage(path.join(root, `${version}-${tag}`), { version, tag });
+    const result = await installAppHome({ packageRoot: pkg.root, runtimeRoot: runtime, runNpm: fakeNpm([]), now });
+    steps.push([result.status, path.basename(result.folder), result.removed.map((folder) => path.basename(folder))]);
+  }
+  assert.equal(steps[2][0], "present");
+  assert.deepEqual(steps[3][2], [steps[1][1]], "3.1.0 goes: 3.0.0 was chosen after it");
+  const left = (await fs.readdir(path.join(runtime, "app"))).filter((name) => !name.endsWith(".partial")).sort();
+  assert.deepEqual(left, [steps[0][1], steps[3][1]].sort());
 });

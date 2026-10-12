@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import fs from "node:fs/promises";
+import { createRequire } from "node:module";
 import path from "node:path";
+import process from "node:process";
 import test from "node:test";
-import { launch, shot, stage, trayNow } from "./harness.mjs";
+import { NO_SANDBOX, clientEnvironment, desktopRoot, launch, serverModule, shot, stage, trayNow } from "./harness.mjs";
+
+const require = createRequire(import.meta.url);
 
 test("without a daemon: a clear screen with a Start button, which brings it up", { timeout: 180_000 }, async (t) => {
   // Autostart off: the app reaches only a daemon that already runs.
@@ -30,11 +36,52 @@ test("the tray's Stop brings the window back to the Start screen", { timeout: 18
   assert.equal((await trayNow(app)).state, "offline");
 });
 
-test("without Node.js the app says what it needs instead of failing", { timeout: 120_000 }, async (t) => {
-  const s = await stage(t, { env: { AI_DEV_NODE: path.join("/", "nowhere", "node") } });
-  const { page } = await launch(t, s.env);
+test("without Node.js the app says what it needs, and Try again finds one installed since (Д-251)", { timeout: 120_000 }, async (t) => {
+  const s = await stage(t);
+  const later = path.join(s.root, "installed-later", "node");
+  const { page } = await launch(t, { ...s.env, AI_DEV_NODE: later });
   await page.waitForSelector('[data-screen="no-node"]', { timeout: 60_000 });
   assert.equal(await page.textContent("h1"), "Node.js is not found");
-  assert.match(await page.textContent('[data-screen="no-node"]'), /AI_DEV_NODE names .*nowhere.*node, which is not an executable file/);
+  assert.match(await page.textContent('[data-screen="no-node"]'), /AI_DEV_NODE names .*installed-later.*node, which is not an executable file/);
   await shot(page, "no-node");
+  await page.click("#retry");
+  await page.waitForSelector('[data-screen="no-node"]');
+  // Node arrives where AI_DEV_NODE says; Try again finds it.
+  await fs.mkdir(path.dirname(later), { recursive: true });
+  await fs.symlink(process.execPath, later);
+  await page.click("#retry");
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+});
+
+test("a daemon that dies is said with its log, and one a client starts later brings the app back (Д-243, Д-254)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  const pid = await app.evaluate(() => globalThis.aiDevTest.link.status.served_by.pid);
+  process.kill(pid, "SIGKILL");
+  await page.waitForSelector('[data-screen="offline"] [data-field="offline-error"]', { timeout: 30_000 });
+  assert.match(await page.textContent('[data-field="offline-error"]'), /stopped unexpectedly/);
+  await page.waitForSelector('[data-screen="offline"] details.log');
+  assert.equal((await trayNow(app)).state, "offline");
+  await shot(page, "offline-lost");
+  // An AI client starts the daemon again, as clients do: the app comes back by itself.
+  const { openControlClient } = await serverModule("src/core/control-client.mjs");
+  const { client } = await openControlClient({ serverRoot: path.resolve(desktopRoot, "..", "ai-dev-mcp-server"), env: clientEnvironment(s.env), execPath: process.execPath, name: "a-client" });
+  t.after(() => client.close().catch(() => undefined));
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 30_000 });
+  assert.notEqual(await app.evaluate(() => globalThis.aiDevTest.link.status.served_by.pid), pid);
+});
+
+test("a second launch hands over to the first, which shows its window (Д-254)", { timeout: 120_000 }, async (t) => {
+  const s = await stage(t);
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
+  const started = Date.now();
+  const second = spawn(require("electron"), [...(NO_SANDBOX ? ["--no-sandbox"] : []), desktopRoot], { env: s.env, stdio: "ignore", shell: false });
+  const code = await new Promise((resolve) => second.once("exit", resolve));
+  assert.equal(code, 0);
+  assert.ok(Date.now() - started < 30_000);
+  await page.waitForFunction(() => document.visibilityState === "visible", null, { timeout: 10_000 });
+  assert.deepEqual(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((window) => window.isVisible())), [true]);
 });

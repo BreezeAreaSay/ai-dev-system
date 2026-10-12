@@ -46,6 +46,14 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   await page.waitForSelector('[data-action="cancel"]');
   await page.waitForFunction(() => document.querySelector(".progress-text")?.textContent?.length > 0);
   await shot(page, "wizard-3-model-downloading");
+  // While it runs the wizard stays on it; a person who goes to Status and
+  // back finds it still running, with its Cancel (Д-249).
+  assert.deepEqual([await page.isDisabled('[data-action="next"]'), await page.isDisabled('[data-action="back"]')], [true, true]);
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "cancel", "the focus is on Cancel, not lost (Д-257, п. 4)");
+  await page.click('[data-nav="status"]');
+  await page.waitForSelector('[data-screen="status"]');
+  await page.click('[data-nav="wizard"]');
+  await page.waitForSelector('[data-step="model"] [data-action="cancel"]');
   // Let the download reach the stalled file, then cancel.
   await new Promise((resolve) => setTimeout(resolve, 1500));
   await page.click('[data-action="cancel"]');
@@ -69,8 +77,10 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   await shot(page, "wizard-5-model-installed");
   await page.click('[data-action="next"]');
 
-  // 4. The index, with the model's vectors.
+  // 4. The index, with the model's vectors; the wizard waits for it.
   await page.click('[data-action="build-index"]');
+  await page.waitForSelector('[data-step="index"] [data-action="cancel"]');
+  assert.deepEqual([await page.isDisabled('[data-action="next"]'), await page.isDisabled('[data-action="back"]')], [true, true], "no leaving a build behind (Д-249)");
   await page.waitForSelector('[data-field="index-result"]', { timeout: 240_000 });
   const result = await page.textContent('[data-field="index-result"]');
   assert.match(result, /, 0 failed$/, result);
@@ -115,10 +125,13 @@ test("Status shows each health check with its details and what to do, in Russian
   // The tray's rebuild runs the tool and comes back to the menu.
   assert.equal((await trayNow(app)).state, "failed");
 
-  // Russian: the page, the tray, the stored choice.
+  // Russian: the page, the checks' names, the tray, the stored choice (Д-250).
   await page.selectOption("#language", "ru");
   await page.waitForSelector('[data-nav="status"]:has-text("Статус")');
   await page.waitForSelector('h1:has-text("Статус")');
+  await page.waitForSelector('[data-field="overall"]', { timeout: 120_000 });
+  assert.equal(await page.textContent('li.check[data-check="search_index_file"] strong'), "Поисковый индекс");
+  assert.match(await page.textContent('[data-field="why"]'), /^Почему: /);
   assert.equal((await trayNow(app)).menu[0].label, "Открыть AI Dev");
   const stored = JSON.parse(await fs.readFile(path.join(s.home, ".ai-dev", "config.json"), "utf8"));
   assert.equal(stored.language, "ru");

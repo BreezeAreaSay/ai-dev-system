@@ -86,7 +86,7 @@ The dependency runs one way: extensions never import `mcp-stdio.mjs`, which woul
 couple pure logic to the vault. Duplicate tool names and definitions without a handler throw at
 startup, so a broken extension can never reach a client.
 
-Registered today: `decisions`, `frontend-design`, `frontend-qa`, `galaxy`, `hooks`, `hygiene`,
+Registered today: `control`, `decisions`, `frontend-design`, `frontend-qa`, `galaxy`, `hooks`, `hygiene`,
 `instincts`, `lifecycle`, `mcp-inventory`, `plans`, `projects`, `pull-requests`, `rules`, `search`, `sessions`,
 `skills`, `snapshots`, `system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
 `change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `pull-request.mjs`,
@@ -99,6 +99,16 @@ Registered today: `decisions`, `frontend-design`, `frontend-qa`, `galaxy`, `hook
 `system-health.mjs`, `system-dashboard.mjs`, `text-format.mjs`, `usage-ledger.mjs`,
 `task-worktrees.mjs`, `task-snapshots.mjs`, `policy-rules.mjs`, `mcp-inventory.mjs`,
 `toml-lite.mjs`, and the `galaxy*.mjs` family); the extension is the MCP surface over it.
+
+`control` is the desktop app's surface ([CONTROL-API.md](CONTROL-API.md)): the install's status,
+setup, the local model, the AI clients, logs, settings and a work overview. Its tools are an opt-in
+profile, and each answer's JSON Schema — `core/control-contract.mjs` — is the tool's `outputSchema`
+and the source of the generated document. The logic it drives is shared with the CLI:
+`core/setup-runner.mjs` runs `ai-dev setup` and `setup_run` alike, `core/client-connections.mjs`
+`ai-dev clients` and the `clients_*` tools, `core/settings.mjs` keeps `~/.ai-dev/config.json` and
+fills the environment from it when a command starts; `core/log-tail.mjs`,
+`core/serving-process.mjs` and `core/workspace-overview.mjs` serve one tool each. A program reaches
+the daemon with `core/daemon-transport.mjs`, an MCP SDK transport over its socket.
 
 The Knowledge Galaxy (`render_knowledge_galaxy`, [docs/GALAXY.md](../../docs/GALAXY.md)) is the one
 extension that also ships browser code. `src/galaxy/` holds the viewer as ordinary ES modules, so

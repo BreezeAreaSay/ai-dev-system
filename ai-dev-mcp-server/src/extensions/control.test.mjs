@@ -54,6 +54,8 @@ async function stage(t, { bigModel = false } = {}) {
     USERPROFILE: home,
     APPDATA: path.join(home, "AppData", "Roaming"),
     LOCALAPPDATA: path.join(home, "AppData", "Local"),
+    CLAUDE_CONFIG_DIR: path.join(home, ".claude-config"),
+    CODEX_HOME: path.join(home, ".codex"),
     AI_DEV_HOME: path.join(home, ".ai-dev"),
     AI_DEV_VAULT_ROOT: vault,
     AI_DEV_MODEL_MANIFEST: manifestFile,

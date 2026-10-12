@@ -18,6 +18,26 @@ const MAX_TAIL_BYTES = 4 * 1024 * 1024;
 
 const CHUNK_BYTES = 64 * 1024;
 
+/**
+ * How a log is opened when links are refused: never through a link put in
+ * its place (where the system has the flag), and never waiting on a FIFO put
+ * there — the open returns, and the file is then seen not to be one
+ * (docs/DEFECTS.md, Д-233, Д-238).
+ */
+const OWN_FILE_FLAGS = fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0);
+
+/** Why a name in the logs folder is not read, by what it is. */
+function notALog(file, why) {
+  return new Error(`${path.basename(file)} ${why}: only the logs folder's own files are read.`);
+}
+
+/** What a file that is not a plain one is, in words. */
+function kindOf(stat) {
+  if (stat.isSymbolicLink()) return "is a link";
+  if (stat.isDirectory()) return "is a folder";
+  return "is not a plain file (a FIFO, a socket or a device)";
+}
+
 /** A log name: a file name in the logs folder, with or without `.log`. */
 const LOG_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
 
@@ -53,26 +73,31 @@ export function resolveLogFile(logsFolder, name = "daemon") {
  */
 export async function tailLines(file, { lines = 200, links = true } = {}) {
   const wanted = Math.max(1, Math.min(MAX_TAIL_LINES, Math.trunc(Number(lines)) || 200));
-  const refuse = () => new Error(`${path.basename(file)} is a link: only the logs folder's own files are read.`);
+  let seen = null;
   if (!links) {
     // A link in the logs folder would read whatever it points at (docs/DEFECTS.md, Д-223).
-    const stat = await fs.lstat(file).catch(() => null);
-    if (stat?.isSymbolicLink()) throw refuse();
+    seen = await fs.lstat(file, { bigint: true }).catch(() => null);
+    if (seen && !seen.isFile()) throw notALog(file, kindOf(seen));
   }
   let handle;
   try {
-    // Opened without following a link put in its place since (Д-233).
-    handle = await fs.open(file, links ? "r" : fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+    handle = await fs.open(file, links ? "r" : OWN_FILE_FLAGS);
   } catch (error) {
     if (error?.code === "ENOENT") return { exists: false, size: 0, lines: [], truncated: false };
-    if (!links && (error?.code === "ELOOP" || error?.code === "EMLINK")) throw refuse();
+    if (!links && (error?.code === "ELOOP" || error?.code === "EMLINK")) throw notALog(file, "is a link");
     throw error;
   }
   try {
-    const stat = await handle.stat();
-    // A hard link is a second name for a file elsewhere, as good as a link (Д-233).
-    if (!links && (!stat.isFile() || stat.nlink > 1)) throw refuse();
-    const { size } = stat;
+    const stat = await handle.stat({ bigint: true });
+    if (!links) {
+      if (!stat.isFile()) throw notALog(file, kindOf(stat));
+      // A hard link is a second name for a file elsewhere, as good as a link (Д-233).
+      if (stat.nlink > 1n) throw notALog(file, "has another name elsewhere (a hard link)");
+      // What is open is the file lstat looked at: where the system has no
+      // O_NOFOLLOW — Windows — a link put in its place since opens its target (Д-238).
+      if (seen && (stat.ino !== seen.ino || stat.dev !== seen.dev)) throw notALog(file, "was replaced while it was opened");
+    }
+    const size = Number(stat.size);
     let position = size;
     let buffer = Buffer.alloc(0);
     let newlines = 0;

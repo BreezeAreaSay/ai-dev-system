@@ -23,6 +23,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { isGeneratedVaultFile } from "./generated-vault-files.mjs";
 import { noteIdentity } from "./search-documents.mjs";
 import { loadSqlite, sqliteSupport } from "./search-sqlite.mjs";
 import { canonicalFolder } from "./session-env.mjs";
@@ -106,12 +107,16 @@ export function indexOrigin(file, vaultRoot, same) {
     // — a vault sharing the skill catalog took the index that way
     // (docs/DEFECTS.md, Д-219) — so only notes count, the sample spread over
     // the table by id, and every note of the sample counts: one missing here
-    // counts against, as one changed does (Д-229).
-    const notes = db.prepare("SELECT path, mtime, content_hash FROM documents WHERE source = 'vault-note' ORDER BY id LIMIT ?").all(SAMPLE_NOTES)
+    // counts against, as one changed does (Д-229). Not the notes the server
+    // writes itself — skill and project cards, group notes, dashboards: a
+    // clone does not carry them and each generation writes them anew, so
+    // they say nothing of whose vault it is (Д-236).
+    const notes = db.prepare("SELECT path, mtime, content_hash FROM documents WHERE source = 'vault-note' ORDER BY id").all()
       .filter((row) => {
         const relative = String(row.path ?? "");
-        return relative && !path.isAbsolute(relative) && !path.win32.isAbsolute(relative);
-      });
+        return relative && !path.isAbsolute(relative) && !path.win32.isAbsolute(relative) && !isGeneratedVaultFile(relative, { ignoreCase: true });
+      })
+      .slice(0, SAMPLE_NOTES);
     if (!notes.length) return "unknown";
     let identical = 0;
     let unchanged = 0;

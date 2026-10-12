@@ -140,6 +140,21 @@ export function createControlTools(host) {
     const env = sessionEnvironment();
     return { env, manifest: readDenseManifest(), dir: defaultOnnxModelDir({ env }) };
   };
+  // A model folder changed in this session is a new session's: the daemon's
+  // search keeps the folder it loaded, and a model put in the folder being
+  // left is not where the next session looks (docs/DEFECTS.md, Д-237).
+  const folderNotMoved = () => {
+    let pending;
+    try {
+      pending = readSettings({ env: process.env }).pending;
+    } catch {
+      return;
+    }
+    if (!Object.hasOwn(pending, "model_dir")) return;
+    const { env, dir } = model();
+    const next = defaultOnnxModelDir({ env: { ...env, BGE_M3_ONNX_DIR: pending.model_dir } });
+    throw new Error(`The model folder was changed to ${next}; this session still uses ${dir}, the one its daemon's search loaded. Reconnect — a session started now uses the new folder — and put the model there.`);
+  };
   const currentModel = async () => {
     const { env, manifest, dir } = model();
     return modelState(await modelStatus({ manifest, dir, env }));
@@ -199,7 +214,7 @@ export function createControlTools(host) {
         log: { type: "string", default: "daemon", description: "daemon, daemon.1 (the part set aside at 1 MB), or another log's file name." },
         lines: { type: "integer", minimum: 1, maximum: MAX_TAIL_LINES, default: 200 }
       }),
-      tool("settings_get", "The settings the desktop app changes, from ~/.ai-dev/config.json: each value in force — an environment variable's where one overrides the file — where it comes from (default, the file, or that variable), the file's own values, what each setting means, and any stored value that is not valid. Read-only.", {}),
+      tool("settings_get", "The settings the desktop app changes, from ~/.ai-dev/config.json: each value in force for this session — an environment variable's where one overrides the file — and where it comes from, what the file says that this session does not use yet (pending: a model folder or profiles for sessions started afterwards, the idle time for the next daemon), the file's own values, what each setting means, and any stored value that is not valid. Read-only.", {}),
       tool("settings_set", "Change settings: each value is checked first, and nothing is written when one is wrong; null puts a setting back to its default. The answer says when each change takes effect: the mirror at once, the model folder and the profiles for sessions started afterwards (reconnect to use them), the idle time for the daemon started next. A variable set in a client's environment still wins.", {
         settings: { type: "object", description: `Settings to change: ${Object.keys(SETTINGS).join(", ")}.` }
       }, ["settings"]),
@@ -272,6 +287,7 @@ export function createControlTools(host) {
         // A misspelt client is refused before anything is built, as the CLI
         // refuses it (docs/DEFECTS.md, Д-220).
         if (clients) parseClientSelection(clients);
+        if (want.model) folderNotMoved();
         const env = sessionEnvironment();
         const steps = await loadSetupSteps();
         const inspection = await inspectSetup({ runtime: runtime(), env, steps });
@@ -294,6 +310,7 @@ export function createControlTools(host) {
 
       async model_install(args = {}, { onProgress, signal } = {}) {
         only(args, []);
+        folderNotMoved();
         const { env, manifest, dir } = model();
         const notes = [];
         const placed = await installModel({ manifest, dir, env, signal, onProgress, log: (line) => notes.push(line) });
@@ -306,6 +323,7 @@ export function createControlTools(host) {
         // The daemon runs in another folder than the app that asks: a relative
         // path would be read against the daemon's.
         if (!path.isAbsolute(source)) throw new Error(`source must be an absolute path, not ${JSON.stringify(source)}.`);
+        folderNotMoved();
         const { manifest, dir } = model();
         return modelChange(await importModel({ manifest, source, dir, signal, onProgress }));
       },

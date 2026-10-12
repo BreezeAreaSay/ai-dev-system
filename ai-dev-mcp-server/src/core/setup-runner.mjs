@@ -33,6 +33,15 @@ export function loadSetupSteps() {
 }
 
 /**
+ * The error a stop ends a step with — a stop asked for, or Ctrl-C at a
+ * terminal, which reaches the commands setup runs as well as setup — so the
+ * step is reported stopped, not failed (docs/DEFECTS.md, Д-238).
+ */
+function stopped(signal, what) {
+  return signal?.reason ?? Object.assign(new Error(`${what} was stopped with Ctrl-C.`), { name: "AbortError" });
+}
+
+/**
  * Run a command and resolve with its exit code. `output: "inherit"` streams it
  * to this process's terminal; `"capture"` keeps its last lines for the error a
  * failure ends with. A signal stops the command.
@@ -53,7 +62,10 @@ function runCommand(command, args, { cwd, output = "inherit", signal } = {}) {
     child.stdout?.on("data", keep);
     child.stderr?.on("data", keep);
     child.on("error", reject);
-    child.on("close", (code) => resolve({ code: code ?? 1, tail }));
+    child.on("close", (code, killedBy) => {
+      if (signal?.aborted || (signal && killedBy === "SIGINT")) return reject(stopped(signal, command));
+      resolve({ code: code ?? 1, tail });
+    });
   });
 }
 
@@ -68,14 +80,17 @@ async function runOrThrow(label, command, args, options) {
 /**
  * The Frontend QA runner's status, asked exactly as the health check asks it,
  * about the vault, so setup and `doctor` cannot disagree. `launch: false` only
- * looks for the browser on disk.
+ * looks for the browser on disk. With a `signal`, a stop — asked for, or
+ * Ctrl-C at a terminal — rejects with the stop rather than reporting a
+ * runner that did not start.
  */
-export function frontendQaStatus(vaultRoot, { launch = true } = {}) {
-  return new Promise((resolve) => {
+export function frontendQaStatus(vaultRoot, { launch = true, signal } = {}) {
+  return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [path.join(QA_ROOT, "frontend_qa_runner.mjs")], {
       cwd: QA_ROOT,
       stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true
+      windowsHide: true,
+      ...(signal ? { signal } : {})
     });
     let stdout = "";
     let stderr = "";
@@ -98,9 +113,16 @@ export function frontendQaStatus(vaultRoot, { launch = true } = {}) {
     child.stdout.on("data", (chunk) => { stdout += chunk; });
     child.stderr.on("data", (chunk) => { stderr += chunk; });
     child.stdin.on("error", () => undefined); // a runner that died early closed it; its exit says why
-    child.on("error", (error) => failed(String(error?.message ?? error)));
+    const stop = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(stopped(signal, "The Frontend QA check"));
+    };
+    child.on("error", (error) => (error?.name === "AbortError" ? stop() : failed(String(error?.message ?? error))));
     // `close`, not `exit`: only then is everything the runner printed read.
-    child.on("close", (code) => {
+    child.on("close", (code, killedBy) => {
+      if (signal?.aborted || (signal && killedBy === "SIGINT")) return stop();
       if (code !== 0) return failed(stderr || `exit code ${code}`);
       try {
         settle(JSON.parse(stdout));
@@ -187,7 +209,7 @@ export async function runSetup({ runtime, env, steps, inspection, want = {}, for
         const invocation = await resolveSpawnInvocation(step.command, step.args);
         await runOrThrow(step.label, invocation.executable, invocation.args, { cwd: step.cwd, output: commandOutput, signal });
       }
-      const verdict = evaluateFrontendQaEnvironment(await frontendQaStatus(vaultRoot));
+      const verdict = evaluateFrontendQaEnvironment(await frontendQaStatus(vaultRoot, { signal }));
       if (verdict.status !== "ok") throw new Error(verdict.summary);
       return `pnpm@${pnpmVersion} install --frozen-lockfile, playwright install chromium; ${verdict.summary}`;
     },

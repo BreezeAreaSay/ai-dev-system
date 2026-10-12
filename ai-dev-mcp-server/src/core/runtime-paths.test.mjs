@@ -181,9 +181,58 @@ test("a run folder open to others is made private; a link, another user's folder
   assert.equal((await tightenFolder(path.join(root, "missing"))).state, "left");
 });
 
+test("a folder chmod changes nothing on, or may not change, is said to stay open, and why (Д-225, Д-235)", { skip: process.platform === "win32" && "POSIX modes" }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-tighten-open-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const run = path.join(root, "run");
+  await fs.mkdir(run);
+  await fs.chmod(run, 0o755);
+  const probe = await fs.open(root, "r");
+  const handles = Object.getPrototypeOf(probe);
+  await probe.close();
+  const chmod = handles.chmod;
+  t.after(() => {
+    handles.chmod = chmod;
+  });
+  // A mount that takes chmod and keeps its mode.
+  handles.chmod = async () => undefined;
+  assert.deepEqual(await tightenFolder(run), { state: "open", why: "its file system keeps the mode it has" });
+  // One that refuses it.
+  handles.chmod = async () => {
+    throw Object.assign(new Error("EPERM: operation not permitted, fchmod"), { code: "EPERM" });
+  };
+  assert.deepEqual(await tightenFolder(run), { state: "open", why: "its mode cannot be changed (EPERM)" });
+  assert.equal((await fs.stat(run)).mode & 0o777, 0o755);
+});
+
+test("a private folder of another user's that refuses to be opened is refused as theirs, by uid (Д-235)", { skip: process.platform === "win32" && "POSIX owners" }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-theirs-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const theirs = path.join(root, "ai-dev-1000");
+  await fs.mkdir(theirs, { mode: 0o700 });
+  const owner = (await fs.stat(theirs)).uid;
+  // Seen from another uid, as an ordinary user sees a 0700 folder not theirs.
+  const open = fs.open;
+  t.after(() => {
+    fs.open = open;
+  });
+  fs.open = async (target, ...rest) => {
+    if (target === theirs) throw Object.assign(new Error(`EACCES: permission denied, open '${theirs}'`), { code: "EACCES" });
+    return open.call(fs, target, ...rest);
+  };
+  await assert.rejects(prepareSocketDirectory(theirs, { uid: owner + 1 }), { message: `${theirs} belongs to uid ${owner}, not to this user (${owner + 1}).` });
+  assert.deepEqual(await tightenFolder(theirs, { uid: owner + 1 }), { state: "left", why: `it belongs to uid ${owner}` });
+  // Its own folder refusing it is no one else's: the refusal is passed on.
+  await assert.rejects(prepareSocketDirectory(theirs, { uid: owner }), { code: "EACCES" });
+  assert.deepEqual(await tightenFolder(theirs, { uid: owner }), { state: "left", why: "it cannot be opened (EACCES)" });
+});
+
 test("the folders a leaving daemon removes run from run/ up to the highest it made, compared as Node names them (Д-214, Д-224)", () => {
   // On Windows `fs.mkdir` answers in the \\?\ namespace.
   assert.deepEqual(foldersUpTo("C:\\Users\\Me\\.ai-dev\\run", "\\\\?\\C:\\Users\\Me\\.ai-dev", { pathApi: path.win32 }),
+    ["C:\\Users\\Me\\.ai-dev\\run", "C:\\Users\\Me\\.ai-dev"]);
+  // Spelled plainly, the top is the same folder (Д-235).
+  assert.deepEqual(foldersUpTo("C:\\Users\\Me\\.ai-dev\\run", "C:\\Users\\Me\\.ai-dev", { pathApi: path.win32 }),
     ["C:\\Users\\Me\\.ai-dev\\run", "C:\\Users\\Me\\.ai-dev"]);
   assert.deepEqual(foldersUpTo("\\\\server\\share\\me\\.ai-dev\\run", "\\\\?\\UNC\\server\\share\\me\\.ai-dev", { pathApi: path.win32 }),
     ["\\\\server\\share\\me\\.ai-dev\\run", "\\\\server\\share\\me\\.ai-dev"]);

@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { explicitRuntimeHome, legacyDoubledRuntimeRoot, resolveRuntimeStateRoot } from "./runtime-home.mjs";
+import { explicitRuntimeHome, legacyDoubledRuntimeRoot, resolveRuntimeStateRoot, resolveUserHome } from "./runtime-home.mjs";
 import { atomicWriteFile, atomicWriteJson, withExclusiveFile } from "./atomic-files.mjs";
 import { withFileLock } from "./file-lock.mjs";
 
@@ -50,6 +50,73 @@ export async function migrateDoubledRuntimeHome({ env = process.env, now = () =>
     await mergeTree(legacy, target, legacy, counts);
     await removeEmptyDirectories(legacy);
     const result = { status: "migrated", from: legacy, to: target, ...counts };
+    if (counts.moved || counts.merged || counts.duplicates || counts.conflicts.length || counts.errors.length) {
+      await recordMigration(target, { ...result, at: now().toISOString() });
+    }
+    return result;
+  }, { timeoutMs: MIGRATION_LOCK_TIMEOUT_MS });
+}
+
+/**
+ * Where 2.x kept AI Dev's data under `~/.codex`, by the variable that names each
+ * place now. The runtime that came with Codex desktop kept it there, and 2.x
+ * read a `~/.codex` folder whenever its `~/.ai-dev` twin did not exist yet — so
+ * the first hook, or `ai-dev clients install`, that created `~/.ai-dev/state`
+ * made the server leave the Codex-era tasks and sessions behind without a word,
+ * while the hooks had never read them at all (docs/DEFECTS.md, Д-104). Only
+ * these folders are AI Dev's; the rest of `~/.codex` is Codex's own and stays.
+ */
+export const CODEX_LEGACY_FOLDERS = Object.freeze([
+  { variable: "AI_DEV_STATE_ROOT", from: ["state", "ai-dev-system"], to: ["state"] },
+  { variable: "AI_DEV_ARCHIFY_RECEIPTS_ROOT", from: ["state", "archify-receipts"], to: ["state", "archify-receipts"] },
+  { variable: "AI_DEV_SEARCH_INDEX_DIR", from: ["cache", "ai-dev-system", "search-index"], to: ["cache", "search-index"] },
+  { variable: "AI_DEV_FRONTEND_QA_ARTIFACT_ROOT", from: ["artifacts", "frontend-qa"], to: ["artifacts", "frontend-qa"] },
+  { variable: "AI_DEV_ARCHIFY_ARTIFACT_ROOT", from: ["artifacts", "archify"], to: ["artifacts", "archify"] },
+  { variable: "BGE_M3_ONNX_DIR", from: ["models", "bge-m3-onnx"], to: ["models", "bge-m3-onnx"] }
+]);
+
+/** The `~/.codex` folders of AI Dev's that this environment would read, existing or not. */
+function codexLegacyFolders(env) {
+  const codex = path.join(resolveUserHome("", env), ".codex");
+  const target = resolveRuntimeStateRoot("", env);
+  // A place named by its variable was never looked for in ~/.codex.
+  return CODEX_LEGACY_FOLDERS.filter((folder) => !env[folder.variable]).map((folder) => ({
+    ...folder,
+    codex,
+    source: path.join(codex, ...folder.from),
+    destination: path.join(target, ...folder.to)
+  }));
+}
+
+/**
+ * Move AI Dev's Codex-era folders from `~/.codex` into the runtime tree, once.
+ * The same rules as {@link migrateDoubledRuntimeHome}: nothing is replaced,
+ * identical files are dropped, JSONL ledgers are merged, anything else on both
+ * sides stays in `~/.codex` and is reported; the move is recorded.
+ *
+ * @param {{ env?: NodeJS.ProcessEnv, now?: () => Date }} [options]
+ * @returns {Promise<{ status: "clean"|"migrated", from?: string, to?: string, moved: number, merged: number, duplicates: number, conflicts: string[], errors: Array<{ path: string, code: string, message: string }> }>}
+ */
+export async function migrateCodexRuntime({ env = process.env, now = () => new Date() } = {}) {
+  const empty = () => ({ moved: 0, merged: 0, duplicates: 0, conflicts: [], errors: [] });
+  const present = async () => {
+    const found = [];
+    for (const folder of codexLegacyFolders(env)) if (await isDirectory(folder.source)) found.push(folder);
+    return found;
+  };
+  if (!(await present()).length) return { status: "clean", ...empty() };
+  const target = resolveRuntimeStateRoot("", env);
+  await fs.mkdir(target, { recursive: true });
+  return withFileLock(path.join(target, "codex-migration"), async () => {
+    // The process that held the lock before may have moved everything.
+    const folders = await present();
+    if (!folders.length) return { status: "clean", ...empty() };
+    const counts = empty();
+    for (const folder of folders) {
+      await mergeTree(folder.source, folder.destination, folder.codex, counts);
+      await removeEmptyDirectories(folder.source);
+    }
+    const result = { status: "migrated", kind: "codex", from: folders[0].codex, to: target, ...counts };
     if (counts.moved || counts.merged || counts.duplicates || counts.conflicts.length || counts.errors.length) {
       await recordMigration(target, { ...result, at: now().toISOString() });
     }
@@ -288,21 +355,29 @@ let prepared = null;
  * @returns {Promise<object>} the migration result
  */
 export function prepareRuntimeHome({ env = process.env, log = (line) => process.stderr.write(`${line}\n`) } = {}) {
-  prepared ??= migrateDoubledRuntimeHome({ env }).then((result) => {
+  const report = (result, why) => {
     if (result.status === "migrated" && (result.moved || result.merged)) {
-      log(`ai-dev: moved ${result.moved + result.merged} file(s) from ${result.from} to ${result.to} (AI_DEV_HOME is the runtime folder itself now).`);
+      log(`ai-dev: moved ${result.moved + result.merged} file(s) from ${result.from} to ${result.to} (${why}).`);
     }
     if (result.conflicts.length) {
-      log(`ai-dev: ${result.conflicts.length} file(s) exist in both places and were left in ${result.from}; npm run doctor lists them.`);
+      log(`ai-dev: ${result.conflicts.length} file(s) exist in both places and were left in ${result.from}; ai-dev doctor lists them.`);
     }
     if (result.errors.length) {
-      log(`ai-dev: ${result.errors.length} file(s) could not be moved out of ${result.from} (${result.errors[0].code || "error"}: ${result.errors[0].path}); npm run doctor lists them.`);
+      log(`ai-dev: ${result.errors.length} file(s) could not be moved out of ${result.from} (${result.errors[0].code || "error"}: ${result.errors[0].path}); ai-dev doctor lists them.`);
     }
     return result;
-  }).catch((error) => {
-    log(`ai-dev: could not move the runtime tree out of AI_DEV_HOME/.ai-dev: ${error.message}`);
+  };
+  const failed = (what) => (error) => {
+    log(`ai-dev: could not move ${what}: ${error.message}`);
     return { status: "failed", error: error.message, moved: 0, merged: 0, duplicates: 0, conflicts: [], errors: [] };
-  });
+  };
+  prepared ??= migrateDoubledRuntimeHome({ env })
+    .then((result) => report(result, "AI_DEV_HOME is the runtime folder itself now"), failed("the runtime tree out of AI_DEV_HOME/.ai-dev"))
+    .then(async (result) => ({
+      ...result,
+      codex: await migrateCodexRuntime({ env })
+        .then((codex) => report(codex, "AI Dev's data is read from ~/.ai-dev only now"), failed("AI Dev's data out of ~/.codex"))
+    }));
   return prepared;
 }
 
@@ -333,12 +408,18 @@ export async function describeRuntimeHome({ env = process.env } = {}) {
   const raw = String(env.AI_DEV_HOME ?? "").trim();
   const legacy = legacyDoubledRuntimeRoot(env);
   const { history } = await readMigrationRecord(root);
+  const codexFiles = [];
+  for (const folder of codexLegacyFolders(env)) {
+    for (const file of await listFiles(folder.source, folder.codex, 50 - codexFiles.length)) codexFiles.push(file);
+  }
   return {
     root,
     ai_dev_home: raw,
     ai_dev_home_names_home: Boolean(raw) && !explicitRuntimeHome(env),
     legacy_root: legacy,
     legacy_files: legacy ? await listFiles(legacy) : [],
+    codex_root: path.join(resolveUserHome("", env), ".codex"),
+    codex_files: codexFiles,
     last_migration: history.at(-1) ?? null
   };
 }

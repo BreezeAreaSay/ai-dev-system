@@ -26,8 +26,10 @@ evidence-bound task completion.
     (override: `BGE_M3_ONNX_DIR`)
   - `~/.ai-dev/cache/dense-model` — the record of which model files hashed right, so a
     check does not read 570 MB again
-  - A pre-existing `~/.codex/<...>` layout is used automatically if the `~/.ai-dev` path is absent,
-    so installs migrated from the Codex-only runtime keep their history.
+  - What the Codex-era runtime kept under `~/.codex` (`state/ai-dev-system`, its search index,
+    artifacts and models) moves into `~/.ai-dev` once, at the first start, and is recorded in
+    `state/runtime-home-migration.json`; the rest of `~/.codex` is Codex's own and stays.
+    `~/.codex` is not read after that.
 
 Start:
 

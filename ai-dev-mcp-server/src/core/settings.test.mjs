@@ -1,0 +1,97 @@
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import { SETTINGS, applySettingsToEnvironment, readSettings, settingsPath, writeSettings } from "./settings.mjs";
+
+async function home(t) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-settings-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  return { AI_DEV_HOME: root };
+}
+
+test("with no file every setting is its default, and says so", async (t) => {
+  const env = await home(t);
+  const current = readSettings({ env });
+  assert.equal(current.file, path.join(env.AI_DEV_HOME, "config.json"));
+  assert.deepEqual(current.settings, Object.fromEntries(Object.entries(SETTINGS).map(([name, setting]) => [name, setting.default])));
+  assert.ok(Object.values(current.sources).every((source) => source === "default"));
+  assert.deepEqual(current.problems, []);
+});
+
+test("a change is checked, stored with mode 0600, and a null puts the default back", async (t) => {
+  const env = await home(t);
+  const result = await writeSettings({ model_mirror: "https://hf-mirror.com/", profiles: "git,core", daemon_idle_minutes: 5, language: "RU" }, { env });
+  assert.deepEqual(result.changed.sort(), ["daemon_idle_minutes", "language", "model_mirror", "profiles"]);
+  assert.equal(result.settings.model_mirror, "https://hf-mirror.com");
+  assert.equal(result.settings.profiles, "core,git", "in the profiles' own order");
+  assert.equal(result.settings.language, "ru");
+  const stored = JSON.parse(await fs.readFile(settingsPath(env), "utf8"));
+  assert.equal(stored.schema_version, 1);
+  assert.equal(stored.daemon_idle_minutes, 5);
+  if (process.platform !== "win32") assert.equal((await fs.stat(settingsPath(env))).mode & 0o777, 0o600);
+  assert.deepEqual((await writeSettings({ model_mirror: "https://hf-mirror.com" }, { env })).changed, [], "the same value again changes nothing");
+  await writeSettings({ model_mirror: null }, { env });
+  assert.equal(readSettings({ env }).settings.model_mirror, "");
+  assert.equal(readSettings({ env }).sources.profiles, "file");
+});
+
+test("a wrong value is refused with what is wrong, and nothing of the change is written", async (t) => {
+  const env = await home(t);
+  await writeSettings({ language: "en" }, { env });
+  const before = await fs.readFile(settingsPath(env), "utf8");
+  const refused = [
+    [{ model_mirror: "ftp://mirror" }, /model_mirror must be an http\(s\) address/],
+    [{ model_mirror: "https://user:secret@mirror.example" }, /must not carry a user name or password/],
+    [{ profiles: "core,nonsense" }, /profiles names "nonsense", which is not a profile/],
+    [{ model_dir: "relative/models" }, /model_dir must be an absolute path/],
+    [{ daemon_idle_minutes: -1 }, /daemon_idle_minutes must be a number of minutes/],
+    [{ daemon_idle_minutes: "abc" }, /daemon_idle_minutes must be a number/],
+    [{ daemon_autostart: "yes" }, /daemon_autostart must be true or false/],
+    [{ language: "de" }, /language must be ru, en or empty/],
+    [{ colour: "blue" }, /There is no setting "colour"/],
+    [{ language: "ru", model_mirror: "nope" }, /model_mirror must be an http/]
+  ];
+  for (const [change, message] of refused) await assert.rejects(writeSettings(change, { env }), message, JSON.stringify(change));
+  await assert.rejects(writeSettings([], { env }), /takes an object/);
+  assert.equal(await fs.readFile(settingsPath(env), "utf8"), before);
+});
+
+test("a stored value that is no longer valid is reported and replaced by its default; a file that is not JSON stops the read", async (t) => {
+  const env = await home(t);
+  await fs.writeFile(settingsPath(env), JSON.stringify({ language: "fr", daemon_idle_minutes: 12, future_setting: 1 }));
+  const current = readSettings({ env });
+  assert.equal(current.settings.language, "");
+  assert.equal(current.settings.daemon_idle_minutes, 12);
+  assert.match(current.problems.join(" "), /language: language must be ru, en or empty/);
+  await fs.writeFile(settingsPath(env), "{ not json");
+  assert.throws(() => readSettings({ env }), /is not JSON\. Fix or remove it/);
+  await assert.rejects(writeSettings({ language: "en" }, { env }), /is not JSON/);
+});
+
+test("the file sets the variables the environment leaves unset, and never one set by hand", async (t) => {
+  const env = await home(t);
+  await writeSettings({ model_mirror: "https://hf-mirror.com", daemon_idle_minutes: 2, profiles: "core", model_dir: path.resolve("/models/bge") }, { env });
+  const process1 = { ...env, BGE_M3_ONNX_DIR: "/mine" };
+  assert.deepEqual(applySettingsToEnvironment(process1), ["AI_DEV_IDLE_TIMEOUT_MS", "AI_DEV_MODEL_MIRROR", "AI_DEV_PROFILES"]);
+  assert.equal(process1.AI_DEV_MODEL_MIRROR, "https://hf-mirror.com");
+  assert.equal(process1.AI_DEV_IDLE_TIMEOUT_MS, "120000");
+  assert.equal(process1.AI_DEV_PROFILES, "core");
+  assert.equal(process1.BGE_M3_ONNX_DIR, "/mine", "set by hand: the file does not override it");
+  const sources = readSettings({ env: process1 }).sources;
+  assert.equal(sources.model_mirror, "file", "a variable the file set still counts as the file's");
+  assert.equal(sources.model_dir, "environment (BGE_M3_ONNX_DIR)");
+
+  // The file changes while the process runs: what came from it follows, the rest stays.
+  await writeSettings({ model_mirror: null, profiles: "" }, { env });
+  applySettingsToEnvironment(process1);
+  assert.equal(process1.AI_DEV_MODEL_MIRROR, undefined);
+  assert.equal(process1.AI_DEV_PROFILES, undefined, "empty profiles: every tool, as no variable");
+  assert.equal(process1.AI_DEV_IDLE_TIMEOUT_MS, "120000");
+  assert.equal(process1.BGE_M3_ONNX_DIR, "/mine");
+
+  const broken = { ...env };
+  await fs.writeFile(settingsPath(env), "{");
+  assert.deepEqual(applySettingsToEnvironment(broken), [], "a broken file leaves a starting process as it is");
+});

@@ -4,7 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { globToRegExp, planDistribution, readAllowlist } from "./distribution-build.mjs";
+import crypto from "node:crypto";
+import { assertSeedMatchesManifest, globToRegExp, npmLeavesOut, planDistribution, readAllowlist } from "./distribution-build.mjs";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
@@ -91,4 +92,30 @@ test("the allowlist names a group for each target, and every group lands somewhe
     assert.ok(Object.keys(group.to ?? {}).length, `${group.name} lands nowhere`);
     assert.ok(group.manifest || group.include?.length, `${group.name} names no files`);
   }
+});
+
+test("what npm pack leaves out of a tarball, whatever `files` says (Д-175, Д-185)", () => {
+  const dropped = ["a/.gitignore", "a/.npmrc", "a/.npmignore", "a/.DS_Store", "a/npm-debug.log", "a/x.orig", "a/._x", "a/.x.swp",
+    "a/.wafpickle-7", "a/.lock-wscript", "a/.git", "a/CVS", "a/.svn/x", "a/.hg/x", "a/build/config.gypi", "b/archived-packages/x.tgz"];
+  const kept = ["a/config.gypi", "a/.package-lock.json", "a/.github/workflows/ci.yml", "a/yarn.lock", "a/package-lock.json",
+    "a/.gitattributes", "a/.eslintrc.json", "a/archived-packages.md", "a/.env"];
+  for (const file of dropped) assert.equal(npmLeavesOut(file), true, file);
+  for (const file of kept) assert.equal(npmLeavesOut(file), false, file);
+});
+
+test("a seed file that is not what the seed's manifest says stops the build (Д-185)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-seed-drift-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const files = { "01-system/a.md": "a\n", "b.md": "b\n" };
+  for (const [relative, text] of Object.entries(files)) {
+    await fs.mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+    await fs.writeFile(path.join(root, relative), text);
+  }
+  await fs.writeFile(path.join(root, "public-seed.manifest.json"), JSON.stringify({
+    files: Object.entries(files).map(([relative, text]) => ({ path: relative, sha256: crypto.createHash("sha256").update(text).digest("hex") }))
+  }));
+  assert.equal(await assertSeedMatchesManifest(root), 2);
+  await fs.appendFile(path.join(root, "01-system", "a.md"), "edited\n");
+  await fs.rm(path.join(root, "b.md"));
+  await assert.rejects(assertSeedMatchesManifest(root), /differs from its manifest in 2 file\(s\) \(01-system\/a\.md, b\.md\)/);
 });

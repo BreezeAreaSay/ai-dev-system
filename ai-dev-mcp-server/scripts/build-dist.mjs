@@ -27,7 +27,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { npmLeavesOut, packageManifest, planDistribution, shrinkwrapFrom, verifyDistribution } from "../src/core/distribution-build.mjs";
+import { assertSeedMatchesManifest, npmLeavesOut, packageManifest, planDistribution, shrinkwrapFrom, verifyDistribution } from "../src/core/distribution-build.mjs";
 import { isDirectExecution } from "../src/core/direct-execution.mjs";
 import { DISTRIBUTION_MARKER, PACKAGE_NAME } from "../src/core/install-layout.mjs";
 import { resolveSpawnInvocation } from "../src/core/process-runner.mjs";
@@ -113,7 +113,11 @@ async function pack(output) {
   const tarball = path.join(distRoot, report.filename);
   const unpacked = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-dist-unpack-"));
   try {
-    const tar = await resolveSpawnInvocation("tar", ["-xzf", tarball, "-C", unpacked]);
+    // Windows' own bsdtar by its path: a GNU tar from Git Bash first on PATH reads
+    // `C:` in `C:\…` as a remote host (Д-185).
+    const systemTar = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
+    const tarCommand = process.platform === "win32" && await fs.access(systemTar).then(() => true, () => false) ? systemTar : "tar";
+    const tar = await resolveSpawnInvocation(tarCommand, ["-xzf", tarball, "-C", unpacked]);
     await new Promise((resolve, reject) => {
       const child = spawn(tar.executable, tar.args, { shell: false, windowsHide: true, stdio: ["ignore", 2, 2] });
       child.on("error", reject);
@@ -146,6 +150,7 @@ export async function buildDistribution({ output, deps = true, pack: wantPack = 
     const dropped = plan.filter((item) => npmLeavesOut(item.destination)).map((item) => item.destination);
     if (dropped.length) throw new Error(`npm pack would leave out ${dropped.length} file(s) the distribution needs: ${dropped.join(", ")}.`);
     for (const item of plan) await copyDistributionFile(item.source, path.join(stage, ...item.destination.split("/")));
+    await assertSeedMatchesManifest(path.join(stage, "seed"));
 
     const dangling = [
       ...await findDanglingImports(path.join(stage, "ai-dev-mcp-server")),

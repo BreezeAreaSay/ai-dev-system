@@ -152,23 +152,35 @@ const EXPECTATIONS = {
  * flavor cannot have carries a `reason` instead of a location, so the status
  * tool reports it as not applicable rather than missing.
  *
+ * An installed package (`npm run dist`, the npm package) ships neither the
+ * tests nor the acceptance runner, so acceptance does not apply to it: asking
+ * for it made every package report itself not ready (Д-185).
+ *
  * @param {string} flavor - One of {@link RUNTIME_FLAVORS}; anything else falls back to `posix`.
+ * @param {{ packaged?: boolean }} [options]
  * @returns {{ files: object, commands: object, command_context?: string, recovery: object }}
  */
-export function distributionExpectations(flavor) {
-  return EXPECTATIONS[flavor] || EXPECTATIONS.posix;
+export function distributionExpectations(flavor, { packaged = false } = {}) {
+  const expected = EXPECTATIONS[flavor] || EXPECTATIONS.posix;
+  if (!packaged || flavor === "docker") return expected;
+  const { acceptance: _command, ...commands } = expected.commands;
+  return {
+    ...expected,
+    files: { ...expected.files, acceptance: { reason: "Acceptance runs in a source checkout; an installed package ships neither the tests nor their runner." } },
+    commands
+  };
 }
 
 /**
  * Resolve a flavor's expected files against the two roots that hold them.
  *
  * @param {string} flavor - Runtime flavor.
- * @param {{ serverRoot: string, vaultRoot: string }} roots - Absolute roots.
+ * @param {{ serverRoot: string, vaultRoot: string, packaged?: boolean }} roots - Absolute roots, and whether this is an installed package.
  * @returns {Record<string, { applicable: boolean, path?: string, reason?: string }>}
  */
-export function distributionFilePlan(flavor, { serverRoot, vaultRoot }) {
+export function distributionFilePlan(flavor, { serverRoot, vaultRoot, packaged = false }) {
   const roots = { server: serverRoot, vault: vaultRoot };
-  return Object.fromEntries(Object.entries(distributionExpectations(flavor).files).map(([key, spec]) => [
+  return Object.fromEntries(Object.entries(distributionExpectations(flavor, { packaged }).files).map(([key, spec]) => [
     key,
     spec.reason
       ? { applicable: false, reason: spec.reason }

@@ -1500,8 +1500,8 @@ async function buildRuntimeDistributionManifest() {
   });
   const validation = validateRuntimeProfile(profile);
   const flavor = runtimeFlavor({ platform: process.platform, env: process.env });
-  const expectations = distributionExpectations(flavor);
-  const plan = distributionFilePlan(flavor, { serverRoot, vaultRoot });
+  const expectations = distributionExpectations(flavor, { packaged: installLayout.kind === "package" });
+  const plan = distributionFilePlan(flavor, { serverRoot, vaultRoot, packaged: installLayout.kind === "package" });
   const fileStatus = Object.fromEntries(await Promise.all(Object.entries(plan).map(async ([key, entry]) => [
     key,
     entry.applicable === false ? entry : { ...entry, exists: await pathExists(entry.path) }

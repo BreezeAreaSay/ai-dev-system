@@ -166,3 +166,14 @@ test("the rendered document names no script the flavor does not have", () => {
     assert.match(markdown, /## Recovery\n\n- \S/, flavor);
   }
 });
+
+test("an installed package is not asked for the acceptance runner it does not ship (Д-185)", () => {
+  const packaged = distributionExpectations("posix", { packaged: true });
+  assert.equal(packaged.commands.acceptance, undefined);
+  assert.equal(packaged.commands.backup, "node bin/ai-dev.mjs backup <label>");
+  const plan = distributionFilePlan("posix", { serverRoot: "/srv", vaultRoot: "/vault", packaged: true });
+  assert.equal(plan.acceptance.applicable, false);
+  assert.match(plan.acceptance.reason, /source checkout/);
+  assert.equal(distributionFilePlan("posix", { serverRoot: "/srv", vaultRoot: "/vault" }).acceptance.applicable, true, "a clone still has it");
+  assert.equal(distributionExpectations("windows", { packaged: true }).files.acceptance.reason !== undefined, true);
+});

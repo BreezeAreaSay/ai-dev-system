@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { planDistribution } from "../src/core/distribution-build.mjs";
+import { assertSeedMatchesManifest, planDistribution } from "../src/core/distribution-build.mjs";
 import {
   assertCleanDistribution,
   auditDistributionTree,
@@ -68,6 +68,7 @@ async function createDockerContext({ output }) {
     for (const item of await planDistribution({ repositoryRoot, target: "docker" })) {
       await copyDistributionFile(item.source, path.join(stage, ...item.destination.split("/")));
     }
+    await assertSeedMatchesManifest(path.join(stage, "public-seed"));
     await writeText(path.join(stage, ".dockerignore"), `**
 !.dockerignore
 !Dockerfile

@@ -57,8 +57,9 @@ test("a read-only tool runs at once; one that changes something runs only after 
   await page.waitForSelector('[data-field="not-confirmed"]');
   const [asked] = await messageBoxes(app);
   assert.match(asked.message, /Run record_decision\?/);
-  assert.match(asked.detail, /"title": "Use Stripe for payments"/);
-  assert.match(asked.detail, /"alternatives": \[\s*"PayPal",\s*"Adyen"\s*\]/);
+  assert.match(asked.detail, /^title: "Use Stripe for payments"$/m);
+  assert.match(asked.detail, /^alternatives: \["PayPal","Adyen"\]$/m);
+  assert.match(asked.detail, new RegExp(`^project_path: ${JSON.stringify(s.projects).replace(/[\\^$.*+?()[\]{}|/]/g, "\\$&")}$`, "m"));
   assert.deepEqual([asked.buttons, asked.defaultId, asked.cancelId], [["Run", "Cancel"], 1, 1], "Cancel is the default");
   assert.equal(existsSync(path.join(s.projects, ".ai-dev", "decisions")), false, "nothing was written");
   await shot(page, "p11-console-not-confirmed");

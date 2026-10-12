@@ -14,9 +14,9 @@ installed package — and holds two things:
 - `vault/` — the content this install reads and writes: the Obsidian vault, a package's
   `~/.ai-dev/vault`, or a clone's `docker/public-seed`;
 - `runtime/state/` — AI Dev's state: tasks, sessions, the usage ledger, instincts, skill
-  outcomes, the record of client configs.
+  outcomes, the record of client configs — from `AI_DEV_STATE_ROOT` when that moves it.
 
-`BACKUP-MANIFEST.json` inside lists every file with its size and sha256. Indexes, caches, the
+`BACKUP-MANIFEST.json` inside lists every file with its size, sha256 and permissions. Indexes, caches, the
 model, dependencies and VCS folders are left out — `ai-dev setup` rebuilds them — except the
 vendored tree a skill runs from (Archify's), which nothing reinstalls. Links are not followed and
 are listed as left out. The archive holds your notes: keep it private.
@@ -40,8 +40,9 @@ AI Dev's state folder. Before anything is written:
   says to replace them — nothing is half-restored;
 - every name is checked to stay inside the folder it lands in.
 
-Each file is checked against its sha256 in the manifest as it comes out, and written under a
-temporary name first. An archive the 2.x script made holds a whole vault and has no per-file
+It is all or nothing: every file is unpacked beside where it goes and checked against its
+sha256 before the first one is put in place, a file it replaces is set aside until all are in,
+and a failure on the way puts the set-aside ones back. Permissions come back as they were. An archive the 2.x script made holds a whole vault and has no per-file
 sums; it needs `--to`. `scripts/restore-ai-dev-system.ps1` is a wrapper over this command until
 4.0.
 

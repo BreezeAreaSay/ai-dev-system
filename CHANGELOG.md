@@ -1066,6 +1066,30 @@ four of those arrived as upstream issues #63–#66.
   looked for the index, the state and a package's vault in `~/.ai-dev` while setup had built
   them in `$AI_DEV_HOME`. The entry carries it now.
 
+- **The phase 7 review's findings** (`docs/DEFECTS.md`, Д-177 … Д-185), each reproduced
+  before the fix:
+  - with `AI_DEV_VAULT_ROOT` set, a package npx ran wrote client configs pointing into npx's
+    cache and named clone-only commands (Д-177): the install kind no longer follows that
+    variable;
+  - `ai-dev restore --overwrite` stopped halfway on a bad entry and left old and new files
+    mixed (Д-178): every file is unpacked and checked first, replaced files are set aside and
+    put back if anything fails;
+  - a backup missed the state `AI_DEV_STATE_ROOT` moves (Д-179); a file dated after 2107
+    ended every backup, and an archive of exactly 65,535 entries could not be read back
+    (Д-180); file modes were lost on restore (Д-185);
+  - the app-home prune could remove the copy setup had just chosen again (Д-181);
+  - a seed rename by case only deleted the file on Windows and macOS (Д-182), and an update
+    wrote through a folder the user had linked into the vault (Д-185);
+  - a Codex-era search index or half a download was a conflict for `doctor` to report
+    forever (Д-183): such caches are dropped when `~/.ai-dev` has its own;
+  - after Д-176 a client started from the Dock ran its server with `AI_DEV_HOME` and its
+    hooks without it (Д-184): `install_agent_hooks` records the folder beside the hooks
+    (`.ai-dev/hooks/.ai-dev-home`, kept out of git);
+  - smaller ones (Д-185): the server's runtime root with `HOME` unset, a hex-only app folder
+    name, npm's full list of names it leaves out of a tarball, a build that stops on a seed
+    file differing from its manifest, hints inside the image, `ai-dev distribution` in a
+    package, the Frontend QA tests back in `run-acceptance.ps1`.
+
 ### Security
 
 - **The server passes its own security gate again** (Д-82). `run_security_scan`

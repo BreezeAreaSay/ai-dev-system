@@ -101,6 +101,30 @@ test("a daemon of another build that will not stop keeps the Stop's note, offlin
   assert.deepEqual((await listDaemons({ env: s.env })).map((entry) => entry.info.pid), []);
 });
 
+test("a tray rebuild the daemon's death ended is said again in the language chosen after (Д-280)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  // The rebuild waits for the index's lock, which this test holds; the daemon is killed meanwhile.
+  const index = await mainCall(app, "search_index_status", {});
+  const { acquireFileLock } = await serverModule("src/core/file-lock.mjs");
+  const release = await acquireFileLock(index.result.index_path);
+  t.after(() => release().catch(() => undefined));
+  const pid = await app.evaluate(() => globalThis.aiDevTest.link.status.served_by.pid);
+  const rebuild = app.evaluate(() => globalThis.aiDevTest.rebuild());
+  const item = async () => (await trayNow(app)).menu.find((entry) => entry.id === "rebuild");
+  for (const deadline = Date.now() + 10_000; !(await item()).label.startsWith("Rebuilding") && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 50));
+  process.kill(pid, "SIGKILL");
+  await rebuild;
+  const tip = () => app.evaluate(() => globalThis.aiDevTest.tray.tooltip());
+  assert.match(await tip(), /\nThe last rebuild failed: The daemon went away\.$/);
+  // Offline it cannot be pressed: the item offers no "try again".
+  assert.deepEqual(await item(), { id: "rebuild", label: "Rebuild search index", enabled: false });
+  await page.selectOption("#language", "ru");
+  for (const deadline = Date.now() + 10_000; !(await tip()).startsWith("AI Dev: демон") && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(await tip(), "AI Dev: демон не запущен\nПоследняя перестройка не удалась: Демон пропал.");
+});
+
 test("without Node.js the app says what it needs, and Try again finds one installed since (Д-251)", { timeout: 120_000 }, async (t) => {
   const s = await stage(t);
   const later = path.join(s.root, "installed-later", "node");

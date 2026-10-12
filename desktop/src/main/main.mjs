@@ -262,8 +262,8 @@ if (!app.requestSingleInstanceLock()) {
     openWindow();
     tray = createTray({ electron, link, t, actions: { open: openWindow, rebuild: rebuildFromTray, stop: stopFromTray, quit } });
     // What the end-to-end tests read from the main process: the tray, its
-    // Stop and Quit, the daemon link (desktop/test/e2e). Nothing of it reaches the page.
-    if (process.env.AI_DEV_DESKTOP_TEST === "1") globalThis.aiDevTest = { tray, link, stop: stopFromTray, quit, node: () => node };
+    // actions, the daemon link (desktop/test/e2e). Nothing of it reaches the page.
+    if (process.env.AI_DEV_DESKTOP_TEST === "1") globalThis.aiDevTest = { tray, link, rebuild: rebuildFromTray, stop: stopFromTray, quit, node: () => node };
     startup();
   });
 }

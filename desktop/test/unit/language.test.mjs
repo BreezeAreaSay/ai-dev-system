@@ -119,6 +119,21 @@ test("a later choice is never written over by an earlier one that waited (Д-279
   assert.equal(await stored(), "en");
 });
 
+test("a later choice made while the file is still broken is not given way to the earlier one this app wrote (Д-279)", async (t) => {
+  const { file, keeper, writes, stored, hold } = await stage(t, "{ not json");
+  await keeper.choose("ru");
+  const free = await hold();
+  const before = writes.length;
+  assert.equal(await until(() => writes.length > before), true, "the write of Russian waits for the lock");
+  // English is chosen while the file is still broken; then the file is fixed.
+  const english = keeper.choose("en");
+  await fs.rm(file);
+  await free();
+  await english;
+  assert.equal(await until(() => keeper.waiting() === null), true);
+  assert.equal(await stored(), "en", "Russian, which this app wrote, is no language of the person's own");
+});
+
 test("a choice whose write failed on a readable file is written once it can be, over the file's language (Д-279)", async (t) => {
   const { keeper, stored, hold } = await stage(t, JSON.stringify({ schema_version: 1, language: "en" }));
   const free = await hold();

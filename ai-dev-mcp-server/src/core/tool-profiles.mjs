@@ -1,7 +1,9 @@
 /**
- * Capability profiles: eight named slices of the tool surface.
+ * Capability profiles: named slices of the tool surface — eight an agent
+ * chooses from, and `control`, the desktop app's, which only a session that
+ * names it lists.
  *
- * The server exposes 135 tools. That is a strength when an agent needs one of
+ * The server exposes 135 tools to an agent. That is a strength when an agent needs one of
  * them and a cost the rest of the time: every tool in `tools/list` is schema
  * text in the model's context before the first word of the task is read. The
  * profiles cut the surface along the lines a person already thinks in — "I am

@@ -31,8 +31,9 @@ tell them what to do. What stands in the way:
   — the runtime's `run/`, or `$XDG_RUNTIME_DIR/ai-dev` or `/tmp/ai-dev-<uid>` when the home's
   path leaves no room for a socket. A directory that is a link, belongs to another uid, stays open
   after `chmod` (a file system that keeps its modes) or cannot hold a socket is passed over, never
-  used (Д-227); the socket itself is created under umask 077 and is mode 0600. On Windows the daemon listens on a named pipe; the pipe's default security
-  descriptor gives other users read access at most, and a client needs read and write.
+  used (Д-227); the socket itself is created under umask 077 and is mode 0600. On Windows the
+  daemon listens on a named pipe; the pipe's default security descriptor gives other users read
+  access at most, and a client needs read and write.
 - **Who can take its place.** The name is drawn at random (96 bits) on every start and published
   only in the daemon's descriptor, `run/daemon-<build>.json`, mode 0600, inside the user's
   runtime home — on Windows, inside the user's profile, whose ACL keeps other users out. The

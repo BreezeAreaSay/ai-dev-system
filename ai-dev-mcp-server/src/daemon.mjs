@@ -255,8 +255,9 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   const build = await describeBuild({ serverRoot, version: VERSION, env });
   const descriptor = daemonInfoPath(build.id);
   await fs.mkdir(runtimeDir(), { recursive: true, mode: 0o700 });
-  // The journal says what is true of run/, not what was attempted (Д-225).
-  const tightened = await tightenFolder(runtimeDir()).catch((error) => ({ state: "open", why: String(error?.message ?? error) }));
+  // The journal says what is true of run/, not what was attempted (Д-225); a
+  // look that fails says nothing of its mode (Д-235).
+  const tightened = await tightenFolder(runtimeDir()).catch((error) => ({ state: "left", why: `it cannot be checked (${error?.code ?? error?.message ?? error})` }));
   if (tightened.state === "tightened") log(`${runtimeDir()} was open to other users; it is 0700 now`);
   else if (tightened.state === "open") log(`${runtimeDir()} is open to other users and stays so: ${tightened.why}`);
   else if (tightened.state === "left" && tightened.why && process.platform !== "win32") log(`${runtimeDir()}: its mode is left as it is, ${tightened.why}`);

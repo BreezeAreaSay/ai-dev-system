@@ -1232,8 +1232,8 @@ four of those arrived as upstream issues #63–#66.
   empty; `run/` could still come out 0755 when `ai-dev daemon stop` cleared a gone daemon's
   descriptor as the folder went, or when it was already 0755 — left so by the lock race fixed in
   Д-213, or moved up by the 2.x layout's migration — and the socket lived elsewhere. The daemon now
-  removes up to the highest folder it made, `stop`'s lock makes `run/` private, and a starting
-  daemon makes a looser `run/` of this user's 0700.
+  removes up to the highest folder it made, and a starting daemon makes a looser `run/` of this
+  user's 0700.
 - **The seventh phase 8 review's findings** (Д-224 … Д-226): on Windows `fs.mkdir` names the folder
   it made in the `\\?\` namespace, so a retired daemon never matched it and removed nothing; the
   folders are compared in that form now. A starting daemon said `run/` was 0700 without looking and
@@ -1246,6 +1246,13 @@ four of those arrived as upstream issues #63–#66.
 - **A socket folder a file system leaves open is passed over** (Д-227): the daemon changed the mode
   of its socket's folder without looking at what came of it, and on a mount that keeps its modes
   listened in a `run/` that stayed 0755. It now checks again and listens in the next folder.
+- **The eighth phase 8 review's findings** (Д-235): the folder a retired record's lock made was
+  forgotten when another process wrote that lock first, and stayed behind; the lock now names it
+  whether it is taken or not. A look at `run/` that failed was logged as `run/` being open to
+  other users; it now says the folder cannot be checked. A private folder of another user's that
+  refuses to be opened is refused by its owner's uid again, not by a bare EACCES. New tests catch
+  a `chmod` that changes nothing or is refused, and a highest folder spelled outside the `\\?\`
+  namespace.
 
 ### Security
 

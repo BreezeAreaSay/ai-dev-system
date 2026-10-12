@@ -1190,6 +1190,26 @@ four of those arrived as upstream issues #63–#66.
     the bridge waited out its 10 minutes after refusing the last request; `Object.freeze` on
     the daemon's `process.env` broke every later listing of it; sizes and texts; the daemon
     tests now run on macOS and Windows CI too.
+- **The third phase 8 review's findings** (`docs/DEFECTS.md`, Д-202 … Д-206), each reproduced
+  before the fix:
+  - a runtime home reached through a link — every `$TMPDIR` on macOS, a moved home — changed the
+    build as its folders were created: the first start waited out its limit beside a daemon that
+    was listening, and one data set got two daemons (Д-202). A folder is now resolved through its
+    deepest existing part, so it is one folder before it exists and after;
+  - on Windows a variable written `Ai_Dev_Vault_Root` was read by the daemon and not by the bridge
+    (Д-203); a difference in `USERPROFILE` alone, which the server reads for the runtime home and
+    the protected project root, now splits daemons too (Д-205);
+  - `ai-dev daemon stop` said "Not running." of a retired daemon that was alive but hung past its
+    lock's life, and the daemon came back without a lock (Д-204): a record whose address still
+    takes connections stays, `stop` asks it and says it did not stop, and a daemon takes its lock
+    again before it lists itself;
+  - an `https://` proxy's certificate was checked against the name of the host behind it, so no
+    real `https://` proxy could be used for the download (Д-206) — it is checked against the
+    proxy's own name now;
+  - smaller ones (Д-205): the socket of a crashed daemon whose pid another program had was never
+    cleared; a daemon of code from before a change of the build's parts was never asked to
+    retire; a runtime home deleted under a retiring daemon came back with mode 755; two tests that
+    did not test what they named.
 
 ### Security
 

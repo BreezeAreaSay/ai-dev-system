@@ -298,6 +298,28 @@ test("the hooks copy of the derivation answers exactly like the server", async (
   }
 });
 
+test("a hook started in a package of a monorepo keys its memory to the package, as the server does (Д-164)", async (t) => {
+  // The hook went up to the Git root first and looked for a boundary only from
+  // there, so a session in `apps/web` wrote its handoff under the repository's
+  // key while the server read the package's.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-monorepo-id-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const repo = path.join(root, "repo");
+  await fs.mkdir(path.join(repo, "apps", "web", "src"), { recursive: true });
+  await fs.writeFile(path.join(repo, "package.json"), "{}\n");
+  await fs.writeFile(path.join(repo, "apps", "web", "package.json"), "{}\n");
+  await runGit(repo, ["init", "-q"]);
+  for (const cwd of [repo, path.join(repo, "apps", "web"), path.join(repo, "apps", "web", "src")]) {
+    const identity = await resolveProjectIdentity(cwd);
+    const projectRoot = projectRootOf(cwd);
+    assert.equal(projectRoot, identity.project_root, cwd);
+    assert.equal(projectIdOf(projectRoot), identity.project_id, cwd);
+    assert.equal(repositoryIdOf(projectRoot), identity.repository_id, cwd);
+    assert.deepEqual(memoryKeysOf(projectRoot), memoryScopeKeys(identity), cwd);
+  }
+  assert.notEqual(projectIdOf(projectRootOf(path.join(repo, "apps", "web"))), projectIdOf(projectRootOf(repo)));
+});
+
 test("the hook and the server agree on a project reached through another spelling of its path", async (t) => {
   // The server resolves a root with fs.realpath before hashing it; the hook
   // copy hashed what it was handed. A symlink here, and on Windows the 8.3

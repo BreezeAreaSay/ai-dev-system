@@ -116,8 +116,18 @@ function hashKey(key) {
   return crypto.createHash("sha256").update(process.platform === "win32" ? key.toLowerCase() : key).digest("hex").slice(0, 20);
 }
 
+/**
+ * The project a hook fired in `cwd` works in — derived as the server's
+ * resolveProjectIdentity derives it: the nearest project boundary at or above
+ * `cwd` first, the Git root only when there is none, then `cwd` itself. The
+ * hook used to start from the Git root, so in a package of a monorepo it keyed
+ * its memory to the repository while the server keyed it to the package
+ * (docs/DEFECTS.md, Д-164).
+ */
 export function projectRootOf(cwd) {
   const canonical = realpathOf(cwd);
+  const boundary = projectBoundaryOf(canonical);
+  if (boundary) return realpathOf(boundary);
   const top = git(cwd, ["rev-parse", "--show-toplevel"]);
   if (!top) return canonical;
   // A dotfiles clone in `~` answers `--show-toplevel` with the home directory

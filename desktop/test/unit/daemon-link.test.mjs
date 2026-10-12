@@ -473,6 +473,32 @@ test("a Stop acts on the session it began with: one a move opened meanwhile stay
   assert.deepEqual([daemon.state.phase, daemon.state.error], ["offline", ""]);
 });
 
+test("a move whose next session is opened while a Stop runs starts no daemon (Д-278)", async (t) => {
+  const { server, clients, opens } = fakeServer();
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  // The retired daemon's session takes its time to close; Stop is pressed meanwhile, and no daemon runs.
+  let closed;
+  const gate = new Promise((resolve) => { closed = resolve; });
+  const close = clients[0].close;
+  clients[0].close = async () => {
+    await gate;
+    return close();
+  };
+  server.retired = clients[0];
+  server.down = true;
+  await daemon.refreshStatus({ checks: true });
+  let answer;
+  server.stopDaemons = () => new Promise((resolve) => { answer = resolve; });
+  const stopping = daemon.stopDaemon();
+  closed();
+  await sleep(20);
+  assert.equal(opens.at(-1).start, false, "the move only looks");
+  answer({ daemons: [{ pid: 11, retired: true, stopped: true }] });
+  await stopping;
+  assert.deepEqual([daemon.state.phase, daemon.state.error], ["offline", ""]);
+});
+
 test("the move off a retired daemon starts one only when the app may start one (Д-276, п. 5)", async (t) => {
   // Autostart off: the link only looked, and found a client's daemon.
   const looked = fakeServer();

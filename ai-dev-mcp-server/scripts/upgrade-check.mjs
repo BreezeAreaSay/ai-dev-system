@@ -19,7 +19,7 @@
  * without rebuilding it, keep every vector byte for byte through a refresh, and
  * search it (program phase 3).
  *
- * Four users are simulated: one with the defaults; one who set
+ * Five users are simulated: one with the defaults; one who set
  * `AI_DEV_HOME`, whose 2.x data sits one level deeper than documented
  * (docs/DEFECTS.md, Д-90) and must be migrated without loss; the layout of
  * the Docker image's /data volume — `AI_DEV_HOME` under the home plus explicit
@@ -27,7 +27,11 @@
  * here without a container; and one on the Python dense backend 3.0 removed
  * (decision D3), whose index holds the Python backend's vectors and whose
  * client config still says `AI_DEV_DENSE_BACKEND=python`: told what replaced
- * it, nothing of the index lost, and moved over by the one command.
+ * it, nothing of the index lost, and moved over by the one command; and one
+ * who came from the Codex desktop runtime, whose 2.x server kept its state in
+ * `~/.codex/state/ai-dev-system` while the hooks wrote to `~/.ai-dev/state`
+ * (docs/DEFECTS.md, Д-104): moved into `~/.ai-dev` once, with a record of it,
+ * and seen by the 2.x hook from then on.
  *
  * The container half itself — pulling the 2.x image, keeping its volume, the
  * launchers the clients hold — cannot run where the published image is not
@@ -342,7 +346,7 @@ async function readJson(file) {
   return JSON.parse(await fs.readFile(file, "utf8"));
 }
 
-async function verifyUpgradedScenario({ label, base, baseRoot, env, project, expected, aiDevHome, doubledBefore = [], pythonBackend = false, temp }) {
+async function verifyUpgradedScenario({ label, base, baseRoot, env, project, expected, aiDevHome, doubledBefore = [], pythonBackend = false, codex = false, temp }) {
   const cursor = await readJson(path.join(env.HOME, ".cursor", "mcp.json"));
   const local = cursor.mcpServers?.["ai-dev-system"];
   check(`${label}: the 2.x local client entry is still there`, local?.command && Array.isArray(local.args), JSON.stringify(local?.args ?? null));
@@ -476,6 +480,18 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
         + `${status.dense_documents} of ${eligible} embedded, ${status.dense_pending_documents} pending, ${indexedDocuments(status)} document(s) indexed`);
   }
 
+  if (codex) {
+    const codexState = path.join(env.HOME, ".codex", "state", "ai-dev-system");
+    const left = await listFiles(codexState);
+    check(`${label}: nothing of AI Dev's is left in ~/.codex/state/ai-dev-system`, left.length === 0, `${left.length} file(s): ${left.slice(0, 3).join(", ")}`);
+    check(`${label}: the task now lives in ~/.ai-dev/state`, existsSync(path.join(env.HOME, ".ai-dev", "state", "tasks", `${expected.taskId}.json`)));
+    const log = await readJson(path.join(env.HOME, ".ai-dev", "state", "runtime-home-migration.json")).catch(() => null);
+    const record = (log?.history ?? []).find((entry) => entry.kind === "codex");
+    check(`${label}: the move is recorded, with where it came from`,
+      record?.status === "migrated" && record.from === path.join(env.HOME, ".codex") && Number(record.moved ?? 0) + Number(record.merged ?? 0) > 0,
+      `${record?.moved ?? 0} moved, ${record?.merged ?? 0} merged, from ${record?.from ?? "nowhere"}`);
+  }
+
   if (aiDevHome) {
     const left = await listFiles(path.join(aiDevHome, ".ai-dev"));
     check(`${label}: nothing is left one level too deep in AI_DEV_HOME`, left.length === 0, `${doubledBefore.length} file(s) there under 2.x, ${left.length} now`);
@@ -595,7 +611,8 @@ async function main() {
       { label: "default", home: path.join(temp, "home-default") },
       { label: "AI_DEV_HOME", home: path.join(temp, "home-custom"), aiDevHome: path.join(temp, "home-custom", "ai-dev-data") },
       { label: "Docker volume layout", home: dockerHome, aiDevHome: path.join(dockerHome, ".ai-dev"), explicitRoots: true },
-      { label: "Python dense backend", home: path.join(temp, "home-python"), pythonBackend: true }
+      { label: "Python dense backend", home: path.join(temp, "home-python"), pythonBackend: true },
+      { label: "Codex runtime", home: path.join(temp, "home-codex"), codex: true }
     ];
     for (const scenario of scenarios) {
       await fs.mkdir(scenario.home, { recursive: true });
@@ -608,12 +625,22 @@ async function main() {
         await fs.mkdir(weights, { recursive: true });
         await fs.writeFile(path.join(weights, "pytorch_model.bin"), "2.x torch weights stand-in");
       }
+      if (scenario.codex) {
+        // Where the Codex desktop runtime kept AI Dev's state and index: 2.x
+        // used these folders whenever they existed and ~/.ai-dev's did not.
+        await fs.mkdir(path.join(scenario.home, ".codex", "state", "ai-dev-system"), { recursive: true });
+        await fs.mkdir(path.join(scenario.home, ".codex", "cache", "ai-dev-system", "search-index"), { recursive: true });
+      }
       scenario.project = path.join(temp, `project-${scenario.label.toLowerCase().replace(/[^a-z]+/g, "-")}`);
       await makeRepository(scenario.project);
       npm(["run", "setup", "--", "--no-health"], { cwd: baseServer, env: scenario.env });
       scenario.expected = await createLegacyState({ baseServer, env: scenario.env, project: scenario.project, denseBackend: scenario.pythonBackend ? "python" : "onnx" });
       writeLegacyClientConfigs({ baseRoot, env: scenario.env, project: scenario.project });
       if (scenario.aiDevHome) scenario.doubledBefore = await listFiles(path.join(scenario.aiDevHome, ".ai-dev"));
+      if (scenario.codex) {
+        check(`${scenario.label}: 2.x kept the task in ~/.codex/state/ai-dev-system (the case to migrate)`,
+          existsSync(path.join(scenario.home, ".codex", "state", "ai-dev-system", "tasks", `${scenario.expected.taskId}.json`)));
+      }
       if (scenario.aiDevHome && !scenario.explicitRoots) {
         check(`${scenario.label}: 2.x wrote its data one level too deep (the case to migrate)`, existsSync(path.join(scenario.aiDevHome, ".ai-dev", "state", "tasks")), `${scenario.doubledBefore.length} file(s)`);
       }

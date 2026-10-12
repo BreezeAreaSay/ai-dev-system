@@ -361,8 +361,8 @@ launches; `--dense` downloads the pinned ONNX export of BGE-M3 (no Python packag
 embeds the index with it. Everything it builds is idempotent, and anything that has
 gone out of date since is rebuilt rather than skipped.
 
-Or restore both MCP and Frontend QA runtimes (`../scripts/restore-runtime.ps1`) — it prefers
-`node` / `npm` / `pnpm` on `PATH` and falls back to a bundled Codex runtime only if one is present.
+After restoring a backup into a clone, `npm ci` and `npm run setup -- --frontend-qa` bring the
+dependencies back (`../scripts/restore-runtime.ps1` runs those two, as a wrapper until 4.0).
 
 Environment overrides:
 
@@ -410,20 +410,28 @@ See [the complete Windows, macOS, Linux, client configuration, Compose, BGE-M3, 
 
 ## Acceptance
 
-Fast:
-
-```powershell
-..\scripts\run-acceptance.ps1
+```bash
+npm run check         # the gate, once
+npm run acceptance    # the gate, ten times in a row
 ```
 
-Including the full BGE-M3 golden suite:
+The gate runs the static modularity checks, the unit tests with their coverage thresholds, the
+security checks, real stdio negotiation and the lifecycle smoke. With the local model installed,
+`node bin/ai-dev.mjs doctor --dense-smoke --search-eval` adds the dense checks and the golden
+search suite. `../scripts/run-acceptance.ps1` is a wrapper over `npm run check` until 4.0.
 
-```powershell
-..\scripts\run-acceptance.ps1 -IncludeDense
+## Distribution
+
+```bash
+npm run dist          # dist/ai-dev/: the package folder, with its production dependencies
+npm run dist:pack     # and dist/stonebridgeway-ai-dev-system-<version>.tgz beside it
 ```
 
-The suite runs MCP unit tests, real stdio negotiation, lifecycle smoke, real Chromium Frontend QA,
-coverage thresholds, static modularity checks, and local security checks.
+What ships is `distribution.allowlist.json` — the same list `npm run docker:prepare` builds the
+image's context from. The folder holds `distribution.json` (every file with its sha256), the
+package's `package.json` and the server's lockfile as `npm-shrinkwrap.json`; `prepack` checks the
+folder against the list, and `dist:pack` checks the tarball, unpacked, byte for byte. Nothing is
+published from here.
 
 ## Local Operations
 
@@ -464,12 +472,14 @@ rate limits, and threat review are implemented.
 
 ## Backup And Recovery
 
-```powershell
-..\scripts\backup-ai-dev-system.ps1 -Label before-upgrade
-..\scripts\restore-ai-dev-system.ps1 -Archive <backup.zip> -TargetRoot <empty-folder> -ConfirmRestore
+```bash
+node bin/ai-dev.mjs backup before-upgrade
+node bin/ai-dev.mjs restore <backup.zip> --confirm --to <empty-folder>
 ```
 
-Backups contain local vault content, including owner-kept private notes. They remain local and must
-not be pushed to a public repository.
+On every system and in every layout: the vault this install reads and AI Dev's state, every file
+with its sha256. Backups contain local vault content, including owner-kept private notes. They
+remain local and must not be pushed to a public repository. The 2.x PowerShell scripts are
+wrappers over these commands until 4.0.
 
 See `docs/RECOVERY.md`.

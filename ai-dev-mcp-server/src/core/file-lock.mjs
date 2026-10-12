@@ -276,8 +276,8 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMod
       break;
     } catch (error) {
       if (error?.code === "ENOENT" && attempt === 0) {
-        // A folder made here gets the mode its owner asked for: the daemon's
-        // run/ is 0700 however it comes to be made (docs/DEFECTS.md, Д-213).
+        // A folder made here gets the mode its owner asked for: the locks the
+        // daemon and `stop` take in run/ make it 0700 (docs/DEFECTS.md, Д-213, Д-215).
         await fs.mkdir(path.dirname(lockPath), { recursive: true, ...(directoryMode === undefined ? {} : { mode: directoryMode }) });
         continue;
       }

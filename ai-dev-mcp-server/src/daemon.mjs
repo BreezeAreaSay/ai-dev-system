@@ -63,7 +63,8 @@ import {
   daemonLogPath,
   prepareSocketDirectory,
   retiredDaemonPath,
-  runtimeDir
+  runtimeDir,
+  tightenFolder
 } from "./core/runtime-paths.mjs";
 import { environmentObject, runInSession, scopeProcessEnvironment } from "./core/session-env.mjs";
 import { SocketServerTransport } from "./transport/socket.mjs";
@@ -253,6 +254,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   const build = await describeBuild({ serverRoot, version: VERSION, env });
   const descriptor = daemonInfoPath(build.id);
   await fs.mkdir(runtimeDir(), { recursive: true, mode: 0o700 });
+  if (await tightenFolder(runtimeDir()).catch(() => false)) log(`${runtimeDir()} was open to other users; it is 0700 now`);
   const taken = await acquireLock({ descriptor, log });
   if (!taken.lock) {
     log(`another daemon (pid ${taken.holder || "unknown"}) ${taken.serving ? "serves" : "is starting for"} this build in ${runtimeDir()}; this one is not needed`);
@@ -324,8 +326,10 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     retiredLock = null;
     // A folder made again here — the runtime home was deleted under this
     // daemon — goes when the daemon does, if it is still empty (Д-213).
+    // Each folder made again is the start of the same path to run/: the
+    // shortest is the highest (Д-214).
     const made = await fs.mkdir(path.dirname(retiredDaemonPath(process.pid)), { recursive: true, mode: 0o700 }).catch(() => undefined);
-    if (made && !madeFolder) madeFolder = made;
+    if (made && (!madeFolder || made.length < madeFolder.length)) madeFolder = made;
     const taken = await tryAcquireFileLock(retiredDaemonPath(process.pid), { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS, directoryMode: 0o700 }).catch(() => ({}));
     retiredLock = taken.release ? taken : null;
     return Boolean(retiredLock);
@@ -383,7 +387,8 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     await retiredLock?.release().catch(() => undefined);
     if (address && !isPipe(address)) await fs.rm(address, { force: true }).catch(() => undefined);
     // Empty folders only: a neighbour's files keep theirs (`rmdir` refuses).
-    for (let folder = runtimeDir(); madeFolder && folder.startsWith(madeFolder); folder = path.dirname(folder)) {
+    const under = (folder) => folder === madeFolder || folder.startsWith(`${madeFolder}${path.sep}`);
+    for (let folder = runtimeDir(); madeFolder && under(folder); folder = path.dirname(folder)) {
       await fs.rmdir(folder).catch(() => undefined);
       if (folder === madeFolder) break;
     }

@@ -128,6 +128,20 @@ function proxyAuthorization(proxy) {
   return { "proxy-authorization": `Basic ${Buffer.from(credentials).toString("base64")}` };
 }
 
+/**
+ * What a 407 means, as the server's copy says it: a scheme the hook does not
+ * speak, credentials the proxy refused, or none given (docs/DEFECTS.md, Д-212).
+ */
+function signInHint(proxy, challenge) {
+  const schemes = [challenge ?? []].flat().join(",").toLowerCase();
+  if (schemes && !/\bbasic\b/.test(schemes)) {
+    const named = /negotiate|kerberos/.test(schemes) ? "Negotiate (Kerberos)" : /ntlm/.test(schemes) ? "NTLM" : "a sign-in";
+    return ` The proxy asks for ${named}, which this check does not speak: point HTTPS_PROXY at a local proxy that signs in for it (cntlm, px).`;
+  }
+  if (proxy.username || proxy.password) return " The proxy did not accept the user name and password in the proxy URL.";
+  return " The proxy wants credentials: put them in the proxy URL, as http://user:password@host:port.";
+}
+
 function authority(host, port) {
   return `${net.isIPv6(host) ? `[${host}]` : host}:${port}`;
 }
@@ -161,7 +175,7 @@ function tunnel(proxy, host, port, signal, ca) {
     request.once("connect", (response, socket, head) => {
       if (response.statusCode !== 200) {
         socket.destroy();
-        const credentials = response.statusCode === 407 ? " The proxy wants credentials: put them in the proxy URL, as http://user:password@host:port." : "";
+        const credentials = response.statusCode === 407 ? signInHint(proxy, response.headers["proxy-authenticate"]) : "";
         reject(new Error(`the proxy ${proxy.protocol}//${proxy.host} refused to connect to ${authority(host, port)} (HTTP ${response.statusCode}).${credentials}`));
         return;
       }
@@ -203,6 +217,8 @@ function requestOnce(url, { method, headers, env, signal, ca, body }) {
         method,
         headers: sent,
         signal,
+        // As the server's copy: without it `Host` named port 80 (docs/DEFECTS.md, Д-211).
+        defaultPort: 443,
         createConnection: (_options, done) => {
           tunnel(proxy, host, port, signal, ca).then((socket) => {
             done(null, tls.connect({ socket, host, ...(net.isIP(host) ? {} : { servername: host }), ...(ca ? { ca } : {}), ALPNProtocols: ["http/1.1"] }));

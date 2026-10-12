@@ -116,7 +116,7 @@ export const MESSAGES = Object.freeze({
     "broken.noServerHint": "Reinstall AI Dev, or name the server's folder in the AI_DEV_SERVER_ROOT variable, then restart AI Dev.",
     "broken.serverFailed": "The AI Dev server in {path} did not load.",
     "broken.restartHint": "The details below say why. Restart AI Dev once it is fixed.",
-    "broken.settingsHint": "Without the file the defaults are used. Then press Try again.",
+    "broken.settingsHint": "Fix the file or remove it — without it the defaults are used — then press Try again.",
     "broken.tryAgainHint": "Press Try again. If it happens again, write down the message above.",
     "link.notConnected": "The daemon is not connected.",
     "link.wentAway": "The daemon went away.",
@@ -192,7 +192,9 @@ export const MESSAGES = Object.freeze({
     "wizard.step.built": "built",
     "wizard.step.rebuilt": "rebuilt",
     "tray.rebuildFailed": "Rebuild failed — try again",
-    "tray.rebuildFailedTip": "The last rebuild failed: {message}"
+    "tray.rebuildFailedTip": "The last rebuild failed: {message}",
+    "tray.stopFailed": "Stop failed — try again",
+    "tray.stopFailedTip": "The daemon did not stop: {message}"
   }),
   ru: Object.freeze({
     "app.title": "AI Dev",
@@ -220,7 +222,7 @@ export const MESSAGES = Object.freeze({
     "node.body": "AI Dev работает на Node.js 22.16 или новее. Установите его с nodejs.org и нажмите «Повторить». Если вместо этого вы укажете путь в переменной AI_DEV_NODE, перезапустите AI Dev.",
     "node.problem.none": "Node.js 22.16 или новее не найден.",
     "node.problem.notExecutable": "AI_DEV_NODE указывает на {path}, а это не исполняемый файл.",
-    "node.problem.version": "AI_DEV_NODE указывает на Node {version}; AI Dev нужен 22.16 или новее (не 23).",
+    "node.problem.version": "AI_DEV_NODE указывает на Node {version}; AI Dev нужна версия 22.16 или новее (не 23).",
     "node.problem.unknownVersion": "AI_DEV_NODE указывает на {path}, но версию прочитать не удалось; AI Dev нужен Node 22.16 или новее (не 23).",
     "wizard.title": "Настройка AI Dev",
     "wizard.step": "Шаг {step} из {total}",
@@ -305,7 +307,7 @@ export const MESSAGES = Object.freeze({
     "broken.noServerHint": "Переустановите AI Dev или укажите папку сервера в переменной AI_DEV_SERVER_ROOT и перезапустите AI Dev.",
     "broken.serverFailed": "Сервер AI Dev в {path} не загрузился.",
     "broken.restartHint": "Причина — в подробностях ниже. Когда она устранена, перезапустите AI Dev.",
-    "broken.settingsHint": "Без файла действуют значения по умолчанию. Затем нажмите «Повторить».",
+    "broken.settingsHint": "Исправьте файл или удалите его — без него действуют значения по умолчанию, — затем нажмите «Повторить».",
     "broken.tryAgainHint": "Нажмите «Повторить». Если ошибка повторится, запишите сообщение выше.",
     "link.notConnected": "Демон не подключён.",
     "link.wentAway": "Демон пропал.",
@@ -381,7 +383,9 @@ export const MESSAGES = Object.freeze({
     "wizard.step.built": "построено",
     "wizard.step.rebuilt": "построено заново",
     "tray.rebuildFailed": "Перестройка не удалась — повторить",
-    "tray.rebuildFailedTip": "Последняя перестройка не удалась: {message}"
+    "tray.rebuildFailedTip": "Последняя перестройка не удалась: {message}",
+    "tray.stopFailed": "Остановка не удалась — повторить",
+    "tray.stopFailedTip": "Демон не остановился: {message}"
   })
 });
 

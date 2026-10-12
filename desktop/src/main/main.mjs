@@ -63,6 +63,9 @@ if (!app.requestSingleInstanceLock()) {
   let ready = false;
   // The main process's own calls are named apart, so two at once do not share an id.
   let ownCalls = 0;
+  // A language chosen while the settings could not be written — a broken
+  // file: it holds until they can be (docs/DEFECTS.md, Д-271, п. 4).
+  let unsaved = null;
   const env = { ...process.env };
   const root = serverRoot();
   const t = (key, params) => translate(language, key, params);
@@ -119,6 +122,17 @@ if (!app.requestSingleInstanceLock()) {
     tray.setRebuilding(null, result.ok || result.cancelled ? null : result.error);
   };
 
+  // The tray's Stop: a daemon that would not stop is said in the menu, as a
+  // failed rebuild is (Д-271, п. 6).
+  const stopFromTray = async () => {
+    tray.setStopFailed(null);
+    try {
+      await link.stopDaemon();
+    } catch (error) {
+      tray.setStopFailed(String(error?.message ?? error));
+    }
+  };
+
   /**
    * Get going: the server, the settings, the Node the daemon runs on, the
    * daemon. Whatever stops it is shown in the window with what to do — the
@@ -130,7 +144,12 @@ if (!app.requestSingleInstanceLock()) {
       try {
         server ??= await import(pathToFileURL(path.join(root, "src", "core", "control-client.mjs")).href);
         const settings = server.readSettings({ env }).settings;
-        language = pickLanguage(settings.language, app.getLocale());
+        if (unsaved) {
+          language = unsaved;
+          await server.writeSettings({ language }, { env }).then(() => { unsaved = null; }, () => undefined);
+        } else {
+          language = pickLanguage(settings.language, app.getLocale());
+        }
         window?.setTitle(t("app.title"));
         tray?.refresh();
         const clientNodes = await server.clientNodePaths({ env, cliPath: path.join(root, "bin", "ai-dev.mjs") }).catch(() => []);
@@ -224,17 +243,22 @@ if (!app.requestSingleInstanceLock()) {
       window?.setTitle(t("app.title"));
       // A failure screen is the main process's words: say them again in this language.
       if (["broken", "no-node"].includes(link.state.phase)) explain?.();
-      if (link.state.phase === "online") await link.call("settings_set", { settings: { language } }, { id: "language" });
-      else await server?.writeSettings({ language }, { env }).catch(() => undefined);
+      if (link.state.phase === "online") {
+        await link.call("settings_set", { settings: { language } }, { id: "language" });
+        unsaved = null;
+      } else {
+        const written = server ? await server.writeSettings({ language }, { env }).then(() => true, () => false) : false;
+        unsaved = written ? null : language;
+      }
       return publicState();
     });
 
     ready = true;
     openWindow();
-    tray = createTray({ electron, link, t, actions: { open: openWindow, rebuild: rebuildFromTray, stop: () => link.stopDaemon(), quit } });
-    // What the end-to-end tests read from the main process: the tray and the
-    // daemon link (desktop/test/e2e). Nothing of it reaches the page.
-    if (process.env.AI_DEV_DESKTOP_TEST === "1") globalThis.aiDevTest = { tray, link, node: () => node };
+    tray = createTray({ electron, link, t, actions: { open: openWindow, rebuild: rebuildFromTray, stop: stopFromTray, quit } });
+    // What the end-to-end tests read from the main process: the tray, its
+    // Stop, and the daemon link (desktop/test/e2e). Nothing of it reaches the page.
+    if (process.env.AI_DEV_DESKTOP_TEST === "1") globalThis.aiDevTest = { tray, link, stop: stopFromTray, node: () => node };
     startup();
   });
 }

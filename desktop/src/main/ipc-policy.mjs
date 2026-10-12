@@ -43,6 +43,13 @@ export const PAGE_TOOL_ARGUMENTS = Object.freeze({
   rebuild_search_index: {}
 });
 
+/**
+ * The arguments the interface always sends; a call without one is refused.
+ * The daemon reads a `clients_install` that names no client as all of them
+ * (docs/DEFECTS.md, Д-271, п. 2).
+ */
+export const PAGE_REQUIRED_ARGUMENTS = Object.freeze({ model_import: ["source"], clients_install: ["clients"], settings_set: ["settings"] });
+
 /** The tools the interface calls. */
 export const PAGE_TOOLS = Object.freeze(Object.keys(PAGE_TOOL_ARGUMENTS));
 
@@ -102,6 +109,9 @@ export function refuseCall(request) {
   }
   if (size > MAX_ARGUMENT_BYTES) return `A call's arguments are at most ${MAX_ARGUMENT_BYTES} bytes.`;
   const allowed = PAGE_TOOL_ARGUMENTS[tool];
+  for (const name of PAGE_REQUIRED_ARGUMENTS[tool] ?? []) {
+    if (!Object.hasOwn(args, name)) return `${tool} needs ${name}.`;
+  }
   for (const [name, value] of Object.entries(args)) {
     if (!Object.hasOwn(allowed, name)) return `The interface does not send ${JSON.stringify(name).slice(0, 80)} to ${tool}.`;
     const refused = refuseValue(allowed[name], value, name);

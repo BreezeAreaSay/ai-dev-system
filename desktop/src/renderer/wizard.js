@@ -38,7 +38,9 @@ function start(view, step, { label, tool, args }) {
 
 /**
  * Show a running call in `body`: its progress and Cancel, with the focus on
- * Cancel; when it ends, `onDone` or `onFail` draws what came of it.
+ * Cancel; when it ends, `onDone` or `onFail` draws what came of it, and the
+ * focus goes to the way on — the step's own main button, or Next — never to
+ * "Build again", which Enter would press (docs/DEFECTS.md, Д-271, п. 1).
  */
 function attach(view, body, footer, active, { onDone, onFail }) {
   const bar = progressBar();
@@ -62,7 +64,7 @@ function attach(view, body, footer, active, { onDone, onFail }) {
     footer.next.disabled = false;
     if (error) onFail(error);
     else onDone(answer);
-    (body.querySelector("button") ?? footer.next).focus();
+    (body.querySelector("button.primary") ?? footer.next).focus();
   });
 }
 
@@ -165,8 +167,9 @@ function modelStep(view, body, footer) {
       wizard.modelInstalled = Boolean(model.installed);
       // Without the model the way on is to skip it: search works by words.
       footer.next.textContent = view.t(model.installed ? "common.next" : "wizard.model.skip");
+      // Installed is the last word: an earlier download's failure or Cancel no longer holds (Д-271, п. 5).
       if (model.installed) {
-        show(body, h("p", {}, view.t("wizard.model.body")), h("p", { className: "ok", dataset: { field: "model-state" } }, view.t("wizard.model.installed")), note);
+        show(body, h("p", {}, view.t("wizard.model.body")), h("p", { className: "ok", dataset: { field: "model-state" } }, view.t("wizard.model.installed")));
         return;
       }
       if (model.supported === false) {

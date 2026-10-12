@@ -346,6 +346,10 @@ export class DaemonLink extends EventEmitter {
     } finally {
       this.#leaving = null;
     }
+    // An attempt under way — the one whose first checks found the daemon
+    // retired — gives up after close(); a connect() now would only share it.
+    // Wait for it, then open a new one (docs/DEFECTS.md, Д-268).
+    await this.#connecting?.catch(() => undefined);
     return this.connect({ start: true, reconnecting: true });
   }
 

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { STALLED_FILE, answerFolderDialog, launch, mainCall, shot, stage, trayNow } from "./harness.mjs";
+import { STALLED_FILE, answerFolderDialog, launch, mainCall, serverModule, shot, stage, trayNow } from "./harness.mjs";
 
 // The first-run wizard on a real daemon, as a person goes through it: the
 // projects folder, a client, the model — a download cancelled midway, then
@@ -89,6 +89,8 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   const result = await page.textContent('[data-field="index-result"]');
   assert.match(result, /, 0 failed$/, result);
   assert.equal(await page.getAttribute('[data-step="dense_index"]', "data-status"), "done");
+  // The focus goes on, to Next — not to Build again, which Enter would press (Д-271, п. 1).
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "next");
   await shot(page, "wizard-6-index");
   // Left and come back to, the step still shows the build's outcome (Д-249).
   await page.click('[data-nav="status"]');
@@ -115,6 +117,16 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   const tray = await trayNow(app);
   assert.equal(tray.state, overall, "the tray's colour is the status");
   assert.deepEqual(tray.menu.map((item) => [item.id, item.enabled]), [["open", true], ["rebuild", true], ["stop", true], ["quit", true]]);
+
+  // A settings problem the summary already says is not listed again under it (Д-266 п. 8, Д-270).
+  const file = path.join(s.home, ".ai-dev", "config.json");
+  await fs.writeFile(file, JSON.stringify({ ...JSON.parse(await fs.readFile(file, "utf8")), daemon_idle_minutes: "forever" }));
+  await page.click('[data-action="refresh"]');
+  await page.waitForSelector('[data-field="why"]', { timeout: 120_000 });
+  const why = await page.textContent('[data-field="why"]');
+  assert.match(why, /daemon_idle_minutes/, why);
+  const listed = await page.$$eval('[data-field="settings-problems"] li', (items) => items.map((item) => item.textContent));
+  assert.deepEqual(listed.filter((problem) => why.includes(problem)), [], "said once");
 });
 
 test("Status shows each health check with its details and what to do, in Russian too", { timeout: 300_000 }, async (t) => {
@@ -168,5 +180,59 @@ test("a download the daemon's going away ends, while the person is on Status, is
   await page.click("#start-daemon");
   await page.waitForSelector('[data-step="model"] .step-body .error', { timeout: 60_000 });
   assert.match(await page.textContent('[data-step="model"] .step-body .error'), /The daemon went away/);
-  assert.equal(await page.$('[data-step="model"] .notice'), null, "not called cancelled");
+  // Absence is counted: a failing check on an element handle would print all of Playwright (Д-272).
+  assert.equal(await page.locator('[data-step="model"] .notice').count(), 0, "not called cancelled");
+  // An answer that the model is not ready is said on the step (Д-270, R7). This daemon never gives
+  // one — it throws instead — so the main process is handed one in its place.
+  await app.evaluate(() => {
+    const { link } = globalThis.aiDevTest;
+    const real = link.call;
+    link.call = function (tool, args, options) {
+      if (tool !== "model_import") return real.call(this, tool, args, options);
+      return Promise.resolve({ ok: true, result: { ready: false, dir: "/models/bge-m3-onnx", present: [], missing: [], mismatched: ["onnx/model_int8.onnx"] } });
+    };
+  });
+  await answerFolderDialog(app, s.usb);
+  await page.click('[data-action="import-model"]');
+  await page.waitForSelector('[data-step="model"] .step-body .error:has-text("onnx/model_int8.onnx")', { timeout: 30_000 });
+  await app.evaluate(() => { delete globalThis.aiDevTest.link.call; });
+  // The model installed meanwhile, not from this screen: the step says installed, and the old
+  // outcome no longer (Д-271, п. 5).
+  assert.equal((await mainCall(app, "model_import", { source: s.usb })).ok, true);
+  await page.click('[data-nav="status"]');
+  await page.waitForSelector('[data-screen="status"]');
+  await page.click('[data-nav="wizard"]');
+  await page.waitForSelector('[data-step="model"] [data-field="model-state"]', { timeout: 60_000 });
+  assert.equal(await page.locator('[data-step="model"] .step-body .error').count(), 0, "no outcome that the model's state contradicts");
+});
+
+test("Status's rebuild keeps its progress and Cancel across a visit elsewhere; Cancel ends it, and the focus comes back to Rebuild (Д-266 п. 6, Д-270, Д-271 п. 1)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  // The rebuild waits for the index's lock, held here: it runs until Cancel, however fast the machine.
+  const index = await mainCall(app, "search_index_status", {});
+  assert.equal(index.ok, true, index.error);
+  const { tryAcquireFileLock } = await serverModule("src/core/file-lock.mjs");
+  const held = await tryAcquireFileLock(index.result.index_path, { heartbeatMs: 1000 });
+  assert.equal(typeof held.release, "function", "the test holds the rebuild lock");
+  t.after(() => held.release().catch(() => undefined));
+  await page.click('[data-nav="status"]');
+  await page.waitForSelector('[data-field="overall"]', { timeout: 120_000 });
+  await page.click('[data-action="rebuild"]');
+  await page.waitForSelector('[data-action="cancel-rebuild"]');
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "cancel-rebuild", "the focus on Cancel");
+  assert.equal(await page.isDisabled('[data-action="rebuild"]'), true);
+  // Elsewhere and back: still running, with its Cancel.
+  await page.click('[data-nav="wizard"]');
+  await page.waitForSelector('[data-screen="wizard"]');
+  await page.click('[data-nav="status"]');
+  await page.waitForSelector('[data-screen="status"] [data-action="cancel-rebuild"]');
+  assert.equal(await page.isDisabled('[data-action="rebuild"]'), true);
+  await page.click('[data-action="cancel-rebuild"]');
+  await page.waitForSelector('[data-screen="status"] .notice:has-text("Cancelled")', { timeout: 30_000 });
+  assert.equal(await page.isDisabled('[data-action="rebuild"]'), false);
+  assert.equal(await page.locator('[data-action="cancel-rebuild"]').count(), 0);
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "rebuild", "the focus back on Rebuild, not lost");
+  await held.release();
 });

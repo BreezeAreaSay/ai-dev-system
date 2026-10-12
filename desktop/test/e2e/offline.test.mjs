@@ -30,10 +30,24 @@ test("the tray's Stop brings the window back to the Start screen", { timeout: 18
   const s = await stage(t);
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
-  const stopped = await app.evaluate(() => globalThis.aiDevTest.link.stopDaemon());
-  assert.equal(stopped.daemons.length, 1);
+  // A Stop that fails is said in the tray's menu, and the app goes on (Д-271, п. 6).
+  await app.evaluate(async () => {
+    const { link, stop } = globalThis.aiDevTest;
+    const stopDaemon = link.stopDaemon;
+    link.stopDaemon = async () => { throw new Error("EPERM: operation not permitted, kill"); };
+    try {
+      await stop();
+    } finally {
+      link.stopDaemon = stopDaemon;
+    }
+  });
+  assert.equal((await trayNow(app)).menu.find((item) => item.id === "stop").label, "Stop failed — try again");
+  assert.equal(await page.getAttribute("[data-screen]", "data-screen"), "wizard");
+  await app.evaluate(() => globalThis.aiDevTest.stop());
   await page.waitForSelector('[data-screen="offline"]', { timeout: 30_000 });
-  assert.equal((await trayNow(app)).state, "offline");
+  const tray = await trayNow(app);
+  assert.equal(tray.state, "offline");
+  assert.equal(tray.menu.find((item) => item.id === "stop").label, "Stop the daemon");
 });
 
 test("without Node.js the app says what it needs, and Try again finds one installed since (Д-251)", { timeout: 120_000 }, async (t) => {
@@ -44,6 +58,12 @@ test("without Node.js the app says what it needs, and Try again finds one instal
   assert.equal(await page.textContent("h1"), "Node.js is not found");
   assert.match(await page.textContent('[data-screen="no-node"]'), /AI_DEV_NODE names .*installed-later.*node, which is not an executable file/);
   await shot(page, "no-node");
+  // The language chosen here says the problem again, in it (Д-264, Д-270).
+  await page.selectOption("#language", "ru");
+  await page.waitForFunction(() => document.querySelector("h1")?.textContent === "Node.js не найден");
+  assert.match(await page.textContent('[data-screen="no-node"]'), /AI_DEV_NODE указывает на .*installed-later.*node, а это не исполняемый файл/);
+  await page.selectOption("#language", "en");
+  await page.waitForFunction(() => document.querySelector("h1")?.textContent === "Node.js is not found");
   await page.click("#retry");
   await page.waitForSelector('[data-screen="no-node"]');
   // Node arrives where AI_DEV_NODE says; Try again finds it.

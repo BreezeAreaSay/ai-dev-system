@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import { createRequire } from "node:module";
 import path from "node:path";
 import test from "node:test";
-import { NO_SANDBOX, desktopRoot, launch, serverRoot, shot, stage } from "./harness.mjs";
+import { NO_SANDBOX, desktopRoot, launch, serverRoot, shot, stage, trayNow } from "./harness.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -17,8 +17,10 @@ test("a broken settings file is said with what to do, and Try again goes on once
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="broken"]', { timeout: 60_000 });
   assert.equal(await page.textContent("h1"), "AI Dev could not start");
-  assert.match(await page.textContent('[data-field="broken-error"]'), /config\.json/);
-  assert.match(await page.textContent('[data-field="broken-hint"]'), /Then press Try again/);
+  assert.match(await page.textContent('[data-field="broken-error"]'), /config\.json is not JSON\.$/);
+  // What to do is said once, in the app's words (Д-269).
+  assert.doesNotMatch(await page.textContent('[data-field="broken-error"]'), /Fix or remove it/);
+  assert.equal(await page.textContent('[data-field="broken-hint"]'), "Fix the file or remove it — without it the defaults are used — then press Try again.");
   assert.equal(await page.textContent("#retry"), "Try again");
   assert.equal(await app.evaluate(() => globalThis.aiDevTest.tray.state()), "offline", "the tray is there");
   await shot(page, "broken-settings");
@@ -46,10 +48,28 @@ test("on a Russian system the start-up failure is said in Russian, and again in 
   const { page } = await launch(t, { ...s.env, LANG: "ru_RU.UTF-8", LC_ALL: "ru_RU.UTF-8", LANGUAGE: "ru" });
   await page.waitForSelector('[data-screen="broken"]', { timeout: 60_000 });
   assert.equal(await page.textContent("h1"), "AI Dev не смог запуститься");
-  assert.match(await page.textContent('[data-field="broken-hint"]'), /Без файла действуют значения по умолчанию/);
+  assert.match(await page.textContent('[data-field="broken-hint"]'), /^Исправьте файл или удалите его — /, "what to do, in Russian (Д-269)");
   await page.selectOption("#language", "en");
   await page.waitForFunction(() => document.querySelector("h1")?.textContent === "AI Dev could not start");
-  assert.match(await page.textContent('[data-field="broken-hint"]'), /Without the file the defaults are used/, "the main process's words in the new language too");
+  assert.match(await page.textContent('[data-field="broken-hint"]'), /^Fix the file or remove it — /, "the main process's words in the new language too");
+});
+
+test("a language chosen on the failure screen holds once Try again gets going, and is written then (Д-271, п. 4)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const settings = path.join(s.home, ".ai-dev", "config.json");
+  await fs.writeFile(settings, "{ this is not json");
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="broken"]', { timeout: 60_000 });
+  assert.equal(await page.textContent("h1"), "AI Dev could not start");
+  await page.selectOption("#language", "ru");
+  await page.waitForFunction(() => document.querySelector("h1")?.textContent === "AI Dev не смог запуститься");
+  assert.equal(await fs.readFile(settings, "utf8"), "{ this is not json", "a broken file is not written over");
+  await fs.writeFile(settings, JSON.stringify({ schema_version: 1 }));
+  await page.click("#retry");
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  assert.equal(await page.textContent('[data-nav="status"]'), "Статус");
+  assert.equal((await trayNow(app)).menu[0].label, "Открыть AI Dev");
+  assert.equal(JSON.parse(await fs.readFile(settings, "utf8")).language, "ru", "written once the file could be");
 });
 
 test("a second launch tries a failed start again: fixed meanwhile, the first window goes on (Д-242, Д-265)", { timeout: 180_000 }, async (t) => {

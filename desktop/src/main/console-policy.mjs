@@ -8,8 +8,15 @@
  */
 import { refuseRequest } from "./ipc-policy.mjs";
 
-/** How much of the arguments the confirmation dialog shows. */
-const DETAIL_LIMIT = 1500;
+/**
+ * How much of each argument the confirmation shows. Every argument gets a line
+ * of its own, cut to this length, so a long one cannot push another out of
+ * sight — the page chooses the arguments, and their order.
+ */
+const VALUE_LIMIT = 240;
+
+/** The most arguments a console call has — more than any tool takes, few enough to read in the confirmation. */
+const MAX_ARGUMENTS = 40;
 
 /**
  * What the console knows of each tool the daemon lists: name, title,
@@ -43,6 +50,7 @@ export function consoleDecision(request, tools) {
   if (refused) return { refused };
   const tool = tools.find((entry) => entry.name === request.tool);
   if (!tool) return { refused: `The daemon lists no tool ${JSON.stringify(String(request.tool)).slice(0, 80)} to this app.` };
+  if (Object.keys(request.args ?? {}).length > MAX_ARGUMENTS) return { refused: `A console call has at most ${MAX_ARGUMENTS} arguments.` };
   return { tool, args: request.args ?? {}, id: request.id, confirm: !tool.readOnly };
 }
 
@@ -55,9 +63,14 @@ export function consoleDecision(request, tools) {
  * @param {(key: string, params?: object) => string} t
  */
 export function confirmationDialog(tool, args, t) {
-  let shown = JSON.stringify(args, null, 2);
-  if (shown.length > DETAIL_LIMIT) shown = `${shown.slice(0, DETAIL_LIMIT)}\n…`;
-  const lines = [t(tool.destructive ? "console.confirm.destructive" : "console.confirm.changes"), "", t("console.confirm.arguments"), shown];
+  const entries = Object.entries(args ?? {});
+  const shown = entries.length
+    ? entries.map(([name, value]) => {
+      const text = JSON.stringify(value);
+      return `${name}: ${text.length > VALUE_LIMIT ? `${text.slice(0, VALUE_LIMIT)}… ${t("console.confirm.longer", { count: text.length })}` : text}`;
+    })
+    : [t("console.confirm.noArguments")];
+  const lines = [t(tool.destructive ? "console.confirm.destructive" : "console.confirm.changes"), "", t("console.confirm.arguments"), ...shown];
   return {
     type: tool.destructive ? "warning" : "question",
     buttons: [t("console.confirm.run"), t("common.cancel")],

@@ -42,6 +42,8 @@ test("a read-only tool runs at once, one that changes something asks first, one 
   assert.match(consoleDecision({ tool: "list_projects", args: "x", id: "c" }, tools).refused, /arguments are an object/);
   assert.match(consoleDecision({ tool: "list_projects", args: { big: "x".repeat(70 * 1024) }, id: "c" }, tools).refused, /at most 65536 bytes/);
   assert.match(consoleDecision(null, tools).refused, /A call is an object/);
+  const many = Object.fromEntries(Array.from({ length: 41 }, (_, index) => [`a${index}`, 1]));
+  assert.match(consoleDecision({ tool: "record_decision", args: many, id: "c" }, tools).refused, /at most 40 arguments/, "more than a confirmation can show is refused");
   assert.match(consoleDecision({ args: {}, id: "c" }, tools).refused, /names a tool/);
 });
 
@@ -54,12 +56,15 @@ test("the confirmation says what runs and with what, Cancel is the default, in t
   assert.equal(dialog.cancelId, 1);
   assert.equal(dialog.buttons[dialog.cancelId], "Cancel");
   assert.match(dialog.message, /record_decision/);
-  assert.match(dialog.detail, /"title": "Use Stripe"/);
+  assert.match(dialog.detail, /^title: "Use Stripe"$/m);
   const ru = confirmationDialog(remove, { confirm: true }, (key, params) => translate("ru", key, params));
   assert.equal(ru.type, "warning", "a destructive tool warns");
   assert.equal(ru.buttons[1], "Отмена");
   assert.match(ru.message, /model_remove/);
-  const long = confirmationDialog(record, { text: "x".repeat(5000) }, en);
-  assert.ok(long.detail.length < 2000, `${long.detail.length} characters`);
-  assert.match(long.detail, /…$/);
+  // A long argument cannot push another out of sight: each has its own line, cut on its own.
+  const long = confirmationDialog(record, { text: "x".repeat(5000), project_path: "/home/me/secret-repo" }, en);
+  assert.ok(long.detail.length < 800, `${long.detail.length} characters`);
+  assert.match(long.detail, /^text: "x{239}… \(5002 characters in all\)$/m);
+  assert.match(long.detail, /^project_path: "\/home\/me\/secret-repo"$/m);
+  assert.match(confirmationDialog(record, {}, en).detail, /\(no arguments\)/);
 });

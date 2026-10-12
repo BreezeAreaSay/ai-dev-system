@@ -28,7 +28,7 @@ import {
 import { isDirectExecution } from "./core/direct-execution.mjs";
 import { describeProgress } from "./core/progress-line.mjs";
 import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
-import { filterToolsByProfiles, profilesFromEnvironment } from "./core/tool-profiles.mjs";
+import { DEFAULT_PROFILE_IDS, filterToolsByProfiles, findProfile, profileNotes, profileOfTool, profilesFromEnvironment } from "./core/tool-profiles.mjs";
 
 const serverFile = fileURLToPath(import.meta.url);
 const serverRoot = path.resolve(path.dirname(serverFile), "..");
@@ -442,13 +442,17 @@ function sessionTools(profiles) {
  * can say on stderr what the stdio server says when profiles narrow it.
  *
  * @param {string | null} profiles
- * @returns {{ tools_listed: number, tools_total: number, profiles: string[], unknown_profiles: string[] }}
+ * @returns {{ tools_listed: number, tools_total: number, tools_opt_in: number, profiles: string[], unknown_profiles: string[] }}
+ *   `tools_total`: what an unset `AI_DEV_PROFILES` lists; `tools_opt_in`: the listed tools of opt-in profiles.
  */
 export function sessionToolCounts(profiles) {
   const active = sessionProfiles(profiles);
+  const listed = sessionTools(profiles);
   return {
-    tools_listed: sessionTools(profiles).length,
-    tools_total: legacyTools.length,
+    tools_listed: listed.length,
+    // What an unset AI_DEV_PROFILES lists: every profile but the opt-in ones.
+    tools_total: filterToolsByProfiles(legacyTools, DEFAULT_PROFILE_IDS).length,
+    tools_opt_in: listed.filter((tool) => findProfile(profileOfTool(tool.name))?.optIn).length,
     profiles: active.all ? [] : active.ids,
     unknown_profiles: active.unknown
   };
@@ -605,16 +609,7 @@ export function createAiDevServer({ profiles = null } = {}) {
 
 export async function startServer() {
   await prepareRuntimeHome();
-  if (!activeProfiles.all) {
-    const kept = visibleTools().length;
-    process.stderr.write(
-      `ai-dev: capability profiles ${activeProfiles.ids.join(", ")} — ` +
-      `${kept} of ${legacyTools.length} tools listed. Unset AI_DEV_PROFILES for all of them.\n`
-    );
-  }
-  for (const name of activeProfiles.unknown) {
-    process.stderr.write(`ai-dev: AI_DEV_PROFILES names "${name}", which is not a capability profile; ignoring it.\n`);
-  }
+  for (const line of profileNotes(sessionToolCounts(null))) process.stderr.write(`${line}\n`);
   const server = createAiDevServer();
   const transport = new StdioServerTransport();
   await server.connect(transport);

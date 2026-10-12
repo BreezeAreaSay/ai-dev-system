@@ -10,17 +10,19 @@ import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
  * Everything the daemon writes lives below it: its lock, the descriptor other
  * processes read to find it, and — when the path is short enough — its socket.
  *
+ * @param {NodeJS.ProcessEnv} [env] - Whose home: a client starting a daemon
+ *   for another environment than its own names it (`daemon-transport.mjs`).
  * @returns {string} absolute path
  */
-export function aiDevHome() {
-  return path.resolve(resolveRuntimeStateRoot());
+export function aiDevHome(env = process.env) {
+  return path.resolve(resolveRuntimeStateRoot("", env));
 }
 
 /** Directory for live runtime artefacts (lock, daemon descriptor, usually the socket). */
-export const runtimeDir = () => path.join(aiDevHome(), "run");
+export const runtimeDir = (env) => path.join(aiDevHome(env), "run");
 
 /** Directory for runtime logs. */
-export const logsDir = () => path.join(aiDevHome(), "logs");
+export const logsDir = (env) => path.join(aiDevHome(env), "logs");
 
 /**
  * The descriptor the daemon of one build publishes: pid, version, address,
@@ -30,9 +32,10 @@ export const logsDir = () => path.join(aiDevHome(), "logs");
  * `<descriptor>.lock`, as `file-lock.mjs` names locks.
  *
  * @param {string} build - the build's id, 16 hex digits
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
  */
-export const daemonInfoPath = (build) => path.join(runtimeDir(), `daemon-${build}.json`);
+export const daemonInfoPath = (build, env) => path.join(runtimeDir(env), `daemon-${build}.json`);
 
 /** A descriptor's file name; the first group is the build. */
 export const DAEMON_DESCRIPTOR_NAME = /^daemon-([0-9a-f]{16})\.json$/;
@@ -51,7 +54,7 @@ export const retiredDaemonPath = (pid) => path.join(runtimeDir(), `retired-${pid
 export const RETIRED_DAEMON_NAME = /^retired-(\d+)\.json$/;
 
 /** Where the daemon writes what it does, when a bridge started it. */
-export const daemonLogPath = () => path.join(logsDir(), "daemon.log");
+export const daemonLogPath = (env) => path.join(logsDir(env), "daemon.log");
 
 /** Per-user client configuration (trusted projects, and what else accrues). */
 export const clientConfigPath = () => path.join(aiDevHome(), "config.json");

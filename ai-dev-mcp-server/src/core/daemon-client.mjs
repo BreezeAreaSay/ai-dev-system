@@ -67,10 +67,13 @@ export function daemonDisabled(env = process.env) {
 /**
  * The log a started daemon writes to, opened for appending. A large one is set
  * aside first — copied, then cut to nothing, as the daemon itself does — so a
- * daemon already writing to it goes on writing to the same file.
+ * daemon already writing to it goes on writing to the same file. It is the log
+ * of the runtime home `env` names.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
  */
-function openLog() {
-  const file = daemonLogPath();
+function openLog(env) {
+  const file = daemonLogPath(env);
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   try {
     if (fs.statSync(file).size > LOG_ROTATE_BYTES) {
@@ -87,13 +90,15 @@ function openLog() {
  * The last lines of the daemon's log: what it said before it failed to start.
  *
  * @param {number} [count]
+ * @param {NodeJS.ProcessEnv} [env] - The environment the daemon was started in.
  * @returns {Promise<string>}
  */
-export async function logTail(count = 4) {
+export async function logTail(count = 4, env = process.env) {
+  const file = daemonLogPath(env);
   try {
-    const text = await fsp.readFile(daemonLogPath(), "utf8");
+    const text = await fsp.readFile(file, "utf8");
     const lines = text.trimEnd().split(/\r?\n/).slice(-count);
-    return lines.length ? `Its log (${daemonLogPath()}) ends with: ${lines.join(" | ")}` : "";
+    return lines.length ? `Its log (${file}) ends with: ${lines.join(" | ")}` : "";
   } catch {
     return "";
   }
@@ -106,7 +111,7 @@ export async function logTail(count = 4) {
  * @returns {import("node:child_process").ChildProcess}
  */
 export function spawnDaemon({ cliPath, serverRoot, env, spawnImpl = spawn }) {
-  const log = openLog();
+  const log = openLog(env);
   try {
     const child = spawnImpl(process.execPath, [cliPath, "daemon", "run"], {
       cwd: serverRoot,
@@ -163,7 +168,9 @@ export async function connectDaemon({ serverRoot, cliPath, version, env: given =
   // environment means, for it too, what it means here (docs/DEFECTS.md, Д-194, Д-201).
   const env = absolutePathVariables(given);
   const build = await describeBuild({ serverRoot, version, env });
-  const descriptor = daemonInfoPath(build.id);
+  // The daemon's runtime home is the one `env` names, which need not be this
+  // process's: the desktop app reaches the daemon of the environment it shows.
+  const descriptor = daemonInfoPath(build.id, env);
   const options = { mode, profiles, environment: env, timeoutMs: 3_000 };
   const running = await readDaemonInfo(descriptor);
   const channel = await reach(running, options, build);
@@ -192,14 +199,14 @@ export async function connectDaemon({ serverRoot, cliPath, version, env: given =
     if (found) return { ...found, info, build, started: info.pid === child.pid };
     if (exited && (exited.error || exited.code !== 0)) {
       const why = exited.error ? clause(exited.error.message) : `it exited with ${exited.code ?? exited.signal}`;
-      throw new ChannelError(`The daemon did not start: ${why}. ${await logTail()}`.trim(), { code: "ESTART" });
+      throw new ChannelError(`The daemon did not start: ${why}. ${await logTail(4, env)}`.trim(), { code: "ESTART" });
     }
     // Exit 0 is a daemon that found another of this build serving, or
     // starting: the wait goes on for that one — and when it never shows up,
     // another start takes over its abandoned lock (docs/DEFECTS.md, Д-193).
     if (exited && Date.now() - exited.at >= restartAfterMs && starts < MAX_STARTS) start();
   }
-  throw new ChannelError(`The daemon did not start within ${Math.round(timeoutMs / 1000)} s. ${await logTail()}`.trim(), { code: "ETIMEDOUT" });
+  throw new ChannelError(`The daemon did not start within ${Math.round(timeoutMs / 1000)} s. ${await logTail(4, env)}`.trim(), { code: "ETIMEDOUT" });
 }
 
 /**
@@ -228,12 +235,12 @@ async function removeStale(file, info) {
  * reached comes with the reason, and with `clean` its descriptor is removed
  * when its daemon is gone.
  *
- * @param {{ clean?: boolean }} [options]
+ * @param {{ clean?: boolean, env?: NodeJS.ProcessEnv }} [options] - `env` names the runtime home.
  * @returns {Promise<Array<{ file: string, info: object, retired: boolean, status?: object, unreachable?: string, gone?: boolean, removed?: boolean }>>}
  *   `gone`: its process is not running, and only its descriptor is left.
  */
-export async function listDaemons({ clean = false } = {}) {
-  const directory = runtimeDir();
+export async function listDaemons({ clean = false, env = process.env } = {}) {
+  const directory = runtimeDir(env);
   let names;
   try {
     names = await fsp.readdir(directory);
@@ -299,9 +306,10 @@ function summary(entry, build) {
  * @param {{ serverRoot: string, version: string, env?: NodeJS.ProcessEnv }} options
  * @returns {Promise<Record<string, any>>}
  */
-export async function daemonStatus({ serverRoot, version, env = process.env }) {
-  const build = await describeBuild({ serverRoot, version, env: absolutePathVariables(env) });
-  const daemons = await listDaemons();
+export async function daemonStatus({ serverRoot, version, env: given = process.env }) {
+  const env = absolutePathVariables(given);
+  const build = await describeBuild({ serverRoot, version, env });
+  const daemons = await listDaemons({ env });
   const mine = daemons.find((entry) => !entry.retired && entry.status && entry.info.build === build.id);
   const stale = mine ? null : daemons.find((entry) => !entry.retired && !entry.status && entry.info.build === build.id);
   // Every other daemon is shown, a retired one that does not answer too: it
@@ -311,7 +319,7 @@ export async function daemonStatus({ serverRoot, version, env = process.env }) {
   return {
     running: false,
     build: build.id,
-    info: daemonInfoPath(build.id),
+    info: daemonInfoPath(build.id, env),
     ...(stale ? { stale: true, pid: stale.info.pid, reason: stale.unreachable } : {}),
     others
   };
@@ -322,12 +330,12 @@ export async function daemonStatus({ serverRoot, version, env = process.env }) {
  * every system — Windows has no signal to send — then a wait for its process
  * to go. The descriptor of a daemon already gone is removed on the way.
  *
- * @param {{ timeoutMs?: number }} [options]
+ * @param {{ timeoutMs?: number, env?: NodeJS.ProcessEnv }} [options] - `env` names the runtime home.
  * @returns {Promise<{ daemons: Array<{ pid: number, build: string, retired: boolean, stopped: boolean, sessions?: number, reason?: string, removed?: boolean }> }>}
  */
-export async function stopDaemons({ timeoutMs = 10_000 } = {}) {
+export async function stopDaemons({ timeoutMs = 10_000, env = process.env } = {}) {
   const results = [];
-  for (const entry of await listDaemons({ clean: true })) {
+  for (const entry of await listDaemons({ clean: true, env: absolutePathVariables(env) })) {
     const { info, retired } = entry;
     const base = { pid: info.pid, build: info.build, retired };
     if (entry.removed || entry.gone) {

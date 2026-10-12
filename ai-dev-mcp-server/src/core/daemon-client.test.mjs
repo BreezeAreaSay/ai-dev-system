@@ -12,7 +12,10 @@ import { tryAcquireFileLock } from "./file-lock.mjs";
 import { DEFAULT_START_TIMEOUT_MS, connectDaemon, daemonDisabled, daemonStatus, listDaemons, logTail, spawnDaemon, startTimeoutMs, stopDaemons } from "./daemon-client.mjs";
 import { daemonInfoPath, daemonLogPath, retiredDaemonPath, runtimeDir } from "./runtime-paths.mjs";
 
-// The runtime home here is the one test/setup.mjs gives every test process.
+// The runtime home here is the one test/setup.mjs gives every test process,
+// and the environment these calls are given names it too: a daemon started
+// for an environment lives in that environment's home.
+const HOME_ENV = Object.freeze({ AI_DEV_HOME: process.env.AI_DEV_HOME });
 
 /** A spawn that starts nothing: the child "exits" as told, and the call is recorded. */
 function fakeSpawn(exit) {
@@ -45,7 +48,7 @@ test("a daemon is started detached, without a window, writing to its log, and it
   t.after(() => fs.rm(daemonLogPath(), { force: true }));
   const { spawnImpl, calls } = fakeSpawn(1);
   await assert.rejects(
-    connectDaemon({ serverRoot: process.cwd(), cliPath: "/cli/ai-dev.mjs", version: "3.0.0", env: {}, spawnImpl, timeoutMs: 5_000 }),
+    connectDaemon({ serverRoot: process.cwd(), cliPath: "/cli/ai-dev.mjs", version: "3.0.0", env: HOME_ENV, spawnImpl, timeoutMs: 5_000 }),
     (error) => error.code === "ESTART" && /The daemon did not start: it exited with 1\. Its log \(.*daemon\.log\) ends with: .*cannot listen at \/x: EACCES/.test(error.message)
   );
   assert.equal(calls.length, 1);
@@ -58,11 +61,27 @@ test("a daemon is started detached, without a window, writing to its log, and it
   assert.equal(typeof calls[0].options.stdio[1], "number", "stdout and stderr go to the log file");
 });
 
+test("a daemon for another environment than the caller's is started, logged and looked for in that environment's home", async (t) => {
+  const other = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-other-home-"));
+  t.after(() => fs.rm(other, { recursive: true, force: true }));
+  const log = path.join(other, "logs", "daemon.log");
+  await fs.mkdir(path.dirname(log), { recursive: true });
+  await fs.writeFile(log, "2026-10-12T00:00:00Z daemon 2: cannot listen at /other: EACCES\n");
+  const { spawnImpl, calls } = fakeSpawn(1);
+  await assert.rejects(
+    connectDaemon({ serverRoot: process.cwd(), cliPath: "/cli/ai-dev.mjs", version: "3.0.0", env: { AI_DEV_HOME: other }, spawnImpl, timeoutMs: 5_000 }),
+    (error) => error.message.includes(`Its log (${log}) ends with:`) && /cannot listen at \/other: EACCES/.test(error.message)
+  );
+  assert.equal(calls[0].options.env.AI_DEV_HOME, other);
+  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: { AI_DEV_HOME: other } });
+  assert.equal(path.dirname(status.info), path.join(other, "run"));
+});
+
 test("a daemon that never shows up is given up on at the timeout", async () => {
   const { spawnImpl } = fakeSpawn(0);
   const started = Date.now();
   await assert.rejects(
-    connectDaemon({ serverRoot: process.cwd(), cliPath: "/cli/ai-dev.mjs", version: "3.0.0", env: {}, spawnImpl, timeoutMs: 400 }),
+    connectDaemon({ serverRoot: process.cwd(), cliPath: "/cli/ai-dev.mjs", version: "3.0.0", env: HOME_ENV, spawnImpl, timeoutMs: 400 }),
     (error) => error.code === "ETIMEDOUT" && /did not start within 0 s/.test(error.message)
   );
   assert.ok(Date.now() - started < 3_000);
@@ -71,7 +90,7 @@ test("a daemon that never shows up is given up on at the timeout", async () => {
 test("a daemon that steps aside for one that never shows up is started again, a few times at most (Д-193)", async () => {
   const { spawnImpl, calls } = fakeSpawn(0);
   await assert.rejects(
-    connectDaemon({ serverRoot: process.cwd(), cliPath: "/cli/ai-dev.mjs", version: "3.0.0", env: {}, spawnImpl, timeoutMs: 1_000, restartAfterMs: 100 }),
+    connectDaemon({ serverRoot: process.cwd(), cliPath: "/cli/ai-dev.mjs", version: "3.0.0", env: HOME_ENV, spawnImpl, timeoutMs: 1_000, restartAfterMs: 100 }),
     (error) => error.code === "ETIMEDOUT"
   );
   assert.equal(calls.length, 3);
@@ -82,14 +101,14 @@ test("a big log is set aside before a daemon writes to it", async (t) => {
   await fs.writeFile(daemonLogPath(), "x".repeat(1024 * 1024 + 1));
   t.after(() => Promise.all([fs.rm(daemonLogPath(), { force: true }), fs.rm(`${daemonLogPath()}.1`, { force: true })]));
   const { spawnImpl } = fakeSpawn(0);
-  spawnDaemon({ cliPath: "/cli/ai-dev.mjs", serverRoot: process.cwd(), env: {}, spawnImpl });
+  spawnDaemon({ cliPath: "/cli/ai-dev.mjs", serverRoot: process.cwd(), env: HOME_ENV, spawnImpl });
   assert.equal((await fs.stat(`${daemonLogPath()}.1`)).size, 1024 * 1024 + 1);
   assert.equal((await fs.stat(daemonLogPath())).size, 0);
   assert.match(await logTail(), /^$|Its log/);
 });
 
 /** This install's build, as status computes it for the tests below. */
-const ownBuild = () => describeBuild({ serverRoot: process.cwd(), version: "3.0.0", env: {} });
+const ownBuild = () => describeBuild({ serverRoot: process.cwd(), version: "3.0.0", env: HOME_ENV });
 
 /**
  * A stand-in daemon: a process that lives until it is stopped, and a control
@@ -156,14 +175,14 @@ const gone = (pid) => {
 test("status and stop with no daemon, and with descriptors whose daemons are long gone", async (t) => {
   await fs.rm(runtimeDir(), { recursive: true, force: true });
   const build = await ownBuild();
-  assert.deepEqual(await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: {} }), { running: false, build: build.id, info: daemonInfoPath(build.id), others: [] });
+  assert.deepEqual(await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: HOME_ENV }), { running: false, build: build.id, info: daemonInfoPath(build.id), others: [] });
   assert.deepEqual(await stopDaemons(), { daemons: [] });
   await fs.mkdir(runtimeDir(), { recursive: true });
   // A pid no process has: the highest a 32-bit system hands out, plus one.
   await writeDaemonInfo(daemonInfoPath(build.id), { protocol: DAEMON_PROTOCOL, pid: 4194305, build: build.id, address: "/nowhere.sock", secret: newSecret() });
   await writeDaemonInfo(retiredDaemonPath(4194305), { protocol: DAEMON_PROTOCOL, pid: 4194305, build: "0123456789abcdef", address: "/nowhere.sock", secret: newSecret(), retired: true });
   t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
-  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: {} });
+  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: HOME_ENV });
   assert.equal(status.running, false);
   assert.equal(status.stale, true);
   assert.equal(status.reason, "pid 4194305 is not running");
@@ -206,7 +225,7 @@ test("status shows the daemons of other builds and the retired ones with why; st
   const otherVault = await standIn(t, { build: "1111111111111111", buildParts: { ...build, environment: { ...build.environment, AI_DEV_VAULT_ROOT: "abc" } } });
   const old = await standIn(t, { build: "2222222222222222", buildParts: { ...build, source: "0000" }, retired: true, sessions: 3 });
 
-  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: {} });
+  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: HOME_ENV });
   assert.equal(status.running, true);
   assert.equal(status.current, true);
   assert.equal(status.pid, mine.child.pid);
@@ -231,7 +250,7 @@ test("a status answer of any reasonable length is read, and a daemon that does n
   t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
   const build = await ownBuild();
   const long = await standIn(t, { build: build.id, buildParts: build, clientName: "x".repeat(20_000) });
-  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: {} });
+  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: HOME_ENV });
   assert.equal(status.running, true);
   assert.equal(status.clients[0].name.length, 20_000);
   const mute = await standIn(t, { build: "3333333333333333", buildParts: { ...build, source: "other" }, answersStatus: false });
@@ -253,7 +272,7 @@ test("a retired daemon nobody can reach is still shown; its record goes once nob
   await writeDaemonInfo(record, { protocol: DAEMON_PROTOCOL, pid: unrelated.pid, build: build.id, address: path.join(runtimeDir(), "gone.sock"), secret: newSecret(), retired: true });
   // While its lock is held — by a retired daemon still finishing a session — it stays.
   const held = await tryAcquireFileLock(record, { heartbeatMs: 100 });
-  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: {} });
+  const status = await daemonStatus({ serverRoot: process.cwd(), version: "3.0.0", env: HOME_ENV });
   assert.equal(status.running, false);
   assert.deepEqual(status.others.map((daemon) => [daemon.pid, daemon.retired, Boolean(daemon.unreachable)]), [[unrelated.pid, true, true]], "shown, not hidden");
   const first = await stopDaemons({ timeoutMs: 200 });

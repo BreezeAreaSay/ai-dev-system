@@ -80,6 +80,9 @@ function clientSpec(value, { required = false } = {}) {
   return value;
 }
 
+/** An error's message for the middle of a sentence. */
+const clauseOf = (error) => String(error?.message ?? error ?? "").trim().replace(/\.+$/, "");
+
 function countChanges(results) {
   return {
     changed: results.filter((result) => ["added", "updated", "removed", "restored"].includes(result.status)).length,
@@ -196,16 +199,18 @@ export function createControlTools(host) {
         })();
         const [modelNow, index, clients, health] = await Promise.all([
           currentModel(),
-          host.searchIndexStatus({ include_external_project_files: true }).catch(() => null),
+          host.searchIndexStatus({ include_external_project_files: true }).catch((error) => ({ index_exists: false, unreadable: clauseOf(error) })),
           listClients({ env }).catch(() => []),
           withChecks ? host.handler("system_health_check")({ include_search_smoke: false, include_dense_smoke: false, include_search_eval: false }).catch((error) => ({ status: "fail", checks: [{ name: "system_health_check", status: "fail", summary: error.message }] })) : null
         ]);
         const checks = (health?.checks ?? []).map((check) => ({ name: check.name, status: check.status, summary: String(check.summary ?? "") }));
-        const failed = health?.status === "fail" || !index?.exists;
-        const degraded = health?.status === "degraded" || settings.length > 0 || Boolean(index?.stale);
+        const built = index.index_exists === true;
+        const failed = health?.status === "fail" || !built;
+        const degraded = health?.status === "degraded" || settings.length > 0 || Boolean(index.stale);
         const status = failed ? "failed" : degraded ? "degraded" : "ok";
         const problems = [
-          ...(!index?.exists ? ["the search index is not built (setup_run builds it)"] : []),
+          ...(index.unreadable ? [`the search index could not be read: ${index.unreadable}`] : []),
+          ...(!built && !index.unreadable ? ["the search index is not built (setup_run builds it)"] : []),
           ...checks.filter((check) => check.status === "fail" || check.status === "warn").map((check) => `${check.name}: ${check.summary}`),
           ...settings
         ];
@@ -218,12 +223,12 @@ export function createControlTools(host) {
           served_by: servingProcess(),
           model: modelNow,
           index: {
-            exists: Boolean(index?.exists),
-            documents: Number(index?.indexed_document_count ?? 0),
-            dense_documents: Number(index?.dense_documents ?? 0),
-            dense_pending: Number(index?.dense_pending_documents ?? 0),
-            fresh: Boolean(index?.exists) && !index?.stale,
-            built_at: index?.built_at ?? null
+            exists: built,
+            documents: Number(index.indexed_document_count ?? 0),
+            dense_documents: Number(index.dense_documents ?? 0),
+            dense_pending: Number(index.dense_pending_documents ?? 0),
+            fresh: built && !index.stale,
+            built_at: index.built_at || null
           },
           clients: { found: clients.filter((client) => client.found).length, connected: clients.filter((client) => client.connected).length },
           settings_problems: settings,

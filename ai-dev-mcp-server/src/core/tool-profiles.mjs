@@ -364,6 +364,32 @@ export function filterToolsByProfiles(tools, profileIds) {
 }
 
 /**
+ * What stderr says when a session's profiles leave tools out: the stdio
+ * server's words, and the bridge's for the session a daemon serves.
+ *
+ * @param {object} counts - As `sessionToolCounts` in `server.mjs` gives them.
+ * @param {number} counts.tools_listed - Every tool the session lists.
+ * @param {number} counts.tools_total - The tools an unset `AI_DEV_PROFILES` lists.
+ * @param {number} [counts.tools_opt_in] - The listed tools of opt-in profiles,
+ *   which an unset `AI_DEV_PROFILES` does not list.
+ * @param {string[]} [counts.profiles]
+ * @param {string[]} [counts.unknown_profiles]
+ * @returns {string[]}
+ */
+export function profileNotes({ tools_listed: listed, tools_total: total, tools_opt_in: optIn = 0, profiles = [], unknown_profiles: unknown = [] }) {
+  const notes = [];
+  const ofDefault = listed - optIn;
+  if (Number.isInteger(listed) && Number.isInteger(total) && ofDefault < total) {
+    const named = profiles.filter((id) => BY_ID.get(id)?.optIn);
+    notes.push(named.length
+      ? `ai-dev: capability profiles ${profiles.join(", ")} — ${ofDefault} of ${total} tools listed, and the ${optIn} of ${named.join(", ")}. AI_DEV_PROFILES=${[ALL_PROFILES, ...named].join(",")} lists all of them.`
+      : `ai-dev: capability profiles ${profiles.join(", ")} — ${ofDefault} of ${total} tools listed. Unset AI_DEV_PROFILES for all of them.`);
+  }
+  for (const name of unknown) notes.push(`ai-dev: AI_DEV_PROFILES names "${name}", which is not a capability profile; ignoring it.`);
+  return notes;
+}
+
+/**
  * Check the mapping against the tool list the server actually exposes.
  *
  * @param {readonly string[]} toolNames

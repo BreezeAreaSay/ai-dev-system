@@ -66,6 +66,7 @@ import {
   runtimeDir,
   tightenFolder
 } from "./core/runtime-paths.mjs";
+import { markServingDaemon } from "./core/serving-process.mjs";
 import { environmentObject, runInSession, scopeProcessEnvironment } from "./core/session-env.mjs";
 import { SocketServerTransport } from "./transport/socket.mjs";
 
@@ -528,6 +529,8 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   try {
     address = await listenSomewhere(listener, log);
     await writeDaemonInfo(descriptor, describe());
+    // `system_status` says which process answers it, and how busy it is.
+    markServingDaemon({ build: build.id, startedAt: startedAt.toISOString(), idleTimeoutMs: idleTimeout, sessions: () => sessions });
   } catch (error) {
     await lock.release().catch(() => undefined);
     throw error;

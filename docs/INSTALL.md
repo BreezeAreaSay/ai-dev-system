@@ -157,8 +157,9 @@ comes back, and every file you changed is kept and named as above.
 
 Commands are `ai-dev <command>` after a global install, `npx @stonebridgeway/ai-dev-system
 <command>` otherwise; the hints the server prints are spelled the same way. `AI_DEV_HOME`, when
-set, is written into every client's entry, so a client started from the Dock or the Start menu
-finds the same data as the terminal you ran setup from (Д-176).
+set, is written into every client's entry, and beside the hooks `install_agent_hooks` puts into
+a repository, so a client started from the Dock or the Start menu — its server and its hooks —
+finds the same data as the terminal you ran setup from (Д-176, Д-184).
 
 ## One command on Windows
 

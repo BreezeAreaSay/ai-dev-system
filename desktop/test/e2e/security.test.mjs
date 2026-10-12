@@ -68,6 +68,8 @@ test("the page has no Node, no file system, no network, and reaches only the int
       badId: await window.aiDev.call("system_status", {}, "../../etc"),
       trayId: await window.aiDev.call("system_status", {}, "tray-rebuild"),
       otherSetting: await window.aiDev.call("settings_set", { settings: { model_mirror: "http://127.0.0.1:9" } }, "call-mirror"),
+      // A client the wizard does not offer — not on this computer (Д-266, п. 1).
+      clientNotOffered: await window.aiDev.call("clients_install", { clients: ["codex"] }, "call-codex"),
       // Permissions: none is granted, none is even asked for (Д-254).
       notification: await new Promise((resolve) => setTimeout(() => Notification.requestPermission().then(resolve, (error) => resolve(`refused: ${error.name}`)), 0)),
       geolocation: await new Promise((resolve) => setTimeout(() => navigator.permissions.query({ name: "geolocation" }).then((answer) => resolve(answer.state), (error) => resolve(`refused: ${error.name}`)), 0))
@@ -84,6 +86,7 @@ test("the page has no Node, no file system, no network, and reaches only the int
   assert.match(seen.badId.error, /id is call- and/);
   assert.match(seen.trayId.error, /id is call- and/, "the page cannot stand in for the tray's calls");
   assert.match(seen.otherSetting.error, /does not change "model_mirror"/);
+  assert.match(seen.clientNotOffered.error, /only the clients it found on this computer/);
   assert.equal(seen.notification, "denied");
   assert.equal(seen.geolocation, "denied");
 

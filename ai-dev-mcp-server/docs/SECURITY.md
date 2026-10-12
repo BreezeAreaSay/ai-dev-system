@@ -72,7 +72,10 @@ tell them what to do. What stands in the way:
   abandoned (Д-193). A daemon whose lock went silent but whose address still takes connections —
   hung in a debugger, stopped, swapped out, its connection queue full — keeps its socket and its
   record: `stop` asks it and says if it did not stop, and once it wakes it takes its lock again
-  and puts back a record taken away meanwhile (Д-204, Д-205, Д-208).
+  and puts back a record taken away meanwhile (Д-204, Д-205, Д-208). On macOS a full queue is
+  refused like a dead socket, so there such a daemon can be taken for gone: its record comes back
+  once it runs, its socket — if a new daemon removed it — does not. Its `run/` folder is 0700
+  however it comes to be made, and folders it made again for its record go when it does (Д-213).
 
 What it does not stand against: anything running as the same user (it can read the descriptor,
 as it can read the vault), an administrator or root, and a runtime home placed with `AI_DEV_HOME`

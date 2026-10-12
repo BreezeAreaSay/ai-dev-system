@@ -38,6 +38,9 @@ import { densePlan, indexStatus, rebuildIndex, storeDenseVectors } from "./searc
 import { csvValue } from "./text-format.mjs";
 import { hint } from "./install-layout.mjs";
 
+/** Which index file a vault reads and writes (`search-index-owner.mjs`, Д-195). */
+export { vaultIndexPath } from "./search-index-owner.mjs";
+
 /** How long a fresh-index verdict is trusted before it is checked again. */
 const FRESHNESS_CACHE_MS = 1000;
 

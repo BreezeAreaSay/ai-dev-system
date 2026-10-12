@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { dashboardSourceFingerprint, renderSystemDashboard } from "./system-dashboard.mjs";
 import {
-  COVERAGE_THRESHOLDS,
   REQUIRED_SEARCH_PRESETS,
   REQUIRED_SYSTEM_NOTES,
   SYSTEM_LINE_CEILING,
@@ -461,7 +460,7 @@ function snapshotInput(overrides = {}) {
 
 test("system snapshot summarizes live state and renders through the dashboard", () => {
   const snapshot = buildSystemSnapshot(snapshotInput());
-  assert.equal(snapshot.schema_version, 1);
+  assert.equal(snapshot.schema_version, 2);
   assert.equal(snapshot.generated_at, "2026-02-03T00:00:00.000Z");
   assert.deepEqual(snapshot.tools, { total: 115 });
   assert.deepEqual(snapshot.skills, {
@@ -485,9 +484,11 @@ test("system snapshot summarizes live state and renders through the dashboard", 
     server_ready: true,
     modular: true,
     main_lines: SYSTEM_LINE_CEILING - 350,
-    line_ceiling: SYSTEM_LINE_CEILING,
-    coverage_thresholds: COVERAGE_THRESHOLDS
+    line_ceiling: SYSTEM_LINE_CEILING
   });
+  assert.deepEqual(snapshot.checks, []);
+  const checked = buildSystemSnapshot(snapshotInput({ checks: [{ name: "vault_root", status: "ok", summary: "Vault root\n  exists.", details: { big: true } }] }));
+  assert.deepEqual(checked.checks, [{ name: "vault_root", status: "ok", summary: "Vault root exists." }]);
   assert.equal(snapshot.source_fingerprint, dashboardSourceFingerprint(snapshot));
   assert.match(renderSystemDashboard(snapshot), /115 tools/);
 });

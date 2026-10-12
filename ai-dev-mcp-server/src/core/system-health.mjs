@@ -27,9 +27,6 @@ import { hint } from "./install-layout.mjs";
  */
 export const SYSTEM_LINE_CEILING = 5_076;
 
-/** Coverage thresholds enforced by `npm run check`, reported for visibility. */
-export const COVERAGE_THRESHOLDS = "85% lines / 60% branches / 85% functions";
-
 /** Vault notes a healthy system is expected to carry. */
 export const REQUIRED_SYSTEM_NOTES = Object.freeze([
   "00-start-here.md",
@@ -717,6 +714,8 @@ export function dashboardSkillSource(source) {
  * @param {object} input.overlaySummary - `summarizeSkillOverlays` result.
  * @param {number} input.searchEvalCases - Number of golden search eval cases.
  * @param {number} input.runtimeLines - Line count of `src/mcp-stdio.mjs`.
+ * @param {Array<{ name: string, status: string, summary?: string }>} [input.checks] - The health
+ *   checks as they ran for this snapshot: the dashboard's Runtime rows (docs/DEFECTS.md, Д-106).
  * @param {string} [input.generatedAt] - ISO timestamp; defaults to now.
  * @returns {object} Snapshot with `source_fingerprint`.
  */
@@ -732,11 +731,12 @@ export function buildSystemSnapshot({
   overlaySummary,
   searchEvalCases,
   runtimeLines,
+  checks = [],
   generatedAt = new Date().toISOString()
 }) {
   const bySource = countBy(skills, (item) => dashboardSkillSource(item.source));
   const snapshot = {
-    schema_version: 1,
+    schema_version: 2,
     generated_at: generatedAt,
     tools: { total: toolCount },
     skills: {
@@ -788,9 +788,13 @@ export function buildSystemSnapshot({
       server_ready: true,
       modular: runtimeLines <= SYSTEM_LINE_CEILING,
       main_lines: runtimeLines,
-      line_ceiling: SYSTEM_LINE_CEILING,
-      coverage_thresholds: COVERAGE_THRESHOLDS
-    }
+      line_ceiling: SYSTEM_LINE_CEILING
+    },
+    checks: checks.map((check) => ({
+      name: String(check.name),
+      status: String(check.status),
+      summary: String(check.summary ?? "").replace(/\s+/g, " ").trim()
+    }))
   };
   snapshot.source_fingerprint = dashboardSourceFingerprint(snapshot);
   return snapshot;

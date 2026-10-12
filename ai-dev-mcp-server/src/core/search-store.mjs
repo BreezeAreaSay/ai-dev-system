@@ -26,6 +26,7 @@
  */
 import fs from "node:fs";
 import os from "node:os";
+import path from "node:path";
 import { pythonRound } from "./python-compat.mjs";
 import {
   collectDocuments,
@@ -38,6 +39,7 @@ import {
 import { buildSemanticVector, SEMANTIC_DIMENSIONS, semanticVectorJson } from "./search-semantic.mjs";
 import { createIndexReader, isCorruptError, openDatabase, tableColumns, tableExists, wholeText } from "./search-sqlite.mjs";
 import { beginImmediate, checkpoint, setAside, withRebuildLock } from "./search-writer.mjs";
+import { canonicalFolder } from "./session-env.mjs";
 
 /** `meta.schema_version` of the format this module reads and writes. */
 export const INDEX_SCHEMA_VERSION = 2;
@@ -167,6 +169,7 @@ export async function indexStatus({ vaultRoot, indexPath, includeExternalProject
     deleted: [],
     source_fingerprint: fingerprint,
     indexed_fingerprint: "",
+    vault_root: "",
     dense_enabled: false,
     dense_documents: 0,
     dense_pending_documents: 0,
@@ -199,6 +202,10 @@ export async function indexStatus({ vaultRoot, indexPath, includeExternalProject
   if (addedIds.length) reasons.push("sources_added");
   if (changedIds.length) reasons.push("sources_changed");
   if (deletedIds.length) reasons.push("sources_deleted");
+  // Built from another vault: a file two vaults shared before 3.0, or one
+  // copied from elsewhere (docs/DEFECTS.md, Д-195).
+  const builtFrom = meta.vault_root ?? "";
+  if (builtFrom && canonicalFolder(builtFrom) !== canonicalFolder(vaultRoot)) reasons.push("vault_changed");
   const indexedFingerprint = meta.source_fingerprint ?? "";
   if (schemaCurrent && !reasons.length && indexedFingerprint && indexedFingerprint !== fingerprint) {
     reasons.push("source_fingerprint_mismatch");
@@ -221,10 +228,12 @@ export async function indexStatus({ vaultRoot, indexPath, includeExternalProject
     deleted: deletedIds.slice(0, 20).map((id) => wholeText(indexed.get(id).path)),
     source_fingerprint: fingerprint,
     indexed_fingerprint: indexedFingerprint,
+    vault_root: builtFrom,
     dense_enabled: isTrue(meta.dense_enabled),
-    dense_backend: meta.dense_backend ?? "",
-    dense_revision: meta.dense_revision ?? "",
-    dense_dtype: meta.dense_dtype ?? "",
+    // An index written before 3.0 without vectors still names a backend for them (Д-186).
+    dense_backend: isTrue(meta.dense_enabled) ? meta.dense_backend ?? "" : "",
+    dense_revision: isTrue(meta.dense_enabled) ? meta.dense_revision ?? "" : "",
+    dense_dtype: isTrue(meta.dense_enabled) ? meta.dense_dtype ?? "" : "",
     dense_documents: metaInt(meta.dense_documents),
     dense_pending_documents: metaInt(meta.dense_pending_documents),
     dense_eligible_documents: metaInt(meta.dense_eligible_documents),
@@ -534,6 +543,7 @@ async function writeIndex(db, docs, options) {
       schema_version: INDEX_SCHEMA_VERSION,
       built_at: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
       source_fingerprint: fingerprint,
+      vault_root: path.resolve(options.vaultRoot),
       document_count: docs.length,
       semantic_dimensions: SEMANTIC_DIMENSIONS,
       semantic_documents: semanticDocuments,
@@ -541,9 +551,11 @@ async function writeIndex(db, docs, options) {
       dense_model: DENSE_MODEL_NAME,
       dense_model_dir: expandedPath(options.denseModelDir ?? ""),
       dense_dimensions: DENSE_DIMENSIONS,
-      dense_backend: provenance.backend,
-      dense_revision: provenance.revision,
-      dense_dtype: provenance.dtype,
+      // How the vectors were made, and nothing when there are none: until 3.0
+      // an index without vectors said they came from Python (docs/DEFECTS.md, Д-186).
+      dense_backend: settings.active ? provenance.backend : "",
+      dense_revision: settings.active ? provenance.revision : "",
+      dense_dtype: settings.active ? provenance.dtype : "",
       dense_documents: dense.documents,
       dense_reused_documents: dense.reused,
       dense_encoded_documents: dense.encoded,

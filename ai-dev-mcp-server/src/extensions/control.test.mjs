@@ -242,7 +242,27 @@ test("the settings file counts for the app's transport as for a client: its mode
   assert.equal(saved.applies.model_dir, "new_session");
   assert.match(saved.note, /model_dir: used by sessions started from now on/);
   assert.equal((await call(client, "system_status", { checks: false })).model.dir, folder, "this session keeps its folder");
-  assert.equal((await call(client, "model_install", {})).dir, folder, "and installs where its search looks");
+  // And says so: in force is what it started with, the new one is pending,
+  // and no model goes to the folder it is leaving (Д-237).
+  const shown = await call(client, "settings_get", {});
+  assert.deepEqual([shown.settings.model_dir, shown.pending.model_dir, shown.sources.model_dir], [folder, chosen, "file, as this session started"]);
+  const moved = /The model folder was changed to .*models-chosen; this session still uses .*models-from-settings.*Reconnect/;
+  await assert.rejects(call(client, "model_install", {}), moved);
+  await assert.rejects(call(client, "model_import", { source: folder }), moved);
+  await assert.rejects(call(client, "setup_run", { model: true, clients: false }), moved);
   const next = await connect(t, { ...env, AI_DEV_MODEL_MANIFEST: manifestFile });
   assert.equal((await call(next, "system_status", { checks: false })).model.dir, chosen, "a session started afterwards has the new one");
+
+  // A program that names no profiles gets what a client's `ai-dev mcp` gets:
+  // the profiles the settings name (Д-238).
+  await call(next, "settings_set", { settings: { profiles: "core" } });
+  const listed = async (profiles) => {
+    const program = new Client({ name: "program", version: "1.0.0" }, { capabilities: {} });
+    await program.connect(new DaemonClientTransport({ serverRoot, env: { ...env, AI_DEV_MODEL_MANIFEST: manifestFile }, ...(profiles === undefined ? {} : { profiles }) }));
+    t.after(() => program.close().catch(() => undefined));
+    return (await program.listTools()).tools.length;
+  };
+  const [plain, core, every] = [await listed(undefined), await listed("core"), await listed("")];
+  assert.equal(plain, core, "the settings' profiles");
+  assert.ok(plain < every, `${plain} of ${every} tools`);
 });

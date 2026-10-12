@@ -174,7 +174,8 @@ async function reach(info, options, build) {
  * @param {string} options.version
  * @param {NodeJS.ProcessEnv} [options.env]
  * @param {"mcp" | "control"} [options.mode]
- * @param {string | null} [options.profiles]
+ * @param {string | null} [options.profiles] - The session's; not given, the ones its environment
+ *   names once the settings are applied — as `ai-dev mcp` has them (docs/DEFECTS.md, Д-238).
  * @param {number} [options.timeoutMs]
  * @param {typeof spawn} [options.spawnImpl]
  * @param {number} [options.restartAfterMs] - for tests
@@ -190,7 +191,7 @@ export async function connectDaemon({ serverRoot, cliPath, version, env: given =
   // The daemon's runtime home is the one `env` names, which need not be this
   // process's: the desktop app reaches the daemon of the environment it shows.
   const descriptor = daemonInfoPath(build.id, env);
-  const options = { mode, profiles, environment: env, timeoutMs: 3_000 };
+  const options = { mode, profiles: mode === "mcp" ? profiles ?? String(env.AI_DEV_PROFILES ?? "") : profiles, environment: env, timeoutMs: 3_000 };
   const running = await readDaemonInfo(descriptor);
   const channel = await reach(running, options, build);
   if (channel) return { ...channel, info: running, build, started: false };

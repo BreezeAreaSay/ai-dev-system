@@ -103,6 +103,11 @@ export function lineReader(onMessage, onInvalid, { longest = Infinity, onTooLong
 
 const megabytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
+/** A message's size and the limit, in megabytes — or in bytes, where megabytes would read the same. */
+function sizes(bytes, limit = MAX_MESSAGE_BYTES) {
+  return megabytes(bytes) === megabytes(limit) ? [`${bytes} bytes`, `${limit} bytes`] : [megabytes(bytes), megabytes(limit)];
+}
+
 /**
  * An upstream over a socket the daemon handshake left paused.
  *
@@ -220,10 +225,11 @@ export class StdioBridge {
     // A server refuses a message past its limit by dropping the connection; the
     // client hears why instead, and the session goes on (docs/DEFECTS.md, Д-194).
     if (bytes > MAX_MESSAGE_BYTES) {
+      const [size, limit] = sizes(bytes);
       if (isRequest(message)) {
-        this.#write({ jsonrpc: "2.0", id: message.id, error: { code: -32600, message: `This ${message.method} message is ${megabytes(bytes)}; ai-dev takes messages up to ${megabytes(MAX_MESSAGE_BYTES)}.` } });
+        this.#write({ jsonrpc: "2.0", id: message.id, error: { code: -32600, message: `This ${message.method} message is ${size}; ai-dev takes messages up to ${limit}.` } });
       }
-      this.#note(`ai-dev: refused a message of ${megabytes(bytes)} from the client: the limit is ${megabytes(MAX_MESSAGE_BYTES)}.`);
+      this.#note(`ai-dev: refused a message of ${size} from the client: the limit is ${limit}.`);
       return;
     }
     if (isRequest(message) && message.method === "initialize") this.#initialize = message;
@@ -322,6 +328,9 @@ export class StdioBridge {
       this.#refuseQueued(error.message);
     }).finally(() => {
       this.#connecting = null;
+      // A reconnect that ended in refusals answered the last requests while it
+      // still counted as pending: the client may be waiting on nothing now.
+      this.#drained();
     });
   }
 

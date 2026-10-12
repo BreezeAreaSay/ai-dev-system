@@ -53,7 +53,7 @@ import {
   writeLine
 } from "./core/daemon-channel.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
-import { breakStaleLock, lockPathFor, tryAcquireFileLock } from "./core/file-lock.mjs";
+import { breakStaleLock, lockPathFor, processAlive, tryAcquireFileLock } from "./core/file-lock.mjs";
 import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
 import {
   DAEMON_DESCRIPTOR_NAME,
@@ -105,8 +105,12 @@ const WATCH_INTERVAL_MS = 5_000;
 /** The log is set aside, as `daemon.log.1`, once it passes this. */
 export const LOG_ROTATE_BYTES = 1024 * 1024;
 
+/** What a client says of itself is shown, never trusted to be short (docs/DEFECTS.md, Д-196). */
+const CLIENT_LABEL_CHARS = 200;
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const isPipe = (address) => address.startsWith("\\\\.\\pipe\\");
+const label = (value) => String(value ?? "").slice(0, CLIENT_LABEL_CHARS);
 
 /**
  * `AI_DEV_IDLE_TIMEOUT_MS`, or the default; 0 keeps the daemon until it is
@@ -278,6 +282,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   let sessions = 0;
   let served = 0;
   let retired = null;
+  let retiredLock = null;
   let stopping = false;
   let idleTimer = null;
   let watch = null;
@@ -350,6 +355,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     }
     await publishing;
     await fs.rm(retiredDaemonPath(process.pid), { force: true }).catch(() => undefined);
+    await retiredLock?.release().catch(() => undefined);
     if (address && !isPipe(address)) await fs.rm(address, { force: true }).catch(() => undefined);
     log(`exits: ${reason}`);
     process.exit(0);
@@ -370,7 +376,10 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   // A retired daemon takes no new session. It gives up its descriptor and its
   // lock at once, so a successor can start, lists itself in
   // `run/retired-<pid>.json`, finishes the sessions it has, and still answers
-  // `status` and `stop` on its address.
+  // `status` and `stop` on its address. It holds a lock on that record as it
+  // held one on its descriptor, so a record it left behind — killed, or gone
+  // with the machine — is told apart from a live one whatever later has its
+  // pid (docs/DEFECTS.md, Д-198).
   const retire = async (reason) => {
     if (retired || stopping) return;
     retired = { at: new Date().toISOString(), reason };
@@ -381,6 +390,8 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
       await finish(`retired: ${reason}`);
       return;
     }
+    const taken = await tryAcquireFileLock(retiredDaemonPath(process.pid), { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS }).catch(() => ({}));
+    retiredLock = taken.release ? taken : null;
     await publish();
   };
 
@@ -438,8 +449,8 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     server.onerror = (error) => log(`session ${id}: ${error.message}`);
     server.oninitialized = () => {
       const client = server.getClientVersion();
-      clients.set(socket, { session: id, name: client?.name ?? "", version: client?.version ?? "", since: new Date().toISOString() });
-      log(`session ${id} opened: ${client?.name ?? "a client"} ${client?.version ?? ""}`.trim());
+      clients.set(socket, { session: id, name: label(client?.name), version: label(client?.version), since: new Date().toISOString() });
+      log(`session ${id} opened: ${label(client?.name) || "a client"} ${label(client?.version)}`.trim());
     };
     socket.once("close", () => {
       sessions = Math.max(0, sessions - 1);
@@ -472,9 +483,11 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     });
   });
 
-  // A dead daemon's socket outlives it, and nothing else would remove it.
+  // A dead daemon's socket outlives it, and nothing else would remove it. One
+  // whose lock was taken over may still be alive, though — it will retire and
+  // answer `status` and `stop` on that socket (docs/DEFECTS.md, Д-197).
   const previous = await readDaemonInfo(descriptor);
-  if (previous && previous.pid !== process.pid && !isPipe(previous.address)) {
+  if (previous && previous.pid !== process.pid && !processAlive(previous.pid) && !isPipe(previous.address)) {
     await fs.rm(previous.address, { force: true }).catch(() => undefined);
   }
   try {

@@ -19,8 +19,11 @@
  * a daemon of its own (Д-191).
  */
 import { AsyncLocalStorage } from "node:async_hooks";
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { inspect } from "node:util";
+import { resolveInstallLayout } from "./install-layout.mjs";
 
 /**
  * The variables a daemon reads once or shares between its sessions: two
@@ -168,6 +171,75 @@ export function daemonWideEnvironment(env, { platform = process.platform } = {})
   return [...found].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
+/** The variables `daemonIdentity` resolves to a place rather than comparing as written. */
+const RESOLVED_VARIABLES = new Set([
+  "AI_DEV_HOME", "HOME", "USERPROFILE", "AI_DEV_VAULT_ROOT", "AI_DEV_STATE_ROOT", "AI_DEV_SEARCH_INDEX_DIR",
+  "AI_DEV_FRONTEND_QA_ARTIFACT_ROOT", "AI_DEV_ARCHIFY_ARTIFACT_ROOT", "AI_DEV_ARCHIFY_RECEIPTS_ROOT",
+  "BGE_M3_ONNX_DIR", "BGE_M3_MODEL_DIR", "AI_DEV_MODEL_MANIFEST", "AI_DEV_DENSE_BACKEND", "BGE_M3_DEVICE", "AI_DEV_RUNTIME"
+]);
+
+/**
+ * A folder as the platform compares folders: through links where it exists,
+ * with one kind of separator, no trailing one, and on Windows without case.
+ */
+function canonicalFolder(value, platform) {
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  let resolved = paths.resolve(String(value ?? ""));
+  if (platform === process.platform) {
+    try {
+      resolved = realpathSync.native(resolved);
+    } catch {
+      // Not there yet: the path as written is what the server will make.
+    }
+  }
+  const plain = resolved.replaceAll("\\", "/").replace(/(.)\/+$/, "$1");
+  return platform === "win32" ? plain.toLowerCase() : plain;
+}
+
+/**
+ * What a daemon's clients must have in common, by name: where the data is —
+ * resolved as the server resolves it, so two spellings of one folder are one
+ * — the switches it reads once, and the Node it runs on. Any other `AI_DEV_*`
+ * or `BGE_*` variable is compared as written (docs/DEFECTS.md, Д-199).
+ *
+ * The home folder is read as the server reads it for project identity
+ * (`userHomeDirectory` in `project-identity.mjs`): `USERPROFILE` before `HOME`
+ * on Windows, the other way round elsewhere — so Git Bash's `HOME` beside a
+ * GUI client's `USERPROFILE` is one home, not two.
+ *
+ * @param {{ serverRoot: string, env?: NodeJS.ProcessEnv, platform?: string, execPath?: string }} options
+ * @returns {Record<string, string>} each entry named by what a person sets to change it
+ */
+export function daemonIdentity({ serverRoot, env = process.env, platform = process.platform, execPath = process.execPath }) {
+  const read = (name) => String(env?.[name] ?? "").trim();
+  const folder = (value) => (value ? canonicalFolder(value, platform) : "");
+  const layout = resolveInstallLayout({ serverRoot, env });
+  const runtime = layout.runtimeRoot;
+  const under = (name, ...segments) => folder(read(name) || path.join(runtime, ...segments));
+  const home = platform === "win32" ? read("USERPROFILE") || read("HOME") : read("HOME") || read("USERPROFILE");
+  const identity = {
+    "the home folder": folder(home),
+    AI_DEV_HOME: folder(runtime),
+    AI_DEV_VAULT_ROOT: folder(layout.contentRoot),
+    AI_DEV_STATE_ROOT: under("AI_DEV_STATE_ROOT", "state"),
+    AI_DEV_SEARCH_INDEX_DIR: under("AI_DEV_SEARCH_INDEX_DIR", "cache", "search-index"),
+    AI_DEV_FRONTEND_QA_ARTIFACT_ROOT: under("AI_DEV_FRONTEND_QA_ARTIFACT_ROOT", "artifacts", "frontend-qa"),
+    AI_DEV_ARCHIFY_ARTIFACT_ROOT: under("AI_DEV_ARCHIFY_ARTIFACT_ROOT", "artifacts", "archify"),
+    AI_DEV_ARCHIFY_RECEIPTS_ROOT: under("AI_DEV_ARCHIFY_RECEIPTS_ROOT", "state", "archify-receipts"),
+    BGE_M3_ONNX_DIR: under("BGE_M3_ONNX_DIR", "models", "bge-m3-onnx"),
+    BGE_M3_MODEL_DIR: under("BGE_M3_MODEL_DIR", "models", "bge-m3"),
+    AI_DEV_MODEL_MANIFEST: folder(read("AI_DEV_MODEL_MANIFEST")),
+    AI_DEV_DENSE_BACKEND: read("AI_DEV_DENSE_BACKEND").toLowerCase(),
+    BGE_M3_DEVICE: read("BGE_M3_DEVICE") || "cpu",
+    AI_DEV_RUNTIME: read("AI_DEV_RUNTIME").toLowerCase() === "docker" ? "docker" : "",
+    "the Node executable": folder(execPath)
+  };
+  for (const [name, value] of daemonWideEnvironment(env, { platform })) {
+    if (!RESOLVED_VARIABLES.has(name)) identity[name] = value;
+  }
+  return identity;
+}
+
 /**
  * A copy of `env` with every path variable made absolute against `cwd`.
  *
@@ -208,7 +280,10 @@ export function environmentObject(variables, { platform = process.platform } = {
     entries.set(key, [entries.get(key)?.[0] ?? name, String(value)]);
     return true;
   };
-  return new Proxy({}, {
+  // `util.inspect` looks at a proxy's target, not through its traps: the
+  // target itself says how to show what the environment holds.
+  const shown = { [inspect.custom]: (depth, options, inspectValue) => inspectValue(Object.fromEntries([...entries.values()]), options) };
+  return new Proxy(shown, {
     get: (target, name) => (own(name) ? entries.get(fold(name))[1] : Reflect.get(target, name)),
     set: (target, name, value) => (typeof name === "string" ? store(name, value) : Reflect.set(target, name, value)),
     has: (target, name) => own(name) || Reflect.has(target, name),
@@ -220,7 +295,9 @@ export function environmentObject(variables, { platform = process.platform } = {
     getOwnPropertyDescriptor: (target, name) => (own(name)
       ? { value: entries.get(fold(name))[1], writable: true, enumerable: true, configurable: true }
       : undefined),
-    defineProperty: (target, name, descriptor) => (typeof name === "string" && "value" in descriptor ? store(name, descriptor.value) : false)
+    defineProperty: (target, name, descriptor) => (typeof name === "string" && "value" in descriptor ? store(name, descriptor.value) : false),
+    // An environment is never sealed: a frozen one would make every listing of it throw.
+    preventExtensions: () => false
   });
 }
 
@@ -253,7 +330,13 @@ const scoped = new WeakSet();
  * Reading, writing, listing and spreading `process.env` all go to the
  * session's environment, and so does a child process started without an
  * `env` of its own. What reads the system's environment directly — native
- * code, `os.tmpdir()`, a worker thread's copy — sees the daemon's.
+ * code, a worker thread's copy, `os.tmpdir()` on macOS and Linux (on Windows
+ * it reads `process.env.TEMP`, so the session's) — sees the daemon's.
+ *
+ * Two things a session cannot change: `structuredClone(process.env)` throws,
+ * as for any proxy (spread it first); and a module evaluated for the first
+ * time inside a session keeps what it read from `process.env` then, for every
+ * session after — a module reads per call what belongs to a session.
  *
  * @param {{ env: NodeJS.ProcessEnv }} [target]
  */
@@ -262,8 +345,10 @@ export function scopeProcessEnvironment(target = process) {
   scoped.add(target);
   const own = target.env;
   const current = () => sessions.getStore() ?? own;
-  target.env = new Proxy({}, {
-    get: (_, name) => Reflect.get(current(), name),
+  // `util.inspect` looks at a proxy's target, not through its traps.
+  const shown = { [inspect.custom]: (depth, options, inspectValue) => inspectValue({ ...current() }, options) };
+  target.env = new Proxy(shown, {
+    get: (_, name) => (name === inspect.custom ? shown[inspect.custom] : Reflect.get(current(), name)),
     set: (_, name, value) => Reflect.set(current(), name, value),
     has: (_, name) => Reflect.has(current(), name),
     deleteProperty: (_, name) => Reflect.deleteProperty(current(), name),
@@ -272,6 +357,9 @@ export function scopeProcessEnvironment(target = process) {
       const descriptor = Reflect.getOwnPropertyDescriptor(current(), name);
       return descriptor ? { ...descriptor, configurable: true } : undefined;
     },
-    defineProperty: (_, name, descriptor) => Reflect.defineProperty(current(), name, descriptor)
+    defineProperty: (_, name, descriptor) => Reflect.defineProperty(current(), name, descriptor),
+    // As the real one: `Object.freeze(process.env)` fails instead of leaving a
+    // proxy every later listing of the environment would throw on.
+    preventExtensions: () => false
   });
 }

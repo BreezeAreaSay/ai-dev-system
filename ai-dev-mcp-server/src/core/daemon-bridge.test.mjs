@@ -329,7 +329,8 @@ test("a message past the server's limit is answered with why, and the session go
   const [refused, answered] = client.lines();
   assert.equal(refused.id, 11);
   assert.equal(refused.error.code, -32600);
-  assert.match(refused.error.message, /^This tools\/call message is 10\.0 MB; ai-dev takes messages up to 10\.0 MB\.$/);
+  // Megabytes would read "10.0 MB … up to 10.0 MB": the sizes are said in bytes then (Д-201).
+  assert.match(refused.error.message, /^This tools\/call message is \d+ bytes; ai-dev takes messages up to 10485760 bytes\.$/);
   assert.deepEqual(answered.result, { echo: "ping", by: "daemon-1" });
   assert.deepEqual(upstream.sent.map((message) => message.id), [12], "the server never saw it");
   client.end();
@@ -345,4 +346,36 @@ test("a line past what is worth reading is skipped unread, and the next one is r
   read('abc"}\n{"c":3}\n');
   assert.deepEqual(messages, [[{ a: 1 }, 7], [{ c: 3 }, 7]]);
   assert.deepEqual(skipped, [21], "{\"b\":\" + ten digits + abc\"}");
+});
+
+test("a message well past the limit is said in megabytes", async () => {
+  const upstream = fakeUpstream("daemon-1");
+  const client = bridgeOver(upstream, async () => assert.fail("no reconnect expected"));
+  client.send({ jsonrpc: "2.0", id: 13, method: "tools/call", params: { body: "x".repeat(12 * 1024 * 1024) } });
+  await settle();
+  await settle();
+  assert.match(client.lines()[0].error.message, /^This tools\/call message is 12\.0 MB; ai-dev takes messages up to 10\.0 MB\.$/);
+  client.end();
+  await client.done;
+});
+
+test("when no server can be had after the client closed its input, the bridge leaves as soon as it has refused (Д-201)", async () => {
+  const first = fakeUpstream("daemon-1", { answer: false });
+  const dead = () => {
+    const upstream = fakeUpstream("never", { answer: false });
+    setImmediate(() => upstream.die("refused"));
+    return upstream;
+  };
+  const client = bridgeOver(first, async () => dead(), { drainTimeoutMs: 60_000 });
+  client.send(INITIALIZE);
+  await settle();
+  first.onMessage({ jsonrpc: "2.0", id: 1, result: {} });
+  first.die("killed");
+  client.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+  client.end();
+  const started = Date.now();
+  const result = await client.done;
+  assert.ok(Date.now() - started < 5_000, `left after ${Date.now() - started} ms`);
+  assert.equal(result.unanswered, 1);
+  assert.match(client.lines().find((message) => message.id === 2).error.message, /could not serve tools\/list/);
 });

@@ -39,6 +39,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
   ChannelError,
+  addressListening,
   DAEMON_PROTOCOL,
   acceptHandshake,
   controlRequest,
@@ -53,7 +54,7 @@ import {
   writeLine
 } from "./core/daemon-channel.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
-import { breakStaleLock, lockPathFor, processAlive, tryAcquireFileLock } from "./core/file-lock.mjs";
+import { breakStaleLock, lockPathFor, tryAcquireFileLock } from "./core/file-lock.mjs";
 import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
 import {
   DAEMON_DESCRIPTOR_NAME,
@@ -307,12 +308,30 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
 
   // The descriptor while serving, the retired record after: each written
   // whole, one at a time, never after the daemon began to stop.
+  // The lock on a retired daemon's record, taken before the record is written.
+  // A daemon hung past the lock's life (a debugger, SIGSTOP, swap) finds it
+  // broken and its record cleared when it wakes, and takes it again before it
+  // lists itself: a record nobody holds is one `stop` may clear
+  // (docs/DEFECTS.md, Д-204). Its folder is made private as the run folder
+  // always is, even where the runtime home was deleted meanwhile (Д-205).
+  const holdRetiredRecord = async () => {
+    if (await retiredLock?.holds().catch(() => false)) return true;
+    await retiredLock?.release().catch(() => undefined);
+    retiredLock = null;
+    await fs.mkdir(path.dirname(retiredDaemonPath(process.pid)), { recursive: true, mode: 0o700 }).catch(() => undefined);
+    const taken = await tryAcquireFileLock(retiredDaemonPath(process.pid), { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS }).catch(() => ({}));
+    retiredLock = taken.release ? taken : null;
+    return Boolean(retiredLock);
+  };
+
   let publishing = Promise.resolve();
   const publish = () => {
     publishing = publishing
-      .then(() => {
+      .then(async () => {
         if (stopping) return undefined;
-        return writeDaemonInfo(retired ? retiredDaemonPath(process.pid) : descriptor, describe());
+        if (!retired) return writeDaemonInfo(descriptor, describe());
+        if (!(await holdRetiredRecord())) return undefined;
+        return writeDaemonInfo(retiredDaemonPath(process.pid), describe());
       })
       .catch((error) => log(`could not update ${retired ? retiredDaemonPath(process.pid) : descriptor}: ${error.message}`));
     return publishing;
@@ -390,8 +409,6 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
       await finish(`retired: ${reason}`);
       return;
     }
-    const taken = await tryAcquireFileLock(retiredDaemonPath(process.pid), { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS }).catch(() => ({}));
-    retiredLock = taken.release ? taken : null;
     await publish();
   };
 
@@ -485,9 +502,11 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
 
   // A dead daemon's socket outlives it, and nothing else would remove it. One
   // whose lock was taken over may still be alive, though — it will retire and
-  // answer `status` and `stop` on that socket (docs/DEFECTS.md, Д-197).
+  // answer `status` and `stop` on that socket (docs/DEFECTS.md, Д-197) — and
+  // what tells the two apart is the socket itself: a live one, even hung,
+  // takes connections, whoever has the pid now (Д-205).
   const previous = await readDaemonInfo(descriptor);
-  if (previous && previous.pid !== process.pid && !processAlive(previous.pid) && !isPipe(previous.address)) {
+  if (previous && previous.pid !== process.pid && !isPipe(previous.address) && !(await addressListening(previous.address))) {
     await fs.rm(previous.address, { force: true }).catch(() => undefined);
   }
   try {

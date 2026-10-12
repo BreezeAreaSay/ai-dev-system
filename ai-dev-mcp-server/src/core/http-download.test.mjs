@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import tls from "node:tls";
-import { bypassesProxy, describeNetworkError, openUrl, proxyFor, readSnippet, redactCredentials, trustedAuthorities } from "./http-download.mjs";
-import { startModelHost, startProxy, TEST_HOST, TEST_TLS } from "../../test/fixtures/model-host.mjs";
+import { bypassesProxy, describeNetworkError, openUrl, proxyFor, readSnippet, redactCredentials, trustedAuthorities, usesSystemStore } from "./http-download.mjs";
+import { startModelHost, startProxy, TEST_HOST, TEST_PROXY_TLS, TEST_TLS } from "../../test/fixtures/model-host.mjs";
 
 const FILES = { "config.json": "{\"model_type\":\"xlm-roberta\"}" };
 const read = async (body) => {
@@ -206,19 +206,32 @@ test("a session's own NODE_EXTRA_CA_CERTS is trusted, as its own process would h
   assert.equal(await read(response.body), FILES["config.json"]);
   // A session without it in the same process: the certificate is not trusted.
   await assert.rejects(openUrl(url, { env: { HTTPS_PROXY: proxy.url } }), /certificate/i);
-  const own = process.env.NODE_EXTRA_CA_CERTS;
-  assert.equal(trustedAuthorities(own ? { NODE_EXTRA_CA_CERTS: own } : {}), undefined, "the store the process started with needs nothing added");
-  assert.ok(trustedAuthorities({ NODE_EXTRA_CA_CERTS: file }).includes(TEST_TLS.cert));
-  assert.deepEqual(trustedAuthorities({ NODE_EXTRA_CA_CERTS: path.join(directory, "missing.pem") }), [...tls.rootCertificates], "an unreadable file is skipped, as Node skips it");
+  // What this process started with, the system's store included where it
+  // asked for it (a machine behind a corporate proxy may: Д-205).
+  const system = usesSystemStore(process.env, process.execArgv);
+  const own = {
+    ...(process.env.NODE_EXTRA_CA_CERTS ? { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS } : {}),
+    ...(system ? { NODE_USE_SYSTEM_CA: "1" } : {})
+  };
+  assert.equal(trustedAuthorities(own), undefined, "the store the process started with needs nothing added");
+  assert.ok(trustedAuthorities({ ...own, NODE_EXTRA_CA_CERTS: file }).includes(TEST_TLS.cert));
+  const base = [...tls.rootCertificates, ...(system ? tls.getCACertificates("system") : [])];
+  assert.deepEqual(trustedAuthorities({ ...own, NODE_EXTRA_CA_CERTS: path.join(directory, "missing.pem") }), base, "an unreadable file is skipped, as Node skips it");
 });
 
 test("an https:// proxy is trusted by the session's own certificates too, and a proxy that is not is named (Д-200)", async (t) => {
   const host = await startModelHost({ files: FILES, tls: true });
-  const proxy = await startProxy({ hosts: { [TEST_HOST]: host.port }, tls: true });
+  // Plain HTTP goes to a name only the proxy resolves: a loopback address
+  // would go around the proxy, and test nothing of it (docs/DEFECTS.md, Д-205).
+  const plain = await startModelHost({ files: FILES });
+  const plainHost = "plain.example.test";
+  const proxy = await startProxy({ hosts: { [TEST_HOST]: host.port, [plainHost]: plain.port }, tls: true });
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-ca-"));
-  t.after(() => Promise.all([host.close(), proxy.close(), fs.rm(directory, { recursive: true, force: true })]));
+  t.after(() => Promise.all([host.close(), plain.close(), proxy.close(), fs.rm(directory, { recursive: true, force: true })]));
+  // The session's file holds both: the proxy's certificate names localhost
+  // alone, the host's its own name — as a corporate proxy's does (Д-206).
   const file = path.join(directory, "corp.pem");
-  await fs.writeFile(file, TEST_TLS.cert);
+  await fs.writeFile(file, `${TEST_TLS.cert}${TEST_PROXY_TLS.cert}`);
   const url = `https://${TEST_HOST}:${host.port}/m/config.json`;
   const response = await openUrl(url, { env: { HTTPS_PROXY: proxy.url, NODE_EXTRA_CA_CERTS: file } });
   assert.equal(response.status, 200);
@@ -229,22 +242,32 @@ test("an https:// proxy is trusted by the session's own certificates too, and a 
     (error) => /^the TLS certificate the proxy https:\/\/localhost:\d+ presented is not trusted/.test(error.message)
   );
   // Plain HTTP through the same proxy: the TLS is with the proxy alone.
-  const plain = await startModelHost({ files: FILES });
-  t.after(() => plain.close());
-  const viaPlain = await openUrl(`http://127.0.0.1:${plain.port}/m/config.json`, { env: { HTTP_PROXY: proxy.url, NO_PROXY: "", NODE_EXTRA_CA_CERTS: file } });
+  const plainUrl = `http://${plainHost}:${plain.port}/m/config.json`;
+  const viaPlain = await openUrl(plainUrl, { env: { HTTP_PROXY: proxy.url, NODE_EXTRA_CA_CERTS: file } });
   assert.equal(viaPlain.status, 200);
-  await read(viaPlain.body);
+  assert.equal(await read(viaPlain.body), FILES["config.json"]);
+  assert.ok(proxy.seen.includes(`GET ${plainUrl}`), "it went through the proxy");
+  await assert.rejects(
+    openUrl(plainUrl, { env: { HTTP_PROXY: proxy.url } }),
+    (error) => /^the TLS certificate the proxy https:\/\/localhost:\d+ presented is not trusted/.test(error.message)
+  );
 });
 
 test("a session that asks for the system's store gets it, and only then", () => {
   const own = { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS ?? "" };
   const bundled = tls.rootCertificates.length;
+  // A machine behind a corporate proxy may run this very test with the store
+  // already on (docs/DEFECTS.md, Д-205): then asking for it changes nothing.
+  const startedWithIt = usesSystemStore(process.env, process.execArgv);
   const system = trustedAuthorities({ ...own, NODE_OPTIONS: "--max-old-space-size=4096 --use-system-ca" });
-  if (typeof tls.getCACertificates === "function" && !process.execArgv.includes("--use-system-ca")) {
+  if (startedWithIt) {
+    assert.equal(system, undefined, "the store this process started with already holds them");
+    assert.ok(trustedAuthorities({ ...own }).length >= bundled, "a session that does not ask leaves the system's out");
+    return;
+  }
+  if (typeof tls.getCACertificates === "function") {
     assert.ok(system.length >= bundled, "the bundled roots and the system's");
     assert.deepEqual(trustedAuthorities({ ...own, NODE_USE_SYSTEM_CA: "1" }), system);
   }
-  if (!process.execArgv.includes("--use-system-ca")) {
-    assert.equal(trustedAuthorities({ ...own, NODE_OPTIONS: "--use-system-ca-not" }), undefined, "a flag that only starts like it is not it");
-  }
+  assert.equal(trustedAuthorities({ ...own, NODE_OPTIONS: "--use-system-ca-not" }), undefined, "a flag that only starts like it is not it");
 });

@@ -362,4 +362,11 @@ test("why another daemon is not this one, said by name, and which one the new co
   assert.equal(isSupersededBy(mine, { ...mine, root: "/other", source: "s0" }), false, "another copy serves clients of its own");
   assert.equal(isSupersededBy(mine, { ...mine, source: "s0", environment: { ...mine.environment, AI_DEV_VAULT_ROOT: "b" } }), false, "another vault serves clients of its own");
   assert.equal(isSupersededBy(mine, null), false);
+  // New code that counts one more part of a build still retires the old code's
+  // daemon: the parts both have decide (Д-205).
+  const { BGE_M3_DEVICE, ...fewerParts } = mine.environment;
+  assert.ok(BGE_M3_DEVICE);
+  assert.equal(isSupersededBy(mine, { ...mine, source: "s0", environment: fewerParts }), true);
+  assert.equal(isSupersededBy(mine, { ...mine, source: "s0", environment: { ...fewerParts, AI_DEV_VAULT_ROOT: "b" } }), false);
+  assert.equal(isSupersededBy(mine, { ...mine, source: "s0", environment: {} }), false, "nothing in common: nothing to go by");
 });

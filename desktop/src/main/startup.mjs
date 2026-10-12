@@ -6,6 +6,9 @@
  * module that failed to load stays failed until it does.
  */
 
+/** What the server adds to a settings file it cannot read: the hint says it. */
+const SERVER_SETTINGS_ADVICE = /\s*Fix or remove it\b[^.]*\./;
+
 /**
  * @param {unknown} error - What stopped the start.
  * @param {{ serverRoot: string, loaded: boolean, t: (key: string, params?: object) => string }} context
@@ -24,6 +27,8 @@ export function startupFailure(error, { serverRoot, loaded, t }) {
     }
     return { error: t("broken.serverFailed", { path: serverRoot }), hint: t("broken.restartHint"), detail: message, restart: true };
   }
-  if (/config\.json/.test(message)) return { error: message, hint: t("broken.settingsHint"), restart: false };
+  // The hint says what to do with the file, in the app's language; the
+  // server's own "Fix or remove it" is not said a second time (Д-269).
+  if (/config\.json/.test(message)) return { error: message.replace(SERVER_SETTINGS_ADVICE, "").trim(), hint: t("broken.settingsHint"), restart: false };
   return { error: message, hint: t("broken.tryAgainHint"), restart: false };
 }

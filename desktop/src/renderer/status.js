@@ -93,19 +93,25 @@ export function statusScreen(view, navigate) {
       h("ul", { className: "checks" }, orderedChecks(status.checks).map((check) => checkItem(view, check))));
   }, (error) => show(body, h("p", { className: "error", role: "alert" }, view.t("common.error", { message: error.message }))));
 
-  // A rebuild running — started now, or before the screen was drawn again: its progress and Cancel.
-  const showRebuild = (running) => {
+  // A rebuild running — started now, or before the screen was drawn again:
+  // its progress and Cancel. Started now, the focus moves to Cancel; when it
+  // ends, a focus left on Cancel goes back to Rebuild (Д-271, п. 1).
+  const showRebuild = (running, { focus = false } = {}) => {
     const bar = progressBar();
     bar.update(running.progress);
     const cancel = h("button", { type: "button", className: "secondary", dataset: { action: "cancel-rebuild" }, on: { click: () => running.id && api.cancel(running.id) } }, view.t("common.cancel"));
     rebuild.disabled = true;
     show(work, bar.element, cancel);
+    if (focus) cancel.focus();
     const listener = (event) => bar.update(event);
     running.listeners.add(listener);
     running.ended.then((error) => {
       running.listeners.delete(listener);
       if (!work.isConnected) return;
+      const focused = document.activeElement;
+      const lost = !focused || focused === document.body || work.contains(focused);
       rebuild.disabled = false;
+      if (lost) rebuild.focus();
       if (!error) show(work);
       else if (error.cancelled) show(work, h("p", { className: "notice" }, view.t("common.cancelled")));
       else show(work, h("p", { className: "error" }, view.t("common.error", { message: error.message })));
@@ -113,7 +119,7 @@ export function statusScreen(view, navigate) {
     });
   };
   refresh.addEventListener("click", load);
-  rebuild.addEventListener("click", () => showRebuild(startRebuild()));
+  rebuild.addEventListener("click", () => showRebuild(startRebuild(), { focus: true }));
   if (rebuilding) showRebuild(rebuilding);
   load();
   return h("section", { dataset: { screen: "status" } },

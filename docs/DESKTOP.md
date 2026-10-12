@@ -31,8 +31,9 @@ ahead of time).
   (`AI_DEV_SERVER_ROOT`, `AI_DEV_DESKTOP_*`) do not split it from the clients: it reaches their daemon.
 
 When something of this is missing — the server, its packages — or the settings file is broken, the
-window says what, and what to do — in the system's language: **Try again** for the settings file,
-**Restart AI Dev** for the server, whose code is loaded once per run.
+window says what, and what to do — in the system's language: fix the settings file or remove it,
+then **Try again**; **Restart AI Dev** for the server, whose code is loaded once per run. A language
+chosen on that screen holds, and is written to the settings once the file can be read.
 
 ## What it shows
 
@@ -75,13 +76,14 @@ Status: green — everything works, amber — something needs attention, red —
 grey — the daemon is not running. The checks run when the app connects, after anything it changes,
 when what is on disk moves (looked at every thirty seconds) and every five minutes. Its menu: **Open
 AI Dev**, **Rebuild search index** (with its progress, and when it fails, saying so), **Stop the
-daemon**, **Quit**. Closing the window keeps the app in the tray; **Quit** ends it.
+daemon** (saying so too when the daemon would not stop), **Quit**. Closing the window keeps the app
+in the tray; **Quit** ends it.
 
 The daemon is not the app's: it goes on serving the clients after the app quits. While the app
 runs, its session keeps the daemon from leaving on idle; after **Quit** the daemon leaves on its
 own when nobody uses it. When the code is updated in place and a daemon of the new code takes over,
 the app moves to it once the calls it has running end — the old daemon finishes them, a download
-included — and the old one then leaves.
+included. The old daemon leaves once its last session ends, an AI client's too.
 
 ## Languages
 
@@ -112,7 +114,9 @@ The window shows only the app's own page and gives it nothing of Node or the fil
   proxy that is not there;
 - no host name is looked up for the page: Chromium's resolver in the app resolves nothing
   (`host-resolver-rules`), so neither a TURN server's name nor a `dns-prefetch` reaches DNS. The
-  daemon is reached from Node, over its socket;
+  daemon is reached from Node, over its socket. What remains: a `.local` candidate handed to WebRTC
+  makes Chromium send a multicast DNS query to the local network — always for the fixed name
+  `~NOTFOUND`, never for a name the page chose;
 - there is no developer menu and no developer tools (`AI_DEV_DESKTOP_DEVTOOLS=1` opens them with the
   window, for working on the app).
 

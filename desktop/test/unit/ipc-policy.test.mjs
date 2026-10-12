@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { EVENT_CHANNELS, INVOKE_CHANNELS, PAGE_TOOLS, PAGE_TOOL_ARGUMENTS, refuseCall, refuseClients, validCallId } from "../../src/main/ipc-policy.mjs";
+import { EVENT_CHANNELS, INVOKE_CHANNELS, PAGE_REQUIRED_ARGUMENTS, PAGE_TOOLS, PAGE_TOOL_ARGUMENTS, refuseCall, refuseClients, validCallId } from "../../src/main/ipc-policy.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -80,4 +80,14 @@ test("the page connects only the clients the wizard offers, with plain JSON argu
   assert.match(refuseCall({ tool: "settings_set", args: { settings: new Map([["projects_root", "/x"]]) }, id: "call-1" }), /is an object/);
   assert.match(refuseCall({ tool: "system_status", args: new Date(0), id: "call-1" }), /arguments are an object/);
   assert.equal(refuseCall({ tool: "settings_set", args: { settings: Object.assign(Object.create(null), { projects_root: "/x" }) }, id: "call-1" }), null);
+});
+
+test("a call without an argument the interface always sends is refused in words: no clients is not all of them (Д-271, п. 2)", () => {
+  assert.match(refuseCall({ tool: "clients_install", args: {}, id: "call-1" }), /^clients_install needs clients\.$/);
+  assert.match(refuseCall({ tool: "clients_install", id: "call-1" }), /^clients_install needs clients\.$/, "no arguments at all");
+  assert.match(refuseCall({ tool: "model_import", args: {}, id: "call-1" }), /needs source/);
+  assert.match(refuseCall({ tool: "settings_set", args: {}, id: "call-1" }), /needs settings/);
+  for (const [tool, names] of Object.entries(PAGE_REQUIRED_ARGUMENTS)) {
+    for (const name of names) assert.ok(Object.hasOwn(PAGE_TOOL_ARGUMENTS[tool], name), `${tool}.${name} is an argument the interface sends`);
+  }
 });

@@ -17,6 +17,9 @@ function fakeServer() {
     // Set to make the next opening wait for it (a promise), or the next checks call end the session.
     openGate: null,
     dieOnChecks: false,
+    // How many checks answers, from now, find their daemon just retired; whether starting a daemon fails.
+    retireOnChecks: 0,
+    failStart: false,
     // A tool whose call waits for `release()`: { name, release }.
     held: null,
     quick: { status: "ok", index: { exists: true, fresh: true, documents: 5 }, served_by: { pid: 11 } },
@@ -24,6 +27,7 @@ function fakeServer() {
     async openControlClient({ start } = {}) {
       opens.push({ start });
       if (server.openGate) await server.openGate;
+      if (start && server.failStart) throw new Error("the daemon did not start");
       // A daemon is there, or this one may start it.
       if (server.down && !start) throw Object.assign(new Error("not running"), { code: "ENOTRUNNING" });
       server.down = false;
@@ -39,6 +43,11 @@ function fakeServer() {
             client.closed = true;
             client.onclose?.();
             throw new Error("Connection closed");
+          }
+          if (name === "system_status" && args?.checks !== false && server.retireOnChecks > 0) {
+            // A daemon of new code took over while this one ran the checks.
+            server.retireOnChecks -= 1;
+            server.retired = client;
           }
           if (server.held?.name === name) {
             await new Promise((resolve, reject) => {
@@ -297,4 +306,67 @@ test("close() while a session opens leaves no session open (Д-266, п. 10)", as
   assert.equal(clients[0].closed, true, "the late session was given up");
   assert.notEqual(daemon.state.phase, "online");
   assert.deepEqual(await daemon.call("clients_list", {}, { id: "call-1" }), { ok: false, error: "link.notConnected", cancelled: false });
+});
+
+
+test("a daemon that retires while the link's first checks run: the link moves to the new one (Д-268)", async (t) => {
+  const { server, clients } = fakeServer();
+  server.retireOnChecks = 1;
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  await sleep(30);
+  assert.equal(daemon.state.phase, "online", JSON.stringify(daemon.state));
+  assert.equal(clients.length, 2, "a session on the new daemon");
+  assert.equal(clients[0].closed, true, "the retired daemon's session closed");
+  assert.equal((await daemon.call("clients_list", {}, { id: "call-1" })).ok, true);
+});
+
+test("the move's own first checks find that daemon retired too: the link moves again (Д-268)", async (t) => {
+  const { server, clients } = fakeServer();
+  server.retireOnChecks = 2;
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  await sleep(40);
+  assert.equal(daemon.state.phase, "online", JSON.stringify(daemon.state));
+  assert.equal(clients.length, 3);
+  assert.deepEqual(clients.map((client) => client.closed), [true, true, false]);
+});
+
+test("the daemon going away while the move waits for a call ends the wait: nothing starts a daemon (Д-270, R2)", async (t) => {
+  const { server, clients, opens } = fakeServer();
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  server.held = { name: "model_install" };
+  const download = daemon.call("model_install", {}, { id: "call-1" });
+  await sleep(5);
+  server.retired = clients[0];
+  await daemon.refreshStatus({ checks: true });
+  // The move waits for the download; the daemon goes away meanwhile.
+  server.down = true;
+  clients[0].onclose();
+  assert.deepEqual(await download, { ok: false, error: "link.wentAway", cancelled: false });
+  await sleep(20);
+  assert.equal(daemon.state.phase, "offline", "the link looks for a daemon, it does not move to one");
+  assert.equal(opens.filter((open) => open.start).length, 1, "only the first connect started a daemon");
+});
+
+test("two Starts while one attempt runs share it, after the link has looked for a daemon (Д-270, U-c)", async (t) => {
+  const { server, opens } = fakeServer();
+  server.down = true;
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 10 });
+  await daemon.connect({ start: false });
+  await sleep(35);
+  assert.ok(opens.length >= 2, "the link looked for a daemon");
+  // The daemon cannot start: both presses end in one failed attempt.
+  server.failStart = true;
+  let open;
+  server.openGate = new Promise((resolve) => { open = resolve; });
+  const before = opens.length;
+  const first = daemon.connect({ start: true });
+  const second = daemon.connect({ start: true });
+  server.openGate = null;
+  open();
+  await Promise.all([first, second]);
+  assert.equal(opens.slice(before).filter((attempt) => attempt.start).length, 1, "one attempt for two presses");
+  assert.equal(daemon.state.error, "the daemon did not start");
 });

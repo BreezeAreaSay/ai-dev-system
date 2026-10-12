@@ -84,4 +84,12 @@ test("each state is drawn in its own colour, and a failed rebuild is said in the
   tray.setRebuilding(null);
   assert.equal(tray.menu().find((item) => item.id === "rebuild").label, "Rebuild search index");
   assert.ok(menu.length > 0);
+  // A Stop that failed is said too, with why in the tooltip, until the next one (Д-271, п. 6).
+  link.state = { phase: "online" };
+  tray.setStopFailed("EPERM: operation not permitted, kill");
+  assert.deepEqual(tray.menu().find((item) => item.id === "stop"), { id: "stop", label: "Stop failed — try again", enabled: true });
+  assert.match(tray.tray.tip, /The daemon did not stop: EPERM/);
+  tray.setStopFailed(null);
+  assert.equal(tray.menu().find((item) => item.id === "stop").label, "Stop the daemon");
+  assert.doesNotMatch(tray.tray.tip, /did not stop/);
 });

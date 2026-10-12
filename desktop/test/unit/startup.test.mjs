@@ -18,9 +18,13 @@ test("what stops the start is said with what to do, and whether Try again can wo
   const missingFile = startupFailure(Object.assign(new Error(`Cannot find module '${serverRoot}/src/core/log-tail.mjs' imported from ${serverRoot}/src/core/control-client.mjs`), { code: "ERR_MODULE_NOT_FOUND" }), { serverRoot, loaded: false, t });
   assert.equal(missingFile.error, `The AI Dev server in ${serverRoot} did not load.`);
   assert.equal(missingFile.restart, true);
-  const settings = startupFailure(new Error("/home/me/.ai-dev/config.json is not JSON (Unexpected token t). Fix or remove it."), { serverRoot, loaded: true, t });
-  assert.deepEqual([settings.restart, /config\.json is not JSON/.test(settings.error)], [false, true]);
-  assert.match(settings.hint, /press Try again/);
+  const settings = startupFailure(new Error("/home/me/.ai-dev/config.json is not JSON. Fix or remove it; the settings are not read until then."), { serverRoot, loaded: true, t });
+  assert.deepEqual([settings.restart, settings.error], [false, "/home/me/.ai-dev/config.json is not JSON."], "the server's advice is not said twice");
+  assert.equal(settings.hint, "Fix the file or remove it — without it the defaults are used — then press Try again.");
+  // Every other settings failure gets the same advice, in the app's language (Д-269).
+  const notObject = startupFailure(new Error("/home/me/.ai-dev/config.json does not hold a settings object."), { serverRoot, loaded: true, t: (key, params) => translate("ru", key, params) });
+  assert.equal(notObject.error, "/home/me/.ai-dev/config.json does not hold a settings object.");
+  assert.match(notObject.hint, /^Исправьте файл или удалите его/);
   assert.equal(startupFailure(new Error("odd"), { serverRoot, loaded: true, t }).restart, false);
   assert.equal(startupFailure(new SyntaxError("Unexpected token"), { serverRoot, loaded: false, t }).restart, true);
 });

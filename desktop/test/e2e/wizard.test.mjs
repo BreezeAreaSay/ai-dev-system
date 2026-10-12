@@ -33,6 +33,10 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   assert.equal(await page.isChecked('li[data-client="cursor"] input'), true, "a client found and not connected is chosen");
   assert.equal(await page.isDisabled('li[data-client="claude-desktop"] input'), true, "a client not found cannot be chosen");
   await shot(page, "wizard-2-clients");
+  // With nothing chosen, Connect cannot be pressed rather than do nothing (Д-248).
+  await page.uncheck('li[data-client="cursor"] input');
+  assert.equal(await page.isDisabled('[data-action="connect-clients"]'), true, "nothing chosen: Connect is disabled");
+  await page.check('li[data-client="cursor"] input');
   await page.click('[data-action="connect-clients"]');
   await page.waitForSelector('[data-field="clients-result"]:has-text("0 failed")');
   const cursor = JSON.parse(await fs.readFile(path.join(s.home, ".cursor", "mcp.json"), "utf8"));

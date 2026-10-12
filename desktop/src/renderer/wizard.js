@@ -117,17 +117,20 @@ function clientsStep(view, body, footer) {
       return h("li", { dataset: { client: client.client, entry: client.entry } }, h("label", {}, box, " ", client.label, " ", h("span", { className: "muted" }, `— ${choice.note}`)));
     });
     const result = h("div", { dataset: { field: "clients-result" }, "aria-live": "polite" });
+    const chosen = () => boxes.filter((box) => box.checked && !box.disabled).map((box) => box.value);
+    // With nothing chosen the button cannot be pressed, rather than do nothing.
     const connect = h("button", {
       type: "button",
       className: "primary",
       dataset: { action: "connect-clients" },
+      disabled: chosen().length === 0,
       on: {
         async click() {
-          const chosen = boxes.filter((box) => box.checked && !box.disabled).map((box) => box.value);
-          if (!chosen.length) return;
+          const clients = chosen();
+          if (!clients.length) return;
           connect.disabled = true;
           try {
-            const outcome = await api.call("clients_install", { clients: chosen });
+            const outcome = await api.call("clients_install", { clients });
             show(result,
               h("p", { className: outcome.failed ? "error" : "ok" }, view.t("wizard.clients.result", { changed: outcome.changed, failed: outcome.failed })),
               h("ul", {}, outcome.results.map((item) => {
@@ -137,11 +140,12 @@ function clientsStep(view, body, footer) {
           } catch (error) {
             show(result, errorLine(view, error));
           } finally {
-            connect.disabled = false;
+            connect.disabled = chosen().length === 0;
           }
         }
       }
     }, view.t("wizard.clients.connect"));
+    for (const box of boxes) box.addEventListener("change", () => { connect.disabled = chosen().length === 0; });
     const found = answer.clients.some((client) => client.found);
     show(body, h("p", {}, view.t("wizard.clients.body")),
       found ? [h("ul", { className: "choices" }, rows), connect, result] : h("p", {}, view.t("wizard.clients.none")));

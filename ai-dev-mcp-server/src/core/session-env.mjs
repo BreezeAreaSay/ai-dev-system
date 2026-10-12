@@ -203,9 +203,14 @@ function realPrefix(resolved, paths) {
 
 /**
  * A folder as the platform compares folders: through links, with one kind of
- * separator, no trailing one, and on Windows without case.
+ * separator, no trailing one, and on Windows without case. The daemon's build
+ * and the search index's owner (`search-index-owner.mjs`) compare folders so.
+ *
+ * @param {string} value
+ * @param {string} [platform]
+ * @returns {string}
  */
-function canonicalFolder(value, platform) {
+export function canonicalFolder(value, platform = process.platform) {
   const paths = platform === "win32" ? path.win32 : path.posix;
   let resolved = paths.resolve(String(value ?? ""));
   if (platform === process.platform) resolved = realPrefix(resolved, paths);

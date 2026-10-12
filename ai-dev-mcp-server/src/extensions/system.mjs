@@ -55,6 +55,22 @@ function serverSourceDir(host) {
   return path.join(host.serverRoot, "src");
 }
 
+/** The checks the dashboard leaves out: they take from seconds to minutes, and `system_health_check` runs them on request. */
+const DASHBOARD_SKIPS = new Set(["dense_smoke", "search_eval"]);
+
+/**
+ * The skill registry, or an error that says what to run: before `setup` there
+ * is none, and the dashboard summarizes it (docs/DEFECTS.md, Д-106).
+ */
+async function registryForDashboard(host) {
+  try {
+    return await host.readSkillIndex();
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    throw new Error(`The skill registry is not built yet (${error.path ?? "skills.index.json"}): run \`ai-dev setup\` first. It builds the registry, its quality report and the search index this dashboard summarizes.`);
+  }
+}
+
 /**
  * Read every live source the System Dashboard summarizes and assemble the
  * machine snapshot. All I/O happens here; the shaping is pure
@@ -62,8 +78,8 @@ function serverSourceDir(host) {
  */
 async function buildSnapshot(host) {
   const paths = host.vaultPaths;
+  const skills = await registryForDashboard(host);
   const [
-    skills,
     cards,
     qualityReport,
     projects,
@@ -72,9 +88,9 @@ async function buildSnapshot(host) {
     pilots,
     overlays,
     searchCases,
-    runtimeSource
+    runtimeSource,
+    health
   ] = await Promise.all([
-    host.readSkillIndex(),
     host.readJsonIfExists(host.safePath(paths.skillCardsIndex)),
     host.readJsonIfExists(host.safePath(paths.skillQualityIndex)),
     host.projectSummaries({ dedupe: true }),
@@ -83,7 +99,8 @@ async function buildSnapshot(host) {
     host.pilotStore.status(),
     host.readSkillOverlayDocument(),
     host.readSearchEvalCases(),
-    fs.readFile(path.join(serverSourceDir(host), "mcp-stdio.mjs"), "utf8")
+    fs.readFile(path.join(serverSourceDir(host), "mcp-stdio.mjs"), "utf8"),
+    systemHealthCheck(host, { include_dense_smoke: false, include_search_eval: false })
   ]);
   return buildSystemSnapshot({
     toolCount: host.toolCount(),
@@ -96,7 +113,8 @@ async function buildSnapshot(host) {
     pilots,
     overlaySummary: summarizeSkillOverlays(overlays, skills),
     searchEvalCases: searchCases.cases.length,
-    runtimeLines: runtimeSource.split(/\r?\n/).length
+    runtimeLines: runtimeSource.split(/\r?\n/).length,
+    checks: health.checks.filter((check) => !DASHBOARD_SKIPS.has(check.name))
   });
 }
 

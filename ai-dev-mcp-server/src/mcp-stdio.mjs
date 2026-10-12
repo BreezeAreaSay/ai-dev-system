@@ -55,7 +55,7 @@ import {
   taskLooksLandingConversion
 } from "./core/skill-recommendation.mjs";
 import { listSearchPresets } from "./core/search-runtime.mjs";
-import { createSearchIndexRuntime } from "./core/search-index.mjs";
+import { createSearchIndexRuntime, vaultIndexPath } from "./core/search-index.mjs";
 import { createDenseRuntime } from "./core/dense-runtime.mjs";
 import { createOnnxDenseRuntime } from "./core/dense-onnx.mjs";
 import { readDenseManifest } from "./core/dense-manifest.mjs";
@@ -247,7 +247,7 @@ const runtimeAssets = resolveRuntimeAssets({
   repositoryRoot: path.resolve(serverDir, "..", "..")
 });
 const searchIndexDir = path.resolve(aiDevRuntimePath("AI_DEV_SEARCH_INDEX_DIR", ["cache", "search-index"]));
-const searchIndexPath = path.join(searchIndexDir, "ai-dev-search.sqlite");
+const searchIndexPath = vaultIndexPath({ dir: searchIndexDir, vaultRoot }).path;
 const searchEvalCasesPath = path.join(runtimeAssets.searchEvalDir, "search_eval_cases.json");
 // The routing benchmark's golden cases. `skillRoutingEvalRelativePath` above is
 // what a report prints; this is where the file actually is, which in a plain

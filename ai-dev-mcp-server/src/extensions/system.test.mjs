@@ -356,9 +356,16 @@ test("dashboard rebuild writes the note and snapshot, and status compares finger
   assert.equal(rebuilt.search_rebuilt, false);
   assert.equal(rebuilt.search, null);
   assert.equal(rebuilt.source_fingerprint, rebuilt.snapshot.source_fingerprint);
-  assert.deepEqual(calls, [["markSearchIndexDirty", "generated system dashboard updated"]]);
+  assert.deepEqual(calls.filter(Array.isArray), [["markSearchIndexDirty", "generated system dashboard updated"]]);
   const markdown = await fs.readFile(path.join(vaultRoot, VAULT_PATHS.systemDashboard), "utf8");
   assert.match(markdown, /115 tools/);
+  // The runtime rows are the health checks as they ran (Д-106), without the
+  // ones the dashboard does not run.
+  const checked = rebuilt.snapshot.checks.map((check) => check.name);
+  assert.ok(checked.includes("vault_root") && checked.includes("skill_registry"), checked.join(", "));
+  assert.ok(!checked.includes("dense_smoke") && !checked.includes("search_eval"));
+  assert.match(markdown, /\| Vault root \| Ready \| Vault root exists\. \|/);
+  assert.doesNotMatch(markdown, /Search Ranking v2|Reference Factory v2/);
   const saved = JSON.parse(await fs.readFile(path.join(vaultRoot, VAULT_PATHS.systemDashboardState), "utf8"));
   assert.equal(saved.source_fingerprint, rebuilt.source_fingerprint);
 
@@ -373,12 +380,28 @@ test("dashboard rebuild writes the note and snapshot, and status compares finger
   assert.equal(drifted.next_step, "Run rebuild_system_dashboard.");
 });
 
+test("before setup the dashboard says what to run, not which file is missing (Д-106)", async (t) => {
+  const { host, registry } = await createFixture(t);
+  host.readSkillIndex = async () => {
+    const error = new Error("ENOENT: no such file or directory, open '/vault/03-skills-catalog/registries/skills.index.json'");
+    Object.assign(error, { code: "ENOENT", path: "/vault/03-skills-catalog/registries/skills.index.json" });
+    throw error;
+  };
+  for (const tool of ["rebuild_system_dashboard", "system_dashboard_status"]) {
+    await assert.rejects(registry.handlers.get(tool)({}), /^Error: The skill registry is not built yet \(\/vault\/03-skills-catalog\/registries\/skills\.index\.json\): run `ai-dev setup` first\./, tool);
+  }
+  host.readSkillIndex = async () => {
+    throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+  };
+  await assert.rejects(registry.handlers.get("rebuild_system_dashboard")({}), /EACCES/, "another failure is told as it is");
+});
+
 test("rebuild_system_dashboard can chain a search index rebuild", async (t) => {
   const { calls, registry } = await createFixture(t);
   const result = await registry.handlers.get("rebuild_system_dashboard")({ rebuild_search: true });
   assert.equal(result.search_rebuilt, true);
   assert.deepEqual(result.search, { rebuilt: true });
-  assert.deepEqual(calls[1], ["rebuildSearchIndex", {
+  assert.deepEqual(calls.filter(Array.isArray)[1], ["rebuildSearchIndex", {
     include_external_project_files: true,
     dense_embeddings: false,
     preserve_dense: true

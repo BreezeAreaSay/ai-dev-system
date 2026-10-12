@@ -104,6 +104,50 @@ test("a built index is current, and every kind of change makes it stale with the
   assert.deepEqual([stale.added, stale.changed, stale.deleted], [["02-knowledge/new.md"], ["02-knowledge/topic-1.md"], ["02-knowledge/topic-2.md"]]);
 });
 
+test("an index without vectors names no backend for them, one written before 3.0 included (Д-186)", needsSqlite, async (t) => {
+  const vault = tempRoot(t);
+  const indexPath = path.join(tempRoot(t), "index", "ai-dev-search.sqlite");
+  buildVault(vault, { notes: 2, skills: 2 });
+  await rebuildIndex({ vaultRoot: vault, indexPath });
+  const meta = () => {
+    const db = openDatabase(indexPath);
+    try {
+      return Object.fromEntries(db.prepare("SELECT key, value FROM meta WHERE key LIKE 'dense_%'").all().map((row) => [row.key, row.value]));
+    } finally {
+      db.close();
+    }
+  };
+  assert.deepEqual([meta().dense_enabled, meta().dense_backend, meta().dense_revision, meta().dense_dtype], ["false", "", "", ""]);
+  const status = await indexStatus({ vaultRoot: vault, indexPath });
+  assert.deepEqual([status.dense_enabled, status.dense_backend, status.dense_revision, status.dense_dtype], [false, "", "", ""]);
+
+  // What 2.x — and 3.0 before this — wrote for an index without vectors.
+  const db = openDatabase(indexPath);
+  try {
+    const upsert = db.prepare("INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)");
+    for (const [key, value] of [["dense_backend", "python"], ["dense_revision", "unpinned"], ["dense_dtype", "fp32"]]) upsert.run(key, value);
+  } finally {
+    db.close();
+  }
+  const old = await indexStatus({ vaultRoot: vault, indexPath });
+  assert.deepEqual([old.dense_backend, old.dense_revision, old.dense_dtype], ["", "", ""]);
+});
+
+test("an index names the vault it was built from, and is stale for any other — the same notes included (Д-195)", needsSqlite, async (t) => {
+  const vault = tempRoot(t);
+  const copy = tempRoot(t);
+  const indexPath = path.join(tempRoot(t), "index", "ai-dev-search.sqlite");
+  buildVault(vault, { notes: 2, skills: 2 });
+  buildVault(copy, { notes: 2, skills: 2 });
+  await rebuildIndex({ vaultRoot: vault, indexPath });
+  const own = await indexStatus({ vaultRoot: vault, indexPath });
+  assert.deepEqual([own.stale, own.vault_root], [false, path.resolve(vault)]);
+  const other = await indexStatus({ vaultRoot: copy, indexPath });
+  assert.deepEqual([other.stale, other.reasons], [true, ["vault_changed"]]);
+  await rebuildIndex({ vaultRoot: copy, indexPath, inPlace: true });
+  assert.deepEqual((await indexStatus({ vaultRoot: copy, indexPath })).reasons, []);
+});
+
 test("writing in place leaves exactly what a full rebuild writes", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const indexDir = tempRoot(t);

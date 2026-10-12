@@ -131,7 +131,7 @@ async function storedLanguage(file) {
   return stored?.language;
 }
 
-test("a language chosen while the settings file is broken is written once it is fixed — online, at the next verdict (Д-276, п. 3)", { timeout: 180_000 }, async (t) => {
+test("a language chosen while the settings file is broken is written once it is fixed — online (Д-276, п. 3)", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const settings = path.join(s.home, ".ai-dev", "config.json");
   const { page } = await launch(t, s.env);
@@ -141,12 +141,10 @@ test("a language chosen while the settings file is broken is written once it is 
   await page.evaluate(() => window.aiDev.setLanguage("ru"));
   assert.equal(await fs.readFile(settings, "utf8"), "{ this is not json", "not written over a broken file");
   await fs.rm(settings);
-  // Status asks for a verdict, as the tray does every few minutes.
-  await page.click('[data-nav="status"]');
   assert.equal(await storedLanguage(settings), "ru");
 });
 
-test("a language chosen while the settings file is broken is written once it is fixed — offline, at the connection Start makes (Д-276, п. 3)", { timeout: 180_000 }, async (t) => {
+test("a language chosen while the settings file is broken is written once it is fixed — offline, with no daemon (Д-276, п. 3)", { timeout: 180_000 }, async (t) => {
   const s = await stage(t, { settings: { daemon_autostart: false } });
   const settings = path.join(s.home, ".ai-dev", "config.json");
   const { page } = await launch(t, s.env);
@@ -156,7 +154,6 @@ test("a language chosen while the settings file is broken is written once it is 
   await page.evaluate(() => window.aiDev.setLanguage("ru"));
   assert.equal(await fs.readFile(settings, "utf8"), "{ this is not json");
   await fs.rm(settings);
-  await page.click("#start-daemon");
-  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
   assert.equal(await storedLanguage(settings), "ru");
+  assert.equal(await page.getAttribute("[data-screen]", "data-screen"), "offline", "no daemon was needed");
 });

@@ -68,6 +68,7 @@ if (!app.requestSingleInstanceLock()) {
   // п. 4; Д-276, п. 2, 3).
   let unsaved = null;
   let settling = null;
+  let languageWatch = null;
   const env = { ...process.env };
   const root = serverRoot();
   const t = (key, params) => translate(language, key, params);
@@ -110,6 +111,7 @@ if (!app.requestSingleInstanceLock()) {
 
   const quit = async () => {
     quitting = true;
+    await settleLanguage().catch(() => undefined);
     await link.close();
     app.quit();
   };
@@ -142,7 +144,7 @@ if (!app.requestSingleInstanceLock()) {
    * Write the language chosen while the settings could not be written, once
    * they can be — unless the file, readable again, names one of its own: then
    * nothing is written over it, and the file's holds from the next start.
-   * Runs at a start, a connection and each new verdict; one at a time.
+   * One at a time.
    */
   const settleLanguage = () => {
     settling ??= (async () => {
@@ -162,6 +164,20 @@ if (!app.requestSingleInstanceLock()) {
     return settling;
   };
 
+  // While a chosen language waits to be written, the file is looked at twice
+  // a second — online or not, whatever else happens (Д-276, п. 3).
+  const awaitLanguage = () => {
+    if (languageWatch) return;
+    languageWatch = setInterval(() => {
+      settleLanguage().catch(() => undefined).then(() => {
+        if (unsaved || !languageWatch) return;
+        clearInterval(languageWatch);
+        languageWatch = null;
+      });
+    }, 500);
+    languageWatch.unref?.();
+  };
+
   /**
    * Get going: the server, the settings, the Node the daemon runs on, the
    * daemon. Whatever stops it is shown in the window with what to do — the
@@ -177,6 +193,7 @@ if (!app.requestSingleInstanceLock()) {
         // The language chosen while the file was broken — unless the file, fixed, names its own (Д-276, п. 2).
         language = unsaved && !read.stored.language ? unsaved : pickLanguage(settings.language, app.getLocale());
         await settleLanguage();
+        if (unsaved) awaitLanguage();
         window?.setTitle(t("app.title"));
         tray?.refresh();
         const clientNodes = await server.clientNodePaths({ env, cliPath: path.join(root, "bin", "ai-dev.mjs") }).catch(() => []);
@@ -227,8 +244,6 @@ if (!app.requestSingleInstanceLock()) {
     await lockSession(session.defaultSession);
     Menu.setApplicationMenu(applicationMenu());
     link.on("state", () => window?.webContents.send(EVENT_CHANNELS.state, publicState()));
-    // Each new verdict — the first comes with every connection — is a chance to write it.
-    link.on("status", () => settleLanguage().catch(() => undefined));
 
     // The page's channels first: whatever happens next, the window can ask.
     handle(INVOKE_CHANNELS.state, () => publicState());
@@ -280,6 +295,7 @@ if (!app.requestSingleInstanceLock()) {
         const written = server ? await server.writeSettings({ language }, { env }).then(() => true, () => false) : false;
         unsaved = written ? null : language;
       }
+      if (unsaved) awaitLanguage();
       return publicState();
     });
 

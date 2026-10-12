@@ -236,12 +236,13 @@ export async function truncateTornTail(filePath) {
  * @template T
  * @param {string} filePath - The file to update.
  * @param {() => Promise<T>} update - Reads, decides and writes; runs under the lock.
+ * @param {{ timeoutMs?: number }} [options] - `timeoutMs`: how long to wait for the lock (the lock's own default otherwise).
  * @returns {Promise<T>}
  */
-export async function withExclusiveFile(filePath, update) {
+export async function withExclusiveFile(filePath, update, { timeoutMs } = {}) {
   const absolute = path.resolve(filePath);
   await fs.mkdir(path.dirname(absolute), { recursive: true });
-  return withFileLock(absolute, update);
+  return withFileLock(absolute, update, timeoutMs === undefined ? {} : { timeoutMs });
 }
 
 /**

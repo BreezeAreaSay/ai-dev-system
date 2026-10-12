@@ -391,7 +391,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Settings in `~/.ai-dev/config.json`**: the capability profiles, the model mirror, the model's
   folder, the daemon's idle time, the projects folder, autostart and the interface's language, each
   checked before it is stored and written whole, flushed and 0600, through a link to wherever the
-  file lives. Every `ai-dev` command started afterwards reads them, and so does the desktop app's
+  file lives; a file that cannot be read is named in the error, a folder in its place too. Every
+  `ai-dev` command started afterwards reads them, and so does the desktop app's
   connection; a variable set in the environment still wins, and `settings_get` shows its value.
   `settings_set` says when each change takes effect: the mirror at once, the model folder and the
   profiles for sessions started afterwards, the idle time when the daemon starts next. The default
@@ -401,7 +402,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Russian. A tray icon in the colour of the install's health — the verdict of every health check,
   the one the Status screen shows, asked again when the daemon's state moves, after anything the app
   changes and every five minutes — with Open, Rebuild the search index, Stop the daemon and Quit; a
-  rebuild or a Stop that fails says so in the menu. A first-run wizard: the projects folder; the AI
+  rebuild or a Stop that fails says so in the menu, a Stop for as long as the daemon that would not
+  stop runs, with Stop offered again. A first-run wizard: the projects folder; the AI
   clients found on the computer, each with what connecting it would do; the local model downloaded
   with progress and Cancel, imported from a folder or skipped; the search index, with each step's
   outcome in words; what to do next. A download keeps running, with its Cancel, while the person
@@ -702,9 +704,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[mcp_servers."ai-dev"]` header left a second definition, and a TOML reader then refused
   the whole file. Now the empty and the JSONC file are written (the comment kept), a broken
   file fails only its own client, and the Codex result parses.
-- **A settings file that cannot be read is named in the error** (Д-274). Node names the file in
-  some read errors and not in others — a folder in place of `~/.ai-dev/config.json` failed with
-  just `EISDIR: illegal operation on a directory, read`; now every one says which file.
 - **An interrupted client install could leave `~/.claude.json` empty** (Д-163). Both
   installers rewrote the file in place; killed during the write, a 21 MB `~/.claude.json`
   was left at 0 bytes in 10 of 10 runs. Writes go through a temp file and a rename now — 0 of

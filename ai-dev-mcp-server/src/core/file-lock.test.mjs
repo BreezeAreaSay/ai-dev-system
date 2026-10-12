@@ -393,3 +393,14 @@ test("a stuck holder's lock can be forced, but only while it is the lock observe
   assert.equal(await next.holds(), true, "the old holder's release leaves the new lock alone");
   await next.release();
 });
+
+test("a lock told to make no folder takes none when its folder is gone, and makes nothing (Д-226)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "lock-no-folder-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const missing = path.join(root, "home", "run", "daemon-0123456789abcdef.json");
+  assert.deepEqual(await tryAcquireFileLock(missing, { makeDirectory: false }), { observed: null });
+  assert.deepEqual(await fs.readdir(root), [], "no folder was made");
+  const made = await tryAcquireFileLock(missing);
+  assert.ok(made.release, "the usual lock still makes its folder");
+  await made.release();
+});

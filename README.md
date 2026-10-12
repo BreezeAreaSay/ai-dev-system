@@ -131,7 +131,7 @@ If it tries to close early, it will not be allowed to. That is the point.
 
 ## What you get
 
-The server exposes 135 tools. You do not need to know them — they are grouped
+The server exposes 135 tools to an agent (and 13 more, the [control API](ai-dev-mcp-server/docs/CONTROL-API.md), to an app that asks for them). You do not need to know them — they are grouped
 into eight **capability profiles**, and only `core` is on the critical path:
 
 | Profile | Tools | What it adds |
@@ -182,7 +182,8 @@ container runs with no network, no capabilities, and a read-only root filesystem
 | [**Capabilities**](docs/CAPABILITIES.md) | The eight profiles and how to narrow the tool surface. |
 | [**Knowledge Galaxy**](docs/GALAXY.md) | The vault as a 3D galaxy to fly through, in place of Obsidian's graph view. |
 | [**Guard rails**](docs/GUARDRAILS.md) | Agent hooks, policy rules, MCP inventory, local data and security. |
-| [**Tool reference**](ai-dev-mcp-server/docs/TOOLS.md) | All 135 tools, generated from the server itself. |
+| [**Tool reference**](ai-dev-mcp-server/docs/TOOLS.md) | All 148 tools — the 135 an agent sees and the 13 of the control API — generated from the server itself. |
+| [**Control API**](ai-dev-mcp-server/docs/CONTROL-API.md) | The tools an app drives the install with, and the answers they promise. |
 | [**Architecture**](ai-dev-mcp-server/docs/ARCHITECTURE.md) | How the server is put together. |
 | [**Changelog**](CHANGELOG.md) | What changed, and what to re-check after upgrading. |
 

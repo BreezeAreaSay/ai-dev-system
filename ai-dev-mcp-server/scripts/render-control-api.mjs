@@ -10,7 +10,7 @@ import { CONTROL_API_VERSION, CONTROL_RESULTS, CONTROL_TOOLS } from "../src/core
 function typeOf(schema = {}) {
   if (schema.anyOf) return schema.anyOf.map(typeOf).join(" or ");
   if (schema.enum) return schema.enum.map((value) => `\`${JSON.stringify(value)}\``).join(", ");
-  if (schema.type === "array") return `array of ${typeOf(schema.items)}`;
+  if (schema.type === "array") return schema.items?.type === "object" ? "array of objects" : `array of ${typeOf(schema.items)}`;
   if (schema.type === "integer") return "integer";
   return schema.type ?? "any";
 }
@@ -23,7 +23,8 @@ function fields(schema, depth = 0) {
     const nested = property.type === "object" && property.properties ? property
       : property.type === "array" && property.items?.type === "object" && property.items.properties ? property.items
         : property.anyOf?.find((option) => option.type === "object" && option.properties) ?? null;
-    const note = [property.description, property.default !== undefined ? `default \`${JSON.stringify(property.default)}\`` : ""].filter(Boolean).join("; ");
+    const sentence = (text) => (text && !/[.!?]$/.test(text) ? `${text}.` : text);
+    const note = [sentence(property.description), property.default !== undefined ? `Default \`${JSON.stringify(property.default)}\`.` : ""].filter(Boolean).join(" ");
     const kind = nested && property.type === "array" ? "array of objects" : nested ? (property.anyOf ? `${typeOf({ anyOf: property.anyOf.filter((option) => option !== nested) })} or object` : "object") : typeOf(property);
     lines.push(`${"  ".repeat(depth)}- \`${name}\` — ${kind}${required.has(name) ? "" : ", optional"}${note ? `. ${note}` : ""}`);
     if (nested) lines.push(...fields(nested, depth + 1));

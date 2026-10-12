@@ -2,7 +2,7 @@
 
 [← README](../README.md) · [Install](INSTALL.md) · [Workflow](WORKFLOW.md) · [Guard rails](GUARDRAILS.md)
 
-The server exposes 135 tools. That is a strength when the agent needs one of them
+The server exposes 135 tools to an agent. That is a strength when the agent needs one of them
 and a cost the rest of the time: every tool in `tools/list` is schema text the
 model carries before it has read a word of your request.
 
@@ -20,6 +20,15 @@ Capability profiles cut that surface along the lines you already think in.
 | `qa` | 8 | Playwright and visual QA runners, and the benchmarks that hold search and routing honest. | Verification has to produce evidence a person can look at. |
 | `security` | 9 | Secret and dependency scans, dependency fix plans, command and write policy, agent hooks, MCP inventory. | Setting up guard rails, or auditing what your agents are wired to. |
 | `advanced` | 36 | Archify diagrams, the search and skill indexes, the dashboard, usage ledger, runtime packaging. | Maintaining the system itself rather than using it. |
+
+A ninth profile, `control`, is left out of this table because an agent never
+needs it: its 13 tools — the install's status, setup, the local model, the AI
+clients connected, logs, settings and an overview of the work — are what a
+desktop app drives, and two of them delete things (`model_remove` and
+`clients_remove`, each behind `confirm`). An empty `AI_DEV_PROFILES` and `all`
+leave it out; a session lists it only when it names it — `AI_DEV_PROFILES=control`,
+or `all,control` for everything. Its answers are a versioned contract:
+[CONTROL-API.md](../ai-dev-mcp-server/docs/CONTROL-API.md).
 
 Every profile runs on Node alone, with one exception in `frontend`:
 `query_ui_ux_knowledge` and `generate_ui_ux_design_system` read the UI UX Pro Max

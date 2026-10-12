@@ -85,7 +85,9 @@ the app moves to it and the old one finishes.
 ## Languages
 
 English and Russian (owner decision D6). The language follows the system until you choose one in
-the header; the choice is kept in the settings (`language`) and the tray follows it.
+the header; the choice is kept in the settings (`language`) and the tray follows it. The app's own
+words — screens, check and step names, states, advice — are in both; what the daemon writes — a
+check's summary, a step's outcome, an error — is in English, as in the CLI.
 
 ## Security
 

@@ -187,14 +187,16 @@ export const CONTROL_RESULTS = Object.freeze({
   settings_get: object({
     file: string,
     schema_version: { type: "integer", minimum: 1, description: "The file's own; one newer than this version knows is listed in problems." },
-    settings: { type: "object" },
-    sources: { type: "object", description: "Per setting: default, file, or environment (NAME) when a variable overrides the file." },
+    settings: { type: "object", description: "Each value in force for this session: what it started with, where a change since applies to sessions started afterwards (new_session) or the next daemon (next_daemon)." },
+    sources: { type: "object", description: "Per setting: default, file, or environment (NAME) when a variable overrides the file; \"file, as this session started\" or \"default, as this session started\" when the file says otherwise since." },
+    pending: { type: "object", description: "Per setting the file has changed since this session started: the value sessions started afterwards — or the next daemon — use. Reconnect to use it." },
     problems: strings,
     definitions: list(SETTING)
   }),
   settings_set: object({
     changed: strings,
-    settings: { type: "object" },
+    settings: { type: "object", description: "Each value in force for this session, as settings_get has it." },
+    pending: { type: "object", description: "As settings_get has it: what this session does not use yet." },
     applies: { type: "object", additionalProperties: APPLIES, description: "Per changed setting: when the change takes effect." },
     note: string
   }),

@@ -176,6 +176,25 @@ test("a data folder under a link is one folder before it exists and after; a Win
   assert.equal(posix({ HOME: "/home/a" }).USERPROFILE, undefined, "and no part at all where it is not set");
 });
 
+test("of two spellings of one name on Windows, the one Node's spawn passes on is the one read, in any order (Д-238)", () => {
+  const orders = [
+    [["bge_m3_onnx_dir", "C:\\lower"], ["Bge_M3_Onnx_Dir", "C:\\mixed"]],
+    [["Bge_M3_Onnx_Dir", "C:\\mixed"], ["bge_m3_onnx_dir", "C:\\lower"]]
+  ];
+  for (const entries of orders) {
+    const env = Object.fromEntries(entries);
+    // What spawn keeps on Windows: the first in sorted order (lib/child_process.js).
+    const kept = Object.keys(env).sort()[0];
+    assert.equal(kept, "Bge_M3_Onnx_Dir");
+    assert.equal(environmentObject(env, { platform: "win32" }).BGE_M3_ONNX_DIR, "C:\\mixed", JSON.stringify(entries));
+    assert.deepEqual(daemonWideEnvironment(env, { platform: "win32" }), [["BGE_M3_ONNX_DIR", "C:\\mixed"]]);
+  }
+  // An upper-case spelling sorts before every other.
+  const both = { Bge_M3_Onnx_Dir: "C:\\mixed", BGE_M3_ONNX_DIR: "C:\\upper" };
+  assert.equal(environmentObject(both, { platform: "win32" }).BGE_M3_ONNX_DIR, "C:\\upper");
+  assert.equal(daemonIdentity({ serverRoot, env: { ...both, HOME: "C:\\Users\\me", USERPROFILE: "C:\\Users\\me" }, platform: "win32" }).BGE_M3_ONNX_DIR, "c:/upper");
+});
+
 test("the daemon's process.env cannot be frozen, and shows what it holds", () => {
   const target = { env: { PATH: "/daemon/bin" } };
   scopeProcessEnvironment(target);

@@ -39,10 +39,11 @@ export class DaemonClientTransport {
    * @param {NodeJS.ProcessEnv} [options.env] - The session's environment: the build is computed from it,
    *   a daemon this transport starts gets it, and the session's tools run in it.
    * @param {string | null} [options.profiles] - The session's capability profiles; empty for the default
-   *   surface, `control` (with or without others) for the desktop app's tools.
+   *   surface, `control` (with or without others) for the desktop app's tools. Not given: what `env`
+   *   names, with the settings applied, as for a client's `ai-dev mcp` (docs/DEFECTS.md, Д-238).
    * @param {number} [options.timeoutMs] - How long to wait for a daemon this transport starts.
    */
-  constructor({ serverRoot, env = process.env, profiles = String(env.AI_DEV_PROFILES ?? ""), timeoutMs } = {}) {
+  constructor({ serverRoot, env = process.env, profiles = null, timeoutMs } = {}) {
     if (!serverRoot) throw new Error("DaemonClientTransport needs the serverRoot of the install whose daemon it reaches.");
     const version = JSON.parse(readFileSync(path.join(serverRoot, "package.json"), "utf8")).version;
     this.#options = { serverRoot, cliPath: path.join(serverRoot, "bin", "ai-dev.mjs"), version, env, profiles, timeoutMs };

@@ -286,7 +286,7 @@ The last lines of a log in the runtime home's logs folder — the daemon's by de
 
 ## `settings_get` (read-only)
 
-The settings the desktop app changes, from ~/.ai-dev/config.json: each value in force — an environment variable's where one overrides the file — where it comes from (default, the file, or that variable), the file's own values, what each setting means, and any stored value that is not valid. Read-only.
+The settings the desktop app changes, from ~/.ai-dev/config.json: each value in force for this session — an environment variable's where one overrides the file — and where it comes from, what the file says that this session does not use yet (pending: a model folder or profiles for sessions started afterwards, the idle time for the next daemon), the file's own values, what each setting means, and any stored value that is not valid. Read-only.
 
 **Input:**
 
@@ -296,8 +296,9 @@ No arguments.
 
 - `file` — string
 - `schema_version` — integer. The file's own; one newer than this version knows is listed in problems.
-- `settings` — object
-- `sources` — object. Per setting: default, file, or environment (NAME) when a variable overrides the file.
+- `settings` — object. Each value in force for this session: what it started with, where a change since applies to sessions started afterwards (new_session) or the next daemon (next_daemon).
+- `sources` — object. Per setting: default, file, or environment (NAME) when a variable overrides the file; "file, as this session started" or "default, as this session started" when the file says otherwise since.
+- `pending` — object. Per setting the file has changed since this session started: the value sessions started afterwards — or the next daemon — use. Reconnect to use it.
 - `problems` — array of string
 - `definitions` — array of objects
   - `name` — string
@@ -318,7 +319,8 @@ Change settings: each value is checked first, and nothing is written when one is
 **Answer** (`structuredContent.result`):
 
 - `changed` — array of string
-- `settings` — object
+- `settings` — object. Each value in force for this session, as settings_get has it.
+- `pending` — object. As settings_get has it: what this session does not use yet.
 - `applies` — object. Per changed setting: when the change takes effect.
 - `note` — string
 

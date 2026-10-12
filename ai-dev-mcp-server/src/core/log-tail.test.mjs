@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -79,7 +80,39 @@ test("a log that is a second name for a file elsewhere — a hard link — is re
     return t.skip(`no hard links here: ${error.code}`);
   }
   const { file } = resolveLogFile(logs, "hard");
-  await assert.rejects(tailLines(file, { links: false }), /hard\.log is a link: only the logs folder's own files are read/);
+  await assert.rejects(tailLines(file, { links: false }), /hard\.log has another name elsewhere \(a hard link\): only the logs folder's own files are read/);
   await fs.writeFile(path.join(logs, "own.log"), "one\ntwo\n");
   assert.deepEqual((await tailLines(resolveLogFile(logs, "own").file, { links: false })).lines, ["one", "two"], "a log of its own is read");
+});
+
+test("a log is read only as the file looked at: one replaced meanwhile, a folder and a FIFO are refused for what they are, and nothing waits (Д-238)", async (t) => {
+  const root = await folder(t);
+  const logs = path.join(root, "logs");
+  await fs.mkdir(logs);
+  // Replaced between the look and the open — where no O_NOFOLLOW stops a link, as on Windows, so is a link.
+  const swapped = path.join(logs, "swapped.log");
+  await fs.writeFile(swapped, "harmless\n");
+  const lstat = fs.lstat;
+  fs.lstat = async (...args) => {
+    const seen = await lstat.apply(fs, args);
+    if (args[0] === swapped) {
+      // Another file put in its place in one step, as a link would be.
+      await fs.writeFile(path.join(root, "secret.txt"), "TOP SECRET LINE\n");
+      await fs.rename(path.join(root, "secret.txt"), swapped);
+    }
+    return seen;
+  };
+  try {
+    await assert.rejects(tailLines(swapped, { links: false }), /swapped\.log was replaced while it was opened/);
+  } finally {
+    fs.lstat = lstat;
+  }
+  await fs.mkdir(path.join(logs, "folder.log"));
+  await assert.rejects(tailLines(path.join(logs, "folder.log"), { links: false }), /folder\.log is a folder: only the logs folder's own files are read/);
+  if (process.platform !== "win32") {
+    execFileSync("mkfifo", [path.join(logs, "pipe.log")]);
+    const started = Date.now();
+    await assert.rejects(tailLines(path.join(logs, "pipe.log"), { links: false }), /pipe\.log is not a plain file/);
+    assert.ok(Date.now() - started < 2000, "refused at once, not waited on");
+  }
 });

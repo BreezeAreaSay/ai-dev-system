@@ -32,6 +32,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { GENERATED_FILES, GENERATED_PREFIXES } from "../src/core/generated-vault-files.mjs";
 import {
   assertCleanDistribution,
   auditDistributionTree,
@@ -45,29 +46,13 @@ const seedRoot = path.join(repositoryRoot, "docker", "public-seed");
 const manifestName = "public-seed.manifest.json";
 const manifestPath = path.join(seedRoot, manifestName);
 
-const GENERATED_PREFIXES = [
-  "03-skills-catalog/registries/",
-  "03-skills-catalog/cards/",
-  "03-skills-catalog/groups/",
-  // A server without an Obsidian vault runs against this seed and writes its
-  // project cards here. Git ignores them; so does the seed.
-  "02-knowledge/Projects/"
-];
+// The registries, the notes and cards rendered from them, the dashboards
+// (`GENERATED_PREFIXES`, `GENERATED_FILES`): output, not seed content, so
+// running the server in a checkout must not read as seed drift.
 
 // Python bytecode from running the seed's own helper scripts. Git ignores it
 // everywhere, and a checkout that has run them is not a drifted seed.
 const GENERATED_PATTERN = /(?:^|\/)__pycache__\/|\.pyc$/;
-
-// Dashboards rendered on demand by `validate_skill_library`,
-// `rebuild_system_dashboard` and `render_knowledge_galaxy`. Like the registries
-// they are output, not seed content, so running any of them in a checkout must
-// not read as seed drift.
-const GENERATED_FILES = [
-  "03-skills-catalog/Skill Quality Dashboard.md",
-  "01-system/System Dashboard.md",
-  "01-system/system-dashboard.json",
-  "01-system/Knowledge Galaxy.html"
-];
 
 /**
  * @param {string} relativePath - Seed-relative path with forward slashes.

@@ -142,6 +142,14 @@ const PATH_VARIABLES = new Set([
 const foldName = (name, platform) => (platform === "win32" ? name.toUpperCase() : name);
 
 /**
+ * Whether `name` is the spelling a child process gets when an environment
+ * object holds two spellings of one name on Windows: Node's `spawn` keeps the
+ * first in sorted order (docs/DEFECTS.md, Д-238). An upper-case spelling sorts
+ * before every other.
+ */
+const spawnKeeps = (name, held) => held === undefined || name < held;
+
+/**
  * Whether two clients must set `name` alike to share a daemon.
  *
  * @param {string} name
@@ -168,9 +176,9 @@ export function daemonWideEnvironment(env, { platform = process.platform } = {})
     if (value === undefined || value === null || !String(value).trim()) continue;
     if (!isDaemonWide(name, { platform })) continue;
     const key = foldName(name, platform);
-    if (!found.has(key)) found.set(key, String(value));
+    if (spawnKeeps(name, found.get(key)?.[0])) found.set(key, [name, String(value)]);
   }
-  return [...found].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+  return [...found].map(([key, [, value]]) => [key, value]).sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
 /** The variables `daemonIdentity` resolves to a place rather than comparing as written. */
@@ -303,7 +311,7 @@ export function environmentObject(variables, { platform = process.platform } = {
   const entries = new Map();
   for (const [name, value] of Object.entries(variables ?? {})) {
     if (value === undefined || value === null) continue;
-    if (!entries.has(fold(name))) entries.set(fold(name), [name, String(value)]);
+    if (spawnKeeps(name, entries.get(fold(name))?.[0])) entries.set(fold(name), [name, String(value)]);
   }
   const own = (name) => typeof name === "string" && entries.has(fold(name));
   const store = (name, value) => {

@@ -1210,6 +1210,17 @@ four of those arrived as upstream issues #63–#66.
     cleared; a daemon of code from before a change of the build's parts was never asked to
     retire; a runtime home deleted under a retiring daemon came back with mode 755; two tests that
     did not test what they named.
+- **The fourth phase 8 review's findings** (`docs/DEFECTS.md`, Д-207 … Д-209), each reproduced
+  before the fix:
+  - the hooks' own copy of the proxy client still checked an `https://` proxy's certificate
+    against the target's name (Д-207, Д-206 in its second copy): behind a real `https://` proxy
+    the supply-chain hook could look nothing up and only warned. It now connects as the server's
+    copy does, and a test holds it to that;
+  - a daemon hung with its connection queue full — some 500 connections on Linux — was taken for
+    a gone one: `stop` said "Not running." and removed its record (Д-208). Only a refused
+    connection or a missing socket now means nothing listens there, and a retired daemon puts
+    back a record taken away while it lives;
+  - a test that left its daemon running after its folder was gone (Д-209).
 
 ### Security
 

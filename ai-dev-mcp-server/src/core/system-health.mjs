@@ -11,6 +11,7 @@
 import { dashboardSourceFingerprint } from "./system-dashboard.mjs";
 import { LAUNCH_MISSING_FILE, LAUNCH_UNKNOWN } from "./frontend-qa-launch.mjs";
 import { UI_UX_PYTHON_TOOLS } from "./python-failure.mjs";
+import { hint } from "./install-layout.mjs";
 
 /**
  * The `mcp-stdio.mjs` line budget. `scripts/static-quality.mjs` enforces it and
@@ -279,7 +280,7 @@ export function evaluateSearchIndexFreshness(status) {
   const other = Number(status.dense_other_model_documents || 0);
   const otherModel = other
     ? ` ${other} document(s) have dense vectors of another model, which hybrid search does not compare; `
-      + "run `npm run setup -- --model` to embed them with the installed one."
+      + `run \`${hint("npm run setup -- --model")}\` to embed them with the installed one.`
     : "";
   return {
     status: status.stale || other ? "warn" : "ok",
@@ -371,7 +372,7 @@ export function evaluateFrontendQaEnvironment(status) {
   if (!ready && !status.playwright_available) {
     return {
       status: "skipped",
-      summary: `Frontend QA is not set up: ${missing || "its browser"} is missing. Run \`npm run setup -- --frontend-qa\` to install it.${because ? ` ${because}` : ""}`,
+      summary: `Frontend QA is not set up: ${missing || "its browser"} is missing. Run \`${hint("npm run setup -- --frontend-qa")}\` to install it.${because ? ` ${because}` : ""}`,
       details: { optional: true, ...status }
     };
   }

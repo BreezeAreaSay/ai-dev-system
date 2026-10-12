@@ -34,8 +34,9 @@ import { resolveSpawnInvocation } from "../core/process-runner.mjs";
 import { createProgressPrinter } from "../core/progress-line.mjs";
 import { resolveRuntimeStateRoot } from "../core/runtime-home.mjs";
 import { evaluateFrontendQaEnvironment } from "../core/system-health.mjs";
+import { PACKAGE_NAME, currentInstallLayout, hint } from "../core/install-layout.mjs";
 import { installClients, renderResults, summarize } from "./clients.mjs";
-import { SERVER_ROOT } from "./context.mjs";
+import { SERVER_ROOT, tildify } from "./context.mjs";
 
 const REPOSITORY_ROOT = path.resolve(SERVER_ROOT, "..");
 const QA_ROOT = path.join(REPOSITORY_ROOT, "frontend-qa");
@@ -169,6 +170,11 @@ export async function run(argv, io) {
     io.out(usage());
     return EXIT.ok;
   }
+  // npx runs this from its cache, which npm may clear: the app is installed
+  // where it stays, and setup goes on from that copy, whose path the client
+  // configs will name.
+  const layout = currentInstallLayout();
+  if (layout.kind === "package" && layout.ephemeral) return continueFromAppHome({ argv, io, layout });
 
   // Data a 2.x install left one level too deep moves first, so every step
   // below finds it (docs/DEFECTS.md, Д-90).
@@ -180,6 +186,43 @@ export async function run(argv, io) {
     return await setup({ options, io, runtime: { callTool, vaultRoot, searchIndexPath, skillRoutingEvalCasesPath }, steps });
   } finally {
     await shutdownBgeWorkers();
+  }
+}
+
+/** Run npm without a shell; its output goes to stderr, beside this command's own. */
+async function runNpm(args, { cwd }) {
+  const invocation = await resolveSpawnInvocation("npm", args);
+  const code = await runCommand(invocation.executable, invocation.args, { cwd, stdio: ["ignore", 2, 2], shell: false });
+  if (code !== 0) throw new Error(`npm ${args[0]} exited with code ${code}.`);
+}
+
+async function continueFromAppHome({ argv, io, layout }) {
+  const { installAppHome } = await import("../core/app-home.mjs");
+  io.out(`This copy runs from npx's cache, which npm may clear: installing it into ${tildify(path.join(layout.runtimeRoot, "app"))} `
+    + "so that your AI clients keep working.");
+  let installed;
+  try {
+    installed = await installAppHome({ packageRoot: layout.root, runtimeRoot: layout.runtimeRoot, runNpm });
+  } catch (error) {
+    io.err(`Could not install it: ${error.message}`);
+    io.err(`Nothing else was changed. Run the same command again once npm can reach its registry, or install it for good: npm install -g ${PACKAGE_NAME}`);
+    return EXIT.failed;
+  }
+  io.out(`${installed.status === "present" ? "Already there" : "Installed"}: ${tildify(installed.folder)}.`);
+  for (const folder of installed.removed) io.out(`Removed an older copy: ${tildify(folder)}.`);
+  io.out("");
+  // The copy asks its own questions at this terminal, and a Ctrl-C reaches it
+  // as it reaches this process: this one only waits for its answer.
+  const ignore = () => undefined;
+  process.on("SIGINT", ignore);
+  try {
+    return await new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [installed.cli, "setup", ...argv], { stdio: "inherit", env: io.env, windowsHide: true, shell: false });
+      child.on("error", reject);
+      child.on("exit", (code, signal) => resolve(code ?? (signal === "SIGINT" ? EXIT.interrupted : EXIT.failed)));
+    });
+  } finally {
+    process.off("SIGINT", ignore);
   }
 }
 
@@ -356,7 +399,7 @@ async function setup({ options, io, runtime, steps }) {
     clientsFailed = connected.some((result) => result.status === "failed");
   } else {
     say("");
-    say("AI clients: not changed. `ai-dev clients install` (from a clone: npm run clients:install) connects them.");
+    say(`AI clients: not changed. \`${hint("npm run clients:install")}\` connects them.`);
   }
 
   if (options.health) {

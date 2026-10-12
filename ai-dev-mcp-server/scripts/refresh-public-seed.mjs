@@ -14,6 +14,7 @@ import {
   ownerUsername,
   VENDORED_SEED_CATALOGUES
 } from "../src/core/public-distribution.mjs";
+import { npmLeavesOut } from "../src/core/distribution-build.mjs";
 import { isDirectExecution } from "../src/core/direct-execution.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -53,7 +54,10 @@ function excludedSource(relative, entry) {
     "node_modules"
   ].includes(segment))
     || entry.name === ".DS_Store"
-    || /\.pyc$/i.test(entry.name);
+    || /\.pyc$/i.test(entry.name)
+    // A name `npm pack` drops would be missing from every installed package,
+    // and the vault sync would wait for it forever (docs/DEFECTS.md, Д-175).
+    || npmLeavesOut(relative.replaceAll("\\", "/"));
 }
 
 function assertGeneratedTarget(target) {
@@ -161,7 +165,7 @@ async function copySkillSources(vaultRoot, stage) {
         exclude: directory === "node_modules"
           // `simple-icons` (~23 MB) is only used by the brand-mark generator,
           // never at runtime, so the clean seed omits it.
-          ? (relative, entry) => entry.name === ".DS_Store" || entry.name === "simple-icons"
+          ? (relative, entry) => entry.name === "simple-icons" || npmLeavesOut(relative.replaceAll("\\", "/"))
           : excludedSource,
         // Nested dependencies (`ajv/node_modules/fast-uri`) are part of the same
         // approved vendored tree; without this the copy drops them and archify

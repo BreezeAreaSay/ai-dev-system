@@ -12,6 +12,7 @@
  * Pure on purpose: every probe arrives as a value, so each state — including
  * the ones only a stranger's machine reaches — is a test case.
  */
+import { hint } from "./install-layout.mjs";
 
 /** The backend's name, as status payloads and index metadata record it. */
 export const DENSE_ONNX_BACKEND = "onnx";
@@ -19,11 +20,11 @@ export const DENSE_ONNX_BACKEND = "onnx";
 /** What `AI_DEV_DENSE_BACKEND` accepts. `python` is still recognised, to explain itself. */
 export const DENSE_BACKEND_CHOICES = Object.freeze(["auto", DENSE_ONNX_BACKEND]);
 
-/** The one command that installs the model and embeds the documents with it. */
-export const DENSE_INSTALL_COMMAND = "npm run setup -- --model";
+/** The one command that installs the model and embeds the documents with it, as this install spells it. */
+export const DENSE_INSTALL_COMMAND = hint("npm run setup -- --model");
 
 /** The command that copies the model from a folder or archive another machine made. */
-export const DENSE_IMPORT_COMMAND = "npm run model -- import <folder or .zip>";
+export const DENSE_IMPORT_COMMAND = hint("npm run model -- import <folder or .zip>");
 
 /** Variables of the removed Python backend, each with what it used to do. */
 export const LEGACY_DENSE_VARIABLES = Object.freeze({

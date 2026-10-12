@@ -25,7 +25,8 @@
         "scripts/docker-bootstrap.mjs",
         "scripts/first-run-steps.mjs",
         "scripts/protocol-smoke.mjs",
-        "scripts/rebuild-live-state.mjs"
+        "scripts/rebuild-live-state.mjs",
+        "scripts/verify-distribution.mjs"
       ],
       "exclude": ["**/*.test.mjs"]
     },

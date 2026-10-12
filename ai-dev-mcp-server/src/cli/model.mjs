@@ -15,6 +15,7 @@ import { denseDoctorStages, renderDenseDoctorReport, runDenseDoctor } from "../c
 import { readDenseManifest } from "../core/dense-manifest.mjs";
 import { createOnnxDenseRuntime, defaultOnnxModelDir } from "../core/dense-onnx.mjs";
 import { formatBytes } from "../core/disk-space.mjs";
+import { hint } from "../core/install-layout.mjs";
 import { proxyFor } from "../core/http-download.mjs";
 import { denseRuntimeSupport, importModel, installModel, modelStatus, removeModel, verifyModel } from "../core/model-manager.mjs";
 import { createProgressPrinter } from "../core/progress-line.mjs";
@@ -205,8 +206,8 @@ export async function run(argv, io) {
         say(`Model: ${manifest.export} @ ${String(manifest.revision).slice(0, 12)} (${manifest.dtype}) in ${status.dir}`);
         say(status.installed ? "Installed: yes, every file matches the manifest." : "Installed: no.");
         if (status.missing.length) say(`Missing: ${status.missing.join(", ")}`);
-        if (status.mismatched.length) say(`Not the pinned files: ${status.mismatched.join(", ")} — \`npm run model -- install\` fetches them again.`);
-        for (const part of status.partial) say(`Stopped partway: ${part.file}, ${formatBytes(part.bytes)}${part.size ? ` of ${formatBytes(part.size)}` : ""} — \`npm run model -- install\` continues it.`);
+        if (status.mismatched.length) say(`Not the pinned files: ${status.mismatched.join(", ")} — \`${hint("npm run model -- install")}\` fetches them again.`);
+        for (const part of status.partial) say(`Stopped partway: ${part.file}, ${formatBytes(part.bytes)}${part.size ? ` of ${formatBytes(part.size)}` : ""} — \`${hint("npm run model -- install")}\` continues it.`);
         say(`Download from: ${status.sources_error || status.sources.map((url) => new URL(url).host).join(", ") || "nowhere, the manifest lists no sources"}`);
         if (!status.supported) say(status.support_reason);
         for (const note of notes) say(`Note: ${note}`);
@@ -234,13 +235,13 @@ export async function run(argv, io) {
         if (!placed.ready) {
           const wrong = [...(placed.missing ?? []), ...(placed.mismatched ?? [])];
           throw new Error(`The model in ${dir} is not complete${wrong.length ? `: ${wrong.join(", ")} missing or not the pinned file` : ""}. `
-            + "`npm run model -- status` says what is there.");
+            + `\`${hint("npm run model -- status")}\` says what is there.`);
         }
         say(command === "install"
           ? `Model in place: ${dir} — ${placed.downloaded} file(s) fetched${placed.resumed ? `, ${placed.resumed} continued` : ""}, ${formatBytes(placed.bytes)} over the network.`
           : `Model in place: ${dir} — ${placed.copied.length} file(s) copied from ${placed.from}, ${placed.skipped.length} already here.`);
         const embedded = values.index && support.supported ? await embedDocuments({ say, progress, signal: stop.signal }) : null;
-        if (!values.index) say("Documents not embedded (--no-index): `npm run setup -- --model` does it later.");
+        if (!values.index) say(`Documents not embedded (--no-index): \`${hint("npm run setup -- --model")}\` does it later.`);
         return { ok: true, model: placed, index: embedded };
       }
       case "remove": {

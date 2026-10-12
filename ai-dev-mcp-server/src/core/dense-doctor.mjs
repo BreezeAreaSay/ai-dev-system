@@ -20,6 +20,7 @@
  */
 import { BLOCKED_DOWNLOAD_ADVICE } from "./dense-download.mjs";
 import { formatBytes } from "./disk-space.mjs";
+import { hint, runtimeRepairHint } from "./install-layout.mjs";
 
 /**
  * The Node this repository requires: the ONNX runtime runs on older ones, but
@@ -161,7 +162,7 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
     {
       key: "runtime",
       title: "onnxruntime-node loads",
-      advice: "Run `npm ci` in ai-dev-mcp-server/ to restore the package. If it still fails, the message above names "
+      advice: `Restore the package: ${runtimeRepairHint()}. If it still fails, the message above names `
         + "what the system lacks.",
       run: async () => {
         // A machine with no build is a fact to state, not an error to dig
@@ -197,22 +198,22 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
           return {
             ok: false,
             detail: `these do not match the manifest: ${status.mismatched.join(", ")}`,
-            advice: "Run `npm run setup -- --model`: it fetches the files that do not match again. "
-              + "`npm run model -- remove` clears the folder first, if you would rather start clean."
+            advice: `Run \`${hint("npm run setup -- --model")}\`: it fetches the files that do not match again. `
+              + `\`${hint("npm run model -- remove")}\` clears the folder first, if you would rather start clean.`
           };
         }
         const partial = (status.partial ?? []).map((entry) => `${entry.file} (${formatBytes(entry.bytes)} so far)`);
         return {
           ok: false,
           detail: `missing from ${status.dir}: ${status.missing.join(", ")}${partial.length ? `; a download stopped partway: ${partial.join(", ")}` : ""}`,
-          advice: `Run \`npm run setup -- --model\` to ${partial.length ? "continue" : "start"} the download (about 600 MB, no Python). ${BLOCKED_DOWNLOAD_ADVICE}`
+          advice: `Run \`${hint("npm run setup -- --model")}\` to ${partial.length ? "continue" : "start"} the download (about 600 MB, no Python). ${BLOCKED_DOWNLOAD_ADVICE}`
         };
       }
     },
     {
       key: "load",
       title: "model loads",
-      advice: "The files verified but the runtime would not load them. Run `npm run model -- remove`, then `npm run setup -- --model`.",
+      advice: `The files verified but the runtime would not load them. Run \`${hint("npm run model -- remove")}\`, then \`${hint("npm run setup -- --model")}\`.`,
       run: async () => {
         const loaded = await loadModel(manifest);
         return { ok: true, detail: `loaded in ${loaded.seconds}s` };

@@ -36,6 +36,7 @@ import { keywordSearch, MAX_RESULTS } from "./search-query.mjs";
 import { createIndexReader, sqliteSupport } from "./search-sqlite.mjs";
 import { densePlan, indexStatus, rebuildIndex, storeDenseVectors } from "./search-store.mjs";
 import { csvValue } from "./text-format.mjs";
+import { hint } from "./install-layout.mjs";
 
 /** How long a fresh-index verdict is trusted before it is checked again. */
 const FRESHNESS_CACHE_MS = 1000;
@@ -551,7 +552,7 @@ export function createSearchIndexRuntime({
     // a 2.x index made by another one (docs/DEFECTS.md, Д-148): the dense half
     // did not run, and the answer says so instead of ranking as if it had.
     if (results.dense_unmatched && !denseIssue) {
-      denseIssue = "no indexed document has a vector of the installed model yet; `npm run setup -- --model` embeds them";
+      denseIssue = `no indexed document has a vector of the installed model yet; \`${hint("npm run setup -- --model")}\` embeds them`;
     }
     let ranked = results;
     if (

@@ -7,7 +7,10 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { fileURLToPath } from "node:url";
+import { APP_MARKER, appCli, appFolder } from "../core/app-home.mjs";
 import { EXIT } from "../core/cli-args.mjs";
+import { DISTRIBUTION_MARKER, PACKAGE_NAME, currentInstallLayout } from "../core/install-layout.mjs";
+import { explicitRuntimeHome } from "../core/runtime-home.mjs";
 
 /** `ai-dev-mcp-server/` of this install. */
 export const SERVER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -109,12 +112,43 @@ function vaultAround(serverRoot) {
  * The command line a client starts this install with: this Node, by its full
  * path, so a client that does not inherit the shell's PATH (Claude Desktop on
  * macOS, any GUI app launched from the Dock) still finds it; this CLI's file;
- * `mcp`. A vault install passes its vault on, as 2.x did.
+ * `mcp`. A vault install passes its vault on, as 2.x did, and a runtime folder
+ * named by `AI_DEV_HOME` goes with it too: a client started from the Dock does
+ * not see the shell's variables, and its server would look for the index,
+ * the state and a package's vault in ~/.ai-dev instead (docs/DEFECTS.md, Д-176).
  *
- * @param {{ env?: NodeJS.ProcessEnv, execPath?: string, cliPath?: string, serverRoot?: string }} [options]
+ * A package npx runs from its cache is launched from the copy `setup`
+ * installed in the app home, never from the cache npm may clear.
+ *
+ * @param {{ env?: NodeJS.ProcessEnv, execPath?: string, cliPath?: string, serverRoot?: string, layout?: import("../core/install-layout.mjs").InstallLayout, appCliPath?: () => string }} [options]
  * @returns {{ command: string, args: string[], env: Record<string, string> }}
  */
-export function localLaunch({ env = process.env, execPath = process.execPath, cliPath = CLI_PATH, serverRoot = SERVER_ROOT } = {}) {
+export function localLaunch({ env = process.env, execPath = process.execPath, cliPath = CLI_PATH, serverRoot = SERVER_ROOT, layout = currentInstallLayout(), appCliPath = () => installedAppCli(layout) } = {}) {
   const vault = env.AI_DEV_VAULT_ROOT ? path.resolve(env.AI_DEV_VAULT_ROOT) : vaultAround(serverRoot);
-  return { command: execPath, args: [cliPath, "mcp"], env: vault ? { AI_DEV_VAULT_ROOT: vault } : {} };
+  const runtimeHome = explicitRuntimeHome(env);
+  let cli = cliPath;
+  if (layout.kind === "package" && layout.ephemeral) {
+    cli = appCliPath();
+    if (!cli) {
+      throw Object.assign(new Error(`This copy runs from npx's cache (${layout.root}), which npm may clear, so a client config must not name it. `
+        + `Run \`npx ${PACKAGE_NAME} setup\` first: it installs a copy that stays, and connects the clients to it.`), { exitCode: EXIT.failed });
+    }
+  }
+  return {
+    command: execPath,
+    args: [cli, "mcp"],
+    env: { ...(vault ? { AI_DEV_VAULT_ROOT: vault } : {}), ...(runtimeHome ? { AI_DEV_HOME: runtimeHome } : {}) }
+  };
+}
+
+/** The CLI of the copy `setup` installed in the app home for this very package, or "". */
+function installedAppCli(layout) {
+  try {
+    const distribution = JSON.parse(readFileSync(path.join(layout.root, DISTRIBUTION_MARKER), "utf8"));
+    const folder = appFolder(layout.runtimeRoot, distribution);
+    const marker = JSON.parse(readFileSync(path.join(folder, APP_MARKER), "utf8"));
+    return marker.content_fingerprint === distribution.content_fingerprint && existsSync(appCli(folder)) ? appCli(folder) : "";
+  } catch {
+    return "";
+  }
 }

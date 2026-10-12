@@ -24,6 +24,7 @@ import process from "node:process";
 import tls from "node:tls";
 import { promisify } from "node:util";
 import zlib from "node:zlib";
+import { hint } from "./install-layout.mjs";
 
 /** Redirects followed before a source is given up on. */
 export const MAX_REDIRECTS = 10;
@@ -180,7 +181,7 @@ function signInHint(proxy, challenge) {
   if (schemes && !/\bbasic\b/.test(schemes)) {
     const named = /negotiate|kerberos/.test(schemes) ? "Negotiate (Kerberos)" : /ntlm/.test(schemes) ? "NTLM" : "a sign-in";
     return ` The proxy asks for ${named}, which this download does not speak: point HTTPS_PROXY at a local proxy that `
-      + "signs in for it (cntlm, px), or copy the model from a machine that has it: `npm run model -- import <folder or .zip>`.";
+      + `signs in for it (cntlm, px), or copy the model from a machine that has it: \`${hint("npm run model -- import <folder or .zip>")}\`.`;
   }
   if (proxy.username || proxy.password) return " The proxy did not accept the user name and password in the proxy URL.";
   return " The proxy wants credentials: put them in the proxy URL, as http://user:password@host:port.";

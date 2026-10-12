@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "policy": "explicit allowlist; no private vault zones or local runtime state",
-  "total_files": 1575,
-  "total_bytes": 21893684,
-  "content_fingerprint": "67c133f4e63f4148f6cacd6bbc62a10fceba6dcbc6e1a2774f1fa67a12485193",
+  "total_files": 1574,
+  "total_bytes": 21893646,
+  "content_fingerprint": "c1cef54bd80eb840644aa1c33986b09ff1f83ce283eff4986361b67f490439e9",
   "files": [
     {
       "path": "01-system/Agent Rules.md",
@@ -7239,11 +7239,6 @@
       "path": "03-skills-catalog/sources/external/membrane/skills/zuplo/SKILL.md",
       "bytes": 6464,
       "sha256": "50e703807c0c6d78e3d1a14ed74a31efdf54751a31a4b42411dd02dba2a3949f"
-    },
-    {
-      "path": "03-skills-catalog/sources/external/ui-ux-pro-max/.gitignore",
-      "bytes": 38,
-      "sha256": "599e8d09a18b6bac6f70ed12bf96f67e49c4d992ee2601bc173d92fbcb64b11d"
     },
     {
       "path": "03-skills-catalog/sources/external/ui-ux-pro-max/data/app-interface.csv",

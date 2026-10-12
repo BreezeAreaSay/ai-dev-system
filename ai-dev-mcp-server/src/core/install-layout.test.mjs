@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { OWN_SERVER_ROOT, PACKAGE_NAME, hint, isEphemeralInstall, resolveInstallLayout } from "./install-layout.mjs";
+import { OWN_SERVER_ROOT, PACKAGE_NAME, hint, isEphemeralInstall, resolveInstallLayout, runtimeRepairHint } from "./install-layout.mjs";
 
 const home = path.resolve("/home/me");
 const env = (extra = {}) => ({ HOME: home, USERPROFILE: "", ...extra });
@@ -88,4 +88,16 @@ test("hints are spelled the way each layout runs them", () => {
   assert.equal(hint("npm run doctor", { kind: "docker", ephemeral: false, appHome: false }), "ai-dev doctor");
   assert.equal(hint("npm run check", global), "npm run check", "a script only a checkout has stays as written");
   assert.equal(hint("git pull", global), "git pull");
+});
+
+test("the model runtime's way back depends on how the package got here (Д-174)", () => {
+  const linux = { platform: "linux", arch: "x64" };
+  assert.equal(runtimeRepairHint({ kind: "clone" }, linux), "run `npm ci` in ai-dev-mcp-server/");
+  assert.match(runtimeRepairHint({ kind: "package", ephemeral: true }, linux), /^run `npx @stonebridgeway\/ai-dev-system setup`/);
+  assert.equal(runtimeRepairHint({ kind: "package", appHome: true, root: "/home/me/.ai-dev/app/3.0.0-abcdef12" }, linux),
+    "run `npm ci --omit=dev --ignore-scripts` in /home/me/.ai-dev/app/3.0.0-abcdef12");
+  assert.match(runtimeRepairHint({ kind: "package" }, linux), /ONNXRUNTIME_NODE_INSTALL=skip npm install -g @stonebridgeway\/ai-dev-system$/);
+  assert.equal(runtimeRepairHint({ kind: "package" }, { platform: "win32", arch: "x64" }), `install the package again: npm install -g ${PACKAGE_NAME}`,
+    "only Linux x64 has the CUDA download to skip");
+  assert.match(runtimeRepairHint({ kind: "docker" }), /image/);
 });

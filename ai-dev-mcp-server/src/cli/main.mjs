@@ -30,7 +30,8 @@ export const COMMANDS = new Map([
   ["galaxy", { group: "Maintenance", summary: "Render the vault as a 3D galaxy (HTML)", load: runtime }],
   ["distribution", { group: "Maintenance", summary: "Check the runtime distribution boundaries", load: runtime }],
   ["acceptance", { group: "Maintenance", summary: "Run the acceptance suite (a source checkout only)", load: runtime }],
-  ["backup", { group: "Maintenance", summary: "ZIP backup of the vault (Windows vault installs only)", load: runtime }]
+  ["backup", { group: "Maintenance", summary: "ZIP backup of the vault and AI Dev's state, with every file's sha256", load: () => import("./backup.mjs") }],
+  ["restore", { group: "Maintenance", summary: "Put a backup back (--confirm)", load: () => import("./backup.mjs") }]
 ]);
 
 /** Names that used to work, kept as synonyms. */

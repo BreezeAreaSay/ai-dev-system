@@ -199,3 +199,35 @@ test("Ctrl-C at a question stops with 130, as Ctrl-C anywhere else does (Д-172)
   assert.equal(await ask("n\r", true), false);
   assert.equal(await ask("\r", true), true, "Enter takes the default");
 });
+
+test("`ai-dev backup` and `ai-dev restore` run on every system, and a restore asks for --confirm (Д-104)", async (t) => {
+  const home = await tempDir(t);
+  const vault = path.join(home, "vault");
+  const runtime = path.join(home, "rt");
+  await fs.mkdir(path.join(vault, "01-system"), { recursive: true });
+  await fs.writeFile(path.join(vault, "01-system", "Agent Rules.md"), "mine\n");
+  await fs.mkdir(path.join(runtime, "state"), { recursive: true });
+  await fs.writeFile(path.join(runtime, "state", "instincts.json"), "{}\n");
+  const env = homeEnv(home, { AI_DEV_HOME: runtime, AI_DEV_VAULT_ROOT: vault });
+
+  const made = await runNode([cli, "backup", "before", "--to", path.join(home, "b"), "--json"], { env });
+  assert.equal(made.code, 0, made.stderr);
+  const backup = JSON.parse(made.stdout);
+  assert.equal(backup.status, "created");
+  assert.equal(backup.files, 2);
+  assert.match(path.basename(backup.archive), /^ai-dev-system_.+_before\.zip$/);
+
+  const unconfirmed = await runNode([cli, "restore", backup.archive, "--to", path.join(home, "r")], { env });
+  assert.equal(unconfirmed.code, 2);
+  assert.match(unconfirmed.stderr, /add --confirm to go ahead/);
+  await assert.rejects(fs.access(path.join(home, "r")));
+
+  const inPlace = await runNode([cli, "restore", backup.archive, "--confirm"], { env });
+  assert.equal(inPlace.code, 1, "the files are there: nothing is written over without --overwrite");
+  assert.match(inPlace.stderr, /2 file\(s\) would be written over/);
+
+  const restored = await runNode([cli, "restore", backup.archive, "--confirm", "--to", path.join(home, "r"), "--json"], { env });
+  assert.equal(restored.code, 0, restored.stderr);
+  assert.equal(JSON.parse(restored.stdout).restored, 2);
+  assert.equal(await fs.readFile(path.join(home, "r", "vault", "01-system", "Agent Rules.md"), "utf8"), "mine\n");
+});

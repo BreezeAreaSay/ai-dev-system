@@ -284,3 +284,24 @@ test("the test runtime pins every place the migration takes from ~/.codex: a tes
   // test/setup.mjs runs before every test file and keeps HOME as it is.
   assert.deepEqual(CODEX_LEGACY_FOLDERS.filter((folder) => !process.env[folder.variable]).map((folder) => folder.variable), []);
 });
+
+test("nothing looks for the Codex desktop runtime any more: not the server, not a script (Д-104)", async () => {
+  const repository = path.resolve(import.meta.dirname, "..", "..", "..");
+  const places = [
+    path.join(repository, "scripts"),
+    path.join(repository, "ai-dev-mcp-server", "scripts"),
+    path.join(repository, "ai-dev-mcp-server", "src"),
+    path.join(repository, "ai-dev-mcp-server", "hooks"),
+    path.join(repository, "ai-dev-mcp-server", "bin")
+  ];
+  const offenders = [];
+  for (const place of places) {
+    for (const name of await fs.readdir(place, { recursive: true })) {
+      if (!/\.(?:m?js|ps1|sh)$/.test(name) || /\.test\.mjs$/.test(name)) continue;
+      const text = await fs.readFile(path.join(place, name), "utf8");
+      // The runtime Codex shipped, by any of the paths 2.x looked in.
+      if (/codex-runtimes|\.codex[\\/]runtimes|codex-primary-runtime/i.test(text)) offenders.push(path.relative(repository, path.join(place, name)));
+    }
+  }
+  assert.deepEqual(offenders, []);
+});

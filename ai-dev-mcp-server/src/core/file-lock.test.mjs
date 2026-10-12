@@ -16,6 +16,7 @@ import {
   processAlive,
   readLock,
   sameLock,
+  tryAcquireFileLock,
   withFileLock
 } from "./file-lock.mjs";
 import * as hookLib from "../../hooks/lib.mjs";
@@ -319,3 +320,58 @@ test("a reader racing the heartbeat always finds a whole holder", async () => {
   }
 });
 
+
+test("a lock held for a process's life is taken now or its holder named, never waited for", async () => {
+  const target = await tempFile("daemon.json");
+  const first = await tryAcquireFileLock(target, { record: { started_at: 123 } });
+  assert.equal(typeof first.release, "function");
+  const holder = (await readLock(lockPathFor(target))).holder;
+  assert.equal(holder.pid, process.pid);
+  assert.equal(holder.started_at, 123, "the caller's own fields ride along");
+  assert.equal(await first.holds(), true);
+  const started = Date.now();
+  const second = await tryAcquireFileLock(target);
+  assert.ok(Date.now() - started < 500, "a live holder is reported at once");
+  assert.equal(second.release, undefined);
+  assert.equal(second.observed.holder.token, first.token);
+  await first.release();
+  assert.equal(await first.holds(), false);
+  const third = await tryAcquireFileLock(target);
+  assert.equal(await third.holds(), true);
+  await third.release();
+});
+
+test("a daemon's lock: a dead holder's is broken, an empty one in the making is left to its maker (Д-193)", async () => {
+  const target = await tempFile("daemon.json");
+  await fs.writeFile(lockPathFor(target), JSON.stringify({ pid: DEAD_PID, host: os.hostname(), token: "dead", acquired_at: Date.now() }));
+  const taken = await tryAcquireFileLock(target);
+  assert.equal(typeof taken.release, "function", "a dead holder's lock is taken over");
+  await taken.release();
+
+  // Created, not yet written: another daemon between open and write.
+  await fs.writeFile(lockPathFor(target), "");
+  const young = await tryAcquireFileLock(target);
+  assert.equal(young.release, undefined, "a lock this young may be one being made");
+  assert.equal(young.observed.holder, null);
+  const old = new Date(Date.now() - EMPTY_LOCK_GRACE_MS - 1_000);
+  await fs.utimes(lockPathFor(target), old, old);
+  const after = await tryAcquireFileLock(target);
+  assert.equal(typeof after.release, "function", "one empty for longer than a write takes was abandoned");
+  await after.release();
+});
+
+test("a stuck holder's lock can be forced, but only while it is the lock observed", async () => {
+  const target = await tempFile("daemon.json");
+  const stuck = await tryAcquireFileLock(target, { heartbeatMs: 20 });
+  const observed = (await tryAcquireFileLock(target)).observed;
+  assert.equal(await breakStaleLock(lockPathFor(target), observed), false, "it is live: an ordinary break leaves it");
+  assert.equal(await breakStaleLock(lockPathFor(target), observed, { force: true }), true);
+  assert.equal(await stuck.holds(), false);
+  const next = await tryAcquireFileLock(target);
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  assert.equal(await next.holds(), true, "the old holder's heartbeat does not write over the new lock");
+  assert.equal(await breakStaleLock(lockPathFor(target), observed, { force: true }), false, "a lock taken since is another lock");
+  await stuck.release();
+  assert.equal(await next.holds(), true, "the old holder's release leaves the new lock alone");
+  await next.release();
+});

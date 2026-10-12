@@ -20,6 +20,7 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
+import { performance } from "node:perf_hooks";
 import {
   collapseWhitespace,
   encodeUtf8,
@@ -263,10 +264,10 @@ function realPathOrEmpty(target) {
  * thousands of folders, not one of them indexed as a note — are not listed.
  *
  * @param {string} root
- * @param {(directory: string, name: string) => void} visit - Called per non-directory entry.
  * @param {{ platform?: string }} [options]
+ * @returns {Generator<[string, string]>} each non-directory entry, as its directory and name
  */
-function walk(root, visit, { platform = process.platform } = {}) {
+function* walk(root, { platform = process.platform } = {}) {
   const followLinks = platform === "win32";
   // With links followed, each directory carries the real paths of the
   // directories it was reached through, to see a link back into them.
@@ -287,7 +288,7 @@ function walk(root, visit, { platform = process.platform } = {}) {
     } finally {
       handle?.closeSync();
     }
-    for (const name of files) visit(directory, name);
+    for (const name of files) yield [directory, name];
     for (let index = directories.length - 1; index >= 0; index -= 1) {
       const name = directories[index];
       if (SKIP_DIRS.has(name)) continue;
@@ -348,19 +349,22 @@ function noteDoc(filePath, rel, name) {
  * @returns {object[]}
  */
 export function loadNoteDocs(vaultRoot, memo = direct, finish = asIs, platform = process.platform) {
-  const docs = [];
-  walk(vaultRoot, (directory, name) => {
-    if (!name.toLowerCase().endsWith(".md")) return;
+  return [...noteDocs(vaultRoot, memo, finish, platform)];
+}
+
+/** {@link loadNoteDocs}, one note at a time. */
+function* noteDocs(vaultRoot, memo, finish, platform) {
+  for (const [directory, name] of walk(vaultRoot, { platform })) {
+    if (!name.toLowerCase().endsWith(".md")) continue;
     const filePath = path.join(directory, name);
     const rel = path.relative(vaultRoot, filePath).split(path.sep).join("/");
-    if (shouldSkipMarkdown(rel)) return;
+    if (shouldSkipMarkdown(rel)) continue;
     const doc = memo("note", filePath, () => {
       const built = noteDoc(filePath, rel, name);
       return built && finish(built);
     });
-    if (doc) docs.push(doc);
-  }, { platform });
-  return docs;
+    if (doc) yield doc;
+  }
 }
 
 /** What `for value in x` iterates for a JSON value; nothing where Python would raise. */
@@ -571,9 +575,13 @@ function projectFileDoc(projectRoot, segments, source, categories, filePath, rel
  * @returns {object[]}
  */
 export function loadProjectFileDocs(vaultRoot, { platform = process.platform, memo = direct, finish = asIs } = {}) {
+  return [...projectFileDocs(vaultRoot, { platform, memo, finish })];
+}
+
+/** {@link loadProjectFileDocs}, one file at a time. */
+function* projectFileDocs(vaultRoot, { platform, memo, finish }) {
   const projectsDir = path.join(vaultRoot, ...PROJECTS_DIR);
-  if (!fs.existsSync(projectsDir)) return [];
-  const docs = [];
+  if (!fs.existsSync(projectsDir)) return;
   for (const card of projectCards(projectsDir, platform)) {
     if (path.basename(card).toLowerCase() === "projects index.md") continue;
     const declared = memo("card", card, () => {
@@ -597,10 +605,9 @@ export function loadProjectFileDocs(vaultRoot, { platform = process.platform, me
         const built = projectFileDoc(projectRoot, segments, source, categories, filePath, relative);
         return built && finish(built);
       });
-      if (doc) docs.push(doc);
+      if (doc) yield doc;
     }
   }
-  return docs;
 }
 
 /**
@@ -619,14 +626,43 @@ export function loadProjectFileDocs(vaultRoot, { platform = process.platform, me
  * @returns {{ docs: object[], duplicates: number }}
  */
 export function collectDocuments({ vaultRoot, includeExternalProjectFiles = true, platform = process.platform, cache = null }) {
+  return settleDocuments([...documentsOf({ vaultRoot, includeExternalProjectFiles, platform, cache })], cache);
+}
+
+/**
+ * {@link collectDocuments} for a rebuild, without a cache, that gives the
+ * event loop a turn every `sliceMs`. In the daemon one rebuild reads every
+ * note while other clients search; read in one go, 13 000 notes held their
+ * searches for 1.7 s (docs/DEFECTS.md, Д-194).
+ *
+ * @param {{ vaultRoot: string, includeExternalProjectFiles?: boolean, platform?: string }} options
+ * @param {{ sliceMs?: number }} [pace]
+ * @returns {Promise<{ docs: object[], duplicates: number }>}
+ */
+export async function collectDocumentsYielding({ vaultRoot, includeExternalProjectFiles = true, platform = process.platform }, { sliceMs = 15 } = {}) {
+  const all = [];
+  let since = performance.now();
+  for (const doc of documentsOf({ vaultRoot, includeExternalProjectFiles, platform, cache: null })) {
+    all.push(doc);
+    if (performance.now() - since < sliceMs) continue;
+    await new Promise((resolve) => setImmediate(resolve));
+    since = performance.now();
+  }
+  return settleDocuments(all, null);
+}
+
+/** Every document of the vault in collection order, duplicates included. */
+function* documentsOf({ vaultRoot, includeExternalProjectFiles, platform, cache }) {
   const root = path.resolve(vaultRoot);
   const memo = memoFor(cache);
   const finish = cache ? withoutBody : asIs;
-  const all = [
-    ...loadNoteDocs(root, memo, finish, platform),
-    ...loadSkillDocs(root, memo, finish),
-    ...(includeExternalProjectFiles ? loadProjectFileDocs(root, { platform, memo, finish }) : [])
-  ];
+  yield* noteDocs(root, memo, finish, platform);
+  yield* loadSkillDocs(root, memo, finish);
+  if (includeExternalProjectFiles) yield* projectFileDocs(root, { platform, memo, finish });
+}
+
+/** One document per id, the first one collected; and the cache cut to what this collection saw. */
+function settleDocuments(all, cache) {
   if (cache) {
     for (const entry of cache.entries.keys()) if (!cache.visited.has(entry)) cache.entries.delete(entry);
     cache.visited.clear();

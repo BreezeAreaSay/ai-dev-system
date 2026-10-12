@@ -1,4 +1,18 @@
-import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
+import { ReadBuffer, STDIO_DEFAULT_MAX_BUFFER_SIZE, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
+
+/**
+ * The largest message a session takes: the SDK's own limit for stdio, so a
+ * client meets the same bound whether it is served by the daemon or in its own
+ * process. The bridge refuses a longer one itself (`daemon-bridge.mjs`).
+ */
+export const MAX_MESSAGE_BYTES = STDIO_DEFAULT_MAX_BUFFER_SIZE;
+
+/**
+ * Room above one message in the read buffer: the rest of the socket read that
+ * ends it, so a message of the largest size is never refused for the bytes
+ * that came with it.
+ */
+const READ_SLACK_BYTES = 1024 * 1024;
 
 /**
  * MCP's line-delimited JSON transport, carried over a local socket.
@@ -10,8 +24,9 @@ import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/s
  */
 export class SocketServerTransport {
   #socket;
-  #buffer = new ReadBuffer();
+  #buffer = new ReadBuffer({ maxBufferSize: MAX_MESSAGE_BYTES + READ_SLACK_BYTES });
   #buffered;
+  #scope;
   #started = false;
   #closed = false;
 
@@ -21,12 +36,16 @@ export class SocketServerTransport {
 
   /**
    * @param {import("node:net").Socket} socket - An already-connected socket.
-   * @param {{ buffered?: Buffer }} [options] - Bytes read past the daemon's
-   *   handshake: the start of the MCP stream, which must not be lost.
+   * @param {{ buffered?: Buffer, scope?: (deliver: () => void) => void }} [options] -
+   *   `buffered`: bytes read past the daemon's handshake, the start of the MCP
+   *   stream, which must not be lost. `scope`: runs the delivery of each message,
+   *   so that everything it sets off runs in the session's environment
+   *   (`src/core/session-env.mjs`).
    */
-  constructor(socket, { buffered } = {}) {
+  constructor(socket, { buffered, scope = (deliver) => deliver() } = {}) {
     this.#socket = socket;
     this.#buffered = buffered;
+    this.#scope = scope;
   }
 
   /**
@@ -75,7 +94,7 @@ export class SocketServerTransport {
         continue;
       }
       if (message === null) return;
-      this.onmessage?.(message);
+      this.#scope(() => this.onmessage?.(message));
     }
   }
 

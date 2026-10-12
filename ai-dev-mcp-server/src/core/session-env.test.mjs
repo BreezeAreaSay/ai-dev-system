@@ -1,0 +1,129 @@
+import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+import {
+  DAEMON_WIDE_VARIABLES,
+  NOT_DAEMON_WIDE,
+  absolutePathVariables,
+  currentSessionEnvironment,
+  daemonWideEnvironment,
+  environmentObject,
+  isDaemonWide,
+  runInSession,
+  scopeProcessEnvironment
+} from "./session-env.mjs";
+
+const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const repositoryRoot = path.dirname(serverRoot);
+
+test("what clients of one daemon must share is where the data is and which model it loads; their programs and network are their own", () => {
+  for (const name of ["AI_DEV_HOME", "HOME", "USERPROFILE", "AI_DEV_VAULT_ROOT", "BGE_M3_ONNX_DIR", "AI_DEV_MODEL_MANIFEST", "AI_DEV_RUNTIME"]) {
+    assert.equal(isDaemonWide(name, { platform: "linux" }), true, name);
+  }
+  for (const name of ["PATH", "Path", "PATHEXT", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "NODE_USE_ENV_PROXY", "NODE_OPTIONS", "APPDATA", "XDG_CONFIG_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "HF_ENDPOINT", "PLAYWRIGHT_BROWSERS_PATH",
+    "AI_DEV_PROFILES", "AI_DEV_OFFLINE", "AI_DEV_MODEL_MIRROR", "AI_DEV_DAEMON", "AI_DEV_IDLE_TIMEOUT_MS", "AI_DEV_HOOK_PROFILE", "AI_DEV_IMAGE"]) {
+    assert.equal(isDaemonWide(name, { platform: "linux" }), false, name);
+  }
+  assert.equal(isDaemonWide("AI_DEV_NOT_YET_KNOWN", { platform: "linux" }), true, "an unlisted AI Dev variable splits the daemon rather than leaks");
+  assert.equal(isDaemonWide("ai_dev_home", { platform: "linux" }), false, "Linux names are case-sensitive");
+  assert.equal(isDaemonWide("Ai_Dev_Home", { platform: "win32" }), true, "Windows names are not");
+
+  assert.deepEqual(daemonWideEnvironment({ PATH: "/bin", HOME: "/h", AI_DEV_VAULT_ROOT: "/v", AI_DEV_STATE_ROOT: " ", AI_DEV_PROFILES: "core", B: undefined }, { platform: "linux" }),
+    [["AI_DEV_VAULT_ROOT", "/v"], ["HOME", "/h"]]);
+  assert.deepEqual(daemonWideEnvironment({ UserProfile: "C:\\Users\\i", Ai_Dev_Home: "D:\\ai" }, { platform: "win32" }),
+    [["AI_DEV_HOME", "D:\\ai"], ["USERPROFILE", "C:\\Users\\i"]], "the same build whatever case a client spells the names in");
+});
+
+test("every AI_DEV_ and BGE_ variable the code names is classified on purpose", () => {
+  const classified = new Set([...DAEMON_WIDE_VARIABLES, ...Object.values(NOT_DAEMON_WIDE).flat()]);
+  const named = new Map();
+  const walk = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+      const full = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (/\.(?:mjs|js|sh|ps1|cs)$/.test(entry.name) && !entry.name.endsWith(".test.mjs")) {
+        for (const match of fs.readFileSync(full, "utf8").matchAll(/\b((?:AI_DEV|BGE_M3)_[A-Z0-9_]*[A-Z0-9])\b/g)) {
+          if (!named.has(match[1])) named.set(match[1], path.relative(repositoryRoot, full));
+        }
+      }
+    }
+  };
+  for (const directory of ["src", "hooks", "bin", "scripts"]) walk(path.join(serverRoot, directory));
+  walk(path.join(repositoryRoot, "docker"));
+  for (const file of ["bootstrap.sh", "bootstrap.ps1"]) {
+    const full = path.join(repositoryRoot, file);
+    if (!fs.existsSync(full)) continue;
+    for (const match of fs.readFileSync(full, "utf8").matchAll(/\b((?:AI_DEV|BGE_M3)_[A-Z0-9_]*[A-Z0-9])\b/g)) named.set(match[1], file);
+  }
+  const unclassified = [...named].filter(([name]) => !classified.has(name)).map(([name, where]) => `${name} (${where})`);
+  assert.deepEqual(unclassified, [], "list each in session-env.mjs: daemon-wide, or one of NOT_DAEMON_WIDE's groups");
+  assert.ok(named.size > 40, `found ${named.size} names`);
+});
+
+test("a relative path in the environment means for the daemon what it means for the client", () => {
+  assert.deepEqual(absolutePathVariables({ AI_DEV_HOME: "rel/home", AI_DEV_VAULT_ROOT: "/abs/vault", PATH: "bin:/usr/bin", AI_DEV_PROFILES: "core", CODEX_HOME: "./codex", EMPTY: "" }, { cwd: "/work/client", platform: "linux" }),
+    { AI_DEV_HOME: "/work/client/rel/home", AI_DEV_VAULT_ROOT: "/abs/vault", PATH: "bin:/usr/bin", AI_DEV_PROFILES: "core", CODEX_HOME: "/work/client/codex", EMPTY: "" });
+  assert.deepEqual(absolutePathVariables({ Ai_Dev_Home: "home", NODE_EXTRA_CA_CERTS: "C:\\certs\\ca.pem" }, { cwd: "D:\\work", platform: "win32" }),
+    { Ai_Dev_Home: "D:\\work\\home", NODE_EXTRA_CA_CERTS: "C:\\certs\\ca.pem" });
+});
+
+test("a session's environment behaves as process.env does: strings, and on Windows names that ignore case", () => {
+  const unix = environmentObject({ PATH: "/bin", N: 3, GONE: undefined }, { platform: "linux" });
+  assert.equal(unix.PATH, "/bin");
+  assert.equal(unix.N, "3");
+  assert.equal(unix.path, undefined);
+  assert.deepEqual(Object.keys(unix), ["PATH", "N"]);
+  assert.deepEqual({ ...unix }, { PATH: "/bin", N: "3" });
+  unix.ADDED = 1;
+  assert.equal(unix.ADDED, "1");
+  delete unix.N;
+  assert.equal("N" in unix, false);
+  assert.equal(typeof unix.toString, "function", "what an object has, it still has");
+
+  const windows = environmentObject({ Path: "C:\\bin", SystemRoot: "C:\\Windows" }, { platform: "win32" });
+  assert.equal(windows.PATH, "C:\\bin");
+  assert.equal(windows.path, "C:\\bin");
+  assert.equal("PATH" in windows, true);
+  windows.PATH = "D:\\bin";
+  assert.deepEqual(Object.keys(windows), ["Path", "SystemRoot"], "the name keeps the case it came with");
+  assert.equal(windows.Path, "D:\\bin");
+});
+
+test("process.env is the session's inside it and the process's own outside", async () => {
+  const target = { env: { PATH: "/daemon/bin", OWN: "daemon" } };
+  scopeProcessEnvironment(target);
+  scopeProcessEnvironment(target);
+  const session = environmentObject({ PATH: "/client/bin", TOKEN: "client" });
+  assert.equal(target.env.PATH, "/daemon/bin");
+  assert.equal(currentSessionEnvironment(), null);
+  await runInSession(session, async () => {
+    assert.equal(target.env.PATH, "/client/bin");
+    assert.equal(target.env.OWN, undefined, "nothing of the daemon's own leaks into the session");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(target.env.TOKEN, "client", "and it stays the session's across awaits and timers");
+    target.env.WRITTEN = "in session";
+    assert.deepEqual(Object.keys(target.env).sort(), ["PATH", "TOKEN", "WRITTEN"]);
+    assert.equal(currentSessionEnvironment(), session);
+  });
+  assert.equal(target.env.WRITTEN, undefined, "a session's write stays in the session");
+  assert.equal(session.WRITTEN, "in session");
+  assert.deepEqual({ ...target.env }, { PATH: "/daemon/bin", OWN: "daemon" });
+});
+
+test("a child process started in a session, without an env of its own, gets the session's environment", () => {
+  scopeProcessEnvironment();
+  const probe = ["-e", "process.stdout.write(`${process.env.AI_DEV_SESSION_PROBE ?? 'none'}|${process.env.ONLY_DAEMON ?? 'none'}`)"];
+  process.env.ONLY_DAEMON = "daemon";
+  try {
+    const session = environmentObject({ PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, AI_DEV_SESSION_PROBE: "client-a" });
+    const inside = runInSession(session, () => spawnSync(process.execPath, probe, { encoding: "utf8" }).stdout);
+    assert.equal(inside, "client-a|none");
+    assert.equal(spawnSync(process.execPath, probe, { encoding: "utf8" }).stdout, "none|daemon");
+  } finally {
+    delete process.env.ONLY_DAEMON;
+  }
+});

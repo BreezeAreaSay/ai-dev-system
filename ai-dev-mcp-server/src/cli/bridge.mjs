@@ -8,6 +8,7 @@
 import process from "node:process";
 import { StdioBridge, socketUpstream } from "../core/daemon-bridge.mjs";
 import { connectDaemon } from "../core/daemon-client.mjs";
+import { absolutePathVariables } from "../core/session-env.mjs";
 import { CLI_PATH, SERVER_ROOT, packageVersion } from "./context.mjs";
 
 /**
@@ -56,20 +57,24 @@ async function inProcessUpstream(note) {
 }
 
 /**
- * Bridge this process's stdin and stdout to the daemon until the client closes them.
+ * Bridge this process's stdin and stdout to the daemon until the client closes
+ * them and has its answers.
  *
  * @param {{ env?: NodeJS.ProcessEnv, note?: (line: string) => void }} [options]
- * @returns {Promise<void>}
+ * @returns {Promise<{ unanswered: number }>} how many requests ended without the server's answer
  */
 export async function runMcpBridge({ env = process.env, note = (line) => process.stderr.write(`${line}\n`) } = {}) {
+  // The daemon runs in another folder than this client: a relative path in
+  // the environment is made to mean, for it too, what it means here.
+  const environment = absolutePathVariables(env);
   // Each session says its own profiles; empty is every profile.
-  const profiles = String(env.AI_DEV_PROFILES ?? "");
+  const profiles = String(environment.AI_DEV_PROFILES ?? "");
   let first = true;
   const connect = async ({ reconnect }) => {
     try {
-      const channel = await connectDaemon({ serverRoot: SERVER_ROOT, cliPath: CLI_PATH, version: packageVersion(), env, mode: "mcp", profiles });
+      const channel = await connectDaemon({ serverRoot: SERVER_ROOT, cliPath: CLI_PATH, version: packageVersion(), env: environment, mode: "mcp", profiles });
       if (channel.started) {
-        note(`ai-dev: started the daemon (pid ${channel.info.pid})${channel.replaced ? `; the one of another build (pid ${channel.replaced}) steps aside` : ""}.`);
+        note(`ai-dev: started the daemon (pid ${channel.info.pid}).`);
       } else if (reconnect) {
         note(`ai-dev: reconnected to the daemon (pid ${channel.info.pid}).`);
       }
@@ -77,7 +82,7 @@ export async function runMcpBridge({ env = process.env, note = (line) => process
       first = false;
       return socketUpstream({ socket: channel.socket, rest: channel.rest, describe: `the daemon (pid ${channel.info.pid})` });
     } catch (error) {
-      note(`ai-dev: no daemon can serve this client (${error.message}); serving it in this process instead.`);
+      note(`ai-dev: no daemon can serve this client (${String(error.message).trim().replace(/\.+$/, "")}); serving it in this process instead.`);
       first = false;
       return inProcessUpstream(note);
     }
@@ -90,5 +95,5 @@ export async function runMcpBridge({ env = process.env, note = (line) => process
   };
   process.once("SIGINT", () => stop(130));
   process.once("SIGTERM", () => stop(143));
-  await bridge.run(upstream);
+  return bridge.run(upstream);
 }

@@ -13,14 +13,31 @@
  *   happened, instead of hanging until the client's timeout.
  *
  * The next message from the client reconnects — to a daemon started for it,
- * or, when none can be, to a server in this process.
+ * or, when none can be, to a server in this process. When the client closes
+ * its end, the bridge stops reading and waits for the answers to what it
+ * already sent before it leaves (docs/DEFECTS.md, Д-192).
  */
+import { MAX_MESSAGE_BYTES } from "../transport/socket.mjs";
 
 /** Ids the bridge gives its own requests, so their answers are not passed to the client. */
 const BRIDGE_ID = "ai-dev-bridge-";
 
 /** How long a replayed `initialize` may take before the session goes on without it. */
 const REPLAY_TIMEOUT_MS = 60_000;
+
+/**
+ * How long the bridge waits, once the client closed its end, for the answers
+ * to requests it had sent: a rebuild of a large index takes minutes, a server
+ * that never answers must not keep the process forever.
+ */
+export const DRAIN_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * A line longer than this is not even read whole: past the largest message a
+ * server takes it can only be refused, and holding more of it costs memory
+ * for nothing.
+ */
+const LONGEST_LINE_READ = 64 * 1024 * 1024;
 
 const isRequest = (message) => typeof message?.method === "string" && message.id !== undefined && message.id !== null;
 const isResponse = (message) => message?.method === undefined && message?.id !== undefined;
@@ -33,20 +50,30 @@ const isResponse = (message) => message?.method === undefined && message?.id !==
  * decoded on its own, became two U+FFFD that `JSON.parse` took without a word —
  * a Russian note of a few hundred kilobytes came out changed, on disk too
  * (docs/DEFECTS.md, Д-188). Each byte is looked at once and each line joined
- * once, so a line of many megabytes costs what its size does.
+ * once, so a line of many megabytes costs what its size does. A line past
+ * `longest` bytes is skipped unread, and `onTooLong` hears of it.
  *
- * @param {(message: object) => void} onMessage
+ * @param {(message: object, bytes: number) => void} onMessage
  * @param {(line: string, error: Error) => void} onInvalid
+ * @param {{ longest?: number, onTooLong?: (bytes: number) => void }} [options]
  * @returns {(chunk: Buffer | string) => void}
  */
-export function lineReader(onMessage, onInvalid) {
+export function lineReader(onMessage, onInvalid, { longest = Infinity, onTooLong = () => undefined } = {}) {
   const parts = [];
   let length = 0;
+  let skipped = 0;
   return (chunk) => {
     let bytes = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
     for (let end = bytes.indexOf(0x0a); end >= 0; end = bytes.indexOf(0x0a)) {
+      if (skipped) {
+        onTooLong(skipped + end);
+        skipped = 0;
+        bytes = bytes.subarray(end + 1);
+        continue;
+      }
       parts.push(bytes.subarray(0, end));
-      const line = Buffer.concat(parts, length + end).toString("utf8").replace(/\r$/, "");
+      const size = length + end;
+      const line = Buffer.concat(parts, size).toString("utf8").replace(/\r$/, "");
       parts.length = 0;
       length = 0;
       bytes = bytes.subarray(end + 1);
@@ -58,14 +85,23 @@ export function lineReader(onMessage, onInvalid) {
         onInvalid(line, error);
         continue;
       }
-      onMessage(message);
+      onMessage(message, size);
     }
-    if (bytes.length) {
+    if (!bytes.length) return;
+    if (skipped) {
+      skipped += bytes.length;
+    } else if (length + bytes.length > longest) {
+      skipped = length + bytes.length;
+      parts.length = 0;
+      length = 0;
+    } else {
       parts.push(bytes);
       length += bytes.length;
     }
   };
 }
+
+const megabytes = (bytes) => `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 /**
  * An upstream over a socket the daemon handshake left paused.
@@ -118,6 +154,10 @@ export class StdioBridge {
   #inFlight = new Map();
   #own = new Map();
   #nextOwn = 0;
+  #inputEnded = false;
+  #drainTimer = null;
+  #drainTimeoutMs;
+  #unanswered = 0;
   #ended = false;
   #done;
 
@@ -127,31 +167,39 @@ export class StdioBridge {
    * @param {NodeJS.WritableStream} options.output - Where the client reads (stdout).
    * @param {(line: string) => void} options.note - A line for the client's log (stderr).
    * @param {(context: { reconnect: boolean }) => Promise<object>} options.connect - A started-or-found upstream; never rejects.
+   * @param {number} [options.drainTimeoutMs] - How long answers are waited for once the client closed its end.
    */
-  constructor({ input, output, note, connect }) {
+  constructor({ input, output, note, connect, drainTimeoutMs = DRAIN_TIMEOUT_MS }) {
     this.#input = input;
     this.#output = output;
     this.#note = note;
     this.#connect = connect;
+    this.#drainTimeoutMs = drainTimeoutMs;
   }
 
   /**
-   * Serve until the client closes its end.
+   * Serve until the client closes its end and the requests it sent are answered.
    *
    * @param {object} upstream - The first upstream, connected before anything is read.
-   * @returns {Promise<void>}
+   * @returns {Promise<{ unanswered: number }>} how many requests ended without a server's answer
    */
   run(upstream) {
     this.#attach(upstream);
     return new Promise((resolve) => {
-      this.#done = resolve;
+      this.#done = () => resolve({ unanswered: this.#unanswered });
       const read = lineReader(
-        (message) => this.#fromClient(message),
-        (line) => this.#note(`ai-dev: ignored a line from the client that is not JSON: ${line.slice(0, 80)}`)
+        (message, bytes) => this.#fromClient(message, bytes),
+        (line) => this.#note(`ai-dev: ignored a line from the client that is not JSON: ${line.slice(0, 80)}`),
+        {
+          longest: LONGEST_LINE_READ,
+          onTooLong: (bytes) => this.#note(`ai-dev: skipped a message of ${megabytes(bytes)} from the client: a server takes messages up to ${megabytes(MAX_MESSAGE_BYTES)}, and one this long cannot even be answered.`)
+        }
       );
       this.#input.on("data", read);
-      this.#input.on("end", () => this.#finish());
-      this.#input.on("close", () => this.#finish());
+      this.#input.on("end", () => this.#endOfInput());
+      this.#input.on("close", () => this.#endOfInput());
+      // The client is gone when it no longer reads what it is sent.
+      this.#output.on?.("error", () => this.#finish());
       this.#input.resume?.();
     });
   }
@@ -167,10 +215,31 @@ export class StdioBridge {
     return generation;
   }
 
-  #fromClient(message) {
-    if (this.#ended) return;
+  #fromClient(message, bytes = 0) {
+    if (this.#ended || this.#inputEnded) return;
+    // A server refuses a message past its limit by dropping the connection; the
+    // client hears why instead, and the session goes on (docs/DEFECTS.md, Д-194).
+    if (bytes > MAX_MESSAGE_BYTES) {
+      if (isRequest(message)) {
+        this.#write({ jsonrpc: "2.0", id: message.id, error: { code: -32600, message: `This ${message.method} message is ${megabytes(bytes)}; ai-dev takes messages up to ${megabytes(MAX_MESSAGE_BYTES)}.` } });
+      }
+      this.#note(`ai-dev: refused a message of ${megabytes(bytes)} from the client: the limit is ${megabytes(MAX_MESSAGE_BYTES)}.`);
+      return;
+    }
     if (isRequest(message) && message.method === "initialize") this.#initialize = message;
     if (message?.method === "notifications/initialized") this.#initialized = true;
+    // A cancelled request gets no answer: it no longer waits for one, so a
+    // daemon that goes away later does not answer it with an error either.
+    if (message?.method === "notifications/cancelled") {
+      const id = message.params?.requestId;
+      this.#inFlight.delete(id);
+      const queued = this.#queue.findIndex((waiting) => isRequest(waiting) && waiting.id === id);
+      if (queued >= 0) {
+        // Never sent: neither it nor its cancellation needs to go anywhere.
+        this.#queue.splice(queued, 1);
+        return;
+      }
+    }
     if (this.#upstream && !this.#connecting) {
       this.#forward(message);
       return;
@@ -204,6 +273,7 @@ export class StdioBridge {
       this.#inFlight.delete(message.id);
     }
     this.#write(message);
+    this.#drained();
   }
 
   /** The upstream is gone: every request it had gets an answer now, and the next message reconnects. */
@@ -212,6 +282,7 @@ export class StdioBridge {
     this.#generation += 1;
     this.#upstream = null;
     for (const [id, method] of this.#inFlight) {
+      this.#unanswered += 1;
       this.#write({
         jsonrpc: "2.0",
         id,
@@ -223,6 +294,7 @@ export class StdioBridge {
     this.#own.clear();
     this.#note(`ai-dev: lost the daemon (${reason}); the next request reconnects.`);
     if (this.#queue.length) this.#reconnect();
+    else this.#drained();
   }
 
   #reconnect() {
@@ -241,6 +313,7 @@ export class StdioBridge {
         if (this.#upstream === upstream) {
           this.#connecting = null;
           for (const message of this.#queue.splice(0)) this.#forward(message);
+          this.#drained();
           return;
         }
       }
@@ -255,9 +328,12 @@ export class StdioBridge {
   /** Answer every request still waiting for a server, when none can be had. */
   #refuseQueued(reason) {
     for (const message of this.#queue.splice(0)) {
-      if (isRequest(message)) this.#write({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: `ai-dev could not serve ${message.method}: ${reason}.` } });
+      if (!isRequest(message)) continue;
+      this.#unanswered += 1;
+      this.#write({ jsonrpc: "2.0", id: message.id, error: { code: -32603, message: `ai-dev could not serve ${message.method}: ${reason}.` } });
     }
     this.#note(`ai-dev: could not reconnect: ${reason}.`);
+    this.#drained();
   }
 
   async #replayInitialize() {
@@ -285,9 +361,42 @@ export class StdioBridge {
     }
   }
 
+  /** Requests sent or waiting to be sent, which a server has yet to answer. */
+  #pending() {
+    return this.#inFlight.size + this.#queue.filter(isRequest).length + (this.#connecting ? 1 : 0);
+  }
+
+  /**
+   * The client closed its end: nothing more is read, and the bridge leaves once
+   * the requests it sent have their answers — or, past the drain timeout, says
+   * which have none.
+   */
+  #endOfInput() {
+    if (this.#inputEnded || this.#ended) return;
+    this.#inputEnded = true;
+    if (!this.#pending()) {
+      this.#finish();
+      return;
+    }
+    this.#drainTimer = setTimeout(() => {
+      const waiting = this.#inFlight.size + this.#queue.filter(isRequest).length;
+      this.#unanswered += waiting;
+      this.#note(`ai-dev: the client closed its input; ${waiting} request(s) still had no answer after ${Math.round(this.#drainTimeoutMs / 1000)} s.`);
+      this.#finish();
+    }, this.#drainTimeoutMs);
+    // Kept referenced: it is what the process waits on when the server it
+    // waits for holds nothing open of its own.
+  }
+
+  /** After an answer: once the client has closed its end and nothing is left to answer, leave. */
+  #drained() {
+    if (this.#inputEnded && !this.#ended && !this.#pending()) this.#finish();
+  }
+
   #finish() {
     if (this.#ended) return;
     this.#ended = true;
+    clearTimeout(this.#drainTimer);
     this.#upstream?.close();
     this.#upstream = null;
     this.#done?.();

@@ -4,20 +4,21 @@
  *
  * Three things keep the channel this user's (docs/DEFECTS.md, Д-97, Д-107):
  *
- * - the address is drawn at random on every start and published only in
- *   `daemon.json`, written with mode 0600 inside the user's runtime home — so
- *   no other process can create the pipe first and wait for clients on it;
+ * - the address is drawn at random on every start and published only in the
+ *   daemon's descriptor, written with mode 0600 inside the user's runtime home —
+ *   so no other process can create the pipe first and wait for clients on it;
  * - a Unix socket lives in a directory of mode 0700 that belongs to the user;
- * - the first line each side sends proves it holds the secret in `daemon.json`,
- *   without sending the secret: the client answers the daemon's nonce with an
- *   HMAC, and the daemon answers the client's with another. A process that
- *   reached the socket anyway learns nothing it can reuse, and a client that
- *   reached something other than the daemon — a stale address another process
- *   took over — finds out before it sends a single MCP message.
+ * - the first line each side sends proves it holds the secret in the
+ *   descriptor, without sending the secret: the client answers the daemon's
+ *   nonce with an HMAC, and the daemon answers the client's with another. A
+ *   process that reached the socket anyway learns nothing it can reuse, and a
+ *   client that reached something other than the daemon — a stale address
+ *   another process took over — finds out before it sends anything else.
  *
- * After the handshake the connection carries MCP exactly as stdio does, one
- * JSON-RPC message per line; or, on a control connection, one request and one
- * answer.
+ * Then an MCP client sends one more line: its environment, which the daemon
+ * runs the session in (`session-env.mjs`, Д-190). After that the connection
+ * carries MCP exactly as stdio does, one JSON-RPC message per line; or, on a
+ * control connection, one request and one answer.
  */
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
@@ -25,6 +26,7 @@ import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { renameOver } from "./atomic-files.mjs";
+import { daemonWideEnvironment } from "./session-env.mjs";
 
 /** The handshake's version. A daemon that speaks another is replaced, never half-understood. */
 export const DAEMON_PROTOCOL = 1;
@@ -34,6 +36,13 @@ export const HANDSHAKE_TIMEOUT_MS = 5_000;
 
 /** A handshake line longer than this is not a handshake. */
 const HANDSHAKE_LINE_BYTES = 16 * 1024;
+
+/**
+ * The longest session line: a client's environment. Windows caps an
+ * environment block at 32 767 characters, and elsewhere one is rarely more than
+ * a few kilobytes; a megabyte is far past any real one.
+ */
+export const SESSION_LINE_BYTES = 1024 * 1024;
 
 const HEX_SECRET = /^[0-9a-f]{64}$/;
 const HEX_NONCE = /^[0-9a-f]{32}$/;
@@ -76,10 +85,10 @@ export function sameProof(left, right) {
  * paused, so nothing more is read until the next reader is attached.
  *
  * @param {import("node:net").Socket} socket
- * @param {{ timeoutMs?: number, buffered?: Buffer }} [options]
+ * @param {{ timeoutMs?: number, buffered?: Buffer, maxBytes?: number }} [options]
  * @returns {Promise<{ message: Record<string, unknown>, rest: Buffer }>}
  */
-export function readLine(socket, { timeoutMs = HANDSHAKE_TIMEOUT_MS, buffered = Buffer.alloc(0) } = {}) {
+export function readLine(socket, { timeoutMs = HANDSHAKE_TIMEOUT_MS, buffered = Buffer.alloc(0), maxBytes = HANDSHAKE_LINE_BYTES } = {}) {
   return new Promise((resolve, reject) => {
     let buffer = buffered;
     let settled = false;
@@ -96,10 +105,13 @@ export function readLine(socket, { timeoutMs = HANDSHAKE_TIMEOUT_MS, buffered = 
     };
     const take = () => {
       const end = buffer.indexOf(0x0a);
-      if (end < 0) {
-        if (buffer.length > HANDSHAKE_LINE_BYTES) finish(new ChannelError("The other side sent a handshake line longer than any handshake."));
+      // Measured whether or not the line is whole yet: one that arrives in a
+      // single read is as much too long as one that arrives in many.
+      if ((end < 0 ? buffer.length : end) > maxBytes) {
+        finish(new ChannelError("The other side sent a handshake line longer than any handshake."));
         return;
       }
+      if (end < 0) return;
       const text = buffer.subarray(0, end).toString("utf8").replace(/\r$/, "");
       const rest = buffer.subarray(end + 1);
       let message;
@@ -148,37 +160,65 @@ export function writeLine(socket, message) {
  * @param {number} daemon.pid
  * @param {string} daemon.version
  * @param {string} daemon.build
- * @param {(request: { mode: string, profiles: string | null }) => Promise<object> | object} [daemon.welcome] - Extra fields for the answer.
+ * @param {(request: { mode: string, profiles: string | null }) => Promise<object> | object} [daemon.welcome] - Extra fields
+ *   for the answer; a throw refuses the client with its message.
  * @param {number} [daemon.timeoutMs]
- * @returns {Promise<{ mode: "mcp" | "control", profiles: string | null, rest: Buffer }>}
+ * @returns {Promise<{ mode: "mcp" | "control", profiles: string | null, environment: Record<string, string> | null, rest: Buffer }>}
+ *   `environment` is the client's, for an MCP session; null on a control connection.
  */
 export async function acceptHandshake(socket, { secret, pid, version, build, welcome = () => ({}), timeoutMs = HANDSHAKE_TIMEOUT_MS }) {
   const serverNonce = newNonce();
   await writeLine(socket, { ai_dev_daemon: DAEMON_PROTOCOL, nonce: serverNonce });
   const { message, rest } = await readLine(socket, { timeoutMs });
-  const refuse = async (reason) => {
+  const refuse = async (reason, code = "EAUTH") => {
     await writeLine(socket, { ok: false, error: reason }).catch(() => undefined);
     socket.end();
-    throw new ChannelError(reason, { code: "EAUTH" });
+    throw new ChannelError(reason, { code });
   };
   if (message.protocol !== DAEMON_PROTOCOL) return refuse(`This daemon speaks handshake protocol ${DAEMON_PROTOCOL}, not ${JSON.stringify(message.protocol ?? null)}.`);
   if (typeof message.nonce !== "string" || !HEX_NONCE.test(message.nonce)) return refuse("The handshake carries no nonce.");
   if (!sameProof(message.proof, clientProof(secret, serverNonce, message.nonce))) return refuse("Authentication failed: the proof does not match this daemon's secret.");
   const mode = message.mode === "control" ? "control" : "mcp";
   const profiles = typeof message.profiles === "string" ? message.profiles : null;
-  const extra = await welcome({ mode, profiles });
+  let extra;
+  try {
+    extra = await welcome({ mode, profiles });
+  } catch (error) {
+    // The daemon will not take this client — it is retiring, or stopping —
+    // and says so, rather than leave it to guess from a closed connection.
+    return refuse(error.message, error.code ?? "EREFUSED");
+  }
   await writeLine(socket, { ...extra, ok: true, proof: serverProof(secret, serverNonce, message.nonce, pid), pid, version, build });
-  return { mode, profiles, rest };
+  if (mode !== "mcp") return { mode, profiles, environment: null, rest };
+  // The client sends its environment only now, once this daemon has proven
+  // itself: a process that took over the address never sees it.
+  const { message: session, rest: after } = await readLine(socket, { timeoutMs, buffered: rest, maxBytes: SESSION_LINE_BYTES });
+  const environment = session.environment;
+  if (!environment || typeof environment !== "object" || Array.isArray(environment) || Object.values(environment).some((value) => typeof value !== "string")) {
+    socket.end();
+    throw new ChannelError("The client sent no environment for its session.", { code: "EPROTO" });
+  }
+  return { mode, profiles, environment, rest: after };
+}
+
+/** The variables of `env` that have a value, as strings: what a session line carries. */
+function sessionVariables(env) {
+  return Object.fromEntries(Object.entries(env ?? {}).filter(([, value]) => value !== undefined && value !== null).map(([name, value]) => [name, String(value)]));
 }
 
 /**
- * Connect to the daemon `info` describes and prove each side to the other.
+ * Connect to the daemon `info` describes and prove each side to the other; for
+ * an MCP session, then send the environment the session is to run in.
  *
- * @param {object} info - What `daemon.json` holds.
- * @param {{ mode?: "mcp" | "control", profiles?: string | null, timeoutMs?: number }} [options]
+ * @param {object} info - What the daemon's descriptor holds.
+ * @param {{ mode?: "mcp" | "control", profiles?: string | null, environment?: NodeJS.ProcessEnv, timeoutMs?: number }} [options]
  * @returns {Promise<{ socket: import("node:net").Socket, welcome: Record<string, any>, rest: Buffer }>}
  */
-export async function openChannel(info, { mode = "mcp", profiles = null, timeoutMs = HANDSHAKE_TIMEOUT_MS } = {}) {
+export async function openChannel(info, { mode = "mcp", profiles = null, environment = process.env, timeoutMs = HANDSHAKE_TIMEOUT_MS } = {}) {
+  const session = mode === "mcp" ? `${JSON.stringify({ environment: sessionVariables(environment) })}\n` : "";
+  if (Buffer.byteLength(session) > SESSION_LINE_BYTES) {
+    throw new ChannelError(`This client's environment is ${Math.round(Buffer.byteLength(session) / 1024)} KB, more than the daemon takes (${SESSION_LINE_BYTES / 1024} KB).`, { code: "E2BIG" });
+  }
   const socket = net.connect(info.address);
   // A reset after the handshake reaches whoever reads the socket next as a
   // `close`; without a listener of its own here it would end the process.
@@ -208,8 +248,9 @@ export async function openChannel(info, { mode = "mcp", profiles = null, timeout
       throw new ChannelError(`What answers at ${info.address} cannot prove it is this user's daemon.`, { code: "EAUTH" });
     }
     if (Number(welcome.pid) !== Number(info.pid)) {
-      throw new ChannelError(`The daemon at ${info.address} is pid ${welcome.pid}, not the pid ${info.pid} daemon.json names.`, { code: "EAUTH" });
+      throw new ChannelError(`The daemon at ${info.address} is pid ${welcome.pid}, not the pid ${info.pid} its descriptor names.`, { code: "EAUTH" });
     }
+    if (session) await new Promise((resolve, reject) => socket.write(session, (error) => (error ? reject(error) : resolve())));
     return { socket, welcome, rest };
   } catch (error) {
     socket.destroy();
@@ -236,28 +277,50 @@ export async function controlRequest(info, command, { timeoutMs = HANDSHAKE_TIME
   }
 }
 
+/** Whether `info` is a descriptor this version wrote — 2.x's `daemon.json` had no protocol and no secret. */
+function isDescriptor(info) {
+  if (!info || typeof info !== "object") return false;
+  if (info.protocol !== DAEMON_PROTOCOL || !Number.isInteger(info.pid) || typeof info.address !== "string") return false;
+  return typeof info.secret === "string" && HEX_SECRET.test(info.secret);
+}
+
 /**
- * What `daemon.json` says, or null when there is none or it is not one this
- * version wrote — a 2.x daemon's descriptor has no protocol and no secret.
+ * A daemon's descriptor, and in what state it was found: `missing` (no such
+ * file), `unreadable` (the system refused it for a moment — Windows does while
+ * a file is renamed over or scanned — or it is not JSON), `invalid` (not one
+ * this version wrote), or `ok`. Only `missing` says the descriptor is gone.
+ *
+ * @param {string} file
+ * @returns {Promise<{ state: "missing" | "unreadable" | "invalid" | "ok", info: Record<string, any> | null }>}
+ */
+export async function readDaemonInfoState(file) {
+  let text;
+  try {
+    text = await fs.readFile(file, "utf8");
+  } catch (error) {
+    return { state: error?.code === "ENOENT" || error?.code === "ENOTDIR" ? "missing" : "unreadable", info: null };
+  }
+  let info;
+  try {
+    info = JSON.parse(text);
+  } catch {
+    return { state: "unreadable", info: null };
+  }
+  return isDescriptor(info) ? { state: "ok", info } : { state: "invalid", info: null };
+}
+
+/**
+ * What a daemon's descriptor says, or null when there is none to use.
  *
  * @param {string} file
  * @returns {Promise<Record<string, any> | null>}
  */
 export async function readDaemonInfo(file) {
-  let info;
-  try {
-    info = JSON.parse(await fs.readFile(file, "utf8"));
-  } catch {
-    return null;
-  }
-  if (!info || typeof info !== "object") return null;
-  if (info.protocol !== DAEMON_PROTOCOL || !Number.isInteger(info.pid) || typeof info.address !== "string") return null;
-  if (typeof info.secret !== "string" || !HEX_SECRET.test(info.secret)) return null;
-  return info;
+  return (await readDaemonInfoState(file)).info;
 }
 
 /**
- * Publish `daemon.json`: written whole under another name with mode 0600, then
+ * Publish a daemon's descriptor: written whole under another name with mode 0600, then
  * renamed over the old one, so a reader sees one complete descriptor or the
  * previous one, and nobody else can read the secret in it.
  *
@@ -283,8 +346,9 @@ export async function writeDaemonInfo(file, info) {
 }
 
 /**
- * Remove `daemon.json` only while it still describes daemon `pid`: a daemon on
- * its way out must not take its successor's descriptor with it.
+ * Remove a descriptor only while it still describes daemon `pid`: a daemon on
+ * its way out must not take its successor's descriptor with it. The daemon
+ * calls it while it still holds its lock, which no successor has then.
  *
  * @param {string} file
  * @param {number} pid
@@ -295,25 +359,6 @@ export async function removeDaemonInfo(file, pid) {
   if (info && info.pid !== pid) return false;
   await fs.rm(file, { force: true });
   return true;
-}
-
-/** Environment variables that change what the server does, so a daemon serves only clients that set them the same way. */
-const BEHAVIOUR_VARIABLES = /^(?:AI_DEV_|BGE_|HF_|PLAYWRIGHT_|ONNXRUNTIME_)|^(?:HTTPS?_PROXY|NO_PROXY|https?_proxy|no_proxy|NODE_EXTRA_CA_CERTS|NODE_USE_ENV_PROXY|HOME|USERPROFILE|APPDATA|LOCALAPPDATA|XDG_CONFIG_HOME|XDG_DATA_HOME|CODEX_HOME|CLAUDE_CONFIG_DIR)$/;
-
-/** Variables that belong to one session or to the daemon's own lifetime, not to what it serves. */
-const SESSION_VARIABLES = new Set(["AI_DEV_PROFILES", "AI_DEV_DAEMON", "AI_DEV_DAEMON_START_TIMEOUT_MS", "AI_DEV_IDLE_TIMEOUT_MS"]);
-
-/**
- * The variables of `env` a daemon must share with a client to serve it, sorted.
- *
- * @param {NodeJS.ProcessEnv} env
- * @returns {Array<[string, string]>}
- */
-export function behaviourEnvironment(env) {
-  return Object.entries(env)
-    .filter(([name, value]) => value !== undefined && BEHAVIOUR_VARIABLES.test(name) && !SESSION_VARIABLES.has(name))
-    .map(([name, value]) => [name, String(value)])
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
 /** What stands for the code: every source file's path, size and time. */
@@ -343,21 +388,79 @@ async function sourceFingerprint(serverRoot) {
   return hash.digest("hex");
 }
 
+/** A short digest of a variable's value: enough to compare two, nothing to read back. */
+const digest = (value) => crypto.createHash("sha256").update(String(value)).digest("hex").slice(0, 12);
+
 /**
  * Which build of the server a daemon is: its version, where its code is and
- * what that code is now, and the environment that shapes what it does. A
- * client whose own build differs — a `git pull`, a new package, another
- * `AI_DEV_VAULT_ROOT` — gets a daemon of its own build instead of being served
- * by a stale one.
+ * what that code is now, and the daemon-wide variables (`session-env.mjs`). A
+ * client of another build — a `git pull`, a new package, another
+ * `AI_DEV_VAULT_ROOT` — is served by a daemon of its own build, never by a
+ * stale one. Variables appear as digests of their values: the build is
+ * printed by `ai-dev daemon status` and kept in the descriptor, and a value
+ * may be a path a person would rather not show.
  *
- * @param {{ serverRoot: string, version: string, env?: NodeJS.ProcessEnv }} options
- * @returns {Promise<string>}
+ * @param {{ serverRoot: string, version: string, env?: NodeJS.ProcessEnv, platform?: string }} options
+ * @returns {Promise<{ id: string, version: string, root: string, source: string, environment: Record<string, string> }>}
  */
-export async function daemonBuild({ serverRoot, version, env = process.env }) {
+export async function describeBuild({ serverRoot, version, env = process.env, platform = process.platform }) {
   const root = await fs.realpath(serverRoot).catch(() => path.resolve(serverRoot));
-  const source = await sourceFingerprint(root);
-  return crypto.createHash("sha256")
-    .update(JSON.stringify({ version, root, source, env: behaviourEnvironment(env) }))
-    .digest("hex")
-    .slice(0, 16);
+  const source = (await sourceFingerprint(root)).slice(0, 16);
+  const environment = Object.fromEntries(daemonWideEnvironment(env, { platform }).map(([name, value]) => [name, digest(value)]));
+  const id = crypto.createHash("sha256").update(JSON.stringify({ version, root, source, environment })).digest("hex").slice(0, 16);
+  return { id, version, root, source, environment };
+}
+
+/** Two builds' daemon-wide variables: the names that differ, and how. */
+function environmentDifferences(mine = {}, theirs = {}) {
+  const differently = [];
+  const onlyHere = [];
+  const onlyThere = [];
+  for (const name of [...new Set([...Object.keys(mine), ...Object.keys(theirs)])].sort()) {
+    if (mine[name] === theirs[name]) continue;
+    if (mine[name] === undefined) onlyThere.push(name);
+    else if (theirs[name] === undefined) onlyHere.push(name);
+    else differently.push(name);
+  }
+  return [
+    ...(differently.length ? [`${differently.join(", ")} set differently`] : []),
+    ...(onlyThere.length ? [`${onlyThere.join(", ")} set only for it`] : []),
+    ...(onlyHere.length ? [`${onlyHere.join(", ")} set only here`] : [])
+  ];
+}
+
+/**
+ * Why the daemon of build `theirs` is not the one for build `mine`, in words a
+ * person can act on; empty when they are the same build.
+ *
+ * @param {{ version: string, root: string, source: string, environment: Record<string, string> }} mine
+ * @param {{ version?: string, root?: string, source?: string, environment?: Record<string, string> } | null | undefined} theirs
+ * @returns {string[]}
+ */
+export function buildDifferences(mine, theirs) {
+  if (!theirs || typeof theirs !== "object") return ["a build it does not describe"];
+  const reasons = [];
+  if (theirs.version !== mine.version) reasons.push(`ai-dev ${theirs.version ?? "of an unknown version"} (here: ${mine.version})`);
+  if (theirs.root !== mine.root) reasons.push(`the code at ${theirs.root} (here: ${mine.root})`);
+  else if (theirs.version === mine.version && theirs.source !== mine.source) reasons.push("the code as it was before it changed on disk");
+  const environment = environmentDifferences(mine.environment, theirs.environment);
+  if (environment.length) reasons.push(`another environment: ${environment.join("; ")}`);
+  return reasons;
+}
+
+/**
+ * Whether a daemon of build `older` runs code that build `newer` replaced in
+ * place: the same folder and environment, another version or source — a
+ * `git pull`, an update of the package where it lies. Such a daemon is asked
+ * to retire; a daemon of another folder or environment serves clients of its
+ * own and is left alone.
+ *
+ * @param {{ version: string, root: string, source: string, environment: Record<string, string> }} newer
+ * @param {object | null | undefined} older
+ * @returns {boolean}
+ */
+export function isSupersededBy(newer, older) {
+  if (!older || older.root !== newer.root) return false;
+  if (environmentDifferences(newer.environment, older.environment).length) return false;
+  return older.version !== newer.version || older.source !== newer.source;
 }

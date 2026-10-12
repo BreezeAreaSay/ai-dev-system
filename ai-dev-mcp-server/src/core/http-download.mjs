@@ -17,6 +17,7 @@
  * compression included, so they go through the proxy as well
  * (docs/DEFECTS.md, Д-145, Д-167).
  */
+import fs from "node:fs";
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
@@ -33,6 +34,40 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
 
 /** What the requests say they are. Mirrors log it; nothing depends on it. */
 const USER_AGENT = "ai-dev-system-model-download";
+
+/** The extra certificates this process started with: Node trusts them already. */
+const STARTED_WITH_EXTRA_CA = String(process.env.NODE_EXTRA_CA_CERTS ?? "");
+
+/** Each extra-certificate file read, by its path, size and time, so a changed one is read again. */
+const extraCaFiles = new Map();
+
+/**
+ * The certificate authorities a request trusts when its environment names
+ * other extra certificates than this process started with — `undefined` when
+ * Node's own store is the right one already. Node reads `NODE_EXTRA_CA_CERTS`
+ * once, at start; the daemon serves clients whose environments differ, and
+ * each session's downloads trust what that client's own process would have:
+ * the bundled roots, and its own extra file if it names one (docs/DEFECTS.md,
+ * Д-191). A file that cannot be read is skipped, as Node skips it.
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {string[] | undefined}
+ */
+export function trustedAuthorities(env) {
+  const wanted = String(env?.NODE_EXTRA_CA_CERTS ?? "");
+  if (wanted === STARTED_WITH_EXTRA_CA) return undefined;
+  if (!wanted) return [...tls.rootCertificates];
+  let extra = "";
+  try {
+    const stat = fs.statSync(wanted);
+    const key = `${wanted}:${stat.size}:${stat.mtimeMs}`;
+    extra = extraCaFiles.get(key) ?? fs.readFileSync(wanted, "utf8");
+    extraCaFiles.set(key, extra);
+  } catch {
+    extra = "";
+  }
+  return extra ? [...tls.rootCertificates, extra] : [...tls.rootCertificates];
+}
 
 /**
  * A URL, or a setting meant to be one, with its credentials replaced by `***`.
@@ -278,8 +313,9 @@ function tunnel(proxy, host, port, signal) {
  *
  * @returns {Promise<import("node:http").IncomingMessage>}
  */
-function requestOnce(url, { method, headers, env, signal, ca, body }) {
+function requestOnce(url, { method, headers, env, signal, ca: given, body }) {
   const proxy = proxyFor(url, env);
+  const ca = given ?? trustedAuthorities(env);
   const host = bareHost(url.hostname);
   const port = urlPort(url);
   const sent = {

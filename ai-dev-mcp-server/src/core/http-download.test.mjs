@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { bypassesProxy, describeNetworkError, openUrl, proxyFor, readSnippet, redactCredentials } from "./http-download.mjs";
+import tls from "node:tls";
+import { bypassesProxy, describeNetworkError, openUrl, proxyFor, readSnippet, redactCredentials, trustedAuthorities } from "./http-download.mjs";
 import { startModelHost, startProxy, TEST_HOST, TEST_TLS } from "../../test/fixtures/model-host.mjs";
 
 const FILES = { "config.json": "{\"model_type\":\"xlm-roberta\"}" };
@@ -186,4 +190,24 @@ test("an error page is read for its first words only, and a describer leaves abo
   assert.match(describeNetworkError(Object.assign(new Error("x"), { code: "ECONNRESET" }), new URL("https://a.b/"), null).message, /connection to a\.b was reset/);
   assert.match(describeNetworkError(Object.assign(new Error("x"), { code: "ETIMEDOUT" }), new URL("https://a.b/"), null).message, /a\.b could not be reached \(ETIMEDOUT\)/);
   assert.match(describeNetworkError(Object.assign(new Error("x"), { code: "ENOTFOUND" }), new URL("https://a.b/"), new URL("http://p:1")).message, /the proxy http:\/\/p:1 could not be found/);
+});
+
+test("a session's own NODE_EXTRA_CA_CERTS is trusted, as its own process would have trusted it (Д-191)", async (t) => {
+  const host = await startModelHost({ files: FILES, tls: true });
+  // The test host is reached the way a corporate network reaches the internet: through a proxy.
+  const proxy = await startProxy({ hosts: { [TEST_HOST]: host.port } });
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-ca-"));
+  t.after(() => Promise.all([host.close(), proxy.close(), fs.rm(directory, { recursive: true, force: true })]));
+  const file = path.join(directory, "corp.pem");
+  await fs.writeFile(file, TEST_TLS.cert);
+  const url = `https://${TEST_HOST}:${host.port}/m/config.json`;
+  const response = await openUrl(url, { env: { HTTPS_PROXY: proxy.url, NODE_EXTRA_CA_CERTS: file } });
+  assert.equal(response.status, 200);
+  assert.equal(await read(response.body), FILES["config.json"]);
+  // A session without it in the same process: the certificate is not trusted.
+  await assert.rejects(openUrl(url, { env: { HTTPS_PROXY: proxy.url } }), /certificate/i);
+  const own = process.env.NODE_EXTRA_CA_CERTS;
+  assert.equal(trustedAuthorities(own ? { NODE_EXTRA_CA_CERTS: own } : {}), undefined, "the store the process started with needs nothing added");
+  assert.ok(trustedAuthorities({ NODE_EXTRA_CA_CERTS: file }).includes(TEST_TLS.cert));
+  assert.deepEqual(trustedAuthorities({ NODE_EXTRA_CA_CERTS: path.join(directory, "missing.pem") }), [...tls.rootCertificates], "an unreadable file is skipped, as Node skips it");
 });

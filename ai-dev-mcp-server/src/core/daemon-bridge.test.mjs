@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { MAX_MESSAGE_BYTES } from "../transport/socket.mjs";
 import { StdioBridge, lineReader, socketUpstream } from "./daemon-bridge.mjs";
 
 /** An upstream that answers every request with `{ echo: method }`, and can be made to die. */
@@ -37,7 +38,7 @@ function fakeUpstream(name, { answer = true } = {}) {
 }
 
 /** A bridge over in-memory streams; `lines()` is what the client has read so far. */
-function bridgeOver(first, connect) {
+function bridgeOver(first, connect, options = {}) {
   const input = new PassThrough();
   const output = new PassThrough();
   const notes = [];
@@ -45,7 +46,7 @@ function bridgeOver(first, connect) {
   output.on("data", (chunk) => {
     read += chunk;
   });
-  const bridge = new StdioBridge({ input, output, note: (line) => notes.push(line), connect });
+  const bridge = new StdioBridge({ input, output, note: (line) => notes.push(line), connect, ...options });
   const done = bridge.run(first);
   return {
     send: (message) => input.write(`${JSON.stringify(message)}\n`),
@@ -233,4 +234,115 @@ test("a socket upstream reads what came with the handshake first, then the socke
   far.destroy();
   assert.equal(await closed, "the daemon (pid 9) closed the connection");
   await assert.rejects(upstream.send({ jsonrpc: "2.0", method: "x" }), /closed/);
+});
+
+test("a client that writes its requests and closes its input still gets every answer (Д-192)", async () => {
+  const upstream = fakeUpstream("daemon-1", { answer: false });
+  const client = bridgeOver(upstream, async () => assert.fail("no reconnect expected"));
+  client.send(INITIALIZE);
+  client.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+  client.send({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+  client.end();
+  await settle();
+  let finished = false;
+  client.done.then(() => {
+    finished = true;
+  });
+  await settle();
+  assert.equal(finished, false, "two answers are still to come");
+  assert.equal(upstream.closed, false);
+  upstream.onMessage({ jsonrpc: "2.0", id: 1, result: { serverInfo: { name: "ai-dev" } } });
+  await settle();
+  assert.equal(finished, false);
+  upstream.onMessage({ jsonrpc: "2.0", id: 2, result: { tools: [] } });
+  assert.deepEqual(await client.done, { unanswered: 0 });
+  assert.deepEqual(client.lines().map((message) => message.id), [1, 2]);
+  assert.equal(upstream.closed, true);
+});
+
+test("after the client closed its input, a lost daemon or a server that never answers ends the run as failed", async () => {
+  const lost = fakeUpstream("daemon-1", { answer: false });
+  const first = bridgeOver(lost, async () => assert.fail("nothing is queued, nothing reconnects"));
+  first.send({ jsonrpc: "2.0", id: 7, method: "tools/call", params: { name: "rebuild_search_index" } });
+  first.end();
+  await settle();
+  lost.die("killed");
+  assert.deepEqual(await first.done, { unanswered: 1 });
+  assert.match(first.lines()[0].error.message, /went away while tools\/call ran/);
+
+  const silent = fakeUpstream("daemon-2", { answer: false });
+  const second = bridgeOver(silent, async () => assert.fail("no reconnect expected"), { drainTimeoutMs: 50 });
+  second.send({ jsonrpc: "2.0", id: 8, method: "tools/call" });
+  second.send({ jsonrpc: "2.0", method: "notifications/progress" });
+  second.end();
+  assert.deepEqual(await second.done, { unanswered: 1 });
+  assert.ok(second.notes.some((note) => /closed its input; 1 request\(s\) still had no answer after 0 s/.test(note)), second.notes.join(" | "));
+
+  const quiet = fakeUpstream("daemon-3");
+  const third = bridgeOver(quiet, async () => assert.fail("no reconnect expected"));
+  third.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+  third.end();
+  assert.deepEqual(await third.done, { unanswered: 0 }, "with nothing to wait for, it leaves at once");
+});
+
+test("a cancelled request is no longer waited for, and a daemon lost later does not answer it (Д-194)", async () => {
+  const first = fakeUpstream("daemon-1", { answer: false });
+  const client = bridgeOver(first, async () => assert.fail("no reconnect expected"));
+  client.send({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "rebuild_search_index" } });
+  client.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 5, reason: "user" } });
+  await settle();
+  assert.deepEqual(first.sent.map((message) => message.method), ["tools/call", "notifications/cancelled"], "the cancellation reaches the server");
+  first.die("killed");
+  await settle();
+  assert.deepEqual(client.lines(), [], "no error for a request the client gave up on");
+  client.end();
+  assert.deepEqual(await client.done, { unanswered: 0 });
+});
+
+test("a request cancelled while it waited for a server is never sent, nor is its cancellation", async () => {
+  const first = fakeUpstream("daemon-1");
+  let release;
+  const second = fakeUpstream("daemon-2");
+  const client = bridgeOver(first, () => new Promise((resolve) => {
+    release = () => resolve(second);
+  }));
+  first.die("killed");
+  client.send({ jsonrpc: "2.0", id: 9, method: "tools/call" });
+  client.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: 9 } });
+  client.send({ jsonrpc: "2.0", id: 10, method: "ping" });
+  await settle();
+  release();
+  await settle();
+  assert.deepEqual(second.sent.map((message) => message.id ?? message.method), [10]);
+  client.end();
+  assert.deepEqual(await client.done, { unanswered: 0 });
+});
+
+test("a message past the server's limit is answered with why, and the session goes on (Д-194)", async () => {
+  const upstream = fakeUpstream("daemon-1");
+  const client = bridgeOver(upstream, async () => assert.fail("no reconnect expected"));
+  const big = { jsonrpc: "2.0", id: 11, method: "tools/call", params: { name: "write_note", arguments: { body: "я".repeat(MAX_MESSAGE_BYTES / 2 + 10) } } };
+  client.send(big);
+  client.send({ jsonrpc: "2.0", id: 12, method: "ping" });
+  await settle();
+  await settle();
+  const [refused, answered] = client.lines();
+  assert.equal(refused.id, 11);
+  assert.equal(refused.error.code, -32600);
+  assert.match(refused.error.message, /^This tools\/call message is 10\.0 MB; ai-dev takes messages up to 10\.0 MB\.$/);
+  assert.deepEqual(answered.result, { echo: "ping", by: "daemon-1" });
+  assert.deepEqual(upstream.sent.map((message) => message.id), [12], "the server never saw it");
+  client.end();
+  await client.done;
+});
+
+test("a line past what is worth reading is skipped unread, and the next one is read", () => {
+  const messages = [];
+  const skipped = [];
+  const read = lineReader((message, bytes) => messages.push([message, bytes]), () => assert.fail("not invalid"), { longest: 10, onTooLong: (bytes) => skipped.push(bytes) });
+  read('{"a":1}\n{"b":"');
+  read("0123456789");
+  read('abc"}\n{"c":3}\n');
+  assert.deepEqual(messages, [[{ a: 1 }, 7], [{ c: 3 }, 7]]);
+  assert.deepEqual(skipped, [21], "{\"b\":\" + ten digits + abc\"}");
 });

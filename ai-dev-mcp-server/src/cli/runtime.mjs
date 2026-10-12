@@ -102,11 +102,14 @@ export async function run(argv, io, name) {
         return null;
       }
       const { runMcpBridge } = await import("./bridge.mjs");
-      await runMcpBridge({ env: io.env });
-      // The client closed its end. Whatever the session left running — a
-      // server in this process when no daemon could serve — goes with it.
-      setTimeout(() => process.exit(0), 1000).unref();
-      return EXIT.ok;
+      const { unanswered } = await runMcpBridge({ env: io.env });
+      // The client closed its end and has every answer there was to have.
+      // Whatever the session left running — a server in this process when no
+      // daemon could serve — goes with it. A request no server answered is a
+      // failed run for a script that piped requests in (docs/DEFECTS.md, Д-192).
+      const code = unanswered ? EXIT.failed : EXIT.ok;
+      setTimeout(() => process.exit(code), 1000).unref();
+      return code;
     }
     case "doctor":
       // `include_dense_smoke` is what the health check recommends, so the

@@ -4,16 +4,18 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  DAEMON_DESCRIPTOR_NAME,
   MAX_SOCKET_PATH_BYTES,
+  RETIRED_DAEMON_NAME,
   aiDevHome,
   clientConfigPath,
   daemonAddressCandidates,
   daemonInfoPath,
-  daemonLockPath,
   daemonLogPath,
   logsDir,
   prepareSocketDirectory,
   randomDaemonName,
+  retiredDaemonPath,
   runtimeDir,
   socketDirectoryCandidates,
   tasksStateRoot
@@ -45,8 +47,11 @@ test("every runtime path hangs off the same .ai-dev root", () => {
     assert.equal(root, path.join(HOME, ".ai-dev"));
     assert.equal(runtimeDir(), path.join(root, "run"));
     assert.equal(logsDir(), path.join(root, "logs"));
-    assert.equal(daemonInfoPath(), path.join(root, "run", "daemon.json"));
-    assert.equal(daemonLockPath(), path.join(root, "run", "daemon.lock"));
+    assert.equal(daemonInfoPath("0123456789abcdef"), path.join(root, "run", "daemon-0123456789abcdef.json"));
+    assert.equal(DAEMON_DESCRIPTOR_NAME.exec(path.basename(daemonInfoPath("0123456789abcdef")))[1], "0123456789abcdef");
+    assert.equal(DAEMON_DESCRIPTOR_NAME.test("daemon.json"), false, "2.x's descriptor is not one of these");
+    assert.equal(retiredDaemonPath(4242), path.join(root, "run", "retired-4242.json"));
+    assert.equal(RETIRED_DAEMON_NAME.exec("retired-4242.json")[1], "4242");
     assert.equal(daemonLogPath(), path.join(root, "logs", "daemon.log"));
     assert.equal(clientConfigPath(), path.join(root, "config.json"));
     assert.equal(tasksStateRoot(), path.join(root, "state"));

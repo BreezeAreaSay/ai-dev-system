@@ -10,49 +10,61 @@
  *
  * What it does on its own:
  *
- * - takes `run/daemon.lock`, so one runtime home has one daemon;
+ * - serves one build — the code, its version and the daemon-wide variables
+ *   (`describeBuild`) — and holds that build's lock, so a build has one daemon
+ *   per runtime home; a client of another build, another copy of the code or
+ *   another vault, is served by a daemon of its own;
  * - listens on a random address and publishes it, with a secret, in
- *   `run/daemon.json` (mode 0600); every connection proves it holds the secret
- *   before it is served (`src/core/daemon-channel.mjs`);
- * - keeps the session count in `daemon.json` live, answers `status`, `stop`
+ *   `run/daemon-<build>.json` (mode 0600); every connection proves it holds the
+ *   secret before it is served (`src/core/daemon-channel.mjs`);
+ * - runs each session in its own client's environment (`session-env.mjs`);
+ * - keeps the session count in its descriptor live, answers `status`, `stop`
  *   and `retire` on a control connection, and logs what it does to stderr —
- *   `logs/daemon.log` when a bridge started it;
+ *   `logs/daemon.log` when a bridge started it, set aside past 1 MB;
+ * - asks the daemon of code it replaced in place — a `git pull` — to retire:
+ *   that one takes no new session, finishes the ones it has, and is listed in
+ *   `run/retired-<pid>.json` until it exits;
  * - exits after `AI_DEV_IDLE_TIMEOUT_MS` without a session (30 minutes), and
- *   when `daemon.json` no longer names it: a newer build took over, or someone
- *   removed the runtime home.
+ *   retires when its descriptor is gone or names another daemon.
  *
  * Until 3.0 the daemon had no client at all, died on a socket path over 107
  * bytes and always said `sessions: 0` (docs/DEFECTS.md, Д-97); its Windows pipe
  * had a name anyone could take first (Д-107).
  */
+import { fstatSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import {
+  ChannelError,
   DAEMON_PROTOCOL,
   acceptHandshake,
   controlRequest,
-  daemonBuild,
+  describeBuild,
+  isSupersededBy,
   newSecret,
   readDaemonInfo,
+  readDaemonInfoState,
   readLine,
   removeDaemonInfo,
   writeDaemonInfo,
   writeLine
 } from "./core/daemon-channel.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
-import { processAlive } from "./core/file-lock.mjs";
+import { breakStaleLock, lockPathFor, tryAcquireFileLock } from "./core/file-lock.mjs";
 import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
 import {
+  DAEMON_DESCRIPTOR_NAME,
   daemonAddressCandidates,
   daemonInfoPath,
-  daemonLockPath,
   daemonLogPath,
   prepareSocketDirectory,
+  retiredDaemonPath,
   runtimeDir
 } from "./core/runtime-paths.mjs";
+import { environmentObject, runInSession, scopeProcessEnvironment } from "./core/session-env.mjs";
 import { SocketServerTransport } from "./transport/socket.mjs";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -65,14 +77,40 @@ const VERSION = JSON.parse(await fs.readFile(path.join(serverRoot, "package.json
  */
 export const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
-/** A lock this young may belong to a daemon that is still starting. */
-const LOCK_STARTUP_GRACE_MS = 60_000;
-
-/** How often the daemon checks that `daemon.json` still names it. */
-const WATCH_INTERVAL_MS = 5_000;
+/**
+ * The longest delay a Node timer holds, about 24.8 days. A longer one fires at
+ * once: a daemon told to wait thirty days left as soon as it started
+ * (docs/DEFECTS.md, Д-194).
+ */
+export const MAX_IDLE_TIMEOUT_MS = 2 ** 31 - 1;
 
 /**
- * `AI_DEV_IDLE_TIMEOUT_MS`, or the default; 0 keeps the daemon until it is stopped.
+ * The lock goes stale when its holder has not refreshed it for this long. The
+ * daemon refreshes it every {@link LOCK_HEARTBEAT_MS}, so a busy daemon keeps
+ * it, and one that hangs — or whose pid the system gave to another program —
+ * loses it within a minute.
+ */
+const LOCK_STALE_MS = 60_000;
+const LOCK_HEARTBEAT_MS = 5_000;
+
+/** A holder this young may still be starting: it is not expected to answer yet. */
+const LOCK_STARTUP_GRACE_MS = 60_000;
+
+/** How long a live holder past its start may go without answering before its lock is taken over. */
+const UNANSWERED_TAKEOVER_MS = 10_000;
+
+/** How often the daemon checks its descriptor and the size of its log. */
+const WATCH_INTERVAL_MS = 5_000;
+
+/** The log is set aside, as `daemon.log.1`, once it passes this. */
+export const LOG_ROTATE_BYTES = 1024 * 1024;
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const isPipe = (address) => address.startsWith("\\\\.\\pipe\\");
+
+/**
+ * `AI_DEV_IDLE_TIMEOUT_MS`, or the default; 0 keeps the daemon until it is
+ * stopped, and a value past what a timer holds is cut to {@link MAX_IDLE_TIMEOUT_MS}.
  *
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {number}
@@ -80,7 +118,8 @@ const WATCH_INTERVAL_MS = 5_000;
 export function idleTimeoutMs(env = process.env) {
   const raw = String(env.AI_DEV_IDLE_TIMEOUT_MS ?? "").trim();
   const value = Number(raw);
-  return raw && Number.isFinite(value) ? Math.max(0, value) : DEFAULT_IDLE_TIMEOUT_MS;
+  if (!raw || !Number.isFinite(value)) return DEFAULT_IDLE_TIMEOUT_MS;
+  return Math.min(Math.max(0, value), MAX_IDLE_TIMEOUT_MS);
 }
 
 /** A line for the daemon's log. */
@@ -88,19 +127,16 @@ function writeLog(line) {
   process.stderr.write(`${new Date().toISOString()} daemon ${process.pid}: ${line}\n`);
 }
 
-/** Who holds the lock: 2.x wrote a bare pid, this version a small JSON record. */
-async function lockHolder(lockPath) {
+/**
+ * The log file this daemon writes to — when its stderr is the runtime's
+ * `daemon.log`, as a bridge starts it — or null when it writes elsewhere, to
+ * the terminal of `ai-dev daemon run`.
+ */
+function ownLogFile() {
   try {
-    const [text, stat] = await Promise.all([fs.readFile(lockPath, "utf8"), fs.stat(lockPath)]);
-    let pid = Number(text.trim());
-    if (!Number.isInteger(pid)) {
-      try {
-        pid = Number(JSON.parse(text).pid);
-      } catch {
-        pid = 0;
-      }
-    }
-    return { pid: Number.isInteger(pid) ? pid : 0, ageMs: Date.now() - stat.mtimeMs };
+    const written = fstatSync(2);
+    const file = statSync(daemonLogPath());
+    return written.dev === file.dev && written.ino === file.ino ? daemonLogPath() : null;
   } catch {
     return null;
   }
@@ -115,40 +151,46 @@ async function answers(info) {
   }
 }
 
-/**
- * Take the daemon lock. Exclusive create is the race protection: of two
- * daemons starting at once, one makes the file. A lock is taken over when its
- * pid is gone — or when its pid is alive, no daemon answers for it, and it is
- * older than a start takes: a pid the system has since given to another
- * program, or a daemon that hangs. Its process is left alone either way; a
- * pid in a file is not proof enough to kill anything.
- *
- * @returns {Promise<{ acquired: boolean, holder?: number }>}
- */
-async function acquireLock({ lockPath, infoPath, log }) {
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    try {
-      await fs.writeFile(lockPath, `${JSON.stringify({ pid: process.pid, started_at: new Date().toISOString() })}\n`, { flag: "wx", mode: 0o600 });
-      return { acquired: true };
-    } catch (error) {
-      if (error?.code !== "EEXIST") throw error;
-    }
-    const holder = await lockHolder(lockPath);
-    if (holder && holder.pid !== process.pid && processAlive(holder.pid)) {
-      const info = await readDaemonInfo(infoPath);
-      if (info?.pid === holder.pid && await answers(info)) return { acquired: false, holder: holder.pid };
-      if (holder.ageMs < LOCK_STARTUP_GRACE_MS) return { acquired: false, holder: holder.pid };
-      log(`taking the lock over from pid ${holder.pid}: the process is alive, but no daemon answers for it`);
-    }
-    await fs.rm(lockPath, { force: true });
-  }
-  return { acquired: false, holder: 0 };
+/** Whether it answers within `ms`, asked again every second. */
+async function answersWithin(info, ms) {
+  const deadline = Date.now() + ms;
+  do {
+    if (await answers(info)) return true;
+    await sleep(1_000);
+  } while (Date.now() < deadline);
+  return false;
 }
 
-/** Remove a file only while it still names this process. */
-async function removeOwnLock(lockPath) {
-  const holder = await lockHolder(lockPath);
-  if (holder?.pid === process.pid) await fs.rm(lockPath, { force: true });
+/**
+ * Take this build's lock, by the protocol every lock of AI Dev follows
+ * (`file-lock.mjs`): created exclusively, so of two daemons starting at once
+ * one has it; an abandoned one — its process gone, or silent past
+ * {@link LOCK_STALE_MS} — broken under the protocol's own mutex and only while
+ * it is still the lock judged abandoned; one being created this very moment,
+ * still empty, left to its maker (docs/DEFECTS.md, Д-193). A holder that is
+ * alive but has answered nobody for {@link UNANSWERED_TAKEOVER_MS} past its
+ * start — its socket removed, its listener dead — is taken over too. Its
+ * process is left alone either way: a pid in a file is not proof enough to
+ * kill anything.
+ *
+ * @returns {Promise<{ lock?: { release: () => Promise<void>, holds: () => Promise<boolean> }, holder?: number, serving?: boolean }>}
+ */
+async function acquireLock({ descriptor, log }) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const taken = await tryAcquireFileLock(descriptor, { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS, record: { started_at: Date.now() } });
+    if (taken.release) return { lock: taken };
+    const { observed } = taken;
+    if (!observed) continue;
+    const holder = Number(observed.holder?.pid) || 0;
+    const { state, info } = await readDaemonInfoState(descriptor);
+    if (info?.pid === holder && await answers(info)) return { holder, serving: true };
+    const startedAt = Number(observed.holder?.started_at) || Number(observed.mtimeMs) || 0;
+    if (!holder || state === "unreadable" || Date.now() - startedAt < LOCK_STARTUP_GRACE_MS) return { holder, serving: false };
+    if (info?.pid === holder && await answersWithin(info, UNANSWERED_TAKEOVER_MS)) return { holder, serving: true };
+    log(`taking the lock over from pid ${holder}: it is alive, but no daemon has answered for it`);
+    if (!(await breakStaleLock(lockPathFor(descriptor), observed, { force: true }))) return { holder, serving: false };
+  }
+  return { holder: 0, serving: false };
 }
 
 /**
@@ -196,21 +238,26 @@ async function listenSomewhere(listener, log) {
 }
 
 /**
- * Serve MCP to every client that connects, until stopped or idle.
+ * Serve MCP to every client of this build that connects, until stopped or idle.
  *
  * @param {{ env?: NodeJS.ProcessEnv, log?: (line: string) => void }} [options]
- * @returns {Promise<boolean>} false when another daemon already serves this runtime home
+ * @returns {Promise<boolean>} false when a daemon of this build already serves, or is starting
  */
 export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   await prepareRuntimeHome({ env, log: (line) => log(line.replace(/^ai-dev: /, "")) });
-  const infoPath = daemonInfoPath();
-  const lockPath = daemonLockPath();
+  const build = await describeBuild({ serverRoot, version: VERSION, env });
+  const descriptor = daemonInfoPath(build.id);
   await fs.mkdir(runtimeDir(), { recursive: true, mode: 0o700 });
-  const lock = await acquireLock({ lockPath, infoPath, log });
-  if (!lock.acquired) {
-    log(`another daemon (pid ${lock.holder || "unknown"}) serves ${runtimeDir()}; this one is not needed`);
+  const taken = await acquireLock({ descriptor, log });
+  if (!taken.lock) {
+    log(`another daemon (pid ${taken.holder || "unknown"}) ${taken.serving ? "serves" : "is starting for"} this build in ${runtimeDir()}; this one is not needed`);
     return false;
   }
+  const { lock } = taken;
+
+  // From here on, what a session's messages set off reads that session's
+  // client's environment; the daemon's own work reads the one it started with.
+  scopeProcessEnvironment();
 
   // The tools, the index and the seed sync load while the socket already
   // takes connections; a session waits for them, a status request does not.
@@ -222,44 +269,55 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   serverModule.catch((error) => log(`the server failed to load: ${error.stack ?? error.message}`));
 
   const secret = newSecret();
-  const build = await daemonBuild({ serverRoot, version: VERSION, env });
+  const requestedIdle = Number(String(env.AI_DEV_IDLE_TIMEOUT_MS ?? "").trim());
   const idleTimeout = idleTimeoutMs(env);
+  const logFile = ownLogFile();
   const startedAt = new Date();
   const sockets = new Set();
   const clients = new Map();
   let sessions = 0;
   let served = 0;
-  let retired = false;
+  let retired = null;
   let stopping = false;
   let idleTimer = null;
   let watch = null;
   let address = "";
 
+  const buildParts = { version: build.version, root: build.root, source: build.source, environment: build.environment };
   const describe = () => ({
     protocol: DAEMON_PROTOCOL,
     pid: process.pid,
     version: VERSION,
-    build,
+    build: build.id,
+    build_parts: buildParts,
     address,
     secret,
     started_at: startedAt.toISOString(),
     sessions,
     server_root: serverRoot,
-    log: daemonLogPath(),
-    idle_timeout_ms: idleTimeout
+    log: logFile,
+    idle_timeout_ms: idleTimeout,
+    ...(retired ? { retired: true, retired_at: retired.at, retired_reason: retired.reason } : {})
   });
+
+  // The descriptor while serving, the retired record after: each written
+  // whole, one at a time, never after the daemon began to stop.
   let publishing = Promise.resolve();
   const publish = () => {
     publishing = publishing
-      .then(() => (retired || stopping ? undefined : writeDaemonInfo(infoPath, describe())))
-      .catch((error) => log(`could not update ${infoPath}: ${error.message}`));
+      .then(() => {
+        if (stopping) return undefined;
+        return writeDaemonInfo(retired ? retiredDaemonPath(process.pid) : descriptor, describe());
+      })
+      .catch((error) => log(`could not update ${retired ? retiredDaemonPath(process.pid) : descriptor}: ${error.message}`));
     return publishing;
   };
 
   const status = () => ({
     pid: process.pid,
     version: VERSION,
-    build,
+    build: build.id,
+    build_parts: buildParts,
     address,
     started_at: startedAt.toISOString(),
     uptime_s: Math.round((Date.now() - startedAt.getTime()) / 1000),
@@ -268,23 +326,31 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     clients: [...clients.values()],
     rss_bytes: process.memoryUsage.rss(),
     idle_timeout_ms: idleTimeout,
-    retired,
+    retired: Boolean(retired),
+    ...(retired ? { retired_at: retired.at, retired_reason: retired.reason } : {}),
     server_root: serverRoot,
-    log: daemonLogPath()
+    log: logFile
   });
 
-  const releaseFiles = async () => {
+  // The descriptor goes while the lock is still this daemon's, so a successor
+  // — which needs the lock to publish — can never lose its descriptor to it.
+  const releaseDescriptor = async () => {
     await publishing;
-    await removeDaemonInfo(infoPath, process.pid).catch(() => undefined);
-    await removeOwnLock(lockPath).catch(() => undefined);
-    if (address && !address.startsWith("\\\\.\\pipe\\")) await fs.rm(address, { force: true }).catch(() => undefined);
+    if (await lock.holds()) await removeDaemonInfo(descriptor, process.pid).catch(() => undefined);
+    await lock.release().catch(() => undefined);
   };
 
+  let finishing = false;
   const finish = async (reason) => {
+    if (finishing) return;
+    finishing = true;
     if (serverLoaded) {
       const { shutdownBgeWorkers } = await import("./mcp-stdio.mjs");
       await Promise.resolve(shutdownBgeWorkers()).catch(() => undefined);
     }
+    await publishing;
+    await fs.rm(retiredDaemonPath(process.pid), { force: true }).catch(() => undefined);
+    if (address && !isPipe(address)) await fs.rm(address, { force: true }).catch(() => undefined);
     log(`exits: ${reason}`);
     process.exit(0);
   };
@@ -297,22 +363,25 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     log(`stopping: ${reason}; ${sessions} session(s) end with it`);
     listener.close();
     for (const socket of sockets) socket.destroy();
-    await releaseFiles();
+    await releaseDescriptor();
     await finish(reason);
   };
 
-  // A retired daemon takes no new client and gives up its name, its lock and
-  // its descriptor at once, so a successor can start; the sessions it has go on
-  // until their clients close them.
+  // A retired daemon takes no new session. It gives up its descriptor and its
+  // lock at once, so a successor can start, lists itself in
+  // `run/retired-<pid>.json`, finishes the sessions it has, and still answers
+  // `status` and `stop` on its address.
   const retire = async (reason) => {
     if (retired || stopping) return;
-    retired = true;
+    retired = { at: new Date().toISOString(), reason };
     clearTimeout(idleTimer);
-    clearInterval(watch);
     log(`retiring: ${reason}; ${sessions} session(s) stay until their clients close them`);
-    listener.close();
-    await releaseFiles();
-    if (sessions === 0) await finish(`retired: ${reason}`);
+    await releaseDescriptor();
+    if (sessions === 0) {
+      await finish(`retired: ${reason}`);
+      return;
+    }
+    await publish();
   };
 
   const armIdle = () => {
@@ -338,7 +407,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
         return shutdown("asked to stop");
       case "retire":
         await reply({ ok: true, retiring: true, sessions });
-        return retire("a client of another build replaces it");
+        return retire("the code it runs was replaced, and a daemon of the new code serves now");
       default:
         return reply({ ok: false, error: `Unknown control request: ${JSON.stringify(message.control ?? null)}.` });
     }
@@ -349,12 +418,17 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
       secret,
       pid: process.pid,
       version: VERSION,
-      build,
-      welcome: async ({ mode, profiles }) => (mode === "mcp" ? (await serverModule).sessionToolCounts(profiles) : {})
+      build: build.id,
+      welcome: async ({ mode, profiles }) => {
+        if (mode !== "mcp") return {};
+        if (retired || stopping) throw new ChannelError(`This daemon ${stopping ? "is stopping" : "has retired"} and takes no new session.`, { code: "ERETIRED" });
+        return (await serverModule).sessionToolCounts(profiles);
+      }
     });
     if (accepted.mode === "control") return control(socket, accepted.rest);
     const { createAiDevServer } = await serverModule;
     if (socket.destroyed) return undefined;
+    const environment = environmentObject(accepted.environment);
     const id = ++served;
     sessions += 1;
     sockets.add(socket);
@@ -373,6 +447,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
       clients.delete(socket);
       server.close().catch(() => undefined);
       log(`session ${id} closed; ${sessions} open`);
+      if (stopping) return;
       if (retired && sessions === 0) {
         finish("retired, and its last session closed");
         return;
@@ -380,13 +455,14 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
       publish();
       armIdle();
     });
-    await server.connect(new SocketServerTransport(socket, { buffered: accepted.rest }));
+    // Everything this session's messages set off reads its own client's environment.
+    await server.connect(new SocketServerTransport(socket, { buffered: accepted.rest, scope: (deliver) => runInSession(environment, deliver) }));
     return undefined;
   };
 
   const listener = net.createServer((socket) => {
     socket.on("error", () => undefined);
-    if (retired || stopping) {
+    if (stopping) {
       socket.destroy();
       return;
     }
@@ -397,26 +473,56 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   });
 
   // A dead daemon's socket outlives it, and nothing else would remove it.
-  const previous = await readDaemonInfo(infoPath);
-  if (previous && previous.pid !== process.pid && !previous.address.startsWith("\\\\.\\pipe\\")) {
+  const previous = await readDaemonInfo(descriptor);
+  if (previous && previous.pid !== process.pid && !isPipe(previous.address)) {
     await fs.rm(previous.address, { force: true }).catch(() => undefined);
   }
   try {
     address = await listenSomewhere(listener, log);
-    await writeDaemonInfo(infoPath, describe());
+    await writeDaemonInfo(descriptor, describe());
   } catch (error) {
-    await removeOwnLock(lockPath).catch(() => undefined);
+    await lock.release().catch(() => undefined);
     throw error;
   }
-  log(`listening at ${address} — ai-dev ${VERSION}, build ${build}, idle timeout ${Math.round(idleTimeout / 1000)} s`);
+  const idleNote = idleTimeout <= 0 ? "none" : `${Math.round(idleTimeout / 1000)} s${requestedIdle > MAX_IDLE_TIMEOUT_MS ? " (AI_DEV_IDLE_TIMEOUT_MS asks for more than a timer holds)" : ""}`;
+  log(`listening at ${address} — ai-dev ${VERSION}, build ${build.id}, idle timeout ${idleNote}`);
 
-  // `daemon.json` gone or naming another daemon means this one has been
-  // replaced, or its runtime home removed: it steps aside instead of serving
-  // on an address nobody can find.
+  // The daemon of the code this one replaced in place steps aside; daemons of
+  // other builds serve clients of their own and are left alone.
+  for (const name of await fs.readdir(runtimeDir()).catch(() => [])) {
+    const match = DAEMON_DESCRIPTOR_NAME.exec(name);
+    if (!match || match[1] === build.id) continue;
+    const other = await readDaemonInfo(path.join(runtimeDir(), name));
+    if (!other || !isSupersededBy(build, other.build_parts)) continue;
+    const answer = await controlRequest(other, "retire").catch(() => null);
+    if (answer?.ok) log(`the daemon of the code this one replaced (pid ${other.pid}) retires; ${answer.sessions ?? 0} session(s) stay with it until they close`);
+  }
+
+  // A long-lived daemon sets its own log aside: copied, then cut to nothing, so
+  // every daemon writing to it — each holds it open for appending — goes on
+  // writing to the same file.
+  const rotateLog = async () => {
+    if (!logFile || ownLogFile() !== logFile) return;
+    const size = (await fs.stat(logFile).catch(() => null))?.size ?? 0;
+    if (size <= LOG_ROTATE_BYTES) return;
+    await fs.copyFile(logFile, `${logFile}.1`);
+    await fs.truncate(logFile, 0);
+    log(`set the log aside as ${path.basename(logFile)}.1 (${size} bytes)`);
+  };
+
+  // A descriptor that is gone, or names another daemon, on two looks in a row
+  // means this one was replaced or its runtime home removed: it steps aside
+  // instead of serving on an address nobody can find. One look is not enough:
+  // Windows refuses a file for a moment while it is renamed over or scanned
+  // (docs/DEFECTS.md, Д-194).
+  let strikes = 0;
   watch = setInterval(async () => {
+    await rotateLog().catch(() => undefined);
     if (retired || stopping) return;
-    const current = await readDaemonInfo(infoPath);
-    if (!current || current.pid !== process.pid) retire(current ? `daemon.json names pid ${current.pid} now` : "daemon.json is gone");
+    const { state, info } = await readDaemonInfoState(descriptor);
+    const replaced = state === "missing" || (state === "ok" && info.pid !== process.pid);
+    strikes = replaced ? strikes + 1 : 0;
+    if (strikes >= 2) retire(state === "missing" ? "its descriptor is gone" : `its descriptor names pid ${info.pid} now`);
   }, WATCH_INTERVAL_MS);
   watch.unref();
 

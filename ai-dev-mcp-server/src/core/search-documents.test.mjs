@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   collectDocuments,
+  collectDocumentsYielding,
   createDocumentCache,
   denseDocRecords,
   densePassageText,
@@ -330,4 +331,21 @@ test("dense passages and their hashes are the helper's", { skip: !symlinks && "t
   assert.equal(densePassageText(byPath.get("00-inbox/Welcome.md"), 40), "passage: Title: Welcome Scope: knowledge Source: ");
   assert.equal(denseDocRecords(docs).length, 13, "Membrane is left out");
   assert.equal(denseDocRecords(docs, { includeMembrane: true }).length, 14);
+});
+
+test("a rebuild's collection gives other work a turn and finds exactly what the plain one does (Д-194)", async (t) => {
+  const root = tempRoot(t, "yield");
+  buildVault(root);
+  for (let index = 0; index < 300; index += 1) write(root, `02-knowledge/many/note-${index}.md`, `# Note ${index}\n\nbody ${index}\n`);
+  const plain = collectDocuments({ vaultRoot: root });
+  let turns = 0;
+  const other = setInterval(() => {
+    turns += 1;
+  }, 0);
+  const yielding = await collectDocumentsYielding({ vaultRoot: root }, { sliceMs: 0 });
+  clearInterval(other);
+  assert.deepEqual(yielding.docs.map((doc) => [doc.id, doc.content_hash]), plain.docs.map((doc) => [doc.id, doc.content_hash]));
+  assert.equal(yielding.duplicates, plain.duplicates);
+  assert.ok(plain.docs.length > 300);
+  assert.ok(turns > 10, `another task ran ${turns} times while the vault was read`);
 });

@@ -1,7 +1,7 @@
 /**
- * The client side of the daemon: find the one serving this runtime home, start
- * one when there is none or it is of another build, and ask it for its status
- * or to stop. Used by the `ai-dev mcp` bridge and by `ai-dev daemon`.
+ * The client side of the daemon: find the one serving this build, start one
+ * when there is none, and ask the daemons of this runtime home for their
+ * status or to stop. Used by the `ai-dev mcp` bridge and by `ai-dev daemon`.
  *
  * A daemon is started detached and without a window (`windowsHide`), with its
  * output in `logs/daemon.log`, so it outlives the client that started it and
@@ -12,17 +12,34 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { ChannelError, controlRequest, daemonBuild, openChannel, readDaemonInfo } from "./daemon-channel.mjs";
-import { processAlive } from "./file-lock.mjs";
-import { daemonInfoPath, daemonLogPath } from "./runtime-paths.mjs";
+import { ChannelError, buildDifferences, controlRequest, describeBuild, openChannel, readDaemonInfo, removeDaemonInfo } from "./daemon-channel.mjs";
+import { EMPTY_LOCK_GRACE_MS, processAlive, tryAcquireFileLock } from "./file-lock.mjs";
+import { DAEMON_DESCRIPTOR_NAME, RETIRED_DAEMON_NAME, daemonInfoPath, daemonLogPath, runtimeDir } from "./runtime-paths.mjs";
 
 /** How long a client waits for a daemon it started. A first start fills the vault and loads the tools. */
 export const DEFAULT_START_TIMEOUT_MS = 20_000;
 
-/** The log is set aside once it passes this, so it never grows without bound. */
+/** The log is set aside once it passes this, so it never grows without bound; the daemon does the same as it runs. */
 const LOG_ROTATE_BYTES = 1024 * 1024;
 
+/** A daemon's lock is abandoned when it has not been refreshed this long (`src/daemon.mjs`). */
+const DAEMON_LOCK_STALE_MS = 60_000;
+
+/**
+ * How long after a started daemon stepped aside — another of this build was
+ * starting — the client starts one again, if none has shown up: the other may
+ * have died between creating the lock and filling it in, and its empty lock is
+ * abandoned once its grace has passed.
+ */
+const RESTART_AFTER_MS = EMPTY_LOCK_GRACE_MS + 500;
+
+/** How many daemons one client starts at most while it waits. */
+const MAX_STARTS = 3;
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** A message for the middle of a sentence: without the full stop it ends with. */
+const clause = (message) => String(message ?? "").trim().replace(/\.+$/, "");
 
 /**
  * `AI_DEV_DAEMON_START_TIMEOUT_MS`, or the default.
@@ -46,12 +63,19 @@ export function daemonDisabled(env = process.env) {
   return ["0", "off", "false", "no"].includes(String(env.AI_DEV_DAEMON ?? "").trim().toLowerCase());
 }
 
-/** The log a started daemon writes to, opened for appending; set aside first when large. */
+/**
+ * The log a started daemon writes to, opened for appending. A large one is set
+ * aside first — copied, then cut to nothing, as the daemon itself does — so a
+ * daemon already writing to it goes on writing to the same file.
+ */
 function openLog() {
   const file = daemonLogPath();
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
   try {
-    if (fs.statSync(file).size > LOG_ROTATE_BYTES) fs.renameSync(file, `${file}.1`);
+    if (fs.statSync(file).size > LOG_ROTATE_BYTES) {
+      fs.copyFileSync(file, `${file}.1`);
+      fs.truncateSync(file, 0);
+    }
   } catch {
     // No log yet.
   }
@@ -98,22 +122,27 @@ export function spawnDaemon({ cliPath, serverRoot, env, spawnImpl = spawn }) {
   }
 }
 
-/** A channel to a running daemon, or null when there is none to reach. */
-async function reach(info, options) {
+/** A channel to the running daemon `info` describes, when it serves `build`; null when there is none to reach. */
+async function reach(info, options, build) {
   if (!info || !processAlive(info.pid)) return null;
+  let channel;
   try {
-    return await openChannel(info, options);
+    channel = await openChannel(info, options);
   } catch {
     return null;
   }
+  if (channel.welcome.build === build.id) return channel;
+  channel.socket.destroy();
+  return null;
 }
 
 /**
- * A channel to a daemon of this build: the one running, or one started now.
+ * A channel to the daemon of this build: the one running, or one started now.
  *
- * A daemon of another build — a `git pull`, a new version, a different
- * `AI_DEV_VAULT_ROOT` — is asked to retire: it gives up its address at once
- * and keeps serving the clients it has until they close.
+ * Each build — the code, its version, the daemon-wide variables — has a
+ * daemon of its own, so a client never waits on, or replaces, the daemon of
+ * another copy of the code or another vault (docs/DEFECTS.md, Д-191). For an
+ * MCP session the channel carries `env` to the daemon: the session runs in it.
  *
  * @param {object} options
  * @param {string} options.serverRoot
@@ -124,97 +153,189 @@ async function reach(info, options) {
  * @param {string | null} [options.profiles]
  * @param {number} [options.timeoutMs]
  * @param {typeof spawn} [options.spawnImpl]
- * @returns {Promise<{ socket: import("node:net").Socket, welcome: Record<string, any>, rest: Buffer, info: object, started: boolean, replaced: number | null }>}
+ * @param {number} [options.restartAfterMs] - for tests
+ * @returns {Promise<{ socket: import("node:net").Socket, welcome: Record<string, any>, rest: Buffer, info: object, build: object, started: boolean }>}
+ *   `started` is true only when this call started the daemon that answered.
  */
-export async function connectDaemon({ serverRoot, cliPath, version, env = process.env, mode = "mcp", profiles = null, timeoutMs = startTimeoutMs(env), spawnImpl = spawn }) {
-  const build = await daemonBuild({ serverRoot, version, env });
-  const infoPath = daemonInfoPath();
-  const options = { mode, profiles, timeoutMs: 3_000 };
-  let replaced = null;
-  const retire = async (info, channel) => {
-    channel.socket.destroy();
-    await controlRequest(info, "retire", { timeoutMs: 3_000 }).catch(() => undefined);
-    replaced = info.pid;
-  };
+export async function connectDaemon({ serverRoot, cliPath, version, env = process.env, mode = "mcp", profiles = null, timeoutMs = startTimeoutMs(env), spawnImpl = spawn, restartAfterMs = RESTART_AFTER_MS }) {
+  const build = await describeBuild({ serverRoot, version, env });
+  const descriptor = daemonInfoPath(build.id);
+  const options = { mode, profiles, environment: env, timeoutMs: 3_000 };
+  const running = await readDaemonInfo(descriptor);
+  const channel = await reach(running, options, build);
+  if (channel) return { ...channel, info: running, build, started: false };
 
-  const running = await readDaemonInfo(infoPath);
-  const channel = await reach(running, options);
-  if (channel?.welcome.build === build) return { ...channel, info: running, started: false, replaced };
-  if (channel) await retire(running, channel);
-
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const child = spawnDaemon({ cliPath, serverRoot, env, spawnImpl });
-    let exited = null;
+  let child;
+  let exited = null;
+  let starts = 0;
+  const start = () => {
+    child = spawnDaemon({ cliPath, serverRoot, env, spawnImpl });
+    starts += 1;
+    exited = null;
     child.once("exit", (code, signal) => {
-      exited = { code, signal };
+      exited = { code, signal, at: Date.now() };
     });
     child.once("error", (error) => {
-      exited = { error };
+      exited = { error, at: Date.now() };
     });
-    const deadline = Date.now() + timeoutMs;
-    let other = false;
-    while (Date.now() < deadline) {
-      await sleep(50);
-      const info = await readDaemonInfo(infoPath);
-      if (info && info.pid !== replaced) {
-        const found = await reach(info, options);
-        if (found?.welcome.build === build) return { ...found, info, started: true, replaced };
-        if (found) {
-          // A client of another build started its daemon at the same moment
-          // and won the lock: it steps aside once, and this one starts again.
-          await retire(info, found);
-          other = true;
-          break;
-        }
-      }
-      // Exit 0 is a daemon that found another serving: wait for that one.
-      if (exited && (exited.error || exited.code !== 0)) {
-        const why = exited.error ? exited.error.message : `it exited with ${exited.code ?? exited.signal}`;
-        throw new ChannelError(`The daemon did not start: ${why}. ${await logTail()}`.trim(), { code: "ESTART" });
-      }
+  };
+  start();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await sleep(50);
+    const info = await readDaemonInfo(descriptor);
+    const found = await reach(info, options, build);
+    if (found) return { ...found, info, build, started: info.pid === child.pid };
+    if (exited && (exited.error || exited.code !== 0)) {
+      const why = exited.error ? clause(exited.error.message) : `it exited with ${exited.code ?? exited.signal}`;
+      throw new ChannelError(`The daemon did not start: ${why}. ${await logTail()}`.trim(), { code: "ESTART" });
     }
-    if (!other) throw new ChannelError(`The daemon did not start within ${Math.round(timeoutMs / 1000)} s. ${await logTail()}`.trim(), { code: "ETIMEDOUT" });
+    // Exit 0 is a daemon that found another of this build serving, or
+    // starting: the wait goes on for that one — and when it never shows up,
+    // another start takes over its abandoned lock (docs/DEFECTS.md, Д-193).
+    if (exited && Date.now() - exited.at >= restartAfterMs && starts < MAX_STARTS) start();
   }
-  throw new ChannelError("Two builds of AI Dev keep replacing each other's daemon; this client serves itself.", { code: "ESTART" });
+  throw new ChannelError(`The daemon did not start within ${Math.round(timeoutMs / 1000)} s. ${await logTail()}`.trim(), { code: "ETIMEDOUT" });
 }
 
 /**
- * What the daemon says about itself, or why there is none.
+ * Remove the descriptor of a daemon that is gone — its process ended, or its
+ * lock went stale because no daemon refreshes it — and only then: taking the
+ * descriptor's lock proves nobody serves it. A retired daemon's record has no
+ * lock, and goes when its pid is not running.
+ */
+async function removeStale(file, info, retired) {
+  if (retired) {
+    if (processAlive(info.pid)) return false;
+    await fsp.rm(file, { force: true });
+    return true;
+  }
+  const taken = await tryAcquireFileLock(file, { staleMs: DAEMON_LOCK_STALE_MS });
+  if (!taken.release) return false;
+  try {
+    return await removeDaemonInfo(file, info.pid);
+  } finally {
+    await taken.release();
+  }
+}
+
+/**
+ * Every daemon of this runtime home, as each says of itself: those that serve
+ * a build, and the retired ones finishing their sessions. One that cannot be
+ * reached comes with the reason, and with `clean` its descriptor is removed
+ * when its daemon is gone.
+ *
+ * @param {{ clean?: boolean }} [options]
+ * @returns {Promise<Array<{ file: string, info: object, retired: boolean, status?: object, unreachable?: string, gone?: boolean, removed?: boolean }>>}
+ *   `gone`: its process is not running, and only its descriptor is left.
+ */
+export async function listDaemons({ clean = false } = {}) {
+  const directory = runtimeDir();
+  let names;
+  try {
+    names = await fsp.readdir(directory);
+  } catch {
+    return [];
+  }
+  const found = [];
+  for (const name of names.sort()) {
+    const retired = RETIRED_DAEMON_NAME.test(name);
+    if (!retired && !DAEMON_DESCRIPTOR_NAME.test(name)) continue;
+    const file = path.join(directory, name);
+    const info = await readDaemonInfo(file);
+    if (!info) continue;
+    let status = null;
+    let unreachable = "";
+    const gone = !processAlive(info.pid);
+    if (gone) {
+      unreachable = `pid ${info.pid} is not running`;
+    } else {
+      try {
+        status = await controlRequest(info, "status");
+      } catch (error) {
+        unreachable = clause(error.message);
+      }
+    }
+    if (status) {
+      found.push({ file, info, retired, status });
+      continue;
+    }
+    const removed = clean ? await removeStale(file, info, retired).catch(() => false) : false;
+    found.push({ file, info, retired, unreachable, gone, removed });
+  }
+  return found;
+}
+
+/** What `status` says of a daemon that is not this build's own. */
+function summary(entry, build) {
+  const { info, status, retired } = entry;
+  return {
+    pid: info.pid,
+    version: status?.version ?? info.version,
+    build: info.build,
+    sessions: status?.sessions ?? info.sessions ?? 0,
+    clients: status?.clients ?? [],
+    rss_bytes: status?.rss_bytes,
+    uptime_s: status?.uptime_s,
+    retired: retired || Boolean(status?.retired),
+    ...(retired || status?.retired ? { retired_reason: status?.retired_reason ?? info.retired_reason } : {}),
+    differences: buildDifferences(build, info.build_parts),
+    ...(entry.unreachable ? { unreachable: entry.unreachable, gone: Boolean(entry.gone) } : {})
+  };
+}
+
+/**
+ * What the daemon of this build says about itself — or why there is none —
+ * and what the other daemons of this runtime home are: another build's, or
+ * retired, each with why it is not this one.
  *
  * @param {{ serverRoot: string, version: string, env?: NodeJS.ProcessEnv }} options
  * @returns {Promise<Record<string, any>>}
  */
 export async function daemonStatus({ serverRoot, version, env = process.env }) {
-  const info = await readDaemonInfo(daemonInfoPath());
-  if (!info) return { running: false, info: daemonInfoPath() };
-  if (!processAlive(info.pid)) return { running: false, stale: true, pid: info.pid, reason: `daemon.json names pid ${info.pid}, which is not running` };
-  let status;
-  try {
-    status = await controlRequest(info, "status");
-  } catch (error) {
-    return { running: false, stale: true, pid: info.pid, reason: error.message };
-  }
-  const build = await daemonBuild({ serverRoot, version, env });
-  return { running: true, ...status, ok: undefined, current: status.build === build };
+  const build = await describeBuild({ serverRoot, version, env });
+  const daemons = await listDaemons();
+  const mine = daemons.find((entry) => !entry.retired && entry.status && entry.info.build === build.id);
+  const others = daemons.filter((entry) => entry !== mine && (entry.status || entry.info.build !== build.id)).map((entry) => summary(entry, build));
+  if (mine) return { running: true, ...mine.status, ok: undefined, current: true, others };
+  const stale = daemons.find((entry) => !entry.retired && !entry.status && entry.info.build === build.id);
+  return {
+    running: false,
+    build: build.id,
+    info: daemonInfoPath(build.id),
+    ...(stale ? { stale: true, pid: stale.info.pid, reason: stale.unreachable } : {}),
+    others
+  };
 }
 
 /**
- * Stop the daemon: a control request, the same on every system — Windows has
- * no signal to send it — then wait for its process to go.
+ * Stop every daemon of this runtime home: a control request, the same on
+ * every system — Windows has no signal to send — then a wait for its process
+ * to go. The descriptor of a daemon already gone is removed on the way.
  *
  * @param {{ timeoutMs?: number }} [options]
- * @returns {Promise<{ running: boolean, stopped?: boolean, pid?: number, sessions?: number, reason?: string }>}
+ * @returns {Promise<{ daemons: Array<{ pid: number, build: string, retired: boolean, stopped: boolean, sessions?: number, reason?: string, removed?: boolean }> }>}
  */
-export async function stopDaemon({ timeoutMs = 10_000 } = {}) {
-  const info = await readDaemonInfo(daemonInfoPath());
-  if (!info || !processAlive(info.pid)) return { running: false };
-  let answer;
-  try {
-    answer = await controlRequest(info, "stop");
-  } catch (error) {
-    return { running: true, stopped: false, pid: info.pid, reason: error.message };
+export async function stopDaemons({ timeoutMs = 10_000 } = {}) {
+  const results = [];
+  for (const entry of await listDaemons({ clean: true })) {
+    const { info, retired } = entry;
+    const base = { pid: info.pid, build: info.build, retired };
+    if (!entry.status) {
+      results.push(entry.removed ? { ...base, stopped: true, gone: true } : { ...base, stopped: false, reason: entry.unreachable });
+      continue;
+    }
+    let answer;
+    try {
+      answer = await controlRequest(info, "stop");
+    } catch (error) {
+      results.push({ ...base, stopped: false, reason: clause(error.message) });
+      continue;
+    }
+    const deadline = Date.now() + timeoutMs;
+    while (processAlive(info.pid) && Date.now() < deadline) await sleep(50);
+    const stopped = !processAlive(info.pid);
+    results.push({ ...base, stopped, sessions: answer.sessions ?? 0, ...(stopped ? {} : { reason: "it is still running" }) });
   }
-  const deadline = Date.now() + timeoutMs;
-  while (processAlive(info.pid) && Date.now() < deadline) await sleep(50);
-  return { running: false, stopped: !processAlive(info.pid), pid: info.pid, sessions: answer.sessions ?? 0 };
+  return { daemons: results };
 }

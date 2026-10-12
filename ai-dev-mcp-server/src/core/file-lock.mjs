@@ -227,12 +227,16 @@ export function sameLock(left, right) {
  * different file and stays. A breaker killed mid-break leaves `<lock>.break`
  * behind, and the next breaker clears it after {@link BREAK_LOCK_STALE_MS}.
  *
+ * `force` removes the observed lock even while its holder counts as live — for
+ * a holder known to be stuck, such as a daemon that keeps its lock but answers
+ * nobody; it is still removed only if it is the very lock observed.
+ *
  * @param {string} lockPath
  * @param {{ holder: object|null, mtimeMs: number, id: string }} observed - the lock as judged stale
- * @param {{ staleMs?: number }} [options]
+ * @param {{ staleMs?: number, force?: boolean }} [options]
  * @returns {Promise<boolean>} whether the lock was removed
  */
-export async function breakStaleLock(lockPath, observed, { staleMs = LOCK_STALE_MS } = {}) {
+export async function breakStaleLock(lockPath, observed, { staleMs = LOCK_STALE_MS, force = false } = {}) {
   const breaker = `${lockPath}.break`;
   try {
     await (await fs.open(breaker, "wx", 0o600)).close();
@@ -247,7 +251,7 @@ export async function breakStaleLock(lockPath, observed, { staleMs = LOCK_STALE_
   }
   try {
     const current = await readLock(lockPath);
-    if (!sameLock(current, observed) || lockIsLive(current, { staleMs })) return false;
+    if (!sameLock(current, observed) || (!force && lockIsLive(current, { staleMs }))) return false;
     await fs.rm(lockPath, { force: true });
     return true;
   } finally {
@@ -256,6 +260,83 @@ export async function breakStaleLock(lockPath, observed, { staleMs = LOCK_STALE_
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Create the lock file, exclusively, holding this process's holder record; or
+ * null when it already exists. The lock comes back with its release, a check
+ * that it is still this holder's, and — with `heartbeatMs` — a beat that keeps
+ * proving it alive.
+ */
+async function createLock(lockPath, { record = {}, heartbeatMs = 0 } = {}) {
+  const token = crypto.randomUUID();
+  let handle;
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      handle = await fs.open(lockPath, "wx", 0o600);
+      break;
+    } catch (error) {
+      if (error?.code === "ENOENT" && attempt === 0) {
+        await fs.mkdir(path.dirname(lockPath), { recursive: true });
+        continue;
+      }
+      // Windows answers EPERM for a lock file another process is deleting.
+      if (error?.code === "EEXIST" || (process.platform === "win32" && TRANSIENT_CODES.has(error?.code))) return null;
+      throw error;
+    }
+  }
+  let id;
+  try {
+    await handle.writeFile(JSON.stringify({ ...record, pid: process.pid, host: os.hostname(), token, acquired_at: Date.now() }));
+    const stat = await handle.stat({ bigint: true });
+    id = `${stat.dev}:${stat.ino}`;
+  } finally {
+    await handle.close();
+  }
+  holdLock(lockPath, token);
+  const beat = heartbeatMs > 0 ? setInterval(() => refreshLock(lockPath, token, id).catch(() => {}), heartbeatMs) : null;
+  beat?.unref?.();
+  return {
+    token,
+    async holds() {
+      const current = await readLock(lockPath).catch(() => null);
+      return current?.id === id && current?.holder?.token === token;
+    },
+    async release() {
+      if (beat) clearInterval(beat);
+      try {
+        await releaseLock(lockPath, token);
+      } finally {
+        // Only once the file is gone: an exit in the middle of the release
+        // still finds the lock to remove (docs/DEFECTS.md, Д-132).
+        if (held.get(lockPath) === token) held.delete(lockPath);
+      }
+    }
+  };
+}
+
+/**
+ * Take the lock for `filePath` now, or say who holds it — for a lock held as
+ * long as a process lives, such as the daemon's, rather than for one write. An
+ * abandoned lock is broken first, as {@link acquireFileLock} does; a live one is
+ * reported, never waited for.
+ *
+ * @param {string} filePath - The file the lock guards (not the lock itself).
+ * @param {{ staleMs?: number, heartbeatMs?: number, record?: Record<string, unknown> }} [options] - `record`
+ *   adds fields to the holder; the protocol's own fields are always this process's.
+ * @returns {Promise<{ release: () => Promise<void>, holds: () => Promise<boolean>, token: string } | { observed: object | null }>}
+ */
+export async function tryAcquireFileLock(filePath, { staleMs = LOCK_STALE_MS, heartbeatMs = 0, record = {} } = {}) {
+  const lockPath = lockPathFor(filePath);
+  let observed = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const taken = await createLock(lockPath, { record, heartbeatMs });
+    if (taken) return taken;
+    observed = await readLock(lockPath);
+    if (!observed) continue;
+    if (lockIsLive(observed, { staleMs }) || !(await breakStaleLock(lockPath, observed, { staleMs }))) return { observed };
+  }
+  return { observed };
+}
 
 /**
  * Take the lock for `filePath`, waiting for a live holder and breaking an
@@ -268,41 +349,11 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 export async function acquireFileLock(filePath, { timeoutMs = LOCK_TIMEOUT_MS, staleMs = LOCK_STALE_MS, heartbeatMs = 0 } = {}) {
   const lockPath = lockPathFor(filePath);
-  const token = crypto.randomUUID();
   const deadline = Date.now() + timeoutMs;
   let backoff = 2;
   for (;;) {
-    try {
-      const handle = await fs.open(lockPath, "wx", 0o600);
-      let id;
-      try {
-        await handle.writeFile(JSON.stringify({ pid: process.pid, host: os.hostname(), token, acquired_at: Date.now() }));
-        const stat = await handle.stat({ bigint: true });
-        id = `${stat.dev}:${stat.ino}`;
-      } finally {
-        await handle.close();
-      }
-      holdLock(lockPath, token);
-      const beat = heartbeatMs > 0 ? setInterval(() => refreshLock(lockPath, token, id).catch(() => {}), heartbeatMs) : null;
-      beat?.unref?.();
-      return async () => {
-        if (beat) clearInterval(beat);
-        try {
-          await releaseLock(lockPath, token);
-        } finally {
-          // Only once the file is gone: an exit in the middle of the release
-          // still finds the lock to remove (docs/DEFECTS.md, Д-132).
-          if (held.get(lockPath) === token) held.delete(lockPath);
-        }
-      };
-    } catch (error) {
-      if (error?.code === "ENOENT") {
-        await fs.mkdir(path.dirname(lockPath), { recursive: true });
-        continue;
-      }
-      // Windows answers EPERM for a lock file another process is deleting.
-      if (error?.code !== "EEXIST" && !(process.platform === "win32" && TRANSIENT_CODES.has(error?.code))) throw error;
-    }
+    const taken = await createLock(lockPath, { heartbeatMs });
+    if (taken) return taken.release;
     const observed = await readLock(lockPath);
     if (observed && !lockIsLive(observed, { staleMs })) {
       if (await breakStaleLock(lockPath, observed, { staleMs })) continue;

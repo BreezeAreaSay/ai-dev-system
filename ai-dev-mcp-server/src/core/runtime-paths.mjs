@@ -7,9 +7,8 @@ import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 /**
  * The private, per-user state directory the standalone program runs from.
  *
- * Everything the daemon writes lives below it: the lock, the descriptor other
- * processes read to find a running daemon, and — when the path is short
- * enough — the socket.
+ * Everything the daemon writes lives below it: its lock, the descriptor other
+ * processes read to find it, and — when the path is short enough — its socket.
  *
  * @returns {string} absolute path
  */
@@ -23,11 +22,33 @@ export const runtimeDir = () => path.join(aiDevHome(), "run");
 /** Directory for runtime logs. */
 export const logsDir = () => path.join(aiDevHome(), "logs");
 
-/** Descriptor a running daemon publishes: pid, version, address, secret, sessions. */
-export const daemonInfoPath = () => path.join(runtimeDir(), "daemon.json");
+/**
+ * The descriptor the daemon of one build publishes: pid, version, address,
+ * secret, sessions. Each build has its own, so clients that need different
+ * daemons — another copy of the code, another vault — each find theirs instead
+ * of replacing each other's (docs/DEFECTS.md, Д-191). Its lock is beside it,
+ * `<descriptor>.lock`, as `file-lock.mjs` names locks.
+ *
+ * @param {string} build - the build's id, 16 hex digits
+ * @returns {string}
+ */
+export const daemonInfoPath = (build) => path.join(runtimeDir(), `daemon-${build}.json`);
 
-/** Lock file that keeps a second daemon from serving the same runtime home. */
-export const daemonLockPath = () => path.join(runtimeDir(), "daemon.lock");
+/** A descriptor's file name; the first group is the build. */
+export const DAEMON_DESCRIPTOR_NAME = /^daemon-([0-9a-f]{16})\.json$/;
+
+/**
+ * What a retired daemon publishes while it finishes the sessions it has: the
+ * descriptor it gave up, so `ai-dev daemon status` can show it and
+ * `ai-dev daemon stop` can stop it.
+ *
+ * @param {number} pid
+ * @returns {string}
+ */
+export const retiredDaemonPath = (pid) => path.join(runtimeDir(), `retired-${pid}.json`);
+
+/** A retired daemon's file name; the first group is its pid. */
+export const RETIRED_DAEMON_NAME = /^retired-(\d+)\.json$/;
 
 /** Where the daemon writes what it does, when a bridge started it. */
 export const daemonLogPath = () => path.join(logsDir(), "daemon.log");
@@ -49,7 +70,7 @@ export const MAX_SOCKET_PATH_BYTES = 100;
 /**
  * A new, unguessable name for one daemon's socket or pipe.
  *
- * Every daemon start draws its own, and `daemon.json` says which it is. A fixed
+ * Every daemon start draws its own, and its descriptor says which it is. A fixed
  * name — `\\.\pipe\ai-dev-<user>` until 3.0 — is one any local process can
  * create first and so receive every client's connection (docs/DEFECTS.md,
  * Д-107).

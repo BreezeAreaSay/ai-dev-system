@@ -29,6 +29,7 @@ import os from "node:os";
 import { pythonRound } from "./python-compat.mjs";
 import {
   collectDocuments,
+  collectDocumentsYielding,
   DEFAULT_DENSE_TEXT_LIMIT,
   denseDocRecords,
   pythonPath,
@@ -622,7 +623,7 @@ async function writeIndex(db, docs, options) {
 export async function rebuildIndex(options) {
   return withRebuildLock(options.indexPath, async () => {
     if (options.signal?.aborted) throw cancelled();
-    const { docs } = collectDocuments({
+    const { docs } = await collectDocumentsYielding({
       vaultRoot: options.vaultRoot,
       includeExternalProjectFiles: options.includeExternalProjectFiles !== false
     });
@@ -744,7 +745,7 @@ export async function densePlan({
   incremental = true,
   provenance = {}
 }) {
-  const { docs } = collectDocuments({ vaultRoot, includeExternalProjectFiles });
+  const { docs } = await collectDocumentsYielding({ vaultRoot, includeExternalProjectFiles });
   const records = denseDocRecords(docs, { textLimit, includeMembrane });
   const full = fullProvenance(provenance);
   let stored = new Map();

@@ -6,15 +6,18 @@ import path from "node:path";
 import test from "node:test";
 import {
   DAEMON_PROTOCOL,
+  SESSION_LINE_BYTES,
   acceptHandshake,
-  behaviourEnvironment,
+  buildDifferences,
   clientProof,
   controlRequest,
-  daemonBuild,
+  describeBuild,
+  isSupersededBy,
   newNonce,
   newSecret,
   openChannel,
   readDaemonInfo,
+  readDaemonInfoState,
   readLine,
   removeDaemonInfo,
   sameProof,
@@ -76,7 +79,7 @@ test("a client with the secret is let in, both ways proven, and the MCP bytes af
     const { message } = await readLine(socket, { buffered: accepted.rest });
     await writeLine(socket, { got: message });
   });
-  const channel = await openChannel(daemonInfo(address, secret), { mode: "mcp", profiles: "core" });
+  const channel = await openChannel(daemonInfo(address, secret), { mode: "mcp", profiles: "core", environment: { PATH: "/client/bin", RETRIES: 3, UNSET: undefined } });
   t.after(() => channel.socket.destroy());
   assert.equal(channel.welcome.ok, true);
   assert.equal(channel.welcome.version, "9.9.9");
@@ -88,6 +91,83 @@ test("a client with the secret is let in, both ways proven, and the MCP bytes af
   assert.deepEqual(message.got, { jsonrpc: "2.0", id: 1, method: "ping" });
   assert.equal(accepted.mode, "mcp");
   assert.equal(accepted.profiles, "core");
+  assert.deepEqual(accepted.environment, { PATH: "/client/bin", RETRIES: "3" }, "the session's environment: what the client has set, as strings");
+});
+
+test("the client's environment goes only to a daemon that proved itself, and has a size limit", async (t) => {
+  // Something at the address that speaks the protocol but lacks the secret:
+  // it records every byte the client sends.
+  const address = await localAddress(t);
+  const secret = newSecret();
+  const received = [];
+  await listen(t, address, async (socket) => {
+    socket.on("data", (chunk) => received.push(chunk));
+    const nonce = newNonce();
+    await writeLine(socket, { ai_dev_daemon: DAEMON_PROTOCOL, nonce });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await writeLine(socket, { ok: true, proof: "0".repeat(64), pid: process.pid, version: "1", build: "b" });
+  });
+  await assert.rejects(openChannel(daemonInfo(address, secret), { environment: { SECRET_TOKEN: "marker-7d3f" } }), /cannot prove it is this user's daemon/);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(Buffer.concat(received).includes("marker-7d3f"), false, "the impostor never saw the environment");
+
+  const huge = { BIG: "x".repeat(SESSION_LINE_BYTES) };
+  await assert.rejects(openChannel(daemonInfo(address, secret), { environment: huge }), (error) => error.code === "E2BIG" && /more than the daemon takes/.test(error.message));
+  // A control connection carries no environment at all.
+  const real = await localAddress(t);
+  let seen;
+  await listen(t, real, async (socket) => {
+    seen = await acceptHandshake(socket, { secret, pid: process.pid, version: "1", build: "b" });
+    socket.end();
+  });
+  const control = await openChannel(daemonInfo(real, secret), { mode: "control", environment: { SECRET_TOKEN: "marker" } });
+  control.socket.destroy();
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(seen.environment, null);
+});
+
+test("a session line that is not an environment, or is too long, is refused", async (t) => {
+  const address = await localAddress(t);
+  const secret = newSecret();
+  const refused = [];
+  await listen(t, address, (socket) => acceptHandshake(socket, { secret, pid: process.pid, version: "1", build: "b", timeoutMs: 1_000 }).catch((error) => {
+    refused.push(error.message);
+    socket.destroy();
+  }));
+  const session = async (line) => {
+    const socket = net.connect(address);
+    socket.on("error", () => undefined);
+    await new Promise((resolve) => socket.once("connect", resolve));
+    const hello = await readLine(socket);
+    const nonce = newNonce();
+    await writeLine(socket, { protocol: DAEMON_PROTOCOL, nonce, proof: clientProof(secret, hello.message.nonce, nonce), mode: "mcp" });
+    await readLine(socket);
+    socket.write(line);
+    // readLine leaves the socket paused, and a paused socket never reads the end.
+    socket.resume();
+    await new Promise((resolve) => socket.once("close", resolve));
+  };
+  await session(`${JSON.stringify({ environment: { PATH: 1 } })}\n`);
+  await session(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" })}\n`);
+  await session(`${JSON.stringify({ environment: { A: "x".repeat(SESSION_LINE_BYTES) } })}\n`);
+  assert.deepEqual(refused.slice(0, 2), ["The client sent no environment for its session.", "The client sent no environment for its session."]);
+  assert.match(refused[2], /longer than any handshake/);
+});
+
+test("a daemon that will not take a client says why", async (t) => {
+  const address = await localAddress(t);
+  const secret = newSecret();
+  await listen(t, address, (socket) => acceptHandshake(socket, {
+    secret,
+    pid: process.pid,
+    version: "1",
+    build: "b",
+    welcome: ({ mode }) => {
+      if (mode === "mcp") throw Object.assign(new Error("This daemon has retired and takes no new session."), { code: "ERETIRED" });
+      return {};
+    }
+  }).catch(() => undefined));
+  await assert.rejects(openChannel(daemonInfo(address, secret)), (error) => error.code === "EAUTH" && /refused the connection: This daemon has retired and takes no new session\.$/.test(error.message));
 });
 
 test("a client without the secret is refused before it is served, and learns nothing it can reuse", async (t) => {
@@ -145,11 +225,11 @@ test("something else at the daemon's address cannot pass for it (a stale address
   await assert.rejects(openChannel(daemonInfo(chatty, secret)), /not a daemon of this version/);
 });
 
-test("the daemon must be the pid daemon.json names", async (t) => {
+test("the daemon must be the pid its descriptor names", async (t) => {
   const address = await localAddress(t);
   const secret = newSecret();
   await listen(t, address, (socket) => acceptHandshake(socket, { secret, pid: process.pid + 1, version: "1", build: "b" }));
-  await assert.rejects(openChannel(daemonInfo(address, secret)), /is pid \d+, not the pid \d+ daemon\.json names/);
+  await assert.rejects(openChannel(daemonInfo(address, secret)), /is pid \d+, not the pid \d+ its descriptor names/);
 });
 
 test("a control request gets one answer", async (t) => {
@@ -165,22 +245,32 @@ test("a control request gets one answer", async (t) => {
   await assert.rejects(controlRequest({ ...daemonInfo(address, secret), address: `${address}.gone` }, "status"), /Cannot reach the daemon/);
 });
 
-test("daemon.json is written whole with mode 0600, read only in this version's form, removed only by its own daemon", async (t) => {
+test("a descriptor is written whole with mode 0600, read only in this version's form, removed only by its own daemon", async (t) => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "dc-info-"));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const file = path.join(directory, "daemon.json");
   assert.equal(await readDaemonInfo(file), null);
+  assert.deepEqual(await readDaemonInfoState(file), { state: "missing", info: null });
   const info = { ...daemonInfo("/tmp/x.sock", newSecret(), 4242), sessions: 2 };
   await writeDaemonInfo(file, info);
   assert.deepEqual(await readDaemonInfo(file), info);
   if (process.platform !== "win32") assert.equal((await fs.stat(file)).mode & 0o777, 0o600);
   assert.deepEqual((await fs.readdir(directory)).sort(), ["daemon.json"], "no temp file left beside it");
 
+  assert.equal((await readDaemonInfoState(file)).state, "ok");
   // What a 2.x daemon wrote: no protocol, no secret.
   await fs.writeFile(file, JSON.stringify({ pid: 1, version: "2.0.0", address: "/x/ai-dev.sock", sessions: 0 }));
   assert.equal(await readDaemonInfo(file), null);
+  assert.equal((await readDaemonInfoState(file)).state, "invalid");
+  // Torn, or refused for a moment: neither says the descriptor is gone.
   await fs.writeFile(file, "{ torn");
   assert.equal(await readDaemonInfo(file), null);
+  assert.equal((await readDaemonInfoState(file)).state, "unreadable");
+  if (process.platform !== "win32" && process.getuid?.() !== 0) {
+    await fs.chmod(file, 0o000);
+    assert.equal((await readDaemonInfoState(file)).state, "unreadable");
+    await fs.chmod(file, 0o600);
+  }
 
   await writeDaemonInfo(file, info);
   assert.equal(await removeDaemonInfo(file, 1), false, "another daemon's descriptor stays");
@@ -189,7 +279,7 @@ test("daemon.json is written whole with mode 0600, read only in this version's f
   assert.equal(await readDaemonInfo(file), null);
 });
 
-test("what a daemon must share with a client: the code, its version, and the variables that change what it does", async (t) => {
+test("a build is the code, its version and the daemon-wide variables; what one client sets for itself is not", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "dc-build-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.mkdir(path.join(root, "src"), { recursive: true });
@@ -197,18 +287,61 @@ test("what a daemon must share with a client: the code, its version, and the var
   await fs.writeFile(path.join(root, "src", "a.mjs"), "export const a = 1;\n");
   await fs.writeFile(path.join(root, "src", "a.test.mjs"), "// a test\n");
   const env = { HOME: "/home/ivan", PATH: "/usr/bin", AI_DEV_VAULT_ROOT: "/v" };
-  const build = await daemonBuild({ serverRoot: root, version: "3.0.0", env });
-  assert.match(build, /^[0-9a-f]{16}$/);
-  assert.equal(await daemonBuild({ serverRoot: root, version: "3.0.0", env }), build);
-  assert.equal(await daemonBuild({ serverRoot: root, version: "3.0.0", env: { ...env, PATH: "/elsewhere", AI_DEV_PROFILES: "core", AI_DEV_IDLE_TIMEOUT_MS: "5" } }), build,
-    "PATH, the session's profiles and the daemon's own timeout do not make another build");
-  assert.notEqual(await daemonBuild({ serverRoot: root, version: "3.0.1", env }), build);
-  assert.notEqual(await daemonBuild({ serverRoot: root, version: "3.0.0", env: { ...env, AI_DEV_VAULT_ROOT: "/w" } }), build);
-  assert.notEqual(await daemonBuild({ serverRoot: root, version: "3.0.0", env: { ...env, HTTPS_PROXY: "http://proxy:3128" } }), build);
+  const build = await describeBuild({ serverRoot: root, version: "3.0.0", env, platform: "linux" });
+  assert.match(build.id, /^[0-9a-f]{16}$/);
+  assert.equal(build.version, "3.0.0");
+  assert.equal(build.root, await fs.realpath(root));
+  assert.deepEqual(Object.keys(build.environment), ["AI_DEV_VAULT_ROOT", "HOME"]);
+  assert.match(build.environment.HOME, /^[0-9a-f]{12}$/, "a digest, never the value");
+  assert.ok(!JSON.stringify(build).includes("/home/ivan"));
+  const id = async (version, environment) => (await describeBuild({ serverRoot: root, version, env: environment, platform: "linux" })).id;
+  assert.equal(await id("3.0.0", env), build.id);
+  // What each session brings along: its programs, its network, its profiles,
+  // its hooks' switches, the daemon's lifetime (docs/DEFECTS.md, Д-191).
+  assert.equal(await id("3.0.0", {
+    ...env,
+    PATH: "/elsewhere",
+    HTTPS_PROXY: "http://proxy:3128",
+    no_proxy: "localhost",
+    NODE_EXTRA_CA_CERTS: "/etc/ssl/corp.pem",
+    APPDATA: "C:/x",
+    XDG_CONFIG_HOME: "/c",
+    CODEX_HOME: "/codex",
+    AI_DEV_PROFILES: "core",
+    AI_DEV_OFFLINE: "1",
+    AI_DEV_MODEL_MIRROR: "https://hf-mirror.com",
+    AI_DEV_HOOK_PROFILE: "strict",
+    AI_DEV_DISABLED_HOOKS: "x",
+    AI_DEV_IDLE_TIMEOUT_MS: "5",
+    AI_DEV_IMAGE: "ghcr.io/x"
+  }), build.id);
+  assert.equal(await id("3.0.0", { ...env, AI_DEV_STATE_ROOT: "  " }), build.id, "a blank variable is an unset one, as the server reads it");
+  assert.notEqual(await id("3.0.1", env), build.id);
+  assert.notEqual(await id("3.0.0", { ...env, AI_DEV_VAULT_ROOT: "/w" }), build.id);
+  assert.notEqual(await id("3.0.0", { ...env, BGE_M3_ONNX_DIR: "/models" }), build.id);
+  assert.notEqual(await id("3.0.0", { ...env, AI_DEV_SOMETHING_NEW: "1" }), build.id, "an AI Dev variable nobody classified yet splits rather than leaks");
   await fs.writeFile(path.join(root, "src", "a.test.mjs"), "// a longer test file\n");
-  assert.equal(await daemonBuild({ serverRoot: root, version: "3.0.0", env }), build, "a test file is not the code a daemon runs");
+  assert.equal(await id("3.0.0", env), build.id, "a test file is not the code a daemon runs");
   await fs.writeFile(path.join(root, "src", "a.mjs"), "export const a = 2; // edited\n");
-  assert.notEqual(await daemonBuild({ serverRoot: root, version: "3.0.0", env }), build, "a git pull that changes the code");
-  assert.deepEqual(behaviourEnvironment({ B: "1", AI_DEV_HOME: "/h", AI_DEV_DAEMON: "1", BGE_M3_ONNX_DIR: "/m", HOME: "/home/i", no_proxy: "x" }),
-    [["AI_DEV_HOME", "/h"], ["BGE_M3_ONNX_DIR", "/m"], ["HOME", "/home/i"], ["no_proxy", "x"]]);
+  const pulled = await describeBuild({ serverRoot: root, version: "3.0.0", env, platform: "linux" });
+  assert.notEqual(pulled.id, build.id, "a git pull that changes the code");
+  assert.notEqual(pulled.source, build.source);
+});
+
+test("why another daemon is not this one, said by name, and which one the new code replaces", () => {
+  const mine = { version: "3.0.0", root: "/app", source: "s1", environment: { AI_DEV_VAULT_ROOT: "a", HOME: "h", BGE_M3_DEVICE: "d" } };
+  assert.deepEqual(buildDifferences(mine, mine), []);
+  assert.deepEqual(buildDifferences(mine, { ...mine, version: "2.9.0" }), ["ai-dev 2.9.0 (here: 3.0.0)"]);
+  assert.deepEqual(buildDifferences(mine, { ...mine, root: "/other" }), ["the code at /other (here: /app)"]);
+  assert.deepEqual(buildDifferences(mine, { ...mine, source: "s0" }), ["the code as it was before it changed on disk"]);
+  assert.deepEqual(buildDifferences(mine, { ...mine, environment: { AI_DEV_VAULT_ROOT: "b", HOME: "h", AI_DEV_STATE_ROOT: "s" } }),
+    ["another environment: AI_DEV_VAULT_ROOT set differently; AI_DEV_STATE_ROOT set only for it; BGE_M3_DEVICE set only here"]);
+  assert.deepEqual(buildDifferences(mine, undefined), ["a build it does not describe"]);
+
+  assert.equal(isSupersededBy(mine, { ...mine, source: "s0" }), true, "a git pull where it lies");
+  assert.equal(isSupersededBy(mine, { ...mine, version: "2.9.0" }), true, "an update of the package where it lies");
+  assert.equal(isSupersededBy(mine, mine), false);
+  assert.equal(isSupersededBy(mine, { ...mine, root: "/other", source: "s0" }), false, "another copy serves clients of its own");
+  assert.equal(isSupersededBy(mine, { ...mine, source: "s0", environment: { ...mine.environment, AI_DEV_VAULT_ROOT: "b" } }), false, "another vault serves clients of its own");
+  assert.equal(isSupersededBy(mine, null), false);
 });

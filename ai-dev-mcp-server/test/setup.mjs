@@ -25,6 +25,10 @@ process.env.AI_DEV_STATE_ROOT = path.join(stateHome, "state");
 process.env.AI_DEV_SEARCH_INDEX_DIR = path.join(stateHome, "cache", "search-index");
 process.env.AI_DEV_FRONTEND_QA_ARTIFACT_ROOT = path.join(stateHome, "artifacts", "frontend-qa");
 process.env.AI_DEV_ARCHIFY_ARTIFACT_ROOT = path.join(stateHome, "artifacts", "archify");
+// Every place the Codex-era migration takes from ~/.codex is pinned, so a test
+// run never moves a developer's own ~/.codex/state/archify-receipts into this
+// throwaway tree (docs/DEFECTS.md, Д-104).
+process.env.AI_DEV_ARCHIFY_RECEIPTS_ROOT = path.join(stateHome, "state", "archify-receipts");
 process.env.BGE_M3_ONNX_DIR = path.join(stateHome, "models", "bge-m3-onnx");
 
 // Python helpers must never drop __pycache__/*.pyc into the repo or the seed.

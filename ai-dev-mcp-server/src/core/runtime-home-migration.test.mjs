@@ -5,8 +5,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  CODEX_LEGACY_FOLDERS,
   describeRuntimeHome,
   mergeLedgers,
+  migrateCodexRuntime,
   migrateDoubledRuntimeHome,
   migrationRecordPath,
   prepareRuntimeHome,
@@ -211,4 +213,74 @@ test("ledgers merge in time order; untimed records keep the old ledger first; a 
   assert.equal(mergeLedgers('{"n":1}', ""), '{"n":1}\n', "a complete last record without its newline is kept");
   assert.equal(mergeLedgers('{"at":"old-1"}\n', `${at("01")}\n`), `{"at":"old-1"}\n${at("01")}\n`, "only ISO times are times");
   assert.equal(mergeLedgers("", ""), "");
+});
+
+test("AI Dev's Codex-era folders move into the runtime tree; the rest of ~/.codex stays (Д-104)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const codex = path.join(home, ".codex");
+  const runtime = path.join(home, ".ai-dev");
+  const env = { HOME: home };
+  await write(path.join(codex, "config.toml"), "model = \"o3\"\n");
+  await write(path.join(codex, "sessions", "rollout.jsonl"), "{}\n");
+  await write(path.join(codex, "state", "ai-dev-system", "tasks", "task-1.json"), "{\"id\":\"task-1\"}\n");
+  await write(path.join(codex, "state", "ai-dev-system", "usage", "events.jsonl"),
+    '{"at":"2026-09-01T00:00:00Z","n":1}\n{"at":"2026-09-03T00:00:00Z","n":3}\n');
+  // A hook wrote ~/.ai-dev/state meanwhile, which made 2.x stop reading ~/.codex.
+  await write(path.join(runtime, "state", "usage", "events.jsonl"), '{"at":"2026-09-02T00:00:00Z","n":2}\n');
+  await write(path.join(codex, "state", "archify-receipts", "r.json"), "{}\n");
+  await write(path.join(codex, "cache", "ai-dev-system", "search-index", "ai-dev-search.sqlite"), "index");
+  await write(path.join(codex, "models", "bge-m3-onnx", "model.onnx"), "weights");
+
+  const result = await migrateCodexRuntime({ env, now: () => new Date("2026-10-12T08:00:00Z") });
+  assert.equal(result.status, "migrated");
+  assert.equal(result.kind, "codex");
+  assert.equal(result.moved, 4);
+  assert.equal(result.merged, 1);
+  assert.deepEqual(result.conflicts, []);
+  assert.equal(await fs.readFile(path.join(runtime, "state", "tasks", "task-1.json"), "utf8"), "{\"id\":\"task-1\"}\n");
+  assert.deepEqual((await fs.readFile(path.join(runtime, "state", "usage", "events.jsonl"), "utf8")).trim().split("\n").map((line) => JSON.parse(line).n), [1, 2, 3]);
+  assert.ok(await fs.stat(path.join(runtime, "state", "archify-receipts", "r.json")));
+  assert.ok(await fs.stat(path.join(runtime, "cache", "search-index", "ai-dev-search.sqlite")));
+  assert.ok(await fs.stat(path.join(runtime, "models", "bge-m3-onnx", "model.onnx")));
+  assert.equal(await fs.readFile(path.join(codex, "config.toml"), "utf8"), "model = \"o3\"\n", "Codex's own config stays");
+  assert.ok(await fs.stat(path.join(codex, "sessions", "rollout.jsonl")), "and so do its sessions");
+  await assert.rejects(fs.stat(path.join(codex, "state", "ai-dev-system")), "the emptied folder goes");
+  const record = await readMigrationRecord(runtime);
+  assert.equal(record.history.at(-1).kind, "codex");
+  assert.equal(record.history.at(-1).from, codex);
+  assert.equal((await migrateCodexRuntime({ env })).status, "clean", "a second run has nothing to do");
+});
+
+test("a place named by its variable is not taken from ~/.codex, and what could not move is in doctor (Д-104)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const codex = path.join(home, ".codex");
+  const runtime = path.join(home, ".ai-dev");
+  await write(path.join(codex, "state", "ai-dev-system", "pilots.json"), '{"pilots":[1]}\n');
+  await write(path.join(runtime, "state", "pilots.json"), '{"pilots":[2]}\n');
+  await write(path.join(codex, "artifacts", "archify", "x.svg"), "<svg/>");
+
+  const named = await migrateCodexRuntime({ env: { HOME: home, AI_DEV_STATE_ROOT: path.join(root, "elsewhere"), AI_DEV_ARCHIFY_ARTIFACT_ROOT: path.join(root, "a") } });
+  assert.equal(named.status, "clean", "both places are named, so 2.x never read them from ~/.codex");
+  assert.ok(await fs.stat(path.join(codex, "state", "ai-dev-system", "pilots.json")));
+
+  const env = { HOME: home };
+  const result = await migrateCodexRuntime({ env, now: () => new Date("2026-10-12T09:00:00Z") });
+  assert.deepEqual(result.conflicts, [path.join("state", "ai-dev-system", "pilots.json")]);
+  assert.equal(result.moved, 1);
+  const info = await describeRuntimeHome({ env });
+  assert.deepEqual(info.codex_files, [path.join("state", "ai-dev-system", "pilots.json")]);
+  const warned = evaluateRuntimeHome(info);
+  assert.equal(warned.status, "warn");
+  assert.match(warned.summary, /1 file\(s\) of AI Dev's are still in .*\.codex, where the Codex-era runtime kept them; only .* is read now\. 1 differ from the copy/);
+  await fs.rm(path.join(codex, "state", "ai-dev-system", "pilots.json"));
+  assert.equal(evaluateRuntimeHome(await describeRuntimeHome({ env })).status, "ok");
+});
+
+test("the test runtime pins every place the migration takes from ~/.codex: a test run never moves a developer's data", () => {
+  // test/setup.mjs runs before every test file and keeps HOME as it is.
+  assert.deepEqual(CODEX_LEGACY_FOLDERS.filter((folder) => !process.env[folder.variable]).map((folder) => folder.variable), []);
 });

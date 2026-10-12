@@ -218,18 +218,15 @@ function resolveVaultRoot() {
 const vaultRoot = resolveVaultRoot();
 
 // Home for regenerable runtime data (task state, search cache, models, QA
-// artifacts). Agent-neutral: defaults to ~/.ai-dev, overridable per directory
-// with the AI_DEV_* env vars, and falls back to a pre-existing ~/.codex/<...>
-// layout so installs migrated from the Codex-only runtime keep their history.
-// What 2.x left in AI_DEV_HOME/.ai-dev moves before any path here is chosen (Д-90).
+// artifacts): ~/.ai-dev, overridable per directory with the AI_DEV_* env vars.
+// What 2.x left in AI_DEV_HOME/.ai-dev (Д-90) or in ~/.codex (Д-104) moves here
+// before any path is chosen; ~/.codex is not read any more.
 await prepareRuntimeHome();
 const userHome = resolveUserHome(vaultRoot);
 const runtimeStateRoot = configureRuntimeStateRoot(resolveRuntimeStateRoot(vaultRoot));
-function aiDevRuntimePath(envVar, segments, legacySegments = segments) {
+function aiDevRuntimePath(envVar, segments) {
   if (process.env[envVar]) return path.resolve(process.env[envVar]);
-  const next = path.join(runtimeStateRoot, ...segments);
-  const legacy = path.join(userHome, ".codex", ...legacySegments);
-  return !existsSync(next) && existsSync(legacy) ? legacy : next;
+  return path.join(runtimeStateRoot, ...segments);
 }
 
 const skillIndexPath = path.join(
@@ -268,13 +265,7 @@ const runtimeAssets = resolveRuntimeAssets({
   vaultRoot,
   repositoryRoot: path.resolve(serverDir, "..", "..")
 });
-const searchIndexDir = path.resolve(
-  aiDevRuntimePath(
-    "AI_DEV_SEARCH_INDEX_DIR",
-    ["cache", "search-index"],
-    ["cache", "ai-dev-system", "search-index"]
-  )
-);
+const searchIndexDir = path.resolve(aiDevRuntimePath("AI_DEV_SEARCH_INDEX_DIR", ["cache", "search-index"]));
 const searchIndexPath = path.join(searchIndexDir, "ai-dev-search.sqlite");
 const searchEvalCasesPath = path.join(runtimeAssets.searchEvalDir, "search_eval_cases.json");
 // The routing benchmark's golden cases. `skillRoutingEvalRelativePath` above is
@@ -303,9 +294,7 @@ const archifyArtifactsRoot = path.resolve(
 const archifyReceiptsRoot = path.resolve(
   aiDevRuntimePath("AI_DEV_ARCHIFY_RECEIPTS_ROOT", ["state", "archify-receipts"])
 );
-const taskStateRoot = path.resolve(
-  aiDevRuntimePath("AI_DEV_STATE_ROOT", ["state"], ["state", "ai-dev-system"])
-);
+const taskStateRoot = path.resolve(aiDevRuntimePath("AI_DEV_STATE_ROOT", ["state"]));
 const taskStore = new TaskStore({ stateRoot: taskStateRoot });
 const usageLedger = new UsageLedger({ stateRoot: taskStateRoot });
 const sessionStore = new SessionStore({ stateRoot: taskStateRoot });

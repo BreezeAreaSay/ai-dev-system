@@ -120,6 +120,21 @@ export function evaluateRuntimeHome(info) {
       details
     };
   }
+  if (info.codex_files?.length) {
+    const last = info.last_migration?.kind === "codex" ? info.last_migration : null;
+    const conflicts = last?.conflicts?.length ?? 0;
+    const errors = last?.errors ?? [];
+    const why = [
+      conflicts ? ` ${conflicts} differ from the copy in ${info.root}: compare the two and keep one.` : "",
+      errors.length ? ` ${errors.length} could not be moved (${errors[0].code || "error"}: ${errors[0].path}): move them by hand.` : "",
+      !conflicts && !errors.length ? " Restart the server to move them." : ""
+    ].join("");
+    return {
+      status: "warn",
+      summary: `${info.codex_files.length} file(s) of AI Dev's are still in ${info.codex_root}, where the Codex-era runtime kept them; only ${info.root} is read now.${why}`,
+      details
+    };
+  }
   const migrated = info.last_migration
     ? ` On ${String(info.last_migration.at || "").slice(0, 10)} ${Number(info.last_migration.moved || 0) + Number(info.last_migration.merged || 0)} file(s) were moved here from ${info.last_migration.from}.`
     : "";

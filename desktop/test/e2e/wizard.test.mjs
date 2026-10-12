@@ -118,24 +118,32 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   assert.equal(tray.state, overall, "the tray's colour is the status");
   assert.deepEqual(tray.menu.map((item) => [item.id, item.enabled]), [["open", true], ["rebuild", true], ["stop", true], ["quit", true]]);
 
-  // A settings problem the summary already says is not listed again under it (Д-266 п. 8, Д-270).
+  // A settings problem is said once — by the summary, or under it — whatever else the summary
+  // holds on this machine (Д-266 п. 8, Д-270, Д-275).
   const file = path.join(s.home, ".ai-dev", "config.json");
   await fs.writeFile(file, JSON.stringify({ ...JSON.parse(await fs.readFile(file, "utf8")), daemon_idle_minutes: "forever" }));
+  await page.evaluate(() => { document.querySelector('[data-field="overall"]').dataset.before = "1"; });
   await page.click('[data-action="refresh"]');
-  await page.waitForSelector('[data-field="why"]', { timeout: 120_000 });
+  await page.waitForSelector('[data-field="overall"]:not([data-before])', { timeout: 120_000 });
+  const problem = (await mainCall(app, "system_status", { checks: false })).result.settings_problems.find((item) => item.startsWith("daemon_idle_minutes"));
+  assert.ok(problem, "the daemon reports the problem");
   const why = await page.textContent('[data-field="why"]');
-  assert.match(why, /daemon_idle_minutes/, why);
-  const listed = await page.$$eval('[data-field="settings-problems"] li', (items) => items.map((item) => item.textContent));
-  assert.deepEqual(listed.filter((problem) => why.includes(problem)), [], "said once");
+  assert.equal(why.split(problem).length - 1, 1, why);
 });
 
 test("Status shows each health check with its details and what to do, in Russian too", { timeout: 300_000 }, async (t) => {
-  const s = await stage(t);
+  const s = await stage(t, { settings: { daemon_idle_minutes: "forever" } });
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
   await page.click('[data-nav="status"]');
   await page.waitForSelector('[data-field="overall"]', { timeout: 120_000 });
   assert.equal(await page.getAttribute('[data-field="overall"]', "data-status"), "failed", "nothing is built yet");
+  // The summary is full of what is not built: the settings problem is listed under it, once (Д-246, Д-275).
+  const problem = (await mainCall(app, "system_status", { checks: false })).result.settings_problems[0];
+  assert.match(problem, /^daemon_idle_minutes/);
+  const why = await page.textContent('[data-field="why"]');
+  assert.equal(why.split(problem).length - 1, 1, why);
+  assert.equal(await page.locator('[data-field="settings-problems"] li').count(), 1);
   const checks = await page.$$eval("li.check", (items) => items.map((item) => ({
     name: item.dataset.check,
     status: item.dataset.status,
@@ -210,13 +218,28 @@ test("Status's rebuild keeps its progress and Cancel across a visit elsewhere; C
   const s = await stage(t);
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
-  // The rebuild waits for the index's lock, held here: it runs until Cancel, however fast the machine.
+  // A build or a rebuild waits for the index's lock, held here: it runs until Cancel, however fast the machine.
   const index = await mainCall(app, "search_index_status", {});
   assert.equal(index.ok, true, index.error);
   const { tryAcquireFileLock } = await serverModule("src/core/file-lock.mjs");
-  const held = await tryAcquireFileLock(index.result.index_path, { heartbeatMs: 1000 });
+  let held = null;
+  for (const deadline = Date.now() + 15_000; !held?.release && Date.now() < deadline;) {
+    held = await tryAcquireFileLock(index.result.index_path, { heartbeatMs: 1000 });
+    if (!held.release) await new Promise((resolve) => setTimeout(resolve, 200));
+  }
   assert.equal(typeof held.release, "function", "the test holds the rebuild lock");
   t.after(() => held.release().catch(() => undefined));
+  // The wizard's build, cancelled: the focus goes to the step's own main button, not to Next (Д-275).
+  await page.click('[data-action="next"]');
+  await page.waitForSelector('[data-step="clients"]');
+  await page.click('[data-action="next"]');
+  await page.waitForSelector('[data-step="model"] [data-action="download-model"]');
+  await page.click('[data-action="next"]');
+  await page.click('[data-step="index"] [data-action="build-index"]');
+  await page.waitForSelector('[data-step="index"] [data-action="cancel"]');
+  await page.click('[data-action="cancel"]');
+  await page.waitForSelector('[data-step="index"] .notice:has-text("Cancelled")', { timeout: 30_000 });
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "build-index");
   await page.click('[data-nav="status"]');
   await page.waitForSelector('[data-field="overall"]', { timeout: 120_000 });
   await page.click('[data-action="rebuild"]');
@@ -234,5 +257,12 @@ test("Status's rebuild keeps its progress and Cancel across a visit elsewhere; C
   assert.equal(await page.isDisabled('[data-action="rebuild"]'), false);
   assert.equal(await page.locator('[data-action="cancel-rebuild"]').count(), 0);
   assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "rebuild", "the focus back on Rebuild, not lost");
+  // A rebuild that ends while the person is elsewhere leaves the focus where they put it (Д-275).
+  await page.click('[data-action="rebuild"]');
+  await page.waitForSelector('[data-action="cancel-rebuild"]');
+  await page.focus('[data-action="refresh"]');
   await held.release();
+  await page.waitForSelector('[data-action="cancel-rebuild"]', { state: "detached", timeout: 60_000 });
+  assert.equal(await page.isDisabled('[data-action="rebuild"]'), false);
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "refresh");
 });

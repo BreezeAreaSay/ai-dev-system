@@ -64,8 +64,10 @@ if (!app.requestSingleInstanceLock()) {
   // The main process's own calls are named apart, so two at once do not share an id.
   let ownCalls = 0;
   // A language chosen while the settings could not be written — a broken
-  // file: it holds until they can be (docs/DEFECTS.md, Д-271, п. 4).
+  // file: it holds, and is written once they can be (docs/DEFECTS.md, Д-271,
+  // п. 4; Д-276, п. 2, 3).
   let unsaved = null;
+  let settling = null;
   const env = { ...process.env };
   const root = serverRoot();
   const t = (key, params) => translate(language, key, params);
@@ -123,14 +125,41 @@ if (!app.requestSingleInstanceLock()) {
   };
 
   // The tray's Stop: a daemon that would not stop is said in the menu, as a
-  // failed rebuild is (Д-271, п. 6).
+  // failed rebuild is — from the answer, which says so, or an error (Д-271,
+  // п. 6; Д-273).
   const stopFromTray = async () => {
     tray.setStopFailed(null);
     try {
-      await link.stopDaemon();
+      const answer = await link.stopDaemon();
+      const failed = (answer?.daemons ?? []).filter((daemon) => daemon.stopped === false);
+      if (failed.length) tray.setStopFailed(failed.map((daemon) => daemon.reason ?? "it is still running").join("; "));
     } catch (error) {
       tray.setStopFailed(String(error?.message ?? error));
     }
+  };
+
+  /**
+   * Write the language chosen while the settings could not be written, once
+   * they can be — unless the file, readable again, names one of its own: then
+   * nothing is written over it, and the file's holds from the next start.
+   * Runs at a start, a connection and each new verdict; one at a time.
+   */
+  const settleLanguage = () => {
+    settling ??= (async () => {
+      if (!unsaved || !server) return;
+      const chosen = unsaved;
+      let stored;
+      try {
+        stored = server.readSettings({ env }).stored;
+      } catch {
+        return;
+      }
+      const settled = stored.language ? true : await server.writeSettings({ language: chosen }, { env }).then(() => true, () => false);
+      if (settled && unsaved === chosen) unsaved = null;
+    })().finally(() => {
+      settling = null;
+    });
+    return settling;
   };
 
   /**
@@ -143,13 +172,11 @@ if (!app.requestSingleInstanceLock()) {
     starting ??= (async () => {
       try {
         server ??= await import(pathToFileURL(path.join(root, "src", "core", "control-client.mjs")).href);
-        const settings = server.readSettings({ env }).settings;
-        if (unsaved) {
-          language = unsaved;
-          await server.writeSettings({ language }, { env }).then(() => { unsaved = null; }, () => undefined);
-        } else {
-          language = pickLanguage(settings.language, app.getLocale());
-        }
+        const read = server.readSettings({ env });
+        const settings = read.settings;
+        // The language chosen while the file was broken — unless the file, fixed, names its own (Д-276, п. 2).
+        language = unsaved && !read.stored.language ? unsaved : pickLanguage(settings.language, app.getLocale());
+        await settleLanguage();
         window?.setTitle(t("app.title"));
         tray?.refresh();
         const clientNodes = await server.clientNodePaths({ env, cliPath: path.join(root, "bin", "ai-dev.mjs") }).catch(() => []);
@@ -200,6 +227,8 @@ if (!app.requestSingleInstanceLock()) {
     await lockSession(session.defaultSession);
     Menu.setApplicationMenu(applicationMenu());
     link.on("state", () => window?.webContents.send(EVENT_CHANNELS.state, publicState()));
+    // Each new verdict — the first comes with every connection — is a chance to write it.
+    link.on("status", () => settleLanguage().catch(() => undefined));
 
     // The page's channels first: whatever happens next, the window can ask.
     handle(INVOKE_CHANNELS.state, () => publicState());
@@ -244,8 +273,9 @@ if (!app.requestSingleInstanceLock()) {
       // A failure screen is the main process's words: say them again in this language.
       if (["broken", "no-node"].includes(link.state.phase)) explain?.();
       if (link.state.phase === "online") {
-        await link.call("settings_set", { settings: { language } }, { id: "language" });
-        unsaved = null;
+        // The daemon could not write it — a broken file: it waits for a write that can (Д-276, п. 3).
+        const answer = await link.call("settings_set", { settings: { language } }, { id: "language" });
+        unsaved = answer.ok ? null : language;
       } else {
         const written = server ? await server.writeSettings({ language }, { env }).then(() => true, () => false) : false;
         unsaved = written ? null : language;

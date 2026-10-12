@@ -33,7 +33,8 @@ ahead of time).
 When something of this is missing — the server, its packages — or the settings file is broken, the
 window says what, and what to do — in the system's language: fix the settings file or remove it,
 then **Try again**; **Restart AI Dev** for the server, whose code is loaded once per run. A language
-chosen on that screen holds, and is written to the settings once the file can be read.
+chosen on the broken-settings screen holds, and is written to the settings once the file can be
+read — unless the fixed file names a language of its own, which then holds.
 
 ## What it shows
 
@@ -83,12 +84,14 @@ The daemon is not the app's: it goes on serving the clients after the app quits.
 runs, its session keeps the daemon from leaving on idle; after **Quit** the daemon leaves on its
 own when nobody uses it. When the code is updated in place and a daemon of the new code takes over,
 the app moves to it once the calls it has running end — the old daemon finishes them, a download
-included. The old daemon leaves once its last session ends, an AI client's too.
+included; when none serves yet, it starts one only if it may start the daemon at all (autostart
+on, or **Start** pressed). The old daemon leaves once its last session ends, an AI client's too.
 
 ## Languages
 
 English and Russian (owner decision D6). The language follows the system until you choose one in
-the header; the choice is kept in the settings (`language`) and the tray follows it. The app's own
+the header; the choice is kept in the settings (`language`) — while they cannot be written, it holds
+for the run and is written as soon as they can be — and the tray follows it. The app's own
 words — screens, check and step names, states, advice — are in both; what the daemon writes — a
 check's summary, a step's outcome, an error — is in English, as in the CLI.
 

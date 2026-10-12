@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
-import { NO_SANDBOX, clientEnvironment, desktopRoot, launch, serverModule, shot, stage, trayNow } from "./harness.mjs";
+import { NO_SANDBOX, clientEnvironment, desktopRoot, launch, mainCall, serverModule, shot, stage, trayNow } from "./harness.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -30,19 +30,36 @@ test("the tray's Stop brings the window back to the Start screen", { timeout: 18
   const s = await stage(t);
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
-  // A Stop that fails is said in the tray's menu, and the app goes on (Д-271, п. 6).
+  // A daemon that cannot answer will not stop: the tray says so, from the daemon's answer, and the
+  // app stays on it with its one session (Д-271 п. 6, Д-273).
+  const pid = await app.evaluate(() => globalThis.aiDevTest.link.status.served_by.pid);
+  process.kill(pid, "SIGSTOP");
+  t.after(() => {
+    try { process.kill(pid, "SIGCONT"); } catch { /* gone */ }
+  });
+  try {
+    await app.evaluate(() => globalThis.aiDevTest.stop());
+  } finally {
+    process.kill(pid, "SIGCONT");
+  }
+  assert.equal((await trayNow(app)).menu.find((item) => item.id === "stop").label, "Stop failed — try again");
+  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /The daemon did not stop: No handshake/);
+  assert.equal(await app.evaluate(() => globalThis.aiDevTest.link.state.phase), "online");
+  assert.equal(await page.getAttribute("[data-screen]", "data-screen"), "wizard");
+  const kept = await mainCall(app, "system_status", { checks: false });
+  assert.deepEqual([kept.result.served_by.pid, kept.result.served_by.sessions], [pid, 1], "the same session, not a second one");
+  // An error on the way — none is expected, but one would not go unsaid either.
   await app.evaluate(async () => {
     const { link, stop } = globalThis.aiDevTest;
-    const stopDaemon = link.stopDaemon;
-    link.stopDaemon = async () => { throw new Error("EPERM: operation not permitted, kill"); };
+    link.stopDaemon = async () => { throw new Error("EACCES: permission denied, scandir"); };
     try {
       await stop();
     } finally {
-      link.stopDaemon = stopDaemon;
+      delete link.stopDaemon;
     }
   });
-  assert.equal((await trayNow(app)).menu.find((item) => item.id === "stop").label, "Stop failed — try again");
-  assert.equal(await page.getAttribute("[data-screen]", "data-screen"), "wizard");
+  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /The daemon did not stop: EACCES/);
+  // Then it stops.
   await app.evaluate(() => globalThis.aiDevTest.stop());
   await page.waitForSelector('[data-screen="offline"]', { timeout: 30_000 });
   const tray = await trayNow(app);

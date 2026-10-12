@@ -54,3 +54,12 @@ export function orderedChecks(checks) {
   return [...checks].sort((left, right) => (ORDER[left.status] ?? 4) - (ORDER[right.status] ?? 4)
     || Number(right.critical === true) - Number(left.critical === true));
 }
+
+/**
+ * The settings file's problems to list under the summary: those it does not
+ * say already — each is said once (docs/DEFECTS.md, Д-246; Д-266, п. 8).
+ */
+export function unsaidProblems(status) {
+  const summary = String(status?.summary ?? "");
+  return (status?.settings_problems ?? []).filter((problem) => !summary.includes(problem));
+}

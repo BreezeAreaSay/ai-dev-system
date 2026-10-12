@@ -11,6 +11,7 @@ import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/s
 export class SocketServerTransport {
   #socket;
   #buffer = new ReadBuffer();
+  #buffered;
   #started = false;
   #closed = false;
 
@@ -18,9 +19,14 @@ export class SocketServerTransport {
   onerror;
   onmessage;
 
-  /** @param {import("node:net").Socket} socket - An already-connected socket. */
-  constructor(socket) {
+  /**
+   * @param {import("node:net").Socket} socket - An already-connected socket.
+   * @param {{ buffered?: Buffer }} [options] - Bytes read past the daemon's
+   *   handshake: the start of the MCP stream, which must not be lost.
+   */
+  constructor(socket, { buffered } = {}) {
     this.#socket = socket;
+    this.#buffered = buffered;
   }
 
   /**
@@ -34,23 +40,43 @@ export class SocketServerTransport {
     }
     this.#started = true;
     this.#socket.on("data", (chunk) => {
-      this.#buffer.append(chunk);
-      for (;;) {
-        let message;
-        try {
-          message = this.#buffer.readMessage();
-        } catch (error) {
-          // A malformed frame poisons the buffer: stop draining and report it
-          // rather than spinning on the same bytes.
-          this.onerror?.(error);
-          return;
-        }
-        if (message === null) return;
-        this.onmessage?.(message);
+      try {
+        this.#buffer.append(chunk);
+      } catch (error) {
+        // Ten megabytes without a line break is not a client to keep reading.
+        this.onerror?.(error);
+        this.#socket.destroy();
+        return;
       }
+      this.#drain();
     });
     this.#socket.on("error", (error) => this.onerror?.(error));
     this.#socket.on("close", () => this.#notifyClosed());
+    if (this.#buffered?.length) {
+      this.#buffer.append(this.#buffered);
+      this.#buffered = null;
+      this.#drain();
+    }
+    // The handshake leaves the socket paused, so nothing arrives before the
+    // listeners above are there to take it.
+    this.#socket.resume();
+  }
+
+  /** Hand every complete message in the buffer to the server. */
+  #drain() {
+    for (;;) {
+      let message;
+      try {
+        message = this.#buffer.readMessage();
+      } catch (error) {
+        // The bad line is already out of the buffer: report it and go on with
+        // the next one, as the SDK's stdio transport does.
+        this.onerror?.(error);
+        continue;
+      }
+      if (message === null) return;
+      this.onmessage?.(message);
+    }
   }
 
   /**
@@ -58,6 +84,7 @@ export class SocketServerTransport {
    * @returns {Promise<void>}
    */
   async send(message) {
+    if (this.#closed) return;
     await new Promise((resolve, reject) => {
       this.#socket.write(serializeMessage(message), (error) => (error ? reject(error) : resolve()));
     });

@@ -1,15 +1,21 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  MAX_SOCKET_PATH_BYTES,
   aiDevHome,
   clientConfigPath,
+  daemonAddressCandidates,
   daemonInfoPath,
   daemonLockPath,
+  daemonLogPath,
   logsDir,
-  pipeSafeUsername,
+  prepareSocketDirectory,
+  randomDaemonName,
   runtimeDir,
-  socketAddress,
+  socketDirectoryCandidates,
   tasksStateRoot
 } from "./runtime-paths.mjs";
 
@@ -41,6 +47,7 @@ test("every runtime path hangs off the same .ai-dev root", () => {
     assert.equal(logsDir(), path.join(root, "logs"));
     assert.equal(daemonInfoPath(), path.join(root, "run", "daemon.json"));
     assert.equal(daemonLockPath(), path.join(root, "run", "daemon.lock"));
+    assert.equal(daemonLogPath(), path.join(root, "logs", "daemon.log"));
     assert.equal(clientConfigPath(), path.join(root, "config.json"));
     assert.equal(tasksStateRoot(), path.join(root, "state"));
   });
@@ -58,39 +65,68 @@ test("a home that is not absolute still yields an absolute root", () => {
   });
 });
 
-test("the lock and the socket share one directory, so one mode 0700 covers both", () => {
-  withHome(HOME, () => {
-    assert.equal(
-      path.dirname(socketAddress({ platform: "linux" })),
-      path.dirname(daemonLockPath())
-    );
-  });
+test("every daemon start draws a name nobody can guess and take first (Д-107)", () => {
+  const names = new Set(Array.from({ length: 50 }, () => randomDaemonName()));
+  assert.equal(names.size, 50);
+  for (const name of names) assert.match(name, /^ai-dev-[0-9a-f]{24}$/);
+  assert.equal(randomDaemonName(Buffer.alloc(12, 0xab)), `ai-dev-${"ab".repeat(12)}`);
 });
 
-test("a Windows daemon listens on a named pipe, not a path", () => {
-  const address = socketAddress({ platform: "win32", username: "ivan" });
-  assert.equal(address, "\\\\.\\pipe\\ai-dev-ivan");
+test("a Windows daemon listens on a named pipe with that random name, not the user's", () => {
+  const [candidate, ...others] = daemonAddressCandidates({ platform: "win32", name: "ai-dev-0123" });
+  assert.deepEqual(candidate, { address: "\\\\.\\pipe\\ai-dev-0123", directory: null });
+  assert.equal(others.length, 0);
+  assert.doesNotMatch(daemonAddressCandidates({ platform: "win32" })[0].address, /ivan|user/i);
 });
 
-test("a domain account still yields a usable pipe name", () => {
-  // `CORP\Ivan Petrov` carries a separator and a space; left raw they would cut
-  // the pipe name short, and two such accounts could collide on one machine.
-  assert.equal(
-    socketAddress({ platform: "win32", username: "CORP\\Ivan Petrov" }),
-    "\\\\.\\pipe\\ai-dev-CORP_Ivan_Petrov"
-  );
+test("a socket goes in the runtime's run/ while the path is short enough", () => {
+  const runDir = path.join(path.sep, "home", "ivan", ".ai-dev", "run");
+  const [first] = daemonAddressCandidates({ platform: "linux", name: "ai-dev-x", runDir, env: {}, uid: 1000 });
+  assert.deepEqual(first, { address: path.join(runDir, "ai-dev-x.sock"), directory: runDir });
 });
 
-test("a username with nothing safe in it still names a pipe", () => {
-  assert.equal(pipeSafeUsername("！！！"), "___");
-  assert.equal(pipeSafeUsername(""), "user");
-  assert.equal(pipeSafeUsername(undefined), "user");
+test("a home too long for a socket moves it to XDG_RUNTIME_DIR, then to /tmp/ai-dev-<uid> (Д-97)", () => {
+  const longRun = path.join(path.sep, "home", "x".repeat(120), ".ai-dev", "run");
+  const name = randomDaemonName();
+  const withXdg = daemonAddressCandidates({ platform: "linux", name, runDir: longRun, env: { XDG_RUNTIME_DIR: "/run/user/1000" }, uid: 1000 });
+  assert.deepEqual(withXdg.map((candidate) => candidate.directory), [path.join("/run/user/1000", "ai-dev"), path.join("/tmp", "ai-dev-1000")]);
+  const withoutXdg = daemonAddressCandidates({ platform: "linux", name, runDir: longRun, env: {}, uid: 1000 });
+  assert.deepEqual(withoutXdg.map((candidate) => candidate.directory), [path.join("/tmp", "ai-dev-1000")]);
+  for (const { address } of [...withXdg, ...withoutXdg]) assert.ok(Buffer.byteLength(address) <= MAX_SOCKET_PATH_BYTES, address);
 });
 
-test("a caller may place the socket itself", () => {
-  const directory = path.join(path.sep, "run", "user", "1000");
-  assert.equal(
-    socketAddress({ platform: "linux", directory }),
-    path.join(directory, "ai-dev.sock")
-  );
+test("the length is counted in bytes, as the kernel counts it, not in characters", () => {
+  // 40 Cyrillic letters are 40 characters and 80 bytes.
+  const runDir = path.join(path.sep, "home", "и".repeat(40), ".ai-dev", "run");
+  const name = randomDaemonName();
+  assert.ok(path.join(runDir, `${name}.sock`).length <= MAX_SOCKET_PATH_BYTES);
+  const [first] = daemonAddressCandidates({ platform: "linux", name, runDir, env: {}, uid: 1000 });
+  assert.equal(first.directory, path.join("/tmp", "ai-dev-1000"));
+});
+
+test("a relative XDG_RUNTIME_DIR is not a place for a socket", () => {
+  assert.deepEqual(socketDirectoryCandidates({ runDir: "/r", env: { XDG_RUNTIME_DIR: "run/user" }, uid: 7 }), ["/r", path.join("/tmp", "ai-dev-7")]);
+});
+
+test("a socket directory is made this user's alone: 0700, a plain directory, owned by this uid", { skip: process.platform === "win32" && "POSIX modes and owners" }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-sockdir-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const fresh = path.join(root, "fresh");
+  await prepareSocketDirectory(fresh);
+  assert.equal((await fs.stat(fresh)).mode & 0o777, 0o700);
+
+  const open = path.join(root, "open");
+  await fs.mkdir(open, { mode: 0o755 });
+  await fs.chmod(open, 0o777);
+  await prepareSocketDirectory(open);
+  assert.equal((await fs.stat(open)).mode & 0o777, 0o700, "group and others lose their access");
+
+  const elsewhere = path.join(root, "elsewhere");
+  await fs.mkdir(elsewhere);
+  const link = path.join(root, "link");
+  await fs.symlink(elsewhere, link);
+  await assert.rejects(prepareSocketDirectory(link), /not a plain directory/);
+
+  // Someone else's directory, as /tmp/ai-dev-<uid> created first by another user.
+  await assert.rejects(prepareSocketDirectory(fresh, { uid: (process.getuid?.() ?? 0) + 1 }), /belongs to uid/);
 });

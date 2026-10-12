@@ -88,6 +88,16 @@ test("index status and rebuild pass their arguments straight to the runtime", as
   assert.deepEqual(calls[1], ["rebuild", { dense_embeddings: true }]);
 });
 
+test("a rebuild's progress listener and cancellation come with the call, never from its JSON arguments (Д-187)", async () => {
+  const { registry, calls } = createFixture();
+  const onProgress = () => undefined;
+  const { signal } = new AbortController();
+  await registry.handlers.get("rebuild_search_index")({ in_place: true, onProgress: "x", signal: { aborted: false } }, { onProgress, signal });
+  assert.deepEqual(calls[0], ["rebuild", { in_place: true, onProgress, signal }]);
+  await registry.handlers.get("rebuild_search_index")({ onProgress: "x", signal: { aborted: false } });
+  assert.deepEqual(calls[1], ["rebuild", {}]);
+});
+
 test("search_all forwards every filter and defaults the rest", async () => {
   const { registry, calls } = createFixture();
   await call(registry, "search_all", { query: "x", scope: "skills", folders: "a" });

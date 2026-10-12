@@ -45,6 +45,8 @@ export function describeProgress(event = {}) {
       return `checking ${event.file || "model"}  ${of(event.bytes, event.total)}`;
     case "importing":
       return `copying ${event.file || "model"}  ${of(event.bytes, event.total)}`;
+    case "indexing":
+      return `indexing ${event.done ?? 0} of ${event.total ?? 0} document(s)${share(event.done ?? 0, event.total)}`;
     case "embedding":
       return [`embedding ${event.done ?? 0} of ${event.total ?? 0} document(s)${share(event.done ?? 0, event.total)}`, left ? `${left} left` : ""]
         .filter(Boolean).join(" · ");

@@ -4580,7 +4580,7 @@ async function readSkill({ name, source }) {
   return readText(path.join("03-skills-catalog", item.path));
 }
 
-async function dispatchTool(name, args) {
+async function dispatchTool(name, args, context = {}) {
   // Over the search index, not every file on disk (docs/DEFECTS.md, Д-102).
   if (name === "search_knowledge") return textContent(await searchRuntime.searchKnowledge(args));
   if (name === "read_knowledge") return textContent(await readText(args.path));
@@ -4645,7 +4645,7 @@ async function dispatchTool(name, args) {
   if (name === "write_knowledge_note") return textContent(await writeKnowledgeNote(args));
   if (name === "append_knowledge_note") return textContent(await appendKnowledgeNote(args));
   const extension = extensions.handlers.get(name);
-  if (extension) return textContent(await extension(args));
+  if (extension) return textContent(await extension(args, context));
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -4668,10 +4668,10 @@ async function dispatchTool(name, args) {
  *
  * @param {string} name - Tool name.
  * @param {object} args - Tool arguments.
- * @param {{ transportMs?: number }} [context] - Transport overhead to add to the recorded duration.
+ * @param {{ transportMs?: number, signal?: AbortSignal, onProgress?: (event: object) => void }} [context] - Transport overhead to add to the recorded duration; the request's cancellation and a progress listener, for the tools that take them.
  * @returns {Promise<{ content: Array<{ type: string, text: string }> }>}
  */
-async function callTool(name, args, { transportMs = 0 } = {}) {
+async function callTool(name, args, { transportMs = 0, ...context } = {}) {
   const startedAt = Date.now();
   const overhead = Math.max(0, Number(transportMs) || 0);
   const hints = usageHintsFromArgs(args);
@@ -4681,7 +4681,7 @@ async function callTool(name, args, { transportMs = 0 } = {}) {
       .catch(() => undefined);
   };
   try {
-    const result = await dispatchTool(name, args);
+    const result = await dispatchTool(name, args, context);
     record(true);
     return result;
   } catch (error) {

@@ -1,5 +1,6 @@
 /**
- * The commands that run the server or one of its tools: `mcp`, `doctor`,
+ * The commands that run the server or one of its tools: `mcp` (through the
+ * daemon, `bridge.mjs`), `doctor`,
  * `reindex`, `refresh`, `dashboard`, `galaxy`, `distribution`, `acceptance` —
  * what `scripts/ai-dev.mjs` did, under the one CLI. (`backup` and `restore`
  * are in `backup.mjs`.)
@@ -16,7 +17,11 @@ const USAGE = {
     "",
     "Serve MCP over stdin and stdout until the client closes it. This is the command",
     "`ai-dev clients install` writes into each client's config; nothing but the",
-    "protocol is printed on stdout. `ai-dev start` is the same command."
+    "protocol is printed on stdout. `ai-dev start` is the same command.",
+    "",
+    "The session is served by the daemon — one warm server for every client, started",
+    "here when it is not running (`ai-dev daemon status`). When none can serve, or",
+    "AI_DEV_DAEMON=0 is set, the server runs in this process instead."
   ],
   doctor: [
     "Usage: ai-dev doctor [--dense-smoke] [--search-eval]",
@@ -90,9 +95,18 @@ export async function run(argv, io, name) {
   switch (name) {
     case "mcp": {
       // Nothing may reach stdout before the server: it is the protocol channel.
-      const { runStdioServer } = await import("../server.mjs");
-      await runStdioServer();
-      return null;
+      const { daemonDisabled } = await import("../core/daemon-client.mjs");
+      if (daemonDisabled(io.env)) {
+        const { runStdioServer } = await import("../server.mjs");
+        await runStdioServer();
+        return null;
+      }
+      const { runMcpBridge } = await import("./bridge.mjs");
+      await runMcpBridge({ env: io.env });
+      // The client closed its end. Whatever the session left running — a
+      // server in this process when no daemon could serve — goes with it.
+      setTimeout(() => process.exit(0), 1000).unref();
+      return EXIT.ok;
     }
     case "doctor":
       // `include_dense_smoke` is what the health check recommends, so the

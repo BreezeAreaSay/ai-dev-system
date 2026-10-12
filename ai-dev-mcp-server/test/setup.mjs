@@ -34,6 +34,11 @@ process.env.BGE_M3_ONNX_DIR = path.join(stateHome, "models", "bge-m3-onnx");
 // Python helpers must never drop __pycache__/*.pyc into the repo or the seed.
 process.env.PYTHONDONTWRITEBYTECODE = "1";
 
+// `ai-dev mcp` started by a test serves in its own process, as 2.x did: a
+// daemon it started would outlive the test. `src/cli/daemon.test.mjs` starts
+// its daemons on purpose, with an environment of its own, and stops them.
+process.env.AI_DEV_DAEMON = "0";
+
 // `--experimental-test-coverage` sets NODE_V8_COVERAGE, and every process the
 // suite spawns — git, python, the installed hooks, the MCP smokes — inherits it
 // and creates its own coverage file in the same directory. A child that dies

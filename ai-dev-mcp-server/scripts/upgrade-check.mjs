@@ -586,6 +586,19 @@ async function verifyClientMigration({ label, baseRoot, env, local }) {
   check(`${label}: every client's ai-dev command answers initialize with instructions`,
     doctor.status === 0 && answers.length >= 6 && answers.every((answer) => answer.ok === true && answer.instructions > 0),
     answers.map((answer) => `${answer.client}:${answer.ok}`).join(" ") || doctor.stdout.slice(0, 200));
+  // `ai-dev mcp` hands each client to the daemon, which the first of them
+  // started (docs/DEFECTS.md, Д-97): one server served all six.
+  const daemon = (() => {
+    try {
+      return JSON.parse(run(process.execPath, [cli, "daemon", "status", "--json"], { cwd: serverDir, env, allowFailure: true }).stdout);
+    } catch {
+      return {};
+    }
+  })();
+  check(`${label}: one daemon served every client's command`, daemon.running === true && daemon.current === true && daemon.sessions_served >= answers.length,
+    `running ${daemon.running}, sessions served ${daemon.sessions_served}`);
+  const stopped = run(process.execPath, [cli, "daemon", "stop"], { cwd: serverDir, env, allowFailure: true });
+  check(`${label}: ai-dev daemon stop stops it`, stopped.status === 0 && /^Stopped: pid \d+/.test(stopped.stdout), stopped.stdout.trim());
   const again = run(process.execPath, [cli, "clients", "install"], { cwd: serverDir, env, allowFailure: true });
   check(`${label}: a second install changes nothing`, again.status === 0 && /No changes: every client already runs this install\./.test(again.stdout), again.stdout.split("\n").at(-2) ?? "");
 }

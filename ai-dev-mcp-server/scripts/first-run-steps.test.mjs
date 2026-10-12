@@ -331,7 +331,8 @@ test("a stop is no failure: the step it cuts short and those after it are skippe
     skill_quality_report: async () => "614 skill(s) validated",
     search_index: async () => {
       stop.abort();
-      throw new Error("The rebuild was cancelled; the index is as it was before it.");
+      // As the index store answers a stop.
+      throw Object.assign(new Error("The rebuild was cancelled; the index is as it was before it."), { name: "AbortError", cancelled: true });
     },
     routing_benchmark: async () => "never"
   }, (step) => announced.push(step.id), { signal: stop.signal });
@@ -340,6 +341,23 @@ test("a stop is no failure: the step it cuts short and those after it are skippe
   assert.deepEqual([byId.search_index.status, byId.search_index.reason], ["skipped", "stopped: The rebuild was cancelled; the index is as it was before it."]);
   assert.deepEqual([byId.routing_benchmark.status, byId.routing_benchmark.reason], ["skipped", "not run: setup was stopped"]);
   assert.equal(results.filter((item) => item.status === "failed").length, 0);
+});
+
+test("a step that fails of something else as the stop comes failed, and says so (Д-233)", async () => {
+  const stop = new AbortController();
+  const plan = planFirstRun({ present: {}, stale: {}, want: {} });
+  const results = await runFirstRunPlan(plan, {
+    skill_registry: async () => "614 skill(s) indexed",
+    skill_quality_report: async () => {
+      stop.abort();
+      throw Object.assign(new Error("ENOSPC: no space left on device, write"), { code: "ENOSPC" });
+    },
+    search_index: async () => "never",
+    routing_benchmark: async () => "never"
+  }, () => undefined, { signal: stop.signal });
+  const byId = Object.fromEntries(results.map((item) => [item.id, item]));
+  assert.deepEqual([byId.skill_quality_report.status, byId.skill_quality_report.error], ["failed", "ENOSPC: no space left on device, write"]);
+  assert.equal(byId.search_index.reason, "not run: setup was stopped");
 });
 
 test("the first run counts the documents the rebuild actually reported", async () => {

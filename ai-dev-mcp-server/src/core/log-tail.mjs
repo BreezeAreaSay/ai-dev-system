@@ -6,6 +6,7 @@
  * name: `daemon` is `daemon.log`, `daemon.1` the part the daemon set aside
  * when the log passed 1 MB.
  */
+import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 
@@ -45,26 +46,33 @@ export function resolveLogFile(logsFolder, name = "daemon") {
  * The last `lines` lines of a file.
  *
  * @param {string} file
- * @param {{ lines?: number, links?: boolean }} [options] - `links: false` refuses a file that is a link.
+ * @param {{ lines?: number, links?: boolean }} [options] - `links: false` refuses a file that is a link,
+ *   or that has another name elsewhere (a hard link).
  * @returns {Promise<{ exists: boolean, size: number, lines: string[], truncated: boolean }>}
  *   `truncated`: the file holds earlier lines than these.
  */
 export async function tailLines(file, { lines = 200, links = true } = {}) {
   const wanted = Math.max(1, Math.min(MAX_TAIL_LINES, Math.trunc(Number(lines)) || 200));
+  const refuse = () => new Error(`${path.basename(file)} is a link: only the logs folder's own files are read.`);
   if (!links) {
     // A link in the logs folder would read whatever it points at (docs/DEFECTS.md, Д-223).
     const stat = await fs.lstat(file).catch(() => null);
-    if (stat?.isSymbolicLink()) throw new Error(`${path.basename(file)} is a link: only the logs folder's own files are read.`);
+    if (stat?.isSymbolicLink()) throw refuse();
   }
   let handle;
   try {
-    handle = await fs.open(file, "r");
+    // Opened without following a link put in its place since (Д-233).
+    handle = await fs.open(file, links ? "r" : fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
   } catch (error) {
     if (error?.code === "ENOENT") return { exists: false, size: 0, lines: [], truncated: false };
+    if (!links && (error?.code === "ELOOP" || error?.code === "EMLINK")) throw refuse();
     throw error;
   }
   try {
-    const { size } = await handle.stat();
+    const stat = await handle.stat();
+    // A hard link is a second name for a file elsewhere, as good as a link (Д-233).
+    if (!links && (!stat.isFile() || stat.nlink > 1)) throw refuse();
+    const { size } = stat;
     let position = size;
     let buffer = Buffer.alloc(0);
     let newlines = 0;

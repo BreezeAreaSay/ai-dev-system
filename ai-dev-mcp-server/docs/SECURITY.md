@@ -107,11 +107,14 @@ profile shapes an agent's context, it does not guard anything. What guards them:
   rather than ignored: a refused call changes nothing (a misspelt client is refused before setup
   builds anything, Д-220).
 - **`logs_tail`** reads only files named in the runtime home's `logs` folder — no path, no `..`,
-  no link out of it (Д-223) — and at most 1,000 lines.
-- **`settings_set`** checks every value before it writes any (absolute paths without NUL, an
-  http(s) mirror without credentials, a whole number of minutes), writes the file whole, flushed
-  and with mode 0600, through a link to wherever it lives (Д-221, Д-222), and does not put the
-  opt-in `control` profile into the default every agent client gets (Д-223).
+  no symbolic link out of it and no hard link to a file elsewhere, opened without following a link
+  put in place meanwhile (Д-223, Д-233) — and at most 1,000 lines.
+- **`settings_set`** checks every value before it writes any (absolute paths and a mirror without
+  NUL or another control character, an http(s) mirror without credentials, a number of minutes from
+  1 to 10080), writes the file whole, flushed and with mode 0600, through a symbolic link to wherever
+  it lives — one whose file is not made yet too; a hard link to it is not kept (Д-221, Д-222,
+  Д-231, Д-233) — and does not put the opt-in `control` profile into the default every agent client
+  gets (Д-223).
 - **In the daemon each call runs in its own client's environment**: a download goes through that
   client's proxy, a client config is written for the user that client runs as.
 

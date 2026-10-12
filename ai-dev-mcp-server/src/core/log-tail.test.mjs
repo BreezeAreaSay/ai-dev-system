@@ -66,3 +66,20 @@ test("a log that is a link to another file is refused, not followed (Д-223)", {
   assert.deepEqual((await tailLines(file)).lines, ["TOP SECRET LINE"], "a caller that allows links reads through them, as before");
   assert.equal((await tailLines(path.join(logs, "missing.log"), { links: false })).exists, false);
 });
+
+test("a log that is a second name for a file elsewhere — a hard link — is refused too (Д-233)", async (t) => {
+  const root = await folder(t);
+  const logs = path.join(root, "logs");
+  await fs.mkdir(logs);
+  const secret = path.join(root, "secret.txt");
+  await fs.writeFile(secret, "TOP SECRET LINE\n");
+  try {
+    await fs.link(secret, path.join(logs, "hard.log"));
+  } catch (error) {
+    return t.skip(`no hard links here: ${error.code}`);
+  }
+  const { file } = resolveLogFile(logs, "hard");
+  await assert.rejects(tailLines(file, { links: false }), /hard\.log is a link: only the logs folder's own files are read/);
+  await fs.writeFile(path.join(logs, "own.log"), "one\ntwo\n");
+  assert.deepEqual((await tailLines(resolveLogFile(logs, "own").file, { links: false })).lines, ["one", "two"], "a log of its own is read");
+});

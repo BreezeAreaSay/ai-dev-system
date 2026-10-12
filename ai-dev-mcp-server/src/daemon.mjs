@@ -53,6 +53,7 @@ import {
   writeDaemonInfo,
   writeLine
 } from "./core/daemon-channel.mjs";
+import { MAX_IDLE_TIMEOUT_MS, idleTimeoutMs } from "./core/daemon-idle.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
 import { breakStaleLock, lockPathFor, tryAcquireFileLock } from "./core/file-lock.mjs";
 import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
@@ -73,20 +74,6 @@ import { SocketServerTransport } from "./transport/socket.mjs";
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const VERSION = JSON.parse(await fs.readFile(path.join(serverRoot, "package.json"), "utf8")).version;
-
-/**
- * A daemon nobody is talking to should not outlive the day. Thirty minutes is
- * long enough that a client reconnecting between tasks finds a warm process,
- * short enough that a forgotten one goes away on its own.
- */
-export const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
-
-/**
- * The longest delay a Node timer holds, about 24.8 days. A longer one fires at
- * once: a daemon told to wait thirty days left as soon as it started
- * (docs/DEFECTS.md, Д-194).
- */
-export const MAX_IDLE_TIMEOUT_MS = 2 ** 31 - 1;
 
 /**
  * The lock goes stale when its holder has not refreshed it for this long. The
@@ -115,20 +102,6 @@ const CLIENT_LABEL_CHARS = 200;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const isPipe = (address) => address.startsWith("\\\\.\\pipe\\");
 const label = (value) => String(value ?? "").slice(0, CLIENT_LABEL_CHARS);
-
-/**
- * `AI_DEV_IDLE_TIMEOUT_MS`, or the default; 0 keeps the daemon until it is
- * stopped, and a value past what a timer holds is cut to {@link MAX_IDLE_TIMEOUT_MS}.
- *
- * @param {NodeJS.ProcessEnv} [env]
- * @returns {number}
- */
-export function idleTimeoutMs(env = process.env) {
-  const raw = String(env.AI_DEV_IDLE_TIMEOUT_MS ?? "").trim();
-  const value = Number(raw);
-  if (!raw || !Number.isFinite(value)) return DEFAULT_IDLE_TIMEOUT_MS;
-  return Math.min(Math.max(0, value), MAX_IDLE_TIMEOUT_MS);
-}
 
 /** A line for the daemon's log. */
 function writeLog(line) {

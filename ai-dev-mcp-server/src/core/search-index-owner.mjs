@@ -12,10 +12,12 @@
  * win; every other vault keeps an index of its own beside it,
  * `ai-dev-search-<12 hex of its root>.sqlite`. An index written before claims
  * existed goes only to the vault it was built from — the one its `meta` names,
- * or, for a 2.x index that names none, the one whose notes are the very files
- * it indexed — so after an upgrade the vault that has been using it keeps it,
- * with its vectors, whichever process starts first: a command run from a
- * shell with another vault does not take it.
+ * or, for a 2.x index that names none, the one whose notes are the ones it
+ * indexed, untouched or all there with the same content — so after an upgrade
+ * the vault that has been using it keeps it, with its vectors, whichever
+ * process starts first: a command run from a shell with a vault holding only
+ * some of those notes does not take it. A copy of the whole vault cannot be
+ * told from it, and takes it only by starting first.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -99,33 +101,36 @@ export function indexOrigin(file, vaultRoot, same) {
     db = new (loadSqlite().DatabaseSync)(file, { readOnly: true });
     const recorded = db.prepare("SELECT value FROM meta WHERE key = 'vault_root'").get()?.value;
     if (recorded) return same(String(recorded), vaultRoot) ? "this" : "another";
-    // A 2.x index names no vault. The notes it was built from are the files
-    // whose content and modification time it recorded; the same notes in
-    // another vault — a copy of the seed, a clone, the skill catalog every
-    // vault has — are other files, with times of their own, and a note of the
-    // same name written in the same instant has other content. That a path
-    // exists says nothing: a vault sharing the catalog took the index that way
-    // (docs/DEFECTS.md, Д-219). The sample is spread over the table by id.
+    // A 2.x index names no vault, only the notes it was built from: their
+    // paths, content and modification times. That a path exists says nothing
+    // — a vault sharing the skill catalog took the index that way
+    // (docs/DEFECTS.md, Д-219) — so only notes count, the sample spread over
+    // the table by id, and every note of the sample counts: one missing here
+    // counts against, as one changed does (Д-229).
     const notes = db.prepare("SELECT path, mtime, content_hash FROM documents WHERE source = 'vault-note' ORDER BY id LIMIT ?").all(SAMPLE_NOTES)
       .filter((row) => {
         const relative = String(row.path ?? "");
         return relative && !path.isAbsolute(relative) && !path.win32.isAbsolute(relative);
       });
     if (!notes.length) return "unknown";
-    // Notes deleted since — a pull that removed half the catalog — say
-    // nothing either way; of those still there, the vault it was built from
-    // has kept most as they were (a pull rewrites only what it changes).
-    let present = 0;
+    let identical = 0;
     let unchanged = 0;
     for (const row of notes) {
       const note = noteIdentity(vaultRoot, String(row.path));
-      if (!note) continue;
-      present += 1;
-      if (note.contentHash === row.content_hash && Math.abs(note.mtime - Number(row.mtime)) < 1e-6) unchanged += 1;
+      if (!note || note.contentHash !== row.content_hash) continue;
+      identical += 1;
+      if (Math.abs(note.mtime - Number(row.mtime)) < 1e-6) unchanged += 1;
     }
-    // In doubt — nothing of it here, or most of it other files — a file of
-    // its own rather than another vault's index.
-    return present > 0 && unchanged * 2 >= present ? "this" : "another";
+    // The vault it was built from: at least half of the sample is the very
+    // files it indexed, untouched since — a pull rewrites only what it
+    // changes — or every note of it is here with the same content, as after
+    // a clone into the same folder or files written again with the same
+    // bytes. A vault holding only part of them — a copy of the seed beside
+    // notes of the owner's own, a note or two copied over with their times —
+    // is another, whichever way they came. A copy of the whole vault cannot be
+    // told from it: whichever starts first takes the index, which is right
+    // for its notes, and the other builds its own.
+    return unchanged * 2 >= notes.length || identical === notes.length ? "this" : "another";
   } catch {
     return "unknown";
   } finally {

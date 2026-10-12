@@ -354,6 +354,22 @@ async function readJson(file) {
   return JSON.parse(await fs.readFile(file, "utf8"));
 }
 
+/**
+ * Notes of the user's own beside the seed's, as a 2.x user's vault has them:
+ * what tells it from a copy of the seed (docs/DEFECTS.md, Д-219, Д-229).
+ */
+function ownNotesFolder(baseRoot) {
+  return path.join(baseRoot, "docker", "public-seed", "02-knowledge", "upgrade-fixture");
+}
+
+async function writeOwnNotes(baseRoot) {
+  const folder = ownNotesFolder(baseRoot);
+  await fs.mkdir(folder, { recursive: true });
+  for (const name of ["exporter", "csv-header", "handoff"]) {
+    await fs.writeFile(path.join(folder, `${name}.md`), `# Upgrade fixture: ${name}\n\nA note of the user's own, written with 2.x.\n`, "utf8");
+  }
+}
+
 async function verifyUpgradedScenario({ label, base, baseRoot, env, project, expected, aiDevHome, doubledBefore = [], pythonBackend = false, codex = false, temp }) {
   const cursor = await readJson(path.join(env.HOME, ".cursor", "mcp.json"));
   const local = cursor.mcpServers?.["ai-dev-system"];
@@ -364,15 +380,20 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
   // Start the server exactly as the 2.x client configuration does.
   const serverEnv = { ...env, ...(local?.env || {}) };
   // But first a command from a shell with another vault — a copy of the same
-  // seed — the first to run after the upgrade: it must leave the index this
-  // install's clients built to them (docs/DEFECTS.md, Д-219).
+  // seed, without this user's notes — the first to run after the upgrade: it
+  // must leave the index this install's clients built to them
+  // (docs/DEFECTS.md, Д-219). It has to run: a refused option never reached
+  // the index (Д-230).
   const otherVault = path.join(temp, `other-vault-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`);
-  await fs.cp(path.join(baseRoot, "docker", "public-seed"), otherVault, { recursive: true });
-  run(process.execPath, [path.join(baseRoot, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), "doctor", "--json"], {
+  const ownNotes = ownNotesFolder(baseRoot);
+  await fs.cp(path.join(baseRoot, "docker", "public-seed"), otherVault, { recursive: true, filter: (source) => source !== ownNotes && !source.startsWith(`${ownNotes}${path.sep}`) });
+  const doctor = run(process.execPath, [path.join(baseRoot, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), "doctor"], {
     cwd: path.join(baseRoot, "ai-dev-mcp-server"),
     env: { ...serverEnv, AI_DEV_VAULT_ROOT: otherVault },
     allowFailure: true
   });
+  check(`${label}: a command with another vault — a copy of the seed without this user's notes — runs first`, doctor.status === 0,
+    `ai-dev doctor exit ${doctor.status}${doctor.status === 0 ? "" : `: ${String(doctor.stderr || doctor.stdout).trim().split("\n").pop()}`}`);
   await withServer({ command: local.command, args: local.args, env: serverEnv, cwd: path.dirname(local.args[0]) }, async (client) => {
     check(`${label}: the server starts from the 2.x client entry and sends instructions`, (client.getInstructions() || "").length > 0, `${(client.getInstructions() || "").length} characters`);
     // get_task answers with the record itself; its `task` field is the request text.
@@ -392,8 +413,10 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     const documents = indexedDocuments(status);
     const pulledAway = removedSkills(base);
     check(`${label}: the 2.x search index is read as it is, nothing rewritten by a status call`, documents > 0 && documents === expected.documents, `${documents} document(s), 2.x had ${expected.documents}`);
-    check(`${label}: a command with another vault, run first, left the 2.x index to this install`, path.basename(String(status.index_path ?? "")) === "ai-dev-search.sqlite",
-      path.basename(String(status.index_path ?? "")));
+    const claim = await readJson(`${status.index_path}.vault`).catch(() => null);
+    check(`${label}: a command with another vault, run first, left the 2.x index to this install`,
+      path.basename(String(status.index_path ?? "")) === "ai-dev-search.sqlite" && Boolean(claim) && !String(claim.vault_root).includes(path.basename(otherVault)),
+      `${path.basename(String(status.index_path ?? ""))}, claimed by ${claim?.vault_root ?? "nobody"}`);
     if (sqliteSupport().available) {
       // Skills removed: the index has to be stale. Nothing changed: it has to
       // be current. Other changes may or may not touch what it indexes.
@@ -638,6 +661,7 @@ async function main() {
   try {
     run("git", ["-C", repoRoot, "worktree", "add", "--detach", "--force", baseRoot, options.base]);
     npm(["ci", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: baseServer });
+    await writeOwnNotes(baseRoot);
 
     const dockerHome = path.join(temp, "data", "runtime-home");
     const scenarios = [

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_IDLE_TIMEOUT_MS, MAX_IDLE_TIMEOUT_MS, idleTimeoutMs } from "./daemon.mjs";
+import { DEFAULT_IDLE_TIMEOUT_MS, MAX_IDLE_TIMEOUT_MS, idleTimeoutMs } from "./daemon-idle.mjs";
 
 test("the idle timeout: milliseconds from the environment, 30 minutes otherwise, 0 for never, and never more than a timer holds", () => {
   assert.equal(idleTimeoutMs({}), DEFAULT_IDLE_TIMEOUT_MS);

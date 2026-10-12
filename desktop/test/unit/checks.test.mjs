@@ -1,16 +1,34 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { ADVICE, checkTitle, orderedChecks, recommendation } from "../../src/renderer/checks.js";
 import { MESSAGES, translate } from "../../src/renderer/i18n.js";
 
-// The health checks a fresh install reports (system_status with checks, measured
-// on this phase's code; the three it does not run left out).
-const CHECK_NAMES = [
-  "vault_root", "runtime_home", "required_notes", "search_index_file", "search_index_freshness", "frontend_qa_runner",
-  "frontend_qa_environment", "security_scanners", "ui_ux_knowledge", "embedding_backend", "skill_registry", "skill_taxonomy",
-  "skill_visual_graph", "skill_quality", "skill_routing_benchmark", "skill_outcomes", "skill_cards", "project_registry",
-  "auto_commands", "search_presets"
-];
+/**
+ * Every health check the server runs, read from its code (`runCheck("name"`),
+ * so a new one cannot go unnamed (docs/DEFECTS.md, Д-266, п. 9) — but the three
+ * `system_status` never lists (`NOT_RUN_HERE` in src/extensions/control.mjs).
+ */
+function serverCheckNames() {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "ai-dev-mcp-server", "src");
+  const names = new Set();
+  const walk = (folder) => {
+    for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
+      const file = path.join(folder, entry.name);
+      if (entry.isDirectory()) walk(file);
+      else if (entry.name.endsWith(".mjs") && !entry.name.endsWith(".test.mjs")) {
+        for (const match of fs.readFileSync(file, "utf8").matchAll(/runCheck\("([a-z_]+)"/g)) names.add(match[1]);
+      }
+    }
+  };
+  walk(root);
+  for (const unlisted of ["search_smoke", "dense_smoke", "search_eval"]) names.delete(unlisted);
+  return [...names].sort();
+}
+
+const CHECK_NAMES = serverCheckNames();
 
 const view = (language) => ({ t: (key, params) => translate(language, key, params) });
 
@@ -27,6 +45,7 @@ test("every piece of advice belongs to a real check and says something specific 
 });
 
 test("each check has a name in both languages, and the order is failing first, the critical ones first of all", () => {
+  assert.ok(CHECK_NAMES.length >= 22 && CHECK_NAMES.includes("vault_seed"), CHECK_NAMES.join(", "));
   for (const name of CHECK_NAMES) {
     assert.notEqual(checkTitle(name, view("ru").t), checkTitle(name), `${name} has a Russian name`);
   }

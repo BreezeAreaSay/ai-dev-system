@@ -77,11 +77,16 @@ test("a second launch hands over to the first, which shows its window (Д-254)",
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].hide());
-  const started = Date.now();
   const second = spawn(require("electron"), [...(NO_SANDBOX ? ["--no-sandbox"] : []), desktopRoot], { env: s.env, stdio: "ignore", shell: false });
-  const code = await new Promise((resolve) => second.once("exit", resolve));
-  assert.equal(code, 0);
-  assert.ok(Date.now() - started < 30_000);
+  // A second instance that does not hand over must not outlive the test, or the run waits on it.
+  t.after(() => {
+    if (second.exitCode === null && second.signalCode === null) second.kill("SIGKILL");
+  });
+  const code = await Promise.race([
+    new Promise((resolve) => second.once("exit", resolve)),
+    new Promise((resolve) => setTimeout(resolve, 30_000, "still running after 30 s").unref())
+  ]);
+  assert.equal(code, 0, "the second launch hands over and exits");
   await page.waitForFunction(() => document.visibilityState === "visible", null, { timeout: 10_000 });
   assert.deepEqual(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map((window) => window.isVisible())), [true]);
 });

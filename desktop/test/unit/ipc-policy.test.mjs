@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { EVENT_CHANNELS, INVOKE_CHANNELS, PAGE_TOOLS, PAGE_TOOL_ARGUMENTS, refuseCall, validCallId } from "../../src/main/ipc-policy.mjs";
+import { EVENT_CHANNELS, INVOKE_CHANNELS, PAGE_TOOLS, PAGE_TOOL_ARGUMENTS, refuseCall, refuseClients, validCallId } from "../../src/main/ipc-policy.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -65,4 +65,19 @@ test("the preload exposes exactly the policy's channels", () => {
   // The page gets functions over these channels, never ipcRenderer itself.
   assert.doesNotMatch(preload, /exposeInMainWorld\([^)]*ipcRenderer\s*[,)]/);
   assert.match(preload, /Object\.freeze\(\{/);
+});
+
+test("the page connects only the clients the wizard offers, with plain JSON arguments (Д-266, п. 1)", () => {
+  const listed = [
+    { client: "claude-code", found: true, entry: "none" },
+    { client: "cursor", found: true, entry: "unreadable" },
+    { client: "codex", found: false, entry: "none" }
+  ];
+  assert.equal(refuseClients(["claude-code"], listed), null);
+  for (const names of [["all"], ["codex"], ["cursor"], ["claude-code", "codex"]]) {
+    assert.match(refuseClients(names, listed), /only the clients it found on this computer/, names.join(","));
+  }
+  assert.match(refuseCall({ tool: "settings_set", args: { settings: new Map([["projects_root", "/x"]]) }, id: "call-1" }), /is an object/);
+  assert.match(refuseCall({ tool: "system_status", args: new Date(0), id: "call-1" }), /arguments are an object/);
+  assert.equal(refuseCall({ tool: "settings_set", args: { settings: Object.assign(Object.create(null), { projects_root: "/x" }) }, id: "call-1" }), null);
 });

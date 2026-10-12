@@ -56,6 +56,13 @@ const MAX_ARGUMENT_BYTES = 64 * 1024;
 const MAX_TEXT = 4096;
 const CLIENT_NAME = /^[a-z][a-z0-9-]{1,31}$/;
 
+/** An object as JSON makes it — not a Date, a Map or another class's (Д-266, п. 1). */
+function plainObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
 function refuseValue(kind, value, where) {
   switch (kind) {
     case "boolean":
@@ -67,7 +74,7 @@ function refuseValue(kind, value, where) {
         ? null
         : `${where} is a list of client names.`;
     default: {
-      if (!value || typeof value !== "object" || Array.isArray(value)) return `${where} is an object.`;
+      if (!plainObject(value)) return `${where} is an object.`;
       const names = Object.keys(value);
       if (!names.length) return `${where} names something to change.`;
       for (const name of names) {
@@ -86,7 +93,7 @@ export function refuseCall(request) {
   const { tool, args = {}, id } = request;
   if (typeof tool !== "string" || !Object.hasOwn(PAGE_TOOL_ARGUMENTS, tool)) return `The interface does not call ${JSON.stringify(String(tool)).slice(0, 80)}.`;
   if (!validCallId(id)) return "A call's id is call- and 1 to 59 letters, digits, - or _.";
-  if (!args || typeof args !== "object" || Array.isArray(args)) return "A call's arguments are an object.";
+  if (!plainObject(args)) return "A call's arguments are an object.";
   let size;
   try {
     size = Buffer.byteLength(JSON.stringify(args));
@@ -101,6 +108,21 @@ export function refuseCall(request) {
     if (refused) return refused;
   }
   return null;
+}
+
+/**
+ * Why `clients_install` from the page is refused, given what `clients_list`
+ * says now: the wizard offers only the clients found on this computer whose
+ * config can be read, so the page connects no other — not `all`, not one the
+ * person has not got (docs/DEFECTS.md, Д-266, п. 1).
+ *
+ * @param {string[]} names - The page's `clients`.
+ * @param {Array<{ client: string, found: boolean, entry?: string }>} listed - `clients_list`'s `clients`.
+ */
+export function refuseClients(names, listed) {
+  const offered = new Set(listed.filter((item) => item.found && item.entry !== "unreadable").map((item) => item.client));
+  const other = names.filter((name) => !offered.has(name));
+  return other.length ? `The interface connects only the clients it found on this computer, not ${other.join(", ").slice(0, 120)}.` : null;
 }
 
 /** Whether a call id is one the page may use (call, cancel, progress). */

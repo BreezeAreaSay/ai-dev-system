@@ -4,6 +4,28 @@ import * as api from "./api.js";
 import { DETAIL_ROWS, checkTitle, orderedChecks, recommendation } from "./checks.js";
 import { h, progressBar, show } from "./dom.js";
 
+/**
+ * The rebuild Status started, while it runs: its id for Cancel, its last
+ * progress, who to tell. It outlives a redraw — a person who goes to Setup
+ * and back finds it still there (docs/DEFECTS.md, Д-266, п. 6).
+ */
+let rebuilding = null;
+
+function startRebuild() {
+  const running = { id: null, progress: {}, listeners: new Set(), ended: null };
+  running.ended = api.call("rebuild_search_index", {}, {
+    onStart: (id) => { running.id = id; },
+    onProgress: (event) => {
+      running.progress = event;
+      for (const listener of running.listeners) listener(event);
+    }
+  }).then(() => null, (error) => error).finally(() => {
+    if (rebuilding === running) rebuilding = null;
+  });
+  rebuilding = running;
+  return running;
+}
+
 function detailRows(view, details) {
   if (!details || typeof details !== "object") return null;
   const entries = Object.entries(details).filter(([, value]) => value !== undefined && value !== null && value !== "");
@@ -38,13 +60,18 @@ function overview(view, status) {
     h("dt", {}, view.t("status.clients")), h("dd", { dataset: { field: "clients" } }, view.t("status.clients.count", status.clients)));
 }
 
-/** Why the install is not ok, in the daemon's words, and the settings file's problems (Д-246). */
+/**
+ * Why the install is not ok, in the daemon's words, and the settings file's
+ * problems (Д-246) — each once: one the summary already says is not listed
+ * again (Д-266, п. 8).
+ */
 function why(view, status) {
   if (status.status === "ok") return null;
+  const problems = (status.settings_problems ?? []).filter((problem) => !String(status.summary ?? "").includes(problem));
   return h("div", { className: "why", dataset: { field: "why" } },
     h("p", {}, h("span", { className: "label" }, `${view.t("status.why")}: `), status.summary),
-    status.settings_problems?.length
-      ? [h("p", { className: "label" }, view.t("status.settingsProblems")), h("ul", { dataset: { field: "settings-problems" } }, status.settings_problems.map((problem) => h("li", {}, problem)))]
+    problems.length
+      ? [h("p", { className: "label" }, view.t("status.settingsProblems")), h("ul", { dataset: { field: "settings-problems" } }, problems.map((problem) => h("li", {}, problem)))]
       : null);
 }
 
@@ -66,18 +93,28 @@ export function statusScreen(view, navigate) {
       h("ul", { className: "checks" }, orderedChecks(status.checks).map((check) => checkItem(view, check))));
   }, (error) => show(body, h("p", { className: "error", role: "alert" }, view.t("common.error", { message: error.message }))));
 
-  refresh.addEventListener("click", load);
-  rebuild.addEventListener("click", () => {
+  // A rebuild running — started now, or before the screen was drawn again: its progress and Cancel.
+  const showRebuild = (running) => {
     const bar = progressBar();
+    bar.update(running.progress);
+    const cancel = h("button", { type: "button", className: "secondary", dataset: { action: "cancel-rebuild" }, on: { click: () => running.id && api.cancel(running.id) } }, view.t("common.cancel"));
     rebuild.disabled = true;
-    show(work, bar.element);
-    api.call("rebuild_search_index", {}, { onProgress: (event) => bar.update(event) })
-      .then(() => show(work), (error) => show(work, h("p", { className: "error" }, view.t("common.error", { message: error.message }))))
-      .finally(() => {
-        rebuild.disabled = false;
-        load();
-      });
-  });
+    show(work, bar.element, cancel);
+    const listener = (event) => bar.update(event);
+    running.listeners.add(listener);
+    running.ended.then((error) => {
+      running.listeners.delete(listener);
+      if (!work.isConnected) return;
+      rebuild.disabled = false;
+      if (!error) show(work);
+      else if (error.cancelled) show(work, h("p", { className: "notice" }, view.t("common.cancelled")));
+      else show(work, h("p", { className: "error" }, view.t("common.error", { message: error.message })));
+      load();
+    });
+  };
+  refresh.addEventListener("click", load);
+  rebuild.addEventListener("click", () => showRebuild(startRebuild()));
+  if (rebuilding) showRebuild(rebuilding);
   load();
   return h("section", { dataset: { screen: "status" } },
     h("h1", { tabindex: "-1" }, view.t("status.title")),

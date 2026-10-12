@@ -153,6 +153,11 @@ function clientsStep(view, body, footer) {
 }
 
 function modelStep(view, body, footer) {
+  // What a download or an import came to, under the step: nothing when the model is ready.
+  const outcomeNote = ({ answer, error }) => {
+    if (error) return errorLine(view, error);
+    return answer?.ready ? null : h("p", { className: "error" }, view.t("common.error", { message: (answer?.mismatched ?? []).join(", ") || view.t("wizard.model.notReady") }));
+  };
   const draw = (note) => {
     show(body, h("p", {}, view.t("wizard.model.body")), h("p", { className: "muted" }, view.t("common.working")));
     api.call("system_status", { checks: false }).then((status) => {
@@ -170,9 +175,7 @@ function modelStep(view, body, footer) {
         return;
       }
       const partial = (model.partial ?? []).reduce((sum, file) => sum + (file.bytes ?? 0), 0);
-      const done = (answer) => draw(answer?.ready ? null : h("p", { className: "error" }, view.t("common.error", { message: (answer?.mismatched ?? []).join(", ") || view.t("wizard.model.notReady") })));
-      const failed = (error) => draw(errorLine(view, error));
-      const handlers = { onDone: done, onFail: failed };
+      const handlers = { onDone: (answer) => draw(outcomeNote({ answer })), onFail: (error) => draw(outcomeNote({ error })) };
       const download = h("button", {
         type: "button",
         className: "primary",
@@ -201,10 +204,11 @@ function modelStep(view, body, footer) {
   footer.next.disabled = false;
   footer.next.textContent = view.t("common.next");
   if (wizard.active?.step === "model") {
-    attach(view, body, footer, wizard.active, { onDone: () => draw(null), onFail: (error) => draw(errorLine(view, error)) });
+    attach(view, body, footer, wizard.active, { onDone: (answer) => draw(outcomeNote({ answer })), onFail: (error) => draw(outcomeNote({ error })) });
     return;
   }
-  draw(null);
+  // A download that ended while the person was elsewhere says what came of it (Д-266, п. 7).
+  draw(wizard.finished?.step === "model" ? outcomeNote(wizard.finished.outcome) : null);
 }
 
 function indexStep(view, body, footer) {
@@ -216,7 +220,8 @@ function indexStep(view, body, footer) {
         h("strong", {}, stepTitle(view, step)), ` — ${view.t(`wizard.step.status.${step.status}`)}`,
         reason ? h("span", { className: step.status === "failed" ? "error" : "muted" }, ` (${reason})`) : null);
     }));
-    show(body, h("p", { dataset: { field: "index-result" } }, view.t("wizard.index.result", { done: count("done"), skipped: count("skipped"), failed: count("failed") })), list);
+    // The outcome stays with the step (Д-249), and so does the way to build again (Д-261).
+    show(body, h("p", { dataset: { field: "index-result" } }, view.t("wizard.index.result", { done: count("done"), skipped: count("skipped"), failed: count("failed") })), list, startButton(true));
     footer.next.disabled = false;
   };
   const handlers = {
@@ -226,12 +231,12 @@ function indexStep(view, body, footer) {
       footer.next.disabled = false;
     }
   };
-  const startButton = () => h("button", {
+  const startButton = (again = false) => h("button", {
     type: "button",
-    className: "primary",
+    className: again ? "secondary" : "primary",
     dataset: { action: "build-index" },
     on: { click: () => running(view, body, footer, "index", { label: view.t("wizard.index.running"), tool: "setup_run", args: wizard.modelInstalled ? { model: true } : {} }, handlers) }
-  }, view.t("wizard.index.start"));
+  }, view.t(again ? "wizard.index.again" : "wizard.index.start"));
   footer.next.disabled = true;
   if (wizard.active?.step === "index") {
     attach(view, body, footer, wizard.active, handlers);

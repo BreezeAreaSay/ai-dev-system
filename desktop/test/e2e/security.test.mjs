@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import dgram from "node:dgram";
+import fs from "node:fs/promises";
 import http from "node:http";
 import net from "node:net";
+import path from "node:path";
 import test from "node:test";
-import { launch, stage } from "./harness.mjs";
+import { desktopRoot, launch, stage } from "./harness.mjs";
 
 test("the page has no Node, no file system, no network, and reaches only the interface's tools", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
@@ -134,6 +136,29 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   await new Promise((resolve) => setTimeout(resolve, 500));
   assert.deepEqual({ candidates: rtc.filter((type) => type !== "host"), stun: stun.length, turn: turn.length }, { candidates: [], stun: 0, turn: 0 });
 
+  // Names carry data too: the host of a TURN server and a dns-prefetch the page makes reach no
+  // resolver — Electron's own net log names neither (Д-260).
+  const mark = `m${Date.now().toString(36)}`;
+  const netlog = path.join(s.root, "netlog.json");
+  await app.evaluate(async ({ netLog }, file) => { await netLog.startLogging(file, { captureMode: "everything" }); }, netlog);
+  await page.evaluate((name) => new Promise((resolve) => setTimeout(async () => {
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: `turn:turn-${name}.example.com:3478?transport=tcp`, username: "u", credential: "p" }] });
+    pc.createDataChannel("x");
+    await pc.setLocalDescription(await pc.createOffer());
+    const link = document.createElement("link");
+    link.rel = "dns-prefetch";
+    link.href = `//prefetch-${name}.example.com`;
+    document.head.append(link);
+    setTimeout(() => {
+      pc.close();
+      resolve();
+    }, 3000);
+  }, 0)), mark);
+  await app.evaluate(async ({ netLog }) => { await netLog.stopLogging(); });
+  const logged = await fs.readFile(netlog, "utf8");
+  assert.ok(logged.length > 1000, "the net log has events");
+  assert.equal(logged.includes(mark), false, "no name the page chose was looked up");
+
   // The session cancels what is not the app's page, whoever asks for it (Д-254: M4, M13).
   const loads = await app.evaluate(async ({ BrowserWindow }, urls) => {
     // A window on the page's own session, where app://ai-dev is served.
@@ -153,16 +178,16 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   for (const [url, outcome] of Object.entries(loads)) assert.match(outcome, /ERR_BLOCKED_BY_CLIENT/, url);
   assert.deepEqual(requests, [], "no request reached the server");
 
-  // Another page with the same preload gets nothing from the main process (Д-254: M1).
-  const stranger = await app.evaluate(async ({ BrowserWindow }) => {
-    const window = new BrowserWindow({ show: false, webPreferences: BrowserWindow.getAllWindows()[0].webContents.getLastWebPreferences() });
-    await window.loadURL("data:text/html,<p>x</p>").catch(() => undefined);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+  // Another page with the same preload gets nothing from the main process (Д-254: M1): it has
+  // window.aiDev, and every channel answers it null.
+  const stranger = await app.evaluate(async ({ BrowserWindow }, preload) => {
+    const window = new BrowserWindow({ show: false, webPreferences: { preload, contextIsolation: true, sandbox: true } });
+    await window.loadURL("about:blank").catch(() => undefined);
     const answer = await window.webContents.executeJavaScript("window.aiDev ? Promise.all([window.aiDev.state(), window.aiDev.call('system_status', {}, 'call-x')]) : 'no aiDev'").catch((error) => `threw ${error.message}`);
     window.destroy();
     return answer;
-  });
-  assert.ok(stranger === "no aiDev" || (Array.isArray(stranger) && stranger.every((item) => item === null)), JSON.stringify(stranger));
+  }, path.join(desktopRoot, "src", "preload", "preload.cjs"));
+  assert.deepEqual(stranger, [null, null], "a page that is not the app's gets no answer");
 
   // No developer tools and no default menu (Д-252).
   const shipped = await app.evaluate(async ({ BrowserWindow, Menu }) => {

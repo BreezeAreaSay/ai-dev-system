@@ -10,18 +10,42 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function fakeServer() {
   const calls = [];
   const clients = [];
+  const opens = [];
   const server = {
     down: false,
     retired: null,
+    // Set to make the next opening wait for it (a promise), or the next checks call end the session.
+    openGate: null,
+    dieOnChecks: false,
+    // A tool whose call waits for `release()`: { name, release }.
+    held: null,
     quick: { status: "ok", index: { exists: true, fresh: true, documents: 5 }, served_by: { pid: 11 } },
     checked: { status: "failed", index: { exists: true, fresh: true, documents: 5 }, served_by: { pid: 11 }, checks: [{ name: "skill_registry", status: "fail", critical: true }] },
-    async openControlClient() {
-      if (server.down) throw Object.assign(new Error("not running"), { code: "ENOTRUNNING" });
+    async openControlClient({ start } = {}) {
+      opens.push({ start });
+      if (server.openGate) await server.openGate;
+      // A daemon is there, or this one may start it.
+      if (server.down && !start) throw Object.assign(new Error("not running"), { code: "ENOTRUNNING" });
+      server.down = false;
       const client = {
         onclose: null,
         closed: false,
-        async callTool({ name, arguments: args }) {
+        async callTool({ name, arguments: args }, _schema, options = {}) {
           calls.push({ name, args });
+          if (name === "system_status" && args?.checks !== false && server.dieOnChecks) {
+            // The daemon goes away while it runs the checks: the SDK calls onclose, then rejects.
+            server.dieOnChecks = false;
+            server.down = true;
+            client.closed = true;
+            client.onclose?.();
+            throw new Error("Connection closed");
+          }
+          if (server.held?.name === name) {
+            await new Promise((resolve, reject) => {
+              server.held.release = resolve;
+              options.signal?.addEventListener("abort", () => reject(options.signal.reason));
+            });
+          }
           if (name === "system_status") {
             const answer = args?.checks === false ? server.quick : server.checked;
             // The daemon this session is on retired; a session opened after it is on the new one.
@@ -45,7 +69,7 @@ function fakeServer() {
       return ["daemon: listening", "daemon: killed"];
     }
   };
-  return { server, calls, clients };
+  return { server, calls, clients, opens };
 }
 
 function link(t, server, timing = {}) {
@@ -144,4 +168,133 @@ test("without a Node there is nothing to connect to, and the state says why", as
   assert.deepEqual(await made.connect({ start: true }), made.state);
   made.fail({ error: "broken", hint: "fix it", restart: false });
   assert.deepEqual(made.state, { phase: "broken", error: "broken", hint: "fix it", restart: false });
+});
+
+test("the daemon goes away while the link's first checks run: offline, and back when a daemon is there again (Д-262)", async (t) => {
+  const { server, clients } = fakeServer();
+  server.dieOnChecks = true;
+  const daemon = link(t, server, { statusEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  assert.equal(daemon.state.phase, "offline", "not online without a session");
+  assert.equal(daemon.state.error, "link.lost");
+  server.down = false;
+  await sleep(60);
+  assert.equal(daemon.state.phase, "online", "the look found the daemon again");
+  assert.equal(clients.length, 2);
+  assert.equal((await daemon.call("clients_list", {}, { id: "call-1" })).ok, true);
+});
+
+test("without a daemon the link looks for one and never starts it; Stop is followed by the same look (N1, N2)", async (t) => {
+  const { server, opens } = fakeServer();
+  server.down = true;
+  const daemon = link(t, server);
+  await daemon.connect({ start: false });
+  assert.equal(daemon.state.phase, "offline");
+  await sleep(80);
+  assert.ok(opens.length >= 3, `looked ${opens.length} times`);
+  assert.deepEqual([...new Set(opens.map((open) => open.start))], [false], "no look starts a daemon");
+  // A client starts it: the app is back. Then Stop, and a client starts it again.
+  server.down = false;
+  await sleep(60);
+  assert.equal(daemon.state.phase, "online");
+  await daemon.stopDaemon();
+  assert.deepEqual([daemon.state.phase, daemon.state.error], ["offline", ""]);
+  server.down = false;
+  await sleep(60);
+  assert.equal(daemon.state.phase, "online", "after Stop, the app comes back when a client starts the daemon");
+});
+
+test("a quick system_status the page asks for is not the tray's verdict (N4)", async (t) => {
+  const { server } = fakeServer();
+  const daemon = link(t, server, { statusEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  assert.equal(daemon.status.status, "failed");
+  const quick = await daemon.call("system_status", { checks: false }, { id: "call-1" });
+  assert.equal(quick.result.status, "ok", "the page gets the quick answer");
+  assert.equal(daemon.status.status, "failed", "the tray keeps the checks' verdict");
+});
+
+test("an answer that says the daemon retired moves the link at once, without waiting for the next poll (Д-245)", async (t) => {
+  const { server, clients } = fakeServer();
+  const daemon = link(t, server, { statusEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  server.retired = clients[0];
+  await daemon.refreshStatus({ checks: true });
+  await sleep(20);
+  assert.equal(clients.length, 2, "a session on the new daemon");
+  assert.equal(clients[0].closed, true);
+});
+
+test("a call in flight when the daemon retires is finished there; the move waits for it (Д-263)", async (t) => {
+  const { server, clients } = fakeServer();
+  const daemon = link(t, server, { statusEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  server.held = { name: "model_install" };
+  const download = daemon.call("model_install", {}, { id: "call-1" });
+  await sleep(5);
+  server.retired = clients[0];
+  await daemon.refreshStatus({ checks: true });
+  await sleep(20);
+  assert.equal(clients.length, 1, "no move while the download runs");
+  assert.equal(clients[0].closed, false);
+  server.held.release();
+  assert.deepEqual(await download, { ok: true, result: { done: "model_install" } });
+  await sleep(20);
+  assert.equal(clients.length, 2, "then the move");
+  assert.equal(clients[0].closed, true);
+});
+
+test("a call the daemon's going away ends has failed; Cancel is what the person pressed (Д-263)", async (t) => {
+  const { server, clients } = fakeServer();
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  server.held = { name: "model_install" };
+  const cancelled = daemon.call("model_install", {}, { id: "call-1" });
+  await sleep(5);
+  assert.equal(daemon.cancel("call-1"), true);
+  assert.deepEqual(await cancelled, { ok: false, error: "link.cancelled", cancelled: true });
+  const ended = daemon.call("model_install", {}, { id: "call-2" });
+  await sleep(5);
+  server.down = true;
+  clients[0].onclose();
+  assert.deepEqual(await ended, { ok: false, error: "link.wentAway", cancelled: false });
+});
+
+test("Start pressed while the link looks for a daemon starts one; a failed Stop leaves later losses unasked (Д-266, п. 10)", async (t) => {
+  const { server, opens, clients } = fakeServer();
+  server.down = true;
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 10 });
+  await daemon.connect({ start: false });
+  // The next look waits at the daemon's door; Start is pressed meanwhile.
+  let open;
+  server.openGate = new Promise((resolve) => { open = resolve; });
+  await sleep(20);
+  assert.ok(opens.at(-1).start === false, "a look is under way");
+  const started = daemon.connect({ start: true });
+  server.openGate = null;
+  open();
+  await started;
+  assert.equal(daemon.state.phase, "online");
+  assert.equal(opens.at(-1).start, true, "Start started the daemon");
+  // stopDaemons fails: the next loss is the daemon's own, said as such.
+  server.stopDaemons = async () => { throw new Error("EPERM"); };
+  await assert.rejects(daemon.stopDaemon(), /EPERM/);
+  clients.at(-1).onclose();
+  assert.equal(daemon.state.error, "link.lost");
+});
+
+test("close() while a session opens leaves no session open (Д-266, п. 10)", async (t) => {
+  const { server, clients } = fakeServer();
+  let open;
+  server.openGate = new Promise((resolve) => { open = resolve; });
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
+  const connecting = daemon.connect({ start: true });
+  await sleep(5);
+  await daemon.close();
+  open();
+  await connecting;
+  assert.equal(clients.length, 1);
+  assert.equal(clients[0].closed, true, "the late session was given up");
+  assert.notEqual(daemon.state.phase, "online");
+  assert.deepEqual(await daemon.call("clients_list", {}, { id: "call-1" }), { ok: false, error: "link.notConnected", cancelled: false });
 });

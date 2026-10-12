@@ -18,7 +18,8 @@ export function startupFailure(error, { serverRoot, loaded, t }) {
     if (error?.code === "ERR_MODULE_NOT_FOUND" && /Cannot find package/.test(message)) {
       return { error: t("broken.noPackages", { path: serverRoot }), hint: t("broken.noPackagesHint", { path: serverRoot }), detail: message, restart: true };
     }
-    if (error?.code === "ERR_MODULE_NOT_FOUND" && message.includes("control-client.mjs")) {
+    // The server's entry module itself is missing — not one of the files it imports (Д-266, п. 4).
+    if (error?.code === "ERR_MODULE_NOT_FOUND" && /Cannot find module '[^']*[\\/]control-client\.mjs'/.test(message)) {
       return { error: t("broken.noServer", { path: serverRoot }), hint: t("broken.noServerHint"), detail: message, restart: true };
     }
     return { error: t("broken.serverFailed", { path: serverRoot }), hint: t("broken.restartHint"), detail: message, restart: true };

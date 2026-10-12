@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import electron from "electron";
 import { pickLanguage, translate } from "../renderer/i18n.js";
 import { DaemonLink } from "./daemon-link.mjs";
-import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, validCallId } from "./ipc-policy.mjs";
+import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, refuseClients, validCallId } from "./ipc-policy.mjs";
 import { findNode } from "./node-runtime.mjs";
 import { APP_ORIGIN, APP_SCHEME, PAGE_PARTITION, appFileHandler, isAppUrl, lockContents, lockSession, windowPreferences } from "./security.mjs";
 import { startupFailure } from "./startup.mjs";
@@ -38,6 +38,12 @@ function applicationMenu() {
   return process.platform === "darwin" ? Menu.buildFromTemplate([{ role: "appMenu" }, { role: "editMenu" }]) : null;
 }
 
+// Chromium resolves no host name in this app: the page has no network, and a
+// name it hands to WebRTC or a dns-prefetch would otherwise still go to the
+// system's resolver — a way out for what a script put in it (docs/DEFECTS.md,
+// Д-260). The daemon is reached from Node, over a socket; Node's own lookups
+// do not go through this rule.
+app.commandLine.appendSwitch("host-resolver-rules", "MAP * ~NOTFOUND");
 protocol.registerSchemesAsPrivileged([{ scheme: APP_SCHEME, privileges: { standard: true, secure: true } }]);
 
 if (!app.requestSingleInstanceLock()) {
@@ -50,6 +56,13 @@ if (!app.requestSingleInstanceLock()) {
   let language = pickLanguage("", "");
   let quitting = false;
   let starting = null;
+  // What the window says when the start failed or no Node was found, drawn
+  // again in the language chosen afterwards (Д-264).
+  let explain = null;
+  // Windows open only once the page's session is locked and served.
+  let ready = false;
+  // The main process's own calls are named apart, so two at once do not share an id.
+  let ownCalls = 0;
   const env = { ...process.env };
   const root = serverRoot();
   const t = (key, params) => translate(language, key, params);
@@ -86,6 +99,8 @@ if (!app.requestSingleInstanceLock()) {
       window = null;
     });
     window.loadURL(`${APP_ORIGIN}/index.html`);
+    // AI_DEV_DESKTOP_DEVTOOLS=1 is for working on the app: the tools open with the window (Д-266, п. 5).
+    if (devTools) window.webContents.openDevTools({ mode: "detach" });
   };
 
   const quit = async () => {
@@ -120,14 +135,14 @@ if (!app.requestSingleInstanceLock()) {
         tray?.refresh();
         const clientNodes = await server.clientNodePaths({ env, cliPath: path.join(root, "bin", "ai-dev.mjs") }).catch(() => []);
         node = findNode({ env, clientNodes });
-        link.attach({
-          server: { ...server, openControlClient: (options) => server.openControlClient({ serverRoot: root, ...options }) },
-          execPath: node.path,
-          noNode: node.problem
-        });
+        const linkServer = { ...server, openControlClient: (options) => server.openControlClient({ serverRoot: root, ...options }) };
+        explain = node.path ? null : () => link.attach({ server: linkServer, execPath: null, noNode: node.reason ? t(node.reason.key, node.reason.params) : node.problem });
+        link.attach({ server: linkServer, execPath: node.path, noNode: node.reason ? t(node.reason.key, node.reason.params) : node.problem });
         if (node.path) await link.connect({ start: settings.daemon_autostart !== false });
       } catch (error) {
-        link.fail(startupFailure(error, { serverRoot: root, loaded: Boolean(server), t }));
+        const loaded = Boolean(server);
+        explain = () => link.fail(startupFailure(error, { serverRoot: root, loaded, t }));
+        explain();
       }
     })().finally(() => {
       starting = null;
@@ -137,7 +152,12 @@ if (!app.requestSingleInstanceLock()) {
 
   const handle = (channel, listener) => ipcMain.handle(channel, (event, request) => (fromApp(event) ? listener(event, request) : null));
 
+  // macOS: a click on the Dock icon brings the window back (Д-266, п. 12).
+  app.on("activate", () => {
+    if (ready) openWindow();
+  });
   app.on("second-instance", () => {
+    if (!ready) return;
     openWindow();
     if (["broken", "no-node"].includes(link.state.phase)) startup();
   });
@@ -150,6 +170,9 @@ if (!app.requestSingleInstanceLock()) {
   app.on("web-contents-created", (_event, contents) => lockContents(contents));
 
   app.whenReady().then(async () => {
+    // The system's language until the settings say otherwise — a start that
+    // fails before it reads them speaks it too (Д-264).
+    language = pickLanguage("", app.getLocale());
     // The page's session serves the app's files and nothing else; the default
     // one is locked the same way, for any window that is not the app's.
     const pageSession = session.fromPartition(PAGE_PARTITION);
@@ -174,8 +197,13 @@ if (!app.requestSingleInstanceLock()) {
       if (["broken", "no-node"].includes(link.state.phase)) await startup();
       return publicState();
     });
-    handle(INVOKE_CHANNELS.call, (event, request) => {
-      const refused = refuseCall(request);
+    handle(INVOKE_CHANNELS.call, async (event, request) => {
+      let refused = refuseCall(request);
+      if (!refused && request.tool === "clients_install") {
+        ownCalls += 1;
+        const listed = await link.call("clients_list", {}, { id: `clients-offered-${ownCalls}` });
+        refused = listed.ok ? refuseClients(request.args.clients, listed.result.clients) : listed.error;
+      }
       if (refused) return { ok: false, error: refused, cancelled: false };
       const sender = event.sender;
       return link.call(request.tool, request.args ?? {}, {
@@ -194,11 +222,14 @@ if (!app.requestSingleInstanceLock()) {
       language = pickLanguage(chosen, app.getLocale());
       tray?.refresh();
       window?.setTitle(t("app.title"));
+      // A failure screen is the main process's words: say them again in this language.
+      if (["broken", "no-node"].includes(link.state.phase)) explain?.();
       if (link.state.phase === "online") await link.call("settings_set", { settings: { language } }, { id: "language" });
       else await server?.writeSettings({ language }, { env }).catch(() => undefined);
       return publicState();
     });
 
+    ready = true;
     openWindow();
     tray = createTray({ electron, link, t, actions: { open: openWindow, rebuild: rebuildFromTray, stop: () => link.stopDaemon(), quit } });
     // What the end-to-end tests read from the main process: the tray and the

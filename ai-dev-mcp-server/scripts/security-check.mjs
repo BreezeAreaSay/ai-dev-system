@@ -32,8 +32,28 @@ for (const [packagePath, metadata] of Object.entries(lock.packages ?? {})) {
   }
 }
 
+// The desktop app's own packages are pinned the same way (docs/DEFECTS.md, Д-256).
+const desktopRoot = path.join(root, "..", "desktop");
+const hasDesktop = await fs.stat(path.join(desktopRoot, "package.json")).then(() => true, () => false);
+if (hasDesktop) {
+  const desktopManifest = JSON.parse(await fs.readFile(path.join(desktopRoot, "package.json"), "utf8"));
+  const desktopLock = JSON.parse(await fs.readFile(path.join(desktopRoot, "package-lock.json"), "utf8"));
+  const pinned = { ...desktopManifest.dependencies, ...desktopManifest.devDependencies, ...desktopManifest.optionalDependencies };
+  for (const [name, range] of Object.entries(pinned)) {
+    if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(String(range))) findings.push(`desktop: dependency "${name}" must use an exact version, found "${range}".`);
+    const locked = desktopLock.packages?.[`node_modules/${name}`];
+    if (locked?.version !== range) findings.push(`desktop: dependency "${name}" lock mismatch: ${locked?.version ?? "missing"} != ${range}.`);
+  }
+  for (const [packagePath, metadata] of Object.entries(desktopLock.packages ?? {})) {
+    if (!packagePath) continue;
+    if (metadata.resolved && !String(metadata.resolved).startsWith("https://registry.npmjs.org/")) findings.push(`desktop/${packagePath}: dependency is not pinned to the npm HTTPS registry.`);
+    if (metadata.resolved && !metadata.integrity) findings.push(`desktop/${packagePath}: resolved dependency has no integrity hash.`);
+  }
+}
+
 // `hooks/` ships into other people's repositories: a key there would travel with them (Д-172).
-const scanRoots = ["bin", "src", "scripts", "hooks"];
+// The desktop app's code, scripts and tests are searched too.
+const scanRoots = ["bin", "src", "scripts", "hooks", ...(hasDesktop ? ["../desktop/src", "../desktop/scripts", "../desktop/test"] : [])];
 const secretPatterns = [
   { name: "private key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },
   { name: "AWS access key", pattern: /\bAKIA[0-9A-Z]{16}\b/ },
@@ -49,8 +69,8 @@ async function walk(directory) {
   for (const entry of entries) {
     const target = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      await walk(target);
-    } else if (entry.isFile() && /\.(?:mjs|js|json|md)$/i.test(entry.name)) {
+      if (entry.name !== "node_modules") await walk(target);
+    } else if (entry.isFile() && /\.(?:mjs|cjs|js|json|md)$/i.test(entry.name)) {
       const source = await fs.readFile(target, "utf8");
       for (const rule of secretPatterns) {
         if (rule.pattern.test(source)) {

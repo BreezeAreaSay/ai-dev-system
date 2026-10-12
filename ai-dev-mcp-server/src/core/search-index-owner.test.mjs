@@ -173,6 +173,47 @@ test("a vault holding only some of the index's notes is not the one it was built
   assert.equal(vaultIndexPath({ dir: noNotes, vaultRoot: seedCopy }).reason, "claimed");
 });
 
+test("the notes the server writes itself do not tell whose vault an index is: a set-up vault cloned again into its folder keeps it (Д-236)", needsSqlite, (t) => {
+  const root = tempRoot(t);
+  const owner = path.join(root, "vault-a");
+  const seedCopy = path.join(root, "vault-b");
+  // A set-up vault: the seed's notes, two of its own, and more of what setup
+  // and the server write — skill cards, group notes, project cards, the
+  // dashboards — than of anything else, as in a real one.
+  const seed = Array.from({ length: 20 }, (_, index) => `04-agent-workflows/flow-${index}.md`);
+  const own = ["02-knowledge/mine-1.md", "02-knowledge/mine-2.md"];
+  const generated = [
+    ...Array.from({ length: 60 }, (_, index) => `03-skills-catalog/cards/custom/skill-${index}.md`),
+    ...Array.from({ length: 10 }, (_, index) => `03-skills-catalog/groups/delivery/sub-${index}.md`),
+    "02-knowledge/Projects/Shop Backend.md",
+    "01-system/System Dashboard.md",
+    "03-skills-catalog/Skill Quality Dashboard.md"
+  ];
+  const text = (relative, stamp = "2026-01-01T00:00:00Z") => (generated.includes(relative) ? `---\ngenerated_at: "${stamp}"\n---\n# ${relative}\n` : `# ${relative}\n`);
+  const notes = [...seed, ...own, ...generated];
+  for (const relative of notes) note(owner, relative, 3600, text(relative));
+  for (const relative of seed) note(seedCopy, relative, 60, text(relative));
+  const indexIn = (name) => {
+    const dir = path.join(root, name);
+    earlierIndex(path.join(dir, DEFAULT_INDEX_FILE), { builtFrom: owner, notes });
+    return dir;
+  };
+  const recloned = indexIn("recloned");
+  const regenerated = indexIn("regenerated");
+  const other = indexIn("other");
+
+  // Cloned again into the same folder: what git carries comes back with the
+  // same bytes and new times; what the server wrote is gone.
+  fs.rmSync(owner, { recursive: true, force: true });
+  for (const relative of [...seed, ...own]) note(owner, relative, 1, text(relative));
+  assert.equal(vaultIndexPath({ dir: recloned, vaultRoot: owner }).reason, "claimed", "a reinstall by a fresh clone keeps it");
+  // Then setup writes them again, each with a new stamp.
+  for (const relative of generated) note(owner, relative, 1, text(relative, "2026-10-12T00:00:00Z"));
+  assert.equal(vaultIndexPath({ dir: regenerated, vaultRoot: owner }).reason, "claimed", "and so does one set up again since");
+  // A copy of the seed is still not the vault: the owner's own notes are not there.
+  assert.equal(vaultIndexPath({ dir: other, vaultRoot: seedCopy }).reason, "another-vault");
+});
+
 test("a claim that cannot be read is nobody's to share, and a folder that takes no claim keeps the old file", (t) => {
   const root = tempRoot(t);
   const dir = path.join(root, "index");

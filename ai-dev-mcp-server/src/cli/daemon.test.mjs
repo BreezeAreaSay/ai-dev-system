@@ -385,6 +385,28 @@ test("a daemon starting makes a run folder open to others private, and says so (
   assert.match(log, /\/run was open to other users; it is 0700 now/);
 });
 
+test("a daemon starting says what is true of its run folder when chmod changes nothing or the look at it fails (Д-225, Д-235)", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
+  const faults = pathToFileURL(path.join(serverRoot, "test", "fixtures", "run-folder-faults.mjs")).href;
+  const { env, home, run } = await stage(t);
+  const log = () => readFileSync(path.join(home, ".ai-dev", "logs", "daemon.log"), "utf8");
+  await fs.mkdir(run, { recursive: true });
+  await fs.chmod(run, 0o755);
+  // A file system that takes chmod and keeps its mode.
+  const ignored = await ai({ ...env, NODE_OPTIONS: `--import ${faults}`, AI_DEV_TEST_RUN_FOLDER: "chmod-ignored" }, ["daemon", "start"]);
+  assert.equal(ignored.code, 0, ignored.stderr);
+  assert.equal((await fs.stat(run)).mode & 0o777, 0o755);
+  assert.match(log(), /\/run is open to other users and stays so: its file system keeps the mode it has/);
+  assert.doesNotMatch(log(), /it is 0700 now/);
+  assert.equal((await ai(env, ["daemon", "stop"])).code, 0);
+
+  // A private folder whose first look fails: nothing is said of its mode but that.
+  await fs.chmod(run, 0o700);
+  const failed = await ai({ ...env, NODE_OPTIONS: `--import ${faults}`, AI_DEV_TEST_RUN_FOLDER: "stat-fails" }, ["daemon", "start"]);
+  assert.equal(failed.code, 0, failed.stderr);
+  assert.match(log(), /\/run: its mode is left as it is, it cannot be checked \(EIO\)/);
+  assert.equal(log().match(/is open to other users/g)?.length, 1, "only the first start found it open");
+});
+
 test("ai-dev daemon start, status and stop take a relative AI_DEV_HOME as the folder they run in means it (Д-201)", async (t) => {
   const { base, env } = await stage(t);
   const project = path.join(base, "project");

@@ -166,6 +166,17 @@ export function settingsPath(env = process.env) {
   return path.join(path.resolve(resolveRuntimeStateRoot("", env)), "config.json");
 }
 
+/**
+ * The format a file says it was written in: an integer from 1, or null when
+ * it says none or something no version writes — 1.5, 1e400, a word — which
+ * is read as this version's and replaced by the next change (docs/DEFECTS.md,
+ * Д-238).
+ */
+function declaredSchema(stored) {
+  const value = Number(stored.schema_version);
+  return Number.isInteger(value) && value >= 1 ? value : null;
+}
+
 /** The file as stored, or an empty object; a file that is not JSON is reported, never overwritten silently. */
 function readStored(file) {
   let text;
@@ -192,8 +203,9 @@ function readStored(file) {
  */
 function environmentKey(env, name, platform) {
   if (platform !== "win32" || Object.hasOwn(env, name)) return name;
+  // Of two spellings, the one Node's spawn passes on: the first in sorted order (Д-238).
   const wanted = name.toUpperCase();
-  return Object.keys(env).find((key) => key.toUpperCase() === wanted) ?? name;
+  return Object.keys(env).filter((key) => key.toUpperCase() === wanted).sort()[0] ?? name;
 }
 
 /** A short fingerprint of a value the file put into the environment. */
@@ -233,8 +245,13 @@ function appliedVariables(env, platform) {
  * The settings: each stored value checked, defaults for the rest, and where
  * the value in force comes from — the environment overrides the file.
  *
+ * In force means for the process `env` belongs to — or the daemon session:
+ * a setting that does not apply at once is the value its environment got
+ * when it started, and a change of the file since is `pending`, for sessions
+ * started afterwards or the next daemon (docs/DEFECTS.md, Д-237).
+ *
  * @param {{ env?: NodeJS.ProcessEnv, file?: string, platform?: string }} [options]
- * @returns {{ file: string, schema_version: number, settings: Record<string, unknown>, stored: Record<string, unknown>, sources: Record<string, string>, problems: string[] }}
+ * @returns {{ file: string, schema_version: number, settings: Record<string, unknown>, stored: Record<string, unknown>, sources: Record<string, string>, pending: Record<string, unknown>, problems: string[] }}
  *   `schema_version`: the file's own; a newer one than this version knows is a problem too.
  */
 export function readSettings({ env = process.env, file = settingsPath(env), platform = process.platform } = {}) {
@@ -242,11 +259,15 @@ export function readSettings({ env = process.env, file = settingsPath(env), plat
   const settings = {};
   const kept = {};
   const sources = {};
+  const pending = {};
   const problems = [];
-  const fileSchema = Number(stored.schema_version);
-  const schemaVersion = Number.isInteger(fileSchema) && fileSchema > 0 ? fileSchema : SETTINGS_SCHEMA_VERSION;
+  const declared = declaredSchema(stored);
+  const schemaVersion = declared ?? SETTINGS_SCHEMA_VERSION;
   if (schemaVersion > SETTINGS_SCHEMA_VERSION) {
     problems.push(`${file} was written by a newer AI Dev (settings schema ${schemaVersion}, this one knows ${SETTINGS_SCHEMA_VERSION}): the settings this version knows are read, and it does not change the file.`);
+  } else if (declared === null && Object.hasOwn(stored, "schema_version")) {
+    const shown = typeof stored.schema_version === "number" ? String(stored.schema_version) : JSON.stringify(stored.schema_version);
+    problems.push(`${file} gives schema_version ${shown}, which is no version: it is read as ${SETTINGS_SCHEMA_VERSION}, and the next change writes ${SETTINGS_SCHEMA_VERSION}.`);
   }
   const applied = appliedVariables(env, platform);
   for (const [name, setting] of Object.entries(SETTINGS)) {
@@ -271,18 +292,33 @@ export function readSettings({ env = process.env, file = settingsPath(env), plat
       // The value in force is the variable's, which the file does not change (Д-223).
       source = `environment (${setting.env})`;
       value = setting.fromEnv ? setting.fromEnv(variable) : variable;
+    } else if (setting.env && setting.applies !== "now") {
+      // What the environment got from the file when it started — nothing, if
+      // the file had nothing then — is what this process or session uses: a
+      // model folder its daemon loaded, the profiles it listed (Д-237).
+      const started = variable ? (setting.fromEnv ? setting.fromEnv(variable) : variable) : setting.default;
+      if (JSON.stringify(started) !== JSON.stringify(value)) {
+        pending[name] = value;
+        value = started;
+        source = variable ? "file, as this session started" : "default, as this session started";
+      }
     }
     settings[name] = value;
     sources[name] = source;
   }
-  return { file, schema_version: schemaVersion, settings, stored: kept, sources, problems };
+  return { file, schema_version: schemaVersion, settings, stored: kept, sources, pending, problems };
 }
+
+/** How many links a chain may hold before it counts as a loop, as Linux counts them. */
+const MAX_LINKS = 40;
 
 /**
  * Where to write `file`: the file a link names — a dotfiles repository keeps
  * its link (Д-222), and one whose file is not made yet gets it there (Д-233)
  * — or the path itself. A hard link to it is not kept: the file is replaced
- * whole.
+ * whole. A link is read as the system reads it: from the folder it really
+ * lies in, through a chain of links to its end; a link into a folder that is
+ * not there is refused and named (Д-238).
  */
 async function writeTarget(file) {
   try {
@@ -290,10 +326,21 @@ async function writeTarget(file) {
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
-  const stat = await fs.promises.lstat(file).catch(() => null);
-  if (!stat?.isSymbolicLink()) return file;
-  const target = path.resolve(path.dirname(file), await fs.promises.readlink(file));
-  return path.join(await fs.promises.realpath(path.dirname(target)), path.basename(target));
+  if (!(await fs.promises.lstat(file).catch(() => null))?.isSymbolicLink()) return file;
+  let link = file;
+  for (let hops = 0; hops < MAX_LINKS; hops += 1) {
+    const next = path.resolve(await fs.promises.realpath(path.dirname(link)), await fs.promises.readlink(link));
+    if ((await fs.promises.lstat(next).catch(() => null))?.isSymbolicLink()) {
+      link = next;
+      continue;
+    }
+    const folder = await fs.promises.realpath(path.dirname(next)).catch(() => null);
+    if (folder === null) {
+      throw new Error(`${file} is a link to ${next}, whose folder ${path.dirname(next)} is not there: make or mount it, or put a file in place of the link.`);
+    }
+    return path.join(folder, path.basename(next));
+  }
+  throw Object.assign(new Error(`${file} is a chain of more than ${MAX_LINKS} links: one of them leads back to another.`), { code: "ELOOP" });
 }
 
 /**
@@ -303,8 +350,9 @@ async function writeTarget(file) {
  *
  * @param {Record<string, unknown>} changes
  * @param {{ env?: NodeJS.ProcessEnv, file?: string, platform?: string }} [options]
- * @returns {Promise<{ changed: string[], settings: Record<string, unknown>, applies: Record<string, string> }>}
- *   `applies`: when each changed setting takes effect (`now`, `new_session`, `next_daemon`, `app`).
+ * @returns {Promise<{ changed: string[], settings: Record<string, unknown>, pending: Record<string, unknown>, applies: Record<string, string> }>}
+ *   `applies`: when each changed setting takes effect (`now`, `new_session`, `next_daemon`, `app`);
+ *   `settings` and `pending` as {@link readSettings} has them.
  */
 export async function writeSettings(changes, { env = process.env, file = settingsPath(env), platform = process.platform } = {}) {
   if (!changes || typeof changes !== "object" || Array.isArray(changes)) throw new Error("settings_set takes an object of settings to change.");
@@ -316,7 +364,7 @@ export async function writeSettings(changes, { env = process.env, file = setting
     const stored = readStored(file);
     // A file a newer AI Dev wrote keeps its format: this version would write
     // its own schema over keys it does not know the meaning of (Д-223).
-    if (Number(stored.schema_version) > SETTINGS_SCHEMA_VERSION) {
+    if ((declaredSchema(stored) ?? SETTINGS_SCHEMA_VERSION) > SETTINGS_SCHEMA_VERSION) {
       throw new Error(`${file} was written by a newer AI Dev (settings schema ${stored.schema_version}, this one knows ${SETTINGS_SCHEMA_VERSION}); change the settings with that version.`);
     }
     const next = { ...stored, schema_version: SETTINGS_SCHEMA_VERSION };
@@ -333,7 +381,8 @@ export async function writeSettings(changes, { env = process.env, file = setting
       await atomicWriteFile(await writeTarget(file), `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     }
     const applies = Object.fromEntries(changed.map((name) => [name, SETTINGS[name].applies]));
-    return { changed, settings: readSettings({ env, file, platform }).settings, applies };
+    const after = readSettings({ env, file, platform });
+    return { changed, settings: after.settings, pending: after.pending, applies };
   });
 }
 

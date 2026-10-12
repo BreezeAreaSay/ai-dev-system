@@ -139,6 +139,8 @@ export async function prepareSocketDirectory(directory, { uid = process.getuid?.
     handle = await fs.open(directory, FOLDER_FLAGS);
   } catch (error) {
     if (error?.code === "ELOOP" || error?.code === "ENOTDIR") throw new Error(`${directory} is not a plain directory.`);
+    const owner = await foreignOwner(directory, uid, error);
+    if (owner !== undefined) throw new Error(`${directory} belongs to uid ${owner}, not to this user (${uid}).`);
     throw error;
   }
   try {
@@ -154,8 +156,25 @@ export async function prepareSocketDirectory(directory, { uid = process.getuid?.
   }
 }
 
-/** Open a folder itself, never a link in its place: what is checked is what is changed (docs/DEFECTS.md, Д-226). */
+/**
+ * Open a folder itself, never a link in its place: what is checked is what is
+ * changed (docs/DEFECTS.md, Д-226). Windows has neither flag, and nothing here
+ * opens a folder there: a pipe needs none, and modes do not guard folders (Д-235).
+ */
 const FOLDER_FLAGS = fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0);
+
+/**
+ * The owner of a folder this user may not open, when it is someone else: a
+ * private folder of another user's refuses the open itself, and the refusal
+ * should say whose it is, as it did before Д-226 (docs/DEFECTS.md, Д-235).
+ *
+ * @returns {Promise<number | undefined>}
+ */
+async function foreignOwner(directory, uid, error) {
+  if (uid === undefined || (error?.code !== "EACCES" && error?.code !== "EPERM")) return undefined;
+  const stat = await fs.lstat(directory).catch(() => null);
+  return stat && stat.uid !== uid ? stat.uid : undefined;
+}
 
 /**
  * Make a folder of this user's private when group or others can get into it:
@@ -178,8 +197,9 @@ export async function tightenFolder(directory, { uid = process.getuid?.(), platf
   try {
     handle = await fs.open(directory, FOLDER_FLAGS);
   } catch (error) {
-    const why = error?.code === "ELOOP" || error?.code === "ENOTDIR" ? "it is not a plain folder (a link?)" : `it cannot be opened (${error?.code ?? error})`;
-    return { state: "left", why };
+    if (error?.code === "ELOOP" || error?.code === "ENOTDIR") return { state: "left", why: "it is not a plain folder (a link?)" };
+    const owner = await foreignOwner(directory, uid, error);
+    return { state: "left", why: owner === undefined ? `it cannot be opened (${error?.code ?? error})` : `it belongs to uid ${owner}` };
   }
   try {
     const before = await handle.stat();

@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 234 записи. Закрыто 203, открыто 31. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 238 записей. Закрыто 224, открыто 14. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -44,11 +44,11 @@ Pro x64 и Arch Linux. Пять из этих девяти пришли отчё
 Д-88, Д-90, Д-91, Д-92, Д-93, Д-94, Д-96 — второй. Д-110 нашёлся при ревью первой фазы, Д-111 и
 Д-112 — во второй, и Д-112, дефект самой фазы, ею же закрыт; Д-113 … Д-118 — в третьей, и пять из них (Д-113 … Д-116, Д-118) ею же
 закрыты. Д-119 нашёлся при урезании каталога skills по решению владельца и тогда же закрыт. Д-120 … Д-126 — дефекты фазы 3, найденные её независимым ревью; пять из них ею же закрыты, Д-123 и Д-124 (Windows) ждут проверки владельца. Д-127 … Д-132 нашло второе ревью фазы 3; закрыты все, кроме Д-130 (Windows), который тоже ждёт владельца. Фаза 4 закрыла Д-85, Д-102, Д-117 и питоновскую часть Д-98; Д-133 … Д-135 нашлись в ней, Д-133 и Д-134 ею же закрыты, Д-135 записан на фазу 7; Д-136 … Д-142 нашло её независимое ревью, и все семь ею же закрыты. Фаза 5 закрыла Д-98; Д-143 … Д-147 нашлись в ней, а Д-148 … Д-158 — её независимое ревью, Д-159 и Д-160 — её acceptance; все, кроме Д-145 (записан на фазу 6) и Д-160 (на фазу 7, с Д-135), ею же закрыты; Д-101 ждёт настоящих весов — чек-лист владельца. Д-161 … Д-164 нашла разведка фазы 6, Д-165 — её проба, Д-166 … Д-172 — её независимое ревью, Д-173 — его непроверенный пункт, проверенный живым Claude Code. Д-174 нашёлся в начале фазы 7, Д-175 и Д-176 — при сборке её пакета; фаза 7 закрыла Д-104, Д-135, Д-160 и Д-174 … Д-176; Д-177 … Д-185 нашло её независимое ревью, и все они ею же закрыты. Д-186 и Д-187 записаны в начале фазы 8: первый — на фазу 9, второй она закрыла; ещё она закрыла Д-97, Д-107 и Д-164. Д-188 … Д-194 нашло её независимое ревью, и все они ею же закрыты (у Д-194 — с остатком, описанным в записи); Д-195 нашёлся при проверке правок по нему и записан на фазу 9; Д-196 … Д-201 нашло второе ревью — правок по первому, и все они фазой 8 же закрыты; Д-202 … Д-205 — третье, правок по второму, Д-206 — тест одной из его находок; все они фазой 8 же закрыты; Д-207 … Д-209 — четвёртое, правок по третьему; и они фазой 8 же закрыты (у Д-209 — с остатком, описанным в записи); Д-210 нашёлся при перечитывании правки Д-208 и ею же закрыт; Д-211 … Д-213 — пятое ревью, правок по четвёртому: Д-211
-и Д-212 — дефекты копий клиента прокси времён фаз 5–6, записаны на фазу 9 (правило 4), Д-213 — мелочи фазы 8, ею же закрыты; Д-214 … Д-216 — шестое, правок по пятому, и они фазой 8 же закрыты; Д-224 … Д-226 — седьмое, правок по шестому, и они фазой 8 же закрыты; Д-227 нашёлся при закрытии Д-225 и ею же закрыт. Д-217 нашёлся в фазе 9 и ею же закрыт; Д-218 … Д-223 нашло её независимое ревью — номера взяты раньше, в её ветке, чем седьмое ревью фазы 8 получило свои; Д-228 … Д-233 — её второе ревью, правок по первому; Д-234 — дефект кода фазы 8, найденный пробой этого ревью, записан на фазу 14 (правило 4). Фаза 6 закрыла Д-95, Д-145, Д-161 … Д-163 и Д-165 … Д-173; от Д-103 осталась Docker-часть (фаза 13), Д-164 (идентичность хука в монорепозитории) записан на фазу 8. Ход
+и Д-212 — дефекты копий клиента прокси времён фаз 5–6, записаны на фазу 9 (правило 4), Д-213 — мелочи фазы 8, ею же закрыты; Д-214 … Д-216 — шестое, правок по пятому, и они фазой 8 же закрыты; Д-224 … Д-226 — седьмое, правок по шестому, и они фазой 8 же закрыты; Д-227 нашёлся при закрытии Д-225 и ею же закрыт; Д-235 — восьмое ревью, правок по седьмому, фазой 8 же закрыто. Фаза 9 закрыла Д-106, Д-186, Д-195, Д-211 и Д-212; Д-217 нашёлся в ней и ею же закрыт; Д-218 … Д-223 нашло её независимое ревью — номера взяты раньше, в её ветке, чем седьмое ревью фазы 8 получило свои, — Д-228 … Д-233 — её второе ревью, правок по первому (их номера и номер Д-234 взяты раньше, чем восьмое ревью фазы 8 получило Д-235), Д-236 … Д-238 — третье, правок по второму, и все они ею же закрыты; Д-234 — дефект кода фазы 8, найденный пробой второго ревью, записан на фазу 14 (правило 4). Фаза 6 закрыла Д-95, Д-145, Д-161 … Д-163 и Д-165 … Д-173; от Д-103 осталась Docker-часть (фаза 13), Д-164 (идентичность хука в монорепозитории) записан на фазу 8. Ход
 программы — `docs/program/PROGRESS.md`.
 
-Открыта тридцать одна: семь записей программы (Д-89, Д-99, Д-101, Д-103, Д-105, Д-106, Д-108), Д-110,
-Д-111, Д-123, Д-124, Д-130, Д-186, Д-195, Д-211, Д-212, Д-218 … Д-223 и Д-228 … Д-234, у каждой своя фаза или проверка владельца, и две старые, которые кодом
+Открыто четырнадцать: шесть записей программы (Д-89, Д-99, Д-101, Д-103, Д-105, Д-108), Д-110,
+Д-111, Д-123, Д-124, Д-130 и Д-234, у каждой своя фаза или проверка владельца, и две старые, которые кодом
 из песочницы не закрываются:
 
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
@@ -1930,7 +1930,7 @@ platform=win32 → env: AI_DEV_IMAGE, AI_DEV_PROJECT_PATH, AI_DEV_MCP_LAUNCHER  
 
 ## Д-106. `dashboard` без setup падает со stack trace; 8 из 10 строк «Ready» зашиты в код
 
-**Статус:** открыт. Закроет фаза 9. В брифе падение было отмечено как непроверенное — здесь
+**Статус:** закрыт фазой 9 (`ba426d4`), 2026-10-12. В брифе падение было отмечено как непроверенное — здесь
 воспроизведено.
 
 **Чем грозит.** Первая команда, которую человек может набрать до `setup`, отвечает трассировкой.
@@ -1950,7 +1950,37 @@ Error: ENOENT: no such file or directory, open '…/docker/public-seed/03-skills
 Coverage gate, Security gate, Archify diagrams, Project Context Compiler, Outcome Analytics v2,
 Reference Factory v2, Search Ranking v2. Вычисляются только две — MCP server и Modular runtime.
 
-**Как закроется.** Фаза 9: строки дашборда — из реальных проверок; без setup — понятное сообщение.
+**Повтор до** (`c8e2353`, начало фазы 9). Без setup трассировки уже нет (CLI фазы 6 печатает только сообщение), но сообщение
+— имя ненайденного файла:
+
+```
+ai-dev dashboard → ENOENT: no such file or directory, open '…/docker/public-seed/03-skills-catalog/registries/skills.index.json'   exit 1
+```
+
+После setup — десять строк «Runtime», восемь из них — константа «Ready»; в том же окружении `ai-dev doctor` говорит
+другое: «warn search_index_freshness: Search index is stale: 1 added …» при строке «Search Ranking v2 | Ready»,
+«frontend_qa_environment: … the Chromium binary is missing» при строке «Archify diagrams | Ready | … Chrome/Edge …»,
+«4 of 10 security scanners installed» при «Security gate | Ready».
+
+**Как закрыто.** Таблица «Runtime» — две вычисляемые строки (сервер, модульность) и проверки здоровья, как они прошли
+при генерации страницы: имя, вердикт (Ready, Needs attention, Failing, Not set up) и их собственное объяснение
+(`src/core/system-dashboard.mjs`, снимок — `buildSystemSnapshot` с `checks`). Восемь констант и `COVERAGE_THRESHOLDS`
+(копия порогов, которая могла разойтись со скриптом) убраны. Проверки не входят в отпечаток свежести: запись дашборда
+меняет хранилище, и проверка свежести индекса делала бы страницу устаревшей её же записью — страница говорит, когда
+проверки прошли. Без реестра навыков `rebuild_system_dashboard` и `system_dashboard_status` отвечают, что запустить.
+Тесты — `system-dashboard.test.mjs`, `extensions/system.test.mjs`.
+
+**Замер после** (`ba426d4`; без setup — повтор на `014719c`):
+
+```
+без setup: The skill registry is not built yet (…/skills.index.json): run `ai-dev setup` first. It builds the registry,
+           its quality report and the search index this dashboard summarizes.   exit 1
+после setup: 24 строки — 2 вычисляемые и 22 проверки; например
+  | Search index freshness | Needs attention | Search index is stale: 1 added, 0 changed, 0 deleted. |
+  | Frontend QA environment | Not set up | Frontend QA is not set up: Playwright itself and the Chromium binary is missing. … |
+  | Security scanners | Ready | 4 of 10 security scanners installed: npm_audit, pnpm_audit, yarn_audit, bun_audit. |
+ни одной из восьми констант
+```
 
 ---
 
@@ -4969,8 +4999,7 @@ file(s) there were dropped». Конфликт состояния (задача,
 
 ## Д-186. `search_index_status` называет бэкенд векторов `python` у индекса без векторов
 
-**Статус:** открыт. Нашёлся пробой фазы 8; по правилу 4 брифа не чинится в ней — закроет фаза 9 (`system_status` для
-интерфейса показывает эти поля человеку).
+**Статус:** закрыт фазой 9 (`ba426d4`), 2026-10-12. Нашёлся пробой фазы 8; по правилу 4 брифа не чинился в ней.
 
 Индекс, построенный без векторов, пишет в `meta` бэкенд, ревизию и тип по умолчанию из времён Python-помощника:
 `denseSettings` (`src/core/search-store.mjs:286`) берёт `LEGACY_DENSE_BACKEND = "python"` (строка 45), `fullProvenance`
@@ -4987,8 +5016,18 @@ file(s) there were dropped». Конфликт состояния (задача,
 "dense_enabled": false, "dense_backend": "python", "dense_revision": "unpinned", "dense_dtype": "fp32"
 ```
 
-**Как закроется.** Без векторов поля пустые (или `none`), с векторами — то, чем они сделаны; индекс 2.x с векторами
-Python продолжает называть их `python`.
+**Как закрыто.** Перестройка без векторов пишет в `meta` пустые бэкенд, ревизию и тип; статус индекса, в котором векторов
+нет (`dense_enabled: false`), отдаёт их пустыми, даже если `meta` записана раньше; с векторами — то, чем они сделаны,
+индекс 2.x с векторами Python по-прежнему называет их `python`. Тест — `search-store.test.mjs` («an index without
+vectors names no backend for them …»).
+
+**Замер после** (`ba426d4`, `p9/d186/status-peek.mjs` по MCP; до — на `c8e2353` той же пробой):
+
+```
+до:    search_index_status {"dense_enabled":false,"dense_backend":"python","dense_revision":"unpinned","dense_dtype":"fp32"}
+после: search_index_status {"dense_enabled":false,"dense_backend":"","dense_revision":"","dense_dtype":""}
+       (индекс, записанный старым кодом, — те же пустые поля; после перестройки — тоже)
+```
 
 ---
 
@@ -5317,8 +5356,8 @@ busy-takeover3.mjs (36 000 заметок, замок взят 10 минут н�
 
 ## Д-195. Один индекс поиска на runtime home: клиент одного хранилища получает заметки другого
 
-**Статус:** открыт. Нашёлся при проверке правок Д-191 (фаза 8); по правилу 4 брифа не чинится в ней — закроет
-фаза 9.
+**Статус:** закрыт фазой 9 (`ba426d4`, `dcfba34`; правило для индекса 2.x — `4bd1c9d`, `014719c`, `b2170c4` по Д-219 и Д-229),
+2026-10-12. Нашёлся при проверке правок Д-191 (фаза 8); по правилу 4 брифа не чинился в ней.
 
 Файл индекса — `<runtime home>/cache/search-index/ai-dev-search.sqlite` (или `AI_DEV_SEARCH_INDEX_DIR`), один на всё,
 из какого бы хранилища его ни построили (`src/mcp-stdio.mjs:249`). Два клиента с разными `AI_DEV_VAULT_ROOT` и общим
@@ -5336,9 +5375,35 @@ runtime home пишут в один индекс, проверка свежес�
 A→Storage A  B→Storage B  A→Storage B  B→Storage B  A→Storage B  B→Storage B  A→Storage B  B→Storage B
 ```
 
-**Как закроется.** Индекс помнит хранилище, из которого построен (корень в `meta` и в отпечатке свежести), и для
-другого хранилища перестраивается или ведётся отдельным файлом. До тех пор обход — свой `AI_DEV_SEARCH_INDEX_DIR` у
-второго хранилища (так устроен интеграционный тест демона).
+**Как закрыто.** У каждого хранилища свой файл индекса (`src/core/search-index-owner.mjs`): прежний
+`ai-dev-search.sqlite` принадлежит хранилищу, чья заявка лежит рядом (`ai-dev-search.sqlite.vault` — создаётся одним
+шагом, который выигрывает один процесс: готовый файл ссылкой на имя), остальные получают
+`ai-dev-search-<12 hex корня>.sqlite`. Индекс, записанный до заявок, получает только хранилище, из которого он построен:
+по `vault_root` в `meta`, а у индекса 2.x — по его заметкам (выборка до 200, по таблице вразброс): не меньше половины
+выборки — те самые файлы, нетронутые с тех пор (хэш содержимого и время изменения), или все заметки выборки здесь с тем
+же содержимым, как после клона в ту же папку (Д-219: признак «путь существует» отдавал индекс хранилищу, у которого
+общий с владельцем каталог навыков; Д-229: одна скопированная заметка решала, а переустановка на месте теряла индекс).
+Так команда из оболочки с хранилищем, где есть лишь часть этих заметок, запущенная первой после обновления, не отнимает
+у клиентов их индекс с векторами; копию всего хранилища от оригинала не отличить — её берёт тот, кто стартует первым.
+Каждая перестройка пишет `vault_root` в `meta`; индекс, построенный из другого хранилища, устарел (`vault_changed`) и
+перестраивается. Тесты — `search-index-owner.test.mjs` (в том числе восемь процессов, заявляющих одновременно, копия
+seed без заметок владельца, одна скопированная заметка, клон на месте), `search-store.test.mjs`; `upgrade:test` первой
+после обновления запускает команду с другим хранилищем и проверяет, чья заявка.
+
+**Остаток.** Процесс 2.x, который ещё работает после обновления, пишет прежний файл, не зная заявок. Если другое
+хранилище заявило пустое место раньше, чем этот процесс построил свой первый индекс, индекс владельца достаётся заявке
+(так устроены пробы ревью `p7`, `p7b`: новый код с другим хранилищем запускается до сборки индекса старым). Закрыть
+клиенты 2.x до первой команды 3.0 с другим хранилищем — достаточно.
+
+**Замер после** (`014719c`; `p9/d195/probe.mjs` и `p9/d195/upgrade-probe.mjs`: индекс построен кодом до фазы 9 из
+хранилища A, затем новый код запущен сначала с хранилищем B, потом с A):
+
+```
+A→Storage A  B→Storage B  A→Storage A  B→Storage B  A→Storage A  B→Storage B  A→Storage A  B→Storage B
+old code, vault A: built 3 documents into ai-dev-search.sqlite
+new code, vault B first: ai-dev-search-1173dc638bfe.sqlite, exists false
+new code, vault A: ai-dev-search.sqlite, 3 documents, stale false
+```
 
 ---
 
@@ -5939,8 +6004,8 @@ log: daemon 15813: session 1 closed; 0 open | daemon 15813: exits: retired, and 
 
 ## Д-211. HTTPS через прокси уходит с `Host: <имя>:80`
 
-**Статус:** открыт. Нашло пятое независимое ревью фазы 8 (should-fix). Код — фаз 5 и 6 (`6050542`), обе копии клиента
-прокси; по правилу 4 брифа не чинится в фазе 8 — закроет фаза 9 (её `model_install` качает модель этим клиентом).
+**Статус:** закрыт фазой 9 (`7446f46`), 2026-10-12. Нашло пятое независимое ревью фазы 8 (should-fix). Код — фаз 5 и 6
+(`6050542`), обе копии клиента прокси; по правилу 4 брифа не чинился в фазе 8.
 
 Запрос HTTPS через туннель CONNECT (`src/core/http-download.mjs` и копия хуков `hooks/http-proxy.mjs`) идёт через
 `https.request(url, { createConnection })` без агента: у запроса нет порта по умолчанию, Node считает его 80 и пишет в
@@ -5960,14 +6025,26 @@ server https://models.example.test:443/x    -> 200; Host: models.example.test:80
 server https://models.example.test:8443/x   -> 200; Host: models.example.test:8443
 ```
 
-**Как закроется.** `defaultPort: 443` у туннельного запроса в обеих копиях; тест на заголовок в обеих.
+**Как закрыто.** `defaultPort: 443` у туннельного запроса в обеих копиях. Тест — `hook-proxy.test.mjs` («through a
+tunnel the Host header names the port only when the address does, in both copies»); на старом коде падает.
+
+**Замер после** (`7446f46`, та же проба):
+
+```
+hooks  https://models.example.test/x        -> 200; Host: models.example.test
+hooks  https://models.example.test:443/x    -> 200; Host: models.example.test
+hooks  https://models.example.test:8443/x   -> 200; Host: models.example.test:8443
+server https://models.example.test/x        -> 200; Host: models.example.test
+server https://models.example.test:443/x    -> 200; Host: models.example.test
+server https://models.example.test:8443/x   -> 200; Host: models.example.test:8443
+```
 
 ---
 
 ## Д-212. Копия клиента прокси в хуках советует положить учётные данные в URL, когда они там и есть
 
-**Статус:** открыт. Нашло пятое независимое ревью фазы 8 (nit). Код — фазы 6 (копия хуков); по правилу 4 брифа не
-чинится в фазе 8 — закроет фаза 9 вместе с Д-211.
+**Статус:** закрыт фазой 9 (`7446f46`), 2026-10-12. Нашло пятое независимое ревью фазы 8 (nit). Код — фазы 6 (копия
+хуков); по правилу 4 брифа не чинился в фазе 8.
 
 На ответ 407 копия хуков (`hooks/http-proxy.mjs`, `tunnel`) всегда пишет «The proxy wants credentials: put them in the
 proxy URL…», а серверная копия различает: без учётных данных — то же, с неверными — «The proxy did not accept the user
@@ -5983,7 +6060,16 @@ hooks  wrong credentials  → … (HTTP 407). The proxy wants credentials: put t
 server wrong credentials  → … (HTTP 407). The proxy did not accept the user name and password in the proxy URL.
 ```
 
-**Как закроется.** Копия хуков различает два случая, как серверная; тест на оба сообщения в обеих копиях.
+**Как закрыто.** Копия хуков объясняет 407 так же, как серверная (`signInHint`): схема, которую хук не умеет (NTLM,
+Negotiate), неверные учётные данные или их нет. Тест — `hook-proxy.test.mjs` («a proxy that wants credentials is told
+apart from one that refused them, in both copies»); на старом коде падает.
+
+**Замер после** (`7446f46`, та же проба):
+
+```
+hooks  wrong credentials  → … (HTTP 407). The proxy did not accept the user name and password in the proxy URL.
+server wrong credentials  → … (HTTP 407). The proxy did not accept the user name and password in the proxy URL.
+```
 
 ---
 
@@ -6168,7 +6254,7 @@ home/.ai-dev: run=[ai-dev-….sock, daemon-961d19848f8140e1.json, daemon-961d198
 
 ## Д-218. Транспорт приложения не применяет настройки: сохранённая папка модели запирает его, зеркало не используется
 
-**Статус:** открыт. Нашло независимое ревью фазы 9 (must-fix).
+**Статус:** закрыт фазой 9 (`4bd1c9d`), 2026-10-12. Нашло независимое ревью фазы 9 (must-fix).
 
 Настройки из `~/.ai-dev/config.json` (`settings.mjs`) переходят в окружение при старте каждой команды CLI
 (`src/cli/main.mjs`, `applySettingsToEnvironment`) — и демона тоже. `DaemonClientTransport` → `connectDaemon` отдаёт
@@ -6196,16 +6282,31 @@ model_dir в файле, демона нет: transport FAILED after 20035 ms: T
 папка: new ai-dev mcp session model.dir=…/models-from-settings; transport session model.dir=…/.ai-dev/models/bge-m3-onnx
 ```
 
-**Как закроется.** `connectDaemon` применяет настройки к копии окружения так же, как CLI, — сборка на обеих сторонах
-одна; инструменты control API применяют их к окружению сессии на каждом вызове, так что зеркало и папка, сохранённые
-минуту назад в этой же сессии, действуют. Тесты: транспорт с сохранённой `model_dir` без демона; зеркало из настроек —
-по запросам к нему.
+**Как закрыто.** `connectDaemon` и `daemonStatus` применяют настройки к копии окружения так же, как CLI
+(`daemonEnvironment`, `src/core/daemon-client.mjs`), — сборка на обеих сторонах одна; инструменты control API на каждом
+вызове перечитывают настройки, которые действуют сразу (`sessionEnvironment`, теперь в `src/core/settings.mjs`): зеркало,
+сохранённое минуту назад в этой же сессии, действует, а папка модели — сессиям, начатым после (Д-228); переменная,
+заданная клиентом, по-прежнему главнее. Тест —
+`control.test.mjs` («the settings file counts for the app's transport as for a client …»): на старом коде падает с «The
+daemon did not start within 20 s».
+
+**Замер после** (`4bd1c9d`, те же пробы):
+
+```
+model_dir в файле, демона нет: transport connected after 621 ms: model.dir my-models; served by daemon 1001
+                               an ai-dev mcp client then: model.dir my-models; served by daemon 1001
+зеркало: the same transport session: model_install ready true; requests at the mirror: 10
+         a new transport session (the app restarted): … requests at the mirror: 10
+         a new `ai-dev mcp` session: … requests at the mirror: 10
+папка:   new ai-dev mcp session model.dir=models-from-settings (daemon pid 9918); transport session model.dir=models-from-settings (daemon pid 9918)
+```
 
 ---
 
 ## Д-219. Индекс 2.x уходит хранилищу, которое делит с владельцем каталог навыков
 
-**Статус:** открыт. Нашло независимое ревью фазы 9 (must-fix) в правке Д-195.
+**Статус:** закрыт фазой 9 (`4bd1c9d`, `014719c`; правило уточнено `b2170c4` по Д-229), 2026-10-12. Нашло независимое ревью
+фазы 9 (must-fix) в правке Д-195.
 
 Индекс без заявки, построенный до 3.0, получает хранилище, из которого он построен: у индекса 2.x — то, где лежит
 половина из первых 200 путей его документов (`indexOrigin`, `src/core/search-index-owner.mjs`). В выборке преобладает
@@ -6227,16 +6328,35 @@ the owner after its first search rebuilt its own file: 854 documents, 0 with vec
 the old file after the other copy's first rebuild: owner's notes in it 0; meta.vault_root vault-other
 ```
 
-**Как закроется.** Признак «построен из этого хранилища» — не то, что пути существуют, а что это те же файлы: у заметок
-выборки (`source = 'vault-note'`, равномерно по таблице) совпадает с записанным в индексе время изменения. Копия в
-другом хранилище, сделанная копированием или git, имеет своё. В сомнении — свой файл, а не чужой индекс. Случай с
-пересекающимся хранилищем — в `upgrade:test`.
+**Как закрыто.** Признак «построен из этого хранилища» — не то, что пути существуют, а что это те же файлы: у заметок
+выборки (`source = 'vault-note'`, до 200, вразброс по таблице) совпадают с записанными в индексе и время изменения, и
+хэш содержимого (`noteIdentity`, `src/core/search-documents.mjs`, — как их считает индексатор). Копия в другом
+хранилище, сделанная копированием или клоном, имеет своё время; заметка того же имени, записанная в тот же миг (файлы,
+записанные вместе, делят тик часов ядра — так `4bd1c9d` по одному времени отдал индекс пробе `upgrade-probe`), — своё
+содержимое. Второе ревью нашло, что отсутствующие заметки выпадали из счёта и что переустановка на месте теряла индекс
+(Д-229); итоговое правило — по всей выборке: не меньше половины её нетронуты, или все заметки здесь с тем же
+содержимым. В сомнении — свой файл, а не чужой индекс. `upgrade:test` синхронизирует клон как git — только
+изменившиеся файлы — и первой после обновления запускает команду с копией seed без заметок владельца в роли другого
+хранилища. Тесты — `search-index-owner.test.mjs`: на правиле «путь существует» и на правиле «только время» падают.
+Остаток — в Д-195 (процесс 2.x, работающий после обновления).
+
+**Замер после** (`014719c`, `p9rv/p7d-upgrade-order.mjs` — порядок настоящего обновления: индекс владельца построен кодом
+2.x, затем новый код запускается сначала с другой копией seed, потом с владельцем; до — та же проба на коде фазы 9 до
+правки):
+
+```
+до:    new code, the other copy first: ai-dev-search.sqlite
+       then the owner: ai-dev-search-3e7c1ebf21c6.sqlite, 0 documents, 0 with vectors
+после: new code, the other copy first: ai-dev-search-ce282ef4b74c.sqlite
+       then the owner: ai-dev-search.sqlite, 854 documents, 394 with vectors
+       the owner's search for its own note: 02-knowledge/mine/note-3.md; the other vault's: nothing
+```
 
 ---
 
 ## Д-220. `setup_run` отвергает неверное имя клиента после того, как вся настройка прошла
 
-**Статус:** открыт. Нашло независимое ревью фазы 9 (should-fix).
+**Статус:** закрыт фазой 9 (`4bd1c9d`), 2026-10-12. Нашло независимое ревью фазы 9 (should-fix).
 
 `setup_run` (`src/extensions/control.mjs`) проверяет форму `clients`, но имена — только в `installClients`, после шагов
 настройки. CONTROL-API.md обещает «a refused call … changes nothing»; CLI ловит опечатку до сборки
@@ -6252,13 +6372,21 @@ setup_run {clients:"claude-code,notepad", force:true}: REFUSED "Not a client: no
 skill registry after the refusal: exists; index after the refusal: exists true, 825 documents
 ```
 
-**Как закроется.** Имена проверяются до шагов (`parseClientSelection`).
+**Как закрыто.** Имена проверяются до шагов (`parseClientSelection`). Тест — `control.test.mjs` (отказ до сборки, индекса
+нет).
+
+**Замер после** (`4bd1c9d`, та же проба):
+
+```
+setup_run {clients:"claude-code,notepad", force:true}: REFUSED "Not a client: notepad. …" after 6 ms
+skill registry after the refusal: absent; index after the refusal: exists false, 0 documents
+```
 
 ---
 
 ## Д-221. `daemon_idle_minutes` принимает то, что не число
 
-**Статус:** открыт. Нашло независимое ревью фазы 9 (should-fix).
+**Статус:** закрыт фазой 9 (`4bd1c9d`), 2026-10-12. Нашло независимое ревью фазы 9 (should-fix).
 
 Проверка — `Number(value)` (`src/core/settings.mjs`): пустая строка и пробелы становятся 0 (демон не уходит никогда —
 так выглядит очищенное поле формы), `[]` — 0, `true` — 1, `[7]` — 7, `"0x10"` — 16, `"1e3"` — 1000; `0.0001` минуты —
@@ -6274,13 +6402,20 @@ daemon_idle_minutes=[] -> stored 0                                    daemon_idl
 daemon_idle_minutes=0.0001 -> stored 0.0001 -> AI_DEV_IDLE_TIMEOUT_MS="6"
 ```
 
-**Как закроется.** Только число (JSON-число), 0 или от 1 до 10 080 минут.
+**Как закрыто.** Только JSON-число: 0 или от 1 до 10 080 минут. Тест — `settings.test.mjs`.
+
+**Замер после** (`4bd1c9d`, та же проба):
+
+```
+"" "   " true [] [7] "0x10" "1e3" 0.0001 → REFUSED: daemon_idle_minutes must be a number of minutes from 1 to 10080
+                                          (a week), or 0 to keep the daemon until it is stopped …
+```
 
 ---
 
 ## Д-222. Файл настроек пишется не атомарно и заменяет ссылку обычным файлом
 
-**Статус:** открыт. Нашло независимое ревью фазы 9 (should-fix).
+**Статус:** закрыт фазой 9 (`4bd1c9d`), 2026-10-12. Нашло независимое ревью фазы 9 (should-fix).
 
 `writeSettings` (`src/core/settings.mjs`) пишет временный файл и переименовывает его сам: без `fsync` (SECURITY.md
 обещает «flush, and atomic replacement»), без повторов переименования на Windows (`EACCES`/`EPERM`/`EEXIST`, которые есть в
@@ -6296,13 +6431,20 @@ daemon_idle_minutes=0.0001 -> stored 0.0001 -> AI_DEV_IDLE_TIMEOUT_MS="6"
 config.json a link to dotfiles: after settings_set it is a regular file (the link is gone); dotfiles copy holds language: false
 ```
 
-**Как закроется.** Запись — через `atomicWriteFile` (`fsync`, повторы, уборка временного) по настоящему пути файла, с 0600.
+**Как закрыто.** Запись — через `atomicWriteFile` (`fsync`, повторы, уборка временного; у функции появился `mode` нового
+файла) по настоящему пути файла, с 0600. Тест — `settings.test.mjs` («the file is replaced whole through a link to it …»).
+
+**Замер после** (`4bd1c9d`, та же проба):
+
+```
+config.json a link to dotfiles: after settings_set it is still the link; dotfiles copy holds language: true
+```
 
 ---
 
 ## Д-223. Мелочи ревью фазы 9
 
-**Статус:** открыт. Нашло независимое ревью фазы 9 (nit). Замеры — `7446f46`, пробы `p9rv/`.
+**Статус:** закрыт фазой 9 (`4bd1c9d`), 2026-10-12. Нашло независимое ревью фазы 9 (nit). Замеры «до» — `7446f46`, пробы `p9rv/`.
 
 1. **`settings_get` обещает «each value in force»**, а при переменной окружения, которая переопределяет файл, отдаёт
    значение файла: `settings.model_mirror=https://m6.example, sources=environment (AI_DEV_MODEL_MIRROR)`, а в деле —
@@ -6329,13 +6471,30 @@ config.json a link to dotfiles: after settings_set it is a regular file (the lin
 11. **SECURITY.md молчит о control API** и о том, что инструмент вне профилей сессии вызывается по имени: сессия агента
     вызвала `settings_get` и `clients_remove` (сухой прогон) — оба ответили.
 
-**Как закроется.** 1 — значение в силе: при переопределении — из окружения; 2 — ссылка в папке журналов отвергается;
-3 — `present`/`missing` из проверки; 4 — значения названы; 5 — NUL в путях отвергается; 6 — `profiles` не принимает
-профили, которые включают явно; 7 — файл более новой схемы не переписывается, `settings_set` говорит почему; 8 — шаги
-после остановки — «пропущен: остановлено», прерванный — «пропущен», а не «✗»; 9 — `signal` передаётся; 10 — целое число
-миллисекунд; 11 — раздел о control API в SECURITY.md. Не меняется: `system_status` с проверками стоит до секунды
-(проверка Frontend QA запускает Chromium, когда он установлен) — трею хватает `checks: false`, это записано в
-CONTROL-API.md.
+**Как закрыто.** 1 — значение в силе: при переопределении — из окружения (минуты — из миллисекунд), значение файла — в
+`stored`; 2 — ссылка в папке журналов отвергается; 3 — `present`/`missing` после импорта — из состояния модели;
+4 — значения названы; 5 — NUL в путях отвергается; 6 — `profiles` не принимает профили, которые включают явно;
+7 — файл более новой схемы не переписывается, `settings_set` говорит почему; 8 — шаги после остановки — «пропущен:
+setup was stopped», прерванный — «пропущен: stopped: …», ни один не объявляется (сбой, совпавший с остановкой, —
+сбой: Д-233); 9 — `signal` передаётся; 10 — целое число миллисекунд; 11 — раздел «The Control API» в SECURITY.md. Не
+меняется: `system_status` с проверками стоит до секунды (проверка Frontend QA запускает Chromium, когда он установлен) —
+трею хватает `checks: false`, так и сказано в описании аргумента. Тесты — `settings.test.mjs`, `log-tail.test.mjs`,
+`first-run-steps.test.mjs`, `workspace-overview.test.mjs`, `control.test.mjs`.
+
+**Замер после** (`4bd1c9d`, те же пробы):
+
+```
+1.  settings_get.settings.model_mirror=https://from-env.example, sources.model_mirror=environment (AI_DEV_MODEL_MIRROR)
+2.  logs_tail log="linked": REFUSED linked.log is a link: only the logs folder's own files are read.
+3.  model_import: ready true; present ["config.json", …, "onnx/model_int8.onnx"] missing []
+5.  settings_set с NUL в model_dir → refused: model_dir must not hold a NUL character. (тест); записанный в файл руками
+    — не применяется: new control session: model.dir "…/.ai-dev/models/bge-m3-onnx" (папка по умолчанию, а не обрезок)
+6.  profiles "control", "ALL, control" → REFUSED (profiles cannot name control: … sets AI_DEV_PROFILES=control itself.)
+7.  newer file (schema 2) after settings_set: REFUSED …; file now {"schema_version":2,…,"future_key":{"kept":true}}
+8.  · Search index (0.3s): stopped: The rebuild was cancelled; …  · Skill-routing benchmark: not run: setup was stopped
+    2 built, 5 skipped, 0 failed.
+10. idle timeout 60000.5: system_status served_by.idle_timeout_ms 60001
+```
 
 ---
 
@@ -6536,7 +6695,7 @@ belongs to another uid or cannot hold a socket is passed over, never used») о�
 
 ## Д-228. Папка модели, сменённая посреди сессии: инструменты управления смотрят в новую, поиск демона — в старую
 
-**Статус:** открыт. Нашло второе независимое ревью фазы 9 (must-fix) в правке Д-218.
+**Статус:** закрыт фазой 9 (`b2170c4`), 2026-10-12. Нашло второе независимое ревью фазы 9 (must-fix) в правке Д-218.
 
 `sessionEnvironment()` (`src/extensions/control.mjs`) на каждом вызове применяет к окружению сессии весь файл настроек, и
 `model_dir` (`BGE_M3_ONNX_DIR`) тоже. Но эта переменная — общая для демона: его поиск взял папку модели, когда
@@ -6563,11 +6722,28 @@ on disk: models-chosen: 1 onnx file(s); home/.ai-dev/models/bge-m3-onnx: 0 onnx 
 изменение, и говорит это в `note`. Новая папка модели — сессиям, начатым после: приложение переподключается, и для новой
 сборки запускается свой демон. Тест — в `control.test.mjs`.
 
+**Как закрыто.** Так и сделано: у настроек — `applies`; `sessionEnvironment` (`src/core/settings.mjs`) перечитывает
+только те, что `now`, — зеркало; `settings_set` отдаёт `applies` и `note` из него, `settings_get` — `applies` у каждого
+определения; контракт описывает оба поля. Тест — `control.test.mjs`: в той же сессии после `settings_set model_dir`
+`system_status` и `model_install` — в папке, с которой сессия началась, `applies.model_dir` — `new_session`, новая сессия
+видит новую папку.
+
+**Замер после** (`b2170c4`, та же проба):
+
+```
+settings_set model_dir=models-chosen, then in the same session:
+model_install: ready true, dir home/.ai-dev/models/bge-m3-onnx
+setup_run model:true: succeeded true
+   dense_index: done 2 document(s) embedded, 0 still pending
+system_status after: model.dir home/.ai-dev/models/bge-m3-onnx installed true; index dense 2, pending 0; status ok
+```
+
 ---
 
 ## Д-229. Индекс 2.x отдаёт одна скопированная заметка, а переустановка на месте его теряет
 
-**Статус:** открыт. Нашло второе независимое ревью фазы 9 (must-fix и should-fix) в правке Д-219.
+**Статус:** закрыт фазой 9 (`b2170c4`), 2026-10-12. Нашло второе независимое ревью фазы 9 (must-fix и should-fix) в правке
+Д-219.
 
 `indexOrigin` (`src/core/search-index-owner.mjs`) считает долю нетронутых заметок выборки только среди тех, что есть в
 хранилище: отсутствующие выпадают из счёта.
@@ -6599,11 +6775,31 @@ p13: re-cloned owner gets ai-dev-search-bc981ea6e8d5.sqlite (another-vault); cla
 их, — другое, как бы они туда ни попали. Копию всего хранилища от оригинала не отличить: индекс берёт тот, кто стартует
 первым, и для его заметок он верен. Тесты — на эти случаи.
 
+**Как закрыто.** Так и сделано (`indexOrigin`): `unchanged * 2 >= выборка || identical === выборка`. Тест —
+`search-index-owner.test.mjs` («a vault holding only some of the index's notes …»): копия seed без заметок владельца,
+одна заметка, скопированная со временем, правки, pull, клон на месте, копия целиком, близнецы; на правиле `014719c`
+падает. Решение по копии целиком: индекс верен для её заметок, и отличить её от оригинала нечем — 2.x не записывал
+корень хранилища; проба `p2` с владельцем — голым seed — так и показывает: копия seed, запущенная первой, берёт индекс.
+
+**Замер после** (`b2170c4`, те же пробы):
+
+```
+unrelated vault + ONE owner note copied (cp -p): another
+unrelated vault + ONE seed note of the owner's : another
+the owner re-cloned in place (same bytes)      : this
+the owner, every note touched, bytes unchanged : this
+another vault: a fresh copy of the seed        : another
+p10: the other vault (5 notes of its own + 1 copied with cp -p) first: ai-dev-search-42d00de1ca2d.sqlite
+     then the owner: ai-dev-search.sqlite, 854 documents, 394 with vectors
+p13: re-cloned owner gets ai-dev-search.sqlite (claimed); claim written: true
+p9 (порядок обновления из Д-219): the other copy first: ai-dev-search-f5f9af098c5b.sqlite; then the owner: ai-dev-search.sqlite, 854 documents, 394 with vectors
+```
+
 ---
 
 ## Д-230. Проверка Д-219 в `upgrade:test` не запускается
 
-**Статус:** открыт. Нашло второе независимое ревью фазы 9 (must-fix).
+**Статус:** закрыт фазой 9 (`b2170c4`), 2026-10-12. Нашло второе независимое ревью фазы 9 (must-fix).
 
 `scripts/upgrade-check.mjs` запускает `ai-dev doctor --json` с другим хранилищем. У `doctor` нет `--json`: команда
 выходит с кодом 2 до импорта `mcp-stdio.mjs`, то есть до заявки на индекс, а `allowFailure` это прячет. Проверка
@@ -6621,11 +6817,15 @@ ai-dev doctor with another vault -> exit 0; {; claim now: (no claim)
 **Как закроется.** `doctor` без `--json`, и его код выхода проверяется; проверка заявки смотрит, чьё хранилище её
 сделало. У хранилища 2.x в тесте — свои заметки рядом с seed, а другое хранилище — копия seed без них: случай Д-219.
 
+**Как закрыто.** Так и сделано: три заметки пользователя (`02-knowledge/upgrade-fixture/`) пишутся в хранилище 2.x до его
+индекса; другое хранилище копируется без них; `doctor` проверяется по коду выхода; проверка индекса требует, чтобы
+заявку сделало не другое хранилище. Замер — прогон `upgrade:test` на `b2170c4` (отчёт фазы 9).
+
 ---
 
 ## Д-231. NUL в `model_mirror` не даёт запустить демон
 
-**Статус:** открыт. Нашло второе независимое ревью фазы 9 (should-fix).
+**Статус:** закрыт фазой 9 (`b2170c4`), 2026-10-12. Нашло второе независимое ревью фазы 9 (should-fix).
 
 Проверка `model_mirror` (`src/core/settings.mjs`) пропускает NUL: `new URL()` его принимает, а запрет NUL из Д-223 был
 только у путей. `daemonEnvironment` кладёт значение в копию окружения, и запуск демона бросает «must be a string without
@@ -6643,11 +6843,23 @@ settings_set model_mirror with a NUL: stored ["model_mirror"]
 **Как закроется.** NUL и другие управляющие символы в зеркале отвергаются при записи; такое значение, вписанное в файл
 руками, — проблема `settings_get`, и оно не применяется.
 
+**Как закрыто.** Так и сделано: одна проверка управляющих символов (`\u0000`–`\u001f`, `\u007f`) у путей и у зеркала.
+Тест — `settings.test.mjs`.
+
+**Замер после** (`b2170c4`, `p4-nul-mirror.mjs`, `p3-settings.mjs`):
+
+```
+settings_set model_mirror with a NUL: REFUSED model_mirror must not hold a NUL or another control character.
+   transport: connected in 518 ms; settings_get model_mirror ""
+   ai-dev mcp bridge: 135 tools; stderr: (none)
+```
+
 ---
 
 ## Д-232. На Windows переменная, заданная руками в другом регистре, и файл настроек дают демону другую сборку
 
-**Статус:** открыт. Нашло второе независимое ревью фазы 9 (should-fix). Смоделировано на Linux, на Windows не проверено.
+**Статус:** закрыт фазой 9 (`b2170c4`), 2026-10-12. Нашло второе независимое ревью фазы 9 (should-fix). Смоделировано на Linux,
+на Windows не проверено.
 
 Настройки применяются к простой копии окружения (`daemonEnvironment`, `sessionEnvironment`), где имя — с тем регистром,
 что дал клиент: заданная руками `Bge_M3_Onnx_Dir` не узнаётся как `BGE_M3_ONNX_DIR`, и файл добавляет вторую. Клиент
@@ -6669,12 +6881,25 @@ control tools' model folder (sessionEnvironment): from-settings — the client's
 **Как закроется.** На Windows имя переменной ищется без учёта регистра: заданная руками в любом написании главнее файла,
 второго написания файл не добавляет, а окружение сессии для инструментов читает имена так же, как Windows.
 
+**Как закрыто.** `environmentKey` (`src/core/settings.mjs`) находит имя на `win32` без учёта регистра — в
+`readSettings`, `applySettingsToEnvironment` и списке применённого; `daemonEnvironment` принимает `platform`;
+`sessionEnvironment` отдаёт окружение через `environmentObject`, которое на Windows читает имена, как Windows. Тесты —
+`settings.test.mjs` с `platform: "win32"`. Живой Windows в песочнице нет: замер — моделью, как и «до».
+
+**Замер после** (`b2170c4`, та же проба):
+
+```
+daemonEnvironment copy: Bge_M3_Onnx_Dir=set-by-hand; marker undefined
+the build the spawned daemon computes: BGE_M3_ONNX_DIR set-by-hand -> same build
+control tools' model folder (sessionEnvironment): set-by-hand — the client's own variable says set-by-hand
+```
+
 ---
 
 ## Д-233. Мелочи второго ревью фазы 9
 
-**Статус:** открыт. Нашло второе независимое ревью фазы 9 (nit). Замеры — `544ee3f`, `review9c/p3-settings.mjs`,
-`p7-stop.mjs`, `p11-misc.mjs`.
+**Статус:** закрыт фазой 9 (`b2170c4`), 2026-10-12. Нашло второе независимое ревью фазы 9 (nit). Замеры — `544ee3f`,
+`review9c/p3-settings.mjs`, `p7-stop.mjs`, `p11-misc.mjs`.
 
 1. SECURITY.md: «a whole number of minutes» — проверка принимает и 2.5, и 1.0001
    (`daemon_idle_minutes=1.0001: changed; AI_DEV_IDLE_TIMEOUT_MS -> 60006`).
@@ -6706,6 +6931,26 @@ control tools' model folder (sessionEnvironment): from-settings — the client's
 версия файла и проблема «новее»; 8 — `note` из `applies`; 9 — список запоминает отпечаток значения, и изменённое руками
 — уже человека; 10 — `cancelled` убран из ответа, `succeeded` описан как есть; 11 — абзац переставлен.
 
+**Как закрыто.** Так и сделано; 5 — `idleTimeoutMs` переехал в `src/core/daemon-idle.mjs`, и его читают и демон, и
+настройки; 9 — запись без отпечатка тоже считается человеческой: она ничего не говорит о значении. Тесты —
+`settings.test.mjs`, `log-tail.test.mjs`, `first-run-steps.test.mjs`, `daemon-idle.test.mjs`.
+
+**Замер после** (`b2170c4`, те же пробы):
+
+```
+2. dangling-link: config.json is link -> …/dotfiles/ai-dev.json; dotfiles file: { "schema_version": 1, "language": "ru" } mode 600
+   dangling-link-no-dir: REFUSED ENOENT … realpath …; config.json is link (ссылка не заменена файлом)
+3. logs_tail of a hard link to a file outside the logs folder: REFUSED hard.log is a link: only the logs folder's own files are read.
+4. skill_quality_report: failed error="ENOSPC: no space left on device, write"; 1 built, 5 skipped, 1 failed; firstRunSucceeded: false
+   ai-dev setup + Ctrl-C: · Search index (0.5s): stopped: The rebuild was cancelled; …; 2 built, 5 skipped, 0 failed
+5. AI_DEV_IDLE_TIMEOUT_MS=abc: settings_get says 30 min; the daemon uses 1800000 ms
+   AI_DEV_IDLE_TIMEOUT_MS=-60000: settings_get says 0 min; the daemon uses 0 ms
+6. stored profiles "core,control": in force "core" (file); problems [… core is kept.]; AI_DEV_PROFILES set for clients: "core"
+7. a file of schema 2: settings_get says schema_version 2
+9. a shell that inherited the marker, mirror typed by hand: daemonEnvironment -> https://typed-by-hand.example
+   the list as written (AI_DEV_MODEL_MIRROR:d641989a), mirror typed by hand since: daemonEnvironment -> https://typed-by-hand.example
+```
+
 ---
 
 ## Д-234. `ai-dev daemon stop` называет «всё ещё работающим» демон, который вышел, но не прибран родителем
@@ -6730,6 +6975,338 @@ async: Stopped: pid 11365, 0 session(s) ended with it.; that pid now: gone
 
 **Как закроется.** Процесс в состоянии `Z` (`/proc/<pid>/stat` на Linux) считается вышедшим; где такого признака нет,
 сообщение говорит, что процесс ещё не прибран, а не что он работает.
+
+---
+
+## Д-235. Мелочи восьмого ревью фазы 8
+
+**Статус:** закрыт фазой 8 (`ffbeb03`), 2026-10-12. Нашло восьмое независимое ревью фазы 8 (одна should-fix, остальное — nit) в правках Д-224 … Д-227.
+
+1. **Правку Д-225 не ловит ни один тест.** Тест демона «Д-225» проходит и на коде до правки (`eb4bfa9`), а мутант, который
+   глотает отказ `chmod` и отвечает «tightened», не взглянув на режим ещё раз, проходит и `runtime-paths.test.mjs`, и тест
+   демона. Ветки журнала «open» и «left» не проверены тоже.
+2. **Замок теряет сделанную папку** (`createLock`, `src/core/file-lock.mjs`), когда после его `mkdir` файл замка успевает
+   создать другой процесс: попытка возвращает null, и демон о папке не знает — после его ухода она остаётся. Окно —
+   микросекунды, и такой замок делает только `stop`.
+3. **`fs.mkdir` называет первую сделанную папку, а не самую верхнюю,** когда её одновременно удаляют: из 4 705 вызовов под
+   удалением 50 назвали путь ниже той папки, которую сделали; та остаётся пустой.
+4. **Журнал говорит «open» о любой ошибке проверки** (`src/daemon.mjs`): `fstat` с EIO даёт «is open to other users and
+   stays so: EIO…», хотя `run/` — 0700.
+5. **Отказ чужой папке 0700 потерял причину:** было «belongs to uid 1000, not to this user (0)», стало «EACCES:
+   permission denied, open …». Папка по-прежнему отвергается.
+6. **Устаревшая запомненная папка** уводит с собой пустые папки, которые сделал другой демон, — только пустые и только на
+   пути `run/`.
+7. **CHANGELOG, шестая запись:** «`stop`'s lock makes `run/` private» — неверно с `418d05f`; седьмая запись говорит
+   обратное.
+8. **Два места без тестов:** прежний цикл уборки вместо `foldersUpTo` проходит все тесты на Linux, где `toNamespacedPath`
+   ничего не меняет, а на Windows тесты уборки пропущены; без `toNamespacedPath(top)` в `foldersUpTo` проходят тоже —
+   тесты передают `top` уже приведённым.
+9. **Комментарий `FOLDER_FLAGS`** обещает открывать папку «никогда не по ссылке», а на Windows обоих флагов нет (там эти
+   функции папку и не открывают).
+10. **SECURITY.md** — строка в 154 символа.
+
+**Чем грозит.** Пп. 1 и 8: возврат Д-225 или половины Д-224 не поймает ни один тест. Остальное — неточные сообщения и
+пустые папки в редком окне.
+
+**Замер до** (`3363a68`; мутанты — `p8i/`, пробы ревью — `review8h/out/`):
+
+```
+мутант «chmod проглочен, второго взгляда нет»: runtime-paths.test.mjs # pass 12 # fail 0; daemon.test.mjs (Д-225) # pass 1 # fail 0
+мутант «toNamespacedPath(top) убран»:         runtime-paths.test.mjs # pass 12 # fail 0
+h4b: competitor lock written after the lock's mkdir made <home> → daemon gone (true); left: home 700 [run/(700)]
+h5:  {"calls":4705,…"anomalies":50}, first anomaly: answer P/H, P inode 6112 -> 6126
+h11: run/ before start 700 … run/ now 700; log: <home>/run is open to other users and stays so: EIO: i/o error, fstat
+h6:  ai-dev-0-theirs-0700 (uid 1000, 700): prepareSocketDirectory refused: EACCES: permission denied, open '<base>/ai-dev-0-theirs-0700'
+```
+
+**Как закроется.** 1 — тест `tightenFolder` с `chmod`, который ничего не меняет, и с отказанным (`open` с причиной), и
+тест демона с таким `chmod` — по строке журнала; 2 — замок помнит сделанную папку через все попытки и отдаёт её и тогда,
+когда замок не взят; 3 — остаётся: окно — удаление папки, которую `mkdir` только что сделал; 4 — ошибка проверки —
+«left» с причиной; 5 — к отказу `open` (EACCES, EPERM) добавляется владелец по `lstat`; 6 — остаётся, безвредно; 7 —
+текст; 8 — тест `foldersUpTo` с неприведённым `top` на `path.win32`; цикл демона на Linux равносилен функции — о
+Windows-половине сказано в Д-224; 9 — комментарий; 10 — перенос строки.
+
+**Как закрыто.** Так и сделано, по пунктам:
+
+1. `runtime-paths.test.mjs` подменяет `chmod` дескриптора пустым и отказом EPERM: `tightenFolder` отвечает «open» с
+   причиной — «its file system keeps the mode it has», «its mode cannot be changed (EPERM)». Тест демона
+   (`test/fixtures/run-folder-faults.mjs`) запускает его дважды: с пустым `chmod` — по строке журнала «is open to
+   other users and stays so: its file system keeps the mode it has», `run/` остаётся 0755; с отказом первого
+   взгляда — по строке «its mode is left as it is, it cannot be checked (EIO)».
+2. `tryAcquireFileLock` (`src/core/file-lock.mjs`) получает от каждой попытки сделанную папку сразу после `mkdir` и
+   отдаёт самую верхнюю — и с замком, и без него (`{ observed, madeFolder }`). Тест: файл замка пишет «другой
+   процесс» между `mkdir` и `open` — живой (замок не взят) и мёртвый (замок взят следующей попыткой).
+3. Остаётся, как записано.
+4. Ошибка проверки — «left» с причиной «it cannot be checked (EIO)». Если взгляд откажет уже после удачного `chmod`,
+   журнал скажет то же, хотя режим, скорее всего, уже 0700, — сбой `fstat` по открытому дескриптору сразу после
+   удачного `fchmod` по нему же; ради него отдельной ветки нет.
+5. Отказ `open` с EACCES или EPERM смотрит владельца по `lstat`: чужая папка снова отвергается «belongs to uid 1000,
+   not to this user (0)», а `tightenFolder` отвечает «it belongs to uid 1000». Своя папка, которая не открылась, —
+   прежний отказ. Тест подменяет `open` отказом EACCES и смотрит обе стороны.
+6. Остаётся, как записано.
+7. Шестая запись CHANGELOG больше не говорит о замке `stop`; восьмая говорит, что сделано здесь.
+8. Тест `foldersUpTo` с `top`, написанным без `\\?\`, на `path.win32`.
+9. Комментарий `FOLDER_FLAGS` говорит, что на Windows флагов нет и папку там ничто не открывает.
+10. Строка перенесена.
+
+**Замер после** (`ffbeb03`; мутанты — `p8m/after.txt`, каждый против новых тестов; пробы ревью — те же, на коде правки):
+
+```
+tighten-no-recheck       runtime-paths.test.mjs # pass 13 # fail 1; daemon.test.mjs (Д-235) # pass 0 # fail 1
+no-open-log              daemon.test.mjs (Д-235) # pass 0 # fail 1
+no-left-log              daemon.test.mjs (Д-235) # pass 0 # fail 1
+check-error-open         daemon.test.mjs (Д-235) # pass 0 # fail 1
+no-namespace             runtime-paths.test.mjs # pass 13 # fail 1
+lock-not-taken-forgets   file-lock.test.mjs # pass 29 # fail 1
+lock-per-try             file-lock.test.mjs # pass 29 # fail 1
+no-owner                 runtime-paths.test.mjs # pass 13 # fail 1
+новые тесты на коде до правки (3363a68): file-lock + runtime-paths # pass 42 # fail 2 (замок, владелец); daemon.test.mjs (Д-235) # pass 0 # fail 1 («cannot be checked (EIO)»)
+h4b: competitor lock written after the lock's mkdir made <home> → daemon gone (true); left: home (ENOENT)
+h11: run/ before start 700 … run/ now 700; log: <home>/run: its mode is left as it is, it cannot be checked (EIO)
+h6:  ai-dev-0-theirs-0700 (uid 1000, 700): prepareSocketDirectory refused: <base>/ai-dev-0-theirs-0700 belongs to uid 1000, not to this user (0).; tightenFolder {"state":"left","why":"it belongs to uid 1000"}
+h6:  ai-dev-0-theirs-0711 (uid 1000, 711): … belongs to uid 1000, not to this user (0).; tightenFolder {"state":"left","why":"it belongs to uid 1000"}
+```
+
+---
+
+## Д-236. Индекс 2.x настроенного хранилища теряется при клоне в ту же папку
+
+**Статус:** закрыт фазой 9 (`4cef33a`), 2026-10-12. Нашло третье независимое ревью фазы 9 (should-fix) в правке Д-229.
+
+`indexOrigin` (`src/core/search-index-owner.mjs`) решает по выборке до 200 заметок индекса 2.x: «this», если не меньше
+половины их нетронуты, или если все они здесь с тем же содержимым — это правило Д-229 и должно было вернуть индекс
+хранилищу, склонированному заново в ту же папку. Но в настроенном хранилище большая часть выборки — заметки, которые
+пишет сам сервер: карточки навыков (`03-skills-catalog/cards`), заметки групп (`groups`), карточки проектов и сводки.
+Их нет в git, и каждая генерация пишет их заново с новым `generated_at`: после клона их нет, после `setup` они другие —
+«все с тем же содержимым» не выполняется никогда. Тест Д-229 и замер «после» (p13) брали хранилища без таких заметок.
+
+**Чем грозит.** «Удалить и склонировать заново» — обычная переустановка, и после неё настроенное хранилище теряет индекс
+2.x с векторами: dense-поиск пуст до `setup --dense` (а для него нужна модель), старый файл лежит рядом ничей.
+
+**Замер до** (`b2170c4`; `review9d/d8-setup-vault.mjs` — хранилище seed, настроенное кодом 2.x: карточки навыков, две
+карточки проектов, индекс с векторами синтетической модели; `d8b-reclone-e2e.mjs` — от начала до конца):
+
+```
+2.x-era code, a set-up vault: 826 documents, 366 with vectors; index true
+the owner as it is                                    : p9rb this    p9pre this
+every note rewritten, same bytes                      : p9rb this    p9pre another
+cloned again into the same folder                     : p9rb another p9pre another
+  + project cards put back                            : p9rb another p9pre another
+  + skill cards generated again by setup              : p9rb another p9pre another
+a release unpacked over the folder                    : p9rb this    p9pre this
+d8b: re-cloned set-up owner, first start: ai-dev-search-a30e8831653d.sqlite, exists false, 0 documents, 0 with vectors
+     the 2.x-era file left beside it: 366 vectors, claim false
+```
+
+**Как закроется.** Заметки, которые пишет в хранилище сам сервер, в выборку не входят: карточки навыков и заметки
+групп, карточки проектов, сводки. Их нет в git, и каждая генерация пишет их заново, так что они не говорят, чьё это
+хранилище. Список этих мест — один на весь код: его же держит `verify-public-seed.mjs`, для которого это не дрейф seed.
+Хранилище, где кроме seed ничего нет, от другой копии seed тогда не отличить — это оговорка Д-229 о копии всего
+хранилища: индекс берёт тот, кто стартует первым, и для его заметок он верен. Тест — на хранилище с карточками; замер —
+те же пробы.
+
+**Как закрыто.** Так и сделано: места, куда пишет сам сервер, — `src/core/generated-vault-files.mjs` (папки
+`03-skills-catalog/registries`, `cards`, `groups`, `02-knowledge/Projects` и сводки), и тот же список берёт
+`verify-public-seed.mjs`. `indexOrigin` выбирает до 200 заметок индекса среди остальных — без учёта регистра, как
+файловая система, которая его не различает. Тест (`search-index-owner.test.mjs`) — хранилище с 60 карточками, 10
+заметками групп, карточкой проекта и сводками рядом с 22 заметками seed и своими: клон в ту же папку и новая генерация
+оставляют ему индекс, копия seed его не берёт; на коде до правки он падает.
+
+**Замер после** (`4cef33a`, те же пробы; p9rb — код правки, p9pre — `544ee3f`):
+
+```
+2.x-era code, a set-up vault: 826 documents, 366 with vectors; index true
+the owner as it is                                    : p9rb this    p9pre this
+every note rewritten, same bytes                      : p9rb this    p9pre another
+cloned again into the same folder                     : p9rb this    p9pre another
+  + project cards put back                            : p9rb this    p9pre another
+  + skill cards generated again by setup              : p9rb this    p9pre another
+a release unpacked over the folder                    : p9rb this    p9pre this
+d8b: re-cloned set-up owner, first start: ai-dev-search.sqlite, exists true, 826 documents, 366 with vectors
+     the 2.x-era file left beside it: 366 vectors, claim true
+```
+
+---
+
+## Д-237. Новая папка модели не видна в сессии, которая её сменила, а `settings_get` называет её действующей
+
+**Статус:** закрыт фазой 9 (`4cef33a`), 2026-10-12. Нашло третье независимое ревью фазы 9 (should-fix) в правке Д-228.
+
+После `settings_set model_dir` в той же сессии `settings_get` отвечает новой папкой с источником «file», как будто она
+уже действует, а `system_status` и `model_install` работают со старой: папка модели — новой сессии (Д-228), и сессия
+держит ту, с которой начала. Интерфейс, который поверит `settings_get`, скачает 600 МБ в папку, которую человек только
+что сменил. INSTALL.md (EN и RU) пишет, что «приложение переподключается», — в коде этого нет ни на сервере, ни в
+наработке приложения.
+
+**Чем грозит.** Ответы одной сессии расходятся: настройка говорит одно, инструменты делают другое; загрузка модели идёт не
+туда, куда её направил человек.
+
+**Замер до** (`b2170c4`; настоящий демон, сессии приложения через `DaemonClientTransport`; `p9c/sf2-install.mjs` и
+`review9d/d2-applies.mjs`):
+
+```
+sf2-install (p9c/sf2-install.mjs, своя проба — сессия меняет папку и ставит модель):
+settings_get model_dir: models-chosen (source file); pending null
+system_status model.dir: home/.ai-dev/models/bge-m3-onnx (was home/.ai-dev/models/bge-m3-onnx)
+model_install in the same session: ready true, dir home/.ai-dev/models/bge-m3-onnx
+on disk: home/.ai-dev/models/bge-m3-onnx 1 onnx; models-chosen 0 onnx
+d2:
+start: app1 pid 28091, app2 pid 28091; agent1 lists 135 tools; daemons: pid 28091 idle 1800000 ms sessions 3
+settings_set model_dir=models-chosen: applies {"model_dir":"new_session"}; note: Saved. model_dir: used by sessions started from now on — this one keeps what it started with until it reconnects. A v
+app1 after: system_status model.dir home/.ai-dev/models/bge-m3-onnx (was home/.ai-dev/models/bge-m3-onnx); settings_get model_dir models-chosen from file
+```
+
+**Как закроется.** `settings_get` отвечает тем, что действует в этой сессии: значение, с которым она начала, а рядом —
+`pending`: что файл задаёт сессиям, начатым после, и когда это вступит в силу. `model_install` и `model_import` не кладут
+модель в папку, которую сессия оставляет: отказ называет обе папки и говорит переподключиться. INSTALL.md говорит о
+том, что делает сервер; переподключиться после такой настройки — дело клиента (приложение фаз 10 и 11 делает это
+само).
+
+**Как закрыто.** Так и сделано. `readSettings` (`src/core/settings.mjs`) отвечает тем, что действует там, чьё это
+окружение, — у процесса или у сессии демона: настройка, которая не действует сразу, — то значение, что окружение получило
+при старте (или значение по умолчанию, если файл тогда его не задавал), а то, что файл говорит с тех пор, — в `pending`,
+источник — «file, as this session started» или «default, as this session started». Зеркало действует сразу и в
+`pending` не попадает никогда; значение, заданное руками, — тоже. `settings_get` и `settings_set` отдают `pending`, контракт
+его описывает. `model_install`, `model_import` и `setup_run` с моделью отказывают, пока папка модели в `pending`, и
+называют обе папки. INSTALL.md (EN и RU) говорит о `pending` и об отказе, а переподключение — дело клиента. Тесты —
+`settings.test.mjs` и `control.test.mjs`; на коде до правки падают.
+
+**Замер после** (`4cef33a`, те же пробы):
+
+```
+sf2-install:
+settings_get model_dir:  (source default, as this session started); pending {"model_dir":"<S>/p9c/w/sf2-after/models-chosen"}
+system_status model.dir: home/.ai-dev/models/bge-m3-onnx (was home/.ai-dev/models/bge-m3-onnx)
+model_install in the same session: refused: The model folder was changed to <root>/models-chosen; this session still uses <root>/home/.ai-dev/models/bge-m3-onnx, the one its daemon's search loaded. Reconnect — a session started now uses the new folder — and put the model there.
+on disk: home/.ai-dev/models/bge-m3-onnx 0 onnx; models-chosen 0 onnx
+d2:
+app1 after: system_status model.dir home/.ai-dev/models/bge-m3-onnx (was home/.ai-dev/models/bge-m3-onnx); settings_get model_dir "" from default, as this session started
+app3 (started after): pid 10126, model.dir models-chosen, served_by 10126
+app3 setup_run model:true: succeeded true; search_index done 2 document(s) indexed | dense_model done ai-dev/synthetic-bge-m3 @ ebee84ef9681 (int8) in /tmp/claude-0/-home-user-ai-dev-system/bb… | de
+on disk: models-chosen 1 onnx
+```
+
+---
+
+## Д-238. Мелочи третьего ревью фазы 9
+
+**Статус:** закрыт фазой 9 (`4cef33a`), 2026-10-12, кроме п. 5 (оставлен, причина ниже) и п. 9 (пределы, записаны).
+Нашло третье независимое ревью фазы 9 (nit) в правках Д-228 … Д-233 и рядом с ними.
+
+1. **Запись через ссылку** (`writeTarget`, `src/core/settings.mjs`): относительная висячая ссылка разрешается по
+   написанию пути, а не по настоящей папке ссылки — когда сам `~/.ai-dev` ссылка, файл ложится не туда; ссылка в
+   несуществующую папку даёт голый `ENOENT … realpath` — `settings_set` не работает вовсе; цепочка «ссылка → ссылка →
+   нет файла» пишет поверх средней ссылки.
+2. **`logs_tail`** (`src/core/log-tail.mjs`): на Windows нет `O_NOFOLLOW`, и ссылка, подставленная после `lstat`,
+   читается, а SECURITY.md обещает защиту без оговорки; папка с именем журнала отвергается словами «is a link»; FIFO
+   с именем журнала вешает вызов навсегда.
+3. **`schema_version`** читается и пишется по-разному: у файла с 1.5 или 1e400 `settings_get` видит схему 1 без
+   замечаний, а `settings_set` отказывает как файлу новой версии.
+4. **Ctrl-C в терминале во время проверки браузера Frontend QA** (`setup-runner.mjs`): проверка не знает об отмене,
+   и остановка записывается как сбой шага.
+5. **Коммит записей `a5c109a`** («docs») унёс переименование `src/daemon.test.mjs` → `src/core/daemon-idle.test.mjs`,
+   а импорт поправлен только в следующем: на нём тест не импортируется — сломанная точка для bisect.
+6. **SECURITY.md** пишет «from 1 to 10080», а 0 тоже допустим.
+7. **Два написания одного имени на win32, ни одно не прописное:** `environmentKey`, `environmentObject` и
+   `daemonIdentity` берут первое по порядку вставки, а `spawn` Node — первое по сортировке.
+8. **`DaemonClientTransport`** (`src/core/daemon-transport.mjs`) берёт профили по умолчанию из данного ему окружения, а
+   не из настроек: после `profiles=core` программа на нём видит 135 инструментов, `ai-dev mcp` — 25.
+9. **Пределы, которые остаются:** хранилище только из seed не отличить от копии seed (оговорка Д-229); значение,
+   набранное руками и равное тому, что положил файл, считается значением файла; список без отпечатков (его писали только
+   промежуточные сборки фазы 9, ни одна не выпущена) держит старое значение до нового терминала.
+10. **Д-228 … Д-233 открыты** — они закрываются вместе с фазой, с замерами «после»; это не дефект.
+
+**Чем грозит.** Пп. 1–3: настройки пишутся не туда или не пишутся; журнал может читать не тот файл или зависнуть.
+П. 4: неверный итог `setup`. П. 7: на Windows в редком случае демон считает одну папку, а процессы получают другую.
+П. 8: программа на транспорте видит не те инструменты, что клиент.
+
+**Замер до** (`b2170c4`; `review9d/d1-settings.mjs`, `d10-logtail.mjs`, `d2-applies.mjs`; п. 4 — своя проба):
+
+```
+п. 1, 3, 7 — d1:
+upper + mixed: Bge_M3_Onnx_Dir=C:\mixed BGE_M3_ONNX_DIR=C:\upper; daemonIdentity c:/mixed
+file schema_version 1.5: settings_get schema_version 1, problems 0; settings_set: REFUSED <S>/review9d/w/d1/h12/.ai-dev/config.…
+file schema_version 1e400: settings_get schema_version 1, problems 0; settings_set: REFUSED <S>/review9d/w/d1/h16/.ai-dev/config.…
+dangling relative link        : changed ["language"]; config.json link -> ../dotfiles/ai-dev.json; dotfiles/ai-dev.json: { "schema_version": 1, "language": "ru" }; read back language "ru"
+chain: link -> link -> missing: changed ["language"]; config.json link -> <S>/review9d/w/d1/h20/dotfiles/middle.json; dotfiles/middle.json: { "schema_version": 1, "language": "ru" }; dotfiles/real.json: absent; read back language 
+link to a missing folder      : REFUSED ENOENT: no such file or directory, realpath '<S>/review9d/w/d1/h21/not-mounte…; config.json link -> <S>/review9d/w/d1/h21/not-mounted/ai-dev.json; not-mounted/ai-dev.json: absent; read bac
+relative link, home under a link: changed ["language"]; config.json link -> ../dotfiles/ai-dev.json; data/dotfiles/ai-dev.json: absent; dotfiles/ai-dev.json: { "schema_version": 1, "language": "ru" }; read back language ""
+п. 2 — d10:
+own log, as on Linux: ["one","two"]
+own log, no O_NOFOLLOW (Windows constants): ["one","two"]
+symbolic link, no O_NOFOLLOW: REFUSED  sym.log is a link: only the logs folder's own files are read.
+link swapped in after lstat, Linux: REFUSED  swap-linux.log is a link: only the logs folder's own files are read.
+link swapped in after lstat, Windows constants: ["TOP SECRET LINE"]
+a directory named folder.log: REFUSED  folder.log is a link: only the logs folder's own files are read.
+a FIFO named pipe.log: HUNG (no answer in 3 s)
+п. 4 — p9c/qa-stop.sh (своя проба: заглушка раннера отвечает через 20 с, SIGINT всей группе процессов, как Ctrl-C):
+runner pid 28521; SIGINT to process group 28451
+setup exit 130
+→ Frontend QA dependencies: Playwright from the runner's lockfile and the Chromium build it wants. Needs the network.
+✗ Frontend QA dependencies (1.1s): The Frontend QA runner did not start. exit code null
+1 built, 5 skipped, 1 failed.
+Stopped with Ctrl-C. What was done is kept; run setup again to continue from there.
+п. 5 — git archive a5c109a, node --test src/core/daemon-idle.test.mjs:
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find module '…/src/core/daemon.mjs' imported from …/src/core/daemon-idle.test.mjs
+п. 8 — d2:
+a program on DaemonClientTransport without profiles, started after: lists 135 tools
+```
+
+**Как закроется.** 1 — относительная ссылка разрешается от настоящей папки ссылки, цепочка — до конца, ссылка в
+несуществующую папку — отказ, который называет ссылку и папку; 2 — после открытия файл сверяется с тем, что видел
+`lstat` (устройство и inode, на Windows тоже), сообщения — по виду файла, открытие — с `O_NONBLOCK`; 3 — одно чтение
+схемы: версия — целое от 1, всё остальное — замечание, и запись заменяет его на 1; 4 — проверка браузера и команды
+установки получают сигнал отмены: остановка — остановка; 5 — остаётся: история уже в резервной ветке, переписать её —
+force-push, `git bisect skip a5c109a`; 6 — текст; 7 — первое по сортировке, как у `spawn`; 8 — профили по умолчанию
+берутся после того, как настройки применены, как у `ai-dev mcp`; 9 — остаются, записаны; 10 — закрываются фазой.
+
+**Как закрыто.**
+
+1. `writeTarget`: ссылка читается от настоящей папки, в которой лежит, цепочка — до конца (не больше 40 звеньев, как в
+   Linux); ссылка в папку, которой нет, — отказ с именем ссылки и папки, и ссылка остаётся.
+2. `tailLines` смотрит `lstat` и после открытия сверяет устройство и inode открытого с увиденным — на Windows, где нет
+   `O_NOFOLLOW`, это и отвергает подставленную ссылку; открывает с `O_NONBLOCK`; отказ называет, что это: ссылка,
+   папка, не обычный файл, второе имя (жёсткая ссылка) или файл, подменённый при открытии. SECURITY.md говорит, где
+   какая защита.
+3. `declaredSchema`: версия — целое от 1; иное — замечание «which is no version», чтение как 1, запись заменяет на 1.
+4. `frontendQaStatus` и команды установки получают сигнал: остановка — «stopped», не сбой; на Ctrl-C в терминале — тоже.
+5. Остаётся: история уже в резервной ветке, а переписать её — force-push, на который у этой сессии нет разрешения;
+   `git bisect skip a5c109a`.
+6. Текст SECURITY.md: «1 to 10080, or 0».
+7. `environmentKey`, `environmentObject`, `daemonWideEnvironment` — из двух написаний то, что первым идёт по сортировке,
+   как у `spawn` Node (`lib/child_process.js`, проверено по исходнику в бинарнике этой песочницы).
+8. `DaemonClientTransport` без `profiles` берёт их у `connectDaemon` после применения настроек.
+9. Остаются, как записано.
+10. Закрываются фазой.
+
+Тесты — `settings.test.mjs`, `log-tail.test.mjs`, `session-env.test.mjs`, `setup-runner.test.mjs` (новый),
+`control.test.mjs`; на коде до правки падают.
+
+**Замер после** (`4cef33a`, те же пробы):
+
+```
+п. 1, 3, 7 — d1:
+order bge_m3_onnx_dir,Bge_M3_Onnx_Dir: after apply bge_m3_onnx_dir=C:\first-bge_m3_onnx_dir Bge_M3_Onnx_Dir=C:\second-Bge_M3_Onnx_Dir; spawn on Windows passes Bge_M3_Onnx_Dir=C:\second-Bge_M3_Onnx_Dir; daemonIdentity says c:/secon
+order Bge_M3_Onnx_Dir,bge_m3_onnx_dir: after apply Bge_M3_Onnx_Dir=C:\first-Bge_M3_Onnx_Dir bge_m3_onnx_dir=C:\second-bge_m3_onnx_dir; spawn on Windows passes Bge_M3_Onnx_Dir=C:\first-Bge_M3_Onnx_Dir; daemonIdentity says c:/first-
+upper + mixed: Bge_M3_Onnx_Dir=C:\mixed BGE_M3_ONNX_DIR=C:\upper; daemonIdentity c:/upper
+file schema_version 1.5: settings_get schema_version 1, problems 1; settings_set: changed ["language"]
+file schema_version 1e400: settings_get schema_version 1, problems 1; settings_set: changed ["language"]
+dangling relative link        : changed ["language"]; config.json link -> ../dotfiles/ai-dev.json; dotfiles/ai-dev.json: { "schema_version": 1, "language": "ru" }; read back language "ru"
+chain: link -> link -> missing: changed ["language"]; config.json link -> <S>/review9d/w/d1/h20/dotfiles/middle.json; dotfiles/middle.json: link; dotfiles/real.json: { "schema_version": 1, "language": "ru" }; read back language "r
+link to a missing folder      : REFUSED <S>/review9d/w/d1/h21/.ai-dev/config.json is a link to /tmp/claude-0/-home-us…; config.json link -> <S>/review9d/w/d1/h21/not-mounted/ai-dev.json; not-mounted/ai-dev.json: absent; read bac
+relative link, home under a link: changed ["language"]; config.json link -> ../dotfiles/ai-dev.json; data/dotfiles/ai-dev.json: { "schema_version": 1, "language": "ru" }; dotfiles/ai-dev.json: absent; read back language "ru"
+п. 2 — d10:
+own log, no O_NOFOLLOW (Windows constants): ["one","two"]
+link swapped in after lstat, Windows constants: REFUSED  swap-win.log was replaced while it was opened: only the logs folder's own files are read.
+a directory named folder.log: REFUSED  folder.log is a folder: only the logs folder's own files are read.
+a FIFO named pipe.log: REFUSED  pipe.log is not a plain file (a FIFO, a socket or a device): only the logs folder's own files are read.
+п. 4 — qa-stop.sh:
+· Frontend QA dependencies (1.1s): stopped: This operation was aborted
+1 built, 6 skipped, 0 failed.
+Stopped with Ctrl-C. What was done is kept; run setup again to continue from there.
+п. 8 — d2:
+a program on DaemonClientTransport without profiles, started after: lists 25 tools
+```
 
 ---
 

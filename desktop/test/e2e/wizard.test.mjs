@@ -90,6 +90,11 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   assert.match(result, /, 0 failed$/, result);
   assert.equal(await page.getAttribute('[data-step="dense_index"]', "data-status"), "done");
   await shot(page, "wizard-6-index");
+  // Left and come back to, the step still shows the build's outcome (Д-249).
+  await page.click('[data-nav="status"]');
+  await page.waitForSelector('[data-screen="status"]');
+  await page.click('[data-nav="wizard"]');
+  assert.equal(await page.textContent('[data-step="index"] [data-field="index-result"]'), result);
   await page.click('[data-action="next"]');
 
   // 5. Done, and on to Status.

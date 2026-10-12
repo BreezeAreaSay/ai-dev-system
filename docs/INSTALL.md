@@ -118,9 +118,12 @@ for a socket puts it in `$XDG_RUNTIME_DIR/ai-dev` or `/tmp/ai-dev-<uid>` instead
 changes: the capability profiles (`AI_DEV_PROFILES`), the model mirror (`AI_DEV_MODEL_MIRROR`), the
 model's folder (`BGE_M3_ONNX_DIR`), the daemon's idle time (`AI_DEV_IDLE_TIMEOUT_MS`, in minutes
 there), the projects folder, autostart and the interface's language. Every `ai-dev` command started
-afterwards — and so every client `clients install` connected — reads it, and a variable set in the
-environment still wins. A value is checked before it is stored; one that is no longer valid is
-reported by `settings_get` and not used. The tools an app drives the install with — its status,
+afterwards — and so every client `clients install` connected, and the desktop app's connection to
+the daemon — reads it, and a variable set in the environment still wins; a mirror or a model folder
+changed with `settings_set` counts from the next model command on, in the same session too. A value
+is checked before it is stored; one that is no longer valid is reported by `settings_get` and not
+used. The profiles are what every agent client without its own `AI_DEV_PROFILES` gets, so they
+cannot include the opt-in `control`. The tools an app drives the install with — its status,
 setup, the model, the clients, logs, settings — are the opt-in `control` profile:
 [CONTROL-API.md](../ai-dev-mcp-server/docs/CONTROL-API.md).
 

@@ -26,10 +26,11 @@ test("a change is checked, stored with mode 0600, and a null puts the default ba
   assert.deepEqual(result.changed.sort(), ["daemon_idle_minutes", "language", "model_mirror", "profiles"]);
   assert.equal(result.settings.model_mirror, "https://hf-mirror.com");
   assert.equal(result.settings.profiles, "core,git", "in the profiles' own order");
-  // `all` alone is no setting at all; beside the opt-in control it stays.
-  assert.equal((await writeSettings({ profiles: "control, all" }, { env })).settings.profiles, "all,control");
+  // `all` alone is no setting at all; the desktop app's opt-in profile is not
+  // put into what every agent client gets (Д-223).
   assert.equal((await writeSettings({ profiles: "all" }, { env })).settings.profiles, "");
-  assert.equal((await writeSettings({ profiles: "control" }, { env })).settings.profiles, "core,control");
+  await assert.rejects(writeSettings({ profiles: "control, all" }, { env }), /profiles cannot name control/);
+  await assert.rejects(writeSettings({ profiles: "control" }, { env }), /AI_DEV_PROFILES=control itself/);
   await writeSettings({ profiles: "git,core" }, { env });
   assert.equal(result.settings.language, "ru");
   const stored = JSON.parse(await fs.readFile(settingsPath(env), "utf8"));
@@ -53,6 +54,14 @@ test("a wrong value is refused with what is wrong, and nothing of the change is 
     [{ model_dir: "relative/models" }, /model_dir must be an absolute path/],
     [{ daemon_idle_minutes: -1 }, /daemon_idle_minutes must be a number of minutes/],
     [{ daemon_idle_minutes: "abc" }, /daemon_idle_minutes must be a number/],
+    // Not numbers, whatever they convert to, and not a fraction of a minute (Д-221).
+    [{ daemon_idle_minutes: "" }, /daemon_idle_minutes must be a number/],
+    [{ daemon_idle_minutes: "5" }, /daemon_idle_minutes must be a number/],
+    [{ daemon_idle_minutes: true }, /daemon_idle_minutes must be a number/],
+    [{ daemon_idle_minutes: [7] }, /daemon_idle_minutes must be a number/],
+    [{ daemon_idle_minutes: 0.0001 }, /from 1 to 10080/],
+    [{ daemon_idle_minutes: 10081 }, /from 1 to 10080/],
+    [{ model_dir: `${path.resolve("/models")}\u0000evil` }, /must not hold a NUL character/],
     [{ daemon_autostart: "yes" }, /daemon_autostart must be true or false/],
     [{ language: "de" }, /language must be ru, en or empty/],
     [{ colour: "blue" }, /There is no setting "colour"/],
@@ -99,4 +108,38 @@ test("the file sets the variables the environment leaves unset, and never one se
   const broken = { ...env };
   await fs.writeFile(settingsPath(env), "{");
   assert.deepEqual(applySettingsToEnvironment(broken), [], "a broken file leaves a starting process as it is");
+});
+
+test("the file is replaced whole through a link to it, and one a newer version wrote is left alone (Д-222, Д-223)", async (t) => {
+  const env = await home(t);
+  // Settings kept in a dotfiles repository, linked into the AI Dev home.
+  const dotfiles = path.join(env.AI_DEV_HOME, "dotfiles");
+  await fs.mkdir(dotfiles);
+  const real = path.join(dotfiles, "ai-dev.json");
+  await fs.writeFile(real, JSON.stringify({ schema_version: 1, language: "en", trusted_projects: ["/work/a"] }));
+  try {
+    await fs.symlink(real, settingsPath(env));
+  } catch (error) {
+    if (process.platform === "win32") return t.skip(`no symbolic links here: ${error.code}`);
+    throw error;
+  }
+  await writeSettings({ language: "ru" }, { env });
+  assert.equal((await fs.lstat(settingsPath(env))).isSymbolicLink(), true, "the link stays");
+  const written = JSON.parse(await fs.readFile(real, "utf8"));
+  assert.deepEqual([written.language, written.trusted_projects], ["ru", ["/work/a"]], "the linked file holds the change and keeps what it had");
+  if (process.platform !== "win32") assert.equal((await fs.stat(real)).mode & 0o777, 0o600);
+  assert.deepEqual((await fs.readdir(dotfiles)).sort(), ["ai-dev.json"], "no temporary file is left");
+
+  const newer = JSON.stringify({ schema_version: 2, language: "en", future: { kept: true } });
+  await fs.writeFile(real, newer);
+  await assert.rejects(writeSettings({ language: "ru" }, { env }), /written by a newer AI Dev \(settings schema 2/);
+  assert.equal(await fs.readFile(real, "utf8"), newer);
+});
+
+test("the value in force is a variable's where one overrides the file (Д-223)", async (t) => {
+  const env = await home(t);
+  await writeSettings({ model_mirror: "https://from-file.example", daemon_idle_minutes: 5 }, { env });
+  const current = readSettings({ env: { ...env, AI_DEV_MODEL_MIRROR: "https://from-env.example", AI_DEV_IDLE_TIMEOUT_MS: "90000" } });
+  assert.deepEqual([current.settings.model_mirror, current.sources.model_mirror], ["https://from-env.example", "environment (AI_DEV_MODEL_MIRROR)"]);
+  assert.deepEqual([current.settings.daemon_idle_minutes, current.stored.daemon_idle_minutes], [1.5, 5], "in minutes, and the file's own beside it");
 });

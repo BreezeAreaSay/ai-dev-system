@@ -86,6 +86,31 @@ in a folder other users can read — on Windows outside the profile, where the f
 `AI_DEV_DAEMON=0` in a client's environment keeps that client out of the daemon altogether: it is
 served in its own process, as in 2.x.
 
+## The Control API
+
+The thirteen tools of the `control` profile (`docs/CONTROL-API.md`) are what the desktop app drives:
+they set the install up, download, import and delete the local model, write and take back the AI
+clients' configs, read the logs folder and change `~/.ai-dev/config.json`. They are listed only to a
+session that names the profile, but like every tool they answer a call by name in any session: a
+profile shapes an agent's context, it does not guard anything. What guards them:
+
+- **The ones that cannot be taken back** — `model_remove`, `clients_remove` — refuse without
+  `confirm: true` and carry `destructiveHint`, so a client asks its user first.
+- **Every argument is checked before anything happens**, and one the tool does not take is refused
+  rather than ignored: a refused call changes nothing (a misspelt client is refused before setup
+  builds anything, Д-220).
+- **`logs_tail`** reads only files named in the runtime home's `logs` folder — no path, no `..`,
+  no link out of it (Д-223) — and at most 1,000 lines.
+- **`settings_set`** checks every value before it writes any (absolute paths without NUL, an
+  http(s) mirror without credentials, a whole number of minutes), writes the file whole, flushed
+  and with mode 0600, through a link to wherever it lives (Д-221, Д-222), and does not put the
+  opt-in `control` profile into the default every agent client gets (Д-223).
+- **In the daemon each call runs in its own client's environment**: a download goes through that
+  client's proxy, a client config is written for the user that client runs as.
+
+Anything that can run code as this user can call these tools — it can as well edit the files they
+edit; the control API adds no reach beyond that user.
+
 ## Command Policy
 
 Approved quality adapters include named package verification scripts, selected Python test/lint

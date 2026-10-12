@@ -12,10 +12,10 @@
  * win; every other vault keeps an index of its own beside it,
  * `ai-dev-search-<12 hex of its root>.sqlite`. An index written before claims
  * existed goes only to the vault it was built from — the one its `meta` names,
- * or, for a 2.x index that names none, the one most of its documents are in —
- * so after an upgrade the vault that has been using it keeps it, with its
- * vectors, whichever process starts first: a command run from a shell with
- * another vault does not take it.
+ * or, for a 2.x index that names none, the one whose notes are the very files
+ * it indexed — so after an upgrade the vault that has been using it keeps it,
+ * with its vectors, whichever process starts first: a command run from a
+ * shell with another vault does not take it.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -78,8 +78,14 @@ function claim(claimFile, vaultRoot) {
   }
 }
 
-/** How many of an index's documents are looked for in a vault to tell whether it was built from it. */
-const SAMPLE_DOCUMENTS = 200;
+/** How many of an index's notes are looked at in a vault to tell whether it was built from it. */
+const SAMPLE_NOTES = 200;
+
+/** A file's modification time as an index records it: `os.stat().st_mtime`, seconds and nanoseconds added as CPython adds them. */
+function recordedMtime(file) {
+  const { mtimeNs } = fs.statSync(file, { bigint: true });
+  return Number(mtimeNs / 1_000_000_000n) + Number(mtimeNs % 1_000_000_000n) * 1e-9;
+}
 
 /**
  * Which vault an index file not yet claimed was built from, as far as it
@@ -98,13 +104,36 @@ export function indexOrigin(file, vaultRoot, same) {
     db = new (loadSqlite().DatabaseSync)(file, { readOnly: true });
     const recorded = db.prepare("SELECT value FROM meta WHERE key = 'vault_root'").get()?.value;
     if (recorded) return same(String(recorded), vaultRoot) ? "this" : "another";
-    const paths = db.prepare(`SELECT path FROM documents LIMIT ${SAMPLE_DOCUMENTS * 5}`).all()
-      .map((row) => String(row.path ?? ""))
-      .filter((relative) => relative && !path.isAbsolute(relative) && !path.win32.isAbsolute(relative))
-      .slice(0, SAMPLE_DOCUMENTS);
-    if (!paths.length) return "unknown";
-    const found = paths.filter((relative) => fs.existsSync(path.join(vaultRoot, ...relative.split("/")))).length;
-    return found * 2 >= paths.length ? "this" : "another";
+    // A 2.x index names no vault. The notes it was built from are the files
+    // whose modification times it recorded; the same notes in another vault —
+    // a copy of the seed, a clone, the skill catalog every vault has — are
+    // other files, with times of their own. That a path exists says nothing:
+    // a vault sharing the catalog took the index that way (docs/DEFECTS.md,
+    // Д-219). The sample is spread over the table by id, not one folder.
+    const notes = db.prepare("SELECT path, mtime FROM documents WHERE source = 'vault-note' ORDER BY id LIMIT ?").all(SAMPLE_NOTES)
+      .filter((row) => {
+        const relative = String(row.path ?? "");
+        return relative && !path.isAbsolute(relative) && !path.win32.isAbsolute(relative);
+      });
+    if (!notes.length) return "unknown";
+    // Notes deleted since — a pull that removed half the catalog — say
+    // nothing either way; of those still there, the vault it was built from
+    // has kept most as they were (a pull rewrites only what it changes).
+    let present = 0;
+    let unchanged = 0;
+    for (const row of notes) {
+      let mtime;
+      try {
+        mtime = recordedMtime(path.join(vaultRoot, ...String(row.path).split("/")));
+      } catch {
+        continue;
+      }
+      present += 1;
+      if (Math.abs(mtime - Number(row.mtime)) < 1e-6) unchanged += 1;
+    }
+    // In doubt — nothing of it here, or most of it other files — a file of
+    // its own rather than another vault's index.
+    return present > 0 && unchanged * 2 >= present ? "this" : "another";
   } catch {
     return "unknown";
   } finally {

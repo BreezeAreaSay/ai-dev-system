@@ -10,24 +10,38 @@ import { loadSqlite, sqliteSupport } from "./search-sqlite.mjs";
 
 const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
 
-/** An index as an earlier version left it: documents at these paths, and the vault it names, if any. */
-function earlierIndex(file, paths, vaultRoot = "") {
+/** A file's modification time as an index records it (`os.stat().st_mtime`). */
+function recordedMtime(file) {
+  const { mtimeNs } = fs.statSync(file, { bigint: true });
+  return Number(mtimeNs / 1_000_000_000n) + Number(mtimeNs % 1_000_000_000n) * 1e-9;
+}
+
+/**
+ * An index as an earlier version left it: the notes of `builtFrom` at these
+ * paths, with the times it recorded for them, other documents beside them,
+ * and the vault it names, if any.
+ */
+function earlierIndex(file, { builtFrom = "", notes = [], others = [], vaultRoot = "" } = {}) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new (loadSqlite().DatabaseSync)(file);
   try {
-    db.exec("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT); CREATE TABLE documents(id TEXT PRIMARY KEY, path TEXT NOT NULL)");
-    const insert = db.prepare("INSERT INTO documents(id, path) VALUES (?, ?)");
-    paths.forEach((relative, index) => insert.run(String(index), relative));
+    db.exec("CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT); CREATE TABLE documents(id TEXT PRIMARY KEY, path TEXT NOT NULL, source TEXT NOT NULL, mtime REAL NOT NULL)");
+    const insert = db.prepare("INSERT INTO documents(id, path, source, mtime) VALUES (?, ?, ?, ?)");
+    notes.forEach((relative, index) => insert.run(`note-${index}`, relative, "vault-note", recordedMtime(path.join(builtFrom, relative))));
+    others.forEach((relative, index) => insert.run(`other-${index}`, relative, "skill-registry", 0));
     if (vaultRoot) db.prepare("INSERT INTO meta(key, value) VALUES ('vault_root', ?)").run(vaultRoot);
   } finally {
     db.close();
   }
 }
 
-/** A note at `relative` in `vault`. */
-function note(vault, relative) {
-  fs.mkdirSync(path.dirname(path.join(vault, relative)), { recursive: true });
-  fs.writeFileSync(path.join(vault, relative), "# note\n");
+/** A note at `relative` in `vault`, written `secondsAgo` before now. */
+function note(vault, relative, secondsAgo = 3600) {
+  const file = path.join(vault, relative);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, "# note\n");
+  const when = new Date(Date.now() - secondsAgo * 1000);
+  fs.utimesSync(file, when, when);
 }
 
 function tempRoot(t) {
@@ -61,9 +75,10 @@ test("an index written before claims existed goes to the vault it was built from
   const a = path.join(root, "vault-a");
   const b = path.join(root, "vault-b");
   // vault-a: its own notes and the skills both vaults have; vault-b: the skills alone, as a seed beside a full vault.
-  for (const relative of ["02-knowledge/one.md", "02-knowledge/two.md", "05-projects/p.md", "03-skills-catalog/s.md"]) note(a, relative);
-  note(b, "03-skills-catalog/s.md");
-  earlierIndex(path.join(dir, DEFAULT_INDEX_FILE), ["02-knowledge/one.md", "02-knowledge/two.md", "05-projects/p.md", "03-skills-catalog/s.md", "/elsewhere/project/README.md"]);
+  const notes = ["02-knowledge/one.md", "02-knowledge/two.md", "05-projects/p.md", "03-skills-catalog/s.md"];
+  for (const relative of notes) note(a, relative);
+  note(b, "03-skills-catalog/s.md", 60);
+  earlierIndex(path.join(dir, DEFAULT_INDEX_FILE), { builtFrom: a, notes, others: ["03-skills-catalog/registries/s", "/elsewhere/project/README.md"] });
   const first = vaultIndexPath({ dir, vaultRoot: b });
   assert.deepEqual([first.reason, path.basename(first.path) === DEFAULT_INDEX_FILE], ["another-vault", false], "a shell with another vault does not take it");
   assert.equal(fs.existsSync(path.join(dir, `${DEFAULT_INDEX_FILE}${CLAIM_SUFFIX}`)), false, "and claims nothing");
@@ -71,7 +86,7 @@ test("an index written before claims existed goes to the vault it was built from
 
   // An index that names its vault goes to that vault.
   const named = path.join(root, "named");
-  earlierIndex(path.join(named, DEFAULT_INDEX_FILE), ["03-skills-catalog/s.md"], b);
+  earlierIndex(path.join(named, DEFAULT_INDEX_FILE), { builtFrom: a, notes: ["03-skills-catalog/s.md"], vaultRoot: b });
   assert.equal(vaultIndexPath({ dir: named, vaultRoot: a }).reason, "another-vault");
   assert.equal(vaultIndexPath({ dir: named, vaultRoot: path.join(b, "") }).reason, "claimed");
 
@@ -80,6 +95,46 @@ test("an index written before claims existed goes to the vault it was built from
   fs.mkdirSync(unknown);
   fs.writeFileSync(path.join(unknown, DEFAULT_INDEX_FILE), "not a database");
   assert.equal(vaultIndexPath({ dir: unknown, vaultRoot: b }).reason, "claimed");
+});
+
+test("a vault holding copies of every note of the index is not the one it was built from; the one that is keeps it with its notes changed since (Д-219)", needsSqlite, (t) => {
+  const root = tempRoot(t);
+  const owner = path.join(root, "vault-a");
+  const copy = path.join(root, "vault-b");
+  // The owner: a catalog and notes; the other vault: the same files, copied
+  // later — the case of two copies of the seed, where every path exists in both.
+  const notes = Array.from({ length: 40 }, (_, index) => (index < 30 ? `03-skills-catalog/skill-${index}.md` : `02-knowledge/note-${index}.md`));
+  for (const relative of notes) {
+    note(owner, relative);
+    note(copy, relative, 60);
+  }
+  const dir = path.join(root, "index");
+  earlierIndex(path.join(dir, DEFAULT_INDEX_FILE), { builtFrom: owner, notes });
+  assert.equal(vaultIndexPath({ dir, vaultRoot: copy }).reason, "another-vault", "the copy, starting first, does not take it");
+  assert.equal(fs.existsSync(path.join(dir, `${DEFAULT_INDEX_FILE}${CLAIM_SUFFIX}`)), false);
+  // The owner edited some notes after the index was built: still its index.
+  for (const relative of notes.slice(0, 15)) note(owner, relative, 10);
+  const kept = vaultIndexPath({ dir, vaultRoot: owner });
+  assert.deepEqual([path.basename(kept.path), kept.reason], [DEFAULT_INDEX_FILE, "claimed"]);
+
+  // A pull removed most of the notes since; those left are as they were: still its index.
+  const pulled = path.join(root, "pulled");
+  earlierIndex(path.join(pulled, DEFAULT_INDEX_FILE), { builtFrom: owner, notes });
+  const removed = notes.slice(0, 28);
+  for (const relative of removed) fs.rmSync(path.join(owner, relative));
+  assert.equal(vaultIndexPath({ dir: pulled, vaultRoot: owner }).reason, "claimed");
+  for (const relative of removed) note(owner, relative);
+
+  // Most notes changed since: in doubt, a file of its own rather than another's index.
+  const changed = path.join(root, "changed");
+  earlierIndex(path.join(changed, DEFAULT_INDEX_FILE), { builtFrom: owner, notes });
+  for (const relative of notes.slice(0, 30)) note(owner, relative, 5);
+  assert.equal(vaultIndexPath({ dir: changed, vaultRoot: owner }).reason, "another-vault");
+
+  // No note to tell by — only documents every vault has — goes to the first vault, as before.
+  const noNotes = path.join(root, "no-notes");
+  earlierIndex(path.join(noNotes, DEFAULT_INDEX_FILE), { others: ["03-skills-catalog/registries/s"] });
+  assert.equal(vaultIndexPath({ dir: noNotes, vaultRoot: copy }).reason, "claimed");
 });
 
 test("a claim that cannot be read is nobody's to share, and a folder that takes no claim keeps the old file", (t) => {

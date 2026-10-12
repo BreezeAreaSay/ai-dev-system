@@ -166,14 +166,22 @@ async function syncWorkingTree(source, target) {
   for (const relative of list(target, [])) {
     if (!wanted.has(relative)) await fs.rm(path.join(target, relative), { force: true });
   }
+  let changed = 0;
   for (const relative of wanted) {
+    const from = path.join(source, relative);
     const destination = path.join(target, relative);
-    await fs.mkdir(path.dirname(destination), { recursive: true });
-    await fs.copyFile(path.join(source, relative), destination);
-    const mode = (await fs.stat(path.join(source, relative))).mode;
-    await fs.chmod(destination, mode & 0o777);
+    // Like git, a file the pull does not change is not written: it keeps its
+    // modification time, by which a 2.x index knows its vault (Д-219).
+    const content = await fs.readFile(from);
+    const before = await fs.readFile(destination).catch(() => null);
+    if (!before || !before.equals(content)) {
+      await fs.mkdir(path.dirname(destination), { recursive: true });
+      await fs.writeFile(destination, content);
+      changed += 1;
+    }
+    await fs.chmod(destination, (await fs.stat(from)).mode & 0o777);
   }
-  return wanted.size;
+  return { files: wanted.size, changed };
 }
 
 function scenarioEnv(base, { home, aiDevHome, explicitRoots }) {
@@ -355,6 +363,16 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
 
   // Start the server exactly as the 2.x client configuration does.
   const serverEnv = { ...env, ...(local?.env || {}) };
+  // But first a command from a shell with another vault — a copy of the same
+  // seed — the first to run after the upgrade: it must leave the index this
+  // install's clients built to them (docs/DEFECTS.md, Д-219).
+  const otherVault = path.join(temp, `other-vault-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`);
+  await fs.cp(path.join(baseRoot, "docker", "public-seed"), otherVault, { recursive: true });
+  run(process.execPath, [path.join(baseRoot, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), "doctor", "--json"], {
+    cwd: path.join(baseRoot, "ai-dev-mcp-server"),
+    env: { ...serverEnv, AI_DEV_VAULT_ROOT: otherVault },
+    allowFailure: true
+  });
   await withServer({ command: local.command, args: local.args, env: serverEnv, cwd: path.dirname(local.args[0]) }, async (client) => {
     check(`${label}: the server starts from the 2.x client entry and sends instructions`, (client.getInstructions() || "").length > 0, `${(client.getInstructions() || "").length} characters`);
     // get_task answers with the record itself; its `task` field is the request text.
@@ -374,6 +392,8 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     const documents = indexedDocuments(status);
     const pulledAway = removedSkills(base);
     check(`${label}: the 2.x search index is read as it is, nothing rewritten by a status call`, documents > 0 && documents === expected.documents, `${documents} document(s), 2.x had ${expected.documents}`);
+    check(`${label}: a command with another vault, run first, left the 2.x index to this install`, path.basename(String(status.index_path ?? "")) === "ai-dev-search.sqlite",
+      path.basename(String(status.index_path ?? "")));
     if (sqliteSupport().available) {
       // Skills removed: the index has to be stale. Nothing changed: it has to
       // be current. Other changes may or may not touch what it indexes.
@@ -660,7 +680,7 @@ async function main() {
     }
 
     const copied = await syncWorkingTree(repoRoot, baseRoot);
-    console.log(`Upgraded the clone in place: ${copied} file(s) from the working tree.`);
+    console.log(`Upgraded the clone in place: ${copied.files} file(s) from the working tree, ${copied.changed} of them changed.`);
     const install = npm(["ci", "--no-audit", "--no-fund"], { cwd: baseServer, allowFailure: true });
     check("npm ci without --ignore-scripts succeeds on the upgraded clone", install.status === 0, `exit ${install.status}`);
     if (install.status !== 0) {

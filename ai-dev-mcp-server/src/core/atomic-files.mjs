@@ -76,7 +76,7 @@ export async function renameOver(tempPath, targetPath) {
  *
  * @param {string} filePath - Destination path (created recursively if needed).
  * @param {string | NodeJS.ArrayBufferView} data - File contents.
- * @param {import("node:fs").ObjectEncodingOptions | BufferEncoding} [options="utf8"] - Encoding or write options passed to `FileHandle.writeFile`.
+ * @param {(import("node:fs").ObjectEncodingOptions & { mode?: number }) | BufferEncoding} [options="utf8"] - Encoding or write options passed to `FileHandle.writeFile`; `mode` is the new file's.
  * @returns {Promise<string>} Absolute path that was written.
  */
 export async function atomicWriteFile(filePath, data, options = "utf8") {
@@ -90,7 +90,7 @@ export async function atomicWriteFile(filePath, data, options = "utf8") {
     );
     let handle;
     try {
-      handle = await fs.open(tempPath, "wx");
+      handle = await fs.open(tempPath, "wx", typeof options === "object" && options?.mode !== undefined ? options.mode : 0o666);
       await handle.writeFile(data, options);
       await handle.sync();
       await handle.close();

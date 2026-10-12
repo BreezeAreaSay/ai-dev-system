@@ -45,12 +45,17 @@ export function resolveLogFile(logsFolder, name = "daemon") {
  * The last `lines` lines of a file.
  *
  * @param {string} file
- * @param {{ lines?: number }} [options]
+ * @param {{ lines?: number, links?: boolean }} [options] - `links: false` refuses a file that is a link.
  * @returns {Promise<{ exists: boolean, size: number, lines: string[], truncated: boolean }>}
  *   `truncated`: the file holds earlier lines than these.
  */
-export async function tailLines(file, { lines = 200 } = {}) {
+export async function tailLines(file, { lines = 200, links = true } = {}) {
   const wanted = Math.max(1, Math.min(MAX_TAIL_LINES, Math.trunc(Number(lines)) || 200));
+  if (!links) {
+    // A link in the logs folder would read whatever it points at (docs/DEFECTS.md, Д-223).
+    const stat = await fs.lstat(file).catch(() => null);
+    if (stat?.isSymbolicLink()) throw new Error(`${path.basename(file)} is a link: only the logs folder's own files are read.`);
+  }
   let handle;
   try {
     handle = await fs.open(file, "r");

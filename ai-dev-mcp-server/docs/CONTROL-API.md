@@ -35,7 +35,7 @@ What state this install is in, in one answer: ok, degraded or failed, and why �
 
 **Input:**
 
-- `checks` — boolean, optional. Run the health checks (about a second); false answers from what is on disk only. Default `true`.
+- `checks` — boolean, optional. Run the health checks (about a second, more while Frontend QA's browser starts); false answers from what is on disk only — what a tray that polls asks for. Default `true`.
 
 **Answer** (`structuredContent.result`):
 
@@ -99,7 +99,7 @@ Build what a fresh install does not ship — the skill registry, its quality rep
 
 **Answer** (`structuredContent.result`):
 
-- `succeeded` — boolean
+- `succeeded` — boolean. The run finished and nothing in it failed: false when it was cancelled, or a step or a client failed.
 - `cancelled` — boolean
 - `steps` — array of objects
   - `id` — string
@@ -237,7 +237,7 @@ Connect AI clients to this install: write the ai-dev entry into their configs (a
   - `client` — string. claude-code, claude-desktop, cursor, vscode, codex or gemini.
   - `label` — string
   - `file` — string
-  - `status` — string. added, updated, unchanged, removed, restored, absent, skipped or failed.
+  - `status` — string. added, updated, unchanged, removed, restored, absent, skipped or failed; with dry_run, would-add, would-update, would-remove or would-restore.
   - `backup` — string or null, optional
   - `reason` — string, optional
   - `error` — string, optional
@@ -260,7 +260,7 @@ Disconnect AI clients: take the ai-dev entry out of their configs; a file nothin
   - `client` — string. claude-code, claude-desktop, cursor, vscode, codex or gemini.
   - `label` — string
   - `file` — string
-  - `status` — string. added, updated, unchanged, removed, restored, absent, skipped or failed.
+  - `status` — string. added, updated, unchanged, removed, restored, absent, skipped or failed; with dry_run, would-add, would-update, would-remove or would-restore.
   - `backup` — string or null, optional
   - `reason` — string, optional
   - `error` — string, optional
@@ -287,7 +287,7 @@ The last lines of a log in the runtime home's logs folder — the daemon's by de
 
 ## `settings_get` (read-only)
 
-The settings the desktop app changes, from ~/.ai-dev/config.json: each value in force, where it comes from (default, the file, or an environment variable that overrides it), what each setting means, and any stored value that is not valid. Read-only.
+The settings the desktop app changes, from ~/.ai-dev/config.json: each value in force — an environment variable's where one overrides the file — where it comes from (default, the file, or that variable), the file's own values, what each setting means, and any stored value that is not valid. Read-only.
 
 **Input:**
 

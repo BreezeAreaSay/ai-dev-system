@@ -16,6 +16,7 @@ import { ChannelError, addressListening, buildDifferences, controlRequest, descr
 import { EMPTY_LOCK_GRACE_MS, processAlive, tryAcquireFileLock } from "./file-lock.mjs";
 import { DAEMON_DESCRIPTOR_NAME, RETIRED_DAEMON_NAME, daemonInfoPath, daemonLogPath, runtimeDir } from "./runtime-paths.mjs";
 import { absolutePathVariables } from "./session-env.mjs";
+import { applySettingsToEnvironment } from "./settings.mjs";
 
 /** How long a client waits for a daemon it started. A first start fills the vault and loads the tools. */
 export const DEFAULT_START_TIMEOUT_MS = 20_000;
@@ -38,6 +39,22 @@ const RESTART_AFTER_MS = EMPTY_LOCK_GRACE_MS + 500;
 const MAX_STARTS = 3;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * The environment of `given` as a daemon for it sees it: relative paths made
+ * absolute, and the settings file applied as every CLI command applies it —
+ * the daemon applies it to its own too. So the build is the same on both
+ * sides, and a session started from here, the desktop app's, has the mirror
+ * and the model folder the settings name (docs/DEFECTS.md, Д-218).
+ *
+ * @param {NodeJS.ProcessEnv} given
+ * @returns {Record<string, string>} a copy
+ */
+export function daemonEnvironment(given) {
+  const env = absolutePathVariables(given);
+  applySettingsToEnvironment(env);
+  return env;
+}
 
 /** A message for the middle of a sentence: without the full stop it ends with. */
 const clause = (message) => String(message ?? "").trim().replace(/\.+$/, "");
@@ -165,8 +182,9 @@ async function reach(info, options, build) {
  */
 export async function connectDaemon({ serverRoot, cliPath, version, env: given = process.env, mode = "mcp", profiles = null, timeoutMs = startTimeoutMs(given), spawnImpl = spawn, restartAfterMs = RESTART_AFTER_MS }) {
   // The daemon runs in another folder than its caller: a relative path in the
-  // environment means, for it too, what it means here (docs/DEFECTS.md, Д-194, Д-201).
-  const env = absolutePathVariables(given);
+  // environment means, for it too, what it means here (docs/DEFECTS.md, Д-194,
+  // Д-201); and it runs with the settings applied (Д-218).
+  const env = daemonEnvironment(given);
   const build = await describeBuild({ serverRoot, version, env });
   // The daemon's runtime home is the one `env` names, which need not be this
   // process's: the desktop app reaches the daemon of the environment it shows.
@@ -307,7 +325,7 @@ function summary(entry, build) {
  * @returns {Promise<Record<string, any>>}
  */
 export async function daemonStatus({ serverRoot, version, env: given = process.env }) {
-  const env = absolutePathVariables(given);
+  const env = daemonEnvironment(given);
   const build = await describeBuild({ serverRoot, version, env });
   const daemons = await listDaemons({ env });
   const mine = daemons.find((entry) => !entry.retired && entry.status && entry.info.build === build.id);

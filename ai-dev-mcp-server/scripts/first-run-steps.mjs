@@ -232,14 +232,23 @@ export async function readRequiredState({ paths, callTool, serverRoot, skillRout
  *
  * @param {Array<{ id: string, run: boolean }>} plan - From `planFirstRun`.
  * @param {Record<string, () => Promise<string>>} actions
+ * A stop (`signal`) is not a fault (Д-158): the step it cuts short and the
+ * steps after it are skipped and say so, and none of the rest is announced
+ * (Д-223).
+ *
  * @param {(line: string) => void} [onStep] - Called before each step that runs.
+ * @param {{ signal?: AbortSignal }} [options]
  * @returns {Promise<Array<object>>} The plan entries with `status` and timing.
  */
-export async function runFirstRunPlan(plan, actions, onStep = () => {}) {
+export async function runFirstRunPlan(plan, actions, onStep = () => {}, { signal } = {}) {
   const results = [];
   for (const step of plan) {
     if (!step.run || !actions[step.id]) {
       results.push({ ...step, status: "skipped" });
+      continue;
+    }
+    if (signal?.aborted) {
+      results.push({ ...step, status: "skipped", reason: "not run: setup was stopped" });
       continue;
     }
     const needed = step.requires ? results.find((item) => item.id === step.requires) : null;
@@ -253,12 +262,10 @@ export async function runFirstRunPlan(plan, actions, onStep = () => {}) {
       const reason = await actions[step.id]();
       results.push({ ...step, status: "done", reason, duration_ms: Date.now() - started });
     } catch (error) {
-      results.push({
-        ...step,
-        status: "failed",
-        error: String(error?.message ?? error).split("\n")[0],
-        duration_ms: Date.now() - started
-      });
+      const message = String(error?.message ?? error).split("\n")[0];
+      results.push(signal?.aborted
+        ? { ...step, status: "skipped", reason: `stopped: ${message}`, duration_ms: Date.now() - started }
+        : { ...step, status: "failed", error: message, duration_ms: Date.now() - started });
     }
   }
   return results;

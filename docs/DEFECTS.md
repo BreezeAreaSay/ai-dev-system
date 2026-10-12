@@ -7581,6 +7581,21 @@ while building: Back enabled?: true
 **Как закроется.** Пока идёт вызов, «Назад» и «Далее» недоступны; идущий вызов принадлежит мастеру, а не экрану: если
 уйти (шапка) и вернуться, шаг показывает его прогресс и «Отмену»; закончившаяся без экрана сборка показывает итог.
 
+**Дополнение — замер «после» первой правки** (`cd63767`). Итог сборки, закончившейся на экране, теряется, если уйти с
+шага и вернуться: шаг снова предлагает «Построить индекс», как будто ничего не строилось. Итог держит только сборка,
+закончившаяся без экрана, и только до первого показа.
+
+**Замер до** (`cd63767`; `build-timing-probe.mjs`, хранилище из двух заметок; `p10fix/dbg/build-timing-probe.log`):
+
+```
+the build, as the step showed it: 44 ms: cancel true, Back and Next disabled; 152 ms: result shown, Back and Next enabled
+the step when it ended: 3 done, 4 skipped, 0 failed Skill registry — skipped (already built) …
+the index step after Status and back: AI Dev builds its skill registry and indexes your notes so the clients can search them. Build the index
+```
+
+**Как закроется.** Последний итог шага — мастера, а не экрана: шаг показывает его при каждом возвращении, пока не начат
+новый вызов.
+
 ---
 
 ## Д-250. Русский интерфейс неполон, а снимок «Статуса» на русском — экран загрузки

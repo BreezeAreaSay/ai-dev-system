@@ -43,6 +43,7 @@ import {
 } from "../core/system-health.mjs";
 import { evaluateEmbeddingBackend } from "../core/embedding-health.mjs";
 import { describeRuntimeHome } from "../core/runtime-home-migration.mjs";
+import { describeSeedSync, evaluateVaultSeed } from "../core/seed-sync.mjs";
 
 const DENSE_SMOKE_QUERY = "создай качественный интерфейс без ИИ слопа по утвержденным референсам";
 
@@ -170,6 +171,14 @@ async function systemHealthCheck(host, {
   ));
 
   await report.runCheck("runtime_home", false, async () => evaluateRuntimeHome(await describeRuntimeHome()));
+
+  // A package's own folder is read-only; its content is the user's vault, kept
+  // current with the seed it ships — and an update can leave files to merge.
+  if (host.installLayout?.seedRoot) {
+    await report.runCheck("vault_seed", false, async () => (
+      evaluateVaultSeed({ root: host.vaultRoot, ...await describeSeedSync(host.vaultRoot) })
+    ));
+  }
 
   await report.runCheck("required_notes", false, async () => {
     const files = [];

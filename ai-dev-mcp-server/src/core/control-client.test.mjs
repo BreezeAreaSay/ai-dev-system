@@ -5,6 +5,8 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { clientNodePaths, daemonLogTail, openControlClient, stopDaemons } from "./control-client.mjs";
+import { listDaemons } from "./daemon-client.mjs";
+import { controlRequest } from "./daemon-channel.mjs";
 
 // What the desktop app imports from an install (docs/DESKTOP.md): an MCP SDK
 // client on the install's daemon, the daemon's log, and the Node the AI
@@ -81,4 +83,18 @@ test("the Node of an AI client's ai-dev entry: this install's first, then others
   }));
   assert.deepEqual(await clientNodePaths({ env, home, cliPath }), [ours, theirs]);
   assert.deepEqual(new Set(await clientNodePaths({ env, home })), new Set([ours, theirs]), "without the install's own entry point, each client's");
+});
+
+test("a daemon told to retire says so to the sessions it keeps: served_by.retired (Д-245, Д-265)", async (t) => {
+  const { env } = await stage(t);
+  const { client } = await openControlClient({ serverRoot, env, name: "probe" });
+  t.after(() => client.close().catch(() => undefined));
+  const before = await answer(client, "system_status", { checks: false });
+  assert.equal(before.served_by.retired, undefined, "a serving daemon says nothing of retiring");
+  const entry = (await listDaemons({ env })).find((item) => item.info.pid === before.served_by.pid);
+  assert.equal((await controlRequest(entry.info, "retire")).retiring, true);
+  const after = await answer(client, "system_status", { checks: false });
+  assert.equal(after.served_by.pid, before.served_by.pid, "the same daemon still serves this session");
+  assert.equal(after.served_by.retired, true);
+  assert.equal(typeof after.served_by.retired_reason, "string");
 });

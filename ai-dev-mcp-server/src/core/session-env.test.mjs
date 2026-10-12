@@ -30,7 +30,7 @@ test("what clients of one daemon must share is where the data is and which model
   for (const name of ["PATH", "Path", "PATHEXT", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "NODE_USE_ENV_PROXY", "NODE_OPTIONS", "APPDATA", "XDG_CONFIG_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "HF_ENDPOINT", "PLAYWRIGHT_BROWSERS_PATH",
     "AI_DEV_PROFILES", "AI_DEV_OFFLINE", "AI_DEV_MODEL_MIRROR", "AI_DEV_DAEMON", "AI_DEV_IDLE_TIMEOUT_MS", "AI_DEV_HOOK_PROFILE", "AI_DEV_IMAGE",
     // The desktop app's own: the app and the clients share one daemon whatever they say (Д-244).
-    "AI_DEV_SERVER_ROOT", "AI_DEV_DESKTOP_TEST", "AI_DEV_DESKTOP_DEVTOOLS", "AI_DEV_NODE"]) {
+    "AI_DEV_SERVER_ROOT", "AI_DEV_DESKTOP_TEST", "AI_DEV_DESKTOP_DEVTOOLS", "AI_DEV_DESKTOP_NO_SANDBOX", "AI_DEV_NODE"]) {
     assert.equal(isDaemonWide(name, { platform: "linux" }), false, name);
   }
   assert.equal(isDaemonWide("AI_DEV_NOT_YET_KNOWN", { platform: "linux" }), true, "an unlisted AI Dev variable splits the daemon rather than leaks");
@@ -60,6 +60,10 @@ test("every AI_DEV_ and BGE_ variable the code names is classified on purpose", 
   };
   for (const directory of ["src", "hooks", "bin", "scripts"]) walk(path.join(serverRoot, directory));
   walk(path.join(repositoryRoot, "docker"));
+  // The desktop app passes its environment to the daemon's transport too (docs/DEFECTS.md, Д-266, п. 2).
+  for (const directory of ["src", "scripts", "test"]) {
+    if (fs.existsSync(path.join(repositoryRoot, "desktop", directory))) walk(path.join(repositoryRoot, "desktop", directory));
+  }
   for (const file of ["bootstrap.sh", "bootstrap.ps1"]) {
     const full = path.join(repositoryRoot, file);
     if (!fs.existsSync(full)) continue;

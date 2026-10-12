@@ -268,11 +268,32 @@ export async function openChannel(info, { mode = "mcp", profiles = null, environ
 }
 
 /**
+ * The errors that say nothing listens at an address: refused, or no socket
+ * there. Any other — `EAGAIN` from a listener whose queue is full because it
+ * hangs, a busy pipe, a permission — leaves the address taken (docs/DEFECTS.md,
+ * Д-208).
+ */
+const NOTHING_LISTENS = new Set(["ECONNREFUSED", "ENOENT", "ENOTDIR", "ENOTSOCK"]);
+
+/**
+ * Whether a failed connection, or a request over one, says nothing listens at
+ * the address — and not that something does and did not answer.
+ *
+ * @param {{ code?: string } | null | undefined} error
+ * @returns {boolean}
+ */
+export const nothingListens = (error) => NOTHING_LISTENS.has(error?.code);
+
+/**
  * Whether something takes connections at a daemon's address: a daemon that is
  * alive — even one hung in a debugger, whose lock went stale, as the kernel
  * still accepts into its backlog — or nothing, when the process that listened
  * there is gone, whoever has its pid now (docs/DEFECTS.md, Д-204). An address
  * that neither takes nor refuses within the time counts as taken.
+ *
+ * On macOS a full queue is refused like a dead socket, so there a hung daemon
+ * met by some hundreds of connections looks gone (Д-208); it publishes its
+ * record again once it runs.
  *
  * @param {string} address
  * @param {{ timeoutMs?: number }} [options]
@@ -284,7 +305,13 @@ export function addressListening(address, { timeoutMs = 1_000 } = {}) {
       resolve(false);
       return;
     }
-    const socket = net.connect(address);
+    let socket;
+    try {
+      socket = net.connect(address);
+    } catch {
+      resolve(false);
+      return;
+    }
     const done = (value) => {
       clearTimeout(timer);
       socket.destroy();
@@ -292,7 +319,7 @@ export function addressListening(address, { timeoutMs = 1_000 } = {}) {
     };
     const timer = setTimeout(() => done(true), timeoutMs);
     socket.once("connect", () => done(true));
-    socket.once("error", () => done(false));
+    socket.once("error", (error) => done(!nothingListens(error)));
   });
 }
 

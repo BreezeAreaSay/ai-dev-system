@@ -1223,6 +1223,10 @@ four of those arrived as upstream issues #63–#66.
   - a test that left its daemon running after its folder was gone (Д-209);
   - and, found re-reading that fix, a retired daemon leaving at the moment its watch looked could
     put its record back after it was gone (Д-210).
+- **The fifth phase 8 review's findings** (Д-213): the daemon's `run/` folder could come back
+  with mode 0755 when its lock had to make it, and a retired daemon whose runtime home was deleted
+  left the folders it made again behind; both fixed, and the texts on a full connection queue now
+  say what macOS does.
 
 ### Security
 

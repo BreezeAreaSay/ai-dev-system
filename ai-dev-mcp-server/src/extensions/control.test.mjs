@@ -10,7 +10,7 @@ import { startModelHost } from "../../test/fixtures/model-host.mjs";
 import { CONTROL_API_VERSION, CONTROL_TOOLS } from "../core/control-contract.mjs";
 import { stopDaemons } from "../core/daemon-client.mjs";
 import { DaemonClientTransport } from "../core/daemon-transport.mjs";
-import { writeSyntheticModel } from "../core/synthetic-model.mjs";
+import { syntheticManifest, syntheticModelFiles, writeSyntheticModel } from "../core/synthetic-model.mjs";
 
 // The control API as the desktop app meets it: the MCP SDK's own client over
 // the daemon's socket, through `DaemonClientTransport`, with the `control`
@@ -21,10 +21,11 @@ const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 
 const STALLED_FILE = "onnx/model_int8.onnx";
 const STALL_BYTES = 1000;
+const BIG_MODEL_BYTES = 48 * 1024 * 1024;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function stage(t) {
+async function stage(t, { bigModel = false } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-control-"));
   const home = path.join(root, "home");
   const vault = path.join(root, "vault");
@@ -34,8 +35,15 @@ async function stage(t) {
   await fs.writeFile(path.join(vault, "03-skills-catalog", "registries", "skills.index.json"), "[]");
   await fs.mkdir(home, { recursive: true });
   // The synthetic model; its largest file stops halfway the first time it is
-  // asked for, so the download can be cancelled there.
-  const { manifest, files } = await writeSyntheticModel(path.join(root, "usb", "bge-m3-onnx"));
+  // asked for, so the download can be cancelled there. A big one, to copy and
+  // hash for long enough to be cancelled midway, when asked for.
+  const usb = path.join(root, "usb", "bge-m3-onnx");
+  let { manifest, files } = await writeSyntheticModel(usb);
+  if (bigModel) {
+    files = { ...syntheticModelFiles(), [STALLED_FILE]: Buffer.alloc(BIG_MODEL_BYTES, 7) };
+    manifest = syntheticManifest(files);
+    await fs.writeFile(path.join(usb, STALLED_FILE), files[STALLED_FILE]);
+  }
   const host = await startModelHost({ files, stallAfter: new Map([[STALLED_FILE, STALL_BYTES]]) });
   const manifestFile = path.join(root, "synthetic.manifest.json");
   await fs.writeFile(manifestFile, JSON.stringify({ ...manifest, sources: [host.base] }));
@@ -56,7 +64,7 @@ async function stage(t) {
     await host.close();
     await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
-  return { root, home, vault, env, host, usb: path.join(root, "usb", "bge-m3-onnx") };
+  return { root, home, vault, env, host, usb };
 }
 
 async function connect(t, env) {
@@ -163,4 +171,37 @@ test("the control tools answer through the daemon as the contract says, refuse w
   const overview = await call(client, "workspace_overview", { limit: 5 });
   assert.ok(overview.usage.tool_calls > 0);
   assert.match(await refusal(client, "workspace_overview", { limit: 0 }), /limit must be a whole number/);
+
+  // Every tool refuses an argument it does not take, and changes nothing.
+  for (const name of CONTROL_TOOLS) {
+    assert.match(await refusal(client, name, { confirm: true, source: usb, settings: {}, bogus: 1 }), /Unknown argument.*bogus/, name);
+  }
+  assert.equal((await call(client, "system_status", { checks: false })).model.installed, true, "nothing was removed by a refused call");
+});
+
+test("copying and checking the model stop when cancelled midway, and keep what is done", { timeout: 300_000 }, async (t) => {
+  const { env, usb } = await stage(t, { bigModel: true });
+  const client = await connect(t, env);
+  const cancelAtFirstProgress = (name, args) => {
+    const stop = new AbortController();
+    let progressed = 0;
+    const pending = call(client, name, args, { signal: stop.signal, onprogress: () => { progressed += 1; stop.abort(`cancel ${name}`); } });
+    return pending.then(() => ({ finished: true, progressed }), (error) => ({ finished: false, progressed, error }));
+  };
+
+  const imported = await cancelAtFirstProgress("model_import", { source: usb });
+  assert.equal(imported.finished, false, "the import was cancelled before it finished");
+  assert.match(String(imported.error), /cancel model_import/);
+  // The daemon let go of the copy: removing the model does not wait for it.
+  const removed = await call(client, "model_remove", { confirm: true });
+  assert.ok(removed.removed.every((file) => typeof file === "string"));
+  const afterImport = await call(client, "system_status", { checks: false });
+  assert.equal(afterImport.model.installed, false);
+
+  assert.equal((await call(client, "model_import", { source: usb })).ready, true);
+  const verified = await cancelAtFirstProgress("model_verify", {});
+  assert.equal(verified.finished, false, "the check was cancelled before it finished");
+  assert.match(String(verified.error), /cancel model_verify/);
+  // The daemon answers on, and the next check runs whole.
+  assert.equal((await call(client, "model_verify", {}, { onprogress: () => undefined })).ready, true);
 });

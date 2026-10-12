@@ -370,7 +370,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The daemon's channel is this user's** (`docs/DEFECTS.md`, Д-107). Each start draws a
   random socket or pipe name (96 bits) and publishes it, with a 256-bit secret, only in
-  `run/daemon.json` (mode 0600); each side's first line proves it holds the secret with an
+  `run/daemon-<build>.json` (mode 0600); each side's first line proves it holds the secret with an
   HMAC bound to both nonces, without sending it. A Unix socket is created under umask 077 in a
   0700 directory of the user — a link, another uid's directory or one that cannot hold a socket
   is passed over. The Windows pipe was `\\.\pipe\ai-dev-<user>`, a name anyone could create
@@ -378,10 +378,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   directories and socket opened to everyone the handshake is still refused.
 - **Each daemon session lists the tools of its client's own `AI_DEV_PROFILES`**; the bridge
   prints the same note on stderr as the stdio server.
-- **A daemon serves only clients of its own build**: code, version and the variables that
-  change what the server does. A client of another build — after a `git pull`, an update, a
-  different `AI_DEV_VAULT_ROOT` — makes it retire: it gives up its address at once and keeps
-  the sessions it has until they close.
+- **Each daemon session runs in its own client's environment** (`docs/DEFECTS.md`, Д-190). The
+  bridge sends the client's environment once the daemon has proven itself, and the daemon runs
+  that session's tools, processes and downloads in it — a terminal's PATH with gitleaks, a
+  proxy, its own `NODE_EXTRA_CA_CERTS` — as the client's own process did in 2.x. Measured: a
+  client whose PATH has gitleaks and semgrep, served by a daemon a GUI app with a short PATH
+  started, saw 3 of 10 scanners; now 5 of 10, as in its own process.
+- **A daemon serves one build, and builds no longer replace each other** (Д-191). The build is
+  the code, its version and only the daemon-wide variables — where the data is, which model
+  is loaded; PATH, proxies, certificates, profiles and the hooks' switches are the session's.
+  Each build has its own descriptor and lock, `run/daemon-<build>.json`: clients of another
+  vault or another copy of AI Dev get a daemon of their own instead of retiring the running
+  one. The daemon of code replaced where it lies — a `git pull` — retires, finishes its
+  sessions and is listed in `run/retired-<pid>.json` until it exits. `ai-dev daemon status`
+  lists every daemon of the runtime home and, by variable name, why it is another; `stop`
+  stops them all. Measured with sessions alternating between a client that passes its whole
+  environment and one that passes a short list: 1, 2, 3, 4 daemons before; 1, 1, 1, 1 now with
+  the same vault, and one daemon per vault when they differ.
 
 - **Hooks run through a Node launcher on macOS and Linux** (`docs/DEFECTS.md`, Д-103, the
   phase-6 half). `install_agent_hooks` registers `/bin/sh .ai-dev/hooks/with-node.sh
@@ -1135,6 +1148,29 @@ four of those arrived as upstream issues #63–#66.
     name, npm's full list of names it leaves out of a tarball, a build that stops on a seed
     file differing from its manifest, hints inside the image, `ai-dev distribution` in a
     package, the Frontend QA tests back in `run-acceptance.ps1`.
+
+- **The phase 8 review's findings** (`docs/DEFECTS.md`, Д-188 … Д-194), each reproduced before
+  the fix:
+  - the bridge decoded each 64 KB read on its own, so a character cut by a read's edge became
+    two U+FFFD — a Russian note of 390 KB came back with 18 of them, on disk too (Д-188): lines
+    are decoded whole, and an 8 MB line takes 23 ms instead of 338 ms;
+  - the Д-164 change left hooks in a monorepo package without the workspace's policy, secret
+    check, config guard, formatter and stop checks (Д-189): only the memory keys and the active
+    task follow the package;
+  - the daemon ran every client's tools with the PATH of the client that started it (Д-190), and
+    clients that differed in PATH or proxy replaced each other's daemon, one per session, none of
+    the old ones visible (Д-191) — see "Changed";
+  - requests piped in with the input closed got no answer (Д-192): the bridge waits for what it
+    owes and exits 1 when a request went unanswered;
+  - an empty daemon lock in the making was taken at once (Д-193): the lock follows the protocol
+    of every other lock, with a heartbeat;
+  - smaller ones (Д-194): a 30-day idle timeout made the daemon leave at once (cut to 24.8 days); a
+    relative `AI_DEV_HOME` meant one folder to the client and another to the daemon; a cancelled
+    request was answered with an error when the daemon later died; a message over 10 MB read as
+    "the daemon went away" and is answered with its size; `stop` with a stale descriptor failed;
+    the watch retired a healthy daemon on one unreadable look; a rebuild's collection held other
+    clients' searches for 1.7 s (now under 1.1 s on 13 000 notes); a long-lived daemon's log
+    never rotated.
 
 ### Security
 

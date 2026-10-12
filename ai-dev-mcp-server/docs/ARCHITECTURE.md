@@ -16,9 +16,13 @@
    embedding model load once and the state has one writer. `ai-dev mcp` — what client configs
    run — bridges the client's stdio to it (`core/daemon-bridge.mjs`) and starts it when none runs
    (`core/daemon-client.mjs`); the channel's random address, secret and mutual handshake are
-   `core/daemon-channel.mjs` (see SECURITY.md, "The Daemon"). It takes a lock, keeps
-   `run/daemon.json` current with its session count, and exits after `AI_DEV_IDLE_TIMEOUT_MS` of
-   no sessions (default 30 min). `AI_DEV_DAEMON=0` and `npm start` keep the stdio path.
+   `core/daemon-channel.mjs` (see SECURITY.md, "The Daemon"). Each session runs in its own
+   client's environment (`core/session-env.mjs`): the bridge sends it after the handshake, and
+   the daemon answers `process.env` with it for everything that session's messages set off.
+   One daemon serves one build — the code, its version and the daemon-wide variables — with its
+   own lock and `run/daemon-<build>.json`, kept current with its session count; it exits after
+   `AI_DEV_IDLE_TIMEOUT_MS` of no sessions (default 30 min). `AI_DEV_DAEMON=0` and `npm start`
+   keep the stdio path.
 3. `mcp-stdio.mjs`: composed domain-service facade and legacy-compatible rollback handler.
 4. `tool-definitions.mjs`: typed MCP contracts separated from dispatch and implementation.
 5. `core/`: path policy, atomic storage, command policy, process execution, canonical project

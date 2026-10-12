@@ -384,9 +384,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   proxy, its own `NODE_EXTRA_CA_CERTS` — as the client's own process did in 2.x. Measured: a
   client whose PATH has gitleaks and semgrep, served by a daemon a GUI app with a short PATH
   started, saw 3 of 10 scanners; now 5 of 10, as in its own process.
-- **A daemon serves one build, and builds no longer replace each other** (Д-191). The build is
-  the code, its version and only the daemon-wide variables — where the data is, which model
-  is loaded; PATH, proxies, certificates, profiles and the hooks' switches are the session's.
+- **A daemon serves one build, and builds no longer replace each other** (Д-191, Д-199). The
+  build is the code, its version, the Node it runs on and where the data is — the home, runtime
+  home, vault, state, index and model folder, resolved as the server resolves them, so
+  `C:\Vault` and `c:\vault`, a trailing slash, or Git Bash's `HOME` beside a GUI client's
+  `USERPROFILE` are one build; PATH, proxies, certificates, profiles and the hooks' switches
+  are the session's.
   Each build has its own descriptor and lock, `run/daemon-<build>.json`: clients of another
   vault or another copy of AI Dev get a daemon of their own instead of retiring the running
   one. The daemon of code replaced where it lies — a `git pull` — retires, finishes its
@@ -1171,6 +1174,22 @@ four of those arrived as upstream issues #63–#66.
     the watch retired a healthy daemon on one unreadable look; a rebuild's collection held other
     clients' searches for 1.7 s (now under 1.1 s on 13 000 notes); a long-lived daemon's log
     never rotated.
+- **The second phase 8 review's findings** (`docs/DEFECTS.md`, Д-196 … Д-201), each reproduced
+  before the fix:
+  - a client with a 20 000-character name made `status` say "Not running" and `stop` fail
+    (Д-196): control answers have their own bound, client names are cut to 200 characters, and
+    `stop` reaches a daemon that did not answer `status`;
+  - a lock taken over from a daemon that hung removed its socket, so the retired daemon could be
+    neither seen nor stopped (Д-197), and a retired daemon's record whose pid another program had
+    since been given made `stop` fail for good (Д-198): the socket of a live daemon is left, every
+    retired daemon is listed, and a retired record has a lock as a descriptor does;
+  - the same data spelled two ways made two daemons (Д-199) — see "Changed";
+  - a session's own certificate was not used for an `https://` proxy, and the error blamed the
+    host's certificate (Д-200);
+  - smaller ones (Д-201): the CLI's `daemon` commands did not resolve a relative `AI_DEV_HOME`;
+    the bridge waited out its 10 minutes after refusing the last request; `Object.freeze` on
+    the daemon's `process.env` broke every later listing of it; sizes and texts; the daemon
+    tests now run on macOS and Windows CI too.
 
 ### Security
 

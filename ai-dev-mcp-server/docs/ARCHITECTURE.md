@@ -19,8 +19,9 @@
    `core/daemon-channel.mjs` (see SECURITY.md, "The Daemon"). Each session runs in its own
    client's environment (`core/session-env.mjs`): the bridge sends it after the handshake, and
    the daemon answers `process.env` with it for everything that session's messages set off.
-   One daemon serves one build — the code, its version and the daemon-wide variables — with its
-   own lock and `run/daemon-<build>.json`, kept current with its session count; it exits after
+   One daemon serves one build — the code, its version, the Node it runs on and where the data
+   is, resolved as the server resolves it (`daemonIdentity`) — with its own lock and
+   `run/daemon-<build>.json`, kept current with its session count; it exits after
    `AI_DEV_IDLE_TIMEOUT_MS` of no sessions (default 30 min). `AI_DEV_DAEMON=0` and `npm start`
    keep the stdio path.
 3. `mcp-stdio.mjs`: composed domain-service facade and legacy-compatible rollback handler.

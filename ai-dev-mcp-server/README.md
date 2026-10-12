@@ -475,7 +475,8 @@ daemon, one warm server for every client of this user, and starts it when none r
 index and the model are in memory once, not once per client, and the state has one writer. The
 handshake passes through, instructions included. Each client's session runs in that client's own
 environment — its PATH, proxy and certificates — as its own process did in 2.x. Clients whose
-code or data differ (another copy of AI Dev, another `AI_DEV_VAULT_ROOT`) get a daemon each.
+code, Node or data differ (another copy of AI Dev, another Node, another `AI_DEV_VAULT_ROOT`) get a
+daemon each; two spellings of one folder are one.
 A daemon that dies is replaced at the client's next request (the request it was running gets an
 error that says so); one that cannot start leaves the client served in its own process, with the
 reason on stderr. A client that writes its requests and closes its input still gets every answer.

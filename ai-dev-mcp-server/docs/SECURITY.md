@@ -49,18 +49,22 @@ tell them what to do. What stands in the way:
   reached something other than the daemon — an address another process took over after the
   daemon exited — refuses it before it sends anything else.
 - **What each session sees.** Only then does the client send its environment, and the daemon
-  runs that session — its tools, the processes they start, its downloads — in it, as the
-  client's own process would have run in 2.x: one client's PATH, proxy or token never serves
-  another (Д-190). The environment stays in the daemon's memory for the session's life and is
-  not written anywhere.
-- **What it serves.** A daemon serves only clients of its own build: the same code and version
-  and the same daemon-wide variables — where the data is and which model is loaded
-  (`src/core/session-env.mjs` lists them; a variable it does not know counts as daemon-wide). A
+  runs that session — its tools, the processes they start, its downloads, the certificates its
+  downloads and its `https://` proxy are checked against — in it, as the client's own process
+  would have run in 2.x: one client's PATH, proxy or token never serves another (Д-190, Д-200).
+  The environment stays in the daemon's memory for the session's life and is not written
+  anywhere.
+- **What it serves.** A daemon serves only clients of its own build: the same code and version,
+  the same Node, and the same data — the home, the runtime home, the vault, the state, the index
+  and the model folder, each resolved as the server resolves it, so two spellings of one folder
+  are one (`daemonIdentity` in `src/core/session-env.mjs`; an AI Dev variable it does not know
+  counts as part of the build). A
   client of another build gets a daemon of its own, with its own descriptor and lock; the
   daemon of code replaced where it lies — a `git pull`, an update in place — retires: it takes
   no new client, finishes the sessions it has and is listed in `run/retired-<pid>.json` until it
-  exits (Д-191). `ai-dev daemon status` shows every daemon of the runtime home and, by variable
-  name, why it is not this one; `ai-dev daemon stop` stops them all.
+  exits (Д-191), holding a lock on that record as it held one on its descriptor (Д-198).
+  `ai-dev daemon status` shows every daemon of the runtime home and, by variable name, why it is
+  not this one; `ai-dev daemon stop` stops them all.
 - **One daemon per build.** Its lock, `run/daemon-<build>.json.lock`, follows the protocol every
   lock of AI Dev does (`src/core/file-lock.mjs`): created exclusively, refreshed while the daemon
   lives, broken only when its holder is gone or silent and only if it is still the lock judged

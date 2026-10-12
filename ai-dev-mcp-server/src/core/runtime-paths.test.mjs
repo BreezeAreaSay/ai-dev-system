@@ -138,6 +138,27 @@ test("a socket directory is made this user's alone: 0700, a plain directory, own
   await assert.rejects(prepareSocketDirectory(fresh, { uid: (process.getuid?.() ?? 0) + 1 }), /belongs to uid/);
 });
 
+test("a socket directory a file system leaves open after chmod is refused, so the next one is used (Д-227)", { skip: process.platform === "win32" && "POSIX modes" }, async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-sockdir-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const open = path.join(root, "open");
+  await fs.mkdir(open);
+  await fs.chmod(open, 0o755);
+  // A mount that takes chmod and keeps its mode: chmod through a handle does nothing.
+  const probe = await fs.open(root, "r");
+  const handles = Object.getPrototypeOf(probe);
+  await probe.close();
+  const chmod = handles.chmod;
+  handles.chmod = async () => undefined;
+  try {
+    await assert.rejects(prepareSocketDirectory(open), /stays open to other users: its file system keeps the mode it has/);
+  } finally {
+    handles.chmod = chmod;
+  }
+  await prepareSocketDirectory(open);
+  assert.equal((await fs.stat(open)).mode & 0o777, 0o700, "where chmod works, the folder is made private and used");
+});
+
 test("a run folder open to others is made private; a link, another user's folder and Windows are left alone (Д-215)", { skip: process.platform === "win32" && "POSIX modes and owners" }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-tighten-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

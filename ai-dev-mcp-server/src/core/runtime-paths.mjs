@@ -121,7 +121,8 @@ export function daemonAddressCandidates({ platform = process.platform, name = ra
  * Make a socket's directory, and make sure it is this user's alone: a plain
  * directory, not a link, owned by this uid, with no access for group or
  * others. `/tmp/ai-dev-<uid>` can be created by anyone before the daemon gets
- * there; a directory that is not ours is refused rather than used.
+ * there; a directory that is not ours is refused rather than used, and so is
+ * one a file system leaves open after chmod (docs/DEFECTS.md, Д-227).
  *
  * @param {string} directory
  * @param {{ uid?: number }} [options]
@@ -141,7 +142,10 @@ export async function prepareSocketDirectory(directory, { uid = process.getuid?.
     const stat = await handle.stat();
     if (!stat.isDirectory()) throw new Error(`${directory} is not a plain directory.`);
     if (uid !== undefined && stat.uid !== uid) throw new Error(`${directory} belongs to uid ${stat.uid}, not to this user (${uid}).`);
-    if ((stat.mode & 0o077) !== 0) await handle.chmod(0o700);
+    if ((stat.mode & 0o077) !== 0) {
+      await handle.chmod(0o700);
+      if (((await handle.stat()).mode & 0o077) !== 0) throw new Error(`${directory} stays open to other users: its file system keeps the mode it has.`);
+    }
   } finally {
     await handle.close();
   }

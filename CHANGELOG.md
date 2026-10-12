@@ -315,6 +315,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whose filesystem will not answer `statfs` is not refused anything — an
   unmeasurable disk has no verdict.
 
+- **The npm package `@stonebridgeway/ai-dev-system`, built by `npm run dist`** (owner
+  decision D4; not published — that is the owner's). `scripts/build-dist.mjs` lays out
+  `dist/ai-dev/` from `distribution.allowlist.json` — the one list the Docker build context is
+  made from too, so the two can no longer drift (measured: 1,797 files, byte for byte the same
+  in both) — with the package's `package.json`, the server's lockfile as `npm-shrinkwrap.json`,
+  `distribution.json` listing every file's sha256, and the production dependencies;
+  `npm run dist:pack` makes the tarball (9.9 MB, 1,800 entries, 25.7 MB unpacked) and checks
+  it, unpacked, byte for byte against that list, and `prepack` refuses a folder changed since it
+  was built. In a clean `node:24` container with nothing but the tarball,
+  `npx --yes ./stonebridgeway-ai-dev-system-<version>.tgz setup --yes` ends `Health: ok` with
+  25 checks in 41–57 s, and the server it configured answers MCP with 135 tools.
+- **`npx … setup` installs a copy that outlives npx's cache.** Run from npm's `_npx` cache,
+  `setup` installs the package into `~/.ai-dev/app/<version>-<fingerprint>` (its files checked
+  against `distribution.json`, its dependencies by `npm ci --ignore-scripts` from the npm cache
+  npx filled) and goes on from there; client configs name that copy, never the cache, and the
+  newest two copies stay.
+- **A vault of the user's own for installed packages, kept current by the seed's manifest**
+  (`src/core/seed-sync.mjs`). Outside a clone the server writes into `~/.ai-dev/vault`, filled
+  from the seed the package ships and brought up to each newer one by sha256: an untouched file
+  is replaced, a changed one stays — with the update's version beside it as `<file>.seed-new`
+  when both changed, named by `ai-dev doctor` (`vault_seed`) until merged — a deleted one stays
+  deleted, one the seed dropped goes unless changed, and an older version never rolls the vault
+  back. Two servers starting at once sync it once.
+- **`ai-dev backup` and `ai-dev restore`, on every system and in every layout** (Д-104). A
+  backup is the vault this install reads plus AI Dev's `state/`, every file with its sha256,
+  and a `.sha256` beside the archive; a restore checks both, asks for `--confirm`, writes over
+  nothing without `--overwrite` (checked before the first file), and takes a 2.x archive into a
+  folder named with `--to`. In 2.x both were PowerShell scripts that worked only inside a full
+  vault, and `ai-dev backup` refused every system but Windows.
+
 ### Changed
 
 - **Hooks run through a Node launcher on macOS and Linux** (`docs/DEFECTS.md`, Д-103, the
@@ -445,6 +475,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   READMEs and the ten documents behind them cover what the two READMEs did,
   the local-first install path and the local model in a container included.
 
+- **The server finds its content through one layout module** (`src/core/install-layout.mjs`):
+  a full vault, a clone, an installed package or the Docker image, with no `09-mcp`
+  assumption; `AI_DEV_VAULT_ROOT` still names a full vault.
+- **Hints name commands the way this install runs them**: `npm run setup -- --model` from a
+  clone, `ai-dev setup --model` from a global install, `npx @stonebridgeway/ai-dev-system setup
+  --model` from npx; when the model runtime is missing, the way back for the install at hand
+  instead of "run npm ci".
+- **The local model's packages are optional dependencies** (Д-174). `@huggingface/transformers`
+  and `onnxruntime-node` are `optionalDependencies`, still pinned exactly (the security gate now
+  checks optional dependencies too): an install whose onnxruntime-node postinstall cannot fetch
+  its CUDA provider goes on, without dense search, and says how to get it.
+
 ### Deprecated
 
 - **`node scripts/ai-dev.mjs`, `scripts/start-local.ps1` and
@@ -457,6 +499,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   commands as before.
 - **The server name `ai-dev-system`** in client configs. 2.x entries that use it keep
   working; `npm run clients:install` (or `npm run setup`) replaces them with `ai-dev`.
+
+- **`scripts/backup-ai-dev-system.ps1`, `restore-ai-dev-system.ps1`, `restore-runtime.ps1` and
+  `run-acceptance.ps1`** are wrappers until 4.0, each with a note on stderr, over `ai-dev
+  backup`, `ai-dev restore`, `npm ci` plus `ai-dev setup --frontend-qa`, and `npm run check`.
+  None of them, nor `start-local.ps1`, looks for the Codex desktop runtime's Node or npm any
+  more: `node` from PATH, or `AI_DEV_NODE`.
 
 ### Removed
 
@@ -483,6 +531,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shipped and is gone too. `scripts/run-acceptance.ps1` no longer runs Python tests, and the
   unpublished AUR and Homebrew recipes no longer install the folder (`npm run packaging:check`
   now fails on a path either recipe names that the repository does not have).
+
+- **`~/.codex` is no longer read** (`docs/DEFECTS.md`, Д-104). 2.x used
+  `~/.codex/state/ai-dev-system`, its index, models and artifacts whenever they existed and
+  `~/.ai-dev`'s did not, while the hooks always wrote to `~/.ai-dev/state`: the server and the
+  hooks kept two histories. What AI Dev kept there moves into `~/.ai-dev` once, on the first
+  start — nothing overwritten, identical files dropped, ledgers merged, conflicts named by
+  `ai-dev doctor` — with a record in `state/runtime-home-migration.json`; the rest of `~/.codex`
+  is Codex's own and stays.
 
 ### Fixed
 
@@ -995,6 +1051,20 @@ four of those arrived as upstream issues #63–#66.
   warns when the machine has none of them. `docker/README.md` and both INSTALL
   guides carry the matrix of what can actually run under `--network none`.
   (upstream #48, docs/DEFECTS.md Д-55)
+
+- **`npx` from the package's tarball failed on Linux x64, silently** (Д-174). onnxruntime-node's
+  postinstall fetches a 236 MB CUDA provider the server never loads; where api.nuget.org is out
+  of reach the install exited 1 after 17 s with nothing printed. Now: exit 0, `Health: ok`, the
+  model runtime installed in the app home without the download, and the server answers MCP.
+- **`npm pack` dropped a file of the seed, and an installed package's vault was never filled**
+  (Д-175). npm leaves `.gitignore`, `.npmrc` and a few other names out of every tarball; the
+  seed had one, and the vault sync stopped on it with 128 of 1,575 files missing and no record,
+  again at every start. The seed no longer carries it, a seed refresh skips such names, the
+  build refuses them and checks the tarball against its list, and a sync goes on past a file a
+  package lacks.
+- **`AI_DEV_HOME` did not reach the client configs** (Д-176): a client started from the Dock
+  looked for the index, the state and a package's vault in `~/.ai-dev` while setup had built
+  them in `$AI_DEV_HOME`. The entry carries it now.
 
 ### Security
 

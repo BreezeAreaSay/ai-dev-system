@@ -18,7 +18,7 @@ scratch directory it:
 
 1. checks the base commit out as a git worktree and installs it the way 2.x documented,
    `npm ci --ignore-scripts`;
-2. creates the state four users have, each with its own home directory:
+2. creates the state five users have, each with its own home directory:
    - **default** — no `AI_DEV_HOME`;
    - **AI_DEV_HOME** — set to a folder of its own, where 2.x wrote everything one level too
      deep, into `$AI_DEV_HOME/.ai-dev` (docs/DEFECTS.md, Д-90);
@@ -27,6 +27,9 @@ scratch directory it:
    - **Python dense backend** — a client configuration with `AI_DEV_DENSE_BACKEND=python` and
      `BGE_M3_PYTHON`, the torch weights 2.x downloaded in `~/.ai-dev/models/bge-m3`, and vectors
      labelled with the Python backend's provenance (3.0 removed that backend, decision D3);
+   - **Codex runtime** — `~/.codex/state/ai-dev-system` and the index folder under
+     `~/.codex/cache/ai-dev-system`, which 2.x used whenever they existed and `~/.ai-dev`'s did
+     not — while the hooks always wrote to `~/.ai-dev/state` (docs/DEFECTS.md, Д-104);
 
    and for each: a task with a checkpoint, a decision, an instinct, a session handoff, the
    search index with dense vectors — written by the 2.x helper as its ONNX path writes them,
@@ -56,7 +59,10 @@ scratch directory it:
    answers without comparing the Python vectors with anything, and that the one command the
    notes give — `npm run setup -- --model`, with a synthetic model standing in for BGE-M3 on a
    local mirror where huggingface.co would be — gives every eligible document a vector of the
-   new model while the index stays whole.
+   new model while the index stays whole. For the Codex runtime user it checks that nothing of
+   AI Dev's is left in `~/.codex/state/ai-dev-system`, that the task now lives in
+   `~/.ai-dev/state`, that the move is recorded in `state/runtime-home-migration.json` with where
+   it came from, and that the 2.x hook — which never looked in `~/.codex` — now sees the task.
 
 Each check prints `✓` or `✗`; the last line is `N of M checks passed`, and any `✗` makes the
 exit code 1.

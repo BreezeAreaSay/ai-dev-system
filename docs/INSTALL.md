@@ -10,6 +10,7 @@ started, the commands in the [README](../README.md#install) are enough.
 
 - [Requirements](#requirements)
 - [Quick start: run it locally](#quick-start-run-it-locally)
+- [From the npm package](#from-the-npm-package)
 - [One command on Windows](#one-command-on-windows)
 - [One command on macOS and Linux](#one-command-on-macos-and-linux)
 - [The packaged path: Docker](#the-packaged-path-docker)
@@ -113,6 +114,51 @@ at `/models` (see [The local model in a container](#the-local-model-in-a-contain
 The image says so about itself (`AI_DEV_RUNTIME=docker`), and the health check reads
 it: inside a container `embedding_backend` reports dense search as not set up and
 points at the mount, rather than at a `npm run setup` no container can run.
+
+## From the npm package
+
+The same system without a clone: the package `@stonebridgeway/ai-dev-system`, built by
+`npm run dist` from the same allowlist the Docker image is made from. Until the owner
+publishes it, build the tarball from a clone with `npm run dist:pack` (it lands in `dist/`)
+and use its path where the commands below say `@stonebridgeway/ai-dev-system`:
+
+```bash
+npx @stonebridgeway/ai-dev-system setup           # or: npx --yes ./stonebridgeway-ai-dev-system-<version>.tgz setup
+```
+
+`npx` runs the package from its cache, which npm may clear at any time, so `setup` installs
+it first into `~/.ai-dev/app/<version>-<fingerprint>` — its own copy, with its dependencies
+from the package's lockfile (`npm ci --ignore-scripts`, out of the cache npx just filled) — and
+goes on from there. The client configs it writes name that copy; the newest two copies are
+kept, so a client still running the previous one is not pulled out from under. Running the
+same command with a newer version is the update.
+
+A global install works too: `npm install -g @stonebridgeway/ai-dev-system`, then `ai-dev setup`;
+the client configs name the global install. On Linux x64 install it as
+`ONNXRUNTIME_NODE_INSTALL=skip npm install -g @stonebridgeway/ai-dev-system`: onnxruntime-node's
+install script otherwise downloads a 236 MB CUDA provider the server never loads, and behind a
+proxy that download fails. The local model's two packages are optional dependencies, so a
+failed download costs dense search, not the install (docs/DEFECTS.md, Д-174); `ai-dev model
+doctor` names the way back for the install you have.
+
+**Your vault.** A package's own folder is read-only to the server: what it writes — registries,
+project cards, notes — goes into `~/.ai-dev/vault`, which the seed the package ships is copied
+into. Each newer version brings its changes to the seed by its sha256 manifest:
+
+- a file you have not touched is replaced;
+- a file you changed stays yours. When the update changed it too, the update's version is put
+  beside it as `<file>.seed-new`, and `ai-dev doctor` names each one (check `vault_seed`) until
+  you have merged what you want and deleted the `.seed-new` file;
+- a file you deleted stays deleted, and one the seed no longer has goes, unless you changed it;
+- an older version never rolls a newer vault back.
+
+Deleting `~/.ai-dev/vault/.ai-dev-seed.json` makes the next start begin again: what you deleted
+comes back, and every file you changed is kept and named as above.
+
+Commands are `ai-dev <command>` after a global install, `npx @stonebridgeway/ai-dev-system
+<command>` otherwise; the hints the server prints are spelled the same way. `AI_DEV_HOME`, when
+set, is written into every client's entry, so a client started from the Dock or the Start menu
+finds the same data as the terminal you ran setup from (Д-176).
 
 ## One command on Windows
 
@@ -746,11 +792,15 @@ npm run docker:audit
 npm run docker:smoke -- --image ai-dev-system:local
 ```
 
-For a full sweep of the whole suite:
+For the acceptance run — the same gate ten times in a row:
 
 ```powershell
-..\scripts\run-acceptance.ps1
+npm run acceptance
 ```
+
+`scripts/run-acceptance.ps1` is a wrapper over `npm run check` until 4.0. `npm run dist`
+builds the package folder (`dist/ai-dev/`), `npm run dist:pack` the tarball beside it, checked
+file by file against the list it was built from.
 
 If Docker Desktop cannot pull the base image behind a VPN or corporate DNS,
 configure a proxy / DNS in Docker Desktop. Do not put proxy passwords in the

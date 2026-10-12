@@ -16,10 +16,10 @@ installed package — and holds two things:
 - `runtime/state/` — AI Dev's state: tasks, sessions, the usage ledger, instincts, skill
   outcomes, the record of client configs — from `AI_DEV_STATE_ROOT` when that moves it.
 
-`BACKUP-MANIFEST.json` inside lists every file with its size, sha256 and permissions. Indexes, caches, the
-model, dependencies and VCS folders are left out — `ai-dev setup` rebuilds them — except the
-vendored tree a skill runs from (Archify's), which nothing reinstalls. Links are not followed and
-are listed as left out. The archive holds your notes: keep it private.
+`BACKUP-MANIFEST.json` inside lists every file with its size, sha256 and permissions. Indexes,
+caches, the model, dependencies and VCS folders are left out — `ai-dev setup` rebuilds them —
+except the vendored tree a skill runs from (Archify's), which nothing reinstalls. Links are not
+followed and are listed as left out. The archive holds your notes: keep it private.
 
 2.x had a PowerShell script for this that worked only inside a full vault
 (docs/DEFECTS.md, Д-104); `scripts/backup-ai-dev-system.ps1` is now a wrapper over this command
@@ -42,9 +42,10 @@ AI Dev's state folder. Before anything is written:
 
 It is all or nothing: every file is unpacked beside where it goes and checked against its
 sha256 before the first one is put in place, a file it replaces is set aside until all are in,
-and a failure on the way puts the set-aside ones back. Permissions come back as they were. An archive the 2.x script made holds a whole vault and has no per-file
-sums; it needs `--to`. `scripts/restore-ai-dev-system.ps1` is a wrapper over this command until
-4.0.
+and a failure on the way puts the set-aside ones back. Permissions come back as they were.
+
+An archive the 2.x script made holds a whole vault and has no per-file sums; it needs `--to`.
+`scripts/restore-ai-dev-system.ps1` is a wrapper over this command until 4.0.
 
 ## Recovery Order
 

@@ -1243,6 +1243,9 @@ four of those arrived as upstream issues #63–#66.
   deleted under it stays deleted, and a folder the retired record's own lock made again is removed
   with the others. A second daemon in the same deleted runtime home still leaves the folders it did
   not make; SECURITY.md says so.
+- **A socket folder a file system leaves open is passed over** (Д-227): the daemon changed the mode
+  of its socket's folder without looking at what came of it, and on a mount that keeps its modes
+  listened in a `run/` that stayed 0755. It now checks again and listens in the next folder.
 
 ### Security
 

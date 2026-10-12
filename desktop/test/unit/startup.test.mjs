@@ -25,6 +25,9 @@ test("what stops the start is said with what to do, and whether Try again can wo
   const notObject = startupFailure(new Error("/home/me/.ai-dev/config.json does not hold a settings object."), { serverRoot, loaded: true, t: (key, params) => translate("ru", key, params) });
   assert.equal(notObject.error, "/home/me/.ai-dev/config.json does not hold a settings object.");
   assert.match(notObject.hint, /^Исправьте файл или удалите его/);
+  // A folder in its place: the server names the file there too (Д-274).
+  const folder = startupFailure(new Error("/home/me/.ai-dev/config.json cannot be read: EISDIR: illegal operation on a directory, read"), { serverRoot, loaded: true, t });
+  assert.equal(folder.hint, "Fix the file or remove it — without it the defaults are used — then press Try again.");
   assert.equal(startupFailure(new Error("odd"), { serverRoot, loaded: true, t }).restart, false);
   assert.equal(startupFailure(new SyntaxError("Unexpected token"), { serverRoot, loaded: false, t }).restart, true);
 });

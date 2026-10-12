@@ -370,3 +370,50 @@ test("two Starts while one attempt runs share it, after the link has looked for 
   assert.equal(opens.slice(before).filter((attempt) => attempt.start).length, 1, "one attempt for two presses");
   assert.equal(daemon.state.error, "the daemon did not start");
 });
+
+test("a daemon that will not stop keeps the link's session: online, and the answer says why (Д-273)", async (t) => {
+  const { server, clients } = fakeServer();
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  server.stopDaemons = async () => ({ daemons: [{ pid: 11, stopped: false, reason: "No handshake within 5000 ms" }] });
+  const answer = await daemon.stopDaemon();
+  assert.deepEqual(answer.daemons.map((item) => [item.pid, item.stopped]), [[11, false]]);
+  assert.equal(daemon.state.phase, "online", "the daemon still serves");
+  assert.equal(clients[0].closed, false, "and the session on it is kept");
+  assert.equal((await daemon.call("clients_list", {}, { id: "call-1" })).ok, true);
+  // Another daemon that would not stop does not keep the link on its own, which did.
+  server.stopDaemons = async () => {
+    clients[0].onclose();
+    return { daemons: [{ pid: 11, stopped: true }, { pid: 12, retired: true, stopped: false, reason: "it is still running" }] };
+  };
+  await daemon.stopDaemon();
+  assert.deepEqual([daemon.state.phase, daemon.state.error], ["offline", ""]);
+});
+
+test("the move off a retired daemon starts one only when the app may start one (Д-276, п. 5)", async (t) => {
+  // Autostart off: the link only looked, and found a client's daemon.
+  const looked = fakeServer();
+  looked.server.down = true;
+  const lookOnly = link(t, looked.server, { statusEveryMs: 60_000, retryEveryMs: 10 });
+  await lookOnly.connect({ start: false });
+  looked.server.down = false;
+  await sleep(40);
+  assert.equal(lookOnly.state.phase, "online");
+  // It retires, and no daemon of the new code serves yet: the move starts none.
+  looked.server.retired = looked.clients.at(-1);
+  looked.server.down = true;
+  await lookOnly.refreshStatus({ checks: true });
+  await sleep(20);
+  assert.deepEqual(looked.opens.filter((open) => open.start), [], "no daemon started");
+  assert.equal(lookOnly.state.phase, "offline");
+  // Autostart on (or Start pressed): the move starts one.
+  const started = fakeServer();
+  const may = link(t, started.server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
+  await may.connect({ start: true });
+  started.server.retired = started.clients[0];
+  started.server.down = true;
+  await may.refreshStatus({ checks: true });
+  await sleep(20);
+  assert.equal(may.state.phase, "online");
+  assert.deepEqual(started.opens.map((open) => open.start), [true, true]);
+});

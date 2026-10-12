@@ -33,7 +33,7 @@ export function trayMenuTemplate({ t, online, rebuilding, failed = null, stopFai
  *
  * @param {{ electron: typeof import("electron"), link: import("./daemon-link.mjs").DaemonLink, t: (key: string, params?: object) => string, actions: object }} options
  *   `t` translates into the language in force when it is called.
- * @returns {{ tray: import("electron").Tray, refresh: () => void, setRebuilding: (percent: number | null) => void, setStopFailed: (failure: string | null) => void, state: () => string, menu: () => Array<object> }}
+ * @returns {{ tray: import("electron").Tray, refresh: () => void, setRebuilding: (percent: number | null) => void, setStopFailed: (failure: string | null) => void, state: () => string, menu: () => Array<object>, tooltip: () => string }}
  */
 export function createTray({ electron, link, t, actions }) {
   const { Menu, Tray, nativeImage } = electron;
@@ -45,9 +45,15 @@ export function createTray({ electron, link, t, actions }) {
   let rebuilding = null;
   let failed = null;
   let stopFailed = null;
+  // What Electron was last given, which is what the person sees.
+  let template = [];
+  let tip = "";
   const tray = new Tray(images.offline);
   const refresh = () => {
     const online = link.state.phase === "online";
+    // A Stop that failed was about the daemon the app was on: once the app is
+    // off it, the note no longer holds (docs/DEFECTS.md, Д-276, п. 1).
+    if (!online) stopFailed = null;
     current = online ? trayState(link.status) : "offline";
     tray.setImage(images[current]);
     const tips = [
@@ -55,8 +61,10 @@ export function createTray({ electron, link, t, actions }) {
       failed ? t("tray.rebuildFailedTip", { message: failed.slice(0, 120) }) : null,
       stopFailed ? t("tray.stopFailedTip", { message: stopFailed.slice(0, 120) }) : null
     ];
-    tray.setToolTip(tips.filter(Boolean).join("\n"));
-    tray.setContextMenu(Menu.buildFromTemplate(trayMenuTemplate({ t, online, rebuilding, failed, stopFailed }, actions)));
+    tip = tips.filter(Boolean).join("\n");
+    tray.setToolTip(tip);
+    template = trayMenuTemplate({ t, online, rebuilding, failed, stopFailed }, actions);
+    tray.setContextMenu(Menu.buildFromTemplate(template));
   };
   tray.on("click", actions.open);
   link.on("state", refresh);
@@ -78,9 +86,9 @@ export function createTray({ electron, link, t, actions }) {
       refresh();
     },
     state: () => current,
-    /** The menu as it is now: each item's id, label and whether it is enabled. */
-    menu: () => trayMenuTemplate({ t, online: link.state.phase === "online", rebuilding, failed, stopFailed }, actions)
-      .filter((item) => item.id)
-      .map(({ id, label, enabled = true }) => ({ id, label, enabled }))
+    /** The menu as Electron was last given it: each item's id, label and whether it is enabled. */
+    menu: () => template.filter((item) => item.id).map(({ id, label, enabled = true }) => ({ id, label, enabled })),
+    /** The tooltip as Electron was last given it. */
+    tooltip: () => tip
   };
 }

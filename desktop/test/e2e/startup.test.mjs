@@ -63,6 +63,8 @@ test("a language chosen on the failure screen holds once Try again gets going, a
   assert.equal(await page.textContent("h1"), "AI Dev could not start");
   await page.selectOption("#language", "ru");
   await page.waitForFunction(() => document.querySelector("h1")?.textContent === "AI Dev не смог запуститься");
+  // The main process has tried to write it, and could not, before the file is fixed (Д-275).
+  await page.evaluate(() => window.aiDev.setLanguage("ru"));
   assert.equal(await fs.readFile(settings, "utf8"), "{ this is not json", "a broken file is not written over");
   await fs.writeFile(settings, JSON.stringify({ schema_version: 1 }));
   await page.click("#retry");
@@ -102,4 +104,59 @@ test("Restart AI Dev asks Electron to start the app again, and to leave this run
   const deadline = Date.now() + 10_000;
   while ((await app.evaluate(() => globalThis.restartAsked.length)) < 2 && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.deepEqual(await app.evaluate(() => globalThis.restartAsked), ["relaunch", "exit 0"]);
+});
+
+test("a fixed settings file that names a language of its own is not written over (Д-276, п. 2)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const settings = path.join(s.home, ".ai-dev", "config.json");
+  await fs.writeFile(settings, "{ this is not json");
+  const { page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="broken"]', { timeout: 60_000 });
+  await page.selectOption("#language", "ru");
+  await page.evaluate(() => window.aiDev.setLanguage("ru"));
+  await fs.writeFile(settings, JSON.stringify({ schema_version: 1, language: "en" }));
+  await page.click("#retry");
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  assert.equal(await page.textContent('[data-nav="status"]'), "Status");
+  assert.equal(JSON.parse(await fs.readFile(settings, "utf8")).language, "en");
+});
+
+/** The settings file once it names `language`, or what it holds after 30 s. */
+async function storedLanguage(file) {
+  let stored = null;
+  for (const deadline = Date.now() + 30_000; stored?.language === undefined && Date.now() < deadline;) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    stored = await fs.readFile(file, "utf8").then(JSON.parse, () => null);
+  }
+  return stored?.language;
+}
+
+test("a language chosen while the settings file is broken is written once it is fixed — online, at the next verdict (Д-276, п. 3)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const settings = path.join(s.home, ".ai-dev", "config.json");
+  const { page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  await fs.writeFile(settings, "{ this is not json");
+  await page.selectOption("#language", "ru");
+  await page.evaluate(() => window.aiDev.setLanguage("ru"));
+  assert.equal(await fs.readFile(settings, "utf8"), "{ this is not json", "not written over a broken file");
+  await fs.rm(settings);
+  // Status asks for a verdict, as the tray does every few minutes.
+  await page.click('[data-nav="status"]');
+  assert.equal(await storedLanguage(settings), "ru");
+});
+
+test("a language chosen while the settings file is broken is written once it is fixed — offline, at the connection Start makes (Д-276, п. 3)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t, { settings: { daemon_autostart: false } });
+  const settings = path.join(s.home, ".ai-dev", "config.json");
+  const { page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="offline"]', { timeout: 60_000 });
+  await fs.writeFile(settings, "{ this is not json");
+  await page.selectOption("#language", "ru");
+  await page.evaluate(() => window.aiDev.setLanguage("ru"));
+  assert.equal(await fs.readFile(settings, "utf8"), "{ this is not json");
+  await fs.rm(settings);
+  await page.click("#start-daemon");
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  assert.equal(await storedLanguage(settings), "ru");
 });

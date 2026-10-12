@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { ADVICE, checkTitle, orderedChecks, recommendation } from "../../src/renderer/checks.js";
+import { ADVICE, checkTitle, orderedChecks, recommendation, unsaidProblems } from "../../src/renderer/checks.js";
 import { MESSAGES, translate } from "../../src/renderer/i18n.js";
 
 /**
@@ -55,4 +55,13 @@ test("each check has a name in both languages, and the order is failing first, t
     { name: "a", status: "ok" }, { name: "b", status: "warn" }, { name: "c", status: "fail" }, { name: "d", status: "skipped" }, { name: "e", status: "fail", critical: true }
   ]).map((check) => check.name);
   assert.deepEqual(ordered, ["e", "c", "b", "d", "a"]);
+});
+
+test("a settings problem is listed under the summary only when the summary does not say it (Д-266 п. 8, Д-275)", () => {
+  const problem = 'daemon_idle_minutes: must be a number of minutes, not "forever". The default is used.';
+  assert.deepEqual(unsaidProblems({ summary: problem, settings_problems: [problem] }), [], "said by the summary: not again");
+  const full = "the search index is not built (setup_run builds it); required_notes: 2 required notes are missing.; search_index_file: SQLite search index is missing.";
+  assert.deepEqual(unsaidProblems({ summary: full, settings_problems: [problem] }), [problem], "a full summary: the list says it");
+  assert.deepEqual(unsaidProblems({ summary: full }), []);
+  assert.deepEqual(unsaidProblems(null), []);
 });

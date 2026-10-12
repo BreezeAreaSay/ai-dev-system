@@ -702,6 +702,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[mcp_servers."ai-dev"]` header left a second definition, and a TOML reader then refused
   the whole file. Now the empty and the JSONC file are written (the comment kept), a broken
   file fails only its own client, and the Codex result parses.
+- **A settings file that cannot be read is named in the error** (Д-274). Node names the file in
+  some read errors and not in others — a folder in place of `~/.ai-dev/config.json` failed with
+  just `EISDIR: illegal operation on a directory, read`; now every one says which file.
 - **An interrupted client install could leave `~/.claude.json` empty** (Д-163). Both
   installers rewrote the file in place; killed during the write, a 21 MB `~/.claude.json`
   was left at 0 bytes in 10 of 10 runs. Writes go through a temp file and a rename now — 0 of

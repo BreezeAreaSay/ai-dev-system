@@ -53,6 +53,10 @@ export class DaemonLink extends EventEmitter {
   #moveWhenIdle = false;
   // The calls the person cancelled, told apart from the ones the link ended.
   #byPerson = new WeakSet();
+  // Whether the app may start a daemon: the start-up asked with autostart on,
+  // or the person pressed Start. The move off a retired daemon starts one only
+  // then (docs/DEFECTS.md, Д-276, п. 5).
+  #mayStart = false;
 
   /** `connecting`, `starting`, `reconnecting`, `online`, `offline`, `no-node` or `broken`, with what goes with it. */
   state = { phase: "connecting" };
@@ -99,6 +103,7 @@ export class DaemonLink extends EventEmitter {
    * session and is opening another: the page keeps its place.
    */
   connect({ start = false, reconnecting = false } = {}) {
+    if (start && !reconnecting) this.#mayStart = true;
     if (!this.#server || !this.#execPath) return Promise.resolve(this.state);
     if (this.#client) return Promise.resolve(this.state);
     if (this.#connecting) {
@@ -322,13 +327,19 @@ export class DaemonLink extends EventEmitter {
     return true;
   }
 
-  /** Stop every daemon of this runtime home (the tray's "Stop the daemon"). */
+  /**
+   * Stop every daemon of this runtime home (the tray's "Stop the daemon").
+   * One that would not stop still serves: when it is the link's own, the link
+   * keeps its session there, and the answer says why (docs/DEFECTS.md, Д-273).
+   */
   async stopDaemon() {
     this.#leaving = "stopped";
     try {
-      const stopped = await this.#server.stopDaemons({ env: this.#env, timeoutMs: 10_000 });
-      this.#lost(this.#client);
-      return stopped;
+      const answer = await this.#server.stopDaemons({ env: this.#env, timeoutMs: 10_000 });
+      const serving = this.status?.served_by?.pid ?? this.state.served_by?.pid;
+      const kept = (answer?.daemons ?? []).some((daemon) => daemon.stopped === false && daemon.pid === serving);
+      if (!kept) this.#lost(this.#client);
+      return answer;
     } finally {
       // Whatever came of it, a later loss is unasked again (Д-266, п. 10).
       this.#leaving = null;
@@ -336,8 +347,9 @@ export class DaemonLink extends EventEmitter {
   }
 
   /**
-   * Drop this session and open a new one, starting a daemon when none of this
-   * build runs. The old daemon goes on for its other clients.
+   * Drop this session and open a new one — starting a daemon when none of
+   * this build runs, if the app may start one. The old daemon goes on for its
+   * other clients.
    */
   async reconnect() {
     this.#leaving = "reconnect";
@@ -350,7 +362,7 @@ export class DaemonLink extends EventEmitter {
     // retired — gives up after close(); a connect() now would only share it.
     // Wait for it, then open a new one (docs/DEFECTS.md, Д-268).
     await this.#connecting?.catch(() => undefined);
-    return this.connect({ start: true, reconnecting: true });
+    return this.connect({ start: this.#mayStart, reconnecting: true });
   }
 
   async close(reason = this.#t("link.closing")) {

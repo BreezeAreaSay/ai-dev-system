@@ -79,17 +79,31 @@ test("each state is drawn in its own colour, and a failed rebuild is said in the
   assert.ok(set.at(-1).buffer.equals(circlePng(TRAY_COLOURS.offline, 32)));
   tray.setRebuilding(null, "The index folder is a file.");
   assert.equal(tray.menu().find((item) => item.id === "rebuild").label, "Rebuild failed — try again");
+  assert.match(tray.tray.tip, /\nThe last rebuild failed: The index folder is a file\.$/, "and why, in the tooltip");
   tray.setRebuilding(10);
   assert.equal(tray.menu().find((item) => item.id === "rebuild").label, "Rebuilding the index… 10%");
   tray.setRebuilding(null);
   assert.equal(tray.menu().find((item) => item.id === "rebuild").label, "Rebuild search index");
   assert.ok(menu.length > 0);
-  // A Stop that failed is said too, with why in the tooltip, until the next one (Д-271, п. 6).
+  // A Stop that failed is said too, with why in the tooltip, until the next one (Д-271, п. 6) —
+  // in the menu Electron is given, which is the one the person sees (Д-275).
+  const native = () => menu.find((item) => item.id === "stop");
   link.state = { phase: "online" };
-  tray.setStopFailed("EPERM: operation not permitted, kill");
+  tray.setStopFailed("No handshake within 5000 ms");
+  assert.deepEqual([native().label, native().enabled], ["Stop failed — try again", true]);
   assert.deepEqual(tray.menu().find((item) => item.id === "stop"), { id: "stop", label: "Stop failed — try again", enabled: true });
-  assert.match(tray.tray.tip, /The daemon did not stop: EPERM/);
+  assert.match(tray.tray.tip, /The daemon did not stop: No handshake within 5000 ms/);
+  assert.equal(tray.tooltip(), tray.tray.tip);
   tray.setStopFailed(null);
-  assert.equal(tray.menu().find((item) => item.id === "stop").label, "Stop the daemon");
+  assert.equal(native().label, "Stop the daemon");
   assert.doesNotMatch(tray.tray.tip, /did not stop/);
+  // The note was about the daemon the app was on: once the app is off it, it goes (Д-276, п. 1).
+  tray.setStopFailed("No handshake within 5000 ms");
+  link.state = { phase: "offline" };
+  link.emit("state", link.state);
+  assert.equal(native().label, "Stop the daemon");
+  assert.doesNotMatch(tray.tray.tip, /did not stop/);
+  link.state = { phase: "online" };
+  link.emit("state", link.state);
+  assert.equal(native().label, "Stop the daemon", "not back on the next daemon");
 });

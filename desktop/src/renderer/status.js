@@ -1,7 +1,7 @@
 // The Status screen: where the system stands and why, every health check with
 // its details and what to do about it, and the buttons that do it.
 import * as api from "./api.js";
-import { DETAIL_ROWS, checkTitle, orderedChecks, recommendation } from "./checks.js";
+import { DETAIL_ROWS, checkTitle, orderedChecks, recommendation, unsaidProblems } from "./checks.js";
 import { h, progressBar, show } from "./dom.js";
 
 /**
@@ -67,7 +67,7 @@ function overview(view, status) {
  */
 function why(view, status) {
   if (status.status === "ok") return null;
-  const problems = (status.settings_problems ?? []).filter((problem) => !String(status.summary ?? "").includes(problem));
+  const problems = unsaidProblems(status);
   return h("div", { className: "why", dataset: { field: "why" } },
     h("p", {}, h("span", { className: "label" }, `${view.t("status.why")}: `), status.summary),
     problems.length

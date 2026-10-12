@@ -491,7 +491,11 @@ export function createSearchTools(host) {
     ],
     handlers: {
       search_index_status: (args) => host.search.status(args),
-      rebuild_search_index: (args) => host.search.rebuild(args),
+      // Progress and cancellation come with the request, never in the
+      // arguments: those are JSON from the client (docs/DEFECTS.md, Д-187).
+      rebuild_search_index: ({ onProgress, signal, ...args } = {}, { onProgress: progress, signal: cancel } = {}) => (
+        host.search.rebuild({ ...args, ...(progress ? { onProgress: progress } : {}), ...(cancel ? { signal: cancel } : {}) })
+      ),
       search_all: ({ query, scope = "all", limit = 10, project = "", source = "", categories = "", folders = "" } = {}) => (
         host.search.search({ query, scope, limit, project, source, categories, folders })
       ),

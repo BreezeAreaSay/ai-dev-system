@@ -66,10 +66,8 @@ async function embedDocuments({ say, progress, signal }) {
     const result = await callTool("rebuild_search_index", {
       include_external_project_files: true,
       dense_embeddings: true,
-      dense_incremental: true,
-      onProgress: progress,
-      signal
-    });
+      dense_incremental: true
+    }, { onProgress: progress, signal });
     progress.end();
     const document = JSON.parse(result?.content?.[0]?.text ?? "{}");
     say(`   ${document.dense_embedded_documents ?? 0} embedded now, ${document.dense_documents ?? 0} with a vector in all, `

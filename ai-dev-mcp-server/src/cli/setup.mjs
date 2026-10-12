@@ -353,15 +353,13 @@ async function setup({ options, io, runtime, steps }) {
         + `in ${onnxModelDir}, ${result.downloaded} file(s) fetched${result.resumed ? `, ${result.resumed} continued` : ""}`;
     },
     async dense_index() {
-      // In this process the rebuild takes a progress callback and a signal;
-      // over MCP the same arguments are JSON and carry neither.
+      // The progress listener and the cancellation go with the call, as a
+      // request over MCP carries them, not among its JSON arguments.
       const result = await cancellable((signal) => callTool("rebuild_search_index", {
         include_external_project_files: true,
         dense_embeddings: true,
-        dense_incremental: true,
-        onProgress: progress,
-        signal
-      }));
+        dense_incremental: true
+      }, { onProgress: progress, signal }));
       return steps.summarizeToolResult(result, (doc) => (
         `${doc.dense_documents ?? "?"} document(s) embedded, ${doc.dense_pending_documents ?? 0} still pending`
       ));

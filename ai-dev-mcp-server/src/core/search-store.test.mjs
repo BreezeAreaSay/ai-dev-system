@@ -124,6 +124,40 @@ test("writing in place leaves exactly what a full rebuild writes", needsSqlite, 
   assert.equal((await indexStatus({ vaultRoot: vault, indexPath: inPlace })).stale, false);
 });
 
+test("a rebuild cancelled while it writes leaves the index as it was, and says how far it got (Д-187)", needsSqlite, async (t) => {
+  const vault = tempRoot(t);
+  const indexPath = path.join(tempRoot(t), "index", "ai-dev-search.sqlite");
+  buildVault(vault, { notes: 300, skills: 30 });
+  await rebuildIndex({ vaultRoot: vault, indexPath });
+  const before = dump(indexPath);
+  // Eighty new notes: few enough that `inPlace` writes only them, enough for a slice of 64.
+  for (let index = 0; index < 80; index += 1) write(vault, `02-knowledge/new-${index}.md`, `# New ${index}\n\nWritten after the first build.`);
+  for (const inPlace of [false, true]) {
+    const controller = new AbortController();
+    const heard = [];
+    await assert.rejects(rebuildIndex({
+      vaultRoot: vault,
+      indexPath,
+      inPlace,
+      signal: controller.signal,
+      onProgress: (event) => {
+        heard.push(event);
+        controller.abort();
+      }
+    }), (error) => error.name === "AbortError" && /cancelled; the index is as it was/.test(error.message));
+    assert.deepEqual(dump(indexPath), before, inPlace ? "in place" : "full");
+    assert.deepEqual(heard, [{ phase: "indexing", done: 64, total: inPlace ? 80 : 411 }]);
+  }
+  const stale = await indexStatus({ vaultRoot: vault, indexPath });
+  assert.equal(stale.added_count, 80, "the new notes wait for the next rebuild");
+  // A signal already raised stops it before it starts; nothing is held after.
+  await assert.rejects(rebuildIndex({ vaultRoot: vault, indexPath, signal: AbortSignal.abort() }), /cancelled/);
+  const progress = [];
+  const summary = await rebuildIndex({ vaultRoot: vault, indexPath, onProgress: (event) => progress.push(event.done) });
+  assert.equal(summary.document_count, 411);
+  assert.deepEqual(progress, [64, 128, 192, 256, 320, 384]);
+});
+
 test("most of a vault changed, or an index of another schema, is rewritten whole", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const indexPath = path.join(tempRoot(t), "index.sqlite");

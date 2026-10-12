@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { resolvePythonCommand } from "./core/python-command.mjs";
 import { callTool, usageLedger } from "./mcp-stdio.mjs";
-import { createAiDevServer } from "./server.mjs";
+import { createAiDevServer, progressReporter, sessionToolCounts } from "./server.mjs";
 
 async function connectedPair() {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -206,4 +206,53 @@ test("the usage ledger records every caller once: direct calls, transport calls,
   assert.equal(errored.isError, true);
   const failures = (await toolCalls("verify_change_hygiene")).filter((event) => !event.ok);
   assert.equal(failures.length, 2, "one failure per call, from whichever caller made it");
+});
+
+test("a tool's progress reaches the client as one rising count across its phases, and a cancelled call stops (Д-187)", async () => {
+  const sent = [];
+  let clock = 0;
+  const reporter = progressReporter({ _meta: { progressToken: "p1" }, sendNotification: async (notification) => sent.push(notification.params) }, { now: () => clock });
+  await reporter.begin("Starting rebuild_search_index");
+  for (const done of [64, 128]) {
+    clock += 200;
+    reporter.onProgress({ phase: "indexing", done, total: 300 });
+  }
+  clock += 10;
+  reporter.onProgress({ phase: "indexing", done: 192, total: 300 });
+  clock += 200;
+  reporter.onProgress({ phase: "embedding", done: 0, total: 40 });
+  clock += 200;
+  reporter.onProgress({ phase: "embedding", done: 40, total: 40 });
+  reporter.end("Completed rebuild_search_index");
+  assert.deepEqual(sent.map((params) => [params.progress, params.total]), [[0, 1], [64, 301], [128, 301], [300, 341], [340, 341], [341, 341]],
+    "throttled to every 100 ms but the last of a phase, never falling back, and at 100% only when the call is done");
+  assert.ok(sent.every((params) => params.progressToken === "p1"));
+  assert.match(sent[1].message, /indexing 64 of 300 document\(s\) \(21%\)/);
+  assert.match(sent[4].message, /embedding 40 of 40 document\(s\)/);
+  assert.equal(sent[5].message, "Completed rebuild_search_index");
+
+  const silent = progressReporter({ sendNotification: async () => assert.fail("no token, no notifications") });
+  await silent.begin("x");
+  assert.equal(silent.onProgress, undefined);
+  silent.end("y");
+});
+
+test("a session's capability profiles come from its own client, not from the process serving it", async (t) => {
+  const everything = sessionToolCounts("");
+  const core = sessionToolCounts("core");
+  assert.equal(everything.tools_listed, everything.tools_total);
+  assert.ok(core.tools_listed < core.tools_total);
+  assert.deepEqual(core.profiles, ["core"]);
+  assert.deepEqual(sessionToolCounts("core,nonsense").unknown_profiles, ["nonsense"]);
+
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  const server = createAiDevServer({ profiles: "core" });
+  const client = new Client({ name: "profiles", version: "1.0.0" }, { capabilities: {} });
+  await server.connect(serverTransport);
+  await client.connect(clientTransport);
+  t.after(async () => {
+    await client.close();
+    await server.close();
+  });
+  assert.equal((await client.listTools()).tools.length, core.tools_listed);
 });

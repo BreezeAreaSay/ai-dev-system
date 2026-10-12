@@ -375,8 +375,25 @@ function documentWriter(db) {
   };
 }
 
+/**
+ * Between two slices of a write: let the event loop turn, say how far the write
+ * is, and stop if the caller cancelled — the transaction around the write is
+ * rolled back, so a cancelled rebuild leaves the index as it was
+ * (docs/DEFECTS.md, Д-187).
+ */
+async function between(done, total, { signal, onProgress } = {}) {
+  await yieldToEventLoop();
+  if (signal?.aborted) throw cancelled();
+  onProgress?.({ phase: "indexing", done, total });
+}
+
+/** The error a cancelled write ends with. */
+function cancelled() {
+  return Object.assign(new Error("The rebuild was cancelled; the index is as it was before it."), { name: "AbortError", cancelled: true });
+}
+
 /** Rewrite every document: the helper's rebuild. */
-async function writeAllDocuments(db, docs) {
+async function writeAllDocuments(db, docs, watch) {
   db.exec(`
     DROP TABLE IF EXISTS documents;
     DROP TABLE IF EXISTS docs_fts;
@@ -387,7 +404,7 @@ async function writeAllDocuments(db, docs) {
   const write = documentWriter(db);
   for (let index = 0; index < docs.length; index += 1) {
     write(docs[index]);
-    if (index % YIELD_EVERY === YIELD_EVERY - 1) await yieldToEventLoop();
+    if (index % YIELD_EVERY === YIELD_EVERY - 1) await between(index + 1, docs.length, watch);
   }
   return docs.length;
 }
@@ -405,7 +422,7 @@ function updatableInPlace(db, previousMeta) {
  * most of the vault changed, or when `docs_fts` is not row for row beside
  * `documents` (an index this module did not write, or a damaged one).
  */
-async function writeChangedDocuments(db, docs, previousMeta) {
+async function writeChangedDocuments(db, docs, previousMeta, watch) {
   if (!updatableInPlace(db, previousMeta)) return -1;
   const indexed = new Map(db.prepare("SELECT rowid, id, content_hash, mtime FROM documents").all().map((row) => [String(row.id), row]));
   const current = new Map(docs.map((doc) => [doc.id, doc]));
@@ -433,7 +450,7 @@ async function writeChangedDocuments(db, docs, previousMeta) {
   ];
   for (let index = 0; index < ordered.length; index += 1) {
     write(ordered[index], indexed.get(ordered[index].id)?.rowid ?? null);
-    if (index % YIELD_EVERY === YIELD_EVERY - 1) await yieldToEventLoop();
+    if (index % YIELD_EVERY === YIELD_EVERY - 1) await between(index + 1, ordered.length, watch);
   }
   const touch = db.prepare("UPDATE documents SET mtime = ? WHERE id = ?");
   for (const doc of docs) {
@@ -474,6 +491,7 @@ async function openWriter(indexPath) {
  * it commits and the whole new one after.
  */
 async function writeIndex(db, docs, options) {
+  const watch = { signal: options.signal, onProgress: typeof options.onProgress === "function" ? options.onProgress : null };
   await beginImmediate(db);
   try {
     const previousMeta = readMeta(db);
@@ -484,17 +502,17 @@ async function writeIndex(db, docs, options) {
       // rowid a new one needs, say — undoes just that and rewrites everything.
       db.exec("SAVEPOINT in_place");
       try {
-        rewritten = await writeChangedDocuments(db, docs, previousMeta);
+        rewritten = await writeChangedDocuments(db, docs, previousMeta, watch);
         db.exec("RELEASE in_place");
       } catch (error) {
         db.exec("ROLLBACK TO in_place");
         db.exec("RELEASE in_place");
-        if (isCorruptError(error)) throw error;
+        if (isCorruptError(error) || error?.cancelled) throw error;
         rewritten = -1;
       }
     }
     const mode = rewritten < 0 ? "full" : "in_place";
-    if (rewritten < 0) rewritten = await writeAllDocuments(db, docs);
+    if (rewritten < 0) rewritten = await writeAllDocuments(db, docs, watch);
 
     const denseStarted = performance.now();
     const supplied = new Map();
@@ -535,6 +553,7 @@ async function writeIndex(db, docs, options) {
       dense_incremental: settings.incremental ? "true" : "false",
       dense_text_limit: settings.textLimit
     });
+    if (watch.signal?.aborted) throw cancelled();
     db.exec("COMMIT");
 
     const byScope = {};
@@ -596,10 +615,13 @@ async function writeIndex(db, docs, options) {
  * @param {string} [options.denseRevision]
  * @param {string} [options.denseDtype]
  * @param {NodeJS.ProcessEnv} [options.env] - For the lock timeout.
+ * @param {AbortSignal} [options.signal] - Stops the write between slices; nothing of it is kept.
+ * @param {(event: { phase: "indexing", done: number, total: number }) => void} [options.onProgress]
  * @returns {Promise<object>} The helper's summary, plus `write_mode` and `rewritten_documents`.
  */
 export async function rebuildIndex(options) {
   return withRebuildLock(options.indexPath, async () => {
+    if (options.signal?.aborted) throw cancelled();
     const { docs } = collectDocuments({
       vaultRoot: options.vaultRoot,
       includeExternalProjectFiles: options.includeExternalProjectFiles !== false

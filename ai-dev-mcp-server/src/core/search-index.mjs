@@ -274,8 +274,11 @@ export function createSearchIndexRuntime({
    * batches; either way nothing embedded is lost (docs/DEFECTS.md, Д-98).
    * Without a model the answer is an error that says what to install.
    *
-   * `onProgress` and `signal` reach here only from callers in this process —
-   * setup, the model command; what arrives over MCP is JSON and has neither.
+   * `onProgress` hears the text index being written (`indexing`) and the
+   * documents being embedded (`embedding`); `signal` stops either between two
+   * slices. A cancelled text write is rolled back whole (docs/DEFECTS.md,
+   * Д-187). Over MCP both come from the request — its progress token and its
+   * cancellation — never from the arguments, which are JSON.
    */
   async function rebuild({
     include_external_project_files = true,
@@ -292,7 +295,12 @@ export function createSearchIndexRuntime({
     signal
   } = {}) {
     const chosen = engine();
+    const watch = {
+      onProgress: typeof onProgress === "function" ? onProgress : null,
+      signal: typeof signal?.aborted === "boolean" ? signal : null
+    };
     await freshRegistry();
+    if (watch.signal?.aborted) throw Object.assign(new Error("The rebuild was cancelled before it began."), { name: "AbortError", cancelled: true });
     await fs.mkdir(searchIndexDir, { recursive: true });
     const textLimit = Math.max(300, Math.min(Number(dense_text_limit) || 1200, 12000));
     const batchSize = Math.max(1, Math.min(Number(dense_batch_size) || 8, 32));
@@ -306,7 +314,7 @@ export function createSearchIndexRuntime({
         throw new Error(`Dense vectors were asked for, but no embedding model can run here. ${plan?.reason ?? "No dense backend is configured."}`);
       }
       // Every vector embedded below needs its document in the index already.
-      await chosen.rebuild({ includeExternalProjectFiles: Boolean(include_external_project_files), inPlace: true, preserveDense: true });
+      await chosen.rebuild({ includeExternalProjectFiles: Boolean(include_external_project_files), inPlace: true, preserveDense: true, ...watch });
       planned = await chosen.densePlan({
         includeExternalProjectFiles: Boolean(include_external_project_files),
         textLimit,
@@ -321,8 +329,7 @@ export function createSearchIndexRuntime({
         batchSize,
         textLimit,
         includeMembrane,
-        onProgress: typeof onProgress === "function" ? onProgress : null,
-        signal: typeof signal?.aborted === "boolean" ? signal : null,
+        ...watch,
         // The model and device the caller named, as the 2.x helper was given
         // them; the ONNX model has its own and ignores both (Д-138).
         embed: (texts) => embedQuery({
@@ -347,7 +354,8 @@ export function createSearchIndexRuntime({
       // What was planned is stored by now: the closing write keeps what still
       // fits, whether or not the caller asked to reuse old vectors.
       denseIncremental: true,
-      ...(plan ? { denseBackend: plan.provenance.backend, denseRevision: plan.provenance.revision, denseDtype: plan.provenance.dtype } : {})
+      ...(plan ? { denseBackend: plan.provenance.backend, denseRevision: plan.provenance.revision, denseDtype: plan.provenance.dtype } : {}),
+      ...watch
     });
     if (planned) {
       rebuilt.dense_planned_documents = planned.records.length;

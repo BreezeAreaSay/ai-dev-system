@@ -26,7 +26,9 @@ import {
   visibleTools
 } from "./mcp-stdio.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
+import { describeProgress } from "./core/progress-line.mjs";
 import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
+import { filterToolsByProfiles, profilesFromEnvironment } from "./core/tool-profiles.mjs";
 
 const serverFile = fileURLToPath(import.meta.url);
 const serverRoot = path.resolve(path.dirname(serverFile), "..");
@@ -305,13 +307,59 @@ function structuredResult(result) {
   };
 }
 
-async function reportProgress(extra, progress, total, message) {
+/**
+ * The request's progress, as MCP `notifications/progress`.
+ *
+ * A tool reports `{ phase, done, total }` (or `bytes` for a download) in units
+ * of its own; this turns them into one count that only rises — MCP requires
+ * each notification to be larger than the last — by stacking the phases: the
+ * text index written, then the documents embedded, then the closing write.
+ * Before 3.0 a call said 0 of 1 when it began and 1 of 1 when it ended, and
+ * nothing between (docs/DEFECTS.md, Д-187). Notifications go out at most every
+ * 100 ms, and not at all when the client sent no progress token.
+ *
+ * @param {object} extra - The SDK's request context.
+ * @returns {{ begin: (message: string) => Promise<void>, onProgress: ((event: object) => void) | undefined, end: (message: string) => void }}
+ */
+export function progressReporter(extra, { now = Date.now } = {}) {
   const progressToken = extra?._meta?.progressToken;
-  if (progressToken === undefined) return;
-  await extra.sendNotification({
-    method: "notifications/progress",
-    params: { progressToken, progress, total, message }
-  });
+  if (progressToken === undefined) return { begin: async () => undefined, onProgress: undefined, end: () => undefined };
+  let sent = -1;
+  let base = 0;
+  let phase;
+  let phaseTotal = 0;
+  let lastAt = -Infinity;
+  const send = (progress, total, message) => {
+    if (!(progress > sent)) return Promise.resolve();
+    sent = progress;
+    return extra.sendNotification({
+      method: "notifications/progress",
+      params: { progressToken, progress, ...(total > 0 ? { total: Math.max(total, progress) } : {}), message }
+    }).catch(() => undefined);
+  };
+  return {
+    begin: (message) => send(0, 1, message),
+    onProgress(event = {}) {
+      const total = Math.max(0, Number(event.total) || 0);
+      const done = Math.max(0, Number(event.done ?? event.bytes) || 0);
+      if (event.phase !== phase) {
+        base += phaseTotal;
+        phase = event.phase;
+        phaseTotal = total;
+      } else {
+        phaseTotal = Math.max(phaseTotal, total);
+      }
+      const finished = total > 0 && done >= total;
+      if (!finished && now() - lastAt < 100) return;
+      lastAt = now();
+      // One unit is kept for the end, so 100% means the call has answered.
+      send(base + Math.min(done, phaseTotal || done), base + phaseTotal + 1, describeProgress(event));
+    },
+    end(message) {
+      const whole = Math.max(sent + 1, base + phaseTotal + 1, 1);
+      send(whole, whole, message);
+    }
+  };
 }
 
 async function readFixedResource(resource) {
@@ -367,7 +415,46 @@ function validatePromptArguments(prompt, args) {
   }
 }
 
-export function createAiDevServer() {
+/**
+ * The capability profiles of one session. A daemon serves clients whose
+ * `AI_DEV_PROFILES` differ, so each bridge sends its own: a string, empty for
+ * every profile. `null` means this process's own setting — the stdio server's.
+ *
+ * @param {string | null | undefined} profiles
+ */
+function sessionProfiles(profiles) {
+  return typeof profiles === "string" ? profilesFromEnvironment({ AI_DEV_PROFILES: profiles }) : activeProfiles;
+}
+
+/** The tools one session lists. */
+function sessionTools(profiles) {
+  if (typeof profiles !== "string") return visibleTools();
+  const active = sessionProfiles(profiles);
+  return active.all ? legacyTools : filterToolsByProfiles(legacyTools, active.ids);
+}
+
+/**
+ * What the daemon tells a bridge about its session's tool list, so the bridge
+ * can say on stderr what the stdio server says when profiles narrow it.
+ *
+ * @param {string | null} profiles
+ * @returns {{ tools_listed: number, tools_total: number, profiles: string[], unknown_profiles: string[] }}
+ */
+export function sessionToolCounts(profiles) {
+  const active = sessionProfiles(profiles);
+  return {
+    tools_listed: sessionTools(profiles).length,
+    tools_total: legacyTools.length,
+    profiles: active.all ? [] : active.ids,
+    unknown_profiles: active.unknown
+  };
+}
+
+/**
+ * @param {{ profiles?: string | null }} [options] - The session's
+ *   `AI_DEV_PROFILES`, when a daemon serves it; omitted, this process's own.
+ */
+export function createAiDevServer({ profiles = null } = {}) {
   const server = new Server(
     { name: "ai-dev-system", version: VERSION },
     {
@@ -393,7 +480,7 @@ export function createAiDevServer() {
   // still validates against the full list, so a client that knows a tool's name
   // can call it whether or not this listing advertised it.
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: visibleTools().map(toolDefinition)
+    tools: sessionTools(profiles).map(toolDefinition)
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -403,16 +490,18 @@ export function createAiDevServer() {
     }
     // `callTool` records the call itself, so every caller — this transport, the
     // CLI, the smoke scripts — lands in the usage ledger exactly once. All this
-    // handler contributes is the transport overhead it just spent.
+    // handler contributes is the transport overhead it just spent, and the
+    // request's progress token and cancellation for the tools that use them.
+    const progress = progressReporter(extra);
     const startedAt = Date.now();
-    await reportProgress(extra, 0, 1, `Starting ${name}`);
+    await progress.begin(`Starting ${name}`);
     const transportMs = Date.now() - startedAt;
     try {
-      const result = structuredResult(await callTool(name, args, { transportMs }));
-      await reportProgress(extra, 1, 1, `Completed ${name}`);
+      const result = structuredResult(await callTool(name, args, { transportMs, signal: extra?.signal, onProgress: progress.onProgress }));
+      progress.end(`Completed ${name}`);
       return result;
     } catch (error) {
-      await reportProgress(extra, 1, 1, `Failed ${name}`).catch(() => undefined);
+      progress.end(`Failed ${name}`);
       const message = error instanceof Error ? error.message : String(error);
       return {
         content: [{

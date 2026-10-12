@@ -9,17 +9,15 @@ import process from "node:process";
 import { StdioBridge, socketUpstream } from "../core/daemon-bridge.mjs";
 import { connectDaemon } from "../core/daemon-client.mjs";
 import { absolutePathVariables } from "../core/session-env.mjs";
+import { profileNotes as profileNoteLines } from "../core/tool-profiles.mjs";
 import { CLI_PATH, SERVER_ROOT, packageVersion } from "./context.mjs";
 
 /**
  * What the stdio server says on stderr when capability profiles narrow its
  * tool list, said by the bridge for the session the daemon serves.
  */
-function profileNotes({ tools_listed: listed, tools_total: total, profiles = [], unknown_profiles: unknown = [] }, note) {
-  if (Number.isInteger(listed) && Number.isInteger(total) && listed < total) {
-    note(`ai-dev: capability profiles ${profiles.join(", ")} — ${listed} of ${total} tools listed. Unset AI_DEV_PROFILES for all of them.`);
-  }
-  for (const name of unknown) note(`ai-dev: AI_DEV_PROFILES names "${name}", which is not a capability profile; ignoring it.`);
+function profileNotes(counts, note) {
+  for (const line of profileNoteLines(counts)) note(line);
 }
 
 /** The server in this process, as the bridge's upstream. */

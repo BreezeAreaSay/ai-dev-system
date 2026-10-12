@@ -89,7 +89,7 @@ async function start(values, io) {
 }
 
 async function stop(values, io) {
-  const { daemons } = await stopDaemons();
+  const { daemons } = await stopDaemons({ env: io.env });
   const failed = daemons.filter((daemon) => !daemon.stopped);
   if (values.json) {
     io.out(JSON.stringify({ running: failed.length > 0, daemons }, null, 2));

@@ -397,27 +397,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   profiles for sessions started afterwards, the idle time when the daemon starts next. The default
   profiles cannot hold the opt-in `control`.
 
-- **The desktop app** (`desktop/`, `docs/DESKTOP.md`), on Electron 44.5.1 (pinned), in English
-  and Russian. A tray icon in the colour of the install's health — the verdict of every health
-  check, the one the Status screen shows, asked again when the daemon's state moves, after anything
-  the app changes and every five minutes — with Open, Rebuild the search index, Stop the daemon and
-  Quit. A first-run wizard: the projects folder; the AI clients found on the computer, each with
-  what connecting it would do; the local model downloaded with progress and Cancel, imported from a
+- **The desktop app** (`desktop/`, `docs/DESKTOP.md`), on Electron 44.5.1 (pinned), in English and
+  Russian. A tray icon in the colour of the install's health — the verdict of every health check,
+  the one the Status screen shows, asked again when the daemon's state moves, after anything the app
+  changes and every five minutes — with Open, Rebuild the search index, Stop the daemon and Quit. A
+  first-run wizard: the projects folder; the AI clients found on the computer, each with what
+  connecting it would do; the local model downloaded with progress and Cancel, imported from a
   folder or skipped; the search index, with each step's outcome in words; what to do next. A
-  download keeps running, with its Cancel, while the person looks at another screen. A Status
-  screen: whether the install is ok, degraded or failed and why, every check with its details,
-  the critical ones marked, and what to do about each. The app drives the daemon every AI client
-  shares through the control API, on the Node the clients run; it starts the daemon when it is not
-  running, or offers a Start button when autostart is off; comes back by itself when a client starts
-  it again; moves to the new daemon when an update retires the old one; and says in the window what
-  keeps it from starting — the server not found, its packages not installed, a broken settings
-  file — with Try again. The page is a local page and nothing more: served from the app's own folder
-  under `app://` in a session of its own, with a policy that allows its own files and nothing else,
-  no WebRTC past a proxy, isolated and sandboxed, with nine functions to the main process, which
-  calls only the tools the interface has a button for, with only the arguments it sends. No menu
-  with Reload or the developer tools; DevTools open only with `AI_DEV_DESKTOP_DEVTOOLS=1`. Tests:
-  unit tests, and Playwright's Electron driver on a real daemon under xvfb; a `desktop` CI job runs
-  them.
+  download keeps running, with its Cancel, while the person looks at another screen, and a step
+  keeps its outcome, with Build again. A Status screen: whether the install is ok, degraded or
+  failed and why, every check with its details, the critical ones marked, and what to do about each.
+  The app drives the daemon every AI client shares through the control API, on the Node the clients
+  run; it starts the daemon when it is not running, or offers a Start button when autostart is off;
+  comes back by itself when a client starts it again; moves to the new daemon when an update retires
+  the old one, once the calls it has running end there; and says in the window what keeps it from
+  starting — the server not found, its packages not installed, a broken settings file — in the
+  system's language, with Try again or Restart. The page is a local page and nothing more: served
+  from the app's own folder under `app://` in a session of its own, with a policy that allows its
+  own files and nothing else, no WebRTC past a proxy and no host name looked up, isolated and
+  sandboxed, with nine functions to the main process, which calls only the tools the interface has a
+  button for, with only the arguments it sends. No menu with Reload or the developer tools; DevTools
+  only with `AI_DEV_DESKTOP_DEVTOOLS=1`, which opens them. Tests: unit tests, and Playwright's
+  Electron driver on a real daemon under xvfb; a `desktop` CI job runs them.
 - **`openControlClient`** (`src/core/control-client.mjs`): an MCP SDK client on the daemon of an
   install, for a program that drives it — the desktop app, a script, a test — with the settings,
   the daemon's log, the Node the configured clients run (`clientNodePaths`) and `stopDaemons`

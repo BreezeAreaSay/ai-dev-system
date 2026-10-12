@@ -57,8 +57,9 @@ tell them what to do. What stands in the way:
 - **What it serves.** A daemon serves only clients of its own build: the same code and version,
   the same Node, and the same data — the home, the runtime home, the vault, the state, the index
   and the model folder, each resolved as the server resolves it, so two spellings of one folder
-  are one (`daemonIdentity` in `src/core/session-env.mjs`; an AI Dev variable it does not know
-  counts as part of the build). A
+  are one, and a folder under a link is one before it exists and after (`daemonIdentity` in
+  `src/core/session-env.mjs`; an AI Dev variable it does not know counts as part of the build;
+  Д-199, Д-202). A
   client of another build gets a daemon of its own, with its own descriptor and lock; the
   daemon of code replaced where it lies — a `git pull`, an update in place — retires: it takes
   no new client, finishes the sessions it has and is listed in `run/retired-<pid>.json` until it
@@ -68,7 +69,9 @@ tell them what to do. What stands in the way:
 - **One daemon per build.** Its lock, `run/daemon-<build>.json.lock`, follows the protocol every
   lock of AI Dev does (`src/core/file-lock.mjs`): created exclusively, refreshed while the daemon
   lives, broken only when its holder is gone or silent and only if it is still the lock judged
-  abandoned (Д-193).
+  abandoned (Д-193). A daemon whose lock went silent but whose address still takes connections —
+  hung in a debugger, stopped, swapped out — keeps its socket and its record: `stop` asks it and
+  says if it did not stop, and once it wakes it takes its lock again (Д-204, Д-205).
 
 What it does not stand against: anything running as the same user (it can read the descriptor,
 as it can read the vault), an administrator or root, and a runtime home placed with `AI_DEV_HOME`

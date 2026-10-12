@@ -125,6 +125,14 @@ test("the control tools answer through the daemon as the contract says, refuse w
   assert.match(await refusal(client, "setup_run", { model: "yes" }), /model must be true or false/);
   assert.equal((await call(client, "system_status", { checks: false })).index.exists, true);
 
+  // With the health checks: each says whether the install fails without it,
+  // and the ones this call does not run are not listed as if they were a state (Д-247).
+  const checked = await call(client, "system_status", {});
+  const indexFile = checked.checks.find((check) => check.name === "search_index_file");
+  assert.deepEqual([indexFile?.status, indexFile?.critical], ["ok", true], JSON.stringify(indexFile));
+  assert.equal(checked.checks.find((check) => check.name === "required_notes")?.critical, false);
+  assert.deepEqual(checked.checks.filter((check) => ["search_smoke", "dense_smoke", "search_eval"].includes(check.name)), []);
+
   // The model: a download cancelled midway keeps its bytes and continues.
   const part = path.join(env.AI_DEV_HOME, "models", "bge-m3-onnx", `${STALLED_FILE}.part`);
   let progressed = 0;

@@ -156,6 +156,15 @@ jobs:
         working-directory: desktop
         run: npm ci --no-audit --no-fund
 
+      # Ubuntu 24.04 forbids unprivileged user namespaces through AppArmor,
+      # which Chromium's own sandbox needs; allow them for this job, or — when
+      # that cannot be done — run Chromium without its sandbox (the page keeps
+      # its sandbox flag either way, desktop/test/e2e/harness.mjs).
+      - name: Let Chromium's sandbox run
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
+            || echo "AI_DEV_DESKTOP_NO_SANDBOX=1" >> "$GITHUB_ENV"
+
       - name: Desktop tests (unit, then end to end under xvfb-run)
         working-directory: desktop
         run: npm test

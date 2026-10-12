@@ -184,7 +184,10 @@ function readStored(file) {
     text = fs.readFileSync(file, "utf8");
   } catch (error) {
     if (error?.code === "ENOENT") return {};
-    throw error;
+    // Node names the file in some read errors and not in others: a folder in
+    // its place fails at the read, after the open (docs/DEFECTS.md, Д-274).
+    if (String(error?.message ?? "").includes(file)) throw error;
+    throw Object.assign(new Error(`${file} cannot be read: ${error?.message ?? error}`), { code: error?.code });
   }
   let stored;
   try {

@@ -42,6 +42,14 @@ const CLIENTS_INPUT = {
 /** The tools whose effect cannot be taken back: their annotations say so. */
 const DESTRUCTIVE = new Set(["model_remove", "clients_remove"]);
 
+/**
+ * The health checks `system_status` leaves out on purpose — each takes seconds
+ * and runs a search of its own. They are not listed: skipped by this call is
+ * not a state of the install, and an app showed them as "not set up"
+ * (docs/DEFECTS.md, Д-247). `ai-dev doctor` runs them.
+ */
+const NOT_RUN_HERE = new Set(["search_smoke", "dense_smoke", "search_eval"]);
+
 /** A definition: the input schema, the contract's answer, no other properties. */
 function tool(name, description, properties = {}, required = []) {
   return {
@@ -240,7 +248,7 @@ export function createControlTools(host) {
           listClients({ env }).catch(() => []),
           withChecks ? host.handler("system_health_check")({ include_search_smoke: false, include_dense_smoke: false, include_search_eval: false }).catch((error) => ({ status: "fail", checks: [{ name: "system_health_check", status: "fail", summary: error.message }] })) : null
         ]);
-        const checks = (health?.checks ?? []).map((check) => ({
+        const checks = (health?.checks ?? []).filter((check) => !(NOT_RUN_HERE.has(check.name) && check.status === "skipped")).map((check) => ({
           name: check.name,
           status: check.status,
           summary: String(check.summary ?? ""),

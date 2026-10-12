@@ -72,11 +72,40 @@ function connectingScreen() {
     h("div", { className: "spinner", role: "presentation" }));
 }
 
+/** A Try again button, for a screen whose cause the person can fix while the app runs. */
+function retryButton(label) {
+  const button = h("button", {
+    type: "button",
+    className: "primary",
+    id: "retry",
+    on: {
+      async click() {
+        button.disabled = true;
+        await api.retry();
+        button.disabled = false;
+      }
+    }
+  }, label);
+  return button;
+}
+
 function noNodeScreen() {
   return h("section", { className: "centre", dataset: { screen: "no-node" } },
     h("h1", { tabindex: "-1" }, view.t("node.title")),
     h("p", {}, view.t("node.body")),
-    view.connection.error ? h("p", { className: "muted" }, view.connection.error) : null);
+    view.connection.error ? h("p", { className: "muted" }, view.connection.error) : null,
+    retryButton(view.t("common.retry")));
+}
+
+/** The app could not get going: what stopped it, what to do, and Try again or Restart (Д-242). */
+function brokenScreen() {
+  const { connection } = view;
+  return h("section", { className: "centre", dataset: { screen: "broken" } },
+    h("h1", { tabindex: "-1" }, view.t("broken.title")),
+    h("p", { className: "error", role: "alert", dataset: { field: "broken-error" } }, connection.error ?? ""),
+    connection.hint ? h("p", { dataset: { field: "broken-hint" } }, connection.hint) : null,
+    retryButton(view.t(connection.restart ? "broken.restart" : "common.retry")),
+    connection.detail ? h("details", { className: "log" }, h("summary", {}, view.t("broken.detail")), h("pre", {}, connection.detail)) : null);
 }
 
 function offlineScreen() {
@@ -93,7 +122,7 @@ function offlineScreen() {
     h("h1", { tabindex: "-1" }, view.t("offline.title")),
     h("p", {}, view.t("offline.body")),
     start,
-    connection.error ? h("p", { className: "error", role: "alert" }, view.t("offline.failed", { message: connection.error })) : null,
+    connection.error ? h("p", { className: "error", role: "alert", dataset: { field: "offline-error" } }, h("span", { className: "label" }, `${view.t("offline.reason")}: `), connection.error) : null,
     connection.log?.length
       ? h("details", { className: "log" }, h("summary", {}, view.t("offline.log")), h("pre", {}, connection.log.join("\n")))
       : null);
@@ -105,9 +134,9 @@ async function render() {
   document.body.dataset.phase = phase;
   if (phase === "online" && !view.route) view.route = view.connection.needsSetup ? "wizard" : "status";
   translateStatic();
-  // Starting from the Start button shows that screen; a reconnect keeps its route and waits here.
-  if (phase === "connecting" || (phase === "starting" && view.route)) return show(screen, connectingScreen());
+  if (phase === "connecting" || phase === "reconnecting") return show(screen, connectingScreen());
   if (phase === "no-node") return show(screen, noNodeScreen());
+  if (phase === "broken") return show(screen, brokenScreen());
   if (phase !== "online") return show(screen, offlineScreen());
   const navigate = (route) => {
     view.route = route;
@@ -137,10 +166,13 @@ api.onState((connection) => {
   view.connection = connection ?? { phase: "offline" };
   if (connection?.language) view.language = connection.language;
   // A screen in the middle of a step keeps its place while the daemon is
-  // reachable; a change of phase draws the page again. A reconnect (Settings)
-  // comes back to the screen it left; a daemon that went away starts over.
+  // reachable, and across a reconnect (the daemon of new code, Д-245); any
+  // other change of phase draws the page again from the start.
   if (was !== view.connection.phase) {
-    if (view.connection.phase === "offline" || view.connection.phase === "no-node") view.route = null;
+    if (!["online", "reconnecting"].includes(view.connection.phase)) view.route = null;
+    render();
+  } else if (["offline", "broken", "no-node"].includes(view.connection.phase)) {
+    // The same screen with news: a log that arrived, a reason that changed.
     render();
   }
 });

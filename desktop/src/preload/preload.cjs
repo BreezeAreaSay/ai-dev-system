@@ -9,6 +9,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 const invoke = {
   state: "ai-dev:state",
   connect: "ai-dev:connect",
+  retry: "ai-dev:retry",
   call: "ai-dev:call",
   cancel: "ai-dev:cancel",
   chooseFolder: "ai-dev:choose-folder",
@@ -34,6 +35,8 @@ contextBridge.exposeInMainWorld("aiDev", Object.freeze({
   state: () => ipcRenderer.invoke(invoke.state),
   /** Reach the daemon, starting it when `start` is true. */
   connect: (start) => ipcRenderer.invoke(invoke.connect, { start: start === true }),
+  /** Try again after the app could not get going (no Node, a broken settings file, a missing server). */
+  retry: () => ipcRenderer.invoke(invoke.retry),
   /** Call one of the interface's tools; `id` names the call for progress and cancel. */
   call: (tool, args, id) => ipcRenderer.invoke(invoke.call, { tool, args, id }),
   /** Every tool the daemon lists to the app, for the tool console. */

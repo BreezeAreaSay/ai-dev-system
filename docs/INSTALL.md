@@ -90,7 +90,8 @@ Every step is a command of the `ai-dev` CLI as well — from a clone,
 | `ai-dev setup` | The above (`npm run setup`). |
 | `ai-dev clients list \| install \| remove \| doctor` | The `ai-dev` entry in each client (`npm run clients:install`). |
 | `ai-dev model status \| install \| import \| verify \| remove \| doctor` | The local model (`npm run model -- …`, `npm run dense:doctor`). |
-| `ai-dev mcp` | The stdio MCP server a client starts (`npm start` runs the same server). |
+| `ai-dev mcp` | What a client starts: its stdio MCP session, served by the daemon below. |
+| `ai-dev daemon start \| stop \| status \| run` | The one warm server every client is handed to (`npm run daemon` is `run`). |
 | `ai-dev doctor` | The health check, as JSON (`npm run doctor`). |
 | `ai-dev help [command]` | Every command and its options. |
 
@@ -99,12 +100,19 @@ with Ctrl-C. A mistyped command or option is answered before anything is read or
 `node ai-dev-mcp-server/scripts/ai-dev.mjs`, the 2.x CLI, still runs every command, with
 a note on stderr, until 4.0.
 
-Two ways to run it, and they speak the same protocol:
+How a client is served — the protocol is the same either way:
 
 | | |
 | --- | --- |
-| `ai-dev mcp` (`npm start`) | One stdio process per client. The default, and what `clients install` configures. |
-| `npm run daemon` | **Experimental.** One warm process on a local socket (a named pipe on Windows). No client can connect to it yet — nothing bridges a client's stdio to the socket — and it fails to start when the socket path is longer than 108 bytes (docs/DEFECTS.md, Д-97). Use `ai-dev mcp`. |
+| `ai-dev mcp` | What `clients install` configures. It hands the client to the **daemon**: one warm server for every client of this user, started by the first client and gone after 30 minutes without one (`AI_DEV_IDLE_TIMEOUT_MS`). The index and the model are in memory once, not once per client, and the state has one writer. The handshake passes through, instructions included. A daemon that dies is replaced at the client's next request; when none can start, the client is served in its own process and stderr says why. |
+| `AI_DEV_DAEMON=0` in a client's `env`, `npm start`, a 2.x entry (`node …/src/server.mjs`) | One stdio process per client, as in 2.x. |
+| `ai-dev daemon status \| stop \| start \| run` | Its pid, sessions, memory and log (`~/.ai-dev/logs/daemon.log`); `stop` ends it — a client's next request starts a new one; `run` serves in a terminal. |
+
+The daemon's address is drawn at random on every start and written, with a secret, to
+`~/.ai-dev/run/daemon.json`, which only you can read; each connection proves it holds the
+secret and the daemon proves it back (see
+[SECURITY.md](../ai-dev-mcp-server/docs/SECURITY.md#the-daemon)). A home whose path is too long
+for a socket puts it in `$XDG_RUNTIME_DIR/ai-dev` or `/tmp/ai-dev-<uid>` instead.
 
 **Why local first.** The dense model is the reason. Locally it is one flag —
 `npm run setup -- --model` — and it lands in `~/.ai-dev`; neither the model nor the

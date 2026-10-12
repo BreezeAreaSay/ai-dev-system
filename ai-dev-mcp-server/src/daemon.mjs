@@ -550,7 +550,16 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   let strikes = 0;
   watch = setInterval(async () => {
     await rotateLog().catch(() => undefined);
-    if (retired || stopping) return;
+    if (stopping) return;
+    if (retired) {
+      // A record taken away while this daemon lives — counted gone while it
+      // hung, its runtime home wiped — is published again, so `status` and
+      // `stop` find it (docs/DEFECTS.md, Д-208).
+      const { state, info } = await readDaemonInfoState(retiredDaemonPath(process.pid));
+      const lost = state === "missing" || state === "invalid" || (state === "ok" && info.pid !== process.pid);
+      if (lost || !(await retiredLock?.holds().catch(() => false))) await publish();
+      return;
+    }
     const { state, info } = await readDaemonInfoState(descriptor);
     const replaced = state === "missing" || (state === "ok" && info.pid !== process.pid);
     strikes = replaced ? strikes + 1 : 0;

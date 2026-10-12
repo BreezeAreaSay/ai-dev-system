@@ -251,6 +251,10 @@ test("a git pull where the code lies: the next client gets a daemon of the new c
   const status = JSON.parse((await ai(env, ["daemon", "status", "--json"], { command: copyCli })).stdout);
   assert.equal(status.pid, second.pid);
   assert.deepEqual(status.others.map((daemon) => [daemon.pid, daemon.retired, daemon.sessions]), [[first.pid, true, 1]]);
+  // A record taken away while the old daemon lives comes back (Д-208).
+  await fs.rm(`${retired}.lock`, { force: true });
+  await fs.rm(retired, { force: true });
+  await until(() => existsSync(retired) && existsSync(`${retired}.lock`), "the retired daemon to publish its record again", 15_000);
   // The old daemon still serves the session it had, and the new one the new session.
   assert.equal((await old.session.callTool({ name: "search_index_status", arguments: {} })).isError, false);
   assert.equal((await fresh.session.callTool({ name: "search_index_status", arguments: {} })).isError, false);
@@ -354,19 +358,26 @@ test("a home reached through a link: the first start finds the daemon it started
   await fs.mkdir(real, { recursive: true });
   await fs.symlink(real, linked, process.platform === "win32" ? "junction" : "dir");
   const linkEnv = { ...env, HOME: linked, USERPROFILE: linked };
-  t.after(() => ai(linkEnv, ["daemon", "stop"]).catch(() => undefined));
-  const started = await ai(linkEnv, ["daemon", "start"]);
-  assert.equal(started.code, 0, started.stdout + started.stderr);
-  assert.match(started.stdout, /^Started: pid \d+\./);
-  // What the server makes as it works: each of these used to change the build.
-  for (const folder of ["state", path.join("cache", "search-index"), path.join("models", "bge-m3-onnx")]) {
-    await fs.mkdir(path.join(real, ".ai-dev", folder), { recursive: true });
+  // Stopped in the test itself: the after hooks run in the order they were
+  // registered, and stage()'s removes the folder first (docs/DEFECTS.md, Д-209).
+  let stopped;
+  try {
+    const started = await ai(linkEnv, ["daemon", "start"]);
+    assert.equal(started.code, 0, started.stdout + started.stderr);
+    assert.match(started.stdout, /^Started: pid \d+\./);
+    // What the server makes as it works: each of these used to change the build.
+    for (const folder of ["state", path.join("cache", "search-index"), path.join("models", "bge-m3-onnx")]) {
+      await fs.mkdir(path.join(real, ".ai-dev", folder), { recursive: true });
+    }
+    const again = await ai(linkEnv, ["daemon", "start"]);
+    assert.match(again.stdout, /^Already running: pid \d+\./, again.stdout + again.stderr);
+    const status = await ai(linkEnv, ["daemon", "status"]);
+    assert.equal(status.code, 0, status.stdout);
+    assert.doesNotMatch(status.stdout, /Also running/);
+  } finally {
+    stopped = await ai(linkEnv, ["daemon", "stop"]);
   }
-  const again = await ai(linkEnv, ["daemon", "start"]);
-  assert.match(again.stdout, /^Already running: pid \d+\./, again.stdout + again.stderr);
-  const status = await ai(linkEnv, ["daemon", "status"]);
-  assert.equal(status.code, 0, status.stdout);
-  assert.doesNotMatch(status.stdout, /Also running/);
+  assert.match(stopped.stdout, /^Stopped: pid \d+/, stopped.stdout + stopped.stderr);
 });
 
 test("the socket a gone daemon left is cleared on the next start, whoever has its pid now (Д-205)", { skip: process.platform === "win32" && "a named pipe leaves no file behind" }, async (t) => {

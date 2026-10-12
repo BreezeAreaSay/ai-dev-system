@@ -12,7 +12,7 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
-import { ChannelError, addressListening, buildDifferences, controlRequest, describeBuild, openChannel, readDaemonInfo, removeDaemonInfo } from "./daemon-channel.mjs";
+import { ChannelError, addressListening, buildDifferences, controlRequest, describeBuild, nothingListens, openChannel, readDaemonInfo, removeDaemonInfo } from "./daemon-channel.mjs";
 import { EMPTY_LOCK_GRACE_MS, processAlive, tryAcquireFileLock } from "./file-lock.mjs";
 import { DAEMON_DESCRIPTOR_NAME, RETIRED_DAEMON_NAME, daemonInfoPath, daemonLogPath, runtimeDir } from "./runtime-paths.mjs";
 import { absolutePathVariables } from "./session-env.mjs";
@@ -248,6 +248,7 @@ export async function listDaemons({ clean = false } = {}) {
     if (!info) continue;
     let status = null;
     let unreachable = "";
+    let answering = false;
     const gone = !processAlive(info.pid);
     if (gone) {
       unreachable = `pid ${info.pid} is not running`;
@@ -256,13 +257,16 @@ export async function listDaemons({ clean = false } = {}) {
         status = await controlRequest(info, "status");
       } catch (error) {
         unreachable = clause(error.message);
+        // A handshake that never came is a connection taken: a hung daemon,
+        // not a gone one — and one probe fewer in its full queue (Д-208).
+        answering = !nothingListens(error);
       }
     }
     if (status) {
       found.push({ file, info, retired, status });
       continue;
     }
-    const removed = clean ? await removeStale(file, info).catch(() => false) : false;
+    const removed = clean && !answering ? await removeStale(file, info).catch(() => false) : false;
     found.push({ file, info, retired, unreachable, gone, removed });
   }
   return found;

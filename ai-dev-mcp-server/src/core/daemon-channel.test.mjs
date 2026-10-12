@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -8,6 +10,7 @@ import {
   DAEMON_PROTOCOL,
   SESSION_LINE_BYTES,
   acceptHandshake,
+  addressListening,
   buildDifferences,
   clientProof,
   controlRequest,
@@ -15,6 +18,7 @@ import {
   isSupersededBy,
   newNonce,
   newSecret,
+  nothingListens,
   openChannel,
   readDaemonInfo,
   readDaemonInfoState,
@@ -234,6 +238,33 @@ test("the daemon must be the pid its descriptor names", async (t) => {
   const secret = newSecret();
   await listen(t, address, (socket) => acceptHandshake(socket, { secret, pid: process.pid + 1, version: "1", build: "b" }));
   await assert.rejects(openChannel(daemonInfo(address, secret)), /is pid \d+, not the pid \d+ its descriptor names/);
+});
+
+test("a listener that hangs with its queue full still takes the address; refused or missing does not (Д-208)", { skip: process.platform !== "linux" && "only Linux answers a full queue with EAGAIN; macOS refuses it" }, async (t) => {
+  const address = await localAddress(t);
+  const listener = spawn(process.execPath, ["-e", `require("node:net").createServer(() => {}).listen({ path: ${JSON.stringify(address)}, backlog: 1 }, () => process.stdout.write("ready\\n"))`], { stdio: ["ignore", "pipe", "inherit"] });
+  t.after(() => listener.kill("SIGKILL"));
+  await once(listener.stdout, "data");
+  process.kill(listener.pid, "SIGSTOP");
+  const held = [];
+  t.after(() => held.forEach((socket) => socket.destroy()));
+  let refusal = "";
+  while (!refusal && held.length < 100) {
+    refusal = await new Promise((resolve) => {
+      const socket = net.connect(address);
+      socket.once("connect", () => resolve(held.push(socket) && ""));
+      socket.once("error", (error) => resolve(error.code));
+    });
+  }
+  assert.equal(refusal, "EAGAIN");
+  assert.equal(await addressListening(address), true, "a hung daemon is not a gone one");
+  listener.kill("SIGKILL");
+  await once(listener, "exit");
+  assert.equal(await addressListening(address), false, "the socket it left refuses");
+  await fs.rm(address, { force: true });
+  assert.equal(await addressListening(address), false, "no socket at all");
+  assert.deepEqual(["EAGAIN", "EBUSY", "EACCES", "ETIMEDOUT", "ECONNREFUSED", "ENOENT", "ENOTDIR", "ENOTSOCK"].map((code) => nothingListens({ code })),
+    [false, false, false, false, true, true, true, true]);
 });
 
 test("a control request gets one answer", async (t) => {

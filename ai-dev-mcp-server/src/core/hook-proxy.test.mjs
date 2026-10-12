@@ -7,7 +7,7 @@ import { openUrl, proxyFetch as serverFetch, proxyFor as serverProxyFor } from "
 import { fetchPackageMetadata } from "./security-fix-registry.mjs";
 import { proxyFetch as hookFetch, proxyFor as hookProxyFor } from "../../hooks/http-proxy.mjs";
 import { checkSupplyChain } from "../../hooks/supply-chain.mjs";
-import { TEST_HOST, TEST_TLS, startProxy } from "../../test/fixtures/model-host.mjs";
+import { TEST_HOST, TEST_PROXY_TLS, TEST_TLS, startModelHost, startProxy } from "../../test/fixtures/model-host.mjs";
 
 // The supply-chain hook and the fix registry used `fetch`, which reads no
 // proxy variable: behind a proxy nothing was checked (docs/DEFECTS.md, Д-145).
@@ -136,6 +136,28 @@ test("HTTPS goes through a CONNECT tunnel to the host's own certificate, POST bo
   }
   assert.deepEqual(proxy.seen.slice(0, 1), [`CONNECT ${TEST_HOST}:443`]);
   assert.deepEqual(seen, ["POST /v1/querybatch {\"q\":1}"]);
+});
+
+test("an https:// proxy is checked by its own name in the hooks' copy too, for a tunnel and for plain HTTP (Д-207)", async (t) => {
+  const files = { "config.json": "{\"ok\":true}" };
+  const host = await startModelHost({ files, tls: true });
+  const plain = await startModelHost({ files });
+  const plainHost = "plain.example.test";
+  // The proxy's certificate names localhost alone, the host's its own name.
+  const proxy = await startProxy({ hosts: { [TEST_HOST]: host.port, [plainHost]: plain.port }, tls: true });
+  t.after(() => Promise.all([host.close(), plain.close(), proxy.close()]));
+  const both = [TEST_TLS.cert, TEST_PROXY_TLS.cert];
+  const tunnelled = await hookFetch(`https://${TEST_HOST}:${host.port}/m/config.json`, { env: { HTTPS_PROXY: proxy.url }, ca: both });
+  assert.deepEqual([tunnelled.status, await tunnelled.text()], [200, files["config.json"]]);
+  const plainUrl = `http://${plainHost}:${plain.port}/m/config.json`;
+  const forwarded = await hookFetch(plainUrl, { env: { HTTP_PROXY: proxy.url }, ca: both });
+  assert.deepEqual([forwarded.status, await forwarded.text()], [200, files["config.json"]]);
+  assert.deepEqual(proxy.seen, [`CONNECT ${TEST_HOST}:${host.port}`, `GET ${plainUrl}`]);
+  // A proxy whose certificate is not trusted is still refused.
+  await assert.rejects(
+    hookFetch(plainUrl, { env: { HTTP_PROXY: proxy.url }, ca: TEST_TLS.cert }),
+    /could not be reached through the proxy https:\/\/localhost:\d+: (?!ERR_TLS_CERT_ALTNAME_INVALID)/
+  );
 });
 
 test("a lookup that hangs is named a timeout, through the proxy as without it", async (t) => {

@@ -132,17 +132,31 @@ function authority(host, port) {
   return `${net.isIPv6(host) ? `[${host}]` : host}:${port}`;
 }
 
+/**
+ * The connection to an `https://` proxy, its certificate checked against the
+ * proxy's own name — or its address, for a proxy named by one. Node's HTTPS
+ * client takes the name to check from the Host header, and through a proxy
+ * that header names the target. Same as the server's `overProxyTls`
+ * (docs/DEFECTS.md, Д-206; this copy kept the defect, Д-207).
+ */
+function overProxyTls(proxy, ca) {
+  const host = bareHost(proxy.hostname);
+  return {
+    createConnection: () => tls.connect({ host, port: urlPort(proxy), ...(net.isIP(host) ? {} : { servername: host }), ...(ca ? { ca } : {}) })
+  };
+}
+
 /** A socket to `host:port` through the proxy, opened with CONNECT. */
-function tunnel(proxy, host, port, signal) {
+function tunnel(proxy, host, port, signal, ca) {
   return new Promise((resolve, reject) => {
-    const request = (proxy.protocol === "https:" ? https : http).request({
+    const request = http.request({
       host: bareHost(proxy.hostname),
       port: urlPort(proxy),
       method: "CONNECT",
       path: authority(host, port),
       headers: { host: authority(host, port), "user-agent": USER_AGENT, ...proxyAuthorization(proxy) },
-      agent: false,
-      signal
+      signal,
+      ...(proxy.protocol === "https:" ? overProxyTls(proxy, ca) : { agent: false })
     });
     request.once("connect", (response, socket, head) => {
       if (response.statusCode !== 200) {
@@ -175,14 +189,14 @@ function requestOnce(url, { method, headers, env, signal, ca, body }) {
     if (!proxy) {
       request = (url.protocol === "https:" ? https : http).request(url, { method, headers: sent, agent: false, signal, ...(ca ? { ca } : {}) });
     } else if (url.protocol === "http:") {
-      request = (proxy.protocol === "https:" ? https : http).request({
+      request = http.request({
         host: bareHost(proxy.hostname),
         port: urlPort(proxy),
         method,
         path: url.href,
         headers: { ...sent, host: url.host, ...proxyAuthorization(proxy) },
-        agent: false,
-        signal
+        signal,
+        ...(proxy.protocol === "https:" ? overProxyTls(proxy, ca) : { agent: false })
       });
     } else {
       request = https.request(url, {
@@ -190,7 +204,7 @@ function requestOnce(url, { method, headers, env, signal, ca, body }) {
         headers: sent,
         signal,
         createConnection: (_options, done) => {
-          tunnel(proxy, host, port, signal).then((socket) => {
+          tunnel(proxy, host, port, signal, ca).then((socket) => {
             done(null, tls.connect({ socket, host, ...(net.isIP(host) ? {} : { servername: host }), ...(ca ? { ca } : {}), ALPNProtocols: ["http/1.1"] }));
           }, (error) => done(error));
           return undefined;
@@ -276,7 +290,8 @@ async function readBody(body, signal) {
  * them. Same contract as the server's `proxyFetch`.
  *
  * @param {string|URL} target
- * @param {{ method?: string, headers?: Record<string, string>, body?: string, signal?: AbortSignal, env?: Record<string, string|undefined>, ca?: string|Buffer }} [init]
+ * @param {{ method?: string, headers?: Record<string, string>, body?: string, signal?: AbortSignal, env?: Record<string, string|undefined>, ca?: string|Buffer|Array<string|Buffer> }} [init]
+ *   `ca`: authorities to trust instead of Node's — the host's and an `https://` proxy's; a hook leaves it out.
  */
 export async function proxyFetch(target, { method = "GET", headers = {}, body, signal, env = process.env, ca } = {}) {
   const rethrow = (error) => {

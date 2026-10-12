@@ -291,6 +291,21 @@ test("a retired daemon whose run folder and then whole runtime home were deleted
   assert.equal(existsSync(runtimeHome), false, "the runtime home it made again goes with it, empty");
 });
 
+test("a retired daemon whose runtime home goes between its mkdir and its record's lock takes the folders the lock made with it (Д-226)", { skip: process.platform === "win32" && "a folder in use cannot be deleted on Windows" }, async (t) => {
+  const { env, home, run } = await stage(t);
+  const runtimeHome = path.join(home, ".ai-dev");
+  const window = pathToFileURL(path.join(serverRoot, "test", "fixtures", "retired-window.mjs")).href;
+  const one = await client(t, { ...env, NODE_OPTIONS: `--import ${window}` }, "one");
+  const info = await until(() => descriptors(run).length && daemonInfo(run).sessions === 1 && daemonInfo(run), "the daemon with its session");
+  await fs.rm(path.join(run, `daemon-${info.build}.json`), { force: true });
+  const record = path.join(run, `retired-${info.pid}.json`);
+  // Its mkdir finds run/ there; the runtime home goes; the lock makes it again.
+  await until(() => existsSync(record) && !existsSync(path.join(runtimeHome, "logs")), "the record in the folders its lock made", 20_000);
+  await one.session.close();
+  await until(() => gone(info.pid), "the retired daemon to leave after its last session", 20_000);
+  assert.equal(existsSync(runtimeHome), false, "the runtime home its lock made goes with it, empty");
+});
+
 test("requests piped in and the input closed still get their answers, cold and warm (Д-192)", async (t) => {
   const { env } = await stage(t);
   const lines = [

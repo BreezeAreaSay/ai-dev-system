@@ -270,6 +270,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMode, makeDirectory = true } = {}) {
   const token = crypto.randomUUID();
   let handle;
+  let madeFolder;
   for (let attempt = 0; ; attempt += 1) {
     try {
       handle = await fs.open(lockPath, "wx", 0o600);
@@ -278,7 +279,7 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMod
       if (error?.code === "ENOENT" && attempt === 0 && makeDirectory) {
         // A folder made here gets the mode its owner asked for: the locks the
         // daemon takes in run/ make it 0700 (docs/DEFECTS.md, Д-213, Д-215).
-        await fs.mkdir(path.dirname(lockPath), { recursive: true, ...(directoryMode === undefined ? {} : { mode: directoryMode }) });
+        madeFolder = await fs.mkdir(path.dirname(lockPath), { recursive: true, ...(directoryMode === undefined ? {} : { mode: directoryMode }) });
         continue;
       }
       // Windows answers EPERM for a lock file another process is deleting.
@@ -299,6 +300,7 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMod
   beat?.unref?.();
   return {
     token,
+    madeFolder,
     async holds() {
       const current = await readLock(lockPath).catch(() => null);
       return current?.id === id && current?.holder?.token === token;
@@ -326,7 +328,8 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMod
  * @param {{ staleMs?: number, heartbeatMs?: number, record?: Record<string, unknown>, directoryMode?: number, makeDirectory?: boolean }} [options] - `record`
  *   adds fields to the holder; the protocol's own fields are always this process's. `directoryMode`: the mode of a
  *   folder the lock has to make. `makeDirectory: false`: a missing folder is not made; there is no lock then.
- * @returns {Promise<{ release: () => Promise<void>, holds: () => Promise<boolean>, token: string } | { observed: object | null }>}
+ * @returns {Promise<{ release: () => Promise<void>, holds: () => Promise<boolean>, token: string, madeFolder?: string } | { observed: object | null }>}
+ *   `madeFolder`: the highest folder the lock made for itself, as `fs.mkdir` names it (on Windows in the `\\?\` namespace).
  */
 export async function tryAcquireFileLock(filePath, { staleMs = LOCK_STALE_MS, heartbeatMs = 0, record = {}, directoryMode, makeDirectory = true } = {}) {
   const lockPath = lockPathFor(filePath);

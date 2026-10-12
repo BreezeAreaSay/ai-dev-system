@@ -225,7 +225,13 @@ export function createControlTools(host) {
           listClients({ env }).catch(() => []),
           withChecks ? host.handler("system_health_check")({ include_search_smoke: false, include_dense_smoke: false, include_search_eval: false }).catch((error) => ({ status: "fail", checks: [{ name: "system_health_check", status: "fail", summary: error.message }] })) : null
         ]);
-        const checks = (health?.checks ?? []).map((check) => ({ name: check.name, status: check.status, summary: String(check.summary ?? "") }));
+        const checks = (health?.checks ?? []).map((check) => ({
+          name: check.name,
+          status: check.status,
+          summary: String(check.summary ?? ""),
+          ...(typeof check.critical === "boolean" ? { critical: check.critical } : {}),
+          ...(check.details && typeof check.details === "object" && !Array.isArray(check.details) ? { details: check.details } : {})
+        }));
         const built = index.index_exists === true;
         const failed = health?.status === "fail" || !built;
         const degraded = health?.status === "degraded" || settings.length > 0 || Boolean(index.stale);

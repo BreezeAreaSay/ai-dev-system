@@ -1,0 +1,23 @@
+{
+  "name": "ai-dev-desktop",
+  "productName": "AI Dev",
+  "version": "2.0.0",
+  "private": true,
+  "description": "The AI Dev desktop app: a tray, a first-run wizard and a status screen over the daemon every AI client shares.",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/main/main.mjs",
+  "engines": {
+    "node": "^22.16.0 || >=24.0.0"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node scripts/run-tests.mjs",
+    "test:unit": "node --test \"test/unit/*.test.mjs\"",
+    "electron:install": "node scripts/electron-binary.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "playwright-core": "1.63.0"
+  }
+}

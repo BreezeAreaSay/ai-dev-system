@@ -76,7 +76,11 @@ export function explicitRuntimeHome(env = process.env, options = {}) {
  * Absolute path of the runtime state root: `AI_DEV_HOME` itself, else `<home>/.ai-dev`.
  *
  * This is the single definition; the hooks carry a copy (`runtimeStateRoot` in
- * `hooks/lib.mjs`) that must give the same answer (AGENTS.md, rule 3).
+ * `hooks/lib.mjs`) that must give the same answer (AGENTS.md, rule 3). The copy
+ * has one source more, read only when `AI_DEV_HOME` is not in the hook's own
+ * environment: the folder this server ran with, recorded beside the hooks when
+ * it installed them (`.ai-dev-home`, docs/DEFECTS.md Д-184) — a client started
+ * from the Dock gives its server the variable from its config, not its hooks.
  *
  * @param {string} [vaultRoot]
  * @param {NodeJS.ProcessEnv} [env]

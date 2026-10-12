@@ -6,7 +6,8 @@ param(
 
 # 2.x ran the gate once with this script, looking for Node in the Codex desktop
 # runtime. It is `npm run check` now, on any system, with Node from PATH
-# (docs/DEFECTS.md, Д-104); `npm run acceptance` runs it ten times. With
+# (docs/DEFECTS.md, Д-104), then the Frontend QA runner's tests when its
+# dependencies are installed (Д-185); `npm run acceptance` runs the gate ten times. With
 # -IncludeDense the dense checks follow: `ai-dev doctor --dense-smoke
 # --search-eval`. This wrapper stays until 4.0 and says so on stderr.
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,18 @@ Push-Location $server
 try {
   & $npm run check
   if ($LASTEXITCODE -ne 0) { throw "npm run check failed." }
+  # The Frontend QA runner's own tests, which 2.x ran here too; they need its
+  # dependencies, which `npm run setup -- --frontend-qa` installs.
+  $frontendQa = (Resolve-Path (Join-Path $PSScriptRoot "..\frontend-qa")).Path
+  if (Test-Path -LiteralPath (Join-Path $frontendQa "node_modules")) {
+    Push-Location $frontendQa
+    try {
+      & $node --test
+      if ($LASTEXITCODE -ne 0) { throw "Frontend QA tests failed." }
+    } finally { Pop-Location }
+  } else {
+    [Console]::Error.WriteLine("ai-dev: Frontend QA tests skipped: its dependencies are not installed (npm run setup -- --frontend-qa).")
+  }
   if ($IncludeDense) {
     & $node "bin\ai-dev.mjs" doctor --dense-smoke --search-eval
     if ($LASTEXITCODE -ne 0) { throw "The dense checks failed." }

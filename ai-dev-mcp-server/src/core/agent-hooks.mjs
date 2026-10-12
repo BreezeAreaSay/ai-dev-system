@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { atomicWriteFile } from "./atomic-files.mjs";
+import { explicitRuntimeHome } from "./runtime-home.mjs";
 import { runProcess } from "./process-runner.mjs";
 import { LEFTOVER_PATTERNS, PLACEHOLDER_VALUE, PROTECTED_CONFIG_FILES, SECRET_FILE_PATTERN, SECRET_PATTERNS } from "./change-hygiene.mjs";
 
@@ -22,6 +23,9 @@ const COMMAND_MARKER = ".ai-dev/hooks/";
 export const NODE_LAUNCHER = "with-node.sh";
 /** The Node the hooks were installed with, on this machine; git ignores it. */
 export const NODE_PATH_FILE = ".node-path";
+
+/** Beside the hooks: the runtime folder `AI_DEV_HOME` named for the server that installed them (Д-184). */
+export const RUNTIME_HOME_FILE = ".ai-dev-home";
 
 /**
  * Default `.ai-dev/policy.json`: hookify-style rules the project can extend.
@@ -517,13 +521,16 @@ async function readText(target) {
  * a repository.
  *
  * `nodePath` is recorded for the Node launcher (`.ai-dev/hooks/.node-path`,
- * kept out of git): the Node running this server, which the client found. In
- * a container that Node is not the host's, so nothing is recorded there.
+ * kept out of git): the Node running this server, which the client found.
+ * `runtimeHome` — the folder `AI_DEV_HOME` names for this server — is recorded
+ * beside it (`.ai-dev-home`), so hooks a client runs without that variable keep
+ * their state where the server does (docs/DEFECTS.md, Д-184). In a container
+ * neither is the host's, so nothing is recorded there.
  *
- * @param {{ projectRoot: string, hooksSourceDir: string, targets?: string[], profile?: string, overwrite?: boolean, dryRun?: boolean, cursorFormatVersion?: number, platform?: string, nodePath?: string }} input
+ * @param {{ projectRoot: string, hooksSourceDir: string, targets?: string[], profile?: string, overwrite?: boolean, dryRun?: boolean, cursorFormatVersion?: number, platform?: string, nodePath?: string, runtimeHome?: string }} input
  * @returns {Promise<{ profile: string, targets: string[], written: string[], updated: string[], skipped: string[], planned: string[], backups: string[], warnings: string[], cursor_format_version: number }>}
  */
-export async function installAgentHooks({ projectRoot, hooksSourceDir, targets = ["claude"], profile = "standard", overwrite = false, dryRun = false, cursorFormatVersion = CURSOR_HOOKS_FORMAT_VERSION, platform = process.platform, nodePath = process.env.AI_DEV_RUNTIME === "docker" ? "" : process.execPath }) {
+export async function installAgentHooks({ projectRoot, hooksSourceDir, targets = ["claude"], profile = "standard", overwrite = false, dryRun = false, cursorFormatVersion = CURSOR_HOOKS_FORMAT_VERSION, platform = process.platform, nodePath = process.env.AI_DEV_RUNTIME === "docker" ? "" : process.execPath, runtimeHome = process.env.AI_DEV_RUNTIME === "docker" ? "" : explicitRuntimeHome(process.env) }) {
   if (!HOOK_PROFILES.includes(profile)) throw new Error(`Unknown hook profile: ${profile}. Known: ${HOOK_PROFILES.join(", ")}`);
   for (const target of targets) {
     if (!HOOK_TARGETS.includes(target)) throw new Error(`Unknown hooks target: ${target}. Known: ${HOOK_TARGETS.join(", ")}`);
@@ -561,12 +568,23 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
   if (!dryRun) await fs.chmod(path.join(root, ...HOOKS_RELATIVE_DIR.split("/"), NODE_LAUNCHER), 0o755).catch(() => undefined);
   // This machine's Node, for the launcher: forward slashes, which Git's shell
   // on Windows reads too. The hooks are committed; this file is not.
-  await writeManaged(`${HOOKS_RELATIVE_DIR}/.gitignore`, `${NODE_PATH_FILE}\n`);
+  await writeManaged(`${HOOKS_RELATIVE_DIR}/.gitignore`, `${NODE_PATH_FILE}\n${RUNTIME_HOME_FILE}\n`);
   // Shell scripts keep the line endings they are written with: Git for Windows
   // with core.autocrlf checks text out with CRLF, and a shell script with CRLF
   // is a syntax error (docs/DEFECTS.md, Д-171).
   await writeManaged(`${HOOKS_RELATIVE_DIR}/.gitattributes`, "*.sh text eol=lf\n");
   if (nodePath) await writeManaged(`${HOOKS_RELATIVE_DIR}/${NODE_PATH_FILE}`, `${platform === "win32" ? nodePath.replaceAll("\\", "/") : nodePath}\n`);
+  const runtimeRecord = `${HOOKS_RELATIVE_DIR}/${RUNTIME_HOME_FILE}`;
+  if (runtimeHome) {
+    await writeManaged(runtimeRecord, `${runtimeHome}\n`);
+  } else if (await readText(path.join(root, ...runtimeRecord.split("/"))) !== null) {
+    // AI_DEV_HOME is gone from this server: its hooks follow it to ~/.ai-dev.
+    if (dryRun) planned.push(`${runtimeRecord} (remove)`);
+    else {
+      await fs.rm(path.join(root, ...runtimeRecord.split("/")), { force: true });
+      updated.push(`${runtimeRecord} (removed)`);
+    }
+  }
 
   const policyPath = path.join(root, ...POLICY_RELATIVE_PATH.split("/"));
   const existingPolicy = await readText(policyPath);

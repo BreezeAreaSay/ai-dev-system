@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   CURSOR_HOOKS_CONTRACT,
   CURSOR_HOOKS_FORMATS,
@@ -611,7 +611,7 @@ test("the installer records this machine's Node out of git, and nothing from ins
   const installed = await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], nodePath: "/opt/node/bin/node" });
   assert.ok(installed.written.includes(".ai-dev/hooks/with-node.sh"));
   assert.equal(await fs.readFile(path.join(hooksDir, ".node-path"), "utf8"), "/opt/node/bin/node\n");
-  assert.equal(await fs.readFile(path.join(hooksDir, ".gitignore"), "utf8"), ".node-path\n");
+  assert.equal(await fs.readFile(path.join(hooksDir, ".gitignore"), "utf8"), ".node-path\n.ai-dev-home\n");
   const ignored = spawnSync("git", ["-C", projectRoot, "check-ignore", ".ai-dev/hooks/.node-path"], { encoding: "utf8", windowsHide: true });
   assert.equal(ignored.status, 0, "git ignores the recorded path");
   const status = await agentHooksStatus(projectRoot);
@@ -631,6 +631,27 @@ test("the installer records this machine's Node out of git, and nothing from ins
   const container = await fixture(t);
   await installAgentHooks({ projectRoot: container.projectRoot, hooksSourceDir, targets: ["claude"], nodePath: "" });
   await assert.rejects(fs.access(path.join(container.projectRoot, ".ai-dev", "hooks", ".node-path")));
+});
+
+test("hooks a client runs without AI_DEV_HOME keep their state where the server does (Д-184)", async (t) => {
+  const { root, projectRoot } = await fixture(t);
+  const runtime = path.join(root, "runtime-of-the-server");
+  await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], nodePath: "", runtimeHome: runtime });
+  const hooksDir = path.join(projectRoot, ".ai-dev", "hooks");
+  assert.equal(await fs.readFile(path.join(hooksDir, ".ai-dev-home"), "utf8"), `${runtime}\n`);
+  const ignored = spawnSync("git", ["-C", projectRoot, "check-ignore", ".ai-dev/hooks/.ai-dev-home"], { encoding: "utf8", windowsHide: true });
+  assert.equal(ignored.status, 0, "git ignores it, as it does .node-path");
+  const home = path.join(root, "home");
+  const rootSeen = (extra = {}) => spawnSync(process.execPath, ["--input-type=module", "-e",
+    `import { runtimeStateRoot } from ${JSON.stringify(pathToFileURL(path.join(hooksDir, "lib.mjs")).href)}; process.stdout.write(runtimeStateRoot());`], {
+    encoding: "utf8", windowsHide: true, env: { PATH: process.env.PATH, HOME: home, USERPROFILE: home, ...extra }
+  }).stdout;
+  assert.equal(rootSeen(), runtime, "a GUI client's hooks: the server's folder");
+  assert.equal(rootSeen({ AI_DEV_HOME: path.join(root, "named") }), path.join(root, "named"), "AI_DEV_HOME in the hook's own environment still wins");
+  // Installed again by a server without AI_DEV_HOME: the record goes, and the hooks follow it to ~/.ai-dev.
+  const again = await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], nodePath: "", runtimeHome: "" });
+  assert.ok(again.updated.includes(".ai-dev/hooks/.ai-dev-home (removed)"));
+  assert.equal(rootSeen(), path.join(home, ".ai-dev"));
 });
 
 test("a hook runs with no Node on PATH: the 2.x command fails, the launcher finds the recorded Node (Д-103)", { skip: process.platform === "win32" && "the launcher is the POSIX form" }, async (t) => {

@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { Worker } from "node:worker_threads";
+import { fileURLToPath } from "node:url";
 
 export const MAX_STDIN = 1024 * 1024;
 export const PROFILES = ["minimal", "standard", "strict"];
@@ -328,7 +329,32 @@ export function stateRoot() {
  */
 export function runtimeStateRoot() {
   const home = process.env.USERPROFILE || process.env.HOME || os.homedir();
-  return explicitRuntimeHome() || path.join(home, ".ai-dev");
+  return explicitRuntimeHome() || recordedRuntimeHome() || path.join(home, ".ai-dev");
+}
+
+/** The file beside the hooks that names the server's runtime folder. */
+export const RUNTIME_HOME_FILE = ".ai-dev-home";
+
+/**
+ * The runtime folder of the server that installed these hooks, when
+ * `AI_DEV_HOME` named one: `install_agent_hooks` records it beside them, kept
+ * out of git like `.node-path`. A client started from the Dock or the Start
+ * menu runs its hooks without the shell's variables, while its server has
+ * `AI_DEV_HOME` from the client's config (Д-176) — without the record the two
+ * kept their state in different places (docs/DEFECTS.md, Д-184). The server
+ * reads no such file: its environment carries the variable. In the hooks it
+ * comes after `AI_DEV_HOME` and before `~/.ai-dev`, as the server's copy has
+ * nothing to put between them.
+ *
+ * @returns {string}
+ */
+export function recordedRuntimeHome() {
+  try {
+    const value = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), RUNTIME_HOME_FILE), "utf8").trim();
+    return value && path.isAbsolute(value) ? path.resolve(value) : "";
+  } catch {
+    return "";
+  }
 }
 
 /** Same as the server's `sameDirectory`: through symlinks, and case-blind on Windows and macOS. */

@@ -170,8 +170,13 @@ export async function planDistribution({ repositoryRoot, target, allowlist }) {
 export function npmLeavesOut(relative) {
   const parts = String(relative).split("/");
   const name = parts.at(-1);
-  return parts.slice(0, -1).some((part) => part === "CVS" || part === ".svn" || part === ".hg" || part === ".git")
+  const folders = parts.slice(0, -1);
+  const vcs = ["CVS", ".svn", ".hg", ".git"];
+  // Measured on npm 10.9.4 and 11.17 (`npm pack --dry-run` over 26 names, Д-175, Д-185).
+  return folders.some((part) => vcs.includes(part) || part === "archived-packages")
+    || vcs.includes(name)
     || [".gitignore", ".npmignore", ".npmrc", ".DS_Store", "npm-debug.log", ".lock-wscript"].includes(name)
+    || (name === "config.gypi" && folders.at(-1) === "build")
     || /^\._/.test(name)
     || /^\..*\.swp$/.test(name)
     || /^\.wafpickle-\d+$/.test(name)
@@ -283,4 +288,27 @@ export async function verifyDistribution(root) {
     extra,
     dropped
   };
+}
+
+/**
+ * Stop when a seed file is not what the seed's manifest says. Every installed
+ * vault judges its files by that manifest: a note edited without the manifest
+ * recomputed would look changed by the user in all of them, and never be
+ * updated again (docs/DEFECTS.md, Д-185).
+ *
+ * @param {string} seedRoot - A staged seed folder holding `public-seed.manifest.json`.
+ * @returns {Promise<number>} The number of files checked.
+ */
+export async function assertSeedMatchesManifest(seedRoot) {
+  const manifest = JSON.parse(await fs.readFile(path.join(seedRoot, "public-seed.manifest.json"), "utf8"));
+  const drifted = [];
+  for (const file of manifest.files ?? []) {
+    const content = await fs.readFile(path.join(seedRoot, ...String(file.path).split("/"))).catch(() => null);
+    if (!content || crypto.createHash("sha256").update(content).digest("hex") !== file.sha256) drifted.push(String(file.path));
+  }
+  if (drifted.length) {
+    throw new Error(`The seed differs from its manifest in ${drifted.length} file(s) (${drifted.slice(0, 3).join(", ")}). `
+      + "Recompute the manifest with `node scripts/verify-public-seed.mjs --write`, or put the files back.");
+  }
+  return (manifest.files ?? []).length;
 }

@@ -433,3 +433,75 @@ test("session-end leaves an observation log the server can turn into instinct pr
   assert.ok(kinds.includes("repeated_command"));
   assert.equal(proposals.find((item) => item.kind === "resolved_error").action, "run `npm ci`");
 });
+
+test("hooks fired in a package of a monorepo keep the workspace's policy, secrets, protected configs, stop checks and formatter (Д-189)", async (t) => {
+  const { root } = await fixture(t);
+  const repo = path.join(root, "mono");
+  const web = path.join(repo, "apps", "web");
+  await fs.mkdir(path.join(web, "src"), { recursive: true });
+  await fs.writeFile(path.join(repo, "package.json"), "{\"name\":\"root\",\"private\":true,\"workspaces\":[\"apps/*\"]}\n");
+  await fs.writeFile(path.join(web, "package.json"), "{\"name\":\"web\"}\n");
+  await fs.writeFile(path.join(web, "tsconfig.json"), "{}\n");
+  runGit(repo, ["init", "-q", "-b", "main"]);
+  runGit(repo, ["add", "."]);
+  runGit(repo, ["-c", "user.name=T", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "init"]);
+  await installAgentHooks({ projectRoot: repo, hooksSourceDir, targets: ["claude"], profile: "standard" });
+  const policyFile = path.join(repo, ".ai-dev", "policy.json");
+  const policy = JSON.parse(await fs.readFile(policyFile, "utf8"));
+  policy.rules = [{ id: "no-prod-deploy", event: "bash", pattern: "deploy --prod", action: "block", message: "never deploy to prod from an agent" }];
+  await fs.writeFile(policyFile, JSON.stringify(policy));
+  // A formatter installed at the root, as a hoisted monorepo has it.
+  const marker = path.join(root, "formatted.txt");
+  if (process.platform !== "win32") {
+    await fs.mkdir(path.join(repo, "node_modules", ".bin"), { recursive: true });
+    await fs.writeFile(path.join(repo, "node_modules", ".bin", "prettier"), `#!/bin/sh\necho "$@" >> '${marker}'\n`, { mode: 0o755 });
+  }
+  const inPackage = (script, args, payload) => runHook(repo, script, args, { ...payload, cwd: web });
+
+  const deploy = inPackage("guard.mjs", ["bash"], { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "npm run deploy --prod" } });
+  assert.equal(deploy.status, 2, deploy.stderr);
+  assert.match(deploy.stderr, /never deploy to prod from an agent/);
+  const key = ["AKIA", "B".repeat(16)].join("");
+  const secret = inPackage("guard.mjs", ["file"], { hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: path.join(web, "src", "k.js"), content: `const k = "${key}";` } });
+  assert.equal(secret.status, 2, secret.stderr);
+  const config = inPackage("guard.mjs", ["file"], { hook_event_name: "PreToolUse", tool_name: "Edit", tool_input: { file_path: path.join(web, "tsconfig.json"), new_string: "{\"strict\":false}" } });
+  assert.equal(config.status, 2, config.stderr);
+  assert.match(config.stderr, /tsconfig\.json is a linter\/formatter\/type-checker config/);
+
+  await fs.writeFile(path.join(web, "src", "app.js"), "export function f() {\n  console.log(\"left\");\n  debugger;\n}\n");
+  const stop = inPackage("stop-check.mjs", [], { hook_event_name: "Stop", session_id: "s1" });
+  assert.match(stop.stderr, /WARNING: console\.log in apps\/web\/src\/app\.js/);
+  assert.match(stop.stderr, /WARNING: debugger in apps\/web\/src\/app\.js/);
+
+  if (process.platform !== "win32") {
+    inPackage("post-edit.mjs", [], { hook_event_name: "PostToolUse", tool_name: "Edit", tool_input: { file_path: path.join(web, "src", "app.js") } });
+    assert.match(await fs.readFile(marker, "utf8"), /apps\/web\/src\/app\.js/, "the root's formatter ran on the package's file");
+  }
+});
+
+test("a hook finds the open task whose project holds its directory, the nearest first (Д-189)", async (t) => {
+  const { root } = await fixture(t);
+  const state = path.join(root, "state");
+  const repo = path.join(root, "mono");
+  const web = path.join(repo, "apps", "web");
+  await fs.mkdir(path.join(state, "tasks"), { recursive: true });
+  const task = (id, projectPath, status = "active", updated = "2026-10-12T00:00:00Z") => fs.writeFile(path.join(state, "tasks", `${id}.json`),
+    JSON.stringify({ id, status, task: id, updated_at: updated, project: { path: projectPath } }));
+  const { activeTaskFor, openTasksFor } = await import(`../../hooks/lib.mjs?tasks=${Date.now()}`);
+  const previous = process.env.AI_DEV_STATE_ROOT;
+  process.env.AI_DEV_STATE_ROOT = state;
+  t.after(() => {
+    if (previous === undefined) delete process.env.AI_DEV_STATE_ROOT;
+    else process.env.AI_DEV_STATE_ROOT = previous;
+  });
+  await task("repo-task", repo);
+  assert.equal(activeTaskFor(web)?.id, "repo-task", "a task begun for the repository covers its packages");
+  await task("web-task", web, "verified");
+  await task("api-task", path.join(repo, "apps", "api"));
+  await task("done-task", web, "completed");
+  assert.equal(activeTaskFor(web)?.id, "web-task", "the package's own task is nearer");
+  assert.deepEqual(openTasksFor(web).map((record) => record.id), ["web-task", "repo-task"]);
+  assert.deepEqual(openTasksFor(repo).map((record) => record.id), ["repo-task"], "a package's task does not cover the repository");
+  assert.equal(activeTaskFor(path.join(root, "elsewhere")), null);
+  assert.equal(activeTaskFor(`${repo}-sibling`), null, "a sibling whose name starts with the project's is not inside it");
+});

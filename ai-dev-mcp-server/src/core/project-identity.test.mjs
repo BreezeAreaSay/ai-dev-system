@@ -15,6 +15,7 @@ import {
   userHomeDirectory
 } from "./project-identity.mjs";
 import {
+  identityRootOf,
   isProjectBoundaryCandidate as hookIsProjectBoundaryCandidate,
   memoryKeysOf,
   projectIdOf,
@@ -311,13 +312,15 @@ test("a hook started in a package of a monorepo keys its memory to the package, 
   await runGit(repo, ["init", "-q"]);
   for (const cwd of [repo, path.join(repo, "apps", "web"), path.join(repo, "apps", "web", "src")]) {
     const identity = await resolveProjectIdentity(cwd);
-    const projectRoot = projectRootOf(cwd);
-    assert.equal(projectRoot, identity.project_root, cwd);
-    assert.equal(projectIdOf(projectRoot), identity.project_id, cwd);
-    assert.equal(repositoryIdOf(projectRoot), identity.repository_id, cwd);
-    assert.deepEqual(memoryKeysOf(projectRoot), memoryScopeKeys(identity), cwd);
+    const identityRoot = identityRootOf(cwd);
+    assert.equal(identityRoot, identity.project_root, cwd);
+    assert.equal(projectIdOf(identityRoot), identity.project_id, cwd);
+    assert.equal(repositoryIdOf(identityRoot), identity.repository_id, cwd);
+    assert.deepEqual(memoryKeysOf(identityRoot), memoryScopeKeys(identity), cwd);
+    // Policy, git and formatters stay the workspace's: the repository (Д-189).
+    assert.equal(projectRootOf(cwd), await fs.realpath(repo), cwd);
   }
-  assert.notEqual(projectIdOf(projectRootOf(path.join(repo, "apps", "web"))), projectIdOf(projectRootOf(repo)));
+  assert.notEqual(projectIdOf(identityRootOf(path.join(repo, "apps", "web"))), projectIdOf(identityRootOf(repo)));
 });
 
 test("the hook and the server agree on a project reached through another spelling of its path", async (t) => {

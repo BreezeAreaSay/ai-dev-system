@@ -28,17 +28,28 @@ const isResponse = (message) => message?.method === undefined && message?.id !==
 /**
  * Split a byte stream into JSON-RPC messages, one per line.
  *
+ * Bytes are kept as they come and a line is decoded only once it is whole: a
+ * pipe hands over 64 KB at a time, and a character cut by a chunk's edge,
+ * decoded on its own, became two U+FFFD that `JSON.parse` took without a word —
+ * a Russian note of a few hundred kilobytes came out changed, on disk too
+ * (docs/DEFECTS.md, Д-188). Each byte is looked at once and each line joined
+ * once, so a line of many megabytes costs what its size does.
+ *
  * @param {(message: object) => void} onMessage
  * @param {(line: string, error: Error) => void} onInvalid
  * @returns {(chunk: Buffer | string) => void}
  */
 export function lineReader(onMessage, onInvalid) {
-  let pending = "";
+  const parts = [];
+  let length = 0;
   return (chunk) => {
-    pending += typeof chunk === "string" ? chunk : chunk.toString("utf8");
-    for (let end = pending.indexOf("\n"); end >= 0; end = pending.indexOf("\n")) {
-      const line = pending.slice(0, end).replace(/\r$/, "");
-      pending = pending.slice(end + 1);
+    let bytes = typeof chunk === "string" ? Buffer.from(chunk, "utf8") : chunk;
+    for (let end = bytes.indexOf(0x0a); end >= 0; end = bytes.indexOf(0x0a)) {
+      parts.push(bytes.subarray(0, end));
+      const line = Buffer.concat(parts, length + end).toString("utf8").replace(/\r$/, "");
+      parts.length = 0;
+      length = 0;
+      bytes = bytes.subarray(end + 1);
       if (!line.trim()) continue;
       let message;
       try {
@@ -48,6 +59,10 @@ export function lineReader(onMessage, onInvalid) {
         continue;
       }
       onMessage(message);
+    }
+    if (bytes.length) {
+      parts.push(bytes);
+      length += bytes.length;
     }
   };
 }

@@ -14,11 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   without a window when none runs; the index and the model are in memory once, and the state
   has one writer. The handshake passes through, so the client gets the daemon's own
   `initialize` answer with its instructions. Measured with three clients and the stand-in
-  model: 528 MB in three processes, each holding the model, before; 358 MB now (three 58 MB
+  model: 528 MB in three processes, each holding the model, before; 391 MB now (three 70 MB
   bridges and one 183 MB daemon), the model loaded once; 3 × 200 `record_usage` → 600
   records. A `kill -9` of the daemon answers the request it was running with an error that
   says so, and the client's next request starts a new daemon, introduced with the client's own
-  `initialize` (1.1 s). When no daemon can start, the client is served in its own process and
+  `initialize` (840 ms). When no daemon can start, the client is served in its own process and
   stderr says why; `AI_DEV_DAEMON=0` asks for that outright.
 - **`ai-dev daemon start | stop | status | run`.** `status` gives the pid, version, sessions
   (live — 2.x always said 0), the clients, memory, address and log
@@ -1220,7 +1220,9 @@ four of those arrived as upstream issues #63–#66.
     a gone one: `stop` said "Not running." and removed its record (Д-208). Only a refused
     connection or a missing socket now means nothing listens there, and a retired daemon puts
     back a record taken away while it lives;
-  - a test that left its daemon running after its folder was gone (Д-209).
+  - a test that left its daemon running after its folder was gone (Д-209);
+  - and, found re-reading that fix, a retired daemon leaving at the moment its watch looked could
+    put its record back after it was gone (Д-210).
 
 ### Security
 

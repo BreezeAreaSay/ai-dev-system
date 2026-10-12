@@ -790,11 +790,7 @@ export function buildSystemSnapshot({
       main_lines: runtimeLines,
       line_ceiling: SYSTEM_LINE_CEILING
     },
-    checks: checks.map((check) => ({
-      name: String(check.name),
-      status: String(check.status),
-      summary: String(check.summary ?? "").replace(/\s+/g, " ").trim()
-    }))
+    checks: checks.map(({ name, status, summary }) => ({ name: String(name), status: String(status), summary: String(summary ?? "").replace(/\s+/g, " ").trim() }))
   };
   snapshot.source_fingerprint = dashboardSourceFingerprint(snapshot);
   return snapshot;

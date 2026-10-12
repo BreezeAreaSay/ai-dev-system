@@ -42,6 +42,7 @@ import process from "node:process";
 import { freeSpaceFor, formatBytes, judgeDiskSpace } from "./disk-space.mjs";
 import { sha256File } from "./dense-manifest.mjs";
 import { openUrl, readSnippet, redactCredentials } from "./http-download.mjs";
+import { hint } from "./install-layout.mjs";
 
 /**
  * No byte has arrived for this long, so the transfer is dead.
@@ -68,7 +69,7 @@ export const PART_META_SUFFIX = ".part.json";
 /** The ways round a network that will not hand the model over. */
 export const BLOCKED_DOWNLOAD_ADVICE = "If this network blocks the download, set AI_DEV_MODEL_MIRROR to a Hugging Face mirror "
   + "or HTTPS_PROXY to a proxy that reaches it, or copy the model from a machine that has it: "
-  + "`npm run model -- import <folder or .zip>`.";
+  + `\`${hint("npm run model -- import <folder or .zip>")}\`.`;
 
 const PART_FORMAT = 1;
 
@@ -564,7 +565,7 @@ export async function downloadDenseModel({
 } = {}) {
   if (String(env.AI_DEV_OFFLINE ?? "") === "1") {
     throw new Error("AI_DEV_OFFLINE=1 prevents downloads. Copy the model from a machine that has it: "
-      + "`npm run model -- import <folder or .zip>`.");
+      + `\`${hint("npm run model -- import <folder or .zip>")}\`.`);
   }
   const sources = modelSources(manifest, env);
   if (!sources.length) throw new Error("Dense model manifest lists no sources to download from.");

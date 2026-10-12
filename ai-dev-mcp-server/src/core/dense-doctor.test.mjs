@@ -172,7 +172,7 @@ test("a native binding that will not load is a sentence, never a stack trace", a
   assert.equal(result.failed.key, "runtime");
   const report = renderDenseDoctorReport(result);
   assert.match(report, /cannot open shared object file/);
-  assert.match(report, /Run `npm ci` in ai-dev-mcp-server\//);
+  assert.match(report, /Restore the package: run `npm ci` in ai-dev-mcp-server\//);
   assert.doesNotMatch(report, /npm rebuild/, "no command builds onnxruntime from source");
   assert.ok(!report.includes("    at Object"), "no stack frames reach the user");
 });

@@ -160,7 +160,7 @@ async function openConflicts(contentRoot, state) {
  * @param {string} input.contentRoot - The user's vault.
  * @param {string} [input.version] - The shipping package's version; an older one leaves a newer vault alone.
  * @param {() => Date} [input.now]
- * @returns {Promise<{ status: "current"|"synced"|"newer", version: string, fingerprint: string, added: number, updated: number, unchanged: number, removed: number, kept: string[], conflicts: string[] }>}
+ * @returns {Promise<{ status: "current"|"synced"|"newer", version: string, fingerprint: string, added: number, updated: number, unchanged: number, removed: number, kept: string[], conflicts: string[], missing: string[] }>}
  */
 export async function syncSeed({ seedRoot, contentRoot, version = "", now = () => new Date() }) {
   const manifest = await readJson(path.join(seedRoot, MANIFEST), null);
@@ -176,6 +176,7 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
     unchanged: 0,
     removed: 0,
     kept: [],
+    missing: Array.isArray(state?.missing) ? state.missing : [],
     conflicts: counts.conflicts ?? await openConflicts(contentRoot, state),
     ...counts
   });
@@ -193,15 +194,23 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
     if (settled(state)) return result(settled(state), state);
     const shipped = state?.files && typeof state.files === "object" ? state.files : {};
     const before = new Set(Array.isArray(state?.conflicts) ? state.conflicts.map(String) : []);
-    const counts = { added: 0, updated: 0, unchanged: 0, removed: 0, kept: [], conflicts: [] };
+    const counts = { added: 0, updated: 0, unchanged: 0, removed: 0, kept: [], conflicts: [], missing: [] };
     const files = {};
     for (const entry of manifest.files) {
       const relative = String(entry.path);
       const sha = String(entry.sha256);
-      files[relative] = sha;
       const source = inside(seedRoot, relative);
       const target = inside(contentRoot, relative);
       const previous = shipped[relative];
+      // A damaged package — or one npm packed without a file (docs/DEFECTS.md,
+      // Д-175) — still brings everything else; what it lacks keeps its old
+      // record, so the next complete seed treats it as before.
+      if (await entryKind(source) !== "file") {
+        counts.missing.push(relative);
+        if (previous !== undefined) files[relative] = previous;
+        continue;
+      }
+      files[relative] = sha;
       const kind = await entryKind(target);
       if (kind === "absent") {
         // Shipped before and gone now: the user deleted it, and it stays deleted.
@@ -255,10 +264,13 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
     const next = {
       schema_version: 1,
       seed_version: version,
-      seed_fingerprint: fingerprint,
+      // An incomplete seed is not current: the next start looks again, and a
+      // reinstalled package fills in what this one lacked.
+      seed_fingerprint: counts.missing.length ? "" : fingerprint,
       synced_at: now().toISOString(),
       seed_root: seedRoot,
       conflicts: counts.conflicts,
+      missing: counts.missing,
       files
     };
     await atomicWriteJson(statePath, next);
@@ -270,7 +282,7 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
  * What the last sync left for the user to look at, for `doctor`.
  *
  * @param {string} contentRoot
- * @returns {Promise<{ synced: boolean, version: string, synced_at: string, seed_root: string, conflicts: string[] }>}
+ * @returns {Promise<{ synced: boolean, version: string, synced_at: string, seed_root: string, missing: string[], conflicts: string[] }>}
  */
 export async function describeSeedSync(contentRoot) {
   const state = await readJson(path.join(contentRoot, SEED_STATE_FILE), null);
@@ -279,6 +291,7 @@ export async function describeSeedSync(contentRoot) {
     version: String(state?.seed_version ?? ""),
     synced_at: String(state?.synced_at ?? ""),
     seed_root: String(state?.seed_root ?? ""),
+    missing: Array.isArray(state?.missing) ? state.missing.map(String) : [],
     conflicts: state ? await openConflicts(contentRoot, state) : []
   };
 }
@@ -291,9 +304,10 @@ export function describeSyncResult(result) {
   const conflicts = result.conflicts.length
     ? `; ${result.conflicts.length} file(s) you changed were changed by this version too — yours were kept, and this version's is beside each as <file>${SEED_NEW_SUFFIX}`
     : "";
-  if (result.status === "current") return `seed ${result.version || "current"}${conflicts}`;
+  const missing = result.missing?.length ? `; ${result.missing.length} file(s) of the seed are missing from this install — reinstall it` : "";
+  if (result.status === "current") return `seed ${result.version || "current"}${conflicts}${missing}`;
   return `seed ${result.version || "synced"}: ${result.added} added, ${result.updated} updated, ${result.removed} removed, `
-    + `${result.kept.length} of yours kept${conflicts}`;
+    + `${result.kept.length} of yours kept${conflicts}${missing}`;
 }
 
 /**
@@ -322,13 +336,21 @@ export async function prepareUserVault(layout, { version = "", log = (line) => p
  * The health check's view of a package's vault: filled from the seed, and
  * whether an update left files for the user to merge.
  *
- * @param {{ root: string, synced: boolean, version: string, synced_at: string, conflicts: string[] }} info
+ * @param {{ root: string, synced: boolean, version: string, synced_at: string, missing?: string[], conflicts: string[] }} info
  * @returns {{ status: "ok"|"warn", summary: string, details: object }}
  */
 export function evaluateVaultSeed(info) {
   const details = { ...info };
   if (!info.synced) {
     return { status: "warn", summary: `The vault ${info.root} has not been filled from the seed yet: restart the server, or run setup.`, details };
+  }
+  if (info.missing?.length) {
+    return {
+      status: "warn",
+      summary: `${info.missing.length} file(s) of the seed are missing from this install (${info.missing.slice(0, 3).join(", ")}${info.missing.length > 3 ? ", …" : ""}), `
+        + "so the vault lacks them too: reinstall the package.",
+      details
+    };
   }
   if (info.conflicts.length) {
     const named = info.conflicts.slice(0, 3).join(", ") + (info.conflicts.length > 3 ? `, and ${info.conflicts.length - 3} more` : "");

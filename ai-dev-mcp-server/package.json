@@ -27,6 +27,8 @@
     "acceptance": "node scripts/acceptance.mjs",
     "upgrade:test": "node scripts/upgrade-check.mjs",
     "distribution": "node bin/ai-dev.mjs distribution",
+    "dist": "node scripts/build-dist.mjs",
+    "dist:pack": "node scripts/build-dist.mjs --pack",
     "docker:seed": "node scripts/refresh-public-seed.mjs --replace",
     "docker:seed:verify": "node scripts/verify-public-seed.mjs",
     "docker:prepare": "node scripts/prepare-docker-context.mjs",

@@ -13,6 +13,7 @@
  */
 import { DENSE_MOUNT_ADVICE } from "./dense-backend.mjs";
 import { formatBytes } from "./disk-space.mjs";
+import { hint } from "./install-layout.mjs";
 
 /**
  * Grade the dense backend from an `embedding_status` payload.
@@ -47,7 +48,7 @@ export function evaluateEmbeddingBackend(status = {}) {
     return {
       status: "warn",
       summary: `The model files in ${onnx.dir} do not match the manifest (${onnx.mismatched.join(", ")}). `
-        + (inContainer ? `In this container, ${DENSE_MOUNT_ADVICE}` : "Run `npm run setup -- --model`: it fetches those files again."),
+        + (inContainer ? `In this container, ${DENSE_MOUNT_ADVICE}` : `Run \`${hint("npm run setup -- --model")}\`: it fetches those files again.`),
       details
     };
   }
@@ -56,7 +57,7 @@ export function evaluateEmbeddingBackend(status = {}) {
     return {
       status: "skipped",
       summary: `Dense search is not installed: a model download stopped partway (${started}). `
-        + (inContainer ? `In this container, ${DENSE_MOUNT_ADVICE}` : "`npm run setup -- --model` continues it from there."),
+        + (inContainer ? `In this container, ${DENSE_MOUNT_ADVICE}` : `\`${hint("npm run setup -- --model")}\` continues it from there.`),
       details: { ...details, optional: true }
     };
   }

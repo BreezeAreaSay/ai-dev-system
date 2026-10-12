@@ -235,3 +235,27 @@ test("at the server's start a package's vault is filled; a failure is said, not 
   assert.match(verdict.summary, /^2 file\(s\) you changed in .* were changed by an update too: a\.md, b\.md\. Yours were kept; the update's version is beside each as <file>\.seed-new\./);
   assert.match(describeSyncResult(await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0" })), /left as it is: it was brought up to 3\.1\.0/);
 });
+
+test("a package missing a seed file still fills the vault; the file arrives once the package is whole (Д-175)", async (t) => {
+  const root = await scratch(t);
+  const vault = path.join(root, "vault");
+  const seed = await writeSeed(path.join(root, "seed"), { "a/.gitignore": "x\n", "a/b.md": "b\n", "z.md": "z\n" });
+  await fs.rm(path.join(seed, "a", ".gitignore"));
+  const broken = await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0" });
+  assert.equal(broken.status, "synced");
+  assert.equal(broken.added, 2, "everything else arrives");
+  assert.deepEqual(broken.missing, ["a/.gitignore"]);
+  assert.equal(await read(vault, "z.md"), "z\n");
+  const verdict = evaluateVaultSeed({ root: vault, ...await describeSeedSync(vault) });
+  assert.equal(verdict.status, "warn");
+  assert.match(verdict.summary, /^1 file\(s\) of the seed are missing from this install \(a\/\.gitignore\).*reinstall the package\.$/);
+  assert.match(describeSyncResult(broken), /1 file\(s\) of the seed are missing from this install — reinstall it$/);
+
+  await fs.writeFile(path.join(seed, "a", ".gitignore"), "x\n");
+  const whole = await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0" });
+  assert.equal(whole.status, "synced", "the same manifest is not current while a file of it never arrived");
+  assert.equal(whole.added, 1);
+  assert.deepEqual(whole.missing, []);
+  assert.equal(await read(vault, "a/.gitignore"), "x\n");
+  assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0" })).status, "current");
+});

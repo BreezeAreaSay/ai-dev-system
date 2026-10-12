@@ -32,6 +32,7 @@ import { redactCredentials } from "./http-download.mjs";
 import { acquireFileLock } from "./file-lock.mjs";
 import { looksLikeZip, openZipEntry, readZipEntries } from "./model-archive.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
+import { hint, runtimeRepairHint } from "./install-layout.mjs";
 
 /** How long an operation waits for another one on the same directory before saying so. */
 export const MODEL_LOCK_TIMEOUT_MS = 1_500;
@@ -77,7 +78,7 @@ export function denseRuntimeSupport({ platform = process.platform, arch = proces
   try {
     root ||= path.dirname(createRequire(import.meta.url).resolve("onnxruntime-node/package.json"));
   } catch {
-    return { supported: false, platform: label, version: "", reason: "onnxruntime-node is not installed; run `npm ci` in ai-dev-mcp-server/." };
+    return { supported: false, platform: label, version: "", reason: `onnxruntime-node is not installed; ${runtimeRepairHint()}.` };
   }
   let version = "";
   try {
@@ -368,7 +369,7 @@ export async function importModel({ manifest, source, dir, stampDir = defaultSta
           // Nothing to copy from: the source is the folder being checked (Д-156).
           throw new Error(`${origin} is the model folder itself, and ${[...verification.missing, ...verification.mismatched].join(", ")} in it `
             + "is not the pinned file; there is no other copy here to take it from. Import from another copy, or "
-            + "`npm run model -- install` fetches it.");
+            + `\`${hint("npm run model -- install")}\` fetches it.`);
         }
         return { ready: true, dir: resolved, source: origin, copied: [], skipped: verification.present, from: resolved, mismatched: [] };
       }

@@ -11,8 +11,10 @@
  * No dependency beyond Node: the image's publish job and `bootstrap.sh` build
  * the context before any `npm ci`.
  */
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { DISTRIBUTION_MARKER } from "./install-layout.mjs";
 
 /** Where the allowlist sits, relative to the repository root. */
 export const ALLOWLIST_PATH = path.join("ai-dev-mcp-server", "distribution.allowlist.json");
@@ -50,8 +52,11 @@ export function globToRegExp(pattern) {
 
 const GLOB = /[*?]/;
 
-/** Every file under `directory`, as `/`-separated paths relative to `root`. Links are refused, not followed. */
-async function walk(root, directory, found) {
+/**
+ * Every file under `directory`, as `/`-separated paths relative to `root`.
+ * Links are refused, not followed; folders `skip` says yes to are not entered.
+ */
+async function walk(root, directory, found, skip = () => false) {
   let entries;
   try {
     entries = await fs.readdir(directory, { withFileTypes: true });
@@ -63,8 +68,11 @@ async function walk(root, directory, found) {
     const full = path.join(directory, entry.name);
     const relative = path.relative(root, full).split(path.sep).join("/");
     if (entry.isSymbolicLink()) throw new Error(`${full} is a link; a distribution ships files, not links.`);
-    if (entry.isDirectory()) await walk(root, full, found);
-    else if (entry.isFile()) found.push(relative);
+    if (entry.isDirectory()) {
+      if (!skip(relative)) await walk(root, full, found, skip);
+      continue;
+    }
+    if (entry.isFile()) found.push(relative);
   }
 }
 
@@ -148,4 +156,131 @@ export async function planDistribution({ repositoryRoot, target, allowlist }) {
     }
   }
   return plan.sort((left, right) => (left.destination < right.destination ? -1 : left.destination > right.destination ? 1 : 0));
+}
+
+/**
+ * Whether `npm pack` leaves a file out of the tarball, whatever `files` says
+ * (npm-packlist's fixed rules, measured on npm 11.17). A `.gitignore` is also
+ * read as ignore rules for its folder. A seed file npm drops would be missing
+ * from every installed package, and the vault sync would stop on it.
+ *
+ * @param {string} relative - `/`-separated path inside the package.
+ * @returns {boolean}
+ */
+export function npmLeavesOut(relative) {
+  const parts = String(relative).split("/");
+  const name = parts.at(-1);
+  return parts.slice(0, -1).some((part) => part === "CVS" || part === ".svn" || part === ".hg" || part === ".git")
+    || [".gitignore", ".npmignore", ".npmrc", ".DS_Store", "npm-debug.log", ".lock-wscript"].includes(name)
+    || /^\._/.test(name)
+    || /^\..*\.swp$/.test(name)
+    || /^\.wafpickle-\d+$/.test(name)
+    || name.endsWith(".orig");
+}
+
+/** The repository the package is published from. */
+const REPOSITORY_URL = "https://github.com/stonebridgeway/ai-dev-system";
+
+/**
+ * The package's own `package.json`: the server's name for itself is
+ * `ai-dev-mcp-server`, private; the package is `@stonebridgeway/ai-dev-system`
+ * (owner decision D4), with the server's dependencies and the CLI as its bin.
+ *
+ * @param {object} input
+ * @param {object} input.server - The server's package.json.
+ * @param {string[]} input.entries - The top-level names the package ships.
+ * @param {string} input.name
+ * @returns {object}
+ */
+export function packageManifest({ server, entries, name }) {
+  return {
+    name,
+    version: server.version,
+    description: "Local MCP server for AI coding agents: task lifecycle, skill routing, hybrid search and a local model. "
+      + "Set up with one command: npx " + name + " setup",
+    license: "MIT",
+    type: "module",
+    bin: { "ai-dev": "ai-dev-mcp-server/bin/ai-dev.mjs" },
+    engines: server.engines,
+    dependencies: server.dependencies,
+    optionalDependencies: server.optionalDependencies,
+    files: [...entries].sort(),
+    scripts: { prepack: "node ai-dev-mcp-server/scripts/verify-distribution.mjs" },
+    repository: { type: "git", url: `git+${REPOSITORY_URL}.git` },
+    homepage: `${REPOSITORY_URL}#readme`,
+    bugs: { url: `${REPOSITORY_URL}/issues` },
+    keywords: ["mcp", "model-context-protocol", "ai-agents", "claude", "cursor", "codex", "skills", "search"]
+  };
+}
+
+/**
+ * The server's lockfile as the package's `npm-shrinkwrap.json`: npm installs a
+ * package's shrinkwrap exactly, so every user gets the tree the gates ran on.
+ * (`package-lock.json` never leaves a project: npm does not pack it.)
+ *
+ * @param {object} lock - The server's package-lock.json.
+ * @param {object} manifest - From {@link packageManifest}.
+ * @returns {object}
+ */
+export function shrinkwrapFrom(lock, manifest) {
+  const packages = {};
+  for (const [key, value] of Object.entries(lock.packages ?? {})) {
+    if (!key || value.dev) continue;
+    packages[key] = value;
+  }
+  const root = {
+    name: manifest.name,
+    version: manifest.version,
+    license: manifest.license,
+    dependencies: manifest.dependencies,
+    optionalDependencies: manifest.optionalDependencies,
+    bin: manifest.bin,
+    engines: manifest.engines
+  };
+  return { name: manifest.name, version: manifest.version, lockfileVersion: lock.lockfileVersion, requires: true, packages: { "": root, ...packages } };
+}
+
+/**
+ * Check a built distribution against its `distribution.json`: every listed
+ * file there with its size and sha256, nothing beside them but installed
+ * dependencies, and nothing npm would leave out of the tarball. The package's
+ * `prepack` runs this, so a tarball is never made from a folder that changed
+ * after it was built.
+ *
+ * @param {string} root - The distribution's folder.
+ * @returns {Promise<{ ok: boolean, name: string, version: string, files: number, bytes: number, missing: string[], changed: string[], extra: string[], dropped: string[] }>}
+ */
+export async function verifyDistribution(root) {
+  const marker = JSON.parse(await fs.readFile(path.join(root, DISTRIBUTION_MARKER), "utf8"));
+  const files = Array.isArray(marker.files) ? marker.files : [];
+  const listed = new Set(files.map((file) => file.path));
+  const missing = [];
+  const changed = [];
+  for (const file of files) {
+    let content;
+    try {
+      content = await fs.readFile(path.join(root, ...String(file.path).split("/")));
+    } catch {
+      missing.push(file.path);
+      continue;
+    }
+    if (content.length !== file.bytes || crypto.createHash("sha256").update(content).digest("hex") !== file.sha256) changed.push(file.path);
+  }
+  const found = [];
+  // Installed dependencies — the package's own, Frontend QA's — are not part of
+  // the build; the seed's vendored ones, deeper down, are.
+  await walk(root, root, found, (relative) => /^(?:[^/]+\/)?node_modules$/.test(relative));
+  const extra = found.filter((relative) => relative !== DISTRIBUTION_MARKER && !listed.has(relative)).sort();
+  const dropped = files.map((file) => file.path).filter(npmLeavesOut);
+  return {
+    ok: !missing.length && !changed.length && !extra.length && !dropped.length,
+    name: String(marker.name ?? ""),
+    version: String(marker.version ?? ""),
+    files: files.length,
+    bytes: files.reduce((sum, file) => sum + Number(file.bytes || 0), 0),
+    missing,
+    changed,
+    extra,
+    dropped
+  };
 }

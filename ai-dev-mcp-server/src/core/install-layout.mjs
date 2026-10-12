@@ -146,3 +146,25 @@ export function hint(command, layout = currentInstallLayout()) {
   // setup made in the app home, is reached through npx.
   return layout.ephemeral || layout.appHome ? `npx ${PACKAGE_NAME} ${words}`.trim() : `ai-dev ${words}`.trim();
 }
+
+/**
+ * How this install gets the local model's runtime (onnxruntime-node and
+ * transformers) back. Both are optional dependencies: an install whose
+ * onnxruntime-node postinstall failed — on Linux x64 it fetches a CUDA provider
+ * the server never loads, and a proxy or a closed api.nuget.org stops it —
+ * goes on without them (docs/DEFECTS.md, Д-174). "Run npm ci" is right only
+ * in a clone.
+ *
+ * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome"|"root">} [layout]
+ * @param {{ platform?: string, arch?: string }} [machine]
+ * @returns {string}
+ */
+export function runtimeRepairHint(layout = currentInstallLayout(), { platform = process.platform, arch = process.arch } = {}) {
+  if (layout.kind === "clone" || layout.kind === "vault") return "run `npm ci` in ai-dev-mcp-server/";
+  if (layout.kind === "docker") return "pull or rebuild the image, which is built with it";
+  if (layout.ephemeral) return `run \`npx ${PACKAGE_NAME} setup\`, which installs a copy with it`;
+  if (layout.appHome) return `run \`npm ci --omit=dev --ignore-scripts\` in ${layout.root}`;
+  return platform === "linux" && arch === "x64"
+    ? `install the package again, without the CUDA download its postinstall tries here: ONNXRUNTIME_NODE_INSTALL=skip npm install -g ${PACKAGE_NAME}`
+    : `install the package again: npm install -g ${PACKAGE_NAME}`;
+}

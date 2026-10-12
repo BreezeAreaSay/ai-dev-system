@@ -1,0 +1,149 @@
+/**
+ * A copy of the app that outlives the package manager's cache.
+ *
+ * `npx @stonebridgeway/ai-dev-system setup` runs the package from npm's `_npx`
+ * cache, which npm may clear at any time; a client config that names a file
+ * there stops working the day it is cleared. So `setup` run from such a place
+ * installs the package into `<runtime>/app/<version>-<fingerprint>/` and goes
+ * on from there, and the client configs it writes name that copy.
+ *
+ * The copy is the files `distribution.json` lists, checked against their
+ * sha256, plus its dependencies installed by `npm ci --ignore-scripts` from the
+ * package's own `npm-shrinkwrap.json`: the tree the gates ran, and no
+ * onnxruntime-node postinstall — which on Linux x64 fetches a 236 MB CUDA
+ * provider the server never loads, and fails behind a proxy (docs/DEFECTS.md,
+ * Д-174). The npm cache npx just filled serves it, so nothing is downloaded
+ * twice.
+ *
+ * The folder carries the content fingerprint, not just the version: a rebuilt
+ * package of the same version gets a folder of its own instead of replacing
+ * one a running server may hold open (Windows refuses that). The newest two
+ * copies stay — a client still running the previous one keeps its files.
+ */
+import crypto from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
+import { DISTRIBUTION_MARKER } from "./install-layout.mjs";
+import { verifyDistribution } from "./distribution-build.mjs";
+
+/** Written last into a finished copy; a folder without it is an install that stopped. */
+export const APP_MARKER = ".ai-dev-app.json";
+
+/** How many installed copies stay. */
+export const KEPT_APP_COPIES = 2;
+
+const readJson = async (file) => JSON.parse(await fs.readFile(file, "utf8"));
+
+/**
+ * Where a package of this content lives in the app home.
+ *
+ * @param {string} runtimeRoot
+ * @param {{ version: string, content_fingerprint: string }} distribution - The package's `distribution.json`.
+ * @returns {string}
+ */
+export function appFolder(runtimeRoot, distribution) {
+  const version = String(distribution.version || "0.0.0").replace(/[^0-9A-Za-z.+-]/g, "_");
+  return path.join(runtimeRoot, "app", `${version}-${String(distribution.content_fingerprint || "").slice(0, 8) || "unknown"}`);
+}
+
+/** The CLI inside a copy: what client configs run, with `mcp`. */
+export function appCli(folder) {
+  return path.join(folder, "ai-dev-mcp-server", "bin", "ai-dev.mjs");
+}
+
+async function finished(folder, fingerprint) {
+  try {
+    const marker = await readJson(path.join(folder, APP_MARKER));
+    if (marker.content_fingerprint !== fingerprint) return false;
+    await fs.access(appCli(folder));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** An install that stopped this long ago is not still running. */
+const STOPPED_INSTALL_MS = 60 * 60 * 1000;
+
+/**
+ * Keep the newest copies by the time they were installed; remove the rest and
+ * any install that stopped partway. A folder without a marker that is not a
+ * partial install is not this module's, and stays. Best effort: a copy a
+ * running process holds open on Windows stays until the next time.
+ */
+async function prune(appsRoot, keep, nowMs) {
+  const entries = await fs.readdir(appsRoot, { withFileTypes: true }).catch(() => []);
+  const copies = [];
+  const partials = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const folder = path.join(appsRoot, entry.name);
+    if (entry.name.endsWith(".partial")) {
+      partials.push(folder);
+      continue;
+    }
+    const marker = await readJson(path.join(folder, APP_MARKER)).catch(() => null);
+    if (marker) copies.push({ folder, at: Date.parse(marker.installed_at ?? "") || 0 });
+  }
+  copies.sort((left, right) => right.at - left.at);
+  const removed = [];
+  for (const { folder } of copies.slice(keep)) {
+    if (await fs.rm(folder, { recursive: true, force: true }).then(() => true, () => false)) removed.push(folder);
+  }
+  for (const folder of partials) {
+    const stat = await fs.stat(folder).catch(() => null);
+    if (stat && nowMs - stat.mtimeMs > STOPPED_INSTALL_MS) await fs.rm(folder, { recursive: true, force: true }).catch(() => undefined);
+  }
+  return removed;
+}
+
+/**
+ * Install the package at `packageRoot` into the app home, or find it there.
+ *
+ * @param {object} input
+ * @param {string} input.packageRoot - The package as npx unpacked it (holds `distribution.json`).
+ * @param {string} input.runtimeRoot - `~/.ai-dev`, or `AI_DEV_HOME`.
+ * @param {(args: string[], options: { cwd: string }) => Promise<void>} input.runNpm - Runs npm without a shell.
+ * @param {() => Date} [input.now]
+ * @returns {Promise<{ status: "installed"|"present", folder: string, cli: string, version: string, removed: string[] }>}
+ */
+export async function installAppHome({ packageRoot, runtimeRoot, runNpm, now = () => new Date() }) {
+  const distribution = await readJson(path.join(packageRoot, DISTRIBUTION_MARKER));
+  const folder = appFolder(runtimeRoot, distribution);
+  const result = (status, removed = []) => ({ status, folder, cli: appCli(folder), version: String(distribution.version ?? ""), removed });
+  if (await finished(folder, distribution.content_fingerprint)) return result("present");
+
+  const stage = `${folder}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.partial`;
+  await fs.mkdir(stage, { recursive: true });
+  try {
+    for (const file of [...distribution.files.map((item) => item.path), DISTRIBUTION_MARKER]) {
+      const target = path.join(stage, ...String(file).split("/"));
+      await fs.mkdir(path.dirname(target), { recursive: true });
+      await fs.copyFile(path.join(packageRoot, ...String(file).split("/")), target);
+    }
+    // What was copied is what was built: a cache npm half-cleared, or a file
+    // edited in it, does not become the app clients run.
+    const check = await verifyDistribution(stage);
+    if (!check.ok) {
+      throw new Error(`The package in ${packageRoot} is not the one its distribution.json describes `
+        + `(${[...check.missing, ...check.changed].slice(0, 3).join(", ")}); install it again.`);
+    }
+    await runNpm(["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline"], { cwd: stage });
+    await fs.writeFile(path.join(stage, APP_MARKER), `${JSON.stringify({
+      schema_version: 1,
+      name: distribution.name,
+      version: distribution.version,
+      content_fingerprint: distribution.content_fingerprint,
+      installed_at: now().toISOString(),
+      installed_from: packageRoot
+    }, null, 2)}\n`);
+    // A folder left by an install that stopped is replaced; a finished one of
+    // this fingerprint was returned above.
+    await fs.rm(folder, { recursive: true, force: true });
+    await fs.rename(stage, folder);
+  } catch (error) {
+    await fs.rm(stage, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
+  return result("installed", await prune(path.dirname(folder), KEPT_APP_COPIES, now().getTime()));
+}

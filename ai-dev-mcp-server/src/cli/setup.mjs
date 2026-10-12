@@ -18,28 +18,21 @@
  * Ctrl-C during either keeps what is done: the next run continues.
  */
 import { existsSync } from "node:fs";
-import fs from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { CliUsageError, EXIT, parseCommandLine } from "../core/cli-args.mjs";
 import { legacyDenseNotes } from "../core/dense-backend.mjs";
-import { readDenseManifest } from "../core/dense-manifest.mjs";
-import { defaultOnnxModelDir } from "../core/dense-onnx.mjs";
-import { describeDenseCoverage, firstRunSucceeded, planFirstRun, renderFirstRunReport } from "../core/first-run.mjs";
-import { frontendQaInstallCommands, frontendQaInstalled, pinnedPnpmVersion } from "../core/frontend-qa-install.mjs";
-import { LAUNCH_UNKNOWN, classifyFrontendQaLaunchFailure } from "../core/frontend-qa-launch.mjs";
+import { describeDenseCoverage, firstRunSucceeded, renderFirstRunReport } from "../core/first-run.mjs";
 import { discoverClients, parseClientSelection } from "../core/mcp-clients.mjs";
-import { denseRuntimeSupport, installModel, modelStatus } from "../core/model-manager.mjs";
 import { resolveSpawnInvocation } from "../core/process-runner.mjs";
 import { createProgressPrinter } from "../core/progress-line.mjs";
 import { resolveRuntimeStateRoot } from "../core/runtime-home.mjs";
-import { evaluateFrontendQaEnvironment } from "../core/system-health.mjs";
+import { inspectSetup, loadSetupSteps, runSetup } from "../core/setup-runner.mjs";
 import { PACKAGE_NAME, currentInstallLayout, hint } from "../core/install-layout.mjs";
 import { installClients, renderResults, summarize } from "./clients.mjs";
 import { SERVER_ROOT, tildify } from "./context.mjs";
 
 const REPOSITORY_ROOT = path.resolve(SERVER_ROOT, "..");
-const QA_ROOT = path.join(REPOSITORY_ROOT, "frontend-qa");
 
 export function usage() {
   return [
@@ -69,58 +62,6 @@ function runCommand(command, args, options = {}) {
     const child = spawn(command, args, { cwd: REPOSITORY_ROOT, stdio: "inherit", windowsHide: true, ...options });
     child.on("error", reject);
     child.on("exit", (code) => resolve(code ?? 1));
-  });
-}
-
-async function runOrThrow(label, command, args, options) {
-  const code = await runCommand(command, args, options);
-  if (code !== 0) throw new Error(`${label} exited with code ${code}.`);
-}
-
-/**
- * The Frontend QA runner's status, asked exactly as the health check asks it,
- * about the vault, so setup and `doctor` cannot disagree. `launch: false` only
- * looks for the browser on disk.
- */
-function frontendQaStatus(vaultRoot, { launch = true } = {}) {
-  return new Promise((resolve) => {
-    const child = spawn(process.execPath, [path.join(QA_ROOT, "frontend_qa_runner.mjs")], {
-      cwd: QA_ROOT,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true
-    });
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-    const settle = (status) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(status);
-    };
-    const failed = (output) => {
-      const failure = classifyFrontendQaLaunchFailure(output);
-      settle({ playwright_available: false, chromium_available: false, browser_launch_ok: false, launch_failure: failure.kind, launch_error: failure.summary });
-    };
-    // As long as the server allows the same question (`runFrontendQaStatus`).
-    const timer = setTimeout(() => {
-      child.kill();
-      failed("The Frontend QA runner did not answer within 60 s.");
-    }, 60_000);
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.stdin.on("error", () => undefined); // a runner that died early closed it; its exit says why
-    child.on("error", (error) => failed(String(error?.message ?? error)));
-    // `close`, not `exit`: only then is everything the runner printed read.
-    child.on("close", (code) => {
-      if (code !== 0) return failed(stderr || `exit code ${code}`);
-      try {
-        settle(JSON.parse(stdout));
-      } catch {
-        settle({ playwright_available: false, chromium_available: false, browser_launch_ok: false, launch_failure: LAUNCH_UNKNOWN, launch_error: "The Frontend QA runner answered with something other than JSON." });
-      }
-    });
-    child.stdin.end(JSON.stringify({ action: "status", project_path: vaultRoot, launch }));
   });
 }
 
@@ -181,7 +122,7 @@ export async function run(argv, io) {
   const { prepareRuntimeHome } = await import("../core/runtime-home-migration.mjs");
   await prepareRuntimeHome();
   const { callTool, shutdownBgeWorkers, vaultRoot, searchIndexPath, skillRoutingEvalCasesPath } = await import("../mcp-stdio.mjs");
-  const steps = await import("../../scripts/first-run-steps.mjs");
+  const steps = await loadSetupSteps();
   try {
     return await setup({ options, io, runtime: { callTool, vaultRoot, searchIndexPath, skillRoutingEvalCasesPath }, steps });
   } finally {
@@ -227,53 +168,21 @@ async function continueFromAppHome({ argv, io, layout }) {
 }
 
 async function setup({ options, io, runtime, steps }) {
-  const { callTool, vaultRoot, searchIndexPath, skillRoutingEvalCasesPath } = runtime;
+  const { callTool } = runtime;
   const say = io.out;
+  const inspection = await inspectSetup({ runtime, env: io.env, steps });
+  const { manifest: denseManifest, modelDir: onnxModelDir, indexStatus, qaDependencies, modelInstalled } = inspection;
   // The model is the ONNX export and nothing else; what a 2.x install left of
   // the Python backend is named once, with what replaced it (D3, Д-98).
-  const denseManifest = readDenseManifest();
-  const onnxModelDir = defaultOnnxModelDir({ env: io.env });
   const legacyWeightsDir = io.env.BGE_M3_MODEL_DIR || path.join(resolveRuntimeStateRoot("", io.env), "models", "bge-m3");
   const legacyNotes = [
     ...(options.densePython ? ["--dense-python asked for the Python backend, which 3.0 removed; installing the ONNX model instead (the same as --model)."] : []),
     ...legacyDenseNotes(io.env, { legacyWeightsDir: existsSync(path.join(legacyWeightsDir, "pytorch_model.bin")) ? legacyWeightsDir : "" })
   ];
   const progress = createProgressPrinter({ stream: io.stdout });
-  let cancelled = false;
 
-  /** Ctrl-C stops between two pieces of work and keeps what is done; a second one does not wait. */
-  async function cancellable(work) {
-    const controller = new AbortController();
-    const stop = () => {
-      if (controller.signal.aborted) process.exit(EXIT.interrupted);
-      progress.end();
-      say("   Stopping after the current piece — what is done is kept. Ctrl-C again to quit now.");
-      cancelled = true;
-      controller.abort();
-    };
-    process.on("SIGINT", stop);
-    try {
-      return await work(controller.signal);
-    } finally {
-      process.off("SIGINT", stop);
-      progress.end();
-    }
-  }
-
-  // The steps no install can do without are built by the code the container
-  // entrypoint runs too, so the two paths cannot drift apart (Д-57).
-  const artefacts = steps.requiredArtefactPaths({ vaultRoot, searchIndexPath });
-  const { indexStatus, present: requiredPresent, stale: requiredStale } = await steps.readRequiredState({
-    paths: artefacts,
-    callTool,
-    serverRoot: SERVER_ROOT,
-    skillRoutingEvalCasesPath
-  });
-  const qaDependencies = existsSync(path.join(QA_ROOT, "node_modules"));
-  const modelInstalled = (await modelStatus({ manifest: denseManifest, dir: onnxModelDir, env: io.env })).installed;
-
-  say(`Vault: ${vaultRoot}`);
-  say(`Search index: ${searchIndexPath}`);
+  say(`Vault: ${runtime.vaultRoot}`);
+  say(`Search index: ${runtime.searchIndexPath}`);
   say(`Dense model: ${onnxModelDir} (ONNX, ${denseManifest.export} @ ${String(denseManifest.revision).slice(0, 12)})`);
   if (indexStatus) say(describeDenseCoverage(indexStatus));
   for (const note of legacyNotes) say(`Note: ${note}`);
@@ -305,84 +214,45 @@ async function setup({ options, io, runtime, steps }) {
   }
   if (asking) say("");
 
-  const present = {
-    ...requiredPresent,
-    // Installed means the browser too, and asked for by name it means one that
-    // launches — the check `doctor` makes (docs/DEFECTS.md, Д-93).
-    frontend_qa: frontendQaInstalled({
-      dependencies: qaDependencies,
-      status: qaDependencies ? await frontendQaStatus(vaultRoot, { launch: Boolean(wantQa) }) : null,
-      requireLaunch: Boolean(wantQa)
-    }),
-    dense_model: modelInstalled,
-    dense_index: Number(indexStatus?.dense_documents || 0) > 0
+  // Ctrl-C stops after the current piece of work and keeps what is done; a
+  // second one does not wait.
+  const controller = new AbortController();
+  const stop = () => {
+    if (controller.signal.aborted) process.exit(EXIT.interrupted);
+    progress.end();
+    say("   Stopping after the current piece — what is done is kept. Ctrl-C again to quit now.");
+    controller.abort();
   };
-
-  const actions = {
-    ...steps.createRequiredActions({ callTool }),
-    // The lockfile with the pnpm the runner pins, then the Chromium build this
-    // Playwright was released with, and a ✓ only when the browser launches.
-    async frontend_qa() {
-      const pnpmVersion = pinnedPnpmVersion(JSON.parse(await fs.readFile(path.join(QA_ROOT, "package.json"), "utf8")));
-      for (const step of frontendQaInstallCommands({ qaRoot: QA_ROOT, pnpmVersion })) {
-        const invocation = await resolveSpawnInvocation(step.command, step.args);
-        await runOrThrow(step.label, invocation.executable, invocation.args, { cwd: step.cwd });
+  process.on("SIGINT", stop);
+  let results;
+  try {
+    results = await runSetup({
+      runtime,
+      env: io.env,
+      steps,
+      inspection,
+      want: { model: Boolean(wantModel), frontendQa: Boolean(wantQa) },
+      force: options.force,
+      signal: controller.signal,
+      onProgress: progress,
+      onStep: (step) => {
+        progress.end();
+        say(`→ ${step.title}: ${step.detail}`);
+      },
+      log: (line) => {
+        progress.end();
+        say(`   ${line}`);
       }
-      const verdict = evaluateFrontendQaEnvironment(await frontendQaStatus(vaultRoot));
-      if (verdict.status !== "ok") throw new Error(verdict.summary);
-      return `pnpm@${pnpmVersion} install --frozen-lockfile, playwright install chromium; ${verdict.summary}`;
-    },
-    async dense_model() {
-      // Where the runtime has no build, 600 MB that cannot load is not a
-      // favour (Д-101); `ai-dev model install` still fetches them for a container.
-      const support = denseRuntimeSupport();
-      if (!support.supported) throw new Error(support.reason);
-      const result = await cancellable((signal) => installModel({
-        manifest: denseManifest,
-        dir: onnxModelDir,
-        env: io.env,
-        signal,
-        onProgress: progress,
-        log: (line) => {
-          progress.end();
-          say(`   ${line}`);
-        }
-      }));
-      if (!result.ready) throw new Error(`Model directory is still incomplete: ${[...result.missing, ...result.mismatched].join(", ")}`);
-      return `${denseManifest.export} @ ${String(denseManifest.revision).slice(0, 12)} (${denseManifest.dtype}) `
-        + `in ${onnxModelDir}, ${result.downloaded} file(s) fetched${result.resumed ? `, ${result.resumed} continued` : ""}`;
-    },
-    async dense_index() {
-      // The progress listener and the cancellation go with the call, as a
-      // request over MCP carries them, not among its JSON arguments.
-      const result = await cancellable((signal) => callTool("rebuild_search_index", {
-        include_external_project_files: true,
-        dense_embeddings: true,
-        dense_incremental: true
-      }, { onProgress: progress, signal }));
-      return steps.summarizeToolResult(result, (doc) => (
-        `${doc.dense_documents ?? "?"} document(s) embedded, ${doc.dense_pending_documents ?? 0} still pending`
-      ));
-    }
-  };
-
-  const stale = {
-    ...requiredStale,
-    // Documents indexed since the last embedding run have no vector, so the
-    // dense half of a hybrid query cannot see them.
-    dense_index: Number(indexStatus?.dense_pending_documents || 0) > 0
-  };
-  const want = {
-    ...(wantModel ? { dense_model: true, dense_index: true } : {}),
-    ...(wantQa ? { frontend_qa: true } : {})
-  };
-  const plan = planFirstRun({ present, stale, want, force: options.force });
-  const results = await steps.runFirstRunPlan(plan, actions, (step) => say(`→ ${step.title}: ${step.detail}`));
+    });
+  } finally {
+    process.off("SIGINT", stop);
+    progress.end();
+  }
   say("");
   say(renderFirstRunReport(results));
 
   let clientsFailed = false;
-  if (cancelled) {
+  if (controller.signal.aborted) {
     // A stop is not a fault, and nothing after it says anything new (Д-158).
     say("");
     say("Stopped with Ctrl-C. What was done is kept; run setup again to continue from there.");

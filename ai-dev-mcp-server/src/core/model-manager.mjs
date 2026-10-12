@@ -200,9 +200,10 @@ export async function modelStatus({ manifest, dir, stampDir = defaultStampDir(),
  * @param {string} options.dir
  * @param {string} [options.stampDir]
  * @param {(event: object) => void} [options.onProgress] - `{ phase: "verifying", file, bytes, total }`.
+ * @param {AbortSignal} [options.signal] - Stops between two reads.
  * @returns {Promise<object>} As `verifyDenseModelDirectory`.
  */
-export async function verifyModel({ manifest, dir, stampDir = defaultStampDir(), onProgress }) {
+export async function verifyModel({ manifest, dir, stampDir = defaultStampDir(), onProgress, signal }) {
   const resolved = path.resolve(dir);
   let total = 0;
   for (const relative of Object.keys(manifest.files)) total += Number((await fileIdentity(path.join(resolved, relative)))?.size ?? 0);
@@ -212,6 +213,7 @@ export async function verifyModel({ manifest, dir, stampDir = defaultStampDir(),
     const relative = path.relative(resolved, file).split(path.sep).join("/");
     try {
       for await (const chunk of fs.createReadStream(file)) {
+        signal?.throwIfAborted();
         hash.update(chunk);
         done += chunk.length;
         onProgress?.({ phase: "verifying", file: relative, bytes: done, total });

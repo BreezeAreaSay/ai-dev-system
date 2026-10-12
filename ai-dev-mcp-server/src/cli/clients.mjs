@@ -4,21 +4,19 @@
  * this is the part that chooses the clients and says what happened.
  */
 import os from "node:os";
-import path from "node:path";
 import { CliUsageError, EXIT, closest, parseCommandLine } from "../core/cli-args.mjs";
-import { checkServerCommand } from "../core/mcp-client-check.mjs";
 import {
-  SERVER_NAME,
-  clientEntry,
-  describeEntry,
-  discoverClients,
-  installServer,
-  parseClientSelection,
-  readServerEntries,
-  removeServer
-} from "../core/mcp-clients.mjs";
-import { resolveRuntimeStateRoot } from "../core/runtime-home.mjs";
-import { localLaunch, tildify } from "./context.mjs";
+  chooseTargets as chooseClientTargets,
+  clientLabel,
+  installClients as installClientConfigs,
+  localLaunch,
+  removeClients,
+  tildify
+} from "../core/client-connections.mjs";
+import { checkServerCommand } from "../core/mcp-client-check.mjs";
+import { SERVER_NAME, clientEntry, describeEntry, discoverClients, readServerEntries } from "../core/mcp-clients.mjs";
+
+export { clientStatePath } from "../core/client-connections.mjs";
 
 const SUBCOMMANDS = ["list", "install", "remove", "doctor"];
 
@@ -42,33 +40,19 @@ export function usage() {
   ].join("\n");
 }
 
-/** Where the record of written configs lives: the runtime home's state. */
-export function clientStatePath(env = process.env) {
-  return path.join(resolveRuntimeStateRoot("", env), "state", "mcp-clients.json");
-}
-
 /**
  * The targets a `--clients` value picks: every detected one for `all`, every
  * target of a named client whether detected or not.
  *
  * @param {import("../core/mcp-clients.mjs").ClientTarget[]} targets
  * @param {string | undefined} spec
- * @returns {{ chosen: import("../core/mcp-clients.mjs").ClientTarget[], skipped: import("../core/mcp-clients.mjs").ClientTarget[] }}
  */
 export function chooseTargets(targets, spec) {
-  let selection;
   try {
-    selection = parseClientSelection(spec ?? "all");
+    return chooseClientTargets(targets, spec);
   } catch (error) {
     throw new CliUsageError(error.message);
   }
-  if (selection.all) {
-    return { chosen: targets.filter((target) => target.detected), skipped: targets.filter((target) => !target.detected) };
-  }
-  const chosen = targets.filter((target) => selection.ids.includes(target.client)
-    // The Store build's own config exists only where that build is installed.
-    && (target.variant !== "store" || target.detected));
-  return { chosen, skipped: [] };
 }
 
 const STATUS_WORD = {
@@ -86,9 +70,7 @@ const STATUS_WORD = {
   skipped: "skipped"
 };
 
-function labelOf(target) {
-  return target.variant === "store" ? `${target.label} (Store)` : target.label;
-}
+const labelOf = clientLabel;
 
 /** One line per result, for a person. */
 export function renderResults(results, { home = os.homedir() } = {}) {
@@ -130,29 +112,15 @@ export function summarize(results, { removing = false } = {}) {
 }
 
 /**
- * Put this install into the chosen clients; used by `ai-dev setup` too.
+ * Put this install into the chosen clients; used by `ai-dev setup` too. A
+ * `--clients` value that names no client is a usage error here.
  *
- * @param {object} options
- * @param {string | undefined} options.spec - `--clients`.
- * @param {boolean} [options.apply]
- * @param {NodeJS.ProcessEnv} [options.env]
- * @param {string} [options.home]
+ * @param {{ spec: string | undefined, apply?: boolean, env?: NodeJS.ProcessEnv, home?: string }} options
  * @returns {Promise<Array<object>>} Results, skipped clients included.
  */
-export async function installClients({ spec, apply = true, env = process.env, home = os.homedir() }) {
-  const targets = await discoverClients({ home, env });
-  const { chosen, skipped } = chooseTargets(targets, spec);
-  const launch = localLaunch({ env });
-  const results = await installServer({
-    targets: chosen,
-    entryFor: (target) => clientEntry(target, launch),
-    apply,
-    statePath: clientStatePath(env)
-  });
-  return [
-    ...results,
-    ...skipped.map((target) => ({ client: target.client, label: target.label, file: target.file, status: "skipped", reason: `not installed (no ${tildify(target.marker, home)})` }))
-  ];
+export async function installClients(options) {
+  chooseTargets([], options.spec);
+  return installClientConfigs(options);
 }
 
 function describeForList(row, expected, home) {
@@ -205,10 +173,9 @@ async function install(values, io) {
 }
 
 async function remove(values, io) {
-  const targets = await discoverClients({ env: io.env });
   // Removing looks everywhere a config could be, installed or not.
-  const { chosen } = values.clients ? chooseTargets(targets, values.clients) : { chosen: targets };
-  const results = await removeServer({ targets: chosen, apply: !values["dry-run"], statePath: clientStatePath(io.env) });
+  if (values.clients) chooseTargets([], values.clients);
+  const results = await removeClients({ spec: values.clients, apply: !values["dry-run"], env: io.env });
   const shown = results.filter((result) => result.status !== "absent" || values.clients);
   if (values.json) io.out(JSON.stringify({ clients: results }, null, 2));
   else {

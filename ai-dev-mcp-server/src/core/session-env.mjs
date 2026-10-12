@@ -67,6 +67,8 @@ export const NOT_DAEMON_WIDE = Object.freeze({
     "AI_DEV_MODEL_MIRROR",
     "AI_DEV_PYTHON",
     "AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT",
+    // Which variables the settings file filled in (`settings.mjs`).
+    "AI_DEV_SETTINGS_APPLIED",
     // Read only to tell their users that 3.0 removed the Python backend.
     "BGE_M3_PYTHON",
     "BGE_M3_PYTHON_REVISION",

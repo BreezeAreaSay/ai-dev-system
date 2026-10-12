@@ -4367,8 +4367,8 @@ const extensions = createExtensionTools({
     systemDashboard: systemDashboardRelativePath,
     systemDashboardState: systemDashboardStateRelativePath
   },
-  searchIndexPath, skillRoutingEvalCasesPath,
-  frontendQaRunnerPath, frontendQaPackagePath, frontendQaArtifactsRoot,
+  searchIndexPath, skillRoutingEvalCasesPath, frontendQaRunnerPath, frontendQaPackagePath, frontendQaArtifactsRoot,
+  handler: (name) => extensions.handlers.get(name),
   // `tools` is assembled from the extension definitions below, so it is read lazily.
   toolCount: () => tools.length,
   safePath, fileStatus, pathExists, readJsonIfExists, writeJson, writeText, listMarkdownFiles,
@@ -4441,7 +4441,7 @@ const tools = [...buildToolDefinitions({
 // the setting cannot change without restarting the server.
 const activeProfiles = profilesFromEnvironment();
 
-const profiledTools = activeProfiles.all ? tools : filterToolsByProfiles(tools, activeProfiles.ids);
+const profiledTools = filterToolsByProfiles(tools, activeProfiles.ids);
 
 /**
  * The tool list as the active profiles leave it.

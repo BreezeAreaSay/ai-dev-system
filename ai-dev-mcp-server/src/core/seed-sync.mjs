@@ -282,3 +282,62 @@ export async function describeSeedSync(contentRoot) {
     conflicts: state ? await openConflicts(contentRoot, state) : []
   };
 }
+
+/** One line for a log: what a sync changed. */
+export function describeSyncResult(result) {
+  if (!result) return "";
+  if (result.status === "failed") return `not brought up to the seed: ${result.error}`;
+  if (result.status === "newer") return `left as it is: it was brought up to ${result.version}, newer than this install`;
+  const conflicts = result.conflicts.length
+    ? `; ${result.conflicts.length} file(s) you changed were changed by this version too — yours were kept, and this version's is beside each as <file>${SEED_NEW_SUFFIX}`
+    : "";
+  if (result.status === "current") return `seed ${result.version || "current"}${conflicts}`;
+  return `seed ${result.version || "synced"}: ${result.added} added, ${result.updated} updated, ${result.removed} removed, `
+    + `${result.kept.length} of yours kept${conflicts}`;
+}
+
+/**
+ * Before the server reads its vault: a package's vault is brought up to the
+ * seed the package ships. Every other layout reads its content where it is.
+ * A failure is reported, not thrown: the server still starts, on the vault as
+ * it was, and the health check says what is missing.
+ *
+ * @param {{ seedRoot: string, contentRoot: string }} layout - From `install-layout.mjs`.
+ * @param {{ version?: string, log?: (line: string) => void }} [options]
+ * @returns {Promise<object|null>} The sync's result, `{ status: "failed", error }`, or null when there is no seed to sync.
+ */
+export async function prepareUserVault(layout, { version = "", log = (line) => process.stderr.write(`${line}\n`) } = {}) {
+  if (!layout?.seedRoot) return null;
+  let result;
+  try {
+    result = await syncSeed({ seedRoot: layout.seedRoot, contentRoot: layout.contentRoot, version });
+  } catch (error) {
+    result = { status: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+  if (result.status !== "current") log(`ai-dev: vault ${layout.contentRoot} — ${describeSyncResult(result)}.`);
+  return result;
+}
+
+/**
+ * The health check's view of a package's vault: filled from the seed, and
+ * whether an update left files for the user to merge.
+ *
+ * @param {{ root: string, synced: boolean, version: string, synced_at: string, conflicts: string[] }} info
+ * @returns {{ status: "ok"|"warn", summary: string, details: object }}
+ */
+export function evaluateVaultSeed(info) {
+  const details = { ...info };
+  if (!info.synced) {
+    return { status: "warn", summary: `The vault ${info.root} has not been filled from the seed yet: restart the server, or run setup.`, details };
+  }
+  if (info.conflicts.length) {
+    const named = info.conflicts.slice(0, 3).join(", ") + (info.conflicts.length > 3 ? `, and ${info.conflicts.length - 3} more` : "");
+    return {
+      status: "warn",
+      summary: `${info.conflicts.length} file(s) you changed in ${info.root} were changed by an update too: ${named}. `
+        + `Yours were kept; the update's version is beside each as <file>${SEED_NEW_SUFFIX}. Merge what you want, then delete the ${SEED_NEW_SUFFIX} file.`,
+      details
+    };
+  }
+  return { status: "ok", summary: `Vault ${info.root}: seed ${info.version || "of this install"}, brought up to date ${String(info.synced_at).slice(0, 10)}.`, details };
+}

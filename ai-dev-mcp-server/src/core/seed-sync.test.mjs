@@ -4,7 +4,16 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { SEED_NEW_SUFFIX, SEED_STATE_FILE, compareVersions, describeSeedSync, syncSeed } from "./seed-sync.mjs";
+import {
+  SEED_NEW_SUFFIX,
+  SEED_STATE_FILE,
+  compareVersions,
+  describeSeedSync,
+  describeSyncResult,
+  evaluateVaultSeed,
+  prepareUserVault,
+  syncSeed
+} from "./seed-sync.mjs";
 
 const sha = (text) => crypto.createHash("sha256").update(text).digest("hex");
 
@@ -194,4 +203,35 @@ test("versions compare by number, a prerelease before its release", () => {
   assert.equal(compareVersions("3.0.0-beta.2", "3.0.0"), -1);
   assert.equal(compareVersions("3.0.0-beta.10", "3.0.0-beta.2"), 1);
   assert.equal(compareVersions("2.9.9", "3.0.0-rc.1"), -1);
+});
+
+test("at the server's start a package's vault is filled; a failure is said, not thrown; doctor names what to merge", async (t) => {
+  const root = await scratch(t);
+  const vault = path.join(root, "vault");
+  const lines = [];
+  const log = (line) => lines.push(line);
+  assert.equal(await prepareUserVault({ seedRoot: "", contentRoot: vault }, { log }), null, "a clone has no seed to sync");
+
+  const seed = await writeSeed(path.join(root, "seed"), { "a.md": "a1\n", "b.md": "b1\n" });
+  const first = await prepareUserVault({ seedRoot: seed, contentRoot: vault }, { version: "3.0.0", log });
+  assert.equal(first.status, "synced");
+  assert.match(lines.at(-1), /vault .* — seed 3\.0\.0: 2 added, 0 updated, 0 removed, 0 of yours kept\.$/);
+  await prepareUserVault({ seedRoot: seed, contentRoot: vault }, { version: "3.0.0", log });
+  assert.equal(lines.length, 1, "a start that changes nothing says nothing");
+
+  const broken = await prepareUserVault({ seedRoot: path.join(root, "gone"), contentRoot: vault }, { version: "3.0.1", log });
+  assert.equal(broken.status, "failed");
+  assert.match(lines.at(-1), /not brought up to the seed: .*has no readable public-seed\.manifest\.json/);
+
+  assert.equal(evaluateVaultSeed({ root: vault, ...await describeSeedSync(vault) }).status, "ok");
+  assert.equal(evaluateVaultSeed({ root: vault, ...await describeSeedSync(path.join(root, "empty")) }).status, "warn", "never filled");
+
+  for (const name of ["a.md", "b.md"]) await fs.writeFile(path.join(vault, name), `mine ${name}\n`);
+  const update = await writeSeed(path.join(root, "seed-2"), { "a.md": "a2\n", "b.md": "b2\n" });
+  const second = await prepareUserVault({ seedRoot: update, contentRoot: vault }, { version: "3.1.0", log });
+  assert.match(describeSyncResult(second), /2 file\(s\) you changed were changed by this version too/);
+  const verdict = evaluateVaultSeed({ root: vault, ...await describeSeedSync(vault) });
+  assert.equal(verdict.status, "warn");
+  assert.match(verdict.summary, /^2 file\(s\) you changed in .* were changed by an update too: a\.md, b\.md\. Yours were kept; the update's version is beside each as <file>\.seed-new\./);
+  assert.match(describeSyncResult(await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0" })), /left as it is: it was brought up to 3\.1\.0/);
 });

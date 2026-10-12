@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import crypto from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -89,6 +89,8 @@ import { configureRuntimeStateRoot, resolveProjectIdentity } from "./core/projec
 import { resolvePythonCommand } from "./core/python-command.mjs";
 import { optionalPythonFailure, UI_UX_PYTHON_TOOLS } from "./core/python-failure.mjs";
 import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
+import { currentInstallLayout } from "./core/install-layout.mjs";
+import { prepareUserVault } from "./core/seed-sync.mjs";
 import { resolveRuntimeAssets } from "./core/runtime-assets.mjs";
 import { resolveRuntimeStateRoot, resolveUserHome } from "./core/runtime-home.mjs";
 import {
@@ -188,40 +190,19 @@ const packageVersion = (() => {
   }
 })();
 
-/**
- * Resolve the vault root the server reads content from.
- *
- * Order: an explicit `AI_DEV_VAULT_ROOT`, then the sibling Obsidian vault three
- * levels up (the normal in-vault layout), then the `docker/public-seed` tree
- * bundled in the published repository. The seed fallback lets a standalone
- * checkout — and the test suite running against it — work without a full vault.
- *
- * @returns {string} absolute path to the resolved vault root
- */
-function resolveVaultRoot() {
-  if (process.env.AI_DEV_VAULT_ROOT) {
-    return path.resolve(process.env.AI_DEV_VAULT_ROOT);
-  }
-  const siblingVault = path.resolve(path.join(serverDir, "..", "..", ".."));
-  const looksLikeVault = existsSync(path.join(siblingVault, "03-skills-catalog"))
-    || existsSync(path.join(siblingVault, "01-system"));
-  if (looksLikeVault) {
-    return siblingVault;
-  }
-  const bundledSeed = path.resolve(path.join(serverDir, "..", "..", "docker", "public-seed"));
-  if (existsSync(bundledSeed)) {
-    return bundledSeed;
-  }
-  return siblingVault;
-}
-
-const vaultRoot = resolveVaultRoot();
+// Where this install keeps its content: AI_DEV_VAULT_ROOT, the Obsidian vault
+// around the server, a clone's bundled seed, or — for a package, whose own
+// folder is read-only — the user's vault, ~/.ai-dev/vault, brought up to the
+// seed the package ships before anything reads it (`core/install-layout.mjs`).
+const installLayout = currentInstallLayout();
+const vaultRoot = installLayout.contentRoot;
 
 // Home for regenerable runtime data (task state, search cache, models, QA
 // artifacts): ~/.ai-dev, overridable per directory with the AI_DEV_* env vars.
 // What 2.x left in AI_DEV_HOME/.ai-dev (Д-90) or in ~/.codex (Д-104) moves here
 // before any path is chosen; ~/.codex is not read any more.
 await prepareRuntimeHome();
+const seedSync = await prepareUserVault(installLayout, { version: packageVersion });
 const userHome = resolveUserHome(vaultRoot);
 const runtimeStateRoot = configureRuntimeStateRoot(resolveRuntimeStateRoot(vaultRoot));
 function aiDevRuntimePath(envVar, segments) {
@@ -4362,7 +4343,7 @@ async function projectPilotStatus({ pilot_id = "", project_path = "" } = {}) {
 // Extension tools live in src/extensions/* and receive shared runtime services
 // through this host object (see src/tool-extensions.mjs).
 const extensions = createExtensionTools({
-  vaultRoot, taskStateRoot, taskStore, skillOutcomeStore, pilotStore, usageLedger, sessionStore,
+  vaultRoot, installLayout, taskStateRoot, taskStore, skillOutcomeStore, pilotStore, usageLedger, sessionStore,
   instinctStore, callTool,
   serverRoot: path.resolve(serverDir, ".."),
   resolveProjectIdentity, detectProject, captureProjectState, readProjectTextIfExists,
@@ -4809,7 +4790,9 @@ export {
   extensionReadOnlyTools,
   resolveTaskProjectRoot,
   safeProjectRoot,
+  installLayout,
   searchIndexPath,
+  seedSync,
   shutdownBgeWorkers,
   skillRoutingEvalCasesPath,
   tools,

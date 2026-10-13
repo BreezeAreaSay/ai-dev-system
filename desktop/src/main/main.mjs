@@ -10,7 +10,7 @@ import electron from "electron";
 import { pickLanguage, translate } from "../renderer/i18n.js";
 import { DaemonLink } from "./daemon-link.mjs";
 import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, refuseClients, validCallId } from "./ipc-policy.mjs";
-import { createLanguageKeeper } from "./language.mjs";
+import { LOCK_WAIT_MS, createLanguageKeeper } from "./language.mjs";
 import { findNode } from "./node-runtime.mjs";
 import { APP_ORIGIN, APP_SCHEME, PAGE_PARTITION, appFileHandler, isAppUrl, lockContents, lockSession, windowPreferences } from "./security.mjs";
 import { startupFailure } from "./startup.mjs";
@@ -71,9 +71,13 @@ if (!app.requestSingleInstanceLock()) {
   const link = new DaemonLink({ env, t });
   // The language chosen, kept in the settings file — or held until the file
   // can take it (docs/DEFECTS.md, Д-271, п. 4; Д-276, п. 2, 3; Д-279).
-  const languages = createLanguageKeeper({ server: () => server, env });
+  const languages = createLanguageKeeper({ server: () => server, env, settled: (outcome) => languageSettled(outcome) });
 
-  const publicState = () => ({ ...link.state, language, platform: process.platform });
+  // The link's own words are said in the language in force (Д-283, п. 3).
+  const publicState = () => {
+    const { errorKey, ...state } = link.state;
+    return { ...state, ...(errorKey ? { error: t(errorKey) } : {}), language, platform: process.platform };
+  };
   const fromApp = (event) => isAppUrl(event.senderFrame?.url ?? "");
 
   const openWindow = () => {
@@ -110,8 +114,9 @@ if (!app.requestSingleInstanceLock()) {
   const quit = async () => {
     quitting = true;
     // A language that waits is written once more; the file's lock is waited
-    // for a second at most (Д-279).
-    await languages.settle().catch(() => undefined);
+    // for a second at most, the write already waiting for it included (Д-279,
+    // Д-283, п. 1).
+    await languages.settle({ within: LOCK_WAIT_MS }).catch(() => undefined);
     languages.stop();
     await link.close();
     app.quit();
@@ -137,13 +142,28 @@ if (!app.requestSingleInstanceLock()) {
     try {
       const answer = await link.stopDaemon();
       const failed = (answer?.daemons ?? []).filter((daemon) => daemon.stopped === false);
-      if (failed.length) {
-        failure = { message: failed.map((daemon) => daemon.reason ?? "it is still running").join("; "), pids: failed.map((daemon) => daemon.pid) };
-      }
+      if (failed.length) failure = { daemons: failed.map((daemon) => ({ pid: daemon.pid, reason: daemon.reason ?? "it is still running" })) };
     } catch (error) {
-      failure = { message: String(error?.message ?? error), pids: [] };
+      failure = { error: String(error?.message ?? error) };
     }
     tray.setStopFailed(failure);
+  };
+
+  /**
+   * A chosen language no longer waits. A write that changed the file changes
+   * what the checks see: online, they run again (Д-282). The file, fixed,
+   * named a language of its own, which the choice gave way to: the app speaks
+   * it now, as the next start will (Д-283, п. 2).
+   */
+  const languageSettled = ({ changed, language: inFile }) => {
+    if (changed && link.state.phase === "online") link.refreshStatus({ checks: true }).catch(() => undefined);
+    const now = pickLanguage(inFile, app.getLocale());
+    if (now === language) return;
+    language = now;
+    tray?.refresh();
+    window?.setTitle(t("app.title"));
+    if (["broken", "no-node"].includes(link.state.phase)) explain?.();
+    window?.webContents.send(EVENT_CHANNELS.state, publicState());
   };
 
   /**

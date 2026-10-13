@@ -8,8 +8,9 @@ import { circlePng, TRAY_COLOURS, trayState } from "./tray-icon.mjs";
 /** How often a Stop's note looks whether the daemons it names still run. */
 export const NOTE_LOOK_MS = 1_000;
 
-/** Whether process `pid` runs; one the app may not signal runs too. */
+/** Whether process `pid` runs; one the app may not signal runs too. No pid ≤ 0 does: 0 and -1 name groups (Д-283, п. 4). */
 export function processRuns(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
     return true;
@@ -67,7 +68,8 @@ export function createTray({ electron, link, t, actions, runs = processRuns, loo
   // the language in force, or the daemon's text (Д-280).
   let failed = null;
   let stopping = false;
-  // Why the last Stop failed, and the daemons that would not stop (Д-277).
+  // Why the last Stop failed: the daemons that would not stop, each with its
+  // pid and why (Д-277, Д-283 п. 4), or the error the request ended with.
   let stopFailed = null;
   let noteTimer = null;
   // What Electron was last given, which is what the person sees.
@@ -78,7 +80,10 @@ export function createTray({ electron, link, t, actions, runs = processRuns, loo
   // its own having stopped. One that names none (the request itself failed)
   // was about the daemon the app is on: it holds while the app is online
   // (Д-276, п. 1; Д-277).
-  const noteHolds = (online) => (stopFailed.pids.length ? stopFailed.pids.some((pid) => runs(pid)) : online);
+  const noteHolds = (online) => (stopFailed.daemons.length ? stopFailed.daemons.some(({ pid }) => runs(pid)) : online);
+  const stopWords = () => (stopFailed.daemons.length
+    ? t("tray.stopFailedTip", { message: stopFailed.daemons.map(({ pid, reason }) => t("tray.stopFailedDaemon", { pid, reason })).join("; ").slice(0, 160) })
+    : t("tray.stopErrorTip", { message: stopFailed.error.slice(0, 120) }));
   const stopLooking = () => {
     clearInterval(noteTimer);
     noteTimer = null;
@@ -93,7 +98,7 @@ export function createTray({ electron, link, t, actions, runs = processRuns, loo
     const tips = [
       t(`tray.tooltip.${current}`),
       failed ? t("tray.rebuildFailedTip", { message: why.slice(0, 120) }) : null,
-      stopFailed ? t("tray.stopFailedTip", { message: stopFailed.message.slice(0, 120) }) : null
+      stopFailed ? stopWords() : null
     ];
     tip = tips.filter(Boolean).join("\n");
     tray.setToolTip(tip);
@@ -120,13 +125,15 @@ export function createTray({ electron, link, t, actions, runs = processRuns, loo
       stopFailed = null;
       refresh();
     },
-    /** The Stop ended: why it failed, with the daemons that would not stop, or null. */
+    /** The Stop ended: the daemons that would not stop (`{ daemons: [{ pid, reason }] }`), the error it ended with (`{ error }`), or null. */
     setStopFailed(failure) {
       stopping = false;
-      stopFailed = failure ? { message: String(failure.message ?? failure), pids: (failure.pids ?? []).filter(Number.isInteger) } : null;
+      const daemons = (failure?.daemons ?? []).filter(({ pid }) => Number.isInteger(pid) && pid > 0).map(({ pid, reason }) => ({ pid, reason: String(reason ?? "") }));
+      const error = typeof failure === "string" ? failure : String(failure?.error ?? "");
+      stopFailed = daemons.length || error ? { daemons, error } : null;
       stopLooking();
       // Nothing else tells the tray when such a daemon ends: it looks.
-      if (stopFailed?.pids.length) {
+      if (stopFailed?.daemons.length) {
         noteTimer = setInterval(() => {
           if (stopFailed && !noteHolds(link.state.phase === "online")) refresh();
         }, lookEveryMs);

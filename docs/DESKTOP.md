@@ -96,7 +96,8 @@ the header, and the tray follows it. The choice is kept in the settings (`langua
 cannot take it — broken, or held by another writer — it holds for the run and is written once the
 file can: looked for twice a second, and once more at **Quit**, which waits for the file a second at
 most. A choice made while the file could not be read gives way to a language the fixed file names
-itself; a file a newer AI Dev wrote is left as it is. The app's own
+itself — the app cannot tell a line it wrote earlier from one you wrote — and the app then speaks
+that language; a file a newer AI Dev wrote is left as it is. The app's own
 words — screens, check and step names, states, advice — are in both; what the daemon writes — a
 check's summary, a step's outcome, an error — is in English, as in the CLI.
 

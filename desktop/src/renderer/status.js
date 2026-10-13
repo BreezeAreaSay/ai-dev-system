@@ -91,7 +91,7 @@ export function statusScreen(view, navigate) {
       overview(view, status),
       h("h2", {}, view.t("status.checks")),
       h("ul", { className: "checks" }, orderedChecks(status.checks).map((check) => checkItem(view, check))));
-  }, (error) => show(body, h("p", { className: "error", role: "alert" }, view.t("common.error", { message: error.message }))));
+  }, (error) => show(body, h("p", { className: "error", role: "alert" }, view.t("common.error", { message: api.failureText(error, view.t) }))));
 
   // A rebuild running — started now, or before the screen was drawn again:
   // its progress and Cancel. Started now, the focus moves to Cancel; when it
@@ -114,7 +114,7 @@ export function statusScreen(view, navigate) {
       if (lost) rebuild.focus();
       if (!error) show(work);
       else if (error.cancelled) show(work, h("p", { className: "notice" }, view.t("common.cancelled")));
-      else show(work, h("p", { className: "error" }, view.t("common.error", { message: error.message })));
+      else show(work, h("p", { className: "error" }, view.t("common.error", { message: api.failureText(error, view.t) })));
       load();
     });
   };

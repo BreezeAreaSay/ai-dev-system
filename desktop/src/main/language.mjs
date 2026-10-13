@@ -18,10 +18,13 @@ export const LOOK_EVERY_MS = 500;
 export const LOCK_WAIT_MS = 1_000;
 
 /**
- * @param {{ server: () => ({ readSettings: Function, writeSettings: Function, SETTINGS_SCHEMA_VERSION: number } | null), env: NodeJS.ProcessEnv, lookEveryMs?: number, lockWaitMs?: number }} options
- *   `server`: the install's control-client module once the app has loaded it, or null.
+ * @param {{ server: () => ({ readSettings: Function, writeSettings: Function, SETTINGS_SCHEMA_VERSION: number } | null), env: NodeJS.ProcessEnv, settled?: (outcome: { changed: boolean, language: string }) => void, lookEveryMs?: number, lockWaitMs?: number }} options
+ *   `server`: the install's control-client module once the app has loaded it,
+ *   or null. `settled`: the last choice no longer waits — whether the write
+ *   changed the file, and the language the file now names ("" for the
+ *   system's): the one written, or the file's own it gave way to.
  */
-export function createLanguageKeeper({ server, env, lookEveryMs = LOOK_EVERY_MS, lockWaitMs = LOCK_WAIT_MS }) {
+export function createLanguageKeeper({ server, env, settled = () => undefined, lookEveryMs = LOOK_EVERY_MS, lockWaitMs = LOCK_WAIT_MS }) {
   // The choice that waits. `unreadable`: the file could not be read when it
   // was made (null: not known yet — no server to read it with); a language
   // the file names afterwards was the person's, and wins over it. `newer`: a
@@ -56,8 +59,13 @@ export function createLanguageKeeper({ server, env, lookEveryMs = LOOK_EVERY_MS,
     looking = null;
   };
 
-  /** Try to write `choice`: true once it no longer waits — written, given way to the file's own, or to a later choice. */
-  const write = (choice) => serial(async () => {
+  /**
+   * Try to write `choice`: true once it no longer waits — written, given way
+   * to the file's own, or to a later choice. `deadline`: when its wait for the
+   * lock ends (Quit's one second, the look in flight included); otherwise it
+   * waits `lockWaitMs`.
+   */
+  const write = (choice, deadline = null) => serial(async () => {
     // Settled meanwhile, or a later choice is on its way: that one is written.
     if (waiting !== choice) return true;
     const module = server();
@@ -67,22 +75,36 @@ export function createLanguageKeeper({ server, env, lookEveryMs = LOOK_EVERY_MS,
     try {
       // Decided under the file's lock: a language the file names by then
       // stays, when the choice was made while the file could not be read.
-      written = await module.writeSettings({ language: choice.language }, { env, unsetOnly: choice.unreadable, lockTimeoutMs: lockWaitMs });
+      const lockTimeoutMs = deadline === null ? lockWaitMs : Math.max(0, deadline - Date.now());
+      written = await module.writeSettings({ language: choice.language }, { env, unsetOnly: choice.unreadable, lockTimeoutMs });
     } catch {
       if (look().newer) choice.newer = true;
       return false;
     }
-    if (waiting === choice) waiting = null;
-    // What this app wrote is no language of the person's: a choice made since,
-    // while the file could not be read, is written over it.
-    else if (waiting && written.changed.length) waiting.unreadable = false;
+    if (waiting === choice) {
+      waiting = null;
+      try {
+        settled({ changed: written.changed.length > 0, language: String(written.settings?.language ?? "") });
+      } catch {
+        // What the app does with it is the app's; the choice is settled either way.
+      }
+    } else if (waiting && written.changed.length) {
+      // What this app wrote is no language of the person's: a choice made
+      // since, while the file could not be read, is written over it.
+      waiting.unreadable = false;
+    }
     return true;
   });
 
-  /** One write of whatever waits, and the looking goes on while something waits that may yet be written. */
-  const settle = async () => {
+  /**
+   * One write of whatever waits, and the looking goes on while something
+   * waits that may yet be written. `within`: how long, at most, to wait for
+   * the file's lock, the write already waiting for it included (Quit).
+   */
+  const settle = async ({ within } = {}) => {
+    const deadline = within === undefined ? null : Date.now() + within;
     const choice = waiting;
-    const settled = choice ? await write(choice) : true;
+    const done = choice ? await write(choice, deadline) : true;
     if (!waiting || waiting.newer) stopLooking();
     else if (!looking) {
       looking = setInterval(() => {
@@ -92,7 +114,7 @@ export function createLanguageKeeper({ server, env, lookEveryMs = LOOK_EVERY_MS,
       }, lookEveryMs);
       looking.unref?.();
     }
-    return settled;
+    return done;
   };
 
   return {
@@ -124,7 +146,7 @@ export function createLanguageKeeper({ server, env, lookEveryMs = LOOK_EVERY_MS,
       return choice.language;
     },
 
-    /** The tray's Quit: one more write of what waits. */
+    /** One more write of what waits; the tray's Quit gives it `within`. */
     settle,
 
     /** The language that waits to be written, or null. */

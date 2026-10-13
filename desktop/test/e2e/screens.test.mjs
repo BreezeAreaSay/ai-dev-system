@@ -46,6 +46,7 @@ test("Projects, Costs, Skills, Log and Settings show the work, in English and Ru
   assert.match(card.handoff, /Next step: Wire the payment call\./);
   assert.equal(card.path, repo);
   assert.equal(await page.getAttribute(`[data-epic="${epicId}"] progress`, "value"), "0");
+  assert.equal(await page.locator('[data-field="more"]').count(), 0, "everything is shown: no list says there is more");
   await shot(page, "p11-project-card-en");
 
   // Costs: the periods, the model, the task.
@@ -128,4 +129,60 @@ test("a fresh install: each data screen says why it is empty, Skills says what t
   await page.waitForSelector('[data-screen="skills"] [data-state="empty"], [data-screen="skills"] [data-state="error"]');
   assert.match(await page.textContent('[data-screen="skills"]'), /setup/i);
   await shot(page, "p11-skills-empty");
+});
+
+test("more than a screen shows: the project card and the skill search say so (Д-289)", { timeout: 420_000 }, async (t) => {
+  const s = await stage(t, { seed: true });
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  const { repo } = await seedWork(app, s);
+  const must = async (tool, args) => {
+    const answer = await mainCall(app, tool, args);
+    if (!answer.ok) throw new Error(`${tool}: ${answer.error}`);
+    return answer.result;
+  };
+  // One more of each than the card shows: 51 decisions, 21 handoffs, 11 epics and 51 tasks in all.
+  for (let index = 2; index <= 51; index += 1) await must("record_decision", { project_path: repo, title: `Decision ${index}`, decision: "d" });
+  for (let index = 2; index <= 21; index += 1) await must("save_session", { project_path: repo, topic: `Handoff ${index}`, building: "b", next_step: "n", worked: [{ item: "i", evidence: "e" }] });
+  for (let index = 2; index <= 11; index += 1) {
+    const task = await must("begin_task", { project_path: repo, task: `Epic ${index}`, acceptance_criteria: ["done"] });
+    await must("decompose_task", { task_id: task.id, subtasks: [{ task: `Epic ${index} part one`, key: "a" }, { task: `Epic ${index} part two`, depends_on: ["a"] }] });
+  }
+  for (let index = 1; (await must("list_tasks", { project_path: repo, limit: 100 })).length < 51; index += 1) await must("begin_task", { project_path: repo, task: `Task ${index}`, acceptance_criteria: ["done"] });
+
+  await page.click('[data-nav="projects"]');
+  await page.waitForSelector('[data-project="shop"]');
+  await page.click('[data-project="shop"] button');
+  await page.waitForSelector('[data-open="shop"]');
+  await page.waitForFunction(() => !document.querySelector('[data-open="shop"] [data-state="loading"]'), null, { timeout: 120_000 });
+  const card = await page.evaluate(() => {
+    const more = (name) => document.querySelector(`[data-section="${name}"] [data-field="more"]`)?.textContent ?? null;
+    return {
+      tasks: [document.querySelectorAll('[data-table="tasks"] tbody tr').length, more("tasks")],
+      epics: [document.querySelectorAll("[data-epic]").length, more("epics")],
+      decisions: [document.querySelectorAll("[data-decision]").length, more("decisions")],
+      handoffs: [document.querySelectorAll("[data-session]").length, more("handoffs")]
+    };
+  });
+  assert.deepEqual(card, {
+    tasks: [50, "The first 50 are shown; there are more."],
+    epics: [10, "The first 10 are shown; there are more."],
+    decisions: [50, "The first 50 are shown; there are more."],
+    handoffs: [20, "The first 20 are shown; there are more."]
+  });
+  await shot(page, "p11-project-card-more");
+
+  // The skill search: the seed catalog has more than 20 matches for "test".
+  await page.click('[data-nav="skills"]');
+  await page.waitForSelector(".groups [data-group]");
+  await page.fill("#skills-query", "test");
+  await page.press("#skills-query", "Enter");
+  await page.waitForSelector('[data-field="results"]');
+  assert.equal(await page.textContent('[data-field="results"]'), "The first 20 matches; there are more.");
+  assert.equal(await page.locator("[data-skill]").count(), 20);
+  // A search with no more than it shows: the count, as before.
+  await page.fill("#skills-query", "zzqxvw");
+  await page.press("#skills-query", "Enter");
+  await page.waitForFunction(() => /found/.test(document.querySelector('[data-field="results"]')?.textContent ?? ""));
+  assert.equal(await page.textContent('[data-field="results"]'), "0 found");
 });

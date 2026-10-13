@@ -9,11 +9,14 @@ import { emptyState, errorState, formatNumber, loadingLine } from "./ui.js";
 const RESULTS = 20;
 const state = { query: "", group: null };
 
+/** `text` cut to `length`, with "…" when it was cut (docs/DEFECTS.md, Д-291). */
+const cut = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
+
 function resultList(view, skills, open) {
   return h("ul", { className: "cards skills" }, skills.map((skill) => h("li", { dataset: { skill: skill.name, source: skill.source ?? "" } },
     h("button", { type: "button", className: "card", on: { click: () => open(skill) } },
       h("strong", { className: "card-title" }, skill.name),
-      skill.description ? h("span", {}, String(skill.description).slice(0, 240)) : null,
+      skill.description ? h("span", {}, cut(String(skill.description), 240)) : null,
       h("span", { className: "muted" }, [
         skill.primary_group_label || skill.primary_group,
         skill.source ? view.t("skills.source", { source: skill.source }) : null,
@@ -65,8 +68,11 @@ export function skillsScreen(view) {
     state.group = null;
     if (!state.query) return groups();
     show(body, loadingLine(view));
-    return api.call("search_skills", { query: state.query, limit: RESULTS }).then(
-      (skills) => results(view.t("skills.results", { count: skills.length }), skills, search),
+    // One more than shown, to know when there are more and say so (Д-289).
+    return api.call("search_skills", { query: state.query, limit: RESULTS + 1 }).then(
+      (skills) => (skills.length > RESULTS
+        ? results(view.t("skills.resultsFirst", { count: RESULTS }), skills.slice(0, RESULTS), search)
+        : results(view.t("skills.results", { count: skills.length }), skills, search)),
       failed(search));
   };
 

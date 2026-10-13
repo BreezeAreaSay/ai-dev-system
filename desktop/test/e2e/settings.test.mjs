@@ -61,13 +61,30 @@ test("a screen whose daemon stops says so and offers Start; Follow on the Log st
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
   await open(page, "log");
   await page.waitForSelector(".log-lines");
+  // Every read of the log that reaches the main process is counted: a Follow
+  // that goes on after its screen is gone shows nowhere on the page (Д-285).
+  await app.evaluate(() => {
+    const { link } = globalThis.aiDevTest;
+    const call = link.call.bind(link);
+    globalThis.logReads = 0;
+    link.call = (tool, ...rest) => {
+      if (tool === "logs_tail") globalThis.logReads += 1;
+      return call(tool, ...rest);
+    };
+  });
+  const reads = () => app.evaluate(() => globalThis.logReads);
   await page.check("#log-follow");
+  const following = Date.now();
+  while ((await reads()) < 2 && Date.now() - following < 10_000) await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.ok((await reads()) >= 2, "Follow reads the log again");
   await app.evaluate(() => globalThis.aiDevTest.link.stopDaemon());
   await page.waitForSelector('[data-screen="offline"]', { timeout: 30_000 });
-  // Two Follow periods later the page is still the Start screen, with no error from a poll.
+  const atStop = await reads();
+  // Two Follow periods later the page is still the Start screen, and the log was not read again.
   await new Promise((resolve) => setTimeout(resolve, 4500));
+  assert.equal(await reads(), atStop, "no read of the log once its screen is gone");
   assert.equal(await page.isVisible('[data-screen="offline"] #start-daemon'), true);
-  assert.equal(await page.$('[data-state="error"]'), null);
+  assert.equal(await page.locator('[data-state="error"]').count(), 0);
   await page.click("#start-daemon");
   await page.waitForSelector('[data-screen="wizard"], [data-screen="status"]', { timeout: 60_000 });
 });

@@ -10,7 +10,7 @@ import electron from "electron";
 import { pickLanguage, translate } from "../renderer/i18n.js";
 import { DaemonLink } from "./daemon-link.mjs";
 import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, refuseClients, validCallId } from "./ipc-policy.mjs";
-import { LOCK_WAIT_MS, createLanguageKeeper } from "./language.mjs";
+import { createLanguageKeeper } from "./language.mjs";
 import { findNode } from "./node-runtime.mjs";
 import { APP_ORIGIN, APP_SCHEME, PAGE_PARTITION, appFileHandler, isAppUrl, lockContents, lockSession, windowPreferences } from "./security.mjs";
 import { startupFailure } from "./startup.mjs";
@@ -115,9 +115,8 @@ if (!app.requestSingleInstanceLock()) {
     quitting = true;
     // A language that waits is written once more; the file's lock is waited
     // for a second at most, the write already waiting for it included (Д-279,
-    // Д-283, п. 1).
-    await languages.settle({ within: LOCK_WAIT_MS }).catch(() => undefined);
-    languages.stop();
+    // Д-283, п. 1; Д-284).
+    await languages.quit().catch(() => undefined);
     await link.close();
     app.quit();
   };
@@ -156,7 +155,7 @@ if (!app.requestSingleInstanceLock()) {
    * it now, as the next start will (Д-283, п. 2).
    */
   const languageSettled = ({ changed, language: inFile }) => {
-    if (changed && link.state.phase === "online") link.refreshStatus({ checks: true }).catch(() => undefined);
+    if (changed && !quitting && link.state.phase === "online") link.refreshStatus({ checks: true, fresh: true }).catch(() => undefined);
     const now = pickLanguage(inFile, app.getLocale());
     if (now === language) return;
     language = now;

@@ -43,6 +43,9 @@ export class DaemonLink extends EventEmitter {
   #retryTimer = null;
   #connecting = null;
   #checking = null;
+  // A check asked for after a change while one ran: it runs once more after
+  // that one, which read the install before the change (docs/DEFECTS.md, Д-284).
+  #checkAgain = null;
   #quick = "";
   // A reconnect under way: a retired daemon does not start a second move.
   #leaving = null;
@@ -245,10 +248,18 @@ export class DaemonLink extends EventEmitter {
   /**
    * `system_status` — with the health checks unless told otherwise — for the
    * tray; the answer is the verdict when it has the checks. One check at a
-   * time: a second caller shares the first one's.
+   * time: a second caller shares the first one's — unless it asks for one
+   * that sees a change it just made (`fresh`): that one runs after.
    */
-  async refreshStatus({ checks = true } = {}) {
+  async refreshStatus({ checks = true, fresh = false } = {}) {
     if (!checks) return this.#accept(await this.#ask({ checks: false }), false);
+    if (fresh && this.#checking) {
+      this.#checkAgain ??= this.#checking.catch(() => null).then(() => {
+        this.#checkAgain = null;
+        return this.refreshStatus({ checks: true });
+      });
+      return this.#checkAgain;
+    }
     this.#checking ??= this.#ask({ checks: true }).then((answer) => this.#accept(answer, true)).finally(() => {
       this.#checking = null;
     });
@@ -308,7 +319,7 @@ export class DaemonLink extends EventEmitter {
       // Every verdict the app gets is the tray's too (docs/DEFECTS.md, Д-240);
       // after a change, the checks run again.
       if (tool === "system_status") this.#accept(answer, args?.checks !== false);
-      else if (!READS_ONLY.has(tool)) this.refreshStatus({ checks: true }).catch(() => undefined);
+      else if (!READS_ONLY.has(tool)) this.refreshStatus({ checks: true, fresh: true }).catch(() => undefined);
       return { ok: true, result: answer };
     } catch (error) {
       // Cancelled is what the person asked for; a call the link ended — the

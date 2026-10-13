@@ -196,6 +196,8 @@ export const MESSAGES = Object.freeze({
     "tray.stopFailed": "Stop failed — try again",
     "tray.stopFailedTip": "Still running after Stop: {message}",
     "tray.stopFailedDaemon": "daemon {pid} ({reason})",
+    "tray.stopFailedDaemonBare": "daemon {pid}",
+    "tray.stopFailedMore": "{count} more",
     "tray.stopErrorTip": "Stop failed: {message}",
     "tray.stopping": "Stopping the daemon…"
   }),
@@ -390,6 +392,8 @@ export const MESSAGES = Object.freeze({
     "tray.stopFailed": "Остановка не удалась — повторить",
     "tray.stopFailedTip": "Работает после «Остановить»: {message}",
     "tray.stopFailedDaemon": "демон {pid} ({reason})",
+    "tray.stopFailedDaemonBare": "демон {pid}",
+    "tray.stopFailedMore": "ещё {count}",
     "tray.stopErrorTip": "«Остановить» не удалось: {message}",
     "tray.stopping": "Останавливаю демон…"
   })

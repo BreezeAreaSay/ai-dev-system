@@ -500,6 +500,28 @@ test("a move whose next session is opened while a Stop runs starts no daemon (Д
   assert.deepEqual([daemon.state.phase, daemon.state.error], ["offline", ""]);
 });
 
+test("checks asked for after a change while others run: they run once more after those, which read the install before it (Д-284)", async (t) => {
+  const { server, calls } = fakeServer();
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  const before = checksCalls(calls);
+  server.held = { name: "system_status" };
+  const running = daemon.refreshStatus({ checks: true });
+  await sleep(10);
+  // A plain second caller shares the call in flight; one after a change waits for it and asks again.
+  const shared = daemon.refreshStatus({ checks: true });
+  const fresh = daemon.refreshStatus({ checks: true, fresh: true });
+  const alsoFresh = daemon.refreshStatus({ checks: true, fresh: true });
+  assert.equal(checksCalls(calls) - before, 1);
+  server.held.release();
+  server.held = null;
+  await Promise.all([running, shared, fresh, alsoFresh]);
+  assert.equal(checksCalls(calls) - before, 2, "one more, for both fresh callers");
+  // With none in flight, a fresh caller just asks.
+  await daemon.refreshStatus({ checks: true, fresh: true });
+  assert.equal(checksCalls(calls) - before, 3);
+});
+
 test("the move off a retired daemon starts one only when the app may start one (Д-276, п. 5)", async (t) => {
   // Autostart off: the link only looked, and found a client's daemon.
   const looked = fakeServer();

@@ -520,6 +520,16 @@ test("checks asked for after a change while others run: they run once more after
   // With none in flight, a fresh caller just asks.
   await daemon.refreshStatus({ checks: true, fresh: true });
   assert.equal(checksCalls(calls) - before, 3);
+  // A tool that changes something, while checks run: they run again after (Д-284, п. 1).
+  server.held = { name: "system_status" };
+  const another = daemon.refreshStatus({ checks: true });
+  await sleep(10);
+  assert.equal((await daemon.call("clients_install", { clients: ["cursor"] }, { id: "call-2" })).ok, true);
+  server.held.release();
+  server.held = null;
+  await another;
+  await sleep(20);
+  assert.equal(checksCalls(calls) - before, 5, "the change's own checks, after the ones that ran");
 });
 
 test("the move off a retired daemon starts one only when the app may start one (Д-276, п. 5)", async (t) => {

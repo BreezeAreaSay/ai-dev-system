@@ -147,8 +147,10 @@ without a daemon and its Start button, the screen without Node and its Try again
 file — in Russian too — and a server without its packages, Restart, a second launch that tries a
 failed start again, a daemon that dies and one a client starts again, a second launch, Status with
 its checks, Russian, the tray's verdict with a failing critical check, an AI client joining the
-app's daemon, a daemon replaced by a newer one, and what the page cannot reach — WebRTC and the
-names it would look up, another page with the app's functions, the developer tools. On a Linux machine without a display they run
-under `xvfb-run`; screenshots go to `desktop/test-results/`. Where Chromium cannot have its own
+app's daemon, a daemon replaced by a newer one, a daemon that will not stop — the app's own and
+another build's —, a language chosen while the settings file is broken or held by another writer,
+Quit with one waiting, and what the page cannot reach — WebRTC and the names it would look up,
+another page with the app's functions, the developer tools. On a Linux machine without a display
+they run under `xvfb-run`; screenshots go to `desktop/test-results/`. Where Chromium cannot have its own
 sandbox (as root, or `AI_DEV_DESKTOP_NO_SANDBOX=1` on a CI runner that forbids user namespaces) it
 runs without it; the page keeps its sandbox flag.

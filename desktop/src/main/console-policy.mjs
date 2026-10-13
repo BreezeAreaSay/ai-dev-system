@@ -15,6 +15,38 @@ import { refuseRequest } from "./ipc-policy.mjs";
  */
 const VALUE_LIMIT = 240;
 
+/** The longest argument name a confirmation shows; the tools' own are far shorter. */
+const NAME_LIMIT = 80;
+
+/**
+ * What would not show as itself in a confirmation — controls, line and
+ * paragraph separators, and the invisible format marks (direction overrides,
+ * zero-width marks): each is written as its code instead, so an argument stays
+ * on its own line and reads as it is (docs/DEFECTS.md, Д-287).
+ */
+const UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+
+/** `text` with every character that would not show as itself written as its code, cut to `limit`; `cut` — its length when cut. */
+function visible(text, limit) {
+  const plain = String(text).replace(UNSEEN, (character) => `\\u{${character.codePointAt(0).toString(16)}}`);
+  return plain.length > limit ? { text: `${plain.slice(0, limit)}…`, cut: plain.length } : { text: plain, cut: 0 };
+}
+
+/**
+ * Each argument on a line of its own: its name, and its value as JSON, every
+ * character shown as itself and both cut (Д-287). For the console's
+ * confirmation, and for the settings the page may change only after one.
+ *
+ * @param {Array<[string, unknown]>} entries
+ * @param {(key: string, params?: object) => string} t
+ */
+export function argumentLines(entries, t) {
+  return entries.map(([name, value]) => {
+    const { text, cut } = visible(JSON.stringify(value) ?? String(value), VALUE_LIMIT);
+    return `${visible(name, NAME_LIMIT).text}: ${cut ? `${text} ${t("console.confirm.longer", { count: cut })}` : text}`;
+  });
+}
+
 /** The most arguments a console call has — more than any tool takes, few enough to read in the confirmation. */
 const MAX_ARGUMENTS = 40;
 
@@ -51,6 +83,11 @@ export function consoleDecision(request, tools) {
   const tool = tools.find((entry) => entry.name === request.tool);
   if (!tool) return { refused: `The daemon lists no tool ${JSON.stringify(String(request.tool)).slice(0, 80)} to this app.` };
   if (Object.keys(request.args ?? {}).length > MAX_ARGUMENTS) return { refused: `A console call has at most ${MAX_ARGUMENTS} arguments.` };
+  // Only the arguments the tool's schema names: the form sends no other, and a
+  // name the page made up is one more thing the confirmation would have to show (Д-287).
+  const named = tool.inputSchema?.properties && typeof tool.inputSchema.properties === "object" ? tool.inputSchema.properties : {};
+  const unknown = Object.keys(request.args ?? {}).find((name) => !Object.hasOwn(named, name));
+  if (unknown !== undefined) return { refused: `${tool.name} takes no argument ${JSON.stringify(visible(unknown, NAME_LIMIT).text)}.` };
   return { tool, args: request.args ?? {}, id: request.id, confirm: !tool.readOnly };
 }
 
@@ -64,12 +101,7 @@ export function consoleDecision(request, tools) {
  */
 export function confirmationDialog(tool, args, t) {
   const entries = Object.entries(args ?? {});
-  const shown = entries.length
-    ? entries.map(([name, value]) => {
-      const text = JSON.stringify(value);
-      return `${name}: ${text.length > VALUE_LIMIT ? `${text.slice(0, VALUE_LIMIT)}… ${t("console.confirm.longer", { count: text.length })}` : text}`;
-    })
-    : [t("console.confirm.noArguments")];
+  const shown = entries.length ? argumentLines(entries, t) : [t("console.confirm.noArguments")];
   const lines = [t(tool.destructive ? "console.confirm.destructive" : "console.confirm.changes"), "", t("console.confirm.arguments"), ...shown];
   return {
     type: tool.destructive ? "warning" : "question",
@@ -80,5 +112,27 @@ export function confirmationDialog(tool, args, t) {
     title: t("console.confirm.title"),
     message: t("console.confirm.message", { tool: tool.name }),
     detail: lines.join("\n")
+  };
+}
+
+/**
+ * The confirmation before the page changes a setting that decides where the
+ * daemon reaches out to, what it reads and writes, or which tools AI clients
+ * get (ipc-policy.mjs, CONFIRMED_SETTINGS; docs/DEFECTS.md, Д-288): each new
+ * value on a line of its own, Cancel as the default.
+ *
+ * @param {Record<string, unknown>} changes
+ * @param {(key: string, params?: object) => string} t
+ */
+export function settingsDialog(changes, t) {
+  return {
+    type: "question",
+    buttons: [t("settings.confirm.save"), t("common.cancel")],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+    title: t("console.confirm.title"),
+    message: t("settings.confirm.message"),
+    detail: [t("settings.confirm.detail"), "", ...argumentLines(Object.entries(changes), t)].join("\n")
   };
 }

@@ -8,9 +8,9 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import electron from "electron";
 import { pickLanguage, translate } from "../renderer/i18n.js";
-import { confirmationDialog, consoleDecision, consoleTools } from "./console-policy.mjs";
+import { confirmationDialog, consoleDecision, consoleTools, settingsDialog } from "./console-policy.mjs";
 import { DaemonLink } from "./daemon-link.mjs";
-import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, refuseClients, validCallId } from "./ipc-policy.mjs";
+import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, refuseClients, settingsToConfirm, validCallId } from "./ipc-policy.mjs";
 import { createLanguageKeeper } from "./language.mjs";
 import { findNode } from "./node-runtime.mjs";
 import { APP_ORIGIN, APP_SCHEME, PAGE_PARTITION, appFileHandler, isAppUrl, lockContents, lockSession, windowPreferences } from "./security.mjs";
@@ -257,6 +257,13 @@ if (!app.requestSingleInstanceLock()) {
         refused = listed.ok ? refuseClients(request.args.clients, listed.result.clients) : listed.error;
       }
       if (refused) return { ok: false, error: refused, cancelled: false };
+      // The model's mirror and folder, the profiles: only after the person says so (Д-288).
+      const changes = settingsToConfirm(request);
+      if (changes) {
+        const parent = BrowserWindow.fromWebContents(event.sender) ?? window;
+        const { response } = await dialog.showMessageBox(parent, settingsDialog(changes, t));
+        if (response !== 0) return { ok: false, error: t("settings.notConfirmed"), cancelled: true, confirmed: false };
+      }
       return link.call(request.tool, request.args ?? {}, { id: request.id, onProgress: progressTo(event.sender, request.id) });
     });
     handle(INVOKE_CHANNELS.tools, async () => consoleTools(await link.tools()));

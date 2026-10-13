@@ -5,12 +5,14 @@ import http from "node:http";
 import net from "node:net";
 import path from "node:path";
 import test from "node:test";
-import { desktopRoot, launch, stage } from "./harness.mjs";
+import { answerMessageBox, desktopRoot, launch, messageBoxes, stage } from "./harness.mjs";
 
 test("the page has no Node, no file system, no network, and reaches only the interface's tools", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  // Every dialog the page's calls bring up is answered Cancel, and remembered.
+  await answerMessageBox(app, 1);
   const seen = await page.evaluate(async () => {
     const tried = async (attempt) => {
       try {
@@ -69,6 +71,8 @@ test("the page has no Node, no file system, no network, and reaches only the int
       trayId: await window.aiDev.call("system_status", {}, "tray-rebuild"),
       // The language goes through setLanguage, never settings_set (phase 11 opened the Settings screen's own).
       otherSetting: await window.aiDev.call("settings_set", { settings: { language: "ru" } }, "call-language"),
+      // Where the daemon downloads the model from: only after the person confirms it (Д-288).
+      mirror: await window.aiDev.call("settings_set", { settings: { model_mirror: "http://127.0.0.1:9/x" } }, "call-mirror"),
       // A client the wizard does not offer — not on this computer (Д-266, п. 1).
       clientNotOffered: await window.aiDev.call("clients_install", { clients: ["codex"] }, "call-codex"),
       // No client named is not all of them: refused in words (Д-271, п. 2).
@@ -89,6 +93,11 @@ test("the page has no Node, no file system, no network, and reaches only the int
   assert.match(seen.badId.error, /id is call- and/);
   assert.match(seen.trayId.error, /id is call- and/, "the page cannot stand in for the tray's calls");
   assert.match(seen.otherSetting.error, /does not change "language"/);
+  assert.deepEqual([seen.mirror.ok, seen.mirror.cancelled, seen.mirror.confirmed], [false, true, false]);
+  const boxes = await messageBoxes(app);
+  assert.equal(boxes.length, 1, "the mirror's change, and nothing else, asked");
+  assert.match(boxes[0].detail, /^model_mirror: "http:\/\/127\.0\.0\.1:9\/x"$/m);
+  await assert.rejects(fs.readFile(path.join(s.home, ".ai-dev", "config.json")), "no setting was written");
   assert.match(seen.clientNotOffered.error, /only the clients it found on this computer/);
   assert.deepEqual(seen.noClients, { ok: false, error: "clients_install needs clients.", cancelled: false });
   assert.equal(seen.notification, "denied");

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { confirmationDialog, consoleDecision, consoleTools } from "../../src/main/console-policy.mjs";
+import { confirmationDialog, consoleDecision, consoleTools, settingsDialog } from "../../src/main/console-policy.mjs";
 import { translate } from "../../src/renderer/i18n.js";
 
 // What the daemon lists, as tools/list answers it (annotations from server.mjs).
@@ -68,4 +68,41 @@ test("the confirmation says what runs and with what, Cancel is the default, in t
   assert.match(long.detail, /^text: "x{239}… \(5002 characters in all\)$/m);
   assert.match(long.detail, /^project_path: "\/home\/me\/secret-repo"$/m);
   assert.match(confirmationDialog(record, {}, en).detail, /\(no arguments\)/);
+});
+
+// Every way a line of the dialog could end, as GTK draws it.
+const LINE_BREAK = /[\n\r\v\f\u0085\u2028\u2029]/;
+
+test("the confirmation shows every argument that runs, each on its own line, as it is (Д-287)", () => {
+  const tools = consoleTools([{ name: "record_decision", inputSchema: { type: "object", properties: { project_path: {}, title: {}, decision: {}, ["a\nb"]: {} } }, annotations: {} }]);
+  const [record] = tools;
+  const en = (key, params) => translate("en", key, params);
+  // A value full of line separators, and direction marks: one line, the next argument right after it.
+  const separators = String.fromCharCode(0x2028).repeat(300);
+  const dialog = confirmationDialog(record, { project_path: "/p", title: `${separators}x`, decision: `${String.fromCharCode(0x202e)}DROP TABLE users` }, en);
+  const lines = dialog.detail.split(LINE_BREAK);
+  assert.equal(lines.length, 3 + 3, JSON.stringify(lines.slice(0, 8)));
+  assert.match(lines[4], /^title: "(\\u\{2028\}){29}\\u\{2028… \(2403 characters in all\)$/);
+  assert.match(lines[5], /^decision: "\\u\{202e\}DROP TABLE users"$/);
+  assert.doesNotMatch(dialog.detail, /[\u2028\u2029\u202e]/u);
+  // A name's line breaks are shown, not drawn; a long name is cut.
+  const named = confirmationDialog(record, { ["a\nb"]: 1, [`x${" ".repeat(500)}`]: 2 }, en);
+  assert.equal(named.detail.split(LINE_BREAK).length, 3 + 2);
+  assert.match(named.detail, /^a\\u\{a\}b: 1$/m);
+  assert.ok(named.detail.length < 300, `${named.detail.length} characters`);
+  // The console lets through only what the tool's schema names.
+  assert.match(consoleDecision({ tool: "record_decision", args: { title: "t", [`(no arguments)${"\n".repeat(60)}`]: "-" }, id: "call-1" }, tools).refused, /record_decision takes no argument "\(no arguments\)(\\\\u\{a\}){13}/);
+  assert.equal(consoleDecision({ tool: "record_decision", args: { title: "t", ["a\nb"]: 1 }, id: "call-2" }, tools).confirm, true);
+  const [none] = consoleTools([{ name: "odd_tool" }]);
+  assert.match(consoleDecision({ tool: "odd_tool", args: { anything: 1 }, id: "call-3" }, [none]).refused, /odd_tool takes no argument "anything"/);
+});
+
+test("the settings the page changes only after a confirmation: each new value on its own line, Cancel the default (Д-288)", () => {
+  const ru = settingsDialog({ model_mirror: `https://mirror.example/x${"\n".repeat(30)}`, model_dir: "/data/models" }, (key, params) => translate("ru", key, params));
+  assert.deepEqual([ru.defaultId, ru.cancelId, ru.buttons], [1, 1, ["Сохранить", "Отмена"]]);
+  assert.equal(ru.message, "Сохранить эти настройки?");
+  const lines = ru.detail.split(LINE_BREAK);
+  assert.equal(lines.length, 2 + 2);
+  assert.match(lines[2], /^model_mirror: "https:\/\/mirror\.example\/x(\\n){30}"$/);
+  assert.equal(lines[3], 'model_dir: "/data/models"');
 });

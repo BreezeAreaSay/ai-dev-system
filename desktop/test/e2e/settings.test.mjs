@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
-import { answerFolderDialog, launch, mainCall, shot, stage } from "./harness.mjs";
+import { answerFolderDialog, answerMessageBox, launch, mainCall, messageBoxes, shot, stage } from "./harness.mjs";
 
 const open = async (page, route) => {
   await page.click(`[data-nav="${route}"]`);
@@ -25,15 +25,25 @@ test("Settings: a change is saved and says when it applies; one for new sessions
   assert.match(await page.textContent('[data-field="save-error"]'), /10080/);
   await assert.rejects(stored(s), "no file was written");
 
-  // The mirror applies at once; the model folder to new sessions.
+  // The mirror applies at once; the model folder to new sessions. Both are
+  // saved only once the person confirms them in the system's dialog (Д-288).
   const models = path.join(s.root, "models-elsewhere");
   await page.fill("#setting-daemon_idle_minutes", "");
   await page.fill("#setting-model_mirror", "https://hf-mirror.example");
   await answerFolderDialog(app, models);
   await page.click('[data-action="choose-model_dir"]');
   await page.waitForFunction((folder) => document.querySelector("#setting-model_dir").value === folder, models);
+  await answerMessageBox(app, 1);
+  await page.click('[data-action="save"]');
+  await page.waitForSelector('[data-field="not-confirmed"]');
+  await assert.rejects(stored(s), "Cancel: nothing was written");
+  const [asked] = await messageBoxes(app);
+  assert.equal(asked.message, "Save these settings?");
+  assert.deepEqual(asked.detail.split("\n").slice(2), ['model_mirror: "https://hf-mirror.example"', `model_dir: ${JSON.stringify(models)}`]);
+  await answerMessageBox(app, 0);
   await page.click('[data-action="save"]');
   await page.waitForSelector('[data-field="saved"]');
+  assert.equal((await messageBoxes(app)).length, 2);
   const saved = await page.textContent('[data-field="saved"]');
   assert.match(saved, /Model download mirror: applies at once/);
   assert.match(saved, /Model folder: applies to AI client sessions started afterwards/);

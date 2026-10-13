@@ -426,23 +426,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The desktop app's screens of the work, and a console for every tool** (`docs/DESKTOP.md`).
   Projects: the projects AI Dev knows, and a project's card — its tasks with their criteria, its
   epics with how far each has come and the part to work on next, its decisions, the handoffs
-  sessions left for the next one, and the project card itself. Costs: today, yesterday, the last
-  seven days and everything recorded, by model, by tool and by task, for all projects or one.
-  Skills: the catalog by group, a search, and a skill to read. Settings: the projects folder, the
-  tool profiles AI clients get, the model's download mirror, the model folder, the daemon's idle
-  time and whether the app starts it — each with what it does, the value in force and where it
-  comes from, and when a change applies; a value the daemon refuses is not written, and a change
-  for new sessions reaches the app when it reconnects (Reconnect now). Log: the daemon's log and
-  the part set aside, with Follow. The tool console lists every tool the daemon gives the app's
-  session — what an agent gets, and the control API — builds a form from each tool's input schema
-  and shows the answer readable and as JSON; a tool the daemon marks read-only runs at once, any
-  other only after the person confirms a dialog the main process shows, every argument on a line of
-  its own and Cancel the default — the page can open it, not answer it. Each screen says when it
-  loads, when there is nothing yet and what failed; the screens work from the keyboard (a skip
-  link, a visible focus ring, each screen's heading focused), and the colours meet WCAG AA in
-  the light and the dark scheme. A screen that only reads asks the daemon for no health checks
-  (Д-286). Tests: a Playwright scenario per screen, in English and Russian, the console's Cancel
-  and Run, a fresh install's empty screens, a daemon stopped under a screen.
+  sessions left for the next one, and the project card itself — saying when a list has more than
+  it shows. Costs: today, yesterday, the last seven days and everything recorded, by model, by
+  tool and by task, for all projects or one. Skills: the catalog by group, a search, and a skill
+  to read. Settings: the projects folder, the tool profiles AI clients get, the model's download
+  mirror, the model folder, the daemon's idle time and whether the app starts it — each with what
+  it does, the value in force and where it comes from, and when a change applies; a value the
+  daemon refuses is not written, a change for new sessions reaches the app when it reconnects
+  (Reconnect now), and the model's mirror and folder and the profiles are saved only after the
+  person confirms the new values in a dialog of the main process (Д-288). Log: the daemon's log
+  and the part set aside, with Follow. The tool console lists every tool the daemon gives the
+  app's session — what an agent gets, and the control API — builds a form from each tool's input
+  schema and shows the answer readable and as JSON; a tool the daemon marks read-only runs at
+  once, any other only after the person confirms a dialog the main process shows, every argument
+  on a line of its own, as it is, and Cancel the default — the page can open it, not answer it,
+  and sends only the arguments the tool's schema names (Д-287). Each screen says when it loads,
+  when there is nothing yet and what failed; the screens work from the keyboard (a skip link, a
+  visible focus ring, each screen's heading focused), and the colours meet WCAG AA in the light
+  and the dark scheme. A screen that only reads asks the daemon for no health checks (Д-286).
+  Tests: a Playwright scenario per screen, in English and Russian, the console's Cancel and Run, a
+  fresh install's empty screens, a daemon stopped under a screen.
 - **`openControlClient`** (`src/core/control-client.mjs`): an MCP SDK client on the daemon of an
   install, for a program that drives it — the desktop app, a script, a test — with the settings,
   the daemon's log, the Node the configured clients run (`clientNodePaths`) and `stopDaemons`

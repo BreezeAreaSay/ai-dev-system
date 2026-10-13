@@ -3,6 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { DECISION_STATUSES } from "../../../ai-dev-mcp-server/src/core/decision-ledger.mjs";
+import { SETTINGS } from "../../../ai-dev-mcp-server/src/core/settings.mjs";
+import { EPIC_CHILD_STATES } from "../../../ai-dev-mcp-server/src/core/task-epics.mjs";
 import { LANGUAGES, MESSAGES, pickLanguage, translate } from "../../src/renderer/i18n.js";
 
 const renderer = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "src");
@@ -34,6 +37,40 @@ test("every key the code names is in the table", () => {
   assert.ok(keys.size > 40, `${keys.size} keys found`);
   const missing = [...keys].filter((key) => !Object.hasOwn(MESSAGES.en, key));
   assert.deepEqual(missing, []);
+});
+
+test("every key the code builds from parts is in the table, for every value the part takes (Д-290)", () => {
+  const source = (file) => fs.readFileSync(path.join(renderer, "renderer", file), "utf8");
+  const shownSettings = Object.keys(SETTINGS).filter((name) => name !== "language");
+  // Each family the code builds a key of, and the values it builds it with —
+  // the server's own where it declares them.
+  const families = {
+    "console.kind": ["read", "write", "destructive"],
+    "console.error": [...new Set([...source("schema-form.js").matchAll(/code: "(\w+)"/g)].map((match) => match[1]))],
+    "settings.name": shownSettings,
+    "settings.help": shownSettings,
+    "settings.applies": [...new Set(Object.values(SETTINGS).map((definition) => definition.applies))],
+    "settings.source": ["file", "default"],
+    "task.status": ["active", "complete"],
+    "epic.state": [...EPIC_CHILD_STATES, "missing"],
+    "decision.status": DECISION_STATUSES,
+    "status.check": ["ok", "warn", "fail", "skipped"],
+    "status.overall": ["ok", "degraded", "failed"],
+    "wizard.step.status": ["done", "skipped", "failed"],
+    "wizard.clients": [...new Set([...source("setup-words.js").match(/const known = \{([^}]*)\}/)[1].matchAll(/: "(\w+)"/g)].map((match) => match[1]))],
+    wizard: [...source("wizard.js").match(/const STEPS = \[([^\]]*)\]/)[1].matchAll(/"(\w+)"/g)].map((match) => `${match[1]}.title`)
+  };
+  assert.ok(families["wizard.clients"].length >= 5 && families.wizard.length === 5, JSON.stringify([families["wizard.clients"], families.wizard]));
+  assert.ok(families["console.error"].length >= 6, families["console.error"].join(", "));
+  const missing = Object.entries(families).flatMap(([family, values]) => values.map((value) => `${family}.${value}`)).filter((key) => !Object.hasOwn(MESSAGES.en, key));
+  assert.deepEqual(missing, []);
+  // A family the code builds that this test does not know fails it: name its values above.
+  const built = new Set();
+  for (const file of fs.readdirSync(path.join(renderer, "renderer"))) {
+    for (const match of source(file).matchAll(/\bt\(`([a-z][\w.]*?)\.\$\{/g)) built.add(match[1]);
+  }
+  for (const match of source("projects.js").matchAll(/word\(view, "([\w.]+)"/g)) built.add(match[1]);
+  assert.deepEqual([...built].filter((family) => !Object.hasOwn(families, family)), []);
 });
 
 test("the language: a stored choice of ours, else the system's, else English; placeholders filled", () => {

@@ -8,6 +8,18 @@ import { dataTable, emptyState, errorState, formatDate, loadingLine } from "./ui
 
 const state = { selected: null };
 
+// How many of each the card shows. Each list asks for one more, to know when
+// there are more than it shows, and says so (docs/DEFECTS.md, Д-289).
+const TASKS = 50;
+const EPICS = 10;
+const DECISIONS = 50;
+const HANDOFFS = 20;
+
+/** The first `limit` of `list`, and a line saying there are more when there are. */
+function capped(view, list, limit) {
+  return { shown: list.slice(0, limit), more: list.length > limit ? h("p", { className: "muted small", dataset: { field: "more" } }, view.t("projects.more", { shown: limit })) : null };
+}
+
 /** A translated word for a status, or the status itself when there is none. */
 function word(view, prefix, value) {
   const key = `${prefix}.${value}`;
@@ -50,14 +62,14 @@ function tasksSection(view, tasksOf) {
     name: "tasks",
     title: view.t("projects.tasks"),
     load: async (again) => {
-      const tasks = await tasksOf(again);
+      const { shown: tasks, more } = capped(view, await tasksOf(again), TASKS);
       if (!tasks.length) return emptyState(view.t("projects.tasks.empty"));
-      return dataTable([
+      return [dataTable([
         { label: view.t("projects.col.task"), value: (task) => [task.task, task.parent_id ? h("span", { className: "muted" }, ` ${view.t("projects.task.child")}`) : null] },
         { label: view.t("projects.col.status"), value: (task) => word(view, "task.status", task.status) },
         { label: view.t("projects.col.criteria"), value: (task) => view.t("projects.criteria", criteria(task)), numeric: true },
         { label: view.t("projects.col.updated"), value: (task) => formatDate(task.updated_at, view.language) }
-      ], tasks, { name: "tasks" });
+      ], tasks, { name: "tasks" }), more];
     }
   });
 }
@@ -67,11 +79,11 @@ function epicsSection(view, tasksOf) {
     name: "epics",
     title: view.t("projects.epics"),
     load: async (again) => {
-      const tasks = await tasksOf(again);
-      const parents = tasks.filter((task) => task.epic?.children?.length).slice(0, 10);
+      const tasks = (await tasksOf(again)).slice(0, TASKS);
+      const { shown: parents, more } = capped(view, tasks.filter((task) => task.epic?.children?.length), EPICS);
       if (!parents.length) return emptyState(view.t("projects.epics.empty"));
       const answers = await Promise.all(parents.map((task) => api.call("epic_status", { task_id: task.id })));
-      return h("ul", { className: "epics" }, answers.map((answer) => {
+      return [h("ul", { className: "epics" }, answers.map((answer) => {
         const { epic } = answer;
         return h("li", { dataset: { epic: answer.task_id } },
           h("strong", {}, answer.task),
@@ -81,7 +93,7 @@ function epicsSection(view, tasksOf) {
           h("ul", { className: "children" }, epic.children.map((child) => h("li", { dataset: { state: child.state } },
             `${child.task} — ${word(view, "epic.state", child.state)}`,
             h("span", { className: "muted" }, ` (${view.t("projects.criteria", { met: child.criteria_met, total: child.criteria_total })})`)))));
-      }));
+      })), more];
     }
   });
 }
@@ -91,14 +103,15 @@ function decisionsSection(view, project) {
     name: "decisions",
     title: view.t("projects.decisions"),
     load: async () => {
-      const answer = await api.call("list_decisions", { project_path: project.project_path, limit: 50 });
-      if (!answer.decisions?.length) return emptyState(view.t("projects.decisions.empty"));
-      return h("ul", { className: "decisions" }, answer.decisions.map((decision) => h("li", { dataset: { decision: decision.id } },
+      const answer = await api.call("list_decisions", { project_path: project.project_path, limit: DECISIONS + 1 });
+      const { shown: decisions, more } = capped(view, answer.decisions ?? [], DECISIONS);
+      if (!decisions.length) return emptyState(view.t("projects.decisions.empty"));
+      return [h("ul", { className: "decisions" }, decisions.map((decision) => h("li", { dataset: { decision: decision.id } },
         h("details", {},
           h("summary", {}, h("strong", {}, `${decision.id} `), decision.title, h("span", { className: "muted" }, ` — ${word(view, "decision.status", decision.status)}, ${decision.date}`)),
           decision.context ? h("p", {}, h("span", { className: "label" }, `${view.t("projects.decision.context")}: `), decision.context) : null,
           h("p", {}, h("span", { className: "label" }, `${view.t("projects.decision.decision")}: `), decision.decision),
-          decision.alternatives?.length ? h("p", {}, h("span", { className: "label" }, `${view.t("projects.decision.alternatives")}: `), decision.alternatives.join("; ")) : null))));
+          decision.alternatives?.length ? h("p", {}, h("span", { className: "label" }, `${view.t("projects.decision.alternatives")}: `), decision.alternatives.join("; ")) : null)))), more];
     }
   });
 }
@@ -108,12 +121,13 @@ function handoffsSection(view, project) {
     name: "handoffs",
     title: view.t("projects.handoffs"),
     load: async () => {
-      const answer = await api.call("list_sessions", { project_path: project.project_path, limit: 20 });
-      if (!answer.sessions?.length) return emptyState(view.t("projects.handoffs.empty"));
-      return h("ul", { className: "handoffs" }, answer.sessions.map((session) => h("li", { dataset: { session: session.id } },
+      const answer = await api.call("list_sessions", { project_path: project.project_path, limit: HANDOFFS + 1 });
+      const { shown: sessions, more } = capped(view, answer.sessions ?? [], HANDOFFS);
+      if (!sessions.length) return emptyState(view.t("projects.handoffs.empty"));
+      return [h("ul", { className: "handoffs" }, sessions.map((session) => h("li", { dataset: { session: session.id } },
         h("strong", {}, session.topic || session.id),
         h("span", { className: "muted" }, ` — ${formatDate(session.saved_at, view.language)}${session.unconfirmed ? `, ${view.t("projects.handoff.draft")}` : ""}`),
-        session.next_step ? h("p", {}, view.t("projects.handoff.next", { step: session.next_step })) : null)));
+        session.next_step ? h("p", {}, view.t("projects.handoff.next", { step: session.next_step })) : null))), more];
     }
   });
 }
@@ -133,7 +147,7 @@ function projectCard(view, project, back) {
   // The tasks and the epics sections read the same list: one call, again only for Try again.
   let tasks = null;
   const tasksOf = (again) => {
-    if (again || !tasks) tasks = api.call("list_tasks", { project_path: project.project_path, limit: 50 });
+    if (again || !tasks) tasks = api.call("list_tasks", { project_path: project.project_path, limit: TASKS + 1 });
     return tasks;
   };
   return h("div", { className: "project", dataset: { open: project.slug || project.name } },

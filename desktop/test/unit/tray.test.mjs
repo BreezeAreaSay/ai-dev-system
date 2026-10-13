@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import zlib from "node:zlib";
 import { TRAY_COLOURS, circlePng, trayState } from "../../src/main/tray-icon.mjs";
-import { trayMenuTemplate } from "../../src/main/tray.mjs";
+import { NOTE_LOOK_MS, processRuns, trayMenuTemplate } from "../../src/main/tray.mjs";
 import { translate } from "../../src/renderer/i18n.js";
 
 /** The chunks of a PNG, checked: length, type, CRC. */
@@ -129,9 +129,9 @@ test("a Stop that failed is said while a daemon it names runs — offline too �
   assert.deepEqual(tray.menu().find((entry) => entry.id === "stop"), { id: "stop", label: "Stopping the daemon…", enabled: false });
   // The app's own daemon stopped, another one would not: the app is offline, the note holds.
   goes("offline");
-  tray.setStopFailed({ message: "No handshake within 5000 ms", pids: [4242] });
+  tray.setStopFailed({ daemons: [{ pid: 4242, reason: "No handshake within 5000 ms" }] });
   assert.deepEqual(item("stop"), ["Stop failed — try again", true], "offline, and Stop can be pressed again");
-  assert.equal(tray.tooltip(), "AI Dev: the daemon is not running\nThe daemon did not stop: No handshake within 5000 ms");
+  assert.equal(tray.tooltip(), "AI Dev: the daemon is not running\nStill running after Stop: daemon 4242 (No handshake within 5000 ms)");
   assert.equal(tray.tooltip(), tray.tray.tip, "as Electron was given it");
   goes("online");
   goes("offline");
@@ -140,11 +140,12 @@ test("a Stop that failed is said while a daemon it names runs — offline too �
   running.delete(4242);
   for (const deadline = Date.now() + 2_000; item("stop")[0] !== "Stop the daemon" && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(item("stop"), ["Stop the daemon", false]);
-  assert.doesNotMatch(tray.tooltip(), /did not stop/);
+  assert.doesNotMatch(tray.tooltip(), /after Stop/);
   // A Stop whose request failed names no daemon: its note is about the one the app is on, and goes once the app is off it (Д-276, п. 1).
   goes("online");
   tray.setStopping();
-  tray.setStopFailed({ message: "EPERM", pids: [] });
+  tray.setStopFailed({ error: "EPERM" });
+  assert.match(tray.tooltip(), /\nStop failed: EPERM$/);
   assert.deepEqual(item("stop"), ["Stop failed — try again", true]);
   goes("offline");
   assert.deepEqual(item("stop"), ["Stop the daemon", false]);
@@ -152,9 +153,39 @@ test("a Stop that failed is said while a daemon it names runs — offline too �
   assert.deepEqual(item("stop"), ["Stop the daemon", true], "not back on the next daemon");
   // A new Stop drops the last note at once; one that stops everything leaves none.
   running.add(4343);
-  tray.setStopFailed({ message: "it is still running", pids: [4343] });
+  tray.setStopFailed({ daemons: [{ pid: 4343, reason: "it is still running" }] });
   tray.setStopping();
-  assert.doesNotMatch(tray.tooltip(), /did not stop/);
+  assert.doesNotMatch(tray.tooltip(), /after Stop/);
   tray.setStopFailed(null);
   assert.deepEqual(item("stop"), ["Stop the daemon", true]);
+});
+
+test("a note naming two daemons holds while either runs, in the language in force; no pid ≤ 0 runs (Д-283, п. 4)", async () => {
+  const running = new Set([501, 502]);
+  const { tray, view, goes, item } = await standInTray({ runs: (pid) => running.has(pid), lookEveryMs: 5 });
+  goes("offline");
+  tray.setStopFailed({ daemons: [{ pid: 501, reason: "No handshake within 5000 ms" }, { pid: 502, reason: "it is still running" }, { pid: 0, reason: "x" }, { pid: -1, reason: "y" }] });
+  assert.equal(tray.tooltip(), "AI Dev: the daemon is not running\nStill running after Stop: daemon 501 (No handshake within 5000 ms); daemon 502 (it is still running)");
+  running.delete(501);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(item("stop"), ["Stop failed — try again", true], "the other one still runs");
+  view.language = "ru";
+  tray.refresh();
+  assert.equal(tray.tooltip(), "AI Dev: демон не запущен\nРаботает после «Остановить»: демон 501 (No handshake within 5000 ms); демон 502 (it is still running)");
+  running.delete(502);
+  for (const deadline = Date.now() + 2_000; item("stop")[1] && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(item("stop"), ["Остановить демон", false]);
+  // A note that names no daemon that can run says nothing.
+  tray.setStopFailed({ daemons: [{ pid: 0, reason: "x" }] });
+  assert.equal(tray.tooltip(), "AI Dev: демон не запущен");
+});
+
+test("the tray asks the system whether a daemon runs, once a second at most: this process does, an ended one and pids 0, -1 do not (Д-283, п. 4)", async () => {
+  const { spawn } = await import("node:child_process");
+  assert.ok(NOTE_LOOK_MS <= 1_000);
+  assert.equal(processRuns(process.pid), true);
+  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  await new Promise((resolve) => child.once("exit", resolve));
+  assert.equal(processRuns(child.pid), false);
+  assert.deepEqual([0, -1, 1.5, Number.NaN].map(processRuns), [false, false, false, false]);
 });

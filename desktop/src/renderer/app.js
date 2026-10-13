@@ -119,12 +119,15 @@ for (const button of document.querySelectorAll("[data-nav]")) {
 
 languageSelect.addEventListener("change", async () => {
   view.language = pickLanguage(languageSelect.value, "");
-  await api.setLanguage(view.language);
+  // The state comes back in the new language: the link's own words too (Д-283, п. 3).
+  const connection = await api.setLanguage(view.language);
+  if (connection) view.connection = connection;
   render();
 });
 
 api.onState((connection) => {
   const was = view.connection.phase;
+  const spoken = view.language;
   view.connection = connection ?? { phase: "offline" };
   if (connection?.language) view.language = connection.language;
   // A screen in the middle of a step keeps its place while the daemon is
@@ -133,8 +136,10 @@ api.onState((connection) => {
   if (was !== view.connection.phase) {
     if (!["online", "reconnecting"].includes(view.connection.phase)) view.route = null;
     render();
-  } else if (["offline", "broken", "no-node"].includes(view.connection.phase)) {
-    // The same screen with news: a log that arrived, a reason that changed.
+  } else if (["offline", "broken", "no-node"].includes(view.connection.phase) || view.language !== spoken) {
+    // The same screen with news: a log that arrived, a reason that changed —
+    // or the language, which the main process changed: the settings file,
+    // fixed, named its own (Д-283, п. 2).
     render();
   }
 });

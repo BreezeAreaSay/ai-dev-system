@@ -38,7 +38,8 @@ async function stage(t, text) {
       return settings.writeSettings(changes, options);
     }
   };
-  const keeper = createLanguageKeeper({ server: () => module, env });
+  const outcomes = [];
+  const keeper = createLanguageKeeper({ server: () => module, env, settled: (outcome) => outcomes.push(outcome) });
   t.after(() => keeper.stop());
   const stored = async () => (await fs.readFile(file, "utf8").then(JSON.parse, () => null))?.language;
   // Another writer — `ai-dev`, the daemon — holds the file's lock.
@@ -52,14 +53,18 @@ async function stage(t, text) {
     t.after(free);
     return free;
   };
-  return { file, keeper, writes, stored, hold };
+  return { file, keeper, writes, stored, hold, outcomes };
 }
 
 test("a choice the file takes is written at once, waiting a second at most for its lock", async (t) => {
-  const { keeper, writes, stored } = await stage(t, JSON.stringify({ schema_version: 1 }));
+  const { keeper, writes, stored, outcomes } = await stage(t, JSON.stringify({ schema_version: 1 }));
   assert.equal(await keeper.choose("ru"), true);
   assert.equal(await stored(), "ru");
   assert.equal(keeper.waiting(), null);
+  // The app hears of it: the file changed, and it names Russian (Д-282).
+  assert.deepEqual(outcomes, [{ changed: true, language: "ru" }]);
+  assert.equal(await keeper.choose("ru"), true);
+  assert.deepEqual(outcomes.at(-1), { changed: false, language: "ru" }, "the same language again changes nothing");
   assert.ok(LOCK_WAIT_MS <= 1_000);
   assert.deepEqual([writes[0].lockTimeoutMs, writes[0].unsetOnly], [LOCK_WAIT_MS, false]);
 });
@@ -80,7 +85,7 @@ test("a choice made while the file is broken waits, and is written within a look
 });
 
 test("it gives way to a language the person writes into the fixed file — decided under the file's lock, the empty one too (Д-279)", async (t) => {
-  const { file, keeper, writes, stored, hold } = await stage(t, "{ not json");
+  const { file, keeper, writes, stored, hold, outcomes } = await stage(t, "{ not json");
   await keeper.choose("ru");
   const free = await hold();
   await fs.writeFile(file, JSON.stringify({ schema_version: 1 }));
@@ -92,6 +97,8 @@ test("it gives way to a language the person writes into the fixed file — decid
   await free();
   assert.equal(await until(() => keeper.waiting() === null), true);
   assert.equal(await stored(), "en");
+  // The app hears the file's own language, which it then speaks (Д-283, п. 2).
+  assert.deepEqual(outcomes, [{ changed: false, language: "en" }]);
   await sleep(2 * LOOK_EVERY_MS);
   assert.equal(await stored(), "en", "and nothing is written over it later");
   // The empty language is the system's: a language of the file's own.
@@ -156,14 +163,17 @@ test("a file a newer AI Dev wrote: the choice holds, and the file is not tried a
   assert.deepEqual(JSON.parse(await fs.readFile(file, "utf8")), { schema_version: 2, projects_root: "" });
 });
 
-test("Quit: one more write of what waits, the lock waited for a second at most (Д-279)", async (t) => {
-  const { file, keeper, stored, hold } = await stage(t, "{ not json");
+test("Quit: one more write of what waits, the lock waited for a second at most, the look already waiting included (Д-279, Д-283)", async (t) => {
+  const { file, keeper, writes, stored, hold } = await stage(t, "{ not json");
   await keeper.choose("ru");
   const free = await hold();
   await fs.rm(file);
+  // A look is already waiting for the lock when Quit comes.
+  const before = writes.length;
+  assert.equal(await until(() => writes.length > before), true);
   const started = Date.now();
-  assert.equal(await keeper.settle(), false);
-  assert.ok(Date.now() - started < 2 * LOCK_WAIT_MS + 1_000, `Quit waited ${Date.now() - started} ms`);
+  assert.equal(await keeper.settle({ within: LOCK_WAIT_MS }), false);
+  assert.ok(Date.now() - started < LOCK_WAIT_MS + 400, `Quit waited ${Date.now() - started} ms`);
   assert.equal(await stored(), undefined);
   await free();
   assert.equal(await keeper.settle(), true);
@@ -176,6 +186,10 @@ test("at start-up the choice holds — unless it was made while the file could n
   assert.equal(broken.keeper.atStart({}), "ru", "a fixed file that names none: the choice");
   assert.equal(broken.keeper.atStart({ language: "en" }), null, "one that names its own: the file's");
   assert.equal(broken.keeper.waiting(), null);
+  // The empty language is the system's: a language of the file's own too.
+  const empty = await stage(t, "{ not json");
+  await empty.keeper.choose("ru");
+  assert.equal(empty.keeper.atStart({ language: "" }), null);
   // Made while the file could be read, the choice is newer than what the file says.
   const readable = await stage(t, JSON.stringify({ schema_version: 1, language: "en" }));
   const free = await readable.hold();
@@ -187,4 +201,29 @@ test("at start-up the choice holds — unless it was made while the file could n
   t.after(() => keeper.stop());
   assert.equal(await keeper.choose("ru"), false);
   assert.equal(keeper.atStart({ language: "en" }), "ru");
+});
+
+test("writes go one at a time, in the order chosen: a quick later write never lands before a slow earlier one (Д-283, п. 5)", async (t) => {
+  // A stand-in for the install's settings code whose first write is slow.
+  const file = { language: undefined };
+  let first = true;
+  const module = {
+    SETTINGS_SCHEMA_VERSION: 1,
+    readSettings: () => ({ schema_version: 1, stored: {}, settings: { language: file.language ?? "" } }),
+    async writeSettings({ language }) {
+      if (first) {
+        first = false;
+        await sleep(200);
+      }
+      const changed = file.language === language ? [] : ["language"];
+      file.language = language;
+      return { changed, settings: { language } };
+    }
+  };
+  const keeper = createLanguageKeeper({ server: () => module, env: {} });
+  t.after(() => keeper.stop());
+  const russian = keeper.choose("ru");
+  const english = keeper.choose("en");
+  await Promise.all([russian, english]);
+  assert.equal(file.language, "en");
 });

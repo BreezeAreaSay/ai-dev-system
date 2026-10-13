@@ -151,6 +151,7 @@ test("a daemon that goes away unasked: offline with its log; back when a client 
   assert.equal(daemon.state.error, "link.lost");
   await sleep(10);
   assert.deepEqual(daemon.state.log, ["daemon: listening", "daemon: killed"]);
+  assert.equal(daemon.state.errorKey, "link.lost", "with its key, after the log came too (Д-283, п. 3)");
   assert.equal(daemon.status, null);
   await sleep(50);
   assert.equal(daemon.state.phase, "offline", "nothing to come back to yet");

@@ -146,7 +146,8 @@ test("the tray's Quit writes a language that waits, and waits for the settings l
   const s = await stage(t);
   const settings = path.join(s.home, ".ai-dev", "config.json");
   // The lock is free a moment after Quit: the language is written before the app leaves. It is held
-  // for seconds: the app leaves without it, a second or two after Quit.
+  // for seconds: the app leaves without it, about a second after Quit — the look already waiting
+  // for the lock included (Д-283, п. 1).
   for (const [holdMs, written] of [[900, "ru"], [8_000, undefined]]) {
     await fs.writeFile(settings, "{ this is not json");
     const { app, page } = await launch(t, s.env);
@@ -166,7 +167,7 @@ test("the tray's Quit writes a language that waits, and waits for the settings l
     const freed = new Promise((resolve) => setTimeout(resolve, holdMs)).then(free);
     await exited;
     const took = Date.now() - quitAt;
-    assert.ok(took < 4_000, `the app left ${took} ms after Quit`);
+    assert.ok(took < 2_500, `the app left ${took} ms after Quit`);
     await freed;
     const stored = await fs.readFile(settings, "utf8").then(JSON.parse, () => null);
     assert.equal(stored?.language, written, `lock held ${holdMs} ms: ${JSON.stringify(stored)}`);
@@ -208,4 +209,19 @@ test("a language chosen while the settings file is broken is written once it is 
   await fs.rm(settings);
   assert.equal(await storedLanguage(settings), "ru");
   assert.equal(await page.getAttribute("[data-screen]", "data-screen"), "offline", "no daemon was needed");
+});
+
+test("a language chosen online that fixes the settings file is checked again at once (Д-282)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t, { settings: { language: "fr" } });
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  const problems = () => app.evaluate(() => globalThis.aiDevTest.link.status?.settings_problems ?? null);
+  for (const deadline = Date.now() + 60_000; (await problems()) === null && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.match((await problems()).join(" "), /language must be ru, en or empty/);
+  await page.selectOption("#language", "ru");
+  const chosen = Date.now();
+  for (const deadline = chosen + 20_000; (await problems())?.length && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(await problems(), []);
+  // Well before the quick look every thirty seconds would have noticed.
+  assert.ok(Date.now() - chosen < 10_000, `the verdict lost the problem ${Date.now() - chosen} ms after the choice`);
 });

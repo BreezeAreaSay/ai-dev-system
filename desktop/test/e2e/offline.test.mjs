@@ -43,7 +43,7 @@ test("the tray's Stop brings the window back to the Start screen", { timeout: 18
     process.kill(pid, "SIGCONT");
   }
   assert.equal((await trayNow(app)).menu.find((item) => item.id === "stop").label, "Stop failed — try again");
-  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /The daemon did not stop: No handshake/);
+  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), new RegExp(`Still running after Stop: daemon ${pid} \\(No handshake`));
   assert.equal(await app.evaluate(() => globalThis.aiDevTest.link.state.phase), "online");
   assert.equal(await page.getAttribute("[data-screen]", "data-screen"), "wizard");
   const kept = await mainCall(app, "system_status", { checks: false });
@@ -58,7 +58,7 @@ test("the tray's Stop brings the window back to the Start screen", { timeout: 18
       delete link.stopDaemon;
     }
   });
-  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /The daemon did not stop: EACCES/);
+  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /\nStop failed: EACCES/);
   // Then it stops.
   await app.evaluate(() => globalThis.aiDevTest.stop());
   await page.waitForSelector('[data-screen="offline"]', { timeout: 30_000 });
@@ -91,12 +91,17 @@ test("a daemon of another build that will not stop keeps the Stop's note, offlin
   // The app's own daemon stopped, the other did not: offline, and the note holds.
   await page.waitForSelector('[data-screen="offline"]', { timeout: 30_000 });
   assert.deepEqual(await stopItem(), { id: "stop", label: "Stop failed — try again", enabled: true });
-  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /^AI Dev: the daemon is not running\nThe daemon did not stop: No handshake/);
-  // It comes back, and the Stop pressed again stops it: the note goes, nothing of this runtime home runs.
-  process.kill(other, "SIGCONT");
+  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), new RegExp(`^AI Dev: the daemon is not running\\nStill running after Stop: daemon ${other} \\(No handshake`));
+  // It ends: the tray sees it by itself, within a look a second (Д-283, п. 4, 5).
+  process.kill(other, "SIGKILL");
+  const ended = Date.now();
+  for (const deadline = ended + 10_000; (await stopItem()).enabled && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(await stopItem(), { id: "stop", label: "Stop the daemon", enabled: false });
+  assert.ok(Date.now() - ended < 3_000, `the note went ${Date.now() - ended} ms after the daemon ended`);
+  assert.doesNotMatch(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /after Stop/);
+  // Stop works with no session too: nothing runs, nothing is said.
   await app.evaluate(() => globalThis.aiDevTest.stop());
   assert.deepEqual(await stopItem(), { id: "stop", label: "Stop the daemon", enabled: false });
-  assert.doesNotMatch(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /did not stop/);
   const { listDaemons } = await serverModule("src/core/daemon-client.mjs");
   assert.deepEqual((await listDaemons({ env: s.env })).map((entry) => entry.info.pid), []);
 });
@@ -156,6 +161,11 @@ test("a daemon that dies is said with its log, and one a client starts later bri
   process.kill(pid, "SIGKILL");
   await page.waitForSelector('[data-screen="offline"] [data-field="offline-error"]', { timeout: 30_000 });
   assert.match(await page.textContent('[data-field="offline-error"]'), /stopped unexpectedly/);
+  // The app's own words, said again in the language chosen (Д-283, п. 3).
+  await page.selectOption("#language", "ru");
+  await page.waitForFunction(() => document.querySelector('[data-field="offline-error"]')?.textContent.includes("Демон неожиданно остановился"));
+  await page.selectOption("#language", "en");
+  await page.waitForFunction(() => document.querySelector('[data-field="offline-error"]')?.textContent.includes("stopped unexpectedly"));
   await page.waitForSelector('[data-screen="offline"] details.log');
   assert.equal((await trayNow(app)).state, "offline");
   await shot(page, "offline-lost");

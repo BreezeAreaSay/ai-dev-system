@@ -226,8 +226,9 @@ export class DaemonLink extends EventEmitter {
       this.#retry();
       return;
     }
-    // Not asked for: the daemon stopped on its own or was killed; its log says why (Д-257, п. 6).
-    this.#set({ phase: "offline", error: this.#t("link.lost"), log: [] });
+    // Not asked for: the daemon stopped on its own or was killed; its log says
+    // why (Д-257, п. 6). The key says it again in another language (Д-283, п. 3).
+    this.#set({ phase: "offline", error: this.#t("link.lost"), errorKey: "link.lost", log: [] });
     this.#server.daemonLogTail(this.#env).then((log) => {
       if (this.state.phase === "offline" && !this.#client) this.#set({ ...this.state, log });
     }, () => undefined);

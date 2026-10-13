@@ -74,25 +74,30 @@ read — unless the fixed file names a language of its own, which then holds.
 - **Projects** — the projects AI Dev knows (registered with `register_project`, or by a task begun
   in them), and a project's card: its tasks with their criteria, its epics — how far each has come
   and the part to work on next —, its decisions, the handoffs sessions left for the next one, and
-  the project card itself. Returning to Projects opens the card you left.
+  the project card itself. The card shows the first 50 tasks and decisions, 20 handoffs and 10
+  epics, and says when there are more. Returning to Projects opens the card you left.
 - **Costs** — what the work has cost today, yesterday, in the last seven days and in all, by model,
   by tool and by task, for all projects or one (`usage_report`). A cost the client did not report
   is an estimate from the published prices; a retired model's price is not checked again.
-- **Skills** — the catalog by group, a search, and a skill to read.
+- **Skills** — the catalog by group, a search — its first 20 matches, saying when there are more —
+  and a skill to read.
 - **Settings** — the projects folder, the tool profiles AI clients get, the model's download mirror,
   the model folder, the daemon's idle time and whether the app starts it: each with what it does,
   the value in force and where it comes from, and when a change applies — at once, to AI client
   sessions started afterwards, or when the daemon starts next. A change for new sessions reaches
   the app when it reconnects: **Reconnect now** opens a new session, and the daemon goes on. A value
-  the daemon refuses is not written, and the daemon's reason is shown. The language is chosen in the
-  header.
+  the daemon refuses is not written, and the daemon's reason is shown. The model's download mirror,
+  the model folder and the profiles are saved only after you confirm the new values in the system's
+  message box — they decide where the daemon downloads from, what it reads as the model and which
+  tools AI clients get; Cancel saves nothing. The language is chosen in the header.
 - **Log** — the daemon's log and its part set aside at 1 MB; **Follow** reads it again every two
   seconds while the screen is open.
 - **Console** — every tool the daemon lists to the app, each marked *reads only*, *changes
   something* or *deletes*; a form built from the tool's input schema (text, choices, numbers within
   their bounds, flags, lists one per line, JSON for the rest), checked before it is sent; the answer
-  readable — names and values, lists, Markdown — and as JSON. A tool that changes something runs
-  only after you confirm it (see Security).
+  readable — names and values, lists, Markdown — and as JSON, in the view you last chose while the
+  app is open. Only the arguments the tool's schema names are sent. A tool that changes something
+  runs only after you confirm it (see Security).
 
 Every screen shows that it is loading, says why it is empty when it is, and shows an error with
 **Try again**. Everything works from the keyboard — a skip link before the header, a visible focus
@@ -154,8 +159,13 @@ The window shows only the app's own page and gives it nothing of Node or the fil
   the wizard does not offer;
 - the tool console may call any tool the daemon lists to the app, but one the daemon does not mark
   read-only (`readOnlyHint`) runs only after you confirm it in the system's message box, which the
-  main process shows: the tool, its arguments, and Cancel as the default. The page can ask for a
-  call; it cannot answer the box, skip it, or call a tool read-only on its own word;
+  main process shows: the tool, each argument on a line of its own — a character that would not show
+  as itself (a line break, a direction mark) written as its code, a long value cut — and Cancel as
+  the default. The page can ask for a call; it cannot answer the box, skip it, add an argument the
+  tool does not take, or call a tool read-only on its own word;
+- the model's download mirror, the model folder and the tool profiles change from the page only
+  after the same kind of confirmation (`CONFIRMED_SETTINGS`): with a mirror of its choosing, a page
+  could have the daemon send anything it reads to another host in a download's address;
 - arguments are plain JSON of at most 64 KB, and every call has an id of the page's own for its
   progress and cancel;
 - the page cannot navigate away, open windows or `<webview>`s, ask for permissions or start

@@ -11,6 +11,7 @@ import { pickLanguage, translate } from "../renderer/i18n.js";
 import { confirmationDialog, consoleDecision, consoleTools } from "./console-policy.mjs";
 import { DaemonLink } from "./daemon-link.mjs";
 import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, refuseClients, validCallId } from "./ipc-policy.mjs";
+import { createLanguageKeeper } from "./language.mjs";
 import { findNode } from "./node-runtime.mjs";
 import { APP_ORIGIN, APP_SCHEME, PAGE_PARTITION, appFileHandler, isAppUrl, lockContents, lockSession, windowPreferences } from "./security.mjs";
 import { startupFailure } from "./startup.mjs";
@@ -64,19 +65,20 @@ if (!app.requestSingleInstanceLock()) {
   let ready = false;
   // The main process's own calls are named apart, so two at once do not share an id.
   let ownCalls = 0;
-  // A language chosen while the settings could not be written — a broken
-  // file: it holds, and is written once they can be (docs/DEFECTS.md, Д-271,
-  // п. 4; Д-276, п. 2, 3).
-  let unsaved = null;
-  let settling = null;
-  let languageWatch = null;
   const env = { ...process.env };
   const root = serverRoot();
   const t = (key, params) => translate(language, key, params);
   const devTools = process.env.AI_DEV_DESKTOP_DEVTOOLS === "1";
   const link = new DaemonLink({ env, t });
+  // The language chosen, kept in the settings file — or held until the file
+  // can take it (docs/DEFECTS.md, Д-271, п. 4; Д-276, п. 2, 3; Д-279).
+  const languages = createLanguageKeeper({ server: () => server, env, settled: (outcome) => languageSettled(outcome) });
 
-  const publicState = () => ({ ...link.state, language, platform: process.platform });
+  // The link's own words are said in the language in force (Д-283, п. 3).
+  const publicState = () => {
+    const { errorKey, ...state } = link.state;
+    return { ...state, ...(errorKey ? { error: t(errorKey) } : {}), language, platform: process.platform };
+  };
   const fromApp = (event) => isAppUrl(event.senderFrame?.url ?? "");
 
   const openWindow = () => {
@@ -112,7 +114,10 @@ if (!app.requestSingleInstanceLock()) {
 
   const quit = async () => {
     quitting = true;
-    await settleLanguage().catch(() => undefined);
+    // A language that waits is written once more; the file's lock is waited
+    // for a second at most, the write already waiting for it included (Д-279,
+    // Д-283, п. 1; Д-284).
+    await languages.quit().catch(() => undefined);
     await link.close();
     app.quit();
   };
@@ -123,60 +128,42 @@ if (!app.requestSingleInstanceLock()) {
       id: "tray-rebuild",
       onProgress: ({ progress, total }) => tray.setRebuilding(total ? Math.min(99, Math.floor((progress / total) * 100)) : 0)
     });
-    // A failure is said where the rebuild was asked for (Д-257, п. 5).
-    tray.setRebuilding(null, result.ok || result.cancelled ? null : result.error);
+    // A failure is said where the rebuild was asked for (Д-257, п. 5); the
+    // link's own words by their key, said again in another language (Д-280).
+    tray.setRebuilding(null, result.ok || result.cancelled ? null : { key: result.key, text: result.error });
   };
 
   // The tray's Stop: a daemon that would not stop is said in the menu, as a
-  // failed rebuild is — from the answer, which says so, or an error (Д-271,
-  // п. 6; Д-273).
+  // failed rebuild is — from the answer, which names it, or an error — and
+  // Stop is offered again while it runs (Д-271, п. 6; Д-273; Д-277).
   const stopFromTray = async () => {
-    tray.setStopFailed(null);
+    tray.setStopping();
+    let failure = null;
     try {
       const answer = await link.stopDaemon();
       const failed = (answer?.daemons ?? []).filter((daemon) => daemon.stopped === false);
-      if (failed.length) tray.setStopFailed(failed.map((daemon) => daemon.reason ?? "it is still running").join("; "));
+      if (failed.length) failure = { daemons: failed.map((daemon) => ({ pid: daemon.pid, reason: daemon.reason ?? "it is still running" })) };
     } catch (error) {
-      tray.setStopFailed(String(error?.message ?? error));
+      failure = { error: String(error?.message ?? error) };
     }
+    tray.setStopFailed(failure);
   };
 
   /**
-   * Write the language chosen while the settings could not be written, once
-   * they can be — unless the file, readable again, names one of its own: then
-   * nothing is written over it, and the file's holds from the next start.
-   * One at a time.
+   * A chosen language no longer waits. A write that changed the file changes
+   * what the checks see: online, they run again (Д-282). The file, fixed,
+   * named a language of its own, which the choice gave way to: the app speaks
+   * it now, as the next start will (Д-283, п. 2).
    */
-  const settleLanguage = () => {
-    settling ??= (async () => {
-      if (!unsaved || !server) return;
-      const chosen = unsaved;
-      let stored;
-      try {
-        stored = server.readSettings({ env }).stored;
-      } catch {
-        return;
-      }
-      const settled = stored.language ? true : await server.writeSettings({ language: chosen }, { env }).then(() => true, () => false);
-      if (settled && unsaved === chosen) unsaved = null;
-    })().finally(() => {
-      settling = null;
-    });
-    return settling;
-  };
-
-  // While a chosen language waits to be written, the file is looked at twice
-  // a second — online or not, whatever else happens (Д-276, п. 3).
-  const awaitLanguage = () => {
-    if (languageWatch) return;
-    languageWatch = setInterval(() => {
-      settleLanguage().catch(() => undefined).then(() => {
-        if (unsaved || !languageWatch) return;
-        clearInterval(languageWatch);
-        languageWatch = null;
-      });
-    }, 500);
-    languageWatch.unref?.();
+  const languageSettled = ({ changed, language: inFile }) => {
+    if (changed && !quitting && link.state.phase === "online") link.refreshStatus({ checks: true, fresh: true }).catch(() => undefined);
+    const now = pickLanguage(inFile, app.getLocale());
+    if (now === language) return;
+    language = now;
+    tray?.refresh();
+    window?.setTitle(t("app.title"));
+    if (["broken", "no-node"].includes(link.state.phase)) explain?.();
+    window?.webContents.send(EVENT_CHANNELS.state, publicState());
   };
 
   /**
@@ -192,9 +179,7 @@ if (!app.requestSingleInstanceLock()) {
         const read = server.readSettings({ env });
         const settings = read.settings;
         // The language chosen while the file was broken — unless the file, fixed, names its own (Д-276, п. 2).
-        language = unsaved && !read.stored.language ? unsaved : pickLanguage(settings.language, app.getLocale());
-        await settleLanguage();
-        if (unsaved) awaitLanguage();
+        language = languages.atStart(read.stored) ?? pickLanguage(settings.language, app.getLocale());
         window?.setTitle(t("app.title"));
         tray?.refresh();
         const clientNodes = await server.clientNodePaths({ env, cliPath: path.join(root, "bin", "ai-dev.mjs") }).catch(() => []);
@@ -302,15 +287,8 @@ if (!app.requestSingleInstanceLock()) {
       window?.setTitle(t("app.title"));
       // A failure screen is the main process's words: say them again in this language.
       if (["broken", "no-node"].includes(link.state.phase)) explain?.();
-      if (link.state.phase === "online") {
-        // The daemon could not write it — a broken file: it waits for a write that can (Д-276, п. 3).
-        const answer = await link.call("settings_set", { settings: { language } }, { id: "language" });
-        unsaved = answer.ok ? null : language;
-      } else {
-        const written = server ? await server.writeSettings({ language }, { env }).then(() => true, () => false) : false;
-        unsaved = written ? null : language;
-      }
-      if (unsaved) awaitLanguage();
+      // Written here, online or not: a file that cannot take it yet gets it later (Д-279).
+      await languages.choose(language);
       return publicState();
     });
 
@@ -318,8 +296,8 @@ if (!app.requestSingleInstanceLock()) {
     openWindow();
     tray = createTray({ electron, link, t, actions: { open: openWindow, rebuild: rebuildFromTray, stop: stopFromTray, quit } });
     // What the end-to-end tests read from the main process: the tray, its
-    // Stop, and the daemon link (desktop/test/e2e). Nothing of it reaches the page.
-    if (process.env.AI_DEV_DESKTOP_TEST === "1") globalThis.aiDevTest = { tray, link, stop: stopFromTray, node: () => node };
+    // actions, the daemon link (desktop/test/e2e). Nothing of it reaches the page.
+    if (process.env.AI_DEV_DESKTOP_TEST === "1") globalThis.aiDevTest = { tray, link, rebuild: rebuildFromTray, stop: stopFromTray, quit, node: () => node };
     startup();
   });
 }

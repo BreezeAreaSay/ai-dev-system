@@ -113,21 +113,27 @@ Status: green — everything works, amber — something needs attention, red —
 grey — the daemon is not running. The checks run when the app connects, after anything it changes,
 when what is on disk moves (looked at every thirty seconds) and every five minutes. Its menu: **Open
 AI Dev**, **Rebuild search index** (with its progress, and when it fails, saying so), **Stop the
-daemon** (saying so too when the daemon would not stop), **Quit**. Closing the window keeps the app
-in the tray; **Quit** ends it.
+daemon** (every daemon of the AI Dev home; one that would not stop is said, with why, and **Stop**
+is offered again for as long as it runs — the app's own, or another, such as an old daemon still
+finishing a client's session), **Quit**. Closing the window keeps the app in the tray; **Quit** ends
+it.
 
 The daemon is not the app's: it goes on serving the clients after the app quits. While the app
 runs, its session keeps the daemon from leaving on idle; after **Quit** the daemon leaves on its
 own when nobody uses it. When the code is updated in place and a daemon of the new code takes over,
 the app moves to it once the calls it has running end — the old daemon finishes them, a download
 included; when none serves yet, it starts one only if it may start the daemon at all (autostart
-on, or **Start** pressed). The old daemon leaves once its last session ends, an AI client's too.
+on, or **Start the daemon** pressed). The old daemon leaves once its last session ends, an AI client's too.
 
 ## Languages
 
 English and Russian (owner decision D6). The language follows the system until you choose one in
-the header; the choice is kept in the settings (`language`) — while they cannot be written, it holds
-for the run and is written as soon as they can be — and the tray follows it. The app's own
+the header, and the tray follows it. The choice is kept in the settings (`language`). While the file
+cannot take it — broken, or held by another writer — it holds for the run and is written once the
+file can: looked for twice a second, and once more at **Quit**, which waits for the file a second at
+most. A choice made while the file could not be read gives way to a language the fixed file names
+itself — the app cannot tell a line it wrote earlier from one you wrote — and the app then speaks
+that language; a file a newer AI Dev wrote is left as it is. The app's own
 words — screens, check and step names, states, advice — are in both; what the daemon writes — a
 check's summary, a step's outcome, an error — is in English, as in the CLI.
 

@@ -82,7 +82,7 @@ export async function stage(t, { stall = false, seed = false, settings = null, e
     ...extra
   };
   t.after(async () => {
-    for (const app of launched.get(t) ?? []) await quitApp(app);
+    for (const app of launched.get(t) ?? []) await quitApp(app).catch(() => undefined);
     await stopDaemons({ timeoutMs: 5000, env }).catch(() => undefined);
     await host.close();
     await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
@@ -127,7 +127,13 @@ const quit = new WeakSet();
 export async function quitApp(app) {
   if (quit.has(app)) return;
   quit.add(app);
-  const child = app.process();
+  let child;
+  try {
+    child = app.process();
+  } catch {
+    // An app that left by itself — the tray's Quit — Playwright has let go of.
+    return;
+  }
   if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise((resolve) => child.once("exit", resolve));
   await app.evaluate(({ app: electronApp }) => { electronApp.quit(); }).catch(() => undefined);

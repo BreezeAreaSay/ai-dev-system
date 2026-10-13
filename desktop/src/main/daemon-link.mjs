@@ -50,16 +50,25 @@ export class DaemonLink extends EventEmitter {
   #retryTimer = null;
   #connecting = null;
   #checking = null;
+  // A check asked for after a change while one ran: it runs once more after
+  // that one, which read the install before the change (docs/DEFECTS.md, Д-284).
+  #checkAgain = null;
   #quick = "";
+  // A reconnect under way: a retired daemon does not start a second move.
   #leaving = null;
+  // Stops in flight: a loss meanwhile is what was asked for, and no move
+  // starts a daemon (docs/DEFECTS.md, Д-278).
+  #stopping = 0;
   // close() moves it on: a session that opens after it is given up (docs/DEFECTS.md, Д-266, п. 10).
   #generation = 0;
   // The attempt under way is the offline look, which does not start a daemon.
   #lookOnly = false;
   // The daemon retired while calls were in flight: move once they end (Д-263).
   #moveWhenIdle = false;
-  // The calls the person cancelled, told apart from the ones the link ended.
+  // The calls the person cancelled, told apart from the ones the link ended —
+  // with the key of the link's words, said in the language in force (Д-280).
   #byPerson = new WeakSet();
+  #endedBy = new WeakMap();
   // Whether the app may start a daemon: the start-up asked with autostart on,
   // or the person pressed Start. The move off a retired daemon starts one only
   // then (docs/DEFECTS.md, Д-276, п. 5).
@@ -223,19 +232,17 @@ export class DaemonLink extends EventEmitter {
     this.#tools = null;
     this.#moveWhenIdle = false;
     this.#stopTimers();
-    for (const call of this.#calls.values()) call.abort(this.#t("link.wentAway"));
-    this.#calls.clear();
+    this.#endCalls("link.wentAway");
     this.status = null;
     this.emit("status", null);
-    const expected = this.#leaving;
-    this.#leaving = null;
-    if (expected === "stopped") {
+    if (this.#stopping) {
       this.#set({ phase: "offline", error: "", log: [] });
       this.#retry();
       return;
     }
-    // Not asked for: the daemon stopped on its own or was killed; its log says why (Д-257, п. 6).
-    this.#set({ phase: "offline", error: this.#t("link.lost"), log: [] });
+    // Not asked for: the daemon stopped on its own or was killed; its log says
+    // why (Д-257, п. 6). The key says it again in another language (Д-283, п. 3).
+    this.#set({ phase: "offline", error: this.#t("link.lost"), errorKey: "link.lost", log: [] });
     this.#server.daemonLogTail(this.#env).then((log) => {
       if (this.state.phase === "offline" && !this.#client) this.#set({ ...this.state, log });
     }, () => undefined);
@@ -252,10 +259,18 @@ export class DaemonLink extends EventEmitter {
   /**
    * `system_status` — with the health checks unless told otherwise — for the
    * tray; the answer is the verdict when it has the checks. One check at a
-   * time: a second caller shares the first one's.
+   * time: a second caller shares the first one's — unless it asks for one
+   * that sees a change it just made (`fresh`): that one runs after.
    */
-  async refreshStatus({ checks = true } = {}) {
+  async refreshStatus({ checks = true, fresh = false } = {}) {
     if (!checks) return this.#accept(await this.#ask({ checks: false }), false);
+    if (fresh && this.#checking) {
+      this.#checkAgain ??= this.#checking.catch(() => null).then(() => {
+        this.#checkAgain = null;
+        return this.refreshStatus({ checks: true });
+      });
+      return this.#checkAgain;
+    }
     this.#checking ??= this.#ask({ checks: true }).then((answer) => this.#accept(answer, true)).finally(() => {
       this.#checking = null;
     });
@@ -285,7 +300,7 @@ export class DaemonLink extends EventEmitter {
    * (docs/DEFECTS.md, Д-245).
    */
   #moveOn() {
-    if (this.#leaving) return;
+    if (this.#leaving || this.#stopping) return;
     // A call in flight is the retired daemon's to finish; the move waits for it (Д-263).
     if (this.#calls.size) {
       this.#moveWhenIdle = true;
@@ -300,7 +315,7 @@ export class DaemonLink extends EventEmitter {
    * never throws, so the page gets the daemon's own words.
    */
   async call(tool, args, { id, onProgress } = {}) {
-    if (!this.#client) return { ok: false, error: this.#t("link.notConnected"), cancelled: false };
+    if (!this.#client) return this.#failure("link.notConnected");
     const controller = new AbortController();
     this.#calls.set(id, controller);
     try {
@@ -310,23 +325,37 @@ export class DaemonLink extends EventEmitter {
         resetTimeoutOnProgress: true,
         ...(onProgress ? { onprogress: (progress) => onProgress(progress) } : {})
       });
-      if (result.isError) return { ok: false, error: result.content?.[0]?.text ?? this.#t("link.failed"), cancelled: false };
+      if (result.isError) return result.content?.[0]?.text ? { ok: false, error: result.content[0].text, cancelled: false } : this.#failure("link.failed");
       const answer = result.structuredContent?.result ?? null;
       // Every verdict the app gets is the tray's too (docs/DEFECTS.md, Д-240);
       // after a change, the checks run again.
       if (tool === "system_status") this.#accept(answer, args?.checks !== false);
-      else if (!(await this.#readsOnly(tool))) this.refreshStatus({ checks: true }).catch(() => undefined);
+      else if (!(await this.#readsOnly(tool))) this.refreshStatus({ checks: true, fresh: true }).catch(() => undefined);
       return { ok: true, result: answer };
     } catch (error) {
       // Cancelled is what the person asked for; a call the link ended — the
       // daemon went away, the app quits — failed, in the link's words (Д-263).
-      if (this.#byPerson.has(controller)) return { ok: false, error: this.#t("link.cancelled"), cancelled: true };
-      const reason = controller.signal.aborted ? controller.signal.reason : null;
-      return { ok: false, error: String(reason ?? error?.message ?? error), cancelled: false };
+      if (this.#byPerson.has(controller)) return { ...this.#failure("link.cancelled"), cancelled: true };
+      if (this.#endedBy.has(controller)) return this.#failure(this.#endedBy.get(controller));
+      return { ok: false, error: String(error?.message ?? error), cancelled: false };
     } finally {
       this.#calls.delete(id);
       if (this.#moveWhenIdle && !this.#calls.size) this.#moveOn();
     }
+  }
+
+  /** A call that failed in the link's own words: `key` says them again in another language. */
+  #failure(key) {
+    return { ok: false, error: this.#t(key), key, cancelled: false };
+  }
+
+  /** End every call in flight, in the link's words `key`. */
+  #endCalls(key) {
+    for (const controller of this.#calls.values()) {
+      this.#endedBy.set(controller, key);
+      controller.abort(this.#t(key));
+    }
+    this.#calls.clear();
   }
 
   /**
@@ -374,20 +403,31 @@ export class DaemonLink extends EventEmitter {
 
   /**
    * Stop every daemon of this runtime home (the tray's "Stop the daemon").
-   * One that would not stop still serves: when it is the link's own, the link
-   * keeps its session there, and the answer says why (docs/DEFECTS.md, Д-273).
+   * The link acts on the session it had when asked, and on no other: its
+   * daemon stopped — the session is closed, not left open; it would not stop
+   * — the session stays, and the answer says why. Not knowing which daemon
+   * is its own, the link keeps the session while any daemon still runs: if
+   * that one was the session's, the session ends by itself (docs/DEFECTS.md,
+   * Д-273, Д-278).
    */
   async stopDaemon() {
-    this.#leaving = "stopped";
+    const client = this.#client;
+    const serving = this.status?.served_by?.pid ?? this.state.served_by?.pid ?? null;
+    this.#stopping += 1;
     try {
       const answer = await this.#server.stopDaemons({ env: this.#env, timeoutMs: 10_000 });
-      const serving = this.status?.served_by?.pid ?? this.state.served_by?.pid;
-      const kept = (answer?.daemons ?? []).some((daemon) => daemon.stopped === false && daemon.pid === serving);
-      if (!kept) this.#lost(this.#client);
+      const daemons = answer?.daemons ?? [];
+      const ended = serving === null
+        ? daemons.every((daemon) => daemon.stopped !== false)
+        : daemons.some((daemon) => daemon.pid === serving && daemon.stopped !== false);
+      if (client && ended) {
+        this.#lost(client);
+        await client.close().catch(() => undefined);
+      }
       return answer;
     } finally {
       // Whatever came of it, a later loss is unasked again (Д-266, п. 10).
-      this.#leaving = null;
+      this.#stopping -= 1;
     }
   }
 
@@ -399,24 +439,25 @@ export class DaemonLink extends EventEmitter {
   async reconnect() {
     this.#leaving = "reconnect";
     try {
-      await this.close(this.#t("link.reconnected"));
+      await this.close("link.reconnected");
     } finally {
       this.#leaving = null;
     }
     // An attempt under way — the one whose first checks found the daemon
     // retired — gives up after close(); a connect() now would only share it.
-    // Wait for it, then open a new one (docs/DEFECTS.md, Д-268).
+    // Wait for it, then open a new one (docs/DEFECTS.md, Д-268). While a Stop
+    // runs, it starts none (Д-278).
     await this.#connecting?.catch(() => undefined);
-    return this.connect({ start: this.#mayStart, reconnecting: true });
+    return this.connect({ start: this.#mayStart && !this.#stopping, reconnecting: true });
   }
 
-  async close(reason = this.#t("link.closing")) {
+  /** Close the session; the calls in flight end in the link's words `key`. */
+  async close(key = "link.closing") {
     this.#generation += 1;
     this.#tools = null;
     this.#moveWhenIdle = false;
     this.#stopTimers();
-    for (const call of this.#calls.values()) call.abort(reason);
-    this.#calls.clear();
+    this.#endCalls(key);
     const client = this.#client;
     this.#client = null;
     await client?.close().catch(() => undefined);

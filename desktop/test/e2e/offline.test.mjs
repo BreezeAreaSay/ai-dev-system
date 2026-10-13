@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
-import { NO_SANDBOX, clientEnvironment, desktopRoot, launch, mainCall, serverModule, shot, stage, trayNow } from "./harness.mjs";
+import { NO_SANDBOX, clientEnvironment, desktopRoot, launch, mainCall, serverModule, serverRoot, shot, stage, trayNow } from "./harness.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -43,7 +43,7 @@ test("the tray's Stop brings the window back to the Start screen", { timeout: 18
     process.kill(pid, "SIGCONT");
   }
   assert.equal((await trayNow(app)).menu.find((item) => item.id === "stop").label, "Stop failed — try again");
-  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /The daemon did not stop: No handshake/);
+  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), new RegExp(`Still running after Stop: daemon ${pid} \\(No handshake`));
   assert.equal(await app.evaluate(() => globalThis.aiDevTest.link.state.phase), "online");
   assert.equal(await page.getAttribute("[data-screen]", "data-screen"), "wizard");
   const kept = await mainCall(app, "system_status", { checks: false });
@@ -58,13 +58,76 @@ test("the tray's Stop brings the window back to the Start screen", { timeout: 18
       delete link.stopDaemon;
     }
   });
-  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /The daemon did not stop: EACCES/);
+  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /\nStop failed: EACCES/);
   // Then it stops.
   await app.evaluate(() => globalThis.aiDevTest.stop());
   await page.waitForSelector('[data-screen="offline"]', { timeout: 30_000 });
   const tray = await trayNow(app);
   assert.equal(tray.state, "offline");
   assert.equal(tray.menu.find((item) => item.id === "stop").label, "Stop the daemon");
+});
+
+test("a daemon of another build that will not stop keeps the Stop's note, offline too, and Stop is offered again (Д-277)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  // Another build in the same runtime home — another vault, the same AI_DEV_HOME: its client starts its own daemon.
+  const otherVault = path.join(s.root, "other-vault");
+  await fs.mkdir(path.join(otherVault, "02-knowledge"), { recursive: true });
+  const { openControlClient } = await serverModule("src/core/control-client.mjs");
+  const { client } = await openControlClient({ serverRoot, env: { ...clientEnvironment(s.env), AI_DEV_VAULT_ROOT: otherVault }, execPath: process.execPath, start: true, name: "client-of-another-build" });
+  t.after(() => client.close().catch(() => undefined));
+  const other = (await client.callTool({ name: "system_status", arguments: { checks: false } })).structuredContent.result.served_by.pid;
+  assert.notEqual(other, await app.evaluate(() => globalThis.aiDevTest.link.status.served_by.pid));
+  process.kill(other, "SIGSTOP");
+  t.after(() => {
+    try { process.kill(other, "SIGCONT"); } catch { /* gone */ }
+  });
+  const stopItem = async () => (await trayNow(app)).menu.find((item) => item.id === "stop");
+  const stopping = app.evaluate(() => globalThis.aiDevTest.stop());
+  // While it runs, the item says so and cannot be pressed (Д-278).
+  assert.deepEqual(await stopItem(), { id: "stop", label: "Stopping the daemon…", enabled: false });
+  await stopping;
+  // The app's own daemon stopped, the other did not: offline, and the note holds.
+  await page.waitForSelector('[data-screen="offline"]', { timeout: 30_000 });
+  assert.deepEqual(await stopItem(), { id: "stop", label: "Stop failed — try again", enabled: true });
+  assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), new RegExp(`^AI Dev: the daemon is not running\\nStill running after Stop: daemon ${other} \\(No handshake`));
+  // It ends: the tray sees it by itself, within a look a second (Д-283, п. 4, 5).
+  process.kill(other, "SIGKILL");
+  const ended = Date.now();
+  for (const deadline = ended + 10_000; (await stopItem()).enabled && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.deepEqual(await stopItem(), { id: "stop", label: "Stop the daemon", enabled: false });
+  assert.ok(Date.now() - ended < 3_000, `the note went ${Date.now() - ended} ms after the daemon ended`);
+  assert.doesNotMatch(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), /after Stop/);
+  // Stop works with no session too: nothing runs, nothing is said.
+  await app.evaluate(() => globalThis.aiDevTest.stop());
+  assert.deepEqual(await stopItem(), { id: "stop", label: "Stop the daemon", enabled: false });
+  const { listDaemons } = await serverModule("src/core/daemon-client.mjs");
+  assert.deepEqual((await listDaemons({ env: s.env })).map((entry) => entry.info.pid), []);
+});
+
+test("a tray rebuild the daemon's death ended is said again in the language chosen after (Д-280)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const { app, page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  // The rebuild waits for the index's lock, which this test holds; the daemon is killed meanwhile.
+  const index = await mainCall(app, "search_index_status", {});
+  const { acquireFileLock } = await serverModule("src/core/file-lock.mjs");
+  const release = await acquireFileLock(index.result.index_path);
+  t.after(() => release().catch(() => undefined));
+  const pid = await app.evaluate(() => globalThis.aiDevTest.link.status.served_by.pid);
+  const rebuild = app.evaluate(() => globalThis.aiDevTest.rebuild());
+  const item = async () => (await trayNow(app)).menu.find((entry) => entry.id === "rebuild");
+  for (const deadline = Date.now() + 10_000; !(await item()).label.startsWith("Rebuilding") && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 50));
+  process.kill(pid, "SIGKILL");
+  await rebuild;
+  const tip = () => app.evaluate(() => globalThis.aiDevTest.tray.tooltip());
+  assert.match(await tip(), /\nThe last rebuild failed: The daemon went away\.$/);
+  // Offline it cannot be pressed: the item offers no "try again".
+  assert.deepEqual(await item(), { id: "rebuild", label: "Rebuild search index", enabled: false });
+  await page.selectOption("#language", "ru");
+  for (const deadline = Date.now() + 10_000; !(await tip()).startsWith("AI Dev: демон") && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(await tip(), "AI Dev: демон не запущен\nПоследняя перестройка не удалась: Демон пропал.");
 });
 
 test("without Node.js the app says what it needs, and Try again finds one installed since (Д-251)", { timeout: 120_000 }, async (t) => {
@@ -98,6 +161,11 @@ test("a daemon that dies is said with its log, and one a client starts later bri
   process.kill(pid, "SIGKILL");
   await page.waitForSelector('[data-screen="offline"] [data-field="offline-error"]', { timeout: 30_000 });
   assert.match(await page.textContent('[data-field="offline-error"]'), /stopped unexpectedly/);
+  // The app's own words, said again in the language chosen (Д-283, п. 3).
+  await page.selectOption("#language", "ru");
+  await page.waitForFunction(() => document.querySelector('[data-field="offline-error"]')?.textContent.includes("Демон неожиданно остановился"));
+  await page.selectOption("#language", "en");
+  await page.waitForFunction(() => document.querySelector('[data-field="offline-error"]')?.textContent.includes("stopped unexpectedly"));
   await page.waitForSelector('[data-screen="offline"] details.log');
   assert.equal((await trayNow(app)).state, "offline");
   await shot(page, "offline-lost");

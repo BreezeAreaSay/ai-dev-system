@@ -40,10 +40,17 @@ async function invoke(channel, tool, args, { onProgress, onStart } = {}) {
     const error = new Error(answer?.error ?? "No answer.");
     error.cancelled = Boolean(answer?.cancelled);
     error.notConfirmed = answer?.confirmed === false;
+    // The link's own words come with their key: said again in the language in force (Д-283, п. 3).
+    error.key = answer?.key ?? null;
     throw error;
   } finally {
     listeners.delete(id);
   }
+}
+
+/** What a failed call says, in the language `t` speaks: the link's own words by their key (Д-283, п. 3). */
+export function failureText(error, t) {
+  return error?.key ? t(error.key) : String(error?.message ?? error);
 }
 
 /** Cancel a call `call` started; `onStart` gave its id. */

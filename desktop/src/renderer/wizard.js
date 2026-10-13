@@ -74,7 +74,7 @@ function running(view, body, footer, step, call, handlers) {
 
 function errorLine(view, error) {
   return h("p", { className: error.cancelled ? "notice" : "error", role: "alert" },
-    error.cancelled ? view.t("common.cancelled") : view.t("common.error", { message: error.message }));
+    error.cancelled ? view.t("common.cancelled") : view.t("common.error", { message: api.failureText(error, view.t) }));
 }
 
 function projectsStep(view, body, footer) {

@@ -94,6 +94,39 @@ test("a stored value that is no longer valid is reported and replaced by its def
   await fs.rm(settingsPath(env));
   await fs.mkdir(settingsPath(env));
   assert.throws(() => readSettings({ env }), (error) => error.code === "EISDIR" && error.message.startsWith(`${settingsPath(env)} cannot be read: EISDIR`));
+  // Where Node names the file itself, it is named once (Д-281).
+  const plain = path.join(env.AI_DEV_HOME, "plain-file");
+  await fs.writeFile(plain, "");
+  const inside = path.join(plain, "config.json");
+  assert.throws(() => readSettings({ env, file: inside }), (error) => error.code === "ENOTDIR" && error.message.split(inside).length === 2);
+});
+
+test("unsetOnly leaves a setting the file gives a readable value, the empty language too; the lock's wait can be bounded (Д-279)", async (t) => {
+  const env = await home(t);
+  const file = settingsPath(env);
+  const stored = async () => JSON.parse(await fs.readFile(file, "utf8"));
+  await fs.writeFile(file, JSON.stringify({ schema_version: 1, language: "en" }));
+  assert.deepEqual((await writeSettings({ language: "ru" }, { env, unsetOnly: true })).changed, []);
+  assert.equal((await stored()).language, "en");
+  await fs.writeFile(file, JSON.stringify({ schema_version: 1, language: "" }));
+  assert.deepEqual((await writeSettings({ language: "ru" }, { env, unsetOnly: true })).changed, []);
+  assert.equal((await stored()).language, "", "the empty language is the system's: a value of its own");
+  // A value this version does not read is no value: it is replaced, as with no key at all.
+  await fs.writeFile(file, JSON.stringify({ schema_version: 1, language: "fr" }));
+  assert.deepEqual((await writeSettings({ language: "ru" }, { env, unsetOnly: true })).changed, ["language"]);
+  await fs.writeFile(file, JSON.stringify({ schema_version: 1, daemon_idle_minutes: 12 }));
+  assert.deepEqual((await writeSettings({ language: "ru" }, { env, unsetOnly: true })).changed, ["language"]);
+  assert.deepEqual(await stored(), { schema_version: 1, daemon_idle_minutes: 12, language: "ru" });
+  // Without it, the change is written over the file's value.
+  assert.deepEqual((await writeSettings({ language: "en" }, { env })).changed, ["language"]);
+  // Another writer holds the lock: the wait ends when asked, and nothing is written.
+  const { acquireFileLock } = await import("./file-lock.mjs");
+  const release = await acquireFileLock(file);
+  t.after(() => release());
+  const started = Date.now();
+  await assert.rejects(writeSettings({ language: "ru" }, { env, lockTimeoutMs: 300 }), /Timed out after 300 ms/);
+  assert.ok(Date.now() - started < 5_000, `waited ${Date.now() - started} ms`);
+  assert.equal((await stored()).language, "en");
 });
 
 test("the file sets the variables the environment leaves unset, and never one set by hand", async (t) => {

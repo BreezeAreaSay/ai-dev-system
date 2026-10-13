@@ -15,9 +15,9 @@ import { stopDaemons } from "./daemon-client.mjs";
 import { DaemonClientTransport } from "./daemon-transport.mjs";
 import { tailLines } from "./log-tail.mjs";
 import { daemonLogPath } from "./runtime-paths.mjs";
-import { readSettings, writeSettings } from "./settings.mjs";
+import { SETTINGS_SCHEMA_VERSION, readSettings, writeSettings } from "./settings.mjs";
 
-export { readSettings, stopDaemons, writeSettings };
+export { SETTINGS_SCHEMA_VERSION, readSettings, stopDaemons, writeSettings };
 
 /**
  * Connect an MCP SDK client to the daemon of this install's build for `env`,

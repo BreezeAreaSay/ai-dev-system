@@ -78,9 +78,9 @@ test("a read-only tool runs at once; one that changes something runs only after 
   // the screens' channel still refuses a tool outside the interface's list.
   await answerMessageBox(app, 1);
   const direct = await page.evaluate(async () => ({
-    console: await window.aiDev.consoleCall("record_decision", { project_path: "/tmp", title: "x", decision: "y" }, "probe-1"),
-    screens: await window.aiDev.call("record_decision", { project_path: "/tmp", title: "x", decision: "y" }, "probe-2"),
-    unknown: await window.aiDev.consoleCall("run_anything", {}, "probe-3")
+    console: await window.aiDev.consoleCall("record_decision", { project_path: "/tmp", title: "x", decision: "y" }, "call-probe-1"),
+    screens: await window.aiDev.call("record_decision", { project_path: "/tmp", title: "x", decision: "y" }, "call-probe-2"),
+    unknown: await window.aiDev.consoleCall("run_anything", {}, "call-probe-3")
   }));
   assert.deepEqual([direct.console.ok, direct.console.cancelled, direct.console.confirmed], [false, true, false]);
   assert.match(direct.screens.error, /The interface does not call "record_decision"/);

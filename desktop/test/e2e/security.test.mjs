@@ -67,7 +67,8 @@ test("the page has no Node, no file system, no network, and reaches only the int
       agentTool: await window.aiDev.call("record_decision", { title: "x", decision: "y" }, "call-agent"),
       badId: await window.aiDev.call("system_status", {}, "../../etc"),
       trayId: await window.aiDev.call("system_status", {}, "tray-rebuild"),
-      otherSetting: await window.aiDev.call("settings_set", { settings: { model_mirror: "http://127.0.0.1:9" } }, "call-mirror"),
+      // The language goes through setLanguage, never settings_set (phase 11 opened the Settings screen's own).
+      otherSetting: await window.aiDev.call("settings_set", { settings: { language: "ru" } }, "call-language"),
       // A client the wizard does not offer — not on this computer (Д-266, п. 1).
       clientNotOffered: await window.aiDev.call("clients_install", { clients: ["codex"] }, "call-codex"),
       // No client named is not all of them: refused in words (Д-271, п. 2).
@@ -87,7 +88,7 @@ test("the page has no Node, no file system, no network, and reaches only the int
   assert.match(seen.agentTool.error, /The interface does not call "record_decision"/);
   assert.match(seen.badId.error, /id is call- and/);
   assert.match(seen.trayId.error, /id is call- and/, "the page cannot stand in for the tray's calls");
-  assert.match(seen.otherSetting.error, /does not change "model_mirror"/);
+  assert.match(seen.otherSetting.error, /does not change "language"/);
   assert.match(seen.clientNotOffered.error, /only the clients it found on this computer/);
   assert.deepEqual(seen.noClients, { ok: false, error: "clients_install needs clients.", cancelled: false });
   assert.equal(seen.notification, "denied");

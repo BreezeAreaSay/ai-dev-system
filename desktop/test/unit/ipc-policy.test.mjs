@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { EVENT_CHANNELS, INVOKE_CHANNELS, PAGE_REQUIRED_ARGUMENTS, PAGE_TOOLS, PAGE_TOOL_ARGUMENTS, refuseCall, refuseClients, validCallId } from "../../src/main/ipc-policy.mjs";
+import { CONFIRMED_SETTINGS, EVENT_CHANNELS, INVOKE_CHANNELS, PAGE_REQUIRED_ARGUMENTS, PAGE_TOOLS, PAGE_TOOL_ARGUMENTS, refuseCall, refuseClients, settingsToConfirm, validCallId } from "../../src/main/ipc-policy.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -101,4 +101,15 @@ test("a call without an argument the interface always sends is refused in words:
   for (const [tool, names] of Object.entries(PAGE_REQUIRED_ARGUMENTS)) {
     for (const name of names) assert.ok(Object.hasOwn(PAGE_TOOL_ARGUMENTS[tool], name), `${tool}.${name} is an argument the interface sends`);
   }
+});
+
+test("the model's mirror and folder and the profiles change only after a confirmation; the rest of Settings at once (Д-288)", () => {
+  assert.deepEqual(CONFIRMED_SETTINGS, ["model_mirror", "model_dir", "profiles"]);
+  const call = (settings) => ({ tool: "settings_set", args: { settings }, id: "call-s" });
+  assert.deepEqual(settingsToConfirm(call({ model_mirror: "http://127.0.0.1:9/x", daemon_autostart: false })), { model_mirror: "http://127.0.0.1:9/x" });
+  assert.deepEqual(settingsToConfirm(call({ model_dir: null, profiles: "core" })), { model_dir: null, profiles: "core" }, "back to the default too");
+  assert.equal(settingsToConfirm(call({ projects_root: "/p", daemon_idle_minutes: 30, daemon_autostart: true })), null);
+  assert.equal(settingsToConfirm({ tool: "system_status", args: { checks: true }, id: "call-s" }), null);
+  // Each of them is one the screens may send — after the confirmation.
+  for (const name of CONFIRMED_SETTINGS) assert.ok(Object.hasOwn(PAGE_TOOL_ARGUMENTS.settings_set.settings, name), name);
 });

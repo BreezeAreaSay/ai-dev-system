@@ -4,8 +4,12 @@
  * own page. The screens call only the tools named here, with only the
  * arguments their buttons send; any other tool goes through the tool console,
  * where one that changes something runs only after the person confirms it in
- * the main process (console-policy.mjs) — a page that something managed to
- * run script in still cannot change anything the person did not agree to.
+ * the main process (console-policy.mjs). A setting that decides where the
+ * daemon reaches out to, what it reads and writes, or which tools AI clients
+ * get is changed from the page only after such a confirmation too
+ * (CONFIRMED_SETTINGS) — a page that something managed to run script in can
+ * still do only what the screens' buttons do, and cannot send what the daemon
+ * reads anywhere (docs/DEFECTS.md, Д-288).
  */
 
 /** Every channel the page invokes, and what it does. */
@@ -91,6 +95,23 @@ export const PAGE_REQUIRED_ARGUMENTS = Object.freeze({
 
 /** The tools the interface calls. */
 export const PAGE_TOOLS = Object.freeze(Object.keys(PAGE_TOOL_ARGUMENTS));
+
+/**
+ * The settings the page changes only after the person confirms them in a
+ * dialog of the main process: the model's download mirror (where the daemon
+ * reaches out to — with it, anything the daemon reads could leave in a request's
+ * address), the model folder (what the daemon reads and writes as the model) and
+ * the tool profiles AI clients get (docs/DEFECTS.md, Д-288).
+ */
+export const CONFIRMED_SETTINGS = Object.freeze(["model_mirror", "model_dir", "profiles"]);
+
+/** The settings a screens' call would change that need the person's confirmation first, or null. Call it on a call refuseCall let through. */
+export function settingsToConfirm(request) {
+  if (request?.tool !== "settings_set") return null;
+  const settings = request.args?.settings ?? {};
+  const asked = CONFIRMED_SETTINGS.filter((name) => Object.hasOwn(settings, name));
+  return asked.length ? Object.fromEntries(asked.map((name) => [name, settings[name]])) : null;
+}
 
 /**
  * A call's id from the page: `call-` and up to 59 letters, digits, - or _.

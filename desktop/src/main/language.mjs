@@ -34,6 +34,9 @@ export function createLanguageKeeper({ server, env, settled = () => undefined, l
   let queue = Promise.resolve();
   let looking = null;
   let attempt = null;
+  // When the tray's Quit stops waiting: every write that starts after it
+  // waits for the lock no longer than that (Д-284).
+  let quitBy = null;
 
   // One write at a time, in the order asked.
   const serial = (job) => {
@@ -75,7 +78,8 @@ export function createLanguageKeeper({ server, env, settled = () => undefined, l
     try {
       // Decided under the file's lock: a language the file names by then
       // stays, when the choice was made while the file could not be read.
-      const lockTimeoutMs = deadline === null ? lockWaitMs : Math.max(0, deadline - Date.now());
+      const until = [deadline, quitBy].filter((time) => time !== null);
+      const lockTimeoutMs = until.length ? Math.min(lockWaitMs, Math.max(0, Math.min(...until) - Date.now())) : lockWaitMs;
       written = await module.writeSettings({ language: choice.language }, { env, unsetOnly: choice.unreadable, lockTimeoutMs });
     } catch {
       if (look().newer) choice.newer = true;
@@ -103,6 +107,7 @@ export function createLanguageKeeper({ server, env, settled = () => undefined, l
    */
   const settle = async ({ within } = {}) => {
     const deadline = within === undefined ? null : Date.now() + within;
+    if (deadline !== null) quitBy = Math.min(quitBy ?? deadline, deadline);
     const choice = waiting;
     const done = choice ? await write(choice, deadline) : true;
     if (!waiting || waiting.newer) stopLooking();
@@ -146,8 +151,21 @@ export function createLanguageKeeper({ server, env, settled = () => undefined, l
       return choice.language;
     },
 
-    /** One more write of what waits; the tray's Quit gives it `within`. */
+    /** One more write of what waits; `within` bounds its wait for the lock. */
     settle,
+
+    /**
+     * The tray's Quit: one more write of what waits, every write waiting for
+     * the lock a second at most from now — the one already waiting included —
+     * and no more looks (Д-283, п. 1; Д-284).
+     */
+    async quit() {
+      try {
+        return await settle({ within: lockWaitMs });
+      } finally {
+        stopLooking();
+      }
+    },
 
     /** The language that waits to be written, or null. */
     waiting: () => waiting?.language ?? null,

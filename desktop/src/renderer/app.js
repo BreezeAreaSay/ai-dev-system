@@ -121,7 +121,11 @@ languageSelect.addEventListener("change", async () => {
   view.language = pickLanguage(languageSelect.value, "");
   // The state comes back in the new language: the link's own words too (Д-283, п. 3).
   const connection = await api.setLanguage(view.language);
-  if (connection) view.connection = connection;
+  if (connection) {
+    view.connection = connection;
+    // The main process's language after the choice: a state sent meanwhile does not undo it (Д-284).
+    if (connection.language) view.language = connection.language;
+  }
   render();
 });
 

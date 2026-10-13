@@ -167,6 +167,7 @@ test("the tray's Quit writes a language that waits, and waits for the settings l
     const freed = new Promise((resolve) => setTimeout(resolve, holdMs)).then(free);
     await exited;
     const took = Date.now() - quitAt;
+    t.diagnostic(`lock held ${holdMs} ms: the app left ${took} ms after Quit`);
     assert.ok(took < 2_500, `the app left ${took} ms after Quit`);
     await freed;
     const stored = await fs.readFile(settings, "utf8").then(JSON.parse, () => null);
@@ -218,18 +219,34 @@ test("a language chosen online that fixes the settings file is checked again at 
   const problems = () => app.evaluate(() => globalThis.aiDevTest.link.status?.settings_problems ?? null);
   for (const deadline = Date.now() + 60_000; (await problems()) === null && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.match((await problems()).join(" "), /language must be ru, en or empty/);
+  // The checks the main process asks for, counted.
+  await app.evaluate(() => {
+    const { link } = globalThis.aiDevTest;
+    const ask = link.refreshStatus.bind(link);
+    globalThis.checksAsked = 0;
+    link.refreshStatus = (options = {}) => {
+      if (options.checks !== false) globalThis.checksAsked += 1;
+      return ask(options);
+    };
+  });
   await page.selectOption("#language", "ru");
   const chosen = Date.now();
   for (const deadline = chosen + 20_000; (await problems())?.length && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.deepEqual(await problems(), []);
   // Well before the quick look every thirty seconds would have noticed.
   assert.ok(Date.now() - chosen < 10_000, `the verdict lost the problem ${Date.now() - chosen} ms after the choice`);
+  // The same language again changes nothing in the file: the checks are not asked for.
+  const asked = await app.evaluate(() => globalThis.checksAsked);
+  assert.ok(asked >= 1);
+  await page.evaluate(() => window.aiDev.setLanguage("ru"));
+  await new Promise((resolve) => setTimeout(resolve, 1_500));
+  assert.equal(await app.evaluate(() => globalThis.checksAsked), asked);
 });
 
 test("a choice that gives way to the language the fixed file names: the window speaks the file's at once (Д-283, п. 2)", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const settings = path.join(s.home, ".ai-dev", "config.json");
-  const { page } = await launch(t, s.env);
+  const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
   await fs.writeFile(settings, "{ this is not json");
   await page.selectOption("#language", "ru");
@@ -240,4 +257,22 @@ test("a choice that gives way to the language the fixed file names: the window s
   await page.waitForFunction(() => document.querySelector('[data-nav="status"]')?.textContent === "Status", null, { timeout: 10_000 });
   assert.equal(await page.inputValue("#language"), "en");
   assert.equal(JSON.parse(await fs.readFile(settings, "utf8")).language, "en");
+  // The tray follows (Д-284).
+  for (const deadline = Date.now() + 5_000; (await trayNow(app)).menu[0].label !== "Open AI Dev" && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal((await trayNow(app)).menu[0].label, "Open AI Dev");
+});
+
+test("on the failure screen, a choice that gives way to the fixed file's language: the screen's words follow (Д-284)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const settings = path.join(s.home, ".ai-dev", "config.json");
+  await fs.writeFile(settings, "{ this is not json");
+  const { page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="broken"]', { timeout: 60_000 });
+  await page.selectOption("#language", "ru");
+  await page.evaluate(() => window.aiDev.setLanguage("ru"));
+  assert.equal(await page.textContent("h1"), "AI Dev не смог запуститься");
+  // Fixed with a language of its own, before Try again: the main process's words on the screen come back in English.
+  await fs.writeFile(settings, JSON.stringify({ schema_version: 1, language: "en" }));
+  await page.waitForFunction(() => document.querySelector("h1")?.textContent === "AI Dev could not start", null, { timeout: 10_000 });
+  await page.waitForFunction(() => !/[а-яё]/i.test(document.querySelector('[data-screen="broken"]')?.textContent ?? "x"), null, { timeout: 10_000 });
 });

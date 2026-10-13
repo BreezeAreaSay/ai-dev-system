@@ -54,7 +54,7 @@ export function trayMenuTemplate({ t, online, rebuilding, failed = null, stoppin
  * @param {{ electron: typeof import("electron"), link: import("./daemon-link.mjs").DaemonLink, t: (key: string, params?: object) => string, actions: object, runs?: (pid: number) => boolean, lookEveryMs?: number }} options
  *   `t` translates into the language in force when it is called; `runs`
  *   tells whether a daemon still runs.
- * @returns {{ tray: import("electron").Tray, refresh: () => void, setRebuilding: (percent: number | null, failure?: { key?: string, text?: string } | string | null) => void, setStopping: () => void, setStopFailed: (failure: { message: string, pids?: number[] } | string | null) => void, state: () => string, menu: () => Array<object>, tooltip: () => string }}
+ * @returns {{ tray: import("electron").Tray, refresh: () => void, setRebuilding: (percent: number | null, failure?: { key?: string, text?: string } | string | null) => void, setStopping: () => void, setStopFailed: (failure: { daemons?: Array<{ pid: number, reason?: string }>, error?: string } | string | null) => void, state: () => string, menu: () => Array<object>, tooltip: () => string }}
  */
 export function createTray({ electron, link, t, actions, runs = processRuns, lookEveryMs = NOTE_LOOK_MS }) {
   const { Menu, Tray, nativeImage } = electron;
@@ -81,9 +81,15 @@ export function createTray({ electron, link, t, actions, runs = processRuns, loo
   // was about the daemon the app is on: it holds while the app is online
   // (Д-276, п. 1; Д-277).
   const noteHolds = (online) => (stopFailed.daemons.length ? stopFailed.daemons.some(({ pid }) => runs(pid)) : online);
-  const stopWords = () => (stopFailed.daemons.length
-    ? t("tray.stopFailedTip", { message: stopFailed.daemons.map(({ pid, reason }) => t("tray.stopFailedDaemon", { pid, reason })).join("; ").slice(0, 160) })
-    : t("tray.stopErrorTip", { message: stopFailed.error.slice(0, 120) }));
+  // Each daemon whole, with its reason cut; three at most, and how many more (Д-284).
+  const cut = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
+  const daemonWords = ({ pid, reason }) => (reason ? t("tray.stopFailedDaemon", { pid, reason: cut(reason, 60) }) : t("tray.stopFailedDaemonBare", { pid }));
+  const stopWords = () => {
+    if (!stopFailed.daemons.length) return t("tray.stopErrorTip", { message: cut(stopFailed.error, 120) });
+    const named = stopFailed.daemons.slice(0, 3).map(daemonWords);
+    const more = stopFailed.daemons.length - named.length;
+    return t("tray.stopFailedTip", { message: [...named, ...(more ? [t("tray.stopFailedMore", { count: more })] : [])].join("; ") });
+  };
   const stopLooking = () => {
     clearInterval(noteTimer);
     noteTimer = null;

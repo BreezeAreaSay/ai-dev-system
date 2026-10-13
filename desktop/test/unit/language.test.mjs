@@ -172,12 +172,28 @@ test("Quit: one more write of what waits, the lock waited for a second at most, 
   const before = writes.length;
   assert.equal(await until(() => writes.length > before), true);
   const started = Date.now();
-  assert.equal(await keeper.settle({ within: LOCK_WAIT_MS }), false);
+  assert.equal(await keeper.quit(), false);
   assert.ok(Date.now() - started < LOCK_WAIT_MS + 400, `Quit waited ${Date.now() - started} ms`);
   assert.equal(await stored(), undefined);
   await free();
   assert.equal(await keeper.settle(), true);
   assert.equal(await stored(), "ru");
+});
+
+test("Quit's second bounds a choice made just before it too, behind the look already waiting (Д-284)", async (t) => {
+  const { file, keeper, writes, hold } = await stage(t, "{ not json");
+  await keeper.choose("ru");
+  const free = await hold();
+  await fs.rm(file);
+  const before = writes.length;
+  assert.equal(await until(() => writes.length > before), true, "a look waits for the lock");
+  // English, chosen now, waits behind that look; Quit comes right after.
+  const english = keeper.choose("en");
+  const started = Date.now();
+  await keeper.quit();
+  assert.ok(Date.now() - started < LOCK_WAIT_MS + 400, `Quit waited ${Date.now() - started} ms`);
+  await english;
+  await free();
 });
 
 test("at start-up the choice holds — unless it was made while the file could not be read and the file, fixed, names a language (Д-276, п. 2)", async (t) => {
@@ -203,27 +219,44 @@ test("at start-up the choice holds — unless it was made while the file could n
   assert.equal(keeper.atStart({ language: "en" }), "ru");
 });
 
-test("writes go one at a time, in the order chosen: a quick later write never lands before a slow earlier one (Д-283, п. 5)", async (t) => {
-  // A stand-in for the install's settings code whose first write is slow.
+/** A stand-in for the install's settings code whose first write is slow, and counts the writes begun. */
+function slowFirst() {
   const file = { language: undefined };
-  let first = true;
+  const started = { count: 0 };
   const module = {
     SETTINGS_SCHEMA_VERSION: 1,
     readSettings: () => ({ schema_version: 1, stored: {}, settings: { language: file.language ?? "" } }),
     async writeSettings({ language }) {
-      if (first) {
-        first = false;
-        await sleep(200);
-      }
+      started.count += 1;
+      if (started.count === 1) await sleep(200);
       const changed = file.language === language ? [] : ["language"];
       file.language = language;
       return { changed, settings: { language } };
     }
   };
+  return { file, started, module };
+}
+
+test("a slow earlier write in flight is never landed over a later choice (Д-283 п. 5, Д-284)", async (t) => {
+  const { file, started, module } = slowFirst();
   const keeper = createLanguageKeeper({ server: () => module, env: {} });
   t.after(() => keeper.stop());
   const russian = keeper.choose("ru");
+  // Russian's write is in flight, and slow, when English is chosen.
+  while (started.count < 1) await sleep(1);
   const english = keeper.choose("en");
   await Promise.all([russian, english]);
   assert.equal(file.language, "en");
+});
+
+test("only the last choice's outcome is said: a write a later choice superseded says nothing (Д-284)", async (t) => {
+  const { started, module } = slowFirst();
+  const outcomes = [];
+  const keeper = createLanguageKeeper({ server: () => module, env: {}, settled: (outcome) => outcomes.push(outcome) });
+  t.after(() => keeper.stop());
+  const russian = keeper.choose("ru");
+  while (started.count < 1) await sleep(1);
+  const english = keeper.choose("en");
+  await Promise.all([russian, english]);
+  assert.deepEqual(outcomes, [{ changed: true, language: "en" }]);
 });

@@ -189,3 +189,20 @@ test("the tray asks the system whether a daemon runs, once a second at most: thi
   assert.equal(processRuns(child.pid), false);
   assert.deepEqual([0, -1, 1.5, Number.NaN].map(processRuns), [false, false, false, false]);
 });
+
+test("the note's words: each daemon whole, its reason cut, three at most and how many more, no empty brackets (Д-284)", async () => {
+  const running = new Set([41234, 41235, 41236, 41237, 4242]);
+  const { tray, view } = await standInTray({ runs: (pid) => running.has(pid) });
+  const long = `Cannot reach the daemon at /home/${"x".repeat(60)}/ai-dev-0123456789abcdef01234567.sock: EAGAIN`;
+  tray.setStopFailed({ daemons: [41234, 41235, 41236, 41237].map((pid) => ({ pid, reason: long })) });
+  const tip = tray.tooltip().split("\n")[1];
+  for (const pid of [41234, 41235, 41236]) assert.match(tip, new RegExp(`daemon ${pid} \\(Cannot reach the daemon at /home/x+…\\)`));
+  assert.doesNotMatch(tip, /41237/);
+  assert.match(tip, /; 1 more$/);
+  view.language = "ru";
+  tray.refresh();
+  assert.match(tray.tooltip(), /; ещё 1$/);
+  view.language = "en";
+  tray.setStopFailed({ daemons: [{ pid: 4242, reason: "" }] });
+  assert.equal(tray.tooltip().split("\n")[1], "Still running after Stop: daemon 4242");
+});

@@ -19,6 +19,17 @@ const VALUE_LIMIT = 240;
 const NAME_LIMIT = 80;
 
 /**
+ * How wide a row of a confirmation is: a value goes on in rows of this many
+ * characters, each further row indented, so the dialog stays within the
+ * screen — GTK does not break a word, and a value may have no spaces. Rows of
+ * the widest letters still fit the dialog's text (docs/DEFECTS.md, Д-292).
+ */
+const ROW = 48;
+
+/** The most rows of arguments a confirmation shows; a call that needs more is refused, not shown in part (Д-292). */
+const MAX_ROWS = 36;
+
+/**
  * What would not show as itself in a confirmation — controls, line and
  * paragraph separators, and the invisible format marks (direction overrides,
  * zero-width marks): each is written as its code instead, so an argument stays
@@ -34,17 +45,26 @@ function visible(text, limit) {
 
 /**
  * Each argument on a line of its own: its name, and its value as JSON, every
- * character shown as itself and both cut (Д-287). For the console's
- * confirmation, and for the settings the page may change only after one.
+ * character shown as itself and both cut (Д-287), a long value going on in
+ * indented rows (Д-292). For the console's confirmation, and for the settings
+ * the page may change only after one.
  *
  * @param {Array<[string, unknown]>} entries
  * @param {(key: string, params?: object) => string} t
  */
 export function argumentLines(entries, t) {
-  return entries.map(([name, value]) => {
-    const { text, cut } = visible(JSON.stringify(value) ?? String(value), VALUE_LIMIT);
-    return `${visible(name, NAME_LIMIT).text}: ${cut ? `${text} ${t("console.confirm.longer", { count: cut })}` : text}`;
+  return entries.flatMap(([name, value]) => {
+    const { rows, cut } = argumentRows(name, value);
+    if (cut) rows[rows.length - 1] += ` ${t("console.confirm.longer", { count: cut })}`;
+    return rows;
   });
+}
+
+/** An argument's rows: its name and the start of its value, then the rest of the value, `ROW` characters a row, indented. */
+function argumentRows(name, value) {
+  const { text, cut } = visible(JSON.stringify(value) ?? String(value), VALUE_LIMIT);
+  const parts = text.match(new RegExp(`.{1,${ROW}}`, "gu")) ?? [""];
+  return { rows: [`${visible(name, NAME_LIMIT).text}: ${parts[0]}`, ...parts.slice(1).map((part) => `    ${part}`)], cut };
 }
 
 /** The most arguments a console call has — more than any tool takes, few enough to read in the confirmation. */
@@ -88,6 +108,8 @@ export function consoleDecision(request, tools) {
   const named = tool.inputSchema?.properties && typeof tool.inputSchema.properties === "object" ? tool.inputSchema.properties : {};
   const unknown = Object.keys(request.args ?? {}).find((name) => !Object.hasOwn(named, name));
   if (unknown !== undefined) return { refused: `${tool.name} takes no argument ${JSON.stringify(visible(unknown, NAME_LIMIT).text)}.` };
+  const rows = Object.entries(request.args ?? {}).reduce((sum, [name, value]) => sum + argumentRows(name, value).rows.length, 0);
+  if (rows > MAX_ROWS) return { refused: `A console call's confirmation shows at most ${MAX_ROWS} rows of arguments; this one needs ${rows}. Shorten its arguments.` };
   return { tool, args: request.args ?? {}, id: request.id, confirm: !tool.readOnly };
 }
 

@@ -79,9 +79,11 @@ function epicsSection(view, tasksOf) {
     name: "epics",
     title: view.t("projects.epics"),
     load: async (again) => {
-      const tasks = (await tasksOf(again)).slice(0, TASKS);
-      const { shown: parents, more } = capped(view, tasks.filter((task) => task.epic?.children?.length), EPICS);
-      if (!parents.length) return emptyState(view.t("projects.epics.empty"));
+      const all = await tasksOf(again);
+      const { shown: parents, more } = capped(view, all.slice(0, TASKS).filter((task) => task.epic?.children?.length), EPICS);
+      // The epics come from the tasks the card has: past its first ones, there may be more (Д-293).
+      const beyond = !more && all.length > TASKS ? h("p", { className: "muted small", dataset: { field: "more" } }, view.t("projects.moreEpics", { tasks: TASKS })) : null;
+      if (!parents.length) return [emptyState(view.t("projects.epics.empty")), beyond];
       const answers = await Promise.all(parents.map((task) => api.call("epic_status", { task_id: task.id })));
       return [h("ul", { className: "epics" }, answers.map((answer) => {
         const { epic } = answer;
@@ -93,7 +95,7 @@ function epicsSection(view, tasksOf) {
           h("ul", { className: "children" }, epic.children.map((child) => h("li", { dataset: { state: child.state } },
             `${child.task} — ${word(view, "epic.state", child.state)}`,
             h("span", { className: "muted" }, ` (${view.t("projects.criteria", { met: child.criteria_met, total: child.criteria_total })})`)))));
-      })), more];
+      })), more, beyond];
     }
   });
 }

@@ -190,6 +190,11 @@ test("a download the daemon's going away ends, while the person is on Status, is
   assert.match(await page.textContent('[data-step="model"] .step-body .error'), /The daemon went away/);
   // Absence is counted: a failing check on an element handle would print all of Playwright (Д-272).
   assert.equal(await page.locator('[data-step="model"] .notice').count(), 0, "not called cancelled");
+  // The link's own words, said again in the language chosen (Д-283, п. 3).
+  await page.selectOption("#language", "ru");
+  await page.waitForFunction(() => document.querySelector('[data-step="model"] .step-body .error')?.textContent.includes("Демон пропал."));
+  await page.selectOption("#language", "en");
+  await page.waitForFunction(() => document.querySelector('[data-step="model"] .step-body .error')?.textContent.includes("The daemon went away."));
   // An answer that the model is not ready is said on the step (Д-270, R7). This daemon never gives
   // one — it throws instead — so the main process is handed one in its place.
   await app.evaluate(() => {

@@ -225,3 +225,19 @@ test("a language chosen online that fixes the settings file is checked again at 
   // Well before the quick look every thirty seconds would have noticed.
   assert.ok(Date.now() - chosen < 10_000, `the verdict lost the problem ${Date.now() - chosen} ms after the choice`);
 });
+
+test("a choice that gives way to the language the fixed file names: the window speaks the file's at once (Д-283, п. 2)", { timeout: 180_000 }, async (t) => {
+  const s = await stage(t);
+  const settings = path.join(s.home, ".ai-dev", "config.json");
+  const { page } = await launch(t, s.env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
+  await fs.writeFile(settings, "{ this is not json");
+  await page.selectOption("#language", "ru");
+  await page.evaluate(() => window.aiDev.setLanguage("ru"));
+  assert.equal(await page.textContent('[data-nav="status"]'), "Статус");
+  // The person fixes the file with a language of its own: the choice gives way, and the window says so.
+  await fs.writeFile(settings, JSON.stringify({ schema_version: 1, language: "en" }));
+  await page.waitForFunction(() => document.querySelector('[data-nav="status"]')?.textContent === "Status", null, { timeout: 10_000 });
+  assert.equal(await page.inputValue("#language"), "en");
+  assert.equal(JSON.parse(await fs.readFile(settings, "utf8")).language, "en");
+});

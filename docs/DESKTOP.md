@@ -186,15 +186,16 @@ an install of its own (home, vault, runtime home, the synthetic model on a local
 to the end and a build run again, a download cancelled midway and the state it leaves, the screen
 without a daemon and its Start button, the screen without Node and its Try again, a broken settings
 file — in Russian too — and a server without its packages, Restart, a second launch that tries a
-failed start again, a daemon that dies and one a client starts again, a daemon that will not stop, a
-second launch, Status with its checks, Russian, the tray's verdict with a failing critical check, an
-AI client joining the app's daemon, a daemon replaced by a newer one, and what the page cannot reach
-— WebRTC and the names it would look up, another page with the app's functions, the developer tools;
-the data screens with work an AI client made (a project with an epic, a decision, a handoff, usage),
-in English and Russian, and empty on a fresh install; Settings — a refused value, a change for new
-sessions and the reconnect; the console — a read-only tool at once, one that changes something
-cancelled and then confirmed, the page calling the console directly; the keyboard; a daemon stopped
-while a screen polls it. On a Linux machine without a display they run under `xvfb-run`; screenshots
-go to `desktop/test-results/`. Where Chromium cannot have its own sandbox (as root, or
-`AI_DEV_DESKTOP_NO_SANDBOX=1` on a CI runner that forbids user namespaces) it runs without it; the
-page keeps its sandbox flag.
+failed start again, a daemon that dies and one a client starts again, a second launch, Status with
+its checks, Russian, the tray's verdict with a failing critical check, an AI client joining the
+app's daemon, a daemon replaced by a newer one, a daemon that will not stop — the app's own and
+another build's —, a language chosen while the settings file is broken or held by another writer,
+Quit with one waiting, and what the page cannot reach — WebRTC and the names it would look up,
+another page with the app's functions, the developer tools; the data screens with work an AI client
+made (a project with an epic, a decision, a handoff, usage), in English and Russian, and empty on a
+fresh install; Settings — a refused value, a change for new sessions and the reconnect; the console
+— a read-only tool at once, one that changes something cancelled and then confirmed, the page
+calling the console directly; the keyboard; a daemon stopped while a screen polls it. On a Linux
+machine without a display they run under `xvfb-run`; screenshots go to `desktop/test-results/`.
+Where Chromium cannot have its own sandbox (as root, or `AI_DEV_DESKTOP_NO_SANDBOX=1` on a CI
+runner that forbids user namespaces) it runs without it; the page keeps its sandbox flag.

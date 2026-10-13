@@ -328,9 +328,10 @@ export class DaemonLink extends EventEmitter {
       if (result.isError) return result.content?.[0]?.text ? { ok: false, error: result.content[0].text, cancelled: false } : this.#failure("link.failed");
       const answer = result.structuredContent?.result ?? null;
       // Every verdict the app gets is the tray's too (docs/DEFECTS.md, Д-240);
-      // after a change, the checks run again.
+      // after a change, the checks run again — not after a tool that, by the
+      // daemon's own word, only reads (Д-286).
       if (tool === "system_status") this.#accept(answer, args?.checks !== false);
-      else if (!(await this.#readsOnly(tool))) this.refreshStatus({ checks: true, fresh: true }).catch(() => undefined);
+      else this.#readsOnly(tool).then((reads) => reads || this.refreshStatus({ checks: true, fresh: true })).catch(() => undefined);
       return { ok: true, result: answer };
     } catch (error) {
       // Cancelled is what the person asked for; a call the link ended — the
@@ -366,7 +367,7 @@ export class DaemonLink extends EventEmitter {
   async tools() {
     if (!this.#client) return [];
     const client = this.#client;
-    this.#tools ??= (async () => {
+    const listing = (this.#tools ??= (async () => {
       const listed = [];
       let cursor;
       do {
@@ -375,20 +376,24 @@ export class DaemonLink extends EventEmitter {
         cursor = page.nextCursor;
       } while (cursor);
       return listed;
-    })();
+    })());
     try {
-      return await this.#tools;
+      return await listing;
     } catch (error) {
-      this.#tools = null;
+      // Asked again next time — unless a newer listing took its place meanwhile.
+      if (this.#tools === listing) this.#tools = null;
       throw error;
     }
   }
 
-  /** Whether a tool only reads: the interface's own list, or the daemon's annotation. */
+  /**
+   * Whether a tool only reads: the interface's own list, or the daemon's
+   * annotation — its list, asked for once a session, the console opened or
+   * not (Д-286). No list to be had: it may have changed something.
+   */
   async #readsOnly(tool) {
     if (READS_ONLY.has(tool)) return true;
-    if (!this.#tools) return false;
-    const listed = await this.#tools.catch(() => []);
+    const listed = await this.tools().catch(() => []);
     return listed.some((entry) => entry.name === tool && entry.annotations?.readOnlyHint === true);
   }
 

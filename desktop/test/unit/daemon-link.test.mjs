@@ -22,6 +22,14 @@ function fakeServer() {
     failStart: false,
     // A tool whose call waits for `release()`: { name, release }.
     held: null,
+    // What tools/list answers, in pages of two; how often it was asked; whether it fails.
+    tools: [
+      { name: "list_projects", annotations: { readOnlyHint: true } },
+      { name: "list_tasks", annotations: { readOnlyHint: true } },
+      { name: "clients_install", annotations: { readOnlyHint: false } }
+    ],
+    listings: 0,
+    failList: false,
     quick: { status: "ok", index: { exists: true, fresh: true, documents: 5 }, served_by: { pid: 11 } },
     checked: { status: "failed", index: { exists: true, fresh: true, documents: 5 }, served_by: { pid: 11 }, checks: [{ name: "skill_registry", status: "fail", critical: true }] },
     async openControlClient({ start } = {}) {
@@ -61,6 +69,13 @@ function fakeServer() {
             return { structuredContent: { result: server.retired === client ? { ...answer, served_by: { pid: 11, retired: true } } : answer } };
           }
           return { structuredContent: { result: { done: name } } };
+        },
+        async listTools(params) {
+          server.listings += 1;
+          if (server.failList) throw new Error("tools/list failed");
+          const from = Number(params?.cursor ?? 0);
+          const next = from + 2 < server.tools.length ? String(from + 2) : undefined;
+          return { tools: server.tools.slice(from, from + 2), ...(next ? { nextCursor: next } : {}) };
         },
         async close() {
           client.closed = true;
@@ -558,4 +573,38 @@ test("the move off a retired daemon starts one only when the app may start one (
   await sleep(20);
   assert.equal(may.state.phase, "online");
   assert.deepEqual(started.opens.map((open) => open.start), [true, true]);
+});
+
+test("a tool the daemon marks read-only asks for no checks, the console opened or not; its list is asked once a session (Д-286)", async (t) => {
+  const { server, calls } = fakeServer();
+  const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
+  await daemon.connect({ start: true });
+  const before = checksCalls(calls);
+  // Reads the screens make, the console never opened: no checks, one listing (two pages).
+  await Promise.all([daemon.call("list_projects", {}, { id: "call-1" }), daemon.call("list_tasks", {}, { id: "call-2" })]);
+  assert.equal((await daemon.call("list_projects", {}, { id: "call-3" })).ok, true);
+  await sleep(20);
+  assert.equal(checksCalls(calls) - before, 0, "reads ask for no checks");
+  assert.equal(server.listings, 2, "one listing of two pages for all three reads");
+  // A change, by the same list: the checks run again.
+  await daemon.call("clients_install", { clients: ["cursor"] }, { id: "call-4" });
+  await sleep(20);
+  assert.equal(checksCalls(calls) - before, 1);
+  // A tool the list does not mark read-only, or no list to be had: it may have changed something.
+  await daemon.call("record_decision", {}, { id: "call-5" });
+  await sleep(20);
+  assert.equal(checksCalls(calls) - before, 2);
+  await daemon.close();
+  server.failList = true;
+  await daemon.connect({ start: true });
+  const again = checksCalls(calls);
+  await daemon.call("list_projects", {}, { id: "call-6" });
+  await sleep(20);
+  assert.equal(checksCalls(calls) - again, 1, "without the list, a read counts as a change");
+  // The failed listing is asked again, and a new session lists anew.
+  server.failList = false;
+  await daemon.call("list_projects", {}, { id: "call-7" });
+  await sleep(20);
+  assert.equal(checksCalls(calls) - again, 1, "listed now: the read asks for none");
+  assert.deepEqual((await daemon.tools()).map((tool) => tool.name), ["list_projects", "list_tasks", "clients_install"]);
 });

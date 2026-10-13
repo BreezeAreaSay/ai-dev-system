@@ -65,13 +65,15 @@ test("the confirmation says what runs and with what, Cancel is the default, in t
   // A long argument cannot push another out of sight: each has its own line, cut on its own.
   const long = confirmationDialog(record, { text: "x".repeat(5000), project_path: "/home/me/secret-repo" }, en);
   assert.ok(long.detail.length < 800, `${long.detail.length} characters`);
-  assert.match(long.detail, /^text: "x{239}… \(5002 characters in all\)$/m);
+  assert.match(joined(long.detail), /^text: "x{239}… \(5002 characters in all\)$/m);
   assert.match(long.detail, /^project_path: "\/home\/me\/secret-repo"$/m);
   assert.match(confirmationDialog(record, {}, en).detail, /\(no arguments\)/);
 });
 
 // Every way a line of the dialog could end, as GTK draws it.
 const LINE_BREAK = /[\n\r\v\f\u0085\u2028\u2029]/;
+// The dialog's text with each value's further rows put back on its first (Д-292).
+const joined = (detail) => detail.replace(/\n {4}/g, "");
 
 test("the confirmation shows every argument that runs, each on its own line, as it is (Д-287)", () => {
   const tools = consoleTools([{ name: "record_decision", inputSchema: { type: "object", properties: { project_path: {}, title: {}, decision: {}, ["a\nb"]: {} } }, annotations: {} }]);
@@ -80,14 +82,14 @@ test("the confirmation shows every argument that runs, each on its own line, as 
   // A value full of line separators, and direction marks: one line, the next argument right after it.
   const separators = String.fromCharCode(0x2028).repeat(300);
   const dialog = confirmationDialog(record, { project_path: "/p", title: `${separators}x`, decision: `${String.fromCharCode(0x202e)}DROP TABLE users` }, en);
-  const lines = dialog.detail.split(LINE_BREAK);
+  const lines = joined(dialog.detail).split(LINE_BREAK);
   assert.equal(lines.length, 3 + 3, JSON.stringify(lines.slice(0, 8)));
   assert.match(lines[4], /^title: "(\\u\{2028\}){29}\\u\{2028… \(2403 characters in all\)$/);
   assert.match(lines[5], /^decision: "\\u\{202e\}DROP TABLE users"$/);
   assert.doesNotMatch(dialog.detail, /[\u2028\u2029\u202e]/u);
   // A name's line breaks are shown, not drawn; a long name is cut.
   const named = confirmationDialog(record, { ["a\nb"]: 1, [`x${" ".repeat(500)}`]: 2 }, en);
-  assert.equal(named.detail.split(LINE_BREAK).length, 3 + 2);
+  assert.equal(joined(named.detail).split(LINE_BREAK).length, 3 + 2);
   assert.match(named.detail, /^a\\u\{a\}b: 1$/m);
   assert.ok(named.detail.length < 300, `${named.detail.length} characters`);
   // The console lets through only what the tool's schema names.
@@ -101,8 +103,27 @@ test("the settings the page changes only after a confirmation: each new value on
   const ru = settingsDialog({ model_mirror: `https://mirror.example/x${"\n".repeat(30)}`, model_dir: "/data/models" }, (key, params) => translate("ru", key, params));
   assert.deepEqual([ru.defaultId, ru.cancelId, ru.buttons], [1, 1, ["Сохранить", "Отмена"]]);
   assert.equal(ru.message, "Сохранить эти настройки?");
-  const lines = ru.detail.split(LINE_BREAK);
+  const lines = joined(ru.detail).split(LINE_BREAK);
   assert.equal(lines.length, 2 + 2);
   assert.match(lines[2], /^model_mirror: "https:\/\/mirror\.example\/x(\\n){30}"$/);
   assert.equal(lines[3], 'model_dir: "/data/models"');
+});
+
+test("a long value goes on in indented rows, so the dialog stays within the screen; a call that needs too many rows is refused (Д-292)", () => {
+  const properties = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`field_${index}`, {}]));
+  const tools = consoleTools([{ name: "write_many", inputSchema: { type: "object", properties }, annotations: {} }]);
+  const en = (key, params) => translate("en", key, params);
+  // 240 characters with no space: six rows, none wider than its name and 48 characters.
+  const dialog = confirmationDialog(tools[0], { field_0: "A".repeat(240), field_1: "/a/very/long/path/with/no/spaces/at/all/to/a/project/folder/somewhere/deep" }, en);
+  const rows = dialog.detail.split("\n").slice(3);
+  // The note on a cut value has spaces of its own: GTK breaks it where it must.
+  const widths = rows.map((row) => row.replace(/ \(\d+ characters in all\)$/, "").length);
+  assert.deepEqual(widths.map((width) => width <= "field_0: ".length + 48), rows.map(() => true), JSON.stringify(rows));
+  assert.ok(rows.filter((row) => row.startsWith("    ")).length >= 3, "the rest of each value is indented");
+  assert.match(joined(dialog.detail), /^field_0: "A{239}… \(242 characters in all\)$/m);
+  assert.match(joined(dialog.detail), /^field_1: "\/a\/very\/long\/path\/with\/no\/spaces\/at\/all\/to\/a\/project\/folder\/somewhere\/deep"$/m);
+  // Six values cut at 240 characters take 36 rows: shown. Seven would take 42: refused, not shown in part.
+  const values = (count) => Object.fromEntries(Array.from({ length: count }, (_, index) => [`field_${index}`, "B".repeat(300)]));
+  assert.equal(consoleDecision({ tool: "write_many", args: values(6), id: "call-6" }, tools).confirm, true);
+  assert.match(consoleDecision({ tool: "write_many", args: values(7), id: "call-7" }, tools).refused, /at most 36 rows of arguments; this one needs 42/);
 });

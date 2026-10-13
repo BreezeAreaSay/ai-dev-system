@@ -39,7 +39,7 @@ test("Settings: a change is saved and says when it applies; one for new sessions
   await assert.rejects(stored(s), "Cancel: nothing was written");
   const [asked] = await messageBoxes(app);
   assert.equal(asked.message, "Save these settings?");
-  assert.deepEqual(asked.detail.split("\n").slice(2), ['model_mirror: "https://hf-mirror.example"', `model_dir: ${JSON.stringify(models)}`]);
+  assert.deepEqual(asked.detail.replace(/\n {4}/g, "").split("\n").slice(2), ['model_mirror: "https://hf-mirror.example"', `model_dir: ${JSON.stringify(models)}`]);
   await answerMessageBox(app, 0);
   await page.click('[data-action="save"]');
   await page.waitForSelector('[data-field="saved"]');

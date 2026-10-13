@@ -160,7 +160,8 @@ The window shows only the app's own page and gives it nothing of Node or the fil
 - the tool console may call any tool the daemon lists to the app, but one the daemon does not mark
   read-only (`readOnlyHint`) runs only after you confirm it in the system's message box, which the
   main process shows: the tool, each argument on a line of its own — a character that would not show
-  as itself (a line break, a direction mark) written as its code, a long value cut — and Cancel as
+  as itself (a line break, a direction mark) written as its code, a long value going on in indented
+  rows and cut at 240 characters, a call that would need more than 36 rows refused — and Cancel as
   the default. The page can ask for a call; it cannot answer the box, skip it, add an argument the
   tool does not take, or call a tool read-only on its own word;
 - the model's download mirror, the model folder and the tool profiles change from the page only

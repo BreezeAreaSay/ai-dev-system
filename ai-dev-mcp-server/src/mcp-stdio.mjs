@@ -99,7 +99,7 @@ import {
 } from "./core/context-compiler.mjs";
 import { loadContextExtras } from "./core/context-extras.mjs";
 import { routeSkills } from "./core/skill-router.mjs";
-import { createSkillRegistryReader, keepSkillRegistryDate } from "./core/skill-registry-freshness.mjs";
+import { createSkillRegistryReader, keepSkillRegistryDate, withSkillRegistryLock } from "./core/skill-registry-freshness.mjs";
 import { writeSkillSubgroupNotes } from "./core/skill-group-notes.mjs";
 import { prioritizeKnowledgeResults } from "./core/knowledge-router.mjs";
 import {
@@ -1353,7 +1353,8 @@ async function readSkillOverlayDocument({ create = true } = {}) {
   return document;
 }
 
-async function rebuildSkillTaxonomy({ sync_cards = true } = {}) {
+const rebuildSkillTaxonomy = (args) => withSkillRegistryLock(registryDir, () => rebuildSkillTaxonomyHeld(args)); // its folders are rebuild_index's (Д-348)
+async function rebuildSkillTaxonomyHeld({ sync_cards = true } = {}) {
   const current = await readSkillIndex();
   const overlays = await readSkillOverlayDocument();
   const items = applySkillOverlays(current.map(classifySkill), overlays);

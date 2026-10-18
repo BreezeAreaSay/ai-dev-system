@@ -570,7 +570,14 @@ have: `npm run model -- install --no-index` puts it in
 `~/.ai-dev/models/bge-m3-onnx`; mount the folder *above* it,
 `~/.ai-dev/models`, at `/models` (`--model` of `ai-dev clients install --docker`,
 `--model-path` of bootstrap, `AI_DEV_MODEL_PATH` of the 2.x launchers). The image
-reads `/models/bge-m3-onnx` first when it holds anything.
+reads `/models/bge-m3-onnx` first when it holds anything — the sessions and its own
+checks alike (docs/DEFECTS.md, Д-346) — so a model there that is not whole is put
+right on the host, or the mount dropped. Its files have to be readable to the image's
+user, uid 1000; when they are not, the start report and `embedding_status` say so
+(Д-337, Д-349). The documents are embedded with it, with no download and no network,
+by `docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data
+--mount type=bind,source=<the folder above bge-m3-onnx>,target=/models,readonly
+ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model` (Д-341).
 
 **Room to put them.** About 600 MB of weights, and the download refuses to start
 on a disk that cannot hold them plus 512 MB left over — it says what it needs and
@@ -690,7 +697,8 @@ walks the same ground in six stages and names the one that stopped.
 
 Then `search_index_status` reports `dense_documents` against
 `dense_pending_documents`: a fresh index has vectors for none of its documents
-until `ai-dev model install` (or `npm run setup -- --model`) has embedded them.
+until `ai-dev model install` (or `npm run setup -- --model`) has embedded them — for
+a model mounted from the host, `ai-dev setup --model` as above.
 
 Running from source instead? Then none of this applies: `npm run setup --
 --dense` is the whole of it. See

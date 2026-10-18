@@ -10,7 +10,8 @@ import {
   createSkillRegistryReader,
   dateSkillRegistry,
   keepSkillRegistryDate,
-  skillRegistryStaleness
+  skillRegistryStaleness,
+  withSkillRegistryLock
 } from "./skill-registry-freshness.mjs";
 
 const PAST = new Date(Date.now() - 120_000);
@@ -198,6 +199,34 @@ test("concurrent readers share one rebuild, and reads made by the rebuild do not
   assert.equal(first.length, 1);
   assert.equal(second.length, 1, "the second reader waited for the rebuild instead of reading the old registry");
   assert.equal(inner.length, 2, "the rebuild's own read saw the registry as it stood");
+});
+
+test("a writer under the registry's lock reads the registry as it stands: a stale one starts no rebuild to wait for it (Д-347)", async (t) => {
+  const fixture = await makeCatalog(t);
+  const registryDir = path.dirname(fixture.registryPath);
+  // The rebuild a read would start takes the registry's lock, as `rebuild_index` does.
+  const { reader, rebuilds } = readerFor(fixture, { intervalMs: 0, onRebuild: () => withSkillRegistryLock(registryDir, async () => {}) });
+  await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
+  const inner = await withSkillRegistryLock(registryDir, () => reader.read());
+  assert.equal(rebuilds.length, 0, "a writer's own read started a rebuild");
+  assert.equal(inner.length, 2, "the registry as it stood");
+  assert.equal((await reader.read()).length, 1, "outside a writer the stale registry is rebuilt");
+});
+
+test("a writer of the registry that calls another runs it at once; writers apart go one after the other (Д-345, Д-347, Д-348)", async (t) => {
+  const fixture = await makeCatalog(t);
+  const registryDir = path.dirname(fixture.registryPath);
+  const started = Date.now();
+  assert.equal(await withSkillRegistryLock(registryDir, () => withSkillRegistryLock(registryDir, async () => "inner")), "inner");
+  assert.ok(Date.now() - started < 5_000, "the inner writer waited for the outer one's lock");
+  const events = [];
+  const writer = (name) => withSkillRegistryLock(registryDir, async () => {
+    events.push(`${name} start`);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    events.push(`${name} end`);
+  });
+  await Promise.all([writer("a"), writer("b")]);
+  assert.deepEqual(events, ["a start", "a end", "b start", "b end"]);
 });
 
 test("a rebuild that fails is retried after a pause, or at once when the registry changes", async (t) => {

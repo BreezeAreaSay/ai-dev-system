@@ -541,7 +541,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a dead one and a killed one is let go of within 20 s; a start still waiting 40 s after it
   began serves what is built — a client gives `initialize` 60 s — and one that could not wait
   out the seed sync builds nothing (Д-326, Д-330, Д-336, Д-340). Sessions rebuild the skill
-  registry one at a time, across containers too (Д-345). A user's own file named
+  registry and its taxonomy one at a time, across containers too, and a rebuild's own reads
+  never wait for it (Д-345, Д-347, Д-348). A session ends when its client closes stdin, once
+  what it asked for is answered: the model's worker no longer keeps its container running
+  (Д-354). A user's own file named
   `public-seed.manifest.json` stays, and does not make a vault named by `AI_DEV_VAULT_ROOT` a
   seeded one (Д-336, Д-343).
 - **The projects are mounted at their own path** on macOS and Linux, so a path the agent names is
@@ -566,7 +569,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configs that run it: `AI_DEV_INSTALLER_IMAGE`, pulled and seen to have the installer (Д-323,
   Д-329). A config that is a link into dotfiles is written through it, each folder it leads to
   mounted where the link spells it; a link into the home itself, above it or the root is not
-  followed, and a folder Docker will not mount costs that client alone; one client that cannot be
+  followed, and a folder Docker will not mount costs that client alone — every client's folders
+  are looked at in one run first (Д-352); one client that cannot be
   written does not stop the others — the exit is 1 and the 2.x container stays — and `--clients`
   that names none is refused (Д-335, Д-336, Д-338, Д-339). `bootstrap.ps1` runs under Windows PowerShell 5.1
   with the image's stderr thrown away safely (Д-320).
@@ -583,7 +587,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The report checks the model, the vectors and the browser as `setup` does, so a volume with
   the model says it has it (Д-332); a check that cannot be made is said and never stops the
   start, and a model mounted from the host is embedded with `ai-dev setup --model`, not
-  downloaded again (Д-337, Д-341).
+  downloaded again (Д-337, Д-341); the server reads that model too, which it had stopped
+  doing with the image's `BGE_M3_ONNX_DIR` (Д-346); one it cannot read, or that is not whole,
+  is said as that, not as an error or a model to install (Д-349, Д-350).
 - **Trying the shared state folder** tells a container that could not write it from a Docker that
   did not run the image — an engine that does not answer, an image not here, which the probe no
   longer pulls: then nothing was tried, and the install says to run it again once Docker runs

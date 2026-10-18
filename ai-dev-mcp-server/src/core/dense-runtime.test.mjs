@@ -14,7 +14,7 @@ const MANIFEST = Object.freeze({
   files: Object.freeze({ "config.json": "a".repeat(64), "onnx/model_int8.onnx": "b".repeat(64) })
 });
 
-function runtimeWith({ ready = true, supported = true, env = {}, now, legacyModelDir = "", exists, onnxModelDir = "/models/bge-m3-onnx", stampDir = "", found = null } = {}) {
+function runtimeWith({ ready = true, supported = true, env = {}, now, legacyModelDir = "", exists, onnxModelDir = "/models/bge-m3-onnx", stampDir = "", found = null, verifyError = null } = {}) {
   const calls = { verify: [], embed: [], shutdown: 0 };
   const runtime = createDenseRuntime({
     manifest: MANIFEST,
@@ -35,6 +35,7 @@ function runtimeWith({ ready = true, supported = true, env = {}, now, legacyMode
     },
     verify: async (options) => {
       calls.verify.push(options);
+      if (verifyError) throw verifyError;
       return found ?? { ready, dir: onnxModelDir, missing: ready ? [] : ["onnx/model_int8.onnx"], mismatched: [] };
     },
     support: () => ({ supported, reason: supported ? "" : "no build for darwin-x64 (Intel Mac)" }),
@@ -69,6 +70,17 @@ test("without the model, embedding is refused with the reason and the commands",
   const tampered = runtimeWith({ found: { ready: false, dir: "/models/bge-m3-onnx", present: ["config.json"], missing: [], mismatched: ["onnx/model_int8.onnx"] } });
   await assert.rejects(tampered.runtime.embed({ texts: ["x"] }),
     /^Error: Dense search is not ready: onnx\/model_int8\.onnx in \/models\/bge-m3-onnx is not the pinned file \(the sha256 differs from the manifest\)\. Run `npm run setup -- --model`: it fetches it again\.$/);
+});
+
+test("a model this process cannot read is not ready, and says why: the health check and embedding_status stand (Д-349)", async () => {
+  const denied = Object.assign(new Error("EACCES: permission denied, open '/models/bge-m3-onnx/config.json'"), { code: "EACCES" });
+  const { runtime } = runtimeWith({ verifyError: denied, env: { AI_DEV_RUNTIME: "docker" } });
+  const status = await runtime.describe();
+  assert.equal(status.available, false);
+  assert.match(status.reason, /the model in \/models\/bge-m3-onnx cannot be read \(EACCES: permission denied, open '\/models\/bge-m3-onnx\/config\.json'\)\. The image runs as uid 1000/);
+  await assert.rejects(runtime.embed({ texts: ["x"] }), /cannot be read/);
+  const local = runtimeWith({ verifyError: denied, onnxModelDir: "/home/me/.ai-dev/models/bge-m3-onnx" });
+  assert.match((await local.runtime.describe()).reason, /cannot be read .*Make its files readable to the user this runs as\./);
 });
 
 test("the check trusts the record for a minute, and a refresh reads every file", async () => {

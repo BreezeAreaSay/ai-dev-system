@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -262,3 +262,25 @@ test("a session's capability profiles come from its own client, not from the pro
   });
   assert.equal((await client.listTools()).tools.length, core.tools_listed);
 });
+
+test("stdin closed right after a call: the call is answered, then the server exits (Д-354)", async () => {
+  const server = path.join(path.dirname(new URL(import.meta.url).pathname), "server.mjs");
+  const child = spawn(process.execPath, [server], { stdio: ["pipe", "pipe", "ignore"], env: process.env });
+  let out = "";
+  child.stdout.on("data", (chunk) => { out += chunk; });
+  const line = (value) => `${JSON.stringify(value)}\n`;
+  child.stdin.end([
+    line({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } }),
+    line({ jsonrpc: "2.0", method: "notifications/initialized" }),
+    line({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_projects", arguments: {} } })
+  ].join(""));
+  const code = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { child.kill(); reject(new Error(`still running 30 s after stdin closed; stdout: ${out.slice(0, 200)}`)); }, 30_000);
+    child.on("exit", (exitCode) => { clearTimeout(timer); resolve(exitCode); });
+  });
+  assert.equal(code, 0);
+  const answers = out.split("\n").filter(Boolean).map((text) => JSON.parse(text));
+  assert.ok(answers.some((answer) => answer.id === 1 && answer.result?.instructions), "initialize was answered");
+  assert.ok(answers.some((answer) => answer.id === 2 && answer.result), "the call read before the end was answered");
+});
+

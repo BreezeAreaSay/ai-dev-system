@@ -68,7 +68,15 @@ export function createDenseRuntime({
    */
   async function onnxStatus({ refresh = false } = {}) {
     if (!refresh && probe && now() - probedAt < DENSE_PROBE_TTL_MS && await recordState() === probedRecord) return probe;
-    probe = await verify({ manifest, dir: onnxModelDir, stampFile, trustStamp: !refresh });
+    try {
+      probe = await verify({ manifest, dir: onnxModelDir, stampFile, trustStamp: !refresh });
+    } catch (error) {
+      // A model this process cannot read is a model that is not ready, and why:
+      // not an error that takes the health check and `embedding_status` down
+      // (docs/DEFECTS.md, Д-349).
+      const files = Object.keys(manifest.files ?? {});
+      probe = { ready: false, dir: path.resolve(onnxModelDir), present: [], missing: files, mismatched: [], unreadable: String(error?.message ?? error) };
+    }
     probedAt = now();
     probedRecord = await recordState();
     return probe;
@@ -94,7 +102,7 @@ export function createDenseRuntime({
     // A stat and a small JSON read per missing file, and only while the model
     // is not ready: what a stopped download left is what the sentence says.
     const partial = [];
-    for (const relative of onnx.ready ? [] : onnx.missing ?? []) {
+    for (const relative of onnx.ready || onnx.unreadable ? [] : onnx.missing ?? []) {
       const part = await usablePart(path.join(path.resolve(onnxModelDir), relative), { revision: manifest.revision, sha256: manifest.files[relative] });
       if (part.bytes > 0) partial.push({ file: relative, bytes: part.bytes, size: part.size });
     }
@@ -104,7 +112,7 @@ export function createDenseRuntime({
       supported: supportAnswer.supported,
       supportReason: supportAnswer.reason,
       inContainer: String(env.AI_DEV_RUNTIME ?? "") === "docker",
-      files: { dir: onnx.dir, present: onnx.present, missing: onnx.missing, mismatched: onnx.mismatched, partial: partial.map((part) => part.file) }
+      files: { dir: onnx.dir, present: onnx.present, missing: onnx.missing, mismatched: onnx.mismatched, partial: partial.map((part) => part.file), unreadable: onnx.unreadable }
     });
     const legacyWeightsDir = legacyModelDir && exists(path.join(legacyModelDir, "pytorch_model.bin")) ? path.resolve(legacyModelDir) : "";
     const legacy = legacyDenseNotes(env, { legacyWeightsDir });

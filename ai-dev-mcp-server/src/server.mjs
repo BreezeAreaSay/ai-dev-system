@@ -28,6 +28,7 @@ import {
 import { isDirectExecution } from "./core/direct-execution.mjs";
 import { describeProgress } from "./core/progress-line.mjs";
 import { prepareRuntimeHome } from "./core/runtime-home-migration.mjs";
+import { createSessionEnd } from "./core/session-end.mjs";
 import { DEFAULT_PROFILE_IDS, filterToolsByProfiles, findProfile, profileNotes, profileOfTool, profilesFromEnvironment } from "./core/tool-profiles.mjs";
 
 const serverFile = fileURLToPath(import.meta.url);
@@ -462,7 +463,7 @@ export function sessionToolCounts(profiles) {
  * @param {{ profiles?: string | null }} [options] - The session's
  *   `AI_DEV_PROFILES`, when a daemon serves it; omitted, this process's own.
  */
-export function createAiDevServer({ profiles = null } = {}) {
+export function createAiDevServer({ profiles = null, track = (work) => work() } = {}) {
   const server = new Server(
     { name: "ai-dev-system", version: VERSION },
     {
@@ -491,7 +492,8 @@ export function createAiDevServer({ profiles = null } = {}) {
     tools: sessionTools(profiles).map(toolDefinition)
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  // `track` sees each call run: a stdio session ends between calls (docs/DEFECTS.md, Д-354).
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => track(async () => {
     const { name, arguments: args = {} } = request.params;
     if (!legacyTools.some((tool) => tool.name === name)) {
       throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
@@ -519,7 +521,7 @@ export function createAiDevServer({ profiles = null } = {}) {
         isError: true
       };
     }
-  });
+  }));
 
   server.setRequestHandler(ListResourcesRequestSchema, async () => ({
     resources: FIXED_RESOURCES.map(({ source, priority, ...resource }) => resource)
@@ -607,10 +609,10 @@ export function createAiDevServer({ profiles = null } = {}) {
   return server;
 }
 
-export async function startServer() {
+export async function startServer({ track } = {}) {
   await prepareRuntimeHome();
   for (const line of profileNotes(sessionToolCounts(null))) process.stderr.write(`${line}\n`);
-  const server = createAiDevServer();
+  const server = createAiDevServer({ track });
   const transport = new StdioServerTransport();
   await server.connect(transport);
   return server;
@@ -623,7 +625,12 @@ export async function startServer() {
  * @returns {Promise<ReturnType<typeof createAiDevServer>>}
  */
 export async function runStdioServer() {
-  const server = await startServer();
+  // The client closing stdin ends the session once what it asked for is
+  // answered; the model's worker would keep the process — in Docker, the
+  // container — running for good (docs/DEFECTS.md, Д-354).
+  const ending = createSessionEnd(() => shutdownBgeWorkers());
+  const server = await startServer({ track: ending.track });
+  process.stdin.once("end", ending.inputEnded);
   const shutdown = async (code) => {
     shutdownBgeWorkers();
     await server.close().catch(() => undefined);

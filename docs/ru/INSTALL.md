@@ -545,7 +545,13 @@ docker run --rm -it --network bridge \
 `npm run model -- install --no-index` кладёт её в `~/.ai-dev/models/bge-m3-onnx`; монтируется папка
 *над* ней, `~/.ai-dev/models`, в `/models` (`--model` у `ai-dev clients install --docker`,
 `--model-path` у bootstrap, `AI_DEV_MODEL_PATH` у лаунчеров 2.x). Образ первым смотрит в
-`/models/bge-m3-onnx`, если там что-то есть.
+`/models/bge-m3-onnx`, если там что-то есть, — и сессии, и его собственные проверки
+(docs/DEFECTS.md, Д-346), — так что модель там, которая не целая, поправляется на хосте или
+монтирование убирается. Её файлы должны читаться пользователем образа, uid 1000; если нет, отчёт
+старта и `embedding_status` так и говорят (Д-337, Д-349). Векторы документов ею строит, без загрузки
+и без сети, `docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data
+--mount type=bind,source=<папка над bge-m3-onnx>,target=/models,readonly
+ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model` (Д-341).
 
 **Сколько нужно места.** Весов примерно 600 МБ, и скачивание не начнётся на диске, куда они не
 влезают вместе с запасом в 512 МБ: вместо того чтобы забить диск до последнего байта, оно скажет,
@@ -655,7 +661,8 @@ npm --prefix ai-dev-mcp-server run -s doctor
 
 Дальше `search_index_status` показывает `dense_documents` против `dense_pending_documents`: у
 свежего индекса векторов нет ни у одного документа, пока `ai-dev model install` (или
-`npm run setup -- --model`) их не построит.
+`npm run setup -- --model`) их не построит, — для модели с хоста это `ai-dev setup --model`, как
+выше.
 
 Запускаете из исходников? Тогда всё это не нужно: `npm run setup -- --model` — и всё. См.
 [README сервера](../../ai-dev-mcp-server/README.md#semantic-search-bge-m3).

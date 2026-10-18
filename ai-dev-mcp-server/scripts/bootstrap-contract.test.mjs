@@ -171,7 +171,7 @@ async function hostToolsWithout(directory, hidden = ["docker", "claude"]) {
  * Run bootstrap.sh in a home of its own with the stubs first on PATH; `folders`, `files` and `links` are made in
  * that home first — `links` as written, `absoluteLinks` to a path of the home, `rootLinks` to the path given.
  */
-async function runBootstrap(t, args, { env = {}, folders = [], files = {}, links = {}, absoluteLinks = {}, rootLinks = {}, claude = false, docker = true } = {}) {
+async function runBootstrap(t, args, { env = {}, folders = [], files = {}, links = {}, absoluteLinks = {}, rootLinks = {}, claude = false, docker = true, homeSuffix = "" } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-run-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
@@ -193,7 +193,7 @@ async function runBootstrap(t, args, { env = {}, folders = [], files = {}, links
   const result = spawnSync(shell, [bootstrap, "--project-path", path.join(home, "projects"), ...args], {
     encoding: "utf8",
     env: {
-      ...process.env, HOME: home, XDG_CONFIG_HOME: "", CODEX_HOME: "", AI_DEV_HOME: "", AI_DEV_MODEL_PATH: "",
+      ...process.env, HOME: `${home}${homeSuffix}`, XDG_CONFIG_HOME: "", CODEX_HOME: "", AI_DEV_HOME: "", AI_DEV_MODEL_PATH: "",
       AI_DEV_STATE_ROOT: "", STUB_LOG: log, CLAUDE_LOG: claudeLog, PATH: `${bin}${path.delimiter}${hostPath}`, ...env
     }
   });
@@ -374,7 +374,8 @@ test("the state folder is shared only where the image's user wrote it as this us
   const probe = written.calls.find((call) => call[0] === "run" && call.includes("touch"));
   assert.equal(Boolean(probe), linux, "tried on Linux whatever the uid; Docker Desktop on macOS gives the files to the user");
   if (probe) {
-    assert.deepEqual(probe.slice(0, 6), ["run", "--rm", "--pull", "never", "--network", "none"]);
+    // The image is here by then: no --pull, which a Docker CLI before 20.10 does not know (Д-351).
+    assert.deepEqual(probe.slice(0, 6), ["run", "--rm", "--network", "none", "--entrypoint", "touch"]);
     assert.ok(probe.includes("ghcr.io/stonebridgeway/ai-dev-system:latest"), "with the image the configs run");
   }
   assert.equal(shared(written.calls.find((call) => call[0] === "run" && call.includes("install"))), "yes");
@@ -483,6 +484,44 @@ test("a folder Docker will not mount costs its own client alone; Claude Code's e
   assert.match(result.claude, /mcp add-json ai-dev /, "Claude Code is still written");
   const entry = result.calls.find((call) => call[0] === "run" && call.includes("entry"));
   assert.deepEqual(mounts(entry), [], "the entry is printed, not written: no folder of the client's");
+});
+
+test("every client's folders are looked at in one run; a folder Docker refuses, link or not, costs its own client alone (Д-352)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-unshared-codex-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex");
+  await fs.mkdir(codexHome);
+  const result = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,codex"], { env: { MOUNT_DENY: codexHome, CODEX_HOME: codexHome }, folders: [".cursor"] });
+  if (!result) return;
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.stderr, /Codex: Docker did not take a folder its config leads to \(docker: Error response from daemon: Mounts denied/);
+  const install = result.calls.find((call) => call[0] === "run" && call.includes("install"));
+  assert.equal(install.find((argument) => argument.startsWith("--clients=")), "--clients=cursor");
+  const looks = result.calls.filter((call) => call[0] === "run" && call.includes("--entrypoint") && call[call.indexOf("--entrypoint") + 1] === "true");
+  assert.equal(looks.length, 3, "one look at all, then one at each client");
+  const fine = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,codex"], { env: { CODEX_HOME: codexHome }, folders: [".cursor"] });
+  assert.equal(fine.status, 0, fine.stderr);
+  assert.equal(fine.calls.filter((call) => call[0] === "run" && call.includes("--entrypoint") && call[call.indexOf("--entrypoint") + 1] === "true").length, 1, "Docker took them all: one look");
+});
+
+test("a HOME spelled with a slash at its end mounts each folder once; a link into a folder not there is named (Д-353)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  const slashed = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor"], {
+    folders: [".cursor"], files: { ".cursor/real.json": "{}" }, links: { ".cursor/mcp.json": "real.json" }, homeSuffix: "/"
+  });
+  if (!slashed) return;
+  assert.equal(slashed.status, 0, slashed.stderr);
+  const install = slashed.calls.find((call) => call[0] === "run" && call.includes("install"));
+  const targets = mounts(install).map((mount) => mount.split(",").find((part) => part.startsWith("target=")).slice("target=".length));
+  assert.equal(targets.filter((target) => target.endsWith("/.cursor")).length, 1, targets.join(" "));
+  assert.ok(!targets.some((target) => target.includes("//")), targets.join(" "));
+
+  const dangling = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,gemini"], { folders: [".cursor", ".gemini"], links: { ".cursor/mcp.json": "../dotfiles/cursor/mcp.json" } });
+  assert.equal(dangling.status, 1, dangling.stderr);
+  assert.match(dangling.stderr, /Cursor: its config leads to .*\/dotfiles\/cursor\/mcp\.json, in a folder that is not there: not configured/);
+  const written = dangling.calls.find((call) => call[0] === "run" && call.includes("install"));
+  assert.equal(written.find((argument) => argument.startsWith("--clients=")), "--clients=gemini");
 });
 
 test("a client folder with a space in its path is mounted whole: macOS keeps them under Application Support", async (t) => {

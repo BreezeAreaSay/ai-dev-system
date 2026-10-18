@@ -38,6 +38,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
 import path from "node:path";
+import { withFileLock } from "./file-lock.mjs";
 
 /** How long a verdict on the registry is trusted before the files are looked at again. */
 export const SKILL_REGISTRY_CHECK_INTERVAL_MS = 5_000;
@@ -194,6 +195,38 @@ export async function checkSkillRegistry({ registryPath, catalogRoot, nowMs = Da
 }
 
 /**
+ * Inside a rebuild of the registry, whoever started it: its own reads go
+ * straight to the file. A freshness check there would start a rebuild that
+ * waits for the one running — its own (docs/DEFECTS.md, Д-347).
+ */
+const rebuilding = new AsyncLocalStorage();
+
+/** Inside a writer that holds the registry's lock: another writer it calls runs at once. */
+const holding = new AsyncLocalStorage();
+
+/**
+ * The registry's writers go one at a time across processes: in Docker each
+ * session is a container of one volume, and two rebuilds at once removed each
+ * other's folders (Д-326, Д-345, Д-348). The holder beats every 3 s; one silent
+ * for 20 s is taken for killed.
+ */
+export const SKILL_REGISTRY_LOCK = Object.freeze({ timeoutMs: 120_000, staleMs: 20_000, heartbeatMs: 3_000 });
+
+/**
+ * Run a writer of the registry under its lock, as a rebuild: its reads skip
+ * the freshness check, and a writer it calls in turn does not wait for it.
+ *
+ * @template T
+ * @param {string} registryDir - `<catalog>/registries`.
+ * @param {() => Promise<T>} operation
+ * @returns {Promise<T>}
+ */
+export function withSkillRegistryLock(registryDir, operation) {
+  if (holding.getStore()) return operation();
+  return withFileLock(path.join(registryDir, "skills.index.json"), () => holding.run(true, () => rebuilding.run(true, operation)), SKILL_REGISTRY_LOCK);
+}
+
+/**
  * The registry, rebuilt first when its skills changed on disk.
  *
  * At most one look at the files per `intervalMs` while the registry file stays
@@ -225,7 +258,6 @@ export function createSkillRegistryReader({
   onError = () => {},
   retryDelays = SKILL_REGISTRY_RETRY_DELAYS_MS
 }) {
-  const rebuilding = new AsyncLocalStorage();
   let inFlight = null;
   let checkedKey = "";
   let checkedAt = -Infinity;

@@ -257,11 +257,12 @@ if [ "$skip_client_install" -ne 1 ]; then
   # server keeps its state in the volume, as 2.x did (Д-322). A Docker that did
   # not run the image tried nothing, and is not taken for one (Д-331). Docker
   # Desktop on macOS gives what the container writes to the user. This script
-  # decided it, so this script says why, once (Д-342, Д-344).
+  # decided it, so this script says why, once (Д-342, Д-344). The image is here
+  # by now: no `--pull`, which a Docker CLI before 20.10 does not know (Д-351).
   shared_state=yes
   if [ "$platform" != "Darwin" ]; then
     probe=".ai-dev-share-probe-$$"
-    if probe_error=$(docker run --rm --pull never --network none --entrypoint touch \
+    if probe_error=$(docker run --rm --network none --entrypoint touch \
         --mount "type=bind,source=${state_path},target=/ai-dev-state" "$image" "/ai-dev-state/${probe}" 2>&1 >/dev/null); then
       if [ -O "${state_path}/${probe}" ]; then
         shared_state=yes
@@ -351,7 +352,10 @@ if [ "$skip_client_install" -ne 1 ]; then
         /*) c_target=$(normalize_path "$target"); h_base=$(dirname -- "$target") ;;
         *) c_target=$(normalize_path "${c_dir}/${target}"); h_base="${h_dir}/$(dirname -- "$target")" ;;
       esac
-      h_tdir=$(CDPATH= cd -- "$h_base" 2>/dev/null && pwd -P) || return 0
+      if ! h_tdir=$(CDPATH= cd -- "$h_base" 2>/dev/null && pwd -P); then
+        printf '%s\n' "${1}: its config leads to ${c_target}, in a folder that is not there: not configured. Make the folder, or point the link elsewhere (Д-353)." >&2
+        return 1
+      fi
       c_tdir=$(dirname -- "$c_target")
       if too_wide "$c_tdir" || too_wide "$h_tdir"; then
         printf '%s\n' "${1}: its config leads to ${c_target}, and bootstrap does not hand the installer ${c_tdir} whole (the root, your home or a folder above it): not configured. Link it into a folder of its own." >&2
@@ -364,22 +368,37 @@ if [ "$skip_client_install" -ne 1 ]; then
       hops=$((hops + 1))
     done
   }
-  # Docker takes the client's folders, or says why not: one it refuses — outside
-  # Docker Desktop's file sharing, say — costs that client alone (Д-339).
+  # Docker takes these folders ("source,target" lines), or says why not.
   mounts_taken() {
+    lines=$1
     set -- run --rm --network none --entrypoint true
     set -f
     old_ifs=$IFS
     IFS=$nl
-    for line in $client_mounts; do
+    for line in $lines; do
       set -- "$@" --mount "type=bind,source=${line%%,*},target=${line#*,}"
     done
     IFS=$old_ifs
     set +f
     docker "$@" "$installer_image" 2>&1 >/dev/null
   }
-  mounted="$nl"
-  install_clients=""
+  # The folders of the clients named (",cursor,codex,"), each target once.
+  mounts_of() {
+    picked="$nl"
+    set -f
+    old_ifs=$IFS
+    IFS=$nl
+    for line in $candidate_mounts; do
+      case "$1" in *",${line%%,*},"*) ;; *) continue ;; esac
+      pair="${line#*,}"
+      case "$picked" in *",${pair#*,}${nl}"*) ;; *) picked="${picked}${pair}${nl}" ;; esac
+    done
+    IFS=$old_ifs
+    set +f
+    printf '%s' "$picked"
+  }
+  candidate_mounts="$nl"
+  candidates=","
   for entry in "claude-desktop:${app_data}/Claude:claude_desktop_config.json:Claude Desktop" "cursor:${HOME}/.cursor:mcp.json:Cursor" \
       "vscode:${app_data}/Code/User:mcp.json:VS Code" "codex:${codex_home}:config.toml:Codex" "gemini:${HOME}/.gemini:settings.json:Gemini CLI"; do
     client="${entry%%:*}"
@@ -388,6 +407,8 @@ if [ "$skip_client_install" -ne 1 ]; then
     rest="${rest%:*}"
     file="${rest##*:}"
     folder="${rest%:*}"
+    # As the links are: a HOME with a slash at its end spells the same folder twice otherwise (Д-353).
+    case "$folder" in /*) folder=$(normalize_path "$folder") ;; esac
     wants "$client" || continue
     case ",${clients}," in
       *,all,*) [ -d "$folder" ] || continue ;;
@@ -398,26 +419,49 @@ if [ "$skip_client_install" -ne 1 ]; then
       install_status=1
       continue
     fi
-    if [ "$client_mounts" != "${nl}${folder},${folder}${nl}" ] || [ -L "$folder" ]; then
-      if ! refused=$(mounts_taken); then
-        printf '%s\n' "${label}: Docker did not take a folder its config leads to (${refused%%"$nl"*}): not configured." >&2
-        install_status=1
-        continue
-      fi
-    fi
     set -f
     old_ifs=$IFS
     IFS=$nl
     for line in $client_mounts; do
-      case "$mounted" in
-        *",${line#*,}${nl}"*) ;;
-        *) mounted="${mounted}${line}${nl}" ;;
-      esac
+      candidate_mounts="${candidate_mounts}${client},${line}${nl}"
     done
     IFS=$old_ifs
     set +f
-    install_clients="${install_clients}${install_clients:+,}${client}"
+    candidates="${candidates}${client},"
   done
+  # Docker takes every client's folders in one look, or each client is looked
+  # at alone: a folder it refuses — outside Docker Desktop's file sharing, say —
+  # costs that client alone (Д-339, Д-352).
+  if [ "$candidates" != "," ] && ! mounts_taken "$(mounts_of "$candidates")" >/dev/null; then
+    taken=","
+    set -f
+    old_ifs=$IFS
+    IFS=,
+    for client in $candidates; do
+      [ -n "$client" ] || continue
+      IFS=$old_ifs
+      if refused=$(mounts_taken "$(mounts_of ",${client},")"); then
+        taken="${taken}${client},"
+      else
+        case "$client" in
+          claude-desktop) label="Claude Desktop" ;;
+          vscode) label="VS Code" ;;
+          gemini) label="Gemini CLI" ;;
+          cursor) label="Cursor" ;;
+          *) label="Codex" ;;
+        esac
+        printf '%s\n' "${label}: Docker did not take a folder its config leads to (${refused%%"$nl"*}): not configured." >&2
+        install_status=1
+      fi
+      IFS=,
+    done
+    IFS=$old_ifs
+    set +f
+    candidates=$taken
+  fi
+  mounted=$(mounts_of "$candidates")
+  install_clients=${candidates#,}
+  install_clients=${install_clients%,}
   set -- run --rm --network none --user "${uid}:${gid}" --read-only --tmpfs /tmp:rw,size=64m \
     --env "HOME=${HOME}" --env "XDG_CONFIG_HOME=${app_data}" --env "CODEX_HOME=${codex_home}"
   if [ -n "$model_path" ]; then

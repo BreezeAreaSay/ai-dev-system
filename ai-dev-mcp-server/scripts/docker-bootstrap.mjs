@@ -24,7 +24,7 @@ import path from "node:path";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
-import { DOCKER_MOUNTED_MODEL_DIR } from "../src/core/dense-backend.mjs";
+import { DOCKER_MOUNTED_MODEL_DIR, containerModelAdvice } from "../src/core/dense-backend.mjs";
 import { readDenseManifest } from "../src/core/dense-manifest.mjs";
 import { defaultOnnxModelDir } from "../src/core/dense-onnx.mjs";
 import { DEFAULT_DOCKER_VOLUME } from "../src/core/docker-launch.mjs";
@@ -118,11 +118,14 @@ async function optionalState(indexStatus) {
  * goes into the volume with one run of its own, which embeds the documents too;
  * the browser comes with the `-browser` variant (docs/DEFECTS.md, Д-328, Д-332).
  */
-function imageReason({ modelDir, qaDependencies, unchecked }) {
+function imageReason({ modelDir, qaDependencies, unchecked, present }) {
   const install = dockerCommand("model install");
+  // A folder of the host's at /models is the model the sessions use, whole or not: what is not whole is put right
+  // on the host, as `embedding_status` says, not installed into a volume they would not read (Д-350).
+  const mounted = modelDir === DOCKER_MOUNTED_MODEL_DIR;
   // A model mounted from the host is embedded with, not installed: `setup
   // --model` finds it whole and builds the vectors, downloading nothing (Д-341).
-  const embed = modelDir === DOCKER_MOUNTED_MODEL_DIR
+  const embed = mounted
     ? `docker run --rm -it --mount type=volume,source=${DEFAULT_DOCKER_VOLUME},target=/data `
       + "--mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model"
     : install;
@@ -134,7 +137,11 @@ function imageReason({ modelDir, qaDependencies, unchecked }) {
         ? "its packages are here but not the browser they want: this -browser image is not whole"
         : "not in this image — its -browser variant carries it";
     }
-    if (step.id === "dense_model") return state === "present" ? `installed in ${modelDir}` : `not installed — \`${install}\` puts it in this volume`;
+    if (step.id === "dense_model") {
+      if (state === "present") return `installed in ${modelDir}`;
+      return mounted ? `not whole — ${containerModelAdvice(modelDir)}` : `not installed — \`${install}\` puts it in this volume`;
+    }
+    if (mounted && !present.dense_model) return `none: the model at /models ${unchecked.dense_model ? "could not be checked" : "is not whole yet"}`;
     if (state === "stale") return `documents indexed since have none — \`${embed}\` embeds them`;
     return state === "present" ? "every indexed document has one" : `none yet — \`${embed}\` embeds the documents`;
   };

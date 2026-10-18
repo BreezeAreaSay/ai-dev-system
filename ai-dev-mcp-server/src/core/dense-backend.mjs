@@ -147,9 +147,15 @@ export function containerModelAdvice(dir = "") {
 
 /** The model is not usable; say which way, and what changes it. */
 function notReadyReason({ inContainer, files }) {
-  const { dir = "", present = [], missing = [], mismatched = [], partial = [] } = files ?? {};
+  const { dir = "", present = [], missing = [], mismatched = [], partial = [], unreadable = "" } = files ?? {};
   const where = dir ? ` in ${dir}` : "";
   const names = (list) => list.join(", ");
+  if (unreadable) {
+    return `Dense search is not ready: the model${where} cannot be read (${unreadable}). `
+      + (inContainer && dir === DOCKER_MOUNTED_MODEL_DIR
+        ? "The image runs as uid 1000: make the files readable to it on the host, or drop the mount and install the model into the data volume."
+        : "Make its files readable to the user this runs as.");
+  }
   if (mismatched.length) {
     const one = mismatched.length === 1;
     return `Dense search is not ready: ${names(mismatched)}${where} ${one ? "is not the pinned file" : "are not the pinned files"} `

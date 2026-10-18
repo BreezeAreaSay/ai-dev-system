@@ -436,6 +436,13 @@ package's `package.json` and the server's lockfile as `npm-shrinkwrap.json`; `pr
 folder against the list, and `dist:pack` checks the tarball, unpacked, byte for byte. Nothing is
 published from here.
 
+The Windows installer is made from the same folder: `cd ../desktop && npm run dist:win` adds the
+dependencies for win32-x64, a pinned Node and `bundle.json`, and builds the NSIS installer
+([The Windows install](../docs/DESKTOP.md#the-windows-install)). `ai-dev uninstall [--clients]
+[--data] --yes` is what its uninstaller runs: it stops the daemon and removes the runtime copies the
+app made in `<runtime home>/app` and their link, the clients' entries that run them with
+`--clients`, and the runtime home itself with `--data`.
+
 ## Local Operations
 
 Everything a person does with the server is one command line, `bin/ai-dev.mjs` — from a clone

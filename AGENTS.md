@@ -30,6 +30,7 @@ its content root to `docker/public-seed`.
 | a hook that runs inside a user's repository | `ai-dev-mcp-server/hooks/` |
 | a command of the `ai-dev` CLI | `ai-dev-mcp-server/src/cli/<command>.mjs`, listed in `src/cli/main.mjs` |
 | the desktop app | `desktop/src/main` (main process), `desktop/src/renderer` (the page), tests in `desktop/test` — `docs/DESKTOP.md` |
+| the Windows installer | its build in `desktop/scripts` (`build-windows.mjs`, `windows-bundle.mjs`), the NSIS step and the pinned Node in `desktop/build`; the runtime copy and its stable link in `ai-dev-mcp-server/src/core/app-bundle.mjs` — `docs/DESKTOP.md`, "The Windows install" |
 
 **New tools are added as extensions, never by growing `mcp-stdio.mjs`.** Each
 extension exports one factory:

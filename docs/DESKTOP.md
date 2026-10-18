@@ -7,7 +7,8 @@ shares. The app is in `desktop/`, built on Electron (owner decision D5; the vers
 `ai-dev mcp` reaches, through the control API
 ([CONTROL-API.md](../ai-dev-mcp-server/docs/CONTROL-API.md)).
 
-Until the installer of phase 12, the app runs from a checkout:
+On Windows the app comes as an installer — see [The Windows install](#the-windows-install). Elsewhere, and
+to work on the app, it runs from a checkout:
 
 ```bash
 cd ai-dev-mcp-server && npm ci && cd ../desktop
@@ -23,12 +24,14 @@ ahead of time).
 - **Node.js 22.16 or newer (not 23).** The daemon runs on Node, and the daemon's build includes the
   Node it runs on: the app starts and reaches the daemon with the Node your AI clients use, or the
   clients and the app would each get a daemon of their own. It looks for Node in this order:
-  `AI_DEV_NODE`; the Node an AI client's ai-dev entry runs (what `ai-dev clients install` wrote);
+  `AI_DEV_NODE`; the Node the Windows install ships, which the clients it connects run too; the
+  Node an AI client's ai-dev entry runs (what `ai-dev clients install` wrote);
   `PATH`; where installers put it (`/opt/homebrew/bin`, `/usr/local/bin`, nvm, Volta,
   `Program Files\nodejs`). None found: the window says so, and **Try again** looks again — a Node
   installed since is found; one named in `AI_DEV_NODE` needs the app started again.
 - **The server beside it**: `ai-dev-mcp-server/` next to `desktop/` in a checkout, or the folder
-  `AI_DEV_SERVER_ROOT` names, with its packages installed (`npm ci` there). The app's own variables
+  `AI_DEV_SERVER_ROOT` names, with its packages installed (`npm ci` there); the Windows install
+  runs the server of the runtime it ships. The app's own variables
   (`AI_DEV_SERVER_ROOT`, `AI_DEV_DESKTOP_*`) do not split it from the clients: it reaches their daemon.
 
 When something of this is missing — the server, its packages — or the settings file is broken, the
@@ -175,7 +178,10 @@ The window shows only the app's own page and gives it nothing of Node or the fil
   proxy that is not there;
 - no host name is looked up for the page: Chromium's resolver in the app resolves nothing
   (`host-resolver-rules`), so neither a TURN server's name nor a `dns-prefetch` reaches DNS. The
-  daemon is reached from Node, over its socket. What remains: a `.local` candidate handed to WebRTC
+  one exception is the installed app's updater: `github.com`, `objects.githubusercontent.com` and
+  `release-assets.githubusercontent.com` resolve, by those exact names — no wildcard a page could
+  put a word of its own into — and the updater's own session lets nothing but HTTPS to them
+  through (`desktop/src/main/updates.mjs`). The daemon is reached from Node, over its socket. What remains: a `.local` candidate handed to WebRTC
   makes Chromium send a multicast DNS query to the local network — always for the fixed name
   `~NOTFOUND`, never for a name the page chose;
 - there is no developer menu and no developer tools (`AI_DEV_DESKTOP_DEVTOOLS=1` opens them with the
@@ -183,6 +189,102 @@ The window shows only the app's own page and gives it nothing of Node or the fil
 
 The daemon's own protection — its socket, the secret in its descriptor, one user — is in
 [SECURITY.md](../ai-dev-mcp-server/docs/SECURITY.md).
+
+## The Windows install
+
+`AI-Dev-Setup-<version>.exe` installs the app for the person running it — no administrator, no
+Node, no Python, no Docker — into `%LOCALAPPDATA%\Programs\ai-dev-desktop`, with a Start menu and
+a desktop shortcut, and starts it. It ships the app, Electron, and in `resources\runtime` the
+runtime AI clients run: the server with its dependencies for 64-bit Windows and a Node of its own
+(Node 24 LTS, pinned by version and sha256 in `desktop/build/node-win-x64.json`).
+
+### How AI clients reach it
+
+Windows does not replace a file a running process holds: the Node of every client's bridge, the
+daemon, the local model's DLLs. And the installer's update moves the whole program folder aside
+before it writes the new one, so a single held file would stop it ("File is busy, aborting").
+So no client runs anything in the program folder:
+
+```text
+%LOCALAPPDATA%\Programs\ai-dev-desktop\resources\runtime    what the installer ships (bundle.json lists every file)
+        │  copied at the app's start, each file checked against its sha256
+        ▼
+%USERPROFILE%\.ai-dev\app\3.0.0-1a2b3c4d\                   one copy per runtime: server, dependencies, node\node.exe
+        ▲
+%USERPROFILE%\.ai-dev\app\current                           a junction to the copy in use — what every client config names:
+                                                            current\node\node.exe  current\ai-dev-mcp-server\bin\ai-dev.mjs mcp
+```
+
+An update brings a new runtime: the app copies it beside the old one and moves the junction. A
+client already running keeps the files it opened, in the old copy, and its daemon serves it until
+it leaves; the next session a client starts runs the new copy. No running file is written over,
+and no client config changes. The two copies chosen last stay; an older one is removed once
+nothing holds it. A junction needs neither an administrator nor Developer Mode; on a drive that
+cannot hold one — `AI_DEV_HOME` on exFAT, FAT32 or some network shares — the copy runs as it is,
+the client configs name the copy itself, and connecting the clients again after an update
+(**Setup** → AI clients) points them at the new one.
+
+`%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd` is the CLI for a terminal: `ai-dev.cmd doctor`,
+`ai-dev.cmd model install`. Nothing is put on `PATH`; the daemon's hints name this command in
+full.
+
+### The first start
+
+The window says it is preparing AI Dev while the runtime is copied (a few seconds; the progress is
+shown), then starts the daemon on the runtime's Node. The daemon fills your vault,
+`%USERPROFILE%\.ai-dev\vault`, from the skill seed, and the first-run wizard opens. A runtime
+that is not what the installer shipped — a file changed or missing — is not run: the window says
+so, with **Try again**, and running the installer again is the way back.
+
+### Updates
+
+The installed app looks for an update a minute after it starts and every six hours, in the GitHub
+Releases of the production repository, `stonebridgeway/ai-dev-system` (owner decision D7), downloads
+it in the background, and offers **Restart to update to …** in the tray; one not taken is installed
+at **Quit**. A signed build checks the download against the signature of the app that runs; an
+unsigned one against the sha512 the release lists. `AI_DEV_DESKTOP_UPDATES=0` turns the checks off.
+
+### Uninstalling
+
+**Settings → Apps → Installed apps → AI Dev → Uninstall** asks two questions before it removes the program:
+
+1. whether to take AI Dev out of the AI clients' settings — **Yes** by default: their entries run the
+   program that is going. An entry of another install (a clone, npx, Docker) stays;
+2. whether to delete AI Dev's own data, `%USERPROFILE%\.ai-dev` — tasks and decisions, the local
+   model, the search index, the settings — **No** by default. Your projects are not touched.
+
+It then runs `ai-dev uninstall` from the runtime it ships: the daemon is stopped, the runtime
+copies and the junction are removed, and the answers are carried out. A silent uninstall (`/S`)
+takes the default answers; an update runs none of this.
+
+### Building it
+
+```bash
+cd ai-dev-mcp-server && npm ci && cd ../desktop
+npm ci
+npm run dist:win
+```
+
+On Windows this is the whole of it; on Linux and macOS electron-builder also needs Wine — 32-bit
+too — to make the uninstaller. `dist/windows/installer/` gets `AI-Dev-Setup-<version>.exe`, its
+`.blockmap` and `latest.yml` (what the updater reads from a release), and
+`dist/windows/build-report.json` the runtime's composition. `--dir` builds only the unpacked app;
+`--check` stops before electron-builder, at the runtime checked for what it must and must not
+hold — the CI job `desktop` runs it, and `.github/workflows/desktop-windows.yml` builds the
+installer on `windows-latest`.
+
+The runtime is the npm package's distribution (`npm run dist`, phase 7) with its dependencies for
+win32-x64, less what never loads there: onnxruntime-web (transformers carries the web runtime
+inside its own file), the WebAssembly build of sharp and what only it needs, onnxruntime-node's
+builds for other systems and processors, npm's command links. Measured on version 2.0.0: 7,847
+files, 231 MB unpacked — Node 89.5 MB, onnxruntime-node 64 MB, the seed 21 MB, sharp 18.5 MB;
+the installer 183 MB.
+
+Signing comes from the environment: a certificate in `WIN_CSC_LINK` (or `CSC_LINK`) with its
+password in `WIN_CSC_KEY_PASSWORD`, which electron-builder reads itself, or Azure Trusted Signing
+named by `AI_DEV_SIGN_AZURE_ENDPOINT`, `AI_DEV_SIGN_AZURE_ACCOUNT`, `AI_DEV_SIGN_AZURE_PROFILE`
+and `AI_DEV_SIGN_PUBLISHER`, with the `AZURE_*` credentials. Without either the installer is
+unsigned, and Windows SmartScreen warns about it on first run.
 
 ## Tests
 
@@ -201,7 +303,9 @@ failed start again, a daemon that dies and one a client starts again, a second l
 its checks, Russian, the tray's verdict with a failing critical check, an AI client joining the
 app's daemon, a daemon replaced by a newer one, a daemon that will not stop — the app's own and
 another build's —, a language chosen while the settings file is broken or held by another writer,
-Quit with one waiting, and what the page cannot reach — WebRTC and the names it would look up,
+Quit with one waiting, the Windows install's runtime — copied and run through its link, the
+seed filling the vault on the first start, a client connected through the link, an update while
+that client keeps running, a damaged runtime refused —, and what the page cannot reach — WebRTC and the names it would look up,
 another page with the app's functions, the developer tools; the data screens with work an AI client
 made (a project with an epic, a decision, a handoff, usage), in English and Russian, and empty on a
 fresh install; Settings — a refused value, a change for new sessions and the reconnect; the console

@@ -124,6 +124,32 @@ profile shapes an agent's context, it does not guard anything. What guards them:
 Anything that can run code as this user can call these tools — it can as well edit the files they
 edit; the control API adds no reach beyond that user.
 
+## The Windows Install
+
+The installer (`desktop/`, `npm run dist:win`; `docs/DESKTOP.md`, "The Windows install") ships the
+runtime AI clients run, and the app copies it out of the program folder before anything runs it:
+
+- **Each file is checked as it is copied.** `bundle.json` lists every file of the runtime with its
+  size and sha256, and refuses a path that leaves the runtime's folder, a name listed twice (Windows
+  reads names without case), a Node not among its files, or a fingerprint that is not its files'.
+  A copy is made in a `.partial` folder and moved into place only when every file matches; a file
+  changed or missing stops the start, and nothing is run from it (`src/core/app-bundle.mjs`).
+- **The stable link is AI Dev's own.** `<runtime>/app/current` is replaced only when it is a link;
+  a real folder of that name stops the start rather than being taken for it. The copy it names is
+  never removed by a prune.
+- **No running file is written over.** An update copies the new runtime beside the old one and
+  moves the link; a client keeps the files it opened.
+- **Updates come from one place.** The installed app's updater reads the GitHub Releases of
+  `stonebridgeway/ai-dev-system`. Chromium's resolver, closed for the app's page (Д-260), resolves
+  `github.com`, `objects.githubusercontent.com` and `release-assets.githubusercontent.com` by
+  those exact names and nothing else; the updater's session lets only HTTPS to them through. A
+  signed build checks a download against the publisher of the app that runs; an unsigned one
+  only against the sha512 its release lists — what the release says, over HTTPS.
+- **Uninstalling deletes data only when asked**, and only a folder that is plainly a runtime home:
+  not the home folder or one above it, not a drive's root, not a folder holding none of a runtime
+  home's parts (`src/core/bundle-uninstall.mjs`). A client entry is taken out only when it runs
+  this install; another install's entry stays.
+
 ## Command Policy
 
 Approved quality adapters include named package verification scripts, selected Python test/lint

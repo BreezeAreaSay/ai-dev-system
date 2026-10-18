@@ -60,6 +60,11 @@ scene by scene, including the verification failure and the fix.
 
 ## Install
 
+**On Windows, without a terminal** — `AI-Dev-Setup-<version>.exe` installs the desktop app
+for your account, with its own Node: no administrator, no Node, Python or Docker. The first
+start opens a wizard for the projects folder, the AI clients and the local model; updates come
+from the project's releases ([The Windows install](docs/DESKTOP.md#the-windows-install)).
+
 **Locally, from a clone** — Node.js 22.16+ (or 24+), and nothing else: search,
 hybrid ranking, the knowledge galaxy and project preparation all run in Node.
 Python is optional. Two tools run a Python script — `query_ui_ux_knowledge` and

@@ -169,6 +169,13 @@ jobs:
         working-directory: desktop
         run: npm test
 
+      # What the Windows installer ships, built and checked here without the
+      # installer itself: the runtime for win32-x64, its cuts, the pinned Node
+      # (the windows-latest build is .github/workflows/desktop-windows.yml).
+      - name: Windows runtime composition
+        working-directory: desktop
+        run: node scripts/build-windows.mjs --check
+
       - name: Keep the screenshots
         if: always()
         uses: actions/upload-artifact@v4

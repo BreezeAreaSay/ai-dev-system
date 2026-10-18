@@ -11,6 +11,7 @@ started, the commands in the [README](../README.md#install) are enough.
 - [Requirements](#requirements)
 - [Quick start: run it locally](#quick-start-run-it-locally)
 - [From the npm package](#from-the-npm-package)
+- [The Windows installer](#the-windows-installer)
 - [One command on Windows](#one-command-on-windows)
 - [One command on macOS and Linux](#one-command-on-macos-and-linux)
 - [The packaged path: Docker](#the-packaged-path-docker)
@@ -185,6 +186,17 @@ Commands are `ai-dev <command>` after a global install, `npx @stonebridgeway/ai-
 set, is written into every client's entry, and beside the hooks `install_agent_hooks` puts into
 a repository, so a client started from the Dock or the Start menu — its server and its hooks —
 finds the same data as the terminal you ran setup from (Д-176, Д-184).
+
+## The Windows installer
+
+For a person on Windows who wants no terminal: `AI-Dev-Setup-<version>.exe` installs the desktop
+app for your account — no administrator, no Node, no Python, no Docker — with its own Node and
+the server it runs. The first start copies the runtime, fills your vault from the skill seed and
+opens the wizard: the projects folder, the AI clients to connect, the local model, the index.
+Updates come from the project's GitHub releases; uninstalling asks whether to take AI Dev out of
+your AI clients and whether to delete its data. What it installs where, why AI clients run it
+through `%USERPROFILE%\.ai-dev\app\current`, and how to build the installer
+(`cd desktop && npm run dist:win`): [The Windows install](DESKTOP.md#the-windows-install).
 
 ## One command on Windows
 

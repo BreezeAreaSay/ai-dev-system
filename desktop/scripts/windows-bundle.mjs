@@ -141,7 +141,8 @@ export async function listFiles(root, { skip = () => false } = {}) {
  * Write `<runtime>/bundle.json`: what the installer ships, file by file, and
  * the fingerprint the app names its copy by.
  *
- * @param {{ runtimeDir: string, name: string, version: string, node: { version: string, sha256: string }, fingerprintOf: (files: Array<{ path: string, sha256: string }>) => string }} input
+ * @param {{ runtimeDir: string, name: string, version: string, node: { version: string, sha256: string, file?: string }, fingerprintOf: (files: Array<{ path: string, sha256: string }>) => string }} input
+ *   `node.file` — where the Node is in the runtime: `node/node.exe` in the installer; a test's runtime on Linux names its own.
  */
 export async function writeBundleMarker({ runtimeDir, name, version, node, fingerprintOf }) {
   const files = await listFiles(runtimeDir, { skip: (relative) => relative === "bundle.json" });
@@ -151,7 +152,7 @@ export async function writeBundleMarker({ runtimeDir, name, version, node, finge
     version,
     platform: "win32",
     arch: "x64",
-    node: { version: node.version, file: "node/node.exe", sha256: node.sha256 },
+    node: { version: node.version, file: node.file ?? "node/node.exe", sha256: node.sha256 },
     fingerprint: fingerprintOf(files),
     files
   };

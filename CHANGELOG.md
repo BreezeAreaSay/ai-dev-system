@@ -9,6 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Windows installer** (`desktop/`, `npm run dist:win`; `docs/DESKTOP.md`, "The Windows
+  install"). `AI-Dev-Setup-<version>.exe` installs the desktop app for the current user — no
+  administrator, no Node, Python or Docker — with the runtime AI clients run: the npm package's
+  distribution with its dependencies for win32-x64 and Node 24.22.0, pinned by version and sha256.
+  The runtime leaves out what never loads on Windows x64 — onnxruntime-web (transformers 4.3.0
+  carries the web runtime inside its own file), the WebAssembly sharp and what only it needs,
+  onnxruntime-node for other systems and processors: 7,847 files, 231 MB unpacked instead of
+  512 MB of dependencies alone; the installer is 183 MB. The NSIS installer builds on Linux too,
+  under Wine, and on `windows-latest` (`.github/workflows/desktop-windows.yml`); signing comes from
+  `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` or the `AI_DEV_SIGN_AZURE_*` variables, and an unsigned
+  build works.
+- **One path for every AI client, whatever the update.** The app copies the shipped runtime into
+  `%USERPROFILE%\.ai-dev\app\<version>-<fingerprint>`, checking each file's sha256, and points the
+  junction `%USERPROFILE%\.ai-dev\app\current` at it; client configs name
+  `current\node\node.exe` and `current\ai-dev-mcp-server\bin\ai-dev.mjs`. An update copies the
+  new runtime beside the old one and moves the junction: no file a running client holds is written
+  over, no config changes, and a client started before the update keeps being answered from the
+  old copy (`desktop/test/e2e/bundle.test.mjs`). A drive that cannot hold a junction runs the copy
+  itself (Д-295). `current\ai-dev.cmd` is the CLI for a terminal.
+- **Updates of the installed app** from the GitHub Releases of `stonebridgeway/ai-dev-system`
+  (electron-updater): checked a minute after the start and every six hours, offered in the tray,
+  installed at Quit. Chromium's resolver, closed for the app's page since Д-260, resolves only the
+  three update hosts by their exact names, and the updater's session lets nothing else through;
+  `AI_DEV_DESKTOP_UPDATES=0` turns it off.
+- **`ai-dev uninstall [--clients] [--data] --yes`**, which the uninstaller runs after asking: it
+  stops the daemon, removes the runtime copies and their link, the `ai-dev` entries that run this
+  install (another install's stay), and — asked separately, No by default — the runtime home, only
+  when it is plainly one.
+
 - **One daemon serves every client** (`docs/DEFECTS.md`, Д-97). `ai-dev mcp` — what each
   client's config runs — hands the client's stdio to the daemon, starting it detached and
   without a window when none runs; the index and the model are in memory once, and the state

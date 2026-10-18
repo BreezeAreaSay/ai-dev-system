@@ -175,7 +175,7 @@ export function clientLabel(target) {
  * @param {NodeJS.ProcessEnv} [input.env]
  * @param {boolean} [input.apply]
  * @param {typeof probeStateSharing} [input.probe]
- * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: string, state: string, record: string, platform: string, sharedState: boolean, sharedStateKind: "shared"|"refused"|"untried"|"dry", sharedStateReason: string }>}
+ * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: string, state: string, record: string, platform: string, sharedState: boolean, sharedStateKind: "shared"|"refused"|"untried"|"dry", sharedStateReason: string, sharedStateGiven: boolean }>}
  */
 export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", shareState = "", docker = "", home = os.homedir(), platform = process.platform, uid = process.getuid?.(), env = process.env, apply = true, tryState = apply, probe = probeStateSharing } = {}) {
   const paths = platform === "win32" ? path.win32 : path.posix;
@@ -211,14 +211,16 @@ export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEF
     const tried = probe({ docker: resolved.docker, image, state: hostState, uid });
     sharing = { shared: tried.shared, kind: tried.shared ? "shared" : tried.tried ? "refused" : "untried", reason: tried.reason };
   }
-  return { ...resolved, state: sharing.shared ? hostState : "", sharedState: sharing.shared, sharedStateKind: sharing.kind, sharedStateReason: sharing.reason };
+  // Decided by the caller (`--shared-state`), it is the caller's to explain: bootstrap.sh says it once,
+  // in its own words, and not once per run of the installer (docs/DEFECTS.md, Д-342, Д-344).
+  return { ...resolved, state: sharing.shared ? hostState : "", sharedState: sharing.shared, sharedStateKind: sharing.kind, sharedStateReason: sharing.reason, sharedStateGiven: Boolean(shareState) };
 }
 
 const TRIED_AND_REFUSED = "trying it, the image's user could not write your state folder as you (rootless Docker, userns-remap or Podman map the container's users to others)";
 
 /** Why the state is not shared, or was not tried, when that is so: for the install's output. */
 export function unsharedStateNote(docker, uid = process.getuid?.()) {
-  if (!docker) return "";
+  if (!docker || docker.sharedStateGiven) return "";
   if (docker.sharedStateKind === "dry") {
     return "On Linux, sharing your state folder with the server is tried with the image when the configs are written; a dry run does not try it (docs/INSTALL.md; Д-322).";
   }

@@ -24,8 +24,10 @@ import path from "node:path";
 import process from "node:process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import { DOCKER_MOUNTED_MODEL_DIR } from "../src/core/dense-backend.mjs";
 import { readDenseManifest } from "../src/core/dense-manifest.mjs";
 import { defaultOnnxModelDir } from "../src/core/dense-onnx.mjs";
+import { DEFAULT_DOCKER_VOLUME } from "../src/core/docker-launch.mjs";
 import { acquireFileLock } from "../src/core/file-lock.mjs";
 import { planFirstRun, renderFirstRunReport } from "../src/core/first-run.mjs";
 import { frontendQaInstalled } from "../src/core/frontend-qa-install.mjs";
@@ -50,12 +52,18 @@ import {
 
 /**
  * A start waits for another one building the same volume — a 2.x volume's first
- * start takes 15–20 s — and serves what is built once it has waited this long.
+ * start takes 15–20 s — but not past this long from its own start: a client
+ * gives `initialize` 60 s (the MCP SDK's default), and a session on what is
+ * built beats none (docs/DEFECTS.md, Д-326, Д-336, Д-340).
+ */
+const START_WAIT_MS = 40_000;
+
+/**
  * The holder beats every 3 s, and one that has not for 20 s is taken for killed:
  * a fifth of a CPU left 6 s between two beats, a tenth 11 s, as the index is
- * built in one piece (docs/DEFECTS.md, Д-326, Д-336).
+ * built in one piece (Д-330, Д-336).
  */
-const FIRST_RUN_LOCK = Object.freeze({ timeoutMs: 180_000, staleMs: 20_000, heartbeatMs: 3_000 });
+const FIRST_RUN_LOCK = Object.freeze({ staleMs: 20_000, heartbeatMs: 3_000 });
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const vaultRoot = path.resolve(process.env.AI_DEV_VAULT_ROOT || "/data/ai-dev-system");
@@ -71,6 +79,15 @@ async function exists(target) {
   return fs.access(target).then(() => true).catch(() => false);
 }
 
+/** A check that only feeds the report: one that cannot be made says why, and the start goes on (Д-337). */
+async function reported(check) {
+  try {
+    return { value: Boolean(await check()), error: "" };
+  } catch (error) {
+    return { value: false, error: String(error?.message ?? error).split("\n")[0] };
+  }
+}
+
 /**
  * The optional steps as `setup` finds them: the model checked against its
  * manifest, the vectors by the index's own count, the browser where the runner
@@ -81,14 +98,16 @@ async function optionalState(indexStatus) {
   const env = process.env;
   const modelDir = defaultOnnxModelDir({ env });
   const qaDependencies = existsSync(path.join(QA_ROOT, "node_modules"));
+  const browser = await reported(async () => frontendQaInstalled({
+    dependencies: qaDependencies,
+    status: qaDependencies ? await frontendQaStatus(vaultRoot, { launch: false }) : null
+  }));
+  const model = await reported(async () => (await modelStatus({ manifest: readDenseManifest(), dir: modelDir, env })).installed);
   return {
     modelDir,
     qaDependencies,
-    present: {
-      frontend_qa: frontendQaInstalled({ dependencies: qaDependencies, status: qaDependencies ? await frontendQaStatus(vaultRoot, { launch: false }) : null }),
-      dense_model: (await modelStatus({ manifest: readDenseManifest(), dir: modelDir, env })).installed,
-      dense_index: Number(indexStatus?.dense_documents || 0) > 0
-    },
+    unchecked: { frontend_qa: browser.error, dense_model: model.error },
+    present: { frontend_qa: browser.value, dense_model: model.value, dense_index: Number(indexStatus?.dense_documents || 0) > 0 },
     // Documents indexed since the last embedding run have no vector yet.
     stale: { dense_index: Number(indexStatus?.dense_pending_documents || 0) > 0 }
   };
@@ -99,9 +118,16 @@ async function optionalState(indexStatus) {
  * goes into the volume with one run of its own, which embeds the documents too;
  * the browser comes with the `-browser` variant (docs/DEFECTS.md, Д-328, Д-332).
  */
-function imageReason({ modelDir, qaDependencies }) {
+function imageReason({ modelDir, qaDependencies, unchecked }) {
   const install = dockerCommand("model install");
+  // A model mounted from the host is embedded with, not installed: `setup
+  // --model` finds it whole and builds the vectors, downloading nothing (Д-341).
+  const embed = modelDir === DOCKER_MOUNTED_MODEL_DIR
+    ? `docker run --rm -it --mount type=volume,source=${DEFAULT_DOCKER_VOLUME},target=/data `
+      + "--mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model"
+    : install;
   return (step, state) => {
+    if (unchecked[step.id]) return `could not be checked: ${unchecked[step.id]}`;
     if (step.id === "frontend_qa") {
       if (state !== "missing") return "comes with the image";
       return qaDependencies
@@ -109,8 +135,8 @@ function imageReason({ modelDir, qaDependencies }) {
         : "not in this image — its -browser variant carries it";
     }
     if (step.id === "dense_model") return state === "present" ? `installed in ${modelDir}` : `not installed — \`${install}\` puts it in this volume`;
-    if (state === "stale") return `documents indexed since have none — \`${install}\` embeds them`;
-    return state === "present" ? "every indexed document has one" : `none yet — \`${install}\` embeds the documents`;
+    if (state === "stale") return `documents indexed since have none — \`${embed}\` embeds them`;
+    return state === "present" ? "every indexed document has one" : `none yet — \`${embed}\` embeds the documents`;
   };
 }
 
@@ -180,17 +206,26 @@ try {
 
   // Each client session is a container of its own, and three clients started
   // at once build one volume: the steps go one start at a time, and the next
-  // finds built what the first built (docs/DEFECTS.md, Д-326).
+  // finds built what the first built (docs/DEFECTS.md, Д-326). A start that is
+  // still waiting when a client would give up serves what is built — and does
+  // not build from a vault another start is still syncing (Д-336, Д-340).
   let release = null;
-  try {
-    release = await acquireFileLock(path.join(path.dirname(vaultRoot), ".ai-dev-first-run"), FIRST_RUN_LOCK);
-  } catch (error) {
-    // A volume this start cannot write is said as that. A start still building
-    // after all this wait is let be: a session on what is built so far beats
-    // none, which is what an error here left the client (Д-336).
-    if (error?.code) throw error;
-    process.stderr.write(`→ Waited ${FIRST_RUN_LOCK.timeoutMs / 60_000} min for another start building this volume: `
-      + "this one serves what is built so far, and a later start finishes the rest.\n");
+  const syncWaitedOut = seedSync?.status === "failed" && /^Timed out after \d+ ms waiting for the lock/.test(String(seedSync.error ?? ""));
+  if (syncWaitedOut) {
+    process.stderr.write("→ Another start is still syncing this volume's seed: this one serves what is there now, "
+      + "and a later start finishes the rest.\n");
+  } else {
+    try {
+      release = await acquireFileLock(path.join(path.dirname(vaultRoot), ".ai-dev-first-run"), {
+        ...FIRST_RUN_LOCK,
+        timeoutMs: Math.max(1_000, START_WAIT_MS - Math.round(performance.now()))
+      });
+    } catch (error) {
+      // A volume this start cannot write is said as that.
+      if (error?.code) throw error;
+      process.stderr.write(`→ Another start is still building this volume after ${Math.round(performance.now() / 1000)} s: `
+        + "this one serves what is built so far, and a later start finishes the rest.\n");
+    }
   }
   let results = [];
   if (release) {

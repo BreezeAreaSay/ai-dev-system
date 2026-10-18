@@ -231,9 +231,11 @@ if [ "$skip_client_install" -ne 1 ]; then
   # The configs are written by the image's own installer. A 2.x image has none —
   # the way back to :2 is still a 3.0 entry, which runs it — so an image of 3.0
   # writes them then: AI_DEV_INSTALLER_IMAGE, pulled as the image is, and used
-  # only once it is seen to have one (docs/DEFECTS.md, Д-323, Д-329).
+  # only once it is seen to have one (docs/DEFECTS.md, Д-323, Д-329). Both images
+  # are here by now, so no `--pull never`, which a Docker CLI before 20.10 does
+  # not know (Д-344).
   has_installer() {
-    docker run --rm --pull never --network none --entrypoint sh "$1" -c 'command -v ai-dev' >/dev/null 2>&1
+    docker run --rm --network none --entrypoint sh "$1" -c 'command -v ai-dev' >/dev/null 2>&1
   }
   installer_image="$image"
   if ! has_installer "$image"; then
@@ -254,29 +256,41 @@ if [ "$skip_client_install" -ne 1 ]; then
   # rootless Docker, userns-remap, Podman — it cannot write the folder, and the
   # server keeps its state in the volume, as 2.x did (Д-322). A Docker that did
   # not run the image tried nothing, and is not taken for one (Д-331). Docker
-  # Desktop on macOS gives what the container writes to the user.
+  # Desktop on macOS gives what the container writes to the user. This script
+  # decided it, so this script says why, once (Д-342, Д-344).
   shared_state=yes
   if [ "$platform" != "Darwin" ]; then
     probe=".ai-dev-share-probe-$$"
     if probe_error=$(docker run --rm --pull never --network none --entrypoint touch \
         --mount "type=bind,source=${state_path},target=/ai-dev-state" "$image" "/ai-dev-state/${probe}" 2>&1 >/dev/null); then
-      if [ -O "${state_path}/${probe}" ]; then shared_state=yes; else shared_state=no; fi
+      if [ -O "${state_path}/${probe}" ]; then
+        shared_state=yes
+      else
+        shared_state=no
+        why="what a container of the image wrote into your state folder is not yours: Docker maps the container's users here (rootless Docker, userns-remap or Podman)"
+      fi
     else
       case "$probe_error" in
-        *"cannot touch"*) shared_state=no ;;
-        *)
-          shared_state=untried
-          printf '%s\n' "Could not try sharing ${state_path} with ${image}: ${probe_error}" >&2 ;;
+        *"cannot touch"*)
+          shared_state=no
+          why="a container of the image could not write your state folder (${probe_error%%
+*})" ;;
+        *) shared_state=untried ;;
       esac
     fi
-    rm -f "${state_path}/${probe}" 2>/dev/null || true
+    rm -f "${state_path:?}/${probe:?}" 2>/dev/null || true
+    if [ "$shared_state" = untried ]; then
+      printf '%s\n' "Could not try sharing ${state_path} with ${image}: ${probe_error}" \
+        "Your state folder is not shared with the server for now: it keeps its state in the volume. Run bootstrap.sh again once Docker runs the image." >&2
+    elif [ "$shared_state" = no ]; then
+      [ "$uid" -eq 1000 ] || why="the image's user (uid 1000) is not yours (uid ${uid}), so a folder of yours is not one the container may share"
+      printf '%s\n' "The agent hooks keep their state apart from the server's: ${why}. The server keeps its state in the volume, as 2.x did, and cannot write into your projects. On this machine the local install is the one to use (docs/INSTALL.md; Д-318, Д-322)." >&2
+    fi
   fi
 
   # The image writes the configs, given each client's own folder and nothing
   # else of this machine. A client named on the command line gets its folder
-  # made, as the installer would write it anyway. A config that is a link — a
-  # dotfiles repository — is written through it: each folder on its way is
-  # mounted too, at its own path (Д-335).
+  # made, as the installer would write it anyway.
   codex_home="${CODEX_HOME:-${HOME}/.codex}"
   wants() {
     case ",${clients}," in
@@ -285,66 +299,155 @@ if [ "$skip_client_install" -ne 1 ]; then
       *) return 1 ;;
     esac
   }
-  # One folder a line: "Application Support" has a space in it.
+  # Mounts are lines of "source,target": a docker --mount holds no comma, so a
+  # path with one is refused before it gets here. One line a folder:
+  # "Application Support" has a space in it.
   nl='
 '
-  mounted="$nl"
-  mount_folder() {
-    case "$1" in
-      *,*|*\"*|*"$nl"*) printf '%s\n' "${1} has a comma, a double quote or a line break, which a docker --mount cannot hold; skipped." >&2; return 1 ;;
+  add_mount() {
+    case "$1$2" in
+      *,*|*\"*|*"$nl"*) printf '%s\n' "${2} has a comma, a double quote or a line break, which a docker --mount cannot hold; skipped." >&2; return 1 ;;
     esac
-    case "$mounted" in
-      *"${nl}${1}${nl}"*) return 0 ;;
+    case "$client_mounts" in
+      *",${2}${nl}"*) return 0 ;;
     esac
-    mounted="${mounted}${1}${nl}"
+    client_mounts="${client_mounts}${1},${2}${nl}"
   }
+  # A path as the container resolves it, with only the mounts it is given: `.`
+  # and `..` taken out as text.
+  normalize_path() {
+    out=""
+    IFS=/
+    set -f
+    for part in $1; do
+      case "$part" in
+        ''|.) ;;
+        ..) out="${out%/*}" ;;
+        *) out="${out}/${part}" ;;
+      esac
+    done
+    printf '%s' "${out:-/}"
+  }
+  home_real=$(CDPATH= cd -- "$HOME" 2>/dev/null && pwd -P) || home_real=$HOME
+  # The root, the home or a folder above it is not handed to the installer whole (Д-339).
+  too_wide() {
+    case "$1" in /) return 0 ;; esac
+    case "${HOME%/}/" in "${1%/}/"*) return 0 ;; esac
+    case "${home_real%/}/" in "${1%/}/"*) return 0 ;; esac
+    return 1
+  }
+  # A config that is a link — a dotfiles repository — is written through it:
+  # each folder on the way is mounted at the path the link spells, from the
+  # folder it really is, since the container follows the link by its spelling
+  # (Д-335, Д-338).
+  follow_links() {
+    c_dir=$2
+    h_dir=$(CDPATH= cd -- "$2" 2>/dev/null && pwd -P) || return 0
+    name=$3
+    hops=0
+    while [ -L "${h_dir}/${name}" ] && [ "$hops" -lt 8 ]; do
+      target=$(readlink "${h_dir}/${name}")
+      case "$target" in
+        /*) c_target=$(normalize_path "$target"); h_base=$(dirname -- "$target") ;;
+        *) c_target=$(normalize_path "${c_dir}/${target}"); h_base="${h_dir}/$(dirname -- "$target")" ;;
+      esac
+      h_tdir=$(CDPATH= cd -- "$h_base" 2>/dev/null && pwd -P) || return 0
+      c_tdir=$(dirname -- "$c_target")
+      if too_wide "$c_tdir" || too_wide "$h_tdir"; then
+        printf '%s\n' "${1}: its config leads to ${c_target}, and bootstrap does not hand the installer ${c_tdir} whole (the root, your home or a folder above it): not configured. Link it into a folder of its own." >&2
+        return 1
+      fi
+      add_mount "$h_tdir" "$c_tdir" || return 1
+      c_dir=$c_tdir
+      h_dir=$h_tdir
+      name=$(basename -- "$target")
+      hops=$((hops + 1))
+    done
+  }
+  # Docker takes the client's folders, or says why not: one it refuses — outside
+  # Docker Desktop's file sharing, say — costs that client alone (Д-339).
+  mounts_taken() {
+    set -- run --rm --network none --entrypoint true
+    set -f
+    old_ifs=$IFS
+    IFS=$nl
+    for line in $client_mounts; do
+      set -- "$@" --mount "type=bind,source=${line%%,*},target=${line#*,}"
+    done
+    IFS=$old_ifs
+    set +f
+    docker "$@" "$installer_image" 2>&1 >/dev/null
+  }
+  mounted="$nl"
   install_clients=""
-  for pair in "claude-desktop:${app_data}/Claude:claude_desktop_config.json" "cursor:${HOME}/.cursor:mcp.json" \
-      "vscode:${app_data}/Code/User:mcp.json" "codex:${codex_home}:config.toml" "gemini:${HOME}/.gemini:settings.json"; do
-    client="${pair%%:*}"
-    rest="${pair#*:}"
-    folder="${rest%:*}"
+  for entry in "claude-desktop:${app_data}/Claude:claude_desktop_config.json:Claude Desktop" "cursor:${HOME}/.cursor:mcp.json:Cursor" \
+      "vscode:${app_data}/Code/User:mcp.json:VS Code" "codex:${codex_home}:config.toml:Codex" "gemini:${HOME}/.gemini:settings.json:Gemini CLI"; do
+    client="${entry%%:*}"
+    rest="${entry#*:}"
+    label="${rest##*:}"
+    rest="${rest%:*}"
     file="${rest##*:}"
+    folder="${rest%:*}"
     wants "$client" || continue
     case ",${clients}," in
       *,all,*) [ -d "$folder" ] || continue ;;
       *) mkdir -p "$folder" ;;
     esac
-    mount_folder "$folder" || continue
-    link="${folder}/${file}"
-    hops=0
-    while [ -L "$link" ] && [ "$hops" -lt 8 ]; do
-      target=$(readlink "$link")
-      case "$target" in
-        /*) ;;
-        *) target="$(dirname "$link")/${target}" ;;
+    client_mounts="$nl"
+    if ! add_mount "$folder" "$folder" || ! follow_links "$label" "$folder" "$file"; then
+      install_status=1
+      continue
+    fi
+    if [ "$client_mounts" != "${nl}${folder},${folder}${nl}" ] || [ -L "$folder" ]; then
+      if ! refused=$(mounts_taken); then
+        printf '%s\n' "${label}: Docker did not take a folder its config leads to (${refused%%"$nl"*}): not configured." >&2
+        install_status=1
+        continue
+      fi
+    fi
+    set -f
+    old_ifs=$IFS
+    IFS=$nl
+    for line in $client_mounts; do
+      case "$mounted" in
+        *",${line#*,}${nl}"*) ;;
+        *) mounted="${mounted}${line}${nl}" ;;
       esac
-      link_dir=$(CDPATH= cd -- "$(dirname "$target")" 2>/dev/null && pwd -P) || break
-      mount_folder "$link_dir" || break
-      link="${link_dir}/$(basename "$target")"
-      hops=$((hops + 1))
     done
+    IFS=$old_ifs
+    set +f
     install_clients="${install_clients}${install_clients:+,}${client}"
   done
   set -- run --rm --network none --user "${uid}:${gid}" --read-only --tmpfs /tmp:rw,size=64m \
     --env "HOME=${HOME}" --env "XDG_CONFIG_HOME=${app_data}" --env "CODEX_HOME=${codex_home}"
-  set -f
-  old_ifs=$IFS
-  IFS=$nl
-  for folder in $mounted; do
-    set -- "$@" --mount "type=bind,source=${folder},target=${folder}"
-  done
-  IFS=$old_ifs
-  set +f
-  set -- "$@" --mount "type=bind,source=${state_path},target=${state_path}"
   if [ -n "$model_path" ]; then
     set -- "$@" --mount "type=bind,source=${model_path},target=${model_path},readonly"
   fi
-  set -- "$@" "$installer_image" ai-dev clients
+  # Claude Code's entry is printed, not written: it needs none of the clients' folders (Д-339).
+  claude_entry=""
+  if wants claude-code && { [ -e "${HOME}/.claude.json" ] || [ -d "${HOME}/.claude" ] || [ "$clients" != "all" ]; }; then
+    if entry=$(docker "$@" "$installer_image" ai-dev clients entry claude-code \
+        --docker --image="$image" --projects="$project_path" --state="$state_path" --shared-state="$shared_state" --volume="$data_volume" \
+        --home="$HOME" --platform="$installer_platform" --docker-command="$docker_command" \
+        ${model_path:+"--model=$model_path"}); then
+      claude_entry=$entry
+    else
+      install_status=1
+    fi
+  fi
   if [ -n "$install_clients" ]; then
+    set -f
+    old_ifs=$IFS
+    IFS=$nl
+    for line in $mounted; do
+      set -- "$@" --mount "type=bind,source=${line%%,*},target=${line#*,}"
+    done
+    IFS=$old_ifs
+    set +f
+    set -- "$@" --mount "type=bind,source=${state_path},target=${state_path}"
     printf '%s\n' "Writing the AI clients' configs (${install_clients})..."
     # One client that cannot be written does not stop the others, nor Claude Code below.
-    if ! docker "$@" install --clients="$install_clients" \
+    if ! docker "$@" "$installer_image" ai-dev clients install --clients="$install_clients" \
         --docker --image="$image" --projects="$project_path" --state="$state_path" --shared-state="$shared_state" --volume="$data_volume" \
         --home="$HOME" --platform="$installer_platform" --docker-command="$docker_command" \
         ${model_path:+"--model=$model_path"}; then
@@ -352,29 +455,22 @@ if [ "$skip_client_install" -ne 1 ]; then
     fi
   fi
   # Claude Code keeps its servers in ~/.claude.json, a file in the home, which
-  # the image is not given: its own CLI writes the entry the image prints.
-  if wants claude-code && { [ -e "${HOME}/.claude.json" ] || [ -d "${HOME}/.claude" ] || [ "$clients" != "all" ]; }; then
-    if entry=$(docker "$@" entry claude-code \
-        --docker --image="$image" --projects="$project_path" --state="$state_path" --shared-state="$shared_state" --volume="$data_volume" \
-        --home="$HOME" --platform="$installer_platform" --docker-command="$docker_command" \
-        ${model_path:+"--model=$model_path"}); then
-      if command -v claude >/dev/null 2>&1; then
-        if [ -f "${HOME}/.claude.json" ]; then
-          cp "${HOME}/.claude.json" "${HOME}/.claude.json.backup-$(date -u +%Y-%m-%dT%H-%M-%SZ)"
-        fi
-        claude mcp remove ai-dev --scope user >/dev/null 2>&1 || true
-        claude mcp remove ai-dev-system --scope user >/dev/null 2>&1 || true
-        if claude mcp add-json ai-dev "$entry" --scope user; then
-          printf '%s\n' "  Claude Code             added through \`claude mcp add-json\`"
-        else
-          install_status=1
-        fi
+  # the image is not given: its own CLI writes the entry the image printed.
+  if [ -n "$claude_entry" ]; then
+    if command -v claude >/dev/null 2>&1; then
+      if [ -f "${HOME}/.claude.json" ]; then
+        cp "${HOME}/.claude.json" "${HOME}/.claude.json.backup-$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+      fi
+      claude mcp remove ai-dev --scope user >/dev/null 2>&1 || true
+      claude mcp remove ai-dev-system --scope user >/dev/null 2>&1 || true
+      if claude mcp add-json ai-dev "$claude_entry" --scope user; then
+        printf '%s\n' "  Claude Code             added through \`claude mcp add-json\`"
       else
-        printf '%s\n' "Claude Code: its CLI is not on PATH here. Add the entry with:" >&2
-        printf "  claude mcp add-json ai-dev '%s' --scope user\n" "$entry" >&2
+        install_status=1
       fi
     else
-      install_status=1
+      printf '%s\n' "Claude Code: its CLI is not on PATH here. Add the entry with:" >&2
+      printf "  claude mcp add-json ai-dev '%s' --scope user\n" "$claude_entry" >&2
     fi
   fi
 fi
@@ -392,7 +488,7 @@ if [ -n "$stale_warning" ]; then
   printf '%s\n' "Installed from a stale image. ${stale_warning}" >&2
 fi
 if [ "$install_status" -ne 0 ]; then
-  printf '%s\n' "Some AI clients were not configured: see above. The others are; run bootstrap.sh again once that is fixed." >&2
+  printf '%s\n' "Some AI clients were not configured: see above for which, and why. Run bootstrap.sh again once that is fixed." >&2
   exit 1
 fi
 printf '%s\n' "AI Dev is ready. Restart the AI clients to load ai-dev."

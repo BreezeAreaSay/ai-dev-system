@@ -33,7 +33,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_DOCKER_VOLUME } from "./docker-launch.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
-import { SEED_STATE_FILE } from "./seed-sync.mjs";
+import { SEED_STATE_FILE, isSeedManifest } from "./seed-sync.mjs";
 
 /** The npm package's name (owner decision D4). */
 export const PACKAGE_NAME = "@stonebridgeway/ai-dev-system";
@@ -91,10 +91,10 @@ export function isEphemeralInstall(folder) {
  */
 
 /**
- * @param {{ serverRoot?: string, env?: NodeJS.ProcessEnv, exists?: (target: string) => boolean }} [options]
+ * @param {{ serverRoot?: string, env?: NodeJS.ProcessEnv, exists?: (target: string) => boolean, isManifest?: (file: string) => boolean }} [options]
  * @returns {InstallLayout}
  */
-export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = process.env, exists = existsSync } = {}) {
+export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = process.env, exists = existsSync, isManifest = isSeedManifest } = {}) {
   const server = path.resolve(serverRoot);
   const root = path.dirname(server);
   const runtimeRoot = resolveRuntimeStateRoot("", env);
@@ -119,9 +119,10 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
   // the seed into it with `cp -n`, which never updated a file (docs/DEFECTS.md,
   // Д-99). A vault named instead is the user's, read where it is, as a package
   // reads one — unless a seed is there already: a sync's record, or the manifest
-  // 2.x's `cp -n` put beside its seed (Д-321). A 2.x image has no distribution
-  // and syncs nothing.
-  const seeded = exists(path.join(contentRoot, SEED_STATE_FILE)) || exists(path.join(contentRoot, SEED_MANIFEST));
+  // 2.x's `cp -n` put beside its seed, a manifest and not a file of the user's
+  // that has its name (Д-321, Д-343). A 2.x image has no distribution and syncs
+  // nothing.
+  const seeded = exists(path.join(contentRoot, SEED_STATE_FILE)) || isManifest(path.join(contentRoot, SEED_MANIFEST));
   const dockerSeeds = kind === "docker" && (contentRoot === path.resolve(ownContent) || seeded);
   const ownSeed = distributed && (dockerSeeds || (kind === "package" && !explicit)) ? shipped : "";
   return {

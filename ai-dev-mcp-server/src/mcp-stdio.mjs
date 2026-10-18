@@ -57,7 +57,7 @@ import {
 import { listSearchPresets } from "./core/search-runtime.mjs";
 import { createSearchIndexRuntime, vaultIndexPath } from "./core/search-index.mjs";
 import { createDenseRuntime } from "./core/dense-runtime.mjs";
-import { createOnnxDenseRuntime } from "./core/dense-onnx.mjs";
+import { createOnnxDenseRuntime, defaultOnnxModelDir } from "./core/dense-onnx.mjs";
 import { readDenseManifest } from "./core/dense-manifest.mjs";
 import { isDirectExecution } from "./core/direct-execution.mjs";
 import {
@@ -282,11 +282,9 @@ const sessionStore = new SessionStore({ stateRoot: taskStateRoot });
 const instinctStore = new InstinctStore({ stateRoot: taskStateRoot });
 const skillOutcomeStore = new SkillOutcomeStore({ stateRoot: taskStateRoot });
 const pilotStore = new PilotStore({ stateRoot: taskStateRoot });
-// The ONNX export. 2.x kept the Python backend's torch weights beside it in
-// models/bge-m3; that folder is only looked at to say it can go (D3, Д-98).
-const defaultBgeM3OnnxDir = path.resolve(
-  aiDevRuntimePath("BGE_M3_ONNX_DIR", ["models", "bge-m3-onnx"])
-);
+// The ONNX export — in the image a host's folder mounted at /models first, as the CLI finds it (Д-346). 2.x kept
+// the Python backend's torch weights beside it in models/bge-m3; that folder is only looked at to say it can go (D3, Д-98).
+const defaultBgeM3OnnxDir = defaultOnnxModelDir({ aiDevHome: runtimeStateRoot });
 const denseManifest = readDenseManifest();
 let searchHardNegativeCache = null;
 

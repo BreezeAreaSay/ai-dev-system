@@ -16,6 +16,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { canonicalSkillGroup, classifySkill } from "../skill-taxonomy.mjs";
 import { analyzeDuplicateSkills, enrichSkillQuality } from "../skill-quality.mjs";
+import { withFileLock } from "../core/file-lock.mjs";
 import { isPathInside } from "../core/path-policy.mjs";
 import { applySkillOverlays } from "../core/skill-overlays.mjs";
 import { applySkillOutcome } from "../core/skill-outcomes.mjs";
@@ -44,6 +45,14 @@ import {
 const MAX_SEMANTIC_DUPLICATE_PATHS = 32;
 
 /**
+ * Rebuilds of one vault's registry go one at a time across processes too: in
+ * Docker each session is a container on the same volume, and two rebuilds at
+ * once removed each other's folders — 5 of 9 failed (docs/DEFECTS.md, Д-326,
+ * Д-345). The holder beats every 3 s; one silent for 20 s is taken for killed.
+ */
+const REBUILD_LOCK = Object.freeze({ timeoutMs: 120_000, staleMs: 20_000, heartbeatMs: 3_000 });
+
+/**
  * Rebuild every generated skill registry from the SKILL.md sources in the vault.
  *
  * The collectors, the taxonomy writer and the card sync stay on `host`: they are
@@ -51,10 +60,15 @@ const MAX_SEMANTIC_DUPLICATE_PATHS = 32;
  * which have not been extracted yet.
  */
 async function rebuildIndex(host) {
+  await fs.mkdir(host.skillRegistryDir, { recursive: true });
+  const combined = path.join(host.skillRegistryDir, path.basename(SKILL_REGISTRY_FILES.combined));
+  return withFileLock(combined, () => rebuildIndexHeld(host, combined), REBUILD_LOCK);
+}
+
+async function rebuildIndexHeld(host, combinedPath) {
   // Before the first SKILL.md is read: the registry is dated by it, so a skill
   // changed while this runs is newer than the registry (docs/DEFECTS.md, Д-128).
   const sourcesReadAt = new Date();
-  await fs.mkdir(host.skillRegistryDir, { recursive: true });
 
   const [outcomeStatus, overlays] = await Promise.all([
     host.skillOutcomeStore.status(),
@@ -81,7 +95,7 @@ async function rebuildIndex(host) {
   await host.writeText(SKILL_REGISTRY_FILES.membraneMarkdown, renderMembraneSkillsMarkdown(membrane));
   await host.writeText(SKILL_REGISTRY_FILES.externalMarkdown, renderExternalSkillsMarkdown(external));
   const skillCards = await host.syncSkillCards({ include_membrane: false });
-  await dateSkillRegistry(path.join(host.skillRegistryDir, path.basename(SKILL_REGISTRY_FILES.combined)), sourcesReadAt);
+  await dateSkillRegistry(combinedPath, sourcesReadAt);
   host.markSearchIndexDirty("skill registry rebuilt");
 
   return buildRebuildIndexReport({

@@ -12,6 +12,7 @@ import {
   describeSeedSync,
   describeSyncResult,
   evaluateVaultSeed,
+  isSeedManifest,
   prepareUserVault,
   readSeedHistory,
   seedHistoryKey,
@@ -409,6 +410,16 @@ test("a vault a 2.x image ran on since its last sync gives back what that image'
   await fs.writeFile(path.join(vault, "public-seed.manifest.json"), "my notes on the seed\n");
   assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "current");
   assert.equal(await read(vault, "public-seed.manifest.json"), "my notes on the seed\n");
+});
+
+test("a seed manifest is told by its content: JSON with a files list, not just the name (Д-343)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "seed-manifest-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const file = (name, text) => fs.writeFile(path.join(root, name), text).then(() => path.join(root, name));
+  assert.equal(isSeedManifest(await file("manifest.json", JSON.stringify({ files: [{ path: "a", sha256: "b" }] }))), true);
+  assert.equal(isSeedManifest(await file("notes.json", JSON.stringify({ notes: "mine" }))), false);
+  assert.equal(isSeedManifest(await file("notes.txt", "my notes about the seed")), false);
+  assert.equal(isSeedManifest(path.join(root, "missing.json")), false);
 });
 
 test("the shipped history names versions by path and sha256, sorted and unique", async () => {

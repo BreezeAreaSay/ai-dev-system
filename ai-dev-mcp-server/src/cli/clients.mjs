@@ -49,7 +49,7 @@ export function usage() {
     "    --volume=<name>       the data volume (ai-dev-system-data)",
     "    --state=<folder>      the state folder shared with the agent hooks (~/.ai-dev/state, where the image's user,",
     "                          uid 1000, is yours or Docker Desktop maps it); made if missing",
-    "    --shared-state=yes|no whether to share it, decided already (bootstrap.sh tries it on the host); by default",
+    "    --shared-state=yes|no|untried  decided already, and explained, by the caller (bootstrap.sh tries it); by default",
     "                          a Linux host tries it with the image (not pulled for it) before it goes into an entry",
     "    --docker-command=<path>  the Docker CLI (found on PATH)",
     "    --home, --platform    the host's, when this runs in the image on its behalf (bootstrap.sh)",
@@ -69,7 +69,7 @@ async function dockerFrom(values, io, { apply = true, tryState = apply } = {}) {
   const platform = values.platform || process.platform;
   if (!["linux", "darwin", "win32"].includes(platform)) throw new CliUsageError(`--platform takes linux, darwin or win32; "${platform}" is not one.`);
   const shareState = values["shared-state"] ?? "";
-  if (!["", "yes", "no", "untried"].includes(shareState)) throw new CliUsageError(`--shared-state takes yes or no; "${shareState}" is not one.`);
+  if (!["", "yes", "no", "untried"].includes(shareState)) throw new CliUsageError(`--shared-state takes yes, no or untried; "${shareState}" is not one.`);
   const paths = platform === "win32" ? path.win32 : path.posix;
   try {
     return await dockerOptions({

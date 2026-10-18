@@ -286,10 +286,14 @@ test("in the image on the host's behalf, clients install --docker makes no folde
   assert.equal(apart.code, 0, apart.stderr);
   const after = readJsonc(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"].args;
   assert.ok(!after.some((argument) => argument.includes("/ai-dev-state")), after.join(" "));
-  assert.match(JSON.parse(apart.stdout).note, process.getuid?.() === 1000 ? /trying it, the image's user could not write your state folder as you/ : /is not yours/);
+  // Decided by bootstrap.sh, it is bootstrap.sh that says why — once, not once per run (Д-342, Д-344).
+  assert.equal(JSON.parse(apart.stdout).note ?? "", "");
+  const untried = await runNode([cli, "clients", "install", ...flags, "--shared-state=untried"], { env });
+  assert.equal(untried.code, 0, untried.stderr);
+  assert.doesNotMatch(`${untried.stdout}${untried.stderr}`, /ai-dev clients install --docker` again/, "bootstrap's user has no host CLI to run");
   const wrong = await runNode([cli, "clients", "install", ...flags, "--shared-state=maybe"], { env });
   assert.equal(wrong.code, 2);
-  assert.match(wrong.stderr, /--shared-state takes yes or no/);
+  assert.match(wrong.stderr, /--shared-state takes yes, no or untried/);
 });
 
 test("on the host, the state folder of a Docker entry is the hooks' one: AI_DEV_STATE_ROOT first (Д-328)", async (t) => {

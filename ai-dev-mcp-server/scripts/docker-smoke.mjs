@@ -12,7 +12,10 @@
  * 3. the model through the volume (Д-99): one run with the network installs a
  *    model — a synthetic one, served from this machine as a Hugging Face mirror
  *    would — and embeds the documents; a session without the network then
- *    searches with it.
+ *    searches with it;
+ * 4. a model folder of the host's, mounted at /models as `--model` writes it:
+ *    the command the start report gives builds the vectors offline, and the
+ *    sessions use that folder (Д-341, Д-346).
  */
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -36,12 +39,12 @@ const browser = process.argv.includes("--browser");
 const volume = `ai-dev-smoke-${process.pid}-${crypto.randomBytes(3).toString("hex")}`;
 
 /** What a client config runs, the 3.0 entry's flags, with this smoke's volume. */
-function session(extra = []) {
+function session(extra = [], data = volume) {
   return [
     "run", "--rm", "-i",
     "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,size=512m", "--shm-size", "1g",
     "--network", "none", "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL",
-    "--mount", `type=volume,source=${volume},target=/data`,
+    "--mount", `type=volume,source=${data},target=/data`,
     ...extra,
     image
   ];
@@ -101,7 +104,7 @@ async function serveSyntheticModel() {
   await fs.writeFile(path.join(folder, "synthetic.manifest.json"), JSON.stringify(manifest), { mode: 0o644 });
   // mkdtemp makes it this user's alone; the container's user is another.
   await fs.chmod(folder, 0o755);
-  return { port: server.address().port, folder, close: async () => { server.close(); await fs.rm(folder, { recursive: true, force: true }); } };
+  return { port: server.address().port, folder, files, close: async () => { server.close(); await fs.rm(folder, { recursive: true, force: true }); } };
 }
 
 const report = { status: "pass", image };
@@ -189,6 +192,31 @@ try {
           dense_score: top.dense_score
         };
       });
+
+      // 4. A model folder of the host's, mounted read-only at /models as `--model` writes it: the sessions use it,
+      //    and the start report's command builds the vectors with it, offline (docs/DEFECTS.md, Д-341, Д-346).
+      const hostModels = path.join(mirror.folder, "models");
+      for (const [name, body] of Object.entries(mirror.files)) {
+        const file = path.join(hostModels, "bge-m3-onnx", name);
+        await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o755 });
+        await fs.writeFile(file, body, { mode: 0o644 });
+      }
+      const hostVolume = `${volume}-host-model`;
+      const hostMount = [...manifestMount, "--mount", `type=bind,source=${hostModels},target=/models,readonly`];
+      try {
+        const embed = await docker(["run", "--rm", "--network", "none", ...hostMount, "--mount", `type=volume,source=${hostVolume},target=/data`, image, "ai-dev", "setup", "--model"]);
+        if (embed.status !== 0) throw new Error(`ai-dev setup --model with the host's model exited ${embed.status}: ${`${embed.stdout}\n${embed.stderr}`.trim().split("\n").filter((line) => /✗|rror/.test(line)).slice(-3).join(" | ")}`);
+        await connect(session(hostMount, hostVolume), async ({ client, stderr }) => {
+          const embedding = JSON.parse(text(await client.callTool({ name: "embedding_status", arguments: {} })));
+          const vectors = /Dense vectors: (.*)/.exec(stderr())?.[1] ?? "";
+          if (!embedding.available || embedding.model_dir !== "/models/bge-m3-onnx" || vectors !== "every indexed document has one") {
+            throw new Error(`The host's model at /models: available ${embedding.available}, model_dir ${embedding.model_dir}, start report "${vectors}".`);
+          }
+          report.host_model = { dir: embedding.model_dir, vectors };
+        });
+      } finally {
+        spawnSync("docker", ["volume", "rm", "-f", hostVolume], { stdio: "ignore", shell: false });
+      }
     } finally {
       await mirror.close();
     }

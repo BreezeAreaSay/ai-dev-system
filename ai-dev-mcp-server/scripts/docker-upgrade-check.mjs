@@ -171,6 +171,8 @@ try {
   }));
   assert(back.tasks.includes(first.task), "the 2.x image under a 3.0 entry does not see the task in the shared state folder");
   const putBack = Number(inVolume(newImage, "find /data/ai-dev-system/03-skills-catalog/sources -name SKILL.md | wc -l"));
+  // What step 6 takes away: without it, step 6 would pass having tested nothing (docs/DEFECTS.md, Д-344).
+  assert(putBack > shippedSkills + 1, `the 2.x start under a 3.0 entry put no skills back: ${putBack}`);
   report.way_back_3x_entry = { session_ms: back.handshake.ms, task: "seen in the shared state folder", skills_after_its_cp_n: putBack };
 
   // 6. Back on the new image: what that start's `cp -n` put back goes again (Д-317).

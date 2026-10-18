@@ -52,13 +52,33 @@ export const SEED_HISTORY_FILE = path.resolve(path.dirname(fileURLToPath(import.
 const MANIFEST = "public-seed.manifest.json";
 
 /**
- * How long a start waits for another one syncing the same vault, and how often
- * the holder says it is alive: a 2.x volume's first sync takes seconds here and
- * a minute on a slow machine, which a lock taken for stale after 30 s let a
- * second start break into (docs/DEFECTS.md, Д-330). Beating every few seconds,
- * a holder that was killed is let go of as soon as the first-run lock's is.
+ * Whether a file is a seed's manifest — JSON with a `files` list — and not the
+ * user's own file of that name. 2.x's `cp -n` put its manifest beside its seed,
+ * and finding one is how a sync tells that 2.x ran here; the layout asks the
+ * same before it treats a vault named by `AI_DEV_VAULT_ROOT` as seeded
+ * (docs/DEFECTS.md, Д-336, Д-343).
+ *
+ * @param {string} file
+ * @returns {boolean}
  */
-const SYNC_LOCK = Object.freeze({ timeoutMs: 300_000, staleMs: 20_000, heartbeatMs: 3_000 });
+export function isSeedManifest(file) {
+  try {
+    return Array.isArray(JSON.parse(fs.readFileSync(file, "utf8"))?.files);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * How often the holder of a sync says it is alive, and how long another start
+ * waits for it: a 2.x volume's first sync takes seconds here and a minute on a
+ * slow machine, which a lock taken for stale after 30 s let a second start
+ * break into (docs/DEFECTS.md, Д-330). A start still waiting after 15 s goes on
+ * without the sync — the vault as it is, the next start syncs — rather than past
+ * the 60 s a client gives `initialize`; in the image it then builds nothing
+ * either (Д-340).
+ */
+const SYNC_LOCK = Object.freeze({ timeoutMs: 15_000, staleMs: 20_000, heartbeatMs: 3_000 });
 
 /**
  * How the history names one version of one file: the path and its sha256,
@@ -289,13 +309,7 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
   // its manifest with it, and no sync leaves that manifest there: finding it
   // means 2.x ran here since the last sync (docs/DEFECTS.md, Д-317). A file of
   // that name that is no seed manifest is the user's, and stays (Д-336).
-  const legacyRan = async () => {
-    try {
-      return Array.isArray(JSON.parse(await fsp.readFile(path.join(contentRoot, MANIFEST), "utf8"))?.files);
-    } catch {
-      return false;
-    }
-  };
+  const legacyRan = async () => isSeedManifest(path.join(contentRoot, MANIFEST));
   const settled = async (state) => {
     if (fingerprint && state?.seed_fingerprint === fingerprint) return await legacyRan() ? "" : "current";
     if (version && state?.seed_version && compareVersions(state.seed_version, version) > 0) return "newer";

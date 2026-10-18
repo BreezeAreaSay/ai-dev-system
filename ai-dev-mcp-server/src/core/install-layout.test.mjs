@@ -92,11 +92,18 @@ test("the 3.0 image is a distribution: its seed is synced into the volume's vaul
 
 test("in the image a vault the user named is theirs, read where it is — unless a seed is there already (Д-321)", () => {
   const files = ["/opt/ai-dev/distribution.json", "/opt/ai-dev/seed/public-seed.manifest.json"];
-  const layoutWith = (...extra) => resolveInstallLayout({ serverRoot: "/opt/ai-dev/ai-dev-mcp-server", env: env({ AI_DEV_RUNTIME: "docker", AI_DEV_VAULT_ROOT: "/data/myvault" }), exists: only(...files, ...extra) });
+  // A 2.x manifest is a manifest by its content: a file of the user's with its name is not one (Д-343).
+  const manifests = new Set(["/data/myvault/public-seed.manifest.json"]);
+  const layoutWith = (...extra) => resolveInstallLayout({
+    serverRoot: "/opt/ai-dev/ai-dev-mcp-server", env: env({ AI_DEV_RUNTIME: "docker", AI_DEV_VAULT_ROOT: "/data/myvault" }), exists: only(...files, ...extra),
+    isManifest: (file) => extra.includes(file) && manifests.has(file)
+  });
   const mine = layoutWith();
   assert.deepEqual([mine.kind, mine.contentRoot, mine.seedRoot], ["docker", path.resolve("/data/myvault"), ""], "nothing is copied into it, nothing removed from it");
   assert.equal(layoutWith("/data/myvault/.ai-dev-seed.json").seedRoot, path.resolve("/opt/ai-dev/seed"), "a vault the sync filled before");
   assert.equal(layoutWith("/data/myvault/public-seed.manifest.json").seedRoot, path.resolve("/opt/ai-dev/seed"), "a vault 2.x's cp -n filled, its manifest with it");
+  manifests.clear();
+  assert.equal(layoutWith("/data/myvault/public-seed.manifest.json").seedRoot, "", "a file of the user's named like the manifest");
   const trailing = resolveInstallLayout({ serverRoot: "/opt/ai-dev/ai-dev-mcp-server", env: env({ AI_DEV_RUNTIME: "docker", AI_DEV_VAULT_ROOT: "/data/ai-dev-system/" }), exists: only(...files) });
   assert.equal(trailing.seedRoot, path.resolve("/opt/ai-dev/seed"), "the image's own vault, however it is spelled");
 });

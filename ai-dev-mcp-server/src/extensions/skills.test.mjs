@@ -173,6 +173,22 @@ test("rebuild_index writes every registry file and reports what it built", async
   assert.deepEqual(calls.at(-1), ["markSearchIndexDirty", "skill registry rebuilt"]);
 });
 
+test("two rebuilds of one registry run one after the other: its folders are rewritten whole (Д-345)", async (t) => {
+  const { registry, host } = await createFixture(t);
+  const events = [];
+  const collect = host.collectCustomSkills;
+  host.collectCustomSkills = async () => {
+    events.push("start");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const items = await collect();
+    events.push("end");
+    return items;
+  };
+  const rebuild = registry.handlers.get("rebuild_index");
+  await Promise.all([rebuild({}), rebuild({})]);
+  assert.deepEqual(events, ["start", "end", "start", "end"]);
+});
+
 test("validate_skill_library scores the sources and writes the report and dashboard", async (t) => {
   const { registry, writes, calls } = await createFixture(t);
   const result = await registry.handlers.get("validate_skill_library")({});

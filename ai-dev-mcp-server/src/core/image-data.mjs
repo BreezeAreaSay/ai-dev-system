@@ -19,9 +19,17 @@
  * the image records the seed's time beside the data ({@link PREPARED_MARKER}),
  * and the first start of a volume that still carries the record gives the
  * skill folders that time back, then removes it.
+ *
+ * Docker fills a new volume as the first container on it starts; one started a
+ * moment later finds the volume not empty, copies nothing, and runs while the
+ * copy goes on — it built the registry from 51 of 614 skills (docs/DEFECTS.md,
+ * Д-355). The record also says how much the data holds, and it is the first
+ * thing copied (names in order, its own starts with a dot): a start that finds
+ * it waits until the volume holds as much ({@link awaitImageDataCopy}).
  */
 import fs from "node:fs/promises";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 
 /** Beside the image's data: the time the seed was dated to. Removed by the first start. */
 export const PREPARED_MARKER = ".ai-dev-image-data.json";
@@ -80,13 +88,75 @@ export async function settleTimes(root) {
 }
 
 /**
- * Record, beside the data, the time the seed was dated to.
+ * How much the data holds, as Docker copies it into a new volume: every file,
+ * folder and link below `dataRoot` but the record and the folders in `skip`, and
+ * the bytes of the files. Links are not followed.
  *
  * @param {string} dataRoot - `/data`.
- * @param {{ seconds: number, version?: string }} record
+ * @param {{ skip?: string[] }} [options]
+ * @returns {Promise<{ entries: number, bytes: number }>}
  */
-export async function writePreparedMarker(dataRoot, { seconds, version = "" }) {
-  await fs.writeFile(path.join(dataRoot, PREPARED_MARKER), `${JSON.stringify({ schema_version: 1, seed_dated: seconds, version })}\n`);
+export async function measureImageData(dataRoot, { skip = [] } = {}) {
+  const skipped = new Set([path.join(dataRoot, PREPARED_MARKER), ...skip.map((folder) => path.resolve(folder))]);
+  let entries = 0;
+  let bytes = 0;
+  const walk = async (folder) => {
+    for (const entry of await fs.readdir(folder, { withFileTypes: true }).catch(() => [])) {
+      const full = path.join(folder, entry.name);
+      if (skipped.has(full)) continue;
+      entries += 1;
+      if (entry.isDirectory()) await walk(full);
+      else if (entry.isFile()) bytes += await fs.lstat(full).then((stat) => stat.size, () => 0);
+    }
+  };
+  await walk(dataRoot);
+  return { entries, bytes };
+}
+
+/**
+ * Record, beside the data, the time the seed was dated to and how much the data
+ * holds — the last thing the build writes there.
+ *
+ * @param {string} dataRoot - `/data`.
+ * @param {{ seconds: number, version?: string, skip?: string[] }} record - `skip`: as {@link measureImageData}.
+ */
+export async function writePreparedMarker(dataRoot, { seconds, version = "", skip = [] }) {
+  const { entries, bytes } = await measureImageData(dataRoot, { skip });
+  await fs.writeFile(path.join(dataRoot, PREPARED_MARKER), `${JSON.stringify({ schema_version: 1, seed_dated: seconds, version, entries, bytes })}\n`);
+}
+
+/**
+ * On a volume Docker may still be filling from the image: wait until it holds
+ * what the record says the image's data does, the record is gone — a start that
+ * got there first has used it — or `timeoutMs` has passed. A volume without the
+ * record, or with one that does not say, waits for nothing.
+ *
+ * @param {{ dataRoot: string, skip?: string[], timeoutMs?: number, pollMs?: number }} input - `skip`: the folders the
+ *   start makes before it looks, which the image's data does not have (its state folder).
+ * @returns {Promise<{ outcome: "none" | "copied" | "taken" | "timed-out", waited_ms: number }>}
+ */
+export async function awaitImageDataCopy({ dataRoot, skip = [], timeoutMs = 20_000, pollMs = 100 }) {
+  const started = performance.now();
+  // Only a look after a pause is waiting: the first one, however slow the disk, is not.
+  const waited = (look) => (look ? Math.max(1, Math.round(performance.now() - started)) : 0);
+  const marker = path.join(dataRoot, PREPARED_MARKER);
+  let expected = null;
+  for (let look = 0; ; look += 1) {
+    const text = await fs.readFile(marker, "utf8").catch(() => null);
+    if (text === null) return { outcome: look ? "taken" : "none", waited_ms: waited(look) };
+    if (!expected) {
+      try {
+        expected = JSON.parse(text);
+      } catch {
+        // Not one the build wrote: the start removes it, as it would anyway.
+      }
+      if (!Number.isFinite(expected?.entries) || !Number.isFinite(expected?.bytes)) return { outcome: "none", waited_ms: 0 };
+    }
+    const held = await measureImageData(dataRoot, { skip });
+    if (held.entries >= expected.entries && held.bytes >= expected.bytes) return { outcome: "copied", waited_ms: waited(look) };
+    if (performance.now() - started >= timeoutMs) return { outcome: "timed-out", waited_ms: waited(1) };
+    await sleep(pollMs);
+  }
 }
 
 /**

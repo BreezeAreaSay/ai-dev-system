@@ -9,11 +9,14 @@
  *    is copied into the volume), and the health check passes; the time from
  *    `docker run` to the answer is reported;
  * 2. the next session on that volume, timed the same way;
- * 3. the model through the volume (Д-99): one run with the network installs a
+ * 3. two sessions on another new volume, the second a moment after the first,
+ *    as two clients start: Docker fills it as the first starts, the second
+ *    waits for the copy, and neither builds anything (Д-355);
+ * 4. the model through the volume (Д-99): one run with the network installs a
  *    model — a synthetic one, served from this machine as a Hugging Face mirror
  *    would — and embeds the documents; a session without the network then
  *    searches with it;
- * 4. a model folder of the host's, mounted at /models as `--model` writes it:
+ * 5. a model folder of the host's, mounted at /models as `--model` writes it:
  *    the command the start report gives builds the vectors offline, and the
  *    sessions use that folder (Д-341, Д-346).
  */
@@ -24,6 +27,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { setTimeout as sleep } from "node:timers/promises";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { syntheticManifest, syntheticModelFiles } from "../src/core/synthetic-model.mjs";
@@ -158,7 +162,25 @@ try {
   // 2. The next session.
   await connect(session(), async ({ ms }) => { report.next_session_ms = ms; });
 
-  // 3. The model through the volume.
+  // 3. Two sessions on a new volume, the second 200 ms after the first, as a second client starts: it lands in the
+  //    copy Docker makes for the first and waits for it — before Д-355 one built from part of the catalogue in 8 rounds
+  //    of 10, and a start built something in all 10. A race: a run that misses it passes either way.
+  const pairVolume = `${volume}-pair`;
+  try {
+    const pair = await Promise.all([0, 200].map((delay) => sleep(delay).then(() => connect(session([], pairVolume), async ({ ms, stderr }) => ({
+      ms,
+      built: /(\d+) built, \d+ skipped, \d+ failed/.exec(stderr())?.[1] ?? "no report",
+      waited: Number(/this start waited ([\d.]+) s for the copy/.exec(stderr())?.[1] ?? 0)
+    })))));
+    if (pair.some((start) => start.built !== "0")) {
+      throw new Error(`Two sessions on a new volume, the second 200 ms after the first, built: ${pair.map((start) => start.built).join(" and ")}.`);
+    }
+    report.pair_sessions = pair.map(({ ms, waited }) => ({ ms, waited_for_the_copy_s: waited }));
+  } finally {
+    spawnSync("docker", ["volume", "rm", "-f", pairVolume], { stdio: "ignore", shell: false });
+  }
+
+  // 4. The model through the volume.
   if (withModel) {
     const mirror = await serveSyntheticModel();
     try {
@@ -193,7 +215,7 @@ try {
         };
       });
 
-      // 4. A model folder of the host's, mounted read-only at /models as `--model` writes it: the sessions use it,
+      // 5. A model folder of the host's, mounted read-only at /models as `--model` writes it: the sessions use it,
       //    and the start report's command builds the vectors with it, offline (docs/DEFECTS.md, Д-341, Д-346).
       const hostModels = path.join(mirror.folder, "models");
       for (const [name, body] of Object.entries(mirror.files)) {

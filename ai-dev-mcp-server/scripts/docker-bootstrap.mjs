@@ -14,7 +14,8 @@
  * The image builds all of it into its own /data, which Docker copies into a new
  * volume (`scripts/docker-prepare-data.mjs`): on such a volume's first start the
  * skill folders get back the time the copy took from them, and nothing is rebuilt
- * (`src/core/image-data.mjs`).
+ * (`src/core/image-data.mjs`) — a start that finds the copy still going waits for
+ * it first.
  *
  *   node scripts/docker-bootstrap.mjs [--json]    --json: the steps' results on stdout
  */
@@ -31,7 +32,7 @@ import { DEFAULT_DOCKER_VOLUME } from "../src/core/docker-launch.mjs";
 import { acquireFileLock } from "../src/core/file-lock.mjs";
 import { planFirstRun, renderFirstRunReport } from "../src/core/first-run.mjs";
 import { frontendQaInstalled } from "../src/core/frontend-qa-install.mjs";
-import { restorePreparedTimes } from "../src/core/image-data.mjs";
+import { awaitImageDataCopy, restorePreparedTimes } from "../src/core/image-data.mjs";
 import { dockerCommand } from "../src/core/install-layout.mjs";
 import { modelStatus } from "../src/core/model-manager.mjs";
 import { QA_ROOT, frontendQaStatus } from "../src/core/setup-runner.mjs";
@@ -42,13 +43,6 @@ import {
   requiredArtefactPaths,
   runFirstRunPlan
 } from "./first-run-steps.mjs";
-import {
-  callTool,
-  searchIndexPath,
-  seedSync,
-  shutdownBgeWorkers,
-  skillRoutingEvalCasesPath
-} from "../src/mcp-stdio.mjs";
 
 /**
  * A start waits for another one building the same volume — a 2.x volume's first
@@ -65,8 +59,27 @@ const START_WAIT_MS = 40_000;
  */
 const FIRST_RUN_LOCK = Object.freeze({ staleMs: 20_000, heartbeatMs: 3_000 });
 
+/** At most this long for Docker to finish filling a new volume, out of the start's {@link START_WAIT_MS} (Д-355). */
+const COPY_WAIT_MS = 20_000;
+
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const vaultRoot = path.resolve(process.env.AI_DEV_VAULT_ROOT || "/data/ai-dev-system");
+
+// A new volume Docker is still filling from the image, as another client's start made it, is read only once the
+// copy is done — the seed is synced as the server's module loads, so that is loaded after (docs/DEFECTS.md, Д-355).
+// The entrypoint makes the state folder first; the image's data has none.
+const copy = await awaitImageDataCopy({
+  dataRoot: path.dirname(vaultRoot),
+  skip: [path.resolve(process.env.AI_DEV_STATE_ROOT || "/data/runtime-home/.ai-dev/state")],
+  timeoutMs: COPY_WAIT_MS
+});
+if (copy.outcome === "timed-out") {
+  process.stderr.write(`→ Docker is still filling this new volume from the image after ${Math.round(copy.waited_ms / 1000)} s: `
+    + "this start goes on with what is there, and a later one builds what it misses.\n");
+} else if (copy.waited_ms > 0) {
+  process.stderr.write(`→ Docker was still filling this new volume from the image: this start waited ${(copy.waited_ms / 1000).toFixed(1)} s for the copy.\n`);
+}
+const { callTool, searchIndexPath, seedSync, shutdownBgeWorkers, skillRoutingEvalCasesPath } = await import("../src/mcp-stdio.mjs");
 
 async function tool(name, arguments_ = {}) {
   const result = await callTool(name, arguments_);

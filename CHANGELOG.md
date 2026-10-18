@@ -540,7 +540,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the seed sync too, each holder beating every 3 s so a slow machine's start is not taken for
   a dead one and a killed one is let go of within 20 s; a start still waiting 40 s after it
   began serves what is built — a client gives `initialize` 60 s — and one that could not wait
-  out the seed sync builds nothing (Д-326, Д-330, Д-336, Д-340). Sessions rebuild the skill
+  out the seed sync builds nothing (Д-326, Д-330, Д-336, Д-340). A start that lands in the copy
+  Docker makes of the image's data into a new volume for another client's start waits for the
+  copy — at most 20 s — before it reads the volume: one of two clients started together built the
+  skill registry from 51–437 of 614 skills in 7 rounds of 8, and now none builds anything (Д-355).
+  Sessions rebuild the skill
   registry and its taxonomy one at a time, across containers too, and a rebuild's own reads
   never wait for it (Д-345, Д-347, Д-348). A session ends when its client closes stdin, once
   what it asked for is answered: the model's worker no longer keeps its container running

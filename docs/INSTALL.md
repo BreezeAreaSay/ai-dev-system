@@ -359,6 +359,9 @@ makes (`ai-dev/`, checked file by file against its `distribution.json` in the
 build) beside the Dockerfile and the entrypoint — never the repository root or a
 vault. What a first start builds (the skill registry, the search index, the
 routing benchmark) is built into the image, and a new volume starts with it.
+Docker fills a new volume as the first container on it starts; a second client
+started a moment later waits for that copy — at most 20 s — before it reads the
+volume (docs/DEFECTS.md, Д-355).
 
 ### 2. Choose a working folder
 

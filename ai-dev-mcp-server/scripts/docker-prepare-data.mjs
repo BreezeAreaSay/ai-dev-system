@@ -15,8 +15,8 @@
  *    new volume would then rebuild it on its first start;
  * 5. the state the build's own tool calls left (a usage ledger of the build)
  *    removed — a volume's first start would have moved it into the user's
- *    state folder — and the record of the seed's time, for that first start
- *    (`src/core/image-data.mjs`).
+ *    state folder — and the record of the seed's time and of how much the data
+ *    holds, for that first start (`src/core/image-data.mjs`).
  *
  *   node scripts/docker-prepare-data.mjs
  */
@@ -64,8 +64,10 @@ export async function prepareImageData({ layout = currentInstallLayout(), now = 
   if (built(third).length || failed(third).length) {
     throw new Error(`After the build the data is still not current: ${[...built(third), ...failed(third)].join(", ")} would run again on every new volume's first start.`);
   }
-  await fs.rm(process.env.AI_DEV_STATE_ROOT || path.join(layout.runtimeRoot, "state"), { recursive: true, force: true });
-  await writePreparedMarker(dataRoot, { seconds, version });
+  const stateRoot = process.env.AI_DEV_STATE_ROOT || path.join(layout.runtimeRoot, "state");
+  await fs.rm(stateRoot, { recursive: true, force: true });
+  // A start makes its state folder before it looks at a new volume: neither side counts it (docs/DEFECTS.md, Д-355).
+  await writePreparedMarker(dataRoot, { seconds, version, skip: [stateRoot] });
   return { seed: { status: seed.status, added: seed.added }, seed_dated: seconds, first: built(first), second: built(second), third: built(third) };
 }
 

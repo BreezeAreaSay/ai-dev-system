@@ -76,8 +76,11 @@ for (const [label, content] of [
 }
 
 requireText(bootstrapUnix, /image=.*ghcr\.io\/stonebridgeway\/ai-dev-system:latest/, "bootstrap.sh");
-requireText(bootstrapUnix, /--install-prerequisites/, "bootstrap.sh");
-requireText(bootstrapUnix, /brew install --cask docker/, "bootstrap.sh");
+// 3.0 checks for Docker and says where it comes from rather than installing it;
+// a 2.x command line with --install-prerequisites (the packages' own docs) is
+// told so, not refused.
+requireText(bootstrapUnix, /--install-prerequisites\)/, "bootstrap.sh");
+requireText(bootstrapUnix, /https:\/\/docs\.docker\.com\/get-docker\//, "bootstrap.sh");
 requireText(bootstrapUnix, /--build-local/, "bootstrap.sh");
 // Refusing a stale cached image is a decision a user has to be able to
 // override on either platform, so the flag is required on both sides

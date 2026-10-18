@@ -245,7 +245,9 @@ test("the image writes the configs with each client's own folder mounted, and no
   assert.equal(word("home"), result.home);
   assert.ok(install.includes("--docker") && install.includes("ai-dev") && install.includes("clients"));
   assert.ok(install.includes("--network") && install[install.indexOf("--network") + 1] === "none");
-  if (process.platform === "linux") assert.equal(word("user"), `${process.getuid()}:${process.getgid()}`);
+  // The installer runs as the host user (the configs are theirs); the configs run the image's.
+  assert.equal(install[install.indexOf("--user") + 1], `${process.getuid()}:${process.getgid()}`);
+  assert.equal(word("user"), undefined);
   assert.match(result.stdout, /AI Dev is ready/);
 });
 

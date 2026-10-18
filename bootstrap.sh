@@ -199,10 +199,6 @@ if [ "$skip_client_install" -ne 1 ]; then
   # else of this machine. A client named on the command line gets its folder
   # made, as the installer would write it anyway.
   codex_home="${CODEX_HOME:-${HOME}/.codex}"
-  user_option=""
-  if [ "$installer_platform" = "linux" ]; then
-    user_option="--user=${uid}:${gid}"
-  fi
   wants() {
     case ",${clients}," in
       *,all,*|*",$1,"*) return 0 ;;
@@ -237,7 +233,7 @@ if [ "$skip_client_install" -ne 1 ]; then
     docker "$@" install --clients="$install_clients" \
       --docker --image="$image" --projects="$project_path" --state="$state_path" --volume="$data_volume" \
       --home="$HOME" --platform="$installer_platform" --docker-command="$docker_command" \
-      ${model_path:+"--model=$model_path"} ${user_option:+"$user_option"}
+      ${model_path:+"--model=$model_path"}
   fi
   # Claude Code keeps its servers in ~/.claude.json, a file in the home, which
   # the image is not given: its own CLI writes the entry the image prints.
@@ -245,7 +241,7 @@ if [ "$skip_client_install" -ne 1 ]; then
     entry=$(docker "$@" entry claude-code \
       --docker --image="$image" --projects="$project_path" --state="$state_path" --volume="$data_volume" \
       --home="$HOME" --platform="$installer_platform" --docker-command="$docker_command" \
-      ${model_path:+"--model=$model_path"} ${user_option:+"$user_option"})
+      ${model_path:+"--model=$model_path"})
     if command -v claude >/dev/null 2>&1; then
       if [ -f "${HOME}/.claude.json" ]; then
         cp "${HOME}/.claude.json" "${HOME}/.claude.json.backup-$(date -u +%Y-%m-%dT%H-%M-%SZ)"

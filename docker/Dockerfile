@@ -120,13 +120,11 @@ ENV NODE_ENV=production \
 # registry, the quality report, the search index, the routing benchmark. Docker
 # copies /data of the image into a new named volume, so the first session of a
 # new volume starts with all of it; the build stops if any of it would be built
-# again (scripts/docker-prepare-data.mjs). Readable and writable by any uid: on
-# Linux the container runs as the host user (`ai-dev clients install --docker`),
-# so that what it writes into the projects and the state is theirs (Д-311).
+# again (scripts/docker-prepare-data.mjs). The container runs as `node` whatever
+# started it, so the volume has one owner.
 USER node
 RUN mkdir -p "${AI_DEV_VAULT_ROOT}" "${AI_DEV_STATE_ROOT}" "${AI_DEV_SEARCH_INDEX_DIR}" "${AI_DEV_FRONTEND_QA_ARTIFACT_ROOT}" \
-    && node /opt/ai-dev/ai-dev-mcp-server/scripts/docker-prepare-data.mjs \
-    && chmod -R a+rwX /data
+    && node /opt/ai-dev/ai-dev-mcp-server/scripts/docker-prepare-data.mjs
 
 VOLUME ["/data"]
 WORKDIR /workspace

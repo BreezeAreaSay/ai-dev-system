@@ -24,7 +24,7 @@ Usage:
   ai-dev-system root
 
 Bootstrap options can also be passed directly:
-  ai-dev-system --install-prerequisites
+  ai-dev-system --project-path "$HOME/Dev" --clients codex,cursor
 EOF
     ;;
   *)

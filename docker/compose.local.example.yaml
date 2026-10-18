@@ -2,28 +2,26 @@
 services:
   ai-dev-mcp:
     volumes:
+      # The projects at their own path, so the path an agent names is the path
+      # the server opens (docs/DEFECTS.md, Д-312); on Windows, /workspace.
       - type: bind
         source: ${AI_DEV_PROJECT_PATH:?Set AI_DEV_PROJECT_PATH to a local project or projects directory}
-        target: /workspace
+        target: ${AI_DEV_PROJECT_PATH}
 
       # Dense search with the local BGE-M3 model.
       #
       # The weights are never in the image — they are yours, not the
-      # distribution's. Download them once on the host with
-      # `npm run model -- install --no-index` (the ONNX export, about 600 MB,
-      # lands in ~/.ai-dev/models/bge-m3-onnx; `npm run model -- import` copies
-      # it from another machine), then uncomment the four lines below and point
-      # AI_DEV_MODEL_PATH at ~/.ai-dev/models — the folder above it, not the
-      # model directory itself. The image runs dense search from that mount
-      # with no Python at all. (2.x also had a bge-m3/ folder of torch weights
-      # for its Python backend; 3.0 removed that backend, and the folder is
-      # not read.)
-      #
-      # Read-only on purpose: the container reads the weights and never writes them.
-      # The launchers (docker/run-mcp.sh, run-mcp.ps1 and the Windows Claude proxy
-      # ClaudeMcpProxy.cs) do the same mount from the same variable, so every way
-      # of starting the image agrees; scripts/model-mount-contract.test.mjs holds
-      # them to it.
+      # distribution's. Put them in the data volume once, with the network that
+      # one run needs:
+      #   docker run --rm -it --network bridge --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev model install
+      # (about 600 MB, the documents embedded with it). Or keep them on the host
+      # and mount the folder above bge-m3-onnx/ here, read-only, as 2.x did:
+      # uncomment the four lines below and point AI_DEV_MODEL_PATH at
+      # ~/.ai-dev/models — the folder above it, not the model directory itself.
+      # The launchers (docker/run-mcp.sh, run-mcp.ps1 and the Windows Claude
+      # proxy ClaudeMcpProxy.cs) and the 3.0 client entry mount the same
+      # variable the same way; scripts/model-mount-contract.test.mjs holds them
+      # to it.
       # - type: bind
       #   source: ${AI_DEV_MODEL_PATH:?Set AI_DEV_MODEL_PATH to the folder holding bge-m3-onnx/}
       #   target: /models

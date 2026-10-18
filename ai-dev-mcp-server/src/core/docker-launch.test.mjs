@@ -13,18 +13,20 @@ import {
   dockerLaunch,
   dockerRunArgs,
   isDirectDockerEntry,
-  resolveDockerCommand
+  resolveDockerCommand,
+  sharesHostState
 } from "./docker-launch.mjs";
 
 const mountsOf = (args) => args.flatMap((argument, index) => (args[index - 1] === "--mount" ? [argument] : []));
 
 test("the entry runs the image with the volume, the host's state and the projects at their own path (Д-103, Д-312)", () => {
-  const args = dockerRunArgs({ image: "img:1", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", user: "1001:1001", platform: "linux" });
+  const args = dockerRunArgs({ image: "img:1", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", platform: "linux" });
   assert.deepEqual(args.slice(0, 3), ["run", "-i", "--rm"]);
   assert.equal(args.at(-1), "img:1");
-  for (const [flag, value] of [["--network", "none"], ["--cap-drop", "ALL"], ["--security-opt", "no-new-privileges:true"], ["--user", "1001:1001"]]) {
+  for (const [flag, value] of [["--network", "none"], ["--cap-drop", "ALL"], ["--security-opt", "no-new-privileges:true"]]) {
     assert.equal(args[args.indexOf(flag) + 1], value, flag);
   }
+  assert.ok(!args.includes("--user"), "the image's user, whatever started the session: the volume has one owner");
   assert.ok(args.includes("--read-only"));
   assert.deepEqual(mountsOf(args), [
     `type=volume,source=${DEFAULT_DOCKER_VOLUME},target=/data`,
@@ -48,6 +50,14 @@ test("on Windows the projects are at /workspace, a model folder is read-only at 
   assert.throws(() => dockerRunArgs({ image: "img", projects: "/a,b" }), /comma in its path, which a docker --mount cannot hold/);
   assert.deepEqual(dockerLaunch({}).args.at(-1), DEFAULT_DOCKER_IMAGE);
   assert.deepEqual(dockerLaunch({ docker: "/usr/local/bin/docker", image: "x" }).command, "/usr/local/bin/docker");
+});
+
+test("the host's state is shared where the image's user is the host's: Docker Desktop maps it, Linux needs uid 1000", () => {
+  assert.equal(sharesHostState({ platform: "darwin", uid: 501 }), true);
+  assert.equal(sharesHostState({ platform: "win32" }), true);
+  assert.equal(sharesHostState({ platform: "linux", uid: 1000 }), true);
+  assert.equal(sharesHostState({ platform: "linux", uid: 1001 }), false);
+  assert.equal(sharesHostState({ platform: "linux", uid: 0 }), false);
 });
 
 test("the Docker CLI is named by its full path: a client started from the Dock has no shell PATH", () => {

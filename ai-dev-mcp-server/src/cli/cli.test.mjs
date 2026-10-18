@@ -176,7 +176,11 @@ test("clients install --docker writes `docker run -i --rm …`, and list, entry 
   assert.deepEqual([written.args[0], written.args.at(-1)], ["run", "example/ai-dev:3"]);
   const mounts = written.args.flatMap((argument, index) => (written.args[index - 1] === "--mount" ? [argument] : []));
   const state = path.join(home, ".ai-dev", "state");
-  assert.ok(mounts.includes(`type=bind,source=${state},target=/ai-dev-state`), mounts.join(" "));
+  // Shared where the image's user (uid 1000) is this one, or Docker Desktop maps it.
+  const shared = process.platform !== "linux" || process.getuid() === 1000;
+  assert.equal(mounts.includes(`type=bind,source=${state},target=/ai-dev-state`), shared, mounts.join(" "));
+  assert.ok(!written.args.includes("--user"));
+  if (!shared) assert.match(JSON.parse(install.stdout).note, /the image's user \(uid 1000\) is not yours/);
   await fs.access(path.join(home, "Projects"));
   await fs.access(path.join(state, "mcp-clients.json"));
 

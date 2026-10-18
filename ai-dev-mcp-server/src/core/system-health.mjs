@@ -11,7 +11,7 @@
 import { dashboardSourceFingerprint } from "./system-dashboard.mjs";
 import { LAUNCH_MISSING_FILE, LAUNCH_UNKNOWN } from "./frontend-qa-launch.mjs";
 import { UI_UX_PYTHON_TOOLS } from "./python-failure.mjs";
-import { hint } from "./install-layout.mjs";
+import { frontendQaHint, hint } from "./install-layout.mjs";
 
 /**
  * The `mcp-stdio.mjs` line budget. `scripts/static-quality.mjs` enforces it and
@@ -334,8 +334,9 @@ export function evaluateUiUxKnowledge({ command, version, missing, failure }) {
 
 /**
  * @param {{ playwright_available?: boolean, chromium_available?: boolean, browser_launch_ok?: boolean, playwright_source?: string, launch_error?: string, launch_failure?: string }} status
+ * @param {import("./install-layout.mjs").InstallLayout} [layout] - The install whose advice to give; this one's by default.
  */
-export function evaluateFrontendQaEnvironment(status) {
+export function evaluateFrontendQaEnvironment(status, layout) {
   const ready = status.playwright_available && status.chromium_available && status.browser_launch_ok;
   // "not fully ready" is true and useless. The runner knows which of the three
   // pieces is missing and, for the usual case, where it looked for the browser.
@@ -369,7 +370,7 @@ export function evaluateFrontendQaEnvironment(status) {
   if (!ready && !status.playwright_available) {
     return {
       status: "skipped",
-      summary: `Frontend QA is not set up: ${missing || "its browser"} is missing. Run \`${hint("npm run setup -- --frontend-qa")}\` to install it.${because ? ` ${because}` : ""}`,
+      summary: `Frontend QA is not set up: ${missing || "its browser"} is missing; ${frontendQaHint(layout)}.${because ? ` ${because}` : ""}`,
       details: { optional: true, ...status }
     };
   }

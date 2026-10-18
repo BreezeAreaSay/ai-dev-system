@@ -31,6 +31,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_DOCKER_VOLUME } from "./docker-launch.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 
 /** The npm package's name (owner decision D4). */
@@ -172,8 +173,7 @@ export function hint(command, layout = currentInstallLayout()) {
   const match = /^npm run ([\w:-]+)(?: -- ?(.*))?$/.exec(command.trim());
   if (!match || !ALIASES.has(match[1])) return command;
   const words = [ALIASES.get(match[1]), match[2] ?? ""].filter(Boolean).join(" ").trim();
-  // The image puts no `ai-dev` on PATH: inside it the CLI is run by its path.
-  if (layout.kind === "docker") return `node ${path.posix.join(layout.serverRoot || "/opt/ai-dev/app", "bin", "ai-dev.mjs")} ${words}`.trim();
+  if (layout.kind === "docker") return dockerCommand(words);
   // The Windows installer puts nothing on PATH either: its command is the
   // shim beside the runtime's stable link — or in the copy itself, on a drive
   // that holds no link — which names the runtime's own Node. A path of
@@ -189,6 +189,39 @@ export function hint(command, layout = currentInstallLayout()) {
   // `ai-dev` is on PATH for a global install; a copy npx left behind, or one
   // setup made in the app home, is reached through npx.
   return layout.ephemeral || layout.appHome ? `npx ${PACKAGE_NAME} ${words}`.trim() : `ai-dev ${words}`.trim();
+}
+
+/**
+ * A command of the image's CLI as its user runs it: nobody has a shell in a
+ * client's container, so it is a `docker run` of its own on the host, into the
+ * data volume — with the network only for a download — and `setup --model`
+ * there is the model's install, which embeds the index too (docs/DEFECTS.md,
+ * Д-185, п. 7; Д-316). `<image>` is the one the client runs.
+ *
+ * @param {string} words - What follows `ai-dev`.
+ * @returns {string}
+ */
+export function dockerCommand(words) {
+  let command = words.replace(/^setup --model\b/, "model install");
+  // A folder of the host reaches the container mounted.
+  const imported = /^model import (.+)$/.exec(command);
+  const mount = imported ? ` --mount type=bind,source=${imported[1]},target=/import,readonly` : "";
+  if (imported) command = "model import /import";
+  const network = /^model install\b/.test(command) ? " --network bridge" : "";
+  return `docker run --rm -it${network} --mount type=volume,source=${DEFAULT_DOCKER_VOLUME},target=/data${mount} <image> ai-dev ${command}`.trim();
+}
+
+/**
+ * How this install gets Frontend QA's browser. The image's default variant
+ * ships none, and nothing installs into a client's read-only container without
+ * the network: the `-browser` variant carries it (docs/DEFECTS.md, Д-316).
+ *
+ * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome">} [layout]
+ * @returns {string}
+ */
+export function frontendQaHint(layout = currentInstallLayout()) {
+  if (layout.kind === "docker") return "the image's `-browser` variant carries it: the same tag with `-browser` added, such as `:latest-browser`";
+  return `run \`${hint("npm run setup -- --frontend-qa", layout)}\` to install it`;
 }
 
 /**

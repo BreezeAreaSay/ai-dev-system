@@ -20,8 +20,12 @@
  * - a host model folder, read-only at {@link CONTAINER_MODELS}, when one is named
  *   (2.x's `AI_DEV_MODEL_PATH`); otherwise the model is the volume's.
  *
- * On Linux it runs as the host user, so that what it writes into the projects
- * and the state is theirs (Д-311); Docker Desktop maps ownership by itself.
+ * The container runs as the image's user, uid 1000, as 2.x did: one owner for
+ * everything in the volume, whichever launcher — a 3.0 entry or a 2.x one —
+ * started the session. The host's state folder is shared only where that user
+ * is the host's ({@link sharesHostState}): on Linux a file the server wrote as
+ * uid 1000 with the image's umask is another user's to read, and one the hooks
+ * wrote is not the server's to append to.
  */
 import { existsSync, statSync } from "node:fs";
 import path from "node:path";
@@ -62,18 +66,16 @@ function mountable(label, folder) {
  * @param {string} [input.projects] - The host's projects folder.
  * @param {string} [input.model] - A host folder holding `bge-m3-onnx/`.
  * @param {string} [input.state] - The host's state folder.
- * @param {string} [input.user] - `uid:gid` to run as (Linux).
  * @param {string} [input.platform] - The host's platform.
  * @returns {string[]}
  */
-export function dockerRunArgs({ image, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", user = "", platform = process.platform }) {
+export function dockerRunArgs({ image, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", platform = process.platform }) {
   if (!image) throw new Error("No image to run: name one with --image.");
   const args = [
     "run", "-i", "--rm",
     "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,size=512m", "--shm-size", "1g",
     "--network", "none", "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL"
   ];
-  if (user) args.push("--user", user);
   args.push("--mount", `type=volume,source=${mountable("volume", volume)},target=/data`);
   if (state) {
     args.push("--mount", `type=bind,source=${mountable("state", state)},target=${CONTAINER_STATE_ROOT}`, "--env", `AI_DEV_STATE_ROOT=${CONTAINER_STATE_ROOT}`);
@@ -85,6 +87,21 @@ export function dockerRunArgs({ image, volume = DEFAULT_DOCKER_VOLUME, projects 
   if (model) args.push("--mount", `type=bind,source=${mountable("model", model)},target=${CONTAINER_MODELS},readonly`);
   args.push(image);
   return args;
+}
+
+/** The image's user: the owner of everything the container writes. */
+export const IMAGE_UID = 1000;
+
+/**
+ * Whether the container may share the host's state folder: Docker Desktop
+ * (macOS, Windows) maps a bind mount's ownership to the host user; on Linux the
+ * image's user must be the host user.
+ *
+ * @param {{ platform?: string, uid?: number }} [host]
+ * @returns {boolean}
+ */
+export function sharesHostState({ platform = process.platform, uid = process.getuid?.() } = {}) {
+  return platform !== "linux" || uid === IMAGE_UID;
 }
 
 /**
@@ -146,7 +163,6 @@ export function checkModelFolder(folder, { exists = existsSync } = {}) {
  * @param {string} [input.projects]
  * @param {string} [input.model]
  * @param {string} [input.state]
- * @param {string} [input.user]
  * @param {string} [input.platform]
  * @returns {{ command: string, args: string[], env: Record<string, string> }}
  */

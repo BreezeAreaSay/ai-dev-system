@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { stableLaunch } from "./app-bundle.mjs";
 import { APP_MARKER, appCli, appFolder } from "./app-home.mjs";
 import { EXIT } from "./cli-args.mjs";
-import { DEFAULT_DOCKER_IMAGE, DEFAULT_DOCKER_VOLUME, checkModelFolder, dockerLaunch, resolveDockerCommand } from "./docker-launch.mjs";
+import { DEFAULT_DOCKER_IMAGE, DEFAULT_DOCKER_VOLUME, IMAGE_UID, checkModelFolder, dockerLaunch, resolveDockerCommand, sharesHostState } from "./docker-launch.mjs";
 import { DISTRIBUTION_MARKER, PACKAGE_NAME, currentInstallLayout } from "./install-layout.mjs";
 import {
   SERVER_NAME,
@@ -148,30 +148,40 @@ export function clientLabel(target) {
  * @param {string} [input.volume]
  * @param {string} [input.projects] - Default: `<home>/AI-Dev-Projects`, as 2.x's bootstrap had it.
  * @param {string} [input.model]
- * @param {string} [input.state] - Default: the runtime home's `state`.
- * @param {string} [input.user] - `uid:gid`; default on Linux: this process's.
+ * @param {string} [input.state] - The host's state folder; default: the runtime home's `state`. Shared where the container may share it ({@link sharesHostState}).
  * @param {string} [input.docker] - The Docker CLI; default: found on PATH.
  * @param {string} [input.home]
  * @param {string} [input.platform]
+ * @param {number} [input.uid] - The host user's; the installer run in the image runs as them.
  * @param {NodeJS.ProcessEnv} [input.env]
  * @param {boolean} [input.apply]
- * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: string, state: string, user: string, platform: string }>}
+ * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: string, state: string, record: string, platform: string, sharedState: boolean }>}
  */
-export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", user = "", docker = "", home = os.homedir(), platform = process.platform, env = process.env, apply = true } = {}) {
+export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", docker = "", home = os.homedir(), platform = process.platform, uid = process.getuid?.(), env = process.env, apply = true } = {}) {
   const paths = platform === "win32" ? path.win32 : path.posix;
+  const hostState = paths.resolve(state || paths.join(resolveRuntimeStateRoot("", { ...env, HOME: home, USERPROFILE: home }), "state"));
+  const sharedState = sharesHostState({ platform, uid });
   const resolved = {
     image,
     volume,
     platform,
     projects: paths.resolve(projects || paths.join(home, "AI-Dev-Projects")),
     model: model ? checkModelFolder(paths.resolve(model)) : "",
-    state: paths.resolve(state || paths.join(resolveRuntimeStateRoot("", { ...env, HOME: home, USERPROFILE: home }), "state")),
-    user: user || (platform === "linux" && typeof process.getuid === "function" ? `${process.getuid()}:${process.getgid()}` : ""),
+    state: sharedState ? hostState : "",
+    // The record of written configs stays the host's either way.
+    record: hostState,
+    sharedState,
     docker: docker || resolveDockerCommand({ env, platform, home })
   };
-  if (resolved.user && !/^\d+:\d+$/.test(resolved.user)) throw new Error(`--user takes uid:gid, two numbers; "${resolved.user}" is not.`);
-  if (apply) for (const folder of [resolved.projects, resolved.state]) await fs.mkdir(folder, { recursive: true });
+  if (apply) for (const folder of [resolved.projects, hostState]) await fs.mkdir(folder, { recursive: true });
   return resolved;
+}
+
+/** Why the state is not shared, when it is not: for the install's output. */
+export function unsharedStateNote(docker, uid = process.getuid?.()) {
+  if (!docker || docker.sharedState) return "";
+  return `The agent hooks keep their state apart from the server's: the image's user (uid ${IMAGE_UID}) is not yours (uid ${uid}), `
+    + "so a folder of yours is not one the container may share; the server keeps its state in the volume, as 2.x did (docs/INSTALL.md, Docker).";
 }
 
 /**
@@ -196,8 +206,8 @@ export async function installClients({ spec, apply = true, env = process.env, ho
     entryFor: (target) => clientEntry(target, launch),
     apply,
     // In the image on the host's behalf, the record goes where the host's
-    // `ai-dev clients remove` reads it: its state folder, the one mounted in.
-    statePath: docker ? path.join(docker.state, "mcp-clients.json") : clientStatePath(env)
+    // `ai-dev clients remove` reads it: its state folder, mounted in.
+    statePath: docker ? path.join(docker.record, "mcp-clients.json") : clientStatePath(env)
   });
   return [
     ...results,

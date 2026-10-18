@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { OWN_SERVER_ROOT, PACKAGE_NAME, hint, isEphemeralInstall, resolveInstallLayout, runtimeRepairHint } from "./install-layout.mjs";
+import { frontendQaHint, hint, isEphemeralInstall, OWN_SERVER_ROOT, PACKAGE_NAME, resolveInstallLayout, runtimeRepairHint } from "./install-layout.mjs";
 
 const home = path.resolve("/home/me");
 const env = (extra = {}) => ({ HOME: home, USERPROFILE: "", ...extra });
@@ -117,8 +117,14 @@ test("hints are spelled the way each layout runs them", () => {
   assert.equal(hint("npm run dense:doctor", global), "ai-dev model doctor");
   assert.equal(hint("npm run clients:install -- --clients all", global), "ai-dev clients install --clients all");
   assert.equal(hint("npm run ai-dev -- clients doctor", global), "ai-dev clients doctor");
-  assert.equal(hint("npm run doctor", { kind: "docker", ephemeral: false, appHome: false, serverRoot: "/opt/ai-dev/app" }),
-    "node /opt/ai-dev/app/bin/ai-dev.mjs doctor", "the image has no ai-dev on PATH (Д-185)");
+  // Nobody has a shell in a client's container: the host runs one of its own (Д-185, п. 7; Д-316).
+  const docker = { kind: "docker", ephemeral: false, appHome: false, serverRoot: "/opt/ai-dev/ai-dev-mcp-server" };
+  assert.equal(hint("npm run doctor", docker), "docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev doctor");
+  assert.equal(hint("npm run setup -- --model", docker),
+    "docker run --rm -it --network bridge --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev model install",
+    "the model goes into the volume, with the network that one run needs");
+  assert.equal(hint("npm run model -- import <folder or .zip>", docker),
+    "docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data --mount type=bind,source=<folder or .zip>,target=/import,readonly <image> ai-dev model import /import");
   assert.equal(hint("npm run check", global), "npm run check", "a script only a checkout has stays as written");
   assert.equal(hint("git pull", global), "git pull");
   const windows = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot: path.join(home, ".ai-dev") };
@@ -178,4 +184,11 @@ test("the model runtime's way back depends on how the package got here (Д-174)"
   assert.equal(runtimeRepairHint({ kind: "package" }, { platform: "win32", arch: "x64" }), `install the package again: npm install -g ${PACKAGE_NAME}`,
     "only Linux x64 has the CUDA download to skip");
   assert.match(runtimeRepairHint({ kind: "docker" }), /image/);
+});
+
+test("Frontend QA's browser comes, in the image, from its -browser variant: nothing installs into a client's container (Д-316)", () => {
+  assert.match(frontendQaHint({ kind: "docker", ephemeral: false, appHome: false }), /`-browser` variant .*`:latest-browser`/);
+  assert.doesNotMatch(frontendQaHint({ kind: "docker", ephemeral: false, appHome: false }), /setup|--frontend-qa/);
+  assert.equal(frontendQaHint({ kind: "clone", ephemeral: false, appHome: false }), "run `npm run setup -- --frontend-qa` to install it");
+  assert.equal(frontendQaHint({ kind: "package", ephemeral: false, appHome: false }), "run `ai-dev setup --frontend-qa` to install it");
 });

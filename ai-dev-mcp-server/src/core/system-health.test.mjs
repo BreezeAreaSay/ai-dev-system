@@ -223,6 +223,11 @@ test("frontend QA environment is ready only when Playwright can launch Chromium"
   assert.equal(notInstalled.status, "skipped");
   assert.equal(notInstalled.details.optional, true);
   assert.match(notInstalled.summary, /--frontend-qa/);
+  // The image's default variant ships no browser, and a client's container installs nothing (Д-316).
+  const inImage = evaluateFrontendQaEnvironment({ playwright_available: false }, { kind: "docker", ephemeral: false, appHome: false });
+  assert.equal(inImage.status, "skipped");
+  assert.match(inImage.summary, /is missing; the image's `-browser` variant carries it/);
+  assert.doesNotMatch(inImage.summary, /--frontend-qa/);
 
   // Playwright there and its browser not is a half-configured install, and
   // stays a warning: something is wrong that the person can fix.

@@ -369,8 +369,9 @@ test("the shipped history names versions by path and sha256, sorted and unique",
   assert.deepEqual(history.pairs, [...new Set(history.pairs)].sort());
   const keys = await readSeedHistory();
   assert.equal(keys.size, history.pairs.length);
-  // The current seed's own files are not in it: they are judged by the manifest.
-  const manifest = JSON.parse(await fs.readFile(path.join(path.dirname(SEED_HISTORY_FILE), "..", "..", "docker", "public-seed", "public-seed.manifest.json"), "utf8"));
-  assert.ok(manifest.files.every((file) => !keys.has(seedHistoryKey(file.path, file.sha256))));
+  // The 2.x line's, from a named commit back, whatever the current manifest
+  // holds: a 3.0 edit of a file 2.x shipped leaves its 2.x version known
+  // (docs/DEFECTS.md, Д-315). scripts/seed-history.test.mjs checks it against git.
+  assert.match(history.base, /^[0-9a-f]{40}$/);
   assert.equal((await readSeedHistory(path.join(os.tmpdir(), "no-such-history.json"))).size, 0);
 });

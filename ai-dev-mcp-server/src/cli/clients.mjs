@@ -13,7 +13,8 @@ import {
   installClients as installClientConfigs,
   localLaunch,
   removeClients,
-  tildify
+  tildify,
+  unsharedStateNote
 } from "../core/client-connections.mjs";
 import { DEFAULT_DOCKER_IMAGE, dockerLaunch } from "../core/docker-launch.mjs";
 import { checkServerCommand } from "../core/mcp-client-check.mjs";
@@ -46,9 +47,10 @@ export function usage() {
     "    --model=<folder>      a folder holding bge-m3-onnx/, mounted read-only (otherwise the model is the volume's:",
     "                          `docker run --rm -it --network bridge … <image> ai-dev model install` puts it there once)",
     "    --volume=<name>       the data volume (ai-dev-system-data)",
-    "    --state=<folder>      the state folder shared with the agent hooks (~/.ai-dev/state); made if missing",
+    "    --state=<folder>      the state folder shared with the agent hooks (~/.ai-dev/state, where the image's user,",
+    "                          uid 1000, is yours or Docker Desktop maps it); made if missing",
     "    --docker-command=<path>  the Docker CLI (found on PATH)",
-    "    --home, --platform, --user=<uid:gid>  the host's, when this runs in the image on its behalf (bootstrap.sh)",
+    "    --home, --platform    the host's, when this runs in the image on its behalf (bootstrap.sh)",
     "",
     "Each changed file keeps its previous bytes as <file>.backup-<time>."
   ].join("\n");
@@ -57,7 +59,7 @@ export function usage() {
 /** The options of `--docker`, read from the command line; the host's when it runs in the image on its behalf. */
 async function dockerFrom(values, io, { apply = true } = {}) {
   if (!values.docker) {
-    const named = ["image", "projects", "model", "volume", "state", "docker-command", "user"].find((name) => values[name] !== undefined);
+    const named = ["image", "projects", "model", "volume", "state", "docker-command"].find((name) => values[name] !== undefined);
     if (named) throw new CliUsageError(`--${named} is an option of --docker; add --docker to run the clients' server in Docker.`);
     return null;
   }
@@ -73,7 +75,6 @@ async function dockerFrom(values, io, { apply = true } = {}) {
       model: values.model,
       // Named by the host, or under the home it names: the image's own AI_DEV_HOME is not the host's.
       state: values.state || (values.home ? paths.join(values.home, ".ai-dev", "state") : ""),
-      user: values.user,
       docker: values["docker-command"],
       home,
       platform,
@@ -216,11 +217,13 @@ async function install(values, io) {
     env: io.env,
     ...(docker ? { docker, home: values.home || os.homedir(), platform: docker.platform } : {})
   });
-  if (values.json) io.out(JSON.stringify({ clients: results }, null, 2));
+  const note = unsharedStateNote(docker);
+  if (values.json) io.out(JSON.stringify({ clients: results, ...(note ? { note } : {}) }, null, 2));
   else {
     for (const line of renderResults(results)) io.out(line);
     io.out();
     for (const line of summarize(results)) io.out(line);
+    if (note) io.out(note);
   }
   return results.some((result) => result.status === "failed") ? EXIT.failed : EXIT.ok;
 }
@@ -334,8 +337,7 @@ export async function run(argv, io) {
     state: { type: "string" },
     "docker-command": { type: "string" },
     home: { type: "string" },
-    platform: { type: "string" },
-    user: { type: "string" }
+    platform: { type: "string" }
   };
   const options = {
     list: { json: { type: "boolean" } },

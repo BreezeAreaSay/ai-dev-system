@@ -8,14 +8,14 @@ PR: — сессия 2026-10-18 работает в ветке `claude/exciting-
 `5088eee`, `6a867ee`; второе — `74b0d0e` (записи), `f83084f`, `b1dab87`, `30ceef9`; третье — `37fea59`, `bfe8cb1`
 (записи), `8f5a7b0`, `3492ae7`; четвёртое — `5661962` (записи), `786cf44`; Д-355 — `b029f73` (запись), `ed14474`;
 пятое — `459fa96` (записи), `d8ffe0d`; шестое — `060b7e9` (записи), `b08d0fb`; седьмое — `a139c3f` (записи), `e3e1760`;
-EIGHTH_COMMITS; закрытие — коммит отчёта
+восьмое — `cffa9e6` (записи), `ce308d6`; NINTH_COMMITS; закрытие — коммит отчёта
 Объём: `cd76596..HEAD` — DIFF_STAT
 
 ### 1. Пункты
 
 | # | Пункт | Статус | Где | Комментарий |
 |---|---|---|---|---|
-| 1 | Dockerfile из dist, без python3 и legacy; реестр и индекс — при сборке; замер `docker run` → `initialize` | ✅ | `docker/Dockerfile`, `scripts/prepare-docker-context.mjs`, `audit-docker-context.mjs`, `docker-prepare-data.mjs`, `src/core/image-data.mjs` | контекст — `ai-dev/` (`stageDistribution` фазы 7 без зависимостей) + Dockerfile + entrypoint; при сборке — `verify-distribution`, `npm ci --omit=dev` с `HOME` вне `/data`, onnxruntime-node своей платформы, без onnxruntime-web; из apt — `ca-certificates git tini`. Реестр, качество, индекс, бенчмарк строятся при сборке в `/data` образа (третий проход — «0 built»); времена файлов слоя и папок тома восстанавливает метка `/data/.ai-dev-image-data.json`. Новый том: `initialize` за 2 600 мс, «0 built»; следующая сессия — 1 089 мс; второй клиент, запущенный в копирование тома, ждёт его конца, а не строит из половины (Д-355) |
+| 1 | Dockerfile из dist, без python3 и legacy; реестр и индекс — при сборке; замер `docker run` → `initialize` | ✅ | `docker/Dockerfile`, `scripts/prepare-docker-context.mjs`, `audit-docker-context.mjs`, `docker-prepare-data.mjs`, `src/core/image-data.mjs` | контекст — `ai-dev/` (`stageDistribution` фазы 7 без зависимостей) + Dockerfile + entrypoint; при сборке — `verify-distribution`, `npm ci --omit=dev` с `HOME` вне `/data`, onnxruntime-node своей платформы, без onnxruntime-web; из apt — `ca-certificates git tini`. Реестр, качество, индекс, бенчмарк строятся при сборке в `/data` образа (третий проход — «0 built»); времена файлов слоя и папок тома восстанавливает метка `/data/.ai-dev-image-data.json`. Новый том: `initialize` за 2 001 мс, «0 built»; следующая сессия — 1 027 мс; второй клиент, запущенный в копирование тома, ждёт его конца, а не строит из половины (Д-355) |
 | 2 | Конфиги клиентов вызывают `docker run -i --rm …`; пишет `ai-dev clients install --docker`; bootstrap: проверить Docker → pull → установщик; монтируются только папки конфигов | ✅ | `src/core/docker-launch.mjs`, `client-connections.mjs`, `src/cli/clients.mjs` (`--docker`, `entry`); `bootstrap.sh`, `bootstrap.ps1` | Docker CLI полным путём; том, папка состояния хоста (где можно, п. 7), проекты — по своему пути (Linux, macOS; Д-312) или `/workspace` (Windows), модель хоста — read-only в `/models`. `bootstrap.sh` запускает установщик в образе с папками конфигов клиентов и папкой состояния (2.x монтировала весь `$HOME`); конфиг-ссылку в dotfiles пишет через неё, монтируя папки по пути, каким их пишет ссылка (Д-335, Д-338), но не идёт по ссылке в корень и домашнюю папку (Д-339); Claude Code — через `claude mcp add-json`. Docker и Node скрипты больше не ставят; контейнер 2.x удаляется, когда записаны все конфиги. Путь назад `--image …:2` — конфиги пишет образ 3.0 (Д-323, Д-329) |
 | 3 | Старые лаунчеры — тонкие обёртки с предупреждением; подмену `initialize` убрать, если холодный старт укладывается | ✅ | `docker/run-mcp.sh`, `run-mcp.ps1`, `ClaudeMcpProxy.cs`; `bootstrap.ps1` обновляет копию в `C:\ProgramData` | холодный старт 1–2,5 с при таймауте MCP SDK 60 с — подмена убрана везде; обёртки пишут в stderr, что они лаунчеры 2.x, и запускают тот же `docker run`; C#-прокси — труба байтов без своего ответа; компиляции у пользователя больше нет (Д-89, Д-105); установленный `ClaudeMcpProxy.exe` 2.x работает до перезаписи конфига (Д-327) |
 | 4 | Опора 2.x: `/opt/ai-dev/app/src/server.mjs`, CMD, раскладка `/data`, имена переменных | ✅ | `docker/Dockerfile`; `scripts/dockerfile-contract.test.mjs` | `/opt/ai-dev/app` → `ai-dev-mcp-server` (ссылка), `/opt/ai-dev/public-seed` → `seed`; CMD, `VOLUME`, `USER node` (uid 1000), переменные — те же; образ 2.x под записью 3.0 работает (upgrade-check, шаг 5) |
@@ -90,7 +90,10 @@ EIGHTH_COMMITS; закрытие — коммит отчёта
 | Д-363 | в томе 367 векторов, модель хоста не прочитать → «Dense vectors: none: …» в отчёте старта и в `setup` | «367 kept; none added while the model … could not be checked / cannot be read» | закрыт |
 | Д-364 | `unreadable` не в контракте, версия 1.1.0; CHANGELOG обещает это приложению | поле в `MODEL_STATE`, контракт 1.2.0, `CONTROL-API.md` заново; CHANGELOG — про API | закрыт |
 | Д-365 | ENOTDIR, ELOOP, EIO → «make the folder and its files readable»; ссылка-петля в `/models` вытесняет модель тома | совет по коду ошибки; ссылка-петля — модель тома в работе («Installed: yes») | закрыт |
-| Д-366 | путь Docker Desktop и `^M` теряются; EMFILE → «есть»; ошибка аргумента Node → «unreadable»; разные слова совета; нет `config.json` рядом с нечитаемым файлом — ни слова | путь целиком, без `\r`; EMFILE → нет; ошибки кода бросаются; один совет; «Missing: config.json» | закрыт |
+| Д-366 | путь Docker Desktop и `^M` теряются; EMFILE → «есть»; ошибка аргумента Node → «unreadable»; разные слова совета; нет `config.json` рядом с нечитаемым файлом — ни слова | путь целиком, без `\r`; EMFILE → нет; ошибки кода бросаются; один совет; «Missing: config.json» | закрыт (п. 5 в сессии — Д-369) |
+| Д-369 | нечитаемая модель с `.part` рядом → «a model download stopped partway (100 B of config.json)», а `setup --model` — «cannot be read» | «… cannot be read (EACCES …). The image runs as uid 1000: …», `partial` пуст | закрыт |
+| Д-370 | строка покрытия: векторы другой модели — «--model embeds them again» при нечитаемой модели | «a model this user can read embeds them again» | закрыт |
+| Д-371 | ошибка кода в проверке сессии — «cannot be read»; «Docker Desktop's file sharing» для любой отвалившейся папки; EHOSTDOWN и др. — «не смонтировано»; ENOTDIR — «name the folder» | «could not be checked»; совет без Docker Desktop; эти коды — смонтированная модель; «a file stands where a folder should be»; EPERM — с настройками macOS | закрыт (macOS — чек-лист) |
 | Д-367 | экраны приложения: нечитаемая модель — «не установлена», предложение скачать | — | открыт: фаза 14 (правило 4) |
 | Д-368 | папка модели хоста — абсолютная ссылка: в контейнере висит, совет ставить модель в том | — | открыт: фаза 14 (правило 4) |
 
@@ -98,10 +101,10 @@ EIGHTH_COMMITS; закрытие — коммит отчёта
 
 | Критерий | Команда | Фактический вывод | ✅/❌ |
 |---|---|---|---|
-| Образ собирается; если зеркала закрыты — доступная база, остальное — «не проверено» | `docker build --build-arg BASE_IMAGE=sandbox/ubuntu-ca:24.04 .docker/build-context` | собирается: 715 961 840 байт (`p13r12`), секунды с кэшем зависимостей; база Debian — «не проверено» (раздел 5) | ✅ |
-| `initialize` содержит `instructions`; холодный старт — цифрой | `npm run docker:smoke -- --image ai-dev-system:p13r12` | новый том 2 600 мс, instructions 1 048; следующая сессия 1 089 мс; два клиента на новом томе — 1 960 и 1 564 мс, «0 built» | ✅ |
+| Образ собирается; если зеркала закрыты — доступная база, остальное — «не проверено» | `docker build --build-arg BASE_IMAGE=sandbox/ubuntu-ca:24.04 .docker/build-context` | собирается: 715 961 687 байт (`p13r13`), секунды с кэшем зависимостей; база Debian — «не проверено» (раздел 5) | ✅ |
+| `initialize` содержит `instructions`; холодный старт — цифрой | `npm run docker:smoke -- --image ai-dev-system:p13r13` | новый том 2 001 мс, instructions 1 048; следующая сессия 1 027 мс; два клиента на новом томе — 1 649 и 1 322 мс, «0 built» | ✅ |
 | Модель подключается через том (синтетическая) | тот же smoke, шаги 4 и 5 | в томе: зеркало, 367 векторов, сессия `--network none` — `dense_score` 0,98; с хоста в `/models`: `setup --model` без сети, сервер её видит | ✅ |
-| После обновления образа skills в томе обновлены | `npm run docker:upgrade-check -- --old-image ai-dev-system:2x-8f647df --new-image ai-dev-system:p13r12` | 3 229 → 615; правка пользователя сохранена, рядом `.seed-new`; свой skill на месте | ✅ |
+| После обновления образа skills в томе обновлены | `npm run docker:upgrade-check -- --old-image ai-dev-system:2x-8f647df --new-image ai-dev-system:p13r13` | 3 229 → 615; правка пользователя сохранена, рядом `.seed-new`; свой skill на месте | ✅ |
 | Старые лаунчеры 2.x работают с новым образом | тот же upgrade-check | холодный путь 2.x: instructions 1 048; тёплый путь 2.x: 135 tools; обёртка 3.0: 1 048 | ✅ |
 | `check`, `docker:smoke`, `acceptance`, `upgrade:test` зелёные | раздел 4 | GATES_SHORT | ✅ |
 | В чек-лист владельца: Windows + Docker Desktop + Claude Desktop | — | раздел 8 | — |
@@ -115,8 +118,8 @@ EIGHTH_COMMITS; закрытие — коммит отчёта
 | check | `cd ai-dev-mcp-server && npm run check` | CHECK_LINE |
 | acceptance | `npm run acceptance` | ACCEPTANCE_LINE |
 | upgrade:test | `npm run upgrade:test` | UPGRADE_LINE |
-| docker:smoke | `npm run docker:smoke -- --image ai-dev-system:p13r12` | pass: новый том 2 600 мс («0 built»), instructions 1 048, 135 tools, health ok (25 проверок), следующая сессия 1 089 мс; две сессии на новом томе с разницей 200 мс — 1 960 и 1 564 мс, вторая ждала копирование 0,4 с, обе «0 built»; модель в томе — 367 векторов, dense 0,98, строка отчёта «installed in /data/runtime-home/.ai-dev/models/bge-m3-onnx»; модель хоста в `/models` — `setup --model` без сети, «every indexed document has one» |
-| docker:upgrade-check | `npm run docker:upgrade-check -- --old-image ai-dev-system:2x-8f647df --new-image ai-dev-system:p13r12` | pass: 2.x — первая сессия 17 841 мс, 3 229 skills; новый образ под лаунчером 2.x — 16 189 мс разово, instructions 1 048, 615 skills, задача на месте; тёплый 2.x — 135 tools; обёртка 3.0 — 1 083 мс; запись 3.0 — 1 076 мс, задача в папке состояния хоста; путь назад — образ 2.x под записью 3.0, 1 482 мс, задача видна, его `cp -n` вернул 3 229 skills; возврат на 3.0 — 14 161 мс, 615 |
+| docker:smoke | `npm run docker:smoke -- --image ai-dev-system:p13r13` | pass: новый том 2 001 мс («0 built»), instructions 1 048, 135 tools, health ok (25 проверок), следующая сессия 1 027 мс; две сессии на новом томе с разницей 200 мс — 1 649 и 1 322 мс, обе «0 built» (на `p13r12` вторая ждала копирование 0,4 с); модель в томе — 367 векторов, dense 0,98, строка отчёта «installed in /data/runtime-home/.ai-dev/models/bge-m3-onnx»; модель хоста в `/models` — `setup --model` без сети, «every indexed document has one» |
+| docker:upgrade-check | `npm run docker:upgrade-check -- --old-image ai-dev-system:2x-8f647df --new-image ai-dev-system:p13r13` | pass: 2.x — первая сессия 19 657 мс, 3 229 skills; новый образ под лаунчером 2.x — 19 587 мс разово, instructions 1 048, 615 skills, задача на месте; тёплый 2.x — 135 tools; обёртка 3.0 — 1 152 мс; запись 3.0 — 1 247 мс, задача в папке состояния хоста; путь назад — образ 2.x под записью 3.0, 1 491 мс, задача видна, его `cp -n` вернул 3 229 skills; возврат на 3.0 — 18 163 мс, 615 (параллельно шли пробы девятого ревью) |
 | packaging:check | `npm run packaging:check` | passed (внутри `check`) |
 | `mcp-stdio.mjs` | `node scripts/static-quality.mjs` | `runtime_lines` 4 804 при потолке 5 076 (до фазы — 4 805) |
 
@@ -181,8 +184,12 @@ EIGHTH_COMMITS; закрытие — коммит отчёта
   с путём из второй строки Docker Desktop, без `\r` (Д-362, Д-366); том с 367 векторами и модель, которую не прочитать,
   — «367 kept; none added while …» (Д-363); ссылка-петля в `/models` — в работе модель тома (Д-365); нет `config.json`,
   а `tokenizer.json` 0600 — оба названы (Д-366).
+- **Пробы восьмого ревью на `p13r13`:** нечитаемая модель с недокачанным файлом рядом — проверка здоровья и
+  `embedding_status` называют причину, `partial` пуст (было: «download stopped partway», Д-369); `onnx` — файл внутри
+  папки модели — «a file stands where a folder should be» (Д-371); ошибка кода в проверке сессии — «could not be
+  checked» (Д-371).
 
-**Ревью диффа.** Восемь независимых ревью, каждое следующее — по правкам предыдущего; находки записаны в реестр до
+**Ревью диффа.** Девять независимых ревью, каждое следующее — по правкам предыдущего; находки записаны в реестр до
 правки, с замером «до», и закрыты в фазе с замером «после».
 
 - **Первое** (по коду фазы) — Д-319 … Д-328. Главное: `bootstrap.sh` на настоящей машине не писал конфиги — установщик
@@ -226,7 +233,13 @@ EIGHTH_COMMITS; закрытие — коммит отчёта
   права на ошибки не про права и ссылка-петля, вытеснявшая модель тома (Д-365); мелочи (Д-366). Правки — `e3e1760`.
   Д-367 (экраны приложения не читают `unreadable`) и Д-368 (папка модели — абсолютная ссылка, висящая в контейнере; так
   было и в 2.x) записаны на фазу 14 по правилу 4.
-- **Восьмое** (по правкам седьмого) — EIGHTH_REVIEW.
+- **Восьмое** (по правкам седьмого) — Д-369 … Д-371, без must-fix: нечитаемая модель с недокачанным файлом рядом
+  называлась недокачанной — регрессия правки Д-366 (Д-369); оговорка о векторах другой модели всё ещё советовала
+  `--model` (Д-370); мелочи и подозрения — ошибка кода в проверке сессии, слова совета, другие коды отвалившейся сетевой
+  папки, EPERM от настроек macOS (Д-371). Правки — `ce308d6`. Его заметка о цене Д-362 — при лежащем движке на каждого
+  клиента свой взгляд, 5 клиентов при сбое за 3 с — 28,9 с против 14,5 — принята: это цена того, что одна проверка не
+  решает за всех.
+- **Девятое** (по правкам восьмого) — NINTH_REVIEW.
 
 ### 5. Не проверено
 
@@ -329,7 +342,8 @@ EIGHTH_COMMITS; закрытие — коммит отчёта
    переписан на `docker run`, skills в томе обновлены (число в `recommend_skills`/реестре ~615), свои правки целы.
 6. **macOS + Docker Desktop** (если есть): `sh ./bootstrap.sh` — Claude Code через `claude mcp add-json`; задача сервера
    видна Stop-хуку (папка состояния с владельцем пользователя); конфиг-ссылка в dotfiles вне домашней папки (если такая
-   раскладка есть) записана или названа «Docker did not take a folder…».
+   раскладка есть) записана или названа «Docker did not take a folder…»; модель в папке под `~/Documents`, смонтированная
+   в `/models`, — если Docker Desktop туда не пущен, `embedding_status` называет Privacy & Security (Д-371).
 7. **Прод, перед первым тегом 3.0:** ручной запуск `docker-publish.yml` с `freeze_2x` → `:2` = текущий `:latest`;
    после тега `v3.0.0` — `:3.0.0`, `:3.0`, `:3`, `:latest` и те же с `-browser`; push в `main` — только `:edge`.
 8. **Linux с rootless Docker или Podman** (если есть): `sh ./bootstrap.sh` — «The agent hooks keep their state apart…»,

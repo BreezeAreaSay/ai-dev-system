@@ -148,13 +148,23 @@ export async function withModelLock(dir, operation) {
  * @param {string} [options.stampDir]
  * @param {Record<string, string|undefined>} [options.env]
  * @param {ReturnType<typeof denseRuntimeSupport>} [options.support]
- * @returns {Promise<object>}
+ * @param {typeof verifyDenseModelDirectory} [options.verify]
+ * @returns {Promise<object>} With `unreadable`, why, when this user could not read the model at all.
  */
-export async function modelStatus({ manifest, dir, stampDir = defaultStampDir(), env = process.env, support = denseRuntimeSupport() }) {
+export async function modelStatus({ manifest, dir, stampDir = defaultStampDir(), env = process.env, support = denseRuntimeSupport(), verify = verifyDenseModelDirectory }) {
   const resolved = path.resolve(dir);
-  const verification = await verifyDenseModelDirectory({ manifest, dir: resolved, stampFile: verifiedStampPath(stampDir, resolved), trustStamp: true });
+  let verification;
+  try {
+    verification = await verify({ manifest, dir: resolved, stampFile: verifiedStampPath(stampDir, resolved), trustStamp: true });
+  } catch (error) {
+    // A model this user cannot read — a host's folder 0700, files 0600 — is one
+    // that is not installed, and why: not an error that stops `setup`, `model
+    // status` or the app's status screen (docs/DEFECTS.md, Д-349, Д-359).
+    if (typeof error?.code !== "string") throw error;
+    verification = { ready: false, present: [], missing: [], mismatched: [], hashed: [], unreadable: error.message };
+  }
   const partial = [];
-  for (const [relative, digest] of Object.entries(manifest.files)) {
+  for (const [relative, digest] of verification.unreadable ? [] : Object.entries(manifest.files)) {
     if (verification.present.includes(relative)) continue;
     const part = await usablePart(path.join(resolved, relative), { revision: manifest.revision, sha256: digest });
     if (part.bytes > 0) partial.push({ file: relative, bytes: part.bytes, size: part.size });
@@ -183,6 +193,7 @@ export async function modelStatus({ manifest, dir, stampDir = defaultStampDir(),
     // Files this answer had to read, because they changed since the last
     // check or were never checked; usually none (docs/DEFECTS.md, Д-143).
     hashed: verification.hashed,
+    ...(verification.unreadable ? { unreadable: verification.unreadable } : {}),
     installed_revision: onDisk?.revision ?? "",
     supported: support.supported,
     support_reason: support.reason,

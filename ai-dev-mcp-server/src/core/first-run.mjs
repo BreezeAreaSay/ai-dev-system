@@ -131,7 +131,7 @@ export function planFirstRun({ present = {}, stale = {}, want = {}, force = fals
 }
 
 /** An optional step `setup` was not asked for, in its own flags. */
-function setupReason(step, state) {
+export function setupReason(step, state) {
   if (state === "stale") return `out of date; ${step.flag} rebuilds it`;
   if (state === "present") return `already installed; ${step.flag} rebuilds it`;
   return `not installed — pass ${step.flag} to install it`;

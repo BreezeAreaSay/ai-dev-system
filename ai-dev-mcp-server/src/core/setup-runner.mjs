@@ -17,7 +17,7 @@ import process from "node:process";
 import { SERVER_ROOT } from "./client-connections.mjs";
 import { readDenseManifest } from "./dense-manifest.mjs";
 import { defaultOnnxModelDir } from "./dense-onnx.mjs";
-import { planFirstRun } from "./first-run.mjs";
+import { planFirstRun, setupReason } from "./first-run.mjs";
 import { frontendQaInstallCommands, frontendQaInstalled, pinnedPnpmVersion } from "./frontend-qa-install.mjs";
 import { LAUNCH_UNKNOWN, classifyFrontendQaLaunchFailure } from "./frontend-qa-launch.mjs";
 import { denseRuntimeSupport, installModel, modelStatus } from "./model-manager.mjs";
@@ -160,8 +160,14 @@ export async function inspectSetup({ runtime, env, steps }) {
     present,
     stale,
     qaDependencies: existsSync(path.join(QA_ROOT, "node_modules")),
-    modelInstalled: (await modelStatus({ manifest, dir: modelDir, env })).installed
+    ...await modelInspection({ manifest, dir: modelDir, env })
   };
+}
+
+/** Whether the model is in place, and why not when this user cannot read it (docs/DEFECTS.md, Д-359). */
+async function modelInspection({ manifest, dir, env }) {
+  const status = await modelStatus({ manifest, dir, env });
+  return { modelInstalled: status.installed, modelUnreadable: status.unreadable ?? "" };
 }
 
 /**
@@ -184,7 +190,7 @@ export async function inspectSetup({ runtime, env, steps }) {
  */
 export async function runSetup({ runtime, env, steps, inspection, want = {}, force = false, signal, onProgress, onStep, log = () => undefined, commandOutput = "inherit" }) {
   const { callTool, vaultRoot } = runtime;
-  const { manifest, modelDir, indexStatus, qaDependencies, modelInstalled } = inspection;
+  const { manifest, modelDir, indexStatus, qaDependencies, modelInstalled, modelUnreadable = "" } = inspection;
   const stepProgress = (id) => (onProgress ? (event = {}) => onProgress({ ...event, step: id }) : undefined);
   const present = {
     ...inspection.present,
@@ -214,6 +220,8 @@ export async function runSetup({ runtime, env, steps, inspection, want = {}, for
       return `pnpm@${pnpmVersion} install --frozen-lockfile, playwright install chromium; ${verdict.summary}`;
     },
     async dense_model() {
+      // A model here this user cannot read is not one to download over (Д-359).
+      if (modelUnreadable) throw new Error(`The model in ${modelDir} cannot be read (${modelUnreadable}): make the folder and its files readable to the user this runs as.`);
       // Where the runtime has no build, 600 MB that cannot load is not a
       // favour (Д-101); `ai-dev model install` still fetches them for a container.
       const support = denseRuntimeSupport();
@@ -251,6 +259,9 @@ export async function runSetup({ runtime, env, steps, inspection, want = {}, for
     ...(want.model ? { dense_model: true, dense_index: true } : {}),
     ...(want.frontendQa ? { frontend_qa: true } : {})
   };
-  const plan = planFirstRun({ present, stale, want: wanted, force });
+  // Not asked for, a model this user cannot read is said as that, not as one to install (Д-359).
+  const unreadableReason = { dense_model: `cannot be read (${modelUnreadable})`, dense_index: "none: the model cannot be read" };
+  const optionalReason = (step, state) => (modelUnreadable && unreadableReason[step.id]) || setupReason(step, state);
+  const plan = planFirstRun({ present, stale, want: wanted, force, optionalReason });
   return steps.runFirstRunPlan(plan, guarded, onStep, { signal });
 }

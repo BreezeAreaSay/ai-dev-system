@@ -285,9 +285,11 @@ export function createOnnxDenseRuntime({
 export { DOCKER_MOUNTED_MODEL_DIR };
 
 /**
- * Whether a folder holds anything. One this user may not list holds what it
- * cannot see — a model the host mounted with folders 0700 — and is not an empty
- * mount to pass over (docs/DEFECTS.md, Д-357).
+ * Whether a folder holds anything. Only a folder that is not there holds
+ * nothing: one this user may not list (a host's folders 0700), or cannot reach
+ * (a share that dropped: EIO, ESTALE, ENOTCONN), holds what it cannot see, and
+ * is not an empty mount to pass over for the volume's (docs/DEFECTS.md, Д-357,
+ * Д-361).
  *
  * @param {string} folder
  * @param {(folder: string) => string[]} [list]
@@ -297,7 +299,7 @@ export function holdsFiles(folder, list = readdirSync) {
   try {
     return list(folder).length > 0;
   } catch (error) {
-    return error?.code === "EACCES" || error?.code === "EPERM";
+    return error?.code !== "ENOENT" && error?.code !== "ENOTDIR";
   }
 }
 

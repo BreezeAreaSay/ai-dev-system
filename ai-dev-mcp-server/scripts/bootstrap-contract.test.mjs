@@ -110,8 +110,10 @@ test("the shell scripts that get executed are committed as executable", async (c
  * container's users; PROBE=shared writes the file as this user, PROBE=refused
  * is the container's own `touch` refused, and PROBE=broken a Docker that did
  * not run the image at all. MOUNT_DENY names a folder Docker refuses to mount,
- * as Docker Desktop refuses one outside its file sharing; TRUE_FAIL fails every
- * throwaway run (`--entrypoint true`) as an engine that timed out would.
+ * as Docker Desktop refuses one outside its file sharing. TRUE_FAIL fails the
+ * throwaway runs (`--entrypoint true`) as a failing engine does: `deadline` (a
+ * timeout), `overlay` (a storage driver error that names a mount), `silent`
+ * (exit 137, nothing said), `once` (only the first one: a passing flake).
  */
 const stubDocker = [
   "#!/bin/sh",
@@ -133,7 +135,17 @@ const stubDocker = [
   "  rm) exit 0 ;;",
   "  run)",
   '    if [ -n "${MOUNT_DENY:-}" ]; then for a in "$@"; do case "$a" in *"source=${MOUNT_DENY},"*) echo "docker: Error response from daemon: Mounts denied: the path ${MOUNT_DENY} is not shared from the host." >&2; exit 125 ;; esac; done; fi',
-  '    if [ -n "${TRUE_FAIL:-}" ]; then prev=""; for a in "$@"; do [ "$prev" = --entrypoint ] && [ "$a" = true ] && { echo "docker: Error response from daemon: failed to create task for container: context deadline exceeded" >&2; exit 125; }; prev=$a; done; fi',
+  '    if [ -n "${TRUE_FAIL:-}" ]; then prev=""; for a in "$@"; do',
+  '      if [ "$prev" = --entrypoint ] && [ "$a" = true ]; then',
+  '        case "$TRUE_FAIL" in',
+  '          silent) exit 137 ;;',
+  '          overlay) echo "docker: Error response from daemon: error creating overlay mount to /var/lib/docker/overlay2/3f9c1a-init/merged: no such file or directory." >&2; exit 125 ;;',
+  '          once) [ "$(grep -c -e "$(printf \'%s\\t%s\' --entrypoint true)" "$STUB_LOG")" -gt 1 ] && break ;;',
+  '        esac',
+  '        echo "docker: Error response from daemon: failed to create task for container: context deadline exceeded" >&2; exit 125',
+  '      fi',
+  '      prev=$a',
+  '    done; fi',
   '    for a in "$@"; do [ "$a" = "command -v ai-dev" ] && { for i in "$@"; do case " ${NO_CLI:-} " in *" $i "*) exit 1 ;; esac; done; exit 0; }; done',
   '    for a in "$@"; do',
   '      [ "$a" = touch ] || continue',
@@ -501,33 +513,37 @@ test("every client's folders are looked at in one run; a folder Docker refuses, 
   const install = result.calls.find((call) => call[0] === "run" && call.includes("install"));
   assert.equal(install.find((argument) => argument.startsWith("--clients=")), "--clients=cursor");
   const looks = result.calls.filter((call) => call[0] === "run" && call.includes("--entrypoint") && call[call.indexOf("--entrypoint") + 1] === "true");
-  assert.equal(looks.length, 3, "one look at all, then one at each client");
+  assert.equal(looks.filter((call) => call.includes("--mount")).length, 3, "one look at all, then one at each client");
+  assert.equal(looks.filter((call) => !call.includes("--mount")).length, 2, "Docker runs the image without the folders: after the look at all, and after Codex's");
   const fine = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,codex"], { env: { CODEX_HOME: codexHome }, folders: [".cursor"] });
   assert.equal(fine.status, 0, fine.stderr);
   assert.equal(fine.calls.filter((call) => call[0] === "run" && call.includes("--entrypoint") && call[call.indexOf("--entrypoint") + 1] === "true").length, 1, "Docker took them all: one look");
 });
 
-test("a look at the folders that fails for another reason than a mount blames no folder: it is said once, and the install goes on (Д-358)", async (t) => {
+test("a look at the folders that fails while Docker runs nothing at all blames no folder: it is said once, and the install goes on (Д-358, Д-360)", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
-  const timedOut = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,gemini"], { env: { TRUE_FAIL: "1" }, folders: [".cursor", ".gemini"] });
-  if (!timedOut) return;
-  assert.equal(timedOut.status, 0, timedOut.stderr);
-  assert.doesNotMatch(timedOut.stderr, /Docker did not take a folder/);
-  assert.equal(timedOut.stderr.match(/Docker could not look at the clients' folders first \(docker: Error response from daemon: failed to create task for container: context deadline exceeded\): the install goes on, and says what fails\./g)?.length, 1, timedOut.stderr);
-  const install = timedOut.calls.find((call) => call[0] === "run" && call.includes("install"));
-  assert.equal(install.find((argument) => argument.startsWith("--clients=")), "--clients=cursor,gemini");
+  const says = {
+    deadline: "docker: Error response from daemon: failed to create task for container: context deadline exceeded",
+    overlay: "docker: Error response from daemon: error creating overlay mount to /var/lib/docker/overlay2/3f9c1a-init/merged: no such file or directory.",
+    silent: "exit status 137"
+  };
+  for (const [mode, said] of Object.entries(says)) {
+    const result = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,gemini"], { env: { TRUE_FAIL: mode }, folders: [".cursor", ".gemini"] });
+    if (!result) return;
+    assert.equal(result.status, 0, `${mode}: ${result.stderr}`);
+    assert.doesNotMatch(result.stderr, /Docker did not take a folder/, mode);
+    const line = `Docker could not look at the clients' folders first (${said}): the install goes on, and says what fails.`;
+    assert.equal(result.stderr.split("\n").filter((text) => text === line).length, 1, `${mode}: ${result.stderr}`);
+    const install = result.calls.find((call) => call[0] === "run" && call.includes("install"));
+    assert.equal(install.find((argument) => argument.startsWith("--clients=")), "--clients=cursor,gemini", mode);
+  }
 
-  // One folder refused, and the look at another client failing for another reason: only the refused one is lost.
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-unshared-codex-"));
-  t.after(() => fs.rm(root, { recursive: true, force: true }));
-  const codexHome = path.join(root, "codex");
-  await fs.mkdir(codexHome);
-  const mixed = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,codex"], { env: { MOUNT_DENY: codexHome, CODEX_HOME: codexHome, TRUE_FAIL: "1" }, folders: [".cursor"] });
-  assert.equal(mixed.status, 1, mixed.stderr);
-  assert.match(mixed.stderr, /Codex: Docker did not take a folder its config leads to \(docker: Error response from daemon: Mounts denied/);
-  assert.doesNotMatch(mixed.stderr, /Cursor: Docker did not take a folder/);
-  const mixedInstall = mixed.calls.find((call) => call[0] === "run" && call.includes("install"));
-  assert.equal(mixedInstall.find((argument) => argument.startsWith("--clients=")), "--clients=cursor");
+  // A look that failed once, on a Docker that then runs the image: each client is looked at, and none is lost.
+  const flake = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,gemini"], { env: { TRUE_FAIL: "once" }, folders: [".cursor", ".gemini"] });
+  assert.equal(flake.status, 0, flake.stderr);
+  assert.doesNotMatch(flake.stderr, /Docker did not take a folder|could not look/);
+  const install = flake.calls.find((call) => call[0] === "run" && call.includes("install"));
+  assert.equal(install.find((argument) => argument.startsWith("--clients=")), "--clients=cursor,gemini");
 });
 
 test("a HOME spelled with a slash at its end mounts each folder once; a link into a folder not there is named (Д-353)", async (t) => {

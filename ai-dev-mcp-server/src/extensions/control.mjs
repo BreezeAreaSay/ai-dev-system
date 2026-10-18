@@ -127,6 +127,7 @@ function modelState(status) {
     missing: status.missing,
     mismatched: status.mismatched,
     partial: status.partial,
+    ...(status.unreadable ? { unreadable: status.unreadable } : {}),
     supported: status.supported,
     support_reason: status.support_reason,
     sources: status.sources

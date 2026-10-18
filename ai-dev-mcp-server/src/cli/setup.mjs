@@ -171,7 +171,7 @@ async function setup({ options, io, runtime, steps }) {
   const { callTool } = runtime;
   const say = io.out;
   const inspection = await inspectSetup({ runtime, env: io.env, steps });
-  const { manifest: denseManifest, modelDir: onnxModelDir, indexStatus, qaDependencies, modelInstalled } = inspection;
+  const { manifest: denseManifest, modelDir: onnxModelDir, indexStatus, qaDependencies, modelInstalled, modelUnreadable } = inspection;
   // The model is the ONNX export and nothing else; what a 2.x install left of
   // the Python backend is named once, with what replaced it (D3, Д-98).
   const legacyWeightsDir = io.env.BGE_M3_MODEL_DIR || path.join(resolveRuntimeStateRoot("", io.env), "models", "bge-m3");
@@ -204,7 +204,8 @@ async function setup({ options, io, runtime, steps }) {
   }
   let wantModel = options.model;
   if (wantModel === undefined) {
-    wantModel = !modelInstalled && asking
+    // A model here this user cannot read is not offered for download over it (Д-359).
+    wantModel = !modelInstalled && !modelUnreadable && asking
       ? await io.ask("Download the local search model too? About 600 MB, for semantic search; word search works without it.", false)
       : false;
   }

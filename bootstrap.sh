@@ -382,13 +382,16 @@ if [ "$skip_client_install" -ne 1 ]; then
     set +f
     docker "$@" "$installer_image" 2>&1 >/dev/null
   }
-  # Whether what Docker said is a refused mount, not an engine that failed for
-  # another reason — a timeout, a daemon that went away (Д-358).
-  mount_refused() {
-    case "$1" in
-      *[Mm]ount*|*"bind source path"*|*"not shared"*|*statfs*) return 0 ;;
-    esac
-    return 1
+  # Whether Docker runs the image at all, with no folder of the clients': a
+  # look that failed while this passes failed on a folder; one that fails too is
+  # the engine — a timeout, a storage driver, a daemon gone (Д-358, Д-360).
+  engine_runs() {
+    docker run --rm --network none --entrypoint true "$installer_image" >/dev/null 2>&1
+  }
+  # The first line Docker said, or its exit status when it said nothing (Д-360).
+  said() {
+    first=${1%%"$nl"*}
+    printf '%s' "${first:-exit status $2}"
   }
   # The folders of the clients named (",cursor,codex,"), each target once.
   mounts_of() {
@@ -439,17 +442,17 @@ if [ "$skip_client_install" -ne 1 ]; then
   done
   # Docker takes every client's folders in one look, or each client is looked
   # at alone: a folder it refuses — outside Docker Desktop's file sharing, say —
-  # costs that client alone (Д-339, Д-352). A look that failed for another
-  # reason blames no folder: it is said once, and the install goes on and says
-  # what fails (Д-358).
+  # costs that client alone (Д-339, Д-352). A look that failed while Docker does
+  # not run the image even without the folders blames no folder: it is said
+  # once, and the install goes on and says what fails (Д-358, Д-360).
   look=0
   refused=""
   if [ "$candidates" != "," ]; then
-    refused=$(mounts_taken "$(mounts_of "$candidates")") || look=1
+    refused=$(mounts_taken "$(mounts_of "$candidates")") || look=$?
   fi
-  if [ "$look" = 1 ] && ! mount_refused "$refused"; then
-    printf '%s\n' "Docker could not look at the clients' folders first (${refused%%"$nl"*}): the install goes on, and says what fails." >&2
-  elif [ "$look" = 1 ]; then
+  if [ "$look" != 0 ] && ! engine_runs; then
+    printf '%s\n' "Docker could not look at the clients' folders first ($(said "$refused" "$look")): the install goes on, and says what fails." >&2
+  elif [ "$look" != 0 ]; then
     taken=","
     set -f
     old_ifs=$IFS
@@ -457,7 +460,9 @@ if [ "$skip_client_install" -ne 1 ]; then
     for client in $candidates; do
       [ -n "$client" ] || continue
       IFS=$old_ifs
-      if refused=$(mounts_taken "$(mounts_of ",${client},")") || ! mount_refused "$refused"; then
+      status=0
+      refused=$(mounts_taken "$(mounts_of ",${client},")") || status=$?
+      if [ "$status" = 0 ] || ! engine_runs; then
         taken="${taken}${client},"
       else
         case "$client" in
@@ -467,7 +472,7 @@ if [ "$skip_client_install" -ne 1 ]; then
           cursor) label="Cursor" ;;
           *) label="Codex" ;;
         esac
-        printf '%s\n' "${label}: Docker did not take a folder its config leads to (${refused%%"$nl"*}): not configured." >&2
+        printf '%s\n' "${label}: Docker did not take a folder its config leads to ($(said "$refused" "$status")): not configured." >&2
         install_status=1
       fi
       IFS=,

@@ -77,14 +77,14 @@ test("a model this process cannot read is not ready, and says why: the health ch
   const { runtime } = runtimeWith({ verifyError: denied, env: { AI_DEV_RUNTIME: "docker" } });
   const status = await runtime.describe();
   assert.equal(status.available, false);
-  assert.match(status.reason, /the model in \/models\/bge-m3-onnx cannot be read \(EACCES: permission denied, open '\/models\/bge-m3-onnx\/config\.json'\)\. The image runs as uid 1000/);
+  assert.match(status.reason, /the model in \/models\/bge-m3-onnx cannot be read \(EACCES: permission denied, open '\/models\/bge-m3-onnx\/config\.json'\)\. The image runs as uid 1000: make the folder and its files readable to it on the host/);
   // Its files are not missing, only unseen, and the details say which (Д-358).
   assert.deepEqual(status.onnx.missing, []);
   assert.equal(status.onnx.unreadable, "EACCES: permission denied, open '/models/bge-m3-onnx/config.json'");
   assert.equal("unreadable" in (await runtimeWith({}).runtime.describe()).onnx, false, "a readable model has no such field");
   await assert.rejects(runtime.embed({ texts: ["x"] }), /cannot be read/);
   const local = runtimeWith({ verifyError: denied, onnxModelDir: "/home/me/.ai-dev/models/bge-m3-onnx" });
-  assert.match((await local.runtime.describe()).reason, /cannot be read .*Make its files readable to the user this runs as\./);
+  assert.match((await local.runtime.describe()).reason, /cannot be read .*Make the folder and its files readable to the user this runs as\./);
 });
 
 test("the check trusts the record for a minute, and a refresh reads every file", async () => {

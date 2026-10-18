@@ -153,8 +153,8 @@ function notReadyReason({ inContainer, files }) {
   if (unreadable) {
     return `Dense search is not ready: the model${where} cannot be read (${unreadable}). `
       + (inContainer && dir === DOCKER_MOUNTED_MODEL_DIR
-        ? "The image runs as uid 1000: make the files readable to it on the host, or drop the mount and install the model into the data volume."
-        : "Make its files readable to the user this runs as.");
+        ? "The image runs as uid 1000: make the folder and its files readable to it on the host, or drop the mount and install the model into the data volume."
+        : "Make the folder and its files readable to the user this runs as.");
   }
   if (mismatched.length) {
     const one = mismatched.length === 1;

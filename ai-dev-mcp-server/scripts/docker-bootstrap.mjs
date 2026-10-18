@@ -117,7 +117,12 @@ async function optionalState(indexStatus) {
     dependencies: qaDependencies,
     status: qaDependencies ? await frontendQaStatus(vaultRoot, { launch: false }) : null
   }));
-  const model = await reported(async () => (await modelStatus({ manifest: readDenseManifest(), dir: modelDir, env })).installed);
+  const model = await reported(async () => {
+    const status = await modelStatus({ manifest: readDenseManifest(), dir: modelDir, env });
+    // One this user cannot read is a check that could not be made (Д-337, Д-359).
+    if (status.unreadable) throw new Error(status.unreadable);
+    return status.installed;
+  });
   return {
     modelDir,
     qaDependencies,

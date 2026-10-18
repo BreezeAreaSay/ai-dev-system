@@ -550,7 +550,8 @@ docker run --rm -it --network bridge \
 `/models/bge-m3-onnx`, если там что-то есть, — и сессии, и его собственные проверки
 (docs/DEFECTS.md, Д-346), — так что модель там, которая не целая, поправляется на хосте или
 монтирование убирается. Её файлы и папки должны читаться пользователем образа, uid 1000; если нет,
-отчёт старта и `embedding_status` так и говорят (Д-337, Д-349, Д-357). Векторы документов ею строит, без загрузки
+отчёт старта, `embedding_status`, `ai-dev setup` и `ai-dev model status` так и говорят (Д-337, Д-349,
+Д-357, Д-359). Векторы документов ею строит, без загрузки
 и без сети, `docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data
 --mount type=bind,source=<папка над bge-m3-onnx>,target=/models,readonly
 ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model` (Д-341).

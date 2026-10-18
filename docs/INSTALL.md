@@ -576,8 +576,8 @@ have: `npm run model -- install --no-index` puts it in
 reads `/models/bge-m3-onnx` first when it holds anything — the sessions and its own
 checks alike (docs/DEFECTS.md, Д-346) — so a model there that is not whole is put
 right on the host, or the mount dropped. Its files and folders have to be readable to
-the image's user, uid 1000; when they are not, the start report and `embedding_status`
-say so (Д-337, Д-349, Д-357). The documents are embedded with it, with no download and no network,
+the image's user, uid 1000; when they are not, the start report, `embedding_status`,
+`ai-dev setup` and `ai-dev model status` say so (Д-337, Д-349, Д-357, Д-359). The documents are embedded with it, with no download and no network,
 by `docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data
 --mount type=bind,source=<the folder above bge-m3-onnx>,target=/models,readonly
 ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model` (Д-341).

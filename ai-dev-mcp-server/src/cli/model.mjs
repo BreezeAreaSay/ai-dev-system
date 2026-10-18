@@ -203,6 +203,7 @@ export async function run(argv, io) {
         if (json) return { ok: status.installed, ...status, legacy: notes };
         say(`Model: ${manifest.export} @ ${String(manifest.revision).slice(0, 12)} (${manifest.dtype}) in ${status.dir}`);
         say(status.installed ? "Installed: yes, every file matches the manifest." : "Installed: no.");
+        if (status.unreadable) say(`Cannot be read: ${status.unreadable} — make the folder and its files readable to the user this runs as.`);
         if (status.missing.length) say(`Missing: ${status.missing.join(", ")}`);
         if (status.mismatched.length) say(`Not the pinned files: ${status.mismatched.join(", ")} — \`${hint("npm run model -- install")}\` fetches them again.`);
         for (const part of status.partial) say(`Stopped partway: ${part.file}, ${formatBytes(part.bytes)}${part.size ? ` of ${formatBytes(part.size)}` : ""} — \`${hint("npm run model -- install")}\` continues it.`);

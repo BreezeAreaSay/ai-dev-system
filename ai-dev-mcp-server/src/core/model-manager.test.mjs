@@ -44,6 +44,20 @@ async function setup(t) {
   return { root, dir: path.join(root, "models", "bge-m3-onnx"), stampDir: path.join(root, "cache", "dense-model") };
 }
 
+test("a model this user cannot read is not installed, and says why; a fault of the code still throws (Д-359)", async (t) => {
+  const { dir, stampDir } = await setup(t);
+  await writeModel(dir);
+  const denied = async () => {
+    throw Object.assign(new Error("EACCES: permission denied, stat '/models/bge-m3-onnx/config.json'"), { code: "EACCES" });
+  };
+  const status = await modelStatus({ manifest: MANIFEST, dir, stampDir, env: {}, verify: denied });
+  assert.equal(status.installed, false);
+  assert.equal(status.unreadable, "EACCES: permission denied, stat '/models/bge-m3-onnx/config.json'");
+  assert.deepEqual([status.present, status.missing, status.mismatched, status.partial], [[], [], [], []], "its files are unseen, not missing");
+  assert.equal("unreadable" in await modelStatus({ manifest: MANIFEST, dir, stampDir, env: {} }), false, "a readable model has no such field");
+  await assert.rejects(modelStatus({ manifest: MANIFEST, dir, stampDir, env: {}, verify: async () => { throw new TypeError("not a filesystem error"); } }), TypeError);
+});
+
 test("status before anything: not installed, every file missing, nothing read, sources listed", async (t) => {
   const { dir, stampDir } = await setup(t);
   const status = await modelStatus({ manifest: MANIFEST, dir, stampDir, env: { AI_DEV_MODEL_MIRROR: "https://hf-mirror.com" } });

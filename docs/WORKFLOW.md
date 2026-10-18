@@ -9,7 +9,8 @@ example from first command to closed task, see the [demo](DEMO.md).
 ## Working with the agent
 
 1. Open the target repository in your MCP client.
-2. Give the agent a concrete task and a path under `/workspace`.
+2. Give the agent a concrete task and the project's path (in Docker on Windows, under
+   `/workspace`).
 3. For substantive work the agent calls `begin_task`, reviews the compiled
    context, and loads no more than three routed skills.
 4. After changing code the agent records progress with `checkpoint_task`, runs
@@ -31,7 +32,7 @@ example from first command to closed task, see the [demo](DEMO.md).
 Example request to the agent:
 
 ```text
-Use the ai-dev MCP server. Begin a task for /workspace/my-project:
+Use the ai-dev MCP server. Begin a task for ~/Dev/my-project:
 add CSV export for the report, cover the change with tests, and run verify_task.
 ```
 

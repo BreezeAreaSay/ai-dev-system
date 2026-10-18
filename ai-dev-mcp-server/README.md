@@ -395,19 +395,23 @@ to update them.
 
 ## Docker
 
-The repository ships a local-only, non-root Docker runtime with Chromium, the search index, a clean
-public skill seed, persistent local state, and no network listener. It is built from a generated
-allowlist context rather than from the Vault or repository root.
+The repository ships a local-only, non-root Docker image: the distribution `npm run dist` builds,
+with the clean public skill seed, the registry and search index built from it, persistent local
+state in a volume, and no network listener (a `-browser` variant adds Chromium for Frontend QA).
+Clients run it themselves, one `docker run -i --rm …` per session, which answers the MCP handshake
+in about a second. It is built from a generated allowlist context rather than from the Vault or
+repository root.
 
 ```bash
-node scripts/prepare-docker-context.mjs
+npm run docker:prepare && npm run docker:audit
 docker build --tag ai-dev-system:local ../.docker/build-context
-node scripts/docker-smoke.mjs --image ai-dev-system:local
+npm run docker:smoke -- --image ai-dev-system:local
 ```
 
-Passwords, project contexts, task history, indexes, models, caches, logs, backups, `.codex`,
-`.ai-dev`, `.obsidian`, and Git history are excluded by policy and audited before every build.
-Repositories are visible only when the user explicitly mounts a selected path under `/workspace`.
+Passwords, project contexts, task history, models, caches, logs, backups, `.codex`, `.ai-dev`,
+`.obsidian`, and Git history are excluded by policy and audited before every build. Repositories
+are visible only when the user mounts a chosen projects folder: at its own path on macOS and Linux,
+under `/workspace` on Windows.
 
 See [the complete Windows, macOS, Linux, client configuration, Compose, BGE-M3, and GHCR guide](../docker/README.md).
 

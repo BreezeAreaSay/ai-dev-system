@@ -2,7 +2,7 @@
 
 An install of the 2.x line has to keep working after an upgrade — `git pull`, `docker pull`
 or a reinstall — or migrate itself without losing data. `npm run upgrade:test` checks that for
-a clone; the container half is described below for CI.
+a clone; `npm run docker:upgrade-check` does it for a Docker volume and the 2.x launchers.
 
 ## `npm run upgrade:test`
 
@@ -67,43 +67,48 @@ scratch directory it:
 Each check prints `✓` or `✗`; the last line is `N of M checks passed`, and any `✗` makes the
 exit code 1.
 
-## The container half, for CI
+## The container half: `npm run docker:upgrade-check`
 
-The published 2.x image cannot be pulled from every sandbox, so this half is a scenario. It
-needs Docker, access to `ghcr.io` (manifests and layers) and a clone of this repository.
+```bash
+cd ai-dev-mcp-server
+npm run docker:upgrade-check -- --old-image ghcr.io/stonebridgeway/ai-dev-system:2 --new-image ai-dev-system:local
+```
 
-1. **The 2.x image.** `docker pull ghcr.io/stonebridgeway/ai-dev-system:2` once the frozen `:2`
-   line exists (owner decision D9). Until then, build it from the base commit:
-   ```bash
-   git worktree add ../ai-dev-2x 8f647df
-   cd ../ai-dev-2x/ai-dev-mcp-server
-   npm ci --ignore-scripts
-   npm run docker:prepare
-   docker build --tag ai-dev-system:2x ../.docker/build-context
-   ```
-2. **A volume with 2.x data.** `docker volume create ai-dev-upgrade-data`, then run the 2.x image
-   the way `docker/run-mcp.sh` does, with the volume at `/data` and a git repository at
-   `/workspace`, and send it `initialize`, `begin_task`, `checkpoint_task`, `record_decision`,
-   `save_session` and `search_index_status`. Write down the task id, the
-   `indexed_document_count`, and the files under `/data/runtime-home/.ai-dev/.ai-dev` — the
-   ones 2.x put one level too deep.
-3. **2.x client configurations.** Run the 2.x `scripts/install-docker-mcp-clients.mjs --apply`
-   into a scratch `HOME`, pointing at the clone's launcher.
-4. **The upgrade.** Build the current image the same way from the branch under test (or pull
-   `:edge`), and point `AI_DEV_IMAGE` at it.
-5. **The checks**, with the new image on the same volume, started through the launcher the 2.x
-   client configuration names:
-   - the server starts and answers `tools/list`;
-   - `get_task` finds the task with its checkpoint; `list_decisions` and `list_sessions` list
-     what step 2 recorded;
-   - `search_index_status` reports the same `indexed_document_count`, without a rebuild;
-   - `system_health_check` reports `runtime_home` as `ok`, and
-     `/data/runtime-home/.ai-dev/.ai-dev` holds nothing;
-   - on Windows, `bootstrap.ps1` run again rebuilds `ClaudeMcpProxy.exe`, and the proxy mounts
-     `AI_DEV_MODEL_PATH` at `/models` (docs/DEFECTS.md, Д-88).
-6. **Rolling back.** The 2.x image on the migrated volume still finds the state and the index:
-   the image names their roots explicitly, so the migration does not move them. What 2.x put
-   one level too deep — Archify artifacts, for example — it no longer sees there.
+It needs Docker, the two images and this clone with the base commit in it (`8f647df`; a shallow
+clone fetches it with `git fetch origin 8f647df1372fa5fa2a998b74e40130ed772797d0`): the 2.x
+launcher is read from there. `docker-publish.yml` runs it on every pull request against the
+production image — `:2`, or `:latest` until the frozen `:2` exists (owner decision D9). On a
+scratch volume and a scratch folder, both removed at the end:
+
+1. **2.x fills the volume.** The 2.x image, started through the 2.x `docker/run-mcp.sh` as 2.x
+   client configs start it, fills a new volume (its `cp -n` of the seed) and begins a task; a seed
+   skill is then edited the way a user would, and a skill of the user's own is added.
+2. **The new image under the 2.x launcher.** The same launcher (its cold path) with the new
+   image: the server answers the handshake with its own instructions; the task is there; the
+   volume's skills are the new seed's plus the user's own — what 2.x shipped and 3.0 dropped is
+   gone, and the edited skill keeps the edit with `SKILL.md.seed-new` beside it (docs/DEFECTS.md,
+   Д-99).
+3. **The 2.x warm path.** A runtime container of the new image, as the 2.x bootstrap started it,
+   still serves a session through the 2.x launcher; the 3.0 script of the same name passes the
+   server's own handshake through and says on stderr that it is the 2.x launcher (Д-89).
+4. **A 3.0 entry** on the same volume, with a host state folder mounted: the volume's state, the
+   task with it, moves there (Д-103).
+
+It prints the timings and counts as JSON and exits 1 at the first check that fails.
+
+**Rolling back** to the 2.x image after step 4 finds the vault, the index and the model, but not
+the tasks: they are in the host's state folder now, where 2.x does not look. Nothing is lost;
+copied back into the volume, 2.x has them again:
+
+```bash
+docker run --rm --entrypoint sh \
+  --mount type=volume,source=ai-dev-system-data,target=/data \
+  --mount type=bind,source="$HOME/.ai-dev/state",target=/host-state,readonly \
+  ghcr.io/stonebridgeway/ai-dev-system:2 -c 'cp -a /host-state/. /data/runtime-home/.ai-dev/state/'
+```
+
+The data half without Docker — the server with the image's environment on data 2.x wrote — is
+the **Docker volume layout** scenario of `npm run upgrade:test`.
 
 A clone rolled back to 2.x with `AI_DEV_HOME` set looks one level too deep again and finds
 neither the tasks nor the index; nothing is lost, and setting
@@ -111,6 +116,3 @@ neither the tasks nor the index; nothing is lost, and setting
 for 2.x points it back at them. Measured on the trees `npm run upgrade:test -- --keep` leaves:
 the 2.x server finds the task and 3,444 indexed documents in the Docker layout as it is, none
 in the `AI_DEV_HOME` clone as it is, and both there with the two variables set.
-
-The **Docker volume layout** scenario of `npm run upgrade:test` runs the data half of this —
-the server with the image's environment on data 2.x wrote — without Docker.

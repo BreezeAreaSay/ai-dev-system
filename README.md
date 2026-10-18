@@ -104,7 +104,7 @@ pinned, checksum-verified ONNX export of BGE-M3 (a broken download continues whe
 stopped; `AI_DEV_MODEL_MIRROR` and `HTTPS_PROXY` are honoured) and runs it through
 Node, with no Python; `npm run model -- import <folder or .zip>` copies it from a
 machine that has it, and `npm run dense:doctor` says whether it worked. In the
-packaged path the weights are mounted instead.
+packaged path one `docker run … ai-dev model install` puts it in the data volume.
 
 **Packaged, through Docker** — for a machine that should not hold a personal
 vault, or a team that wants one image everybody runs the same way:
@@ -112,7 +112,7 @@ vault, or a team that wants one image everybody runs the same way:
 | | |
 | --- | --- |
 | Windows | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1` |
-| macOS / Linux | `sh ./bootstrap.sh` (add `--install-prerequisites` if Docker is missing) |
+| macOS / Linux | `sh ./bootstrap.sh` (with Docker running) |
 
 Every client's configuration block, Compose, the local model in a container,
 Arch/AUR, Homebrew, and what to do when it does not work:
@@ -123,7 +123,7 @@ Arch/AUR, Homebrew, and what to do when it does not work:
 Open a repository in your client and say:
 
 ```text
-Use the ai-dev MCP server. Begin a task for /workspace/my-project:
+Use the ai-dev MCP server. Begin a task for ~/Dev/my-project:
 add CSV export for the report, cover the change with tests, and run verify_task.
 ```
 

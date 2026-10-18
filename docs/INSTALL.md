@@ -46,7 +46,8 @@ described in the [server README](../ai-dev-mcp-server/README.md).
 
 For the packaged path you need Docker instead:
 
-- Docker Desktop (Windows / macOS) or Docker Engine (Linux); bootstrap can install it;
+- Docker Desktop (Windows / macOS) or Docker Engine (Linux), running — bootstrap checks for it
+  and says where it comes from, it does not install it;
 - Docker must have access to the project folder you choose.
 
 ## Quick start: run it locally
@@ -154,8 +155,8 @@ npx @stonebridgeway/ai-dev-system setup           # or: npx --yes ./stonebridgew
 
 `npx` runs the package from its cache, which npm may clear at any time, so `setup` installs
 it first into `~/.ai-dev/app/<version>-<fingerprint>` — its own copy, with its dependencies
-from the package's lockfile (`npm ci --ignore-scripts`, out of the cache npx just filled) — and
-goes on from there. The client configs it writes name that copy; the newest two copies are
+from the package's lockfile (`npm ci` with install scripts off, out of the cache npx just
+filled) — and goes on from there. The client configs it writes name that copy; the newest two copies are
 kept, so a client still running the previous one is not pulled out from under. Running the
 same command with a newer version is the update.
 
@@ -201,32 +202,32 @@ through `%USERPROFILE%\.ai-dev\app\current`, and how to build the installer
 
 ## One command on Windows
 
-This is the packaged path: the script installs Docker and pulls the image. For
-the local path see [Quick start: run it locally](#quick-start-run-it-locally).
+This is the Docker path: the AI clients run the server in a container. For the
+local path see [Quick start: run it locally](#quick-start-run-it-locally); the
+[Windows installer](#the-windows-installer) needs neither Docker nor Node.
 
-After `git clone`, open PowerShell in the clone root and run:
+It needs Docker Desktop — installed and not running, the script starts it and
+waits for the engine — and Node.js 22.12 or newer: Node writes the clients'
+configs, since a Linux container cannot write a file by its Windows path. If
+either is missing the script says how to install it (`winget install
+Docker.DockerDesktop`, `winget install OpenJS.NodeJS.LTS`) and stops; it installs
+nothing itself. After `git clone`, open PowerShell in the clone root and run:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
 ```
 
-The script creates an isolated `AI-Dev-Projects` folder in your home directory,
-installs Docker Desktop and Node.js LTS via `winget` if they are missing,
-pulls the published image, verifies MCP, and registers the local `ai-dev` server
-with Codex, Cursor, Gemini, VS Code, and Claude. On Windows it also installs a
-launcher-only copy at `C:\ProgramData\AI-Dev-System\run-mcp.ps1`, which avoids
-encoding problems when the clone path contains non-ASCII characters. That folder
-never receives projects, the vault, tokens, or passwords. For Claude Desktop it
-additionally creates a small `ClaudeMcpProxy.exe` in the same folder: it answers
-the MCP initialization handshake before Docker has started, so Claude's short
-startup timeout is satisfied, and then transparently forwards the session to the
-local Docker container.
+It pulls the published image, checks that the server in it answers the MCP
+handshake — its own answer, instructions and all — and writes the `ai-dev`
+entry into every AI client it finds: a `docker run -i --rm …` the client runs
+itself. The projects folder is `%USERPROFILE%\AI-Dev-Projects`, mounted as
+`/workspace` (a Linux container cannot hold a Windows path, so on Windows the
+server sees the projects there). Nothing is compiled any more: 2.x built a C#
+proxy for Claude on your machine, and the launchers 2.x copied to
+`C:\ProgramData\AI-Dev-System` are only brought up to date if they are there —
+see [Updating an earlier install](#updating-an-earlier-install).
 
-Run the first invocation **as administrator** only if Docker Desktop or Node.js
-are not yet installed: `winget` and Docker may request elevation. If Docker
-Desktop is already installed, a normal PowerShell session is enough.
-
-For a different project folder and a subset of clients:
+For a different project folder and some of the clients:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1 `
@@ -234,87 +235,68 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1 `
   -Clients "codex,cursor,vscode"
 ```
 
-The path is stored only in the local settings of the selected clients. No tokens,
-passwords, folder contents, or your profile are written to Git. Restart the AI
-client afterwards.
+Restart the AI client afterwards.
 
 ## One command on macOS and Linux
 
-Also the packaged path. For the local one see
-[Quick start: run it locally](#quick-start-run-it-locally).
-
-If Docker is already installed and running:
+Also the Docker path. It needs Docker (Docker Desktop on macOS, Docker Engine on
+Linux), running — the script checks and says where Docker comes from if it is
+not there; it no longer installs it — and nothing else: no Node on the host.
 
 ```bash
 sh ./bootstrap.sh
 ```
 
-If Docker is not installed yet, one command covers every supported system:
+Three steps:
 
-| System | Command after `git clone` |
-| --- | --- |
-| macOS | `sh ./bootstrap.sh --install-prerequisites` |
-| Debian / Ubuntu | `sh ./bootstrap.sh --install-prerequisites` |
-| Fedora | `sh ./bootstrap.sh --install-prerequisites` |
-| Arch Linux / Manjaro | `sh ./bootstrap.sh --install-prerequisites` |
+1. **Docker** is there and its engine answers (on macOS it starts Docker Desktop
+   and waits for it).
+2. **The image** is pulled — `ghcr.io/stonebridgeway/ai-dev-system:latest` — and
+   the server in it answers the MCP handshake with its own instructions.
+3. **The configs.** The image writes them: `ai-dev clients install --docker`
+   runs in a container that sees each client's own config folder and your state
+   folder, nothing else of your home. Claude Code keeps its servers in
+   `~/.claude.json`, a file in the home itself, so its entry goes through its own
+   CLI (`claude mcp add-json`); without the CLI on PATH the script prints the
+   command.
 
-On macOS the script uses Homebrew: it installs Homebrew with the official
-installer if needed, then runs `brew install --cask docker`, starts Docker
-Desktop, and waits for the engine. The first launch of Docker Desktop may require
-accepting the licence and confirming privileged settings in the app window.
+What a client then runs, every session:
 
-On Linux it installs the distribution's own Docker engine and nothing else —
-`docker.io` with `apt` (Debian, Ubuntu), `moby-engine` with `dnf` (Fedora), `docker`
-with `pacman` (Arch); bootstrap never uses compose. It runs the package manager
-through `sudo`, or directly when you are root, enables the Docker service, and adds
-the current user to the `docker` group. You then need to log out and back in and
-re-run the command; as root there is no group to join and it carries straight on.
+```text
+docker run -i --rm --read-only --tmpfs /tmp … --network none --security-opt no-new-privileges:true --cap-drop ALL
+  --mount type=volume,source=ai-dev-system-data,target=/data
+  --mount type=bind,source=~/.ai-dev/state,target=/ai-dev-state --env AI_DEV_STATE_ROOT=/ai-dev-state
+  --mount type=bind,source=~/AI-Dev-Projects,target=~/AI-Dev-Projects
+  ghcr.io/stonebridgeway/ai-dev-system:latest
+```
 
-Bootstrap needs no Node.js on the host: it configures MCP clients from a
-throwaway `node:24` container. By default it pulls
-`ghcr.io/stonebridgeway/ai-dev-system:latest`, and the working folder is created
-as `~/AI-Dev-Projects` and mounted into the container as `/workspace`.
+- **The projects at their own path** (`~/AI-Dev-Projects` by default): the path an
+  agent names is the path the server opens. 2.x mounted them at `/workspace`, and a
+  host path was "not found" (docs/DEFECTS.md, Д-312).
+- **The state the agent hooks keep** is the server's: your `~/.ai-dev/state`. The
+  hooks run on your machine; with one state, the Stop hook sees the task the server
+  started (Д-103). This takes the container's user — uid 1000, the image's — being
+  yours: on macOS Docker Desktop maps it, on Linux it is the first user's uid. With
+  another uid on Linux the server keeps its state in the volume, as 2.x did, and
+  `ai-dev clients install --docker` says so.
+- **One container per session**, started in about a second; there is no
+  long-lived container any more, and the one 2.x kept (`ai-dev-system-runtime-<uid>`)
+  is removed.
 
-So that Claude Desktop and other clients do not abort Docker's slow cold start,
-bootstrap creates a helper container `ai-dev-system-runtime-$(id -u)`. It runs
-with no network, a read-only filesystem, no Linux capabilities, and
-`no-new-privileges`; it is granted access only to the system's named volume and
-the chosen project folder. The MCP process itself starts through a fast
-`docker exec`, and the launcher completes the protocol handshake immediately. The
-container comes back automatically after a Docker restart thanks to
-`restart=unless-stopped`.
-
-For a different project folder and a subset of clients:
+For a different project folder and some of the clients:
 
 ```bash
 sh ./bootstrap.sh --project-path "$HOME/Dev" --clients "codex,cursor,vscode"
 ```
 
-Re-running the same command safely updates only the managed runtime container.
-The named volume, indexes, knowledge base, and project files are left intact.
-Check the runtime with:
+Re-running it is safe: a config that already runs this image stays as it is, and
+the volume — vault, index, model — is kept. To build the image from this
+checkout instead of pulling it: `sh ./bootstrap.sh --build-local`.
 
-```bash
-docker ps --filter "label=ai-dev.system.runtime=true"
-```
-
-To develop the image itself, use explicit local mode:
-
-```bash
-sh ./bootstrap.sh --build-local
-```
-
-If the registry cannot be reached and an older copy of the image is already in
-the local Docker cache, bootstrap stops rather than installing it. It prints
-when that copy was created and its digest, so you can tell how far behind it is.
-Installing it anyway is a deliberate choice:
-
-```bash
-sh ./bootstrap.sh --allow-stale-image
-```
-
-On Windows the same switch is `-AllowStaleImage`. Prefer restoring the registry
-connection: a cached image can be missing fixes that are already released.
+If the registry cannot be reached and an older copy of the image is in the local
+cache, bootstrap stops rather than installing it, and says when that copy was
+built and its digest. Installing it anyway is a deliberate choice:
+`sh ./bootstrap.sh --allow-stale-image` (`-AllowStaleImage` on Windows).
 
 ## The packaged path: Docker
 
@@ -322,8 +304,7 @@ Choose this when you want the system on a machine that should not hold a
 personal vault, or when a team needs one image everybody runs the same way. The
 image carries no vault, passwords, tokens, projects or task history. It is not
 the faster path to a working install on your own machine — that is the local one
-above — and the local dense model is off by default in it.
-
+above.
 
 ### 1. Get the image
 
@@ -331,7 +312,11 @@ above — and the local dense model is off by default in it.
 docker pull ghcr.io/stonebridgeway/ai-dev-system:latest
 ```
 
-Or build the image from a clone of the repository:
+`:latest` is the latest release; `:edge` follows `main`; `:2` is the 2.x line, the
+way back. Frontend QA needs a browser: the `-browser` variant (`:latest-browser`)
+carries Chromium, about 0.8 GB more than the 0.7 GB of the default one.
+
+Or build it from a clone of the repository:
 
 ```bash
 cd ai-dev-mcp-server
@@ -342,39 +327,32 @@ npm run docker:build
 npm run docker:smoke -- --image ai-dev-system:local
 ```
 
-The build always uses the temporary allowlisted context `.docker/build-context`,
-never the repository root or an Obsidian vault. Do not point the Docker context
-at a vault root.
+The build context, `.docker/build-context`, is the distribution `npm run dist`
+makes (`ai-dev/`, checked file by file against its `distribution.json` in the
+build) beside the Dockerfile and the entrypoint — never the repository root or a
+vault. What a first start builds (the skill registry, the search index, the
+routing benchmark) is built into the image, and a new volume starts with it.
 
 ### 2. Choose a working folder
 
 Create or choose a folder that contains only the repositories the agent is
 allowed to work on — for example `C:\Dev` on Windows or `$HOME/Dev` on
-macOS / Linux. This folder is mounted into the container as `/workspace`.
+macOS / Linux. Do not use a personal vault, your entire home directory, or a
+folder with secrets or backups.
 
-Do not use a personal vault, your entire home directory, or a folder with secrets
-or backups.
+### 3. Write the clients' entries
 
-### 3. Verify the local launch
-
-Windows:
-
-```powershell
-$env:AI_DEV_IMAGE = "ghcr.io/stonebridgeway/ai-dev-system:latest"
-$env:AI_DEV_PROJECT_PATH = "C:\Dev"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\docker\run-mcp.ps1
-```
-
-macOS / Linux:
+From a clone, with Node 22.12+ on the host — what the bootstrap scripts run:
 
 ```bash
-export AI_DEV_IMAGE="ghcr.io/stonebridgeway/ai-dev-system:latest"
-export AI_DEV_PROJECT_PATH="$HOME/Dev"
-sh ./docker/run-mcp.sh
+node ai-dev-mcp-server/bin/ai-dev.mjs clients install --docker --projects "$HOME/Dev"
 ```
 
-The process waits for MCP messages on standard input. That is expected: end the
-check with `Ctrl+C`, then wire the launcher command into an MCP client.
+`--image`, `--model`, `--volume` and `--clients` say the rest; `--dry-run` writes
+nothing; `ai-dev clients entry cursor --docker …` prints one entry as JSON for a
+client you configure by hand. `ai-dev clients doctor` then starts each entry and
+checks that the server answers. The 2.x launchers — `docker/run-mcp.sh`,
+`run-mcp.ps1` — still run the image for configs that name them, until 4.0.
 
 ### 4. What the container runs your checks with
 
@@ -393,7 +371,9 @@ the gate recognizes. It does not rewrite your commands for you.
 The container also runs with `--network none`, and of the six security scanners
 only `gitleaks` — which is in the image — works with no network at all. So a
 scan there is one scanner, not six; `docker/README.md` has the full matrix. A
-scan in which not one scanner ran comes back `unchecked`, never `pass`.
+scan in which not one scanner ran comes back `unchecked`, never `pass`. git in
+the image trusts the mounted projects whoever owns them on the host: 2.x saw a
+project of another user as no repository at all (Д-311).
 
 ## Connecting AI agents
 
@@ -447,143 +427,123 @@ the entry is cut. `--dry-run` shows what `install` or `remove` would change.
 Entries 2.x wrote keep working without a reinstall: `node <clone>/ai-dev-mcp-server/src/server.mjs`
 is still a working entry point.
 
-**The Docker path.** The blocks below show the shape of what the Docker installer writes — on Windows
-it also sets `AI_DEV_MCP_LAUNCHER`, and Claude gets `ClaudeMcpProxy.exe` instead of
-PowerShell — for reference and for a client neither installer covers.
-
-In every case, replace `C:\ABSOLUTE\PATH` with the absolute path to your clone of
-this repository, and `C:\Dev` with the folder that holds your projects. Do not
-commit these values to Git.
+**The Docker path.** `bootstrap.sh`, `bootstrap.ps1` and `ai-dev clients install --docker`
+write the same files the same way, with an entry that runs `docker run` itself. The blocks
+below show its shape, for reference and for a client none of them covers;
+`ai-dev clients entry <client> --docker --projects <folder>` prints the exact entry for this
+machine, the Docker CLI by its full path (a client started from the Dock or the Start menu
+does not see your shell's `PATH`). Replace `/home/you/Dev` or `C:\Dev` with the folder that
+holds your projects, and do not commit these values to Git.
 
 ### Codex
 
-Add to your user `config.toml`:
+Add to your user `config.toml` — here as macOS and Linux write it:
 
 ```toml
 [mcp_servers.ai-dev]
-command = "powershell.exe"
-args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\ABSOLUTE\\PATH\\docker\\run-mcp.ps1"]
-env = { AI_DEV_IMAGE = "ghcr.io/stonebridgeway/ai-dev-system:latest", AI_DEV_PROJECT_PATH = "C:\\Dev" }
+command = "/usr/local/bin/docker"
+args = [
+  "run", "-i", "--rm", "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,size=512m", "--shm-size", "1g",
+  "--network", "none", "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL",
+  "--mount", "type=volume,source=ai-dev-system-data,target=/data",
+  "--mount", "type=bind,source=/home/you/.ai-dev/state,target=/ai-dev-state", "--env", "AI_DEV_STATE_ROOT=/ai-dev-state",
+  "--mount", "type=bind,source=/home/you/Dev,target=/home/you/Dev",
+  "ghcr.io/stonebridgeway/ai-dev-system:latest"
+]
 startup_timeout_sec = 120
 tool_timeout_sec = 3600
 ```
 
-On macOS / Linux use `command = "/bin/sh"` and pass the absolute path to
-`docker/run-mcp.sh` in `args`. Also set the name bootstrap created in `env`:
-`AI_DEV_RUNTIME_CONTAINER = "ai-dev-system-runtime-UID"`, where `UID` is the
-output of `id -u`. The automatic installer does this for you. Restart Codex and
-confirm that the `ai-dev` server appears in the MCP tool list.
+The state folder's mount and its variable are there only where the container's user, uid
+1000, is yours — see [One command on macOS and Linux](#one-command-on-macos-and-linux).
+Restart Codex and confirm that the `ai-dev` server appears in the MCP tool list.
 
 ### Cursor, Claude Desktop, Claude Code, and Gemini
 
-These clients use JSON with an `mcpServers` property. Add or merge the block below
-into their existing configuration:
-
-When you run `bootstrap.ps1 -Clients claude`, the installer updates both local
-Claude files: `%USERPROFILE%\.claude.json` for Claude Code and
-`%APPDATA%\Claude\claude_desktop_config.json` for Claude Desktop. Existing servers
-are preserved, and the file being changed is backed up first. For the Microsoft
-Store build of Claude, the installer also updates the sandboxed app profile under
-`%LOCALAPPDATA%\Packages\Claude_*`. On Windows, do not replace the
-automatically installed Claude configuration with the example below: it uses
-`C:\ProgramData\AI-Dev-System\ClaudeMcpProxy.exe` for a fast Docker-MCP start.
-On macOS / Linux, bootstrap similarly stores `AI_DEV_RUNTIME_CONTAINER` in the
-configuration and wires the fast launcher; there is no need to edit the Claude
-files by hand after bootstrap.
+These clients use JSON with an `mcpServers` property. Add or merge the block below into
+their existing configuration — here as Windows writes it, with the projects in `C:\Dev`,
+which the server sees as `/workspace`:
 
 ```json
 {
   "mcpServers": {
     "ai-dev": {
-      "command": "powershell.exe",
+      "command": "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "C:\\ABSOLUTE\\PATH\\docker\\run-mcp.ps1"
-      ],
-      "env": {
-        "AI_DEV_IMAGE": "ghcr.io/stonebridgeway/ai-dev-system:latest",
-        "AI_DEV_PROJECT_PATH": "C:\\Dev"
-      }
+        "run", "-i", "--rm", "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,size=512m", "--shm-size", "1g",
+        "--network", "none", "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL",
+        "--mount", "type=volume,source=ai-dev-system-data,target=/data",
+        "--mount", "type=bind,source=C:\\Users\\you\\.ai-dev\\state,target=/ai-dev-state",
+        "--env", "AI_DEV_STATE_ROOT=/ai-dev-state",
+        "--mount", "type=bind,source=C:\\Dev,target=/workspace",
+        "ghcr.io/stonebridgeway/ai-dev-system:latest"
+      ]
     }
   }
 }
 ```
 
-A minimal template with no project access is in
-[docker/mcp-config.example.json](../docker/mcp-config.example.json). After changing
-the configuration, restart the client completely. In Claude Code and the Gemini
-CLI the configuration can be added through their own MCP management command, but
-the launch command and environment variables stay the same.
+`bootstrap.ps1 -Clients claude` writes both Claude files: `%USERPROFILE%\.claude.json` for
+Claude Code, and `%APPDATA%\Claude\claude_desktop_config.json` for Claude Desktop together
+with the Microsoft Store build's own copy under `%LOCALAPPDATA%\Packages\Claude_*`. On macOS
+and Linux, bootstrap gives Claude Code its entry through Claude Code's own CLI
+(`claude mcp add-json`). Every other server in a file is kept, and the file's previous bytes
+stay beside it. A minimal template is in
+[docker/mcp-config.example.json](../docker/mcp-config.example.json). After changing the
+configuration, restart the client completely.
 
 ### VS Code
 
-Create `.vscode/mcp.json` in a specific working repository, or add the same server
-to your VS Code user MCP settings:
+Create `.vscode/mcp.json` in a specific working repository, or add the same server to your
+VS Code user MCP settings: the block above under `servers` instead of `mcpServers`, with
+`"type": "stdio"` beside `command`.
 
-```json
-{
-  "servers": {
-    "ai-dev": {
-      "type": "stdio",
-      "command": "powershell.exe",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "C:\\ABSOLUTE\\PATH\\docker\\run-mcp.ps1"
-      ],
-      "env": {
-        "AI_DEV_IMAGE": "ghcr.io/stonebridgeway/ai-dev-system:latest",
-        "AI_DEV_PROJECT_PATH": "C:\\Dev"
-      }
-    }
-  }
-}
-```
-
-Reload the VS Code window. Inside the container, mounted repository paths start
-with `/workspace`; for example, call `begin_task` with `/workspace/my-project`.
+Reload the VS Code window. On Windows the server sees the projects under `/workspace`: call
+`begin_task` with `/workspace/my-project`. On macOS and Linux it sees them at their own path.
 
 ## Docker Compose
 
 Copy `docker/compose.local.example.yaml` to `docker/compose.local.yaml`, set a
-local `AI_DEV_PROJECT_PATH`, and run:
+local `AI_DEV_PROJECT_PATH` (mounted at its own path), and run:
 
 ```bash
 docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
 ```
 
 `compose.local.yaml` and `docker/.env` are Git-ignored because they can contain
-local paths.
+local paths. A client config runs `docker run` itself; compose is for those who
+keep their containers there.
 
 ## The local model in a container
 
 Hybrid search has two halves: keyword matching, which works everywhere with no
 setup, and dense retrieval on the local BGE-M3 model, which is what makes a
-search understand a question rather than match its words. The container can run
-both, and since the ONNX runtime is an ordinary npm dependency it is already in
-the default image — there is nothing to turn on. One thing is still missing, for
-one reason.
+search understand a question rather than match its words. The container runs
+both; the ONNX runtime is in the image. The weights are not: they are about 600
+MB, yours to fetch once.
 
-**The weights are never in the published image.** They are yours, not the
-distribution's — an image carrying them would be a several-hundred-megabyte pull
-for every user and a licence question for the publisher. Download them once on
-the host:
+**Into the data volume, once, with the network that one run needs:**
 
 ```bash
-cd ai-dev-mcp-server
-npm run model -- install --no-index
+docker run --rm -it --network bridge \
+  --mount type=volume,source=ai-dev-system-data,target=/data \
+  ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev model install
 ```
 
-(`npm run setup -- --model` does the same and also embeds the host's own index; a
-container embeds its own.) A download that breaks — a dropped connection, a laptop
-lid, Ctrl-C — keeps what arrived, and the next run continues from that byte. If the
-host cannot reach huggingface.co, see
-[When the download is blocked](#when-the-download-is-blocked).
+It shows the download as it goes, keeps what arrived if it is cut off (the next
+run continues from that byte), checks every file against the manifest's sha256,
+and embeds the documents the index already holds. The sessions after it keep
+`--network none` and read the model from the volume. 2.x could not do this: the
+image pinned the model folder to a host mount, and its documents were never
+embedded at all (docs/DEFECTS.md, Д-99). A proxy or a mirror is passed the way
+[When the download is blocked](#when-the-download-is-blocked) says, with `--env`.
+
+**Or on the host, mounted read-only** — the 2.x way, for a model you already
+have: `npm run model -- install --no-index` puts it in
+`~/.ai-dev/models/bge-m3-onnx`; mount the folder *above* it,
+`~/.ai-dev/models`, at `/models` (`--model` of `ai-dev clients install --docker`,
+`--model-path` of bootstrap, `AI_DEV_MODEL_PATH` of the 2.x launchers). The image
+reads `/models/bge-m3-onnx` first when it holds anything.
 
 **Room to put them.** About 600 MB of weights, and the download refuses to start
 on a disk that cannot hold them plus 512 MB left over — it says what it needs and
@@ -591,11 +551,6 @@ what is there rather than filling the disk to the last byte. A disk that fits
 them and not much more still works, and says once that it may be slow: writing
 near a full disk is where a download that crawls usually comes from, and it looks
 exactly like a dead connection from the outside.
-
-They land in `~/.ai-dev/models/bge-m3-onnx` (override with `BGE_M3_ONNX_DIR`, or
-`--dir` for one run). Mount the folder *above* them — `~/.ai-dev/models` —
-read-only; the container reads the weights and never writes them, from
-`bge-m3-onnx/` under the mount.
 
 ### When the download is blocked
 
@@ -648,46 +603,22 @@ what replaced it.
 
 ### Running it, either way
 
-`AI_DEV_MODEL_PATH` names the folder *above* the models — `~/.ai-dev/models`, the one
-`npm run setup -- --model` fills — not a model directory. A folder that holds model
-files itself (`pytorch_model.bin`, `config.json`, `onnx/`) is the value the variable
-had before 2.1, and the launchers refuse it with directions rather than mounting it one
-level too deep. That includes `ClaudeMcpProxy.exe`, Claude's launcher on Windows, which
-until this release mounted the folder at `/models/bge-m3`, where the image never looks, so
-Claude on Windows had no dense search (docs/DEFECTS.md, Д-88).
-
-With the installer, which is the default Docker path:
+A model in the volume needs nothing more: every session of the image finds it.
+A model on the host is mounted from the folder *above* it — `~/.ai-dev/models`,
+the one `npm run setup -- --model` fills — not a model directory. A folder that
+holds model files itself (`pytorch_model.bin`, `config.json`, `onnx/`) is the value
+the variable had before 2.1, and every copy refuses it with directions rather than
+mounting it one level too deep.
 
 ```bash
 sh ./bootstrap.sh --model-path "$HOME/.ai-dev/models"
+node ai-dev-mcp-server/bin/ai-dev.mjs clients install --docker --model "$HOME/.ai-dev/models"
 ```
 
-The fast-start runtime mounts the folder read-only as `/models`, and the client
-configurations bootstrap writes carry `AI_DEV_MODEL_PATH`, so the cold fallback
-launch mounts it too. `AI_DEV_MODEL_PATH` in the environment is the default for
-`--model-path`; on Windows the switch is `-ModelPath`.
-
-With the launcher scripts directly:
-
-```bash
-export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
-export AI_DEV_PROJECT_PATH="/absolute/path/to/your/project"
-sh docker/run-mcp.sh
-```
-
-With Compose, uncomment the model mount in your `compose.local.yaml` — the
-example file carries it with the same variable — and run:
-
-```bash
-export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
-docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
-```
-
-Both attach the folder at `/models`; inside the image `BGE_M3_ONNX_DIR` points at
-`/models/bge-m3-onnx`. `compose.yaml` runs with `network_mode: none`, and that does
-not get in the way: the worker loads the model with remote models turned off, so
-it is read from the mount and nothing reaches for the network. It is also why the
-weights have to arrive by mount rather than by a download inside the container.
+On Windows the bootstrap switch is `-ModelPath`. With Compose, uncomment the
+model mount in your `compose.local.yaml` — the example file carries it with the
+same variable. `network_mode: none` does not get in the way: the worker loads the
+model with remote models turned off.
 
 ### If you want the weights inside the image
 
@@ -707,8 +638,8 @@ docker build -f Dockerfile.bge -t ai-dev-system:bge-bundled "$HOME/.ai-dev/model
 ```
 
 The result needs no mount and no variable: `/models/bge-m3-onnx` is already
-there, which is what `BGE_M3_ONNX_DIR` points at. Everything else — `network_mode:
-none`, the read-only root filesystem, the unprivileged user — stays as it was.
+there, where the image looks first. Everything else — `network_mode: none`, the
+read-only root filesystem, the unprivileged user — stays as it was.
 
 ### Checking that it worked
 
@@ -732,7 +663,7 @@ walks the same ground in six stages and names the one that stopped.
 
 Then `search_index_status` reports `dense_documents` against
 `dense_pending_documents`: a fresh index has vectors for none of its documents
-until `npm run setup -- --model` has embedded them.
+until `ai-dev model install` (or `npm run setup -- --model`) has embedded them.
 
 Running from source instead? Then none of this applies: `npm run setup --
 --dense` is the whole of it. See
@@ -741,9 +672,15 @@ Running from source instead? Then none of this applies: `npm run setup --
 ## Publishing for a team
 
 The [docker-publish.yml](../.github/workflows/docker-publish.yml) workflow checks the
-privacy policy, rebuilds the allowlisted context, runs the MCP smoke test, and
+privacy policy, rebuilds the context, runs the MCP smoke test (a new volume, the
+next session, the model through the volume) and the upgrade of a 2.x volume, and
 publishes `linux/amd64` and `linux/arm64` images to the GitHub Container Registry
-with an SBOM and provenance.
+with an SBOM and provenance — two variants, the default and `-browser`.
+
+The tags (owner decision D9): a push to `main` is `:edge`; a release tag `vX.Y.Z`
+is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`. A merge is not a release. `:2` is the 2.x
+line, frozen when 3.0 is tagged: `AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2`
+(or `--image` of bootstrap) is the way back.
 
 After the first push:
 
@@ -752,8 +689,8 @@ After the first push:
 2. Make sure teammates can read GitHub Packages.
 3. Give teammates the address `ghcr.io/stonebridgeway/ai-dev-system:latest` and
    this README.
-4. Each teammate sets their own local project folder via `AI_DEV_PROJECT_PATH`;
-   other people's files never enter the image or Git.
+4. Each teammate sets their own local project folder; other people's files never
+   enter the image or Git.
 
 ## Arch / AUR and Homebrew
 
@@ -761,15 +698,18 @@ After publication in AUR, install on Arch Linux / Manjaro with:
 
 ```bash
 yay -S ai-dev-system-git
-ai-dev-system --install-prerequisites
+sudo systemctl enable --now docker
+ai-dev-system
 ```
 
-The package follows `main`. It can also be built from this clone:
+The package brings Docker as a dependency; starting its engine, and letting your user reach it
+(the `docker` group, then a new login), are yours to do — bootstrap no longer does either. The
+package follows `main`. It can also be built from this clone:
 
 ```bash
 cd packaging/arch
 makepkg -si
-ai-dev-system --install-prerequisites
+ai-dev-system
 ```
 
 The AUR package name is `ai-dev-system-git`. Publishing requires a separate AUR
@@ -812,13 +752,25 @@ command:
 - **Hooks.** Hooks 2.x installed into a repository keep running wherever `node` is on the
   client's PATH. Run `install_agent_hooks` there again for the 3.0 registrations, which
   find Node without it (Д-103).
-- **Docker on Windows.** Run `bootstrap.ps1` once more, so Claude's `ClaudeMcpProxy.exe` is
-  rebuilt and mounts the model folder where the image looks (Д-88).
-- **Docker.** `docker pull` the new image; the runtime tree in the `/data` volume moves the
-  same way on the first start.
+- **Docker configs.** A config 2.x wrote names a launcher — `docker/run-mcp.sh`,
+  `run-mcp.ps1`, or for Claude on Windows `ClaudeMcpProxy.exe` — and it keeps running the
+  new image until 4.0; the 3.0 copies of the scripts say on stderr that they are the 2.x
+  launcher. Run `bootstrap.sh` (`bootstrap.ps1` on Windows) once more: it writes the
+  `docker run` entries in their place and removes the long-lived container 2.x kept. Until
+  then the client gets the server's instructions only through the 3.0 scripts — 2.x's
+  answered the handshake themselves (Д-89, Д-105).
+- **The Docker volume** is kept. On the new image's first start its skills are brought up
+  to the image's seed by the seed's manifest rather than 2.x's copy-if-missing: what 2.x
+  shipped and 3.0 dropped is removed, a skill of the seed you edited keeps your edit with
+  the update beside it (`SKILL.md.seed-new`), a skill of your own is not touched (Д-99).
+  Where the container shares your state folder (see
+  [One command on macOS and Linux](#one-command-on-macos-and-linux)), the tasks and
+  handoffs in the volume move into it. That first start takes some seconds more than the
+  next ones. The way back is the 2.x image: `ghcr.io/stonebridgeway/ai-dev-system:2`.
 
-`npm run upgrade:test` checks all of this against a 2.x install; see
-[Upgrade test](UPGRADE-TEST.md).
+`npm run upgrade:test` checks all of this against a 2.x install, and `npm run
+docker:upgrade-check -- --old-image <2.x image> --new-image <image>` the Docker part
+against a 2.x volume and its launchers; see [Upgrade test](UPGRADE-TEST.md).
 
 ## Verification and diagnostics
 

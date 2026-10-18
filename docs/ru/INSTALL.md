@@ -45,7 +45,8 @@ Python тоже не нужен: в 3.0 dense-бэкенд на Python удал�
 
 Для запуска в контейнере вместо этого нужен Docker:
 
-- Docker Desktop (Windows/macOS) или Docker Engine (Linux); bootstrap может установить его;
+- Docker Desktop (Windows/macOS) или Docker Engine (Linux), запущенный: bootstrap проверяет его и
+  говорит, откуда его взять, но не ставит;
 - Docker должен иметь доступ к выбранной папке с проектами.
 
 ## Быстрый старт: локально
@@ -150,7 +151,7 @@ npx @stonebridgeway/ai-dev-system setup           # или: npx --yes ./stonebri
 
 `npx` запускает пакет из своего кэша, а его npm может очистить в любой момент. Поэтому `setup`
 сначала ставит пакет в `~/.ai-dev/app/<версия>-<отпечаток>` — отдельную копию с зависимостями из
-lockfile пакета (`npm ci --ignore-scripts`, из кэша, который npx только что наполнил), — и
+lockfile пакета (`npm ci` без установочных скриптов, из кэша, который npx только что наполнил), — и
 продолжает уже оттуда. Конфиги клиентов он пишет на эту копию; хранятся две последние копии, чтобы
 у клиента, который ещё работает на предыдущей, её не выдернули. Та же команда с новой версией —
 это и есть обновление.
@@ -198,29 +199,29 @@ lockfile пакета (`npm ci --ignore-scripts`, из кэша, который 
 
 ## Один запуск на Windows
 
-Это путь через контейнер: скрипт ставит Docker и скачивает образ. Локальный путь — см.
-[Быстрый старт: локально](#быстрый-старт-локально).
+Это путь через контейнер: ИИ-клиенты запускают сервер в контейнере. Локальный путь — см.
+[Быстрый старт: локально](#быстрый-старт-локально); [установщику Windows](#установщик-windows)
+не нужны ни Docker, ни Node.
 
-После `git clone` откройте PowerShell в корне клона и выполните:
+Нужны Docker Desktop — если он установлен, но не запущен, скрипт запускает его и ждёт движок, — и
+Node.js 22.12 или новее: конфиги клиентов пишет Node, потому что Linux-контейнер не может записать
+файл по его пути в Windows. Если чего-то нет, скрипт говорит, как это поставить
+(`winget install Docker.DockerDesktop`, `winget install OpenJS.NodeJS.LTS`), и останавливается: сам
+он ничего не ставит. После `git clone` откройте PowerShell в корне клона и выполните:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
 ```
 
-Скрипт сам создаёт изолированную папку `AI-Dev-Projects` в домашнем каталоге, устанавливает
-Docker Desktop и Node.js LTS через `winget`, если их нет, скачивает опубликованный образ,
-проверяет MCP и добавляет локальный сервер `ai-dev` в Codex, Cursor, Gemini, VS Code и Claude.
-Для Windows он также устанавливает копию только лаунчера в
-`C:\ProgramData\AI-Dev-System\run-mcp.ps1`: это исключает проблемы кодировки, когда путь к
-клону содержит кириллицу. В эту папку не копируются проекты, Vault, токены или пароли.
-Для Claude Desktop дополнительно создаётся компактный `ClaudeMcpProxy.exe` в той же папке.
-Он отвечает на MCP-инициализацию до запуска Docker, поэтому обходится короткий стартовый тайм-аут
-Claude; затем весь обмен прозрачно передаётся в локальный Docker-контейнер.
-Первый запуск нужно выполнять **от имени администратора**, только если Docker Desktop или Node.js
-ещё не установлены: `winget` и Docker могут запросить повышение прав. При уже установленном
-Docker Desktop обычного PowerShell достаточно.
+Скрипт скачивает опубликованный образ, проверяет, что сервер в нём отвечает на MCP-рукопожатие —
+сам, с инструкциями, — и пишет запись `ai-dev` в каждый найденный ИИ-клиент: `docker run -i --rm …`,
+который клиент запускает сам. Папка проектов — `%USERPROFILE%\AI-Dev-Projects`, в контейнере она
+`/workspace` (путь Windows Linux-контейнер удержать не может, поэтому на Windows сервер видит
+проекты там). Ничего не компилируется: 2.x собирала на вашей машине C#-прокси для Claude, а
+лаунчеры, которые 2.x скопировала в `C:\ProgramData\AI-Dev-System`, только обновляются, если они там
+есть, — см. [Обновление прежней установки](#обновление-прежней-установки).
 
-Для другой папки с репозиториями и выбора клиентов:
+Для другой папки с проектами и части клиентов:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1 `
@@ -228,50 +229,50 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1 `
   -Clients "codex,cursor,vscode"
 ```
 
-Путь хранится только в локальных настройках выбранных клиентов. В Git не записываются токены,
-пароли, содержимое этой папки или ваш профиль. После выполнения перезапустите нужный ИИ-клиент.
+Путь хранится только в локальных настройках выбранных клиентов: в Git не попадают ни токены, ни
+пароли, ни содержимое этой папки, ни ваш профиль. После выполнения перезапустите ИИ-клиент.
 
 ## Один запуск на macOS и Linux
 
-Тоже путь через контейнер. Локальный — см. [Быстрый старт: локально](#быстрый-старт-локально).
-
-Если Docker уже установлен и запущен:
+Тоже путь через контейнер. Нужен запущенный Docker (Docker Desktop на macOS, Docker Engine на
+Linux) — скрипт проверяет его и говорит, откуда его взять, если его нет, но больше его не ставит, —
+и ничего сверх этого: Node на хосте не нужен.
 
 ```bash
 sh ./bootstrap.sh
 ```
 
-Если Docker ещё не установлен, одна команда выбирается по системе:
+Три шага:
 
-| Система | Команда после `git clone` |
-| --- | --- |
-| macOS | `sh ./bootstrap.sh --install-prerequisites` |
-| Debian / Ubuntu | `sh ./bootstrap.sh --install-prerequisites` |
-| Fedora | `sh ./bootstrap.sh --install-prerequisites` |
-| Arch Linux / Manjaro | `sh ./bootstrap.sh --install-prerequisites` |
+1. **Docker** есть, и его движок отвечает (на macOS скрипт запускает Docker Desktop и ждёт его).
+2. **Образ** скачан — `ghcr.io/stonebridgeway/ai-dev-system:latest`, — и сервер в нём отвечает на
+   MCP-рукопожатие своими инструкциями.
+3. **Конфиги.** Их пишет сам образ: `ai-dev clients install --docker` работает в контейнере, который
+   видит папку конфигов каждого клиента и вашу папку состояния — и больше ничего из домашнего
+   каталога. Claude Code хранит свои серверы в `~/.claude.json`, файле прямо в домашнем каталоге,
+   поэтому его запись идёт через его собственный CLI (`claude mcp add-json`); если CLI нет в PATH,
+   скрипт печатает команду.
 
-На macOS скрипт использует Homebrew: при необходимости устанавливает Homebrew официальным
-инсталлятором, затем выполняет `brew install --cask docker`, запускает Docker Desktop и ждёт
-готовности engine. Первый запуск Docker Desktop может потребовать принятия лицензии и подтверждения
-привилегированных настроек в окне приложения.
+Что клиент запускает потом, в каждой сессии:
 
-На Linux ставится только движок Docker из репозиториев дистрибутива — `docker.io` через `apt`
-(Debian, Ubuntu), `moby-engine` через `dnf` (Fedora), `docker` через `pacman` (Arch); compose
-bootstrap не нужен. Менеджер пакетов запускается через `sudo`, а под root — напрямую; затем
-включается сервис Docker и текущий пользователь добавляется в группу `docker`. После этого нужно
-выйти и войти в систему, затем повторить команду; под root группа не нужна, и установка идёт дальше.
+```text
+docker run -i --rm --read-only --tmpfs /tmp … --network none --security-opt no-new-privileges:true --cap-drop ALL
+  --mount type=volume,source=ai-dev-system-data,target=/data
+  --mount type=bind,source=~/.ai-dev/state,target=/ai-dev-state --env AI_DEV_STATE_ROOT=/ai-dev-state
+  --mount type=bind,source=~/AI-Dev-Projects,target=~/AI-Dev-Projects
+  ghcr.io/stonebridgeway/ai-dev-system:latest
+```
 
-Bootstrap не требует Node.js на хосте: для настройки MCP-клиентов он использует временный
-`node:24` контейнер. По умолчанию скачивается
-`ghcr.io/stonebridgeway/ai-dev-system:latest`, а рабочая папка создаётся как
-`~/AI-Dev-Projects` и монтируется в контейнер как `/workspace`.
-
-Чтобы Claude Desktop и другие клиенты не обрывали медленный холодный запуск Docker, bootstrap
-создаёт служебный контейнер `ai-dev-system-runtime-$(id -u)`. Он работает без сети, с
-read-only filesystem, без Linux capabilities и с `no-new-privileges`; доступ получает только
-к named volume системы и выбранной папке проектов. Сам MCP-процесс запускается через быстрый
-`docker exec`, а launcher немедленно завершает протокольную инициализацию. Контейнер автоматически
-поднимается после перезапуска Docker благодаря `restart=unless-stopped`.
+- **Проекты — по их собственному пути** (по умолчанию `~/AI-Dev-Projects`): путь, который называет
+  агент, — тот же путь, который открывает сервер. 2.x монтировала их в `/workspace`, и путь хоста
+  оказывался «не найден» (docs/DEFECTS.md, Д-312).
+- **Состояние, которое ведут хуки агента**, — это состояние сервера: ваш `~/.ai-dev/state`. Хуки
+  работают на вашей машине; при одном состоянии Stop-хук видит задачу, начатую сервером (Д-103).
+  Для этого пользователь контейнера — uid 1000, пользователь образа, — должен быть вами: на macOS
+  его сопоставляет Docker Desktop, на Linux это uid первого пользователя. С другим uid на Linux
+  сервер держит состояние в томе, как в 2.x, и `ai-dev clients install --docker` об этом говорит.
+- **Один контейнер на сессию**, он поднимается примерно за секунду. Долгоживущего контейнера больше
+  нет, а тот, что держала 2.x (`ai-dev-system-runtime-<uid>`), удаляется.
 
 Для другой папки проектов и части клиентов:
 
@@ -279,28 +280,14 @@ read-only filesystem, без Linux capabilities и с `no-new-privileges`; до�
 sh ./bootstrap.sh --project-path "$HOME/Dev" --clients "codex,cursor,vscode"
 ```
 
-Повторный запуск той же команды безопасно обновляет только управляемый runtime-контейнер.
-Named volume, индексы, база знаний и файлы проектов не удаляются. Проверить runtime можно командой:
+Повторный запуск безопасен: конфиг, который уже запускает этот образ, остаётся как есть, а том —
+vault, индекс, модель — сохраняется. Собрать образ из этого клона вместо скачивания:
+`sh ./bootstrap.sh --build-local`.
 
-```bash
-docker ps --filter "label=ai-dev.system.runtime=true"
-```
-
-Для разработки самого образа используйте явный локальный режим:
-
-```bash
-sh ./bootstrap.sh --build-local
-```
-
-Если реестр недоступен, а в локальном кэше Docker уже лежит старая копия образа,
-bootstrap останавливается, а не ставит её. Он печатает дату создания этой копии и её
-digest — по ним видно, насколько она отстала. Поставить её всё равно — осознанный выбор:
-
-```bash
-sh ./bootstrap.sh --allow-stale-image
-```
-
-В Windows тот же переключатель называется `-AllowStaleImage`. Лучше восстановить связь
+Если реестр недоступен, а в локальном кэше Docker уже лежит старая копия образа, bootstrap
+останавливается, а не ставит её, и печатает дату создания этой копии и её digest — по ним видно,
+насколько она отстала. Поставить её всё равно — осознанный выбор:
+`sh ./bootstrap.sh --allow-stale-image` (на Windows — `-AllowStaleImage`). Лучше восстановить связь
 с реестром: в кэшированном образе может не быть уже выпущенных исправлений.
 
 ## Запуск в контейнере
@@ -310,16 +297,19 @@ sh ./bootstrap.sh --allow-stale-image
 ни токенов, ни проектов, ни истории задач. Это не самый быстрый путь к рабочей установке на
 своей машине — им остаётся локальный, выше.
 
-
 ### 1. Получите образ
 
-```powershell
+```bash
 docker pull ghcr.io/stonebridgeway/ai-dev-system:latest
 ```
 
+`:latest` — последний выпуск; `:edge` следует за `main`; `:2` — линия 2.x, путь назад. Frontend QA
+нужен браузер: вариант `-browser` (`:latest-browser`) несёт Chromium — примерно на 0,8 ГБ больше
+0,7 ГБ основного.
+
 Либо соберите образ из клона репозитория:
 
-```powershell
+```bash
 cd ai-dev-mcp-server
 npm ci
 npm run docker:prepare
@@ -328,37 +318,30 @@ npm run docker:build
 npm run docker:smoke -- --image ai-dev-system:local
 ```
 
-Сборка всегда использует временный allowlist-контекст `.docker/build-context`, а не корень
-репозитория или Obsidian Vault. Не меняйте Docker context на корень Vault.
+Контекст сборки, `.docker/build-context`, — это дистрибутив, который делает `npm run dist` (`ai-dev/`,
+при сборке сверяемый пофайлово со своим `distribution.json`), рядом с Dockerfile и entrypoint — и
+никогда не корень репозитория и не vault. То, что строит первый запуск (реестр skills, поисковый
+индекс, бенчмарк маршрутизации), построено в образе, и новый том начинается уже с этим.
 
 ### 2. Выберите рабочую папку
 
 Создайте или выберите папку, в которой лежат только репозитории, с которыми агенту разрешено
-работать. Например `C:\\Dev` на Windows или `$HOME/Dev` на macOS/Linux. Эта папка будет
-подключена в контейнер как `/workspace`.
+работать. Например `C:\Dev` на Windows или `$HOME/Dev` на macOS/Linux. Не указывайте личный
+vault, домашнюю папку целиком, папку с секретами или резервными копиями.
 
-Не указывайте личный Vault, домашнюю папку целиком, папку с секретами или резервными копиями.
+### 3. Пропишите сервер в клиентах
 
-### 3. Проверьте локальный запуск
-
-Windows:
-
-```powershell
-$env:AI_DEV_IMAGE = "ghcr.io/stonebridgeway/ai-dev-system:latest"
-$env:AI_DEV_PROJECT_PATH = "C:\\Dev"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\\docker\\run-mcp.ps1
-```
-
-macOS/Linux:
+Из клона, с Node 22.12+ на хосте, — то, что запускают скрипты bootstrap:
 
 ```bash
-export AI_DEV_IMAGE="ghcr.io/stonebridgeway/ai-dev-system:latest"
-export AI_DEV_PROJECT_PATH="$HOME/Dev"
-sh ./docker/run-mcp.sh
+node ai-dev-mcp-server/bin/ai-dev.mjs clients install --docker --projects "$HOME/Dev"
 ```
 
-Процесс будет ожидать MCP-сообщения в стандартном вводе. Это ожидаемое поведение: завершите
-проверку `Ctrl+C`, затем подключите команду launcher к MCP-клиенту.
+Остальное задают `--image`, `--model`, `--volume` и `--clients`; `--dry-run` ничего не пишет;
+`ai-dev clients entry cursor --docker …` печатает одну запись в JSON — для клиента, которого вы
+настраиваете руками. `ai-dev clients doctor` затем запускает каждую запись и проверяет, что сервер
+отвечает. Лаунчеры 2.x — `docker/run-mcp.sh`, `run-mcp.ps1` — по-прежнему запускают образ для
+конфигов, которые их называют, до 4.0.
 
 ### 4. Чем контейнер исполняет ваши проверки
 
@@ -376,7 +359,8 @@ glob-паттернами, каталог исполняется как файл
 Контейнер запускается ещё и с `--network none`, а из шести сканеров безопасности совсем без
 сети работает только `gitleaks` — он в образе есть. То есть скан там — это один сканер, а не
 шесть; полная матрица в `docker/README.md`. Скан, в котором не отработал ни один сканер,
-возвращает `unchecked`, а не `pass`.
+возвращает `unchecked`, а не `pass`. git в образе доверяет смонтированным проектам, кто бы ни
+владел ими на хосте: 2.x не признавала репозиторием проект другого пользователя (Д-311).
 
 ## Подключение к ИИ-агентам
 
@@ -428,145 +412,124 @@ nvm, fnm, Volta или Homebrew. Установка в vault передаёт е
 Записи, сделанные 2.x, работают без переустановки: `node <клон>/ai-dev-mcp-server/src/server.mjs`
 остаётся рабочей точкой входа.
 
-**Через Docker.** Блоки ниже показывают, как устроено то, что пишет Docker-установщик: на Windows он ещё задаёт
-`AI_DEV_MCP_LAUNCHER`, а Claude получает `ClaudeMcpProxy.exe` вместо PowerShell. Они — для
-справки и для клиента, которого не настраивает ни один установщик.
-
-Во всех случаях замените `C:\\ABSOLUTE\\PATH` на абсолютный путь к клону этого репозитория,
-а `C:\\Dev` на разрешённую папку с вашими проектами. Не добавляйте эти значения в Git.
+**Через Docker.** `bootstrap.sh`, `bootstrap.ps1` и `ai-dev clients install --docker` пишут те же
+файлы тем же способом, только запись сама запускает `docker run`. Блоки ниже показывают, как она
+устроена, — для справки и для клиента, которого не настраивает ни один из них;
+`ai-dev clients entry <клиент> --docker --projects <папка>` печатает точную запись для этой машины,
+с Docker CLI по полному пути (клиент, запущенный из Dock или меню «Пуск», не видит `PATH` вашей
+оболочки). Замените `/home/you/Dev` или `C:\Dev` на папку с вашими проектами и не добавляйте эти
+значения в Git.
 
 ### Codex
 
-Добавьте в пользовательский `config.toml`:
+Добавьте в пользовательский `config.toml` — так его пишут macOS и Linux:
 
 ```toml
 [mcp_servers.ai-dev]
-command = "powershell.exe"
-args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "C:\\ABSOLUTE\\PATH\\docker\\run-mcp.ps1"]
-env = { AI_DEV_IMAGE = "ghcr.io/stonebridgeway/ai-dev-system:latest", AI_DEV_PROJECT_PATH = "C:\\Dev" }
+command = "/usr/local/bin/docker"
+args = [
+  "run", "-i", "--rm", "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,size=512m", "--shm-size", "1g",
+  "--network", "none", "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL",
+  "--mount", "type=volume,source=ai-dev-system-data,target=/data",
+  "--mount", "type=bind,source=/home/you/.ai-dev/state,target=/ai-dev-state", "--env", "AI_DEV_STATE_ROOT=/ai-dev-state",
+  "--mount", "type=bind,source=/home/you/Dev,target=/home/you/Dev",
+  "ghcr.io/stonebridgeway/ai-dev-system:latest"
+]
 startup_timeout_sec = 120
 tool_timeout_sec = 3600
 ```
 
-На macOS/Linux используйте `command = "/bin/sh"`, а в `args` передайте абсолютный путь к
-`docker/run-mcp.sh`. В `env` также укажите имя, созданное bootstrap:
-`AI_DEV_RUNTIME_CONTAINER = "ai-dev-system-runtime-UID"`, где `UID` возвращает `id -u`.
-Автоматический установщик делает это сам. Перезапустите Codex и проверьте, что в списке
-MCP-инструментов появился сервер `ai-dev`.
+Монтирование папки состояния и его переменная есть только там, где пользователь контейнера,
+uid 1000, — это вы; см. [Один запуск на macOS и Linux](#один-запуск-на-macos-и-linux). Перезапустите
+Codex и проверьте, что в списке MCP-инструментов появился сервер `ai-dev`.
 
 ### Cursor, Claude Desktop, Claude Code и Gemini
 
-Эти клиенты используют JSON со свойством `mcpServers`. Добавьте или объедините следующий блок
-с их существующей конфигурацией:
-
-При запуске `bootstrap.ps1 -Clients claude` установщик обновляет оба локальных файла Claude:
-`%USERPROFILE%\\.claude.json` для Claude Code и
-`%APPDATA%\\Claude\\claude_desktop_config.json` для Claude Desktop. Существующие серверы
-сохраняются, а изменяемый файл получает резервную копию. Для Microsoft Store-версии Claude
-установщик также обновляет изолированный профиль приложения в `%LOCALAPPDATA%\\Packages\\Claude_*`.
-На Windows не заменяйте автоматически установленную Claude-конфигурацию примером ниже: она
-использует `C:\ProgramData\AI-Dev-System\ClaudeMcpProxy.exe` для быстрого старта Docker-MCP.
-На macOS/Linux bootstrap аналогично сохраняет в конфигурации `AI_DEV_RUNTIME_CONTAINER` и
-подключает быстрый launcher; вручную редактировать файлы Claude после bootstrap не требуется.
+Эти клиенты используют JSON со свойством `mcpServers`. Добавьте или объедините следующий блок с их
+существующей конфигурацией — здесь так, как его пишет Windows: проекты лежат в `C:\Dev`, а сервер
+видит их как `/workspace`:
 
 ```json
 {
   "mcpServers": {
     "ai-dev": {
-      "command": "powershell.exe",
+      "command": "C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe",
       "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "C:\\ABSOLUTE\\PATH\\docker\\run-mcp.ps1"
-      ],
-      "env": {
-        "AI_DEV_IMAGE": "ghcr.io/stonebridgeway/ai-dev-system:latest",
-        "AI_DEV_PROJECT_PATH": "C:\\Dev"
-      }
+        "run", "-i", "--rm", "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,size=512m", "--shm-size", "1g",
+        "--network", "none", "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL",
+        "--mount", "type=volume,source=ai-dev-system-data,target=/data",
+        "--mount", "type=bind,source=C:\\Users\\you\\.ai-dev\\state,target=/ai-dev-state",
+        "--env", "AI_DEV_STATE_ROOT=/ai-dev-state",
+        "--mount", "type=bind,source=C:\\Dev,target=/workspace",
+        "ghcr.io/stonebridgeway/ai-dev-system:latest"
+      ]
     }
   }
 }
 ```
 
-Готовый минимальный шаблон без доступа к проектам находится в
+`bootstrap.ps1 -Clients claude` пишет оба файла Claude: `%USERPROFILE%\.claude.json` для Claude Code
+и `%APPDATA%\Claude\claude_desktop_config.json` для Claude Desktop — вместе с собственной копией
+версии из Microsoft Store в `%LOCALAPPDATA%\Packages\Claude_*`. На macOS и Linux bootstrap
+прописывает Claude Code через собственный CLI Claude Code (`claude mcp add-json`). Остальные серверы
+в файле сохраняются, а прежние байты файла остаются рядом с ним. Минимальный шаблон —
 [docker/mcp-config.example.json](../../docker/mcp-config.example.json). После изменения конфигурации
-полностью перезапустите клиент. В Claude Code и Gemini CLI конфигурация может быть добавлена
-через их собственную команду управления MCP, но команда запуска и переменные окружения остаются
-теми же.
+полностью перезапустите клиент.
 
 ### VS Code
 
 Создайте `.vscode/mcp.json` в конкретном рабочем репозитории или внесите такой же сервер в
-пользовательские настройки MCP VS Code:
+пользовательские настройки MCP VS Code: блок выше — под `servers` вместо `mcpServers` и с
+`"type": "stdio"` рядом с `command`.
 
-```json
-{
-  "servers": {
-    "ai-dev": {
-      "type": "stdio",
-      "command": "powershell.exe",
-      "args": [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "C:\\ABSOLUTE\\PATH\\docker\\run-mcp.ps1"
-      ],
-      "env": {
-        "AI_DEV_IMAGE": "ghcr.io/stonebridgeway/ai-dev-system:latest",
-        "AI_DEV_PROJECT_PATH": "C:\\Dev"
-      }
-    }
-  }
-}
-```
-
-Перезагрузите окно VS Code. Внутри контейнера пути к смонтированным репозиториям начинаются с
-`/workspace`; например, для `begin_task` используйте `/workspace/my-project`.
+Перезагрузите окно VS Code. На Windows сервер видит проекты в `/workspace`: для `begin_task`
+используйте `/workspace/my-project`. На macOS и Linux — по их собственному пути.
 
 ## Docker Compose
 
 Скопируйте `docker/compose.local.example.yaml` в `docker/compose.local.yaml`, укажите локальный
-`AI_DEV_PROJECT_PATH` и запустите:
+`AI_DEV_PROJECT_PATH` (он монтируется по своему же пути) и запустите:
 
 ```bash
 docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
 ```
 
 `compose.local.yaml` и `docker/.env` игнорируются Git, поскольку могут содержать локальные пути.
+Конфиг клиента сам запускает `docker run`; compose — для тех, кто держит свои контейнеры там.
 
 ## Локальная модель в контейнере
 
 У гибридного поиска две половины: поиск по словам, который работает везде и без настройки, и
 плотный поиск на локальной модели BGE-M3 — та самая, из-за которой поиск понимает вопрос, а не
-совпадает с его словами. В контейнере работают обе, и раз ONNX-рантайм — обычная npm-зависимость,
-он уже в образе по умолчанию: включать нечего. Не хватает одного, и по одной причине.
+совпадает с его словами. В контейнере работают обе: ONNX-рантайм в образе есть. Весов в нём нет:
+это около 600 МБ, и скачать их нужно один раз.
 
-**Весов в публикуемом образе нет.** Они ваши, а не дистрибутива: образ с ними стал бы
-скачиванием в несколько сотен мегабайт для каждого и вопросом о лицензии для того, кто его
-публикует. Скачайте их один раз на хосте:
+**В том данных — один раз, с сетью, которая нужна только этому запуску:**
 
 ```bash
-cd ai-dev-mcp-server
-npm run model -- install --no-index
+docker run --rm -it --network bridge \
+  --mount type=volume,source=ai-dev-system-data,target=/data \
+  ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev model install
 ```
 
-(`npm run setup -- --model` делает то же и вдобавок строит векторы для индекса самого хоста;
-контейнер строит свои.) Оборванная загрузка — упавшая связь, закрытая крышка ноутбука, Ctrl-C —
-сохраняет то, что успело прийти, и следующий запуск продолжает с этого байта. Если хост не видит
-huggingface.co, см. [Если загрузка закрыта](#если-загрузка-закрыта).
+Он показывает загрузку по ходу, сохраняет пришедшее, если связь оборвалась (следующий запуск
+продолжает с этого байта), сверяет каждый файл с sha256 манифеста и строит векторы документов,
+которые уже есть в индексе. Сессии после него остаются с `--network none` и читают модель из тома.
+2.x так не умела: образ привязывал папку модели к монтированию с хоста, а векторы её документов не
+строились вовсе (docs/DEFECTS.md, Д-99). Прокси или зеркало передаются так, как сказано в
+[Если загрузка закрыта](#если-загрузка-закрыта), — через `--env`.
+
+**Или на хосте, с монтированием только для чтения** — путь 2.x, для модели, которая у вас уже есть:
+`npm run model -- install --no-index` кладёт её в `~/.ai-dev/models/bge-m3-onnx`; монтируется папка
+*над* ней, `~/.ai-dev/models`, в `/models` (`--model` у `ai-dev clients install --docker`,
+`--model-path` у bootstrap, `AI_DEV_MODEL_PATH` у лаунчеров 2.x). Образ первым смотрит в
+`/models/bge-m3-onnx`, если там что-то есть.
 
 **Сколько нужно места.** Весов примерно 600 МБ, и скачивание не начнётся на диске, куда они не
 влезают вместе с запасом в 512 МБ: вместо того чтобы забить диск до последнего байта, оно скажет,
 сколько нужно и сколько есть. Диск, на который они влезают и почти ничего сверх, работает — но
 один раз предупредит, что может быть медленно: запись на почти полный диск и есть обычная причина
 еле ползущей загрузки, а снаружи это выглядит в точности как оборвавшаяся связь.
-
-Они лягут в `~/.ai-dev/models/bge-m3-onnx` (путь меняется переменной `BGE_M3_ONNX_DIR` или,
-на один запуск, ключом `--dir`). Монтируется папка *над* ними — `~/.ai-dev/models`, — только для
-чтения: контейнер веса читает из `bge-m3-onnx/` и никогда не пишет.
 
 ### Если загрузка закрыта
 
@@ -616,45 +579,20 @@ npm run setup -- --model
 
 ### Запуск, обоими способами
 
-`AI_DEV_MODEL_PATH` — это папка *над* моделями, `~/.ai-dev/models`, та, которую заполняет
-`npm run setup -- --model`, а не каталог модели. Каталог, в котором лежат файлы модели
-(`pytorch_model.bin`, `config.json`, `onnx/`), — это значение переменной до 2.1; лаунчеры
-не монтируют его на уровень глубже, а останавливаются и говорят, куда указать. Это касается и
-`ClaudeMcpProxy.exe`, лаунчера Claude на Windows: до этого выпуска он монтировал папку в
-`/models/bge-m3`, где образ модели не ищет, и у Claude на Windows не было dense-поиска
-(docs/DEFECTS.md, Д-88).
-
-Через установщик — это путь Docker по умолчанию:
+Модели в томе больше ничего не нужно: её находит каждая сессия образа. Модель на хосте монтируется
+из папки *над* ней — `~/.ai-dev/models`, той, которую заполняет `npm run setup -- --model`, — а не из
+каталога модели. Каталог, в котором лежат файлы модели (`pytorch_model.bin`, `config.json`, `onnx/`),
+— это значение переменной до 2.1, и каждая копия отказывается от него и говорит, куда указать, а не
+монтирует его на уровень глубже.
 
 ```bash
 sh ./bootstrap.sh --model-path "$HOME/.ai-dev/models"
+node ai-dev-mcp-server/bin/ai-dev.mjs clients install --docker --model "$HOME/.ai-dev/models"
 ```
 
-Fast-start контейнер монтирует папку read-only в `/models`, а в клиентские конфиги
-bootstrap записывает `AI_DEV_MODEL_PATH`, так что холодный запуск монтирует её же.
-`AI_DEV_MODEL_PATH` в окружении — значение `--model-path` по умолчанию; на Windows ключ
-называется `-ModelPath`.
-
-Через скрипты-лаунчеры напрямую:
-
-```bash
-export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
-export AI_DEV_PROJECT_PATH="/абсолютный/путь/к/проекту"
-sh docker/run-mcp.sh
-```
-
-Через Compose — раскомментируйте монтирование модели в своём `compose.local.yaml` (в файле-примере
-оно есть, с той же переменной) и запустите:
-
-```bash
-export AI_DEV_MODEL_PATH="$HOME/.ai-dev/models"
-docker compose -f docker/compose.yaml -f docker/compose.local.yaml run --rm -T ai-dev-mcp
-```
-
-Оба подключают папку как `/models`; внутри образа `BGE_M3_ONNX_DIR` смотрит в
-`/models/bge-m3-onnx`. `network_mode: none` этому не мешает: воркер загружает модель с выключенной
-загрузкой из сети, она читается с тома, и в сеть никто не идёт. По этой же причине веса приходят
-монтированием, а не скачиванием внутри контейнера.
+На Windows ключ bootstrap называется `-ModelPath`. Через Compose — раскомментируйте монтирование
+модели в своём `compose.local.yaml`: в файле-примере оно есть, с той же переменной.
+`network_mode: none` этому не мешает: воркер загружает модель с выключенной загрузкой из сети.
 
 ### Если нужен образ с весами внутри
 
@@ -672,8 +610,8 @@ COPY --chown=node:node bge-m3-onnx/ /models/bge-m3-onnx/
 docker build -f Dockerfile.bge -t ai-dev-system:bge-bundled "$HOME/.ai-dev/models"
 ```
 
-Такому образу не нужны ни том, ни переменная: `/models/bge-m3-onnx` уже на месте, а именно туда
-смотрит `BGE_M3_ONNX_DIR`. Всё остальное — `network_mode: none`, read-only корень,
+Такому образу не нужны ни монтирование, ни переменная: `/models/bge-m3-onnx` уже на месте, там,
+куда образ смотрит первым. Всё остальное — `network_mode: none`, read-only корень,
 непривилегированный пользователь — остаётся как было.
 
 ### Как убедиться, что заработало
@@ -694,8 +632,8 @@ npm --prefix ai-dev-mcp-server run -s doctor
 `npm run dense:doctor` проходит то же самое шестью стадиями и называет ту, на которой встал.
 
 Дальше `search_index_status` показывает `dense_documents` против `dense_pending_documents`: у
-свежего индекса векторов нет ни у одного документа, пока `npm run setup -- --model` их не
-построит.
+свежего индекса векторов нет ни у одного документа, пока `ai-dev model install` (или
+`npm run setup -- --model`) их не построит.
 
 Запускаете из исходников? Тогда всё это не нужно: `npm run setup -- --model` — и всё. См.
 [README сервера](../../ai-dev-mcp-server/README.md#semantic-search-bge-m3).
@@ -703,16 +641,20 @@ npm --prefix ai-dev-mcp-server run -s doctor
 ## Публикация для команды
 
 Workflow [docker-publish.yml](../../.github/workflows/docker-publish.yml) проверяет privacy policy,
-пересобирает allowlist-контекст, запускает MCP smoke test и публикует образы `linux/amd64` и
-`linux/arm64` в GitHub Container Registry с SBOM и provenance.
+пересобирает контекст, запускает MCP smoke test (новый том, следующая сессия, модель через том) и
+обновление тома 2.x, а затем публикует образы `linux/amd64` и `linux/arm64` в GitHub Container
+Registry с SBOM и provenance — два варианта, основной и `-browser`.
+
+Теги (решение владельца D9): push в `main` — это `:edge`; тег выпуска `vX.Y.Z` — `:X.Y.Z`, `:X.Y`, `:X`
+и `:latest`. Мерж — не выпуск. `:2` — линия 2.x, замороженная, когда помечена 3.0:
+`AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2` (или `--image` у bootstrap) — путь назад.
 
 После первого push:
 
 1. Откройте package в GitHub и выберите видимость `private/internal` для команды или `public`.
 2. Убедитесь, что у коллег есть право читать GitHub Packages.
 3. Дайте коллегам адрес `ghcr.io/stonebridgeway/ai-dev-system:latest` и этот README.
-4. Каждый коллега указывает свою локальную папку проектов через `AI_DEV_PROJECT_PATH`; чужие
-   файлы в образ и Git не попадают.
+4. Каждый коллега указывает свою локальную папку проектов; чужие файлы в образ и Git не попадают.
 
 ## Arch/AUR и Homebrew
 
@@ -720,15 +662,18 @@ Workflow [docker-publish.yml](../../.github/workflows/docker-publish.yml) про
 
 ```bash
 yay -S ai-dev-system-git
-ai-dev-system --install-prerequisites
+sudo systemctl enable --now docker
+ai-dev-system
 ```
 
-Пакет также можно собрать из этого клона:
+Docker пакет приносит как зависимость; запустить его движок и дать своему пользователю к нему
+доступ (группа `docker`, затем новый вход в систему) — ваше дело: bootstrap больше не делает ни
+того, ни другого. Пакет также можно собрать из этого клона:
 
 ```bash
 cd packaging/arch
 makepkg -si
-ai-dev-system --install-prerequisites
+ai-dev-system
 ```
 
 Имя AUR-пакета: `ai-dev-system-git`; он следует ветке `main`. Для публикации нужны отдельный
@@ -771,13 +716,23 @@ npm run setup
 - **Хуки.** Хуки, установленные 2.x в репозиторий, работают везде, где `node` есть в PATH
   клиента. Выполните там `install_agent_hooks` ещё раз — регистрации 3.0 находят Node и без
   него (Д-103).
-- **Docker на Windows.** Запустите `bootstrap.ps1` ещё раз, чтобы пересобрался
-  `ClaudeMcpProxy.exe` для Claude и монтировал папку моделей туда, где её ищет образ (Д-88).
-- **Docker.** `docker pull` нового образа; дерево рантайма в томе `/data` при первом старте
-  переносится так же.
+- **Конфиги Docker.** Конфиг, который написала 2.x, называет лаунчер — `docker/run-mcp.sh`,
+  `run-mcp.ps1` или, для Claude на Windows, `ClaudeMcpProxy.exe`, — и тот запускает новый образ до
+  4.0; копии скриптов из 3.0 говорят в stderr, что они лаунчер 2.x. Запустите `bootstrap.sh`
+  (`bootstrap.ps1` на Windows) ещё раз: он пишет вместо них записи `docker run` и удаляет
+  долгоживущий контейнер, который держала 2.x. До тех пор инструкции сервера доходят до клиента
+  только через скрипты 3.0 — лаунчеры 2.x отвечали на рукопожатие сами (Д-89, Д-105).
+- **Том Docker** сохраняется. При первом старте нового образа его skills приводятся к seed образа
+  по манифесту seed, а не копированием недостающего, как в 2.x: то, что поставляла 2.x и убрала
+  3.0, удаляется; skill из seed, который вы правили, сохраняет вашу правку, а обновление ложится
+  рядом (`SKILL.md.seed-new`); ваш собственный skill не трогается (Д-99). Где контейнер делит с
+  вами папку состояния (см. [Один запуск на macOS и Linux](#один-запуск-на-macos-и-linux)),
+  задачи и handoff из тома переезжают в неё. Этот первый старт на несколько секунд дольше
+  следующих. Путь назад — образ 2.x: `ghcr.io/stonebridgeway/ai-dev-system:2`.
 
-`npm run upgrade:test` проверяет всё это на установке 2.x; см.
-[Тест обновления](UPGRADE-TEST.md).
+`npm run upgrade:test` проверяет всё это на установке 2.x, а
+`npm run docker:upgrade-check -- --old-image <образ 2.x> --new-image <образ>` — часть Docker на томе
+2.x и его лаунчерах; см. [Тест обновления](UPGRADE-TEST.md).
 
 ## Проверка и диагностика
 

@@ -56,7 +56,7 @@ it is the server's published runtime and its CI / Docker install path;
 `frontend-qa/` uses pnpm (`pnpm-lock.yaml`, `packageManager: pnpm`) because it is a
 separately packaged Playwright helper bundled into the runtime image. Keep the two
 lockfiles and managers independent. The server's own tooling always shells out to
-npm; a user's project checked out under `/workspace` may still be a pnpm project,
+npm; a user's project may still be a pnpm project,
 and the quality gate runs it with pnpm in that case.
 
 ## Setup

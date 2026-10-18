@@ -10,15 +10,18 @@ After the AUR package is published, install the VCS package with:
 
 ```bash
 yay -S ai-dev-system-git
-ai-dev-system --install-prerequisites
+sudo systemctl enable --now docker
+ai-dev-system
 ```
 
-To build the same package from this clone instead:
+Docker comes as a dependency. Starting its engine and giving your user access to it (the `docker`
+group, then a new login) are the user's: since 3.0 bootstrap checks for Docker and no longer sets it
+up. To build the same package from this clone instead:
 
 ```bash
 cd packaging/arch
 makepkg -si
-ai-dev-system --install-prerequisites
+ai-dev-system
 ```
 
 The package follows `main`, so its AUR name is `ai-dev-system-git`.

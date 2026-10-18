@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Docker: the AI clients run the image themselves** (`docs/DEFECTS.md`, Д-89, Д-105).
+  `ai-dev clients install --docker` writes a `docker run -i --rm …` entry into every client found —
+  the Docker CLI by its full path, the data volume, the projects folder, the host's state folder
+  where it can be shared, a host model folder if named — and `ai-dev clients entry <client>
+  --docker` prints one for a client configured by hand. Each session is its own container, and the
+  server answers its own handshake: 1,048 characters of instructions, where the 2.x launchers
+  answered `initialize` themselves with none. Measured: a new volume answers in 1.6–2.5 s (2.x:
+  6.5 s on the image of the program's start, 18.6–21.2 s on production's 2.x image), the next
+  session in about a second. `ai-dev clients doctor` starts these entries like any other.
+- **The local model through the data volume** (Д-99). `docker run --rm -it --network bridge
+  --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev model install` puts the
+  model in the volume with its progress, resume and sha256 checks, and embeds the documents the
+  index holds; every session after it keeps `--network none`. A host folder mounted at `/models`
+  still works and is looked at first. Measured with the synthetic model through a local mirror:
+  install 4.6 s, 367 documents embedded, then a session without the network searches with it
+  (top dense score 0.98). 2.x pinned the model to a host mount and never embedded the documents.
+- **A `-browser` variant of the image** (`--target browser`, published as `…-browser`) with
+  Playwright and Chromium for Frontend QA; its pnpm is the one `frontend-qa/package.json` names in
+  `packageManager`, read at build time, and CI checks they are equal (Д-111).
+- **`npm run docker:upgrade-check -- --old-image <2.x> --new-image <image>`**: a 2.x volume and
+  the 2.x launchers against the new image — 2.x fills a volume and starts a task, the user edits a
+  seed skill and adds one; the new image under the 2.x launcher keeps the task and the edit and
+  brings the skills to its seed; the 2.x warm path and the 3.0 wrapper serve sessions; a 3.0
+  entry moves the volume's state to the host. `docker-publish.yml` runs it on every pull request
+  against production's image (`docs/UPGRADE-TEST.md`).
+
 - **The Windows installer** (`desktop/`, `npm run dist:win`; `docs/DESKTOP.md`, "The Windows
   install"). `AI-Dev-Setup-<version>.exe` installs the desktop app for the current user — no
   administrator, no Node, Python or Docker — with the runtime AI clients run: the npm package's
@@ -492,6 +518,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Docker image is the distribution** (Д-313). It is built from what `npm run dist` makes,
+  checked file by file against its `distribution.json` during the build, with `onnxruntime-node`
+  for its own platform only and no build caches in `/data`: 716 MB, where the 2.x image was
+  1.84 GB without its browser (node_modules 126 MB instead of 528). The registry, the search index
+  and the routing benchmark are built into the image, so a new volume has nothing to build ("0
+  built"). Python is no longer in the image: `query_ui_ux_knowledge` and
+  `generate_ui_ux_design_system` answer there that they need it, and the health check marks
+  `ui_ux_knowledge` skipped. The server lives in `/opt/ai-dev/ai-dev-mcp-server`;
+  `/opt/ai-dev/app`, which 2.x configs and volumes name, links to it.
+- **The volume's seed is kept current by the seed's manifest**, not 2.x's `cp -n` (Д-99): what
+  2.x shipped and 3.0 dropped goes, a seed file the user edited keeps the edit with the update
+  beside it as `.seed-new`, the user's own files are not touched. A 2.x volume has no record of
+  what its image put there; `data/seed-history.json` — every version of every seed file a commit
+  of the 2.x line held — tells those files from the user's (Д-315). Measured on production's 2.x
+  image: 3,229 skills in its volume become the new seed's 615 plus the user's own.
+- **The projects are mounted at their own path** on macOS and Linux, so a path the agent names is
+  one the server opens (Д-312); on Windows they stay at `/workspace`. **The server and the agent
+  hooks keep one state**: the host's `~/.ai-dev/state` is mounted where the container's user,
+  uid 1000, is the host's (macOS, Windows, Linux as uid 1000), and the volume's state moves into
+  it once (Д-103); elsewhere the server keeps its state in the volume, as 2.x did, and
+  `ai-dev clients install --docker` says so. git in the image trusts the mounted projects
+  whoever owns them, which 2.x refused as "dubious ownership" and so gave a project the wrong
+  identity (Д-311).
+- **`bootstrap.sh` and `bootstrap.ps1` check Docker, pull the image, check the server's own
+  handshake and write the configs** — and nothing else. They no longer install Docker or Node,
+  start a long-lived container, or compile a proxy; `bootstrap.sh` runs the config installer in
+  the image with only the clients' config folders and the state folder mounted (2.x mounted the
+  whole home), writes Claude Code's entry through `claude mcp add-json`, and removes the 2.x
+  runtime container.
+- **The image's tags** (owner decision D9, Д-108): a push to `main` is `:edge`; a release tag
+  `vX.Y.Z` is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`, a prerelease only its own name; the browser
+  variant has the same tags with `-browser`. A manual run with `freeze_2x` copies the current
+  `:latest` to `:2` once, before the first 3.0 tag: the 2.x line to roll back to.
+- **Hints the image gives are commands for the host**: `docker run --rm -it … <image> ai-dev …`
+  into the volume, with the network only for a download; Frontend QA in the default image points
+  at the `-browser` variant instead of an install that cannot run in a client's container
+  (Д-316).
+- **`npm run check` runs `npm run packaging:check`**, red since phase 7 without a gate to see it
+  (Д-314).
+
 - **The daemon's channel is this user's** (`docs/DEFECTS.md`, Д-107). Each start draws a
   random socket or pipe name (96 bits) and publishes it, with a 256-bit secret, only in
   `run/daemon-<build>.json` (mode 0600); each side's first line proves it holds the secret with an
@@ -690,6 +756,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Deprecated
 
+- **`docker/run-mcp.sh`, `docker/run-mcp.ps1` and `ClaudeMcpProxy.exe`**, the 2.x Docker
+  launchers (owner decision D10). Configs that name them keep working until 4.0; the 3.0 scripts
+  run the image and pass the server's own handshake through — they no longer answer `initialize`
+  themselves — and say on stderr what replaced them. `bootstrap.sh --install-prerequisites` is
+  accepted and says that bootstrap no longer installs Docker.
+
 - **`node scripts/ai-dev.mjs`, `scripts/start-local.ps1` and
   `scripts/install-local-mcp-clients.mjs`** are `ai-dev`, `ai-dev mcp` and
   `ai-dev clients install` now. Each still works, with a note on stderr, and goes in 4.0;
@@ -708,6 +780,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   more: `node` from PATH, or `AI_DEV_NODE`.
 
 ### Removed
+
+- **`scripts/install-docker-mcp-clients.mjs`**: `ai-dev clients install --docker` writes the
+  clients' Docker entries. **The long-lived runtime container** `ai-dev-system-runtime-<uid>`
+  and the launchers' `docker exec` path into it, and **the Windows proxy's own handshake**: it is
+  a byte pipe now, and bootstrap no longer compiles it. **Python 3, Playwright and Chromium in
+  the default image** (Chromium is in `-browser`), and `BGE_M3_ONNX_DIR` in its environment,
+  which hid a model installed into the volume.
 
 - **The Python dense backend** (decision D3; `docs/DEFECTS.md`, Д-98): `embeddings/`
   (`bge_m3_embed.py`, `bge_m3_worker.py`, `requirements-bge-m3.txt`), the worker pool in

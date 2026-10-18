@@ -49,8 +49,11 @@ and non-goals are documented in
 Key points for operators:
 
 - The MCP transport is local `stdio`; no network listener is opened.
-- The Docker image ships only the audited public seed — no passwords, tokens,
-  personal vault, project sources, task history, indexes, or model weights.
+- The Docker image ships only the audited public seed and the indexes built
+  from it — no passwords, tokens, personal vault, project sources, task history,
+  or model weights.
 - By default the container runs with no network, as a non-root user, with a
-  read-only root filesystem, no Linux capabilities, and `no-new-privileges`.
+  read-only root filesystem, no Linux capabilities, and `no-new-privileges`. It
+  writes to its data volume, `/tmp`, the projects folder and — where it is
+  shared — the host's AI Dev state folder, nothing else.
 - Run repositories you do not trust inside a container or a disposable VM.

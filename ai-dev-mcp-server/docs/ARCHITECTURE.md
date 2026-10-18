@@ -609,6 +609,14 @@ reject, each verified by breaking it deliberately against a throwaway module and
   `src/cli/`, parsed by `core/cli-args.mjs`. `scripts/ai-dev.mjs` is its 2.x name, kept until 4.0.
 - `core/mcp-clients.mjs` writes the `ai-dev` entry into every client's config, for the CLI and the
   Docker installer, through `core/jsonc-edit.mjs` and `core/toml-edit.mjs`.
+- The Docker image is the distribution: `scripts/prepare-docker-context.mjs` stages what `npm run dist`
+  builds beside `docker/Dockerfile`. `core/docker-launch.mjs` is the `docker run -i --rm …` a client
+  config gets (`ai-dev clients install --docker`); `scripts/docker-prepare-data.mjs` and
+  `core/image-data.mjs` build the first start's registry, index and benchmark into the image, so a new
+  volume has nothing to build; `core/seed-sync.mjs` keeps the volume's seed current by its manifest,
+  recognising what a 2.x image left there by `data/seed-history.json` (`scripts/seed-history.mjs`);
+  `core/runtime-home-migration.mjs` moves a volume's state into the host's state folder when it is
+  mounted.
 - Remote HTTP is intentionally absent. The future VPS profile is rejected until TLS, authentication,
   allowlists, rate limiting, and threat review exist.
 

@@ -14,7 +14,7 @@ they apply to every action rather than only to the tools the agent chooses to
 call:
 
 ```text
-Use the ai-dev MCP server. Call install_agent_hooks for /workspace/my-project
+Use the ai-dev MCP server. Call install_agent_hooks for ~/Dev/my-project
 with targets ["claude"] and profile "standard".
 ```
 
@@ -164,7 +164,7 @@ evaluates, or an `action` it does not know are skipped or quietly downgraded to 
 warning. So the rules block has tools of its own:
 
 ```text
-Use the ai-dev MCP server. Call upsert_policy_rule for /workspace/my-project with a
+Use the ai-dev MCP server. Call upsert_policy_rule for ~/Dev/my-project with a
 rule that blocks `terraform destroy`, and an example it must match.
 ```
 

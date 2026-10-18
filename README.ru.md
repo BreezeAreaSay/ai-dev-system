@@ -105,7 +105,7 @@ npm run ai-dev -- clients remove    # убрать ai-dev; нетронутый 
 места обрыва; `AI_DEV_MODEL_MIRROR` и `HTTPS_PROXY` учитываются) и запускает его в
 Node, без Python; `npm run model -- import <папка или .zip>` копирует модель с машины,
 где она есть, а `npm run dense:doctor` скажет, получилось ли. В упакованном варианте
-веса монтируются.
+модель кладёт в том данных один `docker run … ai-dev model install`.
 
 **В контейнере, через Docker** — для машины, на которой не должно быть личного
 vault, или для команды, которой нужен один образ на всех:
@@ -113,7 +113,7 @@ vault, или для команды, которой нужен один обра
 | | |
 | --- | --- |
 | Windows | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1` |
-| macOS / Linux | `sh ./bootstrap.sh` (добавьте `--install-prerequisites`, если нет Docker) |
+| macOS / Linux | `sh ./bootstrap.sh` (при запущенном Docker) |
 
 Блоки конфигурации для каждого клиента, Compose, локальная модель в контейнере,
 Arch/AUR, Homebrew и что делать, если не заработало:
@@ -124,7 +124,7 @@ Arch/AUR, Homebrew и что делать, если не заработало:
 Откройте репозиторий в клиенте и скажите:
 
 ```text
-Используй MCP-сервер ai-dev. Начни задачу для /workspace/my-project:
+Используй MCP-сервер ai-dev. Начни задачу для ~/Dev/my-project:
 добавь экспорт отчёта в CSV, покрой изменение тестами и выполни verify_task.
 ```
 

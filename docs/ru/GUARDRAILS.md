@@ -13,7 +13,7 @@
 каждом действии, а не только на тех инструментах, которые агент решил позвать.
 
 ```text
-Используй MCP-сервер ai-dev. Вызови install_agent_hooks для /workspace/my-project
+Используй MCP-сервер ai-dev. Вызови install_agent_hooks для ~/Dev/my-project
 с targets ["claude"] и profile "standard".
 ```
 
@@ -163,7 +163,7 @@ guard об этом молчит: некомпилируемый шаблон, �
 предупреждения. Поэтому у блока правил есть свои инструменты:
 
 ```text
-Используй MCP-сервер ai-dev. Вызови upsert_policy_rule для /workspace/my-project с
+Используй MCP-сервер ai-dev. Вызови upsert_policy_rule для ~/Dev/my-project с
 правилом, которое блокирует `terraform destroy`, и с примером, на котором оно обязано
 сработать.
 ```

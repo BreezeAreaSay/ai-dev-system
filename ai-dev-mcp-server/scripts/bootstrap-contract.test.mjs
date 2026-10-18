@@ -27,10 +27,10 @@ const shell = process.platform === "win32"
 
 // AI_DEV_MODEL_PATH is blanked: both installers read it as the default model
 // folder, and a developer who has it set is not what these plans are about.
-function plan(args, home) {
+function plan(args, home, env = {}) {
   return spawnSync(shell, [bootstrap, "--plan", "--project-path", path.join(home, "projects"), ...args], {
     encoding: "utf8",
-    env: { ...process.env, HOME: home, AI_DEV_MODEL_PATH: "", AI_DEV_HOME: "" }
+    env: { ...process.env, HOME: home, AI_DEV_MODEL_PATH: "", AI_DEV_HOME: "", AI_DEV_STATE_ROOT: "", ...env }
   });
 }
 
@@ -103,7 +103,9 @@ test("the shell scripts that get executed are committed as executable", async (c
  * answers as a working engine would: the version, a pull (or a failed one, with
  * a cached copy of the image), the handshake with the server's instructions, and
  * for `ai-dev clients entry` an entry as JSON. PULL=fail makes the pull fail;
- * SMOKE=bad answers the handshake with something that is not the server's.
+ * SMOKE=bad answers the handshake with something that is not the server's;
+ * NO_CLI=1 is an image without the 3.0 installer (a 2.x one). The probe of the
+ * state folder writes nothing, as where Docker maps the container's users.
  */
 const stubDocker = [
   "#!/bin/sh",
@@ -124,6 +126,8 @@ const stubDocker = [
   '  inspect) [ -n "${OLD_RUNTIME:-}" ] && { echo true; exit 0; }; exit 1 ;;',
   "  rm) exit 0 ;;",
   "  run)",
+  '    for a in "$@"; do [ "$a" = "command -v ai-dev" ] && { [ "${NO_CLI:-}" = 1 ] && exit 1; exit 0; }; done',
+  '    for a in "$@"; do [ "$a" = touch ] && exit 0; done',
   '    for a in "$@"; do [ "$a" = entry ] && { echo \'{"type":"stdio","command":"/usr/bin/docker","args":["run","-i","--rm","stub"]}\'; exit 0; }; done',
   '    for a in "$@"; do [ "$a" = install ] && { echo "  Cursor   added   ~/.cursor/mcp.json"; exit 0; }; done',
   '    cat > /dev/null',
@@ -170,7 +174,7 @@ async function runBootstrap(t, args, { env = {}, folders = [], files = {}, claud
     encoding: "utf8",
     env: {
       ...process.env, HOME: home, XDG_CONFIG_HOME: "", CODEX_HOME: "", AI_DEV_HOME: "", AI_DEV_MODEL_PATH: "",
-      STUB_LOG: log, CLAUDE_LOG: claudeLog, PATH: `${bin}${path.delimiter}${hostPath}`, ...env
+      AI_DEV_STATE_ROOT: "", STUB_LOG: log, CLAUDE_LOG: claudeLog, PATH: `${bin}${path.delimiter}${hostPath}`, ...env
     }
   });
   if (result.error?.code === "ENOENT") {
@@ -271,13 +275,60 @@ test("a client named on the command line gets its folder made and mounted; Claud
   assert.match(without.stderr, /Claude Code: its CLI is not on PATH here\. Add the entry with:\n {2}claude mcp add-json ai-dev '\{"type":"stdio"/);
 });
 
-test("the 2.x runtime container is removed: each session runs the image", async (t) => {
+test("the 2.x runtime container is removed once the configs that named it are rewritten, not before (Д-328)", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
-  const result = await runBootstrap(t, ["--skip-smoke", "--skip-client-install"], { env: { OLD_RUNTIME: "1" } });
+  const result = await runBootstrap(t, ["--skip-smoke"], { env: { OLD_RUNTIME: "1" }, folders: [".cursor"] });
   if (!result) return;
   assert.equal(result.status, 0, result.stderr);
-  assert.ok(result.calls.some((call) => call[0] === "rm" && call.includes("-f") && call.at(-1) === `ai-dev-system-runtime-${process.getuid()}`));
+  const removed = result.calls.findIndex((call) => call[0] === "rm" && call.includes("-f") && call.at(-1) === `ai-dev-system-runtime-${process.getuid()}`);
+  const installed = result.calls.findIndex((call) => call[0] === "run" && call.includes("install"));
+  assert.ok(removed > installed && installed >= 0, JSON.stringify(result.calls.map((call) => call.slice(0, 3))));
   assert.match(result.stdout, /Removing the 2\.x runtime container/);
+  const kept = await runBootstrap(t, ["--skip-smoke", "--skip-client-install"], { env: { OLD_RUNTIME: "1" } });
+  assert.equal(kept.status, 0, kept.stderr);
+  assert.ok(!kept.calls.some((call) => call[0] === "rm"), "configs not rewritten still name it");
+});
+
+test("a client that is not one, or a folder a mount cannot hold, stops the script before anything runs (Д-328)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  const typo = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,cursr"]);
+  if (!typo) return;
+  assert.equal(typo.status, 64, typo.stderr);
+  assert.match(typo.stderr, /--clients: "cursr" is no client here \(all, claude, claude-code, claude-desktop, cursor, vscode, codex, gemini\)/);
+  assert.equal(typo.calls.filter((call) => call[0] === "pull" || call[0] === "run").length, 0);
+  const quoted = await runBootstrap(t, ["--skip-smoke", "--project-path", path.join(os.tmpdir(), 'my "quoted" projects')]);
+  assert.equal(quoted.status, 64, quoted.stderr);
+  assert.match(quoted.stderr, /has a comma or a double quote, which a docker --mount cannot hold/);
+});
+
+test("the state folder is the one the hooks use: AI_DEV_STATE_ROOT, AI_DEV_HOME's, ~/.ai-dev/state (Д-328)", async (context) => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-"));
+  try {
+    const read = (env) => JSON.parse(plan([], home, env).stdout).state_path;
+    const first = plan([], home);
+    if (first.error?.code === "ENOENT") return context.skip("sh is unavailable on this host");
+    assert.equal(read({}), path.join(home, ".ai-dev", "state"));
+    assert.equal(read({ AI_DEV_HOME: home }), path.join(home, ".ai-dev", "state"), "AI_DEV_HOME naming the home keeps 2.x's meaning (D2)");
+    assert.equal(read({ AI_DEV_HOME: path.join(home, "runtime") }), path.join(home, "runtime", "state"));
+    assert.equal(read({ AI_DEV_STATE_ROOT: path.join(home, "elsewhere"), AI_DEV_HOME: path.join(home, "runtime") }), path.join(home, "elsewhere"));
+  } finally {
+    await fs.rm(home, { recursive: true, force: true });
+  }
+});
+
+test("a 2.x image, the way back, gets its configs from the 3.0 installer, and the state is shared only where the probe says so (Д-322, Д-323)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  const result = await runBootstrap(t, ["--skip-smoke", "--image", "example/ai-dev-system:2"], { env: { NO_CLI: "1", AI_DEV_INSTALLER_IMAGE: "example/installer:3" }, folders: [".cursor"] });
+  if (!result) return;
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /example\/ai-dev-system:2 has no installer of its own \(a 2\.x image\): example\/installer:3 writes the configs that run it/);
+  const install = result.calls.find((call) => call[0] === "run" && call.includes("install"));
+  assert.ok(install.includes("example/installer:3"), "the installer runs from the 3.0 image");
+  assert.ok(install.includes("--image=example/ai-dev-system:2"), "and the configs run the image asked for");
+  // This host's uid is not the image's, or the probe wrote nothing: either way the state stays in the volume.
+  assert.ok(install.includes("--shared-state=no"), install.join(" "));
+  const probed = result.calls.some((call) => call[0] === "run" && call.includes("touch"));
+  assert.equal(probed, process.getuid() === 1000, "the probe runs only where uid 1000 could be this user");
 });
 
 test("a model folder is mounted read-only for the installer, checked, and handed to the configs", async (t) => {
@@ -419,4 +470,23 @@ test("the PowerShell installer pulls, checks the server's own handshake and has 
   assert.equal(config.args[0], "run");
   assert.equal(config.args.at(-1), "ghcr.io/stonebridgeway/ai-dev-system:latest");
   assert.match(result.stdout, /AI Dev is ready/);
+});
+
+// Windows PowerShell 5.1 turns a native command's redirected stderr into error
+// records, which `$ErrorActionPreference = "Stop"` makes fatal; the image writes
+// to stderr at every start (docs/DEFECTS.md, Д-320). No 5.1 runs here, so the
+// rule is held on the text: a redirect of stderr only inside Invoke-Native.
+test("bootstrap.ps1 throws a native command's stderr away only inside Invoke-Native (Д-320)", async () => {
+  const lines = (await fs.readFile(bootstrapPowerShell, "utf8")).split(/\r?\n/);
+  assert.ok(lines.some((line) => /^function Invoke-Native \{/.test(line)));
+  let inside = false;
+  const outside = [];
+  for (const [index, line] of lines.entries()) {
+    const code = line.replace(/(^|\s)#.*$/, "");
+    const opens = /Invoke-Native \{/.test(code);
+    if (/(?:\*|2)>\s*\$null|2>&1/.test(code) && !(inside || opens)) outside.push(`${index + 1}: ${line.trim()}`);
+    inside = (inside || opens) && /`\s*$/.test(line);
+  }
+  assert.deepEqual(outside, []);
+  assert.ok(lines.filter((line) => /Invoke-Native \{/.test(line)).length >= 5, "the handshake, the engine checks and the cached image's age");
 });

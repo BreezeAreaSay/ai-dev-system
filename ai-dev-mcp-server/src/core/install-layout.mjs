@@ -33,6 +33,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULT_DOCKER_VOLUME } from "./docker-launch.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
+import { SEED_STATE_FILE } from "./seed-sync.mjs";
 
 /** The npm package's name (owner decision D4). */
 export const PACKAGE_NAME = "@stonebridgeway/ai-dev-system";
@@ -113,11 +114,16 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
     [kind, ownContent] = ["clone", repositorySeed];
   }
   const distributed = exists(path.join(root, DISTRIBUTION_MARKER)) && exists(path.join(shipped, SEED_MANIFEST));
-  // The image names its vault itself (AI_DEV_VAULT_ROOT is in its ENV), and
-  // that vault is the seed's to keep current whatever it is called: 2.x's
-  // entrypoint copied the seed into it with `cp -n`, which never updated a file
-  // (docs/DEFECTS.md, Д-99). A 2.x image has no distribution and syncs nothing.
-  const ownSeed = distributed && (kind === "docker" || (kind === "package" && !explicit)) ? shipped : "";
+  const contentRoot = path.resolve(explicit || ownContent);
+  // The image's own vault is the seed's to keep current: 2.x's entrypoint copied
+  // the seed into it with `cp -n`, which never updated a file (docs/DEFECTS.md,
+  // Д-99). A vault named instead is the user's, read where it is, as a package
+  // reads one — unless a seed is there already: a sync's record, or the manifest
+  // 2.x's `cp -n` put beside its seed (Д-321). A 2.x image has no distribution
+  // and syncs nothing.
+  const seeded = exists(path.join(contentRoot, SEED_STATE_FILE)) || exists(path.join(contentRoot, SEED_MANIFEST));
+  const dockerSeeds = kind === "docker" && (contentRoot === path.resolve(ownContent) || seeded);
+  const ownSeed = distributed && (dockerSeeds || (kind === "package" && !explicit)) ? shipped : "";
   return {
     serverRoot: server,
     root,
@@ -126,7 +132,7 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
     appHome,
     bundle: kind === "package" && exists(path.join(root, BUNDLE_MARKER)),
     kind,
-    contentRoot: path.resolve(explicit || ownContent),
+    contentRoot,
     seedRoot: ownSeed
   };
 }

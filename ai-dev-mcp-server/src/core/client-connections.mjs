@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { stableLaunch } from "./app-bundle.mjs";
 import { APP_MARKER, appCli, appFolder } from "./app-home.mjs";
 import { EXIT } from "./cli-args.mjs";
-import { DEFAULT_DOCKER_IMAGE, DEFAULT_DOCKER_VOLUME, IMAGE_UID, checkModelFolder, dockerLaunch, resolveDockerCommand, sharesHostState } from "./docker-launch.mjs";
+import { DEFAULT_DOCKER_IMAGE, DEFAULT_DOCKER_VOLUME, IMAGE_UID, checkModelFolder, dockerLaunch, probeStateSharing, resolveDockerCommand, sharesHostState } from "./docker-launch.mjs";
 import { DISTRIBUTION_MARKER, PACKAGE_NAME, currentInstallLayout } from "./install-layout.mjs";
 import {
   SERVER_NAME,
@@ -140,49 +140,68 @@ export function clientLabel(target) {
  * What a Docker entry runs, from what `ai-dev clients install --docker` was
  * given — on the host, or in the image on the host's behalf (`bootstrap.sh`
  * names the host's home, platform and user, which the container's are not).
- * The folders a bind mount needs are made when `apply` is set: Docker refuses to
- * start a container whose mount source does not exist, every session after.
+ *
+ * On the host, with `apply`, the folders a bind mount needs are made — Docker
+ * refuses to start a container whose mount source does not exist, every session
+ * after — and on Linux the sharing of the state folder is tried before it is
+ * written into an entry ({@link probeStateSharing}). In the image neither can
+ * be done: its root is read-only and holds none of the host's folders but the
+ * clients' and the state's, and it has no Docker. There `bootstrap.sh` made the
+ * folders and tried the sharing itself, and says so with `shareState`
+ * (docs/DEFECTS.md, Д-319, Д-322).
  *
  * @param {object} input
  * @param {string} [input.image]
  * @param {string} [input.volume]
  * @param {string} [input.projects] - Default: `<home>/AI-Dev-Projects`, as 2.x's bootstrap had it.
  * @param {string} [input.model]
- * @param {string} [input.state] - The host's state folder; default: the runtime home's `state`. Shared where the container may share it ({@link sharesHostState}).
+ * @param {string} [input.state] - The host's state folder; default: `AI_DEV_STATE_ROOT` on the host, else the runtime home's `state` — where the hooks keep theirs.
+ * @param {"yes"|"no"|""} [input.shareState] - Whether the state folder is shared, decided by the host; default: by uid, and on a Linux host tried.
  * @param {string} [input.docker] - The Docker CLI; default: found on PATH.
  * @param {string} [input.home]
  * @param {string} [input.platform]
  * @param {number} [input.uid] - The host user's; the installer run in the image runs as them.
  * @param {NodeJS.ProcessEnv} [input.env]
  * @param {boolean} [input.apply]
- * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: string, state: string, record: string, platform: string, sharedState: boolean }>}
+ * @param {typeof probeStateSharing} [input.probe]
+ * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: string, state: string, record: string, platform: string, sharedState: boolean, sharedStateReason: string }>}
  */
-export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", docker = "", home = os.homedir(), platform = process.platform, uid = process.getuid?.(), env = process.env, apply = true } = {}) {
+export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", shareState = "", docker = "", home = os.homedir(), platform = process.platform, uid = process.getuid?.(), env = process.env, apply = true, probe = probeStateSharing } = {}) {
   const paths = platform === "win32" ? path.win32 : path.posix;
-  const hostState = paths.resolve(state || paths.join(resolveRuntimeStateRoot("", { ...env, HOME: home, USERPROFILE: home }), "state"));
-  const sharedState = sharesHostState({ platform, uid });
+  const onHost = String(env.AI_DEV_RUNTIME ?? "").trim().toLowerCase() !== "docker";
+  const hostState = paths.resolve(state
+    || (onHost && String(env.AI_DEV_STATE_ROOT ?? "").trim())
+    || paths.join(resolveRuntimeStateRoot("", { ...env, HOME: home, USERPROFILE: home }), "state"));
   const resolved = {
     image,
     volume,
     platform,
     projects: paths.resolve(projects || paths.join(home, "AI-Dev-Projects")),
     model: model ? checkModelFolder(paths.resolve(model)) : "",
-    state: sharedState ? hostState : "",
     // The record of written configs stays the host's either way.
     record: hostState,
-    sharedState,
     docker: docker || resolveDockerCommand({ env, platform, home })
   };
-  if (apply) for (const folder of [resolved.projects, hostState]) await fs.mkdir(folder, { recursive: true });
-  return resolved;
+  if (apply && onHost) for (const folder of [resolved.projects, hostState]) await fs.mkdir(folder, { recursive: true });
+  const byUid = sharesHostState({ platform, uid });
+  let sharing = { shared: byUid, reason: "" };
+  if (shareState === "yes" || shareState === "no") {
+    sharing = { shared: shareState === "yes", reason: shareState === "no" && byUid ? TRIED_AND_REFUSED : "" };
+  } else if (byUid && platform === "linux" && onHost && apply) {
+    sharing = probe({ docker: resolved.docker, image, state: hostState, uid });
+  }
+  return { ...resolved, state: sharing.shared ? hostState : "", sharedState: sharing.shared, sharedStateReason: sharing.reason };
 }
+
+const TRIED_AND_REFUSED = "trying it, the image's user could not write your state folder as you (rootless Docker, userns-remap or Podman map the container's users to others)";
 
 /** Why the state is not shared, when it is not: for the install's output. */
 export function unsharedStateNote(docker, uid = process.getuid?.()) {
   if (!docker || docker.sharedState) return "";
-  return `The agent hooks keep their state apart from the server's: the image's user (uid ${IMAGE_UID}) is not yours (uid ${uid}), `
-    + "so a folder of yours is not one the container may share; the server keeps its state in the volume, as 2.x did, "
-    + "and cannot write into your projects. On this machine the local install is the one to use (docs/INSTALL.md; Д-318).";
+  const why = docker.sharedStateReason
+    || `the image's user (uid ${IMAGE_UID}) is not yours (uid ${uid}), so a folder of yours is not one the container may share`;
+  return `The agent hooks keep their state apart from the server's: ${why}. The server keeps its state in the volume, as 2.x did, `
+    + "and cannot write into your projects. On this machine the local install is the one to use (docs/INSTALL.md; Д-318, Д-322).";
 }
 
 /**

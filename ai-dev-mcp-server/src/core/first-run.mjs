@@ -107,25 +107,20 @@ export const FIRST_RUN_STEPS = Object.freeze([
  * @param {Record<string, boolean>} [input.stale] - Of those, the ones out of date.
  * @param {Record<string, boolean>} [input.want] - Optional steps asked for.
  * @param {boolean} [input.force] - Rebuild what is already there.
+ * @param {(step: { id: string, flag?: string }, state: "missing"|"present"|"stale") => string} [input.optionalReason] -
+ *   What an optional step nobody asked for says: setup's flags by default; the image, which has none, says its own.
+ * @param {string} [input.builtReason] - What a step already built says: setup's `--force` by default.
  * @returns {Array<{ id: string, title: string, detail: string, run: boolean, reason: string }>}
  */
-export function planFirstRun({ present = {}, stale = {}, want = {}, force = false } = {}) {
+export function planFirstRun({ present = {}, stale = {}, want = {}, force = false, optionalReason = setupReason, builtReason = "already built; --force rebuilds it" } = {}) {
   return FIRST_RUN_STEPS.map((step) => {
     const here = Boolean(present[step.id]);
     const outOfDate = here && Boolean(stale[step.id]);
     if (step.optional && !want[step.id]) {
-      return {
-        ...pick(step),
-        run: false,
-        reason: outOfDate
-          ? `out of date; ${step.flag} rebuilds it`
-          : here
-            ? `already installed; ${step.flag} rebuilds it`
-            : `not installed — pass ${step.flag} to install it`
-      };
+      return { ...pick(step), run: false, reason: optionalReason(step, outOfDate ? "stale" : here ? "present" : "missing") };
     }
     if (here && !outOfDate && !force) {
-      return { ...pick(step), run: false, reason: "already built; --force rebuilds it" };
+      return { ...pick(step), run: false, reason: builtReason };
     }
     return {
       ...pick(step),
@@ -133,6 +128,13 @@ export function planFirstRun({ present = {}, stale = {}, want = {}, force = fals
       reason: outOfDate ? "out of date" : here ? "rebuilding on request" : "missing"
     };
   });
+}
+
+/** An optional step `setup` was not asked for, in its own flags. */
+function setupReason(step, state) {
+  if (state === "stale") return `out of date; ${step.flag} rebuilds it`;
+  if (state === "present") return `already installed; ${step.flag} rebuilds it`;
+  return `not installed — pass ${step.flag} to install it`;
 }
 
 /**

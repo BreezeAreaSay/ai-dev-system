@@ -29,6 +29,18 @@ $serverRoot = Join-Path $repoRoot "ai-dev-mcp-server"
 $cli = Join-Path $serverRoot "bin\ai-dev.mjs"
 $dataVolume = if ($env:AI_DEV_DATA_VOLUME) { $env:AI_DEV_DATA_VOLUME } else { "ai-dev-system-data" }
 
+# Windows PowerShell 5.1 turns what a native command writes to a redirected
+# stderr into error records, and with $ErrorActionPreference = "Stop" the first
+# of them ends the script — and the image writes its first-run report to stderr
+# at every start (docs/DEFECTS.md, Д-320). A native command whose stderr is
+# thrown away runs through here, with "Continue"; $LASTEXITCODE says how it did.
+function Invoke-Native {
+    param([Parameter(Mandatory = $true)][scriptblock]$Command)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { & $Command } finally { $ErrorActionPreference = $previous }
+}
+
 function Get-NodeCommand {
     $node = Get-Command node.exe -ErrorAction SilentlyContinue
     if (-not $node) { $node = Get-Command node -ErrorAction SilentlyContinue }
@@ -54,7 +66,7 @@ function Assert-Docker {
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
         throw "Docker Desktop is required: install it (winget install Docker.DockerDesktop, or https://docs.docker.com/get-docker/), start it, and run bootstrap.ps1 again."
     }
-    & docker version --format '{{.Server.Version}}' 2>$null
+    Invoke-Native { & docker version --format '{{.Server.Version}}' 2>$null }
     if ($LASTEXITCODE -eq 0) { return }
     $desktop = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
     if (Test-Path -LiteralPath $desktop) {
@@ -62,7 +74,7 @@ function Assert-Docker {
         Start-Process -FilePath $desktop -WindowStyle Hidden
         foreach ($attempt in 1..24) {
             Start-Sleep -Seconds 5
-            & docker version --format '{{.Server.Version}}' 2>$null
+            Invoke-Native { & docker version --format '{{.Server.Version}}' 2>$null }
             if ($LASTEXITCODE -eq 0) { return }
         }
     }
@@ -139,15 +151,15 @@ if ($BuildLocal) {
     Write-Host "Pulling $Image..."
     & docker pull $Image
     if ($LASTEXITCODE -ne 0) {
-        & docker image inspect $Image *> $null
+        Invoke-Native { & docker image inspect $Image *> $null }
         if ($LASTEXITCODE -ne 0) {
             throw "Could not pull $Image, and no cached copy exists."
         }
         # Installing whatever happened to be in the cache produced bug reports
         # about defects already fixed upstream (docs/DEFECTS.md Д-60), so the age
         # of that copy is stated and using it is a deliberate choice.
-        $created = (& docker image inspect --format '{{.Created}}' $Image 2>$null | Select-Object -First 1)
-        $digest = (& docker image inspect --format '{{index .RepoDigests 0}}' $Image 2>$null | Select-Object -First 1)
+        $created = (Invoke-Native { & docker image inspect --format '{{.Created}}' $Image 2>$null } | Select-Object -First 1)
+        $digest = (Invoke-Native { & docker image inspect --format '{{index .RepoDigests 0}}' $Image 2>$null } | Select-Object -First 1)
         if ([string]::IsNullOrWhiteSpace($created)) { $created = "unknown" }
         if ([string]::IsNullOrWhiteSpace($digest)) { $digest = "none (image was built locally)" }
         $staleWarning = "Registry pull failed. The cached copy of $Image was created $created (digest: $digest) and is missing anything released since."
@@ -163,14 +175,14 @@ if (-not $SkipSmoke) {
     # The server's own answer, instructions and all: 2.x checked for a serverInfo
     # a launcher wrote itself (docs/DEFECTS.md Д-89).
     $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ai-dev-bootstrap","version":"1"}}}'
-    $response = $init | & docker run --rm -i `
+    $response = Invoke-Native { $init | & docker run --rm -i `
         --read-only `
         --tmpfs /tmp:rw,exec,nosuid,size=512m `
         --network none `
         --security-opt no-new-privileges:true `
         --cap-drop ALL `
         --mount "type=volume,source=$dataVolume,target=/data" `
-        $Image 2>$null
+        $Image 2>$null }
     if ($LASTEXITCODE -ne 0 -or ($response -join "`n") -notmatch '"instructions"') {
         throw "The server in $Image did not answer the MCP handshake."
     }

@@ -27,7 +27,9 @@
  * uid 1000 with the image's umask is another user's to read, and one the hooks
  * wrote is not the server's to append to.
  */
-import { existsSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import crypto from "node:crypto";
+import { existsSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 
 /** The image a client runs unless told otherwise (owner decision D9: `:latest` is the released line). */
@@ -51,9 +53,14 @@ export const CONTAINER_MODELS = "/models";
  */
 export const MODEL_FOLDER_MARKERS = Object.freeze(["pytorch_model.bin", "modules.json", "config.json", "onnx"]);
 
-/** Docker splits a `--mount` value at commas: a path holding one cannot be mounted by it. */
+/**
+ * Docker reads a `--mount` value as one CSV record: a comma splits it, and a
+ * double quote outside a quoted field fails every session ("bare \" in
+ * non-quoted-field"; docs/DEFECTS.md, Д-328).
+ */
 function mountable(label, folder) {
-  if (folder.includes(",")) throw new Error(`The ${label} folder ${folder} has a comma in its path, which a docker --mount cannot hold. Choose a folder without one.`);
+  const bad = [",", "\""].find((character) => folder.includes(character));
+  if (bad) throw new Error(`The ${label} folder ${folder} has ${bad === "," ? "a comma" : "a double quote"} in its path, which a docker --mount cannot hold. Choose a folder without one.`);
   return folder;
 }
 
@@ -102,6 +109,42 @@ export const IMAGE_UID = 1000;
  */
 export function sharesHostState({ platform = process.platform, uid = process.getuid?.() } = {}) {
   return platform !== "linux" || uid === IMAGE_UID;
+}
+
+/**
+ * Whether the image's user may share the host's state folder, tried rather than
+ * inferred: a container of the image, as its user, makes a file there, and the
+ * file must be the host user's. Where Docker maps the container's uid 1000 to
+ * another host uid — rootless Docker, userns-remap, Podman — that container
+ * cannot write the folder at all, and a state the server cannot write is worse
+ * than one kept apart in the volume, as 2.x kept it (docs/DEFECTS.md, Д-322).
+ *
+ * @param {{ docker?: string, image: string, state: string, uid?: number, run?: typeof spawnSync }} input
+ * @returns {{ shared: boolean, reason: string }}
+ */
+export function probeStateSharing({ docker = "docker", image, state, uid = process.getuid?.(), run = spawnSync }) {
+  const name = `.ai-dev-share-probe-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
+  const probe = path.join(state, name);
+  const result = run(docker, [
+    "run", "--rm", "--network", "none", "--entrypoint", "touch",
+    "--mount", `type=bind,source=${mountable("state", state)},target=${CONTAINER_STATE_ROOT}`, image, `${CONTAINER_STATE_ROOT}/${name}`
+  ], { encoding: "utf8", shell: false, timeout: 300_000 });
+  try {
+    if (result.error || result.status !== 0) {
+      const why = String(result.error?.message || result.stderr || `exit ${result.status}`).trim().split("\n").at(-1);
+      return { shared: false, reason: `the image's user could not write your state folder (${why})` };
+    }
+    const owner = statSync(probe, { throwIfNoEntry: false })?.uid;
+    if (owner === uid) return { shared: true, reason: "" };
+    return {
+      shared: false,
+      reason: owner === undefined
+        ? "what the image's user wrote into your state folder did not reach it"
+        : `what the image's user writes into your state folder is uid ${owner}'s, not yours (uid ${uid}): Docker maps the container's users here (rootless Docker, userns-remap or Podman)`
+    };
+  } finally {
+    rmSync(probe, { force: true });
+  }
 }
 
 /**

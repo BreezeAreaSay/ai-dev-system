@@ -18,8 +18,10 @@ on:
 permissions:
   contents: read
 
+# A manual run (freeze_2x) is not cancelled by the next push to the same branch
+# (docs/DEFECTS.md, Д-325).
 concurrency:
-  group: docker-${{ github.ref }}
+  group: docker-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -76,6 +78,17 @@ jobs:
       - name: Negotiate MCP over Docker stdio
         working-directory: ai-dev-mcp-server
         run: npm run docker:smoke -- --image ai-dev-system:ci
+
+      # bootstrap.sh end to end against this image, with a home outside /tmp: in
+      # the container /tmp is a tmpfs, where what the installer must not do — make
+      # a folder of the host's — goes through unnoticed (docs/DEFECTS.md, Д-319).
+      - name: bootstrap.sh writes a client's config from the image
+        run: |
+          home="$RUNNER_TEMP/bootstrap-home"
+          mkdir -p "$home/.cursor"
+          HOME="$home" AI_DEV_DATA_VOLUME=ai-dev-bootstrap-ci sh ./bootstrap.sh --image ai-dev-system:ci --allow-stale-image --clients cursor
+          node -e 'const entry = require(process.argv[1]).mcpServers["ai-dev"]; if (!entry?.args?.includes("ai-dev-system:ci")) throw new Error(`no entry for the image: ${JSON.stringify(entry)}`); console.log(entry.command, entry.args.join(" "))' "$home/.cursor/mcp.json"
+          docker volume rm -f ai-dev-bootstrap-ci
 
       # A 2.x volume and 2.x launchers against this image (owner decision D10).
       # The 2.x image is the production one, whichever line its tag names now.
@@ -168,8 +181,9 @@ jobs:
     #
     # The tags (owner decision D9; docs/DEFECTS.md, Д-108): a push to main is
     # `:edge`, never `:latest` — a merge is not a release; a release tag vX.Y.Z
-    # is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`; a prerelease (vX.Y.Z-rc.N) only
-    # its own name. So `:2` is the 2.x line, frozen once 3.0 is tagged, and the
+    # is `:X.Y.Z`, `:X.Y`, `:X` and `:latest` — a tag of the 2.x line after 3.0
+    # updates `:2` and `:2.Y` alone; a prerelease (vX.Y.Z-rc.N) only its own
+    # name. So `:2` is the 2.x line, frozen once 3.0 is tagged, and the
     # way back: AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2. The browser
     # variant carries the same tags with `-browser`.
     if: github.event_name == 'push' && github.repository == 'stonebridgeway/ai-dev-system'
@@ -223,13 +237,16 @@ jobs:
           flavor: |
             latest=false
             suffix=${{ matrix.suffix }},onlatest=true
+          # :latest only from a release of the newest line: a 2.x maintenance tag
+          # after 3.0 updates :2 and nothing else (Д-325). sha-* only from the
+          # default branch and release tags.
           tags: |
             type=raw,value=edge,enable={{is_default_branch}}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
-            type=sha
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') && !startsWith(github.ref_name, 'v1.') && !startsWith(github.ref_name, 'v2.') }}
+            type=sha,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v') }}
 
       - name: Build and publish image
         uses: docker/build-push-action@v7
@@ -259,6 +276,21 @@ jobs:
       contents: read
       packages: write
     steps:
+      - name: Check out repository, with its tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Once 3.0 is tagged, :latest is not the 2.x line, and copying it would
+      # make the way back a 3.x image (docs/DEFECTS.md, Д-325).
+      - name: Refuse once a release of 3.0 or later is tagged
+        run: |
+          later=$(git tag --list 'v[3-9]*' 'v[1-9][0-9]*' | head -1)
+          if [ -n "$later" ]; then
+            echo "::error::$later is tagged: :latest is not the 2.x line any more, and :2 stays as it is."
+            exit 1
+          fi
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v4
         with:

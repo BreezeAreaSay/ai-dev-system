@@ -356,6 +356,10 @@ test("in the image, the volume's state moves into the host's state folder the ho
   await assert.rejects(fs.access(path.join(volume, "tasks")), /ENOENT/);
   assert.equal((await readMigrationRecord(runtime, env)).history.at(-1).kind, "volume", "kept in the state folder, not in the one moved out");
   await assert.rejects(fs.access(path.join(volume, "runtime-home-migration.json")), /ENOENT/);
+  // The health check says where they went: the host's folder, not the runtime tree (Д-328).
+  const health = evaluateRuntimeHome(await describeRuntimeHome({ env }));
+  assert.match(health.summary, new RegExp(`were moved to ${target.replaceAll("\\", "\\\\")} from`));
+  assert.doesNotMatch(health.summary, /moved here/);
   // A 2.x launcher's session writes the volume again; the next start takes it too.
   await write(path.join(volume, "tasks", "task-2.json"), '{"id":"task-2"}');
   assert.equal((await migrateVolumeState({ env })).moved, 1);

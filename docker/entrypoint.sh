@@ -7,8 +7,9 @@
 #
 # 2.x copied the seed with `cp -a -n`, which never updated a file already in the
 # volume (docs/DEFECTS.md, Д-99), and linked the image's folders into 09-mcp/.
-# The links a 2.x volume has still lead somewhere: /opt/ai-dev/app, frontend-qa
-# and search-eval are where they were.
+# Of the links a 2.x volume has, /opt/ai-dev/app, frontend-qa and search-eval
+# still lead where they did; search-index and embeddings are gone with what they
+# linked to (3.0 runs no Python), and what reads 09-mcp/ passes them over.
 set -eu
 
 umask 077

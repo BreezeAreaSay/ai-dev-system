@@ -23,6 +23,22 @@ test("a bare clone builds the things every install needs, and nothing else", () 
   assert.match(plan.frontend_qa.reason, /--frontend-qa/);
 });
 
+test("an optional step nobody asked for says how this install gets it: setup's flags, or the image's own words (Д-328)", () => {
+  const states = [];
+  const plan = byId(planFirstRun({
+    present: { dense_model: true },
+    stale: { dense_model: true },
+    optionalReason: (step, state) => { states.push([step.id, state]); return `${step.id}:${state}`; }
+  }));
+  assert.equal(plan.dense_model.reason, "dense_model:stale");
+  assert.equal(plan.frontend_qa.reason, "frontend_qa:missing");
+  assert.deepEqual(states.map(([id]) => id), ["frontend_qa", "dense_model", "dense_index"]);
+  assert.match(byId(planFirstRun({ present: { dense_model: true } })).dense_model.reason, /^already installed; --model rebuilds it$/);
+  const built = { skill_registry: true, skill_quality_report: true, search_index: true, routing_benchmark: true };
+  assert.equal(byId(planFirstRun({ present: built })).search_index.reason, "already built; --force rebuilds it");
+  assert.equal(byId(planFirstRun({ present: built, builtReason: "already built" })).search_index.reason, "already built");
+});
+
 test("what is already built is left alone, and --force rebuilds it", () => {
   const present = {
     skill_registry: true, skill_quality_report: true, search_index: true, routing_benchmark: true

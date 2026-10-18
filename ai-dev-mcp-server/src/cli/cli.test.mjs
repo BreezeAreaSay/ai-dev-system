@@ -166,7 +166,8 @@ test("clients install --docker writes `docker run -i --rm …`, and list, entry 
   const bin = path.join(home, "bin");
   await fs.mkdir(bin);
   await fs.writeFile(path.join(bin, process.platform === "win32" ? "docker.exe" : "docker"), "", { mode: 0o755 });
-  const env = homeEnv(home, { PATH: `${bin}${path.delimiter}${process.env.PATH}` });
+  // The test runner's AI_DEV_STATE_ROOT would be the hooks' state folder, and so the entry's: unset, the default.
+  const env = homeEnv(home, { PATH: `${bin}${path.delimiter}${process.env.PATH}`, AI_DEV_STATE_ROOT: "" });
   const flags = ["--docker", "--image=example/ai-dev:3", `--projects=${path.join(home, "Projects")}`];
 
   const install = await runNode([cli, "clients", "install", ...flags, "--json"], { env });
@@ -176,11 +177,17 @@ test("clients install --docker writes `docker run -i --rm …`, and list, entry 
   assert.deepEqual([written.args[0], written.args.at(-1)], ["run", "example/ai-dev:3"]);
   const mounts = written.args.flatMap((argument, index) => (written.args[index - 1] === "--mount" ? [argument] : []));
   const state = path.join(home, ".ai-dev", "state");
-  // Shared where the image's user (uid 1000) is this one, or Docker Desktop maps it.
-  const shared = process.platform !== "linux" || process.getuid() === 1000;
+  // Shared where Docker Desktop maps the image's user to this one; on Linux only
+  // when tried and found writable as this user — the stub docker here writes
+  // nothing, so not here (Д-322).
+  const shared = process.platform !== "linux";
   assert.equal(mounts.includes(`type=bind,source=${state},target=/ai-dev-state`), shared, mounts.join(" "));
   assert.ok(!written.args.includes("--user"));
-  if (!shared) assert.match(JSON.parse(install.stdout).note, /the image's user \(uid 1000\) is not yours/);
+  if (!shared) {
+    assert.match(JSON.parse(install.stdout).note, process.getuid() === 1000
+      ? /did not reach it\. The server keeps its state in the volume/
+      : /the image's user \(uid 1000\) is not yours/);
+  }
   await fs.access(path.join(home, "Projects"));
   await fs.access(path.join(state, "mcp-clients.json"));
 
@@ -200,6 +207,41 @@ test("clients install --docker writes `docker run -i --rm …`, and list, entry 
   const remove = await runNode([cli, "clients", "remove", "--clients=cursor"], { env });
   assert.equal(remove.code, 0, remove.stderr);
   assert.match(remove.stdout, /Cursor\s+(restored|removed)/);
+});
+
+test("in the image on the host's behalf, clients install --docker makes no folder of the host's and shares the state as the host decided (Д-319, Д-322)", async (t) => {
+  const home = await tempDir(t);
+  await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+  const state = path.join(home, ".ai-dev", "state");
+  await fs.mkdir(state, { recursive: true }); // bootstrap.sh made it on the host and mounted it
+  const projects = path.join(home, "not-mounted", "projects");
+  const flags = ["--docker", "--image=example/ai-dev:3", `--projects=${projects}`, `--state=${state}`, `--home=${home}`, "--platform=linux", "--docker-command=/usr/bin/docker"];
+  // The image's own environment: AI_DEV_RUNTIME=docker, and an AI_DEV_STATE_ROOT that is not the host's.
+  const env = homeEnv(home, { AI_DEV_RUNTIME: "docker", AI_DEV_STATE_ROOT: "/data/runtime-home/.ai-dev/state" });
+  const shared = await runNode([cli, "clients", "install", ...flags, "--shared-state=yes", "--json"], { env });
+  assert.equal(shared.code, 0, shared.stderr);
+  await assert.rejects(fs.access(projects), /ENOENT/, "the projects folder is the host's to make: the image's root is read-only");
+  const args = readJsonc(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"].args;
+  assert.ok(args.includes(`type=bind,source=${state},target=/ai-dev-state`), args.join(" "));
+  assert.ok(args.includes(`type=bind,source=${projects},target=${projects}`));
+  await fs.access(path.join(state, "mcp-clients.json"));
+
+  const apart = await runNode([cli, "clients", "install", ...flags, "--shared-state=no", "--json"], { env });
+  assert.equal(apart.code, 0, apart.stderr);
+  const after = readJsonc(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"].args;
+  assert.ok(!after.some((argument) => argument.includes("/ai-dev-state")), after.join(" "));
+  assert.match(JSON.parse(apart.stdout).note, process.getuid?.() === 1000 ? /trying it, the image's user could not write your state folder as you/ : /is not yours/);
+  const wrong = await runNode([cli, "clients", "install", ...flags, "--shared-state=maybe"], { env });
+  assert.equal(wrong.code, 2);
+  assert.match(wrong.stderr, /--shared-state takes yes or no/);
+});
+
+test("on the host, the state folder of a Docker entry is the hooks' one: AI_DEV_STATE_ROOT first (Д-328)", async (t) => {
+  const home = await tempDir(t);
+  const elsewhere = path.join(home, "elsewhere", "state");
+  const entry = await runNode([cli, "clients", "entry", "cursor", "--docker", "--image=x", "--platform=darwin", `--projects=${path.join(home, "p")}`], { env: homeEnv(home, { AI_DEV_STATE_ROOT: elsewhere }) });
+  assert.equal(entry.code, 0, entry.stderr);
+  assert.ok(JSON.parse(entry.stdout).args.includes(`type=bind,source=${elsewhere},target=/ai-dev-state`), entry.stdout);
 });
 
 test("clients doctor names a config whose Node is gone, and exits 1", async (t) => {

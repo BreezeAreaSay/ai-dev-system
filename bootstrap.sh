@@ -23,7 +23,6 @@ plan=0
 node_image="${AI_DEV_BOOTSTRAP_NODE_IMAGE:-node:24-bookworm-slim}"
 data_volume="${AI_DEV_DATA_VOLUME:-ai-dev-system-data}"
 model_path="${AI_DEV_MODEL_PATH:-}"
-state_path="${AI_DEV_HOME:-${HOME}/.ai-dev}/state"
 
 usage() {
   cat <<'EOF'
@@ -66,6 +65,36 @@ done
 
 if [ "$build_local" -eq 1 ] && [ "$image_set" -eq 0 ]; then
   image="ai-dev-system:local"
+fi
+
+# A misspelled client is a mistake, not "nothing to do" (docs/DEFECTS.md, Д-328).
+set -f
+old_ifs=$IFS
+IFS=','
+for client_name in $clients; do
+  case "$client_name" in
+    all|claude|claude-code|claude-desktop|cursor|vscode|codex|gemini) ;;
+    *)
+      IFS=$old_ifs
+      printf '%s\n' "--clients: \"${client_name}\" is no client here (all, claude, claude-code, claude-desktop, cursor, vscode, codex, gemini)." >&2
+      exit 64 ;;
+  esac
+done
+IFS=$old_ifs
+set +f
+
+# The state folder the agent hooks keep theirs in, found as they find it:
+# AI_DEV_STATE_ROOT, else AI_DEV_HOME's — unless it names the home itself, which
+# keeps 2.x's meaning — else ~/.ai-dev/state (Д-328).
+state_path="${HOME}/.ai-dev/state"
+if [ -n "${AI_DEV_STATE_ROOT:-}" ]; then
+  state_path="$AI_DEV_STATE_ROOT"
+elif [ -n "${AI_DEV_HOME:-}" ]; then
+  ai_dev_home_real=$(CDPATH= cd -- "$AI_DEV_HOME" 2>/dev/null && pwd -P || printf '%s' "$AI_DEV_HOME")
+  home_real=$(CDPATH= cd -- "$HOME" 2>/dev/null && pwd -P || printf '%s' "$HOME")
+  if [ "$ai_dev_home_real" != "$home_real" ]; then
+    state_path="${AI_DEV_HOME}/state"
+  fi
 fi
 
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
@@ -117,7 +146,7 @@ docker_command=$(command -v docker)
 
 for folder_value in "$project_path" "$state_path" "$model_path"; do
   case "$folder_value" in
-    *,*) printf '%s\n' "${folder_value} has a comma, which a docker --mount cannot hold. Choose a folder without one." >&2; exit 64 ;;
+    *,*|*\"*) printf '%s\n' "${folder_value} has a comma or a double quote, which a docker --mount cannot hold. Choose a folder without one." >&2; exit 64 ;;
   esac
 done
 mkdir -p "$project_path" "$state_path"
@@ -174,13 +203,6 @@ else
   fi
 fi
 
-# 2.x kept a long-lived container per user; 3.0 runs one per session.
-old_runtime="ai-dev-system-runtime-${uid}"
-if [ "$(docker inspect --format '{{index .Config.Labels "ai-dev.system.runtime"}}' "$old_runtime" 2>/dev/null || true)" = "true" ]; then
-  printf '%s\n' "Removing the 2.x runtime container ${old_runtime}: each session runs the image now."
-  docker rm -f "$old_runtime" >/dev/null
-fi
-
 if [ "$skip_smoke" -ne 1 ]; then
   printf '%s\n' "Checking the MCP handshake..."
   # The server's own answer, instructions and all: 2.x checked for a serverInfo
@@ -195,6 +217,33 @@ if [ "$skip_smoke" -ne 1 ]; then
 fi
 
 if [ "$skip_client_install" -ne 1 ]; then
+  # The configs are written by the image's own installer. A 2.x image has none —
+  # the way back to :2 is still a 3.0 entry, which runs it — so the 3.0 image
+  # writes them then (docs/DEFECTS.md, Д-323).
+  installer_image="$image"
+  if ! docker run --rm --network none --entrypoint sh "$image" -c 'command -v ai-dev' >/dev/null 2>&1; then
+    installer_image="${AI_DEV_INSTALLER_IMAGE:-ghcr.io/stonebridgeway/ai-dev-system:latest}"
+    printf '%s\n' "${image} has no installer of its own (a 2.x image): ${installer_image} writes the configs that run it."
+    docker image inspect "$installer_image" >/dev/null 2>&1 || docker pull "$installer_image"
+  fi
+
+  # Whether the image's user may share the state folder, tried: where Docker
+  # maps the container's uid 1000 to another host user — rootless Docker,
+  # userns-remap, Podman — it cannot write the folder, and the server keeps its
+  # state in the volume, as 2.x did (Д-322). Docker Desktop on macOS gives what
+  # the container writes to the user.
+  shared_state=yes
+  if [ "$platform" != "Darwin" ]; then
+    shared_state=no
+    probe=".ai-dev-share-probe-$$"
+    if [ "$uid" -eq 1000 ] && docker run --rm --network none --entrypoint touch \
+        --mount "type=bind,source=${state_path},target=/ai-dev-state" "$image" "/ai-dev-state/${probe}" >/dev/null 2>&1 \
+        && [ -O "${state_path}/${probe}" ]; then
+      shared_state=yes
+    fi
+    rm -f "${state_path}/${probe}" 2>/dev/null || true
+  fi
+
   # The image writes the configs, given each client's own folder and nothing
   # else of this machine. A client named on the command line gets its folder
   # made, as the installer would write it anyway.
@@ -218,7 +267,7 @@ if [ "$skip_client_install" -ne 1 ]; then
       *) mkdir -p "$folder" ;;
     esac
     case "$folder" in
-      *,*) printf '%s\n' "${client}: ${folder} has a comma, which a docker --mount cannot hold; skipped." >&2; continue ;;
+      *,*|*\"*) printf '%s\n' "${client}: ${folder} has a comma or a double quote, which a docker --mount cannot hold; skipped." >&2; continue ;;
     esac
     set -- "$@" --mount "type=bind,source=${folder},target=${folder}"
     install_clients="${install_clients}${install_clients:+,}${client}"
@@ -227,11 +276,11 @@ if [ "$skip_client_install" -ne 1 ]; then
   if [ -n "$model_path" ]; then
     set -- "$@" --mount "type=bind,source=${model_path},target=${model_path},readonly"
   fi
-  set -- "$@" "$image" ai-dev clients
+  set -- "$@" "$installer_image" ai-dev clients
   if [ -n "$install_clients" ]; then
     printf '%s\n' "Writing the AI clients' configs (${install_clients})..."
     docker "$@" install --clients="$install_clients" \
-      --docker --image="$image" --projects="$project_path" --state="$state_path" --volume="$data_volume" \
+      --docker --image="$image" --projects="$project_path" --state="$state_path" --shared-state="$shared_state" --volume="$data_volume" \
       --home="$HOME" --platform="$installer_platform" --docker-command="$docker_command" \
       ${model_path:+"--model=$model_path"}
   fi
@@ -239,7 +288,7 @@ if [ "$skip_client_install" -ne 1 ]; then
   # the image is not given: its own CLI writes the entry the image prints.
   if wants claude-code && { [ -e "${HOME}/.claude.json" ] || [ -d "${HOME}/.claude" ] || [ "$clients" != "all" ]; }; then
     entry=$(docker "$@" entry claude-code \
-      --docker --image="$image" --projects="$project_path" --state="$state_path" --volume="$data_volume" \
+      --docker --image="$image" --projects="$project_path" --state="$state_path" --shared-state="$shared_state" --volume="$data_volume" \
       --home="$HOME" --platform="$installer_platform" --docker-command="$docker_command" \
       ${model_path:+"--model=$model_path"})
     if command -v claude >/dev/null 2>&1; then
@@ -255,6 +304,14 @@ if [ "$skip_client_install" -ne 1 ]; then
       printf "  claude mcp add-json ai-dev '%s' --scope user\n" "$entry" >&2
     fi
   fi
+fi
+
+# 2.x kept a long-lived container per user; 3.0 runs one per session. It goes
+# once the configs that named it are rewritten, not before (Д-328).
+old_runtime="ai-dev-system-runtime-${uid}"
+if [ "$skip_client_install" -ne 1 ] && [ "$(docker inspect --format '{{index .Config.Labels "ai-dev.system.runtime"}}' "$old_runtime" 2>/dev/null || true)" = "true" ]; then
+  printf '%s\n' "Removing the 2.x runtime container ${old_runtime}: each session runs the image now."
+  docker rm -f "$old_runtime" >/dev/null
 fi
 
 printf '%s\n' "AI Dev is ready. Restart the AI clients to load ai-dev."

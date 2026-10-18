@@ -49,6 +49,8 @@ export function usage() {
     "    --volume=<name>       the data volume (ai-dev-system-data)",
     "    --state=<folder>      the state folder shared with the agent hooks (~/.ai-dev/state, where the image's user,",
     "                          uid 1000, is yours or Docker Desktop maps it); made if missing",
+    "    --shared-state=yes|no whether to share it, decided already (bootstrap.sh tries it on the host); by default",
+    "                          a Linux host tries it with the image before it is written into an entry",
     "    --docker-command=<path>  the Docker CLI (found on PATH)",
     "    --home, --platform    the host's, when this runs in the image on its behalf (bootstrap.sh)",
     "",
@@ -59,13 +61,15 @@ export function usage() {
 /** The options of `--docker`, read from the command line; the host's when it runs in the image on its behalf. */
 async function dockerFrom(values, io, { apply = true } = {}) {
   if (!values.docker) {
-    const named = ["image", "projects", "model", "volume", "state", "docker-command"].find((name) => values[name] !== undefined);
+    const named = ["image", "projects", "model", "volume", "state", "shared-state", "docker-command"].find((name) => values[name] !== undefined);
     if (named) throw new CliUsageError(`--${named} is an option of --docker; add --docker to run the clients' server in Docker.`);
     return null;
   }
   const home = values.home || os.homedir();
   const platform = values.platform || process.platform;
   if (!["linux", "darwin", "win32"].includes(platform)) throw new CliUsageError(`--platform takes linux, darwin or win32; "${platform}" is not one.`);
+  const shareState = values["shared-state"] ?? "";
+  if (!["", "yes", "no"].includes(shareState)) throw new CliUsageError(`--shared-state takes yes or no; "${shareState}" is not one.`);
   const paths = platform === "win32" ? path.win32 : path.posix;
   try {
     return await dockerOptions({
@@ -75,6 +79,7 @@ async function dockerFrom(values, io, { apply = true } = {}) {
       model: values.model,
       // Named by the host, or under the home it names: the image's own AI_DEV_HOME is not the host's.
       state: values.state || (values.home ? paths.join(values.home, ".ai-dev", "state") : ""),
+      shareState,
       docker: values["docker-command"],
       home,
       platform,
@@ -335,6 +340,7 @@ export async function run(argv, io) {
     model: { type: "string" },
     volume: { type: "string" },
     state: { type: "string" },
+    "shared-state": { type: "string" },
     "docker-command": { type: "string" },
     home: { type: "string" },
     platform: { type: "string" }

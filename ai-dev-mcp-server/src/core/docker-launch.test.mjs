@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,6 +14,7 @@ import {
   dockerLaunch,
   dockerRunArgs,
   isDirectDockerEntry,
+  probeStateSharing,
   resolveDockerCommand,
   sharesHostState
 } from "./docker-launch.mjs";
@@ -48,6 +50,8 @@ test("on Windows the projects are at /workspace, a model folder is read-only at 
   assert.ok(!bare.includes("--user") && !bare.includes("--env"));
   assert.throws(() => dockerRunArgs({ image: "" }), /No image to run/);
   assert.throws(() => dockerRunArgs({ image: "img", projects: "/a,b" }), /comma in its path, which a docker --mount cannot hold/);
+  // A double quote outside a quoted CSV field fails every session (Д-328).
+  assert.throws(() => dockerRunArgs({ image: "img", state: '/home/me/"x"/state' }), /double quote in its path, which a docker --mount cannot hold/);
   assert.deepEqual(dockerLaunch({}).args.at(-1), DEFAULT_DOCKER_IMAGE);
   assert.deepEqual(dockerLaunch({ docker: "/usr/local/bin/docker", image: "x" }).command, "/usr/local/bin/docker");
 });
@@ -85,4 +89,38 @@ test("a 3.0 entry is told from a 2.x launcher by what it runs", () => {
   assert.equal(isDirectDockerEntry({ command: "/bin/sh", args: ["/repo/docker/run-mcp.sh"] }), false);
   assert.equal(isDirectDockerEntry({ command: "docker", args: ["exec", "-i", "c"] }), false);
   assert.equal(isDirectDockerEntry({}), false);
+});
+
+test("the state folder is shared only when the image's user, tried, writes it as the host user (Д-322)", async (t) => {
+  const state = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-share-probe-"));
+  t.after(() => fs.rm(state, { recursive: true, force: true }));
+  const uid = process.getuid?.() ?? 0;
+  const calls = [];
+  // A container that writes the file it is given, as this user: what Docker Desktop and a matching uid do.
+  const writes = (command, args) => {
+    calls.push([command, ...args]);
+    const target = args.at(-1);
+    assert.ok(target.startsWith(`${CONTAINER_STATE_ROOT}/.ai-dev-share-probe-`), target);
+    fsSync.writeFileSync(path.join(state, path.basename(target)), "");
+    return { status: 0, stdout: "", stderr: "" };
+  };
+  assert.deepEqual(probeStateSharing({ docker: "/usr/bin/docker", image: "img:3", state, uid, run: writes }), { shared: true, reason: "" });
+  const [call] = calls;
+  assert.deepEqual(call.slice(0, 7), ["/usr/bin/docker", "run", "--rm", "--network", "none", "--entrypoint", "touch"]);
+  assert.ok(call.includes(`type=bind,source=${state},target=${CONTAINER_STATE_ROOT}`) && call.includes("img:3"));
+  assert.deepEqual(await fs.readdir(state), [], "the probe leaves nothing behind");
+
+  // Rootless Docker, userns-remap, Podman: uid 1000 in the container is no one here, and the folder refuses it.
+  const refused = probeStateSharing({ image: "img", state, uid, run: () => ({ status: 1, stdout: "", stderr: "touch: cannot touch '/ai-dev-state/x': Permission denied\n" }) });
+  assert.equal(refused.shared, false);
+  assert.match(refused.reason, /could not write your state folder \(touch: cannot touch .*Permission denied\)/);
+  const unreachable = probeStateSharing({ image: "img", state, uid, run: () => ({ error: new Error("spawn docker ENOENT") }) });
+  assert.equal(unreachable.shared, false);
+  assert.match(unreachable.reason, /spawn docker ENOENT/);
+  const lost = probeStateSharing({ image: "img", state, uid, run: () => ({ status: 0, stdout: "", stderr: "" }) });
+  assert.deepEqual(lost, { shared: false, reason: "what the image's user wrote into your state folder did not reach it" });
+  // Written, but as another uid: the server's files would be someone else's here.
+  assert.equal(probeStateSharing({ image: "img", state, uid: uid + 4242, run: writes }).shared, false);
+  assert.match(probeStateSharing({ image: "img", state, uid: uid + 4242, run: writes }).reason, new RegExp(`is uid ${uid}'s, not yours \\(uid ${uid + 4242}\\)`));
+  assert.deepEqual(await fs.readdir(state), []);
 });

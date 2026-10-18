@@ -227,6 +227,12 @@ proxy for Claude on your machine, and the launchers 2.x copied to
 `C:\ProgramData\AI-Dev-System` are only brought up to date if they are there —
 see [Updating an earlier install](#updating-an-earlier-install).
 
+The state folder, `%USERPROFILE%\.ai-dev\state`, is the server's too, as on macOS:
+the usage ledger and the hooks' sessions are one. Tasks are not: the server sees a
+project as `/workspace/<name>` and the hooks as `C:\…\<name>` — two projects to
+either side — so the Stop hook does not remind you of a task the server began
+(docs/DEFECTS.md, Д-324).
+
 For a different project folder and some of the clients:
 
 ```powershell
@@ -241,7 +247,9 @@ Restart the AI client afterwards.
 
 Also the Docker path. It needs Docker (Docker Desktop on macOS, Docker Engine on
 Linux), running — the script checks and says where Docker comes from if it is
-not there; it no longer installs it — and nothing else: no Node on the host.
+not there; it no longer installs it — and nothing else for the server: no Node on
+the host. (The agent hooks, if you install them into a project, run on the host's
+Node.)
 
 ```bash
 sh ./bootstrap.sh
@@ -276,11 +284,13 @@ docker run -i --rm --read-only --tmpfs /tmp … --network none --security-opt no
 - **The state the agent hooks keep** is the server's: your `~/.ai-dev/state`. The
   hooks run on your machine; with one state, the Stop hook sees the task the server
   started (Д-103). This takes the container's user — uid 1000, the image's — being
-  yours: on macOS Docker Desktop maps it, on Linux it is the first user's uid. With
-  another uid on Linux the server keeps its state in the volume and cannot write into
-  your projects — installing hooks or rules there is refused — as in 2.x;
-  `ai-dev clients install --docker` says so, and on such a machine the local path is the
-  one to take (docs/DEFECTS.md, Д-318).
+  yours: on macOS Docker Desktop maps it, on Linux it is the first user's uid — and on
+  Linux the installer tries it first: a container of the image writes a file into the
+  folder, and the file has to come out yours. With another uid, or where Docker maps
+  the container's users to others (rootless Docker, userns-remap, Podman), the server
+  keeps its state in the volume and cannot write into your projects — installing hooks
+  or rules there is refused — as in 2.x; `ai-dev clients install --docker` says so, and
+  on such a machine the local path is the one to take (docs/DEFECTS.md, Д-318, Д-322).
 - **One container per session**, started in about a second; there is no
   long-lived container any more, and the one 2.x kept (`ai-dev-system-runtime-<uid>`)
   is removed.
@@ -758,9 +768,10 @@ command:
   `run-mcp.ps1`, or for Claude on Windows `ClaudeMcpProxy.exe` — and it keeps running the
   new image until 4.0; the 3.0 copies of the scripts say on stderr that they are the 2.x
   launcher. Run `bootstrap.sh` (`bootstrap.ps1` on Windows) once more: it writes the
-  `docker run` entries in their place and removes the long-lived container 2.x kept. Until
-  then the client gets the server's instructions only through the 3.0 scripts — 2.x's
-  answered the handshake themselves (Д-89, Д-105).
+  `docker run` entries in their place, then removes the long-lived container 2.x kept.
+  Until then the client gets the server's instructions only through the 3.0 scripts —
+  2.x's answered the handshake themselves, and so does the installed
+  `ClaudeMcpProxy.exe`, which 3.0 no longer compiles (Д-89, Д-105, Д-327).
 - **The Docker volume** is kept. On the new image's first start its skills are brought up
   to the image's seed by the seed's manifest rather than 2.x's copy-if-missing: what 2.x
   shipped and 3.0 dropped is removed, a skill of the seed you edited keeps your edit with
@@ -768,7 +779,10 @@ command:
   Where the container shares your state folder (see
   [One command on macOS and Linux](#one-command-on-macos-and-linux)), the tasks and
   handoffs in the volume move into it. That first start takes some seconds more than the
-  next ones. The way back is the 2.x image, `ghcr.io/stonebridgeway/ai-dev-system:2`; it does
+  next ones. What the 2.x server remembered of a project — sessions, instincts, decisions —
+  is kept under the project as it saw it, `/workspace/<name>`; with the projects at their
+  own path the server sees other projects and starts their memory afresh, the old one
+  staying in the state folder (Д-324). The way back is the 2.x image, `ghcr.io/stonebridgeway/ai-dev-system:2`; it does
   not see the tasks that moved to your state folder ([Upgrade test](UPGRADE-TEST.md) says how
   to copy them back), and a return to 3.0 removes again the skills its `cp -n` put back (Д-317).
 

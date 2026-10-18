@@ -532,31 +532,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   beside it as `.seed-new`, the user's own files are not touched. A 2.x volume has no record of
   what its image put there; `data/seed-history.json` — every version of every seed file a commit
   of the 2.x line held — tells those files from the user's (Д-315). Measured on production's 2.x
-  image: 3,229 skills in its volume become the new seed's 615 plus the user's own. A rollback to
+  image: 3,229 skills in its volume become the new seed's 614 and the user's own one. A rollback to
   `:2` puts them all back with `cp -n`, and its manifest with them; the next 3.0 start finds that
-  manifest and removes them again (Д-317).
+  manifest and removes them again (Д-317). A vault named by `AI_DEV_VAULT_ROOT` other than the
+  image's is the user's, read where it is, unless a seed is there already — a sync's record or
+  2.x's manifest (Д-321). Three sessions starting at once on one volume build it one at a time
+  (Д-326).
 - **The projects are mounted at their own path** on macOS and Linux, so a path the agent names is
   one the server opens (Д-312); on Windows they stay at `/workspace`. **The server and the agent
   hooks keep one state**: the host's `~/.ai-dev/state` is mounted where the container's user,
-  uid 1000, is the host's (macOS, Windows, Linux as uid 1000), and the volume's state moves into
-  it once (Д-103); elsewhere the server keeps its state in the volume, as 2.x did, and
-  `ai-dev clients install --docker` says so. git in the image trusts the mounted projects
+  uid 1000, is the host's — macOS and Windows through Docker Desktop, Linux as uid 1000 once a
+  container of the image has written a file there that came out the user's — and the volume's
+  state moves into it (Д-103, Д-322). Elsewhere — another uid, rootless Docker, userns-remap,
+  Podman — the server keeps its state in the volume and cannot write into the projects, as in
+  2.x, and `ai-dev clients install --docker` says so (Д-318). On Windows the folder is shared
+  but the tasks are not: the server sees `/workspace/<name>`, the hooks `C:\…\<name>` (Д-324);
+  and what a 2.x server remembered of a project under `/workspace/<name>` stays there. git in the image trusts the mounted projects
   whoever owns them, which 2.x refused as "dubious ownership" and so gave a project the wrong
   identity (Д-311).
 - **`bootstrap.sh` and `bootstrap.ps1` check Docker, pull the image, check the server's own
   handshake and write the configs** — and nothing else. They no longer install Docker or Node,
   start a long-lived container, or compile a proxy; `bootstrap.sh` runs the config installer in
   the image with only the clients' config folders and the state folder mounted (2.x mounted the
-  whole home), writes Claude Code's entry through `claude mcp add-json`, and removes the 2.x
-  runtime container.
+  whole home), writes Claude Code's entry through `claude mcp add-json`, and then removes the 2.x
+  runtime container. With `--image` of a 2.x image — the way back — the 3.0 image writes the
+  configs that run it (Д-323). `bootstrap.ps1` runs under Windows PowerShell 5.1 with the image's
+  stderr thrown away safely (Д-320).
 - **The image's tags** (owner decision D9, Д-108): a push to `main` is `:edge`; a release tag
   `vX.Y.Z` is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`, a prerelease only its own name; the browser
   variant has the same tags with `-browser`. A manual run with `freeze_2x` copies the current
-  `:latest` to `:2` once, before the first 3.0 tag: the 2.x line to roll back to.
+  `:latest` to `:2` once, and refuses once a 3.x release is tagged; a later 2.x tag updates `:2`,
+  never `:latest` (Д-325).
 - **Hints the image gives are commands for the host**: `docker run --rm -it … <image> ai-dev …`
   into the volume, with the network only for a download; Frontend QA in the default image points
-  at the `-browser` variant instead of an install that cannot run in a client's container
-  (Д-316).
+  at the `-browser` variant instead of an install that cannot run in a client's container, and
+  the start report says the same instead of setup's `--model` and `--frontend-qa` (Д-316, Д-328).
 - **`npm run check` runs `npm run packaging:check`**, red since phase 7 without a gate to see it
   (Д-314).
 
@@ -759,9 +769,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Deprecated
 
 - **`docker/run-mcp.sh`, `docker/run-mcp.ps1` and `ClaudeMcpProxy.exe`**, the 2.x Docker
-  launchers (owner decision D10). Configs that name them keep working until 4.0; the 3.0 scripts
+  launchers (owner decision D10). Configs that name them keep working until 4.0. The 3.0 scripts
   run the image and pass the server's own handshake through — they no longer answer `initialize`
-  themselves — and say on stderr what replaced them. `bootstrap.sh --install-prerequisites` is
+  themselves — and say on stderr what replaced them. An installed `ClaudeMcpProxy.exe` is the one
+  2.x compiled: it keeps answering `initialize` itself, without the server's instructions or a
+  warning, until `bootstrap.ps1` rewrites Claude's config to `docker run`; `docker/ClaudeMcpProxy.cs`
+  is a byte pipe now, for whoever builds it (Д-327). `bootstrap.sh --install-prerequisites` is
   accepted and says that bootstrap no longer installs Docker.
 
 - **`node scripts/ai-dev.mjs`, `scripts/start-local.ps1` and
@@ -785,8 +798,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`scripts/install-docker-mcp-clients.mjs`**: `ai-dev clients install --docker` writes the
   clients' Docker entries. **The long-lived runtime container** `ai-dev-system-runtime-<uid>`
-  and the launchers' `docker exec` path into it, and **the Windows proxy's own handshake**: it is
-  a byte pipe now, and bootstrap no longer compiles it. **Python 3, Playwright and Chromium in
+  and the launchers' `docker exec` path into it, and **the compilation of the Windows proxy** by
+  bootstrap, with the handshake of its source (see Deprecated). **Python 3, Playwright and Chromium in
   the default image** (Chromium is in `-browser`), and `BGE_M3_ONNX_DIR` in its environment,
   which hid a model installed into the volume.
 

@@ -4,8 +4,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { bundleFingerprint, copiesNamedByClients, currentLink, parseBundle, pointCurrent, provisionBundle, stableLaunch } from "./app-bundle.mjs";
-import { APP_MARKER, installAppHome } from "./app-home.mjs";
+import { bundleFingerprint, currentLink, parseBundle, pointCurrent, provisionBundle, stableLaunch } from "./app-bundle.mjs";
+import { APP_MARKER, copiesNamedByClients, installAppHome } from "./app-home.mjs";
 
 const sha = (content) => crypto.createHash("sha256").update(content).digest("hex");
 
@@ -242,7 +242,7 @@ test("a drive that cannot hold the link still runs the copy, whatever it answers
     const provisioned = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "runtime"))).root, runtimeRoot: runtime, symlink: refuse });
     assert.equal(provisioned.status, "installed", code);
     assert.equal(provisioned.current, "");
-    assert.equal(provisioned.linkError, `${code}: ${code}: no link here, symlink`);
+    assert.equal(provisioned.linkError, `${code}: no link here, symlink`, "the code once, though Node's message starts with it (Д-310, п. 1)");
     assert.equal(provisioned.node, path.join(provisioned.folder, "node", "node.exe"));
     assert.equal(await fs.readFile(provisioned.cli, "utf8"), "// cli a\n");
     assert.equal(stableLaunch({ kind: "package", bundle: true, root: provisioned.folder, runtimeRoot: runtime }), null, "no link: configs name the copy, as any install's do");
@@ -324,4 +324,47 @@ test("a folder at the copy's name that is not a finished copy is moved aside who
   assert.equal(provisioned.status, "installed");
   assert.equal(await fs.readFile(path.join(folder, "node", "node.exe"), "utf8"), "node a");
   assert.deepEqual((await fs.readdir(path.join(runtime, "app"))).sort(), [path.basename(folder), "current"], "nothing left aside");
+});
+
+test("a copy whose marker is not JSON is copied again, not a start that stops (Д-308)", async (t) => {
+  const root = await scratch(t);
+  const runtime = path.join(root, ".ai-dev");
+  const { root: bundleRoot } = await writeBundle(path.join(root, "runtime"));
+  const first = await provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime });
+  for (const broken of ["", "{ truncated", "null"]) {
+    await fs.writeFile(path.join(first.folder, APP_MARKER), broken);
+    const again = await provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime });
+    assert.equal(again.status, "installed", JSON.stringify(broken));
+    assert.equal(JSON.parse(await fs.readFile(path.join(first.folder, APP_MARKER), "utf8")).kind, "bundle");
+  }
+  assert.deepEqual((await fs.readdir(path.join(runtime, "app"))).sort(), [path.basename(first.folder), "current"], "nothing left aside");
+});
+
+test("the npx prune leaves a copy a client's config still names, as the app's does (Д-310, п. 6)", async (t) => {
+  const root = await scratch(t);
+  const runtime = path.join(root, ".ai-dev");
+  const { home, env } = isolated(root);
+  const now = clock();
+  const installs = [];
+  for (const tag of ["b", "c", "d", "e"]) {
+    const pkg = path.join(root, `npx-${tag}`);
+    const content = `// npx ${tag}\n`;
+    await fs.mkdir(path.join(pkg, "ai-dev-mcp-server", "bin"), { recursive: true });
+    await fs.writeFile(path.join(pkg, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), content);
+    await fs.writeFile(path.join(pkg, "distribution.json"), JSON.stringify({
+      name: "@stonebridgeway/ai-dev-system",
+      version: "3.0.0",
+      content_fingerprint: sha(tag),
+      files: [{ path: "ai-dev-mcp-server/bin/ai-dev.mjs", bytes: Buffer.byteLength(content), sha256: sha(content) }]
+    }));
+    installs.push(await installAppHome({ packageRoot: pkg, runtimeRoot: runtime, runNpm: async () => undefined, now, env, home }));
+    if (tag === "b") {
+      // Cursor was connected to the first copy, and a later setup did not connect it again.
+      await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+      await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: "node", args: [installs[0].cli, "mcp"] } } }));
+    }
+  }
+  await fs.access(installs[0].cli);
+  assert.deepEqual(installs.flatMap((install) => install.removed).map((folder) => path.basename(folder)), [path.basename(installs[1].folder)],
+    "the copies nobody names go by the count; the one Cursor runs stays");
 });

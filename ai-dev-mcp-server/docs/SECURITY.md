@@ -155,14 +155,17 @@ runtime AI clients run, and the app copies it out of the program folder before a
   signed build checks a download against the publisher of the app that runs — a build signed
   through Azure names that publisher, the certificate's name, or does not build (Д-303); an
   unsigned one only against the sha512 its release lists — what the release says, over HTTPS.
-- **Uninstalling deletes data only when asked**, and only a folder that holds nothing but what AI
-  Dev makes there: its folders, its settings with their lock and temporary files, the locks of its
-  moves, and what Windows puts in an opened folder. The home folder or one above it, a drive's root,
-  and a folder that holds anything else — `AI_DEV_HOME` set to a folder of the person's — are kept
-  whole, and the reason names what is not AI Dev's (Д-297). A runtime home that is a link is
-  checked, and deleted, by the folder it points at, then the link. The folder is moved aside before
-  it is deleted, so a file in use leaves it whole rather than half deleted
-  (`src/core/bundle-uninstall.mjs`). A client entry is taken out only when its command or an
+- **Uninstalling deletes data only when asked**, and only a folder whose contents are what AI Dev
+  makes, as far as it looks: at its top, its folders (each a folder), its settings with their lock
+  and the files an interrupted write leaves, the locks of its moves, and what Windows puts in an
+  opened folder; inside `models`, `cache` and `backups` — names a person might use as well — its
+  models, its index and the archives `ai-dev backup` writes. The home folder or one above it, a
+  drive's root, and a folder that holds anything else — `AI_DEV_HOME` set to a folder of the
+  person's — are kept whole, and the reason names what is not AI Dev's (Д-297, Д-307). A link inside
+  is removed as a link, never followed. A runtime home that is a link is checked, and deleted, by
+  the folder it points at, then the link. Nothing is deleted while a runtime copy is in use, and the
+  folder is moved aside before it is deleted, so a file in use leaves it whole rather than half
+  deleted (Д-309; `src/core/bundle-uninstall.mjs`). A client entry is taken out only when its command or an
   argument is an absolute path into this install; another install's entry stays, whatever folder
   the uninstall runs in (Д-298).
 

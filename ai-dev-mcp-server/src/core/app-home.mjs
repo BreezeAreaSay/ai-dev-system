@@ -22,16 +22,21 @@
  */
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { DISTRIBUTION_MARKER } from "./install-layout.mjs";
 import { atomicWriteJson } from "./atomic-files.mjs";
 import { verifyDistribution } from "./distribution-build.mjs";
+import { LEGACY_SERVER_NAMES, SERVER_NAME, discoverClients, readServerEntries } from "./mcp-clients.mjs";
 
 /** Written last into a finished copy; a folder without it is an install that stopped. */
 export const APP_MARKER = ".ai-dev-app.json";
 
 /** How many installed copies stay. */
 export const KEPT_APP_COPIES = 2;
+
+/** The Windows install's stable link in the app home (`app-bundle.mjs`): a link, not a copy. */
+export const CURRENT_LINK = "current";
 
 const readJson = async (file) => JSON.parse(await fs.readFile(file, "utf8"));
 
@@ -114,7 +119,7 @@ const STOPPED_INSTALL_MS = 60 * 60 * 1000;
  */
 export async function pruneAppCopies(appsRoot, keep, nowMs, { kind = "package", named = [] } = {}) {
   const entries = await fs.readdir(appsRoot, { withFileTypes: true }).catch(() => []);
-  const linked = await fs.realpath(path.join(appsRoot, "current")).catch(() => "");
+  const linked = await fs.realpath(path.join(appsRoot, CURRENT_LINK)).catch(() => "");
   const spared = (await Promise.all(named.map((folder) => fs.realpath(folder).catch(() => "")))).filter(Boolean);
   const copies = [];
   const partials = [];
@@ -154,6 +159,51 @@ export async function pruneAppCopies(appsRoot, keep, nowMs, { kind = "package", 
 }
 
 /**
+ * The folder of `<runtime>/app/` an absolute path lies in, by its name; ""
+ * for a path elsewhere, and for a word that is not an absolute path: a bare
+ * word of a client's entry (`mcp`, `docker`) names no folder, wherever the
+ * process that reads it runs (Д-298).
+ *
+ * @param {unknown} word
+ * @param {string} appsRoot
+ * @returns {string}
+ */
+export function appEntryOf(word, appsRoot) {
+  if (typeof word !== "string" || !word || !path.isAbsolute(word)) return "";
+  const relative = path.relative(appsRoot, path.resolve(word));
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return "";
+  return relative.split(path.sep)[0];
+}
+
+/** The words of a client's entry that can name a file: its command and its arguments. */
+export function entryWords(entry) {
+  if (!entry || typeof entry !== "object") return [];
+  return [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])].filter((word) => typeof word === "string" && word);
+}
+
+/**
+ * The copies in `<runtime>/app/` an AI client's entry names by their own
+ * folder rather than through `current`: what a client runs when the drive
+ * holds no link (Д-295), or when its entry was written by hand. A prune
+ * leaves them, however old (Д-299).
+ *
+ * @param {{ appsRoot: string, env?: NodeJS.ProcessEnv, home?: string }} options
+ * @returns {Promise<string[]>}
+ */
+export async function copiesNamedByClients({ appsRoot, env = process.env, home = os.homedir() }) {
+  const named = new Set();
+  for (const row of await readServerEntries(await discoverClients({ home, env }))) {
+    for (const name of [SERVER_NAME, ...LEGACY_SERVER_NAMES]) {
+      for (const word of entryWords(row.entries?.[name])) {
+        const folder = appEntryOf(word, appsRoot);
+        if (folder && folder !== CURRENT_LINK) named.add(path.join(appsRoot, folder));
+      }
+    }
+  }
+  return [...named].sort();
+}
+
+/**
  * Install the package at `packageRoot` into the app home, or find it there.
  *
  * @param {object} input
@@ -161,9 +211,11 @@ export async function pruneAppCopies(appsRoot, keep, nowMs, { kind = "package", 
  * @param {string} input.runtimeRoot - `~/.ai-dev`, or `AI_DEV_HOME`.
  * @param {(args: string[], options: { cwd: string }) => Promise<void>} input.runNpm - Runs npm without a shell.
  * @param {() => Date} [input.now]
+ * @param {NodeJS.ProcessEnv} [input.env] - Where the AI clients' configs are found: a copy one of them names stays.
+ * @param {string} [input.home]
  * @returns {Promise<{ status: "installed"|"present", folder: string, cli: string, version: string, removed: string[] }>}
  */
-export async function installAppHome({ packageRoot, runtimeRoot, runNpm, now = () => new Date() }) {
+export async function installAppHome({ packageRoot, runtimeRoot, runNpm, now = () => new Date(), env = process.env, home = os.homedir() }) {
   const distribution = await readJson(path.join(packageRoot, DISTRIBUTION_MARKER));
   const folder = appFolder(runtimeRoot, distribution);
   const result = (status, removed = []) => ({ status, folder, cli: appCli(folder), version: String(distribution.version ?? ""), removed });
@@ -208,5 +260,7 @@ export async function installAppHome({ packageRoot, runtimeRoot, runNpm, now = (
     await fs.rm(stage, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
-  return result("installed", await pruneAppCopies(path.dirname(folder), KEPT_APP_COPIES, now().getTime()));
+  // A client a later setup did not connect again still runs its copy: the prune leaves it (Д-310, п. 6).
+  const named = await copiesNamedByClients({ appsRoot: path.dirname(folder), env, home }).catch(() => []);
+  return result("installed", await pruneAppCopies(path.dirname(folder), KEPT_APP_COPIES, now().getTime(), { named }));
 }

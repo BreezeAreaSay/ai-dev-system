@@ -170,13 +170,15 @@ export function hint(command, layout = currentInstallLayout()) {
   if (layout.kind === "docker") return `node ${path.posix.join(layout.serverRoot || "/opt/ai-dev/app", "bin", "ai-dev.mjs")} ${words}`.trim();
   // The Windows installer puts nothing on PATH either: its command is the
   // shim beside the runtime's stable link — or in the copy itself, on a drive
-  // that holds no link — which names the runtime's own Node. Unquoted, cmd and
-  // PowerShell both run it; a path with a space needs quotes, and PowerShell
-  // runs a quoted path only after `&` (docs/DEFECTS.md, Д-306, п. 2).
+  // that holds no link — which names the runtime's own Node. A path of
+  // letters, digits and `_-.:\/` runs as it is in cmd and PowerShell both; any
+  // other is written for PowerShell, the shell Windows Terminal opens: in
+  // single quotes, which it does not expand, `'` doubled, run with `&`
+  // (docs/DEFECTS.md, Д-306, п. 2; Д-310, п. 2).
   if (layout.bundle && layout.runtimeRoot) {
     const linked = path.join(layout.runtimeRoot, "app", "current", BUNDLE_COMMAND);
     const shim = existsSync(linked) || !layout.root ? linked : path.join(layout.root, BUNDLE_COMMAND);
-    return (/\s/.test(shim) ? `& "${shim}" ${words}` : `${shim} ${words}`).trim();
+    return (/^[\p{L}\p{N}_\-.:\\/]+$/u.test(shim) ? `${shim} ${words}` : `& '${shim.replaceAll("'", "''")}' ${words}`).trim();
   }
   // `ai-dev` is on PATH for a global install; a copy npx left behind, or one
   // setup made in the app home, is reached through npx.

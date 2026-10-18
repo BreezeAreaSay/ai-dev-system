@@ -113,6 +113,8 @@ test("only the pairs cut on purpose pass: a cut package another one needs is fou
     { package: "outer/node_modules/inner", missing: "left-pad" },
     { package: "some-lib", missing: "tslib" }
   ], "the transformers → onnxruntime-web pair passes; the same dependency of another package does not");
+  write(modules, { "broken/package.json": "{ not json" });
+  await assert.rejects(danglingDependencies(modules), /broken[\\/]package\.json is not JSON: /, "a manifest it cannot read stops the build by its name (Д-308)");
 });
 
 test("the files of a runtime: sorted, each with its size and sha256, and a link refused", async (t) => {

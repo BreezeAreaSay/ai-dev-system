@@ -41,9 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ai-dev uninstall [--clients] [--data] --yes`**, which the uninstaller runs after asking its
   two questions — asked unless `/S` is given (Д-296): it stops the daemon, removes the runtime copies
   and their link, the `ai-dev` entries that run this install (another install's stay), and — asked
-  separately, No by default — the runtime home, only when it holds nothing but what AI Dev makes
-  (Д-297). Files an AI client still runs: the uninstaller offers Retry (exit status 3, Д-302); the
-  data kept: it says so (4).
+  separately, No by default — the runtime home, only when what is at its top, and inside its
+  `models`, `cache` and `backups` folders, is AI Dev's own (Д-297, Д-307), and not while a runtime
+  copy is in use (Д-309). Files an AI client still runs: the uninstaller offers Retry (exit status
+  3, Д-302); the data kept: it says so (4).
 
 - **One daemon serves every client** (`docs/DEFECTS.md`, Д-97). `ai-dev mcp` — what each
   client's config runs — hands the client's stdio to the daemon, starting it detached and

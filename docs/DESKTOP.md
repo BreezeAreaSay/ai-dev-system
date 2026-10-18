@@ -228,10 +228,11 @@ running setup again and connecting the clients (**Setup** → AI clients) points
 copy; until then they keep the one they name.
 
 `%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd` is the CLI for a terminal. Nothing is put on
-`PATH`, so it is run by its full path — in cmd `%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd
+`PATH`, so it is run by its full path — in cmd `"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd"
 doctor`, in PowerShell `& "$env:USERPROFILE\.ai-dev\app\current\ai-dev.cmd" doctor`. The
-daemon's hints name it in full, and a path with a space in the PowerShell form, with `&`; in cmd,
-leave the `&` out.
+daemon's hints name it in full: as it is when the path holds only letters, digits and `_-.:\/`,
+which both shells run, and otherwise in the PowerShell form, `& '…'`; in cmd, put such a path in
+double quotes instead.
 
 ### The first start
 
@@ -264,10 +265,13 @@ questions before it removes the program:
 1. whether to take AI Dev out of the AI clients' settings — **Yes** by default: their entries run the
    program that is going. An entry of another install (a clone, npx, Docker) stays;
 2. whether to delete AI Dev's own data, `%USERPROFILE%\.ai-dev` or the folder `AI_DEV_HOME` names —
-   tasks and decisions, the local model, the search index, the settings — **No** by default. Your
-   projects are not touched. The folder is deleted only when it holds nothing but what AI Dev
-   makes; one that holds anything else as well — `AI_DEV_HOME` set to a folder you keep other files
-   in — is kept whole, and the uninstaller says so.
+   the vault it keeps, the tasks and session history, the local model, the search index, the
+   backups, the settings — **No** by default. Your projects are not touched. The folder is deleted
+   only when what it holds is AI Dev's own — at its top, and inside its `models`, `cache` and
+   `backups` folders, which a person might name the same; one that holds anything else as well —
+   `AI_DEV_HOME` set to a folder you keep other files in — is kept whole, and the uninstaller says
+   so. Nor is it deleted while a runtime copy is in use: **Retry**, below, deletes it once the
+   clients are closed.
 
 It then runs `ai-dev uninstall` from the runtime it ships: the daemon is stopped, the runtime
 copies and the junction are removed, and the answers are carried out. A file an AI client still

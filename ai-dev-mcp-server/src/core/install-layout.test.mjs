@@ -110,8 +110,17 @@ test("hints are spelled the way each layout runs them", () => {
   assert.equal(hint("npm run setup -- --model", windows), `${path.join(home, ".ai-dev", "app", "current", "ai-dev.cmd")} setup --model`,
     "the Windows installer puts nothing on PATH: its shim beside the stable link, unquoted, as cmd and PowerShell both run it");
   const spaced = path.resolve("/home/John Smith/.ai-dev");
-  assert.equal(hint("npm run doctor", { ...windows, runtimeRoot: spaced }), `& "${path.join(spaced, "app", "current", "ai-dev.cmd")}" doctor`,
+  assert.equal(hint("npm run doctor", { ...windows, runtimeRoot: spaced }), `& '${path.join(spaced, "app", "current", "ai-dev.cmd")}' doctor`,
     "a path with a space is quoted, and PowerShell runs a quoted path only after & (Д-306, п. 2)");
+  for (const name of ["O'Brien", "R&D", "dev(2)", "$admin"]) {
+    const unusual = path.resolve(`/home/${name}/.ai-dev`);
+    const shim = path.join(unusual, "app", "current", "ai-dev.cmd");
+    assert.equal(hint("npm run doctor", { ...windows, runtimeRoot: unusual }), `& '${shim.replaceAll("'", "''")}' doctor`,
+      `${name}: in single quotes, which PowerShell does not expand, ' doubled (Д-310, п. 2)`);
+  }
+  const cyrillic = path.resolve("/home/Дмитрий/.ai-dev");
+  assert.equal(hint("npm run doctor", { ...windows, runtimeRoot: cyrillic }), `${path.join(cyrillic, "app", "current", "ai-dev.cmd")} doctor`,
+    "letters of any alphabet need no quotes");
 });
 
 test("without the stable link the Windows install's hint names the shim in the copy it runs", async (t) => {

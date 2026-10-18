@@ -106,10 +106,18 @@ test("--data deletes the runtime home, and only a folder that holds nothing but 
   const staged = await stageHome(t);
   // What AI Dev leaves at the top of its home besides its folders: the settings, their lock, a write
   // that stopped, the locks of its moves, what Windows puts in an opened folder, the 2.x tree.
-  const own = ["config.json", "config.json.lock", "config.json.lock.break", `.config.json.4242.${crypto.randomUUID()}.tmp`, "codex-migration.lock", ".ai-dev.lock", "desktop.ini", "Thumbs.db"];
+  const own = ["config.json", "config.json.lock", "config.json.lock.break", `.config.json.4242.${crypto.randomUUID()}.tmp`, `config.json.4242.${crypto.randomUUID()}.bak`,
+    "codex-migration.lock", ".ai-dev.lock", "desktop.ini", "Thumbs.db"];
   for (const name of own) await fs.writeFile(path.join(staged.runtime, name), "");
   await fs.mkdir(path.join(staged.runtime, ".ai-dev", "state"), { recursive: true });
-  for (const name of ["cache", "models", "logs", "run", "vault", "backups", "artifacts", "python"]) await fs.mkdir(path.join(staged.runtime, name));
+  for (const name of ["logs", "run", "vault", "artifacts", "python"]) await fs.mkdir(path.join(staged.runtime, name));
+  // Inside the folders a person might name the same, what AI Dev makes there (Д-307).
+  for (const name of ["models/bge-m3-onnx", "models/bge-m3", "cache/search-index", "cache/dense-model", "cache/ai-dev-system"]) await fs.mkdir(path.join(staged.runtime, name), { recursive: true });
+  for (const name of ["models/bge-m3-onnx.lock", "backups/ai-dev-system_2026-10-18T10-00-00Z_manual.zip", "backups/ai-dev-system_2026-10-18T10-00-00Z_manual.zip.sha256",
+    "backups/ai-dev-system_2026-01-01_10-00-00_manual.zip", "backups/ai-dev-system_2026-10-18T11-00-00Z_x.zip.4242.tmp"]) {
+    await fs.mkdir(path.dirname(path.join(staged.runtime, name)), { recursive: true });
+    await fs.writeFile(path.join(staged.runtime, name), "");
+  }
   const result = await uninstallBundle({ env: staged.env, home: staged.home, data: true, apply: true, stop: noDaemons });
   assert.equal(result.data.removed, true, JSON.stringify(result.data));
   await assert.rejects(fs.access(staged.runtime), { code: "ENOENT" });
@@ -147,6 +155,72 @@ test("--data keeps a folder the person keeps other things in, whole, and says wh
   assert.match((await inspectDataFolder(documents, { home: staged.home })).reason, /\(Taxes 2025, a, b, c, d, and 2 more\)/);
 });
 
+test("--data looks inside the folders a person might name the same, and at what each entry is (Д-307)", async (t) => {
+  const root = await scratch(t);
+  const home = path.join(root, "home");
+  const make = async (name, files) => {
+    const folder = path.join(root, name);
+    for (const [relative, content] of Object.entries(files)) {
+      await fs.mkdir(path.dirname(path.join(folder, relative)), { recursive: true });
+      if (content === null) await fs.mkdir(path.join(folder, relative), { recursive: true });
+      else await fs.writeFile(path.join(folder, relative), content);
+    }
+    return folder;
+  };
+  const ai = await make("AI", { "models/bge-m3-onnx/model.onnx": "m", "models/llama-3-70b.Q4_K_M.gguf": "the person's own", "backups/my-photos-2025.zip": "theirs", "state/tasks.json": "{}", "config.json": "{}" });
+  assert.match(await refuseDataRemoval(ai, { home }), /also holds what AI Dev did not make \(backups\/my-photos-2025\.zip, models\/llama-3-70b\.Q4_K_M\.gguf\)/);
+  const cache = await make("cache-of-theirs", { "cache/pip": null, "config.json": "{}" });
+  assert.match(await refuseDataRemoval(cache, { home }), /\(cache\/pip\)/);
+  const vaultFile = await make("vault-file", { vault: "a file named vault", "config.json": "{}" });
+  assert.match(await refuseDataRemoval(vaultFile, { home }), /\(vault\)/, "a folder of AI Dev's name must be a folder");
+  const configFolder = await make("config-folder", { "config.json/inner": "x" });
+  assert.match(await refuseDataRemoval(configFolder, { home }), /\(config\.json\)/, "and a file of its name a file");
+  const linked = await make("linked-vault", { "state/tasks.json": "{}" });
+  await fs.mkdir(path.join(root, "my-obsidian"));
+  await fs.writeFile(path.join(root, "my-obsidian", "note.md"), "mine");
+  await fs.symlink(path.join(root, "my-obsidian"), path.join(linked, "vault"), "dir");
+  assert.equal(await refuseDataRemoval(linked, { home }), "", "a link of AI Dev's name is taken away as a link, never followed");
+  const result = await uninstallBundle({ env: { HOME: home, USERPROFILE: home, AI_DEV_HOME: linked }, home, data: true, apply: true, stop: noDaemons });
+  assert.equal(result.data.removed, true);
+  assert.equal(await fs.readFile(path.join(root, "my-obsidian", "note.md"), "utf8"), "mine", "what the link named stays");
+});
+
+test("a marker that is not JSON is not a copy's, and stops nothing (Д-308)", async (t) => {
+  const staged = await stageHome(t);
+  await fs.writeFile(path.join(staged.npx, APP_MARKER), "");
+  await fs.writeFile(path.join(staged.provisioned.folder, APP_MARKER), "{ truncated");
+  const result = await uninstallBundle({ env: staged.env, home: staged.home, apply: true, stop: noDaemons });
+  assert.deepEqual(result.copies.removed, [], "the copy whose marker broke is not taken for the installer's");
+  assert.equal(result.link, "removed");
+  assert.equal(exitStatus(result), 0);
+});
+
+test("while a copy is left in use, the data is not touched: it goes whole, when it is run again (Д-309)", async (t) => {
+  const staged = await stageHome(t);
+  // Leftovers of an earlier uninstall that could not finish deleting what it moved aside.
+  const aside = `${staged.runtime}.4242.removing.partial`;
+  await fs.mkdir(path.join(aside, "state"), { recursive: true });
+  const copyAside = `${staged.provisioned.folder}.4343.removing.partial`;
+  await fs.mkdir(copyAside, { recursive: true });
+  const busy = async (from, to) => {
+    if (from === staged.provisioned.folder) throw Object.assign(new Error("EBUSY: resource busy or locked, rename"), { code: "EBUSY" });
+    return fs.rename(from, to);
+  };
+  const held = await uninstallBundle({ env: staged.env, home: staged.home, data: true, apply: true, stop: noDaemons, move: busy });
+  assert.deepEqual(held.copies.left.map((left) => [left.folder, left.reason, left.busy]), [[staged.provisioned.folder, "in use", true]]);
+  assert.equal(held.data.removed, false);
+  assert.equal(held.data.busy, true);
+  assert.match(held.data.reason, /AI Dev's runtime in it is still in use/);
+  await fs.access(path.join(staged.runtime, "state", "decisions.json"));
+  assert.equal(exitStatus(held), 3, "Retry, once the clients are closed");
+  await assert.rejects(fs.access(aside), { code: "ENOENT" }, "an earlier uninstall's leftover beside the home is finished off");
+  await assert.rejects(fs.access(copyAside), { code: "ENOENT" }, "and one in app/");
+  const again = await uninstallBundle({ env: staged.env, home: staged.home, data: true, apply: true, stop: noDaemons });
+  assert.equal(again.data.removed, true);
+  assert.equal(exitStatus(again), 0);
+  await assert.rejects(fs.access(staged.runtime), { code: "ENOENT" });
+});
+
 test("--data through a runtime home that is a link deletes the folder it points at, then the link (Д-306, п. 3)", async (t) => {
   const staged = await stageHome(t);
   const real = path.join(staged.root, "elsewhere", "ai-dev-data");
@@ -159,6 +233,21 @@ test("--data through a runtime home that is a link deletes the folder it points 
   await assert.rejects(fs.access(real), { code: "ENOENT" });
   await assert.rejects(fs.lstat(staged.runtime), { code: "ENOENT" });
   await fs.access(path.dirname(real));
+});
+
+test("a runtime home under a linked folder is not itself a link: nothing is said of one (Д-310, п. 4)", async (t) => {
+  const staged = await stageHome(t);
+  const store = path.join(staged.root, "store");
+  await fs.mkdir(store);
+  await fs.rename(staged.runtime, path.join(store, ".ai-dev"));
+  const via = path.join(staged.root, "via");
+  await fs.symlink(store, via, "dir");
+  const env = { ...staged.env, AI_DEV_HOME: path.join(via, ".ai-dev") };
+  const result = await uninstallBundle({ env, home: staged.home, data: true, apply: true, stop: noDaemons });
+  assert.equal(result.data.removed, true);
+  assert.equal(result.data.target, undefined);
+  await assert.rejects(fs.access(path.join(store, ".ai-dev")), { code: "ENOENT" });
+  await fs.access(via);
 });
 
 test("the exit status: in use before failed before data kept, so Retry is offered whenever it can help", () => {

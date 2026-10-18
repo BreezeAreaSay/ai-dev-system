@@ -120,7 +120,15 @@ export async function danglingDependencies(modules, { allowed = CUT_DEPENDENCIES
   await walk(modules, []);
   const dangling = [];
   for (const { name, folder, lookup } of packages) {
-    const manifest = await fs.readFile(path.join(folder, "package.json"), "utf8").then(JSON.parse, () => null);
+    const file = path.join(folder, "package.json");
+    const text = await fs.readFile(file, "utf8").catch(() => null);
+    let manifest = null;
+    try {
+      manifest = text === null ? null : JSON.parse(text);
+    } catch (error) {
+      // A dependency the runtime would fail to load: the build says which (docs/DEFECTS.md, Д-308).
+      throw new Error(`${file} is not JSON: ${error.message}`);
+    }
     for (const dependency of Object.keys(manifest?.dependencies ?? {})) {
       if (allowed.some((pair) => pair.from === name && pair.to === dependency)) continue;
       const found = await Promise.all(lookup.map((dir) => fs.access(path.join(dir, ...dependency.split("/"), "package.json")).then(() => true, () => false)));

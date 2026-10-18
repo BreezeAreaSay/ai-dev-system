@@ -194,8 +194,8 @@ app for your account — no administrator, no Node, no Python, no Docker — wit
 the server it runs. The first start copies the runtime, fills your vault from the skill seed and
 opens the wizard: the projects folder, the AI clients to connect, the local model, the index.
 Updates come from the project's GitHub releases; uninstalling asks whether to take AI Dev out of
-your AI clients and whether to delete its data — which it does only to a folder that holds nothing
-else. What it installs where, why AI clients run it
+your AI clients and whether to delete its data, and keeps a data folder in which it finds files
+that are not AI Dev's. What it installs where, why AI clients run it
 through `%USERPROFILE%\.ai-dev\app\current`, and how to build the installer
 (`cd desktop && npm run dist:win`): [The Windows install](DESKTOP.md#the-windows-install).
 

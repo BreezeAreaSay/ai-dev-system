@@ -31,13 +31,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { APP_MARKER, KEPT_APP_COPIES, appFolder, pruneAppCopies } from "./app-home.mjs";
+import { APP_MARKER, CURRENT_LINK, KEPT_APP_COPIES, appFolder, copiesNamedByClients, pruneAppCopies } from "./app-home.mjs";
 import { atomicWriteJson } from "./atomic-files.mjs";
 import { BUNDLE_COMMAND, BUNDLE_MARKER } from "./install-layout.mjs";
-import { LEGACY_SERVER_NAMES, SERVER_NAME, discoverClients, readServerEntries } from "./mcp-clients.mjs";
 
-/** The stable link's name in the app home. */
-export const CURRENT_LINK = "current";
+export { CURRENT_LINK };
 
 /** `<runtime>/app/current`: the path every client config of the Windows install runs. */
 export function currentLink(runtimeRoot) {
@@ -148,7 +146,8 @@ async function expectedFiles(bundleRoot, bundle) {
  * @returns {Promise<{ state: "absent"|"foreign"|"finished", damaged: Array<{ path: string, bytes: number, sha256: string }> }>}
  */
 async function inspectCopy(folder, bundle, expected) {
-  const marker = await fs.readFile(path.join(folder, APP_MARKER), "utf8").then(JSON.parse, () => null);
+  // A marker that cannot be read, or is not JSON, is not a finished copy's: it is copied again (Д-308).
+  const marker = await fs.readFile(path.join(folder, APP_MARKER), "utf8").then((text) => JSON.parse(text)).catch(() => null);
   if (marker?.kind !== "bundle" || marker.content_fingerprint !== bundle.fingerprint) {
     return { state: await fs.lstat(folder).then(() => "foreign", () => "absent"), damaged: [] };
   }
@@ -355,51 +354,6 @@ export async function pointCurrent({ runtimeRoot, folder, platform = process.pla
 }
 
 /**
- * The folder of `<runtime>/app/` an absolute path lies in, by its name; ""
- * for a path elsewhere, and for a word that is not an absolute path: a bare
- * word of a client's entry (`mcp`, `docker`) names no folder, wherever the
- * process that reads it runs (Д-298).
- *
- * @param {unknown} word
- * @param {string} appsRoot
- * @returns {string}
- */
-export function appEntryOf(word, appsRoot) {
-  if (typeof word !== "string" || !word || !path.isAbsolute(word)) return "";
-  const relative = path.relative(appsRoot, path.resolve(word));
-  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return "";
-  return relative.split(path.sep)[0];
-}
-
-/** The words of a client's entry that can name a file: its command and its arguments. */
-export function entryWords(entry) {
-  if (!entry || typeof entry !== "object") return [];
-  return [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])].filter((word) => typeof word === "string" && word);
-}
-
-/**
- * The copies in `<runtime>/app/` an AI client's entry names by their own
- * folder rather than through `current`: what a client runs when the drive
- * holds no link (Д-295), or when its entry was written by hand. A prune
- * leaves them, however old (Д-299).
- *
- * @param {{ appsRoot: string, env?: NodeJS.ProcessEnv, home?: string }} options
- * @returns {Promise<string[]>}
- */
-export async function copiesNamedByClients({ appsRoot, env = process.env, home = os.homedir() }) {
-  const named = new Set();
-  for (const row of await readServerEntries(await discoverClients({ home, env }))) {
-    for (const name of [SERVER_NAME, ...LEGACY_SERVER_NAMES]) {
-      for (const word of entryWords(row.entries?.[name])) {
-        const folder = appEntryOf(word, appsRoot);
-        if (folder && folder !== CURRENT_LINK) named.add(path.join(appsRoot, folder));
-      }
-    }
-  }
-  return [...named].sort();
-}
-
-/**
  * Install the runtime the installer shipped — or find it installed, and put
  * back what it lost — and make it the one AI clients run.
  *
@@ -443,7 +397,9 @@ export async function provisionBundle({ bundleRoot, runtimeRoot, platform = proc
     moved = await pointCurrent({ runtimeRoot, folder, platform, symlink });
   } catch (error) {
     if (!error?.cannotLink) throw error;
-    linkError = `${error.code ?? "Error"}: ${String(error.message ?? "").split("\n")[0]}`;
+    const said = String(error.message ?? "").split("\n")[0];
+    // Node's message starts with the code already: it is said once (Д-310, п. 1).
+    linkError = error.code && !said.startsWith(`${error.code}:`) ? `${error.code}: ${said}` : said;
   }
   const appsRoot = path.dirname(folder);
   // A client config that cannot be read does not stop the start: the link and the age keep copies then.

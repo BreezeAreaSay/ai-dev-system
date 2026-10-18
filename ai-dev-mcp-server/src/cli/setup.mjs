@@ -143,7 +143,7 @@ async function continueFromAppHome({ argv, io, layout }) {
     + "so that your AI clients keep working.");
   let installed;
   try {
-    installed = await installAppHome({ packageRoot: layout.root, runtimeRoot: layout.runtimeRoot, runNpm });
+    installed = await installAppHome({ packageRoot: layout.root, runtimeRoot: layout.runtimeRoot, runNpm, env: io.env });
   } catch (error) {
     io.err(`Could not install it: ${error.message}`);
     io.err(`Nothing else was changed. Run the same command again once npm can reach its registry, or install it for good: npm install -g ${PACKAGE_NAME}`);

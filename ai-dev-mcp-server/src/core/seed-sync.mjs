@@ -28,7 +28,9 @@
  * read against the seed's history (`data/seed-history.json`): a file exactly as
  * some earlier seed shipped it is the seed's and is updated or removed as any
  * other; every other file is the user's and is kept, and named as a conflict
- * when this seed changed it.
+ * when this seed changed it. So is a vault a 2.x image has run on since its
+ * last sync — rolled back to `:2` and returned from — which that image's
+ * `cp -n` filled with its seed again (Д-317).
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -274,21 +276,31 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
     conflicts: counts.conflicts ?? await openConflicts(contentRoot, state),
     ...counts
   });
-  const settled = (state) => {
-    if (fingerprint && state?.seed_fingerprint === fingerprint) return "current";
+  // A 2.x image copies its seed into the vault with `cp -n` at every start,
+  // its manifest with it, and no sync leaves that manifest there: finding it
+  // means 2.x ran here since the last sync (docs/DEFECTS.md, Д-317).
+  const legacyRan = async () => await entryKind(path.join(contentRoot, MANIFEST)) === "file";
+  const settled = async (state) => {
+    if (fingerprint && state?.seed_fingerprint === fingerprint) return await legacyRan() ? "" : "current";
     if (version && state?.seed_version && compareVersions(state.seed_version, version) > 0) return "newer";
     return "";
   };
-  // Every start of the server asks; only a new seed costs more than a read.
+  // Every start of the server asks; only a new seed costs more than a read and a stat.
   const quick = await readJson(statePath, null);
-  if (settled(quick)) return result(settled(quick), quick);
+  const quickStatus = await settled(quick);
+  if (quickStatus) return result(quickStatus, quick);
   await fsp.mkdir(contentRoot, { recursive: true });
   return withFileLock(statePath, async () => {
     const state = await readJson(statePath, null);
-    if (settled(state)) return result(settled(state), state);
-    // No record: what an earlier seed shipped is told from the user's own by the history.
-    const recognised = state ? { shipped: {}, earlier: 0 } : await recogniseShipped(contentRoot, manifest, await history());
-    const shipped = state?.files && typeof state.files === "object" ? state.files : recognised.shipped;
+    const status = await settled(state);
+    if (status) return result(status, state);
+    // No record, or 2.x put its seed back since: what an earlier seed shipped
+    // is told from the user's own by the history; the record, where there is
+    // one, still says what this line shipped.
+    const legacy = !state || await legacyRan();
+    const recognised = legacy ? await recogniseShipped(contentRoot, manifest, await history()) : { shipped: {}, earlier: 0 };
+    const recorded = state?.files && typeof state.files === "object" ? state.files : {};
+    const shipped = { ...recognised.shipped, ...recorded };
     const before = new Set(Array.isArray(state?.conflicts) ? state.conflicts.map(String) : []);
     const counts = { added: 0, updated: 0, unchanged: 0, removed: 0, recognised: recognised.earlier, kept: [], conflicts: [], missing: [] };
     const files = {};
@@ -372,6 +384,8 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
         counts.kept.push(relative);
       }
     }
+    // 2.x's manifest is no file of this seed's, whatever version of it that was.
+    if (legacy) await fsp.rm(path.join(contentRoot, MANIFEST), { force: true });
     const next = {
       schema_version: 1,
       seed_version: version,

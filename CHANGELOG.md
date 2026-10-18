@@ -532,7 +532,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   beside it as `.seed-new`, the user's own files are not touched. A 2.x volume has no record of
   what its image put there; `data/seed-history.json` — every version of every seed file a commit
   of the 2.x line held — tells those files from the user's (Д-315). Measured on production's 2.x
-  image: 3,229 skills in its volume become the new seed's 615 plus the user's own.
+  image: 3,229 skills in its volume become the new seed's 615 plus the user's own. A rollback to
+  `:2` puts them all back with `cp -n`, and its manifest with them; the next 3.0 start finds that
+  manifest and removes them again (Д-317).
 - **The projects are mounted at their own path** on macOS and Linux, so a path the agent names is
   one the server opens (Д-312); on Windows they stay at `/workspace`. **The server and the agent
   hooks keep one state**: the host's `~/.ai-dev/state` is mounted where the container's user,

@@ -107,6 +107,11 @@ docker run --rm --entrypoint sh \
   ghcr.io/stonebridgeway/ai-dev-system:2 -c 'cp -a /host-state/. /data/runtime-home/.ai-dev/state/'
 ```
 
+Returning to 3.0 undoes what the rollback did to the volume: 2.x's `cp -n` put back every skill
+3.0 had dropped, its manifest with them, and the next 3.0 start finds that manifest, recognises
+what came back by the seed history and removes it again (docs/DEFECTS.md, Д-317); the tasks 2.x
+began meanwhile move into the host's state folder.
+
 The data half without Docker — the server with the image's environment on data 2.x wrote — is
 the **Docker volume layout** scenario of `npm run upgrade:test`.
 

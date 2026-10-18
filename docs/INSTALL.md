@@ -766,7 +766,9 @@ command:
   Where the container shares your state folder (see
   [One command on macOS and Linux](#one-command-on-macos-and-linux)), the tasks and
   handoffs in the volume move into it. That first start takes some seconds more than the
-  next ones. The way back is the 2.x image: `ghcr.io/stonebridgeway/ai-dev-system:2`.
+  next ones. The way back is the 2.x image, `ghcr.io/stonebridgeway/ai-dev-system:2`; it does
+  not see the tasks that moved to your state folder ([Upgrade test](UPGRADE-TEST.md) says how
+  to copy them back), and a return to 3.0 removes again the skills its `cp -n` put back (Д-317).
 
 `npm run upgrade:test` checks all of this against a 2.x install, and `npm run
 docker:upgrade-check -- --old-image <2.x image> --new-image <image>` the Docker part

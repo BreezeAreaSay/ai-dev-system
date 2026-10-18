@@ -361,6 +361,46 @@ test("a vault with no record — a 2.x volume `cp -n` filled — is read against
   assert.equal(await read(vault, "01-system/Agent Rules.md"), "rules 3.1\n");
 });
 
+test("a vault a 2.x image ran on since its last sync gives back what that image's `cp -n` put there again (Д-317)", async (t) => {
+  const root = await scratch(t);
+  const vault = path.join(root, "vault");
+  const shippedBefore = new Set([
+    seedHistoryKey("03-skills-catalog/sources/x/culled/SKILL.md", sha("culled skill\n")),
+    seedHistoryKey("01-system/Agent Rules.md", sha("rules 2.0\n")),
+    seedHistoryKey("public-seed.manifest.json", sha("{\"2.x\":true}\n"))
+  ]);
+  const history = async () => shippedBefore;
+  const seed = await writeSeed(path.join(root, "seed-3"), { "01-system/Agent Rules.md": "rules 3.0\n" });
+  assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "synced");
+  assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "current");
+
+  // Back to :2, whose entrypoint copies its seed in with `cp -n` — its manifest too —
+  // while the user adds a skill of their own; then the 3.0 image again.
+  const twoX = {
+    "03-skills-catalog/sources/x/culled/SKILL.md": "culled skill\n",
+    "public-seed.manifest.json": "{\"2.x\":true}\n",
+    "03-skills-catalog/sources/x/mine/SKILL.md": "a skill of my own\n"
+  };
+  for (const [relative, content] of Object.entries(twoX)) {
+    await fs.mkdir(path.dirname(path.join(vault, relative)), { recursive: true });
+    await fs.writeFile(path.join(vault, relative), content);
+  }
+  const back = await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history });
+  assert.equal(back.status, "synced", "the record's fingerprint is this seed's, and 2.x ran since");
+  assert.equal(back.removed, 2, "the culled skill and 2.x's manifest");
+  assert.equal(await exists(path.join(vault, "03-skills-catalog/sources/x/culled")), false);
+  assert.equal(await exists(path.join(vault, "public-seed.manifest.json")), false);
+  assert.equal(await read(vault, "03-skills-catalog/sources/x/mine/SKILL.md"), "a skill of my own\n", "the user's own stays");
+  assert.equal(await read(vault, "01-system/Agent Rules.md"), "rules 3.0\n");
+  assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "current");
+
+  // A 2.x manifest the history does not know — a later 2.x — goes too, so the next start is a read again.
+  await fs.writeFile(path.join(vault, "public-seed.manifest.json"), "{\"2.x\":\"later\"}\n");
+  assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "synced");
+  assert.equal(await exists(path.join(vault, "public-seed.manifest.json")), false);
+  assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "current");
+});
+
 test("the shipped history names versions by path and sha256, sorted and unique", async () => {
   const history = JSON.parse(await fs.readFile(SEED_HISTORY_FILE, "utf8"));
   assert.equal(history.schema_version, 1);

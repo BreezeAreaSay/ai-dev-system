@@ -25,7 +25,7 @@ test("every key the code names is in the table", () => {
     for (const entry of fs.readdirSync(folder, { withFileTypes: true })) {
       const file = path.join(folder, entry.name);
       if (entry.isDirectory()) walk(file);
-      else if (/\.(m?js|html)$/.test(entry.name) && entry.name !== "i18n.js") sources.push(fs.readFileSync(file, "utf8"));
+      else if (/\.(m?js|html)$/.test(entry.name) && !["i18n.js", "messages-en.js", "messages-ru.js"].includes(entry.name)) sources.push(fs.readFileSync(file, "utf8"));
     }
   };
   walk(renderer);

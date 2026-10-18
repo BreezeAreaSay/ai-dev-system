@@ -110,10 +110,12 @@ test("the shell scripts that get executed are committed as executable", async (c
  * container's users; PROBE=shared writes the file as this user, PROBE=refused
  * is the container's own `touch` refused, and PROBE=broken a Docker that did
  * not run the image at all. MOUNT_DENY names a folder Docker refuses to mount,
- * as Docker Desktop refuses one outside its file sharing. TRUE_FAIL fails the
- * throwaway runs (`--entrypoint true`) as a failing engine does: `deadline` (a
- * timeout), `overlay` (a storage driver error that names a mount), `silent`
- * (exit 137, nothing said), `once` (only the first one: a passing flake).
+ * as Docker Desktop refuses one outside its file sharing — with MOUNT_DENY_SAYS=
+ * desktop in Docker Desktop's words, over lines ending in CRLF. TRUE_FAIL fails
+ * the throwaway runs (`--entrypoint true`) as a failing engine does: `deadline`
+ * (a timeout), `overlay` (a storage driver error that names a mount), `silent`
+ * (exit 137, nothing said), `once` (only the first one: a passing flake), `bare`
+ * (only the one with no folder: the engine check, flaking).
  */
 const stubDocker = [
   "#!/bin/sh",
@@ -134,13 +136,16 @@ const stubDocker = [
   '  inspect) [ -n "${OLD_RUNTIME:-}" ] && { echo true; exit 0; }; exit 1 ;;',
   "  rm) exit 0 ;;",
   "  run)",
-  '    if [ -n "${MOUNT_DENY:-}" ]; then for a in "$@"; do case "$a" in *"source=${MOUNT_DENY},"*) echo "docker: Error response from daemon: Mounts denied: the path ${MOUNT_DENY} is not shared from the host." >&2; exit 125 ;; esac; done; fi',
+  '    if [ -n "${MOUNT_DENY:-}" ]; then for a in "$@"; do case "$a" in *"source=${MOUNT_DENY},"*)',
+  '      if [ "${MOUNT_DENY_SAYS:-}" = desktop ]; then printf "docker: Error response from daemon: Mounts denied: \\r\\nThe path %s is not shared from the host and is not known to Docker.\\r\\nYou can configure shared paths from Docker -> Preferences... -> Resources -> File Sharing.\\r\\n" "$MOUNT_DENY" >&2;',
+  '      else echo "docker: Error response from daemon: Mounts denied: the path ${MOUNT_DENY} is not shared from the host." >&2; fi; exit 125 ;; esac; done; fi',
   '    if [ -n "${TRUE_FAIL:-}" ]; then prev=""; for a in "$@"; do',
   '      if [ "$prev" = --entrypoint ] && [ "$a" = true ]; then',
   '        case "$TRUE_FAIL" in',
   '          silent) exit 137 ;;',
   '          overlay) echo "docker: Error response from daemon: error creating overlay mount to /var/lib/docker/overlay2/3f9c1a-init/merged: no such file or directory." >&2; exit 125 ;;',
   '          once) [ "$(grep -c -e "$(printf \'%s\\t%s\' --entrypoint true)" "$STUB_LOG")" -gt 1 ] && break ;;',
+  '          bare) for m in "$@"; do [ "$m" = --mount ] && break 2; done ;;',
   '        esac',
   '        echo "docker: Error response from daemon: failed to create task for container: context deadline exceeded" >&2; exit 125',
   '      fi',
@@ -514,7 +519,7 @@ test("every client's folders are looked at in one run; a folder Docker refuses, 
   assert.equal(install.find((argument) => argument.startsWith("--clients=")), "--clients=cursor");
   const looks = result.calls.filter((call) => call[0] === "run" && call.includes("--entrypoint") && call[call.indexOf("--entrypoint") + 1] === "true");
   assert.equal(looks.filter((call) => call.includes("--mount")).length, 3, "one look at all, then one at each client");
-  assert.equal(looks.filter((call) => !call.includes("--mount")).length, 2, "Docker runs the image without the folders: after the look at all, and after Codex's");
+  assert.equal(looks.filter((call) => !call.includes("--mount")).length, 0, "Cursor's look passing shows Docker runs the image: no run without folders (Д-362)");
   const fine = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,codex"], { env: { CODEX_HOME: codexHome }, folders: [".cursor"] });
   assert.equal(fine.status, 0, fine.stderr);
   assert.equal(fine.calls.filter((call) => call[0] === "run" && call.includes("--entrypoint") && call[call.indexOf("--entrypoint") + 1] === "true").length, 1, "Docker took them all: one look");
@@ -544,6 +549,36 @@ test("a look at the folders that fails while Docker runs nothing at all blames n
   assert.doesNotMatch(flake.stderr, /Docker did not take a folder|could not look/);
   const install = flake.calls.find((call) => call[0] === "run" && call.includes("install"));
   assert.equal(install.find((argument) => argument.startsWith("--clients=")), "--clients=cursor,gemini");
+});
+
+test("a refused folder is told from a failing engine by the looks that pass, not by one check; Docker Desktop's words come whole (Д-362, Д-366)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-unshared-codex-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const codexHome = path.join(root, "codex");
+  await fs.mkdir(codexHome);
+  // The engine check would flake; it is not asked, since Cursor's look passed.
+  const flaky = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,codex"], {
+    env: { MOUNT_DENY: codexHome, MOUNT_DENY_SAYS: "desktop", CODEX_HOME: codexHome, TRUE_FAIL: "bare" }, folders: [".cursor"]
+  });
+  if (!flaky) return;
+  assert.equal(flaky.status, 1, flaky.stderr);
+  assert.doesNotMatch(flaky.stderr, /could not look/);
+  const install = flaky.calls.find((call) => call[0] === "run" && call.includes("install"));
+  assert.equal(install.find((argument) => argument.startsWith("--clients=")), "--clients=cursor");
+  // The path Docker Desktop names on its second line, and no carriage return.
+  const line = flaky.stderr.split("\n").find((text) => text.startsWith("Codex: "));
+  assert.equal(line, `Codex: Docker did not take a folder its config leads to (docker: Error response from daemon: Mounts denied: The path ${codexHome} is not shared from the host and is not known to Docker.): not configured.`);
+
+  // Every client refused, and the engine check flaking: then it is taken for the engine, and the install says what fails.
+  const alone = await runBootstrap(t, ["--skip-smoke", "--clients", "codex"], { env: { MOUNT_DENY: codexHome, CODEX_HOME: codexHome, TRUE_FAIL: "bare" } });
+  assert.equal(alone.status, 1, alone.stderr);
+  assert.match(alone.stderr, /Docker could not look at the clients' folders first \(docker: Error response from daemon: failed to create task for container: context deadline exceeded\)/);
+  // Every client refused, on an engine that runs: each is named, and no install runs.
+  const refused = await runBootstrap(t, ["--skip-smoke", "--clients", "codex"], { env: { MOUNT_DENY: codexHome, CODEX_HOME: codexHome } });
+  assert.equal(refused.status, 1, refused.stderr);
+  assert.match(refused.stderr, /Codex: Docker did not take a folder its config leads to/);
+  assert.equal(refused.calls.filter((call) => call[0] === "run" && call.includes("install")).length, 0);
 });
 
 test("a HOME spelled with a slash at its end mounts each folder once; a link into a folder not there is named (Д-353)", async (t) => {

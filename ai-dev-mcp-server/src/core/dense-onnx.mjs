@@ -285,11 +285,17 @@ export function createOnnxDenseRuntime({
 export { DOCKER_MOUNTED_MODEL_DIR };
 
 /**
- * Whether a folder holds anything. Only a folder that is not there holds
- * nothing: one this user may not list (a host's folders 0700), or cannot reach
- * (a share that dropped: EIO, ESTALE, ENOTCONN), holds what it cannot see, and
- * is not an empty mount to pass over for the volume's (docs/DEFECTS.md, Д-357,
- * Д-361).
+ * The errors that say a folder is there and this user cannot read it (a host's
+ * folders 0700) or cannot reach it (a share that dropped). Any other — not
+ * there, a file, a link that loops, no descriptor left — is no model mounted
+ * (docs/DEFECTS.md, Д-357, Д-361, Д-365, Д-366).
+ */
+const THERE_UNREAD = new Set(["EACCES", "EPERM", "EIO", "ESTALE", "ENOTCONN"]);
+
+/**
+ * Whether a folder holds anything — what it holds unseen included, so a model
+ * the host mounted unreadable is said as that, not passed over for the
+ * volume's.
  *
  * @param {string} folder
  * @param {(folder: string) => string[]} [list]
@@ -299,7 +305,7 @@ export function holdsFiles(folder, list = readdirSync) {
   try {
     return list(folder).length > 0;
   } catch (error) {
-    return error?.code !== "ENOENT" && error?.code !== "ENOTDIR";
+    return THERE_UNREAD.has(error?.code);
   }
 }
 

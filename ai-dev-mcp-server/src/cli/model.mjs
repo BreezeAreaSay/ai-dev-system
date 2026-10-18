@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { CliUsageError, EXIT, closest, parseCommandLine } from "../core/cli-args.mjs";
-import { legacyDenseNotes } from "../core/dense-backend.mjs";
+import { DOCKER_MOUNTED_MODEL_DIR, legacyDenseNotes, unreadableModelAdvice } from "../core/dense-backend.mjs";
 import { denseDoctorStages, renderDenseDoctorReport, runDenseDoctor } from "../core/dense-doctor.mjs";
 import { readDenseManifest } from "../core/dense-manifest.mjs";
 import { createOnnxDenseRuntime, defaultOnnxModelDir } from "../core/dense-onnx.mjs";
@@ -203,7 +203,10 @@ export async function run(argv, io) {
         if (json) return { ok: status.installed, ...status, legacy: notes };
         say(`Model: ${manifest.export} @ ${String(manifest.revision).slice(0, 12)} (${manifest.dtype}) in ${status.dir}`);
         say(status.installed ? "Installed: yes, every file matches the manifest." : "Installed: no.");
-        if (status.unreadable) say(`Cannot be read: ${status.unreadable} — make the folder and its files readable to the user this runs as.`);
+        if (status.unreadable) {
+          const mounted = String(io.env.AI_DEV_RUNTIME ?? "") === "docker" && status.dir === DOCKER_MOUNTED_MODEL_DIR;
+          say(`Cannot be read: ${status.unreadable}. ${unreadableModelAdvice(status.unreadable, { mounted })}`);
+        }
         if (status.missing.length) say(`Missing: ${status.missing.join(", ")}`);
         if (status.mismatched.length) say(`Not the pinned files: ${status.mismatched.join(", ")} — \`${hint("npm run model -- install")}\` fetches them again.`);
         for (const part of status.partial) say(`Stopped partway: ${part.file}, ${formatBytes(part.bytes)}${part.size ? ` of ${formatBytes(part.size)}` : ""} — \`${hint("npm run model -- install")}\` continues it.`);

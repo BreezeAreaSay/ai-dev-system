@@ -250,7 +250,7 @@ test("in the image the model is the one the host mounts at /models, else the one
   assert.equal(defaultOnnxModelDir({ env: { ...docker, BGE_M3_ONNX_DIR: "/x" }, mounted: () => true }), path.resolve("/x"));
 });
 
-test("a mounted model folder the image's user may not list or reach is a model there, not an empty mount (Д-357, Д-361)", () => {
+test("a mounted model folder the image's user may not list or reach is a model there, not an empty mount (Д-357, Д-361, Д-365)", () => {
   const refused = (code) => () => {
     throw Object.assign(new Error(`${code}: scandir '/models/bge-m3-onnx'`), { code });
   };
@@ -262,6 +262,8 @@ test("a mounted model folder the image's user may not list or reach is a model t
   assert.equal(holdsFiles("/models/bge-m3-onnx", refused("EPERM")), true);
   // A share that dropped is a mount this user cannot reach, not nothing mounted (Д-361).
   for (const code of ["EIO", "ESTALE", "ENOTCONN"]) assert.equal(holdsFiles("/models/bge-m3-onnx", refused(code)), true, code);
+  // A link that loops, or no descriptor left to list with, is no model mounted: the volume's stays in use (Д-365, Д-366).
+  for (const code of ["ELOOP", "EMFILE", "ENFILE", "EINVAL"]) assert.equal(holdsFiles("/models/bge-m3-onnx", refused(code)), false, code);
   const docker = { AI_DEV_RUNTIME: "docker", AI_DEV_HOME: "/data/runtime-home/.ai-dev", HOME: "/data/runtime-home" };
   assert.equal(defaultOnnxModelDir({ env: docker, mounted: (folder) => holdsFiles(folder, refused("EACCES")) }), "/models/bge-m3-onnx");
 });

@@ -382,15 +382,24 @@ if [ "$skip_client_install" -ne 1 ]; then
     set +f
     docker "$@" "$installer_image" 2>&1 >/dev/null
   }
-  # Whether Docker runs the image at all, with no folder of the clients': a
-  # look that failed while this passes failed on a folder; one that fails too is
-  # the engine — a timeout, a storage driver, a daemon gone (Д-358, Д-360).
-  engine_runs() {
-    docker run --rm --network none --entrypoint true "$installer_image" >/dev/null 2>&1
+  # Whether Docker runs the image at all, with no folder of the clients': what
+  # it says when it does not — a timeout, a storage driver, a daemon gone
+  # (Д-358, Д-360, Д-362).
+  engine_check() {
+    docker run --rm --network none --entrypoint true "$installer_image" 2>&1 >/dev/null
   }
-  # The first line Docker said, or its exit status when it said nothing (Д-360).
+  # What Docker said: its first line, carried on to the next when it ends at a
+  # colon — Docker Desktop names the path there — and with no carriage return;
+  # its exit status when it said nothing (Д-360, Д-366).
   said() {
-    first=${1%%"$nl"*}
+    text=$(printf '%s' "$1" | tr -d '\r')
+    first=${text%%"$nl"*}
+    case "$first" in
+      *: | *": ")
+        rest=${text#*"$nl"}
+        [ "$rest" = "$text" ] || first="${first% } ${rest%%"$nl"*}"
+        ;;
+    esac
     printf '%s' "${first:-exit status $2}"
   }
   # The folders of the clients named (",cursor,codex,"), each target once.
@@ -442,18 +451,19 @@ if [ "$skip_client_install" -ne 1 ]; then
   done
   # Docker takes every client's folders in one look, or each client is looked
   # at alone: a folder it refuses — outside Docker Desktop's file sharing, say —
-  # costs that client alone (Д-339, Д-352). A look that failed while Docker does
-  # not run the image even without the folders blames no folder: it is said
-  # once, and the install goes on and says what fails (Д-358, Д-360).
+  # costs that client alone (Д-339, Д-352). A client whose look passes shows that
+  # Docker runs the image, so the others' were refused; only when none passes is
+  # Docker asked to run it with no folder at all, and if that fails too it is the
+  # engine: said once, and the install goes on and says what fails (Д-358,
+  # Д-360, Д-362).
   look=0
   refused=""
   if [ "$candidates" != "," ]; then
     refused=$(mounts_taken "$(mounts_of "$candidates")") || look=$?
   fi
-  if [ "$look" != 0 ] && ! engine_runs; then
-    printf '%s\n' "Docker could not look at the clients' folders first ($(said "$refused" "$look")): the install goes on, and says what fails." >&2
-  elif [ "$look" != 0 ]; then
+  if [ "$look" != 0 ]; then
     taken=","
+    lost=""
     set -f
     old_ifs=$IFS
     IFS=,
@@ -462,24 +472,39 @@ if [ "$skip_client_install" -ne 1 ]; then
       IFS=$old_ifs
       status=0
       refused=$(mounts_taken "$(mounts_of ",${client},")") || status=$?
-      if [ "$status" = 0 ] || ! engine_runs; then
+      if [ "$status" = 0 ]; then
         taken="${taken}${client},"
       else
-        case "$client" in
+        lost="${lost}${client},$(said "$refused" "$status")${nl}"
+      fi
+      IFS=,
+    done
+    engine=0
+    engine_said=""
+    if [ "$taken" = "," ]; then
+      engine_said=$(engine_check) || engine=$?
+    fi
+    if [ "$engine" != 0 ]; then
+      printf '%s\n' "Docker could not look at the clients' folders first ($(said "$engine_said" "$engine")): the install goes on, and says what fails." >&2
+    else
+      IFS=$nl
+      for line in $lost; do
+        IFS=$old_ifs
+        case "${line%%,*}" in
           claude-desktop) label="Claude Desktop" ;;
           vscode) label="VS Code" ;;
           gemini) label="Gemini CLI" ;;
           cursor) label="Cursor" ;;
           *) label="Codex" ;;
         esac
-        printf '%s\n' "${label}: Docker did not take a folder its config leads to ($(said "$refused" "$status")): not configured." >&2
+        printf '%s\n' "${label}: Docker did not take a folder its config leads to (${line#*,}): not configured." >&2
         install_status=1
-      fi
-      IFS=,
-    done
+        IFS=$nl
+      done
+      candidates=$taken
+    fi
     IFS=$old_ifs
     set +f
-    candidates=$taken
   fi
   mounted=$(mounts_of "$candidates")
   install_clients=${candidates#,}

@@ -138,6 +138,11 @@ test("the coverage line separates a half-embedded index from one never embedded"
     "Indexed: 3672 document(s), 300 with a dense vector, 382 waiting for one."
   );
   assert.equal(describeDenseCoverage(null), "No search index yet.");
+  // --model does not embed with a model this user cannot read (Д-363).
+  assert.equal(
+    describeDenseCoverage({ current_document_count: 338, dense_documents: 0, dense_pending_documents: 0 }, { modelUnreadable: true }),
+    "Indexed: 338 document(s), none embedded yet (the model cannot be read)."
+  );
   // A 2.x index the Python backend embedded: kept, not compared, waiting (Д-148).
   assert.equal(
     describeDenseCoverage({ current_document_count: 825, dense_documents: 0, dense_pending_documents: 365, dense_other_model_documents: 365 }),

@@ -7,7 +7,8 @@ import {
   LEGACY_DENSE_VARIABLES,
   legacyDenseNotes,
   requestedDenseBackend,
-  selectDenseBackend
+  selectDenseBackend,
+  unreadableModelAdvice
 } from "./dense-backend.mjs";
 
 test("the environment variable is read, a typo degrades to auto with a note, and python says what replaced it", () => {
@@ -90,4 +91,15 @@ test("a machine with no runtime build is told so, whatever is on disk", () => {
   assert.match(selectDenseBackend({ supported: false }).reason, /no build of onnxruntime-node/);
   assert.equal(selectDenseBackend({ requested: "torch", onnxReady: true }).requested, "auto", "an unknown choice is auto");
   assert.equal(selectDenseBackend().available, false, "defaults alone are a valid call");
+});
+
+test("a model that cannot be read gets the advice its error calls for: only permissions are made readable (Д-365)", () => {
+  const said = (code, mounted = false) => unreadableModelAdvice(`${code}: what the system said, '/models/bge-m3-onnx/config.json'`, { mounted });
+  assert.equal(said("EACCES"), "Make the folder and its files readable to the user this runs as.");
+  assert.equal(said("EPERM", true), "The image runs as uid 1000: make the folder and its files readable to it on the host, or drop the mount and install the model into the data volume.");
+  assert.equal(said("ENOTDIR"), "That is a file, not a folder: name the folder that holds the model.");
+  assert.equal(said("ELOOP", true), "A link on the way leads back to itself: point it at the folder that holds the model, or drop the mount and install the model into the data volume.");
+  for (const code of ["EIO", "ESTALE", "ENOTCONN"]) assert.match(said(code, true), /^The disk or share it is on cannot be reached: reconnect it \(Docker Desktop's file sharing\), or drop the mount/, code);
+  assert.equal(said("EINVAL"), "Look at that folder.");
+  assert.doesNotMatch(said("ENOTDIR") + said("ELOOP") + said("EIO") + said("EINVAL"), /readable/, "permissions are not the advice for other errors");
 });

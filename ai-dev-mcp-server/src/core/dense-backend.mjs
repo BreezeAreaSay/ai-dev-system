@@ -145,6 +145,30 @@ export function containerModelAdvice(dir = "") {
       + "the sessions after it keep --network none. Or mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH).";
 }
 
+/**
+ * What to do about a model that could not be read, by why it could not: only
+ * permissions are put right by making it readable (docs/DEFECTS.md, Д-365).
+ *
+ * @param {string} unreadable - The error, as `EACCES: permission denied, …`.
+ * @param {{ mounted?: boolean }} [options] - The host's folder at /models, in the image.
+ * @returns {string}
+ */
+export function unreadableModelAdvice(unreadable, { mounted = false } = {}) {
+  const code = /^([A-Z]+):/.exec(String(unreadable ?? ""))?.[1] ?? "";
+  const orVolume = mounted ? ", or drop the mount and install the model into the data volume" : "";
+  if (code === "EACCES" || code === "EPERM") {
+    return mounted
+      ? `The image runs as uid 1000: make the folder and its files readable to it on the host${orVolume}.`
+      : "Make the folder and its files readable to the user this runs as.";
+  }
+  if (code === "ENOTDIR") return `That is a file, not a folder: name the folder that holds the model${orVolume}.`;
+  if (code === "ELOOP") return `A link on the way leads back to itself: point it at the folder that holds the model${orVolume}.`;
+  if (code === "EIO" || code === "ESTALE" || code === "ENOTCONN") {
+    return `The disk or share it is on cannot be reached: reconnect it${mounted ? " (Docker Desktop's file sharing)" : ""}${orVolume}.`;
+  }
+  return mounted ? `Look at that folder on the host${orVolume}.` : "Look at that folder.";
+}
+
 /** The model is not usable; say which way, and what changes it. */
 function notReadyReason({ inContainer, files }) {
   const { dir = "", present = [], missing = [], mismatched = [], partial = [], unreadable = "" } = files ?? {};
@@ -152,9 +176,7 @@ function notReadyReason({ inContainer, files }) {
   const names = (list) => list.join(", ");
   if (unreadable) {
     return `Dense search is not ready: the model${where} cannot be read (${unreadable}). `
-      + (inContainer && dir === DOCKER_MOUNTED_MODEL_DIR
-        ? "The image runs as uid 1000: make the folder and its files readable to it on the host, or drop the mount and install the model into the data volume."
-        : "Make the folder and its files readable to the user this runs as.");
+      + unreadableModelAdvice(unreadable, { mounted: inContainer && dir === DOCKER_MOUNTED_MODEL_DIR });
   }
   if (mismatched.length) {
     const one = mismatched.length === 1;

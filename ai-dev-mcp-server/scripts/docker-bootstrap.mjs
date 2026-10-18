@@ -128,6 +128,7 @@ async function optionalState(indexStatus) {
     qaDependencies,
     unchecked: { frontend_qa: browser.error, dense_model: model.error },
     present: { frontend_qa: browser.value, dense_model: model.value, dense_index: Number(indexStatus?.dense_documents || 0) > 0 },
+    vectors: Number(indexStatus?.dense_documents || 0),
     // Documents indexed since the last embedding run have no vector yet.
     stale: { dense_index: Number(indexStatus?.dense_pending_documents || 0) > 0 }
   };
@@ -138,7 +139,7 @@ async function optionalState(indexStatus) {
  * goes into the volume with one run of its own, which embeds the documents too;
  * the browser comes with the `-browser` variant (docs/DEFECTS.md, Д-328, Д-332).
  */
-function imageReason({ modelDir, qaDependencies, unchecked, present }) {
+function imageReason({ modelDir, qaDependencies, unchecked, present, vectors = 0 }) {
   const install = dockerCommand("model install");
   // A folder of the host's at /models is the model the sessions use, whole or not: what is not whole is put right
   // on the host, as `embedding_status` says, not installed into a volume they would not read (Д-350).
@@ -161,7 +162,11 @@ function imageReason({ modelDir, qaDependencies, unchecked, present }) {
       if (state === "present") return `installed in ${modelDir}`;
       return mounted ? `not whole — ${containerModelAdvice(modelDir)}` : `not installed — \`${install}\` puts it in this volume`;
     }
-    if (mounted && !present.dense_model) return `none: the model at /models ${unchecked.dense_model ? "could not be checked" : "is not whole yet"}`;
+    if (mounted && !present.dense_model) {
+      const why = `the model at /models ${unchecked.dense_model ? "could not be checked" : "is not whole yet"}`;
+      // What it embedded before stays (Д-363).
+      return vectors ? `${vectors} kept; none added while ${why}` : `none: ${why}`;
+    }
     if (state === "stale") return `documents indexed since have none — \`${embed}\` embeds them`;
     return state === "present" ? "every indexed document has one" : `none yet — \`${embed}\` embeds the documents`;
   };

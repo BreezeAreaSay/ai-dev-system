@@ -15,6 +15,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { SERVER_ROOT } from "./client-connections.mjs";
+import { DOCKER_MOUNTED_MODEL_DIR, unreadableModelAdvice } from "./dense-backend.mjs";
 import { readDenseManifest } from "./dense-manifest.mjs";
 import { defaultOnnxModelDir } from "./dense-onnx.mjs";
 import { planFirstRun, setupReason } from "./first-run.mjs";
@@ -221,7 +222,10 @@ export async function runSetup({ runtime, env, steps, inspection, want = {}, for
     },
     async dense_model() {
       // A model here this user cannot read is not one to download over (Д-359).
-      if (modelUnreadable) throw new Error(`The model in ${modelDir} cannot be read (${modelUnreadable}): make the folder and its files readable to the user this runs as.`);
+      if (modelUnreadable) {
+        const mounted = String(env.AI_DEV_RUNTIME ?? "") === "docker" && modelDir === DOCKER_MOUNTED_MODEL_DIR;
+        throw new Error(`The model in ${modelDir} cannot be read (${modelUnreadable}). ${unreadableModelAdvice(modelUnreadable, { mounted })}`);
+      }
       // Where the runtime has no build, 600 MB that cannot load is not a
       // favour (Д-101); `ai-dev model install` still fetches them for a container.
       const support = denseRuntimeSupport();
@@ -259,8 +263,13 @@ export async function runSetup({ runtime, env, steps, inspection, want = {}, for
     ...(want.model ? { dense_model: true, dense_index: true } : {}),
     ...(want.frontendQa ? { frontend_qa: true } : {})
   };
-  // Not asked for, a model this user cannot read is said as that, not as one to install (Д-359).
-  const unreadableReason = { dense_model: `cannot be read (${modelUnreadable})`, dense_index: "none: the model cannot be read" };
+  // Not asked for, a model this user cannot read is said as that, not as one to install (Д-359); the
+  // vectors it made before are said as kept (Д-363).
+  const vectors = Number(indexStatus?.dense_documents || 0);
+  const unreadableReason = {
+    dense_model: `cannot be read (${modelUnreadable})`,
+    dense_index: vectors ? `${vectors} kept; none added while the model cannot be read` : "none: the model cannot be read"
+  };
   const optionalReason = (step, state) => (modelUnreadable && unreadableReason[step.id]) || setupReason(step, state);
   const plan = planFirstRun({ present, stale, want: wanted, force, optionalReason });
   return steps.runFirstRunPlan(plan, guarded, onStep, { signal });

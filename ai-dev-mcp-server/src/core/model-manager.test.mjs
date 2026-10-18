@@ -48,14 +48,20 @@ test("a model this user cannot read is not installed, and says why; a fault of t
   const { dir, stampDir } = await setup(t);
   await writeModel(dir);
   const denied = async () => {
-    throw Object.assign(new Error("EACCES: permission denied, stat '/models/bge-m3-onnx/config.json'"), { code: "EACCES" });
+    throw Object.assign(new Error("EACCES: permission denied, stat '/models/bge-m3-onnx/config.json'"), { code: "EACCES", syscall: "stat" });
   };
   const status = await modelStatus({ manifest: MANIFEST, dir, stampDir, env: {}, verify: denied });
   assert.equal(status.installed, false);
   assert.equal(status.unreadable, "EACCES: permission denied, stat '/models/bge-m3-onnx/config.json'");
   assert.deepEqual([status.present, status.missing, status.mismatched, status.partial], [[], [], [], []], "its files are unseen, not missing");
   assert.equal("unreadable" in await modelStatus({ manifest: MANIFEST, dir, stampDir, env: {} }), false, "a readable model has no such field");
+  // A file not there at all is missing beside the unreadable one (Д-366).
+  const gone = Object.keys(MANIFEST.files)[0];
+  await fs.rm(path.join(dir, ...gone.split("/")));
+  assert.deepEqual((await modelStatus({ manifest: MANIFEST, dir, stampDir, env: {}, verify: denied })).missing, [gone]);
+  // A fault of the code throws, a string code of Node's own included (Д-366).
   await assert.rejects(modelStatus({ manifest: MANIFEST, dir, stampDir, env: {}, verify: async () => { throw new TypeError("not a filesystem error"); } }), TypeError);
+  await assert.rejects(modelStatus({ manifest: MANIFEST, dir, stampDir, env: {}, verify: async () => fs.stat(undefined) }), { code: "ERR_INVALID_ARG_TYPE" });
 });
 
 test("status before anything: not installed, every file missing, nothing read, sources listed", async (t) => {

@@ -17,7 +17,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DENSE_INSTALL_COMMAND, legacyDenseNotes, requestedDenseBackend, selectDenseBackend } from "./dense-backend.mjs";
 import { usablePart } from "./dense-download.mjs";
-import { denseVectorProvenance, verifiedStampPath, verifyDenseModelDirectory } from "./dense-manifest.mjs";
+import { denseVectorProvenance, filesNotThere, verifiedStampPath, verifyDenseModelDirectory } from "./dense-manifest.mjs";
 import { denseRuntimeSupport } from "./model-manager.mjs";
 
 /** How long a verification result stands before it is taken again. */
@@ -73,8 +73,10 @@ export function createDenseRuntime({
     } catch (error) {
       // A model this process cannot read is a model that is not ready, and why:
       // not an error that takes the health check and `embedding_status` down
-      // (docs/DEFECTS.md, Д-349). Its files are not missing, only unseen (Д-358).
-      probe = { ready: false, dir: path.resolve(onnxModelDir), present: [], missing: [], mismatched: [], unreadable: String(error?.message ?? error) };
+      // (docs/DEFECTS.md, Д-349). Its files are not missing, only unseen (Д-358);
+      // those not there at all are (Д-366).
+      const missing = await filesNotThere({ manifest, dir: onnxModelDir }).catch(() => []);
+      probe = { ready: false, dir: path.resolve(onnxModelDir), present: [], missing, mismatched: [], unreadable: String(error?.message ?? error) };
     }
     probedAt = now();
     probedRecord = await recordState();

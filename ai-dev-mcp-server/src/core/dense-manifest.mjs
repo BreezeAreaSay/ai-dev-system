@@ -210,6 +210,24 @@ export async function stampVerifiedFiles({ stampFile, dir, manifest, verified })
 }
 
 /**
+ * The manifest's files that are not there at all, by a look that reads none of
+ * them: of a model this user cannot read, the ones that are missing as well
+ * (docs/DEFECTS.md, Д-366). A file it may not even look at is not counted.
+ *
+ * @param {{ manifest: object, dir: string }} input
+ * @returns {Promise<string[]>}
+ */
+export async function filesNotThere({ manifest, dir }) {
+  const resolved = path.resolve(String(dir || ""));
+  const gone = [];
+  for (const relative of Object.keys(manifest.files ?? {})) {
+    const error = await fsp.lstat(path.join(resolved, relative)).then(() => null, (failure) => failure);
+    if (error?.code === "ENOENT") gone.push(relative);
+  }
+  return gone;
+}
+
+/**
  * Check a model directory against a manifest, file by file.
  *
  * Absent and wrong are reported apart on purpose: a missing file means the

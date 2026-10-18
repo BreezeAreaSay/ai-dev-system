@@ -150,15 +150,17 @@ export function setupReason(step, state) {
  * `--model` like documents with none (docs/DEFECTS.md, Д-148).
  *
  * @param {{ current_document_count?: number, dense_documents?: number, dense_pending_documents?: number, dense_other_model_documents?: number }|null} status
+ * @param {{ modelUnreadable?: boolean }} [options]
  * @returns {string}
  */
-export function describeDenseCoverage(status) {
+export function describeDenseCoverage(status, { modelUnreadable = false } = {}) {
   if (!status) return "No search index yet.";
   const documents = Number(status.current_document_count || 0);
   const dense = Number(status.dense_documents || 0);
   const pending = Number(status.dense_pending_documents || 0);
   const other = Number(status.dense_other_model_documents || 0);
-  if (!dense && !pending) return `Indexed: ${documents} document(s), none embedded yet (--model embeds them).`;
+  // --model does not embed with a model this user cannot read (docs/DEFECTS.md, Д-363).
+  if (!dense && !pending) return `Indexed: ${documents} document(s), none embedded yet (${modelUnreadable ? "the model cannot be read" : "--model embeds them"}).`;
   return `Indexed: ${documents} document(s), ${dense} with a dense vector, ${pending} waiting for one`
     + (other ? ` (${other} with a vector of another model, which hybrid search does not compare; --model embeds them again).` : ".");
 }

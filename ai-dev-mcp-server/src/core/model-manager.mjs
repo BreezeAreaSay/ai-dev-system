@@ -26,7 +26,7 @@ import path from "node:path";
 import process from "node:process";
 import { createRequire } from "node:module";
 import { discardPart, downloadDenseModel, modelSources, PART_META_SUFFIX, PART_SUFFIX, usablePart } from "./dense-download.mjs";
-import { fileIdentity, readInstalledDenseManifest, stampVerifiedFiles, verifiedStampPath, verifyDenseModelDirectory } from "./dense-manifest.mjs";
+import { fileIdentity, filesNotThere, readInstalledDenseManifest, stampVerifiedFiles, verifiedStampPath, verifyDenseModelDirectory } from "./dense-manifest.mjs";
 import { formatBytes } from "./disk-space.mjs";
 import { redactCredentials } from "./http-download.mjs";
 import { acquireFileLock } from "./file-lock.mjs";
@@ -159,9 +159,11 @@ export async function modelStatus({ manifest, dir, stampDir = defaultStampDir(),
   } catch (error) {
     // A model this user cannot read — a host's folder 0700, files 0600 — is one
     // that is not installed, and why: not an error that stops `setup`, `model
-    // status` or the app's status screen (docs/DEFECTS.md, Д-349, Д-359).
-    if (typeof error?.code !== "string") throw error;
-    verification = { ready: false, present: [], missing: [], mismatched: [], hashed: [], unreadable: error.message };
+    // status` or the app's status screen (docs/DEFECTS.md, Д-349, Д-359). Only
+    // a system call's: a fault of the code still throws (Д-366).
+    if (typeof error?.syscall !== "string") throw error;
+    const missing = await filesNotThere({ manifest, dir: resolved });
+    verification = { ready: false, present: [], missing, mismatched: [], hashed: [], unreadable: error.message };
   }
   const partial = [];
   for (const [relative, digest] of verification.unreadable ? [] : Object.entries(manifest.files)) {

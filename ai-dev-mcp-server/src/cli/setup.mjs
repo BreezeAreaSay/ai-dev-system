@@ -184,7 +184,7 @@ async function setup({ options, io, runtime, steps }) {
   say(`Vault: ${runtime.vaultRoot}`);
   say(`Search index: ${runtime.searchIndexPath}`);
   say(`Dense model: ${onnxModelDir} (ONNX, ${denseManifest.export} @ ${String(denseManifest.revision).slice(0, 12)})`);
-  if (indexStatus) say(describeDenseCoverage(indexStatus));
+  if (indexStatus) say(describeDenseCoverage(indexStatus, { modelUnreadable: Boolean(modelUnreadable) }));
   for (const note of legacyNotes) say(`Note: ${note}`);
   say("");
 

@@ -72,17 +72,26 @@ test("without the model, embedding is refused with the reason and the commands",
     /^Error: Dense search is not ready: onnx\/model_int8\.onnx in \/models\/bge-m3-onnx is not the pinned file \(the sha256 differs from the manifest\)\. Run `npm run setup -- --model`: it fetches it again\.$/);
 });
 
-test("a model this process cannot read is not ready, and says why: the health check and embedding_status stand (Д-349)", async () => {
-  const denied = Object.assign(new Error("EACCES: permission denied, open '/models/bge-m3-onnx/config.json'"), { code: "EACCES" });
+test("a model this process cannot read is not ready, and says why: the health check and embedding_status stand (Д-349)", async (t) => {
+  const denied = Object.assign(new Error("EACCES: permission denied, open '/models/bge-m3-onnx/config.json'"), { code: "EACCES", syscall: "open" });
   const { runtime } = runtimeWith({ verifyError: denied, env: { AI_DEV_RUNTIME: "docker" } });
   const status = await runtime.describe();
   assert.equal(status.available, false);
   assert.match(status.reason, /the model in \/models\/bge-m3-onnx cannot be read \(EACCES: permission denied, open '\/models\/bge-m3-onnx\/config\.json'\)\. The image runs as uid 1000: make the folder and its files readable to it on the host/);
-  // Its files are not missing, only unseen, and the details say which (Д-358).
-  assert.deepEqual(status.onnx.missing, []);
   assert.equal(status.onnx.unreadable, "EACCES: permission denied, open '/models/bge-m3-onnx/config.json'");
   assert.equal("unreadable" in (await runtimeWith({}).runtime.describe()).onnx, false, "a readable model has no such field");
   await assert.rejects(runtime.embed({ texts: ["x"] }), /cannot be read/);
+  // Its files are not missing, only unseen (Д-358); one not there at all is (Д-366).
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dense-runtime-unread-"));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.mkdir(path.join(dir, "onnx"));
+  await fs.writeFile(path.join(dir, "onnx", "model_int8.onnx"), "x");
+  await fs.writeFile(path.join(dir, "config.json"), "{}");
+  const whole = runtimeWith({ verifyError: denied, onnxModelDir: dir });
+  assert.deepEqual((await whole.runtime.describe()).onnx.missing, []);
+  await fs.rm(path.join(dir, "config.json"));
+  const gap = runtimeWith({ verifyError: denied, onnxModelDir: dir });
+  assert.deepEqual((await gap.runtime.describe()).onnx.missing, ["config.json"]);
   const local = runtimeWith({ verifyError: denied, onnxModelDir: "/home/me/.ai-dev/models/bge-m3-onnx" });
   assert.match((await local.runtime.describe()).reason, /cannot be read .*Make the folder and its files readable to the user this runs as\./);
 });

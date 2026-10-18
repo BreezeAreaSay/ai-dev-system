@@ -16,7 +16,7 @@
  */
 
 /** The contract's version; `system_status` answers it as `api_version`. */
-export const CONTROL_API_VERSION = "1.1.0";
+export const CONTROL_API_VERSION = "1.2.0";
 
 const string = { type: "string" };
 const count = { type: "integer", minimum: 0 };
@@ -59,9 +59,10 @@ const MODEL_STATE = object({
   missing: strings,
   mismatched: strings,
   partial: list(object({ file: string, bytes: count, size: nullable(count) })),
+  unreadable: { type: "string", description: "Why this user could not read the model at all, when it could not: no file is then counted present or mismatched, and `missing` holds only those not there at all (1.2)." },
   supported: { type: "boolean", description: "Whether the ONNX runtime runs on this machine." },
   support_reason: string
-}, { description: "Where the local model stands." });
+}, { optional: ["unreadable"], description: "Where the local model stands." });
 
 const MODEL_CHANGE = object({
   ready: { type: "boolean", description: "The model is complete and verified after this call." },

@@ -232,3 +232,24 @@ test("`ai-dev backup` and `ai-dev restore` run on every system, and a restore as
   assert.equal(JSON.parse(restored.stdout).restored, 2);
   assert.equal(await fs.readFile(path.join(home, "r", "vault", "01-system", "Agent Rules.md"), "utf8"), "mine\n");
 });
+
+test("`ai-dev uninstall` says what it would do, changes nothing without --yes, and refuses a typo", async (t) => {
+  const home = await tempDir(t);
+  const runtime = path.join(home, "rt");
+  await fs.mkdir(path.join(runtime, "state"), { recursive: true });
+  await fs.writeFile(path.join(runtime, "state", "instincts.json"), "{}\n");
+  const env = homeEnv(home, { AI_DEV_HOME: runtime, AI_DEV_STATE_ROOT: "" });
+  const help = await runNode([cli, "help", "uninstall"], { env });
+  assert.equal(help.code, 0);
+  assert.match(help.stdout, /^Usage: ai-dev uninstall \[--clients\] \[--data\] \[--yes\] \[--json\]/);
+  const dry = await runNode([cli, "uninstall", "--clients", "--data", "--json"], { env });
+  assert.equal(dry.code, 0, dry.stderr);
+  const said = JSON.parse(dry.stdout);
+  assert.equal(said.apply, false);
+  assert.equal(said.runtime_home, runtime);
+  assert.deepEqual(said.data, { asked: true, removed: false });
+  await fs.access(path.join(runtime, "state", "instincts.json"));
+  const typo = await runNode([cli, "uninstall", "--date"], { env });
+  assert.equal(typo.code, 2);
+  assert.match(typo.stderr, /`ai-dev uninstall` has no option --date\. Did you mean --data\?/);
+});

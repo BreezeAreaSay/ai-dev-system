@@ -4,8 +4,9 @@
  * on, so the app must start and reach the daemon with the same Node the AI
  * clients' `ai-dev mcp` uses, or it would get a daemon of its own.
  *
- * Looked for in this order: `AI_DEV_NODE`; the Node an AI client's ai-dev
- * entry runs (what `ai-dev clients install` wrote); `PATH`; the places
+ * Looked for in this order: `AI_DEV_NODE`; the Node the Windows installer
+ * ships, which the clients it connects run too; the Node an AI client's
+ * ai-dev entry runs (what `ai-dev clients install` wrote); `PATH`; the places
  * installers put Node, which a GUI app on macOS does not have on its PATH.
  */
 import { spawnSync } from "node:child_process";
@@ -84,13 +85,15 @@ export function supportedVersion(version) {
  * English and `reason` names the same words in the page's dictionary
  * (`node.problem.*`), so the window says it in its language (Д-264).
  *
- * @param {{ env?: NodeJS.ProcessEnv, platform?: string, home?: string, clientNodes?: string[], versionOf?: (file: string) => string | null }} [options]
+ * @param {{ env?: NodeJS.ProcessEnv, platform?: string, home?: string, bundled?: string[], clientNodes?: string[], versionOf?: (file: string) => string | null }} [options]
+ *   `bundled` — the Node the Windows installer ships, through its stable link;
  *   `clientNodes` — the executables AI clients' ai-dev entries run, when known.
  * @returns {{ path: string, version: string, source: string } | { path: null, problem: string, reason: { key: string, params?: object }, tried: string[] }}
  */
-export function findNode({ env = process.env, platform = process.platform, home = os.homedir(), clientNodes = [], versionOf = nodeVersion } = {}) {
+export function findNode({ env = process.env, platform = process.platform, home = os.homedir(), bundled = [], clientNodes = [], versionOf = nodeVersion } = {}) {
   const candidates = [];
   if (env.AI_DEV_NODE) candidates.push({ file: env.AI_DEV_NODE, source: "AI_DEV_NODE", only: true });
+  for (const file of bundled) candidates.push({ file, source: "bundled" });
   for (const file of clientNodes) candidates.push({ file, source: "client" });
   for (const file of onPath({ env, platform })) candidates.push({ file, source: "PATH" });
   for (const file of wellKnown({ env, platform, home })) candidates.push({ file, source: "installed" });

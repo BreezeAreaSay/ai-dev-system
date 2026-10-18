@@ -22,13 +22,13 @@ export function processRuns(pid) {
 /**
  * The tray's menu as a template, so a test can read it without a tray.
  *
- * @param {{ t: (key: string, params?: object) => string, online: boolean, rebuilding: number | null, failed?: unknown, stopping?: boolean, stopFailed?: unknown }} view
+ * @param {{ t: (key: string, params?: object) => string, online: boolean, rebuilding: number | null, failed?: unknown, stopping?: boolean, stopFailed?: unknown, update?: { version: string } | null }} view
  *   `failed` — the last rebuild from the tray failed, until the next one;
  *   `stopping` — a Stop runs; `stopFailed` — the last Stop failed, while a
- *   daemon it names still runs.
- * @param {{ open: () => void, rebuild: () => void, stop: () => void, quit: () => void }} actions
+ *   daemon it names still runs; `update` — an update is downloaded and waits.
+ * @param {{ open: () => void, rebuild: () => void, stop: () => void, quit: () => void, update?: () => void }} actions
  */
-export function trayMenuTemplate({ t, online, rebuilding, failed = null, stopping = false, stopFailed = null }, actions) {
+export function trayMenuTemplate({ t, online, rebuilding, failed = null, stopping = false, stopFailed = null, update = null }, actions) {
   // "Try again" only where it can be pressed; offline the tooltip says why (docs/DEFECTS.md, Д-280).
   const rebuildLabel = rebuilding !== null ? t("tray.rebuilding", { percent: rebuilding }) : failed && online ? t("tray.rebuildFailed") : t("tray.rebuild");
   const stopLabel = stopping ? t("tray.stopping") : stopFailed ? t("tray.stopFailed") : t("tray.stop");
@@ -44,6 +44,8 @@ export function trayMenuTemplate({ t, online, rebuilding, failed = null, stoppin
     // offered again while it runs, and not while a Stop runs (Д-277, Д-278).
     { id: "stop", label: stopLabel, enabled: !stopping && (online || Boolean(stopFailed)), click: actions.stop },
     { type: "separator" },
+    // A downloaded update: offered here, and installed at Quit if not sooner.
+    ...(update && actions.update ? [{ id: "update", label: t("tray.update", { version: update.version }), click: actions.update }] : []),
     { id: "quit", label: t("tray.quit"), click: actions.quit }
   ];
 }
@@ -54,7 +56,7 @@ export function trayMenuTemplate({ t, online, rebuilding, failed = null, stoppin
  * @param {{ electron: typeof import("electron"), link: import("./daemon-link.mjs").DaemonLink, t: (key: string, params?: object) => string, actions: object, runs?: (pid: number) => boolean, lookEveryMs?: number }} options
  *   `t` translates into the language in force when it is called; `runs`
  *   tells whether a daemon still runs.
- * @returns {{ tray: import("electron").Tray, refresh: () => void, setRebuilding: (percent: number | null, failure?: { key?: string, text?: string } | string | null) => void, setStopping: () => void, setStopFailed: (failure: { daemons?: Array<{ pid: number, reason?: string }>, error?: string } | string | null) => void, state: () => string, menu: () => Array<object>, tooltip: () => string }}
+ * @returns {{ tray: import("electron").Tray, refresh: () => void, setRebuilding: (percent: number | null, failure?: { key?: string, text?: string } | string | null) => void, setStopping: () => void, setStopFailed: (failure: { daemons?: Array<{ pid: number, reason?: string }>, error?: string } | string | null) => void, setUpdate: (update: { version: string } | null) => void, state: () => string, menu: () => Array<object>, tooltip: () => string }}
  */
 export function createTray({ electron, link, t, actions, runs = processRuns, lookEveryMs = NOTE_LOOK_MS }) {
   const { Menu, Tray, nativeImage } = electron;
@@ -71,6 +73,8 @@ export function createTray({ electron, link, t, actions, runs = processRuns, loo
   // Why the last Stop failed: the daemons that would not stop, each with its
   // pid and why (Д-277, Д-283 п. 4), or the error the request ended with.
   let stopFailed = null;
+  // A downloaded update waiting for a restart: `{ version }`, or null.
+  let update = null;
   let noteTimer = null;
   // What Electron was last given, which is what the person sees.
   let template = [];
@@ -108,7 +112,7 @@ export function createTray({ electron, link, t, actions, runs = processRuns, loo
     ];
     tip = tips.filter(Boolean).join("\n");
     tray.setToolTip(tip);
-    template = trayMenuTemplate({ t, online, rebuilding, failed, stopping, stopFailed }, actions);
+    template = trayMenuTemplate({ t, online, rebuilding, failed, stopping, stopFailed, update }, actions);
     tray.setContextMenu(Menu.buildFromTemplate(template));
   };
   tray.on("click", actions.open);
@@ -145,6 +149,11 @@ export function createTray({ electron, link, t, actions, runs = processRuns, loo
         }, lookEveryMs);
         noteTimer.unref?.();
       }
+      refresh();
+    },
+    /** An update was downloaded (`{ version }`): the menu offers a restart for it. */
+    setUpdate(next) {
+      update = next?.version ? { version: next.version } : null;
       refresh();
     },
     state: () => current,

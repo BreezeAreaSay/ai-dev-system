@@ -8,6 +8,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import electron from "electron";
 import { pickLanguage, translate } from "../renderer/i18n.js";
+import { prepareRuntime, shippedRuntime } from "./bundle.mjs";
 import { confirmationDialog, consoleDecision, consoleTools, settingsDialog } from "./console-policy.mjs";
 import { DaemonLink } from "./daemon-link.mjs";
 import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, refuseClients, settingsToConfirm, validCallId } from "./ipc-policy.mjs";
@@ -16,6 +17,7 @@ import { findNode } from "./node-runtime.mjs";
 import { APP_ORIGIN, APP_SCHEME, PAGE_PARTITION, appFileHandler, isAppUrl, lockContents, lockSession, windowPreferences } from "./security.mjs";
 import { startupFailure } from "./startup.mjs";
 import { createTray } from "./tray.mjs";
+import { UPDATER_PARTITION, lockUpdaterSession, resolverRules, startUpdates, updatesEnabled } from "./updates.mjs";
 
 const { app, BrowserWindow, Menu, dialog, ipcMain, protocol, session } = electron;
 
@@ -24,12 +26,20 @@ const desktopRoot = path.resolve(here, "..", "..");
 const rendererRoot = path.join(desktopRoot, "src", "renderer");
 const preload = path.join(desktopRoot, "src", "preload", "preload.cjs");
 
-/** The server this app drives: beside it in a checkout, inside it when packaged, or AI_DEV_SERVER_ROOT. */
+/**
+ * The runtime the Windows installer ships, which the app copies and runs
+ * through the stable link AI clients run (bundle.mjs); null in a checkout.
+ */
+const bundleRoot = shippedRuntime({ env: process.env, packaged: app.isPackaged, platform: process.platform, resourcesPath: process.resourcesPath });
+
+/** The server this app drives: beside it in a checkout, or AI_DEV_SERVER_ROOT; the Windows install's comes from its runtime. */
 function serverRoot() {
   if (process.env.AI_DEV_SERVER_ROOT) return path.resolve(process.env.AI_DEV_SERVER_ROOT);
-  if (app.isPackaged) return path.join(process.resourcesPath, "ai-dev-mcp-server");
   return path.resolve(desktopRoot, "..", "ai-dev-mcp-server");
 }
+
+/** The installed app looks for updates (updates.mjs); a checkout does not. */
+const updates = updatesEnabled({ packaged: app.isPackaged, platform: process.platform, env: process.env });
 
 /**
  * The menu: none on Windows and Linux; on macOS the app and Edit menus, which
@@ -44,8 +54,9 @@ function applicationMenu() {
 // name it hands to WebRTC or a dns-prefetch would otherwise still go to the
 // system's resolver — a way out for what a script put in it (docs/DEFECTS.md,
 // Д-260). The daemon is reached from Node, over a socket; Node's own lookups
-// do not go through this rule.
-app.commandLine.appendSwitch("host-resolver-rules", "MAP * ~NOTFOUND");
+// do not go through this rule. The installed app's updater is the one
+// exception: the update hosts, by their exact names (updates.mjs).
+app.commandLine.appendSwitch("host-resolver-rules", resolverRules({ updates }));
 protocol.registerSchemesAsPrivileged([{ scheme: APP_SCHEME, privileges: { standard: true, secure: true } }]);
 
 if (!app.requestSingleInstanceLock()) {
@@ -66,7 +77,12 @@ if (!app.requestSingleInstanceLock()) {
   // The main process's own calls are named apart, so two at once do not share an id.
   let ownCalls = 0;
   const env = { ...process.env };
-  const root = serverRoot();
+  // The Windows install's server is its runtime's, known once the runtime is prepared.
+  let root = bundleRoot ? null : serverRoot();
+  // The prepared runtime of the Windows install: its stable link's Node and server.
+  let runtime = null;
+  // electron-updater's updater, when the installed app looks for updates.
+  let updater = null;
   const t = (key, params) => translate(language, key, params);
   const devTools = process.env.AI_DEV_DESKTOP_DEVTOOLS === "1";
   const link = new DaemonLink({ env, t });
@@ -122,6 +138,35 @@ if (!app.requestSingleInstanceLock()) {
     app.quit();
   };
 
+  // The tray's "Restart to update": as Quit, then the installer runs silently
+  // and starts the app again; the new runtime is prepared at that start.
+  const installUpdate = async () => {
+    quitting = true;
+    await languages.quit().catch(() => undefined);
+    await link.close();
+    updater.quitAndInstall(true, true);
+  };
+
+  /**
+   * Copy the Windows install's runtime, or find it copied, and take its
+   * server and Node. The page shows how far the copy has come — sent at most
+   * five times a second: a runtime is thousands of files.
+   */
+  const prepare = async () => {
+    let sent = 0;
+    link.preparing();
+    runtime = await prepareRuntime({
+      bundleRoot,
+      env,
+      onProgress: ({ progress, total }) => {
+        if (Date.now() - sent < 200 && progress < total) return;
+        sent = Date.now();
+        link.preparing({ progress, total });
+      }
+    });
+    root = runtime.serverRoot;
+  };
+
   const rebuildFromTray = async () => {
     tray.setRebuilding(0);
     const result = await link.call("rebuild_search_index", {}, {
@@ -174,6 +219,17 @@ if (!app.requestSingleInstanceLock()) {
    */
   const startup = () => {
     starting ??= (async () => {
+      if (bundleRoot && !runtime) {
+        try {
+          await prepare();
+        } catch (error) {
+          // A full disk, a folder that cannot be written, a damaged install:
+          // Try again prepares it again; the installer is the way back.
+          explain = () => link.fail({ error: t("broken.runtimeFailed"), hint: t("broken.runtimeHint"), detail: String(error?.message ?? error), restart: false });
+          explain();
+          return;
+        }
+      }
       try {
         server ??= await import(pathToFileURL(path.join(root, "src", "core", "control-client.mjs")).href);
         const read = server.readSettings({ env });
@@ -183,7 +239,8 @@ if (!app.requestSingleInstanceLock()) {
         window?.setTitle(t("app.title"));
         tray?.refresh();
         const clientNodes = await server.clientNodePaths({ env, cliPath: path.join(root, "bin", "ai-dev.mjs") }).catch(() => []);
-        node = findNode({ env, clientNodes });
+        // The Windows install's own Node first: the clients it connects run it, through the same link.
+        node = findNode({ env, clientNodes, bundled: runtime ? [runtime.node] : [] });
         const linkServer = { ...server, openControlClient: (options) => server.openControlClient({ serverRoot: root, ...options }) };
         explain = node.path ? null : () => link.attach({ server: linkServer, execPath: null, noNode: node.reason ? t(node.reason.key, node.reason.params) : node.problem });
         link.attach({ server: linkServer, execPath: node.path, noNode: node.reason ? t(node.reason.key, node.reason.params) : node.problem });
@@ -301,10 +358,18 @@ if (!app.requestSingleInstanceLock()) {
 
     ready = true;
     openWindow();
-    tray = createTray({ electron, link, t, actions: { open: openWindow, rebuild: rebuildFromTray, stop: stopFromTray, quit } });
+    tray = createTray({ electron, link, t, actions: { open: openWindow, rebuild: rebuildFromTray, stop: stopFromTray, quit, update: () => installUpdate() } });
     // What the end-to-end tests read from the main process: the tray, its
     // actions, the daemon link (desktop/test/e2e). Nothing of it reaches the page.
-    if (process.env.AI_DEV_DESKTOP_TEST === "1") globalThis.aiDevTest = { tray, link, rebuild: rebuildFromTray, stop: stopFromTray, quit, node: () => node };
+    if (process.env.AI_DEV_DESKTOP_TEST === "1") globalThis.aiDevTest = { tray, link, rebuild: rebuildFromTray, stop: stopFromTray, quit, node: () => node, runtime: () => runtime };
     startup();
+    if (updates) {
+      // The updater's session lets through only the update hosts; locked
+      // before electron-updater asks for it (it asks for the same partition).
+      lockUpdaterSession(session.fromPartition(UPDATER_PARTITION, { cache: false }));
+      const loaded = await import("electron-updater");
+      updater = loaded.autoUpdater ?? loaded.default.autoUpdater;
+      startUpdates({ updater, tray });
+    }
   });
 }

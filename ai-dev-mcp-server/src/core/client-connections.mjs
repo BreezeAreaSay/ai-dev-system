@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { stableLaunch } from "./app-bundle.mjs";
 import { APP_MARKER, appCli, appFolder } from "./app-home.mjs";
 import { EXIT } from "./cli-args.mjs";
 import { DISTRIBUTION_MARKER, PACKAGE_NAME, currentInstallLayout } from "./install-layout.mjs";
@@ -72,16 +73,24 @@ function installedAppCli(layout) {
  * the state and a package's vault in ~/.ai-dev instead (docs/DEFECTS.md, Д-176).
  *
  * A package npx runs from its cache is launched from the copy `setup`
- * installed in the app home, never from the cache npm may clear.
+ * installed in the app home, never from the cache npm may clear. The Windows
+ * install is launched through its stable link, `<runtime>/app/current`: the
+ * Node and the CLI of whichever runtime the app made current, so an update
+ * changes no config (`app-bundle.mjs`).
  *
- * @param {{ env?: NodeJS.ProcessEnv, execPath?: string, cliPath?: string, serverRoot?: string, layout?: import("./install-layout.mjs").InstallLayout, appCliPath?: () => string }} [options]
+ * @param {{ env?: NodeJS.ProcessEnv, execPath?: string, cliPath?: string, serverRoot?: string, layout?: import("./install-layout.mjs").InstallLayout, appCliPath?: () => string, stable?: (layout: import("./install-layout.mjs").InstallLayout) => { command: string, cli: string } | null }} [options]
  * @returns {{ command: string, args: string[], env: Record<string, string> }}
  */
-export function localLaunch({ env = process.env, execPath = process.execPath, cliPath = CLI_PATH, serverRoot = SERVER_ROOT, layout = currentInstallLayout(), appCliPath = () => installedAppCli(layout) } = {}) {
+export function localLaunch({ env = process.env, execPath = process.execPath, cliPath = CLI_PATH, serverRoot = SERVER_ROOT, layout = currentInstallLayout(), appCliPath = () => installedAppCli(layout), stable = stableLaunch } = {}) {
   const vault = env.AI_DEV_VAULT_ROOT ? path.resolve(env.AI_DEV_VAULT_ROOT) : vaultAround(serverRoot);
   const runtimeHome = explicitRuntimeHome(env);
   let cli = cliPath;
-  if (layout.kind === "package" && layout.ephemeral) {
+  let command = execPath;
+  const link = layout.kind === "package" ? stable(layout) : null;
+  if (link) {
+    command = link.command;
+    cli = link.cli;
+  } else if (layout.kind === "package" && layout.ephemeral) {
     cli = appCliPath();
     if (!cli) {
       throw Object.assign(new Error(`This copy runs from npx's cache (${layout.root}), which npm may clear, so a client config must not name it. `
@@ -89,7 +98,7 @@ export function localLaunch({ env = process.env, execPath = process.execPath, cl
     }
   }
   return {
-    command: execPath,
+    command,
     args: [cli, "mcp"],
     env: { ...(vault ? { AI_DEV_VAULT_ROOT: vault } : {}), ...(runtimeHome ? { AI_DEV_HOME: runtimeHome } : {}) }
   };

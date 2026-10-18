@@ -23,6 +23,7 @@ export const COMMANDS = new Map([
   ["setup", { group: "Setup", summary: "Build the search index, connect your AI clients, optionally get the local model", load: () => import("./setup.mjs") }],
   ["clients", { group: "Setup", summary: "list | install | remove | doctor — the ai-dev entry in Claude, Cursor, VS Code, Codex, Gemini", load: () => import("./clients.mjs") }],
   ["model", { group: "Setup", summary: "status | install | import | verify | remove | doctor — the local search model", load: () => import("./model.mjs") }],
+  ["uninstall", { group: "Setup", summary: "Take the Windows install's runtime off this computer (what its uninstaller runs)", load: () => import("./uninstall.mjs") }],
   ["mcp", { group: "Run", summary: "Serve MCP on stdin/stdout — what an AI client starts", load: runtime }],
   ["daemon", { group: "Run", summary: "start | stop | status | run — the one warm server every client is handed to", load: () => import("./daemon.mjs") }],
   ["doctor", { group: "Run", summary: "Check the health of this install", load: runtime }],

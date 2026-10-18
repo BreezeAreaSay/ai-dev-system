@@ -67,9 +67,21 @@ function focusHeading() {
 }
 
 function connectingScreen() {
-  return h("section", { className: "centre", dataset: { screen: "connecting" } },
-    h("h1", { tabindex: "-1" }, view.t("connect.title")),
-    h("div", { className: "spinner", role: "presentation" }));
+  const { preparing, progress = 0, total = 0 } = view.connection;
+  if (!preparing) {
+    return h("section", { className: "centre", dataset: { screen: "connecting" } },
+      h("h1", { tabindex: "-1" }, view.t("connect.title")),
+      h("div", { className: "spinner", role: "presentation" }));
+  }
+  // The Windows install copies its runtime first (desktop/src/main/bundle.mjs).
+  const megabytes = (bytes) => `${Math.round(bytes / 1_048_576)} MB`;
+  return h("section", { className: "centre", dataset: { screen: "preparing" } },
+    h("h1", { tabindex: "-1" }, view.t("connect.preparing")),
+    h("p", {}, view.t("connect.preparingDetail")),
+    total > 0
+      ? h("div", { className: "progress" }, h("progress", { max: String(total), value: String(progress), "aria-label": view.t("connect.preparing") }))
+      : h("div", { className: "spinner", role: "presentation" }),
+    total > 0 ? h("p", { className: "muted" }, view.t("connect.preparingProgress", { done: megabytes(progress), total: megabytes(total) })) : null);
 }
 
 /** A Try again button, for a screen whose cause the person can fix while the app runs. */

@@ -35,6 +35,9 @@ export const KEPT_APP_COPIES = 2;
 
 const readJson = async (file) => JSON.parse(await fs.readFile(file, "utf8"));
 
+/** Two real paths of one folder: Windows and macOS ignore case in a name. */
+const samePath = (left, right) => (["win32", "darwin"].includes(process.platform) ? left.toLowerCase() === right.toLowerCase() : left === right);
+
 /**
  * Where a package of this content lives in the app home.
  *
@@ -93,9 +96,19 @@ const STOPPED_INSTALL_MS = 60 * 60 * 1000;
  * server holds it) is finished off by a later install instead of staying,
  * without its marker, for good. A folder without a marker that is not a
  * partial install is not this module's, and stays.
+ *
+ * The copy the Windows install's stable link `current` names is never removed,
+ * however long ago it was chosen: every AI client config of that install runs
+ * it (`app-bundle.mjs`). The link itself is not a folder, and is left alone.
+ *
+ * @param {string} appsRoot - `<runtime>/app`.
+ * @param {number} keep - How many copies stay, besides the one `current` names.
+ * @param {number} nowMs
+ * @returns {Promise<string[]>} the copies removed
  */
-async function prune(appsRoot, keep, nowMs) {
+export async function pruneAppCopies(appsRoot, keep, nowMs) {
   const entries = await fs.readdir(appsRoot, { withFileTypes: true }).catch(() => []);
+  const linked = await fs.realpath(path.join(appsRoot, "current")).catch(() => "");
   const copies = [];
   const partials = [];
   for (const entry of entries) {
@@ -105,12 +118,14 @@ async function prune(appsRoot, keep, nowMs) {
       partials.push(folder);
       continue;
     }
+    if (linked && await fs.realpath(folder).then((real) => samePath(real, linked), () => false)) continue;
     const marker = await readJson(path.join(folder, APP_MARKER)).catch(() => null);
     if (marker) copies.push({ folder, at: Date.parse(marker.chosen_at ?? marker.installed_at ?? "") || 0 });
   }
   copies.sort((left, right) => right.at - left.at);
   const removed = [];
-  for (const { folder } of copies.slice(keep)) {
+  // The linked copy is one of the kept ones: it is the current install's.
+  for (const { folder } of copies.slice(linked ? Math.max(0, keep - 1) : keep)) {
     const aside = `${folder}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.partial`;
     // In use on Windows: it cannot even be renamed, and stays until the next time.
     if (!await fs.rename(folder, aside).then(() => true, () => false)) continue;
@@ -179,5 +194,5 @@ export async function installAppHome({ packageRoot, runtimeRoot, runNpm, now = (
     await fs.rm(stage, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
-  return result("installed", await prune(path.dirname(folder), KEPT_APP_COPIES, now().getTime()));
+  return result("installed", await pruneAppCopies(path.dirname(folder), KEPT_APP_COPIES, now().getTime()));
 }

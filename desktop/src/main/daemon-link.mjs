@@ -116,6 +116,16 @@ export class DaemonLink extends EventEmitter {
   }
 
   /**
+   * The Windows install copies its runtime before it can reach a daemon
+   * (bundle.mjs): the page says so, with how far the copy has come.
+   *
+   * @param {{ progress?: number, total?: number }} [progress]
+   */
+  preparing({ progress = 0, total = 0 } = {}) {
+    this.#set({ phase: "connecting", preparing: true, progress, total });
+  }
+
+  /**
    * Reach the daemon; with `start`, start it when it is not running. Two
    * calls at once share one attempt. `reconnecting` says the app had a
    * session and is opening another: the page keeps its place.

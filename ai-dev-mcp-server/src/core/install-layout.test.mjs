@@ -104,6 +104,25 @@ test("hints are spelled the way each layout runs them", () => {
     "node /opt/ai-dev/app/bin/ai-dev.mjs doctor", "the image has no ai-dev on PATH (Д-185)");
   assert.equal(hint("npm run check", global), "npm run check", "a script only a checkout has stays as written");
   assert.equal(hint("git pull", global), "git pull");
+  const windows = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot: path.join(home, ".ai-dev") };
+  assert.equal(hint("npm run setup -- --model", windows), `"${path.join(home, ".ai-dev", "app", "current", "ai-dev.cmd")}" setup --model`,
+    "the Windows installer puts nothing on PATH: its shim beside the stable link, quoted for a home with a space");
+});
+
+test("the Windows installer's runtime is a package with a bundle, wherever it lies", () => {
+  const root = path.join(home, ".ai-dev", "app", "3.0.0-abcdef12");
+  const layout = resolveInstallLayout({
+    serverRoot: path.join(root, "ai-dev-mcp-server"),
+    env: env(),
+    exists: only(path.join(root, "distribution.json"), path.join(root, "bundle.json"), path.join(root, "seed", "public-seed.manifest.json"))
+  });
+  assert.equal(layout.kind, "package");
+  assert.equal(layout.bundle, true);
+  assert.equal(layout.appHome, true);
+  assert.equal(layout.seedRoot, path.join(root, "seed"), "its seed fills the user's vault, as a package's does");
+  assert.equal(runtimeRepairHint(layout, { platform: "win32", arch: "x64" }), "run the AI Dev installer again: it ships the runtime with it");
+  const npm = resolveInstallLayout({ serverRoot: path.join(root, "ai-dev-mcp-server"), env: env(), exists: only(path.join(root, "distribution.json")) });
+  assert.equal(npm.bundle, false, "an npx copy has no bundle.json");
 });
 
 test("the model runtime's way back depends on how the package got here (Д-174)", () => {

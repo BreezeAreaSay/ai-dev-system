@@ -41,6 +41,16 @@ export const DISTRIBUTION_MARKER = "distribution.json";
 /** Where the seed's manifest sits in a seed folder. */
 export const SEED_MANIFEST = "public-seed.manifest.json";
 
+/**
+ * The file the Windows installer's build writes beside `distribution.json`:
+ * the runtime it ships — the package, its dependencies, its own Node — with
+ * the sha256 of each file (`app-bundle.mjs`).
+ */
+export const BUNDLE_MARKER = "bundle.json";
+
+/** The command an install of the Windows installer is run by from a terminal: `<runtime>/app/current/ai-dev.cmd`. */
+export const BUNDLE_COMMAND = "ai-dev.cmd";
+
 /** This module's own server folder: `<server>/src/core/install-layout.mjs`. */
 export const OWN_SERVER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -74,6 +84,7 @@ export function isEphemeralInstall(folder) {
  * @property {string} runtimeRoot - `~/.ai-dev`, or `AI_DEV_HOME`.
  * @property {boolean} ephemeral - Run from a package manager's one-run cache.
  * @property {boolean} appHome - A copy `setup` made under `<runtime>/app/` to outlive that cache.
+ * @property {boolean} bundle - The Windows installer's runtime (`bundle.json` beside the package): its own Node, no npm.
  */
 
 /**
@@ -106,6 +117,7 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
     runtimeRoot,
     ephemeral,
     appHome,
+    bundle: kind === "package" && exists(path.join(root, BUNDLE_MARKER)),
     kind,
     contentRoot: path.resolve(explicit || ownContent),
     seedRoot: explicit ? "" : ownSeed
@@ -146,7 +158,7 @@ const ALIASES = new Map([
  * clone: a package's user runs `ai-dev setup --model`, or through `npx`.
  *
  * @param {string} command - `npm run <alias> [-- args]`, as a clone types it.
- * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome"> & { serverRoot?: string }} [layout]
+ * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome"> & { serverRoot?: string, bundle?: boolean, runtimeRoot?: string }} [layout]
  * @returns {string}
  */
 export function hint(command, layout = currentInstallLayout()) {
@@ -156,6 +168,9 @@ export function hint(command, layout = currentInstallLayout()) {
   const words = [ALIASES.get(match[1]), match[2] ?? ""].filter(Boolean).join(" ").trim();
   // The image puts no `ai-dev` on PATH: inside it the CLI is run by its path.
   if (layout.kind === "docker") return `node ${path.posix.join(layout.serverRoot || "/opt/ai-dev/app", "bin", "ai-dev.mjs")} ${words}`.trim();
+  // The Windows installer puts nothing on PATH either: its command is the
+  // shim beside the runtime's stable link, which names the runtime's own Node.
+  if (layout.bundle && layout.runtimeRoot) return `"${path.join(layout.runtimeRoot, "app", "current", BUNDLE_COMMAND)}" ${words}`.trim();
   // `ai-dev` is on PATH for a global install; a copy npx left behind, or one
   // setup made in the app home, is reached through npx.
   return layout.ephemeral || layout.appHome ? `npx ${PACKAGE_NAME} ${words}`.trim() : `ai-dev ${words}`.trim();
@@ -169,13 +184,15 @@ export function hint(command, layout = currentInstallLayout()) {
  * goes on without them (docs/DEFECTS.md, Д-174). "Run npm ci" is right only
  * in a clone.
  *
- * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome"|"root">} [layout]
+ * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome"|"root"> & { bundle?: boolean }} [layout]
  * @param {{ platform?: string, arch?: string }} [machine]
  * @returns {string}
  */
 export function runtimeRepairHint(layout = currentInstallLayout(), { platform = process.platform, arch = process.arch } = {}) {
   if (layout.kind === "clone" || layout.kind === "vault") return "run `npm ci` in ai-dev-mcp-server/";
   if (layout.kind === "docker") return "pull or rebuild the image, which is built with it";
+  // The installer ships the runtime with its dependencies; there is no npm to run.
+  if (layout.bundle) return "run the AI Dev installer again: it ships the runtime with it";
   if (layout.ephemeral) return `run \`npx ${PACKAGE_NAME} setup\`, which installs a copy with it`;
   if (layout.appHome) return `run \`npm ci --omit=dev --ignore-scripts\` in ${layout.root}`;
   return platform === "linux" && arch === "x64"

@@ -5,6 +5,8 @@
   "private": true,
   "description": "The AI Dev desktop app: a tray, a first-run wizard and a status screen over the daemon every AI client shares.",
   "license": "MIT",
+  "author": "stonebridgeway",
+  "homepage": "https://github.com/stonebridgeway/ai-dev-system",
   "type": "module",
   "main": "src/main/main.mjs",
   "engines": {
@@ -14,10 +16,15 @@
     "start": "electron .",
     "test": "node scripts/run-tests.mjs",
     "test:unit": "node --test \"test/unit/*.test.mjs\"",
-    "electron:install": "node scripts/electron-binary.mjs"
+    "electron:install": "node scripts/electron-binary.mjs",
+    "dist:win": "node scripts/build-windows.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.10"
   },
   "devDependencies": {
     "electron": "44.5.1",
+    "electron-builder": "26.17.0",
     "playwright-core": "1.63.0"
   }
 }

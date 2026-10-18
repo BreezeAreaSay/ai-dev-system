@@ -16,6 +16,20 @@ test("a runtime folder named by AI_DEV_HOME goes into the client's entry; the ho
   assert.deepEqual(vault.env, { AI_DEV_VAULT_ROOT: path.resolve("/vault"), AI_DEV_HOME: path.resolve("/data/ai") });
 });
 
+test("the Windows install is launched through its stable link, so an update changes no client config", () => {
+  const runtime = path.resolve("/home/me/.ai-dev");
+  const windows = { kind: "package", ephemeral: false, appHome: true, bundle: true, root: path.join(runtime, "app", "3.0.0-abcdef12"), runtimeRoot: runtime };
+  const link = { command: path.join(runtime, "app", "current", "node", "node.exe"), cli: path.join(runtime, "app", "current", "ai-dev-mcp-server", "bin", "ai-dev.mjs") };
+  const launch = localLaunch({ env: { HOME: home }, execPath: "/real/copy/node.exe", cliPath: "/real/copy/cli.mjs", serverRoot: windows.root, layout: windows, stable: () => link });
+  assert.deepEqual(launch, { command: link.command, args: [link.cli, "mcp"], env: {} });
+  const noLink = localLaunch({ env: { HOME: home }, execPath: "/real/copy/node.exe", cliPath: "/real/copy/cli.mjs", serverRoot: windows.root, layout: windows, stable: () => null });
+  assert.deepEqual(noLink.args, ["/real/copy/cli.mjs", "mcp"], "without its link the runtime is named as any install is");
+  assert.equal(noLink.command, "/real/copy/node.exe");
+  const seen = [];
+  localLaunch({ env: { HOME: home }, execPath: "/n", cliPath: "/c", serverRoot: "/s", layout: clone, stable: (layout) => seen.push(layout) && null });
+  assert.deepEqual(seen, [], "a clone never looks for the link");
+});
+
 test("a package npx runs from its cache is launched from the app home, or not at all", () => {
   const npx = { kind: "package", ephemeral: true, appHome: false, root: "/home/me/.npm/_npx/1/node_modules/@stonebridgeway/ai-dev-system" };
   const installed = localLaunch({ env: { HOME: home }, execPath: "/usr/bin/node", layout: npx, appCliPath: () => "/home/me/.ai-dev/app/3.0.0-abc/ai-dev-mcp-server/bin/ai-dev.mjs" });

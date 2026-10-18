@@ -15,7 +15,12 @@
  *    started, now of the new image — still serves a session, and the 3.0
  *    wrapper of the same name answers with the server's own handshake (Д-89);
  * 4. a 3.0 entry (`ai-dev clients entry … --docker`) on the same volume moves
- *    the volume's state, the task with it, into the host's state folder (Д-103).
+ *    the volume's state, the task with it, into the host's state folder (Д-103);
+ * 5. the way back as `bootstrap.sh --image …:2` writes it — the 2.x image run
+ *    by a 3.0 entry — answers, and sees the task in that state folder (Д-323,
+ *    Д-333);
+ * 6. back on the new image, what the 2.x start's `cp -n` put back into the
+ *    volume is removed again (Д-317).
  *
  * The 2.x launcher is read from git (`--old-ref`, the commit the upgrade test
  * starts from). Nothing outside a temporary folder and the volumes it names is
@@ -158,6 +163,21 @@ try {
   const moved = (await fs.readdir(path.join(state, "tasks")).catch(() => [])).filter((name) => name.endsWith(".json"));
   assert(moved.includes(`${first.task}.json`), `the task is not in the host's state folder: ${moved.join(", ")}`);
   report.entry_3x = { session_ms: third.handshake.ms, instructions: third.handshake.instructions, tasks_in_host_state: moved.length };
+
+  // 5. The way back as bootstrap --image …:2 writes it: the 2.x image under a
+  // 3.0 entry, which hands it the state folder (docs/DEFECTS.md, Д-323, Д-333).
+  const back = await session("docker", dockerRunArgs({ image: oldImage, volume, projects, state, platform: process.platform }), {}, async (client) => ({
+    tasks: (await json(client, "list_tasks", {})).map((task) => task.id)
+  }));
+  assert(back.tasks.includes(first.task), "the 2.x image under a 3.0 entry does not see the task in the shared state folder");
+  const putBack = Number(inVolume(newImage, "find /data/ai-dev-system/03-skills-catalog/sources -name SKILL.md | wc -l"));
+  report.way_back_3x_entry = { session_ms: back.handshake.ms, task: "seen in the shared state folder", skills_after_its_cp_n: putBack };
+
+  // 6. Back on the new image: what that start's `cp -n` put back goes again (Д-317).
+  const returned = await session("docker", dockerRunArgs({ image: newImage, volume, projects, state, platform: process.platform }), {});
+  const recount = Number(inVolume(newImage, "find /data/ai-dev-system/03-skills-catalog/sources -name SKILL.md | wc -l"));
+  assert(recount === shippedSkills + 1, `back on the new image the volume has ${recount} skills; the seed ships ${shippedSkills}, plus the user's own one`);
+  report.returned = { session_ms: returned.handshake.ms, skills: recount };
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 } finally {
   run("docker", ["rm", "-f", warm], { stdio: "ignore" });

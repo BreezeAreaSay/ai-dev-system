@@ -42,9 +42,19 @@ export function tildify(target, home = os.homedir()) {
   return `~${path.sep}${relative}`;
 }
 
-/** Where the record of written configs lives: the runtime home's state. */
+/**
+ * Where the record of written configs lives: the state folder the agent hooks
+ * use — AI_DEV_STATE_ROOT, else the runtime home's — where a Docker install's
+ * record goes too, so `clients remove` finds what either wrote. A record kept
+ * in the runtime home before, with the variable set, stays the one used
+ * (docs/DEFECTS.md, Д-336).
+ */
 export function clientStatePath(env = process.env) {
-  return path.join(resolveRuntimeStateRoot("", env), "state", "mcp-clients.json");
+  const runtimeRecord = path.join(resolveRuntimeStateRoot("", env), "state", "mcp-clients.json");
+  const stateRoot = String(env.AI_DEV_STATE_ROOT ?? "").trim();
+  if (!stateRoot) return runtimeRecord;
+  const record = path.join(path.resolve(stateRoot), "mcp-clients.json");
+  return !existsSync(record) && existsSync(runtimeRecord) ? runtimeRecord : record;
 }
 
 /** The Obsidian vault this server sits in, if it sits in one (`<vault>/09-mcp/ai-dev-mcp-server`). */
@@ -156,7 +166,8 @@ export function clientLabel(target) {
  * @param {string} [input.projects] - Default: `<home>/AI-Dev-Projects`, as 2.x's bootstrap had it.
  * @param {string} [input.model]
  * @param {string} [input.state] - The host's state folder; default: `AI_DEV_STATE_ROOT` on the host, else the runtime home's `state` — where the hooks keep theirs.
- * @param {"yes"|"no"|""} [input.shareState] - Whether the state folder is shared, decided by the host; default: by uid, and on a Linux host tried.
+ * @param {"yes"|"no"|"untried"|""} [input.shareState] - Whether the state folder is shared, decided by the host (`untried`: it could not try); default: on a Linux host tried, elsewhere by uid.
+ * @param {boolean} [input.tryState] - Try the sharing on a Linux host: with `apply`, and for `entry`, which prints what install would write.
  * @param {string} [input.docker] - The Docker CLI; default: found on PATH.
  * @param {string} [input.home]
  * @param {string} [input.platform]
@@ -164,9 +175,9 @@ export function clientLabel(target) {
  * @param {NodeJS.ProcessEnv} [input.env]
  * @param {boolean} [input.apply]
  * @param {typeof probeStateSharing} [input.probe]
- * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: string, state: string, record: string, platform: string, sharedState: boolean, sharedStateReason: string }>}
+ * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: string, state: string, record: string, platform: string, sharedState: boolean, sharedStateKind: "shared"|"refused"|"untried"|"dry", sharedStateReason: string }>}
  */
-export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", shareState = "", docker = "", home = os.homedir(), platform = process.platform, uid = process.getuid?.(), env = process.env, apply = true, probe = probeStateSharing } = {}) {
+export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", shareState = "", docker = "", home = os.homedir(), platform = process.platform, uid = process.getuid?.(), env = process.env, apply = true, tryState = apply, probe = probeStateSharing } = {}) {
   const paths = platform === "win32" ? path.win32 : path.posix;
   const onHost = String(env.AI_DEV_RUNTIME ?? "").trim().toLowerCase() !== "docker";
   const hostState = paths.resolve(state
@@ -183,21 +194,39 @@ export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEF
     docker: docker || resolveDockerCommand({ env, platform, home })
   };
   if (apply && onHost) for (const folder of [resolved.projects, hostState]) await fs.mkdir(folder, { recursive: true });
+  const probing = !shareState && platform === "linux" && onHost && tryState;
+  // The probe mounts the state folder, as install would: made for it, as install makes it (Д-334).
+  if (probing && !apply) await fs.mkdir(hostState, { recursive: true });
   const byUid = sharesHostState({ platform, uid });
-  let sharing = { shared: byUid, reason: "" };
-  if (shareState === "yes" || shareState === "no") {
-    sharing = { shared: shareState === "yes", reason: shareState === "no" && byUid ? TRIED_AND_REFUSED : "" };
-  } else if (byUid && platform === "linux" && onHost && apply) {
-    sharing = probe({ docker: resolved.docker, image, state: hostState, uid });
+  // On Linux the sharing is tried, whatever the uid: a remapping Docker may give
+  // a uid-1000 user's folder to someone else, and another uid's to them (Д-322,
+  // Д-334). Docker Desktop on macOS and Windows maps it to the user.
+  let sharing;
+  if (shareState === "yes") sharing = { shared: true, kind: "shared", reason: "" };
+  else if (shareState === "no") sharing = { shared: false, kind: "refused", reason: byUid ? TRIED_AND_REFUSED : "" };
+  else if (shareState === "untried") sharing = { shared: false, kind: "untried", reason: "bootstrap could not try it with the image" };
+  else if (platform !== "linux" || !onHost) sharing = { shared: byUid, kind: byUid ? "shared" : "refused", reason: "" };
+  else if (!probing) sharing = { shared: byUid, kind: "dry", reason: "" };
+  else {
+    const tried = probe({ docker: resolved.docker, image, state: hostState, uid });
+    sharing = { shared: tried.shared, kind: tried.shared ? "shared" : tried.tried ? "refused" : "untried", reason: tried.reason };
   }
-  return { ...resolved, state: sharing.shared ? hostState : "", sharedState: sharing.shared, sharedStateReason: sharing.reason };
+  return { ...resolved, state: sharing.shared ? hostState : "", sharedState: sharing.shared, sharedStateKind: sharing.kind, sharedStateReason: sharing.reason };
 }
 
 const TRIED_AND_REFUSED = "trying it, the image's user could not write your state folder as you (rootless Docker, userns-remap or Podman map the container's users to others)";
 
-/** Why the state is not shared, when it is not: for the install's output. */
+/** Why the state is not shared, or was not tried, when that is so: for the install's output. */
 export function unsharedStateNote(docker, uid = process.getuid?.()) {
-  if (!docker || docker.sharedState) return "";
+  if (!docker) return "";
+  if (docker.sharedStateKind === "dry") {
+    return "On Linux, sharing your state folder with the server is tried with the image when the configs are written; a dry run does not try it (docs/INSTALL.md; Д-322).";
+  }
+  if (docker.sharedState) return "";
+  if (docker.sharedStateKind === "untried") {
+    return `Your state folder is not shared with the server for now: ${docker.sharedStateReason || "the sharing could not be tried"}. `
+      + "The server keeps its state in the volume; run `ai-dev clients install --docker` again once Docker runs the image (Д-331).";
+  }
   const why = docker.sharedStateReason
     || `the image's user (uid ${IMAGE_UID}) is not yours (uid ${uid}), so a folder of yours is not one the container may share`;
   return `The agent hooks keep their state apart from the server's: ${why}. The server keeps its state in the volume, as 2.x did, `

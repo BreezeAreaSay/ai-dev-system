@@ -50,7 +50,7 @@ export function usage() {
     "    --state=<folder>      the state folder shared with the agent hooks (~/.ai-dev/state, where the image's user,",
     "                          uid 1000, is yours or Docker Desktop maps it); made if missing",
     "    --shared-state=yes|no whether to share it, decided already (bootstrap.sh tries it on the host); by default",
-    "                          a Linux host tries it with the image before it is written into an entry",
+    "                          a Linux host tries it with the image (not pulled for it) before it goes into an entry",
     "    --docker-command=<path>  the Docker CLI (found on PATH)",
     "    --home, --platform    the host's, when this runs in the image on its behalf (bootstrap.sh)",
     "",
@@ -59,7 +59,7 @@ export function usage() {
 }
 
 /** The options of `--docker`, read from the command line; the host's when it runs in the image on its behalf. */
-async function dockerFrom(values, io, { apply = true } = {}) {
+async function dockerFrom(values, io, { apply = true, tryState = apply } = {}) {
   if (!values.docker) {
     const named = ["image", "projects", "model", "volume", "state", "shared-state", "docker-command"].find((name) => values[name] !== undefined);
     if (named) throw new CliUsageError(`--${named} is an option of --docker; add --docker to run the clients' server in Docker.`);
@@ -69,7 +69,7 @@ async function dockerFrom(values, io, { apply = true } = {}) {
   const platform = values.platform || process.platform;
   if (!["linux", "darwin", "win32"].includes(platform)) throw new CliUsageError(`--platform takes linux, darwin or win32; "${platform}" is not one.`);
   const shareState = values["shared-state"] ?? "";
-  if (!["", "yes", "no"].includes(shareState)) throw new CliUsageError(`--shared-state takes yes or no; "${shareState}" is not one.`);
+  if (!["", "yes", "no", "untried"].includes(shareState)) throw new CliUsageError(`--shared-state takes yes or no; "${shareState}" is not one.`);
   const paths = platform === "win32" ? path.win32 : path.posix;
   try {
     return await dockerOptions({
@@ -84,7 +84,8 @@ async function dockerFrom(values, io, { apply = true } = {}) {
       home,
       platform,
       env: io.env,
-      apply
+      apply,
+      tryState
     });
   } catch (error) {
     throw new CliUsageError(error.message);
@@ -314,8 +315,11 @@ async function entry(values, positionals, io) {
   }
   if (ids.length !== 1) throw new CliUsageError(`"${name}" names ${ids.length} clients; name one: ${ids.join(", ")}.`);
   const client = MCP_CLIENTS.find((item) => item.id === ids[0]);
-  const docker = await dockerFrom(values, io, { apply: false });
+  // The entry install would write, the state folder's sharing tried as install tries it (Д-334).
+  const docker = await dockerFrom(values, io, { apply: false, tryState: true });
   io.out(JSON.stringify(clientEntry(client, docker ? dockerLaunch(docker) : localLaunch({ env: io.env }))));
+  const note = unsharedStateNote(docker);
+  if (note) io.err(note);
   return EXIT.ok;
 }
 

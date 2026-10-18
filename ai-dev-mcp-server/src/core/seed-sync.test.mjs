@@ -361,13 +361,16 @@ test("a vault with no record — a 2.x volume `cp -n` filled — is read against
   assert.equal(await read(vault, "01-system/Agent Rules.md"), "rules 3.1\n");
 });
 
+/** What a 2.x image's `cp -n` leaves in the vault's root beside its seed. */
+const TWO_X_MANIFEST = `${JSON.stringify({ schema_version: 1, files: [{ path: "03-skills-catalog/sources/x/culled/SKILL.md" }] })}\n`;
+
 test("a vault a 2.x image ran on since its last sync gives back what that image's `cp -n` put there again (Д-317)", async (t) => {
   const root = await scratch(t);
   const vault = path.join(root, "vault");
   const shippedBefore = new Set([
     seedHistoryKey("03-skills-catalog/sources/x/culled/SKILL.md", sha("culled skill\n")),
     seedHistoryKey("01-system/Agent Rules.md", sha("rules 2.0\n")),
-    seedHistoryKey("public-seed.manifest.json", sha("{\"2.x\":true}\n"))
+    seedHistoryKey("public-seed.manifest.json", sha(TWO_X_MANIFEST))
   ]);
   const history = async () => shippedBefore;
   const seed = await writeSeed(path.join(root, "seed-3"), { "01-system/Agent Rules.md": "rules 3.0\n" });
@@ -378,7 +381,7 @@ test("a vault a 2.x image ran on since its last sync gives back what that image'
   // while the user adds a skill of their own; then the 3.0 image again.
   const twoX = {
     "03-skills-catalog/sources/x/culled/SKILL.md": "culled skill\n",
-    "public-seed.manifest.json": "{\"2.x\":true}\n",
+    "public-seed.manifest.json": TWO_X_MANIFEST,
     "03-skills-catalog/sources/x/mine/SKILL.md": "a skill of my own\n"
   };
   for (const [relative, content] of Object.entries(twoX)) {
@@ -388,6 +391,7 @@ test("a vault a 2.x image ran on since its last sync gives back what that image'
   const back = await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history });
   assert.equal(back.status, "synced", "the record's fingerprint is this seed's, and 2.x ran since");
   assert.equal(back.removed, 2, "the culled skill and 2.x's manifest");
+  assert.match(describeSyncResult(back), /recognised as an earlier seed's, put back by a 2\.x image since the last sync/);
   assert.equal(await exists(path.join(vault, "03-skills-catalog/sources/x/culled")), false);
   assert.equal(await exists(path.join(vault, "public-seed.manifest.json")), false);
   assert.equal(await read(vault, "03-skills-catalog/sources/x/mine/SKILL.md"), "a skill of my own\n", "the user's own stays");
@@ -395,10 +399,16 @@ test("a vault a 2.x image ran on since its last sync gives back what that image'
   assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "current");
 
   // A 2.x manifest the history does not know — a later 2.x — goes too, so the next start is a read again.
-  await fs.writeFile(path.join(vault, "public-seed.manifest.json"), "{\"2.x\":\"later\"}\n");
-  assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "synced");
+  await fs.writeFile(path.join(vault, "public-seed.manifest.json"), JSON.stringify({ schema_version: 1, files: [{ path: "later.md" }] }));
+  const later = await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history });
+  assert.deepEqual([later.status, later.removed], ["synced", 1], "and is counted");
   assert.equal(await exists(path.join(vault, "public-seed.manifest.json")), false);
   assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "current");
+
+  // A file of the user's by that name, which is no seed manifest, is theirs (Д-336).
+  await fs.writeFile(path.join(vault, "public-seed.manifest.json"), "my notes on the seed\n");
+  assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "current");
+  assert.equal(await read(vault, "public-seed.manifest.json"), "my notes on the seed\n");
 });
 
 test("the shipped history names versions by path and sha256, sorted and unique", async () => {

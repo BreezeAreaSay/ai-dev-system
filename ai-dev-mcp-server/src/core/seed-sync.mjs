@@ -52,6 +52,15 @@ export const SEED_HISTORY_FILE = path.resolve(path.dirname(fileURLToPath(import.
 const MANIFEST = "public-seed.manifest.json";
 
 /**
+ * How long a start waits for another one syncing the same vault, and how often
+ * the holder says it is alive: a 2.x volume's first sync takes seconds here and
+ * a minute on a slow machine, which a lock taken for stale after 30 s let a
+ * second start break into (docs/DEFECTS.md, Д-330). Beating every few seconds,
+ * a holder that was killed is let go of as soon as the first-run lock's is.
+ */
+const SYNC_LOCK = Object.freeze({ timeoutMs: 300_000, staleMs: 15_000, heartbeatMs: 3_000 });
+
+/**
  * How the history names one version of one file: the path and its sha256,
  * hashed, so the list of files 2.x shipped is 50 KB instead of 250.
  *
@@ -278,8 +287,15 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
   });
   // A 2.x image copies its seed into the vault with `cp -n` at every start,
   // its manifest with it, and no sync leaves that manifest there: finding it
-  // means 2.x ran here since the last sync (docs/DEFECTS.md, Д-317).
-  const legacyRan = async () => await entryKind(path.join(contentRoot, MANIFEST)) === "file";
+  // means 2.x ran here since the last sync (docs/DEFECTS.md, Д-317). A file of
+  // that name that is no seed manifest is the user's, and stays (Д-336).
+  const legacyRan = async () => {
+    try {
+      return Array.isArray(JSON.parse(await fsp.readFile(path.join(contentRoot, MANIFEST), "utf8"))?.files);
+    } catch {
+      return false;
+    }
+  };
   const settled = async (state) => {
     if (fingerprint && state?.seed_fingerprint === fingerprint) return await legacyRan() ? "" : "current";
     if (version && state?.seed_version && compareVersions(state.seed_version, version) > 0) return "newer";
@@ -297,12 +313,13 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
     // No record, or 2.x put its seed back since: what an earlier seed shipped
     // is told from the user's own by the history; the record, where there is
     // one, still says what this line shipped.
-    const legacy = !state || await legacyRan();
+    const returned = Boolean(state) && await legacyRan();
+    const legacy = !state || returned;
     const recognised = legacy ? await recogniseShipped(contentRoot, manifest, await history()) : { shipped: {}, earlier: 0 };
     const recorded = state?.files && typeof state.files === "object" ? state.files : {};
     const shipped = { ...recognised.shipped, ...recorded };
     const before = new Set(Array.isArray(state?.conflicts) ? state.conflicts.map(String) : []);
-    const counts = { added: 0, updated: 0, unchanged: 0, removed: 0, recognised: recognised.earlier, kept: [], conflicts: [], missing: [] };
+    const counts = { added: 0, updated: 0, unchanged: 0, removed: 0, recognised: recognised.earlier, returned, kept: [], conflicts: [], missing: [] };
     const files = {};
     const throughLink = linkedFolders(contentRoot);
     for (const entry of manifest.files) {
@@ -385,7 +402,10 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
       }
     }
     // 2.x's manifest is no file of this seed's, whatever version of it that was.
-    if (legacy) await fsp.rm(path.join(contentRoot, MANIFEST), { force: true });
+    if (legacy && await legacyRan()) {
+      await fsp.rm(path.join(contentRoot, MANIFEST), { force: true });
+      counts.removed += 1;
+    }
     const next = {
       schema_version: 1,
       seed_version: version,
@@ -400,7 +420,7 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
     };
     await atomicWriteJson(statePath, next);
     return result("synced", next, counts);
-  });
+  }, SYNC_LOCK);
 }
 
 /**
@@ -431,7 +451,9 @@ export function describeSyncResult(result) {
     : "";
   const missing = result.missing?.length ? `; ${result.missing.length} file(s) of the seed are missing from this install — reinstall it` : "";
   if (result.status === "current") return `seed ${result.version || "current"}${conflicts}${missing}`;
-  const recognised = result.recognised ? ` (${result.recognised} file(s) recognised as an earlier seed's, with no record of the last sync)` : "";
+  const recognised = result.recognised
+    ? ` (${result.recognised} file(s) recognised as an earlier seed's, ${result.returned ? "put back by a 2.x image since the last sync" : "with no record of the last sync"})`
+    : "";
   return `seed ${result.version || "synced"}: ${result.added} added, ${result.updated} updated, ${result.removed} removed, `
     + `${result.kept.length} of yours kept${recognised}${conflicts}${missing}`;
 }

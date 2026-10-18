@@ -104,8 +104,12 @@ test("the shell scripts that get executed are committed as executable", async (c
  * a cached copy of the image), the handshake with the server's instructions, and
  * for `ai-dev clients entry` an entry as JSON. PULL=fail makes the pull fail;
  * SMOKE=bad answers the handshake with something that is not the server's;
- * NO_CLI=1 is an image without the 3.0 installer (a 2.x one). The probe of the
- * state folder writes nothing, as where Docker maps the container's users.
+ * NO_CLI names the images without the 3.0 installer (2.x ones), space-separated;
+ * INSTALL=fail makes the installer fail as one client it could not write does.
+ * The probe of the state folder writes nothing, as where Docker maps the
+ * container's users; PROBE=shared writes the file as this user, PROBE=refused
+ * is the container's own `touch` refused, and PROBE=broken a Docker that did
+ * not run the image at all.
  */
 const stubDocker = [
   "#!/bin/sh",
@@ -126,10 +130,18 @@ const stubDocker = [
   '  inspect) [ -n "${OLD_RUNTIME:-}" ] && { echo true; exit 0; }; exit 1 ;;',
   "  rm) exit 0 ;;",
   "  run)",
-  '    for a in "$@"; do [ "$a" = "command -v ai-dev" ] && { [ "${NO_CLI:-}" = 1 ] && exit 1; exit 0; }; done',
-  '    for a in "$@"; do [ "$a" = touch ] && exit 0; done',
+  '    for a in "$@"; do [ "$a" = "command -v ai-dev" ] && { for i in "$@"; do case " ${NO_CLI:-} " in *" $i "*) exit 1 ;; esac; done; exit 0; }; done',
+  '    for a in "$@"; do',
+  '      [ "$a" = touch ] || continue',
+  '      case "${PROBE:-}" in',
+  '        shared) for m in "$@"; do case "$m" in type=bind,source=*,target=/ai-dev-state) s="${m#type=bind,source=}"; s="${s%,target=/ai-dev-state}" ;; esac; f="$m"; done; touch "$s/${f#/ai-dev-state/}" ;;',
+  '        refused) echo "touch: cannot touch \'/ai-dev-state/probe\': Permission denied" >&2; exit 1 ;;',
+  '        broken) echo "docker: Error response from daemon: failed to connect to the docker API." >&2; echo "Run \'docker run --help\' for more information" >&2; exit 125 ;;',
+  '      esac',
+  '      exit 0',
+  '    done',
   '    for a in "$@"; do [ "$a" = entry ] && { echo \'{"type":"stdio","command":"/usr/bin/docker","args":["run","-i","--rm","stub"]}\'; exit 0; }; done',
-  '    for a in "$@"; do [ "$a" = install ] && { echo "  Cursor   added   ~/.cursor/mcp.json"; exit 0; }; done',
+  '    for a in "$@"; do [ "$a" = install ] && { [ "${INSTALL:-}" = fail ] && { echo "  Cursor   FAILED  ~/.cursor/mcp.json: EACCES" >&2; exit 1; }; echo "  Cursor   added   ~/.cursor/mcp.json"; exit 0; }; done',
   '    cat > /dev/null',
   '    if [ "${SMOKE:-}" = bad ]; then echo \'{"result":{"serverInfo":{"name":"made-up"}}}\'; else echo \'{"result":{"serverInfo":{"name":"ai-dev-system"},"instructions":"Begin with begin_task."}}\'; fi',
   "    exit 0 ;;",
@@ -153,8 +165,8 @@ async function hostToolsWithout(directory, hidden = ["docker", "claude"]) {
   return directory;
 }
 
-/** Run bootstrap.sh in a home of its own with the stubs first on PATH; `folders` are made in that home first. */
-async function runBootstrap(t, args, { env = {}, folders = [], files = {}, claude = false, docker = true } = {}) {
+/** Run bootstrap.sh in a home of its own with the stubs first on PATH; `folders`, `files` and `links` are made in that home first. */
+async function runBootstrap(t, args, { env = {}, folders = [], files = {}, links = {}, claude = false, docker = true } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-run-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
@@ -165,6 +177,7 @@ async function runBootstrap(t, args, { env = {}, folders = [], files = {}, claud
     await fs.mkdir(path.dirname(path.join(home, file)), { recursive: true });
     await fs.writeFile(path.join(home, file), content);
   }
+  for (const [link, target] of Object.entries(links)) await fs.symlink(target, path.join(home, link));
   if (docker) await fs.writeFile(path.join(bin, "docker"), stubDocker, { mode: 0o755 });
   if (claude) await fs.writeFile(path.join(bin, "claude"), stubClaude, { mode: 0o755 });
   const log = path.join(root, "docker.log");
@@ -289,13 +302,19 @@ test("the 2.x runtime container is removed once the configs that named it are re
   assert.ok(!kept.calls.some((call) => call[0] === "rm"), "configs not rewritten still name it");
 });
 
-test("a client that is not one, or a folder a mount cannot hold, stops the script before anything runs (Д-328)", async (t) => {
+test("a client that is not one, no client at all, or a folder a mount cannot hold stops the script before anything runs (Д-328, Д-336)", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const typo = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,cursr"]);
   if (!typo) return;
   assert.equal(typo.status, 64, typo.stderr);
   assert.match(typo.stderr, /--clients: "cursr" is no client here \(all, claude, claude-code, claude-desktop, cursor, vscode, codex, gemini\)/);
   assert.equal(typo.calls.filter((call) => call[0] === "pull" || call[0] === "run").length, 0);
+  for (const none of ["", ","]) {
+    const empty = await runBootstrap(t, ["--skip-smoke", "--clients", none], { env: { OLD_RUNTIME: "1" } });
+    assert.equal(empty.status, 64, `--clients "${none}": ${empty.stderr}`);
+    assert.match(empty.stderr, /--clients: name at least one client, or all\./);
+    assert.ok(!empty.calls.some((call) => call[0] === "rm" || call[0] === "pull"), "nothing is written, and nothing removed");
+  }
   const quoted = await runBootstrap(t, ["--skip-smoke", "--project-path", path.join(os.tmpdir(), 'my "quoted" projects')]);
   assert.equal(quoted.status, 64, quoted.stderr);
   assert.match(quoted.stderr, /has a comma or a double quote, which a docker --mount cannot hold/);
@@ -316,19 +335,100 @@ test("the state folder is the one the hooks use: AI_DEV_STATE_ROOT, AI_DEV_HOME'
   }
 });
 
-test("a 2.x image, the way back, gets its configs from the 3.0 installer, and the state is shared only where the probe says so (Д-322, Д-323)", async (t) => {
+test("a 2.x image, the way back, gets its configs from the 3.0 installer, pulled and seen to have one (Д-323, Д-329)", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
-  const result = await runBootstrap(t, ["--skip-smoke", "--image", "example/ai-dev-system:2"], { env: { NO_CLI: "1", AI_DEV_INSTALLER_IMAGE: "example/installer:3" }, folders: [".cursor"] });
+  const result = await runBootstrap(t, ["--skip-smoke", "--image", "example/ai-dev-system:2"], { env: { NO_CLI: "example/ai-dev-system:2", AI_DEV_INSTALLER_IMAGE: "example/installer:3" }, folders: [".cursor"] });
   if (!result) return;
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /example\/ai-dev-system:2 has no installer of its own \(a 2\.x image\): example\/installer:3 writes the configs that run it/);
+  assert.ok(result.calls.some((call) => call[0] === "pull" && call[1] === "example/installer:3"), "a cached installer may be a 2.x one: it is pulled");
   const install = result.calls.find((call) => call[0] === "run" && call.includes("install"));
   assert.ok(install.includes("example/installer:3"), "the installer runs from the 3.0 image");
   assert.ok(install.includes("--image=example/ai-dev-system:2"), "and the configs run the image asked for");
-  // This host's uid is not the image's, or the probe wrote nothing: either way the state stays in the volume.
-  assert.ok(install.includes("--shared-state=no"), install.join(" "));
-  const probed = result.calls.some((call) => call[0] === "run" && call.includes("touch"));
-  assert.equal(probed, process.getuid() === 1000, "the probe runs only where uid 1000 could be this user");
+  for (const check of result.calls.filter((call) => call.includes("command -v ai-dev"))) {
+    assert.deepEqual(check.slice(0, 4), ["run", "--rm", "--pull", "never"], "looking into an image does not download it");
+  }
+
+  // An installer image that is a 2.x one too is refused, by name, before any config is written.
+  const both = await runBootstrap(t, ["--skip-smoke", "--image", "example/ai-dev-system:2"], { env: { NO_CLI: "example/ai-dev-system:2 example/installer:2", AI_DEV_INSTALLER_IMAGE: "example/installer:2" }, folders: [".cursor"] });
+  assert.equal(both.status, 69, both.stderr);
+  assert.match(both.stderr, /example\/installer:2 has no installer either \(a 2\.x image too\): name an image of 3\.0 or later with AI_DEV_INSTALLER_IMAGE/);
+  assert.ok(!both.calls.some((call) => call[0] === "run" && call.includes("install")));
+});
+
+test("the state folder is shared only where the image's user wrote it as this user; a Docker that did not run it tried nothing (Д-322, Д-331)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  const shared = (call) => call.find((argument) => argument.startsWith("--shared-state="))?.slice("--shared-state=".length);
+  const linux = process.platform !== "darwin";
+  const written = await runBootstrap(t, ["--skip-smoke"], { env: { PROBE: "shared" }, folders: [".cursor"] });
+  if (!written) return;
+  assert.equal(written.status, 0, written.stderr);
+  const probe = written.calls.find((call) => call[0] === "run" && call.includes("touch"));
+  assert.equal(Boolean(probe), linux, "tried on Linux whatever the uid; Docker Desktop on macOS gives the files to the user");
+  if (probe) {
+    assert.deepEqual(probe.slice(0, 6), ["run", "--rm", "--pull", "never", "--network", "none"]);
+    assert.ok(probe.includes("ghcr.io/stonebridgeway/ai-dev-system:latest"), "with the image the configs run");
+  }
+  assert.equal(shared(written.calls.find((call) => call[0] === "run" && call.includes("install"))), "yes");
+  assert.deepEqual((await fs.readdir(path.join(written.home, ".ai-dev", "state"))).filter((name) => name.startsWith(".ai-dev-share-probe")), [], "the probe's file is taken away");
+  if (!linux) return;
+
+  // Written, but not as this user (a remapping Docker), or refused: the volume keeps the state.
+  for (const env of [{}, { PROBE: "refused" }]) {
+    const kept = await runBootstrap(t, ["--skip-smoke"], { env, folders: [".cursor"] });
+    assert.equal(kept.status, 0, kept.stderr);
+    assert.equal(shared(kept.calls.find((call) => call[0] === "run" && call.includes("install"))), "no", JSON.stringify(env));
+  }
+  // Docker did not run the image: nothing was tried, and it is said why.
+  const untried = await runBootstrap(t, ["--skip-smoke"], { env: { PROBE: "broken" }, folders: [".cursor"] });
+  assert.equal(untried.status, 0, untried.stderr);
+  assert.equal(shared(untried.calls.find((call) => call[0] === "run" && call.includes("install"))), "untried");
+  assert.match(untried.stderr, /Could not try sharing .* with ghcr\.io\/stonebridgeway\/ai-dev-system:latest: docker: Error response from daemon: failed to connect/);
+});
+
+test("a config that is a link into dotfiles is written through it: each folder on the way is mounted (Д-335)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  // Two clients whose links end in one folder: Docker refuses a target mounted twice.
+  const result = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,gemini"], {
+    folders: [".cursor", ".gemini", "dotfiles/cursor", "dotfiles/shared"],
+    files: { "dotfiles/shared/mcp.json": "{}", "dotfiles/shared/settings.json": "{}" },
+    links: { ".cursor/mcp.json": "../dotfiles/cursor/mcp.json", "dotfiles/cursor/mcp.json": "../shared/mcp.json", ".gemini/settings.json": "../dotfiles/shared/settings.json" }
+  });
+  if (!result) return;
+  assert.equal(result.status, 0, result.stderr);
+  const install = result.calls.find((call) => call[0] === "run" && call.includes("install"));
+  const sources = mounts(install).map((mount) => mount.split(",").find((part) => part.startsWith("source=")).slice("source=".length));
+  const real = await fs.realpath(result.home);
+  for (const folder of [path.join(result.home, ".cursor"), path.join(result.home, ".gemini"), path.join(real, "dotfiles", "cursor"), path.join(real, "dotfiles", "shared")]) {
+    assert.equal(sources.filter((source) => source === folder).length, 1, `${folder} mounted once: ${sources.join(" ")}`);
+  }
+});
+
+test("a client folder with a space in its path is mounted whole: macOS keeps them under Application Support", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  // Linux finds the folders under XDG_CONFIG_HOME, given a space here; macOS has its own.
+  const spaced = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-config "));
+  t.after(() => fs.rm(spaced, { recursive: true, force: true }));
+  const result = await runBootstrap(t, ["--skip-smoke", "--clients", "claude-desktop,vscode"], { env: { XDG_CONFIG_HOME: path.join(spaced, "my config") } });
+  if (!result) return;
+  assert.equal(result.status, 0, result.stderr);
+  const appData = process.platform === "darwin" ? path.join(result.home, "Library", "Application Support") : path.join(spaced, "my config");
+  const install = result.calls.find((call) => call[0] === "run" && call.includes("install"));
+  const sources = mounts(install).map((mount) => mount.split(",").find((part) => part.startsWith("source=")).slice("source=".length));
+  assert.ok(sources.includes(path.join(appData, "Claude")) && sources.includes(path.join(appData, "Code", "User")), sources.join(" | "));
+});
+
+test("one client that cannot be written does not stop the rest, and the exit says so (Д-335)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  const result = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,claude-code"], {
+    env: { INSTALL: "fail", OLD_RUNTIME: "1" }, claude: true, folders: [".cursor"], files: { ".claude.json": "{}" }
+  });
+  if (!result) return;
+  assert.equal(result.status, 1, result.stderr);
+  assert.match(result.claude, /mcp add-json ai-dev /, "Claude Code is still written");
+  assert.match(result.stderr, /Some AI clients were not configured: see above/);
+  assert.doesNotMatch(result.stdout, /AI Dev is ready/);
+  assert.ok(!result.calls.some((call) => call[0] === "rm"), "the 2.x container stays while a config that names it may be left");
 });
 
 test("a model folder is mounted read-only for the installer, checked, and handed to the configs", async (t) => {
@@ -463,7 +563,9 @@ test("the PowerShell installer pulls, checks the server's own handshake and has 
     return;
   }
   assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
-  const calls = (await fs.readFile(log, "utf8")).split("\n").filter(Boolean).map((line) => line.split("\t"));
+  const calls = (await fs.readFile(log, "utf8")).split("\n").filter(Boolean).map((line) => line.split("\t"))
+    // On Linux the CLI tries the state folder's sharing with the image; Windows does not (Д-322).
+    .filter((call) => !(process.platform === "linux" && call[0] === "run" && call.includes("touch") && call.includes("--rm")));
   assert.deepEqual(calls.map((call) => call[0]), ["version", "pull", "run"], "no proxy built, no container kept");
   // The checkout's CLI wrote a direct docker entry into the client's config.
   const config = JSON.parse(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"];

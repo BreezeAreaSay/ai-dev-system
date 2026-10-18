@@ -181,11 +181,12 @@ jobs:
     #
     # The tags (owner decision D9; docs/DEFECTS.md, Д-108): a push to main is
     # `:edge`, never `:latest` — a merge is not a release; a release tag vX.Y.Z
-    # is `:X.Y.Z`, `:X.Y`, `:X` and `:latest` — a tag of the 2.x line after 3.0
-    # updates `:2` and `:2.Y` alone; a prerelease (vX.Y.Z-rc.N) only its own
-    # name. So `:2` is the 2.x line, frozen once 3.0 is tagged, and the
-    # way back: AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2. The browser
-    # variant carries the same tags with `-browser`.
+    # of the newest line is `:X.Y.Z`, `:X.Y`, `:X` and `:latest` — a 2.x tag
+    # after 3.0, on a commit that carries this workflow, updates `:2` and `:2.Y`
+    # alone; a prerelease (vX.Y.Z-rc.N) only its own name. So `:2` is the 2.x
+    # line, frozen once 3.0 is tagged, and the way back:
+    # AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2. The browser variant
+    # carries the same tags with `-browser`.
     if: github.event_name == 'push' && github.repository == 'stonebridgeway/ai-dev-system'
     needs:
       - validate
@@ -238,8 +239,9 @@ jobs:
             latest=false
             suffix=${{ matrix.suffix }},onlatest=true
           # :latest only from a release of the newest line: a 2.x maintenance tag
-          # after 3.0 updates :2 and nothing else (Д-325). sha-* only from the
-          # default branch and release tags.
+          # after 3.0 updates :2 and nothing else (Д-325). The line is named
+          # here: 4.0 adds v3. to it (Д-336). sha-* only from the default
+          # branch and release tags.
           tags: |
             type=raw,value=edge,enable={{is_default_branch}}
             type=semver,pattern={{version}}
@@ -281,11 +283,12 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Once 3.0 is tagged, :latest is not the 2.x line, and copying it would
-      # make the way back a 3.x image (docs/DEFECTS.md, Д-325).
+      # Once 3.0 is released, :latest is not the 2.x line, and copying it would
+      # make the way back a 3.x image (docs/DEFECTS.md, Д-325). A prerelease
+      # (v3.0.0-rc.1) does not move :latest, and so does not count (Д-336).
       - name: Refuse once a release of 3.0 or later is tagged
         run: |
-          later=$(git tag --list 'v[3-9]*' 'v[1-9][0-9]*' | head -1)
+          later=$(git tag --list 'v[3-9]*' 'v[1-9][0-9]*' | { grep -v -- - || true; } | head -n 1)
           if [ -n "$later" ]; then
             echo "::error::$later is tagged: :latest is not the 2.x line any more, and :2 stays as it is."
             exit 1

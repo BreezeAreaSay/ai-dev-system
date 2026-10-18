@@ -119,25 +119,34 @@ export function sharesHostState({ platform = process.platform, uid = process.get
  * cannot write the folder at all, and a state the server cannot write is worse
  * than one kept apart in the volume, as 2.x kept it (docs/DEFECTS.md, Д-322).
  *
+ * A Docker that did not run the image — an engine that does not answer, an
+ * image not here yet, which the probe does not pull — has tried nothing:
+ * `tried` says so, so that is not taken for a remapping host (Д-331).
+ *
  * @param {{ docker?: string, image: string, state: string, uid?: number, run?: typeof spawnSync }} input
- * @returns {{ shared: boolean, reason: string }}
+ * @returns {{ shared: boolean, tried: boolean, reason: string }}
  */
 export function probeStateSharing({ docker = "docker", image, state, uid = process.getuid?.(), run = spawnSync }) {
   const name = `.ai-dev-share-probe-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
   const probe = path.join(state, name);
   const result = run(docker, [
-    "run", "--rm", "--network", "none", "--entrypoint", "touch",
+    "run", "--rm", "--pull", "never", "--network", "none", "--entrypoint", "touch",
     "--mount", `type=bind,source=${mountable("state", state)},target=${CONTAINER_STATE_ROOT}`, image, `${CONTAINER_STATE_ROOT}/${name}`
-  ], { encoding: "utf8", shell: false, timeout: 300_000 });
+  ], { encoding: "utf8", shell: false, timeout: 120_000 });
   try {
-    if (result.error || result.status !== 0) {
-      const why = String(result.error?.message || result.stderr || `exit ${result.status}`).trim().split("\n").at(-1);
-      return { shared: false, reason: `the image's user could not write your state folder (${why})` };
+    const said = String(result.stderr ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
+    if (result.status !== 0 || result.error) {
+      // `touch` in the container answers "cannot touch"; anything else is Docker's own.
+      const refused = said.find((line) => /cannot touch/i.test(line));
+      if (refused && !result.error) return { shared: false, tried: true, reason: `the image's user could not write your state folder (${refused})` };
+      const why = result.error?.message || said.find((line) => !/^Run 'docker run --help'/.test(line)) || `exit ${result.status}`;
+      return { shared: false, tried: false, reason: `Docker did not run ${image} to try it (${why})` };
     }
     const owner = statSync(probe, { throwIfNoEntry: false })?.uid;
-    if (owner === uid) return { shared: true, reason: "" };
+    if (owner === uid) return { shared: true, tried: true, reason: "" };
     return {
       shared: false,
+      tried: true,
       reason: owner === undefined
         ? "what the image's user wrote into your state folder did not reach it"
         : `what the image's user writes into your state folder is uid ${owner}'s, not yours (uid ${uid}): Docker maps the container's users here (rootless Docker, userns-remap or Podman)`

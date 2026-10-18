@@ -91,7 +91,7 @@ test("a 3.0 entry is told from a 2.x launcher by what it runs", () => {
   assert.equal(isDirectDockerEntry({}), false);
 });
 
-test("the state folder is shared only when the image's user, tried, writes it as the host user (Д-322)", async (t) => {
+test("the state folder is shared only when the image's user, tried, writes it as the host user (Д-322, Д-331)", async (t) => {
   const state = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-share-probe-"));
   t.after(() => fs.rm(state, { recursive: true, force: true }));
   const uid = process.getuid?.() ?? 0;
@@ -104,23 +104,30 @@ test("the state folder is shared only when the image's user, tried, writes it as
     fsSync.writeFileSync(path.join(state, path.basename(target)), "");
     return { status: 0, stdout: "", stderr: "" };
   };
-  assert.deepEqual(probeStateSharing({ docker: "/usr/bin/docker", image: "img:3", state, uid, run: writes }), { shared: true, reason: "" });
+  assert.deepEqual(probeStateSharing({ docker: "/usr/bin/docker", image: "img:3", state, uid, run: writes }), { shared: true, tried: true, reason: "" });
   const [call] = calls;
-  assert.deepEqual(call.slice(0, 7), ["/usr/bin/docker", "run", "--rm", "--network", "none", "--entrypoint", "touch"]);
+  assert.deepEqual(call.slice(0, 9), ["/usr/bin/docker", "run", "--rm", "--pull", "never", "--network", "none", "--entrypoint", "touch"], "the image is not pulled for a probe");
   assert.ok(call.includes(`type=bind,source=${state},target=${CONTAINER_STATE_ROOT}`) && call.includes("img:3"));
   assert.deepEqual(await fs.readdir(state), [], "the probe leaves nothing behind");
 
   // Rootless Docker, userns-remap, Podman: uid 1000 in the container is no one here, and the folder refuses it.
   const refused = probeStateSharing({ image: "img", state, uid, run: () => ({ status: 1, stdout: "", stderr: "touch: cannot touch '/ai-dev-state/x': Permission denied\n" }) });
-  assert.equal(refused.shared, false);
+  assert.deepEqual([refused.shared, refused.tried], [false, true]);
   assert.match(refused.reason, /could not write your state folder \(touch: cannot touch .*Permission denied\)/);
+  // Docker that did not run the image tried nothing: not a remapping host (Д-331).
+  const down = probeStateSharing({ image: "img", state, uid, run: () => ({ status: 1, stdout: "", stderr: "failed to connect to the docker API at unix:///nowhere.sock\n" }) });
+  assert.deepEqual([down.shared, down.tried], [false, false]);
+  assert.match(down.reason, /Docker did not run img to try it \(failed to connect to the docker API/);
+  const missing = probeStateSharing({ image: "img", state, uid, run: () => ({ status: 125, stdout: "", stderr: "docker: Error response from daemon: No such image: img\nRun 'docker run --help' for more information\n" }) });
+  assert.match(missing.reason, /\(docker: Error response from daemon: No such image: img\)/, "Docker's own line, not its help trailer");
   const unreachable = probeStateSharing({ image: "img", state, uid, run: () => ({ error: new Error("spawn docker ENOENT") }) });
-  assert.equal(unreachable.shared, false);
+  assert.deepEqual([unreachable.shared, unreachable.tried], [false, false]);
   assert.match(unreachable.reason, /spawn docker ENOENT/);
   const lost = probeStateSharing({ image: "img", state, uid, run: () => ({ status: 0, stdout: "", stderr: "" }) });
-  assert.deepEqual(lost, { shared: false, reason: "what the image's user wrote into your state folder did not reach it" });
+  assert.deepEqual(lost, { shared: false, tried: true, reason: "what the image's user wrote into your state folder did not reach it" });
   // Written, but as another uid: the server's files would be someone else's here.
-  assert.equal(probeStateSharing({ image: "img", state, uid: uid + 4242, run: writes }).shared, false);
-  assert.match(probeStateSharing({ image: "img", state, uid: uid + 4242, run: writes }).reason, new RegExp(`is uid ${uid}'s, not yours \\(uid ${uid + 4242}\\)`));
+  const other = probeStateSharing({ image: "img", state, uid: uid + 4242, run: writes });
+  assert.deepEqual([other.shared, other.tried], [false, true]);
+  assert.match(other.reason, new RegExp(`is uid ${uid}'s, not yours \\(uid ${uid + 4242}\\)`));
   assert.deepEqual(await fs.readdir(state), []);
 });

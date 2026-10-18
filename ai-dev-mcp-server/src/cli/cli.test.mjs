@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { readJsonc } from "../core/jsonc-edit.mjs";
+import { clientStatePath } from "./clients.mjs";
 import { createIo } from "./context.mjs";
 import { parseSetupArgs } from "./setup.mjs";
 import { PassThrough } from "node:stream";
@@ -179,17 +180,18 @@ test("clients install --docker writes `docker run -i --rm …`, and list, entry 
   const state = path.join(home, ".ai-dev", "state");
   // Shared where Docker Desktop maps the image's user to this one; on Linux only
   // when tried and found writable as this user — the stub docker here writes
-  // nothing, so not here (Д-322).
+  // nothing, so not here (Д-322). A dry run says it did not try.
   const shared = process.platform !== "linux";
   assert.equal(mounts.includes(`type=bind,source=${state},target=/ai-dev-state`), shared, mounts.join(" "));
   assert.ok(!written.args.includes("--user"));
-  if (!shared) {
-    assert.match(JSON.parse(install.stdout).note, process.getuid() === 1000
-      ? /did not reach it\. The server keeps its state in the volume/
-      : /the image's user \(uid 1000\) is not yours/);
-  }
+  // Tried whatever the uid (Д-334): the stub ran, and wrote nothing.
+  if (!shared) assert.match(JSON.parse(install.stdout).note, /what the image's user wrote into your state folder did not reach it\. The server keeps its state in the volume/);
   await fs.access(path.join(home, "Projects"));
   await fs.access(path.join(state, "mcp-clients.json"));
+  if (process.platform === "linux") {
+    const dry = await runNode([cli, "clients", "install", ...flags, "--dry-run", "--json"], { env });
+    assert.match(JSON.parse(dry.stdout).note, /a dry run does not try it/);
+  }
 
   const list = await runNode([cli, "clients", "list"], { env });
   assert.match(list.stdout, /Cursor\s+ai-dev → Docker: example\/ai-dev:3$/m, "a client run in Docker is not pointed back at a local install");
@@ -207,6 +209,60 @@ test("clients install --docker writes `docker run -i --rm …`, and list, entry 
   const remove = await runNode([cli, "clients", "remove", "--clients=cursor"], { env });
   assert.equal(remove.code, 0, remove.stderr);
   assert.match(remove.stdout, /Cursor\s+(restored|removed)/);
+});
+
+test("clients entry --docker tries the state folder's sharing as install does, the folder made for it (Д-334)", async (t) => {
+  if (process.platform !== "linux") return t.skip("only a Linux host tries it");
+  const home = await tempDir(t);
+  const bin = path.join(home, "bin");
+  await fs.mkdir(bin);
+  // A docker that refuses to bind a folder that is not there, as Docker does, and otherwise writes nothing.
+  await fs.writeFile(path.join(bin, "docker"), [
+    "#!/bin/sh",
+    'for a in "$@"; do case "$a" in type=bind,source=*) s="${a#type=bind,source=}"; s="${s%%,target=*}"; [ -d "$s" ] || { echo "docker: Error response from daemon: bind source path does not exist: $s" >&2; exit 125; } ;; esac; done',
+    "exit 0",
+    ""
+  ].join("\n"), { mode: 0o755 });
+  const env = homeEnv(home, { PATH: `${bin}${path.delimiter}${process.env.PATH}`, AI_DEV_STATE_ROOT: "" });
+  const entry = await runNode([cli, "clients", "entry", "cursor", "--docker", "--image=example/ai-dev:3", `--projects=${path.join(home, "p")}`], { env });
+  assert.equal(entry.code, 0, entry.stderr);
+  await fs.access(path.join(home, ".ai-dev", "state"));
+  assert.match(entry.stderr, /what the image's user wrote into your state folder did not reach it/);
+  assert.doesNotMatch(entry.stderr, /Docker did not run/);
+});
+
+test("the record of written configs is in the hooks' state folder; one an earlier install kept in the runtime home stays used (Д-336)", async (t) => {
+  const home = await tempDir(t);
+  const runtime = path.join(home, ".ai-dev", "state", "mcp-clients.json");
+  const stateRoot = path.join(home, "elsewhere");
+  assert.equal(clientStatePath({ HOME: home, USERPROFILE: home, AI_DEV_HOME: "", AI_DEV_STATE_ROOT: "" }), runtime);
+  const env = { HOME: home, USERPROFILE: home, AI_DEV_HOME: "", AI_DEV_STATE_ROOT: stateRoot };
+  assert.equal(clientStatePath(env), path.join(stateRoot, "mcp-clients.json"));
+  await fs.mkdir(path.dirname(runtime), { recursive: true });
+  await fs.writeFile(runtime, "{\"version\":1,\"files\":{}}");
+  assert.equal(clientStatePath(env), runtime, "the record an earlier install wrote is still read");
+  await fs.mkdir(stateRoot, { recursive: true });
+  await fs.writeFile(path.join(stateRoot, "mcp-clients.json"), "{\"version\":1,\"files\":{}}");
+  assert.equal(clientStatePath(env), path.join(stateRoot, "mcp-clients.json"));
+});
+
+test("with AI_DEV_STATE_ROOT set, clients remove reads the record a Docker install wrote there, and puts the file back (Д-336)", async (t) => {
+  const home = await tempDir(t);
+  const bin = path.join(home, "bin");
+  await fs.mkdir(bin);
+  await fs.writeFile(path.join(bin, process.platform === "win32" ? "docker.exe" : "docker"), "", { mode: 0o755 });
+  await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+  const original = "{\"mcpServers\":{\"other\":{\"command\":\"other\"}}}\n";
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), original);
+  const stateRoot = path.join(home, "elsewhere", "state");
+  const env = homeEnv(home, { PATH: `${bin}${path.delimiter}${process.env.PATH}`, AI_DEV_STATE_ROOT: stateRoot });
+  const install = await runNode([cli, "clients", "install", "--docker", "--image=example/ai-dev:3", "--clients=cursor", "--shared-state=no"], { env });
+  assert.equal(install.code, 0, install.stderr);
+  await fs.access(path.join(stateRoot, "mcp-clients.json"));
+  const remove = await runNode([cli, "clients", "remove", "--clients=cursor"], { env });
+  assert.equal(remove.code, 0, remove.stderr);
+  assert.match(remove.stdout, /Cursor\s+restored/);
+  assert.equal(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8"), original);
 });
 
 test("in the image on the host's behalf, clients install --docker makes no folder of the host's and shares the state as the host decided (Д-319, Д-322)", async (t) => {

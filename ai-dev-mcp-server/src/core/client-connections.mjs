@@ -6,6 +6,7 @@
  * clients, with which command, and records what was written.
  */
 import { existsSync, readFileSync } from "node:fs";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -13,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { stableLaunch } from "./app-bundle.mjs";
 import { APP_MARKER, appCli, appFolder } from "./app-home.mjs";
 import { EXIT } from "./cli-args.mjs";
+import { DEFAULT_DOCKER_IMAGE, DEFAULT_DOCKER_VOLUME, checkModelFolder, dockerLaunch, resolveDockerCommand } from "./docker-launch.mjs";
 import { DISTRIBUTION_MARKER, PACKAGE_NAME, currentInstallLayout } from "./install-layout.mjs";
 import {
   SERVER_NAME,
@@ -135,24 +137,67 @@ export function clientLabel(target) {
 }
 
 /**
- * Put this install into the chosen clients.
+ * What a Docker entry runs, from what `ai-dev clients install --docker` was
+ * given — on the host, or in the image on the host's behalf (`bootstrap.sh`
+ * names the host's home, platform and user, which the container's are not).
+ * The folders a bind mount needs are made when `apply` is set: Docker refuses to
+ * start a container whose mount source does not exist, every session after.
+ *
+ * @param {object} input
+ * @param {string} [input.image]
+ * @param {string} [input.volume]
+ * @param {string} [input.projects] - Default: `<home>/AI-Dev-Projects`, as 2.x's bootstrap had it.
+ * @param {string} [input.model]
+ * @param {string} [input.state] - Default: the runtime home's `state`.
+ * @param {string} [input.user] - `uid:gid`; default on Linux: this process's.
+ * @param {string} [input.docker] - The Docker CLI; default: found on PATH.
+ * @param {string} [input.home]
+ * @param {string} [input.platform]
+ * @param {NodeJS.ProcessEnv} [input.env]
+ * @param {boolean} [input.apply]
+ * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: string, state: string, user: string, platform: string }>}
+ */
+export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", user = "", docker = "", home = os.homedir(), platform = process.platform, env = process.env, apply = true } = {}) {
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  const resolved = {
+    image,
+    volume,
+    platform,
+    projects: paths.resolve(projects || paths.join(home, "AI-Dev-Projects")),
+    model: model ? checkModelFolder(paths.resolve(model)) : "",
+    state: paths.resolve(state || paths.join(resolveRuntimeStateRoot("", { ...env, HOME: home, USERPROFILE: home }), "state")),
+    user: user || (platform === "linux" && typeof process.getuid === "function" ? `${process.getuid()}:${process.getgid()}` : ""),
+    docker: docker || resolveDockerCommand({ env, platform, home })
+  };
+  if (resolved.user && !/^\d+:\d+$/.test(resolved.user)) throw new Error(`--user takes uid:gid, two numbers; "${resolved.user}" is not.`);
+  if (apply) for (const folder of [resolved.projects, resolved.state]) await fs.mkdir(folder, { recursive: true });
+  return resolved;
+}
+
+/**
+ * Put this install into the chosen clients — or, with `docker`, the image, run
+ * by `docker run -i --rm …` ({@link dockerOptions}).
  *
  * @param {object} options
  * @param {string | undefined} options.spec - `all` (the default) or client names.
  * @param {boolean} [options.apply]
  * @param {NodeJS.ProcessEnv} [options.env]
  * @param {string} [options.home]
+ * @param {string} [options.platform]
+ * @param {Awaited<ReturnType<typeof dockerOptions>>} [options.docker]
  * @returns {Promise<Array<object>>} Results, skipped clients included.
  */
-export async function installClients({ spec, apply = true, env = process.env, home = os.homedir() }) {
-  const targets = await discoverClients({ home, env });
+export async function installClients({ spec, apply = true, env = process.env, home = os.homedir(), platform = process.platform, docker = null }) {
+  const targets = await discoverClients({ home, env, platform });
   const { chosen, skipped } = chooseTargets(targets, spec);
-  const launch = localLaunch({ env });
+  const launch = docker ? dockerLaunch(docker) : localLaunch({ env });
   const results = await installServer({
     targets: chosen,
     entryFor: (target) => clientEntry(target, launch),
     apply,
-    statePath: clientStatePath(env)
+    // In the image on the host's behalf, the record goes where the host's
+    // `ai-dev clients remove` reads it: its state folder, the one mounted in.
+    statePath: docker ? path.join(docker.state, "mcp-clients.json") : clientStatePath(env)
   });
   return [
     ...results,

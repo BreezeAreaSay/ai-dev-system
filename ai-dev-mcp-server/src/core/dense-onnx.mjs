@@ -27,9 +27,10 @@
  * that times out, batching, shutdown — is tested against a stub, on a machine
  * with no weights on it. The real worker entry is `src/workers/dense-onnx-worker.mjs`.
  */
+import { readdirSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { DENSE_ONNX_BACKEND } from "./dense-backend.mjs";
+import { DENSE_ONNX_BACKEND, DOCKER_MOUNTED_MODEL_DIR } from "./dense-backend.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 
 /** Most texts one worker message may carry, so a batch cannot grow unbounded. */
@@ -281,18 +282,35 @@ export function createOnnxDenseRuntime({
   return { embedTexts, status, shutdown };
 }
 
+export { DOCKER_MOUNTED_MODEL_DIR };
+
+function holdsFiles(folder) {
+  try {
+    return readdirSync(folder).length > 0;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Where the ONNX export lives: `BGE_M3_ONNX_DIR`, or `models/bge-m3-onnx` in the
  * runtime home. 2.x kept the Python backend's torch weights beside it in
  * `models/bge-m3`; that folder is never read and never written here.
  *
+ * In the image the runtime home is in the volume, where `ai-dev model install`
+ * puts the model once (docs/DEFECTS.md, Д-99); a folder the host mounts at
+ * `/models`, as the 2.x launchers do, is used first. The 2.x image named the
+ * mount in its ENV, so a model could not be put in the volume at all.
+ *
  * @param {object} [options]
  * @param {Record<string, string|undefined>} [options.env]
  * @param {string} [options.aiDevHome] - Runtime home, when the caller knows it.
+ * @param {(folder: string) => boolean} [options.mounted] - Whether a folder holds anything.
  * @returns {string}
  */
-export function defaultOnnxModelDir({ env = process.env, aiDevHome = "" } = {}) {
+export function defaultOnnxModelDir({ env = process.env, aiDevHome = "", mounted = holdsFiles } = {}) {
   if (env.BGE_M3_ONNX_DIR) return path.resolve(env.BGE_M3_ONNX_DIR);
+  if (String(env.AI_DEV_RUNTIME ?? "").trim().toLowerCase() === "docker" && mounted(DOCKER_MOUNTED_MODEL_DIR)) return DOCKER_MOUNTED_MODEL_DIR;
   const home = aiDevHome || resolveRuntimeStateRoot("", env);
   return path.resolve(path.join(home, "models", "bge-m3-onnx"));
 }

@@ -240,6 +240,15 @@ test("the onnx model directory is separate from the legacy one, and env override
   );
 });
 
+test("in the image the model is the one the host mounts at /models, else the one installed in the volume", () => {
+  const docker = { AI_DEV_RUNTIME: "docker", AI_DEV_HOME: "/data/runtime-home/.ai-dev", HOME: "/data/runtime-home" };
+  assert.equal(defaultOnnxModelDir({ env: docker, mounted: (folder) => folder === "/models/bge-m3-onnx" }), "/models/bge-m3-onnx");
+  assert.equal(defaultOnnxModelDir({ env: docker, mounted: () => false }), path.resolve("/data/runtime-home/.ai-dev/models/bge-m3-onnx"));
+  // Outside the image a /models folder is nobody's business.
+  assert.equal(defaultOnnxModelDir({ env: { HOME: "/home/person" }, mounted: () => true }), path.resolve("/home/person/.ai-dev/models/bge-m3-onnx"));
+  assert.equal(defaultOnnxModelDir({ env: { ...docker, BGE_M3_ONNX_DIR: "/x" }, mounted: () => true }), path.resolve("/x"));
+});
+
 test("embed_texts input is cleaned, and an empty, oversized or overlong request is refused before the worker", () => {
   assert.deepEqual(cleanEmbedTexts({ text: "  hello  " }), ["hello"]);
   assert.deepEqual(cleanEmbedTexts({ texts: ["a", "  ", "", "b"] }), ["a", "b"]);

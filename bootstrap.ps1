@@ -3,13 +3,21 @@ param(
     [string]$ProjectPath = (Join-Path $HOME "AI-Dev-Projects"),
     [string]$ModelPath = $env:AI_DEV_MODEL_PATH,
     [string]$Image = "ghcr.io/stonebridgeway/ai-dev-system:latest",
-    [string]$Clients = "codex,cursor,gemini,vscode,claude",
+    [string]$Clients = "all",
     [switch]$BuildLocal,
     [switch]$SkipSmoke,
     [switch]$AllowStaleImage,
     [switch]$SkipClientInstall,
     [switch]$Plan
 )
+
+# The Docker path on Windows: check Docker, pull the image, write the AI
+# clients' configs. The configs run the image themselves, `docker run -i --rm ...`,
+# written by `ai-dev clients install --docker` from this checkout with the Node
+# on this machine (22.12+): a Linux container cannot write a config by its
+# Windows path. Nothing is compiled here any more: 2.x built a C# proxy on the
+# user's machine for Claude (docs/DEFECTS.md, Д-105), and its launchers answered
+# the MCP handshake themselves (Д-89).
 
 $ErrorActionPreference = "Stop"
 $staleWarning = $null
@@ -18,27 +26,8 @@ if ($BuildLocal -and -not $PSBoundParameters.ContainsKey("Image")) {
 }
 $repoRoot = Split-Path -Parent $PSCommandPath
 $serverRoot = Join-Path $repoRoot "ai-dev-mcp-server"
-$launcher = Join-Path $repoRoot "docker\run-mcp.ps1"
-
-function Test-Administrator {
-    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-}
-
-function Install-Prerequisite([string]$DisplayName, [string]$WingetId) {
-    if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
-        throw "$DisplayName is missing and winget is unavailable. Install $DisplayName manually, then run this script again."
-    }
-    if (-not (Test-Administrator)) {
-        throw "$DisplayName is missing. Run bootstrap.ps1 from an elevated PowerShell once so winget can install it."
-    }
-    Write-Host "Installing $DisplayName through winget..."
-    & winget install --exact --id $WingetId --silent --accept-package-agreements --accept-source-agreements
-    if ($LASTEXITCODE -ne 0) {
-        throw "winget could not install $DisplayName (exit code $LASTEXITCODE). Complete the installation, open a new terminal, and run this script again."
-    }
-}
+$cli = Join-Path $serverRoot "bin\ai-dev.mjs"
+$dataVolume = if ($env:AI_DEV_DATA_VOLUME) { $env:AI_DEV_DATA_VOLUME } else { "ai-dev-system-data" }
 
 function Get-NodeCommand {
     $node = Get-Command node.exe -ErrorAction SilentlyContinue
@@ -47,16 +36,10 @@ function Get-NodeCommand {
     return $node.Source
 }
 
-function Ensure-Node {
+function Assert-Node {
     $node = Get-NodeCommand
     if (-not $node) {
-        Install-Prerequisite "Node.js LTS" "OpenJS.NodeJS.LTS"
-        $nodeBin = Join-Path $env:ProgramFiles "nodejs"
-        if (Test-Path -LiteralPath $nodeBin) { $env:PATH = "$nodeBin;$env:PATH" }
-        $node = Get-NodeCommand
-    }
-    if (-not $node) {
-        throw "Node.js was installed but is not available in this terminal. Open a new PowerShell window and run bootstrap.ps1 again."
+        throw "Node.js 22.12 or newer writes the AI clients' configs: install it (winget install OpenJS.NodeJS.LTS), open a new terminal and run bootstrap.ps1 again. Or install AI Dev with its Windows installer, which brings its own."
     }
     $version = (& $node --version).Trim()
     $major = [int](($version -replace '^v', '').Split('.')[0])
@@ -67,16 +50,12 @@ function Ensure-Node {
     return $node
 }
 
-function Ensure-Docker {
+function Assert-Docker {
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-        Install-Prerequisite "Docker Desktop" "Docker.DockerDesktop"
-    }
-    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
-        throw "Docker Desktop was installed but docker is not available in this terminal. Open a new PowerShell window, start Docker Desktop, and run bootstrap.ps1 again."
+        throw "Docker Desktop is required: install it (winget install Docker.DockerDesktop, or https://docs.docker.com/get-docker/), start it, and run bootstrap.ps1 again."
     }
     & docker version --format '{{.Server.Version}}' 2>$null
     if ($LASTEXITCODE -eq 0) { return }
-
     $desktop = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
     if (Test-Path -LiteralPath $desktop) {
         Write-Host "Starting Docker Desktop and waiting for the engine..."
@@ -90,53 +69,8 @@ function Ensure-Docker {
     throw "Docker Desktop is not ready. Open Docker Desktop, wait until it reports Running, then run bootstrap.ps1 again."
 }
 
-function Get-NpmCommand([string]$NodePath) {
-    $candidate = Join-Path (Split-Path -Parent $NodePath) "npm.cmd"
-    if (Test-Path -LiteralPath $candidate) { return $candidate }
-    $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
-    if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
-    if (-not $npm) { throw "npm is missing next to Node.js. Repair the Node.js installation and run bootstrap.ps1 again." }
-    return $npm.Source
-}
-
-function Install-ClientLauncher([string]$SourceLauncher, [string]$FileName = "run-mcp.ps1") {
-    $sharedRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
-    $targetRoot = Join-Path $sharedRoot "AI-Dev-System"
-    $target = Join-Path $targetRoot $FileName
-    try {
-        New-Item -ItemType Directory -Path $targetRoot -Force | Out-Null
-        Copy-Item -LiteralPath $SourceLauncher -Destination $target -Force
-        return $target
-    } catch {
-        throw "Could not install the ASCII-path MCP launcher at $target. Run bootstrap.ps1 from an elevated PowerShell, then try again. $($_.Exception.Message)"
-    }
-}
-
-function Install-ClaudeMcpProxy {
-    $sharedRoot = [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)
-    $targetRoot = Join-Path $sharedRoot "AI-Dev-System"
-    $source = Join-Path $repoRoot "docker\ClaudeMcpProxy.cs"
-    $stagedSource = Join-Path $targetRoot "ClaudeMcpProxy.cs"
-    $target = Join-Path $targetRoot "ClaudeMcpProxy.exe"
-    $compiler = Join-Path $env:WINDIR "Microsoft.NET\Framework64\v4.0.30319\csc.exe"
-    if (-not (Test-Path -LiteralPath $compiler)) {
-        throw "Windows .NET Framework compiler is unavailable: $compiler"
-    }
-    try {
-        New-Item -ItemType Directory -Path $targetRoot -Force | Out-Null
-        Copy-Item -LiteralPath $source -Destination $stagedSource -Force
-        & $compiler /nologo /target:exe "/out:$target" $stagedSource
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $target)) {
-            throw "C# compiler exited with code $LASTEXITCODE."
-        }
-        return $target
-    } catch {
-        throw "Could not install the Claude fast-start MCP proxy. $($_.Exception.Message)"
-    }
-}
-
-if (-not (Test-Path -LiteralPath (Join-Path $serverRoot "package.json"))) {
-    throw "Run this script from a complete AI Dev MCP System clone. Missing: $serverRoot\package.json"
+if (-not (Test-Path -LiteralPath $cli)) {
+    throw "Run this script from a complete AI Dev clone. Missing: $cli"
 }
 
 $resolvedProjectPath = [IO.Path]::GetFullPath($ProjectPath)
@@ -153,7 +87,8 @@ if ($Plan) {
         image = $Image
         build_local = [bool]$BuildLocal
         clients = $Clients
-        installs_prerequisites_when_missing = $true
+        data_volume = $dataVolume
+        installs_prerequisites_when_missing = $false
         writes_only_local_client_config = $true
     }
     # Present only when a model folder was given, so the default plan is unchanged.
@@ -171,53 +106,32 @@ if ($resolvedModelPath) {
     if (-not (Test-Path -LiteralPath $resolvedModelPath -PathType Container)) {
         throw "Model path does not exist: $resolvedModelPath"
     }
-    # The folder above the model, holding bge-m3-onnx\; the launcher mounts it
-    # read-only as /models (docs/DEFECTS.md Д-69). A folder that holds model
-    # files itself is the pre-Д-62 value of the variable and would leave the
-    # model one level too deep (Д-68); a lone bge-m3\ is the removed Python
-    # backend's weights (Д-158).
+    # The folder above the model, holding bge-m3-onnx\, mounted read-only as
+    # /models (docs/DEFECTS.md Д-69). A folder that holds model files itself is
+    # the pre-Д-62 value and would leave the model one level too deep (Д-68).
     foreach ($marker in @("pytorch_model.bin", "modules.json", "config.json", "onnx")) {
         if (Test-Path -LiteralPath (Join-Path $resolvedModelPath $marker)) {
-            throw "-ModelPath names the folder above the models, and $resolvedModelPath holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ - for a default install that is $HOME\.ai-dev\models (docs/INSTALL.md)."
+            throw "-ModelPath names the folder above the models, and $resolvedModelPath holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ (docs/INSTALL.md)."
         }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $resolvedModelPath "bge-m3-onnx"))) {
-        if (Test-Path -LiteralPath (Join-Path $resolvedModelPath "bge-m3")) {
-            Write-Warning "$resolvedModelPath holds bge-m3\, the weights of the Python backend 3.0 removed, and no bge-m3-onnx\; dense search will report that it is not set up. Put the ONNX model there: npm run model -- install --dir $resolvedModelPath\bge-m3-onnx (docs/INSTALL.md)."
-        } else {
-            Write-Warning "$resolvedModelPath holds no bge-m3-onnx\ yet; dense search will report that it is not set up until a model is put there."
-        }
+        Write-Warning "$resolvedModelPath holds no bge-m3-onnx\ yet; dense search will report that it is not set up until a model is put there."
     }
 }
 
-Ensure-Docker
+Assert-Docker
 $node = $null
-$npm = $null
 if ($BuildLocal -or -not $SkipClientInstall) {
-    $node = Ensure-Node
-    $env:PATH = "$(Split-Path -Parent $node);$env:PATH"
-}
-if ($BuildLocal) {
-    $npm = Get-NpmCommand $node
+    $node = Assert-Node
 }
 
 New-Item -ItemType Directory -Path $resolvedProjectPath -Force | Out-Null
 if ($BuildLocal) {
-    Push-Location $serverRoot
-    try {
-        Write-Host "Installing locked server dependencies..."
-        & $npm ci --ignore-scripts --no-audit --no-fund
-        if ($LASTEXITCODE -ne 0) { throw "npm ci failed (exit code $LASTEXITCODE)." }
-
-        Write-Host "Preparing and auditing the private-data-safe Docker context..."
-        & $npm run docker:prepare
-        if ($LASTEXITCODE -ne 0) { throw "Docker context preparation failed (exit code $LASTEXITCODE)." }
-        & $npm run docker:audit
-        if ($LASTEXITCODE -ne 0) { throw "Docker privacy audit failed (exit code $LASTEXITCODE)." }
-    } finally {
-        Pop-Location
-    }
-
+    Write-Host "Preparing and auditing the Docker context..."
+    & $node (Join-Path $serverRoot "scripts\prepare-docker-context.mjs")
+    if ($LASTEXITCODE -ne 0) { throw "Docker context preparation failed (exit code $LASTEXITCODE)." }
+    & $node (Join-Path $serverRoot "scripts\audit-docker-context.mjs")
+    if ($LASTEXITCODE -ne 0) { throw "Docker context audit failed (exit code $LASTEXITCODE)." }
     Write-Host "Building $Image..."
     & docker build --tag $Image (Join-Path $repoRoot ".docker\build-context")
     if ($LASTEXITCODE -ne 0) { throw "Docker image build failed (exit code $LASTEXITCODE)." }
@@ -231,10 +145,8 @@ if ($BuildLocal) {
         }
         # Installing whatever happened to be in the cache produced bug reports
         # about defects already fixed upstream (docs/DEFECTS.md Д-60), so the age
-        # of that copy is stated and using it is now a deliberate choice.
+        # of that copy is stated and using it is a deliberate choice.
         $created = (& docker image inspect --format '{{.Created}}' $Image 2>$null | Select-Object -First 1)
-        # A locally built image has no RepoDigests, and `index` on an empty list
-        # fails rather than returning nothing.
         $digest = (& docker image inspect --format '{{index .RepoDigests 0}}' $Image 2>$null | Select-Object -First 1)
         if ([string]::IsNullOrWhiteSpace($created)) { $created = "unknown" }
         if ([string]::IsNullOrWhiteSpace($digest)) { $digest = "none (image was built locally)" }
@@ -243,51 +155,48 @@ if ($BuildLocal) {
         if (-not $AllowStaleImage) {
             throw "Stopping rather than installing an image of unknown age. Restore the registry connection and run again, or re-run with -AllowStaleImage to install this copy anyway."
         }
-        Write-Warning "Continuing because -AllowStaleImage was given. Run 'docker pull $Image' and bootstrap again once the registry is reachable."
     }
 }
 
 if (-not $SkipSmoke) {
-    Write-Host "Running MCP smoke test..."
+    Write-Host "Checking the MCP handshake..."
+    # The server's own answer, instructions and all: 2.x checked for a serverInfo
+    # a launcher wrote itself (docs/DEFECTS.md Д-89).
     $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ai-dev-bootstrap","version":"1"}}}'
     $response = $init | & docker run --rm -i `
         --read-only `
         --tmpfs /tmp:rw,exec,nosuid,size=512m `
-        --tmpfs /data:rw,nosuid,size=512m,uid=1000,gid=1000,mode=0700 `
-        --shm-size 1g `
         --network none `
         --security-opt no-new-privileges:true `
         --cap-drop ALL `
-        $Image
-    if ($LASTEXITCODE -ne 0 -or ($response -join "`n") -notmatch '"serverInfo"') {
-        throw "Docker MCP smoke test failed."
+        --mount "type=volume,source=$dataVolume,target=/data" `
+        $Image 2>$null
+    if ($LASTEXITCODE -ne 0 -or ($response -join "`n") -notmatch '"instructions"') {
+        throw "The server in $Image did not answer the MCP handshake."
     }
 }
 
-$modelPathArgs = @()
-if ($resolvedModelPath) {
-    $modelPathArgs = @("--model-path", $resolvedModelPath)
-}
 if (-not $SkipClientInstall) {
-    Write-Host "Installing local MCP client configurations..."
-    $clientLauncher = Install-ClientLauncher $launcher
-    $claudeLauncher = Install-ClaudeMcpProxy
-    $env:AI_DEV_INSTALLER_LAUNCHER = $clientLauncher
-    & $node (Join-Path $serverRoot "scripts\install-docker-mcp-clients.mjs") `
-        --apply `
-        --launcher-env AI_DEV_INSTALLER_LAUNCHER `
-        --claude-launcher $claudeLauncher `
-        --image $Image `
-        --project-path $resolvedProjectPath `
-        @modelPathArgs `
-        --clients $Clients
-    if ($LASTEXITCODE -ne 0) { throw "MCP client configuration failed (exit code $LASTEXITCODE)." }
+    Write-Host "Writing the AI clients' configs..."
+    $modelArgs = @()
+    if ($resolvedModelPath) { $modelArgs = @("--model=$resolvedModelPath") }
+    & $node $cli clients install --docker "--image=$Image" "--projects=$resolvedProjectPath" "--volume=$dataVolume" "--clients=$Clients" @modelArgs
+    if ($LASTEXITCODE -ne 0) { throw "Writing the client configs failed (exit code $LASTEXITCODE)." }
+
+    # Configs of 2.x name the launcher bootstrap.ps1 copied here: it is brought up
+    # to 3.0's, which says it is the 2.x one (owner decision D10). The compiled
+    # ClaudeMcpProxy.exe beside it is left as it is: nothing is compiled any more.
+    $legacyLauncher = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)) "AI-Dev-System\run-mcp.ps1"
+    if (Test-Path -LiteralPath $legacyLauncher) {
+        try {
+            Copy-Item -LiteralPath (Join-Path $repoRoot "docker\run-mcp.ps1") -Destination $legacyLauncher -Force
+        } catch {
+            Write-Warning "Could not update the 2.x launcher at ${legacyLauncher}: $($_.Exception.Message)"
+        }
+    }
 }
 
-Write-Host "AI Dev MCP System is ready. Restart the selected AI clients to load the ai-dev MCP server."
-if ($resolvedModelPath) {
-    Write-Host "Model weights will be mounted read-only from $resolvedModelPath as /models by the launcher."
-}
+Write-Host "AI Dev is ready. Restart the AI clients to load ai-dev."
 if ($staleWarning) {
     Write-Warning "Installed from a stale image. $staleWarning"
 }

@@ -11,7 +11,7 @@
  * (decision D3, Д-98). A machine the runtime has no build for is `skipped`
  * with that said plainly (Д-101).
  */
-import { DENSE_MOUNT_ADVICE } from "./dense-backend.mjs";
+import { containerModelAdvice } from "./dense-backend.mjs";
 import { formatBytes } from "./disk-space.mjs";
 import { hint } from "./install-layout.mjs";
 
@@ -41,14 +41,15 @@ export function evaluateEmbeddingBackend(status = {}) {
       details
     };
   }
-  // Inside a container the model folder is a read-only mount: the fix is on
-  // the host, not a command run here (docs/DEFECTS.md, Д-157).
+  // Inside a container the fix depends on the folder: a read-only mount from
+  // the host is fixed there (docs/DEFECTS.md, Д-157), the volume's by
+  // installing into it with the network that one run needs (Д-99).
   const inContainer = Boolean(status.in_container);
   if (onnx.mismatched?.length) {
     return {
       status: "warn",
       summary: `The model files in ${onnx.dir} do not match the manifest (${onnx.mismatched.join(", ")}). `
-        + (inContainer ? `In this container, ${DENSE_MOUNT_ADVICE}` : `Run \`${hint("npm run setup -- --model")}\`: it fetches those files again.`),
+        + (inContainer ? `In this container, ${containerModelAdvice(onnx.dir)}` : `Run \`${hint("npm run setup -- --model")}\`: it fetches those files again.`),
       details
     };
   }
@@ -57,7 +58,7 @@ export function evaluateEmbeddingBackend(status = {}) {
     return {
       status: "skipped",
       summary: `Dense search is not installed: a model download stopped partway (${started}). `
-        + (inContainer ? `In this container, ${DENSE_MOUNT_ADVICE}` : `\`${hint("npm run setup -- --model")}\` continues it from there.`),
+        + (inContainer ? `In this container, ${containerModelAdvice(onnx.dir)}` : `\`${hint("npm run setup -- --model")}\` continues it from there.`),
       details: { ...details, optional: true }
     };
   }

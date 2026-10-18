@@ -10,12 +10,20 @@
  * and no benchmark: four critical health checks failed, every search tool
  * refused, and the first thing a new user saw was `Health: fail` on a correct
  * install (docs/DEFECTS.md, Д-57).
+ *
+ * The image builds all of it into its own /data, which Docker copies into a new
+ * volume (`scripts/docker-prepare-data.mjs`): on such a volume's first start the
+ * skill folders get back the time the copy took from them, and nothing is rebuilt
+ * (`src/core/image-data.mjs`).
+ *
+ *   node scripts/docker-bootstrap.mjs [--json]    --json: the steps' results on stdout
  */
 import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { planFirstRun, renderFirstRunReport } from "../src/core/first-run.mjs";
+import { restorePreparedTimes } from "../src/core/image-data.mjs";
 import {
   createRequiredActions,
   readRequiredState,
@@ -44,6 +52,12 @@ async function exists(target) {
 }
 
 try {
+  const restored = await restorePreparedTimes({ dataRoot: path.dirname(vaultRoot), vaultRoot });
+  if (restored.restored) {
+    process.stderr.write(restored.refused
+      ? `→ A new volume from the image's data, run as another user than the image's: the skill folders keep the copy's time (${restored.refused}), so what reads them is rebuilt once.\n`
+      : `→ A new volume from the image's data: ${restored.dated} skill folder(s) given back the time they were built with.\n`);
+  }
   for (const relative of [
     "01-system",
     "02-knowledge/Projects",
@@ -84,6 +98,7 @@ try {
 
   results.push(...await runFirstRunPlan(plan.filter((step) => step.id !== "skill_registry"), actions, announce));
   process.stderr.write(`${renderFirstRunReport(results)}\n`);
+  if (process.argv.includes("--json")) process.stdout.write(`${JSON.stringify({ restored, results })}\n`);
 } finally {
   shutdownBgeWorkers();
 }

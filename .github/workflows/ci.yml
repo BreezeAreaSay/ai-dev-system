@@ -308,14 +308,15 @@ jobs:
         shell: pwsh
         run: ./bootstrap.ps1 -Plan
 
-      - name: Client installer dry run (win32 path handling)
+      # What bootstrap.ps1 runs to write the configs of the Docker path: the
+      # checkout's own CLI, on win32 paths (docker run entries, /workspace).
+      - name: Docker client entries dry run (win32 path handling)
         working-directory: ai-dev-mcp-server
         shell: pwsh
         run: >
-          node scripts/install-docker-mcp-clients.mjs
-          --launcher ..\docker\run-mcp.ps1
+          node bin/ai-dev.mjs clients install --docker --dry-run
           --image ghcr.io/stonebridgeway/ai-dev-system:latest
-          --project-path "$env:RUNNER_TEMP\projects"
+          --projects "$env:RUNNER_TEMP\projects"
           --clients codex,cursor,vscode,claude
 
       - name: Core unit tests

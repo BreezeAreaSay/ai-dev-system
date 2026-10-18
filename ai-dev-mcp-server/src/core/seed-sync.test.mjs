@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  SEED_HISTORY_FILE,
   SEED_NEW_SUFFIX,
   SEED_STATE_FILE,
   compareVersions,
@@ -12,6 +13,8 @@ import {
   describeSyncResult,
   evaluateVaultSeed,
   prepareUserVault,
+  readSeedHistory,
+  seedHistoryKey,
   syncSeed
 } from "./seed-sync.mjs";
 
@@ -297,4 +300,77 @@ test("a conflict resolved by deleting the file leaves no .seed-new behind; build
   assert.equal(await exists(path.join(vault, "n.md")), false, "and the file stays deleted");
   assert.equal(compareVersions("3.0.0+build.1", "3.0.0"), 0);
   assert.equal(compareVersions("3.0.1+a", "3.0.0+b"), 1);
+});
+
+test("a vault with no record — a 2.x volume `cp -n` filled — is read against the seed's history", async (t) => {
+  const root = await scratch(t);
+  const vault = path.join(root, "vault");
+  // What 2.x images left: an old version of a note, a skill 3.0 dropped, both as shipped;
+  // a note and a dropped skill the user changed; a note already current; the image's own link.
+  const files = {
+    "01-system/Agent Rules.md": "rules 2.0\n",
+    "01-system/Operating Model.md": "model, edited by me\n",
+    "03-skills-catalog/sources/x/culled/SKILL.md": "culled skill\n",
+    "03-skills-catalog/sources/x/mine/SKILL.md": "culled skill, which I rewrote\n",
+    "04-agent-workflows/Code Reviewer.md": "reviewer 3.0\n",
+    "02-knowledge/Projects/notes.md": "my notes\n",
+    "02-knowledge/copy of the rules.md": "rules 2.0\n"
+  };
+  for (const [relative, content] of Object.entries(files)) {
+    await fs.mkdir(path.dirname(path.join(vault, relative)), { recursive: true });
+    await fs.writeFile(path.join(vault, relative), content);
+  }
+  const image = path.join(root, "image-app");
+  await fs.mkdir(image, { recursive: true });
+  await fs.writeFile(path.join(image, "SKILL.md"), "rules 2.0\n");
+  await fs.mkdir(path.join(vault, "09-mcp"), { recursive: true });
+  await fs.symlink(image, path.join(vault, "09-mcp", "ai-dev-mcp-server"), "dir");
+
+  const shippedBefore = new Set([
+    seedHistoryKey("01-system/Agent Rules.md", sha("rules 2.0\n")),
+    seedHistoryKey("01-system/Operating Model.md", sha("model 2.0\n")),
+    seedHistoryKey("03-skills-catalog/sources/x/culled/SKILL.md", sha("culled skill\n")),
+    seedHistoryKey("03-skills-catalog/sources/x/mine/SKILL.md", sha("culled skill\n")),
+    // A path behind the image's link is not walked, even one the history names.
+    seedHistoryKey("09-mcp/ai-dev-mcp-server/SKILL.md", sha("rules 2.0\n"))
+  ]);
+  const seed = await writeSeed(path.join(root, "seed-3"), {
+    "01-system/Agent Rules.md": "rules 3.0\n",
+    "01-system/Operating Model.md": "model 3.0\n",
+    "04-agent-workflows/Code Reviewer.md": "reviewer 3.0\n"
+  });
+  let asked = 0;
+  const result = await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history: async () => { asked += 1; return shippedBefore; } });
+  assert.equal(result.status, "synced");
+  assert.equal(result.recognised, 2, "the old note and the culled skill");
+  assert.equal(await read(vault, "01-system/Agent Rules.md"), "rules 3.0\n", "a 2.x version is updated");
+  assert.equal(await exists(path.join(vault, "03-skills-catalog/sources/x/culled")), false, "a skill the seed dropped goes, with its folder");
+  assert.equal(await read(vault, "03-skills-catalog/sources/x/mine/SKILL.md"), "culled skill, which I rewrote\n", "a rewritten one stays");
+  assert.equal(await read(vault, "01-system/Operating Model.md"), "model, edited by me\n");
+  assert.equal(await read(vault, `01-system/Operating Model.md${SEED_NEW_SUFFIX}`), "model 3.0\n");
+  assert.deepEqual(result.conflicts, ["01-system/Operating Model.md"]);
+  assert.equal(await read(vault, "02-knowledge/Projects/notes.md"), "my notes\n");
+  assert.equal(await read(vault, "02-knowledge/copy of the rules.md"), "rules 2.0\n", "a shipped content at another path is the user's");
+  assert.equal(await fs.readFile(path.join(image, "SKILL.md"), "utf8"), "rules 2.0\n", "nothing is read or removed through a link");
+  assert.match(describeSyncResult(result), /2 file\(s\) recognised as an earlier seed's/);
+
+  // With the record written, the next seed does not ask the history again.
+  const next = await writeSeed(path.join(root, "seed-4"), { "01-system/Agent Rules.md": "rules 3.1\n" });
+  await syncSeed({ seedRoot: next, contentRoot: vault, version: "3.1.0", history: async () => { asked += 1; return shippedBefore; } });
+  assert.equal(asked, 1);
+  assert.equal(await read(vault, "01-system/Agent Rules.md"), "rules 3.1\n");
+});
+
+test("the shipped history names versions by path and sha256, sorted and unique", async () => {
+  const history = JSON.parse(await fs.readFile(SEED_HISTORY_FILE, "utf8"));
+  assert.equal(history.schema_version, 1);
+  assert.ok(history.pairs.length > 1000, `${history.pairs.length} versions`);
+  assert.ok(history.pairs.every((key) => /^[0-9a-f]{16}$/.test(key)));
+  assert.deepEqual(history.pairs, [...new Set(history.pairs)].sort());
+  const keys = await readSeedHistory();
+  assert.equal(keys.size, history.pairs.length);
+  // The current seed's own files are not in it: they are judged by the manifest.
+  const manifest = JSON.parse(await fs.readFile(path.join(path.dirname(SEED_HISTORY_FILE), "..", "..", "docker", "public-seed", "public-seed.manifest.json"), "utf8"));
+  assert.ok(manifest.files.every((file) => !keys.has(seedHistoryKey(file.path, file.sha256))));
+  assert.equal((await readSeedHistory(path.join(os.tmpdir(), "no-such-history.json"))).size, 0);
 });

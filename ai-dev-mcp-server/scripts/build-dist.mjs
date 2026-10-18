@@ -2,12 +2,12 @@
 /**
  * `npm run dist` — the folder every installed form of the system is made from:
  * `dist/ai-dev/`, the npm package `@stonebridgeway/ai-dev-system` (owner
- * decision D4) and, later, the Windows installer.
+ * decision D4), the Windows installer and the Docker image, whose build context
+ * holds this very folder (`npm run docker:prepare`).
  *
  *   node scripts/build-dist.mjs [--output <folder below dist/>] [--no-deps] [--pack]
  *
- * What it holds comes from `distribution.allowlist.json`, the list the Docker
- * build context is made from too (`npm run docker:prepare`), laid out as the
+ * What it holds comes from `distribution.allowlist.json`, laid out as the
  * repository is — the server in `ai-dev-mcp-server/`, the Frontend QA runner in
  * `frontend-qa/`, the search cases in `search-eval/` — plus the seed in `seed/`,
  * which the server copies into the user's vault (`src/core/seed-sync.mjs`):
@@ -138,54 +138,70 @@ async function pack(output) {
   };
 }
 
+/**
+ * The distribution's files in `stage`, a folder the caller made and owns: what
+ * the allowlist ships, the seed checked against its manifest, `package.json`,
+ * the shrinkwrap and `distribution.json` — and the dependencies, when asked.
+ * The Docker build context holds exactly this (`prepare-docker-context.mjs`).
+ *
+ * @param {string} stage
+ * @param {{ deps?: boolean }} [options]
+ * @returns {Promise<{ name: string, version: string, files: number, bytes: number, fingerprint: string }>}
+ */
+export async function stageDistribution(stage, { deps = true } = {}) {
+  const plan = await planDistribution({ repositoryRoot, target: "dist" });
+  // Said before anything is copied: a file npm leaves out of the tarball is
+  // one every installed package would be missing (docs/DEFECTS.md, Д-175).
+  const dropped = plan.filter((item) => npmLeavesOut(item.destination)).map((item) => item.destination);
+  if (dropped.length) throw new Error(`npm pack would leave out ${dropped.length} file(s) the distribution needs: ${dropped.join(", ")}.`);
+  for (const item of plan) await copyDistributionFile(item.source, path.join(stage, ...item.destination.split("/")));
+  await assertSeedMatchesManifest(path.join(stage, "seed"));
+
+  const dangling = [
+    ...await findDanglingImports(path.join(stage, "ai-dev-mcp-server")),
+    ...await findDanglingImports(path.join(stage, "frontend-qa"))
+  ];
+  if (dangling.length) {
+    throw new Error(`Shipped modules import files the distribution does not carry: ${dangling.slice(0, 5).map((item) => `${item.file} → ${item.specifier}`).join("; ")}.`);
+  }
+
+  const server = await readJson(path.join(serverRoot, "package.json"));
+  const lock = await readJson(path.join(serverRoot, "package-lock.json"));
+  // npm packs package.json by itself, but a shrinkwrap only when `files` names it.
+  const entries = new Set([...plan.map((item) => item.destination.split("/")[0]), DISTRIBUTION_MARKER, "npm-shrinkwrap.json"]);
+  const manifest = packageManifest({ server, entries, name: PACKAGE_NAME });
+  await writeJson(path.join(stage, "package.json"), manifest);
+  await writeJson(path.join(stage, "npm-shrinkwrap.json"), shrinkwrapFrom(lock, manifest));
+
+  const forbiddenTerms = [os.homedir(), ...(process.env.CI ? [] : [ownerUsername()])];
+  const audit = assertCleanDistribution(await auditDistributionTree(stage, { forbiddenTerms }), "npm distribution");
+  const fingerprint = distributionContentFingerprint(audit.files);
+  await writeJson(path.join(stage, DISTRIBUTION_MARKER), {
+    schema_version: 1,
+    name: manifest.name,
+    version: manifest.version,
+    policy: "generated from distribution.allowlist.json and the public-seed manifest",
+    // Outside the fingerprint, which is over `files` alone: the same tree built twice fingerprints the same.
+    built_at: new Date().toISOString(),
+    total_files: audit.total_files,
+    total_bytes: audit.total_bytes,
+    content_fingerprint: fingerprint,
+    files: audit.files
+  });
+
+  if (deps) await npm(["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline"], { cwd: stage });
+  const check = await verifyDistribution(stage);
+  if (!check.ok) throw new Error(`The staged distribution does not verify: ${JSON.stringify(check)}`);
+  return { name: manifest.name, version: manifest.version, files: audit.total_files, bytes: audit.total_bytes, fingerprint };
+}
+
 export async function buildDistribution({ output, deps = true, pack: wantPack = false } = {}) {
   const outputRoot = belowDist(output ?? path.join(distRoot, "ai-dev"));
   const stage = path.join(distRoot, `.stage-${process.pid}`);
   await fs.mkdir(distRoot, { recursive: true });
   await fs.rm(stage, { recursive: true, force: true });
   try {
-    const plan = await planDistribution({ repositoryRoot, target: "dist" });
-    // Said before anything is copied: a file npm leaves out of the tarball is
-    // one every installed package would be missing (docs/DEFECTS.md, Д-175).
-    const dropped = plan.filter((item) => npmLeavesOut(item.destination)).map((item) => item.destination);
-    if (dropped.length) throw new Error(`npm pack would leave out ${dropped.length} file(s) the distribution needs: ${dropped.join(", ")}.`);
-    for (const item of plan) await copyDistributionFile(item.source, path.join(stage, ...item.destination.split("/")));
-    await assertSeedMatchesManifest(path.join(stage, "seed"));
-
-    const dangling = [
-      ...await findDanglingImports(path.join(stage, "ai-dev-mcp-server")),
-      ...await findDanglingImports(path.join(stage, "frontend-qa"))
-    ];
-    if (dangling.length) {
-      throw new Error(`Shipped modules import files the distribution does not carry: ${dangling.slice(0, 5).map((item) => `${item.file} → ${item.specifier}`).join("; ")}.`);
-    }
-
-    const server = await readJson(path.join(serverRoot, "package.json"));
-    const lock = await readJson(path.join(serverRoot, "package-lock.json"));
-    // npm packs package.json by itself, but a shrinkwrap only when `files` names it.
-    const entries = new Set([...plan.map((item) => item.destination.split("/")[0]), DISTRIBUTION_MARKER, "npm-shrinkwrap.json"]);
-    const manifest = packageManifest({ server, entries, name: PACKAGE_NAME });
-    await writeJson(path.join(stage, "package.json"), manifest);
-    await writeJson(path.join(stage, "npm-shrinkwrap.json"), shrinkwrapFrom(lock, manifest));
-
-    const forbiddenTerms = [os.homedir(), ...(process.env.CI ? [] : [ownerUsername()])];
-    const audit = assertCleanDistribution(await auditDistributionTree(stage, { forbiddenTerms }), "npm distribution");
-    await writeJson(path.join(stage, DISTRIBUTION_MARKER), {
-      schema_version: 1,
-      name: manifest.name,
-      version: manifest.version,
-      policy: "generated from distribution.allowlist.json and the public-seed manifest",
-      // Outside the fingerprint, which is over `files` alone: the same tree built twice fingerprints the same.
-      built_at: new Date().toISOString(),
-      total_files: audit.total_files,
-      total_bytes: audit.total_bytes,
-      content_fingerprint: distributionContentFingerprint(audit.files),
-      files: audit.files
-    });
-
-    if (deps) await npm(["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline"], { cwd: stage });
-    const check = await verifyDistribution(stage);
-    if (!check.ok) throw new Error(`The staged distribution does not verify: ${JSON.stringify(check)}`);
+    const staged = await stageDistribution(stage, { deps });
 
     await fs.rm(outputRoot, { recursive: true, force: true });
     await fs.mkdir(path.dirname(outputRoot), { recursive: true });
@@ -193,10 +209,10 @@ export async function buildDistribution({ output, deps = true, pack: wantPack = 
     return {
       status: "built",
       output: outputRoot,
-      name: manifest.name,
-      version: manifest.version,
-      files: audit.total_files,
-      bytes: audit.total_bytes,
+      name: staged.name,
+      version: staged.version,
+      files: staged.files,
+      bytes: staged.bytes,
       dependencies: deps ? "installed (npm ci --omit=dev --ignore-scripts)" : "not installed (--no-deps)",
       ...(wantPack ? { pack: await pack(outputRoot) } : {})
     };

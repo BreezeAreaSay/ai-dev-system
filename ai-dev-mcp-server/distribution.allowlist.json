@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "$comment": [
-    "What ships, for every way this system ships: `npm run dist` (dist/ai-dev, the npm package, the Windows installer) and `npm run docker:prepare` (the image's build context).",
+    "What ships, for every way this system ships: `npm run dist` (dist/ai-dev: the npm package, the Windows installer and, in `ai-dev/`, the Docker image's build context) and the files only the image's build needs beside it (`npm run docker:prepare`).",
     "Paths are relative to the repository root. `to` says where a group lands in each target; a group without a target in `to` is not part of it.",
     "Globs: `*` is any name within one folder, `**` any depth. A group with `manifest` ships exactly the files that manifest lists, and the manifest itself.",
     "Before 3.0 each target listed its files in its own code and the lists drifted apart (docs/DEFECTS.md, Д-37, Д-38, Д-56, Д-57)."
@@ -10,7 +10,7 @@
     {
       "name": "server",
       "from": "ai-dev-mcp-server",
-      "to": { "dist": "ai-dev-mcp-server", "docker": "app" },
+      "to": { "dist": "ai-dev-mcp-server" },
       "include": [
         "package.json",
         "package-lock.json",
@@ -19,10 +19,12 @@
         "src/**",
         "hooks/**",
         "models/bge-m3.manifest.json",
+        "data/seed-history.json",
         "config/runtime.example.json",
         "docs/ARCHITECTURE.md",
         "scripts/ai-dev.mjs",
         "scripts/docker-bootstrap.mjs",
+        "scripts/docker-prepare-data.mjs",
         "scripts/first-run-steps.mjs",
         "scripts/protocol-smoke.mjs",
         "scripts/rebuild-live-state.mjs",
@@ -33,25 +35,25 @@
     {
       "name": "frontend-qa",
       "from": "frontend-qa",
-      "to": { "dist": "frontend-qa", "docker": "runtime/frontend-qa" },
+      "to": { "dist": "frontend-qa" },
       "include": ["frontend_qa_runner.mjs", "package.json", "pnpm-lock.yaml"]
     },
     {
       "name": "search-eval",
       "from": "search-eval",
-      "to": { "dist": "search-eval", "docker": "runtime/search-eval" },
+      "to": { "dist": "search-eval" },
       "include": ["search_eval_cases.json", "skill_routing_eval_cases.json"]
     },
     {
       "name": "seed",
       "from": "docker/public-seed",
-      "to": { "dist": "seed", "docker": "public-seed" },
+      "to": { "dist": "seed" },
       "manifest": "public-seed.manifest.json"
     },
     {
       "name": "notices",
       "from": ".",
-      "to": { "dist": ".", "docker": "." },
+      "to": { "dist": "." },
       "include": ["README.md", "LICENSE", "THIRD_PARTY_NOTICES.md"]
     },
     {

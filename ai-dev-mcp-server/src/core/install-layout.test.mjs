@@ -75,6 +75,21 @@ test("the image is docker, whatever the folders say", () => {
   assert.equal(named.contentRoot, path.resolve("/data/vault"));
 });
 
+test("the 3.0 image is a distribution: its seed is synced into the volume's vault, which the image names itself", () => {
+  const image = only("/opt/ai-dev/distribution.json", "/opt/ai-dev/seed/public-seed.manifest.json", "/opt/ai-dev/frontend-qa");
+  const layout = resolveInstallLayout({ serverRoot: "/opt/ai-dev/ai-dev-mcp-server", env: env({ AI_DEV_RUNTIME: "docker", AI_DEV_VAULT_ROOT: "/data/ai-dev-system" }), exists: image });
+  assert.equal(layout.kind, "docker");
+  assert.equal(layout.contentRoot, path.resolve("/data/ai-dev-system"));
+  assert.equal(layout.seedRoot, path.resolve("/opt/ai-dev/seed"));
+  assert.equal(layout.bundle, false);
+  // A 2.x image has no distribution: its entrypoint copied the seed, and nothing syncs it.
+  const old = resolveInstallLayout({ serverRoot: "/opt/ai-dev/app", env: env({ AI_DEV_RUNTIME: "docker", AI_DEV_VAULT_ROOT: "/data/ai-dev-system" }), exists: only("/opt/ai-dev/public-seed/public-seed.manifest.json") });
+  assert.equal(old.seedRoot, "");
+  // A package keeps the rule of Д-177: a vault of the user's own is not seeded.
+  const own = resolveInstallLayout({ serverRoot: "/pkg/ai-dev-mcp-server", env: env({ AI_DEV_VAULT_ROOT: "/home/me/Vault" }), exists: only("/pkg/distribution.json", "/pkg/seed/public-seed.manifest.json") });
+  assert.deepEqual([own.kind, own.seedRoot], ["package", ""]);
+});
+
 test("npx's cache, pnpm's and yarn's dlx and bunx are one-run folders; the app home is not", () => {
   assert.equal(isEphemeralInstall("/home/me/.npm/_npx/0123abcd/node_modules/@stonebridgeway/ai-dev-system/ai-dev-mcp-server"), true);
   assert.equal(isEphemeralInstall("C:\\Users\\Me\\AppData\\Local\\npm-cache\\_npx\\0123\\node_modules\\x"), true);

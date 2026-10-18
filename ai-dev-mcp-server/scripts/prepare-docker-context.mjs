@@ -1,24 +1,45 @@
 #!/usr/bin/env node
+/**
+ * `npm run docker:prepare` — the image's build context, `.docker/build-context`:
+ *
+ * - `ai-dev/` — the distribution itself, as `npm run dist -- --no-deps` builds
+ *   it, `distribution.json` and all. The image installs the dependencies from
+ *   its shrinkwrap and checks every file against that list (`docker/Dockerfile`):
+ *   the image is the package, not a layout of its own. Before 3.0 the context
+ *   had one (`app/`, `runtime/`, `public-seed/`), and the two drifted apart
+ *   (docs/DEFECTS.md, Д-37, Д-56, Д-57);
+ * - `Dockerfile` and `container/entrypoint.sh` — the allowlist's groups only the
+ *   image needs;
+ * - `.dockerignore`, so nothing else reaches the builder;
+ * - `context.json` — when the context was made and from which distribution,
+ *   for `npm run docker:audit`.
+ */
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { assertSeedMatchesManifest, planDistribution } from "../src/core/distribution-build.mjs";
+import { planDistribution } from "../src/core/distribution-build.mjs";
 import {
   assertCleanDistribution,
   auditDistributionTree,
   copyDistributionFile,
-  distributionContentFingerprint,
   ownerUsername
 } from "../src/core/public-distribution.mjs";
 import { isDirectExecution } from "../src/core/direct-execution.mjs";
+import { stageDistribution } from "./build-dist.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const serverRoot = path.resolve(scriptDir, "..");
 const repositoryRoot = path.resolve(serverRoot, "..");
 const generatedRoot = path.join(repositoryRoot, ".docker");
 const defaultOutput = path.join(generatedRoot, "build-context");
+
+/** Where the distribution sits in the context, and what the Dockerfile copies. */
+export const CONTEXT_DISTRIBUTION = "ai-dev";
+
+/** The file `docker:audit` reads to tell a fresh context from one an older tree left. */
+export const CONTEXT_RECORD = "context.json";
 
 function parseArgs(argv) {
   const options = { output: defaultOutput };
@@ -49,81 +70,48 @@ async function writeText(target, content) {
 async function createDockerContext({ output }) {
   const outputRoot = assertGeneratedTarget(output);
   const stage = path.join(generatedRoot, `context-${process.pid}`);
-  const publicSeed = path.join(repositoryRoot, "docker", "public-seed");
-  const manifestFile = path.join(publicSeed, "public-seed.manifest.json");
-  const seedManifest = await fs.readFile(manifestFile, "utf8").then(JSON.parse).catch(() => null);
-  // The seed doubles as the vault a server without Obsidian runs against, so a
-  // machine that has used the system has project cards and registries in it —
-  // git ignores them, and the privacy audit rightly refused to ship them. The
-  // allowlist ships what the seed's manifest lists, and that only.
-  if (!seedManifest) throw new Error("Public seed is missing. Run npm run docker:seed first.");
-
   await fs.mkdir(generatedRoot, { recursive: true });
   await fs.rm(stage, { recursive: true, force: true });
   await fs.mkdir(stage, { recursive: true });
   try {
-    // The same allowlist `npm run dist` reads (distribution.allowlist.json): the
-    // image gets the files the package gets, laid out as the Dockerfile expects
-    // — the server in app/, its helpers in runtime/, the seed in public-seed/.
+    const distribution = await stageDistribution(path.join(stage, CONTEXT_DISTRIBUTION), { deps: false });
     for (const item of await planDistribution({ repositoryRoot, target: "docker" })) {
       await copyDistributionFile(item.source, path.join(stage, ...item.destination.split("/")));
     }
-    await assertSeedMatchesManifest(path.join(stage, "public-seed"));
     await writeText(path.join(stage, ".dockerignore"), `**
 !.dockerignore
 !Dockerfile
 !container/
 !container/**
-!app/
-!app/**
-!runtime/
-!runtime/**
-!public-seed/
-!public-seed/**
-!LICENSE
-!README.md
-!THIRD_PARTY_NOTICES.md
+!${CONTEXT_DISTRIBUTION}/
+!${CONTEXT_DISTRIBUTION}/**
 `);
-
-    const forbiddenTerms = [
-      os.homedir(),
-      ...(process.env.CI ? [] : [ownerUsername()])
-    ];
-    const initialAudit = assertCleanDistribution(
-      await auditDistributionTree(stage, { forbiddenTerms }),
-      "Docker build context"
-    );
-    const manifest = {
-      schema_version: 1,
-      policy: "generated from distribution.allowlist.json and the public-seed manifest",
-      // Outside `content_fingerprint`, which is taken over `files` alone, so a
-      // rebuild of the same tree still fingerprints identically. The audit
-      // needs this to tell a context built from these sources from one left
-      // over by an earlier tree.
+    const forbiddenTerms = [os.homedir(), ...(process.env.CI ? [] : [ownerUsername()])];
+    const audit = assertCleanDistribution(await auditDistributionTree(stage, { forbiddenTerms }), "Docker build context");
+    await writeText(path.join(stage, CONTEXT_RECORD), `${JSON.stringify({
+      schema_version: 2,
       generated_at: new Date().toISOString(),
-      docker_receives_only_allowlisted_files: true,
-      total_files: initialAudit.total_files,
-      total_bytes: initialAudit.total_bytes,
-      content_fingerprint: distributionContentFingerprint(initialAudit.files),
-      files: initialAudit.files
-    };
-    await writeText(
-      path.join(stage, "distribution-manifest.json"),
-      `${JSON.stringify(manifest, null, 2)}\n`
-    );
-    const finalAudit = assertCleanDistribution(
-      await auditDistributionTree(stage, { forbiddenTerms }),
-      "Docker build context"
-    );
+      distribution: {
+        folder: CONTEXT_DISTRIBUTION,
+        name: distribution.name,
+        version: distribution.version,
+        content_fingerprint: distribution.fingerprint,
+        files: distribution.files,
+        bytes: distribution.bytes
+      },
+      context_files: audit.total_files,
+      context_bytes: audit.total_bytes
+    }, null, 2)}\n`);
 
     await fs.rm(outputRoot, { recursive: true, force: true });
     await fs.rename(stage, outputRoot);
     return {
       status: "prepared",
       output: outputRoot,
-      files: finalAudit.total_files,
-      bytes: finalAudit.total_bytes,
-      fingerprint: manifest.content_fingerprint
+      version: distribution.version,
+      files: audit.total_files,
+      bytes: audit.total_bytes,
+      fingerprint: distribution.fingerprint
     };
   } finally {
     await fs.rm(stage, { recursive: true, force: true }).catch(() => {});

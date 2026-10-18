@@ -22,31 +22,32 @@ test("globs: ** spans folders and none, * and ? stay within one name", () => {
   assert.equal(match("a.json", "a-json"), false, "a dot is a dot");
 });
 
-test("one allowlist, two targets: the same files, each where its target keeps them", async () => {
+test("one allowlist, two targets: the distribution, and beside it what only the image needs", async () => {
   const [dist, docker] = await Promise.all([
     planDistribution({ repositoryRoot, target: "dist" }),
     planDistribution({ repositoryRoot, target: "docker" })
   ]);
   const distPaths = new Set(dist.map((item) => item.destination));
-  const dockerPaths = new Set(docker.map((item) => item.destination));
-  for (const [inDist, inDocker] of [
-    ["ai-dev-mcp-server/bin/ai-dev.mjs", "app/bin/ai-dev.mjs"],
-    ["ai-dev-mcp-server/src/mcp-stdio.mjs", "app/src/mcp-stdio.mjs"],
-    ["ai-dev-mcp-server/models/bge-m3.manifest.json", "app/models/bge-m3.manifest.json"],
-    ["ai-dev-mcp-server/hooks/with-node.sh", "app/hooks/with-node.sh"],
-    ["frontend-qa/frontend_qa_runner.mjs", "runtime/frontend-qa/frontend_qa_runner.mjs"],
-    ["search-eval/search_eval_cases.json", "runtime/search-eval/search_eval_cases.json"],
-    ["seed/public-seed.manifest.json", "public-seed/public-seed.manifest.json"],
-    ["LICENSE", "LICENSE"]
+  for (const file of [
+    "ai-dev-mcp-server/bin/ai-dev.mjs",
+    "ai-dev-mcp-server/src/mcp-stdio.mjs",
+    "ai-dev-mcp-server/models/bge-m3.manifest.json",
+    "ai-dev-mcp-server/data/seed-history.json",
+    "ai-dev-mcp-server/scripts/docker-bootstrap.mjs",
+    "ai-dev-mcp-server/scripts/docker-prepare-data.mjs",
+    "ai-dev-mcp-server/hooks/with-node.sh",
+    "frontend-qa/frontend_qa_runner.mjs",
+    "search-eval/search_eval_cases.json",
+    "seed/public-seed.manifest.json",
+    "LICENSE"
   ]) {
-    assert.ok(distPaths.has(inDist), inDist);
-    assert.ok(dockerPaths.has(inDocker), inDocker);
+    assert.ok(distPaths.has(file), file);
   }
-  assert.ok(dockerPaths.has("Dockerfile") && dockerPaths.has("container/entrypoint.sh"));
+  // The image's context is the distribution itself (`prepare-docker-context.mjs`);
+  // the docker target adds the two files only the image's build reads.
+  assert.deepEqual(docker.map((item) => item.destination), ["Dockerfile", "container/entrypoint.sh"]);
   assert.ok(!distPaths.has("Dockerfile"), "the image's own files are the image's");
   assert.equal([...distPaths].filter((item) => item.endsWith(".test.mjs")).length, 0, "no tests ship");
-  // Everything but the image's own files ships in both.
-  assert.equal(dist.length, docker.length - 2);
   const seed = JSON.parse(await fs.readFile(path.join(repositoryRoot, "docker", "public-seed", "public-seed.manifest.json"), "utf8"));
   assert.equal(dist.filter((item) => item.group === "seed").length, seed.files.length + 1, "the seed is what its manifest lists, and the manifest");
 });

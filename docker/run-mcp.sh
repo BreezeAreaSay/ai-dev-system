@@ -1,63 +1,24 @@
 #!/bin/sh
+# The 2.x launcher, kept so that the client configs naming it work until 4.0
+# (owner decision D10). 3.0 writes `docker run -i --rm …` into a client's config
+# itself — ./bootstrap.sh, or `ai-dev clients install --docker` — and this file
+# runs the same image the way 2.x's cold path did.
+#
+# Two things 2.x did here are gone. It answered `initialize` itself while the
+# server started, which lost the server's instructions and fixed the version
+# at 2.0.0 (docs/DEFECTS.md, Д-89): the image answers in about a second now.
+# And with AI_DEV_RUNTIME_CONTAINER set it ran the server in a long-lived
+# container, which kept the image it was started with, so a pulled image never
+# reached a session: every session runs AI_DEV_IMAGE now.
 set -eu
 
 image="${AI_DEV_IMAGE:-ai-dev-system:local}"
 data_volume="${AI_DEV_DATA_VOLUME:-ai-dev-system-data}"
 network="${AI_DEV_DOCKER_NETWORK:-none}"
-runtime_container="${AI_DEV_RUNTIME_CONTAINER:-}"
 
-run_warm_runtime() {
-  runtime_dir=$(mktemp -d "${TMPDIR:-/tmp}/ai-dev-mcp.XXXXXX")
-  backend_input="${runtime_dir}/backend-input"
-  backend_output="${runtime_dir}/backend-output"
-  mkfifo "$backend_input" "$backend_output"
-  exec 3<> "$backend_input"
-
-  (
-    first_response=1
-    while IFS= read -r backend_line; do
-      if [ "$first_response" -eq 1 ]; then
-        first_response=0
-        continue
-      fi
-      printf '%s\n' "$backend_line"
-    done < "$backend_output"
-  ) &
-  output_pid=$!
-
-  docker exec -i "$runtime_container" node /opt/ai-dev/app/src/server.mjs \
-    < "$backend_input" > "$backend_output" &
-  backend_pid=$!
-
-  cleanup_warm_runtime() {
-    exec 3>&-
-    kill "$backend_pid" "$output_pid" 2>/dev/null || true
-    wait "$backend_pid" "$output_pid" 2>/dev/null || true
-    rm -f "$backend_input" "$backend_output"
-    rmdir "$runtime_dir" 2>/dev/null || true
-  }
-  trap cleanup_warm_runtime EXIT HUP INT TERM
-
-  while IFS= read -r client_line; do
-    if printf '%s\n' "$client_line" | grep -Eq '"method"[[:space:]]*:[[:space:]]*"initialize"'; then
-      request_id=$(printf '%s\n' "$client_line" | sed -nE 's/.*"id"[[:space:]]*:[[:space:]]*([^,}]+).*/\1/p')
-      protocol_version=$(printf '%s\n' "$client_line" | sed -nE 's/.*"protocolVersion"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p')
-      if [ -z "$request_id" ] || [ -z "$protocol_version" ]; then
-        printf '%s\n' "Invalid MCP initialize request." >&2
-        exit 65
-      fi
-      printf '%s\n' "$client_line" >&3
-      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"%s","capabilities":{"tools":{"listChanged":false},"resources":{"subscribe":false,"listChanged":false},"prompts":{"listChanged":false},"logging":{}},"serverInfo":{"name":"ai-dev-system","version":"2.0.0"}}}\n' \
-        "$request_id" "$protocol_version"
-      continue
-    fi
-    printf '%s\n' "$client_line" >&3
-  done
-}
-
-if [ -n "$runtime_container" ]; then
-  run_warm_runtime
-  exit $?
+printf '%s\n' "ai-dev: this client config runs docker/run-mcp.sh, the 2.x launcher, which works until 4.0. Run ./bootstrap.sh (or \`ai-dev clients install --docker\`) to write the 3.0 entry: docker run, with the projects at their own path and the state your agent hooks share." >&2
+if [ -n "${AI_DEV_RUNTIME_CONTAINER:-}" ]; then
+  printf '%s\n' "ai-dev: the container ${AI_DEV_RUNTIME_CONTAINER} is not used any more: each session runs ${image}. \`docker rm -f ${AI_DEV_RUNTIME_CONTAINER}\` removes it." >&2
 fi
 
 set -- \

@@ -1,3 +1,8 @@
+# The 2.x launcher, kept so that the client configs naming it — and its copy in
+# C:\ProgramData\AI-Dev-System that bootstrap.ps1 made — work until 4.0 (owner
+# decision D10). 3.0 writes `docker run -i --rm ...` into a client's config itself
+# (bootstrap.ps1, or `ai-dev clients install --docker`); this runs the same image
+# the way it always did.
 $ErrorActionPreference = "Stop"
 
 function Write-AiDevDiagnostic([string]$Message) {
@@ -10,6 +15,8 @@ function Write-AiDevDiagnostic([string]$Message) {
         # Diagnostics must never interfere with MCP stdio.
     }
 }
+
+[Console]::Error.WriteLine("ai-dev: this client config runs run-mcp.ps1, the 2.x launcher, which works until 4.0. Run bootstrap.ps1 (or ``ai-dev clients install --docker``) to write the 3.0 entry: docker run, with the state your agent hooks share.")
 
 $image = if ($env:AI_DEV_IMAGE) { $env:AI_DEV_IMAGE } else { "ai-dev-system:local" }
 $dataVolume = if ($env:AI_DEV_DATA_VOLUME) { $env:AI_DEV_DATA_VOLUME } else { "ai-dev-system-data" }

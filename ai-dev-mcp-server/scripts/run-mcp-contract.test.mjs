@@ -21,7 +21,7 @@ const recordingDocker = [
   ""
 ].join("\n");
 
-async function launchWithModelPath(modelDir, context) {
+async function launchWithModelPath(modelDir, context, extraEnv = {}) {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-launcher-"));
   const binDir = path.join(home, "bin");
   await fs.mkdir(binDir);
@@ -38,7 +38,8 @@ async function launchWithModelPath(modelDir, context) {
         AI_DEV_IMAGE: "ai-dev-system:stub",
         AI_DEV_MODEL_PATH: modelDir,
         AI_DEV_RUNTIME_CONTAINER: "",
-        PATH: `${binDir}${path.delimiter}${process.env.PATH}`
+        PATH: `${binDir}${path.delimiter}${process.env.PATH}`,
+        ...extraEnv
       }
     });
     if (result.error?.code === "ENOENT") {
@@ -61,6 +62,23 @@ test("the folder above the models is mounted read-only as /models", async (conte
     const realModels = await fs.realpath(models);
     assert.ok(result.recorded.includes(`type=bind,source=${realModels},target=/models,readonly`), `mount missing from: ${result.recorded}`);
     assert.doesNotMatch(result.stderr, /holds (?:no bge-m3-onnx|bge-m3[\\/],)/);
+  } finally {
+    await fs.rm(models, { recursive: true, force: true });
+  }
+});
+
+test("3.0 keeps the 2.x launcher working, says so, and runs the configured image even for a 2.x runtime-container config (D10, Д-89)", async (context) => {
+  const models = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-"));
+  await fs.mkdir(path.join(models, "bge-m3-onnx"));
+  try {
+    const result = await launchWithModelPath(models, context, { AI_DEV_RUNTIME_CONTAINER: "ai-dev-system-runtime-1000" });
+    if (result === null) return;
+    assert.equal(result.status, 0, result.stderr);
+    const args = result.recorded.trim().split("\n");
+    assert.deepEqual([args[0], args.at(-1)], ["run", "ai-dev-system:stub"], "a session of the image, not `docker exec` into a container that keeps an old one");
+    assert.ok(!args.includes("exec"));
+    assert.match(result.stderr, /the 2\.x launcher, which works until 4\.0\. Run \.\/bootstrap\.sh/);
+    assert.match(result.stderr, /ai-dev-system-runtime-1000 is not used any more/);
   } finally {
     await fs.rm(models, { recursive: true, force: true });
   }
@@ -212,20 +230,13 @@ for (const marker of ["pytorch_model.bin", "modules.json", "config.json", "onnx"
   });
 }
 
-test("the fast-start handshake names the version this package actually is", async () => {
-  // Д-79 (upstream #65): both launchers answer `initialize` themselves so a
-  // client does not time out while the container starts, and both answered
-  // "1.0.0" — a major version behind — for the whole of 2.0. Nothing recomputes
-  // these strings, so this test is what keeps them honest across a bump.
-  const packageVersion = JSON.parse(
-    await fs.readFile(path.resolve(scriptDir, "..", "package.json"), "utf8")
-  ).version;
-  for (const relative of ["run-mcp.sh", "ClaudeMcpProxy.cs"]) {
+test("no launcher answers the handshake itself any more: no serverInfo, no version of its own (Д-89)", async () => {
+  // Д-79 (upstream #65): both launchers answered `initialize` themselves so a
+  // client would not time out while the container started, with a version
+  // written in them — "1.0.0" for the whole of 2.0. In 3.0 the server answers:
+  // its instructions reach the client, and there is no version here to keep.
+  for (const relative of ["run-mcp.sh", "run-mcp.ps1", "ClaudeMcpProxy.cs"]) {
     const source = await fs.readFile(path.resolve(scriptDir, "..", "..", "docker", relative), "utf8");
-    const declared = [...source.matchAll(/\\?"version\\?":\\?"([^"\\]+)\\?"/g)].map((match) => match[1]);
-    assert.ok(declared.length, `${relative} no longer declares a serverInfo version`);
-    for (const value of declared) {
-      assert.equal(value, packageVersion, `${relative} answers initialize with ${value}`);
-    }
+    assert.doesNotMatch(source, /serverInfo|protocolVersion|"initialize"/, `${relative} still speaks MCP itself`);
   }
 });

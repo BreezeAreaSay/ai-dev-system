@@ -124,9 +124,26 @@ export function selectDenseBackend({ requested = "auto", onnxReady = false, supp
   return { backend: DENSE_ONNX_BACKEND, available: false, requested: choice, reason: notReadyReason({ inContainer, files }) };
 }
 
-/** What fixes the model inside a container: the host's folder, mounted. */
-export const DENSE_MOUNT_ADVICE = "mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH with docker/run-mcp.sh).";
-const MOUNT_ADVICE = DENSE_MOUNT_ADVICE;
+/** Where 2.x's Docker launchers mount the host's model (`AI_DEV_MODEL_PATH` → `/models`, read-only). */
+export const DOCKER_MOUNTED_MODEL_DIR = "/models/bge-m3-onnx";
+
+/**
+ * What fixes the model inside a container, by the folder it is read from. The
+ * host's folder at /models is a read-only mount, fixed on the host
+ * (docs/DEFECTS.md, Д-157); the volume's is fixed by installing the model into
+ * it, with the network that one run needs (Д-99).
+ *
+ * @param {string} [dir] - The model folder the container reads.
+ * @returns {string}
+ */
+export function containerModelAdvice(dir = "") {
+  return dir === DOCKER_MOUNTED_MODEL_DIR
+    ? "the folder is the host's, mounted read-only at /models (AI_DEV_MODEL_PATH): put the model right there on the host "
+      + "(`ai-dev model install --dir <that folder>/bge-m3-onnx`), or drop the mount and install it into the data volume."
+    : "install it into the data volume once, with the network that run needs: "
+      + "`docker run --rm -it --network bridge --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev model install`; "
+      + "the sessions after it keep --network none. Or mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH).";
+}
 
 /** The model is not usable; say which way, and what changes it. */
 function notReadyReason({ inContainer, files }) {
@@ -137,7 +154,7 @@ function notReadyReason({ inContainer, files }) {
     const one = mismatched.length === 1;
     return `Dense search is not ready: ${names(mismatched)}${where} ${one ? "is not the pinned file" : "are not the pinned files"} `
       + `(the sha256 differs from the manifest). `
-      + (inContainer ? `In this container, ${MOUNT_ADVICE}` : `Run \`${DENSE_INSTALL_COMMAND}\`: it fetches ${one ? "it" : "them"} again.`);
+      + (inContainer ? `In this container, ${containerModelAdvice(dir)}` : `Run \`${DENSE_INSTALL_COMMAND}\`: it fetches ${one ? "it" : "them"} again.`);
   }
   if (partial.length && !inContainer) {
     return `Dense search is not installed yet: the download of the model stopped partway (${names(partial)}). `
@@ -145,11 +162,11 @@ function notReadyReason({ inContainer, files }) {
   }
   if (present.length && missing.length) {
     return `Dense search is not ready: the model${where} lacks ${names(missing)}. `
-      + (inContainer ? `In this container, ${MOUNT_ADVICE}`
+      + (inContainer ? `In this container, ${containerModelAdvice(dir)}`
         : `Run \`${DENSE_INSTALL_COMMAND}\` to fetch ${missing.length === 1 ? "it" : "them"}, or \`${DENSE_IMPORT_COMMAND}\` to copy the model from another machine.`);
   }
   return inContainer
-    ? `Dense search is not installed in this container: ${MOUNT_ADVICE}`
+    ? `Dense search is not installed in this container: ${containerModelAdvice(dir)}`
     : `Dense search is not installed: the model is not on this machine. Run \`${DENSE_INSTALL_COMMAND}\` to download it `
       + `(about 600 MB, no Python), or \`${DENSE_IMPORT_COMMAND}\` to copy it from another machine.`;
 }

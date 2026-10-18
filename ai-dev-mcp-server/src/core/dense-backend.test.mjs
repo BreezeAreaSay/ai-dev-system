@@ -52,8 +52,9 @@ test("without the model it is a state with two ways out, and in a container the 
   assert.match(missing.reason, /npm run setup -- --model/);
   assert.match(missing.reason, /npm run model -- import <folder or \.zip>/);
   assert.doesNotMatch(missing.reason, /virtualenv|--dense-python|\.venv/, "nothing of the removed backend is advised");
-  const container = selectDenseBackend({ onnxReady: false, inContainer: true });
-  assert.match(container.reason, /mount a folder holding bge-m3-onnx\/ at \/models/);
+  const container = selectDenseBackend({ onnxReady: false, inContainer: true, files: { dir: "/data/runtime-home/.ai-dev/models/bge-m3-onnx", present: [], missing: [], mismatched: [] } });
+  assert.match(container.reason, /install it into the data volume once, with the network that run needs: `docker run --rm -it --network bridge .* ai-dev model install`/);
+  assert.match(container.reason, /Or mount a folder holding bge-m3-onnx\/ at \/models/);
 });
 
 test("the sentence names what the check found: other files, some missing, a stopped download (Д-146)", () => {
@@ -73,10 +74,13 @@ test("the sentence names what the check found: other files, some missing, a stop
   const empty = selectDenseBackend({ files: { dir, present: [], missing: all, mismatched: [] } });
   assert.match(empty.reason, /^Dense search is not installed: the model is not on this machine\./, "nothing there is the only 'not on this machine'");
   const mounted = selectDenseBackend({ inContainer: true, files: { dir: "/models/bge-m3-onnx", present: all.slice(1), missing: [], mismatched: ["config.json"] } });
-  assert.match(mounted.reason, /config\.json in \/models\/bge-m3-onnx is not the pinned file .* In this container, mount a folder holding bge-m3-onnx\/ at \/models/);
+  assert.match(mounted.reason, /config\.json in \/models\/bge-m3-onnx is not the pinned file .* In this container, the folder is the host's, mounted read-only at \/models/);
   assert.doesNotMatch(mounted.reason, /npm run setup/, "a read-only mount is not fixed by a download inside the container");
   const mountedPartial = selectDenseBackend({ inContainer: true, files: { dir: "/models/bge-m3-onnx", present: all.slice(1), missing: ["config.json"], partial: ["config.json"] } });
-  assert.match(mountedPartial.reason, /lacks config\.json\. In this container, mount/);
+  assert.match(mountedPartial.reason, /lacks config\.json\. In this container, the folder is the host's/);
+  // The volume's own folder is fixed by installing into it, not on the host (Д-99).
+  const volume = selectDenseBackend({ inContainer: true, files: { dir: "/data/runtime-home/.ai-dev/models/bge-m3-onnx", present: all.slice(1), missing: [], mismatched: ["config.json"] } });
+  assert.match(volume.reason, /In this container, install it into the data volume once/);
 });
 
 test("a machine with no runtime build is told so, whatever is on disk", () => {

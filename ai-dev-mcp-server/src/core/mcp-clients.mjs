@@ -28,6 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { atomicWriteJson, renameOver } from "./atomic-files.mjs";
+import { isDirectDockerEntry } from "./docker-launch.mjs";
 import { readMember, removeMember, setMember } from "./jsonc-edit.mjs";
 import { parseTomlLite } from "./toml-lite.mjs";
 import { removeTables, renderTable, scanToml, upsertTables } from "./toml-edit.mjs";
@@ -207,7 +208,8 @@ export function clientEntry(target, { command, args, env = {} }) {
  *
  * @param {unknown} entry
  * @param {unknown} [expected] - The entry this install would write.
- * @returns {{ kind: "current"|"local"|"docker"|"other"|"invalid", command?: string, script?: string }}
+ * @returns {{ kind: "current"|"local"|"docker"|"other"|"invalid", command?: string, script?: string, direct?: boolean }}
+ *   `direct`: a 3.0 entry running `docker run` itself, not a 2.x launcher.
  */
 export function describeEntry(entry, expected) {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return { kind: "invalid" };
@@ -215,6 +217,7 @@ export function describeEntry(entry, expected) {
   const command = String(entry.command ?? "");
   const args = Array.isArray(entry.args) ? entry.args.map(String) : [];
   const env = entry.env && typeof entry.env === "object" ? entry.env : {};
+  if (isDirectDockerEntry(entry)) return { kind: "docker", command, direct: true };
   if (env.AI_DEV_IMAGE || env.AI_DEV_MCP_LAUNCHER || args.some((arg) => /run-mcp\.(?:sh|ps1)$/i.test(arg)) || /ClaudeMcpProxy\.exe$/i.test(command)) {
     return { kind: "docker", command };
   }

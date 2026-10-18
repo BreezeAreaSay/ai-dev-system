@@ -51,7 +51,7 @@ export async function migrateDoubledRuntimeHome({ env = process.env, now = () =>
     await removeEmptyDirectories(legacy);
     const result = { status: "migrated", from: legacy, to: target, ...counts };
     if (counts.moved || counts.merged || counts.duplicates || counts.conflicts.length || counts.errors.length) {
-      await recordMigration(target, { ...result, at: now().toISOString() });
+      await recordMigration(target, { ...result, at: now().toISOString() }, env);
     }
     return result;
   }, { timeoutMs: MIGRATION_LOCK_TIMEOUT_MS });
@@ -123,7 +123,42 @@ export async function migrateCodexRuntime({ env = process.env, now = () => new D
     }
     const result = { status: "migrated", kind: "codex", from: folders[0].codex, to: target, ...counts };
     if (counts.moved || counts.merged || counts.duplicates || counts.superseded || counts.conflicts.length || counts.errors.length) {
-      await recordMigration(target, { ...result, at: now().toISOString() });
+      await recordMigration(target, { ...result, at: now().toISOString() }, env);
+    }
+    return result;
+  }, { timeoutMs: MIGRATION_LOCK_TIMEOUT_MS });
+}
+
+/**
+ * In the image: the state the server kept in the volume — all of it in 2.x, and
+ * what a session a 2.x launcher started writes there still — moved into the
+ * folder the client entry mounts from the host (`AI_DEV_STATE_ROOT`), which the
+ * hooks on the host keep their state in too. Before, the hooks never saw the
+ * server's tasks nor the server the hooks' handoffs (docs/DEFECTS.md, Д-103).
+ * Merged as the other migrations merge; re-run on every start, so the second
+ * place never holds anything for long.
+ *
+ * @param {{ env?: NodeJS.ProcessEnv, now?: () => Date }} [options]
+ * @returns {Promise<{ status: "not-applicable"|"clean"|"migrated", from?: string, to?: string, moved: number, merged: number, duplicates: number, conflicts: string[], errors: Array<{ path: string, code: string, message: string }> }>}
+ */
+export async function migrateVolumeState({ env = process.env, now = () => new Date() } = {}) {
+  const empty = () => ({ moved: 0, merged: 0, duplicates: 0, conflicts: [], errors: [] });
+  if (String(env.AI_DEV_RUNTIME ?? "").trim().toLowerCase() !== "docker" || !String(env.AI_DEV_STATE_ROOT ?? "").trim()) {
+    return { status: "not-applicable", ...empty() };
+  }
+  const runtimeRoot = resolveRuntimeStateRoot("", env);
+  const volume = path.join(runtimeRoot, "state");
+  const target = path.resolve(env.AI_DEV_STATE_ROOT);
+  if (path.relative(volume, target) === "" || !(await isDirectory(volume))) return { status: path.relative(volume, target) === "" ? "not-applicable" : "clean", ...empty() };
+  await fs.mkdir(target, { recursive: true });
+  return withFileLock(path.join(target, "volume-migration"), async () => {
+    if (!(await isDirectory(volume))) return { status: "clean", ...empty() };
+    const counts = empty();
+    await mergeTree(volume, target, volume, counts, { acrossDevices: true });
+    await removeEmptyDirectories(volume);
+    const result = { status: "migrated", kind: "volume", from: volume, to: target, ...counts };
+    if (counts.moved || counts.merged || counts.duplicates || counts.conflicts.length || counts.errors.length) {
+      await recordMigration(runtimeRoot, { ...result, at: now().toISOString() }, env);
     }
     return result;
   }, { timeoutMs: MIGRATION_LOCK_TIMEOUT_MS });
@@ -189,7 +224,7 @@ async function mergeEntry(source, destination, entry, legacyRoot, counts, option
   const existing = await fs.lstat(destination).catch((error) => (error?.code === "ENOENT" ? null : Promise.reject(error)));
   if (!existing) {
     try {
-      await moveWithoutReplacing(source, destination, entry);
+      await moveWithoutReplacing(source, destination, entry, options);
       counts.moved += 1;
       return;
     } catch (error) {
@@ -224,15 +259,22 @@ async function mergeEntry(source, destination, entry, legacyRoot, counts, option
  * replacing one that appears in between: a hard link fails with EEXIST where a
  * rename would overwrite. Links themselves, and filesystems that cannot
  * hard-link, are renamed after one more check. Across disks both fail with
- * EXDEV, and the entry is reported rather than copied behind the user's back.
+ * EXDEV, and the entry is reported rather than copied behind the user's back —
+ * unless crossing is the point (`acrossDevices`: a container's volume into the
+ * host's folder), where a file is copied without replacing, then removed.
  */
-async function moveWithoutReplacing(source, destination, entry) {
+async function moveWithoutReplacing(source, destination, entry, { acrossDevices = false } = {}) {
   if (entry.isFile()) {
     try {
       await fs.link(source, destination);
       await fs.unlink(source);
       return;
     } catch (error) {
+      if (error?.code === "EXDEV" && acrossDevices) {
+        await fs.copyFile(source, destination, fs.constants.COPYFILE_EXCL);
+        await fs.unlink(source);
+        return;
+      }
       if (!LINK_UNSUPPORTED.has(error?.code) || error?.code === "EXDEV") throw error;
     }
   }
@@ -322,15 +364,25 @@ async function removeEmptyDirectories(directory) {
   }
 }
 
-/** Where `doctor` reads what the last migration did. */
-export function migrationRecordPath(runtimeRoot) {
-  return path.join(runtimeRoot, "state", "runtime-home-migration.json");
+/**
+ * Where `doctor` reads what the last migration did: in the state folder —
+ * `AI_DEV_STATE_ROOT` when the environment names one. In the image that is the
+ * host's folder the client entry mounts, and a record kept in the volume's
+ * state was itself moved out by the next start's migration of that state.
+ *
+ * @param {string} runtimeRoot
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string}
+ */
+export function migrationRecordPath(runtimeRoot, env = {}) {
+  const named = String(env.AI_DEV_STATE_ROOT ?? "").trim();
+  return path.join(named ? path.resolve(named) : path.join(runtimeRoot, "state"), "runtime-home-migration.json");
 }
 
-async function recordMigration(runtimeRoot, entry) {
-  const target = migrationRecordPath(runtimeRoot);
+async function recordMigration(runtimeRoot, entry, env) {
+  const target = migrationRecordPath(runtimeRoot, env);
   await withExclusiveFile(target, async () => {
-    const history = (await readMigrationRecord(runtimeRoot)).history;
+    const history = (await readMigrationRecord(runtimeRoot, env)).history;
     history.push(entry);
     await atomicWriteJson(target, { schema_version: 1, history: history.slice(-20) });
   });
@@ -340,11 +392,12 @@ async function recordMigration(runtimeRoot, entry) {
  * What earlier migrations did, newest last.
  *
  * @param {string} runtimeRoot
+ * @param {NodeJS.ProcessEnv} [env]
  * @returns {Promise<{ history: object[] }>}
  */
-export async function readMigrationRecord(runtimeRoot) {
+export async function readMigrationRecord(runtimeRoot, env = {}) {
   try {
-    const parsed = JSON.parse(await fs.readFile(migrationRecordPath(runtimeRoot), "utf8"));
+    const parsed = JSON.parse(await fs.readFile(migrationRecordPath(runtimeRoot, env), "utf8"));
     return { history: Array.isArray(parsed.history) ? parsed.history : [] };
   } catch {
     return { history: [] };
@@ -387,7 +440,9 @@ export function prepareRuntimeHome({ env = process.env, log = (line) => process.
     .then(async (result) => ({
       ...result,
       codex: await migrateCodexRuntime({ env })
-        .then((codex) => report(codex, "AI Dev's data is read from ~/.ai-dev only now"), failed("AI Dev's data out of ~/.codex"))
+        .then((codex) => report(codex, "AI Dev's data is read from ~/.ai-dev only now"), failed("AI Dev's data out of ~/.codex")),
+      volume: await migrateVolumeState({ env })
+        .then((volume) => report(volume, "the state is the one folder the server and the hooks share"), failed("the volume's state into the host's state folder"))
     }));
   return prepared;
 }
@@ -418,7 +473,7 @@ export async function describeRuntimeHome({ env = process.env } = {}) {
   const root = resolveRuntimeStateRoot("", env);
   const raw = String(env.AI_DEV_HOME ?? "").trim();
   const legacy = legacyDoubledRuntimeRoot(env);
-  const { history } = await readMigrationRecord(root);
+  const { history } = await readMigrationRecord(root, env);
   const codexFiles = [];
   for (const folder of codexLegacyFolders(env)) {
     for (const file of await listFiles(folder.source, folder.codex, 50 - codexFiles.length)) codexFiles.push(file);

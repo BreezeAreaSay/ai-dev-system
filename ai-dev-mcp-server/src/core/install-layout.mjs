@@ -16,7 +16,8 @@
  * - `clone`   — a checkout of this repository: the content is its `docker/public-seed`;
  * - `package` — `npm run dist`'s folder, the npm package, the Windows install:
  *               `distribution.json` beside the server, the seed in `seed/`;
- * - `docker`  — the image (`AI_DEV_RUNTIME=docker`); its entrypoint seeds `/data`.
+ * - `docker`  — the image (`AI_DEV_RUNTIME=docker`): since 3.0 the same
+ *               distribution in `/opt/ai-dev`, its seed synced into the volume.
  *
  * `AI_DEV_VAULT_ROOT` names the content root and nothing else: a full vault of
  * the user's own is read where it is, whatever installed the code — and a
@@ -110,7 +111,12 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
   } else if (exists(repositorySeed)) {
     [kind, ownContent] = ["clone", repositorySeed];
   }
-  const ownSeed = kind === "package" && exists(path.join(root, DISTRIBUTION_MARKER)) && exists(path.join(shipped, SEED_MANIFEST)) ? shipped : "";
+  const distributed = exists(path.join(root, DISTRIBUTION_MARKER)) && exists(path.join(shipped, SEED_MANIFEST));
+  // The image names its vault itself (AI_DEV_VAULT_ROOT is in its ENV), and
+  // that vault is the seed's to keep current whatever it is called: 2.x's
+  // entrypoint copied the seed into it with `cp -n`, which never updated a file
+  // (docs/DEFECTS.md, Д-99). A 2.x image has no distribution and syncs nothing.
+  const ownSeed = distributed && (kind === "docker" || (kind === "package" && !explicit)) ? shipped : "";
   return {
     serverRoot: server,
     root,
@@ -120,7 +126,7 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
     bundle: kind === "package" && exists(path.join(root, BUNDLE_MARKER)),
     kind,
     contentRoot: path.resolve(explicit || ownContent),
-    seedRoot: explicit ? "" : ownSeed
+    seedRoot: ownSeed
   };
 }
 

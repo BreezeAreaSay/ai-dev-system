@@ -4,30 +4,34 @@
  * this is the part that chooses the clients and says what happened.
  */
 import os from "node:os";
+import path from "node:path";
 import { CliUsageError, EXIT, closest, parseCommandLine } from "../core/cli-args.mjs";
 import {
   chooseTargets as chooseClientTargets,
   clientLabel,
+  dockerOptions,
   installClients as installClientConfigs,
   localLaunch,
   removeClients,
   tildify
 } from "../core/client-connections.mjs";
+import { DEFAULT_DOCKER_IMAGE, dockerLaunch } from "../core/docker-launch.mjs";
 import { checkServerCommand } from "../core/mcp-client-check.mjs";
-import { SERVER_NAME, clientEntry, describeEntry, discoverClients, readServerEntries } from "../core/mcp-clients.mjs";
+import { MCP_CLIENTS, SERVER_NAME, clientEntry, describeEntry, discoverClients, parseClientSelection, readServerEntries } from "../core/mcp-clients.mjs";
 
 export { clientStatePath } from "../core/client-connections.mjs";
 
-const SUBCOMMANDS = ["list", "install", "remove", "doctor"];
+const SUBCOMMANDS = ["list", "install", "remove", "doctor", "entry"];
 
 export function usage() {
   return [
-    "Usage: ai-dev clients <list | install | remove | doctor> [options]",
+    "Usage: ai-dev clients <list | install | remove | doctor | entry> [options]",
     "",
     "  list       every supported client, whether it is installed, and what its ai-dev entry runs",
     "  install    add ai-dev to the clients (and take out ai-dev-system, the 2.x name)",
     "  remove     take ai-dev out again; a file nothing else touched since goes back byte for byte",
     "  doctor     start each client's ai-dev command and check it answers initialize",
+    "  entry <client>  print the entry install would write for one client, as JSON (writes nothing)",
     "",
     "  --clients=<names>   all (every client found here; the default), or some of claude-code,",
     "                      claude-desktop, cursor, vscode, codex, gemini (claude = both Claude apps).",
@@ -36,8 +40,49 @@ export function usage() {
     "  --timeout=<seconds> doctor: how long each command has to answer initialize (30)",
     "  --json              print the result as JSON",
     "",
+    "  --docker            install and entry: the clients run the server in Docker, `docker run -i --rm …`:",
+    `    --image=<ref>         the image (${DEFAULT_DOCKER_IMAGE})`,
+    "    --projects=<folder>   the projects folder the server sees (~/AI-Dev-Projects); made if missing",
+    "    --model=<folder>      a folder holding bge-m3-onnx/, mounted read-only (otherwise the model is the volume's:",
+    "                          `docker run --rm -it --network bridge … <image> ai-dev model install` puts it there once)",
+    "    --volume=<name>       the data volume (ai-dev-system-data)",
+    "    --state=<folder>      the state folder shared with the agent hooks (~/.ai-dev/state); made if missing",
+    "    --docker-command=<path>  the Docker CLI (found on PATH)",
+    "    --home, --platform, --user=<uid:gid>  the host's, when this runs in the image on its behalf (bootstrap.sh)",
+    "",
     "Each changed file keeps its previous bytes as <file>.backup-<time>."
   ].join("\n");
+}
+
+/** The options of `--docker`, read from the command line; the host's when it runs in the image on its behalf. */
+async function dockerFrom(values, io, { apply = true } = {}) {
+  if (!values.docker) {
+    const named = ["image", "projects", "model", "volume", "state", "docker-command", "user"].find((name) => values[name] !== undefined);
+    if (named) throw new CliUsageError(`--${named} is an option of --docker; add --docker to run the clients' server in Docker.`);
+    return null;
+  }
+  const home = values.home || os.homedir();
+  const platform = values.platform || process.platform;
+  if (!["linux", "darwin", "win32"].includes(platform)) throw new CliUsageError(`--platform takes linux, darwin or win32; "${platform}" is not one.`);
+  const paths = platform === "win32" ? path.win32 : path.posix;
+  try {
+    return await dockerOptions({
+      image: values.image,
+      volume: values.volume,
+      projects: values.projects,
+      model: values.model,
+      // Named by the host, or under the home it names: the image's own AI_DEV_HOME is not the host's.
+      state: values.state || (values.home ? paths.join(values.home, ".ai-dev", "state") : ""),
+      user: values.user,
+      docker: values["docker-command"],
+      home,
+      platform,
+      env: io.env,
+      apply
+    });
+  } catch (error) {
+    throw new CliUsageError(error.message);
+  }
 }
 
 /**
@@ -129,19 +174,21 @@ function describeForList(row, expected, home) {
   const current = row.entries[SERVER_NAME];
   const legacy = Object.entries(row.entries).find(([name, value]) => name !== SERVER_NAME && value !== undefined);
   const parts = [];
-  if (current !== undefined) {
-    const kind = describeEntry(current, expected);
+  const kind = current === undefined ? null : describeEntry(current, expected);
+  if (kind) {
     parts.push(kind.kind === "current" ? "ai-dev → this install"
-      : kind.kind === "docker" ? "ai-dev → Docker launcher"
-        : kind.kind === "local" ? `ai-dev → another install: ${tildify(kind.script, home)}`
-          : `ai-dev → ${kind.command || "an entry without a command"}`);
+      : kind.direct ? `ai-dev → Docker: ${current.args.at(-1)}`
+        : kind.kind === "docker" ? "ai-dev → the 2.x Docker launcher; `ai-dev clients install --docker` runs docker directly instead"
+          : kind.kind === "local" ? `ai-dev → another install: ${tildify(kind.script, home)}`
+            : `ai-dev → ${kind.command || "an entry without a command"}`);
   }
   if (legacy) {
-    const kind = describeEntry(legacy[1]);
-    parts.push(`${legacy[0]} (2.x) → ${tildify(kind.script ?? kind.command ?? "?", home)}`);
+    const old = describeEntry(legacy[1]);
+    parts.push(`${legacy[0]} (2.x) → ${tildify(old.script ?? old.command ?? "?", home)}`);
   }
   if (!parts.length) return "no ai-dev entry";
-  if (current === undefined || describeEntry(current, expected).kind !== "current") parts.push("`ai-dev clients install` points it here");
+  // A client run in Docker was chosen so: it is not pointed back at this install.
+  if (!kind || (kind.kind !== "current" && kind.kind !== "docker")) parts.push("`ai-dev clients install` points it here");
   return parts.join("; ");
 }
 
@@ -162,7 +209,13 @@ async function list(values, io) {
 }
 
 async function install(values, io) {
-  const results = await installClients({ spec: values.clients, apply: !values["dry-run"], env: io.env });
+  const docker = await dockerFrom(values, io, { apply: !values["dry-run"] });
+  const results = await installClients({
+    spec: values.clients,
+    apply: !values["dry-run"],
+    env: io.env,
+    ...(docker ? { docker, home: values.home || os.homedir(), platform: docker.platform } : {})
+  });
   if (values.json) io.out(JSON.stringify({ clients: results }, null, 2));
   else {
     for (const line of renderResults(results)) io.out(line);
@@ -211,9 +264,13 @@ async function doctor(values, io) {
     }
     for (const name of named) {
       const entry = row.entries[name];
-      const kind = describeEntry(entry).kind;
-      if (kind === "docker" || kind === "invalid") {
-        report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: null, note: kind === "docker" ? "a Docker launcher: not started here" : "the entry is not an object" });
+      const described = describeEntry(entry);
+      const kind = described.kind;
+      // A 3.0 entry runs `docker run` and answers its own handshake: started
+      // like any other. A 2.x launcher answered the handshake itself, so
+      // starting it here says nothing about the server (docs/DEFECTS.md, Д-89).
+      if ((kind === "docker" && !described.direct) || kind === "invalid") {
+        report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: null, note: kind === "docker" ? "a 2.x Docker launcher: not started here — `ai-dev clients install --docker` replaces it with one that is" : "the entry is not an object" });
         continue;
       }
       const check = await checkServerCommand(entry, { timeoutMs, env: io.env });
@@ -234,6 +291,27 @@ async function doctor(values, io) {
 }
 
 /**
+ * The entry one client would get, as JSON on stdout: for a client whose config
+ * the caller writes by other means — `bootstrap.sh` hands Claude Code's to
+ * `claude mcp add-json`, since its config is a file in the home, which the
+ * image is not given.
+ */
+async function entry(values, positionals, io) {
+  const [name] = positionals;
+  let ids;
+  try {
+    ids = parseClientSelection(name).ids;
+  } catch (error) {
+    throw new CliUsageError(error.message);
+  }
+  if (ids.length !== 1) throw new CliUsageError(`"${name}" names ${ids.length} clients; name one: ${ids.join(", ")}.`);
+  const client = MCP_CLIENTS.find((item) => item.id === ids[0]);
+  const docker = await dockerFrom(values, io, { apply: false });
+  io.out(JSON.stringify(clientEntry(client, docker ? dockerLaunch(docker) : localLaunch({ env: io.env }))));
+  return EXIT.ok;
+}
+
+/**
  * @param {string[]} argv
  * @param {import("./context.mjs").CliIo} io
  */
@@ -247,13 +325,26 @@ export async function run(argv, io) {
     const near = closest(subcommand, SUBCOMMANDS);
     throw new CliUsageError(`\`ai-dev clients\` has no "${subcommand}".${near ? ` Did you mean \`ai-dev clients ${near}\`?` : ""} It takes ${SUBCOMMANDS.join(", ")}.`);
   }
+  const dockerFlags = {
+    docker: { type: "boolean" },
+    image: { type: "string" },
+    projects: { type: "string" },
+    model: { type: "string" },
+    volume: { type: "string" },
+    state: { type: "string" },
+    "docker-command": { type: "string" },
+    home: { type: "string" },
+    platform: { type: "string" },
+    user: { type: "string" }
+  };
   const options = {
     list: { json: { type: "boolean" } },
-    install: { clients: { type: "string" }, "dry-run": { type: "boolean" }, json: { type: "boolean" } },
+    install: { clients: { type: "string" }, "dry-run": { type: "boolean" }, json: { type: "boolean" }, ...dockerFlags },
     remove: { clients: { type: "string" }, "dry-run": { type: "boolean" }, json: { type: "boolean" } },
-    doctor: { clients: { type: "string" }, timeout: { type: "string" }, json: { type: "boolean" } }
+    doctor: { clients: { type: "string" }, timeout: { type: "string" }, json: { type: "boolean" } },
+    entry: dockerFlags
   }[subcommand];
-  const { values } = parseCommandLine(rest, { command: `clients ${subcommand}`, options });
+  const { values, positionals } = parseCommandLine(rest, { command: `clients ${subcommand}`, options, positionals: subcommand === "entry" ? { min: 1, max: 1, names: "client" } : {} });
   if (values.help) {
     io.out(usage());
     return EXIT.ok;
@@ -262,5 +353,6 @@ export async function run(argv, io) {
   if (subcommand === "list") return list(values, io);
   if (subcommand === "install") return install(values, io);
   if (subcommand === "remove") return remove(values, io);
+  if (subcommand === "entry") return entry(values, positionals, io);
   return doctor(values, io);
 }

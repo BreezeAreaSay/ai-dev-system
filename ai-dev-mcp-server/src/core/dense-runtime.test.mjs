@@ -61,7 +61,8 @@ test("without the model, embedding is refused with the reason and the commands",
   await assert.rejects(runtime.embed({ texts: ["x"] }), /Dense search is not installed: the model is not on this machine\. Run `npm run setup -- --model`/);
   assert.deepEqual(calls.embed, []);
   const inContainer = runtimeWith({ ready: false, env: { AI_DEV_RUNTIME: "docker" } });
-  assert.match((await inContainer.runtime.describe()).reason, /mount a folder holding bge-m3-onnx/);
+  // Its folder here is the host's mount at /models: the fix is on the host (Д-157).
+  assert.match((await inContainer.runtime.describe()).reason, /mounted read-only at \/models .*put the model right there on the host/);
   const intel = runtimeWith({ supported: false });
   assert.match((await intel.runtime.describe()).reason, /darwin-x64/);
   // Files that are there but not the pinned ones are not "not on this machine" (Д-146).

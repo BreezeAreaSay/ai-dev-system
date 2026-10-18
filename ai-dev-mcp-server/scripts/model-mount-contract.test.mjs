@@ -6,9 +6,13 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { DOCKER_MOUNTED_MODEL_DIR } from "../src/core/dense-backend.mjs";
+import { CONTAINER_MODELS, MODEL_FOLDER_MARKERS, dockerRunArgs } from "../src/core/docker-launch.mjs";
 
-// Five copies mount AI_DEV_MODEL_PATH into the container, and the image looks
-// for the models under one folder. ClaudeMcpProxy.cs mounted it at
+// Every copy that mounts AI_DEV_MODEL_PATH into the container — the 2.x
+// launchers, the compose example, the 3.0 client entry (`docker-launch.mjs`,
+// which bootstrap.sh hands the folder to) — and the image looks for the models
+// under one folder. ClaudeMcpProxy.cs mounted it at
 // /models/bge-m3 while the other four said /models, so Claude on Windows never
 // had dense search (docs/DEFECTS.md, Д-88) — the same decision applied in four
 // places out of five, again. This test reads every copy and holds them to one
@@ -22,8 +26,7 @@ const MOUNT_TARGETS = [
   { file: "docker/run-mcp.sh", pattern: /source=\$\{model_path\},target=([^,"\s]+),readonly/g },
   { file: "docker/run-mcp.ps1", pattern: /source=\$modelPath,target=([^,"\s]+),readonly/g },
   { file: "docker/ClaudeMcpProxy.cs", pattern: /AddBindMount\(arguments, (?:ModelMountSource\(\)|"AI_DEV_MODEL_PATH"), "([^"]+)", true\)/g },
-  { file: "docker/compose.local.example.yaml", pattern: /source: \$\{AI_DEV_MODEL_PATH[^\n]*\n\s*#?\s*target: (\S+)/g },
-  { file: "bootstrap.sh", pattern: /"type=bind,source=\$\{model_path\},target=([^,"\s]+),readonly"/g }
+  { file: "docker/compose.local.example.yaml", pattern: /source: \$\{AI_DEV_MODEL_PATH[^\n]*\n\s*#?\s*target: (\S+)/g }
 ];
 
 /** Where each copy refuses the pre-Д-62 value: the files a model folder itself holds. */
@@ -40,21 +43,25 @@ function quotedList(text) {
 }
 
 /**
- * The folder the image expects the model directory in, from the Dockerfile.
- * Since 3.0 there is one: the ONNX export's (the Python backend's torch folder
- * went with it, decision D3).
+ * The folder the image looks for a mounted model directory in: the server's
+ * own (`dense-backend.mjs`). Since 3.0 there is one, the ONNX export's (the
+ * Python backend's torch folder went with it, decision D3), and the image does
+ * not name it in its ENV: there it would hide the model `ai-dev model install`
+ * puts in the volume (docs/DEFECTS.md, Д-99).
  */
 async function imageModelRoot() {
   const dockerfile = await read("docker/Dockerfile");
-  const match = dockerfile.match(/BGE_M3_ONNX_DIR=(\S+)/);
-  assert.ok(match, "the Dockerfile no longer sets BGE_M3_ONNX_DIR");
+  assert.doesNotMatch(dockerfile, /BGE_M3_ONNX_DIR=/, "the image does not pin the model folder to the mount");
   assert.doesNotMatch(dockerfile, /BGE_M3_MODEL_DIR=/, "the Python backend's folder is not set in the image");
-  return path.posix.dirname(match[1]);
+  return path.posix.dirname(DOCKER_MOUNTED_MODEL_DIR);
 }
 
 test("every copy mounts the model folder where the image looks for the models (Д-88)", async () => {
   const expected = await imageModelRoot();
   assert.equal(expected, "/models");
+  // The 3.0 client entry, built by the server's own module.
+  assert.equal(CONTAINER_MODELS, expected);
+  assert.ok(dockerRunArgs({ image: "x", model: "/host/models" }).includes(`type=bind,source=/host/models,target=${expected},readonly`));
   for (const { file, pattern } of MOUNT_TARGETS) {
     const targets = [...(await read(file)).matchAll(pattern)].map((match) => match[1]);
     assert.ok(targets.length > 0, `${file}: no model mount found — has the copy moved? Update this test with it.`);
@@ -72,6 +79,7 @@ test("every copy refuses the same old value: a folder holding model files itself
   for (const { file, markers } of lists) {
     assert.deepEqual(markers, ["pytorch_model.bin", "modules.json", "config.json", "onnx"], file);
   }
+  assert.deepEqual([...MODEL_FOLDER_MARKERS], ["pytorch_model.bin", "modules.json", "config.json", "onnx"], "src/core/docker-launch.mjs");
 });
 
 // The proxy itself, built and run against a docker.exe that writes down what it
@@ -100,7 +108,7 @@ internal static class RecordingDocker
     private static int Main(string[] args)
     {
         File.WriteAllLines(Environment.GetEnvironmentVariable("STUB_LOG"), args);
-        Console.In.ReadToEnd();
+        Console.Out.Write(Console.In.ReadToEnd());
         return 0;
     }
 }
@@ -129,7 +137,8 @@ async function buildProxy(t) {
     assert.equal(stub.status, 0, `${stub.stdout}${stub.stderr}`);
   } else {
     // Mono finds `docker.exe` on PATH like any other file; a script will do.
-    await fs.writeFile(path.join(bin, "docker.exe"), '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$STUB_LOG"\ncat > /dev/null\n', { mode: 0o755 });
+    // It answers what it reads, as the server would answer a request.
+    await fs.writeFile(path.join(bin, "docker.exe"), '#!/bin/sh\nprintf \'%s\\n\' "$@" > "$STUB_LOG"\ncat\n', { mode: 0o755 });
   }
   return { work, bin, proxy, run: compiler.run };
 }
@@ -162,7 +171,11 @@ test("the built proxy mounts the folder above the models at /models and refuses 
   const mounted = await runProxy(built, models);
   assert.equal(mounted.status, 0, mounted.stderr);
   assert.ok(mounted.recorded.split(/\r?\n/).includes(`type=bind,source=${models},target=/models,readonly`), mounted.recorded);
-  assert.match(mounted.stdout, /"serverInfo"/, "the fast-start initialize answer still comes back");
+  // 3.0: the bytes pass through both ways, and the server answers its own
+  // handshake — the proxy no longer makes one up (docs/DEFECTS.md, Д-89).
+  assert.equal(mounted.stdout, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}\n');
+  assert.doesNotMatch(mounted.stdout, /"serverInfo"/);
+  assert.match(mounted.stderr, /the 2\.x launcher, which works until 4\.0/);
 
   const old = path.join(built.work, "bge-m3");
   await fs.mkdir(old);

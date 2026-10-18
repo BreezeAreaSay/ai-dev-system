@@ -10,6 +10,7 @@ import {
   mergeLedgers,
   migrateCodexRuntime,
   migrateDoubledRuntimeHome,
+  migrateVolumeState,
   migrationRecordPath,
   prepareRuntimeHome,
   readMigrationRecord
@@ -327,4 +328,64 @@ test("nothing looks for the Codex desktop runtime any more: not the server, not 
     }
   }
   assert.deepEqual(offenders, []);
+});
+
+/** A container's view: the volume at `<root>/data`, the host's state folder mounted at `hostState`. */
+async function containerFixture(t, hostState) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-volume-state-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const runtime = path.join(root, "data", "runtime-home", ".ai-dev");
+  const env = { HOME: path.join(root, "data", "runtime-home"), AI_DEV_HOME: runtime, AI_DEV_RUNTIME: "docker", AI_DEV_STATE_ROOT: hostState ?? path.join(root, "host-state") };
+  return { root, runtime, volume: path.join(runtime, "state"), target: env.AI_DEV_STATE_ROOT, env };
+}
+
+test("in the image, the volume's state moves into the host's state folder the hooks share (Д-103)", async (t) => {
+  const { runtime, volume, target, env } = await containerFixture(t);
+  await write(path.join(volume, "tasks", "task-1.json"), '{"id":"task-1"}');
+  await write(path.join(volume, "sessions", "k", "handoff.json"), '{"from":"volume"}');
+  await write(path.join(volume, "usage", "events.jsonl"), '{"at":"2026-10-01T00:00:00Z","n":1}\n');
+  await write(path.join(target, "usage", "events.jsonl"), '{"at":"2026-10-02T00:00:00Z","n":2}\n');
+  await write(path.join(target, "sessions", "k", "handoff.json"), '{"from":"host"}');
+  const result = await migrateVolumeState({ env });
+  assert.equal(result.status, "migrated");
+  assert.deepEqual([result.moved, result.merged, result.conflicts], [1, 1, ["sessions/k/handoff.json"]]);
+  assert.equal(await fs.readFile(path.join(target, "tasks", "task-1.json"), "utf8"), '{"id":"task-1"}');
+  assert.equal((await fs.readFile(path.join(target, "usage", "events.jsonl"), "utf8")).trim().split("\n").length, 2, "the ledgers are one");
+  assert.equal(await fs.readFile(path.join(target, "sessions", "k", "handoff.json"), "utf8"), '{"from":"host"}', "the host's own file is not replaced");
+  assert.equal(await fs.readFile(path.join(volume, "sessions", "k", "handoff.json"), "utf8"), '{"from":"volume"}', "a file in both places stays where it was");
+  await assert.rejects(fs.access(path.join(volume, "tasks")), /ENOENT/);
+  assert.equal((await readMigrationRecord(runtime, env)).history.at(-1).kind, "volume", "kept in the state folder, not in the one moved out");
+  await assert.rejects(fs.access(path.join(volume, "runtime-home-migration.json")), /ENOENT/);
+  // A 2.x launcher's session writes the volume again; the next start takes it too.
+  await write(path.join(volume, "tasks", "task-2.json"), '{"id":"task-2"}');
+  assert.equal((await migrateVolumeState({ env })).moved, 1);
+  await fs.access(path.join(target, "tasks", "task-2.json"));
+});
+
+test("the volume's state is only moved in the image, into a state folder that is another one", async (t) => {
+  const { volume, env } = await containerFixture(t);
+  await write(path.join(volume, "tasks", "task-1.json"), "{}");
+  assert.equal((await migrateVolumeState({ env: { ...env, AI_DEV_RUNTIME: "" } })).status, "not-applicable");
+  assert.equal((await migrateVolumeState({ env: { ...env, AI_DEV_STATE_ROOT: "" } })).status, "not-applicable", "a 2.x launcher's session: the volume is the state");
+  assert.equal((await migrateVolumeState({ env: { ...env, AI_DEV_STATE_ROOT: volume } })).status, "not-applicable");
+  await fs.access(path.join(volume, "tasks", "task-1.json"));
+  await fs.rm(volume, { recursive: true });
+  assert.equal((await migrateVolumeState({ env })).status, "clean");
+});
+
+test("the move crosses from the volume to the host's mount: copied without replacing, then removed", async (t) => {
+  // /dev/shm is another filesystem than the temp folder on Linux: a hard link fails with EXDEV there, as it does
+  // from a Docker volume into a bind mount.
+  const shm = await fs.mkdtemp("/dev/shm/ai-dev-host-state-").catch(() => "");
+  if (!shm) {
+    t.skip("no /dev/shm to cross into");
+    return;
+  }
+  t.after(() => fs.rm(shm, { recursive: true, force: true }));
+  const { volume, env } = await containerFixture(t, shm);
+  await write(path.join(volume, "tasks", "task-1.json"), '{"id":"task-1"}');
+  const result = await migrateVolumeState({ env });
+  assert.deepEqual([result.status, result.moved, result.errors], ["migrated", 1, []]);
+  assert.equal(await fs.readFile(path.join(shm, "tasks", "task-1.json"), "utf8"), '{"id":"task-1"}');
+  await assert.rejects(fs.access(path.join(volume, "tasks", "task-1.json")), /ENOENT/);
 });

@@ -24,14 +24,18 @@
  *
  * What was shipped is remembered in `<vault>/.ai-dev-seed.json`, beside the
  * files it describes, so a vault restored from a backup carries its own record.
- * Deleting that file makes the next sync start over: what the user deleted
- * comes back, and every file they changed is kept and named as a conflict.
+ * A vault without one — a 2.x Docker volume, or a record the user deleted — is
+ * read against the seed's history (`data/seed-history.json`): a file exactly as
+ * some earlier seed shipped it is the seed's and is updated or removed as any
+ * other; every other file is the user's and is kept, and named as a conflict
+ * when this seed changed it.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
+import { fileURLToPath } from "node:url";
 import { withFileLock } from "./file-lock.mjs";
 import { atomicWriteJson, renameOver } from "./atomic-files.mjs";
 
@@ -40,7 +44,28 @@ export const SEED_STATE_FILE = ".ai-dev-seed.json";
 /** Beside a file the user changed, the version an update shipped of it. */
 export const SEED_NEW_SUFFIX = ".seed-new";
 
+/** Every version of a seed file shipped before vaults kept a record (`scripts/seed-history.mjs`). */
+export const SEED_HISTORY_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "data", "seed-history.json");
+
 const MANIFEST = "public-seed.manifest.json";
+
+/**
+ * How the history names one version of one file: the path and its sha256,
+ * hashed, so the list of files 2.x shipped is 50 KB instead of 250.
+ *
+ * @param {string} relative - `/`-separated path inside the seed.
+ * @param {string} sha - The file's sha256.
+ * @returns {string}
+ */
+export function seedHistoryKey(relative, sha) {
+  return crypto.createHash("sha256").update(`${relative}\0${sha}`).digest("hex").slice(0, 16);
+}
+
+/** The history's keys; a package without the file knows no earlier seed. */
+export async function readSeedHistory(file = SEED_HISTORY_FILE) {
+  const history = await readJson(file, null);
+  return new Set(Array.isArray(history?.pairs) ? history.pairs.map(String) : []);
+}
 
 async function sha256File(file) {
   const hash = crypto.createHash("sha256");
@@ -133,6 +158,41 @@ async function sameFile(left, right) {
   return Boolean(a && b) && a.dev === b.dev && a.ino === b.ino;
 }
 
+/**
+ * What of a vault with no record a seed shipped: each file whose content is the
+ * manifest's own version or a version the history names for that path, as
+ * `{ path: sha256 }` — the record the sync would have kept. Links are not
+ * followed (a 2.x volume links `09-mcp/` into the image), and nothing here is
+ * the user's unless the history says otherwise.
+ */
+async function recogniseShipped(contentRoot, manifest, history) {
+  const listed = new Map(manifest.files.map((entry) => [String(entry.path), String(entry.sha256)]));
+  const shipped = {};
+  let earlier = 0;
+  const walk = async (folder) => {
+    const entries = await fsp.readdir(folder, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const full = path.join(folder, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+        continue;
+      }
+      if (!entry.isFile() || entry.name.endsWith(SEED_NEW_SUFFIX)) continue;
+      const relative = path.relative(contentRoot, full).split(path.sep).join("/");
+      if (relative === SEED_STATE_FILE) continue;
+      const sha = await sha256File(full);
+      if (listed.get(relative) === sha) {
+        shipped[relative] = sha;
+      } else if (history.has(seedHistoryKey(relative, sha))) {
+        shipped[relative] = sha;
+        earlier += 1;
+      }
+    }
+  };
+  await walk(contentRoot);
+  return { shipped, earlier };
+}
+
 /** Folders a removal left empty go too, up to the vault itself. */
 async function pruneEmptyParents(file, root) {
   for (let folder = path.dirname(file); folder.startsWith(root + path.sep); folder = path.dirname(folder)) {
@@ -192,9 +252,10 @@ async function openConflicts(contentRoot, state) {
  * @param {string} input.contentRoot - The user's vault.
  * @param {string} [input.version] - The shipping package's version; an older one leaves a newer vault alone.
  * @param {() => Date} [input.now]
- * @returns {Promise<{ status: "current"|"synced"|"newer", version: string, fingerprint: string, added: number, updated: number, unchanged: number, removed: number, kept: string[], conflicts: string[], missing: string[] }>}
+ * @param {() => Promise<Set<string>>} [input.history] - The earlier seeds' versions, for a vault with no record ({@link readSeedHistory}).
+ * @returns {Promise<{ status: "current"|"synced"|"newer", version: string, fingerprint: string, added: number, updated: number, unchanged: number, removed: number, recognised: number, kept: string[], conflicts: string[], missing: string[] }>}
  */
-export async function syncSeed({ seedRoot, contentRoot, version = "", now = () => new Date() }) {
+export async function syncSeed({ seedRoot, contentRoot, version = "", now = () => new Date(), history = readSeedHistory }) {
   const manifest = await readJson(path.join(seedRoot, MANIFEST), null);
   if (!manifest || !Array.isArray(manifest.files)) throw new Error(`${seedRoot} has no readable ${MANIFEST}.`);
   const fingerprint = String(manifest.content_fingerprint ?? "");
@@ -207,6 +268,7 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
     updated: 0,
     unchanged: 0,
     removed: 0,
+    recognised: 0,
     kept: [],
     missing: Array.isArray(state?.missing) ? state.missing : [],
     conflicts: counts.conflicts ?? await openConflicts(contentRoot, state),
@@ -224,9 +286,11 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
   return withFileLock(statePath, async () => {
     const state = await readJson(statePath, null);
     if (settled(state)) return result(settled(state), state);
-    const shipped = state?.files && typeof state.files === "object" ? state.files : {};
+    // No record: what an earlier seed shipped is told from the user's own by the history.
+    const recognised = state ? { shipped: {}, earlier: 0 } : await recogniseShipped(contentRoot, manifest, await history());
+    const shipped = state?.files && typeof state.files === "object" ? state.files : recognised.shipped;
     const before = new Set(Array.isArray(state?.conflicts) ? state.conflicts.map(String) : []);
-    const counts = { added: 0, updated: 0, unchanged: 0, removed: 0, kept: [], conflicts: [], missing: [] };
+    const counts = { added: 0, updated: 0, unchanged: 0, removed: 0, recognised: recognised.earlier, kept: [], conflicts: [], missing: [] };
     const files = {};
     const throughLink = linkedFolders(contentRoot);
     for (const entry of manifest.files) {
@@ -353,8 +417,9 @@ export function describeSyncResult(result) {
     : "";
   const missing = result.missing?.length ? `; ${result.missing.length} file(s) of the seed are missing from this install — reinstall it` : "";
   if (result.status === "current") return `seed ${result.version || "current"}${conflicts}${missing}`;
+  const recognised = result.recognised ? ` (${result.recognised} file(s) recognised as an earlier seed's, with no record of the last sync)` : "";
   return `seed ${result.version || "synced"}: ${result.added} added, ${result.updated} updated, ${result.removed} removed, `
-    + `${result.kept.length} of yours kept${conflicts}${missing}`;
+    + `${result.kept.length} of yours kept${recognised}${conflicts}${missing}`;
 }
 
 /**

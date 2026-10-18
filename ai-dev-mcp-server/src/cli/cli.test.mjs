@@ -160,6 +160,44 @@ test("clients install, list, doctor and remove through the CLI, in a home with a
   assert.equal(await fs.readFile(path.join(home, ".codex", "config.toml"), "utf8"), "model = \"gpt-5\"\n");
 });
 
+test("clients install --docker writes `docker run -i --rm …`, and list, entry and remove know it for what it is", async (t) => {
+  const home = await tempDir(t);
+  await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+  const bin = path.join(home, "bin");
+  await fs.mkdir(bin);
+  await fs.writeFile(path.join(bin, process.platform === "win32" ? "docker.exe" : "docker"), "", { mode: 0o755 });
+  const env = homeEnv(home, { PATH: `${bin}${path.delimiter}${process.env.PATH}` });
+  const flags = ["--docker", "--image=example/ai-dev:3", `--projects=${path.join(home, "Projects")}`];
+
+  const install = await runNode([cli, "clients", "install", ...flags, "--json"], { env });
+  assert.equal(install.code, 0, install.stderr);
+  const written = readJsonc(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"];
+  assert.equal(written.command, path.join(bin, process.platform === "win32" ? "docker.exe" : "docker"), "the CLI by its full path");
+  assert.deepEqual([written.args[0], written.args.at(-1)], ["run", "example/ai-dev:3"]);
+  const mounts = written.args.flatMap((argument, index) => (written.args[index - 1] === "--mount" ? [argument] : []));
+  const state = path.join(home, ".ai-dev", "state");
+  assert.ok(mounts.includes(`type=bind,source=${state},target=/ai-dev-state`), mounts.join(" "));
+  await fs.access(path.join(home, "Projects"));
+  await fs.access(path.join(state, "mcp-clients.json"));
+
+  const list = await runNode([cli, "clients", "list"], { env });
+  assert.match(list.stdout, /Cursor\s+ai-dev → Docker: example\/ai-dev:3$/m, "a client run in Docker is not pointed back at a local install");
+
+  const entry = await runNode([cli, "clients", "entry", "claude-code", ...flags], { env });
+  assert.equal(entry.code, 0, entry.stderr);
+  assert.deepEqual(JSON.parse(entry.stdout), { type: "stdio", ...written });
+  const many = await runNode([cli, "clients", "entry", "claude", "--docker"], { env });
+  assert.equal(many.code, 2);
+  assert.match(many.stderr, /"claude" names 2 clients; name one: claude-code, claude-desktop/);
+  const stray = await runNode([cli, "clients", "install", "--image=x"], { env });
+  assert.equal(stray.code, 2);
+  assert.match(stray.stderr, /--image is an option of --docker/);
+
+  const remove = await runNode([cli, "clients", "remove", "--clients=cursor"], { env });
+  assert.equal(remove.code, 0, remove.stderr);
+  assert.match(remove.stdout, /Cursor\s+(restored|removed)/);
+});
+
 test("clients doctor names a config whose Node is gone, and exits 1", async (t) => {
   const home = await tempDir(t);
   await fs.mkdir(path.join(home, ".cursor"), { recursive: true });

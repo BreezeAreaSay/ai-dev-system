@@ -1,63 +1,58 @@
+// The 2.x launcher Claude on Windows was configured with, kept so that the
+// configs naming it work until 4.0 (owner decision D10). 3.0 writes
+// `docker run -i --rm ...` into a client's config itself (bootstrap.ps1, or
+// `ai-dev clients install --docker`) and compiles nothing on the user's machine
+// (docs/DEFECTS.md, Д-105).
+//
+// It used to answer `initialize` itself while the container started and drop
+// the server's own answer, which lost the server's instructions and fixed the
+// version at 2.0.0 (Д-89). The image answers in about a second now: the proxy
+// passes the bytes through, both ways, and the server answers its handshake.
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 
 internal static class ClaudeMcpProxy
 {
-    private static readonly object OutputLock = new object();
-    private static readonly Regex IdPattern = new Regex("\\\"id\\\"\\s*:\\s*(\\\"(?:\\\\.|[^\\\"])*\\\"|-?\\d+)", RegexOptions.Compiled);
-    private static readonly Regex MethodPattern = new Regex("\\\"method\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"", RegexOptions.Compiled);
-    private static readonly Regex ProtocolPattern = new Regex("\\\"protocolVersion\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"", RegexOptions.Compiled);
-
-    private static string backendInitializeId;
-
     private static int Main()
     {
         try
         {
+            Console.Error.WriteLine("ai-dev: this client config runs ClaudeMcpProxy.exe, the 2.x launcher, which works until 4.0. "
+                + "Run bootstrap.ps1 (or `ai-dev clients install --docker`) to write the 3.0 entry: docker run, with the state your agent hooks share.");
             using (var backend = StartDocker())
             {
-                var stdout = PumpBackendOutput(backend);
-                var stderr = PumpBackendError(backend);
-                using (var input = Console.In)
-                {
-                    string line;
-                    while ((line = input.ReadLine()) != null)
-                    {
-                        var method = MethodPattern.Match(line);
-                        if (method.Success && method.Groups[1].Value == "initialize")
-                        {
-                            var id = Require(IdPattern, line, "MCP initialize request id");
-                            var protocolVersion = Require(ProtocolPattern, line, "MCP protocol version");
-                            Volatile.Write(ref backendInitializeId, id);
-                            backend.StandardInput.WriteLine(line);
-                            backend.StandardInput.Flush();
-                            WriteImmediateInitializeResponse(id, protocolVersion);
-                        }
-                        else
-                        {
-                            backend.StandardInput.WriteLine(line);
-                            backend.StandardInput.Flush();
-                        }
-                    }
-                }
-
-                backend.StandardInput.Close();
+                var stdout = Pump(backend.StandardOutput.BaseStream, Console.OpenStandardOutput());
+                var stderr = Pump(backend.StandardError.BaseStream, Console.OpenStandardError());
+                var stdin = Pump(Console.OpenStandardInput(), backend.StandardInput.BaseStream).ContinueWith(_ => backend.StandardInput.Close());
+                backend.WaitForExit();
                 Task.WaitAll(new[] { stdout, stderr }, TimeSpan.FromSeconds(2));
-                if (!backend.HasExited) backend.Kill();
+                return backend.ExitCode;
             }
-            return 0;
         }
         catch (Exception error)
         {
             Console.Error.WriteLine("AI Dev Claude MCP proxy failed: " + error.Message);
             return 1;
         }
+    }
+
+    // Copy one stream into another as it arrives, flushing each piece: MCP messages are lines a client waits on.
+    private static Task Pump(Stream from, Stream to)
+    {
+        return Task.Run(() =>
+        {
+            var buffer = new byte[64 * 1024];
+            int read;
+            while ((read = from.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                to.Write(buffer, 0, read);
+                to.Flush();
+            }
+        });
     }
 
     private static Process StartDocker()
@@ -139,55 +134,6 @@ internal static class ClaudeMcpProxy
         if (source == null) return;
         arguments.Add("--mount");
         arguments.Add("type=bind,source=" + source + ",target=" + target + (readOnly ? ",readonly" : ""));
-    }
-
-    private static Task PumpBackendOutput(Process backend)
-    {
-        return Task.Run(async () =>
-        {
-            string line;
-            while ((line = await backend.StandardOutput.ReadLineAsync()) != null)
-            {
-                var id = IdPattern.Match(line);
-                if (id.Success && id.Groups[1].Value == Volatile.Read(ref backendInitializeId)) continue;
-                lock (OutputLock)
-                {
-                    Console.Out.WriteLine(line);
-                    Console.Out.Flush();
-                }
-            }
-        });
-    }
-
-    private static Task PumpBackendError(Process backend)
-    {
-        return Task.Run(async () =>
-        {
-            string line;
-            while ((line = await backend.StandardError.ReadLineAsync()) != null)
-            {
-                Console.Error.WriteLine(line);
-            }
-        });
-    }
-
-    private static string Require(Regex pattern, string line, string label)
-    {
-        var match = pattern.Match(line);
-        if (!match.Success) throw new InvalidOperationException("Missing " + label + ".");
-        return match.Groups[1].Value;
-    }
-
-    private static void WriteImmediateInitializeResponse(string id, string protocolVersion)
-    {
-        var response = "{\"jsonrpc\":\"2.0\",\"id\":" + id
-            + ",\"result\":{\"protocolVersion\":\"" + protocolVersion
-            + "\",\"capabilities\":{\"tools\":{\"listChanged\":false},\"resources\":{\"subscribe\":false,\"listChanged\":false},\"prompts\":{\"listChanged\":false},\"logging\":{}},\"serverInfo\":{\"name\":\"ai-dev-system\",\"version\":\"2.0.0\"}}}";
-        lock (OutputLock)
-        {
-            Console.Out.WriteLine(response);
-            Console.Out.Flush();
-        }
     }
 
     private static string Quote(string argument)

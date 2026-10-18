@@ -307,7 +307,11 @@ the volume — vault, index, model — is kept. To build the image from this
 checkout instead of pulling it: `sh ./bootstrap.sh --build-local`. A client whose
 config cannot be written is named and the others are written all the same; the exit
 is then 1, and the 2.x runtime container stays until every config is rewritten
-(docs/DEFECTS.md, Д-335).
+(docs/DEFECTS.md, Д-335). A config that is a link into a dotfiles repository is
+written through it — each folder it leads to is mounted for the installer at the path
+the link spells — but a link into your home itself, a folder above it or the root is
+not followed, and a folder Docker will not mount (one outside Docker Desktop's file
+sharing) costs that client alone (Д-338, Д-339).
 
 The way back to 2.x is `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`.
 A 2.x image has no installer of its own, so the configs that run it are written by an

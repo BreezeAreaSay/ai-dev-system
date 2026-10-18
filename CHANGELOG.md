@@ -538,9 +538,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   image's is the user's, read where it is, unless a seed is there already — a sync's record or
   2.x's manifest (Д-321). Three sessions starting at once on one volume build it one at a time,
   the seed sync too, each holder beating every 3 s so a slow machine's start is not taken for
-  a dead one and a killed one is let go of within 20 s; a start that has waited 3 minutes
-  serves what is built rather than no session (Д-326, Д-330, Д-336). A user's own file named
-  `public-seed.manifest.json` stays (Д-336).
+  a dead one and a killed one is let go of within 20 s; a start still waiting 40 s after it
+  began serves what is built — a client gives `initialize` 60 s — and one that could not wait
+  out the seed sync builds nothing (Д-326, Д-330, Д-336, Д-340). Sessions rebuild the skill
+  registry one at a time, across containers too (Д-345). A user's own file named
+  `public-seed.manifest.json` stays, and does not make a vault named by `AI_DEV_VAULT_ROOT` a
+  seeded one (Д-336, Д-343).
 - **The projects are mounted at their own path** on macOS and Linux, so a path the agent names is
   one the server opens (Д-312); on Windows they stay at `/workspace`. **The server and the agent
   hooks keep one state**: the host's `~/.ai-dev/state` is mounted where the container's user,
@@ -561,9 +564,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whole home), writes Claude Code's entry through `claude mcp add-json`, and then removes the 2.x
   runtime container. With `--image` of a 2.x image — the way back — an image of 3.0 writes the
   configs that run it: `AI_DEV_INSTALLER_IMAGE`, pulled and seen to have the installer (Д-323,
-  Д-329). A config that is a link into dotfiles is written through it; one client that cannot be
+  Д-329). A config that is a link into dotfiles is written through it, each folder it leads to
+  mounted where the link spells it; a link into the home itself, above it or the root is not
+  followed, and a folder Docker will not mount costs that client alone; one client that cannot be
   written does not stop the others — the exit is 1 and the 2.x container stays — and `--clients`
-  that names none is refused (Д-335, Д-336). `bootstrap.ps1` runs under Windows PowerShell 5.1
+  that names none is refused (Д-335, Д-336, Д-338, Д-339). `bootstrap.ps1` runs under Windows PowerShell 5.1
   with the image's stderr thrown away safely (Д-320).
 - **The image's tags** (owner decision D9, Д-108): a push to `main` is `:edge`; a release tag
   `vX.Y.Z` is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`, a prerelease only its own name; the browser
@@ -576,11 +581,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at the `-browser` variant instead of an install that cannot run in a client's container, and
   the start report says the same instead of setup's `--model` and `--frontend-qa` (Д-316, Д-328).
   The report checks the model, the vectors and the browser as `setup` does, so a volume with
-  the model says it has it (Д-332).
+  the model says it has it (Д-332); a check that cannot be made is said and never stops the
+  start, and a model mounted from the host is embedded with `ai-dev setup --model`, not
+  downloaded again (Д-337, Д-341).
 - **Trying the shared state folder** tells a container that could not write it from a Docker that
   did not run the image — an engine that does not answer, an image not here, which the probe no
   longer pulls: then nothing was tried, and the install says to run it again once Docker runs
-  the image (Д-331). `ai-dev clients entry --docker` tries it as `install` does, and
+  the image (Д-331); `bootstrap.sh`, which decides it, says why once, with a step its user has
+  (Д-342, Д-344). `ai-dev clients entry --docker` tries it as `install` does, and
   `install --dry-run` says it did not (Д-334). `ai-dev clients remove` finds the record a Docker
   install wrote with `AI_DEV_STATE_ROOT` set (Д-336).
 - **`npm run check` runs `npm run packaging:check`**, red since phase 7 without a gate to see it

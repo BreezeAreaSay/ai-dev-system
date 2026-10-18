@@ -11,6 +11,7 @@ import {
   dateSkillRegistry,
   keepSkillRegistryDate,
   skillRegistryStaleness,
+  withCurrentSkillRegistry,
   withSkillRegistryLock
 } from "./skill-registry-freshness.mjs";
 
@@ -227,6 +228,49 @@ test("a writer of the registry that calls another runs it at once; writers apart
   });
   await Promise.all([writer("a"), writer("b")]);
   assert.deepEqual(events, ["a start", "a end", "b start", "b end"]);
+});
+
+test("a writer that builds from the registry gets a current one: a stale registry is rebuilt before it runs (Д-356)", async (t) => {
+  const fixture = await makeCatalog(t);
+  const registryDir = path.dirname(fixture.registryPath);
+  const events = [];
+  // The rebuild a read starts takes the registry's lock, as `rebuild_index` does.
+  const { reader, rebuilds } = readerFor(fixture, {
+    intervalMs: 0,
+    onRebuild: () => withSkillRegistryLock(registryDir, async () => { events.push("rebuild"); })
+  });
+  await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
+  const seen = await withCurrentSkillRegistry(reader, registryDir, async () => {
+    events.push("writer");
+    return reader.read();
+  });
+  assert.equal(rebuilds.length, 1);
+  assert.deepEqual(events, ["rebuild", "writer"]);
+  assert.deepEqual(seen.map((item) => item.path), ["sources/external/pack/skills/beta/SKILL.md"], "the taxonomy saw the skill gone");
+});
+
+test("a writer that builds from the registry waits for a rebuild another call started, not under the lock that rebuild needs (Д-356)", async (t) => {
+  const fixture = await makeCatalog(t);
+  const registryDir = path.dirname(fixture.registryPath);
+  const events = [];
+  const { reader, rebuilds } = readerFor(fixture, {
+    intervalMs: 0,
+    onRebuild: () => withSkillRegistryLock(registryDir, async () => {
+      events.push("rebuild start");
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      events.push("rebuild end");
+    })
+  });
+  await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
+  const started = Date.now();
+  // Another call's read starts the rebuild first; the taxonomy comes while it runs.
+  const other = reader.read();
+  const writer = withCurrentSkillRegistry(reader, registryDir, async () => { events.push("writer"); });
+  const stuck = new Promise((resolve) => setTimeout(() => resolve("stuck"), 10_000).unref());
+  assert.notEqual(await Promise.race([Promise.all([other, writer]), stuck]), "stuck", "the writer held the lock the rebuild it waits for needs");
+  assert.ok(Date.now() - started < 10_000);
+  assert.equal(rebuilds.length, 1, "one rebuild for both");
+  assert.deepEqual(events, ["rebuild start", "rebuild end", "writer"]);
 });
 
 test("a rebuild that fails is retried after a pause, or at once when the registry changes", async (t) => {

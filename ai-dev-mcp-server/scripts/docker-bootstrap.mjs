@@ -73,9 +73,11 @@ const copy = await awaitImageDataCopy({
   skip: [path.resolve(process.env.AI_DEV_STATE_ROOT || "/data/runtime-home/.ai-dev/state")],
   timeoutMs: COPY_WAIT_MS
 });
+// One that waited out its time still uses the record, and removes it: left, it would have the copy's own start date
+// back folders this one never saw, and a registry built without them would read as current for good (Д-358).
 if (copy.outcome === "timed-out") {
-  process.stderr.write(`→ Docker is still filling this new volume from the image after ${Math.round(copy.waited_ms / 1000)} s: `
-    + "this start goes on with what is there, and a later one builds what it misses.\n");
+  process.stderr.write(`→ This new volume still holds less than the image's data after ${Math.round(copy.waited_ms / 1000)} s — `
+    + "Docker is still filling it, or its copy stopped: this start goes on with what is there, and a later one finishes the rest.\n");
 } else if (copy.waited_ms > 0) {
   process.stderr.write(`→ Docker was still filling this new volume from the image: this start waited ${(copy.waited_ms / 1000).toFixed(1)} s for the copy.\n`);
 }

@@ -73,9 +73,8 @@ export function createDenseRuntime({
     } catch (error) {
       // A model this process cannot read is a model that is not ready, and why:
       // not an error that takes the health check and `embedding_status` down
-      // (docs/DEFECTS.md, Д-349).
-      const files = Object.keys(manifest.files ?? {});
-      probe = { ready: false, dir: path.resolve(onnxModelDir), present: [], missing: files, mismatched: [], unreadable: String(error?.message ?? error) };
+      // (docs/DEFECTS.md, Д-349). Its files are not missing, only unseen (Д-358).
+      probe = { ready: false, dir: path.resolve(onnxModelDir), present: [], missing: [], mismatched: [], unreadable: String(error?.message ?? error) };
     }
     probedAt = now();
     probedRecord = await recordState();
@@ -102,7 +101,7 @@ export function createDenseRuntime({
     // A stat and a small JSON read per missing file, and only while the model
     // is not ready: what a stopped download left is what the sentence says.
     const partial = [];
-    for (const relative of onnx.ready || onnx.unreadable ? [] : onnx.missing ?? []) {
+    for (const relative of onnx.ready ? [] : onnx.missing ?? []) {
       const part = await usablePart(path.join(path.resolve(onnxModelDir), relative), { revision: manifest.revision, sha256: manifest.files[relative] });
       if (part.bytes > 0) partial.push({ file: relative, bytes: part.bytes, size: part.size });
     }
@@ -126,6 +125,7 @@ export function createDenseRuntime({
         dir: onnx.dir,
         missing: onnx.missing,
         mismatched: onnx.mismatched,
+        ...(onnx.unreadable ? { unreadable: onnx.unreadable } : {}),
         revision: manifest.revision,
         dtype: manifest.dtype,
         export: manifest.export

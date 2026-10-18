@@ -546,7 +546,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   skill registry from 51–437 of 614 skills in 7 rounds of 8, and now none builds anything (Д-355).
   Sessions rebuild the skill
   registry and its taxonomy one at a time, across containers too, and a rebuild's own reads
-  never wait for it (Д-345, Д-347, Д-348). A session ends when its client closes stdin, once
+  never wait for it; the taxonomy is built from a registry made current first (Д-345, Д-347,
+  Д-348, Д-356). A session ends when its client closes stdin, once
   what it asked for is answered: the model's worker no longer keeps its container running
   (Д-354). A user's own file named
   `public-seed.manifest.json` stays, and does not make a vault named by `AI_DEV_VAULT_ROOT` a
@@ -574,7 +575,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Д-329). A config that is a link into dotfiles is written through it, each folder it leads to
   mounted where the link spells it; a link into the home itself, above it or the root is not
   followed, and a folder Docker will not mount costs that client alone — every client's folders
-  are looked at in one run first (Д-352); one client that cannot be
+  are looked at in one run first, and a look that fails for another reason than a mount blames
+  no folder (Д-352, Д-358); one client that cannot be
   written does not stop the others — the exit is 1 and the 2.x container stays — and `--clients`
   that names none is refused (Д-335, Д-336, Д-338, Д-339). `bootstrap.ps1` runs under Windows PowerShell 5.1
   with the image's stderr thrown away safely (Д-320).
@@ -592,8 +594,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the model says it has it (Д-332); a check that cannot be made is said and never stops the
   start, and a model mounted from the host is embedded with `ai-dev setup --model`, not
   downloaded again (Д-337, Д-341); the server reads that model too, which it had stopped
-  doing with the image's `BGE_M3_ONNX_DIR` (Д-346); one it cannot read, or that is not whole,
-  is said as that, not as an error or a model to install (Д-349, Д-350).
+  doing with the image's `BGE_M3_ONNX_DIR` (Д-346); one it cannot read — its files or its
+  folders — or that is not whole, is said as that, not as an error or a model to install
+  (Д-349, Д-350, Д-357, Д-358).
 - **Trying the shared state folder** tells a container that could not write it from a Docker that
   did not run the image — an engine that does not answer, an image not here, which the probe no
   longer pulls: then nothing was tried, and the install says to run it again once Docker runs

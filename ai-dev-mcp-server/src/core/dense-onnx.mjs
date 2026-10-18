@@ -284,11 +284,20 @@ export function createOnnxDenseRuntime({
 
 export { DOCKER_MOUNTED_MODEL_DIR };
 
-function holdsFiles(folder) {
+/**
+ * Whether a folder holds anything. One this user may not list holds what it
+ * cannot see — a model the host mounted with folders 0700 — and is not an empty
+ * mount to pass over (docs/DEFECTS.md, Д-357).
+ *
+ * @param {string} folder
+ * @param {(folder: string) => string[]} [list]
+ * @returns {boolean}
+ */
+export function holdsFiles(folder, list = readdirSync) {
   try {
-    return readdirSync(folder).length > 0;
-  } catch {
-    return false;
+    return list(folder).length > 0;
+  } catch (error) {
+    return error?.code === "EACCES" || error?.code === "EPERM";
   }
 }
 
@@ -305,7 +314,7 @@ function holdsFiles(folder) {
  * @param {object} [options]
  * @param {Record<string, string|undefined>} [options.env]
  * @param {string} [options.aiDevHome] - Runtime home, when the caller knows it.
- * @param {(folder: string) => boolean} [options.mounted] - Whether a folder holds anything.
+ * @param {(folder: string) => boolean} [options.mounted] - Whether a folder holds anything ({@link holdsFiles}).
  * @returns {string}
  */
 export function defaultOnnxModelDir({ env = process.env, aiDevHome = "", mounted = holdsFiles } = {}) {

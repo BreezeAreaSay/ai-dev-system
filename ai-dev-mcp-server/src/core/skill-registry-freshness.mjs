@@ -227,6 +227,25 @@ export function withSkillRegistryLock(registryDir, operation) {
 }
 
 /**
+ * Run a writer that builds from the registry — the taxonomy — on a current
+ * one: the registry is rebuilt first when its skills changed, then the writer
+ * runs under the lock and reads it as it stands (docs/DEFECTS.md, Д-356). The
+ * look comes before the lock: a rebuild another call already started takes
+ * the lock itself, and waiting for that rebuild while holding the lock would
+ * be waiting for itself again.
+ *
+ * @template T
+ * @param {{ ensureFresh: () => Promise<unknown> }} reader - {@link createSkillRegistryReader}'s.
+ * @param {string} registryDir - `<catalog>/registries`.
+ * @param {() => Promise<T>} operation
+ * @returns {Promise<T>}
+ */
+export async function withCurrentSkillRegistry(reader, registryDir, operation) {
+  await reader.ensureFresh();
+  return withSkillRegistryLock(registryDir, operation);
+}
+
+/**
  * The registry, rebuilt first when its skills changed on disk.
  *
  * At most one look at the files per `intervalMs` while the registry file stays

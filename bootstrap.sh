@@ -382,6 +382,14 @@ if [ "$skip_client_install" -ne 1 ]; then
     set +f
     docker "$@" "$installer_image" 2>&1 >/dev/null
   }
+  # Whether what Docker said is a refused mount, not an engine that failed for
+  # another reason — a timeout, a daemon that went away (Д-358).
+  mount_refused() {
+    case "$1" in
+      *[Mm]ount*|*"bind source path"*|*"not shared"*|*statfs*) return 0 ;;
+    esac
+    return 1
+  }
   # The folders of the clients named (",cursor,codex,"), each target once.
   mounts_of() {
     picked="$nl"
@@ -431,8 +439,17 @@ if [ "$skip_client_install" -ne 1 ]; then
   done
   # Docker takes every client's folders in one look, or each client is looked
   # at alone: a folder it refuses — outside Docker Desktop's file sharing, say —
-  # costs that client alone (Д-339, Д-352).
-  if [ "$candidates" != "," ] && ! mounts_taken "$(mounts_of "$candidates")" >/dev/null; then
+  # costs that client alone (Д-339, Д-352). A look that failed for another
+  # reason blames no folder: it is said once, and the install goes on and says
+  # what fails (Д-358).
+  look=0
+  refused=""
+  if [ "$candidates" != "," ]; then
+    refused=$(mounts_taken "$(mounts_of "$candidates")") || look=1
+  fi
+  if [ "$look" = 1 ] && ! mount_refused "$refused"; then
+    printf '%s\n' "Docker could not look at the clients' folders first (${refused%%"$nl"*}): the install goes on, and says what fails." >&2
+  elif [ "$look" = 1 ]; then
     taken=","
     set -f
     old_ifs=$IFS
@@ -440,7 +457,7 @@ if [ "$skip_client_install" -ne 1 ]; then
     for client in $candidates; do
       [ -n "$client" ] || continue
       IFS=$old_ifs
-      if refused=$(mounts_taken "$(mounts_of ",${client},")"); then
+      if refused=$(mounts_taken "$(mounts_of ",${client},")") || ! mount_refused "$refused"; then
         taken="${taken}${client},"
       else
         case "$client" in

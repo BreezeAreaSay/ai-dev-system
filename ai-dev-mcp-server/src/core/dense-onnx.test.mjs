@@ -10,6 +10,7 @@ import {
   cleanEmbedTexts,
   createOnnxDenseRuntime,
   defaultOnnxModelDir,
+  holdsFiles,
   roundVector
 } from "./dense-onnx.mjs";
 
@@ -247,6 +248,20 @@ test("in the image the model is the one the host mounts at /models, else the one
   // Outside the image a /models folder is nobody's business.
   assert.equal(defaultOnnxModelDir({ env: { HOME: "/home/person" }, mounted: () => true }), path.resolve("/home/person/.ai-dev/models/bge-m3-onnx"));
   assert.equal(defaultOnnxModelDir({ env: { ...docker, BGE_M3_ONNX_DIR: "/x" }, mounted: () => true }), path.resolve("/x"));
+});
+
+test("a mounted model folder the image's user may not list is a model there, not an empty mount (Д-357)", () => {
+  const refused = (code) => () => {
+    throw Object.assign(new Error(`${code}: scandir '/models/bge-m3-onnx'`), { code });
+  };
+  assert.equal(holdsFiles("/models/bge-m3-onnx", () => ["config.json"]), true);
+  assert.equal(holdsFiles("/models/bge-m3-onnx", () => []), false, "the image's own empty /models");
+  assert.equal(holdsFiles("/models/bge-m3-onnx", refused("ENOENT")), false, "nothing mounted");
+  assert.equal(holdsFiles("/models/bge-m3-onnx", refused("ENOTDIR")), false);
+  assert.equal(holdsFiles("/models/bge-m3-onnx", refused("EACCES")), true, "folders 0700 of another owner");
+  assert.equal(holdsFiles("/models/bge-m3-onnx", refused("EPERM")), true);
+  const docker = { AI_DEV_RUNTIME: "docker", AI_DEV_HOME: "/data/runtime-home/.ai-dev", HOME: "/data/runtime-home" };
+  assert.equal(defaultOnnxModelDir({ env: docker, mounted: (folder) => holdsFiles(folder, refused("EACCES")) }), "/models/bge-m3-onnx");
 });
 
 test("embed_texts input is cleaned, and an empty, oversized or overlong request is refused before the worker", () => {

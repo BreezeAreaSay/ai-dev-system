@@ -575,9 +575,9 @@ have: `npm run model -- install --no-index` puts it in
 `--model-path` of bootstrap, `AI_DEV_MODEL_PATH` of the 2.x launchers). The image
 reads `/models/bge-m3-onnx` first when it holds anything — the sessions and its own
 checks alike (docs/DEFECTS.md, Д-346) — so a model there that is not whole is put
-right on the host, or the mount dropped. Its files have to be readable to the image's
-user, uid 1000; when they are not, the start report and `embedding_status` say so
-(Д-337, Д-349). The documents are embedded with it, with no download and no network,
+right on the host, or the mount dropped. Its files and folders have to be readable to
+the image's user, uid 1000; when they are not, the start report and `embedding_status`
+say so (Д-337, Д-349, Д-357). The documents are embedded with it, with no download and no network,
 by `docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data
 --mount type=bind,source=<the folder above bge-m3-onnx>,target=/models,readonly
 ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model` (Д-341).
@@ -693,7 +693,9 @@ model can run and why: `installed` and `available` are the answer, `reason` is a
 sentence rather than a flag, and `partial` lists downloads that stopped partway.
 Under `dense_backend.onnx`, `missing` lists files that are not there and
 `mismatched` lists files that are there and are not the pinned export — the first
-means the mount did not arrive, the second means the bytes are wrong. Anything
+means the mount did not arrive, the second means the bytes are wrong; `unreadable`,
+when present, says why this user could not read the model at all (docs/DEFECTS.md,
+Д-358). Anything
 left of a 2.x Python install is under `dense_backend.legacy`, and makes the health
 check a `warn` until it is cleaned up. From a checkout, `npm run dense:doctor`
 walks the same ground in six stages and names the one that stopped.

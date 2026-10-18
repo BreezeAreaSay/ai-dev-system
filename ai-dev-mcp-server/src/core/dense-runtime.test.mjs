@@ -78,6 +78,10 @@ test("a model this process cannot read is not ready, and says why: the health ch
   const status = await runtime.describe();
   assert.equal(status.available, false);
   assert.match(status.reason, /the model in \/models\/bge-m3-onnx cannot be read \(EACCES: permission denied, open '\/models\/bge-m3-onnx\/config\.json'\)\. The image runs as uid 1000/);
+  // Its files are not missing, only unseen, and the details say which (Д-358).
+  assert.deepEqual(status.onnx.missing, []);
+  assert.equal(status.onnx.unreadable, "EACCES: permission denied, open '/models/bge-m3-onnx/config.json'");
+  assert.equal("unreadable" in (await runtimeWith({}).runtime.describe()).onnx, false, "a readable model has no such field");
   await assert.rejects(runtime.embed({ texts: ["x"] }), /cannot be read/);
   const local = runtimeWith({ verifyError: denied, onnxModelDir: "/home/me/.ai-dev/models/bge-m3-onnx" });
   assert.match((await local.runtime.describe()).reason, /cannot be read .*Make its files readable to the user this runs as\./);

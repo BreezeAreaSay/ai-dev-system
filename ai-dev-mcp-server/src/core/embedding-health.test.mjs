@@ -45,6 +45,16 @@ test("a model this user cannot read is said as that, not as a download to contin
   assert.deepEqual([verdict.status, verdict.summary], ["skipped", reason]);
 });
 
+test("a model check that could not be made is a warning with its fault, not a model to install (Д-372)", () => {
+  const reason = "Dense search is not ready: the model in /models/bge-m3-onnx could not be checked (Cannot read properties of undefined (reading 'files')).";
+  const verdict = evaluateEmbeddingBackend(payload({
+    available: false,
+    reason,
+    onnx: { ...ONNX, ready: false, missing: [], unchecked: "Cannot read properties of undefined (reading 'files')" }
+  }));
+  assert.deepEqual([verdict.status, verdict.summary, verdict.details.optional], ["warn", reason, undefined]);
+});
+
 test("files that are there and wrong are a warning that names them and the fix", () => {
   const verdict = evaluateEmbeddingBackend(payload({ available: false, onnx: { ...ONNX, ready: false, mismatched: ["onnx/model_int8.onnx"] } }));
   assert.equal(verdict.status, "warn");

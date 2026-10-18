@@ -150,10 +150,11 @@ export function containerModelAdvice(dir = "") {
  * permissions are put right by making it readable (docs/DEFECTS.md, Д-365).
  *
  * @param {string} unreadable - The error, as `EACCES: permission denied, …`.
- * @param {{ mounted?: boolean }} [options] - The host's folder at /models, in the image.
+ * @param {{ mounted?: boolean, platform?: string }} [options] - `mounted`: the host's folder at /models, in the image,
+ *   whose host is not known; `platform`: this machine's, for a local install.
  * @returns {string}
  */
-export function unreadableModelAdvice(unreadable, { mounted = false } = {}) {
+export function unreadableModelAdvice(unreadable, { mounted = false, platform = process.platform } = {}) {
   const code = /^([A-Z]+):/.exec(String(unreadable ?? ""))?.[1] ?? "";
   const orVolume = mounted ? ", or drop the mount and install the model into the data volume" : "";
   if (code === "EACCES") {
@@ -162,15 +163,20 @@ export function unreadableModelAdvice(unreadable, { mounted = false } = {}) {
       : "Make the folder and its files readable to the user this runs as.";
   }
   // Not the file's mode, often: on macOS a folder under Documents, Desktop or
-  // Downloads is kept from an app until it is allowed there (Д-371).
+  // Downloads is kept from an app until it is given access (Д-371, Д-372).
   if (code === "EPERM") {
-    return mounted
-      ? "The image runs as uid 1000: make the folder and its files readable to it on the host — on macOS, allow Docker "
-        + `Desktop to that folder in Privacy & Security${orVolume}.`
-      : "Make the folder and its files readable to the user this runs as — on macOS, allow the app this runs in to "
-        + "that folder in Privacy & Security.";
+    if (mounted) {
+      return "The image runs as uid 1000: make the folder and its files readable to it on the host (on macOS, give Docker "
+        + `Desktop access to that folder in Privacy & Security)${orVolume}.`;
+    }
+    return platform === "darwin"
+      ? "Make the folder and its files readable to the user this runs as, and give the app this runs in access to that "
+        + "folder in Privacy & Security."
+      : "Make the folder and its files readable to the user this runs as.";
   }
-  if (code === "ENOTDIR") return `On that path a file stands where a folder should be: the model's folder, or one inside it, is a file${orVolume}.`;
+  if (code === "ENOTDIR") {
+    return `On that path a file stands where a folder should be (the model's folder, one inside it, or one above it): put a folder there${orVolume}.`;
+  }
   if (code === "ELOOP") return `A link on the way leads back to itself: point it at the folder that holds the model${orVolume}.`;
   if (SHARE_UNREACHABLE.has(code)) return `The disk or share it is on cannot be reached: reconnect it${orVolume}.`;
   return mounted ? `Look at that folder on the host${orVolume}.` : "Look at that folder.";

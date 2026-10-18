@@ -53,6 +53,8 @@ export function evaluateEmbeddingBackend(status = {}) {
       details
     };
   }
+  // A check that could not be made is a fault to look at, not a model to install (docs/DEFECTS.md, Д-372).
+  if (onnx.unchecked) return { status: "warn", summary: selected.reason || `The model could not be checked: ${onnx.unchecked}`, details };
   // A model this user cannot read is said as that first: no download continues it (docs/DEFECTS.md, Д-369).
   if (partial.length && !onnx.unreadable) {
     const started = partial.map((entry) => `${formatBytes(entry.bytes)} of ${entry.file}`).join(", ");

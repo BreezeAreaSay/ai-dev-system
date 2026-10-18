@@ -102,6 +102,7 @@ test("a model this process cannot read is not ready, and says why: the health ch
   const fault = await runtimeWith({ verifyError: new TypeError("Cannot read properties of undefined (reading 'files')") }).runtime.describe();
   assert.equal(fault.available, false);
   assert.equal("unreadable" in fault.onnx, false);
+  assert.equal(fault.onnx.unchecked, "Cannot read properties of undefined (reading 'files')", "the details say why (Д-372)");
   assert.equal(fault.reason, "Dense search is not ready: the model in /models/bge-m3-onnx could not be checked (Cannot read properties of undefined (reading 'files')).");
   const local = runtimeWith({ verifyError: denied, onnxModelDir: "/home/me/.ai-dev/models/bge-m3-onnx" });
   assert.match((await local.runtime.describe()).reason, /cannot be read .*Make the folder and its files readable to the user this runs as\./);

@@ -93,14 +93,19 @@ test("a machine with no runtime build is told so, whatever is on disk", () => {
   assert.equal(selectDenseBackend().available, false, "defaults alone are a valid call");
 });
 
-test("a model that cannot be read gets the advice its error calls for: only permissions are made readable (Д-365, Д-371)", () => {
+test("a model that cannot be read gets the advice its error calls for: only permissions are made readable (Д-365, Д-371, Д-372)", () => {
   const said = (code, mounted = false) => unreadableModelAdvice(`${code}: what the system said, '/models/bge-m3-onnx/config.json'`, { mounted });
   assert.equal(said("EACCES"), "Make the folder and its files readable to the user this runs as.");
   assert.equal(said("EACCES", true), "The image runs as uid 1000: make the folder and its files readable to it on the host, or drop the mount and install the model into the data volume.");
-  // EPERM is often macOS keeping a folder from an app, not a mode (Д-371).
-  assert.match(said("EPERM", true), /^The image runs as uid 1000: make the folder and its files readable to it on the host — on macOS, allow Docker Desktop to that folder in Privacy & Security, or drop the mount/);
-  assert.match(said("EPERM"), /on macOS, allow the app this runs in to that folder in Privacy & Security\.$/);
-  assert.equal(said("ENOTDIR", true), "On that path a file stands where a folder should be: the model's folder, or one inside it, is a file, or drop the mount and install the model into the data volume.");
+  // EPERM is often macOS keeping a folder from an app, not a mode: said where the host may be a Mac (Д-371, Д-372).
+  assert.equal(said("EPERM", true), "The image runs as uid 1000: make the folder and its files readable to it on the host (on macOS, give Docker Desktop access to that folder in Privacy & Security), or drop the mount and install the model into the data volume.");
+  const local = (platform) => unreadableModelAdvice("EPERM: operation not permitted, open '…/config.json'", { platform });
+  assert.equal(local("darwin"), "Make the folder and its files readable to the user this runs as, and give the app this runs in access to that folder in Privacy & Security.");
+  assert.equal(local("linux"), "Make the folder and its files readable to the user this runs as.");
+  assert.equal(local("win32"), "Make the folder and its files readable to the user this runs as.");
+  // A file where a folder should be, the model's own or one above or inside it: put a folder there (Д-372).
+  assert.equal(said("ENOTDIR", true), "On that path a file stands where a folder should be (the model's folder, one inside it, or one above it): put a folder there, or drop the mount and install the model into the data volume.");
+  assert.equal(said("ENOTDIR"), "On that path a file stands where a folder should be (the model's folder, one inside it, or one above it): put a folder there.");
   assert.equal(said("ELOOP", true), "A link on the way leads back to itself: point it at the folder that holds the model, or drop the mount and install the model into the data volume.");
   // A share that dropped, on any engine: no Docker Desktop named (Д-371).
   for (const code of ["EIO", "ESTALE", "ENOTCONN", "EHOSTDOWN", "ETIMEDOUT", "ECONNABORTED", "ECONNRESET"]) {

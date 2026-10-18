@@ -133,6 +133,7 @@ export function createDenseRuntime({
         missing: onnx.missing,
         mismatched: onnx.mismatched,
         ...(onnx.unreadable ? { unreadable: onnx.unreadable } : {}),
+        ...(onnx.unchecked ? { unchecked: onnx.unchecked } : {}),
         revision: manifest.revision,
         dtype: manifest.dtype,
         export: manifest.export

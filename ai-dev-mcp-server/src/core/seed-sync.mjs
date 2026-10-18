@@ -58,7 +58,7 @@ const MANIFEST = "public-seed.manifest.json";
  * second start break into (docs/DEFECTS.md, Д-330). Beating every few seconds,
  * a holder that was killed is let go of as soon as the first-run lock's is.
  */
-const SYNC_LOCK = Object.freeze({ timeoutMs: 300_000, staleMs: 15_000, heartbeatMs: 3_000 });
+const SYNC_LOCK = Object.freeze({ timeoutMs: 300_000, staleMs: 20_000, heartbeatMs: 3_000 });
 
 /**
  * How the history names one version of one file: the path and its sha256,

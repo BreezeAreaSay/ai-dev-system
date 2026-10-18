@@ -133,6 +133,11 @@ try {
     // Docker copies the image's /data into a new volume: nothing is left to build.
     const built = /(\d+) built, \d+ skipped, \d+ failed/.exec(stderr());
     if (!built || built[1] !== "0") throw new Error(`The first start on a new volume built something: ${built?.[0] ?? "no first-run report"}.`);
+    // The start report says what this image carries (docs/DEFECTS.md, Д-332).
+    const browserLine = /Frontend QA dependencies: (.*)/.exec(stderr())?.[1] ?? "";
+    if (browser ? browserLine !== "comes with the image" : !/its -browser variant carries it/.test(browserLine)) {
+      throw new Error(`The start report says of the browser: "${browserLine}".`);
+    }
     Object.assign(report, {
       first_session_ms: ms,
       instructions: instructions.length,
@@ -164,13 +169,20 @@ try {
         throw new Error(`ai-dev model install in the image exited ${install.status}: ${`${install.stdout}\n${install.stderr}`.trim().split("\n").filter((line) => !/^[·→]|built, \d+ skipped/.test(line)).slice(-6).join(" | ")}`);
       }
       const installed = JSON.parse(install.stdout);
-      await connect(session(manifestMount), async ({ client }) => {
+      await connect(session(manifestMount), async ({ client, stderr }) => {
+        // The start report checks the model as setup does: this volume has it (Д-332).
+        const modelLine = /Local BGE-M3 model: (.*)/.exec(stderr())?.[1] ?? "";
+        const vectorsLine = /Dense vectors: (.*)/.exec(stderr())?.[1] ?? "";
+        if (!modelLine.startsWith("installed in ") || vectorsLine !== "every indexed document has one") {
+          throw new Error(`The start report after model install says "${modelLine}" and "${vectorsLine}".`);
+        }
         const embedding = JSON.parse(text(await client.callTool({ name: "embedding_status", arguments: {} })));
         if (!embedding.available) throw new Error(`The model the volume holds is not available to a session without the network: ${embedding.reason}`);
         const results = JSON.parse(text(await client.callTool({ name: "hybrid_search", arguments: { query: "sql database query", dense_weight: 0.9, limit: 3 } })));
         const top = (Array.isArray(results) ? results : results.results ?? [])[0];
         if (!(top?.dense_score > 0.5)) throw new Error(`Hybrid search did not use the model: ${JSON.stringify(top)}`);
         report.model = {
+          start_report: modelLine,
           dir: embedding.model_dir,
           embedded: installed.index?.dense_documents ?? null,
           top: top.path,

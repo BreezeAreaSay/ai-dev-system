@@ -538,7 +538,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   image's is the user's, read where it is, unless a seed is there already — a sync's record or
   2.x's manifest (Д-321). Three sessions starting at once on one volume build it one at a time,
   the seed sync too, each holder beating every 3 s so a slow machine's start is not taken for
-  a dead one and a killed one is let go of within 15 s; a start that has waited 3 minutes
+  a dead one and a killed one is let go of within 20 s; a start that has waited 3 minutes
   serves what is built rather than no session (Д-326, Д-330, Д-336). A user's own file named
   `public-seed.manifest.json` stays (Д-336).
 - **The projects are mounted at their own path** on macOS and Linux, so a path the agent names is

@@ -51,10 +51,11 @@ import {
 /**
  * A start waits for another one building the same volume — a 2.x volume's first
  * start takes 15–20 s — and serves what is built once it has waited this long.
- * The holder beats every few seconds, so one that was killed is let go of in
- * seconds rather than half a minute (docs/DEFECTS.md, Д-326, Д-336).
+ * The holder beats every 3 s, and one that has not for 20 s is taken for killed:
+ * a fifth of a CPU left 6 s between two beats, a tenth 11 s, as the index is
+ * built in one piece (docs/DEFECTS.md, Д-326, Д-336).
  */
-const FIRST_RUN_LOCK = Object.freeze({ timeoutMs: 180_000, staleMs: 15_000, heartbeatMs: 3_000 });
+const FIRST_RUN_LOCK = Object.freeze({ timeoutMs: 180_000, staleMs: 20_000, heartbeatMs: 3_000 });
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const vaultRoot = path.resolve(process.env.AI_DEV_VAULT_ROOT || "/data/ai-dev-system");

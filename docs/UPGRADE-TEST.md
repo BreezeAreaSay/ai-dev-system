@@ -93,12 +93,18 @@ scratch volume and a scratch folder, both removed at the end:
    server's own handshake through and says on stderr that it is the 2.x launcher (Д-89).
 4. **A 3.0 entry** on the same volume, with a host state folder mounted: the volume's state, the
    task with it, moves there (Д-103).
+5. **The way back as `bootstrap.sh --image …:2` writes it**: the 2.x image under a 3.0 entry
+   answers and sees the task in that state folder (Д-323, Д-333).
+6. **Back on the new image**: what that 2.x start's `cp -n` put back into the volume is removed
+   again, and the volume has the seed's skills plus the user's own (Д-317).
 
 It prints the timings and counts as JSON and exits 1 at the first check that fails.
 
-**Rolling back** to the 2.x image after step 4 finds the vault, the index and the model, but not
-the tasks: they are in the host's state folder now, where 2.x does not look. Nothing is lost;
-copied back into the volume, 2.x has them again:
+**Rolling back** to the 2.x image after step 4 through 2.x's own launchers (`AI_DEV_IMAGE`) finds
+the vault, the index and the model, but not the tasks: they are in the host's state folder now,
+where a 2.x launcher does not point the server. A 3.0 entry that runs the 2.x image —
+`bootstrap.sh --image …:2` — hands it that folder, and it sees them there (docs/DEFECTS.md, Д-333).
+Nothing is lost; copied back into the volume, 2.x has them again under its own launchers too:
 
 ```bash
 docker run --rm --entrypoint sh \

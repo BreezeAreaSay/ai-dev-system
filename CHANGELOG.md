@@ -536,17 +536,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `:2` puts them all back with `cp -n`, and its manifest with them; the next 3.0 start finds that
   manifest and removes them again (Д-317). A vault named by `AI_DEV_VAULT_ROOT` other than the
   image's is the user's, read where it is, unless a seed is there already — a sync's record or
-  2.x's manifest (Д-321). Three sessions starting at once on one volume build it one at a time
-  (Д-326).
+  2.x's manifest (Д-321). Three sessions starting at once on one volume build it one at a time,
+  the seed sync too, each holder beating every 3 s so a slow machine's start is not taken for
+  a dead one and a killed one is let go of within 15 s; a start that has waited 3 minutes
+  serves what is built rather than no session (Д-326, Д-330, Д-336). A user's own file named
+  `public-seed.manifest.json` stays (Д-336).
 - **The projects are mounted at their own path** on macOS and Linux, so a path the agent names is
   one the server opens (Д-312); on Windows they stay at `/workspace`. **The server and the agent
   hooks keep one state**: the host's `~/.ai-dev/state` is mounted where the container's user,
-  uid 1000, is the host's — macOS and Windows through Docker Desktop, Linux as uid 1000 once a
-  container of the image has written a file there that came out the user's — and the volume's
-  state moves into it (Д-103, Д-322). Elsewhere — another uid, rootless Docker, userns-remap,
+  uid 1000, is the host's — macOS and Windows through Docker Desktop, Linux once a container of
+  the image has written a file there that came out the user's (tried whatever the uid; on a
+  rootful Docker that is uid 1000) — and the volume's state moves into it (Д-103, Д-322, Д-334). Elsewhere — another uid, rootless Docker, userns-remap,
   Podman — the server keeps its state in the volume and cannot write into the projects, as in
   2.x, and `ai-dev clients install --docker` says so (Д-318). On Windows the folder is shared
-  but the tasks are not: the server sees `/workspace/<name>`, the hooks `C:\…\<name>` (Д-324);
+  but only its usage ledger is common: tasks and the hooks' handoffs are kept by project, and
+  the server sees `/workspace/<name>`, the hooks `C:\…\<name>` (Д-324, Д-333);
   and what a 2.x server remembered of a project under `/workspace/<name>` stays there. git in the image trusts the mounted projects
   whoever owns them, which 2.x refused as "dubious ownership" and so gave a project the wrong
   identity (Д-311).
@@ -555,18 +559,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   start a long-lived container, or compile a proxy; `bootstrap.sh` runs the config installer in
   the image with only the clients' config folders and the state folder mounted (2.x mounted the
   whole home), writes Claude Code's entry through `claude mcp add-json`, and then removes the 2.x
-  runtime container. With `--image` of a 2.x image — the way back — the 3.0 image writes the
-  configs that run it (Д-323). `bootstrap.ps1` runs under Windows PowerShell 5.1 with the image's
-  stderr thrown away safely (Д-320).
+  runtime container. With `--image` of a 2.x image — the way back — an image of 3.0 writes the
+  configs that run it: `AI_DEV_INSTALLER_IMAGE`, pulled and seen to have the installer (Д-323,
+  Д-329). A config that is a link into dotfiles is written through it; one client that cannot be
+  written does not stop the others — the exit is 1 and the 2.x container stays — and `--clients`
+  that names none is refused (Д-335, Д-336). `bootstrap.ps1` runs under Windows PowerShell 5.1
+  with the image's stderr thrown away safely (Д-320).
 - **The image's tags** (owner decision D9, Д-108): a push to `main` is `:edge`; a release tag
   `vX.Y.Z` is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`, a prerelease only its own name; the browser
   variant has the same tags with `-browser`. A manual run with `freeze_2x` copies the current
-  `:latest` to `:2` once, and refuses once a 3.x release is tagged; a later 2.x tag updates `:2`,
-  never `:latest` (Д-325).
+  `:latest` to `:2` once, and refuses once a 3.x release is tagged (a prerelease does not count);
+  a 2.x tag after 3.0, on a commit that carries this workflow, updates `:2`, never `:latest`
+  (Д-325, Д-336).
 - **Hints the image gives are commands for the host**: `docker run --rm -it … <image> ai-dev …`
   into the volume, with the network only for a download; Frontend QA in the default image points
   at the `-browser` variant instead of an install that cannot run in a client's container, and
   the start report says the same instead of setup's `--model` and `--frontend-qa` (Д-316, Д-328).
+  The report checks the model, the vectors and the browser as `setup` does, so a volume with
+  the model says it has it (Д-332).
+- **Trying the shared state folder** tells a container that could not write it from a Docker that
+  did not run the image — an engine that does not answer, an image not here, which the probe no
+  longer pulls: then nothing was tried, and the install says to run it again once Docker runs
+  the image (Д-331). `ai-dev clients entry --docker` tries it as `install` does, and
+  `install --dry-run` says it did not (Д-334). `ai-dev clients remove` finds the record a Docker
+  install wrote with `AI_DEV_STATE_ROOT` set (Д-336).
 - **`npm run check` runs `npm run packaging:check`**, red since phase 7 without a gate to see it
   (Д-314).
 

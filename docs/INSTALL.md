@@ -227,11 +227,12 @@ proxy for Claude on your machine, and the launchers 2.x copied to
 `C:\ProgramData\AI-Dev-System` are only brought up to date if they are there —
 see [Updating an earlier install](#updating-an-earlier-install).
 
-The state folder, `%USERPROFILE%\.ai-dev\state`, is the server's too, as on macOS:
-the usage ledger and the hooks' sessions are one. Tasks are not: the server sees a
-project as `/workspace/<name>` and the hooks as `C:\…\<name>` — two projects to
-either side — so the Stop hook does not remind you of a task the server began
-(docs/DEFECTS.md, Д-324).
+The state folder, `%USERPROFILE%\.ai-dev\state`, is the server's too, as on macOS,
+but on Windows only the usage ledger in it is one. The server sees a project as
+`/workspace/<name>` and the hooks as `C:\…\<name>` — two projects to either side —
+and tasks and the hooks' session handoffs are kept by project: the Stop hook does not
+remind you of a task the server began, and the server does not see a handoff the hooks
+wrote (docs/DEFECTS.md, Д-324, Д-333).
 
 For a different project folder and some of the clients:
 
@@ -303,7 +304,17 @@ sh ./bootstrap.sh --project-path "$HOME/Dev" --clients "codex,cursor,vscode"
 
 Re-running it is safe: a config that already runs this image stays as it is, and
 the volume — vault, index, model — is kept. To build the image from this
-checkout instead of pulling it: `sh ./bootstrap.sh --build-local`.
+checkout instead of pulling it: `sh ./bootstrap.sh --build-local`. A client whose
+config cannot be written is named and the others are written all the same; the exit
+is then 1, and the 2.x runtime container stays until every config is rewritten
+(docs/DEFECTS.md, Д-335).
+
+The way back to 2.x is `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`.
+A 2.x image has no installer of its own, so the configs that run it are written by an
+image of 3.0 or later: `AI_DEV_INSTALLER_IMAGE`, `ghcr.io/stonebridgeway/ai-dev-system:latest`
+by default. It is pulled — a copy cached before 3.0 would be a 2.x one — and used only
+once it is seen to have the installer; otherwise bootstrap stops and asks for one
+(Д-323, Д-329).
 
 If the registry cannot be reached and an older copy of the image is in the local
 cache, bootstrap stops rather than installing it, and says when that copy was
@@ -690,9 +701,11 @@ publishes `linux/amd64` and `linux/arm64` images to the GitHub Container Registr
 with an SBOM and provenance — two variants, the default and `-browser`.
 
 The tags (owner decision D9): a push to `main` is `:edge`; a release tag `vX.Y.Z`
-is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`. A merge is not a release. `:2` is the 2.x
-line, frozen when 3.0 is tagged: `AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2`
-(or `--image` of bootstrap) is the way back.
+is `:X.Y.Z`, `:X.Y` and `:X`, and `:latest` too when it is of the newest line — a
+2.x tag after 3.0 moves `:2` alone, and a prerelease (`vX.Y.Z-rc.N`) is only its own
+name. A merge is not a release. `:2` is the 2.x line, frozen when 3.0 is released:
+`AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2` (or `--image` of bootstrap) is
+the way back.
 
 After the first push:
 
@@ -782,9 +795,12 @@ command:
   next ones. What the 2.x server remembered of a project — sessions, instincts, decisions —
   is kept under the project as it saw it, `/workspace/<name>`; with the projects at their
   own path the server sees other projects and starts their memory afresh, the old one
-  staying in the state folder (Д-324). The way back is the 2.x image, `ghcr.io/stonebridgeway/ai-dev-system:2`; it does
-  not see the tasks that moved to your state folder ([Upgrade test](UPGRADE-TEST.md) says how
-  to copy them back), and a return to 3.0 removes again the skills its `cp -n` put back (Д-317).
+  staying in the state folder (Д-324). The way back is the 2.x image, `ghcr.io/stonebridgeway/ai-dev-system:2`.
+  Through `bootstrap --image …:2` it runs from 3.0's entries, which hand it the state folder
+  where it is shared, and it sees the tasks there; run by 2.x's own launchers (`AI_DEV_IMAGE`),
+  it keeps its state in the volume and does not see the tasks that moved to your state folder
+  ([Upgrade test](UPGRADE-TEST.md) says how to copy them back). Either way a return to 3.0
+  removes again the skills its `cp -n` put back (Д-317, Д-333).
 
 `npm run upgrade:test` checks all of this against a 2.x install, and `npm run
 docker:upgrade-check -- --old-image <2.x image> --new-image <image>` the Docker part

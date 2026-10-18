@@ -277,8 +277,10 @@ docker run -i --rm --read-only --tmpfs /tmp … --network none --security-opt no
   hooks run on your machine; with one state, the Stop hook sees the task the server
   started (Д-103). This takes the container's user — uid 1000, the image's — being
   yours: on macOS Docker Desktop maps it, on Linux it is the first user's uid. With
-  another uid on Linux the server keeps its state in the volume, as 2.x did, and
-  `ai-dev clients install --docker` says so.
+  another uid on Linux the server keeps its state in the volume and cannot write into
+  your projects — installing hooks or rules there is refused — as in 2.x;
+  `ai-dev clients install --docker` says so, and on such a machine the local path is the
+  one to take (docs/DEFECTS.md, Д-318).
 - **One container per session**, started in about a second; there is no
   long-lived container any more, and the one 2.x kept (`ai-dev-system-runtime-<uid>`)
   is removed.

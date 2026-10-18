@@ -181,7 +181,8 @@ export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEF
 export function unsharedStateNote(docker, uid = process.getuid?.()) {
   if (!docker || docker.sharedState) return "";
   return `The agent hooks keep their state apart from the server's: the image's user (uid ${IMAGE_UID}) is not yours (uid ${uid}), `
-    + "so a folder of yours is not one the container may share; the server keeps its state in the volume, as 2.x did (docs/INSTALL.md, Docker).";
+    + "so a folder of yours is not one the container may share; the server keeps its state in the volume, as 2.x did, "
+    + "and cannot write into your projects. On this machine the local install is the one to use (docs/INSTALL.md; Д-318).";
 }
 
 /**

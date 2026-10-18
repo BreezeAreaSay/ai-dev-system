@@ -100,6 +100,7 @@ export const NOT_DAEMON_WIDE = Object.freeze({
     "AI_DEV_DEBUG_LOG",
     "AI_DEV_VERSION",
     "AI_DEV_BOOTSTRAP_NODE_IMAGE",
+    "AI_DEV_INSTALLER_IMAGE",
     "AI_DEV_INSTALLER_LAUNCHER"
   ]),
   // The desktop app's own: where its server is, its test hooks, its developer

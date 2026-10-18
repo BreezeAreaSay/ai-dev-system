@@ -10,7 +10,9 @@ name: Windows installer
 #
 # Signing comes from the environment: a certificate in WIN_CSC_LINK with its
 # password in WIN_CSC_KEY_PASSWORD, or Azure Trusted Signing named by the
-# AI_DEV_SIGN_AZURE_* variables (desktop/scripts/windows-bundle.mjs). Without
+# AI_DEV_SIGN_AZURE_* variables and AI_DEV_SIGN_PUBLISHER, the certificate's
+# name, which the updater checks every update against — the build stops when
+# one of the four is missing (desktop/scripts/windows-bundle.mjs). Without
 # either the installer is built unsigned.
 
 on:
@@ -19,7 +21,6 @@ on:
       - "desktop/**"
       - "ai-dev-mcp-server/**"
       - "docker/public-seed/**"
-      - "distribution.allowlist.json"
       - ".github/workflows/desktop-windows.yml"
   push:
     tags:

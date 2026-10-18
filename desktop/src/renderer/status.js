@@ -75,6 +75,22 @@ function why(view, status) {
       : null);
 }
 
+/**
+ * What the app says of its runtime, when it has something to say
+ * (`runtimeNotice`, src/main/bundle.mjs): it runs from its copy, the drive
+ * holding no link — after an update the clients must be connected again — or
+ * it put back files that went missing (docs/DEFECTS.md, Д-299, Д-300).
+ */
+function runtimeNotes(view) {
+  const runtime = view.connection.runtime;
+  if (!runtime) return null;
+  return h("div", { className: "notice-box", dataset: { field: "runtime" } },
+    runtime.linkError ? h("p", { dataset: { field: "no-link" } }, view.t("status.noLink", { folder: runtime.folder, reason: runtime.linkError })) : null,
+    runtime.repaired.length
+      ? h("p", { dataset: { field: "repaired" } }, view.t("status.repaired", { count: runtime.repaired.length, files: runtime.repaired.slice(0, 3).join(", ") }))
+      : null);
+}
+
 /** The Status screen; it loads the checks when drawn. */
 export function statusScreen(view, navigate) {
   const body = h("div", { className: "status-body" }, h("p", { className: "muted", dataset: { state: "loading" } }, view.t("common.working")));
@@ -124,6 +140,7 @@ export function statusScreen(view, navigate) {
   load();
   return h("section", { dataset: { screen: "status" } },
     h("h1", { tabindex: "-1" }, view.t("status.title")),
+    runtimeNotes(view),
     h("div", { className: "actions" }, refresh, rebuild, setup),
     work,
     body);

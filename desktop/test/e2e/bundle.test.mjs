@@ -147,3 +147,67 @@ test("a runtime that is not what the installer shipped is not run: the window sa
   await assert.rejects(fs.lstat(path.join(s.env.AI_DEV_HOME, "app", "current")), { code: "ENOENT" }, "no link to a runtime that was not checked");
   await shot(page, "bundle-damaged");
 });
+
+test("a copy that lost files since it was made is put back at the next start, and Status says so (Д-300)", { timeout: 240_000 }, async (t) => {
+  const s = await stage(t);
+  const bundle = await makeBundle(path.join(s.root, "bundle"), { version: "3.0.0", note: "repaired" });
+  const env = installedEnv(s.env, bundle);
+  const { provisionBundle } = await serverModule("src/core/app-bundle.mjs");
+  const made = await provisionBundle({ bundleRoot: bundle, runtimeRoot: env.AI_DEV_HOME, env, home: env.HOME });
+  // An antivirus took a file away; another was edited by hand.
+  const readme = path.join(made.folder, "ai-dev-mcp-server", "README.md");
+  await fs.rm(readme);
+  await fs.appendFile(path.join(made.folder, "ai-dev-mcp-server", "package.json"), "\n");
+
+  const { app, page } = await launch(t, env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 120_000 });
+  const runtime = await app.evaluate(() => globalThis.aiDevTest.runtime());
+  assert.equal(runtime.status, "repaired");
+  assert.deepEqual([...runtime.repaired].sort(), ["ai-dev-mcp-server/README.md", "ai-dev-mcp-server/package.json"]);
+  assert.match(await fs.readFile(readme, "utf8"), /^# AI Dev 3\.0\.0/);
+  await page.click('[data-nav="status"]');
+  const said = await page.waitForSelector('[data-field="repaired"]', { timeout: 30_000 });
+  assert.match(await said.textContent(), /AI Dev put back 2 file\(s\) of its runtime that had gone missing or changed, such as ai-dev-mcp-server\/(README\.md|package\.json), ai-dev-mcp-server\/(README\.md|package\.json)\. If this happens at every start, an antivirus may be taking them away\./);
+  assert.equal(await page.isVisible('[data-field="no-link"]'), false, "the link is there");
+  await shot(page, "bundle-repaired");
+});
+
+// The app's folder made immutable refuses the link with EPERM, as a FAT32 or
+// exFAT drive refuses a junction (Д-299); only root may make a folder so.
+const immutable = process.platform === "linux" && process.getuid?.() === 0 && spawnSync("chattr", ["--help"], { stdio: "ignore" }).error === undefined;
+
+test("a drive that cannot hold the link: the app runs its copy, connects clients to the copy, and Status says why and what to do (Д-299)", {
+  timeout: 240_000,
+  skip: immutable ? false : "needs root and chattr: an immutable folder is how this machine refuses a link"
+}, async (t) => {
+  // node:test runs a test's after hooks in the order they were added: this one first, so the
+  // stage's own cleanup, which comes after it, finds the folder it removes changeable again.
+  let unlock = () => undefined;
+  t.after(() => unlock());
+  const s = await stage(t);
+  const bundle = await makeBundle(path.join(s.root, "bundle"), { version: "3.0.0", note: "no link" });
+  const env = installedEnv(s.env, bundle);
+  const { provisionBundle } = await serverModule("src/core/app-bundle.mjs");
+  const made = await provisionBundle({ bundleRoot: bundle, runtimeRoot: env.AI_DEV_HOME, env, home: env.HOME });
+  const apps = path.dirname(made.folder);
+  await fs.unlink(made.current);
+  unlock = () => spawnSync("chattr", ["-i", apps]);
+  assert.equal(spawnSync("chattr", ["+i", apps]).status, 0);
+
+  const { app, page } = await launch(t, env);
+  await page.waitForSelector('[data-screen="wizard"]', { timeout: 120_000 });
+  const runtime = await app.evaluate(() => globalThis.aiDevTest.runtime());
+  assert.equal(runtime.current, "");
+  assert.match(runtime.linkError, /^EPERM: /);
+  assert.equal(runtime.node, path.join(made.folder, "node", "node"));
+  const installed = await mainCall(app, "clients_install", { clients: ["claude-code"] });
+  assert.equal(installed.ok, true, installed.error);
+  const entry = JSON.parse(await fs.readFile(path.join(env.CLAUDE_CONFIG_DIR, ".claude.json"), "utf8")).mcpServers["ai-dev"];
+  assert.deepEqual(entry.args, [path.join(made.folder, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), "mcp"], "without a link the config names the copy itself");
+  await page.click('[data-nav="status"]');
+  const said = await page.waitForSelector('[data-field="no-link"]', { timeout: 30_000 });
+  const text = await said.textContent();
+  assert.ok(text.includes(made.folder), text);
+  assert.match(text, /cannot hold the link AI clients run \(EPERM: .*\)\. After an update, run setup again and connect your AI clients, so that they run the new version\./);
+  await shot(page, "bundle-no-link");
+});

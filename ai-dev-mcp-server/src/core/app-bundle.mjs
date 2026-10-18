@@ -21,15 +21,20 @@
  * old copy, and its daemon serves it until it leaves; the next session a
  * client starts runs the new copy. No running file is ever written over, and
  * the old copy is removed by a later prune once nothing holds it.
+ *
+ * At every start the app checks its copy against `bundle.json`, file by file,
+ * and puts back from the installer what went missing or changed size since.
  */
 import crypto from "node:crypto";
 import { createReadStream, readFileSync, realpathSync } from "node:fs";
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { APP_MARKER, KEPT_APP_COPIES, appFolder, pruneAppCopies } from "./app-home.mjs";
 import { atomicWriteJson } from "./atomic-files.mjs";
 import { BUNDLE_COMMAND, BUNDLE_MARKER } from "./install-layout.mjs";
+import { LEGACY_SERVER_NAMES, SERVER_NAME, discoverClients, readServerEntries } from "./mcp-clients.mjs";
 
 /** The stable link's name in the app home. */
 export const CURRENT_LINK = "current";
@@ -121,17 +126,96 @@ async function sha256Of(file) {
   return hash.digest("hex");
 }
 
-/** A copy is finished when its marker names this runtime and its Node and CLI are there. */
-async function finished(folder, bundle) {
-  try {
-    const marker = JSON.parse(await fs.readFile(path.join(folder, APP_MARKER), "utf8"));
-    if (marker.kind !== "bundle" || marker.content_fingerprint !== bundle.fingerprint) return false;
-    await fs.access(path.join(folder, ...bundle.node.file.split("/")));
-    await fs.access(path.join(folder, "ai-dev-mcp-server", "bin", "ai-dev.mjs"));
-    return true;
-  } catch {
-    return false;
+/** What Windows answers when a running process holds a file or a folder. */
+const BUSY = new Set(["EACCES", "EPERM", "EBUSY"]);
+
+/** The files a copy of `bundle` holds: those `bundle.json` lists, and `bundle.json` itself. */
+async function expectedFiles(bundleRoot, bundle) {
+  const marker = path.join(bundleRoot, BUNDLE_MARKER);
+  const { size } = await fs.stat(marker);
+  return [...bundle.files, { path: BUNDLE_MARKER, bytes: size, sha256: await sha256Of(marker) }];
+}
+
+/**
+ * What the folder a runtime is copied to holds: nothing, something that is
+ * not this runtime's finished copy (a copy that stopped before its marker, a
+ * folder not AI Dev's), or this runtime's copy — with the files that went
+ * missing or changed size since it was made: an antivirus that took a DLL
+ * away, an edit by hand (docs/DEFECTS.md, Д-300). The size, not the sha256,
+ * is checked at every start — hashing the whole runtime would take seconds —
+ * so a change that keeps a file's size is not seen.
+ *
+ * @returns {Promise<{ state: "absent"|"foreign"|"finished", damaged: Array<{ path: string, bytes: number, sha256: string }> }>}
+ */
+async function inspectCopy(folder, bundle, expected) {
+  const marker = await fs.readFile(path.join(folder, APP_MARKER), "utf8").then(JSON.parse, () => null);
+  if (marker?.kind !== "bundle" || marker.content_fingerprint !== bundle.fingerprint) {
+    return { state: await fs.lstat(folder).then(() => "foreign", () => "absent"), damaged: [] };
   }
+  const damaged = [];
+  // A few dozen at a time: thousands of files, one stat each.
+  for (let at = 0; at < expected.length; at += 64) {
+    await Promise.all(expected.slice(at, at + 64).map(async (file) => {
+      const stat = await fs.stat(path.join(folder, ...file.path.split("/"))).catch(() => null);
+      if (!stat?.isFile() || stat.size !== file.bytes) damaged.push(file);
+    }));
+  }
+  return { state: "finished", damaged };
+}
+
+/** Copy one file of the runtime and check it against its size and sha256: a copy is never trusted unread. */
+async function copyChecked(bundleRoot, file, target) {
+  const shipped = path.join(bundleRoot, ...file.path.split("/"));
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  try {
+    await fs.copyFile(shipped, target);
+  } catch (error) {
+    if (error?.code !== "ENOENT" || await fs.lstat(shipped).then(() => true, () => false)) throw error;
+    throw new Error(`${file.path} in ${bundleRoot} is missing: the installer's copy is damaged; run the installer again.`);
+  }
+  const { size } = await fs.stat(target);
+  if (size !== file.bytes || await sha256Of(target) !== file.sha256) {
+    throw new Error(`${file.path} in ${bundleRoot} is not the file the installer shipped; run the installer again.`);
+  }
+}
+
+/**
+ * Put back the files a copy lost, each checked as the copy was, each moved
+ * into place from a file beside it. A file that is missing holds nothing; one
+ * a running client holds cannot be replaced on Windows, and the start stops
+ * saying so.
+ */
+async function repairCopy({ bundleRoot, folder, files }) {
+  for (const file of files) {
+    const target = path.join(folder, ...file.path.split("/"));
+    const partial = `${target}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.partial`;
+    try {
+      await copyChecked(bundleRoot, file, partial);
+      await fs.rename(partial, target);
+    } catch (error) {
+      await fs.rm(partial, { force: true }).catch(() => undefined);
+      if (!BUSY.has(error?.code)) throw error;
+      throw new Error(`${target}, a file of AI Dev's runtime, is damaged and in use: close your AI clients and try again.`);
+    }
+  }
+}
+
+/**
+ * Move a folder aside, then remove it. Removed in place, a folder a client
+ * holds a file of would be half removed by Windows; moved, it is either gone
+ * whole or left whole (Д-300). What cannot be removed after the move is a
+ * `.partial` folder, which a later prune finishes off.
+ */
+async function removeAside(folder) {
+  const aside = `${folder}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.partial`;
+  try {
+    await fs.rename(folder, aside);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    if (!BUSY.has(error?.code)) throw error;
+    throw new Error(`${folder} is in use and cannot be replaced: close your AI clients and try again.`);
+  }
+  await fs.rm(aside, { recursive: true, force: true }).catch(() => undefined);
 }
 
 /** Rename, again while Windows says a file in it is busy: a scanner opens what was just written (Д-185). */
@@ -141,7 +225,7 @@ async function renameBusy(from, to) {
       await fs.rename(from, to);
       return;
     } catch (error) {
-      if (attempt >= 9 || !["EACCES", "EPERM", "EBUSY"].includes(error?.code)) throw error;
+      if (attempt >= 9 || !BUSY.has(error?.code)) throw error;
       await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
     }
   }
@@ -153,25 +237,18 @@ async function renameBusy(from, to) {
  * that stopped — a full disk, a closed app — is a `.partial` folder, never a
  * runtime a client is pointed at.
  */
-async function copyBundle({ bundleRoot, bundle, folder, now, onProgress }) {
+async function copyBundle({ bundleRoot, bundle, expected, folder, now, onProgress }) {
   const stage = `${folder}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.partial`;
   const total = bundle.files.reduce((sum, file) => sum + file.bytes, 0);
   let done = 0;
   await fs.mkdir(stage, { recursive: true });
   try {
-    for (const file of bundle.files) {
-      const parts = file.path.split("/");
-      const target = path.join(stage, ...parts);
-      await fs.mkdir(path.dirname(target), { recursive: true });
-      await fs.copyFile(path.join(bundleRoot, ...parts), target);
-      const { size } = await fs.stat(target);
-      if (size !== file.bytes || await sha256Of(target) !== file.sha256) {
-        throw new Error(`${file.path} in ${bundleRoot} is not the file the installer shipped; run the installer again.`);
-      }
+    for (const file of expected) {
+      await copyChecked(bundleRoot, file, path.join(stage, ...file.path.split("/")));
+      if (file.path === BUNDLE_MARKER) continue;
       done += file.bytes;
       onProgress?.({ progress: done, total, file: file.path });
     }
-    await fs.copyFile(path.join(bundleRoot, BUNDLE_MARKER), path.join(stage, BUNDLE_MARKER));
     const stamp = now().toISOString();
     await atomicWriteJson(path.join(stage, APP_MARKER), {
       schema_version: 1,
@@ -185,7 +262,7 @@ async function copyBundle({ bundleRoot, bundle, folder, now, onProgress }) {
       installed_from: bundleRoot
     });
     // A folder an earlier copy left unfinished is replaced; a finished one was found before.
-    await fs.rm(folder, { recursive: true, force: true });
+    await removeAside(folder);
     await renameBusy(stage, folder);
   } catch (error) {
     await fs.rm(stage, { recursive: true, force: true }).catch(() => undefined);
@@ -203,6 +280,26 @@ async function removeLink(link) {
   }
 }
 
+/** A link a move of `current` left beside it when it stopped half-way. */
+const STALE_LINK = /^current\.\d+\.[0-9a-f]{8}\.(?:next|old)$/;
+
+/**
+ * Remove the links a move of `current` that stopped left in `<runtime>/app/`
+ * — never what they point at.
+ *
+ * @param {string} appsRoot
+ * @returns {Promise<string[]>} the links removed
+ */
+export async function removeStaleLinks(appsRoot) {
+  const removed = [];
+  for (const entry of await fs.readdir(appsRoot, { withFileTypes: true }).catch(() => [])) {
+    if (!STALE_LINK.test(entry.name) || !entry.isSymbolicLink()) continue;
+    const link = path.join(appsRoot, entry.name);
+    if (await removeLink(link).then(() => true, () => false)) removed.push(link);
+  }
+  return removed;
+}
+
 /** Two paths of one folder, compared as the platform compares names. */
 function samePlace(left, right, platform) {
   return platform === "win32" || platform === "darwin" ? left.toLowerCase() === right.toLowerCase() : left === right;
@@ -214,18 +311,18 @@ function samePlace(left, right, platform) {
  * POSIX system the rename replaces the old link in one step. Links left by a
  * move that stopped are cleared first.
  *
+ * A drive that cannot hold a link says so in its own words when the link is
+ * made — `ENOTSUP` under Wine, `EISDIR` from FAT32 and exFAT, `EPERM` from
+ * some shares — and whatever it says, the error carries `cannotLink`
+ * (docs/DEFECTS.md, Д-295, Д-299).
+ *
  * @param {{ runtimeRoot: string, folder: string, platform?: string, symlink?: typeof fs.symlink }} options
  * @returns {Promise<boolean>} whether the link moved
  */
 export async function pointCurrent({ runtimeRoot, folder, platform = process.platform, symlink = fs.symlink }) {
   const current = currentLink(runtimeRoot);
   const target = await fs.realpath(folder);
-  const appsRoot = path.dirname(current);
-  for (const entry of await fs.readdir(appsRoot, { withFileTypes: true }).catch(() => [])) {
-    if (/^current\.\d+\.[0-9a-f]{8}\.(?:next|old)$/.test(entry.name) && entry.isSymbolicLink()) {
-      await removeLink(path.join(appsRoot, entry.name)).catch(() => undefined);
-    }
-  }
+  await removeStaleLinks(path.dirname(current));
   const stat = await fs.lstat(current).catch(() => null);
   if (stat && !stat.isSymbolicLink()) {
     throw new Error(`${current} is not the link AI Dev keeps there; move it aside and start AI Dev again.`);
@@ -233,8 +330,12 @@ export async function pointCurrent({ runtimeRoot, folder, platform = process.pla
   if (stat && samePlace(await fs.realpath(current).catch(() => ""), target, platform)) return false;
   const tag = `${process.pid}.${crypto.randomUUID().slice(0, 8)}`;
   const next = `${current}.${tag}.next`;
-  // A junction on Windows: a symbolic link needs Developer Mode or an administrator.
-  await symlink(target, next, platform === "win32" ? "junction" : "dir");
+  try {
+    // A junction on Windows: a symbolic link needs Developer Mode or an administrator.
+    await symlink(target, next, platform === "win32" ? "junction" : "dir");
+  } catch (error) {
+    throw Object.assign(error instanceof Error ? error : new Error(String(error)), { cannotLink: true });
+  }
   if (!stat || platform !== "win32") {
     await fs.rename(next, current);
     return true;
@@ -254,8 +355,53 @@ export async function pointCurrent({ runtimeRoot, folder, platform = process.pla
 }
 
 /**
- * Install the runtime the installer shipped — or find it installed — and make
- * it the one AI clients run.
+ * The folder of `<runtime>/app/` an absolute path lies in, by its name; ""
+ * for a path elsewhere, and for a word that is not an absolute path: a bare
+ * word of a client's entry (`mcp`, `docker`) names no folder, wherever the
+ * process that reads it runs (Д-298).
+ *
+ * @param {unknown} word
+ * @param {string} appsRoot
+ * @returns {string}
+ */
+export function appEntryOf(word, appsRoot) {
+  if (typeof word !== "string" || !word || !path.isAbsolute(word)) return "";
+  const relative = path.relative(appsRoot, path.resolve(word));
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return "";
+  return relative.split(path.sep)[0];
+}
+
+/** The words of a client's entry that can name a file: its command and its arguments. */
+export function entryWords(entry) {
+  if (!entry || typeof entry !== "object") return [];
+  return [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])].filter((word) => typeof word === "string" && word);
+}
+
+/**
+ * The copies in `<runtime>/app/` an AI client's entry names by their own
+ * folder rather than through `current`: what a client runs when the drive
+ * holds no link (Д-295), or when its entry was written by hand. A prune
+ * leaves them, however old (Д-299).
+ *
+ * @param {{ appsRoot: string, env?: NodeJS.ProcessEnv, home?: string }} options
+ * @returns {Promise<string[]>}
+ */
+export async function copiesNamedByClients({ appsRoot, env = process.env, home = os.homedir() }) {
+  const named = new Set();
+  for (const row of await readServerEntries(await discoverClients({ home, env }))) {
+    for (const name of [SERVER_NAME, ...LEGACY_SERVER_NAMES]) {
+      for (const word of entryWords(row.entries?.[name])) {
+        const folder = appEntryOf(word, appsRoot);
+        if (folder && folder !== CURRENT_LINK) named.add(path.join(appsRoot, folder));
+      }
+    }
+  }
+  return [...named].sort();
+}
+
+/**
+ * Install the runtime the installer shipped — or find it installed, and put
+ * back what it lost — and make it the one AI clients run.
  *
  * @param {object} input
  * @param {string} input.bundleRoot - The installer's `resources/runtime`.
@@ -263,35 +409,46 @@ export async function pointCurrent({ runtimeRoot, folder, platform = process.pla
  * @param {string} [input.platform]
  * @param {() => Date} [input.now]
  * @param {typeof fs.symlink} [input.symlink]
+ * @param {NodeJS.ProcessEnv} [input.env] - Where the AI clients' configs are found: a copy one of them names stays.
+ * @param {string} [input.home]
  * @param {(progress: { progress: number, total: number, file: string }) => void} [input.onProgress]
- * @returns {Promise<{ status: "installed"|"present", version: string, folder: string, current: string, serverRoot: string, node: string, cli: string, command: string, moved: boolean, linkError?: string, removed: string[] }>}
+ * @returns {Promise<{ status: "installed"|"present"|"repaired", version: string, folder: string, current: string, serverRoot: string, node: string, cli: string, command: string, moved: boolean, linkError?: string, repaired: string[], removed: string[] }>}
  *   `current` is "" and the paths name the copy itself when the drive cannot hold the link (`linkError` says why).
  */
-export async function provisionBundle({ bundleRoot, runtimeRoot, platform = process.platform, now = () => new Date(), symlink = fs.symlink, onProgress }) {
+export async function provisionBundle({ bundleRoot, runtimeRoot, platform = process.platform, now = () => new Date(), symlink = fs.symlink, env = process.env, home = os.homedir(), onProgress }) {
   const bundle = await readBundle(bundleRoot);
+  const expected = await expectedFiles(bundleRoot, bundle);
   const folder = appFolder(runtimeRoot, { version: bundle.version, content_fingerprint: bundle.fingerprint });
+  const copy = await inspectCopy(folder, bundle, expected);
   let status = "present";
-  if (await finished(folder, bundle)) {
+  if (copy.state === "finished") {
+    if (copy.damaged.length) {
+      status = "repaired";
+      await repairCopy({ bundleRoot, folder, files: copy.damaged });
+    }
     // Chosen again: the copy a prune keeps.
     const markerFile = path.join(folder, APP_MARKER);
     const marker = JSON.parse(await fs.readFile(markerFile, "utf8"));
     await atomicWriteJson(markerFile, { ...marker, chosen_at: now().toISOString() });
   } else {
     status = "installed";
-    await copyBundle({ bundleRoot, bundle, folder, now, onProgress });
+    await copyBundle({ bundleRoot, bundle, expected, folder, now, onProgress });
   }
   // A drive that cannot hold the link — exFAT, FAT32, some network shares, Wine
   // — still runs the copy: its configs name the copy itself, and change when
-  // an update brings another (docs/DESKTOP.md, "The Windows install").
+  // the clients are connected again (docs/DESKTOP.md, "The Windows install").
   let moved = false;
   let linkError = "";
   try {
     moved = await pointCurrent({ runtimeRoot, folder, platform, symlink });
   } catch (error) {
-    if (!LINK_UNSUPPORTED.has(error?.code)) throw error;
-    linkError = `${error.code}: ${String(error.message ?? "").split("\n")[0]}`;
+    if (!error?.cannotLink) throw error;
+    linkError = `${error.code ?? "Error"}: ${String(error.message ?? "").split("\n")[0]}`;
   }
-  const removed = await pruneAppCopies(path.dirname(folder), KEPT_APP_COPIES, now().getTime());
+  const appsRoot = path.dirname(folder);
+  // A client config that cannot be read does not stop the start: the link and the age keep copies then.
+  const named = await copiesNamedByClients({ appsRoot, env, home }).catch(() => []);
+  const removed = await pruneAppCopies(appsRoot, KEPT_APP_COPIES, now().getTime(), { kind: "bundle", named });
   const current = currentLink(runtimeRoot);
   const base = linkError ? folder : current;
   return {
@@ -305,12 +462,10 @@ export async function provisionBundle({ bundleRoot, runtimeRoot, platform = proc
     command: path.join(base, BUNDLE_COMMAND),
     moved,
     ...(linkError ? { linkError } : {}),
+    repaired: status === "repaired" ? copy.damaged.map((file) => file.path) : [],
     removed
   };
 }
-
-/** What a filesystem says when it cannot hold a junction or a symbolic link. */
-const LINK_UNSUPPORTED = new Set(["ENOTSUP", "EPERM", "EINVAL", "EOPNOTSUPP", "ENOSYS"]);
 
 /**
  * What a client config of the Windows install runs: its stable link's Node

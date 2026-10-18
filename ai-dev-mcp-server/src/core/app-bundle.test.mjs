@@ -4,7 +4,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { bundleFingerprint, currentLink, parseBundle, pointCurrent, provisionBundle, stableLaunch } from "./app-bundle.mjs";
+import { bundleFingerprint, copiesNamedByClients, currentLink, parseBundle, pointCurrent, provisionBundle, stableLaunch } from "./app-bundle.mjs";
 import { APP_MARKER, installAppHome } from "./app-home.mjs";
 
 const sha = (content) => crypto.createHash("sha256").update(content).digest("hex");
@@ -46,6 +46,12 @@ async function writeBundle(root, { version = "3.0.0", tag = "a", extra = {} } = 
   return { root, marker };
 }
 
+/** A home of the test's own: the client configs a provisioning reads are its, never the machine's. */
+function isolated(root) {
+  const home = path.join(root, "home");
+  return { home, env: { HOME: home, USERPROFILE: home, APPDATA: path.join(home, "AppData", "Roaming"), XDG_CONFIG_HOME: path.join(home, ".config") } };
+}
+
 const clock = (start = Date.parse("2026-10-18T10:00:00Z")) => {
   let at = start;
   return () => new Date((at += 60_000));
@@ -57,7 +63,7 @@ test("the shipped runtime is copied into the app home once, file by file, and th
   const { root: bundleRoot, marker } = await writeBundle(path.join(root, "resources", "runtime"));
   const now = clock();
   const progress = [];
-  const first = await provisionBundle({ bundleRoot, runtimeRoot: runtime, now, onProgress: (step) => progress.push(step) });
+  const first = await provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime, now, onProgress: (step) => progress.push(step) });
   assert.equal(first.status, "installed");
   assert.equal(first.folder, path.join(runtime, "app", `3.0.0-${marker.fingerprint.slice(0, 8)}`));
   assert.equal(first.current, currentLink(runtime));
@@ -74,7 +80,7 @@ test("the shipped runtime is copied into the app home once, file by file, and th
   assert.equal(progress.at(-1).progress, progress.at(-1).total, "the progress ends at the whole runtime");
   await fs.access(path.join(first.folder, "bundle.json"));
 
-  const again = await provisionBundle({ bundleRoot, runtimeRoot: runtime, now });
+  const again = await provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime, now });
   assert.equal(again.status, "present", "a runtime already copied is not copied again");
   assert.equal(again.moved, false);
   const chosen = JSON.parse(await fs.readFile(path.join(first.folder, APP_MARKER), "utf8"));
@@ -88,7 +94,7 @@ test("a file that is not what the installer shipped stops the copy, and leaves n
   const runtime = path.join(root, ".ai-dev");
   const { root: bundleRoot, marker } = await writeBundle(path.join(root, "runtime"));
   await fs.writeFile(path.join(bundleRoot, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), "// changed after the build\n");
-  await assert.rejects(provisionBundle({ bundleRoot, runtimeRoot: runtime }), /ai-dev-mcp-server\/bin\/ai-dev\.mjs .* is not the file the installer shipped; run the installer again/);
+  await assert.rejects(provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime }), /ai-dev-mcp-server\/bin\/ai-dev\.mjs .* is not the file the installer shipped; run the installer again/);
   const left = await fs.readdir(path.join(runtime, "app")).catch(() => []);
   assert.deepEqual(left, [], `no partial copy and no link: ${left.join(", ")}`);
   assert.equal(marker.files.length, 6);
@@ -98,15 +104,15 @@ test("an update copies the new runtime beside the old, moves the link, and keeps
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
   const now = clock();
-  const one = await provisionBundle({ bundleRoot: (await writeBundle(path.join(root, "r1"), { version: "3.0.0", tag: "one" })).root, runtimeRoot: runtime, now });
-  const two = await provisionBundle({ bundleRoot: (await writeBundle(path.join(root, "r2"), { version: "3.0.1", tag: "two" })).root, runtimeRoot: runtime, now });
+  const one = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "r1"), { version: "3.0.0", tag: "one" })).root, runtimeRoot: runtime, now });
+  const two = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "r2"), { version: "3.0.1", tag: "two" })).root, runtimeRoot: runtime, now });
   assert.equal(two.status, "installed");
   assert.equal(two.moved, true);
   assert.equal(two.current, one.current, "the path clients run did not change");
   assert.equal(await fs.readFile(two.cli, "utf8"), "// cli two\n", "and now runs the new runtime");
   assert.equal(await fs.readFile(path.join(one.folder, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), "utf8"), "// cli one\n",
     "the old copy is untouched: a client started before the update still reads it");
-  const three = await provisionBundle({ bundleRoot: (await writeBundle(path.join(root, "r3"), { version: "3.0.2", tag: "three" })).root, runtimeRoot: runtime, now });
+  const three = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "r3"), { version: "3.0.2", tag: "three" })).root, runtimeRoot: runtime, now });
   assert.deepEqual(three.removed, [one.folder], "two copies stay: the current one and the one before it");
   await fs.access(two.folder);
   assert.equal(await fs.readFile(three.cli, "utf8"), "// cli three\n");
@@ -116,7 +122,7 @@ test("the copy the link names is never pruned, however many npx copies come afte
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
   const now = clock();
-  const bundle = await provisionBundle({ bundleRoot: (await writeBundle(path.join(root, "runtime"))).root, runtimeRoot: runtime, now });
+  const bundle = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "runtime"))).root, runtimeRoot: runtime, now });
   for (const tag of ["b", "c", "d"]) {
     const pkg = path.join(root, `npx-${tag}`);
     const content = `// npx ${tag}\n`;
@@ -133,10 +139,34 @@ test("the copy the link names is never pruned, however many npx copies come afte
   await fs.access(bundle.folder);
   assert.equal(await fs.realpath(bundle.current), await fs.realpath(bundle.folder));
   const folders = (await fs.readdir(path.join(runtime, "app"))).filter((name) => name !== "current");
-  assert.equal(folders.length, 2, `the linked copy and the newest npx copy: ${folders.join(", ")}`);
+  assert.equal(folders.length, 3, `the linked copy and the two newest npx copies, kept by a count of their own: ${folders.join(", ")}`);
 });
 
-test("on Windows the link is a junction, and the old one goes aside before the new one takes its name", async (t) => {
+test("an update of the app prunes its own copies only: the npx copy the clients set up by npx run stays (Д-301)", async (t) => {
+  const root = await scratch(t);
+  const runtime = path.join(root, ".ai-dev");
+  const now = clock();
+  const pkg = path.join(root, "npx");
+  const content = "// npx\n";
+  await fs.mkdir(path.join(pkg, "ai-dev-mcp-server", "bin"), { recursive: true });
+  await fs.writeFile(path.join(pkg, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), content);
+  await fs.writeFile(path.join(pkg, "distribution.json"), JSON.stringify({
+    name: "@stonebridgeway/ai-dev-system",
+    version: "3.0.0",
+    content_fingerprint: sha("npx"),
+    files: [{ path: "ai-dev-mcp-server/bin/ai-dev.mjs", bytes: Buffer.byteLength(content), sha256: sha(content) }]
+  }));
+  const one = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "r1"), { tag: "one" })).root, runtimeRoot: runtime, now });
+  const npx = await installAppHome({ packageRoot: pkg, runtimeRoot: runtime, runNpm: async () => undefined, now });
+  // The app starts again (its copy is chosen again), then two updates come.
+  await provisionBundle({ ...isolated(root), bundleRoot: path.join(root, "r1"), runtimeRoot: runtime, now });
+  const two = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "r2"), { version: "3.0.1", tag: "two" })).root, runtimeRoot: runtime, now });
+  const three = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "r3"), { version: "3.0.2", tag: "three" })).root, runtimeRoot: runtime, now });
+  assert.deepEqual([...two.removed, ...three.removed], [one.folder], "the app's oldest copy goes, nothing else");
+  await fs.access(npx.cli);
+});
+
+test("on Windows a junction is asked for, and the old link goes aside before the new one takes its name", async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
   const made = [];
@@ -146,8 +176,8 @@ test("on Windows the link is a junction, and the old one goes aside before the n
     await fs.symlink(target, link, "dir");
   };
   const now = clock();
-  const one = await provisionBundle({ bundleRoot: (await writeBundle(path.join(root, "r1"), { tag: "one" })).root, runtimeRoot: runtime, now, platform: "win32", symlink });
-  const two = await provisionBundle({ bundleRoot: (await writeBundle(path.join(root, "r2"), { version: "3.0.1", tag: "two" })).root, runtimeRoot: runtime, now, platform: "win32", symlink });
+  const one = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "r1"), { tag: "one" })).root, runtimeRoot: runtime, now, platform: "win32", symlink });
+  const two = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "r2"), { version: "3.0.1", tag: "two" })).root, runtimeRoot: runtime, now, platform: "win32", symlink });
   assert.deepEqual(made.map((entry) => [entry.link, entry.type]), [["current.<tag>.next", "junction"], ["current.<tag>.next", "junction"]]);
   assert.equal(made[1].target, await fs.realpath(two.folder), "the junction names the copy's real path");
   assert.equal(await fs.readFile(two.cli, "utf8"), "// cli two\n");
@@ -192,7 +222,7 @@ test("a bundle.json is refused before anything is copied by it when it names a f
 test("the stable launch names the link's Node and CLI, and only for the Windows install", async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
-  const provisioned = await provisionBundle({ bundleRoot: (await writeBundle(path.join(root, "runtime"))).root, runtimeRoot: runtime });
+  const provisioned = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "runtime"))).root, runtimeRoot: runtime });
   const layout = { kind: "package", bundle: true, root: provisioned.folder, runtimeRoot: runtime };
   assert.deepEqual(stableLaunch(layout), { command: provisioned.node, cli: provisioned.cli });
   assert.deepEqual(stableLaunch({ ...layout, root: path.join(root, "resources", "runtime") }), { command: provisioned.node, cli: provisioned.cli },
@@ -203,18 +233,95 @@ test("the stable launch names the link's Node and CLI, and only for the Windows 
   assert.equal(stableLaunch(layout), null, "a link to something that is not a runtime is not trusted");
 });
 
-test("a drive that cannot hold the link still runs the copy: the paths name the copy, and say why there is no link", async (t) => {
+test("a drive that cannot hold the link still runs the copy, whatever it answers: the paths name the copy, and say why there is no link", async (t) => {
+  const root = await scratch(t);
+  // Wine says ENOTSUP; FAT32 and exFAT, through libuv, EISDIR (Д-299); a share EPERM; anything else as well.
+  for (const code of ["ENOTSUP", "EISDIR", "EPERM", "EIO"]) {
+    const runtime = path.join(root, `.ai-dev-${code}`);
+    const refuse = async () => { throw Object.assign(new Error(`${code}: no link here, symlink`), { code }); };
+    const provisioned = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "runtime"))).root, runtimeRoot: runtime, symlink: refuse });
+    assert.equal(provisioned.status, "installed", code);
+    assert.equal(provisioned.current, "");
+    assert.equal(provisioned.linkError, `${code}: ${code}: no link here, symlink`);
+    assert.equal(provisioned.node, path.join(provisioned.folder, "node", "node.exe"));
+    assert.equal(await fs.readFile(provisioned.cli, "utf8"), "// cli a\n");
+    assert.equal(stableLaunch({ kind: "package", bundle: true, root: provisioned.folder, runtimeRoot: runtime }), null, "no link: configs name the copy, as any install's do");
+  }
+  // What is not the making of the link still stops the start: a folder that took the link's name.
+  const taken = path.join(root, ".ai-dev-taken");
+  await fs.mkdir(path.join(taken, "app", "current"), { recursive: true });
+  await assert.rejects(provisionBundle({ ...isolated(root), bundleRoot: path.join(root, "runtime"), runtimeRoot: taken }), /is not the link AI Dev keeps there/);
+});
+
+test("without a link, the copy a client's config names is not pruned by the updates that come after it (Д-299)", async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
-  const refuse = async () => { throw Object.assign(new Error("operation not supported on socket, symlink"), { code: "ENOTSUP" }); };
-  const provisioned = await provisionBundle({ bundleRoot: (await writeBundle(path.join(root, "runtime"))).root, runtimeRoot: runtime, symlink: refuse });
+  const { home, env } = isolated(root);
+  const now = clock();
+  const refuse = async () => { throw Object.assign(new Error("not supported"), { code: "EISDIR" }); };
+  const one = await provisionBundle({ env, home, bundleRoot: (await writeBundle(path.join(root, "r1"), { tag: "one" })).root, runtimeRoot: runtime, now, symlink: refuse });
+  // The wizard connected Cursor while the app ran this copy: its config names the copy itself.
+  await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: one.node, args: [one.cli, "mcp"] } } }));
+  const removed = [];
+  for (const [index, version] of ["3.0.1", "3.0.2", "3.0.3"].entries()) {
+    const next = await provisionBundle({ env, home, bundleRoot: (await writeBundle(path.join(root, `r${index + 2}`), { version, tag: version })).root, runtimeRoot: runtime, now, symlink: refuse });
+    removed.push(...next.removed.map((folder) => path.basename(folder)));
+  }
+  await fs.access(one.cli);
+  assert.equal(removed.includes(path.basename(one.folder)), false);
+  assert.equal(removed.length, 1, `the copies nobody names are kept by the count: ${removed.join(", ")}`);
+});
+
+test("the copies the clients' entries name by their own folder, never through the link or by a relative word", async (t) => {
+  const root = await scratch(t);
+  const { home, env } = isolated(root);
+  const appsRoot = path.join(root, ".ai-dev", "app");
+  const copy = path.join(appsRoot, "3.0.0-abcdef12");
+  const legacy = path.join(appsRoot, "2.9.0-0badcafe");
+  await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: {
+    "ai-dev": { command: path.join(copy, "node", "node.exe"), args: [path.join(appsRoot, "current", "ai-dev-mcp-server", "bin", "ai-dev.mjs"), "mcp"] },
+    "ai-dev-system": { command: "node", args: [path.join(legacy, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), "3.0.0-11111111/x"] },
+    other: { command: path.join(appsRoot, "9.9.9-99999999", "node.exe") }
+  } }));
+  assert.deepEqual(await copiesNamedByClients({ appsRoot, env, home }), [legacy, copy].sort());
+});
+
+test("a copy that lost a file is put back from the installer at the next start; a damaged installer is said so (Д-300)", async (t) => {
+  const root = await scratch(t);
+  const runtime = path.join(root, ".ai-dev");
+  const { root: bundleRoot } = await writeBundle(path.join(root, "runtime"), { extra: { "node_modules/onnxruntime-node/bin/onnxruntime.dll": "dll" } });
+  const first = await provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime });
+  const dll = path.join(first.folder, "node_modules", "onnxruntime-node", "bin", "onnxruntime.dll");
+  const cli = path.join(first.folder, "ai-dev-mcp-server", "bin", "ai-dev.mjs");
+  await fs.rm(dll); // an antivirus took it away
+  await fs.writeFile(cli, "// edited by hand\n");
+  await fs.rm(path.join(first.folder, "bundle.json"));
+  const again = await provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime });
+  assert.equal(again.status, "repaired");
+  assert.deepEqual(again.repaired.sort(), ["ai-dev-mcp-server/bin/ai-dev.mjs", "bundle.json", "node_modules/onnxruntime-node/bin/onnxruntime.dll"]);
+  assert.equal(await fs.readFile(dll, "utf8"), "dll");
+  assert.equal(await fs.readFile(cli, "utf8"), "// cli a\n");
+  await fs.access(path.join(first.folder, "bundle.json"));
+  assert.equal((await provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime })).status, "present", "whole again");
+  assert.deepEqual((await fs.readdir(path.dirname(dll))).sort(), ["onnxruntime.dll"], "no partial file left beside it");
+
+  // The installer's own copy lost the file too: the copy is not trusted to it, and the person is told.
+  await fs.rm(dll);
+  await fs.rm(path.join(bundleRoot, "node_modules", "onnxruntime-node", "bin", "onnxruntime.dll"));
+  await assert.rejects(provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime }), /onnxruntime\.dll in .* run the installer again/);
+});
+
+test("a folder at the copy's name that is not a finished copy is moved aside whole, not removed in place", async (t) => {
+  const root = await scratch(t);
+  const runtime = path.join(root, ".ai-dev");
+  const { root: bundleRoot, marker } = await writeBundle(path.join(root, "runtime"));
+  const folder = path.join(runtime, "app", `3.0.0-${marker.fingerprint.slice(0, 8)}`);
+  await fs.mkdir(path.join(folder, "node"), { recursive: true });
+  await fs.writeFile(path.join(folder, "node", "node.exe"), "a copy that stopped before its marker");
+  const provisioned = await provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime });
   assert.equal(provisioned.status, "installed");
-  assert.equal(provisioned.current, "");
-  assert.match(provisioned.linkError, /^ENOTSUP: operation not supported/);
-  assert.equal(provisioned.node, path.join(provisioned.folder, "node", "node.exe"));
-  assert.equal(await fs.readFile(provisioned.cli, "utf8"), "// cli a\n");
-  assert.equal(stableLaunch({ kind: "package", bundle: true, root: provisioned.folder, runtimeRoot: runtime }), null, "no link: configs name the copy, as any install's do");
-  const other = Object.assign(new Error("disk on fire"), { code: "EIO" });
-  await assert.rejects(provisionBundle({ bundleRoot: path.join(root, "runtime"), runtimeRoot: path.join(root, "second"), symlink: async () => { throw other; } }), /disk on fire/,
-    "any other failure stops the start: it is not a drive that cannot hold links");
+  assert.equal(await fs.readFile(path.join(folder, "node", "node.exe"), "utf8"), "node a");
+  assert.deepEqual((await fs.readdir(path.join(runtime, "app"))).sort(), [path.basename(folder), "current"], "nothing left aside");
 });

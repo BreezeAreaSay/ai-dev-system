@@ -78,32 +78,68 @@ export async function trimRuntime(runtimeDir) {
 }
 
 /**
+ * What a package names among its dependencies and the trimmed runtime does not
+ * have, on purpose — the dependent and the dependency, exactly: transformers
+ * names the web runtime it carries inside its own file (`TRIMMED`).
+ */
+export const CUT_DEPENDENCIES = Object.freeze([
+  Object.freeze({ from: "@huggingface/transformers", to: "onnxruntime-web" })
+]);
+
+/**
  * Packages whose dependencies the trimmed tree no longer has — a cut that
- * went too far. `ignore` names the ones cut on purpose.
+ * went too far. A dependency is looked for as Node looks for it: in the
+ * package's own `node_modules`, then in each one above it; the packages inside
+ * other packages' `node_modules` are checked as well. Only the pairs in
+ * `allowed` are not reported: a package cut here that another one comes to
+ * need is (docs/DEFECTS.md, Д-304).
  *
  * @param {string} modules - `<runtime>/node_modules`.
- * @param {{ ignore?: string[] }} [options]
- * @returns {Promise<Array<{ package: string, missing: string }>>}
+ * @param {{ allowed?: ReadonlyArray<{ from: string, to: string }> }} [options]
+ * @returns {Promise<Array<{ package: string, missing: string }>>} `package`: its folder under `modules`
  */
-export async function danglingDependencies(modules, { ignore = TRIMMED.map((item) => item.path) } = {}) {
+export async function danglingDependencies(modules, { allowed = CUT_DEPENDENCIES } = {}) {
   const packages = [];
-  for (const name of await fs.readdir(modules).catch(() => [])) {
-    if (name.startsWith(".")) continue;
-    if (name.startsWith("@")) {
-      for (const inner of await fs.readdir(path.join(modules, name)).catch(() => [])) packages.push(`${name}/${inner}`);
-    } else packages.push(name);
-  }
-  const present = new Set(packages);
+  const visit = async (name, folder, above) => {
+    packages.push({ name, folder, lookup: [path.join(folder, "node_modules"), ...above] });
+    await walk(path.join(folder, "node_modules"), above);
+  };
+  // `parent` is a node_modules folder; `outer`, the ones above it, nearest first.
+  const walk = async (parent, outer) => {
+    for (const entry of await fs.readdir(parent, { withFileTypes: true }).catch(() => [])) {
+      if (entry.name.startsWith(".") || !entry.isDirectory()) continue;
+      if (!entry.name.startsWith("@")) {
+        await visit(entry.name, path.join(parent, entry.name), [parent, ...outer]);
+        continue;
+      }
+      for (const inner of await fs.readdir(path.join(parent, entry.name), { withFileTypes: true }).catch(() => [])) {
+        if (inner.isDirectory()) await visit(`${entry.name}/${inner.name}`, path.join(parent, entry.name, inner.name), [parent, ...outer]);
+      }
+    }
+  };
+  await walk(modules, []);
   const dangling = [];
-  for (const name of packages) {
-    const manifest = await fs.readFile(path.join(modules, ...name.split("/"), "package.json"), "utf8").then(JSON.parse, () => null);
+  for (const { name, folder, lookup } of packages) {
+    const manifest = await fs.readFile(path.join(folder, "package.json"), "utf8").then(JSON.parse, () => null);
     for (const dependency of Object.keys(manifest?.dependencies ?? {})) {
-      if (present.has(dependency) || ignore.includes(dependency)) continue;
-      const nested = path.join(modules, ...name.split("/"), "node_modules", ...dependency.split("/"));
-      if (!await fs.access(nested).then(() => true, () => false)) dangling.push({ package: name, missing: dependency });
+      if (allowed.some((pair) => pair.from === name && pair.to === dependency)) continue;
+      const found = await Promise.all(lookup.map((dir) => fs.access(path.join(dir, ...dependency.split("/"), "package.json")).then(() => true, () => false)));
+      if (!found.includes(true)) dangling.push({ package: path.relative(modules, folder).split(path.sep).join("/"), missing: dependency });
     }
   }
   return dangling;
+}
+
+/**
+ * The app's version against its runtime's: the updater compares the app's
+ * version with the release's, so a release that changed only the runtime
+ * would reach no installed app (Д-306, п. 5).
+ *
+ * @param {{ app: string, runtime: string }} versions
+ * @returns {string} what is wrong, or ""
+ */
+export function versionProblem({ app, runtime }) {
+  return app === runtime ? "" : `the app is version ${app} and its runtime ${runtime}: desktop/package.json and the server's package.json must name one version, the updater reads the app's`;
 }
 
 async function sha256Of(file) {
@@ -139,12 +175,15 @@ export async function listFiles(root, { skip = () => false } = {}) {
 
 /**
  * Write `<runtime>/bundle.json`: what the installer ships, file by file, and
- * the fingerprint the app names its copy by.
+ * the fingerprint the app names its copy by — and read it back by `parse`, the
+ * app's own parser, when given: a runtime the app would refuse on every
+ * machine (two names Windows takes for one) stops the build, not the person
+ * (docs/DEFECTS.md, Д-306, п. 1).
  *
- * @param {{ runtimeDir: string, name: string, version: string, node: { version: string, sha256: string, file?: string }, fingerprintOf: (files: Array<{ path: string, sha256: string }>) => string }} input
+ * @param {{ runtimeDir: string, name: string, version: string, node: { version: string, sha256: string, file?: string }, fingerprintOf: (files: Array<{ path: string, sha256: string }>) => string, parse?: (text: string, where: string) => unknown }} input
  *   `node.file` — where the Node is in the runtime: `node/node.exe` in the installer; a test's runtime on Linux names its own.
  */
-export async function writeBundleMarker({ runtimeDir, name, version, node, fingerprintOf }) {
+export async function writeBundleMarker({ runtimeDir, name, version, node, fingerprintOf, parse }) {
   const files = await listFiles(runtimeDir, { skip: (relative) => relative === "bundle.json" });
   const marker = {
     schema_version: 1,
@@ -156,7 +195,10 @@ export async function writeBundleMarker({ runtimeDir, name, version, node, finge
     fingerprint: fingerprintOf(files),
     files
   };
-  await fs.writeFile(path.join(runtimeDir, "bundle.json"), `${JSON.stringify(marker, null, 1)}\n`);
+  const file = path.join(runtimeDir, "bundle.json");
+  const text = `${JSON.stringify(marker, null, 1)}\n`;
+  await fs.writeFile(file, text);
+  parse?.(text, file);
   return marker;
 }
 
@@ -257,6 +299,34 @@ export function icoFrom(images) {
   return Buffer.concat([header, directory, ...images.map((image) => image.data)]);
 }
 
+/** Azure Trusted Signing: named all together, or not at all. */
+export const AZURE_SIGNING = Object.freeze(["AI_DEV_SIGN_AZURE_ENDPOINT", "AI_DEV_SIGN_AZURE_ACCOUNT", "AI_DEV_SIGN_AZURE_PROFILE", "AI_DEV_SIGN_PUBLISHER"]);
+
+/**
+ * electron-builder's Azure signing options, when the endpoint is named. The
+ * publisher is what electron-builder writes into `app-update.yml` and what
+ * electron-updater checks every update's signature against: the signing
+ * certificate's own name, which nothing here can guess — a wrong one refuses
+ * every update to every installed app (docs/DEFECTS.md, Д-303). So the four
+ * are named together, or the build stops.
+ */
+function azureSigning(env) {
+  if (!String(env.AI_DEV_SIGN_AZURE_ENDPOINT ?? "").trim()) return {};
+  const missing = AZURE_SIGNING.filter((name) => !String(env[name] ?? "").trim());
+  if (missing.length) {
+    throw new Error(`Azure signing is set up (AI_DEV_SIGN_AZURE_ENDPOINT) but not ${missing.join(", ")}: `
+      + "AI_DEV_SIGN_PUBLISHER is the signing certificate's name, as the updater checks it.");
+  }
+  return {
+    azureSignOptions: {
+      publisherName: env.AI_DEV_SIGN_PUBLISHER,
+      endpoint: env.AI_DEV_SIGN_AZURE_ENDPOINT,
+      codeSigningAccountName: env.AI_DEV_SIGN_AZURE_ACCOUNT,
+      certificateProfileName: env.AI_DEV_SIGN_AZURE_PROFILE
+    }
+  };
+}
+
 /** The production repository: where updates come from (owner decision D7). */
 export const RELEASES = Object.freeze({ provider: "github", owner: "stonebridgeway", repo: "ai-dev-system", releaseType: "release" });
 
@@ -271,16 +341,7 @@ export const RELEASES = Object.freeze({ provider: "github", owner: "stonebridgew
  * @returns {object}
  */
 export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = process.env }) {
-  const azure = env.AI_DEV_SIGN_AZURE_ENDPOINT
-    ? {
-      azureSignOptions: {
-        publisherName: env.AI_DEV_SIGN_PUBLISHER || "stonebridgeway",
-        endpoint: env.AI_DEV_SIGN_AZURE_ENDPOINT,
-        codeSigningAccountName: env.AI_DEV_SIGN_AZURE_ACCOUNT,
-        certificateProfileName: env.AI_DEV_SIGN_AZURE_PROFILE
-      }
-    }
-    : {};
+  const azure = azureSigning(env);
   return {
     appId: "com.stonebridgeway.ai-dev",
     productName: "AI Dev",

@@ -249,6 +249,13 @@ test("`ai-dev uninstall` says what it would do, changes nothing without --yes, a
   assert.equal(said.runtime_home, runtime);
   assert.deepEqual(said.data, { asked: true, removed: false });
   await fs.access(path.join(runtime, "state", "instincts.json"));
+  // A runtime home that holds something AI Dev did not make is kept, and the exit status says so (Д-297, Д-302).
+  await fs.writeFile(path.join(runtime, "notes.txt"), "mine\n");
+  const kept = await runNode([cli, "uninstall", "--data", "--yes"], { env });
+  assert.equal(kept.code, 4, kept.stderr);
+  assert.match(kept.stdout, /Kept .*rt: .*also holds what AI Dev did not make \(notes\.txt\); delete AI Dev's own folders in it yourself\./);
+  await fs.access(path.join(runtime, "notes.txt"));
+  await fs.access(path.join(runtime, "state", "instincts.json"));
   const typo = await runNode([cli, "uninstall", "--date"], { env });
   assert.equal(typo.code, 2);
   assert.match(typo.stderr, /`ai-dev uninstall` has no option --date\. Did you mean --data\?/);

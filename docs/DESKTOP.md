@@ -218,23 +218,35 @@ So no client runs anything in the program folder:
 An update brings a new runtime: the app copies it beside the old one and moves the junction. A
 client already running keeps the files it opened, in the old copy, and its daemon serves it until
 it leaves; the next session a client starts runs the new copy. No running file is written over,
-and no client config changes. The two copies chosen last stay; an older one is removed once
-nothing holds it. A junction needs neither an administrator nor Developer Mode; on a drive that
-cannot hold one — `AI_DEV_HOME` on exFAT, FAT32 or some network shares — the copy runs as it is,
-the client configs name the copy itself, and connecting the clients again after an update
-(**Setup** → AI clients) points them at the new one.
+and no client config changes. Of the runtime copies the two chosen last stay, and any copy an AI
+client's config names by its own folder; an older one is removed once nothing holds it. The copies
+`npx … setup` makes beside them are counted apart, and an update of the app never removes one. A
+junction needs neither an administrator nor Developer Mode; on a drive that cannot hold one —
+`AI_DEV_HOME` on exFAT, FAT32 or some network shares — the copy runs as it is, the client configs
+name the copy itself, and **Status** says so, with the reason the drive gave: after an update,
+running setup again and connecting the clients (**Setup** → AI clients) points them at the new
+copy; until then they keep the one they name.
 
-`%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd` is the CLI for a terminal: `ai-dev.cmd doctor`,
-`ai-dev.cmd model install`. Nothing is put on `PATH`; the daemon's hints name this command in
-full.
+`%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd` is the CLI for a terminal. Nothing is put on
+`PATH`, so it is run by its full path — in cmd `%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd
+doctor`, in PowerShell `& "$env:USERPROFILE\.ai-dev\app\current\ai-dev.cmd" doctor`. The
+daemon's hints name it in full, and a path with a space in the PowerShell form, with `&`; in cmd,
+leave the `&` out.
 
 ### The first start
 
-The window says it is preparing AI Dev while the runtime is copied (a few seconds; the progress is
-shown), then starts the daemon on the runtime's Node. The daemon fills your vault,
-`%USERPROFILE%\.ai-dev\vault`, from the skill seed, and the first-run wizard opens. A runtime
-that is not what the installer shipped — a file changed or missing — is not run: the window says
-so, with **Try again**, and running the installer again is the way back.
+The window says it is preparing AI Dev while the runtime is copied (the progress is shown; under
+Wine it took 35 seconds, on Windows it has not been measured yet), then starts the daemon on the
+runtime's Node. The daemon fills your vault, `%USERPROFILE%\.ai-dev\vault`, from the skill seed,
+and the first-run wizard opens. A runtime that is not what the installer shipped — a file changed
+or missing — is not run: the window says so, with **Try again**, and running the installer again is
+the way back.
+
+At every start the app checks its copy against `bundle.json`, file by file, by size, and puts back
+from the program folder what went missing or changed — a DLL an antivirus took away, a file edited
+by hand —; **Status** says which files. One a running AI client holds cannot be put back: the
+window says so — close the AI clients and **Try again**. A change that keeps a file's size is not
+seen: hashing the whole runtime at every start would take seconds.
 
 ### Updates
 
@@ -246,16 +258,25 @@ unsigned one against the sha512 the release lists. `AI_DEV_DESKTOP_UPDATES=0` tu
 
 ### Uninstalling
 
-**Settings → Apps → Installed apps → AI Dev → Uninstall** asks two questions before it removes the program:
+**Settings → Apps → Installed apps → AI Dev → Uninstall** asks, after its "Are you sure?", two
+questions before it removes the program:
 
 1. whether to take AI Dev out of the AI clients' settings — **Yes** by default: their entries run the
    program that is going. An entry of another install (a clone, npx, Docker) stays;
-2. whether to delete AI Dev's own data, `%USERPROFILE%\.ai-dev` — tasks and decisions, the local
-   model, the search index, the settings — **No** by default. Your projects are not touched.
+2. whether to delete AI Dev's own data, `%USERPROFILE%\.ai-dev` or the folder `AI_DEV_HOME` names —
+   tasks and decisions, the local model, the search index, the settings — **No** by default. Your
+   projects are not touched. The folder is deleted only when it holds nothing but what AI Dev
+   makes; one that holds anything else as well — `AI_DEV_HOME` set to a folder you keep other files
+   in — is kept whole, and the uninstaller says so.
 
 It then runs `ai-dev uninstall` from the runtime it ships: the daemon is stopped, the runtime
-copies and the junction are removed, and the answers are carried out. A silent uninstall (`/S`)
-takes the default answers; an update runs none of this.
+copies and the junction are removed, and the answers are carried out. A file an AI client still
+runs cannot be removed: the uninstaller asks you to close your AI clients and **Retry** — or
+**Cancel**, which leaves those files in `%USERPROFILE%\.ai-dev\app` for you to delete later. A
+silent uninstall (`/S`) asks nothing and takes the default answers; an update runs none of this.
+
+`ai-dev uninstall` itself tells its caller by the exit status: 0 done, 1 something failed, 3
+something is in use (close the AI clients and run it again), 4 the data was kept.
 
 ### Building it
 
@@ -270,8 +291,9 @@ too — to make the uninstaller. `dist/windows/installer/` gets `AI-Dev-Setup-<v
 `.blockmap` and `latest.yml` (what the updater reads from a release), and
 `dist/windows/build-report.json` the runtime's composition. `--dir` builds only the unpacked app;
 `--check` stops before electron-builder, at the runtime checked for what it must and must not
-hold — the CI job `desktop` runs it, and `.github/workflows/desktop-windows.yml` builds the
-installer on `windows-latest`.
+hold, at its `bundle.json` read back by the app's own parser, and at the app's version, which must
+be the runtime's — the updater compares the app's version with a release's. The CI job `desktop`
+runs it, and `.github/workflows/desktop-windows.yml` builds the installer on `windows-latest`.
 
 The runtime is the npm package's distribution (`npm run dist`, phase 7) with its dependencies for
 win32-x64, less what never loads there: onnxruntime-web (transformers carries the web runtime
@@ -283,7 +305,9 @@ the installer 183 MB.
 Signing comes from the environment: a certificate in `WIN_CSC_LINK` (or `CSC_LINK`) with its
 password in `WIN_CSC_KEY_PASSWORD`, which electron-builder reads itself, or Azure Trusted Signing
 named by `AI_DEV_SIGN_AZURE_ENDPOINT`, `AI_DEV_SIGN_AZURE_ACCOUNT`, `AI_DEV_SIGN_AZURE_PROFILE`
-and `AI_DEV_SIGN_PUBLISHER`, with the `AZURE_*` credentials. Without either the installer is
+and `AI_DEV_SIGN_PUBLISHER`, with the `AZURE_*` credentials. The four go together, or the build
+stops: `AI_DEV_SIGN_PUBLISHER` is the signing certificate's name, which electron-updater checks
+every update against — a wrong one would refuse every update. Without either the installer is
 unsigned, and Windows SmartScreen warns about it on first run.
 
 ## Tests
@@ -305,7 +329,9 @@ app's daemon, a daemon replaced by a newer one, a daemon that will not stop — 
 another build's —, a language chosen while the settings file is broken or held by another writer,
 Quit with one waiting, the Windows install's runtime — copied and run through its link, the
 seed filling the vault on the first start, a client connected through the link, an update while
-that client keeps running, a damaged runtime refused —, and what the page cannot reach — WebRTC and the names it would look up,
+that client keeps running, a damaged runtime refused, a copy that lost files put back at the
+next start, and — as root, where a folder made immutable refuses the link as a FAT drive does —
+the app without its link, its clients connected to the copy —, and what the page cannot reach — WebRTC and the names it would look up,
 another page with the app's functions, the developer tools; the data screens with work an AI client
 made (a project with an epic, a decision, a handoff, usage), in English and Russian, and empty on a
 fresh install; Settings — a refused value, a change for new sessions and the reconnect; the console

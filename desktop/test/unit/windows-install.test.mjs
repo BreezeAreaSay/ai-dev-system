@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { shippedRuntime } from "../../src/main/bundle.mjs";
+import { runtimeNotice, shippedRuntime } from "../../src/main/bundle.mjs";
 import { findNode } from "../../src/main/node-runtime.mjs";
 import { trayMenuTemplate } from "../../src/main/tray.mjs";
 import { UPDATE_HOSTS, resolverRules, startUpdates, updaterRequestAllowed, updatesEnabled } from "../../src/main/updates.mjs";
@@ -20,6 +20,16 @@ test("the shipped runtime is the installed app's resources/runtime on Windows, o
   assert.equal(shippedRuntime({ env: {}, packaged: true, platform: "darwin", resourcesPath: "/Applications/AI Dev.app/Contents/Resources" }), null,
     "only the Windows installer ships a runtime yet");
   assert.equal(shippedRuntime({ env: { AI_DEV_DESKTOP_BUNDLE: "/tmp/bundle" }, packaged: false, platform: "linux" }), path.resolve("/tmp/bundle"));
+});
+
+test("Status hears of the runtime only when there is something to say: no link, or files put back (Д-299, Д-300)", () => {
+  const folder = "C:\\Users\\me\\.ai-dev\\app\\3.0.0-abcdef12";
+  assert.equal(runtimeNotice(null), null, "a checkout has no runtime of its own");
+  assert.equal(runtimeNotice({ folder, status: "present", repaired: [] }), null);
+  assert.deepEqual(runtimeNotice({ folder, linkError: "EISDIR: illegal operation on a directory, symlink", repaired: [] }),
+    { folder, linkError: "EISDIR: illegal operation on a directory, symlink", repaired: [] });
+  assert.deepEqual(runtimeNotice({ folder, status: "repaired", repaired: ["node_modules/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll"] }),
+    { folder, linkError: "", repaired: ["node_modules/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll"] });
 });
 
 test("the installed app's own Node comes first after AI_DEV_NODE: the clients it connects run the same", (t) => {
@@ -96,13 +106,29 @@ test("a downloaded update is offered in the tray, and installed at Quit if not s
   assert.equal(ids(null).some(([id]) => id === "update"), false, "nothing to offer before a download");
 });
 
-test("the NSIS uninstaller asks two questions, runs ai-dev uninstall with the answers, and does nothing of it on an update", () => {
+test("the NSIS uninstaller asks its questions unless /S is given — never with /SD — and does nothing of it on an update (Д-296, Д-306)", async () => {
   const script = fs.readFileSync(path.join(desktopRoot, "build", "installer.nsh"), "utf8");
-  assert.match(script, /!macro customUnInstall\n {2}\$\{ifNot\} \$\{isUpdated\}/, "an update runs the old uninstaller: it must not take the runtime or the clients");
-  assert.match(script, /MessageBox MB_YESNO\|MB_ICONQUESTION "\$\(aiDevRemoveClients\)" \/SD IDYES/, "clients: Yes by default, and silently");
-  assert.match(script, /MessageBox MB_YESNO\|MB_ICONQUESTION\|MB_DEFBUTTON2 "\$\(aiDevRemoveData\)" \/SD IDNO/, "data: No by default, and silently");
-  assert.match(script, /"\$INSTDIR\\resources\\runtime\\node\\node\.exe" "\$INSTDIR\\resources\\runtime\\ai-dev-mcp-server\\bin\\ai-dev\.mjs" uninstall --yes \$R5 \$R6/);
-  for (const name of ["aiDevRemoveClients", "aiDevRemoveData"]) {
-    for (const language of ["1033", "1049"]) assert.match(script, new RegExp(`LangString ${name} ${language} "`), `${name} in ${language}`);
+  const code = script.split("\n").filter((line) => !line.trimStart().startsWith(";")).join("\n").trim();
+  assert.match(code, /^!ifdef BUILD_UNINSTALLER\n[\s\S]*\n!endif$/, "all of it in the uninstaller's pass: the installer's, run with -WX, refuses a variable it never uses");
+  const macro = /!macro customUnInstall\n([\s\S]*?)\n!macroend/.exec(code)[1];
+  const boxes = macro.split("\n").filter((line) => /^\s*MessageBox /.test(line));
+  assert.equal(boxes.length, 5);
+  for (const box of boxes) assert.doesNotMatch(box, /\/SD\b/, `a silent NSIS answers a box that has /SD itself, unseen: ${box.trim()}`);
+  assert.match(macro, /\$\{GetOptions\} \$R0 "\/S" \$R1\n\s*\$\{if\} \$\{Errors\}\n\s*StrCpy \$aiDevAsk "1"/, "asked when /S was not given, read as un.onInit reads it");
+  assert.match(macro, /\$\{GetOptions\} \$R0 "\/KEEP_APP_DATA" \$R1\n\s*\$\{if\} \$\{Errors\}\n\s*\$\{andIfNot\} \$\{isUpdated\}/,
+    "an update passes --updated, or --delete-app-data in its place, and /KEEP_APP_DATA always: then nothing happens");
+  assert.match(macro, /StrCpy \$aiDevClients "--clients"\n\s*StrCpy \$aiDevData ""/, "silent, the defaults: the clients' entries go, the data stays");
+  assert.match(macro, /"\$\(aiDevRemoveClients\)" IDYES aiDevClientsAnswered\n\s*StrCpy \$aiDevClients ""/, "No keeps the entries");
+  assert.match(macro, /MB_DEFBUTTON2 "\$\(aiDevRemoveData\)" IDNO aiDevDataAnswered\n\s*StrCpy \$aiDevData "--data"/, "only Yes deletes the data, and No is the default button");
+  assert.match(macro, /nsExec::ExecToLog '"\$INSTDIR\\resources\\runtime\\node\\node\.exe" "\$INSTDIR\\resources\\runtime\\ai-dev-mcp-server\\bin\\ai-dev\.mjs" uninstall --yes \$aiDevClients \$aiDevData'/);
+  // Its exit status, as `ai-dev uninstall` gives it (Д-297, Д-302).
+  const { EXIT_DATA_KEPT, EXIT_IN_USE } = await import("../../../ai-dev-mcp-server/src/cli/uninstall.mjs");
+  assert.match(macro, new RegExp(`\\$aiDevStatus == "${EXIT_IN_USE}"\\n\\s*MessageBox MB_RETRYCANCEL\\|MB_ICONEXCLAMATION "\\$\\(aiDevInUse\\)" IDRETRY aiDevRun`), "in use: Retry runs it again");
+  assert.match(macro, new RegExp(`\\$aiDevStatus == "${EXIT_DATA_KEPT}"\\n\\s*MessageBox MB_OK\\|MB_ICONINFORMATION "\\$\\(aiDevDataKept\\)"`));
+  assert.match(macro, /\$aiDevStatus != "0"\n\s*MessageBox MB_OK\|MB_ICONEXCLAMATION "\$\(aiDevNotDone\)"/);
+  const named = [...new Set([...macro.matchAll(/\$\((\w+)\)/g)].map((match) => match[1]))].sort();
+  assert.deepEqual(named, ["aiDevDataKept", "aiDevInUse", "aiDevNotDone", "aiDevRemoveClients", "aiDevRemoveData"]);
+  for (const name of named) {
+    for (const language of ["1033", "1049"]) assert.match(code, new RegExp(`LangString ${name} ${language} "`), `${name} in ${language}`);
   }
 });

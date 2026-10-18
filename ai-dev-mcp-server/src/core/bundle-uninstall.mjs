@@ -7,26 +7,38 @@
  * outside it is this module's: the runtime copies in `<runtime>/app/` and the
  * stable link AI clients run (`app-bundle.mjs`), the clients' `ai-dev` entries
  * that run them (when asked), and — only when asked, and only a folder that
- * is plainly AI Dev's — the runtime home with the person's data.
+ * holds nothing but what AI Dev makes — the runtime home with the person's
+ * data.
  *
  * Every daemon of the runtime home is stopped first: on Windows a running
  * daemon holds its copy's Node and DLLs, and nothing it holds can be removed.
- * A copy still held is reported and left; nothing is forced.
+ * A folder still held is reported as in use and left whole; nothing is forced.
  */
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { CURRENT_LINK, currentLink } from "./app-bundle.mjs";
+import { CURRENT_LINK, appEntryOf, currentLink, entryWords, removeStaleLinks } from "./app-bundle.mjs";
 import { APP_MARKER } from "./app-home.mjs";
 import { clientStatePath, listClients } from "./client-connections.mjs";
 import { stopDaemons } from "./daemon-client.mjs";
 import { removeServer } from "./mcp-clients.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 
-/** What a runtime home holds; a folder with none of it is not taken for one. */
-const RUNTIME_PARTS = ["state", "cache", "app", "models", "vault", "run", "logs", "artifacts", "config.json"];
+/**
+ * What AI Dev makes at the top of a runtime home — and `--data` deletes a
+ * folder only when nothing else is there (docs/DEFECTS.md, Д-297): its
+ * folders (`python` and `.ai-dev` are what 2.x left), its settings with their
+ * lock and the temporary file a write that stopped leaves, the locks of the
+ * moves 3.0 makes, and what Windows and macOS put in any folder once opened.
+ */
+const OWN_FOLDERS = new Set(["app", "artifacts", "backups", "cache", "logs", "models", "python", "run", "state", "vault", ".ai-dev"]);
+const OWN_FILE = /^(?:config\.json|\.config\.json\.\d+\.[0-9a-f-]+\.tmp|(?:config\.json|\.ai-dev|codex-migration)\.lock(?:\.break)?|desktop\.ini|thumbs\.db|\.ds_store)$/i;
+
+/** What Windows answers when a running process holds a file or a folder. */
+const BUSY = new Set(["EBUSY", "EPERM", "EACCES"]);
 
 const fold = (value, platform) => (platform === "win32" || platform === "darwin" ? value.toLowerCase() : value);
+const exists = (target) => fs.lstat(target).then(() => true, () => false);
 
 /** The runtime copies the Windows install made: folders in `<runtime>/app/` whose marker says `bundle`. */
 export async function bundleCopies(appsRoot) {
@@ -42,56 +54,82 @@ export async function bundleCopies(appsRoot) {
 
 /**
  * Whether a client's `ai-dev` entry runs the Windows install: its command or
- * an argument lies under the stable link or in one of its copies. An entry of
- * a clone, of an npx copy, of Docker is someone else's, and stays.
+ * an argument is an absolute path under the stable link or in one of its
+ * copies. An entry of a clone, of an npx copy, of Docker is someone else's,
+ * and stays — whatever folder the uninstall runs in (Д-298).
  *
  * @param {{ command?: unknown, args?: unknown } | undefined} entry
  * @param {{ appsRoot: string, copies: string[], platform?: string }} where
  * @returns {boolean}
  */
 export function runsBundle(entry, { appsRoot, copies, platform = process.platform }) {
-  if (!entry || typeof entry !== "object") return false;
   const owned = new Set([CURRENT_LINK, ...copies.map((folder) => path.basename(folder))].map((name) => fold(name, platform)));
-  const words = [entry.command, ...(Array.isArray(entry.args) ? entry.args : [])].filter((word) => typeof word === "string" && word);
-  return words.some((word) => {
-    const relative = path.relative(appsRoot, path.resolve(word));
-    if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) return false;
-    return owned.has(fold(relative.split(path.sep)[0], platform));
+  return entryWords(entry).some((word) => {
+    const name = appEntryOf(word, appsRoot);
+    return Boolean(name) && owned.has(fold(name, platform));
   });
 }
 
+/** Whether `folder` is `inner` or holds it. */
+function holds(folder, inner) {
+  const relative = path.relative(folder, inner);
+  return !relative || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
 /**
- * Why `folder` must not be deleted as a runtime home, or "" when it may be: it
- * is the home itself, a folder above it, a drive's root, or holds nothing a
- * runtime home holds.
+ * Where the runtime home is, and whether `--data` may delete it: the folder it
+ * names or, when it is a link, the folder the link points at (Д-306, п. 3).
+ * Never a drive's root, the home folder or one above it, and never a folder
+ * that holds anything AI Dev did not make — then `reason` names what is not
+ * AI Dev's, and nothing is deleted (Д-297).
  *
  * @param {string} folder
  * @param {{ home?: string, platform?: string }} [options]
- * @returns {Promise<string>}
+ * @returns {Promise<{ folder: string, real: string, link: boolean, absent: boolean, reason: string }>}
  */
-export async function refuseDataRemoval(folder, { home = os.homedir(), platform = process.platform } = {}) {
+export async function inspectDataFolder(folder, { home = os.homedir(), platform = process.platform } = {}) {
   const resolved = path.resolve(folder);
-  if (path.parse(resolved).root === resolved) return `${resolved} is the root of a drive.`;
-  const relative = path.relative(resolved, path.resolve(home));
-  if (!relative || (!relative.startsWith("..") && !path.isAbsolute(relative))) return `${resolved} holds the home folder ${home}.`;
-  const names = new Set((await fs.readdir(resolved).catch(() => [])).map((name) => fold(name, platform)));
-  if (!names.size) return "";
-  return RUNTIME_PARTS.some((part) => names.has(part)) ? "" : `${resolved} does not look like an AI Dev runtime home (none of ${RUNTIME_PARTS.join(", ")}).`;
+  const stat = await fs.lstat(resolved).catch(() => null);
+  const real = stat ? await fs.realpath(resolved).catch(() => resolved) : resolved;
+  const answer = (reason) => ({ folder: resolved, real, link: Boolean(stat?.isSymbolicLink()), absent: !stat, reason });
+  if (!stat) return answer("");
+  const homes = [path.resolve(home), await fs.realpath(home).catch(() => path.resolve(home))];
+  for (const candidate of new Set([resolved, real])) {
+    if (path.parse(candidate).root === candidate) return answer(`${candidate} is the root of a drive.`);
+    if (homes.some((inner) => holds(candidate, inner))) return answer(`${candidate} holds the home folder ${home}.`);
+  }
+  const names = await fs.readdir(real).catch(() => null);
+  if (!names) return answer(`${real} is not a folder AI Dev can read.`);
+  const foreign = names.filter((name) => !OWN_FOLDERS.has(fold(name, platform)) && !OWN_FILE.test(name)).sort();
+  if (!foreign.length) return answer("");
+  const shown = `${foreign.slice(0, 5).join(", ")}${foreign.length > 5 ? `, and ${foreign.length - 5} more` : ""}`;
+  return answer(`${real} also holds what AI Dev did not make (${shown}); delete AI Dev's own folders in it yourself.`);
 }
 
-/** Remove a folder by moving it aside first, so one Windows refuses half-way is not left looking whole. */
+/** Why `folder` must not be deleted as a runtime home, or "" when it may be: `inspectDataFolder`, in words. */
+export async function refuseDataRemoval(folder, options = {}) {
+  return (await inspectDataFolder(folder, options)).reason;
+}
+
+/**
+ * Remove a folder by moving it aside first: one a running process holds a
+ * file of stays whole, rather than half removed, and says it is in use.
+ *
+ * @returns {Promise<{ reason: string, busy?: boolean } | null>} null when it is gone
+ */
 async function removeFolder(folder) {
   const aside = `${folder}.${process.pid}.removing.partial`;
   try {
     await fs.rename(folder, aside);
   } catch (error) {
-    return String(error?.code === "EBUSY" || error?.code === "EPERM" || error?.code === "EACCES" ? "in use" : error?.message ?? error);
+    if (error?.code === "ENOENT") return null;
+    return BUSY.has(error?.code) ? { reason: "in use", busy: true } : { reason: String(error?.message ?? error) };
   }
-  await fs.rm(aside, { recursive: true, force: true }).catch(() => undefined);
-  return "";
+  await fs.rm(aside, { recursive: true, force: true, maxRetries: 3 }).catch(() => undefined);
+  return await exists(aside) ? { reason: `moved to ${aside}, which could not be deleted completely` } : null;
 }
 
-/** Remove the stable link, never what it names. */
+/** Remove a link, never what it names. */
 async function removeLink(link) {
   const stat = await fs.lstat(link).catch(() => null);
   if (!stat) return "absent";
@@ -101,7 +139,7 @@ async function removeLink(link) {
   } catch {
     await fs.rmdir(link).catch(() => undefined);
   }
-  return await fs.lstat(link).then(() => "left", () => "removed");
+  return await exists(link) ? "left" : "removed";
 }
 
 /**
@@ -113,13 +151,23 @@ async function removeLink(link) {
  * @param {boolean} [options.data] - Delete the runtime home with everything in it.
  * @param {boolean} [options.apply] - Without it, only say what would happen.
  * @param {typeof stopDaemons} [options.stop]
- * @returns {Promise<{ apply: boolean, runtime_home: string, daemons: object[], clients: object[], copies: { removed: string[], left: Array<{ folder: string, reason: string }> }, link: string, data: { asked: boolean, removed: boolean, reason?: string } }>}
+ * @returns {Promise<{ apply: boolean, runtime_home: string, daemons: object[], clients: object[], copies: { removed: string[], left: Array<{ folder: string, reason: string, busy?: boolean }> }, link: string, stale_links: string[], data: { asked: boolean, removed: boolean, target?: string, absent?: boolean, refused?: boolean, busy?: boolean, reason?: string } }>}
+ *   `data.target`: the folder the runtime home links to, deleted with the link; `refused`: kept, as `reason` says; `busy`: kept whole, in use.
  */
 export async function uninstallBundle({ env = process.env, home = os.homedir(), platform = process.platform, clients = false, data = false, apply = false, stop = stopDaemons } = {}) {
   const runtimeHome = resolveRuntimeStateRoot("", env);
   const appsRoot = path.join(runtimeHome, "app");
   const copies = await bundleCopies(appsRoot);
-  const result = { apply, runtime_home: runtimeHome, daemons: [], clients: [], copies: { removed: [], left: [] }, link: "absent", data: { asked: data, removed: false } };
+  const result = {
+    apply,
+    runtime_home: runtimeHome,
+    daemons: [],
+    clients: [],
+    copies: { removed: [], left: [] },
+    link: "absent",
+    stale_links: [],
+    data: { asked: data, removed: false }
+  };
   if (apply) result.daemons = (await stop({ env })).daemons;
 
   if (clients) {
@@ -130,25 +178,28 @@ export async function uninstallBundle({ env = process.env, home = os.homedir(), 
 
   if (apply) {
     result.link = await removeLink(currentLink(runtimeHome));
+    // And the links an update that stopped half-way left beside it (Д-306, п. 7).
+    result.stale_links = await removeStaleLinks(appsRoot);
     for (const folder of copies) {
-      const reason = await removeFolder(folder);
-      if (reason) result.copies.left.push({ folder, reason });
+      const left = await removeFolder(folder);
+      if (left) result.copies.left.push({ folder, ...left });
       else result.copies.removed.push(folder);
     }
   } else {
-    result.link = await fs.lstat(currentLink(runtimeHome)).then(() => "would-remove", () => "absent");
+    result.link = await exists(currentLink(runtimeHome)) ? "would-remove" : "absent";
     result.copies.removed = copies;
   }
 
   if (data) {
-    const reason = await refuseDataRemoval(runtimeHome, { home, platform });
-    if (reason) result.data.reason = reason;
+    const where = await inspectDataFolder(runtimeHome, { home, platform });
+    if (where.real !== where.folder) result.data.target = where.real;
+    if (where.reason) Object.assign(result.data, { refused: true, reason: where.reason });
+    else if (where.absent) Object.assign(result.data, { removed: apply, absent: true });
     else if (apply) {
-      await fs.rm(runtimeHome, { recursive: true, force: true, maxRetries: 3 }).catch((error) => {
-        result.data.reason = String(error?.message ?? error);
-      });
-      result.data.removed = !(await fs.access(runtimeHome).then(() => true, () => false));
-      if (!result.data.removed) result.data.reason ??= "some of its files are in use";
+      const left = await removeFolder(where.real);
+      if (!left && where.link && await removeLink(where.folder) === "left") Object.assign(result.data, { reason: `the link ${where.folder} could not be removed` });
+      else if (left) Object.assign(result.data, left.busy ? { busy: true, reason: "some of its files are in use" } : { reason: left.reason });
+      else result.data.removed = true;
     }
   }
   return result;

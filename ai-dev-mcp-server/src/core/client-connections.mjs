@@ -76,7 +76,8 @@ function installedAppCli(layout) {
  * installed in the app home, never from the cache npm may clear. The Windows
  * install is launched through its stable link, `<runtime>/app/current`: the
  * Node and the CLI of whichever runtime the app made current, so an update
- * changes no config (`app-bundle.mjs`).
+ * changes no config (`app-bundle.mjs`) — or, on a drive that holds no link,
+ * from the copy the app runs; never from the program's folder.
  *
  * @param {{ env?: NodeJS.ProcessEnv, execPath?: string, cliPath?: string, serverRoot?: string, layout?: import("./install-layout.mjs").InstallLayout, appCliPath?: () => string, stable?: (layout: import("./install-layout.mjs").InstallLayout) => { command: string, cli: string } | null }} [options]
  * @returns {{ command: string, args: string[], env: Record<string, string> }}
@@ -90,6 +91,11 @@ export function localLaunch({ env = process.env, execPath = process.execPath, cl
   if (link) {
     command = link.command;
     cli = link.cli;
+  } else if (layout.kind === "package" && layout.bundle && !existsSync(path.join(layout.root, APP_MARKER))) {
+    // The installer's own runtime, in the program's folder: an update moves
+    // that folder aside, and a file a client holds there stops it (Д-305).
+    throw Object.assign(new Error(`This is the runtime in AI Dev's program folder (${layout.root}), which an update replaces, so a client config must not name it. `
+      + "Start AI Dev once: it copies the runtime into its data folder and connects the clients to that copy."), { exitCode: EXIT.failed });
   } else if (layout.kind === "package" && layout.ephemeral) {
     cli = appCliPath();
     if (!cli) {

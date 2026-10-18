@@ -169,8 +169,15 @@ export function hint(command, layout = currentInstallLayout()) {
   // The image puts no `ai-dev` on PATH: inside it the CLI is run by its path.
   if (layout.kind === "docker") return `node ${path.posix.join(layout.serverRoot || "/opt/ai-dev/app", "bin", "ai-dev.mjs")} ${words}`.trim();
   // The Windows installer puts nothing on PATH either: its command is the
-  // shim beside the runtime's stable link, which names the runtime's own Node.
-  if (layout.bundle && layout.runtimeRoot) return `"${path.join(layout.runtimeRoot, "app", "current", BUNDLE_COMMAND)}" ${words}`.trim();
+  // shim beside the runtime's stable link — or in the copy itself, on a drive
+  // that holds no link — which names the runtime's own Node. Unquoted, cmd and
+  // PowerShell both run it; a path with a space needs quotes, and PowerShell
+  // runs a quoted path only after `&` (docs/DEFECTS.md, Д-306, п. 2).
+  if (layout.bundle && layout.runtimeRoot) {
+    const linked = path.join(layout.runtimeRoot, "app", "current", BUNDLE_COMMAND);
+    const shim = existsSync(linked) || !layout.root ? linked : path.join(layout.root, BUNDLE_COMMAND);
+    return (/\s/.test(shim) ? `& "${shim}" ${words}` : `${shim} ${words}`).trim();
+  }
   // `ai-dev` is on PATH for a global install; a copy npx left behind, or one
   // setup made in the app home, is reached through npx.
   return layout.ephemeral || layout.appHome ? `npx ${PACKAGE_NAME} ${words}`.trim() : `ai-dev ${words}`.trim();
@@ -191,8 +198,10 @@ export function hint(command, layout = currentInstallLayout()) {
 export function runtimeRepairHint(layout = currentInstallLayout(), { platform = process.platform, arch = process.arch } = {}) {
   if (layout.kind === "clone" || layout.kind === "vault") return "run `npm ci` in ai-dev-mcp-server/";
   if (layout.kind === "docker") return "pull or rebuild the image, which is built with it";
-  // The installer ships the runtime with its dependencies; there is no npm to run.
-  if (layout.bundle) return "run the AI Dev installer again: it ships the runtime with it";
+  // The installer ships the runtime with its dependencies; there is no npm to
+  // run. The app checks its copy at every start and puts back what went
+  // missing, from the installer's own copy (Д-300).
+  if (layout.bundle) return "quit AI Dev and start it again — it puts back the files of its runtime that went missing — and, if it says the installer's copy is damaged too, run the AI Dev installer again";
   if (layout.ephemeral) return `run \`npx ${PACKAGE_NAME} setup\`, which installs a copy with it`;
   if (layout.appHome) return `run \`npm ci --omit=dev --ignore-scripts\` in ${layout.root}`;
   return platform === "linux" && arch === "x64"

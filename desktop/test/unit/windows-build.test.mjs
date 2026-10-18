@@ -16,6 +16,7 @@ import {
   icoFrom,
   listFiles,
   trimRuntime,
+  versionProblem,
   writeBundleMarker
 } from "../../scripts/windows-bundle.mjs";
 
@@ -95,6 +96,25 @@ test("a cut that went too far is found: a dependency nothing ships any more", as
     "onnxruntime-web is cut on purpose; a nested dependency is found where it is");
 });
 
+test("only the pairs cut on purpose pass: a cut package another one needs is found, inside nested node_modules too (Д-304)", async (t) => {
+  const modules = path.join(folder(t), "node_modules");
+  write(modules, {
+    // A dependency update: a package the runtime loads comes to need tslib, which the trim cuts.
+    "some-lib/package.json": JSON.stringify({ dependencies: { tslib: "^2" } }),
+    "outer/package.json": JSON.stringify({ dependencies: { inner: "1" } }),
+    "outer/node_modules/inner/package.json": JSON.stringify({ dependencies: { "left-pad": "1", shared: "1", deeper: "1" } }),
+    "outer/node_modules/inner/node_modules/deeper/package.json": "{}",
+    // Found as Node finds it: in a node_modules above the one the package is in.
+    "shared/package.json": "{}",
+    "@scope/pkg/package.json": JSON.stringify({ dependencies: { "onnxruntime-web": "1" } })
+  });
+  assert.deepEqual(await danglingDependencies(modules), [
+    { package: "@scope/pkg", missing: "onnxruntime-web" },
+    { package: "outer/node_modules/inner", missing: "left-pad" },
+    { package: "some-lib", missing: "tslib" }
+  ], "the transformers → onnxruntime-web pair passes; the same dependency of another package does not");
+});
+
 test("the files of a runtime: sorted, each with its size and sha256, and a link refused", async (t) => {
   const root = folder(t);
   write(root, { "b.txt": "bee", "a/c.txt": "sea" });
@@ -123,6 +143,10 @@ test("bundle.json, as the build writes it, is what the server's provisioning rea
   assert.equal(read.files.some((file) => file.path === "bundle.json"), false, "it does not list itself");
   assert.equal(BUNDLE_SHIM, "@echo off\r\n\"%~dp0node\\node.exe\" \"%~dp0ai-dev-mcp-server\\bin\\ai-dev.mjs\" %*\r\n",
     "the shim names the Node and CLI beside it, quoted for a profile with a space");
+  // Two names Windows takes for one — possible in a tree npm builds on Linux — stop the build, read back as the app reads it (Д-306, п. 1).
+  write(runtime, { "node_modules/pkg/README.md": "a", "node_modules/pkg/readme.md": "b" });
+  await assert.rejects(writeBundleMarker({ runtimeDir: runtime, name: "x", version: "3.0.0", node: { version: "24.22.0", sha256: sha("node") }, fingerprintOf: bundleFingerprint, parse: parseBundle }),
+    /bundle\.json is not a runtime this AI Dev can install: node_modules\/pkg\/readme\.md listed twice/);
 });
 
 test("the composition check names what must not ship, what is missing, a Node that is not the pinned one, and a runtime over its budget", () => {
@@ -186,8 +210,22 @@ test("electron-builder's configuration: NSIS for the current user without an adm
   assert.deepEqual(config.files, ["package.json", "src/**/*"], "no tests, no scripts, no build files in the app");
   assert.equal(config.asar, true);
   assert.equal(config.win.azureSignOptions, undefined, "unsigned unless the environment names a signer");
-  const signed = builderConfig({ desktopRoot, runtimeDir: "/x", icon: "/x.ico", output: "/o", env: { AI_DEV_SIGN_AZURE_ENDPOINT: "https://eus.codesigning.azure.net", AI_DEV_SIGN_AZURE_ACCOUNT: "acct", AI_DEV_SIGN_AZURE_PROFILE: "prof" } });
-  assert.deepEqual(signed.win.azureSignOptions, { publisherName: "stonebridgeway", endpoint: "https://eus.codesigning.azure.net", codeSigningAccountName: "acct", certificateProfileName: "prof" });
+  const azure = { AI_DEV_SIGN_AZURE_ENDPOINT: "https://eus.codesigning.azure.net", AI_DEV_SIGN_AZURE_ACCOUNT: "acct", AI_DEV_SIGN_AZURE_PROFILE: "prof" };
+  const signed = builderConfig({ desktopRoot, runtimeDir: "/x", icon: "/x.ico", output: "/o", env: { ...azure, AI_DEV_SIGN_PUBLISHER: "Stonebridgeway LLC" } });
+  assert.deepEqual(signed.win.azureSignOptions, { publisherName: "Stonebridgeway LLC", endpoint: "https://eus.codesigning.azure.net", codeSigningAccountName: "acct", certificateProfileName: "prof" });
+  // No publisher guessed: the updater checks every update against it (Д-303).
+  assert.throws(() => builderConfig({ desktopRoot, runtimeDir: "/x", icon: "/x.ico", output: "/o", env: { ...azure, AI_DEV_SIGN_PUBLISHER: "" } }),
+    /Azure signing is set up \(AI_DEV_SIGN_AZURE_ENDPOINT\) but not AI_DEV_SIGN_PUBLISHER: AI_DEV_SIGN_PUBLISHER is the signing certificate's name/);
+  assert.throws(() => builderConfig({ desktopRoot, runtimeDir: "/x", icon: "/x.ico", output: "/o", env: { AI_DEV_SIGN_AZURE_ENDPOINT: "https://x", AI_DEV_SIGN_PUBLISHER: "P" } }),
+    /but not AI_DEV_SIGN_AZURE_ACCOUNT, AI_DEV_SIGN_AZURE_PROFILE:/);
+});
+
+test("the app's version is its runtime's: the updater reads the app's (Д-306, п. 5)", () => {
+  assert.equal(versionProblem({ app: "3.0.0", runtime: "3.0.0" }), "");
+  assert.match(versionProblem({ app: "2.0.0", runtime: "3.0.0" }), /^the app is version 2\.0\.0 and its runtime 3\.0\.0: /);
+  const app = JSON.parse(fs.readFileSync(path.join(desktopRoot, "package.json"), "utf8")).version;
+  const server = JSON.parse(fs.readFileSync(path.join(serverRoot, "package.json"), "utf8")).version;
+  assert.equal(versionProblem({ app, runtime: server }), "", "as the repository stands");
 });
 
 test("the Node the installer ships is pinned: the LTS line, a version, the zip's sha256 and node.exe's", () => {

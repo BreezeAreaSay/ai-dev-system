@@ -2,14 +2,20 @@
  * `ai-dev uninstall [--clients] [--data] [--yes] [--json]` — take the Windows
  * install's runtime off this computer. Its uninstaller runs it before it
  * removes the program's folder, with what the person answered to its two
- * questions (`desktop/build/installer.nsh`); the work is
- * `core/bundle-uninstall.mjs`.
+ * questions, and reads the exit status (`desktop/build/installer.nsh`); the
+ * work is `core/bundle-uninstall.mjs`.
  */
 import os from "node:os";
 import { EXIT, parseCommandLine } from "../core/cli-args.mjs";
 import { uninstallBundle } from "../core/bundle-uninstall.mjs";
 import { tildify } from "./context.mjs";
 import { renderResults } from "./clients.mjs";
+
+/** Something was left only because it is in use: close the AI clients and run it again (docs/DEFECTS.md, Д-302). */
+export const EXIT_IN_USE = 3;
+
+/** The data was kept: its folder is not one `--data` deletes (Д-297). */
+export const EXIT_DATA_KEPT = 4;
 
 export function usage() {
   return [
@@ -22,9 +28,13 @@ export function usage() {
     "  --clients  also take the ai-dev entry out of each AI client whose entry runs this install;",
     "             an entry of another install (a clone, npx, Docker) stays",
     "  --data     also delete the runtime home with everything in it: the vault AI Dev keeps,",
-    "             tasks and decisions, the local model, the search index, the settings",
+    "             tasks and decisions, the local model, the search index, the settings. A folder",
+    "             that holds anything AI Dev did not make is not deleted",
     "  --yes      do it",
-    "  --json     print the result as JSON"
+    "  --json     print the result as JSON",
+    "",
+    `Exit status: ${EXIT.ok} done; ${EXIT.failed} something failed; ${EXIT_IN_USE} something is in use (close the AI`,
+    `clients and run it again); ${EXIT_DATA_KEPT} the data was kept, as the output says.`
   ].join("\n");
 }
 
@@ -42,11 +52,28 @@ function render(result, io) {
   for (const folder of result.copies.removed) io.out(`${would}Removed the runtime ${tildify(folder, home)}.`);
   for (const { folder, reason } of result.copies.left) io.out(`Left the runtime ${tildify(folder, home)}: ${reason}.`);
   if (result.link === "removed" || result.link === "would-remove") io.out(`${would}Removed the link AI clients run.`);
-  if (result.data.asked) {
-    if (result.data.reason) io.out(`Kept ${tildify(result.runtime_home, home)}: ${result.data.reason}`);
-    else io.out(`${would}Deleted ${tildify(result.runtime_home, home)} and everything in it.`);
+  if (result.stale_links.length) io.out(`Removed ${result.stale_links.length} link(s) an update that stopped half-way left beside it.`);
+  const data = result.data;
+  if (data.asked) {
+    const folder = tildify(result.runtime_home, home);
+    const target = data.target ? `${tildify(data.target, home)}, which ${folder} links to, with everything in it, and the link` : `${folder} and everything in it`;
+    if (data.reason) io.out(`Kept ${data.target ? tildify(data.target, home) : folder}: ${data.reason}${/[.!?]$/.test(data.reason) ? "" : "."}`);
+    else if (data.absent) io.out(`Nothing to delete: ${folder} is not there.`);
+    else io.out(`${would}Deleted ${target}.`);
   }
   if (!result.apply) io.out("Nothing changed: run it again with --yes.");
+}
+
+/** The exit status the uninstaller reads: in use before failed, so a Retry is offered whenever one can help. */
+export function exitStatus(result) {
+  const busy = result.copies.left.some((left) => left.busy) || result.data.busy === true;
+  const failed = result.copies.left.some((left) => !left.busy)
+    || result.daemons.some((daemon) => !daemon.stopped)
+    || result.clients.some((client) => client.status === "failed")
+    || (result.data.asked && result.apply && !result.data.removed && !result.data.busy && !result.data.refused);
+  if (busy) return EXIT_IN_USE;
+  if (failed) return EXIT.failed;
+  return result.data.refused ? EXIT_DATA_KEPT : EXIT.ok;
 }
 
 /**
@@ -66,9 +93,5 @@ export async function run(argv, io) {
   const result = await uninstallBundle({ env: io.env, clients: values.clients === true, data: values.data === true, apply: values.yes === true });
   if (values.json) io.out(JSON.stringify(result, null, 2));
   else render(result, io);
-  const failed = result.copies.left.length > 0
-    || result.daemons.some((daemon) => !daemon.stopped)
-    || result.clients.some((client) => client.status === "failed")
-    || (result.data.asked && result.apply && !result.data.removed);
-  return failed ? EXIT.failed : EXIT.ok;
+  return exitStatus(result);
 }

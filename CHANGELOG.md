@@ -18,25 +18,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   onnxruntime-node for other systems and processors: 7,847 files, 231 MB unpacked instead of
   512 MB of dependencies alone; the installer is 183 MB. The NSIS installer builds on Linux too,
   under Wine, and on `windows-latest` (`.github/workflows/desktop-windows.yml`); signing comes from
-  `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` or the `AI_DEV_SIGN_AZURE_*` variables, and an unsigned
-  build works.
+  `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` or the `AI_DEV_SIGN_AZURE_*` variables with
+  `AI_DEV_SIGN_PUBLISHER`, all four or the build stops (Д-303), and an unsigned build works. The
+  build reads its `bundle.json` back with the app's own parser and stops when the app's version is
+  not the runtime's (Д-306).
 - **One path for every AI client, whatever the update.** The app copies the shipped runtime into
   `%USERPROFILE%\.ai-dev\app\<version>-<fingerprint>`, checking each file's sha256, and points the
   junction `%USERPROFILE%\.ai-dev\app\current` at it; client configs name
   `current\node\node.exe` and `current\ai-dev-mcp-server\bin\ai-dev.mjs`. An update copies the
   new runtime beside the old one and moves the junction: no file a running client holds is written
   over, no config changes, and a client started before the update keeps being answered from the
-  old copy (`desktop/test/e2e/bundle.test.mjs`). A drive that cannot hold a junction runs the copy
-  itself (Д-295). `current\ai-dev.cmd` is the CLI for a terminal.
+  old copy (`desktop/test/e2e/bundle.test.mjs`). At every start the copy is checked file by file
+  and what went missing is put back from the program folder (Д-300). A drive that cannot hold a
+  junction — whatever it answers — runs the copy itself, Status says so, and the copy the clients
+  name is kept (Д-295, Д-299). An update of the app prunes its own copies only, never one `npx …
+  setup` made (Д-301). `current\ai-dev.cmd` is the CLI for a terminal.
 - **Updates of the installed app** from the GitHub Releases of `stonebridgeway/ai-dev-system`
   (electron-updater): checked a minute after the start and every six hours, offered in the tray,
   installed at Quit. Chromium's resolver, closed for the app's page since Д-260, resolves only the
   three update hosts by their exact names, and the updater's session lets nothing else through;
   `AI_DEV_DESKTOP_UPDATES=0` turns it off.
-- **`ai-dev uninstall [--clients] [--data] --yes`**, which the uninstaller runs after asking: it
-  stops the daemon, removes the runtime copies and their link, the `ai-dev` entries that run this
-  install (another install's stay), and — asked separately, No by default — the runtime home, only
-  when it is plainly one.
+- **`ai-dev uninstall [--clients] [--data] --yes`**, which the uninstaller runs after asking its
+  two questions — asked unless `/S` is given (Д-296): it stops the daemon, removes the runtime copies
+  and their link, the `ai-dev` entries that run this install (another install's stay), and — asked
+  separately, No by default — the runtime home, only when it holds nothing but what AI Dev makes
+  (Д-297). Files an AI client still runs: the uninstaller offers Retry (exit status 3, Д-302); the
+  data kept: it says so (4).
 
 - **One daemon serves every client** (`docs/DEFECTS.md`, Д-97). `ai-dev mcp` — what each
   client's config runs — hands the client's stdio to the daemon, starting it detached and

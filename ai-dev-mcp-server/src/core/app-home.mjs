@@ -97,20 +97,28 @@ const STOPPED_INSTALL_MS = 60 * 60 * 1000;
  * without its marker, for good. A folder without a marker that is not a
  * partial install is not this module's, and stays.
  *
- * The copy the Windows install's stable link `current` names is never removed,
- * however long ago it was chosen: every AI client config of that install runs
- * it (`app-bundle.mjs`). The link itself is not a folder, and is left alone.
+ * Each kind of copy is kept by its own count: the packages `setup` installs
+ * and the runtimes the Windows install copies (`kind: "bundle"` in the
+ * marker) are chosen at different times, and one kind's newer copies must not
+ * push out the other's (docs/DEFECTS.md, Д-301). The copy the Windows
+ * install's stable link `current` names is never removed, however long ago it
+ * was chosen: every AI client config of that install runs it
+ * (`app-bundle.mjs`); nor is a copy an AI client's entry names by its own
+ * folder (`named`, Д-299). The link itself is not a folder, and is left alone.
  *
  * @param {string} appsRoot - `<runtime>/app`.
- * @param {number} keep - How many copies stay, besides the one `current` names.
+ * @param {number} keep - How many copies of this kind stay, the one `current` names among them.
  * @param {number} nowMs
+ * @param {{ kind?: "package"|"bundle", named?: string[] }} [options] - `named`: copies a client runs, which stay besides.
  * @returns {Promise<string[]>} the copies removed
  */
-export async function pruneAppCopies(appsRoot, keep, nowMs) {
+export async function pruneAppCopies(appsRoot, keep, nowMs, { kind = "package", named = [] } = {}) {
   const entries = await fs.readdir(appsRoot, { withFileTypes: true }).catch(() => []);
   const linked = await fs.realpath(path.join(appsRoot, "current")).catch(() => "");
+  const spared = (await Promise.all(named.map((folder) => fs.realpath(folder).catch(() => "")))).filter(Boolean);
   const copies = [];
   const partials = [];
+  let linkedHere = false;
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const folder = path.join(appsRoot, entry.name);
@@ -118,14 +126,20 @@ export async function pruneAppCopies(appsRoot, keep, nowMs) {
       partials.push(folder);
       continue;
     }
-    if (linked && await fs.realpath(folder).then((real) => samePath(real, linked), () => false)) continue;
     const marker = await readJson(path.join(folder, APP_MARKER)).catch(() => null);
-    if (marker) copies.push({ folder, at: Date.parse(marker.chosen_at ?? marker.installed_at ?? "") || 0 });
+    if (!marker || (marker.kind === "bundle" ? "bundle" : "package") !== kind) continue;
+    const real = await fs.realpath(folder).catch(() => folder);
+    if (linked && samePath(real, linked)) {
+      linkedHere = true;
+      continue;
+    }
+    if (spared.some((other) => samePath(real, other))) continue;
+    copies.push({ folder, at: Date.parse(marker.chosen_at ?? marker.installed_at ?? "") || 0 });
   }
   copies.sort((left, right) => right.at - left.at);
   const removed = [];
   // The linked copy is one of the kept ones: it is the current install's.
-  for (const { folder } of copies.slice(linked ? Math.max(0, keep - 1) : keep)) {
+  for (const { folder } of copies.slice(linkedHere ? Math.max(0, keep - 1) : keep)) {
     const aside = `${folder}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.partial`;
     // In use on Windows: it cannot even be renamed, and stays until the next time.
     if (!await fs.rename(folder, aside).then(() => true, () => false)) continue;

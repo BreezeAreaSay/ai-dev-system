@@ -133,22 +133,38 @@ runtime AI clients run, and the app copies it out of the program folder before a
   size and sha256, and refuses a path that leaves the runtime's folder, a name listed twice (Windows
   reads names without case), a Node not among its files, or a fingerprint that is not its files'.
   A copy is made in a `.partial` folder and moved into place only when every file matches; a file
-  changed or missing stops the start, and nothing is run from it (`src/core/app-bundle.mjs`).
+  changed or missing stops the start, and nothing is run from it (`src/core/app-bundle.mjs`). The
+  build reads its own `bundle.json` back with the same parser, so a runtime the app would refuse
+  does not ship.
+- **A copy is checked again at every start**, each file by its size against `bundle.json`; one
+  missing or changed is put back from the program folder, checked by its sha256 as the copy was, and
+  moved into place beside the file it replaces — never written over in place (docs/DEFECTS.md,
+  Д-300). A folder in the copy's place that is not a finished copy is moved aside whole, never
+  removed in place.
 - **The stable link is AI Dev's own.** `<runtime>/app/current` is replaced only when it is a link;
   a real folder of that name stops the start rather than being taken for it. The copy it names is
-  never removed by a prune.
+  never removed by a prune, nor is a copy an AI client's config names by its own folder (Д-299).
+  The runtime in the program folder is never written into a client config: an update replaces it
+  (Д-305).
 - **No running file is written over.** An update copies the new runtime beside the old one and
   moves the link; a client keeps the files it opened.
 - **Updates come from one place.** The installed app's updater reads the GitHub Releases of
   `stonebridgeway/ai-dev-system`. Chromium's resolver, closed for the app's page (Д-260), resolves
   `github.com`, `objects.githubusercontent.com` and `release-assets.githubusercontent.com` by
   those exact names and nothing else; the updater's session lets only HTTPS to them through. A
-  signed build checks a download against the publisher of the app that runs; an unsigned one
-  only against the sha512 its release lists — what the release says, over HTTPS.
-- **Uninstalling deletes data only when asked**, and only a folder that is plainly a runtime home:
-  not the home folder or one above it, not a drive's root, not a folder holding none of a runtime
-  home's parts (`src/core/bundle-uninstall.mjs`). A client entry is taken out only when it runs
-  this install; another install's entry stays.
+  signed build checks a download against the publisher of the app that runs — a build signed
+  through Azure names that publisher, the certificate's name, or does not build (Д-303); an
+  unsigned one only against the sha512 its release lists — what the release says, over HTTPS.
+- **Uninstalling deletes data only when asked**, and only a folder that holds nothing but what AI
+  Dev makes there: its folders, its settings with their lock and temporary files, the locks of its
+  moves, and what Windows puts in an opened folder. The home folder or one above it, a drive's root,
+  and a folder that holds anything else — `AI_DEV_HOME` set to a folder of the person's — are kept
+  whole, and the reason names what is not AI Dev's (Д-297). A runtime home that is a link is
+  checked, and deleted, by the folder it points at, then the link. The folder is moved aside before
+  it is deleted, so a file in use leaves it whole rather than half deleted
+  (`src/core/bundle-uninstall.mjs`). A client entry is taken out only when its command or an
+  argument is an absolute path into this install; another install's entry stays, whatever folder
+  the uninstall runs in (Д-298).
 
 ## Command Policy
 

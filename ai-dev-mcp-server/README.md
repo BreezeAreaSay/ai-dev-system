@@ -441,7 +441,9 @@ dependencies for win32-x64, a pinned Node and `bundle.json`, and builds the NSIS
 ([The Windows install](../docs/DESKTOP.md#the-windows-install)). `ai-dev uninstall [--clients]
 [--data] --yes` is what its uninstaller runs: it stops the daemon and removes the runtime copies the
 app made in `<runtime home>/app` and their link, the clients' entries that run them with
-`--clients`, and the runtime home itself with `--data`.
+`--clients`, and the runtime home itself with `--data` — only when the folder holds nothing but what
+AI Dev makes. Its exit status tells the uninstaller what is left: 3 files an AI client still runs,
+4 the data kept.
 
 ## Local Operations
 

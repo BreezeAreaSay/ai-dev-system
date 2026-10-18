@@ -8,7 +8,7 @@ import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import electron from "electron";
 import { pickLanguage, translate } from "../renderer/i18n.js";
-import { prepareRuntime, shippedRuntime } from "./bundle.mjs";
+import { prepareRuntime, runtimeNotice, shippedRuntime } from "./bundle.mjs";
 import { confirmationDialog, consoleDecision, consoleTools, settingsDialog } from "./console-policy.mjs";
 import { DaemonLink } from "./daemon-link.mjs";
 import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, refuseClients, settingsToConfirm, validCallId } from "./ipc-policy.mjs";
@@ -93,7 +93,8 @@ if (!app.requestSingleInstanceLock()) {
   // The link's own words are said in the language in force (Д-283, п. 3).
   const publicState = () => {
     const { errorKey, ...state } = link.state;
-    return { ...state, ...(errorKey ? { error: t(errorKey) } : {}), language, platform: process.platform };
+    const notice = runtimeNotice(runtime);
+    return { ...state, ...(errorKey ? { error: t(errorKey) } : {}), ...(notice ? { runtime: notice } : {}), language, platform: process.platform };
   };
   const fromApp = (event) => isAppUrl(event.senderFrame?.url ?? "");
 

@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { OWN_SERVER_ROOT, PACKAGE_NAME, hint, isEphemeralInstall, resolveInstallLayout, runtimeRepairHint } from "./install-layout.mjs";
@@ -105,8 +107,24 @@ test("hints are spelled the way each layout runs them", () => {
   assert.equal(hint("npm run check", global), "npm run check", "a script only a checkout has stays as written");
   assert.equal(hint("git pull", global), "git pull");
   const windows = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot: path.join(home, ".ai-dev") };
-  assert.equal(hint("npm run setup -- --model", windows), `"${path.join(home, ".ai-dev", "app", "current", "ai-dev.cmd")}" setup --model`,
-    "the Windows installer puts nothing on PATH: its shim beside the stable link, quoted for a home with a space");
+  assert.equal(hint("npm run setup -- --model", windows), `${path.join(home, ".ai-dev", "app", "current", "ai-dev.cmd")} setup --model`,
+    "the Windows installer puts nothing on PATH: its shim beside the stable link, unquoted, as cmd and PowerShell both run it");
+  const spaced = path.resolve("/home/John Smith/.ai-dev");
+  assert.equal(hint("npm run doctor", { ...windows, runtimeRoot: spaced }), `& "${path.join(spaced, "app", "current", "ai-dev.cmd")}" doctor`,
+    "a path with a space is quoted, and PowerShell runs a quoted path only after & (Д-306, п. 2)");
+});
+
+test("without the stable link the Windows install's hint names the shim in the copy it runs", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-hint-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const runtimeRoot = path.join(root, "rt");
+  const copy = path.join(runtimeRoot, "app", "3.0.0-abcdef12");
+  const layout = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot, root: copy };
+  assert.equal(hint("npm run doctor", layout), `${path.join(copy, "ai-dev.cmd")} doctor`, "a drive that holds no link (Д-299)");
+  await fs.mkdir(copy, { recursive: true });
+  await fs.writeFile(path.join(copy, "ai-dev.cmd"), "");
+  await fs.symlink(copy, path.join(runtimeRoot, "app", "current"), "dir");
+  assert.equal(hint("npm run doctor", layout), `${path.join(runtimeRoot, "app", "current", "ai-dev.cmd")} doctor`);
 });
 
 test("the Windows installer's runtime is a package with a bundle, wherever it lies", () => {
@@ -120,7 +138,8 @@ test("the Windows installer's runtime is a package with a bundle, wherever it li
   assert.equal(layout.bundle, true);
   assert.equal(layout.appHome, true);
   assert.equal(layout.seedRoot, path.join(root, "seed"), "its seed fills the user's vault, as a package's does");
-  assert.equal(runtimeRepairHint(layout, { platform: "win32", arch: "x64" }), "run the AI Dev installer again: it ships the runtime with it");
+  assert.match(runtimeRepairHint(layout, { platform: "win32", arch: "x64" }), /^quit AI Dev and start it again — it puts back the files of its runtime that went missing — and, if it says the installer's copy is damaged too, run the AI Dev installer again$/,
+    "a start puts back what went missing (Д-300); the installer only when its own copy is damaged");
   const npm = resolveInstallLayout({ serverRoot: path.join(root, "ai-dev-mcp-server"), env: env(), exists: only(path.join(root, "distribution.json")) });
   assert.equal(npm.bundle, false, "an npx copy has no bundle.json");
 });

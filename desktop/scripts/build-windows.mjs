@@ -13,7 +13,8 @@
  * 3. Node 24 LTS for Windows, by the version and sha256 pinned in
  *    `build/node-win-x64.json`, and the `ai-dev.cmd` beside it;
  * 4. `bundle.json`: every file with its sha256, which the app checks as it
- *    copies the runtime;
+ *    copies the runtime — read back by the app's own parser — and the app's
+ *    version, which must be the runtime's;
  * 5. electron-builder: the app in `app.asar`, the runtime in
  *    `resources/runtime`, an NSIS installer for the current user —
  *    `dist/windows/installer/AI-Dev-Setup-<version>.exe` — or, with `--dir`,
@@ -45,6 +46,7 @@ import {
   icoFrom,
   listFiles,
   trimRuntime,
+  versionProblem,
   writeBundleMarker
 } from "./windows-bundle.mjs";
 
@@ -148,9 +150,11 @@ async function buildRuntime(pin) {
   await addNode(pin);
   await fs.writeFile(path.join(runtimeDir, "ai-dev.cmd"), BUNDLE_SHIM);
   say("4. bundle.json…");
-  const { bundleFingerprint } = await fromServer("src/core/app-bundle.mjs");
+  const { bundleFingerprint, parseBundle } = await fromServer("src/core/app-bundle.mjs");
   const distribution = JSON.parse(await fs.readFile(path.join(runtimeDir, "distribution.json"), "utf8"));
-  return { trimmed, marker: await writeBundleMarker({ runtimeDir, name: distribution.name, version: distribution.version, node: { version: pin.version, sha256: pin.node_exe_sha256 }, fingerprintOf: bundleFingerprint }) };
+  // Read back by the app's own parser: what it would refuse does not ship.
+  const marker = await writeBundleMarker({ runtimeDir, name: distribution.name, version: distribution.version, node: { version: pin.version, sha256: pin.node_exe_sha256 }, fingerprintOf: bundleFingerprint, parse: parseBundle });
+  return { trimmed, marker };
 }
 
 /** The runtime as it landed in the packed app: every file `bundle.json` lists, with its size. */
@@ -167,7 +171,8 @@ async function main() {
   const started = Date.now();
   const { trimmed, marker } = await buildRuntime(pin);
   const report = { runtime: compositionReport(marker.files), trimmed, fingerprint: marker.fingerprint, version: marker.version, node: marker.node };
-  const problems = compositionProblems(marker.files, { nodeSha256: pin.node_exe_sha256 });
+  const app = JSON.parse(await fs.readFile(path.join(desktopRoot, "package.json"), "utf8"));
+  const problems = [...compositionProblems(marker.files, { nodeSha256: pin.node_exe_sha256 }), versionProblem({ app: app.version, runtime: marker.version })].filter(Boolean);
   if (problems.length) throw new Error(`The runtime is not what ships:\n- ${problems.join("\n- ")}`);
   if (!options.check) {
     say(`5. electron-builder (${options.dir ? "the unpacked app" : "the NSIS installer"})…`);

@@ -74,9 +74,13 @@ export function createDenseRuntime({
       // A model this process cannot read is a model that is not ready, and why:
       // not an error that takes the health check and `embedding_status` down
       // (docs/DEFECTS.md, Д-349). Its files are not missing, only unseen (Д-358);
-      // those not there at all are (Д-366).
+      // those not there at all are (Д-366). A fault of the code is a check that
+      // could not be made, not a model that cannot be read (Д-371).
+      const message = String(error?.message ?? error);
       const missing = await filesNotThere({ manifest, dir: onnxModelDir }).catch(() => []);
-      probe = { ready: false, dir: path.resolve(onnxModelDir), present: [], missing, mismatched: [], unreadable: String(error?.message ?? error) };
+      probe = typeof error?.syscall === "string"
+        ? { ready: false, dir: path.resolve(onnxModelDir), present: [], missing, mismatched: [], unreadable: message }
+        : { ready: false, dir: path.resolve(onnxModelDir), present: [], missing: [], mismatched: [], unchecked: message };
     }
     probedAt = now();
     probedRecord = await recordState();
@@ -101,9 +105,10 @@ export function createDenseRuntime({
     supportAnswer ??= support();
     const onnx = await onnxStatus({ refresh });
     // A stat and a small JSON read per missing file, and only while the model
-    // is not ready: what a stopped download left is what the sentence says.
+    // is not ready: what a stopped download left is what the sentence says. Not
+    // of a model this user cannot read: that is what it says first (Д-369).
     const partial = [];
-    for (const relative of onnx.ready ? [] : onnx.missing ?? []) {
+    for (const relative of onnx.ready || onnx.unreadable ? [] : onnx.missing ?? []) {
       const part = await usablePart(path.join(path.resolve(onnxModelDir), relative), { revision: manifest.revision, sha256: manifest.files[relative] });
       if (part.bytes > 0) partial.push({ file: relative, bytes: part.bytes, size: part.size });
     }
@@ -113,7 +118,7 @@ export function createDenseRuntime({
       supported: supportAnswer.supported,
       supportReason: supportAnswer.reason,
       inContainer: String(env.AI_DEV_RUNTIME ?? "") === "docker",
-      files: { dir: onnx.dir, present: onnx.present, missing: onnx.missing, mismatched: onnx.mismatched, partial: partial.map((part) => part.file), unreadable: onnx.unreadable }
+      files: { dir: onnx.dir, present: onnx.present, missing: onnx.missing, mismatched: onnx.mismatched, partial: partial.map((part) => part.file), unreadable: onnx.unreadable, unchecked: onnx.unchecked }
     });
     const legacyWeightsDir = legacyModelDir && exists(path.join(legacyModelDir, "pytorch_model.bin")) ? path.resolve(legacyModelDir) : "";
     const legacy = legacyDenseNotes(env, { legacyWeightsDir });

@@ -34,6 +34,17 @@ test("a download that stopped partway is skipped with what is kept and how to co
   assert.match(verdict.summary, /a model download stopped partway \(312 MB of onnx\/model_int8\.onnx\)\. `npm run setup -- --model` continues it from there\./);
 });
 
+test("a model this user cannot read is said as that, not as a download to continue (Д-369)", () => {
+  const reason = "Dense search is not ready: the model in /models/bge-m3-onnx cannot be read (EACCES: permission denied, open '/models/bge-m3-onnx/tokenizer.json'). The image runs as uid 1000: …";
+  const verdict = evaluateEmbeddingBackend(payload({
+    available: false,
+    reason,
+    onnx: { ...ONNX, ready: false, missing: ["config.json"], unreadable: "EACCES: permission denied, open '/models/bge-m3-onnx/tokenizer.json'" },
+    partial: [{ file: "config.json", bytes: 100, size: 182 }]
+  }));
+  assert.deepEqual([verdict.status, verdict.summary], ["skipped", reason]);
+});
+
 test("files that are there and wrong are a warning that names them and the fix", () => {
   const verdict = evaluateEmbeddingBackend(payload({ available: false, onnx: { ...ONNX, ready: false, mismatched: ["onnx/model_int8.onnx"] } }));
   assert.equal(verdict.status, "warn");

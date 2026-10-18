@@ -53,7 +53,8 @@ export function evaluateEmbeddingBackend(status = {}) {
       details
     };
   }
-  if (partial.length) {
+  // A model this user cannot read is said as that first: no download continues it (docs/DEFECTS.md, Д-369).
+  if (partial.length && !onnx.unreadable) {
     const started = partial.map((entry) => `${formatBytes(entry.bytes)} of ${entry.file}`).join(", ");
     return {
       status: "skipped",

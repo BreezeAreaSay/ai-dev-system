@@ -598,8 +598,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   folders — or that is not whole, is said as that, not as an error or a model to install, by
   the sessions, `setup`, `model status` and the control API alike (its `model.unreadable`,
   contract 1.2.0), with the advice its error calls for, and the vectors it made before are said
-  as kept (Д-349, Д-350, Д-357 … Д-359, Д-361, Д-363 … Д-366). The desktop app's screens do not
-  read that field yet (Д-367).
+  as kept (Д-349, Д-350, Д-357 … Д-359, Д-361, Д-363 … Д-366, Д-369 … Д-371). The desktop app's
+  screens do not read that field yet (Д-367).
 - **Trying the shared state folder** tells a container that could not write it from a Docker that
   did not run the image — an engine that does not answer, an image not here, which the probe no
   longer pulls: then nothing was tried, and the install says to run it again once Docker runs

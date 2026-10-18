@@ -92,6 +92,17 @@ test("a model this process cannot read is not ready, and says why: the health ch
   await fs.rm(path.join(dir, "config.json"));
   const gap = runtimeWith({ verifyError: denied, onnxModelDir: dir });
   assert.deepEqual((await gap.runtime.describe()).onnx.missing, ["config.json"]);
+  // A stopped download of the missing file beside it: what is said first is why the model cannot be read (Д-369).
+  await fs.writeFile(path.join(dir, "config.json.part"), "{\"half\":");
+  await fs.writeFile(path.join(dir, "config.json.part.json"), JSON.stringify({ format: 1, revision: MANIFEST.revision, sha256: MANIFEST.files["config.json"], size: 182 }));
+  const stopped = await runtimeWith({ verifyError: denied, onnxModelDir: dir }).runtime.describe();
+  assert.deepEqual(stopped.partial, []);
+  assert.match(stopped.reason, /cannot be read \(EACCES/);
+  // A fault of the code is a check that could not be made, not a model that cannot be read (Д-371).
+  const fault = await runtimeWith({ verifyError: new TypeError("Cannot read properties of undefined (reading 'files')") }).runtime.describe();
+  assert.equal(fault.available, false);
+  assert.equal("unreadable" in fault.onnx, false);
+  assert.equal(fault.reason, "Dense search is not ready: the model in /models/bge-m3-onnx could not be checked (Cannot read properties of undefined (reading 'files')).");
   const local = runtimeWith({ verifyError: denied, onnxModelDir: "/home/me/.ai-dev/models/bge-m3-onnx" });
   assert.match((await local.runtime.describe()).reason, /cannot be read .*Make the folder and its files readable to the user this runs as\./);
 });

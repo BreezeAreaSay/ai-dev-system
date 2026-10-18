@@ -156,24 +156,35 @@ export function containerModelAdvice(dir = "") {
 export function unreadableModelAdvice(unreadable, { mounted = false } = {}) {
   const code = /^([A-Z]+):/.exec(String(unreadable ?? ""))?.[1] ?? "";
   const orVolume = mounted ? ", or drop the mount and install the model into the data volume" : "";
-  if (code === "EACCES" || code === "EPERM") {
+  if (code === "EACCES") {
     return mounted
       ? `The image runs as uid 1000: make the folder and its files readable to it on the host${orVolume}.`
       : "Make the folder and its files readable to the user this runs as.";
   }
-  if (code === "ENOTDIR") return `That is a file, not a folder: name the folder that holds the model${orVolume}.`;
-  if (code === "ELOOP") return `A link on the way leads back to itself: point it at the folder that holds the model${orVolume}.`;
-  if (code === "EIO" || code === "ESTALE" || code === "ENOTCONN") {
-    return `The disk or share it is on cannot be reached: reconnect it${mounted ? " (Docker Desktop's file sharing)" : ""}${orVolume}.`;
+  // Not the file's mode, often: on macOS a folder under Documents, Desktop or
+  // Downloads is kept from an app until it is allowed there (Д-371).
+  if (code === "EPERM") {
+    return mounted
+      ? "The image runs as uid 1000: make the folder and its files readable to it on the host — on macOS, allow Docker "
+        + `Desktop to that folder in Privacy & Security${orVolume}.`
+      : "Make the folder and its files readable to the user this runs as — on macOS, allow the app this runs in to "
+        + "that folder in Privacy & Security.";
   }
+  if (code === "ENOTDIR") return `On that path a file stands where a folder should be: the model's folder, or one inside it, is a file${orVolume}.`;
+  if (code === "ELOOP") return `A link on the way leads back to itself: point it at the folder that holds the model${orVolume}.`;
+  if (SHARE_UNREACHABLE.has(code)) return `The disk or share it is on cannot be reached: reconnect it${orVolume}.`;
   return mounted ? `Look at that folder on the host${orVolume}.` : "Look at that folder.";
 }
 
+/** The errors of a disk or network share that is there and cannot be reached (Д-361, Д-371). */
+export const SHARE_UNREACHABLE = new Set(["EIO", "ESTALE", "ENOTCONN", "EHOSTDOWN", "ETIMEDOUT", "ECONNABORTED", "ECONNRESET"]);
+
 /** The model is not usable; say which way, and what changes it. */
 function notReadyReason({ inContainer, files }) {
-  const { dir = "", present = [], missing = [], mismatched = [], partial = [], unreadable = "" } = files ?? {};
+  const { dir = "", present = [], missing = [], mismatched = [], partial = [], unreadable = "", unchecked = "" } = files ?? {};
   const where = dir ? ` in ${dir}` : "";
   const names = (list) => list.join(", ");
+  if (unchecked) return `Dense search is not ready: the model${where} could not be checked (${unchecked}).`;
   if (unreadable) {
     return `Dense search is not ready: the model${where} cannot be read (${unreadable}). `
       + unreadableModelAdvice(unreadable, { mounted: inContainer && dir === DOCKER_MOUNTED_MODEL_DIR });

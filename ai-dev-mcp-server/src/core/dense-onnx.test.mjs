@@ -261,7 +261,7 @@ test("a mounted model folder the image's user may not list or reach is a model t
   assert.equal(holdsFiles("/models/bge-m3-onnx", refused("EACCES")), true, "folders 0700 of another owner");
   assert.equal(holdsFiles("/models/bge-m3-onnx", refused("EPERM")), true);
   // A share that dropped is a mount this user cannot reach, not nothing mounted (Д-361).
-  for (const code of ["EIO", "ESTALE", "ENOTCONN"]) assert.equal(holdsFiles("/models/bge-m3-onnx", refused(code)), true, code);
+  for (const code of ["EIO", "ESTALE", "ENOTCONN", "EHOSTDOWN", "ETIMEDOUT", "ECONNABORTED", "ECONNRESET"]) assert.equal(holdsFiles("/models/bge-m3-onnx", refused(code)), true, code);
   // A link that loops, or no descriptor left to list with, is no model mounted: the volume's stays in use (Д-365, Д-366).
   for (const code of ["ELOOP", "EMFILE", "ENFILE", "EINVAL"]) assert.equal(holdsFiles("/models/bge-m3-onnx", refused(code)), false, code);
   const docker = { AI_DEV_RUNTIME: "docker", AI_DEV_HOME: "/data/runtime-home/.ai-dev", HOME: "/data/runtime-home" };

@@ -93,13 +93,20 @@ test("a machine with no runtime build is told so, whatever is on disk", () => {
   assert.equal(selectDenseBackend().available, false, "defaults alone are a valid call");
 });
 
-test("a model that cannot be read gets the advice its error calls for: only permissions are made readable (Д-365)", () => {
+test("a model that cannot be read gets the advice its error calls for: only permissions are made readable (Д-365, Д-371)", () => {
   const said = (code, mounted = false) => unreadableModelAdvice(`${code}: what the system said, '/models/bge-m3-onnx/config.json'`, { mounted });
   assert.equal(said("EACCES"), "Make the folder and its files readable to the user this runs as.");
-  assert.equal(said("EPERM", true), "The image runs as uid 1000: make the folder and its files readable to it on the host, or drop the mount and install the model into the data volume.");
-  assert.equal(said("ENOTDIR"), "That is a file, not a folder: name the folder that holds the model.");
+  assert.equal(said("EACCES", true), "The image runs as uid 1000: make the folder and its files readable to it on the host, or drop the mount and install the model into the data volume.");
+  // EPERM is often macOS keeping a folder from an app, not a mode (Д-371).
+  assert.match(said("EPERM", true), /^The image runs as uid 1000: make the folder and its files readable to it on the host — on macOS, allow Docker Desktop to that folder in Privacy & Security, or drop the mount/);
+  assert.match(said("EPERM"), /on macOS, allow the app this runs in to that folder in Privacy & Security\.$/);
+  assert.equal(said("ENOTDIR", true), "On that path a file stands where a folder should be: the model's folder, or one inside it, is a file, or drop the mount and install the model into the data volume.");
   assert.equal(said("ELOOP", true), "A link on the way leads back to itself: point it at the folder that holds the model, or drop the mount and install the model into the data volume.");
-  for (const code of ["EIO", "ESTALE", "ENOTCONN"]) assert.match(said(code, true), /^The disk or share it is on cannot be reached: reconnect it \(Docker Desktop's file sharing\), or drop the mount/, code);
+  // A share that dropped, on any engine: no Docker Desktop named (Д-371).
+  for (const code of ["EIO", "ESTALE", "ENOTCONN", "EHOSTDOWN", "ETIMEDOUT", "ECONNABORTED", "ECONNRESET"]) {
+    assert.equal(said(code, true), "The disk or share it is on cannot be reached: reconnect it, or drop the mount and install the model into the data volume.", code);
+  }
   assert.equal(said("EINVAL"), "Look at that folder.");
   assert.doesNotMatch(said("ENOTDIR") + said("ELOOP") + said("EIO") + said("EINVAL"), /readable/, "permissions are not the advice for other errors");
+  assert.doesNotMatch(said("EIO", true) + said("ESTALE", true), /Docker Desktop/);
 });

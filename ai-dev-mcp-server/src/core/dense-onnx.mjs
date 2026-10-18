@@ -30,7 +30,7 @@
 import { readdirSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
-import { DENSE_ONNX_BACKEND, DOCKER_MOUNTED_MODEL_DIR } from "./dense-backend.mjs";
+import { DENSE_ONNX_BACKEND, DOCKER_MOUNTED_MODEL_DIR, SHARE_UNREACHABLE } from "./dense-backend.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 
 /** Most texts one worker message may carry, so a batch cannot grow unbounded. */
@@ -288,9 +288,9 @@ export { DOCKER_MOUNTED_MODEL_DIR };
  * The errors that say a folder is there and this user cannot read it (a host's
  * folders 0700) or cannot reach it (a share that dropped). Any other — not
  * there, a file, a link that loops, no descriptor left — is no model mounted
- * (docs/DEFECTS.md, Д-357, Д-361, Д-365, Д-366).
+ * (docs/DEFECTS.md, Д-357, Д-361, Д-365, Д-366, Д-371).
  */
-const THERE_UNREAD = new Set(["EACCES", "EPERM", "EIO", "ESTALE", "ENOTCONN"]);
+const THERE_UNREAD = new Set(["EACCES", "EPERM", ...SHARE_UNREACHABLE]);
 
 /**
  * Whether a folder holds anything — what it holds unseen included, so a model

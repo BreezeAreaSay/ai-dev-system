@@ -162,7 +162,7 @@ export function describeDenseCoverage(status, { modelUnreadable = false } = {}) 
   // --model does not embed with a model this user cannot read (docs/DEFECTS.md, Д-363).
   if (!dense && !pending) return `Indexed: ${documents} document(s), none embedded yet (${modelUnreadable ? "the model cannot be read" : "--model embeds them"}).`;
   return `Indexed: ${documents} document(s), ${dense} with a dense vector, ${pending} waiting for one`
-    + (other ? ` (${other} with a vector of another model, which hybrid search does not compare; --model embeds them again).` : ".");
+    + (other ? ` (${other} with a vector of another model, which hybrid search does not compare; ${modelUnreadable ? "a model this user can read embeds them again" : "--model embeds them again"}).` : ".");
 }
 
 function pick(step) {

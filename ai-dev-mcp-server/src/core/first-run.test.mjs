@@ -143,6 +143,10 @@ test("the coverage line separates a half-embedded index from one never embedded"
     describeDenseCoverage({ current_document_count: 338, dense_documents: 0, dense_pending_documents: 0 }, { modelUnreadable: true }),
     "Indexed: 338 document(s), none embedded yet (the model cannot be read)."
   );
+  assert.equal(
+    describeDenseCoverage({ current_document_count: 825, dense_documents: 0, dense_pending_documents: 365, dense_other_model_documents: 365 }, { modelUnreadable: true }),
+    "Indexed: 825 document(s), 0 with a dense vector, 365 waiting for one (365 with a vector of another model, which hybrid search does not compare; a model this user can read embeds them again)."
+  );
   // A 2.x index the Python backend embedded: kept, not compared, waiting (Д-148).
   assert.equal(
     describeDenseCoverage({ current_document_count: 825, dense_documents: 0, dense_pending_documents: 365, dense_other_model_documents: 365 }),

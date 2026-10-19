@@ -17347,6 +17347,110 @@ fuzz-export (xorshift, 150 000, seed 7): 116 236 валидны, 0 различ�
 
 ---
 
+## Д-477. Конфиг клиента, который уже есть, под моделью разрешений Node 24 не пишется и не чистится: `fchmod` запрещён — а закрытие Д-470 обещает одну функцию для всех четырёх мест
+
+**Статус:** открыт. Закроет фаза 14. Нашло восьмое независимое ревью фазы 14 (ревью кода: should-fix 1); код — правка Д-470
+(`9a64749`).
+
+`replaceIfUnchanged` (`mcp-clients.mjs:411-431`) переносит на новую копию конфига права старой: `handle.chmod(mode)` (`:420`)
+идёт до `flushFile` (`:421`), а `mode` есть у каждого конфига, который уже существует (`installOne`, `:526`), и у каждого, из
+которого убирается запись (`removeOne`, `:578`). Под `--permission` Node 24.17 и новее (и 25.9, 26.12) отказывает не только в
+`fsync`, но и в `fchmod` и `fchown` — «fchmod API is disabled when Permission Model is enabled.» (`ERR_ACCESS_DENIED`); 22.16,
+22.22 и 24.0 … 24.14 их разрешают. `flushFile` помогает только конфигу, которого ещё нет.
+
+**Чем грозит.** Закрытие Д-470 («Одна функция для `atomicWriteFile`, `appendUnderLock`, записи конфигов клиентов
+(`mcp-clients.mjs`) и архива», строки 17055-17056) и CHANGELOG («The server writes under Node 24's permission model», строка
+1847) обещают больше, чем есть: под моделью разрешений `ai-dev clients install` не обновит запись, а `clients remove` её не
+уберёт — `failed`. Под `--permission` установку никто не запускает, так что неверен прежде всего текст.
+
+**Замер до** (`53277f6`, код равен `9a64749`; `p14/r8/lead/probes/clients-perm.mjs` — проба ревью, `out/clients-perm-53277f6-v24.out`;
+`node:24-bookworm`, uid 1000, `--permission --allow-fs-read=* --allow-fs-write=<home>`; ревью — `p14/r8/code/out/`):
+
+```
+v24.22.0 install, no config yet: [{"client":"cursor","status":"added"}]
+v24.22.0 install again, config there, entry changed: [{"client":"cursor","status":"failed","error":"fchmod API is disabled when Permission Model is enabled."}]
+v24.22.0 remove: [{"client":"cursor","status":"failed","error":"fchmod API is disabled when Permission Model is enabled."}]
+ревью: так же на v24.21.0, v25.9.0 и v26.12.0; v22.22.0 — added, updated, removed (clients-perm-versions.out,
+  clients-perm-v22.22.0.out); 73b1cba на v24.22.0 — failed уже на новом конфиге («fsync API is disabled …»)
+fdops.mjs: handle.chmod и handle.chown под --permission отказаны на 24.17.0, 24.20.0, 24.21.0, 24.22.0, 25.9.0 и 26.12.0,
+  разрешены на 22.16.0, 22.22.0, 24.0.0, 24.12.0, 24.13.0 и 24.14.0 (fdops-versions.out)
+```
+
+**Как закроется.** Права меняются, только если копия получила другие: `fstat` модель разрешений не запрещает. Где она запрещает и
+саму смену, это не отказ записи: у копии остаются права, которые ей дал `open`, — umask только убирает биты. `chown` (только у
+root, Д-168) остаётся как есть: файл root в домашней папке человека хуже отказа. Тест — запись в конфиг, который уже есть, и
+удаление записи под `--permission`; тексты Д-470 и CHANGELOG — по замеру.
+
+---
+
+## Д-478. Совет `clients doctor` читает пропавшую папку, привязанную в `/data`, как папку проектов: «which makes the folder» и `<projects-folder>` вместо целой папки проектов
+
+**Статус:** открыт. Закроет фаза 14. Нашло восьмое независимое ревью фазы 14 (ревью кода: should-fix 2); код — правка Д-469
+(`9a64749`).
+
+`missingMountError` (`src/cli/clients.mjs:309-356`): `roleOf` (`:312-313`) называет папкой проектов всё, что не модель и не
+состояние, — и bind в `/data`. Правка Д-469 сняла это с `dockerEntryOptions`, но не отсюда. Когда пропала сама папка из `/data`
+(диск не подключён — тот случай, ради которого доктор говорит), совет обещает «which makes the folder», хотя команда её не
+делает: на её место встаёт том (`made`, `:342`). А если install не может сделать папку на её месте — точка монтирования не своя,
+ссылка ведёт в никуда, диск `E:\` не подключён, — целая папка проектов в команде заменяется на `<projects-folder>`.
+
+**Чем грозит.** Совет противоречит сам себе («which makes the folder» и «in place of the folder it binds at /data»), а во
+втором случае человек получает команду без своей папки проектов. Закрытие Д-469 («папка, привязанная в `/data`, — не папка
+проектов», строки 17001-17003) и CHANGELOG (строки 1837-1839) говорят другое.
+
+**Замер до** (`53277f6`; `p14/r8/lead/probes/data-gone.mjs` — проба ревью, `out/data-gone-53277f6.out`; ревью —
+`p14/r8/code/out/data-gone.out`, `data-gone2.out`, `data-gone-win.out`, `doctor-e2e.out`):
+
+```
+A: bind в /data пропал (диск не подключён), папка проектов на месте:
+  … or write the entries again, which makes the folder, and on the volume ai-dev-system-data in place of the folder it
+  binds at /data, <H>/disk/ai-data, whose data is not carried over: `ai-dev clients install --docker --image=ai-dev-system:3
+  --clients=cursor --projects=<H>/Projects`.
+C: то же, а точка монтирования не своя (EACCES):
+  … with another projects folder in place of <projects-folder>, as install cannot make one in <H>/disk, which you may not
+  write to, and on the volume ai-dev-system-data … : `ai-dev clients install … '--projects=<projects-folder>'`.
+ревью: ссылка в никуда (E) и диск E:\ на Windows при папке проектов на C: (F) — тот же <projects-folder>;
+  `ai-dev clients doctor` целиком (A) — та же строка
+```
+
+**Как закроется.** У bind в `/data` — своя роль: он не папка проектов, не повод для «which makes the folder» и не причина
+подставлять `<projects-folder>`; совет говорит о нём одно — том встанет на его место без его данных. Тест — случаи A и C.
+
+---
+
+## Д-479. Мелочи восьмого ревью кода: два места `flushFile` без теста, «Node 24» о двух поведениях, которые зависят от версии внутри 24, `target=//data/` назван непрочитанным, образ в `/data` без теста
+
+**Статус:** открыт. Закроет фаза 14. Нашло восьмое независимое ревью фазы 14 (ревью кода: мелочи 3–6).
+
+**Замер до** (`53277f6`, код равен `9a64749`; ревью — `p14/r8/code/out/`):
+
+1. **Два места `flushFile` без теста.** Мутанты F5 (`mcp-clients.mjs:421` снова `handle.sync()`) и F6 (`backup-archive.mjs:317`
+   так же) переживают восемь целевых файлов тестов: v22.22.0 — 125 pass, v24.22.0 — 123 pass и 2 skipped (`mutants.out`).
+   Что они меняют, на v24.22.0 под `--permission`: резервная копия — у `9a64749` «backup: 1 files,
+   ai-dev-system_2026-10-19T12-00-00Z_manual.zip», у `73b1cba` «backup failed: ERR_ACCESS_DENIED fsync API is disabled when
+   Permission Model is enabled.» (`backup-perm.out`); новый конфиг клиента — `added` против `failed` (Д-477).
+2. **«Node 24» о том, что зависит от версии внутри 24.** `FileHandle.sync()` под `--permission` разрешён на 24.0.0, 24.12.0,
+   24.13.0, 24.14.0, 24.17.0, 24.20.0, 24.21.0 и 25.9.0 и отказан на 24.22.0 и 26.12.0 (`fdops-versions.out`,
+   `fdops-v24.22.0.out`), а комментарий `atomic-files.mjs:72`, комментарий теста `atomic-files.test.mjs:226` и CHANGELOG
+   (строка 1847) говорят «Node 24 refuses». TEXT с NUL в `node:sqlite` обрезан на 24.0.0, 24.12.0, 24.13.0, 24.14.0 и 25.9.0
+   и цел на 24.17.0, 24.20.0, 24.21.0, 24.22.0 и 26.12.0 (`sqlite-nul.out`), а комментарий `search-store.test.mjs:460`
+   («before Node 24 … since»), CHANGELOG (строка 1852, «which Node 24 no longer makes») и Д-471 (строки 17097 и 17100, «(Node
+   22) … (Node 24)») делят по мажору. На поведение не влияет: тесты в охвате ревью проходят на 24.14.0, 25.9.0 и 26.12.0 — по
+   124 теста, 123 pass и 1 skipped (`scope-*.tap`).
+3. **«Замер после» Д-469** (строка 17010) называет `target=//data/` непрочитанным `--mount`, а `type=volume,source=my-team-data,
+   target=//data/` (`docker-launch.test.mjs:464`) Docker 29 читает: `unreadableMounts` его не возвращает, Docker 29.8.2
+   монтирует том в `/data`.
+4. **Образ, tmpfs или анонимный том в `/data`.** Совет ставит туда том по умолчанию и не говорит, что там было
+   (`data-neighbours.out`, случаи T1, T2, T4); Docker 29.8.2 запускает и образ, и tmpfs в `/data` (`docker-data-kinds.out`), а
+   теряется что-то только с образом. Мутант D7 (`else if (mount.type === "bind")` → `else` в `atData`) жив: образ назывался
+   бы «the folder it binds at /data, <образ>».
+
+**Как закроется.** 1) Тест под `--permission` пишет и новый конфиг клиента (`installServer`), и резервную копию
+(`createBackup`). 2) Тексты — по замеру версий. 3) «Прочитанного». 4) Тест: образ и tmpfs в `/data` — не папка (мутант D7);
+что совет о них молчит — граница: install таких записей не пишет.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

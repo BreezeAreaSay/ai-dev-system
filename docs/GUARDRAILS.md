@@ -173,11 +173,14 @@ rule that blocks `terraform destroy`, and an example it must match.
 holding an unbounded quantifier, which would stall the guard on a long line —
 refuses a second rule with the same pattern for the same event (`all` counts as
 either), and refuses a new or changed
-pattern that does not match the `example` you pass. It stores the example on the
+pattern that does not match the `example` you pass — for a rule that is on: one that
+is off after the edit is checked for its shape only, and matched when it is switched
+on (Д-413). It stores the example on the
 rule, so `list_policy_rules` can re-run it later and tell you a rule a hand edit
 disarmed; `counter_example` is checked the same way, against a pattern that grew
 too broad. Updates are patches, so `{ "id": "warn-eval", "enabled": false }`
-disables a rule and `remove_policy_rule` deletes one. `agent_hooks_status` lists
+disables a rule — even where no match worker can start — and `remove_policy_rule`
+deletes one. `agent_hooks_status` lists
 every rule with what the guard would actually do with it. The guard re-reads the
 file on every call, so a change is live without restarting the client.
 

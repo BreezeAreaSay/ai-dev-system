@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { defaultPolicy, installAgentHooks } from "./agent-hooks.mjs";
 import {
   compilePolicyPattern,
@@ -458,11 +458,12 @@ test("a match worker that failed checked nothing: the rule is not written, and a
     await nothingWritten();
   }
 
-  // Whatever a matcher answers besides — here nothing at all for the samples — a rule is not written unseen to fire.
+  // Whatever a matcher answers besides — here nothing at all for the samples — a rule is not written unseen to fire:
+  // a sample left without an answer could not be checked (Д-417).
   let asked = 0;
   await assert.rejects(
     upsertPolicyRule({ projectRoot: root, rule: RULE, match: async (jobs) => (++asked === 1 ? jobs.map(() => ran(false)) : []) }),
-    /^Error: Rule "block-force-push" was not written: nothing showed that it fires on its example\./
+    /^Error: Rule "block-force-push" was not written: its example could not be checked, because the match worker failed \(it gave no answer for this match\)\./
   );
   await nothingWritten();
 
@@ -497,6 +498,135 @@ test("a refusal names the sample it is about, and a sample that overran its budg
     /^Error: Rule "block-force-push" backtracks catastrophically on its own counter-example:/
   );
   assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), [], "nothing was written");
+});
+
+test("a sample's answer about the rule is said before a sample that could not be checked (Д-417)", async (t) => {
+  const root = await tempProject(t, defaultPolicy("standard"));
+  const after = (answers) => {
+    let call = 0;
+    return async (jobs) => (++call === 1 ? jobs.map(() => ran(false)) : answers);
+  };
+  const unrun = (notRun) => ({ matched: null, checked: false, timed_out: false, error: "", truncated: false, not_run: notRun });
+  // The example answered no: that is about the rule, whatever happened to the counter-example.
+  for (const counter of [failedMatch, unrun("deadline"), unrun("start")]) {
+    await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: RULE, match: after([ran(false), counter]) }), /^Error: Rule "block-force-push" does not match its own example\./, JSON.stringify(counter));
+  }
+  // The counter-example answered yes: so is that, whatever happened to the example.
+  for (const example of [failedMatch, unrun("start")]) {
+    await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: RULE, match: after([example, ran(true)]) }), /^Error: Rule "block-force-push" also matches its counter-example, so it is broader than intended\.$/, JSON.stringify(example));
+  }
+  assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), [], "nothing was written");
+});
+
+test("a match the matcher gave no answer for checked nothing: not a cost probe, not a sample, not in a listing (Д-417)", async (t) => {
+  const root = await tempProject(t, defaultPolicy("standard"));
+  const noAnswer = /could not be checked, because the match worker failed \(it gave no answer for this match\)\./;
+  // No answers at all for the probes of a pattern the real matcher times out on.
+  let call = 0;
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: CATASTROPHIC_RULE, match: async (jobs) => (++call === 1 ? [] : jobs.map(() => ran(true))) }),
+    new RegExp(`^Error: Rule "catastrophic-pattern" was not written: its pattern ${noAnswer.source}`)
+  );
+  // Fewer answers than probes: the ones left out are no answers either.
+  call = 0;
+  await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: RULE, match: async (jobs) => (++call === 1 ? jobs.slice(1).map(() => ran(false)) : jobs.map(() => ran(true))) }), new RegExp(`its pattern ${noAnswer.source}`));
+  // The example answered, the counter-example not — or answered with something that is no answer.
+  for (const answers of [[ran(true)], [ran(true), { matched: null }], [ran(true), null]]) {
+    call = 0;
+    await assert.rejects(
+      upsertPolicyRule({ projectRoot: root, rule: RULE, match: async (jobs) => (++call === 1 ? jobs.map(() => ran(false)) : answers) }),
+      new RegExp(`^Error: Rule "block-force-push" was not written: its counter-example ${noAnswer.source}`),
+      JSON.stringify(answers)
+    );
+  }
+  assert.deepEqual((await readPolicy(root)).rules.filter((rule) => [RULE.id, CATASTROPHIC_RULE.id].includes(rule.id)), [], "nothing was written");
+
+  // A listing whose matcher answers nothing does not vouch for a rule with a sample.
+  const listed = await tempProject(t, { ...defaultPolicy("standard"), rules: [...defaultPolicy("standard").rules, RULE] });
+  const report = await listPolicyRules(listed, { match: async () => [] });
+  const rule = report.rules.find((entry) => entry.id === RULE.id);
+  assert.deepEqual([rule.fires_on_example, rule.match_error], [null, "it gave no answer for this match"]);
+  assert.match(rule.problems[0], /^This rule was never matched against its sample: the match worker failed \(it gave no answer for this match\)\./);
+  assert.equal(report.counts.broken, 1);
+});
+
+test("what a failed match said is put in brackets without the full stop it ended with, and never left empty (Д-417)", async (t) => {
+  const root = await tempProject(t, defaultPolicy("standard"));
+  const failing = (error) => async (jobs) => jobs.map(() => ({ ...failedMatch, error }));
+  for (const [error, said] of [["spawn EAGAIN.", "spawn EAGAIN"], ["it stopped at v1.2. \n", "it stopped at v1.2"], ["", "it gave no reason"], [" . ", "it gave no reason"]]) {
+    await assert.rejects(
+      upsertPolicyRule({ projectRoot: root, rule: RULE, match: failing(error) }),
+      (thrown) => thrown.message.includes(`the match worker failed (${said}). Nothing here says the pattern is wrong`),
+      JSON.stringify(error)
+    );
+    const [described] = await describePolicyRules([RULE], { match: failing(error) });
+    assert.equal(described.match_error, said, JSON.stringify(error));
+    assert.ok(described.problems[0].includes(`the match worker failed (${said}). Nothing here says the rule is wrong`), described.problems[0]);
+  }
+});
+
+test("a rule that is off after the edit is not matched at all: switched off or edited while off, it is written where no match can run; switched on, it is matched again (Д-413)", async (t) => {
+  const root = await tempProject(t, defaultPolicy("standard"));
+  await upsertPolicyRule({ projectRoot: root, rule: RULE });
+  // A worker that cannot be made, as under a process limit: every match fails. Each request is counted.
+  let calls = 0;
+  const failing = async (jobs) => {
+    calls += 1;
+    return jobs.map(() => failedMatch);
+  };
+  const stored = async (id) => (await readPolicy(root)).rules.find((rule) => rule.id === id);
+
+  const off = await upsertPolicyRule({ projectRoot: root, rule: { id: RULE.id, enabled: false }, match: failing });
+  assert.deepEqual([off.action, off.changed_fields, off.rule.effective_action, off.rule.match_error, off.rule.problems], ["updated", ["enabled"], "none", null, []]);
+  assert.equal((await stored(RULE.id)).enabled, false);
+  // Edited while it stays off: its message, its pattern with an example of its own.
+  const edited = await upsertPolicyRule({ projectRoot: root, rule: { id: RULE.id, message: "Ask a human first." }, match: failing });
+  assert.deepEqual([edited.action, edited.changed_fields], ["updated", ["message"]]);
+  const narrowed = await upsertPolicyRule({ projectRoot: root, rule: { id: RULE.id, pattern: "git\\s+push\\s+-f\\b", example: "git push -f" }, match: failing });
+  assert.deepEqual([narrowed.action, narrowed.changed_fields], ["updated", ["pattern", "example"]]);
+  assert.equal((await upsertPolicyRule({ projectRoot: root, rule: { id: RULE.id, enabled: false }, match: failing })).action, "unchanged");
+  // A default rule, which carries no sample: its pattern's cost is not probed either.
+  assert.equal((await upsertPolicyRule({ projectRoot: root, rule: { id: "warn-eval", enabled: false }, match: failing })).action, "updated");
+  // So is a rule written off from the start.
+  const late = { id: "deploy-later", event: "bash", pattern: "deploy-prod", action: "block", message: "Deploys go through CI.", example: "./deploy-staging.sh", enabled: false };
+  assert.equal((await upsertPolicyRule({ projectRoot: root, rule: late, match: failing })).action, "created");
+  assert.equal(calls, 0, "no match was asked for a rule that is off");
+
+  // Its shape is checked as before: a pattern that cannot work, or a new one with no example, is refused.
+  await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: { id: RULE.id, pattern: "(a+)+" }, match: failing }), /nests an unbounded quantifier/);
+  await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: { ...late, id: "off-and-unproved", pattern: "release-prod", example: undefined }, match: failing }), /needs an example/);
+  assert.equal(calls, 0);
+
+  // Switched on, it is matched again: here the worker fails, so the rule stays off.
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: { id: RULE.id, enabled: true }, match: failing }),
+    /^Error: Rule "block-force-push" was not written: its pattern could not be checked, because the match worker failed \(EAGAIN\)\./
+  );
+  assert.equal((await stored(RULE.id)).enabled, false);
+  // A rule that stays on is matched as before.
+  await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: { id: "warn-inner-html", message: "Use textContent." }, match: failing }), /could not be checked, because the match worker failed \(EAGAIN\)/);
+  assert.equal(calls, 2);
+  // The rule written off from the start: switching it on is where its example is found not to match.
+  await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: { id: late.id, enabled: true } }), /^Error: Rule "deploy-later" does not match its own example\./);
+  assert.equal((await stored(late.id)).enabled, false);
+});
+
+test("where no worker thread can be made at all, a rule is still switched off, and switching it on is refused (Д-413)", async (t) => {
+  const root = await fs.realpath(await tempProject(t, defaultPolicy("standard")));
+  await upsertPolicyRule({ projectRoot: root, rule: RULE });
+  const module = pathToFileURL(fileURLToPath(new URL("./policy-rules.mjs", import.meta.url))).href;
+  // Under --permission without --allow-worker no thread can be made: what Д-413 measured, with the real matcher.
+  const script = `const { upsertPolicyRule } = await import(${JSON.stringify(module)});
+const projectRoot = ${JSON.stringify(root)};
+const off = await upsertPolicyRule({ projectRoot, rule: { id: "block-force-push", enabled: false } });
+const on = await upsertPolicyRule({ projectRoot, rule: { id: "block-force-push", enabled: true } }).then(() => "written", (error) => error.message);
+console.log(JSON.stringify({ off: [off.action, off.rule.match_error, off.rule.problems], on }));`;
+  const run = spawnSync(process.execPath, ["--permission", "--allow-fs-read=*", `--allow-fs-write=${root}`, "--input-type=module", "-e", script], { encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+  const said = JSON.parse(run.stdout);
+  assert.deepEqual(said.off, ["updated", null, []], "switched off, and reported without a match");
+  assert.match(said.on, /^Rule "block-force-push" was not written: its pattern could not be checked, because the match worker failed \(.*--allow-worker.*\)\./);
+  assert.equal((await readPolicy(root)).rules.find((rule) => rule.id === RULE.id).enabled, false);
 });
 
 test("a hand-written catastrophic rule is reported by the reader instead of hanging it", async (t) => {

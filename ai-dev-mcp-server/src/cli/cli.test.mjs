@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { readJsonc } from "../core/jsonc-edit.mjs";
-import { clientStatePath } from "./clients.mjs";
+import { clientStatePath, commandWord } from "./clients.mjs";
 import { createIo } from "./context.mjs";
 import { parseSetupArgs } from "./setup.mjs";
 import { PassThrough } from "node:stream";
@@ -351,7 +351,7 @@ test("clients doctor names a Docker entry whose mounted folder is gone, without 
   await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: path.join(home, "no-such", "docker"), args } } }));
   const doctor = await runNode([cli, "clients", "doctor"], { env: homeEnv(home) });
   assert.equal(doctor.code, 1);
-  assert.match(doctor.stdout, new RegExp(`Cursor\\s+FAILED — the folder this entry mounts at /models/bge-m3-onnx is not here: ${escapeRegExp(away)}\\. Docker starts no session without it: connect the disk it is on, or write the entries again with another model folder \\(--model=<folder>\\) or with none, the model then the volume's: \`ai-dev clients install --docker --image=ai-dev-system:3\`\\.`));
+  assert.match(doctor.stdout, new RegExp(`Cursor\\s+FAILED — the folder this entry mounts at /models/bge-m3-onnx is not here: ${escapeRegExp(away)}\\. Docker starts no session without it: connect the disk it is on, or write the entries again with another model folder \\(--model=<folder>\\) or with none, the model then the volume's: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor\`\\.`));
   assert.doesNotMatch(doctor.stdout, /no-such/, "the entry was not started");
 });
 
@@ -374,16 +374,139 @@ test("clients doctor names where a gone model link leads, and its advice writes 
   const linked = await runNode([cli, "clients", "doctor"], { env: homeEnv(home) });
   assert.equal(linked.code, 1);
   // The image the entry runs, not the default one; the projects folder quoted, for its space.
-  assert.ok(linked.stdout.includes(`FAILED — the folder this entry mounts at /models/bge-m3-onnx: ${models}/bge-m3-onnx leads to ${target}, which is not here. Docker starts no session without it: connect the disk it leads to, or write the entries again with another model folder (--model=<folder>) or with none, the model then the volume's: \`ai-dev clients install --docker --image=ai-dev-system:p14r2 '--projects=${projects}'\`.`), linked.stdout);
+  assert.ok(linked.stdout.includes(`FAILED — the folder this entry mounts at /models/bge-m3-onnx: ${models}/bge-m3-onnx leads to ${target}, which is not here. Docker starts no session without it: connect the disk it leads to, or write the entries again with another model folder (--model=<folder>) or with none, the model then the volume's: \`ai-dev clients install --docker --image=ai-dev-system:p14r2 --clients=cursor '--projects=${projects}'\`.`), linked.stdout);
 
   // A projects folder that went: install makes it again, so it is not one to write the entries without.
   await fs.mkdir(target, { recursive: true });
   await fs.rm(projects, { recursive: true });
   const moved = await runNode([cli, "clients", "doctor"], { env: homeEnv(home) });
   assert.equal(moved.code, 1);
-  assert.ok(moved.stdout.includes(`FAILED — the folder this entry mounts at ${projects} is not here: ${projects}. Docker starts no session without it: connect the disk it is on, or write the entries again, which makes the folder: \`ai-dev clients install --docker --image=ai-dev-system:p14r2 '--projects=${projects}' --model=${models}\`.`), moved.stdout);
+  assert.ok(moved.stdout.includes(`FAILED — the folder this entry mounts at ${projects} is not here: ${projects}. Docker starts no session without it: connect the disk it is on, or write the entries again, which makes the folder: \`ai-dev clients install --docker --image=ai-dev-system:p14r2 --clients=cursor '--projects=${projects}' --model=${models}\`.`), moved.stdout);
   assert.doesNotMatch(moved.stdout, /without it \(/);
   assert.doesNotMatch(`${linked.stdout}${moved.stdout}`, /no-such/, "the entry was not started");
+});
+
+// The command a doctor's advice gives, as the words a POSIX shell reads in it: each one bare, or quoted whole.
+function adviceWords(stdout) {
+  const command = /`(ai-dev clients install [^`]*)`/.exec(stdout)?.[1];
+  assert.ok(command, stdout);
+  return [...command.matchAll(/'((?:[^']|'\\'')*)'|(\S+)/g)].map((match) => (match[1] === undefined ? match[2] : match[1].replaceAll("'\\''", "'")));
+}
+
+// A home with Cursor configured to run a Docker entry, and a docker on PATH that writes nothing (the state's probe).
+async function dockerEntryHome(t) {
+  const home = await fs.realpath(await tempDir(t));
+  await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+  const bin = path.join(home, "bin");
+  await fs.mkdir(bin);
+  await fs.writeFile(path.join(bin, "docker"), "", { mode: 0o755 });
+  const writeEntry = (...mounts) => fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": {
+    command: path.join(home, "no-such", "docker"),
+    args: ["run", "-i", "--rm", ...mounts.flatMap((mount) => ["--mount", mount]), "ai-dev-system:3"]
+  } } }));
+  const readEntry = async () => readJsonc(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"].args;
+  return { home, writeEntry, readEntry, env: homeEnv(home, { PATH: `${bin}${path.delimiter}${process.env.PATH}`, AI_DEV_STATE_ROOT: "" }) };
+}
+
+test("clients doctor's advice drops --model whichever gone folder is the model's, and keeps the volume and the state (Д-414, Д-417)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+  const { home, writeEntry, readEntry, env } = await dockerEntryHome(t);
+  const projects = path.join(home, "Projects");
+  const state = path.join(home, "state");
+  const models = path.join(home, "models");
+  await fs.mkdir(state);
+  await fs.mkdir(models);
+  await fs.symlink(path.join(home, "disk2", "bge-m3-onnx-real"), path.join(models, "bge-m3-onnx"));
+  const volume = "type=volume,source=r3f-other-data,target=/data";
+  // The projects folder and the model both gone: the model's mount is the last one, and still the one --model is about.
+  await writeEntry(volume, `type=bind,source=${state},target=/ai-dev-state`, `type=bind,source=${projects},target=${projects}`, `type=bind,source=${models}/bge-m3-onnx,target=/models/bge-m3-onnx,readonly`);
+  const both = await runNode([cli, "clients", "doctor"], { env });
+  assert.equal(both.code, 1);
+  assert.ok(both.stdout.includes(`FAILED — the folder this entry mounts at ${projects} is not here: ${projects} (nor is the one it mounts at /models/bge-m3-onnx). Docker starts no session without them: connect the disks they are on, or write the entries again, which makes the projects folder, and with another model folder (--model=<folder>) or with none, the model then the volume's: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor --volume=r3f-other-data --projects=${projects} --state=${state}\`.`), both.stdout);
+  // Run as it is written, it writes the entry again: the projects folder made, no model, the volume and image kept.
+  const again = await runNode([cli, ...adviceWords(both.stdout).slice(1)], { env });
+  assert.equal(again.code, 0, `${again.stdout}${again.stderr}`);
+  await fs.access(projects);
+  const args = await readEntry();
+  assert.deepEqual([args.at(-1), args.includes(volume), args.some((argument) => argument.includes("/models"))], ["ai-dev-system:3", true, false], args.join(" "));
+
+  // A model folder mounted at /models itself, not through its bge-m3-onnx link: gone, it is the model's as well.
+  await writeEntry(volume, `type=bind,source=${projects},target=${projects}`, `type=bind,source=${path.join(home, "gone-models")},target=/models,readonly`);
+  const folder = await runNode([cli, "clients", "doctor"], { env });
+  assert.equal(folder.code, 1);
+  assert.ok(folder.stdout.includes(`FAILED — the folder this entry mounts at /models is not here: ${path.join(home, "gone-models")}. Docker starts no session without it: connect the disk it is on, or write the entries again with another model folder (--model=<folder>) or with none, the model then the volume's: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor --volume=r3f-other-data --projects=${projects}\`.`), folder.stdout);
+});
+
+test("clients doctor's advice writes the entry it is about, not every client's: a client of a local install stays one (Д-414)", async (t) => {
+  const { home, writeEntry, env } = await dockerEntryHome(t);
+  await fs.mkdir(path.join(home, ".gemini"));
+  const local = `${JSON.stringify({ mcpServers: { "ai-dev": { command: process.execPath, args: [cli, "mcp"] } } }, null, 2)}\n`;
+  await fs.writeFile(path.join(home, ".gemini", "settings.json"), local);
+  const projects = path.join(home, "Projects");
+  await writeEntry(`type=bind,source=${projects},target=${projects}`);
+  const doctor = await runNode([cli, "clients", "doctor"], { env });
+  assert.equal(doctor.code, 1, doctor.stdout);
+  assert.match(doctor.stdout, /Gemini CLI\s+ok — /);
+  const words = adviceWords(doctor.stdout);
+  assert.deepEqual(words, ["ai-dev", "clients", "install", "--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${projects}`]);
+  const again = await runNode([cli, ...words.slice(1)], { env });
+  assert.equal(again.code, 0, `${again.stdout}${again.stderr}`);
+  assert.match(again.stdout, /Cursor\s+updated/);
+  assert.doesNotMatch(again.stdout, /Gemini/);
+  assert.equal(await fs.readFile(path.join(home, ".gemini", "settings.json"), "utf8"), local, "Gemini CLI still runs the local install");
+});
+
+test("clients doctor's advice for a projects or state folder that is a link leading nowhere takes another folder: install cannot make one through it (Д-414)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+  const { home, writeEntry, readEntry, env } = await dockerEntryHome(t);
+  const projects = path.join(home, "Projects");
+  const unplugged = path.join(home, "unplugged", "Projects");
+  await fs.symlink(unplugged, projects);
+  await writeEntry(`type=bind,source=${projects},target=${projects}`);
+  const doctor = await runNode([cli, "clients", "doctor"], { env });
+  assert.equal(doctor.code, 1);
+  assert.ok(doctor.stdout.includes(`FAILED — the folder this entry mounts at ${projects}: ${projects} leads to ${unplugged}, which is not here. Docker starts no session without it: connect the disk it leads to, or write the entries again with another projects folder in place of <folder>, as install cannot make one through a link that leads nowhere: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor '--projects=<folder>'\`.`), doctor.stdout);
+  // The folder the link names is not one install can make: what the advice said before fails.
+  const through = await runNode([cli, "clients", "install", "--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${projects}`], { env });
+  assert.equal(through.code, 2);
+  assert.match(through.stderr, /ENOENT/);
+  // Another folder named in place of <folder>: the entry is written with it.
+  const elsewhere = path.join(home, "Elsewhere");
+  const again = await runNode([cli, ...adviceWords(doctor.stdout).slice(1).map((word) => word.replace("<folder>", elsewhere))], { env });
+  assert.equal(again.code, 0, `${again.stdout}${again.stderr}`);
+  assert.ok((await readEntry()).includes(`type=bind,source=${elsewhere},target=${elsewhere}`));
+
+  // The state folder the same way.
+  const state = path.join(home, "state");
+  await fs.symlink(path.join(home, "unplugged", "state"), state);
+  await writeEntry(`type=bind,source=${state},target=/ai-dev-state`, `type=bind,source=${elsewhere},target=${elsewhere}`);
+  const stateDoctor = await runNode([cli, "clients", "doctor"], { env });
+  assert.deepEqual(adviceWords(stateDoctor.stdout).slice(3), ["--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${elsewhere}`, "--state=<folder>"]);
+  assert.match(stateDoctor.stdout, /or write the entries again with another state folder in place of <folder>, as install cannot make one through a link that leads nowhere: `/);
+});
+
+test("clients doctor says a --mount Docker cannot read is that, not a folder gone, and does not start the entry (Д-417)", async (t) => {
+  const { home, writeEntry, env } = await dockerEntryHome(t);
+  // Docker 29: "unknown option 'bogus' in 'bogus=1'", for the whole command, before it looks at either folder.
+  const value = `type=bind,source=${path.join(home, "gone")},target=/x,bogus=1`;
+  await writeEntry(value, `type=bind,source=${path.join(home, "gone-too")},target=/y`);
+  const doctor = await runNode([cli, "clients", "doctor"], { env });
+  assert.equal(doctor.code, 1);
+  assert.ok(doctor.stdout.includes(`Cursor                  FAILED — its --mount ${JSON.stringify(value)} cannot be read: Docker refuses the whole command over it and starts no session — correct it in ~${path.sep}${path.join(".cursor", "mcp.json")}.`), doctor.stdout);
+  assert.doesNotMatch(doctor.stdout, /is not here|no-such/);
+});
+
+test("a command the doctor gives is quoted for the shell it is pasted into: a POSIX one, or PowerShell on Windows (Д-417)", (t) => {
+  assert.equal(commandWord("--projects=/home/me/My $Projects", "linux"), "'--projects=/home/me/My $Projects'");
+  assert.equal(commandWord("--state=/home/O'Brien/state", "darwin"), "'--state=/home/O'\\''Brien/state'");
+  assert.equal(commandWord("--image=ghcr.io/x/ai-dev@sha256:ab12", "linux"), "--image=ghcr.io/x/ai-dev@sha256:ab12");
+  assert.equal(commandWord("--projects=C:\\Users\\me\\AI-Dev-Projects", "win32"), "--projects=C:\\Users\\me\\AI-Dev-Projects");
+  // In PowerShell double quotes expand $: single quotes, a quote in them doubled, the typographic ones too.
+  const windows = ["--projects=C:\\Users\\me\\My $Projects", "--state=C:\\Users\\O'Brien\\state", "--model=C:\\Users\\O\u2019Brien\\models", "--projects=<folder>", "--volume=a,b", "@data"];
+  assert.deepEqual(windows.map((word) => commandWord(word, "win32")), ["'--projects=C:\\Users\\me\\My $Projects'", "'--state=C:\\Users\\O''Brien\\state'", "'--model=C:\\Users\\O\u2019\u2019Brien\\models'", "'--projects=<folder>'", "'--volume=a,b'", "'@data'"]);
+  // PowerShell itself, where there is one, reads each back as the word it was.
+  const run = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", `& '${process.execPath.replaceAll("'", "''")}' -e 'console.log(JSON.stringify(process.argv.slice(1)))' -- ${windows.map((word) => commandWord(word, "win32")).join(" ")}`], { encoding: "utf8" });
+  if (run.error?.code === "ENOENT") return t.skip("pwsh is unavailable on this host");
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout), windows);
 });
 
 test("the note that the model is on another disk reaches the person: on stderr from clients entry --docker, in install --docker --json (Д-385, Д-395)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {

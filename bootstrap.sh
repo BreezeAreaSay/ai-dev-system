@@ -600,7 +600,10 @@ if [ "$install_status" -ne 0 ]; then
   printf '%s\n' "Some AI clients were not configured: see above for which, and why. Run bootstrap.sh again once that is fixed." >&2
   exit 1
 fi
-if [ "$no_client" -eq 1 ]; then
+# The last line says what was done to the clients, no more: a restart only after configs were written (Д-415).
+if [ "$skip_client_install" -eq 1 ]; then
+  printf '%s\n' "AI Dev is ready; the AI clients' configs were left as they were."
+elif [ "$no_client" -eq 1 ]; then
   printf '%s\n' "AI Dev is ready; no AI client is connected to it yet."
 else
   printf '%s\n' "AI Dev is ready. Restart the AI clients to load ai-dev."

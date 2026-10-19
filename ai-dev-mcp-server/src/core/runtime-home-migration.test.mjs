@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -361,6 +361,67 @@ test("the start log names the .codex the data moved out of, not ~/.codex (Д-397
   await fs.mkdir(record);
   const [failed] = await lines("failed");
   assert.ok(failed.startsWith(`ai-dev: could not move AI Dev's data out of ${path.join(own, ".codex")}: `), failed);
+});
+
+test("a move out of the .codex beside AI_DEV_HOME=<home>/.ai-dev that fails half-way names that folder, not ~/.codex (Д-417)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-fail-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const runtime = path.join(home, ".ai-dev");
+  await write(path.join(runtime, ".codex", "state", "archify-receipts", "p.json"), "{}\n");
+  await write(path.join(home, ".codex", "state", "archify-receipts", "user.json"), "{}\n");
+  // The record of the move cannot be written: a folder where the file goes.
+  await fs.mkdir(path.join(runtime, "state", "runtime-home-migration.json"), { recursive: true });
+  const said = [];
+  const { prepareRuntimeHome: prepare } = await import(new URL("./runtime-home-migration.mjs?codex-fail-beside", import.meta.url).href);
+  await prepare({ env: { HOME: home, AI_DEV_HOME: runtime, AI_DEV_STATE_ROOT: "" }, log: (line) => said.push(line) });
+  assert.equal(said.length, 1, said.join("\n"));
+  assert.ok(said[0].startsWith(`ai-dev: could not move AI Dev's data out of ${path.join(runtime, ".codex")}: `), said[0]);
+  // The move had happened: the folder it names is the one it emptied, and ~/.codex was not touched.
+  await fs.access(path.join(runtime, "state", "archify-receipts", "p.json"));
+  await fs.access(path.join(home, ".codex", "state", "archify-receipts", "user.json"));
+});
+
+test("AI_DEV_HOME is told for <home>/.ai-dev through links, before that folder exists too (Д-394, Д-417)", { skip: process.platform === "win32" && "POSIX links" }, async (t) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-links-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  // HOME is a link to the real home, and AI_DEV_HOME names the real one's .ai-dev, which no start has made yet.
+  const real = path.join(root, "real-home");
+  const link = path.join(root, "home");
+  await write(path.join(real, ".codex", "state", "archify-receipts", "r1.json"), "{}\n");
+  await fs.symlink(real, link);
+  for (const env of [{ HOME: link, AI_DEV_HOME: path.join(real, ".ai-dev") }, { HOME: real, AI_DEV_HOME: path.join(link, ".ai-dev") }]) {
+    await assert.rejects(fs.access(path.join(real, ".ai-dev")), /ENOENT/);
+    assert.equal((await describeRuntimeHome({ env })).codex_root, path.join(env.HOME, ".codex"), JSON.stringify(env));
+  }
+  const first = await migrateCodexRuntime({ env: { HOME: link, AI_DEV_HOME: path.join(real, ".ai-dev") } });
+  assert.deepEqual([first.status, first.moved, first.from], ["migrated", 1, path.join(link, ".codex")], "on the first start, not the next");
+  await fs.access(path.join(real, ".ai-dev", "state", "archify-receipts", "r1.json"));
+
+  // ~/.ai-dev itself a link to a folder elsewhere, which AI_DEV_HOME names: the same folder, by another name.
+  const elsewhere = path.join(root, "data", "ai-dev");
+  const other = path.join(root, "other-home");
+  await write(path.join(other, ".codex", "state", "archify-receipts", "r2.json"), "{}\n");
+  await fs.mkdir(elsewhere, { recursive: true });
+  await fs.symlink(elsewhere, path.join(other, ".ai-dev"));
+  assert.equal((await describeRuntimeHome({ env: { HOME: other, AI_DEV_HOME: elsewhere } })).codex_root, path.join(other, ".codex"));
+});
+
+test("AI_DEV_HOME is told for <home>/.ai-dev in the letter case a case-blind filesystem ignores (Д-394, Д-417)", { skip: process.platform === "win32" && "POSIX links" }, async (t) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-case-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const real = path.join(root, "real-home");
+  const link = path.join(root, "home");
+  await write(path.join(real, ".codex", "state", "archify-receipts", "r1.json"), "{}\n");
+  await fs.symlink(real, link);
+  // As on macOS, whose filesystem ignores letter case by default: this host's would not, so the platform is told.
+  const module = new URL("./runtime-home-migration.mjs", import.meta.url).href;
+  const script = `const { describeRuntimeHome } = await import(${JSON.stringify(module)});
+const cases = ${JSON.stringify([{ HOME: real, AI_DEV_HOME: path.join(root, "REAL-HOME", ".AI-Dev") }, { HOME: link, AI_DEV_HOME: path.join(real, ".AI-DEV") }])};
+console.log(JSON.stringify(await Promise.all(cases.map(async (env) => (await describeRuntimeHome({ env })).codex_root))));`;
+  const run = spawnSync(process.execPath, ["--import", "data:text/javascript,Object.defineProperty(process,\"platform\",{value:\"darwin\"})", "--input-type=module", "-e", script], { encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout), [path.join(real, ".codex"), path.join(link, ".codex")]);
 });
 
 test("a Codex-era index or half a download that ~/.ai-dev has its own of is dropped, not a conflict (Д-183)", async (t) => {

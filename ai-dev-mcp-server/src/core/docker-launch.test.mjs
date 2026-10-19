@@ -20,7 +20,8 @@ import {
   modelMount,
   probeStateSharing,
   resolveDockerCommand,
-  sharesHostState
+  sharesHostState,
+  unreadableMounts
 } from "./docker-launch.mjs";
 
 const mountsOf = (args) => args.flatMap((argument, index) => (args[index - 1] === "--mount" ? [argument] : []));
@@ -192,6 +193,48 @@ test("a --mount is read the way Docker's CLI reads it, and only a folder that is
   const link = (target) => ({ lstat: () => ({ isSymbolicLink: () => true }), readlink: () => target, stat: statOf({}) });
   assert.deepEqual(missingBindSources(spec("/m/bge-m3-onnx"), link("/media/disk2/bge-m3-onnx")), [{ source: "/m/bge-m3-onnx", target: "/x", leadsTo: "/media/disk2/bge-m3-onnx" }]);
   assert.equal(missingBindSources(spec("/m/bge-m3-onnx"), link("../disk2/model"))[0].leadsTo, path.resolve("/m", "../disk2/model"));
+});
+
+test("a --mount is read as Docker 29 reads it: up to the image, its own CSV lines, bind-create-src, and nothing from a command Docker refuses (Д-417)", () => {
+  const known = { stat: statOf({ "/here": "" }) };
+  const gone = (...args) => missingBindSources(["run", ...args], known);
+  const away = [{ source: "/gone", target: "/x" }];
+  // Each of these checked against Docker 29 itself: "bind source path does not exist" for every one.
+  for (const value of ["\ntype=bind,source=/gone,target=/x", "\r\n\ntype=bind,source=/gone,target=/x", "type=bind,source=/gone,target=/x\r\n", "type=bind,source=/gone,target=/x\r",
+    "type=bind,source=/gone,target=/x,bind-create-src=false", "type=bind,source=/gone,target=/x,bind-create-src,bind-create-src=0", "type=bind,source=/gone,target=/x,readonly=1,consistency=cached,bind-propagation=rprivate,bind-recursive=disabled"]) {
+    assert.deepEqual(gone("--mount", value, "img"), away, JSON.stringify(value));
+  }
+  // Options of every shape before the image; a value is not read again as an option.
+  for (const options of [["-it"], ["-e", "A=1"], ["-eA=1"], ["-e=A=1"], ["-ie", "A=1"], ["--env", "--mount"], ["--name=x", "--rm"], ["-v", "/gone:/y"]]) {
+    assert.deepEqual(gone(...options, "--mount", "type=bind,source=/gone,target=/x", "img"), away, options.join(" "));
+  }
+  // Docker makes the source of a bind-create-src mount; a --mount after the image, or after --, is the container's.
+  for (const args of [
+    ["--mount", "type=bind,source=/gone,target=/x,bind-create-src", "img"],
+    ["--mount", "type=bind,source=/gone,target=/x,BIND-CREATE-SRC=true", "img"],
+    ["--mount", "type=bind,source=/gone,target=/x,bind-create-src=0,bind-create-src=1", "img"],
+    ["-i", "img", "--mount", "type=bind,source=/gone,target=/x"],
+    ["--", "img", "--mount=type=bind,source=/gone,target=/x"],
+    ["-e", "--mount", "type=bind,source=/gone,target=/x", "img"]
+  ]) {
+    assert.deepEqual(gone(...args), [], args.join(" "));
+  }
+  // A value Docker's CLI refuses stops the whole command before any folder is looked at, the gone one beside it too.
+  for (const value of ["type=bind,source=/gone,target=/x,bogus=1", "type=bind,source=/gone,target=/x,source", "type=bind, source=/gone,target=/x",
+    ",type=bind,source=/gone,target=/x", "type=bind,,source=/gone,target=/x", "type=bind,source=/gone,target=/x,", "type=bind,source=,target=/x",
+    "type=bind,source=/gone,target=/x,readonly=yes", "type=bind,source=/gone,target=/x,readonly=TRUE", "type=bind,source=/gone,target=/x,bind-create-src=",
+    "type=bind,source=/gone,target=/x,bind-recursive=bogus", "type=bind,source=/gone,target=/x,bind-nonrecursive", "type=bind,source=/gone,target=/x,volume-nocopy",
+    "type=bind,source=/gone,target=/x,tmpfs-size=1m", "source=/gone,target=/x,bind-create-src", "\n", ""]) {
+    assert.deepEqual(gone("--mount", value, "--mount", "type=bind,source=/gone,target=/y", "img"), [], JSON.stringify(value));
+  }
+  assert.deepEqual(gone("--mount=", "--mount", "type=bind,source=/gone,target=/y", "img"), [], "an empty --mount=");
+  // Which values those are, for the doctor to say; one after the image is the container's, and not among them.
+  assert.deepEqual(unreadableMounts(["run", "--mount", "type=bind,source=/x,target=/y,bogus=1", "--mount", "type=bind,source=/gone,target=/z", "--mount=", "img", "--mount", "a,b"]), ["type=bind,source=/x,target=/y,bogus=1", ""]);
+  assert.deepEqual(unreadableMounts(["run", "-i", "--mount", "\r\ntype=bind,source=/x,target=/y,bind-create-src", "img"]), []);
+  assert.deepEqual(unreadableMounts(["run", "-i", "--mount"]), [""], "a --mount with no value");
+  // The image is the first argument after the options, whatever the container is told after it.
+  assert.equal(dockerEntryOptions(["run", "-i", "--rm", "--mount", "type=volume,source=v,target=/data", "-e", "A=1", "ai-dev-system:3", "ai-dev", "mcp", "--mount", "x"]).image, "ai-dev-system:3");
+  assert.equal(dockerEntryOptions(["run", "--mount=type=bind,source=/p,target=/p,bogus=1", "--mount", "type=bind,source=/s,target=/ai-dev-state", "img"]).state, "/s", "a mount it cannot read is passed over");
 });
 
 test("an entry's options are read back from what it runs, so writing it again keeps them (Д-397)", () => {

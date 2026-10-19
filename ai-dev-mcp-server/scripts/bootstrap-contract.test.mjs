@@ -312,6 +312,35 @@ test("with every client the default and none here, nothing is written and that i
   assert.doesNotMatch(found.stdout, /No AI client found here/);
 });
 
+test("the last line says what was done to the clients: left as they were, written, or none found — and a client found is never one missing (Д-415, Д-417)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  // --skip-client-install with a client here: nothing written, and no restart asked for.
+  const skipped = await runBootstrap(t, ["--skip-smoke", "--skip-client-install"], { folders: [".cursor"] });
+  if (!skipped) return;
+  assert.equal(skipped.status, 0, skipped.stderr);
+  assert.equal(skipped.calls.find((call) => call[0] === "run" && (call.includes("install") || call.includes("entry"))), undefined, "no installer run");
+  assert.match(skipped.stdout, /\nAI Dev is ready; the AI clients' configs were left as they were\.\n$/);
+  assert.doesNotMatch(skipped.stdout, /Restart the AI clients|No AI client found here/);
+
+  // Only Claude Code here, written by its own CLI: the installer writes nothing, and a client was still connected.
+  const claudeOnly = await runBootstrap(t, ["--skip-smoke"], { folders: [".claude", ".unrelated"], claude: true });
+  assert.equal(claudeOnly.status, 0, claudeOnly.stderr);
+  assert.equal(claudeOnly.calls.find((call) => call[0] === "run" && call.includes("install")), undefined);
+  assert.match(claudeOnly.stdout, /Claude Code {13}added through `claude mcp add-json`\nAI Dev is ready\. Restart the AI clients to load ai-dev\.\n$/);
+  assert.doesNotMatch(claudeOnly.stdout, /No AI client found here/);
+
+  // The one client here was refused by Docker: a client that failed, not none found, and the exit says so.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-unshared-only-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const unshared = await fs.realpath(root);
+  await fs.writeFile(path.join(unshared, "mcp.json"), "{}");
+  const refused = await runBootstrap(t, ["--skip-smoke"], { env: { MOUNT_DENY: unshared }, folders: [".cursor"], rootLinks: { ".cursor/mcp.json": path.join(unshared, "mcp.json") } });
+  assert.equal(refused.status, 1, refused.stderr);
+  assert.match(refused.stderr, /Cursor: Docker did not take a folder its config leads to .*: not configured\.\nSome AI clients were not configured/);
+  assert.equal(refused.calls.find((call) => call[0] === "run" && call.includes("install")), undefined);
+  assert.doesNotMatch(`${refused.stdout}${refused.stderr}`, /No AI client found here|AI Dev is ready/);
+});
+
 test("a client named on the command line gets its folder made and mounted; Claude Code is written by its own CLI", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const result = await runBootstrap(t, ["--skip-smoke", "--clients", "gemini,claude"], { claude: true, files: { ".claude.json": "{}" } });
@@ -803,7 +832,54 @@ test("the PowerShell installer pulls, checks the server's own handshake and has 
   const config = JSON.parse(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"];
   assert.equal(config.args[0], "run");
   assert.equal(config.args.at(-1), "ghcr.io/stonebridgeway/ai-dev-system:latest");
-  assert.match(result.stdout, /AI Dev is ready/);
+  // A config written: the restart is asked for, in bootstrap.sh's words (Д-415).
+  assert.match(result.stdout, /Writing the AI clients' configs\.\.\.\n[^]*\nAI Dev is ready\. Restart the AI clients to load ai-dev\.\n$/);
+  assert.doesNotMatch(result.stdout, /No AI client found here/);
+});
+
+test("bootstrap.ps1 with no client here names its own -Clients and writes nothing; each of its endings is bootstrap.sh's (Д-415)", async (context) => {
+  if (process.platform === "win32") {
+    context.skip("the stub docker is a shell script");
+    return;
+  }
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-ps-none-"));
+  context.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const bin = path.join(root, "bin");
+  await fs.mkdir(path.join(home, ".unrelated"), { recursive: true });
+  await fs.mkdir(bin);
+  await fs.writeFile(path.join(bin, "docker"), stubDocker, { mode: 0o755 });
+  const log = path.join(root, "docker.log");
+  const env = {
+    STUB_LOG: log, PATH: `${bin}${path.delimiter}${process.env.PATH}`, XDG_CONFIG_HOME: path.join(home, ".config"),
+    AI_DEV_HOME: path.join(home, ".ai-dev"), AI_DEV_STATE_ROOT: "", CODEX_HOME: "", CLAUDE_CONFIG_DIR: ""
+  };
+  const none = runPowerShellBootstrap(["-SkipSmoke"], home, env);
+  if (none.error?.code === "ENOENT") {
+    context.skip("pwsh is unavailable on this host");
+    return;
+  }
+  assert.equal(none.status, 0, `stdout: ${none.stdout}\nstderr: ${none.stderr}`);
+  // The script's own parameter, not the CLI's --clients=…, which PowerShell would take for the projects folder.
+  assert.match(none.stdout, /\nNo AI client found here \(Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI\)\. Name one to write its config anyway, -Clients cursor,vscode,…, or install one and run bootstrap\.ps1 again\.\nAI Dev is ready; no AI client is connected to it yet\.\n$/);
+  assert.doesNotMatch(none.stdout, /--clients|Writing the AI clients' configs|Restart the AI clients/);
+  // Nothing written, and so nothing tried for it: Docker was asked for its version and the image, no more.
+  const calls = (await fs.readFile(log, "utf8")).split("\n").filter(Boolean).map((line) => line.split("\t")[0]);
+  assert.deepEqual(calls, ["version", "pull"]);
+  for (const folder of [".ai-dev", ".cursor", path.join(".config", "Claude")]) await assert.rejects(fs.access(path.join(home, folder)), /ENOENT/, folder);
+
+  const skipped = runPowerShellBootstrap(["-SkipSmoke", "-SkipClientInstall"], home, env);
+  assert.equal(skipped.status, 0, skipped.stderr);
+  assert.match(skipped.stdout, /\nAI Dev is ready; the AI clients' configs were left as they were\.\n$/);
+  assert.doesNotMatch(skipped.stdout, /Restart the AI clients|No AI client found here/);
+});
+
+// Windows PowerShell 5.1 reads a script that has no BOM in the ANSI code page: a character past ASCII in a string
+// would print as something else there, so the script spells such a character by its code (Д-415).
+test("bootstrap.ps1 keeps its code to ASCII; only its comments go past it", async () => {
+  const lines = (await fs.readFile(bootstrapPowerShell, "utf8")).split(/\r?\n/);
+  const past = lines.flatMap((line, index) => (/[^\x00-\x7F]/.test(line.replace(/(^|\s)#.*$/, "")) ? [`${index + 1}: ${line.trim()}`] : []));
+  assert.deepEqual(past, []);
 });
 
 // Windows PowerShell 5.1 turns a native command's redirected stderr into error

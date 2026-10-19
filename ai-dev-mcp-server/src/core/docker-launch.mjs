@@ -270,8 +270,10 @@ export function modelMount(folder, { verify = true, join = path.join, lstat = ls
 
 // The fields of one CSV record, as Go's encoding/csv reads the first record of a `--mount` value: a field that starts
 // with a double quote runs to the closing one, `""` standing for a quote in it; a quote anywhere else is an error.
-// `null` where Docker would refuse to parse the value.
-function csvRecord(text) {
+// Lines end in "\n" or "\r\n", a "\r" at the very end is dropped, and empty lines before the record are skipped, as
+// Go's reader does (Д-417). `null` where Docker would refuse to parse the value.
+function csvRecord(value) {
+  const text = value.replaceAll("\r\n", "\n").replace(/\r$/, "").replace(/^\n+/, "");
   if (!text) return null;
   const fields = [];
   let index = 0;
@@ -302,49 +304,113 @@ function csvRecord(text) {
   }
 }
 
+// The keys of a `--mount` value Docker's CLI knows (Docker 29), the ones it also takes alone, as `readonly`, and the
+// booleans' spellings. Any other key, a field with no `=` that is not one of those, an empty value, and an option of
+// one kind of mount on another ("cannot mix 'volume-*' options with mount type 'bind'") are refused (Д-417).
+const MOUNT_KEYS = new Set(["type", "source", "src", "target", "dst", "destination", "readonly", "ro", "consistency",
+  "bind-propagation", "bind-recursive", "bind-create-src", "volume-subpath", "volume-nocopy", "volume-driver",
+  "volume-label", "volume-opt", "image-subpath", "tmpfs-size", "tmpfs-mode"]);
+const MOUNT_SWITCHES = new Set(["readonly", "ro", "bind-create-src", "volume-nocopy"]);
+const MOUNT_BOOLEANS = new Map([["true", true], ["1", true], ["false", false], ["0", false]]);
+
 /**
  * One `--mount` value read the way Docker's CLI reads it (`opts/mount.go`): one
  * CSV record, so a field may be double-quoted; keys, and the `type` value, in
  * any case; `src` is `source`, `dst` and `destination` are `target`, and a key
- * given twice keeps its last value; no `type` is a volume. `null` for a value
+ * given twice keeps its last value; no `type` is a volume. `createsSource` is
+ * `bind-create-src`: Docker makes a missing source itself. `null` for a value
  * Docker would not parse — which Docker says itself when the entry runs.
  *
  * @param {string} value
- * @returns {{ type: string, source: string, target: string } | null}
+ * @returns {{ type: string, source: string, target: string, createsSource: boolean } | null}
  */
 function parseMount(value) {
   const fields = csvRecord(String(value ?? ""));
   if (!fields) return null;
-  const mount = { type: "volume", source: "", target: "" };
+  const mount = { type: "volume", source: "", target: "", createsSource: false };
+  const kinds = new Set();
   for (const field of fields) {
     const at = field.indexOf("=");
     const key = (at < 0 ? field : field.slice(0, at)).toLowerCase();
-    const given = at < 0 ? "" : field.slice(at + 1);
+    const given = at < 0 ? null : field.slice(at + 1);
+    if (given === null ? !MOUNT_SWITCHES.has(key) : !MOUNT_KEYS.has(key) || given === "") return null;
+    if (MOUNT_SWITCHES.has(key) && given !== null && !MOUNT_BOOLEANS.has(given)) return null;
+    if (key === "bind-recursive" && !["enabled", "disabled", "writable", "readonly"].includes(given)) return null;
+    const kind = /^(bind|volume|image|tmpfs)-/.exec(key)?.[1];
+    if (kind) kinds.add(kind);
     if (key === "type") mount.type = given.toLowerCase();
     else if (key === "source" || key === "src") mount.source = given;
     else if (key === "target" || key === "dst" || key === "destination") mount.target = given;
+    else if (key === "bind-create-src") mount.createsSource = given === null || MOUNT_BOOLEANS.get(given);
   }
-  return mount;
+  return [...kinds].every((kind) => kind === mount.type) ? mount : null;
 }
 
-/** Every `--mount` of a `docker run` command line, given as `--mount <value>` or `--mount=<value>`, as the CLI takes either. */
-function mountsOf(args) {
+// The options of `docker run` that take no value (`docker run --help`, Docker 29); every other one takes the next
+// argument unless it is written --option=value. Short ones run together, as in -it, up to one that takes a value.
+const RUN_SWITCHES = new Set(["detach", "disable-content-trust", "help", "init", "interactive", "no-healthcheck",
+  "oom-kill-disable", "privileged", "publish-all", "quiet", "read-only", "rm", "sig-proxy", "tty", "use-api-socket"]);
+const RUN_SHORT_SWITCHES = "dPiqt";
+
+/**
+ * A `docker run` command line read as Docker's CLI reads it: its options, each
+ * `[name, value]` (`null` for a switch), up to the image — what follows the
+ * image is the container's command, and a `--mount` there is not Docker's (Д-417).
+ *
+ * @param {string[]} args
+ * @returns {{ options: Array<[string, string | null]>, image: string }}
+ */
+function runOptions(args) {
   const list = Array.isArray(args) ? args.map(String) : [];
-  const mounts = [];
-  for (let index = 0; index < list.length; index += 1) {
+  const options = [];
+  let index = list[0] === "run" ? 1 : 0;
+  for (; index < list.length; index += 1) {
     const argument = list[index];
-    let value = null;
-    if (argument === "--mount") {
-      // The value is the next argument, whatever it looks like: it is not read again as an option.
-      value = list[index + 1] ?? null;
+    if (argument === "--") {
       index += 1;
-    } else if (argument.startsWith("--mount=")) {
-      value = argument.slice("--mount=".length);
+      break;
     }
-    const mount = value === null ? null : parseMount(value);
-    if (mount) mounts.push(mount);
+    if (argument.startsWith("--")) {
+      const at = argument.indexOf("=");
+      const name = argument.slice(2, at < 0 ? undefined : at);
+      // A value is the next argument, whatever it looks like: it is not read again as an option.
+      if (at >= 0) options.push([name, argument.slice(at + 1)]);
+      else if (RUN_SWITCHES.has(name)) options.push([name, null]);
+      else options.push([name, list[++index] ?? null]);
+    } else if (argument.startsWith("-") && argument.length > 1) {
+      const taking = [...argument.slice(1)].findIndex((letter) => !RUN_SHORT_SWITCHES.includes(letter));
+      if (taking !== -1) {
+        const rest = argument.slice(taking + 2);
+        options.push([argument[taking + 1], rest ? rest.replace(/^=/, "") : list[++index] ?? null]);
+      }
+    } else {
+      break;
+    }
   }
-  return mounts;
+  return { options, image: list[index] ?? "" };
+}
+
+/**
+ * Every `--mount` of a `docker run` command line Docker reads, given as
+ * `--mount <value>` or `--mount=<value>`: `null` for one it cannot read.
+ *
+ * @param {string[]} args
+ * @returns {Array<ReturnType<typeof parseMount>>}
+ */
+function mountsOf(args) {
+  return runOptions(args).options.filter(([name]) => name === "mount").map(([, value]) => (value === null ? null : parseMount(value)));
+}
+
+/**
+ * The `--mount` values of a `docker run` command line that Docker's CLI cannot
+ * read: it refuses the whole command over one, before it looks at any folder
+ * (Д-417).
+ *
+ * @param {string[]} args
+ * @returns {string[]}
+ */
+export function unreadableMounts(args) {
+  return runOptions(args).options.filter(([name, value]) => name === "mount" && (value === null || !parseMount(value))).map(([, value]) => value ?? "");
 }
 
 /**
@@ -354,16 +420,21 @@ function mountsOf(args) {
  * `ENOENT` or `ENOTDIR` only: a folder this user may not look into (`EACCES`)
  * is the daemon's to judge, and it may well mount it (Д-397). A source that is
  * a link says where it leads (`leadsTo`), since it is the link's target that
- * is gone.
+ * is gone. A mount with `bind-create-src` is not missing anything: Docker makes
+ * its source. A `--mount` Docker cannot read stops the whole command before any
+ * folder is looked at, so then nothing is said to be missing: what is wrong is
+ * Docker's to say when the entry runs (Д-417).
  *
  * @param {string[]} args
  * @param {{ stat?: (file: string) => unknown, lstat?: typeof lstatSync, readlink?: typeof readlinkSync }} [options]
  * @returns {Array<{ source: string, target: string, leadsTo?: string }>}
  */
 export function missingBindSources(args, { stat = statSync, lstat = lstatSync, readlink = readlinkSync } = {}) {
+  const mounts = mountsOf(args);
+  if (mounts.includes(null)) return [];
   const missing = [];
-  for (const mount of mountsOf(args)) {
-    if (mount.type !== "bind" || !mount.source) continue;
+  for (const mount of mounts) {
+    if (mount.type !== "bind" || !mount.source || mount.createsSource) continue;
     try {
       stat(mount.source);
       continue;
@@ -384,16 +455,17 @@ export function missingBindSources(args, { stat = statSync, lstat = lstatSync, r
 /**
  * What `ai-dev clients install --docker` was given for an entry it wrote, read
  * back from the entry's command line ({@link dockerRunArgs}): the image (the
- * last argument), the volume, the projects folder, the state folder and the
- * model folder — the one holding `bge-m3-onnx` when the link itself is
- * mounted. A command that writes the entry again keeps them (Д-397).
+ * first argument after the options, which {@link dockerRunArgs} puts last), the
+ * volume, the projects folder, the state folder and the model folder — the one
+ * holding `bge-m3-onnx` when the link itself is mounted. A command that writes
+ * the entry again keeps them (Д-397).
  *
  * @param {string[]} args
  * @returns {{ image: string, volume: string, projects: string, state: string, model: string }}
  */
 export function dockerEntryOptions(args) {
-  const options = { image: Array.isArray(args) ? String(args.at(-1) ?? "") : "", volume: "", projects: "", state: "", model: "" };
-  for (const mount of mountsOf(args)) {
+  const options = { image: runOptions(args).image, volume: "", projects: "", state: "", model: "" };
+  for (const mount of mountsOf(args).filter(Boolean)) {
     if (mount.type === "volume" && mount.target === "/data") options.volume = mount.source;
     if (mount.type !== "bind") continue;
     if (mount.target === CONTAINER_STATE_ROOT) options.state = mount.source;

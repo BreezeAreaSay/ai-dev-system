@@ -108,11 +108,30 @@ async function codexRoot(env) {
   const explicit = explicitRuntimeHome(env);
   if (!explicit) return path.join(home, ".codex");
   const own = path.join(explicit, ".codex");
-  if (!sameDirectory(explicit, path.join(home, ".ai-dev"))) return own;
+  if (!isHomeRuntime(explicit, home)) return own;
   for (const folder of unnamedCodexFolders(env)) {
     if (await isDirectory(path.join(own, ...folder.from))) return own;
   }
   return path.join(home, ".codex");
+}
+
+/**
+ * Whether a folder is `<home>/.ai-dev`: through links, and in the letter case
+ * the filesystem ignores. On the first start that folder need not exist, and a
+ * path that is not there resolves to itself — so a home that is a link did not
+ * match its real path until something made the folder, and `~/.codex` waited
+ * for the next start (docs/DEFECTS.md, Д-417). The parent, which is there, is
+ * resolved instead, and the name compared on its own.
+ *
+ * @param {string} folder
+ * @param {string} home
+ * @returns {boolean}
+ */
+function isHomeRuntime(folder, home) {
+  const caseBlind = process.platform === "win32" || process.platform === "darwin";
+  const name = path.basename(folder);
+  return sameDirectory(folder, path.join(home, ".ai-dev"))
+    || ((caseBlind ? name.toLowerCase() : name) === ".ai-dev" && sameDirectory(path.dirname(folder), home));
 }
 
 /** The `.codex` folders of AI Dev's under `codex` that this environment would read, existing or not. */
@@ -138,10 +157,16 @@ function codexLegacyFolders(env, codex) {
  * @returns {Promise<{ status: "clean"|"migrated", from?: string, to?: string, moved: number, merged: number, duplicates: number, superseded: number, conflicts: string[], errors: Array<{ path: string, code: string, message: string }> }>}
  */
 export async function migrateCodexRuntime({ env = process.env, now = () => new Date() } = {}) {
+  return migrateCodexFrom(await codexRoot(env), { env, now });
+}
+
+// The move out of one `.codex` folder, found once by the caller: once a move that failed half-way has emptied it,
+// finding it again names another — the start log blamed ~/.codex for a move out of <AI_DEV_HOME>/.codex (Д-417).
+async function migrateCodexFrom(codex, { env, now = () => new Date() }) {
   const empty = () => ({ moved: 0, merged: 0, duplicates: 0, superseded: 0, conflicts: [], errors: [] });
   const present = async () => {
     const found = [];
-    for (const folder of codexLegacyFolders(env, await codexRoot(env))) if (await isDirectory(folder.source)) found.push(folder);
+    for (const folder of codexLegacyFolders(env, codex)) if (await isDirectory(folder.source)) found.push(folder);
     return found;
   };
   if (!(await present()).length) return { status: "clean", ...empty() };
@@ -472,14 +497,18 @@ export function prepareRuntimeHome({ env = process.env, log = (line) => process.
   };
   prepared ??= migrateDoubledRuntimeHome({ env })
     .then((result) => report(result, "AI_DEV_HOME is the runtime folder itself now"), failed("the runtime tree out of AI_DEV_HOME/.ai-dev"))
-    .then(async (result) => ({
-      ...result,
-      // The folder it moves from is the one 2.x read for this install, which is not always ~/.codex (Д-394, Д-397).
-      codex: await migrateCodexRuntime({ env })
-        .then((codex) => report(codex, "the Codex-era folder is not read any more"), async (error) => failed(`AI Dev's data out of ${await codexRoot(env)}`)(error)),
-      volume: await migrateVolumeState({ env })
-        .then((volume) => report(volume, "the state is the one folder the server and the hooks share"), failed("the volume's state into the host's state folder"))
-    }));
+    .then(async (result) => {
+      // The folder it moves from is the one 2.x read for this install, which is not always ~/.codex (Д-394, Д-397):
+      // found once, before the move, so a move that fails half-way names the folder it moved from (Д-417).
+      const codexFrom = await codexRoot(env);
+      return {
+        ...result,
+        codex: await migrateCodexFrom(codexFrom, { env })
+          .then((codex) => report(codex, "the Codex-era folder is not read any more"), failed(`AI Dev's data out of ${codexFrom}`)),
+        volume: await migrateVolumeState({ env })
+          .then((volume) => report(volume, "the state is the one folder the server and the hooks share"), failed("the volume's state into the host's state folder"))
+      };
+    });
   return prepared;
 }
 

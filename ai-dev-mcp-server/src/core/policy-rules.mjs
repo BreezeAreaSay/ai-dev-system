@@ -160,6 +160,15 @@ function failureOf(answer) {
   return String(answer?.error ?? "").replace(/[.\s]+$/, "") || "it gave no reason";
 }
 
+// The matcher's answer for one job, read as it is when it is one. Where it said nothing readable — the answers ran
+// out before the jobs did, or one is neither run nor unrun — the match failed: nothing was seen, so nothing is
+// vouched for, a cost probe as little as a sample (docs/DEFECTS.md, Д-417).
+function answerOf(answers, index) {
+  const answer = Array.isArray(answers) ? answers[index] : undefined;
+  if (answer && typeof answer === "object" && typeof answer.checked === "boolean") return answer;
+  return { matched: null, checked: true, timed_out: false, error: "it gave no answer for this match", truncated: false };
+}
+
 // Each rule's samples matched in one batch: the matcher's answer for the example and for the counter-example, or
 // null for a sample the rule does not have. A refusal reads them to name the sample at fault.
 async function matchSamples(rules, match) {
@@ -179,7 +188,7 @@ async function matchSamples(rules, match) {
     return slot;
   });
   const answers = await match(jobs);
-  const read = (index) => (index === -1 ? null : answers[index] ?? null);
+  const read = (index) => (index === -1 ? null : answerOf(answers, index));
   return plan.map((slot) => ({ checked_as: slot.checked_as, example: read(slot.example), counter: read(slot.counter) }));
 }
 
@@ -211,7 +220,8 @@ function verificationOf({ checked_as: checkedAs, example, counter }) {
  * off comes back `not_checked`, which reads differently from "matched nothing";
  * `not_run` says why: the deadline, or a machine too busy to start the match
  * (Д-239). A sample the worker failed on is no check either: `match_error`
- * carries what the worker said (Д-393).
+ * carries what the worker said (Д-393) — and so is one the matcher gave no
+ * answer for (Д-417).
  *
  * @param {object[]} rules
  * @param {{ match?: typeof matchWithBudget }} [options] - `match` stands in for the budgeted matcher in tests.
@@ -347,10 +357,12 @@ export async function listPolicyRules(projectRoot, { match } = {}) {
   if (policy && !Array.isArray(policy.rules)) problems.push(`${POLICY_RELATIVE_PATH} has no "rules" array, so the guard evaluates no project rules.`);
   const rules = await describePolicyRules(Array.isArray(policy?.rules) ? policy.rules : [], { match });
   const enabled = rules.filter((rule) => rule.enabled);
-  // `broken` counts every rule with a problem, and so a rule this listing could not match — cut off by the deadline,
-  // kept from a worker by a busy machine, or left by a worker that failed (Д-393) — although nothing says it is
-  // wrong: the count is of the rules the listing cannot vouch for, so `broken: 0` means every rule was seen to work.
-  // The problem itself says the fault is not the rule's.
+  // `broken` counts every rule with a problem: a shape the guard cannot use, a stored sample answered against the
+  // rule, and a sample this listing could not match — cut off by the deadline, kept from a worker by a busy machine,
+  // or left by a worker that failed (Д-393) — although nothing says that rule is wrong; its problem says the fault
+  // is not the rule's. So `broken: 0` means no rule has a problem this listing can see: a rule's samples, where it
+  // has any, answered as its author meant, and a rule without one — as most default rules are — had its shape
+  // checked and nothing else (Д-417).
   return {
     project_path: root,
     policy_path: POLICY_RELATIVE_PATH,
@@ -396,12 +408,90 @@ function changedFields(previous, next) {
 }
 
 /**
+ * Why a rule's pattern is not written for what it costs, or "".
+ *
+ * The example a rule ships with says whether the rule fires; it says nothing
+ * about what the rule costs on input that *almost* matches, which is where
+ * backtracking explodes. So the pattern is also run against input built from
+ * its own alphabet, under the same budget the guard uses. `(a|a)+$` matches
+ * "aaa" in microseconds and needs 38.8 seconds for twenty-eight characters
+ * and a tail (docs/DEFECTS.md, Д-16): the probe is what separates
+ * the two, and it needs no list of shapes to recognise.
+ *
+ * @param {object} rule
+ * @param {typeof matchWithBudget} match
+ * @returns {Promise<string>}
+ */
+async function costRefusal(rule, match) {
+  const probes = riskyPatternProbes(rule.pattern);
+  const answers = await match(probes.map((haystack) => ({ pattern: rule.pattern, flags: POLICY_RULE_REGEX_FLAGS, haystack })));
+  const costs = probes.map((_, index) => answerOf(answers, index));
+  const overrun = costs.findIndex((cost) => cost.timed_out);
+  if (overrun !== -1) {
+    return `Rule "${rule.id}" backtracks catastrophically: matching its pattern against ${probes[overrun].length} characters built from the pattern's own alphabet did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms. The guard runs this pattern on every Bash command and every file write, so one rule like this takes the whole hook pack out of service. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`;
+  }
+  // A probe the worker failed on, like one that never ran, proves nothing either way: the rule is not written
+  // unchecked (Д-239, Д-393).
+  const failed = costs.find(matchFailed);
+  if (failed) {
+    return `Rule "${rule.id}" was not written: its pattern could not be checked, because the match worker failed (${failureOf(failed)}). Nothing here says the pattern is wrong; try again once the server can start a worker thread.`;
+  }
+  const unrun = costs.find((cost) => !cost.checked);
+  return unrun ? `Rule "${rule.id}" was not written: its pattern could not be checked, because ${unrun.error}. Try again once the machine is less busy.` : "";
+}
+
+/**
+ * Why a rule is not written for what its samples answered, or "". What a
+ * sample says of the rule — it overran its budget, missed its example or
+ * matched its counter-example — comes before a sample that could not be
+ * checked, which says nothing either way (Д-397, Д-417).
+ *
+ * @param {object} rule
+ * @param {{ example: object | null, counter: object | null }} samples - From {@link matchSamples}.
+ * @param {ReturnType<typeof verificationOf>} verification
+ * @returns {string}
+ */
+function sampleRefusal(rule, samples, verification) {
+  // The sample an answer is about, for the refusal to name: the example, or else the counter-example (Д-397).
+  const where = (fault) => (fault(samples.example) ? "example" : "counter-example");
+  if (verification.timed_out) {
+    return `Rule "${rule.id}" backtracks catastrophically on its own ${where((answer) => answer?.timed_out)}: the match did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms. The guard runs this pattern on every Bash command and every file write, so a rule like this one takes the whole hook pack out of service. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`;
+  }
+  if (verification.fires_on_example === false) {
+    return `Rule "${rule.id}" does not match its own example. The guard matches ${verification.checked_as === "file" ? "the file path, a newline, then the new content" : "the whole command line"} case-insensitively; check the escaping in the pattern.`;
+  }
+  if (verification.counter_example_matches === true) return `Rule "${rule.id}" also matches its counter-example, so it is broader than intended.`;
+  // A sample the worker failed on, or that no worker reached, proves nothing either way, as an unrun probe does not
+  // (Д-383, Д-393).
+  if (verification.match_error) {
+    return `Rule "${rule.id}" was not written: its ${where(matchFailed)} could not be checked, because the match worker failed (${verification.match_error}). Nothing here says the rule is wrong; try again once the server can start a worker thread.`;
+  }
+  if (verification.not_checked) {
+    const why = verification.not_run === "start"
+      ? `the machine is so busy that no match worker started within ${DEFAULT_WORKER_START_MS} ms`
+      : `the matching ran out of the ${DEFAULT_MATCH_DEADLINE_MS} ms it gets`;
+    return `Rule "${rule.id}" was not written: its ${where((answer) => answer?.checked === false)} could not be checked, because ${why}. Try again once the machine is less busy.`;
+  }
+  // The refusals above cover every answer the matcher gives, a missing one too (answerOf); whatever else one may say,
+  // a rule with an example is written only once it was seen to fire on it (Д-393).
+  if (typeof rule.example === "string" && rule.example && verification.fires_on_example !== true) {
+    return `Rule "${rule.id}" was not written: nothing showed that it fires on its example. A rule nobody proved fires is a rule that silently does nothing.`;
+  }
+  return "";
+}
+
+/**
  * Add a rule, or update the one that already carries the id. An update is a
  * patch: fields the caller leaves out keep their current value, so
  * `{ id, enabled: false }` disables a rule without restating it.
  *
  * A new rule — and any change to an existing pattern or event — has to come with
  * an `example` the rule matches. The example is stored on the rule.
+ *
+ * A rule that is off once the edit is made is checked for its shape only: the
+ * guard does not run it, so neither its cost nor its samples are matched, and it
+ * is written where no worker thread can start. Turning it on matches it again
+ * (docs/DEFECTS.md, Д-413).
  *
  * @param {{ projectRoot: string, rule: object, dryRun?: boolean, match?: typeof matchWithBudget }} input - `match` stands
  *   in for the budgeted matcher in tests.
@@ -431,30 +521,12 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false, matc
   }
   if (problems.length) throw new Error(`Rule "${merged.id}" would not work as written:\n- ${problems.join("\n- ")}`);
 
-  // The example a rule ships with says whether the rule fires; it says nothing
-  // about what the rule costs on input that *almost* matches, which is where
-  // backtracking explodes. So the pattern is also run against input built from
-  // its own alphabet, under the same budget the guard uses. `(a|a)+$` matches
-  // "aaa" in microseconds and needs 38.8 seconds for twenty-eight characters
-  // and a tail (docs/DEFECTS.md, Д-16): the probe is what separates
-  // the two, and it needs no list of shapes to recognise.
-  if (String(merged.pattern ?? "")) {
-    const probes = riskyPatternProbes(merged.pattern);
-    const costs = await match(probes.map((haystack) => ({ pattern: merged.pattern, flags: POLICY_RULE_REGEX_FLAGS, haystack })));
-    const overrun = costs.findIndex((cost) => cost.timed_out);
-    if (overrun !== -1) {
-      throw new Error(`Rule "${merged.id}" backtracks catastrophically: matching its pattern against ${probes[overrun].length} characters built from the pattern's own alphabet did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms. The guard runs this pattern on every Bash command and every file write, so one rule like this takes the whole hook pack out of service. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
-    }
-    // A probe the worker failed on, like one that never ran, proves nothing either way: the rule is not written
-    // unchecked (Д-239, Д-393).
-    const failed = costs.find(matchFailed);
-    if (failed) {
-      throw new Error(`Rule "${merged.id}" was not written: its pattern could not be checked, because the match worker failed (${failureOf(failed)}). Nothing here says the pattern is wrong; try again once the server can start a worker thread.`);
-    }
-    const unrun = costs.find((cost) => !cost.checked);
-    if (unrun) {
-      throw new Error(`Rule "${merged.id}" was not written: its pattern could not be checked, because ${unrun.error}. Try again once the machine is less busy.`);
-    }
+  // A rule that is off after this edit is not run by the guard, so it is not matched here either — neither its cost
+  // nor its samples: where no worker thread can start, a rule in the way can still be switched off (Д-413).
+  const active = merged.enabled !== false;
+  if (active && String(merged.pattern ?? "")) {
+    const refusal = await costRefusal(merged, match);
+    if (refusal) throw new Error(refusal);
   }
 
   const duplicate = rules.find((entry, position) => position !== index && collides(entry, merged));
@@ -466,36 +538,10 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false, matc
   if (patternChanged && !String(merged.example ?? "").trim()) {
     throw new Error(`Rule "${merged.id}" needs an example: pass rule.example with a snippet the pattern must match (for a file rule, rule.example_path names the path it applies to). A rule nobody proved fires is a rule that silently does nothing.`);
   }
-  const [samples] = await matchSamples([merged], match);
+  const [samples] = active ? await matchSamples([merged], match) : [{ checked_as: sampleEvent(merged), example: null, counter: null }];
   const verification = verificationOf(samples);
-  // The sample an answer is about, for the refusal to name: the example, or else the counter-example (Д-397).
-  const sampleWhere = (fault) => (fault(samples.example) ? "example" : "counter-example");
-  // A sample that overran its budget is a finding about the pattern, whatever happened to the other one (Д-397).
-  if (verification.timed_out) {
-    throw new Error(`Rule "${merged.id}" backtracks catastrophically on its own ${sampleWhere((answer) => answer?.timed_out)}: the match did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms. The guard runs this pattern on every Bash command and every file write, so a rule like this one takes the whole hook pack out of service. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
-  }
-  // A sample the worker failed on, or that no worker reached, proves nothing either way, as an unrun probe does not
-  // (Д-383, Д-393).
-  if (verification.match_error) {
-    throw new Error(`Rule "${merged.id}" was not written: its ${sampleWhere(matchFailed)} could not be checked, because the match worker failed (${verification.match_error}). Nothing here says the rule is wrong; try again once the server can start a worker thread.`);
-  }
-  if (verification.not_checked) {
-    const why = verification.not_run === "start"
-      ? `the machine is so busy that no match worker started within ${DEFAULT_WORKER_START_MS} ms`
-      : `the matching ran out of the ${DEFAULT_MATCH_DEADLINE_MS} ms it gets`;
-    throw new Error(`Rule "${merged.id}" was not written: its ${sampleWhere((answer) => answer?.checked === false)} could not be checked, because ${why}. Try again once the machine is less busy.`);
-  }
-  if (verification.fires_on_example === false) {
-    throw new Error(`Rule "${merged.id}" does not match its own example. The guard matches ${verification.checked_as === "file" ? "the file path, a newline, then the new content" : "the whole command line"} case-insensitively; check the escaping in the pattern.`);
-  }
-  if (verification.counter_example_matches === true) {
-    throw new Error(`Rule "${merged.id}" also matches its counter-example, so it is broader than intended.`);
-  }
-  // The refusals above cover every answer the matcher gives; whatever else one may say, a rule with an example is
-  // written only once it was seen to fire on it (Д-393).
-  if (typeof merged.example === "string" && merged.example && verification.fires_on_example !== true) {
-    throw new Error(`Rule "${merged.id}" was not written: nothing showed that it fires on its example. A rule nobody proved fires is a rule that silently does nothing.`);
-  }
+  const refusal = active ? sampleRefusal(merged, samples, verification) : "";
+  if (refusal) throw new Error(refusal);
 
   // The samples are stored on the rule, and the rule is committed. A caller
   // writing a rule *about* credentials may need a credential-shaped example, so
@@ -508,11 +554,13 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false, matc
     }
   }
 
+  // The rule is reported from the matching just done: matched again here, a rule that is off would reach for a worker
+  // after all (Д-413).
   const changed = changedFields(previous, merged);
   if (previous && changed.length === 0) {
     return {
       action: "unchanged", policy_path: POLICY_RELATIVE_PATH, created_policy: false, dry_run: Boolean(dryRun),
-      rule: await describePolicyRule(merged), verification, warnings, changed_fields: [], rules_total: rules.length
+      rule: describeVerifiedRule(merged, verification), verification, warnings, changed_fields: [], rules_total: rules.length
     };
   }
   if (previous) rules[index] = merged;
@@ -523,7 +571,7 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false, matc
     policy_path: POLICY_RELATIVE_PATH,
     created_policy: !exists && !dryRun,
     dry_run: Boolean(dryRun),
-    rule: await describePolicyRule(merged),
+    rule: describeVerifiedRule(merged, verification),
     verification,
     warnings,
     changed_fields: changed,

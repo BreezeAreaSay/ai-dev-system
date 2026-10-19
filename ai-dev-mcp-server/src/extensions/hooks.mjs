@@ -88,7 +88,7 @@ export function createHookTools(host) {
       },
       {
         name: "upsert_policy_rule",
-        description: "Add a guard rule to .ai-dev/policy.json, or update the one that already carries the id, without hand-editing JSON. The pattern is compiled the way the guard compiles it (case-insensitive), checked against the rules already in the file, and run against the example the caller provides: a new rule, or a changed pattern, is refused unless it actually fires on that example. An update is a patch, so { id, enabled: false } disables a rule.",
+        description: "Add a guard rule to .ai-dev/policy.json, or update the one that already carries the id, without hand-editing JSON. The pattern is compiled the way the guard compiles it (case-insensitive), checked against the rules already in the file, and run against the example the caller provides: a new rule, or a changed pattern, needs one, and a rule that is on after the edit is refused unless it actually fires on it. A rule that is off is checked for its shape only and matched when it is switched on. An update is a patch, so { id, enabled: false } disables a rule, even where no match worker can start.",
         inputSchema: {
           type: "object",
           properties: {

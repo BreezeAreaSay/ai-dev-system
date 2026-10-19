@@ -214,7 +214,7 @@ export function createControlTools(host) {
         clients: { ...CLIENTS_INPUT, default: "all" },
         dry_run: { type: "boolean", default: false, description: "Say what would change, write nothing." }
       }),
-      tool("clients_remove", "Disconnect AI clients: take the ai-dev entry out of their configs; a file nothing else touched since goes back as it was, less a 2.x entry the install replaced.", {
+      tool("clients_remove", "Disconnect AI clients: take the ai-dev entry out of their configs; a file nothing else touched since goes back as it was, less any ai-dev or ai-dev-system entry the install replaced, which the backup beside it keeps.", {
         clients: { ...CLIENTS_INPUT, description: "Which clients; every config ai-dev could be in when left out." },
         confirm: { type: "boolean", description: "Must be true, unless dry_run is." },
         dry_run: { type: "boolean", default: false, description: "Say what would change, write nothing." }

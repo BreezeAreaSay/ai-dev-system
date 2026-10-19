@@ -143,7 +143,16 @@ test("a worker that fails before it is ready answers every job left with one rea
   const cases = [
     ["throws", 'throw new Error("boom");', "boom"],
     ["throws-without-a-message", 'throw new Error("");', "Error"],
-    ["exits", "process.exit(0);", "the match worker exited before it answered"]
+    ["exits", "process.exit(0);", "the match worker exited before it answered"],
+    // Odd things thrown: each copy reads them with the same expression, and says the same of each (Д-417).
+    ["throws-null", "throw null;", "it gave no reason"],
+    ["throws-zero", "throw 0;", "it gave no reason"],
+    ["throws-blanks", 'throw "  ";', "it gave no reason"],
+    ["throws-a-blank-error", 'throw new Error(" ");', "it gave no reason"],
+    ["throws-a-string", 'throw " out of threads. ";', "out of threads."],
+    ["throws-a-symbol", 'throw Symbol("s");', "Symbol(s)"],
+    ["throws-an-object", 'throw { message: "" };', "[object Object]"],
+    ["throws-a-message", 'throw { message: " no thread. " };', "no thread."]
   ];
   for (const [name, failure, reason] of cases) {
     const said = {};

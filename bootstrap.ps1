@@ -188,12 +188,24 @@ if (-not $SkipSmoke) {
     }
 }
 
+$noClient = $false
 if (-not $SkipClientInstall) {
-    Write-Host "Writing the AI clients' configs..."
-    $modelArgs = @()
-    if ($resolvedModelPath) { $modelArgs = @("--model=$resolvedModelPath") }
-    & $node $cli clients install --docker "--image=$Image" "--projects=$resolvedProjectPath" "--volume=$dataVolume" "--clients=$Clients" @modelArgs
+    $installArgs = @("clients", "install", "--docker", "--image=$Image", "--projects=$resolvedProjectPath", "--volume=$dataVolume", "--clients=$Clients")
+    if ($resolvedModelPath) { $installArgs += "--model=$resolvedModelPath" }
+    # Whether there is a client to write, from the installer's own answer as JSON, not from the words it prints:
+    # with none, the hint is this script's -Clients, not the CLI's --clients, and nothing is written (Д-415).
+    $planned = & $node $cli @installArgs --dry-run --json
     if ($LASTEXITCODE -ne 0) { throw "Writing the client configs failed (exit code $LASTEXITCODE)." }
+    $found = @((($planned -join "`n") | ConvertFrom-Json).clients | Where-Object { $_.status -ne "skipped" })
+    if ($found.Count -eq 0) {
+        $noClient = $true
+        # The ellipsis by its code: Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page.
+        Write-Host "No AI client found here (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI). Name one to write its config anyway, -Clients cursor,vscode,$([char]0x2026), or install one and run bootstrap.ps1 again."
+    } else {
+        Write-Host "Writing the AI clients' configs..."
+        & $node $cli @installArgs
+        if ($LASTEXITCODE -ne 0) { throw "Writing the client configs failed (exit code $LASTEXITCODE)." }
+    }
 
     # Configs of 2.x name the launcher bootstrap.ps1 copied here: it is brought up
     # to 3.0's, which says it is the 2.x one (owner decision D10). The compiled
@@ -208,8 +220,14 @@ if (-not $SkipClientInstall) {
     }
 }
 
-# The installer has named each client it wrote, or said it found none (Д-406).
-Write-Host "AI Dev is ready. Restart the AI clients it connected to load ai-dev."
+# The last line says what was done to the clients, no more, in bootstrap.sh's words (Д-406, Д-415).
+if ($SkipClientInstall) {
+    Write-Host "AI Dev is ready; the AI clients' configs were left as they were."
+} elseif ($noClient) {
+    Write-Host "AI Dev is ready; no AI client is connected to it yet."
+} else {
+    Write-Host "AI Dev is ready. Restart the AI clients to load ai-dev."
+}
 if ($staleWarning) {
     Write-Warning "Installed from a stale image. $staleWarning"
 }

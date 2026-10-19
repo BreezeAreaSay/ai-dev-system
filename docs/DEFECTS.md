@@ -14272,8 +14272,7 @@ clients install → "removed the 2.x entry ai-dev-system"; clients remove → "r
 
 ## Д-406. `bootstrap.sh` без единого ИИ-клиента ничего не пишет и говорит «AI Dev is ready. Restart the AI clients»
 
-**Статус:** открыт. Закроет фаза 14. Нашла приёмка фазы 14 — путь Docker из README в чистом контейнере на итоговом
-образе (`p14r3`, `2010ef1`).
+**Статус:** закрыт фазой 14 (`02a90b9`), 2026-10-19. Нашла приёмка фазы 14 — путь Docker из README в чистом контейнере на итоговом образе (`p14r3`, `2010ef1`).
 
 С `--clients all` (по умолчанию) bootstrap берёт только клиентов, чья папка есть (`bootstrap.sh:444-446`). Если нет ни
 одной, установщик образа не вызывается вовсе (`:539`), и о клиентах не сказано ничего, а последняя строка — «AI Dev is
@@ -14299,6 +14298,25 @@ cat ~/.cursor/mcp.json → No such file or directory;  ls -a ~/.ai-dev → state
 **Как закроется.** Когда клиентов не нашлось и ни один не назван, `bootstrap.sh` говорит то же, что CLI: клиента здесь
 нет, назовите его (`--clients cursor,…`) или поставьте и запустите bootstrap снова; последняя строка обоих скриптов не
 обещает клиентов, которых нет. Тест контракта — HOME без папок клиентов.
+
+**Как закрыто.** Когда клиенты — все (по умолчанию) и ни одного нет, `bootstrap.sh` говорит то же, что установщик образа:
+«No AI client found here (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI). Name one to write its config
+anyway, --clients cursor,vscode,…, or install one and run bootstrap.sh again.», а последняя строка — «AI Dev is ready; no
+AI client is connected to it yet.». `bootstrap.ps1`, чей установщик это уже говорит, кончает «Restart the AI clients it
+connected to load ai-dev.». Тест контракта держит обе концовки; без правки он падает.
+
+**Замер после** (`02a90b9`; тот же путь, образ `p14r3`):
+
+```
+$ sh ./bootstrap.sh --image ai-dev-system:local --allow-stale-image --project-path "$HOME/Dev"     (клиентов нет)
+No AI client found here (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI). Name one to write its config
+  anyway, --clients cursor,vscode,…, or install one and run bootstrap.sh again.
+AI Dev is ready; no AI client is connected to it yet.
+bootstrap exit 0
+(папка ~/.cursor есть) Writing the AI clients' configs (cursor)... Cursor added ~/.cursor/mcp.json … AI Dev is ready.
+  Restart the AI clients to load ai-dev.  bootstrap exit 0
+bootstrap-contract.test.mjs: 29 из 29; тест Д-406 на коде до правки — fail
+```
 
 ---
 

@@ -13427,7 +13427,7 @@ ru | не читается (EPERM) | … на macOS ещё дайте AI Dev д�
 
 ## Д-388. Мелочи первого ревью фазы 14
 
-**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (nit 7–9).
+**Статус:** закрыт фазой 14 (`acdc75b`, `8c7f022`, `4ede652`, `744846d`), 2026-10-19. Нашло первое независимое ревью фазы 14 (nit 7–9).
 
 1. **Гард говорит «this command» и о записи файла** (`hooks/guard.mjs:181`): `applyCustomRules` зовётся и для `file`.
    Замер до (`12812ee`): текст строки — «Nothing is wrong with the rules; this command went unchecked by them.» при
@@ -13437,6 +13437,22 @@ ru | не читается (EPERM) | … на macOS ещё дайте AI Dev д�
    документация обещает сообщение без оговорки.
 3. **Ни один тест не держит, что `static-quality.mjs` зовёт `forbiddenCalls`**: удаление вызова в любом из двух циклов
    оставляет все тесты зелёными. Замер до (`12812ee`): `grep -rn static-quality --include=*.test.mjs` → пусто.
+
+**Как закрыто.** 1 — гард говорит «this write» о записи файла и «this command» о команде (`acdc75b`), строки сбоя и
+медленного старта — тоже (Д-397). 2 — документация называет, где сообщения `INSTALL_BGE_M3=1` не видно: терминальный вид
+BuildKit сворачивает вывод законченного шага (`--progress=plain` его оставляет), шаг из кэша не печатает ничего, так что
+при следующей сборке сообщение видно только с `--no-cache` (`8c7f022`, `744846d`, Д-404). 3 — тест держит, что ворота
+спрашивают `forbiddenCalls` о файлах сервера и приложения: сначала по тексту (`acdc75b`), затем по поведению (`4ede652`,
+Д-396).
+
+**Замер после:**
+
+```
+гард, событие file, поток не стартовал: "… this write went unchecked by them."     (acdc75b)
+образ-проба с RUN из Dockerfile:132-135: сборка 1 — "#5 0.188 INSTALL_BGE_M3=1 is no longer used: …"; сборка 2 — "#5 CACHED",
+  сообщения нет; сборка 3 с --no-cache — сообщение снова        (744846d; ревью документации)
+static-quality.test.mjs: 12 из 12 мутантов ворот роняют тест    (4ede652)
+```
 
 ---
 
@@ -13622,8 +13638,7 @@ TEST-PLAN: «Подготовка AI Dev…», «Подключить выбра
 
 ## Д-393. `upsert_policy_rule` записывает правило, когда поток сопоставления падает: ни пробы, ни пример не проверены
 
-**Статус:** открыт. Закроет фаза 14. Нашли второе независимое ревью фазы 14 — ревью кода (must-fix 1) и ревью
-документации (must-fix 1), каждое само; код — правка Д-383 (`acdc75b`).
+**Статус:** закрыт фазой 14 (`445654d`), 2026-10-19. Нашли второе независимое ревью фазы 14 — ревью кода (must-fix 1) и ревью документации (must-fix 1), каждое само; код — правка Д-383 (`acdc75b`).
 
 Д-383 отказывает правилу, пример которого сопоставитель не достиг (`not_checked`). Но поток, который падает — не
 создался, событие `error`, `exit`, — отвечает `{checked: true, matched: null, error}` (Д-384 сделал так и копию в
@@ -13655,12 +13670,31 @@ counts: {"total":4,"enabled":4,"blocking":2,"warning":2,"broken":0}
 в записи с её текстом; `list_policy_rules` называет сбой сопоставления проблемой правила. Тест — сопоставитель,
 отвечающий `error`.
 
+**Как закрыто.** Ответ, в котором поток не сказал ни да, ни нет (`checked: true`, без `timed_out`, `matched` не
+булево), — сбой (`matchFailed`), и он не проверка: `verifyPolicyRules` несёт `match_error`; `upsertPolicyRule` отказывает,
+если поток сломался на пробах цены, на примере или на контрпримере, и называет, на чём; правило с примером пишется только
+когда видно, что оно на нём срабатывает. `list_policy_rules` показывает `match_error` и строку проблемы и считает такое
+правило в `broken` — числе правил, за которые листинг не ручается. Тест — сопоставитель, отвечающий `error: "EAGAIN"`.
+
+**Замер после** (`445654d`; те же пробы):
+
+```
+$ node --permission --allow-fs-read='*' --allow-fs-write=$W upsert-worker-fails.mjs <server> $W
+refused: Rule "no-deploy" was not written: its pattern could not be checked, because the match worker failed (Access to
+  this API has been restricted. Use --allow-worker to manage permissions). Nothing here says the pattern is wrong; …
+written: 0
+$ (правило записано с потоками, листинг — без) list-worker-fails.mjs
+no-deploy … problems: ["This rule was never matched against its sample: the match worker failed (…). Nothing here says
+  the rule is wrong; list the rules again once the server can start a worker thread."]
+counts: {"total":4,"enabled":4,"blocking":2,"warning":2,"broken":1}
+образ p14r2, --pids-limit 11, это дерево: refused (EAGAIN), written: 0
+```
+
 ---
 
 ## Д-394. Перенос эпохи Codex не находит `~/.codex`, когда `AI_DEV_HOME` называет папку по умолчанию, `~/.ai-dev`
 
-**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью кода: should-fix 2); код — правка
-Д-389 (`acdc75b`).
+**Статус:** закрыт фазой 14 (`445654d`), 2026-10-19. Нашло второе независимое ревью фазы 14 (ревью кода: should-fix 2); код — правка Д-389 (`acdc75b`).
 
 Д-389 берёт `.codex` под `AI_DEV_HOME`, когда тот задан и это не домашняя папка: 2.x принимала `AI_DEV_HOME` за дом и
 держала `.codex` рядом с `.ai-dev`. Но `AI_DEV_HOME`, равный `~/.ai-dev`, — это папка рантайма 3.0 по умолчанию
@@ -13683,11 +13717,23 @@ acdc75b~1:  doctor sees: codex_root <b>/home/.codex codex_files ["state/archify-
 переменной), а если там нет данных AI Dev — `<home>/.codex` (2.x без неё); другой `AI_DEV_HOME` `~/.codex` не трогает,
 как в Д-389. Тест — оба случая.
 
+**Как закрыто.** `codexRoot` асинхронен: когда `AI_DEV_HOME` — та же папка, что `<home>/.ai-dev` (`sameDirectory`), он берёт
+`<AI_DEV_HOME>/.codex`, если там есть хоть одна из папок AI Dev эпохи Codex, иначе `<home>/.codex`; любой другой
+`AI_DEV_HOME` — только свой `.codex` (Д-389 закрыт по-прежнему). Журнал старта называет папку, из которой перенёс. Тесты —
+оба случая (и с `/` в конце); мутант «всегда свой `.codex`» роняет Д-394, мутант «`~/.codex` для любого дома» — Д-389.
+
+**Замер после** (`445654d`; `codex-default-named.mjs`):
+
+```
+doctor sees: codex_root <b>/home/.codex codex_files ["state/archify-receipts/r1.json"]
+migration: migrated moved 1 from <b>/home/.codex
+```
+
 ---
 
 ## Д-395. Печать заметки о модели на другом диске (Д-385) не держит ни один тест
 
-**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью кода: should-fix 3).
+**Статус:** закрыт фазой 14 (`445654d`), 2026-10-19. Нашло второе независимое ревью фазы 14 (ревью кода: should-fix 3).
 
 `ai-dev clients install --docker` и `clients entry --docker` печатают `docker.model.note` (`clients.mjs:227, 330`);
 тесты держат саму заметку (`docker-launch.test.mjs`), а её печать — нет.
@@ -13704,6 +13750,13 @@ node --test src/cli/cli.test.mjs src/core/docker-launch.test.mjs scripts/bootstr
 
 **Как закроется.** Тест CLI со ссылкой на модель на другой файловой системе: заметка — в stderr `clients entry
 --docker` и в `note` у `install --json`; где другой файловой системы нет, тест пропускается и говорит почему.
+
+**Как закрыто.** Тест CLI (`cli.test.mjs`): `bge-m3-onnx` — ссылка на папку другой файловой системы (`/dev/shm` или
+`/run/shm`); заметка «on another disk» — в stderr `clients entry --docker` и в `note` у `install --docker --json`. Где
+другой файловой системы нет, и на Windows, тест пропускается и говорит почему.
+
+**Замер после** (`445654d`): мутант Д-395 (обе печати без `docker?.model?.note`) роняет тест, и так же — без любой одной
+из двух; без мутанта — зелёный.
 
 ---
 
@@ -13752,7 +13805,7 @@ node --test scripts/static-quality.test.mjs → # pass 1, 1,07 с
 
 ## Д-397. Мелочи второго ревью кода фазы 14
 
-**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью кода: мелочи 5–12).
+**Статус:** закрыт фазой 14 (`445654d`), 2026-10-19. Нашло второе независимое ревью фазы 14 (ревью кода: мелочи 5–12).
 
 **Замер до** (`2aff656`; пробы ревью — `p14/r2/code/probes/`, мутанты — в копии):
 
@@ -13791,6 +13844,37 @@ node --test scripts/static-quality.test.mjs → # pass 1, 1,07 с
 отказ называет пример или контрпример и идёт после `timed_out`; doctor называет цель ссылки и даёт верный совет;
 разбор `--mount` — как у Docker (одним аргументом, кавычки, регистр, последний ключ), пропавшая папка — только
 `ENOENT`/`ENOTDIR`; тест текста Д-387; слова о `.codex`.
+
+**Как закрыто — по пунктам.**
+
+1. Поток, упавший до `ready`, отвечает своей ошибкой на все оставшиеся задания — в обеих копиях; гард собирает такие
+   правила в одну строку на причину.
+2. Одно выражение причины — `failureReason` — в обеих копиях; сбой отличается от медленного старта флагом `failed`, а не
+   непустым текстом.
+3. Путь `exit` копии хуков держат тесты (поток, выходящий до `ready` и посреди пакета); знаки строки гарда — без «.)».
+4. Отказ называет пример или контрпример, и «backtracks catastrophically» идёт раньше «could not be checked».
+5. `clients doctor` для ссылки называет, куда она ведёт; совет для модели — другая папка модели или никакой, для папок
+   проектов и состояния — запись заново, «которая папку создаёт»; команда совета сохраняет образ, том, папки проектов,
+   состояния и модели записи (`dockerEntryOptions`).
+6. `missingBindSources` читает `--mount` как CLI Docker: `--mount=…` одним аргументом, поля CSV в кавычках, ключи и `type`
+   в любом регистре, последний из `source`/`src` и `target`/`dst`/`destination`; пропавшей считается папка только при
+   `ENOENT`/`ENOTDIR`.
+7. Тест приложения держит сам текст совета `EPERM` (EN — «Privacy & Security», RU — «Конфиденциальность и безопасность»).
+8. Журнал старта и JSDoc называют ту папку `.codex`, из которой идёт перенос.
+
+**Замер после** (`445654d`; пробы ревью):
+
+```
+guard-boom-many: 30 правил — 207 мс, 1 строка; 100 — 238 мс, 1 строка (было 1 871 мс и 30 строк; 3 174 мс, 51 + «49 … busy»)
+budget-diff, 100 заданий без потоков: server 1 мс {"run, error Access to this API …":100}, hooks 1 мс — то же (было 53/47 и 55/45)
+поток с throw new Error(""): обе копии — "run, error Error" (было: сервер "not_run start", хуки "run, error Error")
+мутант finish(-1) на пути exit хуков — 3 теста падают (было 27 из 27 зелёных)
+upsert-counter: "its counter-example could not be checked…"; "…backtracks catastrophically on its own example…"
+bind-shapes против Docker 29 — совпадает во всех формах (было 5 расхождений); bind-eacces (uid 65534) — [] (было «пропала»)
+doctor с образом ai-dev-system:p14r2 в записи: совет даёт `ai-dev clients install --docker --image=ai-dev-system:p14r2 …`,
+  выполненный — образ тот же, папка проектов создана
+setup-words: подмена английского совета EPERM советом EACCES — тест падает
+```
 
 ---
 
@@ -14022,8 +14106,7 @@ static-quality: "checked_files": 544, "checked_server_files": 479, "checked_desk
 
 ## Д-402. Заметка о миграции молчит о папке проектов Docker: повторный bootstrap монтирует `~/AI-Dev-Projects`
 
-**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью документации: should-fix 2);
-документы — `c9f1191`, `8c7f022`.
+**Статус:** закрыт фазой 14 (`744846d`), 2026-10-19. Нашло второе независимое ревью фазы 14 (ревью документации: should-fix 2); документы — `c9f1191`, `8c7f022`.
 
 Bootstrap 2.0.0 писал `--project-path` в каждую запись клиента как `AI_DEV_PROJECT_PATH` (`git show
 346095d:ai-dev-mcp-server/scripts/install-docker-mcp-clients.mjs`, `:142-147`). Bootstrap 3.0 его не читает: без
@@ -14049,6 +14132,21 @@ ls $HOME → AI-Dev-Projects Dev        (первая — новая и пуст
 (`--project-path`/`-ProjectPath`, по умолчанию `~/AI-Dev-Projects`), а не `AI_DEV_PROJECT_PATH` записи 2.x, — назовите
 свою папку снова. Перенос папки без этого шага — Д-403.
 
+**Как закрыто.** «Breaking», заметка о миграции (EN/RU: строка таблицы и «`git pull`, then bootstrap»), INSTALL (EN/RU:
+«Re-running it is safe with the same `--project-path`» и строка Docker в «Updating»), `docker/README.md` и шаги W6, L4
+плана приёмки говорят: bootstrap монтирует папку, которую ему назвали (`--project-path`/`-ProjectPath`, по умолчанию
+`~/AI-Dev-Projects`), а не `AI_DEV_PROJECT_PATH` записи 2.x и не папку прежней записи, — назовите свою снова. Перенос
+папки без этого шага — Д-403, фаза 15.
+
+**Замер после** (`744846d`; ревью-агент документации, временный HOME):
+
+```
+env -i PATH=/usr/bin:/bin AI_DEV_PROJECT_PATH=$HOME/Dev sh ./bootstrap.sh --plan → "project_path":"…/AI-Dev-Projects"
+  … --project-path "$HOME/Dev" --plan → "project_path":"…/Dev";  pwsh bootstrap.ps1 -BuildLocal -Plan → AI-Dev-Projects
+запись 2.0.0 (run-mcp.sh, AI_DEV_PROJECT_PATH=$H/Dev) + bootstrap --clients cursor → "Cursor updated … replaced the Docker
+  launcher entry", монтирует $H/AI-Dev-Projects; с --project-path "$H/Dev" — $H/Dev; повтор без опции — снова AI-Dev-Projects
+```
+
 ---
 
 ## Д-403. Bootstrap 3.0 не берёт папку проектов из записи, которую заменяет
@@ -14073,8 +14171,7 @@ ls $HOME → AI-Dev-Projects Dev        (первая — новая и пуст
 
 ## Д-404. Документация Docker до публикации: шаг с Node, «ничего не скачивает», `--progress=plain` и кэш
 
-**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью документации: should-fix 3–5);
-документы — `8c7f022`.
+**Статус:** закрыт фазой 14 (`744846d`), 2026-10-19. Нашло второе независимое ревью фазы 14 (ревью документации: should-fix 3–5); документы — `8c7f022`.
 
 1. **Путь Docker без Node на хосте начинается с команды, которой нужен Node:** `docs/INSTALL.md:167-170` (RU — те же
    строки), `docker/README.md:69-72` — `cd ai-dev-mcp-server && npm ci && npm run docker:build`; `--build-local`,
@@ -14103,11 +14200,28 @@ docker build --progress=plain --build-arg INSTALL_BGE_M3=1 (образ-проб�
 **Как закроется.** Первым — `sh ./bootstrap.sh --build-local`, вторым — «с Node и npm: `cd ai-dev-mcp-server && npm run
 docker:build`»; «не скачивает образ из реестра»; «шаг из кэша показывает его только с `--no-cache`».
 
+**Как закрыто.** Путь Docker до публикации (INSTALL EN/RU, `docker/README.md`) начинается с `sh ./bootstrap.sh --build-local`
+(`-BuildLocal`): контекст сборки готовит контейнер `node:24-bookworm-slim`, Node на хосте не нужен (на Windows — Node,
+который скрипту нужен всё равно); вторым — «с Node и npm» `npm run docker:build` без `npm ci` и `--image ai-dev-system:local
+--allow-stale-image`. По-русски — «не скачивает образ из реестра». Совет `--progress=plain` дополнен: шаг из кэша не
+печатает ничего, так что при следующей сборке сообщение видно только с `--no-cache` (CHANGELOG ×2, INSTALL, MIGRATION ×2
+EN/RU, `docker/README.md`).
+
+**Замер после** (`744846d`; ревью-агент документации):
+
+```
+свежий клон без Node: env -i PATH=/usr/bin:/bin sh ./bootstrap.sh --build-local --plan → "node_on_host_required":false;
+  настоящий запуск — подготовка и аудит в node:24-bookworm-slim: {"status":"prepared"}, {"status":"passed"}; дальше сборка
+  упёрлась в apt (deb.debian.org закрыт песочницей) — образ здесь не собрать (не проверено)
+свежий клон без node_modules: npm run docker:prepare → exit 0
+образ-проба: сборка 1 — сообщение; сборка 2 — #5 CACHED, без сообщения; --no-cache — сообщение
+```
+
 ---
 
 ## Д-405. Мелочи второго ревью документации фазы 14
 
-**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью документации: мелочи 6–11).
+**Статус:** закрыт фазой 14 (`744846d`, `445654d`), 2026-10-19. Нашло второе независимое ревью фазы 14 (ревью документации: мелочи 6–11).
 
 **Замер до** (`2aff656`):
 
@@ -14133,6 +14247,26 @@ docker:build`»; «не скачивает образ из реестра»; «�
 **Как закроется.** Образ 2.x до выпуска — `:latest`; M5 называет Claude Code (или Cursor с целью `cursor`), где видна
 строка и что ревью безопасности вернёт агента; установщик Windows в «ещё не вышло» (`cd desktop && npm ci && npm run
 dist:win`); три папки демо; «кроме записи 2.x, которую установка заменила».
+
+**Как закрыто.** 1 — до выпуска вместо `:2` — `:latest` (это и есть образ 2.x, из которого `:2` скопируют), установщик —
+свой образ 3.0 (`AI_DEV_INSTALLER_IMAGE=ai-dev-system:local`): INSTALL, MIGRATION, UPGRADE-TEST (EN/RU), `docker/README.md`,
+план приёмки. 2 — M5 называет Claude Code (или Cursor с целью `cursor`), где видна строка Stop-хука (stderr, код 0) и что
+ревью безопасности один раз вернёт агента. 3 — README (EN/RU) называет установщик Windows среди того, что собирается из
+клона. 4 — три папки демо в CHANGELOG и DEMO (EN/RU). 5 — «кроме записи 2.x, которую заменила установка» в INSTALL
+(EN/RU), M7, справке `clients remove` и описании `clients_remove` (`445654d`).
+
+**Замер после** (`744846d`; ревью-агент документации):
+
+```
+imagetools: :latest amd64 sha256:372b3dc8…, :v2.0.0 — sha256:10648b8f…, :2 — not found
+AI_DEV_INSTALLER_IMAGE=r3-ai-dev:local sh ./bootstrap.sh --image r3-2x:latest --allow-stale-image → "r3-2x:latest has no
+  installer of its own (a 2.x image): r3-ai-dev:local writes the configs that run it.", exit 0
+Stop-хук Claude Code после правки JS: stdout {"decision":"block","reason":"[ai-dev security] 1 changed file(s) no security
+  scan has seen: src/add.js. …"}, stderr "[ai-dev stop-check] Task … is active …", exit 0; второй Stop — пусто
+свежий клон: cd desktop && npm ci && npm run dist:win → exit 0, dist/windows/installer/AI-Dev-Setup-2.0.0.exe, 192 МБ
+HOME=<tmp> npm run -s demo → git status --ignored: cards/ (154), groups/ (120), registries/ (15)
+clients install → "removed the 2.x entry ai-dev-system"; clients remove → "restored", без этой записи
+```
 
 ---
 

@@ -224,7 +224,8 @@ has it with what each one says.
   that is not UTF-8 is refused rather than rewritten. `ai-dev-system`, the 2.x local name, is
   removed and a Docker `ai-dev` replaced, with
   the output saying which; a second run says `No changes`. `remove` gives a file nothing else
-  touched back byte for byte (measured on all six) and otherwise cuts out only the entry;
+  touched back byte for byte (measured on all six) — less a 2.x entry the install replaced, which
+  stays in the install's backup — and otherwise cuts out only the entry;
   `doctor` starts each entry's command and checks that it answers `initialize` with
   instructions (six of six, 313–361 ms), naming a command that died by its error line;
   `--timeout=<seconds>` gives each more than 30 s; `--dry-run` shows what would change.
@@ -968,10 +969,12 @@ has it with what each one says.
   that was set, otherwise the user's — whenever they existed and the `.ai-dev` ones did not, while
   the hooks always wrote to `.ai-dev/state`: the server and the hooks kept two histories. What AI
   Dev kept there moves into the runtime home once, on the first start, from the `.codex` 2.x read
-  for that install — `~/.codex`, or `$AI_DEV_HOME/.codex` with `AI_DEV_HOME` set, so one install
-  never takes another's — nothing overwritten, identical files dropped, ledgers merged, conflicts
-  named by `ai-dev doctor` — with a record in `state/runtime-home-migration.json`; the rest of
-  `.codex` is Codex's own and stays.
+  for that install: `~/.codex`, or `$AI_DEV_HOME/.codex` with `AI_DEV_HOME` set, so one install
+  never takes another's; an `AI_DEV_HOME` naming `~/.ai-dev` itself, as a 3.0 setting may, takes
+  `~/.codex` when its own `.codex` holds none of AI Dev's folders (Д-394). Nothing is overwritten,
+  identical files are dropped, ledgers merged, conflicts named by `ai-dev doctor`, and the start's
+  log names the folder it moved from; a record goes into `state/runtime-home-migration.json`. The
+  rest of `.codex` is Codex's own and stays.
 - **The Homebrew formula and the AUR package** (`packaging/`; decision D8). Neither was ever
   published, and the formula still pointed at `v1.0.0`. `npm run packaging:check` now checks what
   the install guides and the bootstrap scripts promise each other.
@@ -1679,20 +1682,30 @@ four of those arrived as upstream issues #63–#66.
   busy to check it ("this command", or "this write", went unchecked), and `upsert_policy_rule` refuses
   to store a pattern or an example it could not try (Д-383) — never as a pattern that took too long. A
   thread that fails rather than starts slowly is answered as run, with its error, and the guard says
-  it failed (Д-384). Both copies, `src/core/regex-budget.mjs` and `hooks/lib.mjs`.
+  it failed (Д-384) — once for all the rules it failed on, where it made and lost a thread per rule
+  (Д-397). Such an answer is no check either: `upsert_policy_rule` refuses the pattern, the example
+  or the counter-example the worker failed on, naming which, writes a rule with an example only once
+  it was seen to fire on it, and `list_policy_rules` shows `match_error` (Д-393). Both copies,
+  `src/core/regex-budget.mjs` and `hooks/lib.mjs`.
 - **The static gate reads what the code does, not how it is spelled** (Д-267). It looked for the
   usual spellings of `exec`, `shell: true` and `eval`, and every equivalent passed:
   `import * as cp` with `cp.exec(…)`, a default import, `execSync`, `{ "shell": true }`,
   `{ shell: "/bin/sh" }`, `globalThis["ev" + "al"](…)`. `src/core/forbidden-calls.mjs` reads the
-  source as tokens — escapes decoded, a template without substitutions read as the string it is,
-  `?.[` as `[` — and asks the rules of them, in the server and in `desktop/`: the six spellings
-  appended to a server file and a desktop file give twelve findings, where the gate passed them. It
-  knows the module's `default`, `.then(async …)` callbacks, rest elements and plain re-binding, a
-  global's `.Function`, `.shell =` and `["shell"]:`; a `shell` key counts only in an object literal, so
-  an import, a parameter or an argument named `shell` passes; and a file it cannot read to its end —
-  a template or a comment that never closes — is refused rather than passed (Д-382). It does not
-  follow a value further than a plain assignment: a module name built from parts, `createRequire`
-  and `Reflect.get` are past it, and said to be.
+  source as tokens — every escape decoded, a template without substitutions read as the string it
+  is, `?.[` as `[`, a slash told from a division by what stands before it (a statement head's `)`, a
+  block's `}`, a property named `in`) — and asks the rules of them, in the server and in `desktop/`:
+  the six spellings appended to a server file and a desktop file give twelve findings, where the gate
+  passed them. It knows the module's `default`, `.then(async …)` callbacks, rest elements, plain
+  re-binding and `??=`, parentheses and comma lists around a value, the module handed to another
+  file (`export *`, `module.exports =`), `Function` through `.call`, `.apply` and `.bind`, a global's
+  `.Function`, `.shell =`, `["shell"]:` and shell accessors; a `shell` key counts only in an object
+  literal — a default value or an iterated array is one — so an import, a parameter or an argument
+  named `shell` passes; and a file it cannot read to its end — a template or a comment that never
+  closes — is refused rather than passed (Д-382, Д-398, Д-399). It follows the module object and the
+  global objects through plain re-binding and nothing else: a module name built from parts,
+  `createRequire` and `Reflect.get` are past it, and said to be. Bracket pairs are worked out once, so
+  a file costs what its length does: 5,922 dependency files are read to the end in about 15 s, and a
+  448 kB minified line in 0.2 s, where it took 10 s (Д-401).
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be
@@ -1706,7 +1719,9 @@ four of those arrived as upstream issues #63–#66.
   yes, every file matches the manifest." `bootstrap.sh` refuses a link that leads nowhere (exit 64),
   and the 2.x `run-mcp.sh` names it. A session mounts what the link leads to every time, so while that
   disk is away Docker starts none: writing the entries says so for a link to another disk, and
-  `ai-dev clients doctor` names an entry whose mounted folder is gone, without starting it (Д-385).
+  `ai-dev clients doctor` names an entry whose mounted folder is gone, without starting it — where a
+  link leads, and a command that writes the entries again with the image and folders they had
+  (Д-385, Д-397).
 - **`npm run demo` counts the skills it ran with and leaves your home alone** (Д-110, Д-374,
   Д-389). It printed a skill count written into the script, and the search index it built claimed
   the index of the person's own `~/.ai-dev`; the count now comes from `list_skill_groups` (614), and

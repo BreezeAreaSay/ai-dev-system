@@ -16064,8 +16064,7 @@ break outer⏎/r/ / 2; eval("1")     [eval] ×4   (было [] ×4)
 
 ## Д-449. `scripts/bootstrap-contract.test.mjs` — 1 034 строки при потолке 800, который AGENTS.md велит держать и там
 
-**Статус:** открыт. Закроет фаза 14. Нашёл агент правок пятого ревью фазы 14 («Noticed, out of scope»); файл перерос потолок
-раньше — 972 строки на `19ec505`.
+**Статус:** закрыт фазой 14 (`b554544`), 2026-10-19. Нашёл агент правок пятого ревью фазы 14 («Noticed, out of scope»); файл перерос потолок раньше — 972 строки на `19ec505`.
 
 AGENTS.md («Three rules…», правило 1): `scripts/` и `hooks/` гейт не меряет, «so the ceiling there is yours to keep». Контракт
 bootstrap держит в одном файле и тесты `bootstrap.sh`, и тесты `bootstrap.ps1`; каждый раунд фазы 14 добавлял в него тесты
@@ -16078,6 +16077,18 @@ PowerShell.
 
 **Как закроется.** Тесты `bootstrap.ps1` — в своём файле `scripts/bootstrap-ps1-contract.test.mjs`, общие заглушки — в модуле
 рядом; тестов столько же, каждый проходит, как проходил.
+
+**Как закрыто** (`b554544`). Тесты `bootstrap.ps1` — в `scripts/bootstrap-ps1-contract.test.mjs`, заглушка `docker` с её
+описанием — в `scripts/bootstrap-contract-stubs.mjs`, оба файла контракта её берут; заголовки обоих называют друг друга.
+Ссылок на файл в документах и CI нет.
+
+**Замер после** (`b554544`):
+
+```
+wc -l: bootstrap-contract.test.mjs 665, bootstrap-ps1-contract.test.mjs 316, bootstrap-contract-stubs.mjs 74   (было 1034)
+node --test обоих файлов: # tests 37 # pass 37 # fail 0 — те же 37 имён и те же результаты, что у одного файла до раздела
+npm run lint: "status": "passed"; scripts/security-check.mjs: "status": "passed"
+```
 
 ---
 

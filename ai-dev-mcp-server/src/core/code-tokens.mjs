@@ -12,11 +12,12 @@ export const KEYWORDS_BEFORE_EXPRESSION = new Set([
 ]);
 // A `(` after these opens a statement's head, and a `/` after its `)` starts a regular expression: `if (x) /re/.test(s)`.
 export const HEAD_KEYWORDS = new Set(["if", "while", "for", "with"]);
-// Before these a `{` opens an object literal rather than a block, a class body or a clause.
-const OBJECT_AFTER_PUNCT = new Set(["=", "(", ",", ":", "[", "?", "|", "&", "!", "...", "+", "-", "*", "%", "~", "^"]);
+// Before these a `{` opens an object literal rather than a block, a class body or a clause — `/` and `<` too, which
+// only ever divide or compare (a regular expression is a token of its own), and a `>` that ends no arrow's `=>` (Д-507).
+const OBJECT_AFTER_PUNCT = new Set(["=", "(", ",", ":", "[", "?", "|", "&", "!", "...", "+", "-", "*", "%", "~", "^", "/", "<"]);
 // After these words a value begins: a `{` there is an object literal, a `class` an expression — `delete`, `in` and
-// `instanceof` too, which only ever stand before an operand (Д-448).
-const OBJECT_AFTER_NAME = new Set(["return", "yield", "await", "case", "default", "typeof", "void", "new", "throw", "delete", "in", "instanceof"]);
+// `instanceof` too, which only ever stand before an operand (Д-448), `extends`, and a `for` head's `of` (Д-507).
+const OBJECT_AFTER_NAME = new Set(["return", "yield", "await", "case", "default", "typeof", "void", "new", "throw", "delete", "in", "instanceof", "extends"]);
 // After these, and after the label one names, a statement is over: a `/` that follows begins a regular expression.
 const STATEMENT_ENDS = new Set(["break", "continue", "debugger"]);
 const SIMPLE_ESCAPES = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", v: "\v" };
@@ -80,13 +81,13 @@ function readEscape(text, at) {
  * `a?.[b]` is read as `a[b]`, whatever space or comment lies between.
  *
  * A `/` is a regular expression where an expression begins, and a division
- * after an operand: after a word that is a property (`stats.in / 2`), a
- * postfix `++`, a call's `)`, or the `}` of an object literal or of a class or
- * function expression it divides; after a statement head's `)`
- * (`if (x) /re/`), a block's `}` — a label's or a `case`'s too — or a
- * declaration's it does not. One that does not close on its line divides,
- * and no later one on that line reads again, in the same state — inside a
- * class of characters or out of one — what it read.
+ * after an operand: after a word that is a property (`stats.in / 2`), a postfix
+ * `++`, on a property too (`stats.new++ / 2`), a call's `)`, or the `}` of an
+ * object literal or of a class or function expression it divides; after a
+ * statement head's `)` (`if (x) /re/`), a block's `}` — a label's or a `case`'s
+ * too — or a declaration's it does not. One that does not close on its line
+ * divides, and no later one on that line reads again, in the same state —
+ * inside a class of characters or out of one — what it read.
  * Each `{` carries `literal`: whether it opens an object literal; a class's
  * body carries `classBody`; a token right in a template's substitution, no
  * bracket opened since its `${`, carries `substitution`, and every token in a
@@ -136,19 +137,19 @@ export function codeTokens(source, { script = false } = {}) {
   const isMember = (index) => isPunct(tokens[index - 1], ".") || isPunct(tokens[index - 1], "#");
   // `return`, `yield` and a postfix `++` or `--` end their statement at a line break: what the next line begins is a
   // statement, so a `{` there is a block and a `class` a declaration (Д-423). A member of that name, `it.return`, is an
-  // operand, and after an operand a `{` or a `class` begins a statement as well.
+  // operand, and after an operand a `{` or a `class` begins a statement as well — `stats.new++` too (Д-508).
   const endsAtBreak = (index) => {
     const last = tokens[index];
     if (isName(last, "return") || isName(last, "yield")) return true;
-    return (isPunct(last, "+") || isPunct(last, "-")) && last.joined === true && endsOperand(tokens[index - 2]);
+    return (isPunct(last, "+") || isPunct(last, "-")) && last.joined === true && (endsOperand(tokens[index - 2]) || isMember(index - 2));
   };
   // Whether a value begins after the token at `index`, for a token on line `where`: a `{` there opens an object
   // literal, a `class` is an expression. A label's, a `case`'s or a `default`'s `:` is followed by a statement (Д-408).
   const valueAfter = (index, where) => {
     const last = tokens[index];
     if (last && last.line < where && endsAtBreak(index)) return false;
-    if (last?.type === "punct") return OBJECT_AFTER_PUNCT.has(last.value) && !last.statement;
-    return isName(last) && OBJECT_AFTER_NAME.has(last.value) && !isMember(index);
+    if (last?.type === "punct") return (OBJECT_AFTER_PUNCT.has(last.value) || (last.value === ">" && !isPunct(tokens[index - 1], "="))) && !last.statement;
+    return isName(last) && (OBJECT_AFTER_NAME.has(last.value) || last.keyword === true) && !isMember(index);
   };
   const headOpens = () => {
     const last = tokens.at(-1);
@@ -160,25 +161,30 @@ export function codeTokens(source, { script = false } = {}) {
   // Where a regular expression's scan is known to fail, by place: 1 inside a class of characters, 2 outside one. A line
   // of slashes whose expressions never close was read again from each slash, its length squared (Д-463).
   let failed = null;
+  // Where a token stands: right in a substitution — no bracket opened since its `${` — an expression's place, where no
+  // statement stands (Д-488); and the template its code is in, `within`: a walk begun there ends with it, a bracket left
+  // open or not (Д-501) — the `.` that `?.` leaves as well (Д-504).
+  const mark = (token) => {
+    if (templates.length && templates.at(-1).opened === opened.length) token.substitution = true;
+    if (templates.length) token.within = templates.at(-1).token;
+    return token;
+  };
   const push = (type, value, where = line) => {
     const fresh = substitutionOpened;
     substitutionOpened = false;
     lineBegins = false;
     if (optional) {
       optional = false;
-      if (!(type === "punct" && (value === "[" || value === "("))) tokens.push({ type: "punct", value: ".", line: where });
+      if (!(type === "punct" && (value === "[" || value === "("))) tokens.push(mark({ type: "punct", value: ".", line: where }));
     }
-    const token = { type, value, line: where };
-    // Right in a substitution — no bracket opened since its `${` — an expression's place, where no statement stands (Д-488);
-    // and the template a token's code is in, `within`: a walk begun there ends with it, a bracket left open or not (Д-501).
-    if (templates.length && templates.at(-1).opened === opened.length) token.substitution = true;
-    if (templates.length) token.within = templates.at(-1).token;
+    const token = mark({ type, value, line: where });
     // `export * as class from …`, `export { a as class }`, `{ class: 1 }`, `import { class as k }`, `this.#class`: a name,
     // not a class.
     // Right in a class's body a word that begins a member — after `{`, `;`, `}`, `static`, or a line a member ended —
     // is the member's name: `class⏎  x⏎  static {}` is two fields and a static block, and opens no wait (Д-486, Д-499).
+    // A substitution of a field's template is an expression's place, whatever came before it (Д-503).
     const last = tokens.at(-1);
-    const named = innermost().classBody === true && (isPunct(last, "{") || isPunct(last, ";") || isPunct(last, "}") || isName(last, "static")
+    const named = token.substitution !== true && innermost().classBody === true && (isPunct(last, "{") || isPunct(last, ";") || isPunct(last, "}") || isName(last, "static")
       || (last.line < where && (endsOperand(last) || isMember(tokens.length - 1) || endsAtBreak(tokens.length - 1))));
     if (type === "name" && (value === "class" || value === "function") && !isMember(tokens.length) && !isName(tokens.at(-1), "as") && !named) {
       // `async` belongs to the function only on its line: `x = async⏎function f() {}` declares f (Д-423).
@@ -206,7 +212,8 @@ export function codeTokens(source, { script = false } = {}) {
       token.keyword = name || isPunct(binding, "]") || isPunct(binding, "}") || isPunct(binding, ")");
     }
     if (type === "punct" && value === "{") {
-      const owner = bodies.at(-1)?.depth === level() ? bodies.pop() : null;
+      // Right after `extends` it begins the heritage, an object literal, and the class still waits for its body (Д-507).
+      const owner = bodies.at(-1)?.depth === level() && !isName(tokens.at(-1), "extends") ? bodies.pop() : null;
       token.literal = !owner && (fresh || valueAfter(tokens.length - 1, where));
       // A class's body: what stands right before it is the class's heritage, a call there too (Д-466).
       if (owner?.kind === "class") token.classBody = true;
@@ -235,8 +242,8 @@ export function codeTokens(source, { script = false } = {}) {
     }
     if (last.type !== "punct") return false;
     if (last.value === ")" || last.value === "]" || last.value === "}") return last.regexAfter === true;
-    // `x++ / 2` divides; `a + + /re/` is a plus, a unary plus and a regular expression (Д-424).
-    if ((last.value === "+" || last.value === "-") && last.joined === true && endsOperand(tokens.at(-3))) return false;
+    // `x++ / 2` and `stats.new++ / 2` divide; `a + + /re/` is a plus, a unary plus and a regular expression (Д-424, Д-508).
+    if ((last.value === "+" || last.value === "-") && last.joined === true && (endsOperand(tokens.at(-3)) || isMember(tokens.length - 3))) return false;
     return true;
   };
   const readTemplateText = () => {

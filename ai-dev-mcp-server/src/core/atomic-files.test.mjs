@@ -168,8 +168,8 @@ for (let i = 0; i < Number(count); i += 1) {
 
 test("a rewrite under the lock and an append queued meanwhile do not wait on each other", async (t) => {
   // Queue first, lock second deadlocked: the append held the queue waiting for
-  // the lock, the rewrite held the lock waiting for the queue, and the append
-  // failed after the lock timeout with its line lost.
+  // the lock, the rewrite held the lock waiting for the queue, until the append
+  // took the lock for stale (30 s) and the rewrite then dropped its line.
   const root = await tempRoot(t, "ai-dev-rotate-");
   const ledger = path.join(root, "events.jsonl");
   await fs.writeFile(ledger, Array.from({ length: 30 }, (_, i) => JSON.stringify({ i })).join("\n") + "\n", "utf8");
@@ -227,11 +227,14 @@ test("a file is flushed where Node allows it: the permission model's refusal of 
   await flushFile(handle(null));
   await flushFile(handle(Object.assign(new Error("fsync API is disabled when Permission Model is enabled."), { code: "ERR_ACCESS_DENIED" })));
   await assert.rejects(flushFile(handle(Object.assign(new Error("EIO: i/o error, fsync"), { code: "EIO" }))), /EIO/);
-  // Under --permission, where Node refuses a FileHandle's sync() (24.22, 26.12) and chmod() (24.17 … 24.22, 25.9,
-  // 26.0, 26.12), every write the server makes goes through all the same — but for a copy root hands to the config's
-  // owner, which needs the fchown it refuses (Д-168, Д-494): a write and an append; a client's config that is new
-  // (Cursor's), one whose copy needs a chmod under any umask (Gemini's, 0666) and one of its owner's alone (Claude
-  // Code's, 0600), each added to, changed and cleaned, none left wider than it was; and a backup (Д-477, Д-492).
+  // Under --permission, where Node refuses a FileHandle's sync() (24.22, 26.12) and chmod() (22.23, 24.15 … 24.22,
+  // 25.9, 26.0, 26.12), every write the server makes goes through all the same — but for a copy root hands to the
+  // config's owner, which needs the fchown it refuses (Д-168, Д-494): a write and an append; a client's config that is
+  // new (Cursor's), one whose copy needs a chmod under a umask that clears a read or write bit, as this test's 0022 does
+  // (Gemini's, 0666), and one of its owner's alone (Claude Code's, 0600), each added to, changed and cleaned, none left
+  // wider than it was; and a backup (Д-477, Д-492, Д-512, Д-513).
+  const umask = process.umask(0o022);
+  t.after(() => process.umask(umask));
   const root = await fs.realpath(await tempRoot(t, "ai-dev-atomic-permission-"));
   await fs.mkdir(path.join(root, ".cursor"));
   await fs.mkdir(path.join(root, ".gemini"));

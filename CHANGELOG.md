@@ -1733,14 +1733,16 @@ four of those arrived as upstream issues #63–#66.
   `cp.exec(…)`, a default import, `execSync`, `{ "shell": true }`, `{ shell: "/bin/sh" }`,
   `globalThis["ev" + "al"](…)`. `src/core/code-tokens.mjs` reads the source as tokens — every escape
   decoded, a name ended where JavaScript ends it (a no-break space too), a template without
-  substitutions read as the string it is, `?.[` as `[`, a slash told from a division by what stands
+  substitutions read as the string it is, `?.[` as `[`, an object literal told from a block by what
+  stands before it — any operator, `/`, `<` and a `>` that ends no arrow included, a `for` head's `of`,
+  `extends` (Д-507) —, a slash told from a division by what stands
   before it (a statement head's `)`; a block's `}`, a label's or a `case`'s too, but not a class or
   function expression's — what its heritage holds, a template's substitutions included, not taken for
   its end — nor one after `delete`, `in` or `instanceof`; a property named `in`, a name `of` anywhere
   but right after a `for` head's binding (`for (k in of / 2)`, `o.for(of / 2)`); a regular expression
   after `break`, `continue` or `debugger`), a member's name read as a name whatever word it is
-  (`it.return`, `this.#class`), a statement begun where a line break ends one (after `return`,
-  `yield`, `x++`), a `.cjs` file's HTML-like comments read as a script reads them — `-->` where no
+  (`it.return`, `this.#class`, `stats.new++ / 2`), a statement begun where a line break ends one
+  (after `return`, `yield`, `x++`, `o.new++`) (Д-508), a `.cjs` file's HTML-like comments read as a script reads them — `-->` where no
   token stands before it on its line, after a comment that spans lines too — and
   `src/core/forbidden-calls.mjs` asks the rules of them, in the server and in `desktop/`: the six
   spellings appended to a server file and a desktop file give twelve findings, where the gate passed
@@ -1763,19 +1765,23 @@ four of those arrived as upstream issues #63–#66.
   `function`, `catch`, `=>`, a method's place — right in a class's body or an object literal, a `{`
   after it, whatever the method is named (`with`, `#catch`) and wherever the `{` stands — or a body
   begun on the line it ends on; a word `const`, `let` or `var` declares only with a name, `{` or `[`
-  after it, and none right in a template's substitution, where a script's `let` is a name — a JSON
-  Schema's `const:` key declares nothing; the one on the line after a declaration with no `;`
-  declares too — and `function`, `function*` or `class` only where it is no member; the
-  walk of a declaration or of a parameter or argument list steps over a template whole, and one begun
-  in a template ends with it; a class's field is a member, neither an alias nor an export (one on the
+  after it, none right in a template's substitution, where a script's `let` is a name, and none right
+  in a class's body, where it names a member (Д-509) — a JSON Schema's `const:` key declares nothing;
+  the one on the line after a declaration with no `;` declares too, and so does the one after a value
+  that ends in a member named like a keyword, `o.default` (Д-506) — and `function`, `function*` or
+  `class` only where it is no member; every walk steps over a template whole, and a declaration's or
+  an argument list's begun in one ends with it, at a `?.` too (Д-504, Д-510); a substitution of a
+  field's template is an expression's place — a class or function expression there is one, a name
+  there assigns (Д-503, Д-505); a class's field is a member, neither an alias nor an export (one on the
   line after `n++` or after a word an operand follows — a field named `in`, `of`, `return`, `default`
-  and the like, or the name `of` as a field's value — is still read as an assignment, and a member
-  named `class` or `function` there as declaring the name after it; after such a word, `return` and
-  `yield` aside, a `class` waits for a body too), and a member named `class` or `function` waits for no body, so the static block or the method
-  after it is what it is; and a file it cannot read to its end — a template or a comment that never closes — is refused rather than passed, and a
-  list that never closes is reported rather than thrown on (Д-382, Д-398, Д-399, Д-407 … Д-410,
-  Д-422 … Д-424, Д-426, Д-432, Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464 … Д-466, Д-472,
-  Д-473, Д-476, Д-480, Д-481, Д-486, Д-487, Д-490, Д-496, Д-499, Д-501). It follows the module object and the global objects through plain re-binding and
+  and the like, the name `of` as a field's value, or a member of such a name, `this.in` — is still
+  read as an assignment, and a member named `class` or `function` there as declaring the name after
+  it; after such a word, `return`, `yield` and a member's name aside, a `class` waits for a body too), and a member named `class` or `function` waits for
+  no body, so the static block or the method after it is what it is; and a file it cannot read to its
+  end — a template or a comment that never closes — is refused rather than passed, and a list that
+  never closes is reported rather than thrown on (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424,
+  Д-426, Д-432, Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464 … Д-466, Д-472, Д-473, Д-476, Д-480,
+  Д-481, Д-486, Д-487, Д-490, Д-496, Д-499, Д-501, Д-503 … Д-510). It follows the module object and the global objects through plain re-binding and
   nothing else: a module name built from parts, `createRequire`, `Reflect.get`, a loader bound to
   another name or reached any other way (`.bind`, `Reflect.apply`, a condition, an array,
   `require["call"]`), the module put in an object or an array (`module.exports = { cp }`,
@@ -1783,15 +1789,14 @@ four of those arrived as upstream issues #63–#66.
   (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a name bound to that,
   an exported `let` or `var` a pattern declares or whose name the file declares again — a local, a
   parameter, a function, a class — a global taken out of itself by a pattern (`{ globalThis: g } =
-  globalThis`), `await` or `yield` written as a name in a script, and an object literal after `<` or
-  `>`, which it reads as a block, are past it, and said to be (Д-431, Д-432, Д-440, Д-448, Д-450,
-  Д-459, Д-460, Д-464, Д-476, Д-502). Bracket pairs are worked out once, a
+  globalThis`), and `await` or `yield` written as a name in a script are past it, and said to be (Д-431, Д-432,
+  Д-440, Д-448, Д-450, Д-459, Д-460, Д-464, Д-476). Bracket pairs are worked out once, a
   closing bracket of another kind looks only a few levels down, a `from` that begins no clause stops
   at once, whether a bracket is a pattern is asked once, a key in brackets is read without copying
   them, a value's plain name is worked out once for each place it starts, a declaration's walk ends
-  where its statement does or with the template it began in, no word it passed is walked again and
-  none starts right in a template's substitution (Д-474, Д-488, Д-501), a loader's `.call(` that never
-  closes is not walked for its first argument (Д-501), a chain is walked back only
+  where its statement does or with the template it began in, and no word it passed is walked again
+  (Д-474, Д-501), a loader's `.call(` that never closes is not walked for its first argument, and the
+  walk of its arguments ends with the template it began in (Д-501, Д-510), a chain is walked back only
   for a call with the module's name, and where a regular expression's reading failed on a line no
   later one reads it again in the state it read it (Д-476), so a file costs what its length does: 5,922 dependency files are read to the end in about 18 s, and, each the median of five
   runs in a fresh process, a 448 kB minified line in 0.4 s, where it took 10 s, 552 kB of keys in
@@ -1875,20 +1880,20 @@ four of those arrived as upstream issues #63–#66.
   temporary home its server moved AI Dev's Codex-era folders out of `~/.codex` into the folder, and
   they were deleted with it; now, with `AI_DEV_HOME` set, the move reads `$AI_DEV_HOME/.codex`, as
   2.x did, and the demo names every place the move would fill, so nothing leaves `~/.codex`.
-- **The server writes under Node's permission model** (Д-470, Д-477, Д-479, Д-492 … Д-494). To a
-  process run with `--permission`, Node refuses a file handle's `sync()` — 24.22 and 26.12 of the
-  versions measured: "fsync API is disabled when Permission Model is enabled.", and no flag allows
-  it — and its `chmod()` — 24.17 … 24.22, 25.9, 26.0 and 26.12; so every write the server makes
-  atomic failed there, a client's config that was there could be neither changed nor cleaned, and the
-  test that runs the policy rules with no worker thread failed on the Node 24 that CI runs. The write
-  now goes on unflushed where the permission model refuses the flush, and a config's copy is given
-  the old file's mode only when it lacks it — where that is refused, it is left with the mode it was
-  made with, the old one narrowed by umask, never wider; any other failure of either fails the write.
-  One write still fails there: a config root writes in a home it does not own, whose copy it hands to
-  the home's user with the `fchown` the permission model refuses (Д-168). And a test that asserted
-  `node:sqlite`'s cut of a text at a NUL — which Node 22, 24.14, 25.0, 25.9 and 26.0 make, and
-  24.17 … 24.22 and 26.12 do not — takes either reading: the text read back through a BLOB is whole
-  on all of them (Д-471).
+- **The server writes under Node's permission model** (Д-470, Д-477, Д-479, Д-492 … Д-494, Д-512). To
+  a process run with `--permission`, Node refuses a file handle's `sync()` — of the x.y.0 releases
+  measured, 24.22 and 26.12: "fsync API is disabled when Permission Model is enabled.", and no flag
+  allows it — and its `chmod()` — 22.23, 24.15 … 24.22, 25.9, 26.0 and 26.12; so every write the
+  server makes atomic failed there, a client's config that was there could be neither changed nor
+  cleaned, and the test that runs the policy rules with no worker thread failed on the Node 24 that CI
+  runs. The write now goes on unflushed where the permission model refuses the flush, and a config's
+  copy is given the old file's mode only when it lacks it — where that is refused, it is left with the
+  mode it was made with, the old one narrowed by umask, never wider; any other failure of either fails
+  the write. One write still fails there: a config root writes in a home it does not own, whose copy
+  it hands to the home's user with the `fchown` the permission model refuses (Д-168), and the backup
+  it made of that config stays beside it. And a test that asserted `node:sqlite`'s cut of a text at a
+  NUL — which Node 22.16 … 22.23, 24.0 … 24.15, 25.0, 25.9 and 26.0 make, and 24.16 … 24.22 and 26.12
+  do not — takes either reading: the text read back through a BLOB is whole on all of them (Д-471).
 - **The tests pass with a temporary folder that is a link or a long path** (Д-258, Д-259, Д-373).
   Four tests compared a resolved path with one built from `os.tmpdir()`, and the bridge test bound a
   socket that a 112-byte `TMPDIR` cut short, so parallel runs collided (`EADDRINUSE` in 6 of 12):

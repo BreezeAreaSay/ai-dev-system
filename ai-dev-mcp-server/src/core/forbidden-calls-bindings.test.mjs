@@ -5,7 +5,7 @@ import { forbiddenCalls } from "./forbidden-calls.mjs";
 
 // What the static gate reads as declaring a name, binding one or holding a pattern: a parameter list, a declaration, a
 // class's field. Its own file since forbidden-calls.test.mjs would have passed the 800 lines a module keeps
-// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-501).
+// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-511).
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
 const BT = "`";
@@ -244,4 +244,44 @@ test("a file mid-edit costs what its length does: a bracket left open in each su
   const n = 16000;
   assert.ok(timed(`var a = ${`${BT}\${(let[0]}${BT} + `.repeat(n)}1;\n`, { script: true }) < 4000, "a let in an open parenthesis in each substitution");
   assert.ok(timed(`x = ${"require.call(a + ".repeat(n)}1;\n`) < 4000, "a .call( that never closes");
+  // A loader's .call( opened in each substitution and closed after all the templates: its argument's walk ends with its own (Д-510).
+  assert.ok(timed(`x = ${`${BT}\${require.call(a + 1}${BT} + `.repeat(n)}1${")".repeat(n)};\n`) < 4000, "a .call( in each substitution");
+});
+
+test("a substitution of a field's template is an expression's place, a ?. is in its template, a member named like a keyword ends an operand, an object literal after an operator is one (Д-503 … Д-509, Д-511)", () => {
+  // A class or function expression in a later substitution of a field's template is an expression: its body is a body (Д-503).
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  t = ${BT}\${{}}\${class { run = cp }}${BT};\n}`), []);
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  t = ${BT}\${1}\${\n    class { run = cp }}${BT};\n}`), []);
+  assert.deepEqual(rules(`export class A {\n  t = ${BT}\${{}}\${class {\n    m({ shell })\n    {\n      return shell;\n    }\n  }}${BT};\n}`), []);
+  assert.deepEqual(rules(`export class A {\n  t = ${BT}\${{}}\${function () {} / 2}${BT} + eval / 3;\n}`), ["eval"]);
+  assert.deepEqual(rules(`export class A {\n  t = ${BT}\${{}}\${function () {} / eval("1") / 2}${BT};\n}`), ["eval"]);
+  // The . a ?. leaves is in its template: the declarators after it in a substitution still declare (Д-504).
+  assert.deepEqual(rules(`${CP}export let run;\nexport const label = (o) => ${BT}\${(() => { const a = o?.name, run = cp; return a + run; })()}${BT};`), []);
+  // An assignment in a later substitution of a field's template assigns (Д-505).
+  assert.deepEqual(rules(`${CP}let run;\nexport class A {\n  t = ${BT}\${{}}\${run = cp}${BT};\n}\nrun.exec("x");`), ["child_process.exec"]);
+  // A member named like a keyword ends a value at its line's end, and with a postfix ++ or -- ends its operand (Д-506, Д-508).
+  assert.deepEqual(rules(`${CP}export let run;\nexport function f(o) {\n  const p = o.default\n  const run = cp\n  return [p, run]\n}`), []);
+  assert.deepEqual(rules("export function f(stats, total) {\n  const share = stats.new++ / total; // Function of the new count\n  return share;\n}"), []);
+  assert.deepEqual(rules("export function f(counts, n) {\n  const r = counts.default-- / n; const g = eval; return g / 2;\n}"), ["eval"]);
+  // An object literal after /, <, a > that ends no arrow, a for head's of, or right after extends is a literal (Д-507).
+  const spawn = 'import { spawn } from "node:child_process";\nconst a = 1;\n';
+  for (const before of ["a /", "a <", "a >", "a >>"]) assert.deepEqual(rules(`${spawn}export const x = ${before} { shell: true };`), ["shell"], before);
+  assert.deepEqual(rules(`${spawn}for (const k of { shell: true }) spawn(k);`), ["shell"]);
+  assert.deepEqual(rules(`${spawn}export class B extends { shell: true }.constructor {}`), ["shell"]);
+  for (const before of ["a /", "a >"]) {
+    assert.deepEqual(rules(`const a = 1;\nexport const x = ${before} {\n  m({ shell })\n  {\n    return shell;\n  }\n};`), [], before);
+  }
+  assert.deepEqual(rules("export function f() {\n  for (const k of {\n    m({ shell })\n    {\n      return shell;\n    }\n  }) return k;\n}"), []);
+  assert.deepEqual(rules("export const g = (a) => {\n  m({ shell: true })\n};\nfunction m(o) { return o; }"), ["shell"]);
+  // A member named let right in a class's body declares nothing, after a field named in too (Д-509).
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  in\n  let\n  run = 1\n}\nrun = cp;`), ["child_process.exec"]);
+  // What ends a member before a field named class: a ;, a method's }, a field on the line before (Д-511).
+  for (const lead of ["x = 1; class", "m() {}\n  class", "x\n  class"]) {
+    assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  ${lead}\n  y\n  static {\n    run = cp;\n  }\n}`), ["child_process.exec"], lead);
+  }
+  // A declarator after a template and an operator still declares; new, typeof, void before a class expression in a field (Д-511).
+  assert.deepEqual(rules(`${CP}export let run;\nexport function f(x) {\n  const a = ${BT}\${x}${BT} + "", run = cp;\n  return [a, run];\n}`), []);
+  for (const value of ["new class", "new\n  class", "typeof\n  class", "void class"]) {
+    assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  x = ${value} { run = cp }\n}`), [], value);
+  }
 });

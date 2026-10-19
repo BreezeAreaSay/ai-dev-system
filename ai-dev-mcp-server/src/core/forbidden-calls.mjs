@@ -46,36 +46,36 @@
  * A parameter list is told from a call's arguments by `function`, `catch`,
  * `=>`, a method's place — right in a class's body or an object literal, a `{`
  * after it, whatever the name — or a body begun on the line it ends on: a
- * call's arguments are values, a block or a class's body after them, and a
- * name in them declares nothing (Д-466, Д-472, Д-481, Д-499). A name is
- * declared again by a declaration — `const`, `let` or `var` with a name, `{` or
- * `[` after it, not a key or a method of that name —, a parameter, or
- * `function`, `function*` or `class` that names no member; the walk of a
- * declaration or of a parameter or argument list steps over a template whole,
- * and one begun in a template ends with it (Д-473, Д-476, Д-490, Д-496, Д-501).
+ * call's arguments are values, a block or a class's body after them, and a name
+ * in them declares nothing (Д-466, Д-472, Д-481, Д-499). A name is declared
+ * again by a declaration — `const`, `let` or `var` with a name, `{` or `[`
+ * after it, not a key, a method or a class's member of that name —, a
+ * parameter, or `function`, `function*` or `class` read as naming no member;
+ * every walk steps over a template whole, and a declaration's or an argument
+ * list's begun in one ends with it (Д-473, Д-476, Д-490, Д-501, Д-509, Д-510).
  *
  * It is a reader, not a parser. It follows the module object and the global
- * objects through plain re-binding, and nothing else through anything: a
- * module name built from parts, `createRequire`, `Reflect.get`, a loader bound
- * to another name (`const r = require`) or reached any other way — `.bind`,
- * `Reflect.apply`, a condition (`(ok ? require : null)(…)`), an array,
- * `require["call"]`, `module.constructor._load` — a key held in a variable,
- * the module object put in an object or an array by name
- * (`module.exports = { cp }`, `export const [run] = [cp]`), set on `this` or a
- * class's field, or on a head in parentheses (`(module.exports).cp = cp`),
- * handed to a function, or only part of a value (`cp || fallback`), and a name
- * bound to such a value; an exported `let` or `var` that a pattern declares
- * (`export let { run } = {}`), or whose name the file declares again — a local
- * of its own, a parameter, a function, a class — wherever it is assigned; a
- * global taken out by a pattern (`{ globalThis: g } = globalThis`), `await` or
- * `yield` written as a name in a script, which it reads as the keyword, and an
- * object literal after `<` or `>`, which it reads as a block, are past it
- * (Д-410, Д-426, Д-432, Д-440, Д-448, Д-459, Д-460, Д-464, Д-476, Д-502).
- * Code written that way is not written by accident, and keeping honest code
- * honest is what this gate is for. A computed member of a global it cannot read
- * is refused rather than trusted, and so is a file it could not read to its
- * end — a template literal or a comment that never closes, which would leave
- * whatever follows unchecked.
+ * objects through plain re-binding and nothing else: a module name built from
+ * parts, `createRequire`, `Reflect.get`, a loader bound to another name
+ * (`const r = require`) or reached any other way — `.bind`, `Reflect.apply`, a
+ * condition (`(ok ? require : null)(…)`), an array, `require["call"]`,
+ * `module.constructor._load` — a key held in a variable, the module put in an
+ * object or an array by name (`module.exports = { cp }`,
+ * `export const [run] = [cp]`), set on `this` or a class's field, or on a head
+ * in parentheses (`(module.exports).cp = cp`), handed to a function, or only
+ * part of a value (`cp || fallback`), and a name bound to such a value; an
+ * exported `let` or `var` that a pattern declares (`export let { run } = {}`),
+ * or whose name the file declares again — a local of its own, a parameter, a
+ * function, a class — wherever it is assigned; a global taken out by a pattern
+ * (`{ globalThis: g } = globalThis`); `await` or `yield` written as a name in a
+ * script, read as the keyword; and a class's member on the line after `n++` or
+ * a word an operand follows (`in`), read as an assignment or, named `class` or
+ * `function`, as declaring the name after it, are past it (Д-410, Д-426, Д-432,
+ * Д-440, Д-448, Д-459, Д-460, Д-464, Д-476, Д-509). Such code is not written by
+ * accident; keeping honest code honest is this gate's job. A computed member of
+ * a global it cannot read is refused rather than trusted, and so is a file it
+ * could not read to its end — a template literal or a comment that never
+ * closes, which would leave whatever follows unchecked.
  */
 
 import { HEAD_KEYWORDS, KEYWORDS_BEFORE_EXPRESSION, closing, codeTokens, enclosing, endsOperand, isName, isPunct, opening } from "./code-tokens.mjs";
@@ -230,11 +230,11 @@ function stepOver(tokens, at) {
   return shut > at ? shut + 1 : at + 1;
 }
 
-/** The index of the `,` that ends the argument beginning at `at`, or -1 where the arguments end first. */
-function argumentEnd(tokens, at) {
-  for (;;) {
+/** The index of the `,` that ends the argument at `start`, or -1 where the arguments, or the template they began in, end first (Д-510). */
+function argumentEnd(tokens, start) {
+  for (let at = start; ; ) {
     const token = tokens[at];
-    if (!token || isPunct(token, ")") || isPunct(token, "]") || isPunct(token, "}")) return -1;
+    if (!token || token.within !== tokens[start].within || isPunct(token, ")") || isPunct(token, "]") || isPunct(token, "}")) return -1;
     if (isPunct(token, ",")) return at;
     at = stepOver(tokens, at);
   }
@@ -363,10 +363,10 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       const token = tokens[next];
       if ([",", ";", ")", "]", "}"].some((value) => isPunct(token, value)) || token.within !== tokens[at].within) return next;
       const previous = tokens[next - 1];
-      // A postfix `++` or `--` ends a value too: `export const a = n++` with no `;` is over at its line (Д-441).
-      const endsValue = ["number", "string", "regex"].includes(previous?.type) || isPunct(previous, ")") || isPunct(previous, "]")
-        || isPunct(previous, "}") || (isName(previous) && !KEYWORDS_BEFORE_EXPRESSION.has(previous.value))
-        || ((isPunct(previous, "+") || isPunct(previous, "-")) && previous.joined === true && endsOperand(tokens[next - 3]));
+      // A postfix `++` or `--` ends a value too: `export const a = n++` with no `;` is over at its line (Д-441); a member's name, `o.in`, `o.new++`, as any (Д-506).
+      const endsValue = ["number", "string", "regex"].includes(previous?.type) || isPunct(previous, ")") || isPunct(previous, "]") || isPunct(previous, "}")
+        || (isName(previous) && (!KEYWORDS_BEFORE_EXPRESSION.has(previous.value) || isPunct(tokens[next - 2], ".") || isPunct(tokens[next - 2], "#")))
+        || ((isPunct(previous, "+") || isPunct(previous, "-")) && previous.joined === true && (endsOperand(tokens[next - 3]) || isPunct(tokens[next - 4], ".") || isPunct(tokens[next - 4], "#")));
       if (next > at && token.line > previous.line && endsValue && isName(token) && token.value !== "in" && token.value !== "instanceof") return next;
       // `export` only ever begins a statement, and the walk stops there whatever came before (Д-444).
       if (next > at && isName(token, "export") && !isPunct(previous, ".")) return next;
@@ -375,13 +375,13 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
     }
     return tokens.length;
   };
-  // A member's name is no binding: `target.run`, `this.#run`, and a class's field — a name that begins an element of
-  // its body, after `{`, `;`, `}` or `static`, or on a line of its own after one that ends an element:
-  // `class A { run = cp }`, but not `x =⏎ run = cp`, which assigns (Д-460, Д-476).
+  // A member's name is no binding: `target.run`, `this.#run`, and a class's field — a name right in its body, not in a
+  // substitution there (Д-505), after `{`, `;`, `}` or `static`, or on a line of its own after an operand (not after `n++` or
+  // a word an operand follows, Д-509): `class A { run = cp }`, but not `x =⏎ run = cp`, which assigns (Д-460, Д-476).
   const isMember = (index) => {
     if (isPunct(tokens[index - 1], ".") || isPunct(tokens[index - 1], "#")) return true;
     const before = tokens[index - 1];
-    return tokens[enclosing(tokens, index)]?.classBody === true && (isPunct(before, "{") || isPunct(before, ";")
+    return tokens[index].substitution !== true && tokens[enclosing(tokens, index)]?.classBody === true && (isPunct(before, "{") || isPunct(before, ";")
       || isPunct(before, "}") || isName(before, "static") || (before.line < tokens[index].line && endsOperand(before)));
   };
   // What `export const`, `let` or `var` declares — a name, or a pattern's opening bracket — and the names an exported
@@ -392,9 +392,9 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
   const exportedNames = new Set();
   const declared = new Set();
   tokens.forEach((token, index) => {
-    if (!isName(token) || !DECLARATIONS.has(token.value) || walked[index] === 1 || token.substitution === true || isMember(index)) return;
-    // What a declaration declares follows its word: `{ const: 1 }`, `let() {}`, `[let, let]` declare nothing (Д-473), and
-    // none stands right in a template's substitution, where a walk would run past the template (Д-488).
+    if (!isName(token) || !DECLARATIONS.has(token.value) || walked[index] === 1 || token.substitution === true || isMember(index) || tokens[enclosing(tokens, index)]?.classBody === true) return;
+    // What a declaration declares follows its word: `{ const: 1 }`, `let() {}`, `[let, let]` declare nothing (Д-473); none
+    // stands right in a template's substitution (Д-488), nor right in a class's body, strict code where it names a member (Д-509).
     if (!isName(tokens[index + 1]) && !isPunct(tokens[index + 1], "{") && !isPunct(tokens[index + 1], "[")) return;
     const out = isName(tokens[index - 1], "export");
     for (let at = index + 1; at < tokens.length; at += 1) {

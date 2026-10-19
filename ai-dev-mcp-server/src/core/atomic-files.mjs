@@ -70,11 +70,11 @@ export async function renameOver(tempPath, targetPath) {
 
 /**
  * Flush an open file to disk. Node's permission model refuses a FileHandle's
- * sync() — as measured in 24.22 and 26.12; 24.21, 25.0, 25.9 and 26.0 allow
- * it — with "fsync API is disabled when Permission Model is enabled."
- * (`ERR_ACCESS_DENIED`), and no flag allows it; there the write goes on
- * unflushed rather than not at all. Any other failure is the write's
- * (docs/DEFECTS.md, Д-470, Д-479, Д-493).
+ * sync() — of the x.y.0 releases measured, 24.22 and 26.12; 22.16 … 22.23,
+ * 24.0 … 24.21, 25.0, 25.9 and 26.0 allow it — with "fsync API is disabled
+ * when Permission Model is enabled." (`ERR_ACCESS_DENIED`), and no flag allows
+ * it; there the write goes on unflushed rather than not at all. Any other
+ * failure is the write's (docs/DEFECTS.md, Д-470, Д-479, Д-493, Д-512).
  *
  * @param {import("node:fs/promises").FileHandle} handle
  * @returns {Promise<void>}
@@ -90,11 +90,11 @@ export async function flushFile(handle) {
 /**
  * Give a file opened with `mode` that mode unless it has it already: the copy
  * that takes a file's place keeps that file's mode. Node's permission model
- * refuses a FileHandle's chmod() — as measured in 24.17, 24.20, 24.21, 24.22,
- * 25.9, 26.0 and 26.12; 24.14 and 25.0 allow it; there the copy is left with
- * the mode open() gave it — the file's, which umask only narrows — rather than
- * fail the write. Any other failure is the write's (docs/DEFECTS.md, Д-477,
- * Д-492, Д-493).
+ * refuses a FileHandle's chmod() — of the x.y.0 releases measured, 22.23,
+ * 24.15 … 24.22, 25.9, 26.0 and 26.12 (22.16 … 22.22, 24.0 … 24.14 and 25.0
+ * allow it). Where it is refused, the copy is left with the mode open() gave
+ * it, the file's, which umask only narrows, rather than fail the write. Any
+ * other failure is the write's (docs/DEFECTS.md, Д-477, Д-492, Д-493, Д-512).
  *
  * @param {import("node:fs/promises").FileHandle} handle
  * @param {number} mode

@@ -13519,6 +13519,425 @@ demo exit 0;  It routed 3 skills out of 614 - nobody named them:
 
 ---
 
+## Д-393. `upsert_policy_rule` записывает правило, когда поток сопоставления падает: ни пробы, ни пример не проверены
+
+**Статус:** открыт. Закроет фаза 14. Нашли второе независимое ревью фазы 14 — ревью кода (must-fix 1) и ревью
+документации (must-fix 1), каждое само; код — правка Д-383 (`acdc75b`).
+
+Д-383 отказывает правилу, пример которого сопоставитель не достиг (`not_checked`). Но поток, который падает — не
+создался, событие `error`, `exit`, — отвечает `{checked: true, matched: null, error}` (Д-384 сделал так и копию в
+хуках). `verifyPolicyRules` переносит `matched` (`null`) и теряет `error` (`policy-rules.mjs:187-190`): выходит
+`fires_on_example: null, not_checked: false` — то же, что «примера нет». Пробы цены отказывают только на `!checked` и
+`timed_out` (`:412`), пример — только на `not_checked` (`:429`). Правило, пример которого ни разу не сопоставлялся,
+записывается, даже если пример не подходит; `list_policy_rules` сбоя не видит.
+
+**Чем грозит.** Непроверенное правило записывается как проверенное — то, что закрывал Д-383. Там, где потоки не
+создаются (`--permission` без `--allow-worker`, лимит процессов контейнера), так записывается каждое.
+
+**Замер до** (`2aff656`; `p14/r2/code/probes/upsert-worker-fails.mjs`, `list-worker-fails.mjs`):
+
+```
+$ node --permission --allow-fs-read='*' --allow-fs-write=$W upsert-worker-fails.mjs <server> $W
+one match: [{"matched":null,"checked":true,"timed_out":false,"error":"Access to this API has been restricted. Use --allow-worker …"}]
+action: created verification: {"checked_as":"bash","fires_on_example":null,"counter_example_matches":null,"timed_out":false,"not_checked":false,"not_run":null} problems: []
+written: 1
+$ node --permission … list-worker-fails.mjs <server> $W
+no-deploy fires_on_example: null match_not_checked: false problems: []        (три правила по умолчанию — так же)
+counts: {"total":4,"enabled":4,"blocking":2,"warning":2,"broken":0}
+```
+
+Ревью кода — то же в образе `p14r2` под `--pids-limit 11`: девять ответов `{"checked":true,"matched":null,
+"error":"EAGAIN"}`, `action: created`, `written: 1`. Ревью документации — пример, который не подходит (`deploy` и
+`npm test`): без потоков `upsert: created`, с потоками — «does not match its own example».
+
+**Как закроется.** Ответ с `error` — не проверка: `verifyPolicyRules` несёт ошибку, проба или пример с ошибкой — отказ
+в записи с её текстом; `list_policy_rules` называет сбой сопоставления проблемой правила. Тест — сопоставитель,
+отвечающий `error`.
+
+---
+
+## Д-394. Перенос эпохи Codex не находит `~/.codex`, когда `AI_DEV_HOME` называет папку по умолчанию, `~/.ai-dev`
+
+**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью кода: should-fix 2); код — правка
+Д-389 (`acdc75b`).
+
+Д-389 берёт `.codex` под `AI_DEV_HOME`, когда тот задан и это не домашняя папка: 2.x принимала `AI_DEV_HOME` за дом и
+держала `.codex` рядом с `.ai-dev`. Но `AI_DEV_HOME`, равный `~/.ai-dev`, — это папка рантайма 3.0 по умолчанию
+(README), и записи клиентов несут переменную, когда она экспортирована (Д-176). У установки 2.x без переменной данные
+эпохи Codex лежат в `~/.codex`, а перенос ищет их в `~/.ai-dev/.codex`. До `acdc75b` они переносились.
+
+**Чем грозит.** Задачи и сессии эпохи Codex не переезжают и не видны, `ai-dev doctor` о них молчит; данные не удалены.
+
+**Замер до** (`2aff656`; `p14/r2/code/probes/codex-default-named.mjs`: `~/.codex/state/archify-receipts/r1.json`,
+`AI_DEV_HOME=<home>/.ai-dev`):
+
+```
+2aff656:    doctor sees: codex_root <b>/home/.ai-dev/.codex codex_files []
+            migration: clean moved 0
+acdc75b~1:  doctor sees: codex_root <b>/home/.codex codex_files ["state/archify-receipts/r1.json"]
+            migration: migrated moved 1 from <b>/home/.codex
+```
+
+**Как закроется.** Когда `AI_DEV_HOME` — это `<home>/.ai-dev`, перенос берёт `<AI_DEV_HOME>/.codex` (2.x с той же
+переменной), а если там нет данных AI Dev — `<home>/.codex` (2.x без неё); другой `AI_DEV_HOME` `~/.codex` не трогает,
+как в Д-389. Тест — оба случая.
+
+---
+
+## Д-395. Печать заметки о модели на другом диске (Д-385) не держит ни один тест
+
+**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью кода: should-fix 3).
+
+`ai-dev clients install --docker` и `clients entry --docker` печатают `docker.model.note` (`clients.mjs:227, 330`);
+тесты держат саму заметку (`docker-launch.test.mjs`), а её печать — нет.
+
+**Чем грозит.** Заметка, ради которой закрыт Д-385, может пропасть при правке CLI, и ни один тест этого не заметит.
+
+**Замер до** (`2aff656`; мутант в копии `p14/r2v/repo`: обе печати убраны —
+`[docker?.model?.note, unsharedStateNote(docker)]` → `[unsharedStateNote(docker)]`):
+
+```
+node --test src/cli/cli.test.mjs src/core/docker-launch.test.mjs scripts/bootstrap-contract.test.mjs
+# tests 54   # pass 54   # fail 0
+```
+
+**Как закроется.** Тест CLI со ссылкой на модель на другой файловой системе: заметка — в stderr `clients entry
+--docker` и в `note` у `install --json`; где другой файловой системы нет, тест пропускается и говорит почему.
+
+---
+
+## Д-396. Тест-контракт ворот (Д-388.3) ловит удаление вызова, но не его ослабление
+
+**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью кода: should-fix 4).
+
+`scripts/static-quality.test.mjs` сверяет текст `static-quality.mjs`: строка вызова, закомментированная целиком,
+`if (false)` или `continue` перед ней, `const source = ""`, своя `forbiddenCalls` в цикле, `src/` вне обхода,
+`findings.length = 0` перед вердиктом — тест зелёный, а ворота пропускают `exec`.
+
+**Чем грозит.** Ворота можно выключить правкой, которую тест, написанный ради этого, не видит.
+
+**Замер до** (`2aff656`):
+
+```
+мутант (копия p14/r2v/repo): вызов в цикле сервера закомментирован
+node --test scripts/static-quality.test.mjs   → # pass 1  # fail 0
+ревью: 12 мутантов — пойманы 3 (удаление любого из двух вызовов, allowEval: true), пропущены 9;
+с закомментированным вызовом src/core/zz-planted.mjs с `import { exec } from "node:child_process"; exec("ls")`
+→ "status": "passed", exit 0  (без мутанта — exit 1, "src/core/zz-planted.mjs:1: child_process exec (imported by name) is forbidden")
+```
+
+**Как закроется.** Тест поведения: копия настоящего `static-quality.mjs` запускается над деревом-фикстурой с `exec` в
+коде сервера, `eval` в коде приложения и `eval` в его тесте — код выхода 1, обе находки названы, у теста приложения
+находки нет.
+
+---
+
+## Д-397. Мелочи второго ревью кода фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью кода: мелочи 5–12).
+
+**Замер до** (`2aff656`; пробы ревью — `p14/r2/code/probes/`, мутанты — в копии):
+
+1. **Поток, который падает до `ready`, пересоздаётся на каждое правило** (обе копии: `hooks/lib.mjs:740-753`,
+   `regex-budget.mjs:206-231`). Гард с потоком, падающим при загрузке (`guard-boom-many.mjs`): 30 правил — 1 871 мс и
+   30 одинаковых строк «the thread matching it failed (boom)»; 100 правил — 3 174 мс, 51 такая строка и «49 rule(s) were
+   not matched: this machine is so busy … Nothing is wrong with the rules» (здоровый гард на 100 правилах — 256 мс).
+2. **Пустое сообщение ошибки копии читают по-разному:** сервер — `String(cause?.message ?? cause)` (`regex-budget.mjs:146`),
+   хуки — `String((error && error.message) || error)` (`hooks/lib.mjs:675, 687`). Поток с `throw new Error("")`:
+   сервер `{"not_run start":3}`, хуки `{"run, error Error":3}`.
+3. **Путь `exit` в копии хуков не держит тест:** мутант `finish(-1)` в `hooks/lib.mjs:688` — 27 из 27. Строка гарда
+   удваивает знаки: «failed (Access to this API has been restricted. Use --allow-worker to manage permissions.). Nothing
+   here…» (`guard.mjs:171`).
+4. **Отказ Д-383 всегда говорит «its example»** — и о контрпримере — и стоит раньше проверки `timed_out`: пример, сорванный
+   бюджетом, с контрпримером, срезанным сроком, получает «could not be checked … less busy» вместо «backtracks
+   catastrophically on its own example» (`policy-rules.mjs:429-434`; `upsert-counter.mjs`).
+5. **Текст `clients doctor` о пропавшей папке** (`clients.mjs:291`): для ссылки на модель — «is not here: …/bge-m3-onnx»,
+   хотя ссылка на месте, а нет её цели, и цель не названа; для папки проектов — «connect the disk it is on, or write the
+   entries again without it», а установка эту папку создаёт; `ai-dev clients install --docker` из совета пишет записи
+   заново без прочих параметров — с `ai-dev-system:p14r2` в записи даёт `ghcr.io/stonebridgeway/ai-dev-system:latest`.
+6. **`missingBindSources`** (`docker-launch.mjs:280-292`; `bind-shapes.mjs` против настоящего Docker): свои формы 3.0
+   читает верно, `-v` и именованные тома верно пропускает; не видит `--mount=…` одним аргументом, поля в кавычках CSV,
+   ключи в верхнем регистре, `type=Bind` (тогда doctor запускает Docker, как раньше); `source=<нет>,src=<есть>` —
+   ложный отказ: Docker берёт последний ключ и стартует; папку, которую пользователь doctor не может пройти (`EACCES`,
+   uid 65534), считает пропавшей, а демон её монтирует.
+7. **Текст Д-387 не держит тест:** английский совет «permission», подменённый советом «access», — 109 из 109 юнит-тестов
+   приложения (проверяется только ключ сообщения).
+8. **Слова Д-389:** журнал старта — «AI Dev's data is read from ~/.ai-dev only now», «could not move AI Dev's data out of
+   ~/.codex» (`runtime-home-migration.mjs:455`), JSDoc (`:109`) — `~/.codex`; при `AI_DEV_HOME` источник —
+   `<AI_DEV_HOME>/.codex`.
+
+**Чем грозит.** Лишние секунды и строки гарда при сломанном потоке, расхождение копий, тексты, которые ведут не туда.
+
+**Как закроется.** Поток, упавший до `ready`, отвечает той же ошибкой на все оставшиеся задания (обе копии), гард
+собирает такие правила в одну строку; одно выражение причины в обеих копиях; тест на `exit`; знаки строки гарда;
+отказ называет пример или контрпример и идёт после `timed_out`; doctor называет цель ссылки и даёт верный совет;
+разбор `--mount` — как у Docker (одним аргументом, кавычки, регистр, последний ключ), пропавшая папка — только
+`ENOENT`/`ENOTDIR`; тест текста Д-387; слова о `.codex`.
+
+---
+
+## Д-398. Ворота запрещённых вызовов пропускают записи, которые обещают ловить; три — регрессия `acdc75b`
+
+**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью ворот: must-fix 1–6); код — правка
+Д-382 (`acdc75b`).
+
+Заголовок `forbidden-calls.mjs` и AGENTS.md обещают: `shell` в литерале объекта или присваиванием члену; `eval` и
+конструктор `Function`, вызванные или переданные; `exec` модуля через любое имя, к которому он привязан. Пропускаются:
+
+1. **`shell` в значении параметра по умолчанию и в массиве `for … of` — регрессия:** `isPattern` считает любую `{`/`[`
+   в скобках, за которыми `{` или `=>`, шаблоном параметров, даже после `=` и `of`.
+2. **`eval`/`Function` из глобального объекта по ключу в кавычках или вычисляемому** — то же, что Д-382 закрыл для
+   голого ключа; вычисляемый ключ шаблона над глобальным — вычисляемый член, которого ворота не читают.
+3. **Конструктор `Function` через `.call`/`.apply`** — и `.constructor.constructor.call(…)`.
+4. **Логическое присваивание** `??=`, `||=` — и `shell` члена, и ленивая загрузка модуля (`cp ??= await import(…)`).
+5. **Модуль в скобках:** `(cp).exec(…)`.
+6. **`?.`, за которым комментарий или перевод строки перед `[`:** вычисляемый член теряется.
+
+**Чем грозит.** Ворота пропускают записи, которые их документация называет пойманными; ленивая загрузка
+`child_process` через `??=` — обычная запись.
+
+**Замер до** (`2aff656`; `p14/r2/gate/repro.mjs`, повтор ведущим против файла HEAD — `p14/r2v/repro-gate.mjs`;
+«до» — `acdc75b^`):
+
+```
+1  function run(cmd, options = { shell: true }) {…}         HEAD []   acdc75b^ [shell@1]
+   const run = (cmd, opts = { shell: true }) => …           HEAD []   acdc75b^ [shell@1]
+   for (const options of [{ shell: true }]) {…}             HEAD []   acdc75b^ [shell@1]
+2  const { "eval": run } = globalThis; / { ["eval"]: run } / { "Function": F } / { [key]: f } = globalThis    HEAD []
+   (контроль: const { eval: run } = globalThis → [eval@1])
+3  Function.call(null, "return 1")(); / Function.apply(…) / globalThis.Function.call(…) / ({}).constructor.constructor.call(…)   HEAD []
+4  options.shell ??= true; / options.shell ||= "/bin/sh";   HEAD []   (контроль: options.shell = true → [shell@1])
+   let cp; … cp ??= await import("node:child_process"); return cp.exec("ls");   HEAD []
+5  import * as cp from "node:child_process"; (cp).exec("ls"); / (cp)["execSync"]("ls")   HEAD []
+6  cp?./* x */["exec"]("ls") / cp?.⏎["exec"]("ls") / globalThis?.⏎["ev" + "al"]("1")    HEAD []
+```
+
+Ревью: семь таких записей в модуле `src/core/` и `desktop/src/main/` плюс `import { exec } from "./zz-gate-probe.mjs"`
+— `static-quality.mjs`: `"status": "passed"`, 481 файл, exit 0.
+
+**Как закроется.** Каждая запись — в тестах модуля и ловится; дерево репозитория — 0 находок; ни один файл зависимостей
+не отвергается как непрочитанный.
+
+---
+
+## Д-399. Ворота запрещённых вызовов: лексер путает деление с регулярным выражением, и ещё записи мимо них
+
+**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью ворот: should-fix 7–11).
+
+1. **Реэкспорт:** `export * from "node:child_process"`, `export { default } from …`, `module.exports =
+   require("node:child_process")` — мимо (`export { exec } from` ловится); соседний файл берёт `exec` через `import {
+   exec } from "./…"`, и ворота его не видят.
+2. **Деление, прочитанное как регулярное выражение:** ключевое слово после точки (`stats.in / 1024`) и постфиксный `++`
+   (`count++ / 2`) открывают «регулярное выражение», которое до конца строки съедает перевод строки и первое слово
+   следующей строки как флаги — эта строка не проверяется, номера строк ниже сдвинуты. Строка, начатая с `/` после `}` —
+   регрессия правила Д-382. И наоборот: регулярное выражение после `if (…)`, `while (…)`, `export default`, блока `}` или
+   деление перед шаблоном в той же строке — валидный код — отвергается как непрочитанный (в 5 922 файлах зависимостей и
+   544 репозитория таких нет).
+3. **Комментарий `//` кончается только на LF:** CR, U+2028 и U+2029 тоже концы строк — файл с концами CR читается как
+   один комментарий.
+4. **Экранирования:** `\u{…}` из семи и больше цифр и восьмеричные `\137` нестрогих файлов не раскодируются; две заявки
+   Д-382 о раскодировании (`\u{…}`, продолжение строки) не держит тест — мутанты оставляют 10 тестов зелёными.
+5. **Ещё записи:** `require("child_process",)`, `import("node:child_process", {})`, `await (import(…))`, `ns.default`
+   через имя, `const c2 = (cp)`, `.then` у имени, связанного с `import(…)`, `((globalThis))[…]`, `const g =
+   global.globalThis` — мимо. Регрессия: `{ shell: false⏎ || "/bin/sh" }` — мимо (до — `shell@1`): `plainlyOff`
+   принимает перевод строки за конец значения, и правило не держит тест.
+
+**Чем грозит.** Ворота пропускают реэкспорт `exec` и строку после неудачного деления, а валидный файл может быть
+отвергнут с упрёком в шаблоне, которого нет.
+
+**Замер до** (`2aff656`; те же `repro.mjs` / `repro-gate.mjs`):
+
+```
+1  export * from "node:child_process"; / export { default } from … / module.exports = require("node:child_process")   HEAD []
+2  import * as cp …;⏎const kb = stats.in / 1024⏎cp.exec("ls")       HEAD []
+   const half = count++ / 2⏎eval("1")                                 HEAD []
+   const total = {⏎  a: 1⏎}⏎/ 2; eval("1");                           HEAD []   acdc75b^ [eval@4]
+   if (ready) /`/.test(line);⏎const a = 1;                            HEAD [unread@1]   acdc75b^ []
+   while (more()) /[/*]/.test(next()); / export default /`/; / function f() {} /`/.test(s); / traffic.in / total, unit = `/s`   HEAD [unread@…]
+3  // note⏎(CR)eval("1"); / … U+2028 …                               HEAD []   (контроль с LF → [eval@2])
+4  \u{0000065}val("1"); / require("child\u{000005f}process") / require("child\137process") / { "sh\145ll": true }   HEAD []
+5  require("child_process",) / import(…, {}) / await (import(…)) / ns.default / (cp) / loading.then(…) / ((globalThis))[…] / global.globalThis   HEAD []
+   spawn("x", [], { shell: false⏎  || "/bin/sh" });                    HEAD []   acdc75b^ [shell@1]
+```
+
+**Как закроется.** Реэкспорт `*`, `default` и `module.exports = <модуль>` отвергается; «регулярное выражение», дошедшее
+до конца строки, — деление; ключевое слово после точки — имя свойства; постфиксный `++`/`--` кончает операнд; что открыло
+скобку, запоминается, и после `if/while/for (…)` и блока `}` идёт регулярное выражение; `//` кончается на CR, U+2028,
+U+2029; все экранирования раскодируются; перечисленные записи ловятся; перевод строки кончает значение только в
+присваивании члену. Тест на каждую.
+
+---
+
+## Д-400. Документация ворот запрещённых вызовов обещает больше, чем они делают
+
+**Статус:** открыт. Закроет фаза 14. Нашли второе независимое ревью фазы 14 (ревью ворот: should-fix 12, мелочь 13;
+ревью документации: мелочь 10) и ведущий при сверке «после».
+
+- `ai-dev-mcp-server/docs/ARCHITECTURE.md:972-979` — «`exec` and `execSync` of `child_process` however the module is
+  imported or bound», «what it cannot follow through a variable is refused, not trusted»; `8c7f022` правил этот файл и
+  абзац не тронул.
+- `CONTRIBUTING.md:169-170` — ворота отвергают `exec`, `shell`, `eval` и `Function` «however they are spelled».
+- `AGENTS.md:109` — `shell` «with any value but `false`»: `null`, `undefined`, `0` и `""` тоже проходят (так держат тесты
+  модуля, `:73-75`, и говорит его заголовок); `globalThis["process"]` проходит — любой простой ключ, кроме `eval` и
+  `Function`. «It follows a value no further than a plain assignment» читается как «за простым присваиванием следит
+  всегда», а следит только за объектом модуля и глобальными объектами.
+- Заголовок `forbidden-calls.mjs:14` — «`eval` in any role but a key of an object literal», а метод `{ eval() {…} }`
+  отвергается.
+
+**Чем грозит.** Читатель полагается на проверку, которой нет, — Д-267 начинался с того же.
+
+**Замер до** (`2aff656`):
+
+```
+const name = "child_process";⏎const cp = require(name);⏎cp.exec("ls");    → []
+const load = require; load("child_process").exec("ls");                 → []
+{ shell: null } / { shell: undefined } / { shell: 0 } / { shell: "" }   → []
+globalThis["process"]                                                   → []
+const o = { eval() { return 1; } };                                     → [eval@1]
+```
+
+**Как закроется.** ARCHITECTURE, CONTRIBUTING, AGENTS.md и заголовок модуля говорят одно и то же — то, что делает код,
+с одной названной границей.
+
+---
+
+## Д-401. Мелочи второго ревью ворот: цена на враждебном входе и счёт проверенных файлов
+
+**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью ворот: мелочи 14, 15).
+
+1. **Цена квадратичная на враждебном входе** (`cost.mjs`, `cost5mb.mjs`): переприсваивания в обратном порядке — 40 КБ за
+   0,5 с, 346 КБ за 60,3 с (по порядку — 75 мс); одна строка `x={}/1;` — 448 КБ за 10 с (с переводами строк — 31 мс);
+   `[{ shell: false }, …]` 272 КБ — 6,6 с; объект с множеством ключей `eval:` 144 КБ — 6,4 с. Настоящий код линеен:
+   зависимости 88,2 МБ за 14,7 с, `mcp-stdio.mjs` (181 КБ) — 26 мс.
+2. **`checked_files` в отчёте `static-quality.mjs` (`:154`) считает только файлы сервера:** 479 — а проверено ещё 65 файлов
+   приложения (замер Д-382 называл 478 и 543 по той же причине).
+
+**Чем грозит.** Сгенерированный файл данных в коде мог бы стоить воротам минуты; число в отчёте ворот вводит в
+заблуждение.
+
+**Замер до** — выше (`2aff656`).
+
+**Как закроется.** Пары скобок считаются один раз, начало строки запоминается при чтении, переприсваивания — очередью;
+отчёт называет оба числа.
+
+---
+
+## Д-402. Заметка о миграции молчит о папке проектов Docker: повторный bootstrap монтирует `~/AI-Dev-Projects`
+
+**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью документации: should-fix 2);
+документы — `c9f1191`, `8c7f022`.
+
+Bootstrap 2.0.0 писал `--project-path` в каждую запись клиента как `AI_DEV_PROJECT_PATH` (`git show
+346095d:ai-dev-mcp-server/scripts/install-docker-mcp-clients.mjs`, `:142-147`). Bootstrap 3.0 его не читает: без
+`--project-path` (`-ProjectPath`) монтируется `~/AI-Dev-Projects` (`bootstrap.sh:13`, `bootstrap.ps1:3`). Заметка о
+миграции (`docs/MIGRATION.md:21, 101-104`, RU — те же строки) и «Breaking» CHANGELOG (`:76-87`) велят после `git pull`
+запустить bootstrap снова — и молчат об этом; пункт про `AI_DEV_DOCKER_NETWORK` говорит об одной переменной записей
+2.x, не об этой.
+
+**Чем грозит.** Человек, идущий по заметке, получает записи, которые монтируют новую пустую папку; сервер перестаёт
+видеть его проекты, и ничто в выводе об этом не говорит.
+
+**Замер до** (`2aff656`; ревью — запись 2.0.0 в `~/.cursor/mcp.json`: `/bin/sh …/docker/run-mcp.sh`,
+`AI_DEV_PROJECT_PATH=$HOME/Dev`):
+
+```
+$ HOME=… AI_DEV_DATA_VOLUME=r2-docs-h sh ./bootstrap.sh --image ai-dev-system:p14r2 --allow-stale-image --clients cursor
+Cursor updated … — replaced the Docker launcher entry          exit 0
+запись: "type=bind,source=$HOME/AI-Dev-Projects,target=$HOME/AI-Dev-Projects"
+ls $HOME → AI-Dev-Projects Dev        (первая — новая и пустая)
+```
+
+**Как закроется.** «Breaking» и заметка о миграции (EN/RU) говорят: bootstrap монтирует папку, которую ему назвали
+(`--project-path`/`-ProjectPath`, по умолчанию `~/AI-Dev-Projects`), а не `AI_DEV_PROJECT_PATH` записи 2.x, — назовите
+свою папку снова. Перенос папки без этого шага — Д-403.
+
+---
+
+## Д-403. Bootstrap 3.0 не берёт папку проектов из записи, которую заменяет
+
+**Статус:** открыт; записан на фазу 15 (правило 4). Нашёл ведущий при разборе Д-402 (второе ревью фазы 14).
+
+Без `--project-path` (`-ProjectPath`) bootstrap монтирует `~/AI-Dev-Projects` (`bootstrap.sh:13`, `bootstrap.ps1:3`) —
+и при переходе с 2.x, чья запись несла `AI_DEV_PROJECT_PATH`, и при повторном запуске 3.0, чья запись монтирует
+другую папку: повторный bootstrap молча меняет папку, которую видит сервер.
+
+**Чем грозит.** Путь обновления, описанный в заметке о миграции, работает только с тем же `--project-path`, что и в
+первый раз; правило брифа (раздел 5, п. 2) требует, чтобы установка 2.x после обновления работала сама.
+
+**Замер до** — Д-402 (запись 2.x → `~/AI-Dev-Projects`); для 3.0: `bootstrap.sh:13` — `project_path="${HOME}/AI-Dev-Projects"`
+до разбора аргументов, записи не читаются.
+
+**Как закроется** (фаза 15, полный тест обновления с прода): без `--project-path` bootstrap берёт папку из записи
+`ai-dev`, которую заменяет, или `AI_DEV_PROJECT_PATH` записи 2.x, и говорит, какую папку смонтировал; тест в
+`docker:upgrade-check` и в контракте bootstrap.
+
+---
+
+## Д-404. Документация Docker до публикации: шаг с Node, «ничего не скачивает», `--progress=plain` и кэш
+
+**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью документации: should-fix 3–5);
+документы — `8c7f022`.
+
+1. **Путь Docker без Node на хосте начинается с команды, которой нужен Node:** `docs/INSTALL.md:167-170` (RU — те же
+   строки), `docker/README.md:69-72` — `cd ai-dev-mcp-server && npm ci && npm run docker:build`; `--build-local`,
+   которому Node хоста не нужен, — вторым; `npm ci` для `docker:build` не нужен вовсе.
+2. **Русские страницы говорят, что `--build-local` «ничего не скачивает»** (`docs/ru/INSTALL.md:173-174, 234-235`,
+   `docker/README.md:76-77`); английская — «skips the pull». Скачивает: `node:24-bookworm-slim` для подготовки
+   (`bootstrap.sh:198-203`), образы `FROM` и `npm ci --omit=dev` в Dockerfile (`:26-29, :73`).
+3. **«`--progress=plain` keeps it on screen» стоит сразу после «a cached step prints nothing»** (`CHANGELOG.md:78-80,
+   952-953`, `docs/INSTALL.md:587-589`, RU `:588-590`, `docs/MIGRATION.md:123-124, 170`, RU `:123-125, 169`,
+   `docker/README.md:305-307`), а шагу из кэша он не помогает.
+
+**Чем грозит.** Человек без Node на первом же шаге получает `npm: not found`; русский читатель ждёт сборки без сети;
+совет про кэш не работает.
+
+**Замер до** (`2aff656`; ревью):
+
+```
+$ env PATH=/usr/bin:/bin sh -c 'cd ai-dev-mcp-server && npm ci && npm run docker:build'
+sh: 1: npm: not found                                                    exit 127
+$ env PATH=/usr/bin:/bin sh ./bootstrap.sh --build-local --plan
+…"image":"ai-dev-system:local",…,"node_on_host_required":false}
+docker build --progress=plain --build-arg INSTALL_BGE_M3=1 (образ-проба с тем же RUN, что Dockerfile:132-135):
+  1-я сборка: #5 0.512 INSTALL_BGE_M3=1 is no longer used: …     2-я: #5 CACHED — сообщения нет
+```
+
+**Как закроется.** Первым — `sh ./bootstrap.sh --build-local`, вторым — «с Node и npm: `cd ai-dev-mcp-server && npm run
+docker:build`»; «не скачивает образ из реестра»; «шаг из кэша показывает его только с `--no-cache`».
+
+---
+
+## Д-405. Мелочи второго ревью документации фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашло второе независимое ревью фазы 14 (ревью документации: мелочи 6–11).
+
+**Замер до** (`2aff656`):
+
+1. **Образ 2.x до выпуска — `:v2.0.0`** (`docs/INSTALL.md:203`, RU `:202`, `docs/MIGRATION.md:194`, RU `:192`,
+   `docs/UPGRADE-TEST.md:78` и RU, `docker/README.md:373`), а `:2` будет копией `:latest` (`docker-publish.yml:300-301`),
+   и проверку обновления CI гоняет от `:latest` (`:91-93`): `imagetools inspect --raw` — у `v2.0.0` amd64
+   `sha256:10648b8f…`, у `:latest` и `:main` — `sha256:372b3dc8…`.
+2. **TEST-PLAN, шаг M5** (`docs/TEST-PLAN.ru.md:53`) не называет клиента, а условия (`:26`) допускают Claude Desktop, в
+   котором хуков нет (`HOOK_TARGETS = ["claude", "cursor", "git"]`, `agent-hooks.mjs:9`); строка Stop-хука идёт в stderr
+   с кодом 0 (`stop-check.mjs:96`), а ревью безопасности на Stop по умолчанию (`block`) один раз возвращает агента после
+   правки кода — ожидаемый результат об этом молчит.
+3. **README «что ещё не вышло»** (`README.md:91-93`, RU `:92-94`) без установщика Windows: тегов прода только `v1.0.0`
+   и `v2.0.0`, `.exe` скачать неоткуда.
+4. **CHANGELOG `:479-481`** — демо может оставить «that registry … in a folder git ignores»; в свежем клоне `HOME=<tmp>
+   npm run -s demo` (exit 0) оставляет три игнорируемые папки в `docker/public-seed/03-skills-catalog`: `cards/`,
+   `groups/`, `registries/`.
+5. **«Gets back exactly what it held»** (`docs/INSTALL.md:400-402, 691`, RU `:402, 690`, `clients.mjs:33` «byte for
+   byte», TEST-PLAN M7 `:55`): файл с записью 2.x `ai-dev-system` после `clients install` и `clients remove` — `restored`,
+   но без этой записи (заметка о миграции говорит верно: «without either entry»).
+
+**Чем грозит.** Мелкие неточности в местах, по которым человек проверяет установку и откат.
+
+**Как закроется.** Образ 2.x до выпуска — `:latest`; M5 называет Claude Code (или Cursor с целью `cursor`), где видна
+строка и что ревью безопасности вернёт агента; установщик Windows в «ещё не вышло» (`cd desktop && npm ci && npm run
+dist:win`); три папки демо; «кроме записи 2.x, которую установка заменила».
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

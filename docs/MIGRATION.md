@@ -107,7 +107,8 @@ you used the Python backend (`npm run setup -- --model`).
   model folder on the host — `--model-path` (`-ModelPath`), or `AI_DEV_MODEL_PATH` in the
   environment, none without either — in place of their `AI_DEV_MODEL_PATH`. If they set either, name
   it again, and give bootstrap the same options every time you run it again:
-  `sh ./bootstrap.sh --project-path "$HOME/Dev" --model-path "$HOME/.ai-dev/models"`.
+  `sh ./bootstrap.sh --project-path "$HOME/Dev"`, and `--model-path "$HOME/.ai-dev/models"` only if
+  your entries had a model folder — bootstrap refuses one that is not there (exit 64).
 - **The volume is kept.** Its first start under the new image takes about 15 seconds, once. Its skills are
   brought up to the 3.0 seed by the seed's manifest instead of 2.x's copy-if-missing: what only 2.x
   shipped is removed; a seed file you edited keeps your edit, with the update beside it as
@@ -192,8 +193,9 @@ bootstrap and CI ran it), `npm run test:search-helper`, `search-index/search_cli
   beside it that dates from before the update. 2.x reads the index 3.0 wrote; for an `AI_DEV_HOME`
   that 3.0 moved up, give 2.x `AI_DEV_STATE_ROOT=$AI_DEV_HOME/state` and
   `AI_DEV_SEARCH_INDEX_DIR=$AI_DEV_HOME/cache/search-index`.
-- **Docker.** `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2` writes entries that run
-  the 2.x image with 3.0's mounts: it sees the state folder, and the tasks that moved there. Run by
+- **Docker.** `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`, with the same
+  `--project-path` and `--model-path` as every other run, writes entries that run the 2.x image with 3.0's
+  mounts: it sees the state folder, and the tasks that moved there. Run by
   2.x's own launchers (`AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2`), it keeps its state in the
   volume and does not see those tasks — [Upgrade test](UPGRADE-TEST.md) says how to copy them back.
   Either way 2.x's copy-if-missing puts back the skills 3.0 dropped, and the next 3.0 start removes

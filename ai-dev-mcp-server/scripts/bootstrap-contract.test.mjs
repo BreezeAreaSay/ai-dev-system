@@ -861,8 +861,16 @@ test("bootstrap.ps1 with no client here names its own -Clients and writes nothin
   }
   assert.equal(none.status, 0, `stdout: ${none.stdout}\nstderr: ${none.stderr}`);
   // The script's own parameter, not the CLI's --clients=…, which PowerShell would take for the projects folder.
-  assert.match(none.stdout, /\nNo AI client found here \(Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI\)\. Name one to write its config anyway, -Clients cursor,vscode,…, or install one and run bootstrap\.ps1 again\.\nAI Dev is ready; no AI client is connected to it yet\.\n$/);
+  assert.match(none.stdout, /\nNo AI client found here \(Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI\)\. Name one to write its config anyway, -Clients "cursor,vscode,…", or install one and run bootstrap\.ps1 again\.\nAI Dev is ready; no AI client is connected to it yet\.\n$/);
   assert.doesNotMatch(none.stdout, /--clients|Writing the AI clients' configs|Restart the AI clients/);
+  // Typed at a PowerShell prompt as it is printed, the list is one string; bare, PowerShell passes an array, which
+  // -Clients refuses (Д-421).
+  const hint = /-Clients ("[^"]*")/.exec(none.stdout)[1].replace(",…", "");
+  const typed = spawnSync("pwsh", ["-NoLogo", "-NonInteractive", "-Command", `& '${bootstrapPowerShell.replaceAll("'", "''")}' -Plan -Clients ${hint}`], { encoding: "utf8", env: { ...process.env, HOME: home, AI_DEV_MODEL_PATH: "" } });
+  assert.equal(typed.status, 0, typed.stderr);
+  assert.equal(JSON.parse(typed.stdout).clients, "cursor,vscode");
+  const bare = spawnSync("pwsh", ["-NoLogo", "-NonInteractive", "-Command", `& '${bootstrapPowerShell.replaceAll("'", "''")}' -Plan -Clients ${JSON.parse(hint)}`], { encoding: "utf8", env: { ...process.env, HOME: home, AI_DEV_MODEL_PATH: "" } });
+  assert.notEqual(bare.status, 0, "the quotes are what the hint needs");
   // Nothing written, and so nothing tried for it: Docker was asked for its version and the image, no more.
   const calls = (await fs.readFile(log, "utf8")).split("\n").filter(Boolean).map((line) => line.split("\t")[0]);
   assert.deepEqual(calls, ["version", "pull"]);
@@ -872,6 +880,68 @@ test("bootstrap.ps1 with no client here names its own -Clients and writes nothin
   assert.equal(skipped.status, 0, skipped.stderr);
   assert.match(skipped.stdout, /\nAI Dev is ready; the AI clients' configs were left as they were\.\n$/);
   assert.doesNotMatch(skipped.stdout, /Restart the AI clients|No AI client found here/);
+});
+
+/** A home of its own for bootstrap.ps1, `folders` and `files` made in it, and the stub `docker` first on PATH. */
+async function powerShellHome(context, { folders = [], files = {} } = {}) {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-ps-home-"));
+  context.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const bin = path.join(root, "bin");
+  await fs.mkdir(home, { recursive: true });
+  await fs.mkdir(bin);
+  for (const folder of folders) await fs.mkdir(path.join(home, folder), { recursive: true });
+  for (const [file, content] of Object.entries(files)) {
+    await fs.mkdir(path.dirname(path.join(home, file)), { recursive: true });
+    await fs.writeFile(path.join(home, file), content);
+  }
+  await fs.writeFile(path.join(bin, "docker"), stubDocker, { mode: 0o755 });
+  const env = {
+    STUB_LOG: path.join(root, "docker.log"), PATH: `${bin}${path.delimiter}${process.env.PATH}`, XDG_CONFIG_HOME: path.join(home, ".config"),
+    AI_DEV_HOME: path.join(home, ".ai-dev"), AI_DEV_STATE_ROOT: "", CODEX_HOME: "", CLAUDE_CONFIG_DIR: ""
+  };
+  return { home, env };
+}
+
+// What pwsh printed, as lines, its colours taken off: it colours a warning even with no terminal.
+const powerShellLines = (output) => output.replace(/\u001B\[[0-9;]*m/g, "").split(/\r?\n/).filter((line) => line.trim() !== "");
+
+test("bootstrap.ps1 from a stale image says so before its last line, as bootstrap.sh does (Д-419)", async (context) => {
+  if (process.platform === "win32") return context.skip("the stub docker is a shell script");
+  const { home, env } = await powerShellHome(context, { folders: [".cursor"] });
+  // The documented command before the image is published: the pull fails, the copy built here is installed.
+  const result = runPowerShellBootstrap(["-Image", "ai-dev-system:local", "-AllowStaleImage", "-SkipSmoke"], home, { ...env, PULL: "fail" });
+  if (result.error?.code === "ENOENT") return context.skip("pwsh is unavailable on this host");
+  assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  const lines = powerShellLines(result.stdout);
+  assert.equal(lines.at(-1), "AI Dev is ready. Restart the AI clients to load ai-dev.");
+  assert.match(lines.at(-2), /^WARNING: Installed from a stale image\. Registry pull failed\. The cached copy of ai-dev-system:local was created 2019-01-02T03:04:05/);
+});
+
+test("bootstrap.ps1 writes the clients it can when one client's config is broken, names that one and fails; run again, a client already current is not one missing (Д-428)", async (context) => {
+  if (process.platform === "win32") return context.skip("the stub docker is a shell script");
+  // Cursor is fine; Gemini CLI's settings.json is not JSON, so the installer's dry run exits 1 over it. (Both live in
+  // the home on Linux and macOS alike, which VS Code's config does not.)
+  const { home, env } = await powerShellHome(context, { folders: [".cursor"], files: { [path.join(".gemini", "settings.json")]: "{ \"mcpServers\": { broken" } });
+  const broken = runPowerShellBootstrap(["-SkipSmoke"], home, env);
+  if (broken.error?.code === "ENOENT") return context.skip("pwsh is unavailable on this host");
+  assert.equal(broken.status, 1, `stdout: ${broken.stdout}\nstderr: ${broken.stderr}`);
+  assert.match(broken.stdout, /Writing the AI clients' configs\.\.\.\n {2}Cursor {18}added {9}~\/\.cursor\/mcp\.json\n {2}Gemini CLI {14}FAILED {8}~\/\.gemini\/settings\.json: line 1, column 19: /);
+  assert.match(powerShellMessage(broken.stderr), /Writing the client configs failed \(exit code 1\)\./);
+  assert.equal(JSON.parse(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"].args.at(-1), "ghcr.io/stonebridgeway/ai-dev-system:latest");
+  assert.doesNotMatch(broken.stdout, /No AI client found here|AI Dev is ready/);
+
+  // Gemini CLI's file put right, the same command again writes it; and once more, every client is current already —
+  // still clients connected, not none found.
+  await fs.writeFile(path.join(home, ".gemini", "settings.json"), "{}\n");
+  const fixed = runPowerShellBootstrap(["-SkipSmoke"], home, env);
+  assert.equal(fixed.status, 0, `stdout: ${fixed.stdout}\nstderr: ${fixed.stderr}`);
+  assert.match(fixed.stdout, / {2}Cursor {18}unchanged {5}~\/\.cursor\/mcp\.json\n {2}Gemini CLI {14}added {9}~\/\.gemini\/settings\.json/);
+  const again = runPowerShellBootstrap(["-SkipSmoke"], home, env);
+  assert.equal(again.status, 0, `stdout: ${again.stdout}\nstderr: ${again.stderr}`);
+  assert.match(again.stdout, /\nNo changes: every client already runs this install\.\n/);
+  assert.match(again.stdout, /\nAI Dev is ready\. Restart the AI clients to load ai-dev\.\n$/);
+  assert.doesNotMatch(again.stdout, /No AI client found here/);
 });
 
 // Windows PowerShell 5.1 reads a script that has no BOM in the ANSI code page: a character past ASCII in a string

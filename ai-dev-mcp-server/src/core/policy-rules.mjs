@@ -243,8 +243,10 @@ export async function verifyPolicyRule(rule, options) {
   return verification;
 }
 
-// The problems a verification adds on top of the structural ones.
-function verificationProblems(verification) {
+// The problems a verification adds on top of the structural ones. A rule that is off was written without its
+// samples matched (Д-413), so a sample that answers against it may never have matched: it is no sign of an edit,
+// and it is said as what it holds back — switching the rule on (Д-420).
+function verificationProblems(verification, { enabled = true } = {}) {
   const problems = [];
   if (verification.timed_out) {
     problems.push(`Matching this pattern against its own sample did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms: it backtracks catastrophically, and the guard — which runs it on every Bash command and every file write — will abandon it instead of answering. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
@@ -258,10 +260,14 @@ function verificationProblems(verification) {
     problems.push(`This rule was never matched against its sample: the match worker failed (${verification.match_error}). Nothing here says the rule is wrong; list the rules again once the server can start a worker thread.`);
   }
   if (verification.fires_on_example === false) {
-    problems.push("The example stored with the rule no longer matches: the pattern was narrowed, or the example was edited.");
+    problems.push(enabled
+      ? "The example stored with the rule no longer matches: the pattern was narrowed, or the example was edited."
+      : "The example stored with the rule does not match its pattern: switching the rule on is refused until the pattern or the example is fixed.");
   }
   if (verification.counter_example_matches === true) {
-    problems.push("The counter-example stored with the rule now matches: the pattern grew broader than it was meant to be.");
+    problems.push(enabled
+      ? "The counter-example stored with the rule now matches: the pattern grew broader than it was meant to be."
+      : "The counter-example stored with the rule matches its pattern: switching the rule on is refused until the pattern or the counter-example is fixed.");
   }
   return problems;
 }
@@ -284,7 +290,7 @@ function describeVerifiedRule(rule, verification) {
     match_timed_out: verification.timed_out,
     match_not_checked: verification.not_checked,
     match_error: verification.match_error,
-    problems: [...policyRuleProblems(rule), ...verificationProblems(verification)]
+    problems: [...policyRuleProblems(rule), ...verificationProblems(verification, { enabled })]
   };
 }
 

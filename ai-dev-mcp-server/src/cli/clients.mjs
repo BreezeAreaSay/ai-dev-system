@@ -40,8 +40,8 @@ export function usage() {
     "",
     "  list       every supported client, whether it is installed, and what its ai-dev entry runs",
     "  install    add ai-dev to the clients (and take out ai-dev-system, the 2.x name)",
-    "  remove     take ai-dev out again; an untouched file goes back as it was, less any ai-dev entry the install",
-    "             replaced (its backup keeps it)",
+    "  remove     take ai-dev out again; an untouched file goes back as it was, less any ai-dev or ai-dev-system",
+    "             entry the install replaced (its backup keeps it)",
     "  doctor     start each client's ai-dev command and check it answers initialize",
     "  entry <client>  print the entry install would write for one client, as JSON (writes nothing)",
     "",
@@ -262,8 +262,10 @@ async function remove(values, io) {
 
 /**
  * One word of a command to copy into a terminal: as it is where the shell reads
- * it so, quoted otherwise. On Windows that shell is PowerShell, where double
- * quotes still expand `$`: a word goes in single quotes there, a quote in it
+ * it so, quoted otherwise. On Windows the shell is PowerShell or cmd.exe, and
+ * double quotes are what both read (Д-430) — but PowerShell expands `$` and a
+ * backtick in them, and a double quote, a typographic one too, ends them: a word
+ * holding one goes in single quotes, which only PowerShell reads, a quote in it
  * doubled — the typographic ones are quotes to PowerShell too (Д-417).
  *
  * @param {string} word
@@ -271,7 +273,10 @@ async function remove(values, io) {
  * @returns {string}
  */
 export function commandWord(word, platform = process.platform) {
-  if (platform === "win32") return /^[\w%+=:./\\-][\w@%+=:./\\-]*$/.test(word) ? word : `'${word.replace(/['\u2018-\u201b]/g, "$&$&")}'`;
+  if (platform === "win32") {
+    if (/^[\w%+=:./\\-][\w@%+=:./\\-]*$/.test(word)) return word;
+    return /[$`"\u201c-\u201e]/.test(word) ? `'${word.replace(/['\u2018-\u201b]/g, "$&$&")}'` : `"${word}"`;
+  }
   return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
 }
 
@@ -280,16 +285,18 @@ export function commandWord(word, platform = process.platform) {
  * (Д-385): the folder — for a link, where it leads — and what to do. The model
  * is optional, so the entries can be written without one; a projects or state
  * folder is one install makes again — but not through a link that leads
- * nowhere, so for that one the command takes another folder, for the person to
- * name. The command keeps the options the entry runs with: writing the entries
- * again with none of them put the default image in place of the one the entry
- * ran (docs/DEFECTS.md, Д-397). It writes this client's entry alone: written for
- * every client found, it made a client of a local install a Docker one, and it
- * drops `--model` whichever of the folders gone is the model's (Д-414).
+ * nowhere, nor where this user may not write, so for that one the command takes
+ * another folder for the person to name, each by its own name, and a reason
+ * shared is said once (Д-414, Д-429, Д-430). The command keeps the options the
+ * entry runs with: writing the entries again with none of them put the default
+ * image in place of the one the entry ran (docs/DEFECTS.md, Д-397). It writes
+ * this client's entry alone: written for every client found, it made a client
+ * of a local install a Docker one, and it drops `--model` whichever of the
+ * folders gone is the model's (Д-414).
  *
  * @param {string} client - The id of the client whose entry it is.
  * @param {{ args?: unknown }} entry
- * @param {Array<{ source: string, target: string, leadsTo?: string }>} gone - From {@link missingBindSources}.
+ * @param {ReturnType<typeof missingBindSources>} gone
  * @returns {string}
  */
 function missingMountError(client, entry, gone) {
@@ -298,9 +305,21 @@ function missingMountError(client, entry, gone) {
   const roleOf = (mount) => (mount.target === CONTAINER_MODELS || mount.target === CONTAINER_MODEL_DIR ? "model"
     : mount.target === CONTAINER_STATE_ROOT ? "state" : "projects");
   const roles = [...new Set(gone.map(roleOf))];
-  // mkdir through a link that leads nowhere fails, so install cannot make that folder: another one is named (Д-414).
-  const elsewhere = [...new Set(gone.filter((mount) => mount.leadsTo && roleOf(mount) !== "model").map(roleOf))];
-  const folder = (role, value) => `--${role}=${elsewhere.includes(role) ? "<folder>" : value}`;
+  // Why install cannot make a folder again: mkdir fails through a link that leads nowhere — the folder itself (Д-414)
+  // or one on the way — under a file, and where this user may not write, as at the root-owned mount point of a disk
+  // not connected (Д-429). Another folder is named for it then.
+  const why = (mount) => (mount.leadsTo ? "through a link that leads nowhere" : {
+    link: `through ${mount.unmakeable?.at}, a link that leads nowhere`,
+    file: `under ${mount.unmakeable?.at}, which is a file`,
+    write: `in ${mount.unmakeable?.at}, which you may not write to`
+  }[mount.unmakeable?.why] ?? "");
+  const elsewhere = new Map();
+  for (const role of ["projects", "state"]) {
+    const reason = gone.filter((mount) => roleOf(mount) === role).map(why).find(Boolean);
+    if (reason) elsewhere.set(role, reason);
+  }
+  const placeholder = (role) => `<${role}-folder>`;
+  const folder = (role, value) => `--${role}=${elsewhere.has(role) ? placeholder(role) : value}`;
   const flags = ["--docker", `--image=${options.image}`, `--clients=${client}`];
   if (options.volume && options.volume !== DEFAULT_DOCKER_VOLUME) flags.push(`--volume=${options.volume}`);
   if (options.projects) flags.push(folder("projects", options.projects));
@@ -311,10 +330,13 @@ function missingMountError(client, entry, gone) {
     ? `the folder this entry mounts at ${first.target}: ${first.source} leads to ${first.leadsTo}, which is not here`
     : `the folder this entry mounts at ${first.target} is not here: ${first.source}`;
   const more = gone.length > 1 ? ` (nor ${gone.length > 2 ? "are the ones" : "is the one"} it mounts at ${gone.slice(1).map((mount) => mount.target).join(" and ")})` : "";
-  const made = roles.filter((role) => role !== "model" && !elsewhere.includes(role));
+  const made = roles.filter((role) => role !== "model" && !elsewhere.has(role));
+  // A reason said once, for every folder it holds for (Д-430).
+  const reasons = new Map();
+  for (const [role, reason] of elsewhere) reasons.set(reason, [...(reasons.get(reason) ?? []), role]);
   const ways = [
     ...(made.length ? [`, which makes the ${gone.length > 1 ? `${made.join(" and ")} ` : ""}folder${made.length > 1 ? "s" : ""}`] : []),
-    ...elsewhere.map((role) => ` with another ${role} folder in place of <folder>, as install cannot make one through a link that leads nowhere`),
+    ...[...reasons].map(([reason, list]) => ` with another ${list.join(" folder and another ")} folder in place of ${list.map(placeholder).join(" and ")}, as install cannot make ${list.length > 1 ? "either" : "one"} ${reason}`),
     ...(roles.includes("model") ? [" with another model folder (--model=<folder>) or with none, the model then the volume's"] : [])
   ];
   const disk = gone.length > 1 ? "them: connect the disks they are on" : `it: connect the disk ${first.leadsTo ? "it leads to" : "it is on"}`;
@@ -355,13 +377,6 @@ async function doctor(values, io) {
         report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: null, note: kind === "docker" ? "a 2.x Docker launcher: not started here — `ai-dev clients install --docker` replaces it with one that is" : "the entry is not an object" });
         continue;
       }
-      // A --mount Docker cannot read: it refuses the whole command over it, before any folder is looked at, and its
-      // own words for that are not the last line it prints (Д-417).
-      const unreadable = kind === "docker" ? unreadableMounts(entry?.args) : [];
-      if (unreadable.length) {
-        report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: false, error: `its --mount ${JSON.stringify(unreadable[0])} cannot be read: Docker refuses the whole command over it and starts no session — correct it in ${tildify(row.file, home)}.` });
-        continue;
-      }
       // A folder the entry mounts that is not there: Docker would start no container, and the client gets only its
       // error. Said as what it is, without starting it (Д-385).
       const gone = kind === "docker" ? missingBindSources(entry?.args) : [];
@@ -369,8 +384,15 @@ async function doctor(values, io) {
         report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: false, error: missingMountError(row.client, entry, gone) });
         continue;
       }
+      // A --mount Docker 29 cannot read is no verdict (nor is a folder then said to be missing): the CLIs before it
+      // read readonly=TRUE or bind-nonrecursive. The entry is started like any other, and that --mount is named as the
+      // likely cause only when the start fails, after Docker's own words (Д-417, Д-427).
       const check = await checkServerCommand(entry, { timeoutMs, env: io.env });
-      report.push({ client: row.client, label: labelOf(row), file: row.file, name, ...check });
+      const unreadable = kind === "docker" && !check.ok ? unreadableMounts(entry?.args) : [];
+      const cause = unreadable.length
+        ? { error: `${String(check.error ?? "").replace(/[.\s]+$/, "")}. Its --mount ${JSON.stringify(unreadable[0])} is the likely cause, one Docker 29 cannot read: correct it in ${tildify(row.file, home)}.` }
+        : {};
+      report.push({ client: row.client, label: labelOf(row), file: row.file, name, ...check, ...cause });
     }
   }
   if (values.json) io.out(JSON.stringify({ clients: report }, null, 2));

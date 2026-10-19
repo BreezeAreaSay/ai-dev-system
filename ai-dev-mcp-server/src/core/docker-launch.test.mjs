@@ -237,6 +237,60 @@ test("a --mount is read as Docker 29 reads it: up to the image, its own CSV line
   assert.equal(dockerEntryOptions(["run", "--mount=type=bind,source=/p,target=/p,bogus=1", "--mount", "type=bind,source=/s,target=/ai-dev-state", "img"]).state, "/s", "a mount it cannot read is passed over");
 });
 
+test("a --mount value is trimmed as Docker 29 trims it, and one with a key or a value edged with space inside is not read (Д-427)", () => {
+  const gone = (value) => missingBindSources(["run", "--mount", value, "img"], { stat: statOf({}) });
+  const away = [{ source: "/gone", target: "/x" }];
+  // Each checked against Docker 29.8.2, which starts them: what Go's TrimSpace takes off the whole value is no fault.
+  for (const value of [" type=bind,source=/gone,target=/x", "\ttype=bind,source=/gone,target=/x", "type=bind,target=/x,source=/gone ",
+    " type=bind,source=/gone,target=/x", "\u0085type=bind,source=/gone,target=/x　", " \"type=bind\",\"source=/gone\",\"target=/x\""]) {
+    assert.deepEqual(unreadableMounts(["run", "--mount", value, "img"]), [], JSON.stringify(value));
+    assert.deepEqual(gone(value), away, JSON.stringify(value));
+  }
+  // And these it refuses: "option should not have whitespace", "value should not have whitespace"; a BOM is no space.
+  for (const value of ["﻿type=bind,source=/gone,target=/x", "type=bind,source=/gone ,target=/x", "type=bind,source= /gone,target=/x",
+    "type=bind,source=/gone\r,target=/x", "type=bind,source=/gone,target=/x,readonly =true", "type=bind,source=/gone,target=/x,readonly= true"]) {
+    assert.deepEqual(unreadableMounts(["run", "--mount", value, "img"]), [value], JSON.stringify(value));
+    assert.deepEqual(gone(value), [], JSON.stringify(value));
+  }
+});
+
+test("a folder that is not there says why install could not make it again: a link that leads nowhere or a file on the way, or a folder above it this user may not write to (Д-429)", () => {
+  // A file system of a few paths — "dir", "file", or "link:<where it leads>", every link leading nowhere — and the
+  // folders this user may not write to.
+  const io = (paths, locked = []) => {
+    const fault = (code, file) => Object.assign(new Error(`${code}: ${file}`), { code });
+    return {
+      stat: (file) => {
+        if (!paths[file] || paths[file].startsWith("link:")) throw fault("ENOENT", file);
+        return { isDirectory: () => paths[file] === "dir" };
+      },
+      lstat: (file) => {
+        if (!paths[file]) throw fault("ENOENT", file);
+        return { isSymbolicLink: () => paths[file].startsWith("link:") };
+      },
+      readlink: (file) => paths[file].slice("link:".length),
+      access: (file) => {
+        if (locked.includes(file)) throw fault("EACCES", file);
+      }
+    };
+  };
+  const spec = (source) => ["run", "--mount", `type=bind,source=${source},target=${source}`, "img"];
+  const home = { "/": "dir", "/home": "dir", "/home/me": "dir", "/mnt": "dir" };
+  // A disk reached through a link, not connected: the link on the way leads nowhere (the review's case 14).
+  assert.deepEqual(missingBindSources(spec("/home/me/disk/Projects"), io({ ...home, "/home/me/disk": "link:/media/disk2" })),
+    [{ source: "/home/me/disk/Projects", target: "/home/me/disk/Projects", unmakeable: { at: "/home/me/disk", why: "link", leadsTo: path.resolve("/media/disk2") } }]);
+  // A disk not connected under a mount point that is root's: as the mount point, or as the folder it would be made in.
+  assert.deepEqual(missingBindSources(spec("/mnt/External/Projects"), io({ ...home, "/mnt/External": "dir" }, ["/mnt", "/mnt/External"]))[0].unmakeable, { at: "/mnt/External", why: "write" });
+  assert.deepEqual(missingBindSources(spec("/mnt/External/Projects"), io(home, ["/", "/mnt"]))[0].unmakeable, { at: "/mnt", why: "write" });
+  // A file where a folder on the way should be.
+  assert.deepEqual(missingBindSources(spec("/home/me/notes/Projects"), io({ ...home, "/home/me/notes": "file" }))[0].unmakeable, { at: "/home/me/notes", why: "file" });
+  // The nearest folder that is there is this user's: install makes the rest, whatever is above it.
+  assert.deepEqual(missingBindSources(spec("/home/me/a/b/Projects"), io(home, ["/", "/home"])), [{ source: "/home/me/a/b/Projects", target: "/home/me/a/b/Projects" }]);
+  // The folder itself a link that leads nowhere: where it leads is said, as before (Д-414).
+  assert.deepEqual(missingBindSources(spec("/home/me/Projects"), io({ ...home, "/home/me/Projects": "link:/media/disk2/Projects" }, ["/home/me"])),
+    [{ source: "/home/me/Projects", target: "/home/me/Projects", leadsTo: path.resolve("/media/disk2/Projects") }]);
+});
+
 test("an entry's options are read back from what it runs, so writing it again keeps them (Д-397)", () => {
   const linux = dockerRunArgs({ image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: { source: "/home/me/models/bge-m3-onnx", target: CONTAINER_MODEL_DIR }, platform: "linux" });
   assert.deepEqual(dockerEntryOptions(linux), { image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: "/home/me/models" });

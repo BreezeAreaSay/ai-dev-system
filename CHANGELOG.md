@@ -690,14 +690,19 @@ has it with what each one says.
   no folder (Д-352, Д-358, Д-360); one client that cannot be
   written does not stop the others — the exit is 1 and the 2.x container stays — and `--clients`
   that names none is refused (Д-335, Д-336, Д-338, Д-339). Each script's last line says what it did
-  with the configs: "Restart the AI clients to load ai-dev." after writing them; with no client
-  installed it writes none and says so — `bootstrap.sh` with "No AI client found here (…). Name one
-  to write its config anyway, --clients cursor,vscode,…, or install one and run bootstrap.sh
-  again.", `bootstrap.ps1` with the same line in its own terms, `-Clients cursor,vscode,…` and
-  `run bootstrap.ps1 again` — and ends "no AI client is connected to it yet"; with
-  `--skip-client-install` (`-SkipClientInstall`) it ends "the AI clients' configs were left as they
-  were" (Д-406, Д-415). `bootstrap.ps1` runs under Windows PowerShell 5.1 with the image's stderr
-  thrown away safely (Д-320).
+  with the configs, after the warning of a stale image, if any (Д-419): "Restart the AI clients to
+  load ai-dev." when there were clients to connect — written, already current, or Claude Code's
+  entry printed for you to add; with no client installed it writes none and says so —
+  `bootstrap.sh` with "No AI client found here (…). Name one to write its config anyway, --clients
+  cursor,vscode,…, or install one and run bootstrap.sh again.", `bootstrap.ps1` with the same line
+  in its own terms, `-Clients "cursor,vscode,…"` (quoted, as PowerShell takes the list bare for an
+  array, which `-Clients` refuses) and `run bootstrap.ps1 again` — and ends "no AI client is
+  connected to it yet"; with `--skip-client-install` (`-SkipClientInstall`) it ends "the AI clients'
+  configs were left as they were" (Д-406, Д-415, Д-421). `bootstrap.ps1` asks the installer first
+  (`--dry-run --json`) whether there is a client, and only a dry run that passed and lists none
+  means none: one that failed over a client's config it cannot read goes on to the install, which
+  writes the others, names that one and exits 1, as in `bootstrap.sh` (Д-428). `bootstrap.ps1` runs
+  under Windows PowerShell 5.1 with the image's stderr thrown away safely (Д-320).
 - **The image's tags** (owner decision D9, Д-108): a push to `main` is `:edge`; a release tag
   `vX.Y.Z` is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`, a prerelease only its own name; the browser
   variant has the same tags with `-browser`. A manual run with `freeze_2x` copies the current
@@ -1688,20 +1693,24 @@ four of those arrived as upstream issues #63–#66.
   did, so a thread that was slow to start was charged to the first rule: on four cores with sixteen
   busy loops, 17 of 30 `./deploy-prod.sh` went through, with "matching its pattern took longer than
   250 ms. Fix the pattern…". Starting the thread now has an allowance of its own (3 s) and the
-  budget counts the matching alone: 30 of 30 blocked under sixteen busy loops and under 32. A rule
-  the thread never reached is reported as not run (`not_run`) — the guard says the machine was too
-  busy to check it ("this command", or "this write", went unchecked), and `upsert_policy_rule` refuses
-  to store a pattern or an example it could not try (Д-383) — never as a pattern that took too long. A
-  thread that fails rather than starts slowly is answered as run, with its error, and the guard says
-  it failed (Д-384) — once for all the rules it failed on, where it made and lost a thread per rule
-  (Д-397). Such an answer is no check either, and nor is a job the matcher gave no answer for:
-  `upsert_policy_rule` refuses the pattern, the example or the counter-example the worker failed on,
-  naming which — after what a sample says of the rule, a missed example or a matched counter-example
-  — writes a rule with an example only once it was seen to fire on it, and `list_policy_rules` shows
-  `match_error` (Д-393, Д-417). A rule that is off after the edit — switched off, edited while off,
-  created off — is checked for its shape only, as the guard does not run it: it can be switched off
-  where no worker thread starts, and it is matched when it is switched on (Д-413). Both copies,
-  `src/core/regex-budget.mjs` and `hooks/lib.mjs`.
+  budget counts the matching alone, in both copies, `src/core/regex-budget.mjs` and `hooks/lib.mjs`:
+  30 of 30 blocked under sixteen busy loops and under 32. A rule the thread never reached is
+  reported as not run (`not_run`) — the guard says the machine was too busy to check it ("this
+  command", or "this write", went unchecked), and `upsert_policy_rule` refuses to store, for a rule
+  that is on, a pattern or an example it could not try (Д-383) — never as a pattern that took too
+  long. A thread that fails rather than starts slowly is answered as run, with its error, and the
+  guard says it failed (Д-384) — once for all the rules it failed on, where it made and lost a thread
+  per rule (Д-397). Such an answer is no check either, and nor is a job the matcher gave no answer
+  for: for a rule that is on, `upsert_policy_rule` refuses the pattern, the example or the
+  counter-example the worker failed on, naming which — after what a sample says of the rule, a
+  missed example or a matched counter-example — writes the rule with an example only once it was
+  seen to fire on it, and `list_policy_rules` shows `match_error` (Д-393, Д-417). A rule that is off
+  after the edit — switched off, edited while off, created off — is checked for its shape only, as
+  the guard does not run it: it can be switched off where no worker thread starts, and it is matched
+  when it is switched on (Д-413). So its samples may never have matched: `list_policy_rules` says of
+  an example that does not match it, or a counter-example that does, that switching the rule on is
+  refused until the pattern or that sample is fixed — not that an edit narrowed the pattern — and
+  still counts it in `broken` (Д-420).
 - **The static gate reads what the code does, not how it is spelled** (Д-267). It looked for the
   usual spellings of `exec`, `shell: true` and `eval`, and every equivalent passed:
   `import * as cp` with `cp.exec(…)`, a default import, `execSync`, `{ "shell": true }`,
@@ -1747,10 +1756,16 @@ four of those arrived as upstream issues #63–#66.
   `ai-dev clients doctor` names an entry whose mounted folder is gone, without starting it — where a
   link leads, and a command that writes that client's entry again (`--clients=<client>`) with the
   image and folders it had, less `--model` when the model's folder is among those gone, and with
-  `--projects=<folder>` or `--state=<folder>` for one that is a link leading nowhere, which install
-  cannot make; on Windows the command is quoted for PowerShell (Д-385, Д-397, Д-414, Д-417). It reads
-  a `--mount` as Docker 29 does — up to the image, a `bind-create-src` source never missing — and one
-  Docker would refuse is named as that, not as a folder gone (Д-417).
+  `--projects=<projects-folder>` or `--state=<state-folder>` for one install cannot make: through a
+  link that leads nowhere — the folder's own, or one on its path, as to a disk not connected — or in
+  a folder you may not write to, as the root-owned mount point of a disk not connected; a reason
+  both share is said once (Д-385, Д-397, Д-414, Д-417, Д-429, Д-430). On Windows the command
+  is quoted for PowerShell and cmd.exe alike, in double quotes — in single ones, which only
+  PowerShell reads, for a word with a `$`, a backtick or a double quote (Д-430). It reads a `--mount`
+  as Docker 29 does — the value trimmed, up to the image, a `bind-create-src` source never missing —
+  but does not judge an entry by that: one with a `--mount` Docker 29 cannot read — the CLIs before
+  it take `readonly=TRUE` or `bind-nonrecursive` — is started like any other, and that `--mount` is
+  named as the likely cause, after Docker's own words, only when the start fails (Д-417, Д-427).
 - **`npm run demo` counts the skills it ran with and leaves your home alone** (Д-110, Д-374,
   Д-389). It printed a skill count written into the script, and the search index it built claimed
   the index of the person's own `~/.ai-dev`; the count now comes from `list_skill_groups` (614), and

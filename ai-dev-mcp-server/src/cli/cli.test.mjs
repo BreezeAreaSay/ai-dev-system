@@ -42,14 +42,15 @@ async function tempDir(t, prefix = "ai-dev-cli-") {
   return dir;
 }
 
-/** Run a script with node; resolve with its exit code and output. */
-function runNode(args, { env = {}, input = "", untilLine = null, timeoutMs = 60_000 } = {}) {
+/** Run a script with node — `as` another user's `uid` and `gid`, where given; resolve with its exit code and output. */
+function runNode(args, { env = {}, input = "", untilLine = null, timeoutMs = 60_000, as = {} } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       cwd: serverRoot,
       env: { ...process.env, ...env },
       stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true
+      windowsHide: true,
+      ...as
     });
     let stdout = "";
     let stderr = "";
@@ -79,6 +80,10 @@ test("help, version and wrong usage answer with exit codes 0 and 2", async () =>
   const version = await runNode([cli, "--version"]);
   assert.equal(version.code, 0);
   assert.match(version.stdout, /^ai-dev \d+\.\d+\.\d+ \(Node \d+/);
+  // What `clients remove` keeps back is any entry the install replaced, 2.x's ai-dev-system too (Д-416, Д-421).
+  const clientsHelp = await runNode([cli, "clients", "--help"]);
+  assert.equal(clientsHelp.code, 0);
+  assert.match(clientsHelp.stdout, /\n {2}remove {5}take ai-dev out again; an untouched file goes back as it was, less any ai-dev or ai-dev-system\n {13}entry the install replaced \(its backup keeps it\)\n/);
 
   const cases = [
     [["statsu"], /There is no command "statsu"\. `ai-dev help` lists them\./],
@@ -455,7 +460,7 @@ test("clients doctor's advice writes the entry it is about, not every client's: 
   assert.equal(await fs.readFile(path.join(home, ".gemini", "settings.json"), "utf8"), local, "Gemini CLI still runs the local install");
 });
 
-test("clients doctor's advice for a projects or state folder that is a link leading nowhere takes another folder: install cannot make one through it (Д-414)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+test("clients doctor's advice for a projects or state folder that is a link leading nowhere takes another folder: install cannot make one through it (Д-414, Д-430)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
   const { home, writeEntry, readEntry, env } = await dockerEntryHome(t);
   const projects = path.join(home, "Projects");
   const unplugged = path.join(home, "unplugged", "Projects");
@@ -463,14 +468,14 @@ test("clients doctor's advice for a projects or state folder that is a link lead
   await writeEntry(`type=bind,source=${projects},target=${projects}`);
   const doctor = await runNode([cli, "clients", "doctor"], { env });
   assert.equal(doctor.code, 1);
-  assert.ok(doctor.stdout.includes(`FAILED — the folder this entry mounts at ${projects}: ${projects} leads to ${unplugged}, which is not here. Docker starts no session without it: connect the disk it leads to, or write the entries again with another projects folder in place of <folder>, as install cannot make one through a link that leads nowhere: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor '--projects=<folder>'\`.`), doctor.stdout);
+  assert.ok(doctor.stdout.includes(`FAILED — the folder this entry mounts at ${projects}: ${projects} leads to ${unplugged}, which is not here. Docker starts no session without it: connect the disk it leads to, or write the entries again with another projects folder in place of <projects-folder>, as install cannot make one through a link that leads nowhere: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor '--projects=<projects-folder>'\`.`), doctor.stdout);
   // The folder the link names is not one install can make: what the advice said before fails.
   const through = await runNode([cli, "clients", "install", "--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${projects}`], { env });
   assert.equal(through.code, 2);
   assert.match(through.stderr, /ENOENT/);
-  // Another folder named in place of <folder>: the entry is written with it.
+  // Another folder named in place of <projects-folder>: the entry is written with it.
   const elsewhere = path.join(home, "Elsewhere");
-  const again = await runNode([cli, ...adviceWords(doctor.stdout).slice(1).map((word) => word.replace("<folder>", elsewhere))], { env });
+  const again = await runNode([cli, ...adviceWords(doctor.stdout).slice(1).map((word) => word.replace("<projects-folder>", elsewhere))], { env });
   assert.equal(again.code, 0, `${again.stdout}${again.stderr}`);
   assert.ok((await readEntry()).includes(`type=bind,source=${elsewhere},target=${elsewhere}`));
 
@@ -479,36 +484,147 @@ test("clients doctor's advice for a projects or state folder that is a link lead
   await fs.symlink(path.join(home, "unplugged", "state"), state);
   await writeEntry(`type=bind,source=${state},target=/ai-dev-state`, `type=bind,source=${elsewhere},target=${elsewhere}`);
   const stateDoctor = await runNode([cli, "clients", "doctor"], { env });
-  assert.deepEqual(adviceWords(stateDoctor.stdout).slice(3), ["--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${elsewhere}`, "--state=<folder>"]);
-  assert.match(stateDoctor.stdout, /or write the entries again with another state folder in place of <folder>, as install cannot make one through a link that leads nowhere: `/);
+  assert.deepEqual(adviceWords(stateDoctor.stdout).slice(3), ["--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${elsewhere}`, "--state=<state-folder>"]);
+  assert.match(stateDoctor.stdout, /or write the entries again with another state folder in place of <state-folder>, as install cannot make one through a link that leads nowhere: `/);
+
+  // Both of them links that lead nowhere: each its own placeholder, and the reason said once (Д-430).
+  await writeEntry(`type=bind,source=${state},target=/ai-dev-state`, `type=bind,source=${projects},target=${projects}`);
+  const both = await runNode([cli, "clients", "doctor"], { env });
+  assert.equal(both.code, 1);
+  assert.ok(both.stdout.includes(`, or write the entries again with another projects folder and another state folder in place of <projects-folder> and <state-folder>, as install cannot make either through a link that leads nowhere: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor '--projects=<projects-folder>' '--state=<state-folder>'\`.`), both.stdout);
+  assert.equal(both.stdout.split("leads nowhere").length, 2, "the reason once");
+  const otherState = path.join(home, "Other-state");
+  const written = await runNode([cli, ...adviceWords(both.stdout).slice(1).map((word) => word.replace("<projects-folder>", elsewhere).replace("<state-folder>", otherState))], { env });
+  assert.equal(written.code, 0, `${written.stdout}${written.stderr}`);
+  assert.ok((await readEntry()).includes(`type=bind,source=${elsewhere},target=${elsewhere}`));
 });
 
-test("clients doctor says a --mount Docker cannot read is that, not a folder gone, and does not start the entry (Д-417)", async (t) => {
-  const { home, writeEntry, env } = await dockerEntryHome(t);
-  // Docker 29: "unknown option 'bogus' in 'bogus=1'", for the whole command, before it looks at either folder.
+test("clients doctor's advice takes another folder where install could not make one: under a link that leads nowhere, or where this user may not write (Д-429)", { skip: process.platform === "win32" && "POSIX links and modes" }, async (t) => {
+  const { home, writeEntry, readEntry, env } = await dockerEntryHome(t);
+  // The projects folder on a disk reached through a link, which is not connected: the link leads nowhere.
+  const disk = path.join(home, "Projects-disk");
+  await fs.symlink(path.join(home, "unplugged", "Projects-disk"), disk);
+  const projects = path.join(disk, "Projects");
+  await writeEntry(`type=bind,source=${projects},target=${projects}`);
+  const under = await runNode([cli, "clients", "doctor"], { env });
+  assert.equal(under.code, 1);
+  assert.ok(under.stdout.includes(`FAILED — the folder this entry mounts at ${projects} is not here: ${projects}. Docker starts no session without it: connect the disk it is on, or write the entries again with another projects folder in place of <projects-folder>, as install cannot make one through ${disk}, a link that leads nowhere: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor '--projects=<projects-folder>'\`.`), under.stdout);
+  // The folder itself, as the advice gave it before, is not one install can make.
+  const through = await runNode([cli, "clients", "install", "--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${projects}`], { env });
+  assert.equal(through.code, 2);
+  assert.match(through.stderr, /ENOTDIR|ENOENT/);
+  const elsewhere = path.join(home, "Elsewhere");
+  const again = await runNode([cli, ...adviceWords(under.stdout).slice(1).map((word) => word.replace("<projects-folder>", elsewhere))], { env });
+  assert.equal(again.code, 0, `${again.stdout}${again.stderr}`);
+  assert.ok((await readEntry()).includes(`type=bind,source=${elsewhere},target=${elsewhere}`));
+
+  // The state folder under such a link the same way.
+  const stateDisk = path.join(home, "state-disk");
+  await fs.symlink(path.join(home, "unplugged", "state-disk"), stateDisk);
+  await writeEntry(`type=bind,source=${path.join(stateDisk, "state")},target=/ai-dev-state`, `type=bind,source=${elsewhere},target=${elsewhere}`);
+  const stateUnder = await runNode([cli, "clients", "doctor"], { env });
+  assert.deepEqual(adviceWords(stateUnder.stdout).slice(3), ["--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${elsewhere}`, "--state=<state-folder>"]);
+  assert.match(stateUnder.stdout, new RegExp(`or write the entries again with another state folder in place of <state-folder>, as install cannot make one through ${escapeRegExp(stateDisk)}, a link that leads nowhere: \``));
+
+  // A disk not connected under a mount point this user may not write to (root's, as /mnt/External is): mkdir there
+  // fails. Root writes anywhere, so as root the doctor and the install run as another user.
+  const mountPoint = path.join(home, "mnt", "External");
+  await fs.mkdir(mountPoint, { recursive: true });
+  await fs.chmod(mountPoint, 0o555);
+  const unplugged = path.join(mountPoint, "Projects");
+  await writeEntry(`type=bind,source=${unplugged},target=${unplugged}`);
+  const as = process.getuid?.() === 0 ? { uid: 65534, gid: 65534 } : {};
+  if (as.uid !== undefined) {
+    if ((await runNode([cli, "--version"], { as })).code !== 0) return t.diagnostic("the case of a folder this user may not write to is not run: uid 65534 cannot run this checkout");
+    for (const folder of [home, path.join(home, ".cursor"), path.join(home, "bin"), path.join(home, "mnt")]) await fs.chmod(folder, 0o755);
+    await fs.chmod(path.join(home, ".cursor", "mcp.json"), 0o644);
+  }
+  const locked = await runNode([cli, "clients", "doctor"], { env, as });
+  assert.equal(locked.code, 1, `${locked.stdout}${locked.stderr}`);
+  assert.ok(locked.stdout.includes(`FAILED — the folder this entry mounts at ${unplugged} is not here: ${unplugged}. Docker starts no session without it: connect the disk it is on, or write the entries again with another projects folder in place of <projects-folder>, as install cannot make one in ${mountPoint}, which you may not write to: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor '--projects=<projects-folder>'\`.`), locked.stdout);
+  const denied = await runNode([cli, "clients", "install", "--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${unplugged}`], { env, as });
+  assert.equal(denied.code, 2, `${denied.stdout}${denied.stderr}`);
+  assert.match(denied.stderr, /EACCES/);
+});
+
+// A docker that runs what the CLIs before Docker 29 run, and refuses a --mount none of them reads, in the words of
+// Docker 29 — or of 27 with DOCKER_SAYS=27 — and with exit 125. What it runs answers initialize as the server does.
+const OLD_DOCKER = `#!/bin/sh
+printf '%s\\n' "$*" >> "$STUB_LOG"
+for a in "$@"; do
+  case "$a" in
+    *bogus=1*)
+      if [ "\${DOCKER_SAYS:-}" = 27 ]; then printf '%s\\n' "invalid argument \\"$a\\" for \\"--mount\\" flag: unexpected key 'bogus' in 'bogus=1'" "See 'docker run --help'." >&2
+      else printf '%s\\n' "invalid argument \\"$a\\" for \\"--mount\\" flag: unknown option 'bogus' in 'bogus=1'" "" "Usage:  docker run [OPTIONS] IMAGE [COMMAND] [ARG...]" "" "Run 'docker run --help' for more information" >&2; fi
+      exit 125 ;;
+  esac
+done
+read -r line
+printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"ai-dev-system","version":"3"},"instructions":"Begin with begin_task."}}'
+`;
+
+test("clients doctor starts an entry whose --mount it cannot read, and names that --mount only when Docker refuses to start it, after Docker's own words (Д-417, Д-427)", { skip: process.platform === "win32" && "a shell script for docker" }, async (t) => {
+  const { home, env } = await dockerEntryHome(t);
+  const docker = path.join(home, "old-cli", "docker");
+  await fs.mkdir(path.dirname(docker));
+  await fs.writeFile(docker, OLD_DOCKER, { mode: 0o755 });
+  const log = path.join(home, "docker.log");
+  const projects = path.join(home, "Projects");
+  const models = path.join(home, "models");
+  await fs.mkdir(projects);
+  await fs.mkdir(models);
+  const doctorOf = async (mounts, says = "") => {
+    await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: docker, args: ["run", "-i", "--rm", ...mounts.flatMap((mount) => ["--mount", mount]), "ai-dev-system:3"] } } }));
+    await fs.rm(log, { force: true });
+    const doctor = await runNode([cli, "clients", "doctor"], { env: { ...env, STUB_LOG: log, DOCKER_SAYS: says } });
+    return { ...doctor, started: await fs.readFile(log, "utf8").then((text) => text.split("\n").filter(Boolean).length, () => 0) };
+  };
+  // Docker 29 trims a value: a space before it is no fault. And readonly=TRUE is what the CLIs before 29 take.
+  for (const mounts of [
+    [" type=volume,source=r4f-data,target=/data", `type=bind,source=${projects},target=${projects}`],
+    ["type=volume,source=r4f-data,target=/data", `type=bind,source=${models},target=/models,readonly=TRUE`]
+  ]) {
+    const doctor = await doctorOf(mounts);
+    assert.equal(doctor.code, 0, `${mounts.join(" ")}\n${doctor.stdout}${doctor.stderr}`);
+    assert.match(doctor.stdout, /Cursor\s+ok — ai-dev-system 3 answered in \d+ ms/);
+    assert.equal(doctor.started, 1, "the entry was started");
+  }
+  // One that Docker refuses: the entry is started all the same, and the --mount is named after Docker's own words —
+  // not the folders beside it, which Docker never looked at.
   const value = `type=bind,source=${path.join(home, "gone")},target=/x,bogus=1`;
-  await writeEntry(value, `type=bind,source=${path.join(home, "gone-too")},target=/y`);
-  const doctor = await runNode([cli, "clients", "doctor"], { env });
-  assert.equal(doctor.code, 1);
-  assert.ok(doctor.stdout.includes(`Cursor                  FAILED — its --mount ${JSON.stringify(value)} cannot be read: Docker refuses the whole command over it and starts no session — correct it in ~${path.sep}${path.join(".cursor", "mcp.json")}.`), doctor.stdout);
-  assert.doesNotMatch(doctor.stdout, /is not here|no-such/);
+  for (const [says, reason] of [["", "unknown option 'bogus' in 'bogus=1'"], ["27", "unexpected key 'bogus' in 'bogus=1'"]]) {
+    const refused = await doctorOf([value, `type=bind,source=${path.join(home, "gone-too")},target=/y`], says);
+    assert.equal(refused.code, 1);
+    assert.equal(refused.started, 1);
+    assert.ok(refused.stdout.includes(`Cursor                  FAILED — it exited with code 125 before answering: invalid argument ${JSON.stringify(value)} for "--mount" flag: ${reason}. Its --mount ${JSON.stringify(value)} is the likely cause, one Docker 29 cannot read: correct it in ~${path.sep}${path.join(".cursor", "mcp.json")}.`), refused.stdout);
+    assert.doesNotMatch(refused.stdout, /is not here|Usage:|--help/);
+  }
+  // Docker gives its reason after the whole value: a line too long to keep whole loses its middle, not the reason.
+  const long = `type=bind,source=${path.join(home, "x".repeat(240))},target=/x,bogus=1`;
+  const cut = await doctorOf([long]);
+  assert.match(cut.stdout, /FAILED — it exited with code 125 before answering: invalid argument "type=bind,source=[^…]+…[^…]+ for "--mount" flag: unknown option 'bogus' in 'bogus=1'\. Its --mount "type=bind,source=/);
 });
 
-test("a command the doctor gives is quoted for the shell it is pasted into: a POSIX one, or PowerShell on Windows (Д-417)", (t) => {
+test("a command the doctor gives is quoted for the shell it is pasted into: a POSIX one, or on Windows PowerShell and cmd.exe alike (Д-417, Д-430)", (t) => {
   assert.equal(commandWord("--projects=/home/me/My $Projects", "linux"), "'--projects=/home/me/My $Projects'");
   assert.equal(commandWord("--state=/home/O'Brien/state", "darwin"), "'--state=/home/O'\\''Brien/state'");
   assert.equal(commandWord("--image=ghcr.io/x/ai-dev@sha256:ab12", "linux"), "--image=ghcr.io/x/ai-dev@sha256:ab12");
   assert.equal(commandWord("--projects=C:\\Users\\me\\AI-Dev-Projects", "win32"), "--projects=C:\\Users\\me\\AI-Dev-Projects");
-  // In PowerShell double quotes expand $: single quotes, a quote in them doubled, the typographic ones too.
-  const windows = ["--projects=C:\\Users\\me\\My $Projects", "--state=C:\\Users\\O'Brien\\state", "--model=C:\\Users\\O\u2019Brien\\models", "--projects=<folder>", "--volume=a,b", "@data"];
-  assert.deepEqual(windows.map((word) => commandWord(word, "win32")), ["'--projects=C:\\Users\\me\\My $Projects'", "'--state=C:\\Users\\O''Brien\\state'", "'--model=C:\\Users\\O\u2019\u2019Brien\\models'", "'--projects=<folder>'", "'--volume=a,b'", "'@data'"]);
-  // PowerShell itself, where there is one, reads each back as the word it was.
+  // Double quotes, which PowerShell and cmd.exe both read; where PowerShell would expand in them ($, a backtick) or a
+  // quote would end them, single quotes, a quote in them doubled, the typographic ones too.
+  const windows = ["--projects=C:\\Users\\John Smith\\AI-Dev-Projects", "--state=C:\\Users\\O'Brien\\state", "--model=C:\\Users\\O\u2019Brien\\models",
+    "--projects=<projects-folder>", "--volume=a,b", "@data", "--projects=C:\\Users\\me\\My $Projects", "--projects=C:\\Users\\me\\a`b",
+    "--image=say \"hi\"", "--image=say \u201chi\u201d", "--state=C:\\Users\\O'Brien\\$state"];
+  assert.deepEqual(windows.map((word) => commandWord(word, "win32")), ["\"--projects=C:\\Users\\John Smith\\AI-Dev-Projects\"",
+    "\"--state=C:\\Users\\O'Brien\\state\"", "\"--model=C:\\Users\\O\u2019Brien\\models\"", "\"--projects=<projects-folder>\"", "\"--volume=a,b\"", "\"@data\"",
+    "'--projects=C:\\Users\\me\\My $Projects'", "'--projects=C:\\Users\\me\\a`b'", "'--image=say \"hi\"'", "'--image=say \u201chi\u201d'",
+    "'--state=C:\\Users\\O''Brien\\$state'"]);
+  // PowerShell itself, where there is one, reads each back as the word it was (cmd.exe is not here to ask).
   const run = spawnSync("pwsh", ["-NoProfile", "-NonInteractive", "-Command", `& '${process.execPath.replaceAll("'", "''")}' -e 'console.log(JSON.stringify(process.argv.slice(1)))' -- ${windows.map((word) => commandWord(word, "win32")).join(" ")}`], { encoding: "utf8" });
   if (run.error?.code === "ENOENT") return t.skip("pwsh is unavailable on this host");
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout), windows);
 });
-
 test("the note that the model is on another disk reaches the person: on stderr from clients entry --docker, in install --docker --json (Д-385, Д-395)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
   const home = await fs.realpath(await tempDir(t));
   // The link has to lead to another filesystem than the one it is on, which a temporary folder alone does not give.

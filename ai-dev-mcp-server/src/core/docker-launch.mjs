@@ -30,7 +30,7 @@
  */
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
-import { existsSync, lstatSync, readlinkSync, rmSync, statSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, lstatSync, readlinkSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 
 /** The image a client runs unless told otherwise (owner decision D9: `:latest` is the released line). */
@@ -313,19 +313,27 @@ const MOUNT_KEYS = new Set(["type", "source", "src", "target", "dst", "destinati
 const MOUNT_SWITCHES = new Set(["readonly", "ro", "bind-create-src", "volume-nocopy"]);
 const MOUNT_BOOLEANS = new Map([["true", true], ["1", true], ["false", false], ["0", false]]);
 
+// What Go's strings.TrimSpace takes off, Unicode's White_Space: not JavaScript's trim(), which also takes a BOM and
+// leaves U+0085. Docker 29 trims a whole `--mount` value so, and refuses a key or a value inside it edged so (Д-427).
+const GO_SPACE = "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
+const GO_EDGE_SPACE = new RegExp(`^[${GO_SPACE}]+|[${GO_SPACE}]+$`, "g");
+const goTrim = (text) => text.replace(GO_EDGE_SPACE, "");
+
 /**
- * One `--mount` value read the way Docker's CLI reads it (`opts/mount.go`): one
- * CSV record, so a field may be double-quoted; keys, and the `type` value, in
- * any case; `src` is `source`, `dst` and `destination` are `target`, and a key
- * given twice keeps its last value; no `type` is a volume. `createsSource` is
- * `bind-create-src`: Docker makes a missing source itself. `null` for a value
- * Docker would not parse — which Docker says itself when the entry runs.
+ * One `--mount` value read the way Docker's CLI reads it (`opts/mount.go`):
+ * trimmed, then one CSV record, so a field may be double-quoted; keys, and the
+ * `type` value, in any case; `src` is `source`, `dst` and `destination` are
+ * `target`, and a key given twice keeps its last value; no `type` is a volume.
+ * `createsSource` is `bind-create-src`: Docker makes a missing source itself.
+ * `null` for a value Docker 29 would not parse. That is no verdict on the entry:
+ * the CLIs before it read more (`readonly=TRUE`, `bind-nonrecursive`), so
+ * `clients doctor` starts such an entry, and Docker says what it refuses (Д-427).
  *
  * @param {string} value
  * @returns {{ type: string, source: string, target: string, createsSource: boolean } | null}
  */
 function parseMount(value) {
-  const fields = csvRecord(String(value ?? ""));
+  const fields = csvRecord(goTrim(String(value ?? "")));
   if (!fields) return null;
   const mount = { type: "volume", source: "", target: "", createsSource: false };
   const kinds = new Set();
@@ -333,7 +341,7 @@ function parseMount(value) {
     const at = field.indexOf("=");
     const key = (at < 0 ? field : field.slice(0, at)).toLowerCase();
     const given = at < 0 ? null : field.slice(at + 1);
-    if (given === null ? !MOUNT_SWITCHES.has(key) : !MOUNT_KEYS.has(key) || given === "") return null;
+    if (given === null ? !MOUNT_SWITCHES.has(key) : !MOUNT_KEYS.has(key) || given === "" || goTrim(given) !== given) return null;
     if (MOUNT_SWITCHES.has(key) && given !== null && !MOUNT_BOOLEANS.has(given)) return null;
     if (key === "bind-recursive" && !["enabled", "disabled", "writable", "readonly"].includes(given)) return null;
     const kind = /^(bind|volume|image|tmpfs)-/.exec(key)?.[1];
@@ -402,15 +410,58 @@ function mountsOf(args) {
 }
 
 /**
- * The `--mount` values of a `docker run` command line that Docker's CLI cannot
- * read: it refuses the whole command over one, before it looks at any folder
- * (Д-417).
+ * The `--mount` values of a `docker run` command line that Docker 29's CLI
+ * cannot read: it refuses the whole command over one, before it looks at any
+ * folder (Д-417). Older CLIs read some of them, so they are the entry's to
+ * try, not a verdict (Д-427).
  *
  * @param {string[]} args
  * @returns {string[]}
  */
 export function unreadableMounts(args) {
   return runOptions(args).options.filter(([name, value]) => name === "mount" && (value === null || !parseMount(value))).map(([, value]) => value ?? "");
+}
+
+// Where a link leads, from where it is; "" for what is not a link, or one that cannot be read.
+function linkTarget(file, { lstat, readlink }) {
+  try {
+    return lstat(file).isSymbolicLink() ? path.resolve(path.dirname(file), readlink(file)) : "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Why `ai-dev clients install` could not make a folder that is not there, or
+ * null when nothing here says it could not: on the way up to the nearest folder
+ * that is there, a link that leads nowhere (`link`) or a file (`file`); or that
+ * folder is not this user's to write in (`write`) — the root-owned mount point of
+ * a disk that is not connected, say (docs/DEFECTS.md, Д-429).
+ *
+ * @param {string} folder
+ * @param {{ stat: (file: string) => unknown, lstat: typeof lstatSync, readlink: typeof readlinkSync, access: typeof accessSync }} io
+ * @returns {{ at: string, why: "link" | "file" | "write", leadsTo?: string } | null}
+ */
+function unmakeable(folder, io) {
+  for (let child = folder, parent = path.dirname(folder); parent !== child; child = parent, parent = path.dirname(parent)) {
+    let found;
+    try {
+      found = io.stat(parent);
+    } catch (error) {
+      if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") return null;
+      const leadsTo = linkTarget(parent, io);
+      if (leadsTo) return { at: parent, why: "link", leadsTo };
+      continue;
+    }
+    if (found?.isDirectory?.() === false) return { at: parent, why: "file" };
+    try {
+      io.access(parent, fsConstants.W_OK);
+      return null;
+    } catch {
+      return { at: parent, why: "write" };
+    }
+  }
+  return null;
 }
 
 /**
@@ -420,16 +471,17 @@ export function unreadableMounts(args) {
  * `ENOENT` or `ENOTDIR` only: a folder this user may not look into (`EACCES`)
  * is the daemon's to judge, and it may well mount it (Д-397). A source that is
  * a link says where it leads (`leadsTo`), since it is the link's target that
- * is gone. A mount with `bind-create-src` is not missing anything: Docker makes
- * its source. A `--mount` Docker cannot read stops the whole command before any
- * folder is looked at, so then nothing is said to be missing: what is wrong is
- * Docker's to say when the entry runs (Д-417).
+ * is gone; one that is not says why install could not make it again, where
+ * something says so (`unmakeable`, Д-429). A mount with `bind-create-src` is not
+ * missing anything: Docker makes its source. A `--mount` Docker 29 cannot read
+ * stops the whole command before any folder is looked at, so then nothing is
+ * said to be missing: the entry is Docker's to try (Д-417, Д-427).
  *
  * @param {string[]} args
- * @param {{ stat?: (file: string) => unknown, lstat?: typeof lstatSync, readlink?: typeof readlinkSync }} [options]
- * @returns {Array<{ source: string, target: string, leadsTo?: string }>}
+ * @param {{ stat?: (file: string) => unknown, lstat?: typeof lstatSync, readlink?: typeof readlinkSync, access?: typeof accessSync }} [options]
+ * @returns {Array<{ source: string, target: string, leadsTo?: string, unmakeable?: ReturnType<typeof unmakeable> }>}
  */
-export function missingBindSources(args, { stat = statSync, lstat = lstatSync, readlink = readlinkSync } = {}) {
+export function missingBindSources(args, { stat = statSync, lstat = lstatSync, readlink = readlinkSync, access = accessSync } = {}) {
   const mounts = mountsOf(args);
   if (mounts.includes(null)) return [];
   const missing = [];
@@ -441,13 +493,9 @@ export function missingBindSources(args, { stat = statSync, lstat = lstatSync, r
     } catch (error) {
       if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") continue;
     }
-    let leadsTo = "";
-    try {
-      if (lstat(mount.source).isSymbolicLink()) leadsTo = path.resolve(path.dirname(mount.source), readlink(mount.source));
-    } catch {
-      // Not a link, or one that cannot be read: the source is named alone.
-    }
-    missing.push({ source: mount.source, target: mount.target, ...(leadsTo ? { leadsTo } : {}) });
+    const leadsTo = linkTarget(mount.source, { lstat, readlink });
+    const blocked = leadsTo ? null : unmakeable(mount.source, { stat, lstat, readlink, access });
+    missing.push({ source: mount.source, target: mount.target, ...(leadsTo ? { leadsTo } : {}), ...(blocked ? { unmakeable: blocked } : {}) });
   }
   return missing;
 }

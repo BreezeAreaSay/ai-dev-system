@@ -209,17 +209,18 @@ sh ./bootstrap.sh --project-path "$HOME/Dev" --clients "codex,cursor,vscode"
 и не ставит её, а говорит, когда эта копия собрана, и её digest. Поставить её всё равно — осознанный
 выбор: `sh ./bootstrap.sh --allow-stale-image` (`-AllowStaleImage` на Windows).
 
-Путь назад, на 2.x, — `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`. У образа 2.x
-нет своего установщика, поэтому конфиги для него пишет образ 3.0 или новее: `AI_DEV_INSTALLER_IMAGE`,
-по умолчанию `ghcr.io/stonebridgeway/ai-dev-system:latest`. Он скачивается — копия, закэшированная до
-3.0, была бы образом 2.x — и используется, только если в нём есть установщик; иначе bootstrap
-останавливается и просит его (Д-323, Д-329). `:2` появится с выходом 3.0 — это `:latest` 2.x,
-скопированный в него перед тегом 3.0. До тех пор образ 2.x — сам
+Путь назад, на 2.x, — `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2` с теми же
+`--project-path` и `--model-path`, что при каждом запуске: и этот запуск монтирует только те папки,
+которые ему назвали. У образа 2.x нет своего установщика, поэтому конфиги для него пишет образ 3.0
+или новее: `AI_DEV_INSTALLER_IMAGE`, по умолчанию `ghcr.io/stonebridgeway/ai-dev-system:latest`. Он
+скачивается — копия, закэшированная до 3.0, была бы образом 2.x — и используется, только если в нём
+есть установщик; иначе bootstrap останавливается и просит его (Д-323, Д-329). `:2` появится с
+выходом 3.0 — это `:latest` 2.x, скопированный в него перед тегом 3.0. До тех пор образ 2.x — сам
 `ghcr.io/stonebridgeway/ai-dev-system:latest`, он же установщик по умолчанию, поэтому установщиком
 должен быть собранный вами образ 3.0: `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local sh ./bootstrap.sh
 --image ghcr.io/stonebridgeway/ai-dev-system:latest`. bootstrap сначала пробует скачать и образ
-установщика, поэтому ответ Docker «pull access denied for ai-dev-system …» тут ожидаем: собранного здесь
-образа нет ни в одном реестре, и bootstrap продолжает с копией, которую находит здесь.
+установщика, поэтому ответ Docker «pull access denied for ai-dev-system …» тут ожидаем: собранного
+здесь образа нет ни в одном реестре, и bootstrap продолжает с копией, которую находит здесь.
 
 ### На Windows
 

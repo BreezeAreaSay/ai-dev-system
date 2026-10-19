@@ -25,7 +25,9 @@ const NOISE = [
   /^\s*\^+\s*$/, // the caret under the line that threw
   /^\s*[{}]\s*$/, // the error's own properties…
   /^\s+[\w$]+: /, // …one per line
-  /^(?:node:|file:\/\/)\S+:\d+$/ // where it was thrown
+  /^(?:node:|file:\/\/)\S+:\d+$/, // where it was thrown
+  // What the Docker CLI prints after a usage error, its own words, before 29 and since (Д-427)
+  /^(?:Usage:\s+docker\s.*|See '[^']+ --help'\.|Run '[^']+ --help' for more information)$/
 ];
 
 /**
@@ -33,12 +35,15 @@ const NOISE = [
  * names an error — one not indented first, as Node prints the error itself
  * and indents its causes — else the last that is not noise. The last line
  * itself was Node's version, and a moved clone was reported as "Node.js
- * v22.22.0" (docs/DEFECTS.md, Д-169).
+ * v22.22.0" (docs/DEFECTS.md, Д-169). A line past 300 characters keeps its
+ * start and its end: Docker says why it refused a `--mount` after the whole
+ * value, which a long path made the part cut off (Д-427).
  */
 function errorLine(text) {
   const lines = text.split(/\r?\n/).filter((line) => line.trim() && !NOISE.some((pattern) => pattern.test(line)));
   const named = (line) => /\b(?:error|exception)\b/i.test(line);
-  return (lines.findLast((line) => named(line) && !/^\s/.test(line)) ?? lines.findLast(named) ?? lines.at(-1) ?? "").trim().slice(0, 300);
+  const line = (lines.findLast((each) => named(each) && !/^\s/.test(each)) ?? lines.findLast(named) ?? lines.at(-1) ?? "").trim();
+  return line.length > 300 ? `${line.slice(0, 150)}\u2026${line.slice(-149)}` : line;
 }
 
 /**

@@ -177,7 +177,9 @@ pattern that does not match the `example` you pass — for a rule that is on: on
 is off after the edit is checked for its shape only, and matched when it is switched
 on (Д-413). It stores the example on the
 rule, so `list_policy_rules` can re-run it later and tell you a rule a hand edit
-disarmed; `counter_example` is checked the same way, against a pattern that grew
+disarmed — or, for a rule that is off, that its example does not match, which
+keeps it from being switched on until the pattern or the example is fixed
+(Д-420); `counter_example` is checked the same way, against a pattern that grew
 too broad. Updates are patches, so `{ "id": "warn-eval", "enabled": false }`
 disables a rule — even where no match worker can start — and `remove_policy_rule`
 deletes one. `agent_hooks_status` lists

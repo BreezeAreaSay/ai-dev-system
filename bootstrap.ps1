@@ -194,13 +194,19 @@ if (-not $SkipClientInstall) {
     if ($resolvedModelPath) { $installArgs += "--model=$resolvedModelPath" }
     # Whether there is a client to write, from the installer's own answer as JSON, not from the words it prints:
     # with none, the hint is this script's -Clients, not the CLI's --clients, and nothing is written (Д-415).
-    $planned = & $node $cli @installArgs --dry-run --json
-    if ($LASTEXITCODE -ne 0) { throw "Writing the client configs failed (exit code $LASTEXITCODE)." }
-    $found = @((($planned -join "`n") | ConvertFrom-Json).clients | Where-Object { $_.status -ne "skipped" })
-    if ($found.Count -eq 0) {
+    # Only a dry run that passed and lists no client but skipped ones means none: one that failed — a client's
+    # config it cannot read, say — leaves it to the install itself, which writes the others and names that one,
+    # and whose exit decides (Д-428). The dry run's stderr is thrown away: the install says it again.
+    $planned = Invoke-Native { & $node $cli @installArgs --dry-run --json 2>$null }
+    $listed = $null
+    if ($LASTEXITCODE -eq 0) {
+        try { $listed = (($planned -join "`n") | ConvertFrom-Json).clients } catch { $listed = $null }
+    }
+    if ($null -ne $listed -and @($listed | Where-Object { $_.status -ne "skipped" }).Count -eq 0) {
         $noClient = $true
-        # The ellipsis by its code: Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page.
-        Write-Host "No AI client found here (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI). Name one to write its config anyway, -Clients cursor,vscode,$([char]0x2026), or install one and run bootstrap.ps1 again."
+        # The ellipsis by its code: Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page. The
+        # list in quotes: typed bare, PowerShell passes cursor,vscode as an array, which -Clients refuses (Д-421).
+        Write-Host "No AI client found here (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI). Name one to write its config anyway, -Clients `"cursor,vscode,$([char]0x2026)`", or install one and run bootstrap.ps1 again."
     } else {
         Write-Host "Writing the AI clients' configs..."
         & $node $cli @installArgs
@@ -220,14 +226,16 @@ if (-not $SkipClientInstall) {
     }
 }
 
-# The last line says what was done to the clients, no more, in bootstrap.sh's words (Д-406, Д-415).
+if ($staleWarning) {
+    Write-Warning "Installed from a stale image. $staleWarning"
+}
+# The last line says what was done to the clients, no more, in bootstrap.sh's words, and after the stale image's
+# warning, as there: a restart when there were clients to connect, written or already current (Д-406, Д-415,
+# Д-419, Д-421).
 if ($SkipClientInstall) {
     Write-Host "AI Dev is ready; the AI clients' configs were left as they were."
 } elseif ($noClient) {
     Write-Host "AI Dev is ready; no AI client is connected to it yet."
 } else {
     Write-Host "AI Dev is ready. Restart the AI clients to load ai-dev."
-}
-if ($staleWarning) {
-    Write-Warning "Installed from a stale image. $staleWarning"
 }

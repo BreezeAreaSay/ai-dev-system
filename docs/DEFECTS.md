@@ -2200,7 +2200,7 @@ core,coding,git,memory  69       49.7 КБ   ← таблица: ~50 КБ
 
 ## Д-110. `npm run demo` печатает число skills литералом
 
-**Статус:** открыт. Закроет фаза 14 программы. Нашёлся при ревью фазы 1.
+**Статус:** закрыт фазой 14 (`b5721b9`), 2026-10-19. Нашёлся при ревью фазы 1.
 
 `scripts/demo.mjs:182` печатает `It routed 3 skills out of 3,227` одной строкой: и «3», и «3,227» —
 литералы. В реестре сейчас 3 228 skills. Число выбранных — длина `task.skills`, и демо перечисляет
@@ -2220,6 +2220,16 @@ skills.index.json → 3228 записей
 
 **Как закроется.** Фаза 14: демо печатает длину `task.skills` и число skills из реестра; DEMO.md
 (EN и RU) — по новому выводу.
+
+**Как закрыто.** Демо печатает длину `task.skills` и число skills, которое отвечает его же сервер
+(`list_skill_groups`), а не литералы; DEMO.md (EN и RU) — по новому выводу (`c9f1191`).
+
+**Замер после** (`c6c49b9`; `HOME`, `AI_DEV_HOME` и `TMPDIR` — во временной папке):
+
+```
+npm run -s demo -- --no-color   → exit 0;  It routed 3 skills out of 614 - nobody named them:
+skills.index.json               → 614 записей
+```
 
 ---
 
@@ -7085,7 +7095,7 @@ control tools' model folder (sessionEnvironment): set-by-hand — the client's o
 
 ## Д-234. `ai-dev daemon stop` называет «всё ещё работающим» демон, который вышел, но не прибран родителем
 
-**Статус:** открыт; записан на фазу 14 (правило 4). Нашла проба второго ревью фазы 9; код — фазы 8.
+**Статус:** закрыт фазой 14 (`902338a`), 2026-10-19. Нашла проба второго ревью фазы 9; код — фазы 8.
 
 `processAlive` (`src/core/file-lock.mjs`) проверяет процесс через `kill(pid, 0)`, а тот отвечает и для зомби — вышедшего
 процесса, которого не прибрал родитель. Демон, запущенный транспортом программы, — её дочерний процесс; если программа
@@ -7105,6 +7115,19 @@ async: Stopped: pid 11365, 0 session(s) ended with it.; that pid now: gone
 
 **Как закроется.** Процесс в состоянии `Z` (`/proc/<pid>/stat` на Linux) считается вышедшим; где такого признака нет,
 сообщение говорит, что процесс ещё не прибран, а не что он работает.
+
+**Как закрыто.** `processState` (`src/core/file-lock.mjs`): процесс в состоянии `Z` или `X` — по `/proc/<pid>/stat`
+на Linux, по `ps -o stat=` на macOS и других, когда спрошено, — вышел; на win32 зомби не бывает, там по-прежнему
+`kill(0)`. `stopDaemons` спрашивает `ps` каждый десятый взгляд и ещё раз перед отказом; где состояние не узнать,
+сообщение говорит «its process is still there: it runs, or it has exited and the program that started it has not
+collected it yet», а не «still running». `processAlive` — поверх того же; копия в `hooks/lib.mjs` читает `/proc`.
+
+**Замер после** (`b5721b9`, та же проба):
+
+```
+sync: Stopped: pid 17906, 0 session(s) ended with it. (exit 0); 129 ms; that pid now: Z
+async: Stopped: pid 17982, 0 session(s) ended with it. (exit 0); 136 ms; that pid now: gone
+```
 
 ---
 
@@ -7442,9 +7465,7 @@ a program on DaemonClientTransport without profiles, started after: lists 25 too
 
 ## Д-239. Под нагрузкой правило `block` из `.ai-dev/policy.json` не срабатывает: старт потока засчитан правилу
 
-**Статус:** открыт; записан на фазу 14 (правило 4). Нашёлся в фазе 10 — её `npm run check` упал на тесте
-`regex-budget.test.mjs` «the jobs behind a timed-out one are still evaluated»; код — бюджета регулярных выражений
-(Д-16, Д-22), обе копии: `src/core/regex-budget.mjs` и `hooks/lib.mjs`.
+**Статус:** закрыт фазой 14 (`902338a`), 2026-10-19. Нашёлся в фазе 10 — её `npm run check` упал на тесте `regex-budget.test.mjs` «the jobs behind a timed-out one are still evaluated»; код — бюджета регулярных выражений (Д-16, Д-22), обе копии: `src/core/regex-budget.mjs` и `hooks/lib.mjs`.
 
 Правило из `policy.json` сопоставляется в потоке-воркере под бюджетом (250 мс на правило). Таймер взводится ещё до
 сообщения `ready`, «с тем же бюджетом», и если поток стартует дольше бюджета, срабатывание таймера засчитывается
@@ -7480,6 +7501,22 @@ npm run check фазы 10 (fef0477): not ok — expected [true, null, true, null
 которое не начало исполняться, возвращается как «не проверено» (`checked: false`), а не как «не уложилось». Обе копии
 меняются одинаково (AGENTS.md, правило 3). Вопрос для фазы 14: правило `block`, которое не удалось проверить, —
 пропускать с предупреждением, как сейчас, или блокировать.
+
+**Как закрыто.** В обеих копиях (`src/core/regex-budget.mjs`, `hooks/lib.mjs`) старт потока получил свой допуск —
+3000 мс (`DEFAULT_WORKER_START_MS`, `POLICY_MATCH_START_MS`), а бюджет правила считает только сопоставление, с
+момента `ready`. Правило, до которого поток не дошёл, возвращается с `not_run: "start"` или `"deadline"`, а не как
+«не уложился»: гард говорит, что машина слишком занята и правило не проверено, `upsert_policy_rule` не сохраняет
+паттерн, который не удалось попробовать, `list_policy_rules` пишет о занятой машине, а не о плохом паттерне.
+
+**Замер после** (`b5721b9`; те же пробы, 4 ядра):
+
+```
+server: budget 5 ms, "alpha" on "alpha": answered 20 of 20
+hooks:  budget 5 ms, "alpha" on "alpha": answered 20 of 20
+0 busy loops:  blocked 30, let_through 0 of 30; guard ms median 121, max 166
+16 busy loops: blocked 30, let_through 0 of 30; guard ms median 500, max 807
+32 busy loops: blocked 30, let_through 0 of 30; guard ms median 1073, max 1336
+```
 
 ---
 
@@ -8180,7 +8217,7 @@ checks.js + 800 строк → static exit 1: "desktop/src/renderer/checks.js: 8
 
 ## Д-258. Тест моста привязывает сокет под `TMPDIR` без проверки длины: при длинном `TMPDIR` параллельные прогоны сталкиваются
 
-**Статус:** открыт; записан на фазу 14 (правило 4). Нашло независимое ревью фазы 10; код — тест фазы 8.
+**Статус:** закрыт фазой 14 (`902338a`), 2026-10-19. Нашло независимое ревью фазы 10; код — тест фазы 8.
 
 `src/core/daemon-bridge.test.mjs` («a socket upstream reads what came with the handshake first…») слушает
 `<os.tmpdir()>/db-XXXXXX/s.sock`. Путь длиннее `sun_path` (108 байт) усекается: при `TMPDIR` длиннее ~100 байт усечённые
@@ -8201,11 +8238,21 @@ listen EADDRINUSE: address already in use …/tmp-l2/yyyyyyyyyyy/db-DkRIbg/s.soc
 **Как закроется.** Тест берёт короткую папку для сокета (как `runtime-paths.mjs` для демона) или пропускает случай с
 объяснением, когда путь не помещается.
 
+**Как закрыто.** Тест моста берёт для сокета короткую папку (как `runtime-paths.mjs` для демона), а не путь под
+`TMPDIR`.
+
+**Замер после** (`b5721b9`; `TMPDIR` из 111 байт, двенадцать прогонов файла одновременно, `p14/final/d258-parallel.sh`):
+
+```
+     12 # fail 0
+runs with EADDRINUSE: 0
+```
+
 ---
 
 ## Д-259. Тест корня задачи падает, когда `TMPDIR` — символическая ссылка
 
-**Статус:** открыт; записан на фазу 14 (правило 4). Нашло независимое ревью фазы 10; код — тест до программы.
+**Статус:** закрыт фазой 14 (`902338a`), 2026-10-19. Нашло независимое ревью фазы 10; код — тест до программы.
 
 `src/task-project-root.test.mjs` сравнивает путь проекта с путём от `os.tmpdir()`, а продукт возвращает разрешённый
 путь. На macOS `TMPDIR` лежит под `/var` → `/private/var` — там, вероятно, то же (не проверено).
@@ -8219,6 +8266,10 @@ not ok 2 - task lifecycle preserves a standalone project directory
 ```
 
 **Как закроется.** Тест сравнивает с `fs.realpathSync` временной папки.
+
+**Как закрыто.** Оба теста сравнивают с `fs.realpath` временной папки.
+
+**Замер после** — с Д-373, весь набор с `TMPDIR`-ссылкой: см. Д-373.
 
 ---
 
@@ -8568,7 +8619,7 @@ M33 (S4) тесты сервера (control-client, control, session-env, servin
 
 ## Д-267. Ворота пропускают равнозначные записи запрещённых вызовов
 
-**Статус:** открыт; записан на фазу 14 (правило 4). Нашло второе независимое ревью фазы 10; код ворот — до программы.
+**Статус:** закрыт фазой 14 (`902338a`), 2026-10-19. Нашло второе независимое ревью фазы 10; код ворот — до программы.
 
 `static-quality.mjs` ищет `exec`, `shell: true` и `eval` по образцам записи. Равнозначные записи проходят — и в
 сервере, и в `desktop/`: `import * as childProcess` с `childProcess.exec(…)`, `import cp from "node:child_process"` с
@@ -8586,6 +8637,24 @@ static exit 0
 
 **Как закроется.** Разбор импорта `node:child_process` под любым именем, запрет `exec`, `execSync` и `shell` с любым
 истинным значением; `eval` по имени через `globalThis` и `window`.
+
+**Как закрыто.** `src/core/forbidden-calls.mjs` читает исходник как лексемы — комментарии, строки, текст шаблонов и
+литералы регулярных выражений отложены — и спрашивает правила у них: `exec`/`execSync` модуля `child_process`, как бы
+он ни был получен (именованный, default и namespace-импорт, `require`, `import()`, любое имя, к которому привязан
+объект модуля); опция `shell` с любым значением, кроме `false`, `null`, `undefined`, `0` и пустой строки, и
+сокращение `{ shell }`; `eval` в любой роли, кроме ключа объекта; конструктор `Function` и вызов `.constructor`;
+вычисляемый член `globalThis`, `window`, `global`, `self`, кроме одной простой строки. `static-quality.mjs` прогоняет
+это по серверу и `desktop/`.
+
+**Замер после** (`902338a`; те же шесть записей дописаны в те же два файла, файлы потом возвращены байт в байт):
+
+```
+- desktop/src/main/node-runtime.mjs:130: child_process execSync (imported by name) is forbidden; …
+- … ещё пять в node-runtime.mjs и шесть в src/core/log-tail.mjs
+static exit 1
+```
+
+На чистом дереве (`c6c49b9`): `"status": "passed"`, 478 файлов.
 
 ---
 
@@ -12522,8 +12591,7 @@ status` и отказ `setup`): EACCES, EPERM — сделать папку и �
 
 ## Д-367. Экраны приложения показывают нечитаемую модель как «не установлена» и предлагают скачать
 
-**Статус:** открыт. Закроет фаза 14 (правило 4: код приложения фаз 10–12; поле API появилось в фазе 13, Д-359). Нашло
-седьмое независимое ревью фазы 13.
+**Статус:** закрыт фазой 14 (`902338a`), 2026-10-19. Нашло седьмое независимое ревью фазы 13.
 
 `desktop/src/renderer/wizard.js:167-205` предлагает «Скачать» и «Импорт», когда `installed` ложно; `status.js:58`
 пишет «not installed»; поле `model.unreadable` экраны не читают (`grep` — 0 мест).
@@ -12533,12 +12601,19 @@ status` и отказ `setup`): EACCES, EPERM — сделать папку и �
 
 **Как закроется.** Экраны показывают причину и не предлагают загрузку поверх нечитаемой модели; тесты `desktop/`.
 
+**Как закрыто.** Мастер и «Статус» читают `model.unreadable`: мастер называет причину (`EACCES`, папка — файл, петля
+ссылок, общая папка) и что сделать, даёт **Проверить снова** и не предлагает ни загрузку, ни импорт поверх; «Статус»
+пишет «не читается (код)». Тексты EN и RU (`setup-words.js`, `messages-*.js`).
+
+**Замер после** (`902338a`): e2e `desktop/test/e2e/model-unreadable.test.mjs` — `ok 1 - a model that cannot be read:
+the wizard says why and offers no download; Status says the same` (2,5 с); `grep -rnE "model\??\.unreadable|unreadable.*model"
+desktop/src` → 23 строки.
+
 ---
 
 ## Д-368. Папка модели хоста — абсолютная ссылка: в контейнере она висит, и модель «не установлена»
 
-**Статус:** открыт. Закроет фаза 14 (правило 4: так было и в 2.x; не регрессия правок фазы 13). Нашло седьмое
-независимое ревью фазы 13.
+**Статус:** закрыт фазой 14 (`902338a`), 2026-10-19. Так было и в 2.x — не регрессия правок фазы 13. Нашло седьмое независимое ревью фазы 13.
 
 `~/.ai-dev/models/bge-m3-onnx` — абсолютная ссылка на другой диск: в `/models` она ведёт туда, чего в контейнере нет,
 `ENOENT` значит «ничего не смонтировано», и отчёт старта советует ставить модель в том; проверка `--model-path` в
@@ -12548,6 +12623,19 @@ status` и отказ `setup`): EACCES, EPERM — сделать папку и �
 тома; отчёт старта — «not installed — … puts it in this volume».
 
 **Как закроется.** Запись монтирует папку, куда ведёт ссылка, или говорит, что ссылка в контейнере висит.
+
+**Как закрыто.** Запись 3.0 монтирует саму ссылку `bge-m3-onnx` в `/models/bge-m3-onnx` — Docker разрешает источник
+на хосте, — а остальное в `/models` как прежде (`modelMount`, `src/core/docker-launch.mjs`; проверка на хосте —
+`client-connections.mjs`). `bootstrap.sh` отказывает висящей ссылке (код 64), лаунчер 2.x `run-mcp.sh` монтирует
+разрешимую ссылку так же и называет висящую.
+
+**Замер после** (`b5721b9`; та же проба; монтирование пишет CLI хоста, `ai-dev model status` — образ `ai-dev-system:p13r14`):
+
+```
+model mount: type=bind,source=/var/tmp/p14/d368/models/bge-m3-onnx,target=/models/bge-m3-onnx,readonly
+model status (exit 0): Model: ai-dev/synthetic-bge-m3 @ ebee84ef9681 (int8) in /models/bge-m3-onnx |
+  Installed: yes, every file matches the manifest.
+```
 
 ---
 
@@ -12688,7 +12776,7 @@ that folder», для локальной установки — только н�
 
 ## Д-373. Ещё два теста падают, когда `TMPDIR` — символическая ссылка
 
-**Статус:** открыт. Закроет фаза 14, с Д-259. Нашёлся при замере после Д-259 — весь набор тестов с `TMPDIR`-ссылкой.
+**Статус:** закрыт фазой 14 (`902338a`), 2026-10-19. Нашёлся при замере после Д-259 — весь набор тестов с `TMPDIR`-ссылкой.
 
 `scripts/bootstrap-contract.test.mjs:267` («the image writes the configs with each client's own folder mounted…») ждёт
 папку состояния по пути от `os.tmpdir()`, а `bootstrap.sh` монтирует её по настоящему пути (`pwd -P`) — строкой ниже тот
@@ -12714,11 +12802,20 @@ not ok 1887, not ok 1888 — два теста Д-259
 
 **Как закроется.** Оба теста сравнивают с `fs.realpath`; весь набор с `TMPDIR`-ссылкой — 0 fail.
 
+**Как закрыто.** Оба теста сравнивают с `fs.realpath`, как продукт.
+
+**Замер после** (`b5721b9`; `TMPDIR=/var/tmp/p14/tmplink` — ссылка на `/var/tmp/p14/real-tmp`; весь набор):
+
+```
+# tests 1924 # pass 1916 # fail 0 # skipped 8
+exit 0
+```
+
 ---
 
 ## Д-374. `npm run demo` оставляет в домашней папке человека заявку на его поисковый индекс
 
-**Статус:** открыт. Закроет фаза 14. Нашёлся при замере Д-110 в начале фазы 14.
+**Статус:** закрыт фазой 14 (`b5721b9`), 2026-10-19. Нашёлся при замере Д-110 в начале фазы 14.
 
 Демо обещает, что ничего не создаёт вне временной папки и всё созданное удаляет (`scripts/demo.mjs:7-10`, `docs/DEMO.md`).
 Его сервер работает с `AI_DEV_HOME` человека: при поиске он заявляет индекс по умолчанию
@@ -12739,11 +12836,23 @@ exit 0
 **Как закроется.** Сервер демо получает свою папку состояния и свой индекс во временной папке; после демо в
 `AI_DEV_HOME` человека нет ничего нового.
 
+**Как закрыто.** Демо даёт своему серверу свою домашнюю папку, состояние и индекс во временной папке и строит индекс
+skills с тем же окружением (`ensure-skill-index` запускается из `demo.mjs`, а не импортом `mcp-stdio.mjs`).
+
+**Замер после** (`c6c49b9`; `HOME`, `AI_DEV_HOME`, `TMPDIR` — во временной папке пробы):
+
+```
+exit 0
+left in HOME: .npm/_logs/…-debug-0.log, .npm/_update-notifier-last-checked   (это npm run, не демо)
+left in TMPDIR: node-compile-cache                                           (это Node, не демо)
+<AI_DEV_HOME> — нет
+```
+
 ---
 
 ## Д-375. Сборка образа с `INSTALL_BGE_M3=1` больше не говорит, что его заменило (фаза 13 убрала аргумент молча)
 
-**Статус:** открыт. Закроет фаза 14. Нашла разведка фазы 14 (материал заметки о миграции).
+**Статус:** закрыт фазой 14 (`b5721b9`), 2026-10-19. Нашла разведка фазы 14 (материал заметки о миграции).
 
 Фаза 5 оставила аргумент сборки `INSTALL_BGE_M3` с сообщением до 4.0 (правило 5.2: публичное убирается только через
 совместимую обёртку с предупреждением): `d481c6b^:docker/Dockerfile:22` (`ARG INSTALL_BGE_M3=0`) и `:116-117` (`RUN if
@@ -12758,6 +12867,21 @@ exit 0
 
 **Как закроется.** Аргумент снова объявлен, сборка с `INSTALL_BGE_M3=1` печатает, что его заменило в 3.0 (модель в
 томе одной командой или папка хоста в `/models`); тест контракта Dockerfile держит это до 4.0.
+
+**Как закрыто.** `ARG INSTALL_BGE_M3=0` снова объявлен — последним в стадии, чтобы не сбрасывать кэш слоёв, — и
+сборка с `=1` печатает, что его заменило; тест контракта Dockerfile держит это до 4.0.
+
+**Замер после** (`c6c49b9`; `docker build … --build-arg INSTALL_BGE_M3=1`):
+
+```
+#25 [server-build 15/16] RUN if [ "1" = "1" ]; then …
+#25 0.073 INSTALL_BGE_M3=1 is no longer used: 3.0 removed the dense backend it installed, and the ONNX model needs
+nothing built into the image. Put the model in the data volume once: docker run --rm -it --network bridge --mount
+type=volume,source=ai-dev-system-data,target=/data <image> ai-dev model install — or mount a host folder that holds
+bge-m3-onnx/ at /models (bootstrap.sh --model-path).
+```
+
+Без аргумента — та же строка `RUN if [ "0" = "1" ]` и ни слова; образ собирается в обоих случаях.
 
 ---
 
@@ -12918,8 +13042,7 @@ CAPABILITIES (EN и RU), `ai-dev-mcp-server/docs/ARCHITECTURE.md`, README сер
 
 ## Д-380. Первая задача из README в новом репозитории: `verify_task` не говорит, откуда взять проверку проекта
 
-**Статус:** открыт. Закроет фаза 14. Нашла приёмка фазы 14 — первая задача из README в чистом контейнере; код —
-`verify_task` (`src/extensions/lifecycle.mjs`) и пакет контекста `begin_task` (`src/core/context-compiler.mjs`), до программы.
+**Статус:** закрыт фазой 14 (`c6c49b9`), 2026-10-19. Нашла приёмка фазы 14 — первая задача из README в чистом контейнере; код — `verify_task` (`src/extensions/lifecycle.mjs`) и пакет контекста `begin_task` (`src/core/context-compiler.mjs`), до программы.
 
 README ведёт новичка так: поставить пакет, открыть свой репозиторий и попросить агента начать задачу. В репозитории, которого
 AI Dev ещё не видел, нет `.ai-dev/quality-gate.md`, и `verify_task` отвечает проверкой `quality_gate` со статусом
@@ -12947,12 +13070,35 @@ FAILED: complete_task: The latest verification (…) failed. Fix the problem and
 (`prepare_project`, затем снова `verify_task`), она доходит до `detail.hint` записи проверки; `begin_task` пишет то же в
 `context_unknowns`. С `prepare_project` первая задача на том же репозитории проходит до `complete_task`.
 
+**Как закрыто.** Ошибка `run_quality_gate` об отсутствующем файле несёт `code: "QUALITY_GATE_MISSING"` и `hint`
+(`prepare_project` пишет `.ai-dev/quality-gate.md` из скриптов проекта, `overwrite=false` ничего не трогает); сервер
+печатает подсказку ошибки строкой под ней; `verify_task` кладёт её в проверку, и она доходит до `detail.hint` записи;
+`begin_task` пишет то же в `context_unknowns`. README (EN/RU) говорит, что в новом репозитории агент сначала вызывает
+`prepare_project`.
+
+**Замер после** (tarball `c6c49b9`, та же проба; затем агент, который делает, что велит навык, — `--prepare`):
+
+```
+begin_task unknowns: [..., "This project has no .ai-dev/quality-gate.md, so verify_task has no project checks to run:
+  prepare_project writes one from the project's own scripts."]
+verification detail: [{"type":"quality_gate","status":"unavailable","detail":{"output":"Quality gate file not found: …",
+  "hint":"prepare_project writes .ai-dev/quality-gate.md from the project's own scripts (overwrite=false keeps every
+  file already there); then run the gate again."}}, …]
+--prepare:
+prepare_project: quality gate true
+complete_task before verify_task: refused — Task has unresolved acceptance criteria: AC-2
+verify_task: passed true; checks quality_gate=passed, change_hygiene=pass, security_scan=unchecked
+complete_task: complete; pull request .ai-dev/pr/<id>.md exists true
+```
+
+То же через запись Docker (`ai-dev-system:p14r1`, `bootstrap.sh` в чистом контейнере): `verify_task: passed true …
+security_scan=pass`, `complete_task: complete`.
+
 ---
 
 ## Д-381. План ручной приёмки велит запускать bootstrap с локальным образом так, что bootstrap останавливается
 
-**Статус:** открыт. Закроет фаза 14. Нашла приёмка фазы 14 — путь Docker в чистом контейнере; документ — новый план
-`docs/TEST-PLAN.ru.md` (`c9f1191`).
+**Статус:** закрыт фазой 14 (`12812ee`), 2026-10-19. Нашла приёмка фазы 14 — путь Docker в чистом контейнере; документ — новый план `docs/TEST-PLAN.ru.md` (`c9f1191`).
 
 План велит до публикации 3.0 передавать bootstrap свой образ: `--image ai-dev-system:local` (`-Image` на Windows) в
 шагах W6, M5 и, по вводу, в L4. Но bootstrap сначала тянет образ из реестра (`bootstrap.sh:201`, `bootstrap.ps1:152`), а
@@ -12978,12 +13124,29 @@ bootstrap exit 69
 --allow-stale-image` (`-Image ai-dev-system:local -AllowStaleImage`), и что предупреждение об устаревшем образе здесь
 ожидаемо; путь назад до выпуска — с `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local`. Каждая команда — замером.
 
+**Как закрыто.** План ставит свой образ так, как bootstrap его ставит: `--image ai-dev-system:local
+--allow-stale-image` (`-Image … -AllowStaleImage`), говорит, что предупреждение об устаревшем образе ожидаемо, а путь
+назад до выпуска — с `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local` и тегом `v2.0.0`.
+
+**Замер после** (тот же чистый контейнер; вместо `:local` — `ai-dev-system:p14r1`, вместо `:v2.0.0` — `2x-8f647df`):
+
+```
+$ sh ./bootstrap.sh --image ai-dev-system:p14r1 --allow-stale-image --project-path "$HOME/Dev"
+  Cursor   added  ~/.cursor/mcp.json — previous file: ~/.cursor/mcp.json.backup-…
+  Gemini CLI  added  ~/.gemini/settings.json
+Installed from a stale image. Registry pull failed. …
+bootstrap exit 0
+$ AI_DEV_INSTALLER_IMAGE=ai-dev-system:p14r1 sh ./bootstrap.sh --image ai-dev-system:2x-8f647df --allow-stale-image …
+ai-dev-system:2x-8f647df has no installer of its own (a 2.x image): ai-dev-system:p14r1 writes the configs that run it.
+back exit 0   → запись Cursor запускает ai-dev-system:2x-8f647df
+$ sh ./bootstrap.sh --image ai-dev-system:p14r1 --allow-stale-image …   → return exit 0, запись — p14r1
+```
+
 ---
 
 ## Д-382. Ворота запрещённых вызовов пропускают равнозначные записи и отказывают честному коду
 
-**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 1); код — правка Д-267
-(`src/core/forbidden-calls.mjs`, `902338a`).
+**Статус:** закрыт фазой 14 (`acdc75b`), 2026-10-19. Нашло первое независимое ревью фазы 14 (should-fix 1); код — правка Д-267 (`src/core/forbidden-calls.mjs`, `902338a`).
 
 Заголовок модуля обещает «however the module is reached», «any name the module object was bound to», «`eval` in any
 role but an object key» и «refuses what it cannot read». На деле:
@@ -13023,12 +13186,32 @@ fc-probe2: 4 MISS из 10 (destructure eval from globalThis, Reflect.get globalT
 не следят за значением через переменные (`const c2 = cp`, `createRequire`, `Reflect.get`, имя модуля из частей), —
 заголовок говорит прямо. Пробы ревью — тестами.
 
+**Как закрыто.** Лексер (`codeTokens`) разбирает `\x`, `\u`, `\u{…}` и продолжение строки в строках и в именах (`eval`
+— это `eval`), читает шаблон без подстановок как строку, `?.[` и `?.(` — как `[` и `(`, `/` сразу после `${` и в начале
+строки после `}` — как регулярное выражение, а незакрытые шаблон, подстановка или комментарий помечает
+(`unterminated`) — и такой файл ворота отвергают («could not be read past line N»). Правила понимают `default` модуля
+(`ns.default`, `{ default: cp }`, `import { default as cp }`, `(await import(…)).default`), параметр `.then(async …)` и
+`function [name](…)`, остаток `{ ...all }`, скобки вокруг `require(…)`, простое переприсваивание (`const c2 = cp`,
+`const g = globalThis`), `.Function` у глобального объекта, `global.globalThis[…]` и `(globalThis)[…]`, `eval:` — только как
+ключ литерала объекта, `.shell =` и `["shell"]:`. Правила `shell` смотрят только литералы объектов — не импорт, не шаблон
+параметров, не `for … of`, не аргументы и массивы. Что ворота сознательно не делают — имя модуля из частей,
+`createRequire`, `Reflect.get`, — заголовок модуля и AGENTS.md говорят прямо. Пробы ревью — в
+`forbidden-calls.test.mjs`. Отвергнутый самими воротами файл (`task-plans.mjs:191`, регулярное выражение сразу после
+`${`) показал ещё одну слепую зону старого лексера — закрыта той же правкой.
+
+**Замер после** (`acdc75b`; те же пробы ревью):
+
+```
+fc-probe:  33 ok, 2 MISS — concat module name, createRequire (вне границ, названы в заголовке); честные — 0 FP
+fc-probe2: 11 ok, 1 MISS — Reflect.get globalThis eval (вне границ)
+scan-tree: { files: 543, findings: 0 };  static-quality: "status": "passed", 478 файлов
+```
+
 ---
 
 ## Д-383. `upsert_policy_rule` записывает правило, пример которого не проверялся
 
-**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 2); код — правка Д-239
-(`src/core/policy-rules.mjs`).
+**Статус:** закрыт фазой 14 (`acdc75b`), 2026-10-19. Нашло первое независимое ревью фазы 14 (should-fix 2); код — правка Д-239 (`src/core/policy-rules.mjs`).
 
 Правка Д-239 отказывает, когда не запустились пробы паттерна, но проверка примера сразу после (`verifyPolicyRule`) может
 вернуться с `not_checked` — и это не останавливает запись: `fires_on_example` там `null`, а не `false`.
@@ -13045,12 +13228,21 @@ written: 1
 
 **Как закроется.** Непроверенный пример — отказ, как непроверенные пробы; правило не записано.
 
+**Как закрыто.** `upsertPolicyRule` после `verifyPolicyRule` отказывает на `not_checked`, как на непроверенных пробах, и
+называет причину по `not_run`; тест — с поздним `not_run: "start"` и `"deadline"`.
+
+**Замер после** (`acdc75b`; та же проба):
+
+```
+refused: Rule "no-deploy" was not written: its example could not be checked, because the machine is so busy that no
+  match worker started within 3000 ms. Try again once the machine is less busy.
+```
+
 ---
 
 ## Д-384. Копия бюджета регулярных выражений в хуках называет сбой потока «не стартовал»
 
-**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 3); код — правка Д-239 в
-`hooks/lib.mjs`.
+**Статус:** закрыт фазой 14 (`acdc75b`), 2026-10-19. Нашло первое независимое ревью фазы 14 (should-fix 3); код — правка Д-239 в `hooks/lib.mjs`.
 
 Серверная копия (`src/core/regex-budget.mjs`) отличает поток, который не успел стартовать, от потока, который упал
 (`new Worker` бросил, `error`, `exit` до `ready`): упавший отвечает `checked: true` с ошибкой, и сопоставление идёт
@@ -13069,12 +13261,23 @@ hooks:  [{"matched":null,"checked":false,"not_run":"start"}] 1 ms
 
 **Как закроется.** Хуки отличают сбой от старта, как сервер: упавший поток — `checked: true` с ошибкой.
 
+**Как закрыто.** `runMatchBatch` в `hooks/lib.mjs` несёт причину сбоя (`failed`) — из `catch` создания потока, событий
+`error` и `exit`; сбой — не «не стартовал»: задание отвечено как выполненное, с `error`, а следующие идут в новом потоке,
+как в серверной копии. Гард говорит «the thread matching it failed (…). Nothing here says the pattern is wrong», а не про
+время паттерна. Тесты — обе копии под `--permission` и гард с потоком, который падает до `ready`.
+
+**Замер после** (`acdc75b`; та же проба):
+
+```
+server: [{"matched":null,"checked":true,"timed_out":false,"error":"Access to this API has been restricted. Use --allow-worker …"}] 2 ms
+hooks:  [{"matched":null,"checked":true,"error":"Access to this API has been restricted. Use --allow-worker …"}] 1 ms
+```
+
 ---
 
 ## Д-385. Модель на другом диске: когда диск отключён, запись Docker не запускает сервер вовсе
 
-**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 4); код — правка Д-368
-(`modelMount`, `src/core/docker-launch.mjs`).
+**Статус:** закрыт фазой 14 (`acdc75b`), 2026-10-19. Нашло первое независимое ревью фазы 14 (should-fix 4); код — правка Д-368 (`modelMount`, `src/core/docker-launch.mjs`).
 
 Запись 3.0 монтирует саму ссылку `bge-m3-onnx`, а Docker разрешает источник на хосте при каждом запуске. Ссылку
 проверяют только при установке; если диск, на который она ведёт, потом отключён, Docker отказывается монтировать
@@ -13095,12 +13298,28 @@ disk away — session exit 125; answered initialize: false; stderr: docker: Erro
 **Как закроется.** Установка говорит, что сессиям нужен подключённый диск, когда ссылка ведёт на другой диск;
 `ai-dev clients doctor` называет запись, чьей смонтированной папки нет, — что сделать, без запуска.
 
+**Как закрыто.** `modelMount` замечает ссылку на другое устройство (`dev` цели не равен `dev` папки) и возвращает
+`note`; `ai-dev clients install --docker` и `clients entry --docker` её печатают. `bootstrap.sh` говорит о любой ссылке
+`bge-m3-onnx`: сессии монтируют то, куда она ведёт, и без этого диска Docker не запустит ни одной. `ai-dev clients doctor`
+до запуска записи Docker проверяет её `--mount type=bind` (`missingBindSources`) и называет пропавшую папку с тем, что
+сделать, не запуская Docker. Запись остаётся прежней: смонтировать отключённый диск нечем, а без монтирования ссылки
+модель не работает и с подключённым (Д-368).
+
+**Замер после** (`acdc75b`; цель ссылки на другой файловой системе — `/dev/shm`; `p14/r1/unplugged-after.mjs`):
+
+```
+entry exit 0; stderr: …/models/bge-m3-onnx leads to /dev/shm/r1-disk2/bge-m3-onnx-real, on another disk: every session
+  mounts it from there, so while that disk is away Docker starts no session at all — `ai-dev clients doctor` names the entry then.
+disk away — clients doctor exit 1: Cursor  FAILED — the folder this entry mounts at /models/bge-m3-onnx is not here: …
+  Docker starts no session without it: connect the disk it is on, or write the entries again without it (…).
+disk back — clients doctor exit 0: Cursor  ok — ai-dev-system 2.0.0 answered in 1776 ms, instructions 1048 chars
+```
+
 ---
 
 ## Д-386. Живой процесс за `hidepid` считается вышедшим, и живой замок ломается
 
-**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 5); код — правка Д-234
-(`processState`, `src/core/file-lock.mjs`; копия — `hooks/lib.mjs`).
+**Статус:** закрыт фазой 14 (`acdc75b`), 2026-10-19. Нашло первое независимое ревью фазы 14 (should-fix 5); код — правка Д-234 (`processState`, `src/core/file-lock.mjs`; копия — `hooks/lib.mjs`).
 
 `kill(pid, 0)` с `EPERM` значит «процесс есть, он чужой». При `/proc`, смонтированном с `hidepid=2`, чужой
 `/proc/<pid>` даёт ENOENT, `procStateLetter` возвращает `""`, и `processState` отвечает «gone». Замок, который держит
@@ -13117,12 +13336,21 @@ kill(1, 0): EPERM | /proc/1 hidden (hidepid=2), proc → "": gone | proc not rea
 **Как закроется.** Когда `kill` ответил успехом или `EPERM`, пустой ответ `/proc` значит «не видно» — `unknown`, а не
 «gone»; выход по-прежнему ловит `kill` при следующем взгляде. Обе копии.
 
+**Как закрыто.** Когда `kill` нашёл процесс (успех или `EPERM`), а `/proc` или `ps` его не показывают, это «не видно» —
+`unknown`, а не «gone»; процесс, вышедший между двумя взглядами, ловит `kill` при следующем. Копия в хуках
+(`processAlive`) — так же: жив всё, кроме `Z` и `X`.
+
+**Замер после** (`acdc75b`; та же проба от пользователя `ubuntu`):
+
+```
+kill(1, 0): EPERM | /proc/1 hidden, proc → "": server unknown | hooks alive: true
+```
+
 ---
 
 ## Д-387. Приложение на `EPERM` модели не говорит про «Конфиденциальность и безопасность» macOS
 
-**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 6); код — правка Д-367
-(`desktop/src/renderer/setup-words.js:79`).
+**Статус:** закрыт фазой 14 (`acdc75b`), 2026-10-19. Нашло первое независимое ревью фазы 14 (should-fix 6); код — правка Д-367 (`desktop/src/renderer/setup-words.js:79`).
 
 `EPERM` и `EACCES` дают на экранах один совет — «Make the folder and its files readable to your user account». На macOS
 `EPERM` обычно значит, что приложению не дан доступ к папке в «Конфиденциальность и безопасность» (Д-371, Д-372); совет
@@ -13132,6 +13360,18 @@ kill(1, 0): EPERM | /proc/1 hidden (hidepid=2), proc → "": gone | proc not rea
 `wizard.model.unreadable.access` — «Make the folder and its files readable to your user account.»
 
 **Как закроется.** Свой совет для `EPERM` (EN и RU): права и доступ в «Конфиденциальность и безопасность».
+
+**Как закрыто.** `EPERM` получил свой совет, `wizard.model.unreadable.permission` (EN и RU): права и, на macOS, доступ в
+«Конфиденциальность и безопасность»; `EACCES` — прежний.
+
+**Замер после** (`acdc75b`; настоящие таблицы сообщений):
+
+```
+en | cannot be read (EPERM) | … Make the folder and its files readable to your user account; on macOS, also give AI Dev
+  access to that folder in System Settings → Privacy & Security. Then check again; …
+ru | не читается (EPERM) | … на macOS ещё дайте AI Dev доступ к этой папке в «Системные настройки → Конфиденциальность и
+  безопасность». …
+```
 
 ---
 
@@ -13152,8 +13392,7 @@ kill(1, 0): EPERM | /proc/1 hidden (hidepid=2), proc → "": gone | proc not rea
 
 ## Д-389. `npm run demo` уносит данные эпохи Codex из `~/.codex` в свою временную папку и удаляет их
 
-**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (must-fix, ревью понятий); код — правка Д-374
-(`scripts/demo.mjs`) и перенос `~/.codex` фазы 7 (`src/core/runtime-home-migration.mjs`, Д-104).
+**Статус:** закрыт фазой 14 (`acdc75b`), 2026-10-19. Нашло первое независимое ревью фазы 14 (must-fix, ревью понятий); код — правка Д-374 (`scripts/demo.mjs`) и перенос `~/.codex` фазы 7 (`src/core/runtime-home-migration.mjs`, Д-104).
 
 Демо даёт серверу временный `AI_DEV_HOME`, но настоящий `HOME`. Сервер при старте переносит папки AI Dev из `~/.codex`
 (квитанции и артефакты Archify, артефакты Frontend QA, модель — все, чья переменная не задана) в свой runtime-дом, то есть
@@ -13177,6 +13416,19 @@ demo exit 0
 **Как закроется.** Перенос эпохи Codex берёт `.codex` там, где его читала 2.x: `$AI_DEV_HOME/.codex` при заданном
 `AI_DEV_HOME`, иначе `~/.codex`; демо, кроме того, закрепляет во временной папке все шесть мест переноса, как
 `test/setup.mjs`. Документация (README сервера, MIGRATION) говорит, откуда переносится.
+
+**Как закрыто.** Перенос эпохи Codex берёт `.codex` того места, которое 2.x считала домом этой установки:
+`<AI_DEV_HOME>/.codex`, когда `AI_DEV_HOME` задан и это не домашняя папка, иначе `~/.codex` (`codexRoot`,
+`runtime-home-migration.mjs`; так же — `codex_root` в `doctor`). Демо, кроме того, называет во временной папке все шесть мест
+переноса, как `test/setup.mjs`. Тест — установка со своим `AI_DEV_HOME` не трогает `~/.codex`; мутант со старым корнем
+тест роняет.
+
+**Замер после** (`acdc75b`; та же проба — `HOME` с `~/.codex/…`, `npm run -s demo -- --no-color`):
+
+```
+demo exit 0;  It routed 3 skills out of 614 - nobody named them:
+после: home/.codex/state/archify-receipts/r1.json, home/.codex/artifacts/archify/a.svg — на месте
+```
 
 ---
 

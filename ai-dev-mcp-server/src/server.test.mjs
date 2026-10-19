@@ -165,6 +165,22 @@ test("a tool that needs one of two arguments says so where a caller can read it"
   }
 });
 
+test("a tool error that knows the next step says it under the error (Д-380)", async (t) => {
+  // A repository AI Dev has not prepared has no quality gate; the refusal used to stop at "not found".
+  const project = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-no-gate-"));
+  const { client, server } = await connectedPair();
+  t.after(async () => {
+    await client.close();
+    await server.close();
+    await fs.rm(project, { recursive: true, force: true });
+  });
+  const answer = await client.callTool({ name: "run_quality_gate", arguments: { project_path: project, update_registry: false } });
+  assert.equal(answer.isError, true);
+  const [first, second] = answer.content[0].text.split("\n");
+  assert.match(first, /^Quality gate file not found: .*quality-gate\.md$/);
+  assert.match(second, /^prepare_project writes \.ai-dev\/quality-gate\.md from the project's own scripts/);
+});
+
 test("the usage ledger records every caller once: direct calls, transport calls, failures", async (t) => {
   const { client, server } = await connectedPair();
   t.after(async () => {

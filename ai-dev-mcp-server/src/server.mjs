@@ -513,10 +513,12 @@ export function createAiDevServer({ profiles = null, track = (work) => work() } 
     } catch (error) {
       progress.end(`Failed ${name}`);
       const message = error instanceof Error ? error.message : String(error);
+      // An error that knows the next step carries it as `hint` (Д-380).
+      const hint = typeof error?.hint === "string" ? error.hint.trim() : "";
       return {
         content: [{
           type: "text",
-          text: message
+          text: hint ? `${message}\n${hint}` : message
         }],
         isError: true
       };

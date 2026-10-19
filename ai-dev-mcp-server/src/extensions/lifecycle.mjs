@@ -12,11 +12,11 @@
  *
  * Everything the arc touches arrives through `host`: the task store, project
  * identity and detection, project state capture, the frontend product state,
- * the Archify receipt store and the project-card writers. The four sibling
- * tools it drives — `recommend_skills`, `run_quality_gate`, `run_frontend_qa`
- * and `prepare_pull_request` — arrive the same way, as host wrappers over the
- * registry, so each stays the single implementation of its own job and none of
- * these calls is counted twice in the usage ledger.
+ * the Archify receipt store and the project-card writers. The five sibling
+ * tools it drives — `recommend_skills`, `run_quality_gate`, `run_frontend_qa`,
+ * `run_security_scan` and `prepare_pull_request` — arrive the same way, as
+ * host wrappers over the registry, so each stays the single implementation of
+ * its own job and none of these calls is counted twice in the usage ledger.
  *
  * The judgements are pure and live in `src/core`: whether a run passed and
  * what it proves in `task-verification.mjs`, the completion note and what to
@@ -353,7 +353,9 @@ async function verifyTask(host, {
         type: "quality_gate",
         result: {
           status: "unavailable",
-          error: error instanceof Error ? error.message : String(error)
+          error: error instanceof Error ? error.message : String(error),
+          // The way forward, when the gate knows one: no gate file yet (Д-380).
+          ...(typeof error?.hint === "string" && error.hint ? { hint: error.hint } : {})
         }
       });
     }

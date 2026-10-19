@@ -72,6 +72,8 @@ test("a missing gate file names the path it looked for", async () => {
   await assert.rejects(
     () => call(registry, { project_path: "atlas" }),
     (error) => error.message === `Quality gate file not found: ${probed}`
+      // And what writes one, for whoever meets this first: a new repository has none (Д-380).
+      && error.code === "QUALITY_GATE_MISSING" && /^prepare_project writes \.ai-dev\/quality-gate\.md/.test(error.hint)
   );
 });
 

@@ -30,6 +30,12 @@ import {
 /** The gate file, relative to the project root. */
 const QUALITY_GATE_RELATIVE_PATH = ".ai-dev/quality-gate.md";
 
+/**
+ * What to do about a project with no gate: a repository AI Dev has not seen
+ * yet has none, and nothing else says where one comes from (docs/DEFECTS.md, Д-380).
+ */
+export const QUALITY_GATE_MISSING_HINT = "prepare_project writes .ai-dev/quality-gate.md from the project's own scripts (overwrite=false keeps every file already there); then run the gate again.";
+
 /** The `engines.node` a project declares, or "" when it declares none. */
 async function declaredNodeEngine(host, projectRoot) {
   const manifest = await host.readProjectTextIfExists(projectRoot, "package.json").catch(() => "");
@@ -96,7 +102,10 @@ async function runQualityGate(host, {
     // The path that was probed, not one rebuilt from its parts: `path.join`
     // spells separators the host may not have used, so on Windows the message
     // named a file the code never looked at.
-    throw new Error(`Quality gate file not found: ${gatePath}`);
+    throw Object.assign(new Error(`Quality gate file not found: ${gatePath}`), {
+      code: "QUALITY_GATE_MISSING",
+      hint: QUALITY_GATE_MISSING_HINT
+    });
   }
 
   const startedAt = new Date().toISOString();

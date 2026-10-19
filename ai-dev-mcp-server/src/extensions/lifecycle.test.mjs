@@ -67,7 +67,7 @@ function createFixture(overrides = {}) {
     recommendSkills: async (args) => { calls.push(["recommendSkills", args]); return [{ name: "feature-builder", routing_role: "primary" }]; },
     runQualityGate: async (args) => {
       calls.push(["runQualityGate", args]);
-      if (overrides.qualityGateThrows) throw new Error("Quality gate file not found.");
+      if (overrides.qualityGateThrows) throw Object.assign(new Error("Quality gate file not found."), overrides.qualityGateError ?? {});
       return { status: overrides.qualityStatus ?? "passed" };
     },
     runSecurityScan: async (args) => {
@@ -239,6 +239,17 @@ test("an unavailable runner becomes a failing check rather than an exception", a
   assert.deepEqual(verified.verification.checks[0].result, {
     status: "unavailable", error: "Quality gate file not found."
   });
+  assert.equal(verified.verification.passed, false);
+});
+
+test("a project with no gate yet is told what writes one (Д-380)", async () => {
+  const hint = "prepare_project writes .ai-dev/quality-gate.md from the project's own scripts.";
+  const { registry } = createFixture({ qualityGateThrows: true, qualityGateError: { code: "QUALITY_GATE_MISSING", hint } });
+  const verified = await call(registry, "verify_task", { task_id: "task-1", run_hygiene: false });
+  assert.deepEqual(verified.verification.checks[0].result, { status: "unavailable", error: "Quality gate file not found.", hint });
+  // The record keeps it too: the detail of a check that did not pass is what a later reader sees.
+  const [summary] = verified.verification.evidence.details.checks;
+  assert.equal(summary.detail.hint, hint);
   assert.equal(verified.verification.passed, false);
 });
 

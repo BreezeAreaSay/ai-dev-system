@@ -74,8 +74,10 @@ cd ai-dev-mcp-server
 npm run docker:upgrade-check -- --old-image ghcr.io/stonebridgeway/ai-dev-system:2 --new-image ai-dev-system:local
 ```
 
-`:2` появится с выходом 3.0; до тех пор образ 2.x называют
-`ghcr.io/stonebridgeway/ai-dev-system:v2.0.0` — здесь и в командах ниже.
+`:2` появится с выходом 3.0 — это `:latest` 2.x, скопированный в него перед тегом 3.0. До тех пор
+образ 2.x — сам `ghcr.io/stonebridgeway/ai-dev-system:latest`: так его и называют — здесь и в
+командах ниже. Он же тогда установщик bootstrap по умолчанию, поэтому для `bootstrap.sh --image`
+записи пишет собранный вами образ 3.0: `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local`.
 
 Нужны Docker, оба образа и этот клон с базовым коммитом (`8f647df`; неполный клон получает его
 командой `git fetch origin 8f647df1372fa5fa2a998b74e40130ed772797d0`): лаунчер 2.x берётся оттуда.

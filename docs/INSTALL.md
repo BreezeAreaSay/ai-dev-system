@@ -162,17 +162,24 @@ Three steps:
 
 Until 3.0 is published, `:latest` is still a 2.x image, which has no installer of its own:
 bootstrap stops there with exit 69 ("… has no installer either (a 2.x image too)"). Build the 3.0
-image from the clone and install that one:
+image from the clone and install that one, in one step that needs no Node here — a
+`node:24-bookworm-slim` container prepares the build context:
 
 ```bash
-cd ai-dev-mcp-server && npm ci && npm run docker:build && cd ..   # makes ai-dev-system:local
+sh ./bootstrap.sh --build-local   # builds ai-dev-system:local from the clone, then installs it
+```
+
+It builds the image instead of pulling one from the registry. With Node and npm, the build can
+also be a step of its own:
+
+```bash
+cd ai-dev-mcp-server && npm run docker:build && cd ..   # makes ai-dev-system:local
 sh ./bootstrap.sh --image ai-dev-system:local --allow-stale-image
 ```
 
-bootstrap still tries to pull the image first, so "Registry pull failed … Installed from a stale
-image" is expected for an image built here. `sh ./bootstrap.sh --build-local` does both in one step:
-it builds `ai-dev-system:local` from the clone and skips the pull. `--project-path` and `--clients`
-go with either.
+bootstrap still tries to pull a named image first, so "Registry pull failed … Installed from a
+stale image" is expected there for an image built here. `--project-path` and `--clients` go with
+either.
 
 For a different project folder and some of the clients:
 
@@ -180,8 +187,10 @@ For a different project folder and some of the clients:
 sh ./bootstrap.sh --project-path "$HOME/Dev" --clients "codex,cursor,vscode"
 ```
 
-Restart the clients afterwards. Re-running it is safe: a config that already runs this image stays
-as it is, and the volume — vault, index, model — is kept. To build the image from the clone
+Restart the clients afterwards. Re-running it is safe with the same `--project-path`: a config that
+already runs this image stays as it is, and the volume — vault, index, model — is kept. bootstrap
+does not read the projects folder back from an entry, so without the option it mounts
+`~/AI-Dev-Projects` again, whatever the entry mounted before. To build the image from the clone
 instead of pulling it: `sh ./bootstrap.sh --build-local`. A client whose config cannot be written
 is named and the others are written all the same; the exit is then 1, and the 2.x runtime
 container stays until every config is rewritten (docs/DEFECTS.md, Д-335). A config that is a link
@@ -200,8 +209,10 @@ image has no installer of its own, so the configs that run it are written by an 
 later: `AI_DEV_INSTALLER_IMAGE`, `ghcr.io/stonebridgeway/ai-dev-system:latest` by default. It is
 pulled — a copy cached before 3.0 would be a 2.x one — and used only once it is seen to have the
 installer; otherwise bootstrap stops and asks for one (Д-323, Д-329). `:2` exists once 3.0 is
-released; until then the 2.x image is `ghcr.io/stonebridgeway/ai-dev-system:v2.0.0`, and since
-`:latest` is a 2.x image too, `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local` names the one you built.
+released — 2.x's `:latest`, copied to it before the 3.0 tag. Until then the 2.x image is
+`ghcr.io/stonebridgeway/ai-dev-system:latest` itself, the default installer too, so the installer
+has to be the 3.0 image you built: `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local sh ./bootstrap.sh
+--image ghcr.io/stonebridgeway/ai-dev-system:latest`.
 
 ### On Windows
 
@@ -224,15 +235,23 @@ compiled any more: 2.x built a C# proxy for Claude on your machine, and the laun
 [Updating, and coming from 2.x](#updating-and-coming-from-2x)).
 
 Until 3.0 is published, `:latest` is still a 2.x image, and the entries `bootstrap.ps1` writes
-would run it. Build the 3.0 image from the clone first and name it:
+would run it. Build the 3.0 image from the clone and install that one, in one step — the Node the
+script needs anyway prepares the build context:
 
 ```powershell
-cd ai-dev-mcp-server; npm ci; npm run docker:build; cd ..
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1 -BuildLocal
+```
+
+It builds `ai-dev-system:local` instead of pulling an image from the registry. Or build it as a
+step of its own, and name it:
+
+```powershell
+cd ai-dev-mcp-server; npm run docker:build; cd ..
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1 -Image ai-dev-system:local -AllowStaleImage
 ```
 
-The warning "Registry pull failed … Installed from a stale image" is expected for an image built
-here. `-BuildLocal` does both in one step: it builds `ai-dev-system:local` and skips the pull.
+The warning "Registry pull failed … Installed from a stale image" is expected then, for an image
+built here.
 
 The state folder, `%USERPROFILE%\.ai-dev\state`, is the server's too, as on macOS, but on Windows
 only the usage ledger in it is one. The server sees a project as `/workspace/<name>` and the hooks
@@ -398,8 +417,10 @@ What the installer does with the files:
 command the way the client would and checks that it answers `initialize` with instructions — the
 check to make when a client shows the server as failed; each command has 30 seconds,
 `--timeout=<seconds>` gives it more. `clients remove` takes `ai-dev` (and `ai-dev-system`) out
-again: a file nothing else has changed since gets back exactly what it held, and from any other
-only the entry is cut. `--dry-run` shows what `install` or `remove` would change.
+again: a file nothing else has changed since gets back exactly what it held, except a 2.x entry the
+install replaced — `ai-dev-system`, or the `ai-dev` of 2.x's Docker launcher — which does not come
+back (its bytes stay in the `<file>.backup-<time>` the install left); from any other file only the
+entry is cut. `--dry-run` shows what `install` or `remove` would change.
 
 ### Hand-written Docker entries
 
@@ -585,8 +606,8 @@ leftover setting — `AI_DEV_DENSE_BACKEND=python`, `BGE_M3_PYTHON`, `AI_DEV_EMB
 check names each one it finds, and the `~/.ai-dev/models/bge-m3` folder of torch weights can be
 deleted. `--dense-python` still works as a name and does what `--model` does, and a Docker build
 passing `INSTALL_BGE_M3=1` is told what replaced it (Д-375). BuildKit's terminal view folds a
-finished step's output and a cached step prints nothing: `--progress=plain` keeps the notice on
-screen.
+finished step's output, which `--progress=plain` keeps on screen; a step taken from the cache prints
+nothing, so a later build shows the notice only with `--no-cache`.
 
 ### Checking that it worked
 
@@ -671,7 +692,7 @@ stderr, until 4.0.
 | --- | --- |
 | The Windows installer | The app offers it; **Restart to update to …** in the tray, or it is installed at **Quit**. |
 | npx | `npx @stonebridgeway/ai-dev-system@latest setup`: the new copy goes beside the old one, the entries move to it, and the two copies chosen last stay, so a client still running the previous one keeps it. |
-| Docker | `docker pull ghcr.io/stonebridgeway/ai-dev-system:latest`: the next session runs it. Running bootstrap again does the same and rewrites what changed in the entries. |
+| Docker | `docker pull ghcr.io/stonebridgeway/ai-dev-system:latest`: the next session runs it. Running bootstrap again does the same and rewrites what changed in the entries; it mounts the projects folder it is given — `--project-path` (`-ProjectPath`), `~/AI-Dev-Projects` without one — not the one an entry mounts now, a 2.x entry's `AI_DEV_PROJECT_PATH` included, so name yours again. |
 | A clone | `git pull`, then `cd ai-dev-mcp-server && npm ci && npm run setup`. |
 
 An install of 2.x — a clone, the Docker launchers, the C# proxy for Claude on Windows — goes on
@@ -688,7 +709,7 @@ what needs one command from you, and how to go back: **[Moving from 2.x to 3.0](
 | Install | |
 | --- | --- |
 | The Windows installer | **Settings → Apps → Installed apps → AI Dev → Uninstall**. It asks whether to take AI Dev out of the AI clients (yes by default) and whether to delete its data, `%USERPROFILE%\.ai-dev` (no by default) — [Uninstalling](DESKTOP.md#uninstalling). |
-| npx | `npx @stonebridgeway/ai-dev-system clients remove` takes `ai-dev` out of every client — a file nothing else has changed since gets back exactly what it held; `npx @stonebridgeway/ai-dev-system daemon stop`; then delete `~/.ai-dev/app`, and `~/.ai-dev` itself to delete your data too: the vault, the tasks and session history, the model, the index, the backups, the settings. |
+| npx | `npx @stonebridgeway/ai-dev-system clients remove` takes `ai-dev` out of every client — a file nothing else has changed since gets back exactly what it held, without the 2.x entry the install replaced; `npx @stonebridgeway/ai-dev-system daemon stop`; then delete `~/.ai-dev/app`, and `~/.ai-dev` itself to delete your data too: the vault, the tasks and session history, the model, the index, the backups, the settings. |
 | Docker | Take the `ai-dev` entry out of each client — `clients remove` from any install with Node, or by hand ([Connecting AI clients](#connecting-ai-clients) lists the files); `docker volume rm ai-dev-system-data` deletes the data, `docker image rm ghcr.io/stonebridgeway/ai-dev-system:latest` the image. `~/.ai-dev/state` holds what the server and the hooks shared. |
 
 Your projects are never touched.

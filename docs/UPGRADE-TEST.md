@@ -74,8 +74,10 @@ cd ai-dev-mcp-server
 npm run docker:upgrade-check -- --old-image ghcr.io/stonebridgeway/ai-dev-system:2 --new-image ai-dev-system:local
 ```
 
-`:2` exists once 3.0 is released; until then name the 2.x image as
-`ghcr.io/stonebridgeway/ai-dev-system:v2.0.0`, here and in the commands below.
+`:2` exists once 3.0 is released — 2.x's `:latest`, copied to it before the 3.0 tag. Until then
+the 2.x image is `ghcr.io/stonebridgeway/ai-dev-system:latest` itself: name it so, here and in the
+commands below. It is then bootstrap's default installer as well, so `bootstrap.sh --image` needs
+the 3.0 image you built to write the entries: `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local`.
 
 It needs Docker, the two images and this clone with the base commit in it (`8f647df`; a shallow
 clone fetches it with `git fetch origin 8f647df1372fa5fa2a998b74e40130ed772797d0`): the 2.x

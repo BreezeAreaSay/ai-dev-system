@@ -64,17 +64,24 @@ macOS и Linux конфиги пишет сам образ — `ai-dev clients i
 
 Пока 3.0 не опубликован, `:latest` — ещё образ 2.x, а у него нет своего установщика: `bootstrap.sh`
 останавливается на нём с кодом 69 («… has no installer either (a 2.x image too)»), а записи
-`bootstrap.ps1` запускали бы 2.x. Соберите образ 3.0 из клона и поставьте его:
+`bootstrap.ps1` запускали бы 2.x. Соберите образ 3.0 из клона и поставьте его одним шагом, которому
+Node на хосте не нужен, — контекст сборки готовит контейнер `node:24-bookworm-slim`:
 
 ```bash
-cd ai-dev-mcp-server && npm ci && npm run docker:build && cd ..   # даёт ai-dev-system:local
+sh ./bootstrap.sh --build-local   # собирает ai-dev-system:local из клона и ставит его
+```
+
+Он собирает образ сам, а не скачивает его из реестра. На Windows — `-BuildLocal`: там контекст готовит
+Node хоста, который `bootstrap.ps1` нужен и так. С Node и npm сборка может быть и отдельным шагом:
+
+```bash
+cd ai-dev-mcp-server && npm run docker:build && cd ..   # даёт ai-dev-system:local
 sh ./bootstrap.sh --image ai-dev-system:local --allow-stale-image
 ```
 
-На Windows — `-Image ai-dev-system:local -AllowStaleImage`. Bootstrap всё равно сначала пробует
-скачать образ, поэтому предупреждение «Registry pull failed … Installed from a stale image» для
-образа, собранного здесь, ожидаемо. `sh ./bootstrap.sh --build-local` (`-BuildLocal`) делает то же
-одним шагом: собирает `ai-dev-system:local` из клона и ничего не скачивает.
+На Windows — `-Image ai-dev-system:local -AllowStaleImage`. Названный ему образ bootstrap всё равно
+сначала пробует скачать, поэтому предупреждение «Registry pull failed … Installed from a stale
+image» для образа, собранного здесь, тогда ожидаемо.
 
 Одна сессия клиента — один контейнер:
 
@@ -303,9 +310,10 @@ docker run --rm -it --network bridge \
 
 **Python-бэкенда больше нет** (3.0, решение D3). Аргумент сборки `INSTALL_BGE_M3=1`, который его
 ставил, ничего не делает и при сборке говорит, что пришло на смену. Терминальный вид BuildKit
-сворачивает вывод законченного шага, а шаг из кэша не печатает ничего: на экране сообщение
-оставляет `--progress=plain`. Векторы, построенные Python-бэкендом, относятся к другой модели и с
-вопросами ONNX не сравниваются; `ai-dev model install` строит их заново.
+сворачивает вывод законченного шага — на экране сообщение оставляет `--progress=plain`, — а шаг из
+кэша не печатает ничего, так что при следующей сборке сообщение видно только с `--no-cache`. Векторы, построенные
+Python-бэкендом, относятся к другой модели и с вопросами ONNX не сравниваются; `ai-dev model
+install` строит их заново.
 
 ### Образ с весами внутри
 
@@ -338,9 +346,11 @@ allowlist-контекст, ни в GHCR.
 Конфиг, который написала 2.x, продолжает работать с новым образом до 4.0; скрипты 3.0 с теми же
 именами говорят в stderr, что они лаунчеры 2.x. Повторный `bootstrap.sh` или `bootstrap.ps1`
 переписывает конфиги на `docker run` и затем удаляет долгоживущий контейнер 2.x
-(`ai-dev-system-runtime-<uid>`). Установленный `ClaudeMcpProxy.exe` — тот, что собрала 2.x: 3.0
-его больше не компилирует, и до перезаписи конфига Claude он отвечает на рукопожатие сам, без
-инструкций сервера и без предупреждения (Д-327).
+(`ai-dev-system-runtime-<uid>`). Монтирует он ту папку проектов, которую ему назвали, —
+`--project-path` (`-ProjectPath`), по умолчанию `~/AI-Dev-Projects`, — а не `AI_DEV_PROJECT_PATH` из
+записей 2.x: если там была другая папка, назовите её снова. Установленный `ClaudeMcpProxy.exe` — тот,
+что собрала 2.x: 3.0 его больше не компилирует, и до перезаписи конфига Claude он отвечает на
+рукопожатие сам, без инструкций сервера и без предупреждения (Д-327).
 
 Том сохраняется. При первом старте нового образа:
 
@@ -370,9 +380,10 @@ allowlist-контекст, ни в GHCR.
 npm run docker:upgrade-check -- --old-image ghcr.io/stonebridgeway/ai-dev-system:2 --new-image ai-dev-system:local
 ```
 
-`:2` появится с выходом 3.0; до тех пор образ 2.x — `ghcr.io/stonebridgeway/ai-dev-system:v2.0.0`,
-и в командах выше вместо `:2` берут его, а для `--image` у bootstrap ещё и
-`AI_DEV_INSTALLER_IMAGE=ai-dev-system:local`: `:latest` до выпуска — тоже образ 2.x.
+`:2` появится с выходом 3.0 — это `:latest` 2.x, скопированный в него перед тегом 3.0 (`freeze_2x`,
+ниже). До тех пор образ 2.x — сам `ghcr.io/stonebridgeway/ai-dev-system:latest`, и в командах выше
+вместо `:2` берут его, а для `--image` у bootstrap ещё и `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local`:
+установщик по умолчанию, `:latest`, до выпуска — тот же образ 2.x.
 
 ## GHCR
 

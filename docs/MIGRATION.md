@@ -18,7 +18,7 @@ the first start, what needs one command from you, and how to go back.
 | You have | Do this | Then |
 | --- | --- | --- |
 | A 2.x clone, set up with `npm run setup` | `git pull`, then `cd ai-dev-mcp-server && npm ci && npm run setup`; restart every AI client | One `ai-dev` entry per client, served by one daemon; your vault, tasks and index as they were |
-| 2.x through Docker (`bootstrap.sh`, `bootstrap.ps1`, `run-mcp.sh`, `run-mcp.ps1`, `ClaudeMcpProxy.exe`) | `git pull`, then run `bootstrap.sh` (`bootstrap.ps1` on Windows) again; restart every AI client | `docker run` entries; the volume kept, its skills brought up to the 3.0 seed; on macOS and Linux, 2.x's long-lived container removed (2.x kept none on Windows) |
+| 2.x through Docker (`bootstrap.sh`, `bootstrap.ps1`, `run-mcp.sh`, `run-mcp.ps1`, `ClaudeMcpProxy.exe`) | `git pull`, then run `bootstrap.sh` (`bootstrap.ps1` on Windows) again, naming your projects folder with `--project-path` (`-ProjectPath`) unless it is `~/AI-Dev-Projects`; restart every AI client | `docker run` entries; the volume kept, its skills brought up to the 3.0 seed; on macOS and Linux, 2.x's long-lived container removed (2.x kept none on Windows) |
 | A 2.x install you are not ready to touch | Nothing yet | It keeps working, and the warnings below say what to run when you are |
 
 A new machine needs none of this: install 3.0 [any of the three ways](INSTALL.md#choose-a-path).
@@ -101,7 +101,10 @@ you used the Python backend (`npm run setup -- --model`).
 - **`git pull`, then bootstrap.** 2.x's `run-mcp.sh` ran every session in a long-lived container, so a
   `docker pull` alone does not reach your sessions. Run `bootstrap.sh` (`bootstrap.ps1`) again: it
   writes `docker run -i --rm …` entries in their place and — on macOS and Linux — removes the
-  container 2.x kept, `ai-dev-system-runtime-<uid>`, once every config is rewritten.
+  container 2.x kept, `ai-dev-system-runtime-<uid>`, once every config is rewritten. It mounts the
+  projects folder you give it — `--project-path` (`-ProjectPath`), `~/AI-Dev-Projects` by default —
+  not the `AI_DEV_PROJECT_PATH` your 2.x entries hold: if that was another folder, name it again,
+  `sh ./bootstrap.sh --project-path "$HOME/Dev"`.
 - **The volume is kept.** Its first start under the new image takes about 15 seconds, once. Its skills are
   brought up to the 3.0 seed by the seed's manifest instead of 2.x's copy-if-missing: what only 2.x
   shipped is removed; a seed file you edited keeps your edit, with the update beside it as
@@ -121,7 +124,8 @@ you used the Python backend (`npm run setup -- --model`).
   and Chromium (they are in the `-browser` variant, `:latest-browser`), `/opt/ai-dev/search-index`,
   and the `BGE_M3_ONNX_DIR` and `AI_DEV_DENSE_INSTALLED` variables. A build passing
   `INSTALL_BGE_M3=1` is told what replaced it — on screen with `--progress=plain`, since BuildKit's
-  terminal view folds a finished step's output and a cached step prints nothing.
+  terminal view folds a finished step's output; a step taken from the cache prints nothing, so a later
+  build shows it only with `--no-cache`.
 - **`AI_DEV_DOCKER_NETWORK` is read by the 2.x launchers only.** A 3.0 entry has `--network none`
   written into it: a project whose checks need the network gets `--network bridge` there, and running
   bootstrap again puts `none` back.
@@ -167,7 +171,7 @@ you used the Python backend (`npm run setup -- --model`).
 | `scripts/start-local.ps1` | `ai-dev mcp` | runs it; says so |
 | `scripts/backup-ai-dev-system.ps1`, `restore-ai-dev-system.ps1`, `restore-runtime.ps1`, `run-acceptance.ps1` | `ai-dev backup`, `ai-dev restore`, `npm ci` + `ai-dev setup --frontend-qa`, `npm run check` | run them; say so |
 | `--dense-python`, `AI_DEV_DENSE_BACKEND=python` | `--model` | the ONNX model, with a note |
-| `INSTALL_BGE_M3=1` (image build) | the model in the volume, or at `/models` | says what replaced it (`--progress=plain` keeps it on screen) |
+| `INSTALL_BGE_M3=1` (image build) | the model in the volume, or at `/models` | says what replaced it (`--progress=plain` keeps it on screen; a later build, only with `--no-cache`) |
 
 Removed outright, being internal or never released: `scripts/install-docker-mcp-clients.mjs` (only
 bootstrap and CI ran it), `npm run test:search-helper`, `search-index/search_cli.py` and the image's
@@ -190,9 +194,11 @@ bootstrap and CI ran it), `npm run test:search-helper`, `search-index/search_cli
   2.x's own launchers (`AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2`), it keeps its state in the
   volume and does not see those tasks — [Upgrade test](UPGRADE-TEST.md) says how to copy them back.
   Either way 2.x's copy-if-missing puts back the skills 3.0 dropped, and the next 3.0 start removes
-  them again. `:2` exists once 3.0 is released; until then the 2.x image is
-  `ghcr.io/stonebridgeway/ai-dev-system:v2.0.0`, and since `:latest` is a 2.x image too,
-  `AI_DEV_INSTALLER_IMAGE` names the 3.0 image you built for bootstrap to write the entries with.
+  them again. `:2` exists once 3.0 is released — 2.x's `:latest`, copied to it before the 3.0 tag;
+  until then the 2.x image is `ghcr.io/stonebridgeway/ai-dev-system:latest` itself, which is also
+  the installer bootstrap uses by default, so `AI_DEV_INSTALLER_IMAGE` names the 3.0 image you built
+  to write the entries: `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local sh ./bootstrap.sh --image
+  ghcr.io/stonebridgeway/ai-dev-system:latest`.
 - **npx.** `npx @stonebridgeway/ai-dev-system@<version> setup` installs that version and moves the
   entries to it; 3.0.0 is the first version on npm.
 - **The Windows installer.** Uninstall it; the updater does not install an older version.

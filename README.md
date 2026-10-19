@@ -88,9 +88,11 @@ is one flag, `setup --model`: a pinned, checksum-verified ONNX export of BGE-M3,
 broken download continues where it stopped, and `AI_DEV_MODEL_MIRROR` and `HTTPS_PROXY` are
 honoured. In Docker, one `docker run … ai-dev model install` puts it in the data volume.
 
-Until 3.0 is published, build from a clone what is not out yet: the npm package
-([npx](docs/INSTALL.md#one-command-with-node-npx)), and the image, whose `:latest` tag is still a
-2.x image that bootstrap cannot install 3.0 from ([Docker](docs/INSTALL.md#docker)).
+Until 3.0 is published, build from a clone what is not out yet: the Windows installer
+(`cd desktop && npm ci && npm run dist:win` leaves `AI-Dev-Setup-<version>.exe` in the clone's
+`dist/windows/installer/`; outside Windows it needs Wine — [Building it](docs/DESKTOP.md#building-it)),
+the npm package ([npx](docs/INSTALL.md#one-command-with-node-npx)), and the image, whose `:latest`
+tag is still a 2.x image that bootstrap cannot install 3.0 from ([Docker](docs/INSTALL.md#docker)).
 
 Every client's configuration block, the Docker details, the local model, updating from 2.x,
 uninstalling, and what to do when it does not work: **[docs/INSTALL.md](docs/INSTALL.md)**.

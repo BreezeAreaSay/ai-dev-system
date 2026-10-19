@@ -18,9 +18,10 @@ npm run demo
 The script builds a throwaway API project in a temporary folder, runs the task
 through the real server — whose runtime home, state and search index are in that
 folder too — and deletes everything it made. The one thing it may leave is the
-clone's skill registry: when `docker/public-seed/03-skills-catalog/registries`
-is missing or out of date, the demo builds it first, as `npm run setup` does
-(git ignores that folder).
+clone's skill registry: when it is missing or out of date, the demo builds it
+first, as `npm run setup` does, into three folders of
+`docker/public-seed/03-skills-catalog` that git ignores — `registries/`, with its
+`groups/` and `cards/`.
 
 ---
 

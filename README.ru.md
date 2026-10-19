@@ -89,9 +89,11 @@ Code, Claude Desktop, Cursor, VS Code, Codex и Gemini CLI — и скачать
 `AI_DEV_MODEL_MIRROR` и `HTTPS_PROXY` учитываются. В Docker модель кладёт в том данных один
 `docker run … ai-dev model install`.
 
-Пока 3.0 не опубликован, то, чего ещё нет, собирают из клона: пакет npm
-([npx](docs/ru/INSTALL.md#одна-команда-с-node-npx)) и образ, чей тег `:latest` — ещё образ 2.x, с
-которого bootstrap не поставит 3.0 ([Docker](docs/ru/INSTALL.md#docker)).
+Пока 3.0 не опубликован, то, чего ещё нет, собирают из клона: установщик Windows
+(`cd desktop && npm ci && npm run dist:win` кладёт `AI-Dev-Setup-<версия>.exe` в
+`dist/windows/installer/` клона; вне Windows ему нужен Wine — [Сборка](docs/ru/DESKTOP.md#сборка)),
+пакет npm ([npx](docs/ru/INSTALL.md#одна-команда-с-node-npx)) и образ, чей тег `:latest` — ещё образ
+2.x, с которого bootstrap не поставит 3.0 ([Docker](docs/ru/INSTALL.md#docker)).
 
 Блоки конфигурации для каждого клиента, подробности Docker, локальная модель, обновление с 2.x,
 удаление и что делать, если не заработало: **[docs/ru/INSTALL.md](docs/ru/INSTALL.md)**. Работа

@@ -76,15 +76,18 @@ it, what moves by itself, what needs one command, and how to go back.
 - **The Docker image** has no Python, no Playwright or Chromium (the `-browser` variant has them), no
   `/opt/ai-dev/search-index`, and no `BGE_M3_ONNX_DIR` or `AI_DEV_DENSE_INSTALLED`; the
   `INSTALL_BGE_M3` build argument installs nothing and says what replaced it (BuildKit's terminal
-  view folds a finished step's output and a cached step prints nothing: `--progress=plain` keeps it
-  on screen). On macOS and Linux the projects are mounted at their own path rather than at
-  `/workspace`, so what a 2.x server remembered of a project — sessions, instincts, decisions —
-  stays under `/workspace/<name>` and the project's memory starts afresh. The volume's state — tasks,
-  handoffs — moves to the host's `~/.ai-dev/state` wherever the container's user can share that
-  folder; a rollback run by the 2.x launchers keeps its state in the volume and does not see what
-  moved. A 3.0 entry has `--network none` written into it and ignores `AI_DEV_DOCKER_NETWORK`, which
-  only the 2.x launchers read: change the entry itself. `bootstrap.sh` and `bootstrap.ps1` no longer
-  install Docker or Node, start a long-lived container or compile a proxy.
+  view folds a finished step's output, which `--progress=plain` keeps on screen; a step taken from the
+  cache prints nothing, so a later build shows the notice only with `--no-cache`). On macOS and Linux the projects are mounted
+  at their own path rather than at `/workspace`, so what a 2.x server remembered of a project —
+  sessions, instincts, decisions — stays under `/workspace/<name>` and the project's memory starts
+  afresh. The volume's state — tasks, handoffs — moves to the host's `~/.ai-dev/state` wherever the
+  container's user can share that folder; a rollback run by the 2.x launchers keeps its state in the
+  volume and does not see what moved. A 3.0 entry has `--network none` written into it and ignores
+  `AI_DEV_DOCKER_NETWORK`, which only the 2.x launchers read: change the entry itself. `bootstrap.sh`
+  and `bootstrap.ps1` mount the projects folder they are given — `--project-path` (`-ProjectPath`),
+  `~/AI-Dev-Projects` by default — not the `AI_DEV_PROJECT_PATH` a 2.x entry holds: where 2.x
+  mounted another folder, name it again. They no longer install Docker or Node, start a long-lived
+  container or compile a proxy.
 - **Image tags** (decision D9): `:latest` moves only with a release tag of the newest line, and no
   longer with 2.x; `:edge` follows `main`; `:2` follows the 2.x line — a manual run copies 2.x's
   `:latest` to it before 3.0 is tagged, and after that only a `v2.*` tag moves it.
@@ -477,8 +480,9 @@ has it with what each one says.
   about 4 when it first builds the clone's skill registry — and no MCP client.
   The server's runtime home, state and index are in its temporary folder, and it
   deletes everything it made there; what it may leave is that registry, built
-  when it was missing or out of date, in a folder git ignores. `docs/DEMO.md`
-  quotes its output.
+  when it was missing or out of date, with its groups and cards: three folders
+  git ignores, `cards/`, `groups/` and `registries/` in
+  `docker/public-seed/03-skills-catalog`. `docs/DEMO.md` quotes its output.
 
 - **The model download refuses a disk it does not fit on** (`docs/DEFECTS.md`,
   Д-81). Before the first byte, it asks the sources how big the missing files
@@ -949,8 +953,9 @@ has it with what each one says.
   used and what replaced it: the model put into the data volume once with
   `docker run … <image> ai-dev model install`, or a host folder holding `bge-m3-onnx/`
   mounted at `/models` (`bootstrap.sh --model-path`). The argument stays declared for that until
-  4.0 (Д-375). BuildKit's terminal view folds a finished step's output and a cached step prints
-  nothing: `--progress=plain` keeps the notice on screen.
+  4.0 (Д-375). BuildKit's terminal view folds a finished step's output, which `--progress=plain`
+  keeps on screen; a step taken from the cache prints nothing, so a later build shows the notice only
+  with `--no-cache`.
 - **The Python search helper** — `search-index/search_cli.py`, its `unittest` suite
   (`test_search_freshness.py`, now `src/core/search-freshness.test.mjs`) and
   `npm run test:search-helper` — and with them the Docker image's

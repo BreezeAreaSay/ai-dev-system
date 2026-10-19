@@ -2,11 +2,12 @@
 
 [← README](../README.md) · [Install](INSTALL.md) · [Upgrade test](UPGRADE-TEST.md) · [Changelog](../CHANGELOG.md)
 
-3.0 is the same server. An agent sees the same 135 tools, the vault and the task state keep their
+3.0 is the same server. An agent sees 135 tools — two more than 2.0.0, `plan_security_fixes` and
+`render_knowledge_galaxy` — and an app can opt into 13 more; the vault and the task state keep their
 format, and the index 2.x built is read without a rebuild. What changed is how AI Dev is installed,
 how a client reaches it, and where it keeps a few things. A 2.x install goes on working after the
-update: this page says what changes for it, what moves by itself on the first start, what needs one
-command from you, and how to go back.
+update, except where this page says otherwise: it says what changes for it, what moves by itself on
+the first start, what needs one command from you, and how to go back.
 
 `npm run upgrade:test` checks all of it against a 2.x clone, and `npm run docker:upgrade-check --
 --old-image <2.x image> --new-image <image>` the Docker part against a 2.x volume and its launchers
@@ -17,7 +18,7 @@ command from you, and how to go back.
 | You have | Do this | Then |
 | --- | --- | --- |
 | A 2.x clone, set up with `npm run setup` | `git pull`, then `cd ai-dev-mcp-server && npm ci && npm run setup`; restart every AI client | One `ai-dev` entry per client, served by one daemon; your vault, tasks and index as they were |
-| 2.x through Docker (`bootstrap.sh`, `bootstrap.ps1`, `run-mcp.sh`, `run-mcp.ps1`, `ClaudeMcpProxy.exe`) | `git pull`, then run `bootstrap.sh` (`bootstrap.ps1` on Windows) again; restart every AI client | `docker run` entries; the volume kept, its skills brought up to the 3.0 seed; the warm container removed |
+| 2.x through Docker (`bootstrap.sh`, `bootstrap.ps1`, `run-mcp.sh`, `run-mcp.ps1`, `ClaudeMcpProxy.exe`) | `git pull`, then run `bootstrap.sh` (`bootstrap.ps1` on Windows) again; restart every AI client | `docker run` entries; the volume kept, its skills brought up to the 3.0 seed; on macOS and Linux, 2.x's long-lived container removed (2.x kept none on Windows) |
 | A 2.x install you are not ready to touch | Nothing yet | It keeps working, and the warnings below say what to run when you are |
 
 A new machine needs none of this: install 3.0 [any of the three ways](INSTALL.md#choose-a-path).
@@ -47,15 +48,26 @@ A new machine needs none of this: install 3.0 [any of the three ways](INSTALL.md
   without overwriting anything, and `ai-dev doctor` reports what moved (check `runtime_home`).
   `AI_DEV_HOME` set to your home folder keeps its 2.x meaning. Hooks installed into a repository look
   for the old place until you run `install_agent_hooks` there again.
-- **`~/.codex` is no longer read.** What AI Dev kept there in its Codex days moves to `~/.ai-dev` once,
-  recorded in `state/runtime-home-migration.json`.
+- **`.codex` is no longer read.** What AI Dev kept there in its Codex days moves into the runtime home
+  once, recorded in `state/runtime-home-migration.json`: from `~/.codex` into `~/.ai-dev`, or, with
+  `AI_DEV_HOME` set, from `$AI_DEV_HOME/.codex` — where 2.x read it for that install — into
+  `$AI_DEV_HOME`. The rest of `.codex` is Codex's own and stays, and `npm run demo` moves nothing out
+  of it.
 - **One daemon serves every client.** A 3.0 local entry, `ai-dev mcp`, hands the client to one warm
   server per install and environment, so the index and the model are loaded once. A 2.x entry
   (`node …/src/server.mjs`), `npm start` and `AI_DEV_DAEMON=0` keep one process per client, as 2.x
   did.
 - **Agent hooks.** Hooks 2.x installed keep running wherever `node` is on the client's `PATH`. Run
   `install_agent_hooks` again in each repository for the 3.0 registrations, which start through
-  `.ai-dev/hooks/with-node.sh` and find Node without it; your own hooks are kept.
+  `.ai-dev/hooks/with-node.sh` and find Node without it; your own hooks are kept. The hooks it
+  installs bring two defaults 2.0.0 did not have, under the standard and strict profiles. Before an
+  install command runs, the guard looks the package up in the npm registry and on OSV, and refuses
+  malware and a release younger than 24 hours: package names go to api.osv.dev. And when code or a
+  dependency manifest changed after the last `run_security_scan`, the Stop hook sends the agent back
+  once to run the security review before the session ends. In `.ai-dev/policy.json`,
+  `"supply_chain": { "osv": false }` keeps package names from OSV and `"enabled": false` turns the
+  check off (so does `AI_DEV_SUPPLY_CHAIN=off`); `"security_review_on_stop": "remind"` only tells you,
+  and `"off"` says nothing.
 - **The skill catalogue** is 614 skills, not 3,228: the Membrane connectors were cut from 3,074 to the
   460 a developer reaches for. A skill the update removed is dropped from the registry, and found no
   more.
@@ -108,17 +120,25 @@ you used the Python backend (`npm run setup -- --model`).
   the `/data` volume, the user, and the data variables. **What it no longer has:** Python, Playwright
   and Chromium (they are in the `-browser` variant, `:latest-browser`), `/opt/ai-dev/search-index`,
   and the `BGE_M3_ONNX_DIR` and `AI_DEV_DENSE_INSTALLED` variables. A build passing
-  `INSTALL_BGE_M3=1` is told what replaced it.
-- **A model on the host** is still mounted at `/models` (`AI_DEV_MODEL_PATH`, `--model-path`). A folder
-  that holds only `bge-m3/`, the removed backend's weights, is named as that by the 2.x launchers. When
-  its `bge-m3-onnx` is a link to another disk, a 3.0 entry mounts the link itself. Or put the model into
+  `INSTALL_BGE_M3=1` is told what replaced it — on screen with `--progress=plain`, since BuildKit's
+  terminal view folds a finished step's output and a cached step prints nothing.
+- **`AI_DEV_DOCKER_NETWORK` is read by the 2.x launchers only.** A 3.0 entry has `--network none`
+  written into it: a project whose checks need the network gets `--network bridge` there, and running
+  bootstrap again puts `none` back.
+- **A model on the host** is mounted at `/models` (`AI_DEV_MODEL_PATH`, `--model-path`), and the
+  variable names the folder above the models — `~/.ai-dev/models`, holding `bge-m3-onnx/`. In 2.0.0 it
+  named the model's own folder, mounted at `/models/bge-m3`: the 2.x launchers refuse that value now
+  (`run-mcp.sh` with exit 64) and say to name the folder above it. A folder that holds only `bge-m3/`,
+  the removed backend's weights, is named as that by the 2.x launchers. When its `bge-m3-onnx` is a
+  link to another disk, a 3.0 entry mounts the link itself. Or put the model into
   the volume once: `docker run --rm -it --network bridge --mount
   type=volume,source=ai-dev-system-data,target=/data ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev
   model install`.
 - **Bootstrap installs nothing.** It checks for Docker and says where it comes from;
   `--install-prerequisites` is accepted and answered with that.
-- **Tags** (decision D9): `:latest` moves only with a release tag; `:edge` follows `main`; `:2` is the
-  2.x line, frozen when 3.0 is released.
+- **Tags** (decision D9): `:latest` moves only with a release tag of the newest line, and no longer
+  with 2.x; `:edge` follows `main`; `:2` follows the 2.x line — 2.x's `:latest`, copied to it before
+  3.0 is tagged, and after that moved only by a `v2.*` tag.
 
 ## Windows
 
@@ -147,7 +167,7 @@ you used the Python backend (`npm run setup -- --model`).
 | `scripts/start-local.ps1` | `ai-dev mcp` | runs it; says so |
 | `scripts/backup-ai-dev-system.ps1`, `restore-ai-dev-system.ps1`, `restore-runtime.ps1`, `run-acceptance.ps1` | `ai-dev backup`, `ai-dev restore`, `npm ci` + `ai-dev setup --frontend-qa`, `npm run check` | run them; say so |
 | `--dense-python`, `AI_DEV_DENSE_BACKEND=python` | `--model` | the ONNX model, with a note |
-| `INSTALL_BGE_M3=1` (image build) | the model in the volume, or at `/models` | says what replaced it |
+| `INSTALL_BGE_M3=1` (image build) | the model in the volume, or at `/models` | says what replaced it (`--progress=plain` keeps it on screen) |
 
 Removed outright, being internal or never released: `scripts/install-docker-mcp-clients.mjs` (only
 bootstrap and CI ran it), `npm run test:search-helper`, `search-index/search_cli.py` and the image's
@@ -156,18 +176,23 @@ bootstrap and CI ran it), `npm run test:search-helper`, `search-index/search_cli
 
 ## The way back
 
-- **A clone.** Before you check 2.x out: `npm run ai-dev -- daemon stop`, and
-  `npm run ai-dev -- clients remove` — a client file nothing else has changed since gets back exactly
-  what it held (or take the `<file>.backup-<time>` beside it). Then `git checkout <the 2.x commit>` and
-  `cd ai-dev-mcp-server && npm ci --ignore-scripts`. 2.x reads the index 3.0 wrote; for an
-  `AI_DEV_HOME` that 3.0 moved up, give 2.x `AI_DEV_STATE_ROOT=$AI_DEV_HOME/state` and
+- **A clone.** In `ai-dev-mcp-server`, before you check 2.x out: `npm run ai-dev -- daemon stop`, and
+  `npm run ai-dev -- clients remove`, which takes both `ai-dev` and the 2.x `ai-dev-system` out of
+  every client — a file nothing else has changed since gets back what it held, without either entry.
+  Then `git checkout <the 2.x commit>` and `npm ci --ignore-scripts`. 2.x's `npm run setup` never
+  connected the clients: connect them again with 2.x's `npm run clients:install`, which writes Cursor,
+  Gemini, VS Code and Claude Code, or restore each client's file from the `<file>.backup-<time>`
+  beside it that dates from before the update. 2.x reads the index 3.0 wrote; for an `AI_DEV_HOME`
+  that 3.0 moved up, give 2.x `AI_DEV_STATE_ROOT=$AI_DEV_HOME/state` and
   `AI_DEV_SEARCH_INDEX_DIR=$AI_DEV_HOME/cache/search-index`.
 - **Docker.** `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2` writes entries that run
   the 2.x image with 3.0's mounts: it sees the state folder, and the tasks that moved there. Run by
   2.x's own launchers (`AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2`), it keeps its state in the
   volume and does not see those tasks — [Upgrade test](UPGRADE-TEST.md) says how to copy them back.
   Either way 2.x's copy-if-missing puts back the skills 3.0 dropped, and the next 3.0 start removes
-  them again. `:2` exists once 3.0 is released.
+  them again. `:2` exists once 3.0 is released; until then the 2.x image is
+  `ghcr.io/stonebridgeway/ai-dev-system:v2.0.0`, and since `:latest` is a 2.x image too,
+  `AI_DEV_INSTALLER_IMAGE` names the 3.0 image you built for bootstrap to write the entries with.
 - **npx.** `npx @stonebridgeway/ai-dev-system@<version> setup` installs that version and moves the
   entries to it; 3.0.0 is the first version on npm.
 - **The Windows installer.** Uninstall it; the updater does not install an older version.

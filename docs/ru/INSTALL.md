@@ -30,7 +30,7 @@ seed навыков, ту же локальную модель — и отлич
 | | Установщик Windows | Одна команда с Node | Docker |
 | --- | --- | --- | --- |
 | Для кого | Windows без терминала | своя машина: macOS, Linux или Windows | сервер в контейнере: машина, где не должно быть вашего хранилища, команда на одном образе |
-| Что нужно | 64-битная Windows | Node.js 22.16+ (или 24+) и npm | запущенный Docker Desktop (macOS, Windows) или Docker Engine (Linux) |
+| Что нужно | 64-битная Windows | Node.js 22.16+ (или 24+) и npm | запущенный Docker Desktop (macOS, Windows) или Docker Engine (Linux); на Windows ещё Node.js 22.12+ и клон репозитория — конфиги клиентов пишет Node |
 | Что запустить | `AI-Dev-Setup-<версия>.exe` | `npx @stonebridgeway/ai-dev-system setup` | `sh ./bootstrap.sh` (macOS, Linux) или `bootstrap.ps1` (Windows) |
 | Где работает сервер | на своём Node, из `%USERPROFILE%\.ai-dev\app` | на вашем Node, из `~/.ai-dev/app` | в контейнере на каждую сессию; данные — в томе `ai-dev-system-data` |
 | Локальная модель | шаг модели в мастере | `setup --model` | один раз `docker run … ai-dev model install` |
@@ -160,6 +160,20 @@ sh ./bootstrap.sh
    запись идёт через его собственный CLI (`claude mcp add-json`); если CLI нет в `PATH`, скрипт
    печатает команду.
 
+Пока 3.0 не опубликован, `:latest` — ещё образ 2.x, а у него нет своего установщика: bootstrap
+останавливается на нём с кодом 69 («… has no installer either (a 2.x image too)»). Соберите образ
+3.0 из клона и поставьте его:
+
+```bash
+cd ai-dev-mcp-server && npm ci && npm run docker:build && cd ..   # даёт ai-dev-system:local
+sh ./bootstrap.sh --image ai-dev-system:local --allow-stale-image
+```
+
+bootstrap всё равно сначала пробует скачать образ, поэтому «Registry pull failed … Installed from a
+stale image» для образа, собранного здесь, ожидаемо. `sh ./bootstrap.sh --build-local` делает то же
+одним шагом: собирает `ai-dev-system:local` из клона и ничего не скачивает. `--project-path` и
+`--clients` подходят к обоим.
+
 Для другой папки проектов и части клиентов:
 
 ```bash
@@ -184,7 +198,9 @@ sh ./bootstrap.sh --project-path "$HOME/Dev" --clients "codex,cursor,vscode"
 нет своего установщика, поэтому конфиги для него пишет образ 3.0 или новее: `AI_DEV_INSTALLER_IMAGE`,
 по умолчанию `ghcr.io/stonebridgeway/ai-dev-system:latest`. Он скачивается — копия, закэшированная до
 3.0, была бы образом 2.x — и используется, только если в нём есть установщик; иначе bootstrap
-останавливается и просит его (Д-323, Д-329).
+останавливается и просит его (Д-323, Д-329). `:2` появится с выходом 3.0; до тех пор образ 2.x —
+`ghcr.io/stonebridgeway/ai-dev-system:v2.0.0`, а поскольку `:latest` — тоже образ 2.x,
+`AI_DEV_INSTALLER_IMAGE=ai-dev-system:local` называет образ, собранный вами.
 
 ### На Windows
 
@@ -205,6 +221,18 @@ Linux-контейнер не может держать путь Windows, поэ
 больше не компилируется: 2.x собирал на вашей машине прокси на C# для Claude, а лаунчеры, которые 2.x
 копировал в `C:\ProgramData\AI-Dev-System`, только обновляются, если они там есть (см.
 [Обновление и переход с 2.x](#обновление-и-переход-с-2x)).
+
+Пока 3.0 не опубликован, `:latest` — ещё образ 2.x, и записи, которые пишет `bootstrap.ps1`,
+запускали бы его. Сначала соберите образ 3.0 из клона и назовите его:
+
+```powershell
+cd ai-dev-mcp-server; npm ci; npm run docker:build; cd ..
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1 -Image ai-dev-system:local -AllowStaleImage
+```
+
+Предупреждение «Registry pull failed … Installed from a stale image» для образа, собранного здесь,
+ожидаемо. `-BuildLocal` делает то же одним шагом: собирает `ai-dev-system:local` и ничего не
+скачивает.
 
 Папка состояния, `%USERPROFILE%\.ai-dev\state`, — общая с сервером, как на macOS, но на Windows общий в
 ней только журнал использования. Сервер видит проект как `/workspace/<имя>`, а хуки — как
@@ -260,9 +288,9 @@ docker pull ghcr.io/stonebridgeway/ai-dev-system:latest
 ```
 
 Теги (решение владельца D9): `:latest` — новейший выпуск, тег `vX.Y.Z` — не пререлиз — новейшей
-линии; `:edge` идёт за `main`; выпуск — это ещё и `:X.Y.Z`, `:X.Y` и `:X`. `:2` — линия 2.x,
-замороженная с выходом 3.0, и путь назад; исправление 2.x после этого — тег `v2.Y.Z`, который двигает
-`:2`, `:2.Y` и `:2.Y.Z` и никогда — `:latest`. Frontend QA нужен браузер: вариант `-browser`
+линии; `:edge` идёт за `main`; выпуск — это ещё и `:X.Y.Z`, `:X.Y` и `:X`. `:2` — линия 2.x и путь
+назад: в него перед тегом 3.0 копируется `:latest` 2.x, а потом его двигает только тег `v2.Y.Z` —
+вместе с `:2.Y` и `:2.Y.Z`, но никогда не `:latest`. Frontend QA нужен браузер: вариант `-browser`
 (`:latest-browser`, и `-browser` после любого другого тега) несёт Chromium — примерно на 0,8 ГБ больше
 0,7 ГБ основного. Тег, который назван в конфиге клиента, — это то, что запустит его следующая сессия:
 `docker pull` и есть обновление.
@@ -382,11 +410,13 @@ instructions, — это проверка на случай, когда клие
 Замените `/home/you/Dev` или `C:\Dev` папкой, где лежат ваши проекты, и не коммитьте эти значения в
 Git.
 
-**Codex** — добавьте в пользовательский `config.toml`, здесь так, как пишут macOS и Linux:
+**Codex** — добавьте в пользовательский `config.toml`, здесь так, как пишет Linux. `command` — полный
+путь к `docker`, который находит ваш `PATH`: на Linux обычно `/usr/bin/docker`, на macOS с Docker
+Desktop — `/usr/local/bin/docker` (какой именно, скажет `command -v docker`):
 
 ```toml
 [mcp_servers.ai-dev]
-command = "/usr/local/bin/docker"
+command = "/usr/bin/docker"
 args = [
   "run", "-i", "--rm", "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,size=512m", "--shm-size", "1g",
   "--network", "none", "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL",
@@ -522,7 +552,7 @@ bge-m3-onnx>,target=/models,readonly ghcr.io/stonebridgeway/ai-dev-system:latest
 
 Опубликованный образ без них остаётся небольшим, и для поставки по умолчанию это правильно. Машине без
 сети или образу, который раздают команде, чтобы каждый не качал веса сам, нужна модель внутри. Это
-ваша сборка, а не дистрибутива, и в ней две строки:
+ваша сборка, а не дистрибутива: Dockerfile из двух строк и одна команда сборки:
 
 ```dockerfile
 # Dockerfile.bge — собирается из папки, где лежат веса
@@ -552,7 +582,9 @@ docker build -f Dockerfile.bge -t ai-dev-system:bge-bundled "$HOME/.ai-dev/model
 `AI_DEV_PYTHON_BASE`, `BGE_M3_PYTHON_REVISION`, `BGE_M3_MODEL_DIR` — больше не читается; проверка
 здоровья называет каждую найденную, а папку весов torch `~/.ai-dev/models/bge-m3` можно удалить.
 `--dense-python` по-прежнему работает как имя и делает то же, что `--model`, а сборка Docker с
-`INSTALL_BGE_M3=1` получает сообщение о том, что его заменило (Д-375).
+`INSTALL_BGE_M3=1` получает сообщение о том, что его заменило (Д-375). Терминальный вид BuildKit
+сворачивает вывод законченного шага, а шаг из кэша не печатает ничего: на экране сообщение
+оставляет `--progress=plain`.
 
 ### Как убедиться, что заработало
 
@@ -608,7 +640,8 @@ Python-установки 2.x, лежит в `dense_backend.legacy`, и пров
 
 У каждой установки одна командная строка: `npx @stonebridgeway/ai-dev-system <команда>`, `ai-dev
 <команда>` после глобальной установки, `npm run ai-dev -- <команда>` в клоне,
-`%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd <команда>` после установщика Windows и `docker run --rm
+`& "$env:USERPROFILE\.ai-dev\app\current\ai-dev.cmd" <команда>` в PowerShell после установщика
+Windows (в cmd — `"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd" <команда>`) и `docker run --rm
 -it --mount type=volume,source=ai-dev-system-data,target=/data <образ> ai-dev <команда>` в образе.
 
 | Команда | Что делает |
@@ -623,8 +656,9 @@ Python-установки 2.x, лежит в `dense_backend.legacy`, и пров
 | `ai-dev uninstall` | То, что запускает удаление установщика Windows. |
 | `ai-dev help [команда]` | Все команды и их параметры. |
 
-Коды выхода у всех команд одни: 0 — сделано, 1 — не получилось, 2 — неверный вызов, 130 — остановлено
-Ctrl-C. Опечатка в команде или параметре получает ответ раньше, чем что-либо прочитано или перенесено.
+Каждая команда выходит с кодом 0 — сделано, 1 — не получилось, 2 — неверный вызов, 130 — остановлено
+Ctrl-C; `uninstall` добавляет 3 — что-то занято — и 4 — данные оставлены. Опечатка в команде или
+параметре получает ответ раньше, чем что-либо прочитано или перенесено.
 `node ai-dev-mcp-server/scripts/ai-dev.mjs`, CLI из 2.x, по-прежнему выполняет все команды, с пометкой
 в stderr, до 4.0.
 
@@ -632,7 +666,7 @@ Ctrl-C. Опечатка в команде или параметре получ�
 
 | Установка | Обновление |
 | --- | --- |
-| Установщик Windows | Его предлагает приложение: **Перезапустить для обновления** в трее, или оно ставится при **Выходе**. |
+| Установщик Windows | Его предлагает приложение: **Перезапустить и обновить до …** в трее, или оно ставится при **Выходе**. |
 | npx | `npx @stonebridgeway/ai-dev-system@latest setup`: новая копия ставится рядом со старой, записи переходят на неё, а две последние выбранные копии остаются, так что клиент, который ещё работает на предыдущей, её сохраняет. |
 | Docker | `docker pull ghcr.io/stonebridgeway/ai-dev-system:latest`: следующая сессия запустит его. Повторный bootstrap делает то же и переписывает то, что изменилось в записях. |
 | Клон | `git pull`, затем `cd ai-dev-mcp-server && npm ci && npm run setup`. |
@@ -661,7 +695,7 @@ Ctrl-C. Опечатка в команде или параметре получ�
 
 | Установка | |
 | --- | --- |
-| Установщик Windows | экран **Статус** или `"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd" doctor` |
+| Установщик Windows | экран **Статус** или `& "$env:USERPROFILE\.ai-dev\app\current\ai-dev.cmd" doctor` в PowerShell (`"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd" doctor` в cmd) |
 | npx | `npx @stonebridgeway/ai-dev-system doctor` |
 | Docker | `docker run --rm --network none --mount type=volume,source=ai-dev-system-data,target=/data ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev doctor` |
 | Клон | `npm run -s doctor` |

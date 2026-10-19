@@ -5,7 +5,7 @@
 | Version | Supported |
 | ------- | --------- |
 | 3.0.x   | ✅        |
-| 2.x     | ❌ — frozen when 3.0 is released; its image stays as `:2`, the way back |
+| 2.x     | ❌ — its image is `:2`, the way back, which only a `v2.*` tag moves; `:latest` no longer follows 2.x |
 | < 2.0   | ❌        |
 
 ## Reporting a vulnerability

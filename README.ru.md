@@ -66,7 +66,7 @@ API», по шагам, включая падение проверки и исп
 | --- | --- |
 | **Windows, без терминала** | Скачайте `AI-Dev-Setup-<версия>.exe` из релизов проекта и запустите. Без администратора, без Node, Python и Docker: настольное приложение несёт свой Node, а его мастер первого запуска подключает ваших AI-клиентов и ставит локальную модель ([Установка на Windows](docs/ru/DESKTOP.md#установка-на-windows)). |
 | **Одна команда, с Node** — macOS, Linux, Windows | `npx @stonebridgeway/ai-dev-system setup` — Node.js 22.16+ (или 24+), и больше ничего. |
-| **Docker** — сервер в контейнере | `sh ./bootstrap.sh` на macOS и Linux, `bootstrap.ps1` на Windows, при запущенном Docker, — для машины, на которой не должно быть личного vault, или для команды, которой нужен один образ на всех. |
+| **Docker** — сервер в контейнере | `sh ./bootstrap.sh` на macOS и Linux, `bootstrap.ps1` на Windows, при запущенном Docker; на Windows ещё нужны Node.js 22.12+ и клон репозитория — конфиги клиентов пишет Node. Для машины, на которой не должно быть личного vault, или для команды, которой нужен один образ на всех. |
 
 ```bash
 npx @stonebridgeway/ai-dev-system setup
@@ -89,6 +89,10 @@ Code, Claude Desktop, Cursor, VS Code, Codex и Gemini CLI — и скачать
 `AI_DEV_MODEL_MIRROR` и `HTTPS_PROXY` учитываются. В Docker модель кладёт в том данных один
 `docker run … ai-dev model install`.
 
+Пока 3.0 не опубликован, то, чего ещё нет, собирают из клона: пакет npm
+([npx](docs/ru/INSTALL.md#одна-команда-с-node-npx)) и образ, чей тег `:latest` — ещё образ 2.x, с
+которого bootstrap не поставит 3.0 ([Docker](docs/ru/INSTALL.md#docker)).
+
 Блоки конфигурации для каждого клиента, подробности Docker, локальная модель, обновление с 2.x,
 удаление и что делать, если не заработало: **[docs/ru/INSTALL.md](docs/ru/INSTALL.md)**. Работа
 над самим AI Dev, из клона: [CONTRIBUTING.md](CONTRIBUTING.md) *(на английском)*.
@@ -102,8 +106,10 @@ Code, Claude Desktop, Cursor, VS Code, Codex и Gemini CLI — и скачать
 добавь экспорт отчёта в CSV, покрой изменение тестами и выполни verify_task.
 ```
 
-С Docker на Windows сервер видит ваши проекты в `/workspace`: называйте проект
-`/workspace/my-project`.
+С Docker сервер видит только папку проектов, которую смонтировал bootstrap, — `AI-Dev-Projects` в
+домашней папке, если `--project-path` (`-ProjectPath` на Windows) не назвал другую, — поэтому
+держите проект там. На macOS и Linux сервер видит его по своему пути; на Windows он видит эту папку
+как `/workspace`: называйте проект `/workspace/my-project`.
 
 Что вы должны увидеть: агент вызывает `begin_task`, показывает собранный контекст
 и выбранные skills, пишет код, ставит чекпоинт, запускает `verify_task` и только
@@ -171,7 +177,7 @@ flowchart TB
 | [**Рабочий процесс**](docs/ru/WORKFLOW.md) | Жизненный цикл задачи, эпики, отмена хода, память и обучение. |
 | [**Возможности**](docs/ru/CAPABILITIES.md) | Восемь профилей и как сузить набор инструментов. |
 | [**Галактика знаний**](docs/ru/GALAXY.md) | Хранилище как 3D-галактика, по которой можно летать, — вместо графа Obsidian. |
-| [**Ограничители**](docs/ru/GUARDRAILS.md) | Хуки агента, правила политики, инвентаризация MCP, локальные данные. |
+| [**Ограничители**](docs/ru/GUARDRAILS.md) | Хуки агента, правила политики, инвентаризация MCP, локальные данные и безопасность. |
 | [**Справочник инструментов**](ai-dev-mcp-server/docs/TOOLS.md) | Все 148 инструментов — 135, которые видит агент, и 13 control API, — сгенерировано из самого сервера. *(на английском)* |
 | [**Control API**](ai-dev-mcp-server/docs/CONTROL-API.md) | Инструменты, которыми приложение управляет установкой, и ответы, которые они обещают. *(на английском)* |
 | [**Архитектура**](ai-dev-mcp-server/docs/ARCHITECTURE.md) | Как устроен сервер. *(на английском)* |
@@ -199,4 +205,4 @@ flowchart TB
 [CURATION.md](docker/public-seed/03-skills-catalog/sources/external/membrane/CURATION.md)), [ECC — Everything Claude Code](THIRD_PARTY_NOTICES.md) (101),
 [Understand Anything](https://github.com/Egonex-AI/Understand-Anything) (9),
 [mattpocock/skills](https://github.com/mattpocock/skills) (1), а также
-[taste-skill](https://github.com/Leonxlnx/taste-skill), [ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) и [Archify](https://github.com/tt-a1i/archify).
+[taste-skill](https://github.com/Leonxlnx/taste-skill), [ui-ux-pro-max](https://github.com/nextlevelbuilder/ui-ux-pro-max-skill) и [Archify](https://github.com/tt-a1i/archify) — инструменты дизайна и диаграмм.

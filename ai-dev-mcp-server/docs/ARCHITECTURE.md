@@ -15,9 +15,10 @@ flowchart TB
     cli["bin/ai-dev.mjs, src/cli/"] --> daemon["daemon.mjs + transport/socket.mjs<br/>one warm process per build"]
     app["desktop/ app"] --> daemon
     cli --> own["a server in the client's own process<br/>bridge fallback, AI_DEV_DAEMON=0"]
-    image["Docker image, entrypoint.sh"] --> own
+    image["Docker image, entrypoint.sh"] --> container["a container per session<br/>stdio, no daemon"]
     daemon --> server["server.mjs<br/>MCP SDK, profiles, resources, prompts"]
     own --> server
+    container --> server
     server --> facade["mcp-stdio.mjs<br/>host, callTool, legacy handlers"]
     facade --> ext["extensions/"]
     facade --> core["core/"]
@@ -35,8 +36,9 @@ flowchart TB
    (`core/tool-profiles.mjs`), and tool registration.
 3. `daemon.mjs` + `transport/socket.mjs`: the same server over a local Unix socket or Windows named pipe, one warm
    process per build for every client of the user, so the index and the model load once and the state has one
-   writer. Every local client entry runs `ai-dev mcp`, which bridges the client to it; a Docker entry runs the
-   image's stdio server, with no daemon ([The Daemon](#the-daemon), [SECURITY.md](SECURITY.md#the-daemon)).
+   writer. Every 3.0 local entry runs `ai-dev mcp`, which bridges the client to it (a 2.x entry,
+   `node src/server.mjs`, serves the client in its own process); a Docker entry runs the image's stdio server in
+   a container per session, with no daemon ([The Daemon](#the-daemon), [SECURITY.md](SECURITY.md#the-daemon)).
 4. `mcp-stdio.mjs`: composed domain-service facade and legacy-compatible rollback handler.
 5. `tool-definitions.mjs`: typed MCP contracts separated from dispatch and implementation.
 6. `core/`: path policy, atomic storage, command policy, process execution, canonical project
@@ -150,9 +152,10 @@ The `hooks` extension also owns the rules the installed guard enforces. `core/po
 is the writing end of the `rules` block in `.ai-dev/policy.json`: it compiles a pattern the way
 `hooks/lib.mjs` compiles it, refuses one that cannot work (a pattern that does not compile, an
 event the guard never evaluates, a quantified group holding an unbounded quantifier), refuses a
-second rule that fires on the same text, and refuses a new pattern that does not match the
-example the caller provides. The example is stored on the rule, so `list_policy_rules` re-runs it
-and reports a rule a hand edit silently disarmed. Nothing here imports the hook pack: the hooks
+second rule with the same pattern for the same event (`all` counts as either), and refuses a new
+pattern that does not match the example the caller provides. The example is stored on the rule, so
+`list_policy_rules` re-runs it and reports a rule a hand edit silently disarmed. Nothing here imports
+the hook pack: the hooks
 are copied into other repositories and must not depend on server code, so the compile flags and
 the match text are mirrored, and tests pin the mirror ([Hook and server duplicates](#hook-and-server-duplicates)).
 
@@ -782,13 +785,14 @@ process and before anything chooses a path: `mcp-stdio.mjs` awaits it as it load
 `backup` and the CLI commands that call a tool run it first. Three moves, each under its own lock:
 
 - `<AI_DEV_HOME>/.ai-dev` into `<AI_DEV_HOME>`: 2.x appended `.ai-dev` to the variable (Д-90);
-- AI Dev's folders in `~/.codex` (`state/ai-dev-system`, `state/archify-receipts`,
-  `cache/ai-dev-system/search-index`, `artifacts/frontend-qa`, `artifacts/archify`, `models/bge-m3-onnx`) into the
-  runtime home, unless a variable names the place; the rest of `~/.codex` is Codex's and stays (Д-104);
+- AI Dev's folders in the `.codex` 2.x read — `$AI_DEV_HOME/.codex` when `AI_DEV_HOME` is set, else `~/.codex`
+  (Д-389) — (`state/ai-dev-system`, `state/archify-receipts`, `cache/ai-dev-system/search-index`,
+  `artifacts/frontend-qa`, `artifacts/archify`, `models/bge-m3-onnx`) into the runtime home, unless a variable
+  names the place; the rest of `.codex` is Codex's and stays (Д-104);
 - in the image, the volume's `state/` into the host's state folder the entry mounts, at every start (Д-103).
 
 Nothing is written over: an identical file is dropped from the old place, a JSONL ledger is merged in time order,
-anything else on both sides — and a file that cannot move — stays and is reported, and in the `~/.codex` move a
+anything else on both sides — and a file that cannot move — stays and is reported, and in the `.codex` move a
 cache copy the runtime home already has is dropped. Each run that did something is appended to
 `state/runtime-home-migration.json` (the last 20), which the health check's `runtime_home` reads with what was left
 behind. A failure goes to stderr and does not stop the server. Other 2.x data is handled where it is read: memory

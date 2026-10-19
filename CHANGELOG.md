@@ -8,12 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [3.0.0] - Unreleased
 
 A major version because what changed is how AI Dev is installed and how a client reaches it, not
-what an agent can do with it. The server is the same — the same 135 tools, the vault and the task
-state in the same format, and the index 2.x built is read without a rebuild — but the clone is no
-longer the way in, nothing needs Python, and one process serves every AI client. A 2.x install keeps
-working after the update: [Moving from 2.x to 3.0](docs/MIGRATION.md)
-([Russian](docs/ru/MIGRATION.md)) says what changes for it, what moves by itself, what needs one
-command, and how to go back.
+what an agent can do with it. The server is the same — 2.0.0's 133 tools and two new ones,
+`plan_security_fixes` and `render_knowledge_galaxy`, 135 in all, plus 13 an app can opt into; the
+vault and the task state in the same format; and the index 2.x built is read without a rebuild — but
+the clone is no longer the way in, nothing needs Python, and one process serves every AI client. A
+2.x install keeps working after the update, except where **Breaking** below says otherwise:
+[Moving from 2.x to 3.0](docs/MIGRATION.md) ([Russian](docs/ru/MIGRATION.md)) says what changes for
+it, what moves by itself, what needs one command, and how to go back.
 
 **Highlights**
 
@@ -31,7 +32,8 @@ command, and how to go back.
   three processes, and take 391 MB.
 - **One command line, `ai-dev`** — `setup`, `clients`, `model`, `daemon`, `doctor`, `backup`,
   `restore`, `uninstall` and the 2.x maintenance commands — with one parser, a one-sentence answer
-  to every mistake and the same exit codes everywhere.
+  to every mistake and the same exit codes everywhere, to which `uninstall` adds 3 (something is in
+  use) and 4 (the data was kept).
 - **A desktop app** in English and Russian: the install's health in the tray, a first-run wizard for
   the projects folder, the AI clients and the model, screens of the work — projects, costs, skills,
   the log — a console for every tool, and settings, all through the daemon's control API.
@@ -53,11 +55,19 @@ command, and how to go back.
 - **Node 22.16 or newer (or 24+)** for a local install; 2.x took 22.12.
 - **The Python dense backend and the Python search helper are removed** (decision D3).
   `npm run setup -- --model` — `npx @stonebridgeway/ai-dev-system setup --model` — moves an install
-  to the ONNX model and embeds the documents again; `--dense-python` and `AI_DEV_DENSE_BACKEND=python`
-  do the same with a note, and the other Python variables are named by the health check and no longer
-  read. An Intel Mac has no build of the ONNX runtime: dense search is off there.
+  to the ONNX model and embeds the documents again; `--dense-python` does the same with a note.
+  `AI_DEV_DENSE_BACKEND=python` is read as `auto`, with a note naming that command, and installs
+  nothing; the other Python variables are named by the health check and no longer read. An Intel Mac
+  has no build of the ONNX runtime: dense search is off there.
 - **`AI_DEV_HOME` is the runtime folder itself** (decision D2); a 2.x tree one level down moves up on
-  the first start. `~/.codex` is no longer read; what AI Dev kept there moves once.
+  the first start. A `.codex` folder is no longer read: AI Dev's Codex-era folders move into the
+  runtime home once — from `~/.codex`, or, with `AI_DEV_HOME` set, from `$AI_DEV_HOME/.codex`, where
+  2.x read them for that install.
+- **`AI_DEV_MODEL_PATH` names the folder above the models** (Д-62): `~/.ai-dev/models`, holding
+  `bge-m3-onnx/`, mounted at `/models`. In 2.0.0 it named the model's own folder, mounted at
+  `/models/bge-m3`. The 2.x launchers refuse that value now — `docker/run-mcp.sh` with exit 64,
+  `run-mcp.ps1` with an error — and so do both bootstraps and `ai-dev clients install --docker
+  --model`, each saying to name the folder above it (Д-68).
 - **614 skills.** The 2,614 Membrane connectors the catalogue no longer carries are dropped from the
   registry on the first start, and are found no more.
 - **Search.** `AND`, `OR`, `NOT` and `NEAR` are words, not query syntax. `search_knowledge` searches
@@ -65,14 +75,29 @@ command, and how to go back.
   are no longer found by it.
 - **The Docker image** has no Python, no Playwright or Chromium (the `-browser` variant has them), no
   `/opt/ai-dev/search-index`, and no `BGE_M3_ONNX_DIR` or `AI_DEV_DENSE_INSTALLED`; the
-  `INSTALL_BGE_M3` build argument installs nothing and says what replaced it. On macOS and Linux
-  the projects are mounted at their own path rather than at `/workspace`. `bootstrap.sh` and
-  `bootstrap.ps1` no longer install Docker or Node, start a long-lived container or compile a proxy.
-- **Image tags** (decision D9): `:latest` moves only with a release tag, `:edge` follows `main`, and
-  `:2` is the 2.x line, frozen when 3.0 is released.
+  `INSTALL_BGE_M3` build argument installs nothing and says what replaced it (BuildKit's terminal
+  view folds a finished step's output and a cached step prints nothing: `--progress=plain` keeps it
+  on screen). On macOS and Linux the projects are mounted at their own path rather than at
+  `/workspace`, so what a 2.x server remembered of a project — sessions, instincts, decisions —
+  stays under `/workspace/<name>` and the project's memory starts afresh. The volume's state — tasks,
+  handoffs — moves to the host's `~/.ai-dev/state` wherever the container's user can share that
+  folder; a rollback run by the 2.x launchers keeps its state in the volume and does not see what
+  moved. A 3.0 entry has `--network none` written into it and ignores `AI_DEV_DOCKER_NETWORK`, which
+  only the 2.x launchers read: change the entry itself. `bootstrap.sh` and `bootstrap.ps1` no longer
+  install Docker or Node, start a long-lived container or compile a proxy.
+- **Image tags** (decision D9): `:latest` moves only with a release tag of the newest line, and no
+  longer with 2.x; `:edge` follows `main`; `:2` follows the 2.x line — a manual run copies 2.x's
+  `:latest` to it before 3.0 is tagged, and after that only a `v2.*` tag moves it.
 - **Agent hooks** 2.x installed keep running where `node` is on the client's `PATH`; run
   `install_agent_hooks` in each repository again for the 3.0 registrations, which find Node without
-  it.
+  it. The hooks it installs turn on two defaults 2.0.0 did not have, under the standard and strict
+  profiles: before an install runs, the guard looks the package up in the npm registry and on OSV —
+  refusing malware and a release younger than 24 hours — so package names go to api.osv.dev (in
+  `.ai-dev/policy.json`, `"supply_chain": { "osv": false }` keeps them from OSV, and
+  `"enabled": false` — or `AI_DEV_SUPPLY_CHAIN=off` — turns the check off); and when code or a
+  dependency manifest changed after the last `run_security_scan`, the Stop hook sends the agent back
+  once to run the security review before the session ends (`"security_review_on_stop"`: `"remind"`
+  only tells you, `"off"` says nothing).
 
 What 3.0 keeps working until 4.0 is under **Deprecated**; the [migration note](docs/MIGRATION.md)
 has it with what each one says.
@@ -448,8 +473,12 @@ has it with what each one says.
 - **`npm run demo`.** One real task — "add authentication to the API" — run
   against the real server in a throwaway project: compiled context, three routed
   skills, a planted bug, a refused report, a failing quality gate, the fix, a
-  passing run, and the pull request text. Two to three seconds, no MCP client,
-  and it deletes everything it made. `docs/DEMO.md` quotes its output.
+  passing run, and the pull request text. 2.5–3.1 seconds on a 2.1 GHz Xeon —
+  about 4 when it first builds the clone's skill registry — and no MCP client.
+  The server's runtime home, state and index are in its temporary folder, and it
+  deletes everything it made there; what it may leave is that registry, built
+  when it was missing or out of date, in a folder git ignores. `docs/DEMO.md`
+  quotes its output.
 
 - **The model download refuses a disk it does not fit on** (`docs/DEFECTS.md`,
   Д-81). Before the first byte, it asks the sources how big the missing files
@@ -919,8 +948,9 @@ has it with what each one says.
   with `--build-arg INSTALL_BGE_M3=1` still builds, and prints that the argument is no longer
   used and what replaced it: the model put into the data volume once with
   `docker run … <image> ai-dev model install`, or a host folder holding `bge-m3-onnx/`
-  mounted at `/models` (`bootstrap.sh --model-path`). The argument stays declared for that
-  until 4.0 (Д-375).
+  mounted at `/models` (`bootstrap.sh --model-path`). The argument stays declared for that until
+  4.0 (Д-375). BuildKit's terminal view folds a finished step's output and a cached step prints
+  nothing: `--progress=plain` keeps the notice on screen.
 - **The Python search helper** — `search-index/search_cli.py`, its `unittest` suite
   (`test_search_freshness.py`, now `src/core/search-freshness.test.mjs`) and
   `npm run test:search-helper` — and with them the Docker image's
@@ -928,13 +958,15 @@ has it with what each one says.
   more. A 2.x volume keeps a dangling `09-mcp/search-index` link, which the index skips.
   `scripts/run-acceptance.ps1` no longer runs Python tests.
 
-- **`~/.codex` is no longer read** (`docs/DEFECTS.md`, Д-104). 2.x used
-  `~/.codex/state/ai-dev-system`, its index, models and artifacts whenever they existed and
-  `~/.ai-dev`'s did not, while the hooks always wrote to `~/.ai-dev/state`: the server and the
-  hooks kept two histories. What AI Dev kept there moves into `~/.ai-dev` once, on the first
-  start — nothing overwritten, identical files dropped, ledgers merged, conflicts named by
-  `ai-dev doctor` — with a record in `state/runtime-home-migration.json`; the rest of `~/.codex`
-  is Codex's own and stays.
+- **`~/.codex` is no longer read** (`docs/DEFECTS.md`, Д-104, Д-389). 2.x used
+  `.codex/state/ai-dev-system`, its index, models and artifacts in its home — `AI_DEV_HOME` when
+  that was set, otherwise the user's — whenever they existed and the `.ai-dev` ones did not, while
+  the hooks always wrote to `.ai-dev/state`: the server and the hooks kept two histories. What AI
+  Dev kept there moves into the runtime home once, on the first start, from the `.codex` 2.x read
+  for that install — `~/.codex`, or `$AI_DEV_HOME/.codex` with `AI_DEV_HOME` set, so one install
+  never takes another's — nothing overwritten, identical files dropped, ledgers merged, conflicts
+  named by `ai-dev doctor` — with a record in `state/runtime-home-migration.json`; the rest of
+  `.codex` is Codex's own and stays.
 - **The Homebrew formula and the AUR package** (`packaging/`; decision D8). Neither was ever
   published, and the formula still pointed at `v1.0.0`. `npm run packaging:check` now checks what
   the install guides and the bootstrap scripts promise each other.
@@ -1656,10 +1688,13 @@ four of those arrived as upstream issues #63–#66.
   the link itself at `/models/bge-m3-onnx`, which Docker follows on the host — measured: "Installed:
   yes, every file matches the manifest." `bootstrap.sh` refuses a link that leads nowhere (exit 64),
   and the 2.x `run-mcp.sh` names it.
-- **`npm run demo` counts the skills it ran with and leaves your home alone** (Д-110, Д-374). It
-  printed a skill count written into the script, and the search index it built claimed the index of
-  the person's own `~/.ai-dev`; the count now comes from `list_skill_groups` (614), and the demo's
-  runtime home, state and index stay in the temporary folder it deletes.
+- **`npm run demo` counts the skills it ran with and leaves your home alone** (Д-110, Д-374,
+  Д-389). It printed a skill count written into the script, and the search index it built claimed
+  the index of the person's own `~/.ai-dev`; the count now comes from `list_skill_groups` (614), and
+  the demo's runtime home, state and index stay in the temporary folder it deletes. With that
+  temporary home its server moved AI Dev's Codex-era folders out of `~/.codex` into the folder, and
+  they were deleted with it; now, with `AI_DEV_HOME` set, the move reads `$AI_DEV_HOME/.codex`, as
+  2.x did, and the demo names every place the move would fill, so nothing leaves `~/.codex`.
 - **The tests pass with a temporary folder that is a link or a long path** (Д-258, Д-259, Д-373).
   Four tests compared a resolved path with one built from `os.tmpdir()`, and the bridge test bound a
   socket that a 112-byte `TMPDIR` cut short, so parallel runs collided (`EADDRINUSE` in 6 of 12):

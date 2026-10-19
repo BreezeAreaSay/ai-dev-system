@@ -74,10 +74,13 @@ cd ai-dev-mcp-server
 npm run docker:upgrade-check -- --old-image ghcr.io/stonebridgeway/ai-dev-system:2 --new-image ai-dev-system:local
 ```
 
+`:2` exists once 3.0 is released; until then name the 2.x image as
+`ghcr.io/stonebridgeway/ai-dev-system:v2.0.0`, here and in the commands below.
+
 It needs Docker, the two images and this clone with the base commit in it (`8f647df`; a shallow
 clone fetches it with `git fetch origin 8f647df1372fa5fa2a998b74e40130ed772797d0`): the 2.x
 launcher is read from there. `docker-publish.yml` runs it on every pull request against the
-production image — `:2`, or `:latest` until the frozen `:2` exists (owner decision D9). On a
+production image — `:2`, or `:latest` until `:2` exists (owner decision D9). On a
 scratch volume and a scratch folder, both removed at the end:
 
 1. **2.x fills the volume.** The 2.x image, started through the 2.x `docker/run-mcp.sh` as 2.x

@@ -156,7 +156,7 @@ diff, and do not report a result you have not seen printed.**
 ```bash
 cd ai-dev-mcp-server
 npm run setup -- --no-clients   # build what a fresh clone does not ship; leave the person's AI clients alone
-npm run check           # the gate: static quality, packaging:check, the seed index, the tests with coverage
+npm run check           # the gate: static quality, packaging:check, the seed index, the tests with coverage, security-check, the protocol and lifecycle smokes
 npm run acceptance      # the gate, ten times
 npm run upgrade:test    # a 2.x clone updated to this one (Python 3 and git; ~3 minutes)
 npm run docs:tools      # after adding or changing a tool; docs:tools:check is what CI runs

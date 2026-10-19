@@ -44,7 +44,7 @@ Vault, а при сборке дистрибутив сверяется пофа
 
 ## Быстрый запуск
 
-Windows (нужны Docker Desktop и Node.js 22.12+, конфиги клиентов пишет Node):
+Windows (нужны Docker Desktop, Node.js 22.12+ и клон репозитория: конфиги клиентов пишет Node):
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
@@ -61,6 +61,20 @@ sh ./bootstrap.sh
 клиентов запись, которая сама запускает `docker run -i --rm …`. Docker они больше не ставят. На
 macOS и Linux конфиги пишет сам образ — `ai-dev clients install --docker` в контейнере, которому
 смонтированы только папки конфигов клиентов и папка состояния; Node на хосте не нужен.
+
+Пока 3.0 не опубликован, `:latest` — ещё образ 2.x, а у него нет своего установщика: `bootstrap.sh`
+останавливается на нём с кодом 69 («… has no installer either (a 2.x image too)»), а записи
+`bootstrap.ps1` запускали бы 2.x. Соберите образ 3.0 из клона и поставьте его:
+
+```bash
+cd ai-dev-mcp-server && npm ci && npm run docker:build && cd ..   # даёт ai-dev-system:local
+sh ./bootstrap.sh --image ai-dev-system:local --allow-stale-image
+```
+
+На Windows — `-Image ai-dev-system:local -AllowStaleImage`. Bootstrap всё равно сначала пробует
+скачать образ, поэтому предупреждение «Registry pull failed … Installed from a stale image» для
+образа, собранного здесь, ожидаемо. `sh ./bootstrap.sh --build-local` (`-BuildLocal`) делает то же
+одним шагом: собирает `ai-dev-system:local` из клона и ничего не скачивает.
 
 Одна сессия клиента — один контейнер:
 
@@ -157,13 +171,15 @@ npm run docker:audit
 bootstrap), `ai-dev clients entry <клиент> --docker --projects <папка>` печатает одну — для
 клиента, которого вы настраиваете руками. Для Cursor, Claude Desktop/Code и Gemini запись лежит
 под `mcpServers`, у VS Code — под `servers` и с `"type": "stdio"`, у Codex — в `config.toml` с
-`startup_timeout_sec = 120`. macOS и Linux:
+`startup_timeout_sec = 120` и `tool_timeout_sec = 3600`. Ниже — запись `mcpServers` так, как её
+пишет Linux; `command` — полный путь к `docker`, который находит `PATH`: на Linux обычно
+`/usr/bin/docker`, на macOS с Docker Desktop — `/usr/local/bin/docker`:
 
 ```json
 {
   "mcpServers": {
     "ai-dev": {
-      "command": "/usr/local/bin/docker",
+      "command": "/usr/bin/docker",
       "args": [
         "run", "-i", "--rm", "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,size=512m", "--shm-size", "1g",
         "--network", "none", "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL",
@@ -286,14 +302,15 @@ docker run --rm -it --network bridge \
 хосте; ссылка, которая и на хосте ведёт в никуда, отклоняется (Д-368).
 
 **Python-бэкенда больше нет** (3.0, решение D3). Аргумент сборки `INSTALL_BGE_M3=1`, который его
-ставил, ничего не делает и при сборке говорит, что пришло на смену. Векторы, построенные им,
-относятся к другой модели и с вопросами ONNX не сравниваются; `ai-dev model install` строит их
-заново.
+ставил, ничего не делает и при сборке говорит, что пришло на смену. Терминальный вид BuildKit
+сворачивает вывод законченного шага, а шаг из кэша не печатает ничего: на экране сообщение
+оставляет `--progress=plain`. Векторы, построенные Python-бэкендом, относятся к другой модели и с
+вопросами ONNX не сравниваются; `ai-dev model install` строит их заново.
 
 ### Образ с весами внутри
 
 Если модель должна быть в самом образе — машина без сети, раздача команде, — это ваша сборка
-поверх нашей, четыре строки:
+поверх нашей: Dockerfile из двух строк и одна команда сборки:
 
 ```dockerfile
 # Dockerfile.bge
@@ -352,6 +369,10 @@ allowlist-контекст, ни в GHCR.
 ```bash
 npm run docker:upgrade-check -- --old-image ghcr.io/stonebridgeway/ai-dev-system:2 --new-image ai-dev-system:local
 ```
+
+`:2` появится с выходом 3.0; до тех пор образ 2.x — `ghcr.io/stonebridgeway/ai-dev-system:v2.0.0`,
+и в командах выше вместо `:2` берут его, а для `--image` у bootstrap ещё и
+`AI_DEV_INSTALLER_IMAGE=ai-dev-system:local`: `:latest` до выпуска — тоже образ 2.x.
 
 ## GHCR
 

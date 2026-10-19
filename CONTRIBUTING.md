@@ -92,7 +92,7 @@ also offer to connect your AI clients to this clone; `--no-clients` keeps your r
 configs out of it. The desktop app, from the same clone:
 
 ```bash
-cd desktop
+cd ../desktop
 npm ci
 npm start                       # the app, on this clone's server
 npm run test:unit               # its unit tests; npm test adds the end-to-end ones
@@ -120,7 +120,7 @@ display). `npm run check` does not run them; CI does.
 
 | Workflow | Job | What it checks |
 | --- | --- | --- |
-| `ci.yml` | `mcp-server` | `lint` (the static gate), `security`, `packaging:check`, `bootstrap.ps1 -Plan` and the PowerShell launchers parse, `docs:tools:check`, `docker:seed:verify`, `test:core` |
+| `ci.yml` | `mcp-server` | `lint` (the static gate), `security`, `packaging:check`, `bootstrap.ps1 -Plan` and the PowerShell launcher parse, `docs:tools:check`, `docs:links`, `docker:seed:verify`, `test:core` |
 | | `no-python` (Linux, macOS, Windows) | `scripts/no-python-check.mjs`: `npm ci`, `npm run setup`, `npm run doctor` and the protocol smoke with every Python interpreter taken off `PATH` |
 | | `mcp-server-node-floor` | the static gate and the core tests on the oldest Node the server supports |
 | | `vault-suite` | `skills:ensure-index`, then `npm test`, `protocol:smoke`, `lifecycle:smoke` |
@@ -129,14 +129,14 @@ display). `npm run check` does not run them; CI does.
 | `desktop-windows.yml` | `build`, `release` | the app's unit tests and the installer, kept as an artifact; on a `v*` tag of the production repository, `release` puts it on the tag's draft release |
 | `docker-publish.yml` | `validate` | the distribution's privacy policy, `packaging:check`, the allowlisted context and its audit, the image, offline secret scanning, MCP over Docker stdio, `bootstrap.sh` writing a client's config from the image, and the upgrade of a 2.x volume with the 2.x launchers |
 | | `validate-browser`, `unix-launcher` | the `-browser` variant and its pnpm; the 2.x launcher's contract and `sh -n` of the shell scripts |
-| | `publish`, `freeze-2x` | the production repository only: the images to GHCR by owner decision D9 on a push; and, run by hand before 3.0 is tagged, `:2` frozen from `:latest` |
+| | `publish`, `freeze-2x` | the production repository only: the images to GHCR by owner decision D9 on a push; and, run by hand before 3.0 is tagged, `:2` copied from `:latest` |
 | `dense-eval.yml` | `onnx` | by hand: the real BGE-M3 weights downloaded, the dense index built, the inference test and its measurements |
 
 Run the same gate locally before opening a PR:
 
 ```bash
 cd ai-dev-mcp-server
-npm run check          # the static gate, packaging:check, the seed index, the tests with coverage
+npm run check          # the static gate, packaging:check, the seed index, the tests with coverage, security-check, the protocol and lifecycle smokes
 npm run docs:tools:check && npm run docs:links   # the generated references are current; no broken link in the docs
 npm run docker:prepare && npm run docker:audit   # if you touched the Docker context or seed
 npm run docker:seed:verify                       # if you touched the seed

@@ -35,10 +35,12 @@ evidence-bound task completion.
   - `~/.ai-dev/run` — the daemon's descriptor, lock and usually its socket, a folder of mode 0700
   - `~/.ai-dev/logs` — the daemon's log, `daemon.log`
   - `~/.ai-dev/backups` — the archives `ai-dev backup` writes
-  - What the Codex-era runtime kept under `~/.codex` (`state/ai-dev-system`, its search index,
-    artifacts and models) moves into `~/.ai-dev` once, at the first start, and is recorded in
-    `state/runtime-home-migration.json`; the rest of `~/.codex` is Codex's own and stays.
-    `~/.codex` is not read after that.
+  - What the Codex-era runtime kept under `.codex` (`state/ai-dev-system`, its search index,
+    artifacts and models) moves into the runtime home once, at the first start, and is recorded in
+    `state/runtime-home-migration.json`: from `~/.codex` into `~/.ai-dev`, or, with `AI_DEV_HOME`
+    set, from `$AI_DEV_HOME/.codex` — where 2.x read it for that install — into `$AI_DEV_HOME`. A
+    place its own variable names is not looked for there, the rest of `.codex` is Codex's own and
+    stays, and `.codex` is not read after that.
 
 Start:
 

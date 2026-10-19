@@ -66,7 +66,7 @@ Three ways, one system — pick by what you have:
 | --- | --- |
 | **Windows, no terminal** | Download `AI-Dev-Setup-<version>.exe` from the project's releases and run it. No administrator, no Node, Python or Docker: the desktop app brings its own Node, and its first-run wizard connects your AI clients and sets up the local model ([The Windows install](docs/DESKTOP.md#the-windows-install)). |
 | **One command, with Node** — macOS, Linux, Windows | `npx @stonebridgeway/ai-dev-system setup` — Node.js 22.16+ (or 24+), and nothing else. |
-| **Docker** — the server in a container | `sh ./bootstrap.sh` on macOS and Linux, `bootstrap.ps1` on Windows, with Docker running — for a machine that should not hold a personal vault, or a team that wants one image everybody runs the same way. |
+| **Docker** — the server in a container | `sh ./bootstrap.sh` on macOS and Linux, `bootstrap.ps1` on Windows, with Docker running; on Windows also Node.js 22.12+ and a clone of the repository, since Node writes the clients' configs. For a machine that should not hold a personal vault, or a team that wants one image everybody runs the same way. |
 
 ```bash
 npx @stonebridgeway/ai-dev-system setup
@@ -88,6 +88,10 @@ is one flag, `setup --model`: a pinned, checksum-verified ONNX export of BGE-M3,
 broken download continues where it stopped, and `AI_DEV_MODEL_MIRROR` and `HTTPS_PROXY` are
 honoured. In Docker, one `docker run … ai-dev model install` puts it in the data volume.
 
+Until 3.0 is published, build from a clone what is not out yet: the npm package
+([npx](docs/INSTALL.md#one-command-with-node-npx)), and the image, whose `:latest` tag is still a
+2.x image that bootstrap cannot install 3.0 from ([Docker](docs/INSTALL.md#docker)).
+
 Every client's configuration block, the Docker details, the local model, updating from 2.x,
 uninstalling, and what to do when it does not work: **[docs/INSTALL.md](docs/INSTALL.md)**.
 Working on AI Dev itself, from a clone: [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -101,8 +105,10 @@ Use the ai-dev MCP server. Begin a task for ~/Dev/my-project:
 add CSV export for the report, cover the change with tests, and run verify_task.
 ```
 
-With Docker on Windows the server sees your projects under `/workspace`: name the project
-`/workspace/my-project`.
+With Docker the server sees only the projects folder bootstrap mounted — `AI-Dev-Projects` in your
+home, unless `--project-path` (`-ProjectPath` on Windows) named another — so keep the project there.
+On macOS and Linux the server sees it at its own path; on Windows it sees the folder as
+`/workspace`: name the project `/workspace/my-project`.
 
 What you should see: the agent calls `begin_task`, reports the context it
 compiled and the skills it routed, writes the code, checkpoints, runs

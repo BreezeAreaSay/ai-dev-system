@@ -16783,6 +16783,217 @@ const proc = cp; proc.spawn("x"); class A { m(...proc) { … } }           [chil
 
 ---
 
+## Д-466. Список аргументов вызова читается как список параметров: экспортированный `let`, названный в вызове, за которым идёт блок, или в вызове члена в наследовании класса, — не находка (регрессия Д-460)
+
+**Статус:** открыт. Закроет фаза 14. Нашло седьмое независимое ревью фазы 14 (ревью текстов: must-fix 1); у `0ee4290`
+этих промахов нет — их внёс `b69df96`.
+
+`b69df96` (`forbidden-calls.mjs:428-433`) считает списком параметров любой `(`…`)`, за которым идёт `{`, кроме заголовка
+инструкции, `switch` и вызова сразу после `extends`. Так читаются и аргументы вызова, за которым на следующей строке стоит
+блок (`f(run)⏎{⏎}`), и аргументы вызова члена в наследовании класса (`extends ns.g(run) {}`: перед `g` стоит `.`, а не
+`extends`). Имя из такого «списка параметров» считается объявленным заново: экспортированный `let` или `var` с этим именем
+больше не ловится по имени, а `...cp` в таком вызове — не распространение. Закрытие Д-465 («распространение в вызов,
+`g(...run)`, — по-прежнему находка») и комментарий у кода («A list a body follows — not a statement head's, `switch`'s or a
+class heritage's call») говорят обратное; граница в AGENTS.md, ARCHITECTURE, CHANGELOG и заголовке `forbidden-calls.mjs`
+такого случая не называет.
+
+**Чем грозит.** Экспортированный `let`, которому присвоен модуль, уходит в другие файлы без находки — промах, которого у
+`0ee4290` не было. Распространение модуля в такой вызов ничего не отдаёт (пространство имён модуля не итерируемо, вызов
+бросает); там расходится только текст.
+
+**Замер до** (`b69df96`; ревью — `p14/r7/docs/out/spread-edge.out`, ведущий — `p14/r7fix/gate/edit/params.mjs`,
+`out/params-before.out`; все пробы валидны для V8; `CP` — `import * as cp from "node:child_process";⏎`):
+
+```
+CP + g(...cp)⏎{⏎}⏎function g() {}                                            []   (0ee4290: [child_process.exec@2])
+CP + const ns = …;⏎export class A extends ns.g(...cp) {}                     []   (0ee4290: [child_process.exec@3])
+CP + export let run;⏎const ns = …;⏎class A extends ns.g(run) {}⏎run = cp;    []   (0ee4290: [child_process.exec@5])
+CP + export let run;⏎f(run)⏎{⏎}⏎run = cp;⏎function f() {}                   []   (0ee4290: [child_process.exec@6])
+то же в теле метода: m() {⏎f(run)⏎{⏎}⏎}, затем run = cp                     []   (0ee4290: [child_process.exec@10])
+контроль: extends g(...cp) {}                                               [child_process.exec@3]
+контроль: f(run); затем run = cp                                            [child_process.exec@4]
+21 настоящий список параметров (function, генератор, async, стрелка, catch, метод класса и литерала, конструктор, сеттер,
+  приватный, вычисляемый и строковый ключ, остаточный параметр)            [] у b69df96; у 0ee4290 — находка в 21 из 21
+```
+
+**Как закроется.** Список параметров — только после `function` (с именем, `*` или без), после `catch`, перед `=>` и у
+метода: `(` прямо в теле класса или в объектном литерале, за `)` которого идёт `{`. Пробы — в тест; тексты — по коду.
+
+---
+
+## Д-467. Тексты шестого раунда: ссылки на несуществующие выводы, счёт проб, grep, который находит сам себя, разностный массив, которого нет в коммите, и мелочи
+
+**Статус:** открыт. Закроет фаза 14. Нашло седьмое независимое ревью фазы 14 (ревью текстов: should-fix 2–5, мелочи 6–13;
+пункт 13 — замечание вне его охвата).
+
+**Замер до** (`b1f6cf8`; ревью — `p14/r7/docs/out/`):
+
+1. Д-450 и Д-453 ссылаются на `p14/r6fix/gate/out/d450-after.out` и `d453-after.out` — таких файлов нет (`find p14 -name
+   'd450-after*' -o -name 'd453-after*'` — пусто); оба блока — в `p14/r6fix/gate/out/d450-d453.out`.
+2. Д-459: «80 проб» — в `probes-after.out` их 82 (`grep -c 'valid\]'` — 82, последняя строка «0 off expectation»).
+3. Д-458, пункт 4: строка с `grep` и «0 (было 6)» под заголовком `b69df96` не воспроизводится: на HEAD тот же `grep` даёт 1
+   (находит саму эту строку), на `75ddcdc` — 0, на `b69df96` — 6.
+4. Д-460: «охваты скобок — разностным массивом» — в `b69df96` разностного массива нет (ни `Int32Array`, ни `holds`): места
+   привязки собирает `bindingsOf`, обход элементов списка. Массив был только в промежуточной копии
+   (`p14/r6fix/gate/edit/forbidden-calls.before-bound.mjs:355`).
+5. Поправка к закрытию Д-445: «ещё десять выживших мутантов раунда 5» — эти десять (A1, A2, A4, A5, B1–B5, B8) —
+   мутанты шестого ревью, выжившие на коде раунда 5 (`p14/r6/gate/out/mut-mine.out`, «5 of 20 killed»).
+6. Код с обратной кавычкой внутри записан между одиночными обратными кавычками: в Д-459, в «Замере до» Д-464 и в пункте 2
+   Д-448; markdown-it 14.1.0 обрывает такой спан на внутренней кавычке, и хвост читается текстом.
+7. CHANGELOG (о цене ворот) смешивает kB и KiB: 448 006 и 552 014 байт — «448 kB» и «552 kB», а 372 900 и 296 012 —
+   «364 kB» и «289 kB» (это KiB).
+8. Строку «AI Dev is ready. Restart the AI clients to load ai-dev.» тексты приписывают установщику: `docs/INSTALL.md:166`,
+   `docs/ru/INSTALL.md:166-167`, CHANGELOG (bootstrap.ps1, Д-452), закрытия Д-452 и Д-435. Установщик печатает только
+   подсказку `--clients=` (`clients.mjs:162`); строка перезапуска — `bootstrap.ps1:255`, потому что `$noClient` остаётся
+   false. Ревью (`tools/ps-fallback-noclient.mjs`): выход 0, «No client found here. Name one to write it anyway:
+   --clients=cursor,vscode,…», затем строка перезапуска.
+9. Калька в русском: «стоят слова» (`docs/ru/INSTALL.md:166`, закрытие Д-452), «итог и слова — установки» (закрытие Д-435).
+10. Д-450 цитирует «a pattern an export declares from the module itself» как текст AGENTS.md, ARCHITECTURE и CHANGELOG, а в
+    ARCHITECTURE — «by a pattern that declares it from the module itself».
+11. Д-462 относит «закрытие Д-445 — по новому счёту» к `b69df96`, а поправка — в `75ddcdc`; статус Д-464 называет только
+    `b69df96`, хотя её пункт 1 закрыт в `75ddcdc`.
+12. «Было» для формы с наследованием (296 012 байт) расходится в трёх текстах: CHANGELOG — «12 s» (три холодных прогона
+    исправителя: 11 237, 11 597 и 12 449 мс — а фраза говорит о медиане пяти), Д-461 — «было 9817», комментарий теста
+    (`forbidden-calls.test.mjs:728`) — «10.0 s». Три холодных прогона ревью на `0ee4290`: 9 866, 9 798 и 12 704 мс.
+13. Шапка реестра — «Состояние: 372 записи. Закрыто 357, открыто 15.» — устарела с Д-372: записей 465, со статусом
+    «открыт» — 8 (Д-2, Д-101, Д-123, Д-124, Д-130, Д-318, Д-376, Д-403).
+
+**Как закроется.** 1) `d450-d453.out`. 2) «82 пробы». 3) Датировать `75ddcdc` и переписать так, чтобы строка не находила
+сама себя. 4) «обходом мест привязки (`bindingsOf`)». 5) «своих мутантов, выживших на коде раунда 5». 6) Двойные обратные
+кавычки. 7) «373 kB», «296 kB». 8) Подсказка — установщика, строка перезапуска — `bootstrap.ps1`. 9) Без кальки. 10) «… declares
+(it) from the module itself». 11) `75ddcdc` — в Д-462 и Д-464. 12) «10–12 s» везде. 13) Шапка — по счёту на закрытии фазы 14.
+
+---
+
+## Д-468. Тест Д-437 «clients doctor exits after an entry that does not stop for SIGTERM» падает на Windows: новая нижняя граница ждёт выдержки, которой там нет
+
+**Статус:** открыт. Закроет фаза 14. Нашло седьмое независимое ревью фазы 14 (ревью кода: should-fix 1). Ревью считало,
+что CI на Windows этот тест не гоняет; гоняет: задание `windows` в `.github/workflows/ci.yml` запускает `npm run
+test:core` (`src/core/**/*.test.mjs`), а тест — в `src/core/mcp-client-check.test.mjs`.
+
+У теста (`mcp-client-check.test.mjs:245`) нет опции `signals`, которую берут два теста выше (`:215`: «On Windows a child is
+stopped by TerminateProcess, SIGTERM or not»). На Windows `child.kill()` завершает ребёнка сразу, выдержки 5 с нет, доктор
+выходит примерно через секунду, и граница `doctor.took >= 1000 + 5000`, которую добавил `4faee03` (`:288`), не держится; у
+`114ce27` была только верхняя (`took < 15_000`).
+
+**Чем грозит.** Шаг «Core unit tests» задания CI на Windows красный — фаза 15 требует зелёного CI на всех ОС; `npm test` и
+`npm run test:core` на Windows падают у любого.
+
+**Замер до** (ревью — `p14/r7/code/out/d437-windows-sim.out`; Windows здесь нет, поведение `kill()` на Windows смоделировано
+на Linux: в `stop()` вызов `child.kill()` заменён на `child.kill("SIGKILL")`, только для этого теста):
+
+```
+114ce27, модель Windows:   # tests 1  # pass 1  # fail 0
+4faee03 (= b1f6cf8):       not ok 1 - clients doctor exits after an entry that does not stop for SIGTERM …
+                           error: 'the doctor exited 1155 ms after it started: before the second and the grace were up'
+```
+
+**Как закроется.** Нижняя граница (выдержка отслужена) — только там, где есть сигнал, который можно не услышать; на Windows
+тест по-прежнему проверяет, что доктор выходит вскоре после вердикта и процесса записи больше нет. Проверка — та же модель.
+
+---
+
+## Д-469. Мелочи седьмого ревью кода: `dataVolumeOf` мягче любого CLI, соседи `/data`, которых правка не держит, якорь `^WARNING: ` без теста, два довода закрытия Д-457
+
+**Статус:** открыт. Закроет фаза 14. Нашло седьмое независимое ревью фазы 14 (ревью кода: мелочи 2–5).
+
+**Замер до** (`4faee03`, в этих файлах равен `b1f6cf8`; ревью — `p14/r7/code/out/`; CLI 20.10.24, 24.0.9, 26.1.4, 27.5.1,
+28.5.2 и 29.8.2):
+
+1. **«As leniently as the CLIs before it»** (комментарий `docker-launch.mjs:425-426`, закрытие Д-457 «читается мягко, как
+   читали CLI до 29», написание в тесте `docker-launch.test.mjs:449`): ни один CLI поле не обрезает
+   (`data-volume.out`). `type=volume, source=r7c-team-data ,dst=/data` — 20.10.24, 24.0.9, 27.5.1, 28.5.2: выход 125,
+   `unexpected key ' source' in ' source=r7c-team-data '`; 29.8.2: выход 125, `… option should not have whitespace`. С
+   `source=r7c-team-data ,…,volume-nocopy=TRUE` четыре старых CLI передают значение дальше, и демон отказывает:
+   `"r7c-team-data " includes invalid characters for a local volume name`. `4faee03` читает во всех трёх случаях
+   `"r7c-team-data"`. Поведение безвредно (остаётся имя, которое написал человек), неверен довод.
+2. **Соседи `/data`** (`docker-launch.mjs:437`, `:583-593`, комментарий `:575-578` говорит о вреде вообще: «the data of its own
+   was out of reach»): `type=volume,src=r7c-team-data,dst=/data/,volume-nocopy=TRUE` — четыре старых CLI монтируют том в
+   `/data`, а `4faee03` читает `""`, и команда доктора без `--volume` (`doctor-data.out`). Нечитаемый bind в `/data`
+   (`…,target=/data,bind-nonrecursive`) — совет переносит запись на том по умолчанию и говорит только «without its --mount».
+   Читаемый bind в `/data` после bind проектов (так и у `114ce27`) — совет `--projects=<H>/team-data`, хотя пропала
+   `<H>/disk/Projects`.
+3. **Якорь `/^WARNING: /`** (`mcp-client-check.mjs:33`) не держит ни один тест: мутант `/WARNING: /` переживает 40 тестов
+   (`mutation.out`). Сторонний сервер, который умирает со строкой Go-лога `2026/10/19 12:00:00 WARNING: GITHUB_TOKEN is not
+   set; the server cannot start without it`: `114ce27` и `4faee03` говорят эту строку, мутант — только «it exited with code
+   1 before answering» (`anchor.out`).
+4. **Закрытие Д-457:** (а) «от вердикта до выхода — 5011…5317 мс» — в его же источнике
+   (`p14/r6fix/code/out/grace-spread.out`) `load 8 … verdict to exit: min 5006 max 5097`, то есть 5006…5317 (5011 — минимум
+   без нагрузки); (б) мутант F457-vol-rest назван эквивалентным, «отличается только для имени тома с `=`», — он отличается
+   и для цели с `=`: `type=volume,source=r7c-v,target=/data=old,volume-nocopy=TRUE` — `4faee03` даёт `""`, мутант —
+   `"r7c-v"` (CLI 27.5.1 такое запускает, монтируя в `/data=old`).
+
+**Как закроется.** 1) Довод — по замеру: «мягче любого CLI». 2) Цель `/data/` — как `/data`; bind в `/data` — не папка
+проектов, и совет говорит, что данные такого bind не переносятся. 3) Строка Go-лога — в тест. 4) Числа и довод — по замеру.
+
+---
+
+## Д-470. На Node 24 тест Д-413 падает: под моделью разрешений Node 24 отказывает в `fsync`, и атомарная запись сервера не пишет ничего
+
+**Статус:** открыт. Закроет фаза 14. Заметило седьмое независимое ревью фазы 14 (ревью кода, вне своего охвата:
+`policy-rules.test.mjs:644` падает на Node 24.22.0 и у `114ce27`, и у `4faee03`); ведущий проверил и померил.
+
+Node 24.22.0 под `--permission` отказывает в `FileHandle.sync()` и `datasync()`: «fsync API is disabled when Permission Model
+is enabled.» (`ERR_ACCESS_DENIED`; флага, который бы это разрешил, нет — `node --help` знает `--allow-addons`,
+`--allow-child-process`, `--allow-fs-read`, `--allow-fs-write`, `--allow-inspector`, `--allow-openssl-store`, `--allow-wasi`,
+`--allow-worker`). `atomicWriteFile` (`atomic-files.mjs:95`) вызывает `handle.sync()` перед переименованием — запись под
+моделью разрешений падает целиком. Тест Д-413 («where no worker thread can be made at all…») запускает сервер под
+`--permission` без `--allow-worker` и ждёт, что правило выключится; на Node 24 выключение не записывается. Так же
+`fsync` вызывают `appendUnderLock` (`atomic-files.mjs:175`), запись конфигов клиентов (`mcp-clients.mjs:421`) и архив
+резервной копии (`backup-archive.mjs:317`).
+
+**Чем грозит.** CI гоняет `npm run test:core` на Node 24 в заданиях ubuntu, macOS и Windows (`ci.yml`): шаг «Core unit
+tests» красный на всех трёх — фаза 15 требует зелёного CI на всех ОС. Сервер, запущенный под моделью разрешений Node 24,
+не может записать ни одного файла состояния.
+
+**Замер до** (`b1f6cf8`; `p14/r7fix/node24/`):
+
+```
+fsync.mjs под --permission --allow-fs-read=* --allow-fs-write=<папка>:
+  v22.22.0  sync: ok, datasync: ok
+  v24.22.0  sync: ERR_ACCESS_DENIED fsync API is disabled when Permission Model is enabled.
+            datasync: ERR_ACCESS_DENIED fdatasync API is disabled when Permission Model is enabled.
+node:24-bookworm (v24.22.0, git 2.39.5): policy-rules, agent-hook-scripts и regex-budget (три файла, где есть --permission):
+  not ok 42 - where no worker thread can be made at all, a rule is still switched off, and switching it on is refused (Д-413)
+      Error [ERR_ACCESS_DENIED]: fsync API is disabled when Permission Model is enabled.
+  # tests 59  # pass 58  # fail 1
+```
+
+**Как закроется.** Отказ модели разрешений в `fsync` — не отказ записи: файл пишется и переименовывается без сброса на диск,
+любая другая ошибка `fsync` по-прежнему роняет запись. Одна функция для всех четырёх мест; тест — на её поведение при
+`ERR_ACCESS_DENIED` и при другой ошибке; тест Д-413 и весь `test:core` — на Node 24 в контейнере.
+
+---
+
+## Д-471. На Node 24 тест «text with NUL bytes is written whole and read whole» падает: он утверждает ошибку `node:sqlite`, которой в Node 24 нет
+
+**Статус:** открыт. Закроет фаза 14. Нашёл ведущий, прогоняя задание CI «MCP server (lint, security, unit)» на Node 24 в
+контейнере (проверка Д-470).
+
+Тест (`search-store.test.mjs:453`) первой проверкой утверждает, что `node:sqlite` обрезает TEXT на NUL («node:sqlite cuts TEXT
+at a NUL (Д-113)») — это довод, ради которого чтение идёт через `CAST(body AS BLOB)`. В Node 24.22.0 `node:sqlite` текст не
+обрезает, и проверка-довод падает; вторая проверка — то, что тест обещает в названии, текст записан и прочитан целиком, —
+проходит.
+
+**Чем грозит.** Шаг «Core unit tests» CI на Node 24 (ubuntu, macOS, Windows) красный, хотя код верен.
+
+**Замер до** (`b1f6cf8`; `node:24-bookworm`, v24.22.0, пользователь uid 1000, как в CI; `p14/r7fix/node24/ci-node24.out`,
+`ci-test-core.tap`):
+
+```
+lint, security, packaging:check, docs:tools:check, docs:links, docker:seed:verify — ok
+test:core: # tests 1631  # pass 1624  # fail 2  # skipped 5
+  not ok 702  - where no worker thread can be made at all, … (Д-413)                 — Д-470
+  not ok 1176 - text with NUL bytes is written whole and read whole
+      node:sqlite cuts TEXT at a NUL (Д-113)
+      + '# Nul\nbefore\x00after words'   - '# Nul\nbefore'
+```
+
+**Как закроется.** Довод — как наблюдение, верное для своей версии: TEXT либо обрезан на NUL (Node 22), либо цел (Node 24);
+чтение через BLOB целое в обоих случаях — его тест держит как раньше.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

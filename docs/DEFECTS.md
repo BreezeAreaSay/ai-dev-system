@@ -12916,6 +12916,39 @@ CAPABILITIES (EN и RU), `ai-dev-mcp-server/docs/ARCHITECTURE.md`, README сер
 
 ---
 
+## Д-380. Первая задача из README в новом репозитории: `verify_task` не говорит, откуда взять проверку проекта
+
+**Статус:** открыт. Закроет фаза 14. Нашла приёмка фазы 14 — первая задача из README в чистом контейнере; код —
+`verify_task` (`src/extensions/lifecycle.mjs`) и пакет контекста `begin_task` (`src/core/context-compiler.mjs`), до программы.
+
+README ведёт новичка так: поставить пакет, открыть свой репозиторий и попросить агента начать задачу. В репозитории, которого
+AI Dev ещё не видел, нет `.ai-dev/quality-gate.md`, и `verify_task` отвечает проверкой `quality_gate` со статусом
+`unavailable` и одной строкой «Quality gate file not found: …» — без подсказки, что её пишет `prepare_project` из скриптов
+самого проекта. `begin_task` об этом тоже молчит: в `context_unknowns` пусто. Путь знает только навык
+`ai-dev-orchestrator` (шаг 2), который `begin_task` выдаёт среди маршрутизированных, — агент, не дочитавший навык,
+упирается в отказ `complete_task` и чинит проверку руками или сдаётся.
+
+**Чем грозит.** Первая задача, которую обещает README, на новом репозитории останавливается на проверке без пути вперёд.
+
+**Замер до** (`b5721b9`; tarball из рабочего дерева через реестр на одну запись, `node:24-bookworm`, пользователь `node`;
+`npx --yes @stonebridgeway/ai-dev-system setup --yes`, затем MCP-клиент на записи, которую setup записал в
+`~/.cursor/mcp.json`; репозиторий `~/Dev/my-project` с `npm test`; `p14/final/first-task.mjs`):
+
+```
+begin_task unknowns: ["Acceptance criteria were not supplied; confirm observable completion conditions."]
+complete_task before verify_task: refused — Task has unresolved acceptance criteria: AC-2
+verify_task: passed false; checks quality_gate=unavailable, change_hygiene=warn, security_scan=unchecked
+verification detail: [{"type":"quality_gate","status":"unavailable","detail":{"output":"Quality gate file not found:
+  /home/node/Dev/my-project/.ai-dev/quality-gate.md"}}, …]
+FAILED: complete_task: The latest verification (…) failed. Fix the problem and run verify_task again.
+```
+
+**Как закроется.** Отсутствующая проверка проекта называет следующий шаг: `verify_task` кладёт в проверку подсказку
+(`prepare_project`, затем снова `verify_task`), она доходит до `detail.hint` записи проверки; `begin_task` пишет то же в
+`context_unknowns`. С `prepare_project` первая задача на том же репозитории проходит до `complete_task`.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

@@ -14838,6 +14838,281 @@ AI_DEV_INSTALLER_IMAGE=ai-dev-system:local sh ./bootstrap.sh --image ai-dev-syst
 
 ---
 
+## Д-419. `bootstrap.ps1` печатает предупреждение об устаревшем образе после последней строки; запись Д-415 это отрицает
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью документации: must-fix 1 — по правилу «запись закрытия
+утверждает неправду»; для человека — косметика); код — `496cb83`.
+
+`bootstrap.ps1:224-230` печатает концовку, а `:231-233` — `Write-Warning "Installed from a stale image…"` уже после неё;
+`bootstrap.sh` печатает строку об устаревшем образе раньше (`:596-597`), а концовку последней. Закрытие Д-415 («Оба скрипта
+кончают одной из трёх фраз»), INSTALL EN/RU шаг 3 и CHANGELOG (`:692-699`) говорят о последней строке обоих скриптов — и это
+неверно для документированной команды до публикации на Windows (`-Image ai-dev-system:local -AllowStaleImage`, INSTALL `:258`,
+TEST-PLAN W6).
+
+**Замер до** (`8f497ab`; ревью, `p14/r4/docs/ps-stale.stdout`; заглушка docker контракта, `PULL=fail`):
+
+```
+pwsh -File bootstrap.ps1 -Image ai-dev-system:local -AllowStaleImage -SkipSmoke   → exit 0, последние строки:
+  AI Dev is ready. Restart the AI clients to load ai-dev.
+  WARNING: Installed from a stale image. Registry pull failed. …
+sh ./bootstrap.sh в том же случае → последняя строка «AI Dev is ready. Restart the AI clients to load ai-dev.»
+```
+
+**Как закроется.** Предупреждение — до концовки, как в `bootstrap.sh`; случай устаревшего образа — в тесте контракта.
+
+---
+
+## Д-420. `list_policy_rules` называет пример правила, записанного выключенным, «больше не совпадающим»
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью документации: should-fix 2); код — `496cb83` (Д-413).
+
+С Д-413 правило, записанное выключенным, хранится без проверки примера. `list_policy_rules` сопоставляет его всё равно и,
+когда пример не совпадает, пишет «The example stored with the rule no longer matches: the pattern was narrowed, or the
+example was edited.» и считает правило в `broken` — хотя ни правки руками, ни сужения не было: пример не совпадал никогда.
+GUARDRAILS EN/RU (`:178-181`) обещают, что список показывает «правило, обезвреженное ручной правкой».
+
+**Замер до** (`8f497ab`; ревью, `p14/r4/docs/off-rule.out`):
+
+```
+upsert {id:"r4-off", pattern:"terraform destroy", example:"terraform plan", enabled:false} → created, fires_on_example: null
+list r4-off → enabled: false, fires_on_example: false, problems: ["The example stored with the rule no longer matches:
+  the pattern was narrowed, or the example was edited."]; counts … "broken": 1
+switch on r4-off → refused: Rule "r4-off" does not match its own example. …
+```
+
+**Как закроется.** Для выключенного правила — свои слова: пример не совпадает, и включить правило не дадут, пока его не
+поправят (то же — о контрпримере); GUARDRAILS EN/RU — так же.
+
+---
+
+## Д-421. Мелочи четвёртого ревью документации фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью документации: мелочи 3–9).
+
+**Замер до** (`8f497ab`; ревью, `p14/r4/docs/`):
+
+1. Подсказка `bootstrap.ps1` «-Clients cursor,vscode,…», набранная в PowerShell, падает: `pwsh -Command './bootstrap.ps1
+   -Plan -Clients cursor,vscode'` → «Cannot process argument transformation on parameter 'Clients'…», exit 1; в кавычках
+   (`-Clients "cursor,vscode"`) — работает (`ps-clients-forms.out`); цитата — CHANGELOG `:695-697`, DEFECTS.
+2. «Restart the AI clients» печатается и тогда, когда ничего не записано: `bootstrap.sh` только с `~/.claude.json` без CLI
+   `claude` печатает команду `claude mcp add-json` и «AI Dev is ready. Restart…»; повтор `bootstrap.ps1` с «Cursor
+   unchanged» — то же (`sh-endings.out`); комментарий `bootstrap.sh:603`, запись Д-415 и CHANGELOG `:693` говорят «после
+   записи».
+3. CHANGELOG `:1693-1704`: «refuses to store a pattern or an example it could not try» и «writes a rule with an example only
+   once it was seen to fire on it» неверны для правила, выключенного после правки (следующая фраза — исключение); «Both
+   copies, `src/core/regex-budget.mjs` and `hooks/lib.mjs`» теперь стоит после фразы о `upsert_policy_rule`.
+4. Команды пути назад (INSTALL `:213`, RU `:212`; MIGRATION `:195`, RU `:193`; TEST-PLAN L5) без папок, которых те же
+   документы требуют при каждом запуске: как написаны — `~/AI-Dev-Projects` и без `/models` (замер Д-416).
+5. Пример MIGRATION `:110` (EN/RU) называет обе папки: без папки модели на хосте — «Model path does not exist:
+   $HOME/.ai-dev/models», exit 64 (заглушка docker); у 2.x по умолчанию папки модели не было.
+6. `clients --help` (`clients.mjs:43-44`): «less any ai-dev entry the install replaced» — уже, чем документы, описание
+   `clients_remove` и закрытие Д-416 («ai-dev or ai-dev-system»).
+7. Закрытие Д-416, «Замер после»: «новые — 7 (п. 1)» под заголовком `496cb83`; на `8f497ab` счётчик ревью 3 даёт 8 (ещё
+   `ARCHITECTURE.md:863` из `af8ee87`).
+
+**Как закроется.** Подсказка `-Clients "cursor,vscode,…"`; слова о концовке — «когда были клиенты, которым писать»; CHANGELOG
+— «a rule that is on», «Both copies» — к фразе о бюджете; путь назад — с теми же `--project-path`/`--model-path`; пример
+MIGRATION — `--model-path`, только если он был; справка — «ai-dev or ai-dev-system»; счёт — 8.
+
+---
+
+## Д-422. Ворота пропускают `export * as "cp" from "node:child_process"`: поиск `from` назад останавливается на строке (регрессия Д-412)
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью ворот: must-fix 1); регрессия `af8ee87` (Д-412). Отчёт ревью ворот оборвался на п. 2 (сбой API на стороне агента); остальное восстановлено по его пробам — `p14/r4/gate/probes/final.mjs`, `fn1.mjs` … `fn9.mjs`, `untested.mjs`, `mut-extra.txt` — и перепроверено ведущим.
+
+ES2022 разрешает строку после `as`: `export * as "cp" from …`. Обход назад от `from` (`forbidden-calls.mjs:161-166`) проходит
+только имена, `,`, `*` и `{ … }` — на строке он останавливается, предложение не находится, и находка «as a whole (export * from
+it)» не срабатывает; `22fbd78` её давал. Заголовок, AGENTS.md (`:111`), ARCHITECTURE (`:979-980`) и CHANGELOG (`:1712`)
+обещают её. Запись Д-412 к тому же говорит «одну `{ … }`», а цикл проходит любое их число.
+
+**Замер до** (`9095164`; ревью, `probes/final.mjs`; конец в конец — `node run/esm/use.mjs`, `repo-e2e`):
+
+```
+export * as "cp" from "node:child_process"        9095164 []   22fbd78 [child_process.exec@1]
+export * as "default" from …                       9095164 []   22fbd78 [child_process.exec@1]
+export * as cp from … (контроль)                   9095164 [child_process.exec@1]
+import { "cp" as cp } from "./reexport.mjs" → «exec reachable through export * as "cp": function»
+src/core/zz-r4-export-star.mjs в дереве: static-quality "status": "passed" (547 файлов); с воротами 22fbd78 — находка
+```
+
+**Как закроется.** Обход проходит и строку после `as`; запись — в тесте; запись Д-412 — по коду.
+
+---
+
+## Д-423. Ворота читают объявление после `return`, `yield`, `x++` или `async` с переводом строки как выражение: `eval` за ним проходит (регрессия Д-410)
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью ворот: must-fix 2); регрессия `af8ee87` (Д-410). Отчёт ревью ворот оборвался на п. 2 (сбой API на стороне агента); остальное восстановлено по его пробам — `p14/r4/gate/probes/final.mjs`, `fn1.mjs` … `fn9.mjs`, `untested.mjs`, `mut-extra.txt` — и перепроверено ведущим.
+
+Тело `class`/`function` «в позиции значения» решается по токену перед ключевым словом (`code-tokens.mjs:131-134`). После
+`return` и `yield` с переводом строки (ограниченные продукции: точка с запятой вставляется), после постфиксного `++`/`--` и
+после `async`, за которым перевод строки, следующая строка начинает инструкцию — объявление, а ворота считают его выражением:
+`/` после его `}` — деление, регулярное выражение с обратной кавычкой открывает шаблон до конца файла, `eval` за ним не
+виден; честный код получает `unread`. Тем же путём `x++⏎{ … }` и `yield⏎{ … }` — блок, а не литерал объекта.
+
+**Замер до** (`9095164`; ревью, `probes/final.mjs`, `fn2.mjs`; Node исполняет все):
+
+```
+if (ready) return⏎function inner() {}⏎/`/.test(s); eval(…)     9095164 []   22fbd78 [eval@5]
+yield⏎function …, n++⏎class A {}⏎/`/…, x = async⏎function f() {}⏎/`/…   9095164 [] ×3   22fbd78 [eval@5] ×3
+честный n-honest.mjs (return false⏎…; return⏎function inner() {}⏎/`/.test(s))   9095164 [unread@9]   22fbd78 []
+x++⏎{⏎  eval("1")⏎  {}⏎}  и  yield⏎{ … }                          9095164 []   22fbd78 []
+```
+
+**Как закроется.** После `return`, `yield`, постфиксного `++`/`--` на прошлой строке и после `async` на прошлой строке токен
+начинает инструкцию: `{` — блок, `class`/`function` — объявление. Тесты — каждый случай и честный файл.
+
+---
+
+## Д-424. Ворота обещают больше, чем делают: цепочки присваиваний, `export const`, член глобального по члену глобального, вложенные тела
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью ворот: should-fix 3, 5–9); было и до `af8ee87`, но тексты
+этого раунда обещают иное («plain re-binding … above or below», «the module object exported whole», «a computed member of a
+global … unless the key is one plain string», «a class or function expression's `}`»). Отчёт ревью ворот оборвался на п. 2 (сбой API на стороне агента); остальное восстановлено по его пробам — `p14/r4/gate/probes/final.mjs`, `fn1.mjs` … `fn9.mjs`, `untested.mjs`, `mut-extra.txt` — и перепроверено ведущим.
+
+**Замер до** (`9095164`; ревью, `probes/fn*.mjs`; в скобках — `22fbd78`):
+
+```
+let a = b = cp; a.exec выше                  []   ([])      const a = (b = cp); a.exec       []   ([])
+const g = h = globalThis; g[k]               []   ([])      [a = cp] = []; a.exec выше       []   ([])
+export const run = cp | export let run = require(…) | export const run = await import(…) | … getBuiltinModule(…)   [] ×4
+globalThis[globalThis.k]("1") | window[window.k](…) | globalThis[self.k](…)   [] ×3   (globalThis[k] → global-member)
+const g = (0, globalThis).globalThis; g[k] | const g = (globalThis).window; g[k]   [] ×2
+class extends f(function () {}) {} / 2; eval(…) | function (a = function () {}) {} / 2; eval(…)   [] ×2 (одно место под тело)
+a + + /`/.test(s); eval(…)  (бинарный плюс и унарный, не «a++»)   []      const of = 10; of / 2; eval(…)  []
+```
+
+**Как закроется.** Цепочка присваиваний и присваивание в скобках идут в очередь, `]` кончает значение; `export
+const|let|var` с модулем — отдача модуля; ключ глобального, который сам член глобального, — не одна строка; члены после
+скобок (`(0, globalThis).globalThis`) прослеживаются; места под тела — стек по глубине; `+ +` с пробелом — не постфикс;
+`of` — ключевое слово только в заголовке `for`. Тесты — каждая запись.
+
+---
+
+## Д-425. Код Д-409 и Д-410 держат не все тесты: 10 из 14 мутантов ревью выживают
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью ворот: восстановлено по `mut-extra.txt`, `probes/untested.mjs`);
+код — `af8ee87`. Отчёт ревью ворот оборвался на п. 2 (сбой API на стороне агента); остальное восстановлено по его пробам — `p14/r4/gate/probes/final.mjs`, `fn1.mjs` … `fn9.mjs`, `untested.mjs`, `mut-extra.txt` — и перепроверено ведущим.
+
+**Замер до** (`9095164`; ревью, `p14/r4/gate/mut-extra.txt`):
+
+```
+SURVIVED  body: async function expression not looked past      SURVIVED  body: a class right after ${ not an expression
+SURVIVED  body: ':' / ',' / ';' / '}' does not end it (×4)     SURVIVED  body: depth not compared
+SURVIVED  ( and [ hold statements                               SURVIVED  plainValue: parentheses need not close after the name
+SURVIVED  plainValue: await inside a list not passed            4 of 14 killed
+```
+
+**Как закроется.** Тест на каждый: `async function () {} / 2`, `${class {} / 2}`, ключи `class:` с литералом после `:`, `,`,
+`;`, `}`, функция с параметрами, `(`/`[` без инструкций, `(cp).x`, `const x = (0, await cp)`; прогон мутантов — все убиты.
+
+---
+
+## Д-426. Мелочи четвёртого ревью ворот: другие записи `require` и `getBuiltinModule`, `this.cp`, шаблон с глобальным
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью ворот: мелочи 10–12; восстановлено по `probes/fn1.mjs`). Отчёт ревью ворот оборвался на п. 2 (сбой API на стороне агента); остальное восстановлено по его пробам — `p14/r4/gate/probes/final.mjs`, `fn1.mjs` … `fn9.mjs`, `untested.mjs`, `mut-extra.txt` — и перепроверено ведущим.
+
+**Замер до** (`9095164`; ревью, `probes/fn1.mjs`; `22fbd78` — то же):
+
+```
+process["getBuiltinModule"](…) | (0, process.getBuiltinModule)(…) | process.getBuiltinModule.call(process, …)   [] ×3
+module["require"](…) | (0, require)(…) | require.call(null, …) | require(("child_process"))                     [] ×4
+this.cp = cp (CommonJS) | (module.exports).cp = cp | { globalThis: g } = globalThis                            [] ×3
+```
+
+**Как закроется.** Вызов `require`/`getBuiltinModule` через `["…"]`, `(0, …)`, `.call`/`.apply` и строка модуля в скобках —
+то же, что прямой вызов; остальное (`this.cp`, голова в скобках, шаблон с глобальным) — названо за границей ворот.
+
+---
+
+## Д-427. `clients doctor` называет рабочие записи нечитаемыми: `--mount` с пробелом впереди и записи старых CLI Docker (регрессия Д-417)
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью кода: must-fix 1); регрессия `496cb83` (Д-417.7).
+
+`parseMount` принимает ровно грамматику Docker 29.8.2, и всё вне её doctor называет «cannot be read: Docker refuses the whole
+command over it» — и запись не запускает. Docker же исполняет: (а) значение с пробелом впереди — Docker 29 обрезает значение
+целиком до чтения CSV, а продукт читает ключ `" type"`; (б) записи, которые принимают CLI 24, 27.5 (`docker.io` Ubuntu 24.04)
+и 28.5, но не 29: `readonly=TRUE`, `ro=True`, `ro=t`, `bind-nonrecursive`, `volume-nocopy=TRUE`. На `9095164` doctor
+запускал такие записи и говорил «ok». Неверны закрытие Д-417.7 и CHANGELOG `:1752-1753`.
+
+**Замер до** (`8f497ab`; ревью, `p14/r4/code/probes/`):
+
+```
+запись с " type=volume,source=r4c-ws,target=/data": docker сам — exit 0, initialize — да
+  9095164: doctor exit 0: Cursor ok — ai-dev-system 2.0.0 answered in 1302 ms
+  8f497ab: doctor exit 1: Cursor FAILED — its --mount " type=volume,…" cannot be read: Docker refuses the whole command …
+запись с …,target=/models,readonly=TRUE и docker = CLI 27.5: запуск — exit 0; 9095164 — ok; 8f497ab — FAILED «cannot be read»
+docker create --mount <v>: 24.0.9, 27.5.1, 28.5.2 — exit 0 для каждой записи из (б); 29.8.2 — exit 125
+```
+
+**Как закроется.** Значение обрезается, как у Docker; по своей грамматике doctor не выносит приговора: запись с непонятым
+`--mount` запускается, и «cannot be read» говорится, только если запуск не удался. Тесты — `" type=…"` и `readonly=TRUE`.
+
+---
+
+## Д-428. `bootstrap.ps1` не пишет ни одного клиента и не говорит почему, когда конфиг одного клиента испорчен (регрессия Д-415)
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью кода: must-fix 2); регрессия `496cb83` (Д-415).
+
+Пробный прогон установщика (`--dry-run --json`) выходит с кодом 1, когда конфиг одного клиента не читается, и скрипт бросает
+«Writing the client configs failed (exit code 1).» до записи: JSON с именем клиента и причиной лежит в `$planned` и не
+показывается, здоровые клиенты не пишутся. INSTALL `:161` («Every client found here gets an entry») и договор `installServer`
+(сбой одного клиента не останавливает остальных) нарушены; `9095164` писал здоровых и называл сломанного. Не покрыты тестом:
+сломанный сосед и уже настроенный клиент (мутант `-ne "skipped"` → `-like "would-*"` проходит 32 теста контракта).
+
+**Замер до** (`8f497ab`; ревью, `p14/r4/code/probes/ps/run-ps.sh`, pwsh 7.6, заглушка docker; дом с `~/.cursor` и
+`mcp.json` VS Code `{ "servers": { broken`):
+
+```
+8f497ab: Exception: …bootstrap.ps1:198 … Writing the client configs failed (exit code 1).  exit=1; ~/.cursor пуст
+9095164: Cursor added ~/.cursor/mcp.json; VS Code FAILED …: line 1, column 16: expected a "quoted" member name; затем throw
+пробный прогон сам: cursor: would-add, vscode: failed (line 1, column 16 …), exit 1
+```
+
+**Как закроется.** «Клиента нет» — только когда пробный прогон вышел с 0 и в нём нет клиента со статусом не `skipped`; иначе
+настоящая установка, как раньше. Тесты контракта — сломанный сосед и повтор с уже настроенным клиентом.
+
+---
+
+## Д-429. Совет `clients doctor` «which makes the folder» не выполняется, когда родителя папки не сделать
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью кода: should-fix 3); код — `496cb83` (Д-414.3).
+
+Исправление Д-414.3 узнаёт только папку, которая сама — ссылка в никуда. Папка под такой ссылкой и папка на отключённом диске
+под точкой монтирования, принадлежащей root (главный случай «диска нет»), получают «write the entries again, which makes the
+folder» — и команда, выполненная как написана, падает. Закрытие Д-414 («совет выполняется как написан») неверно.
+
+**Замер до** (`8f497ab`; ревью, `p14/r4/code/probes/advice-mixes.mjs`, `advice-unplugged.sh`):
+
+```
+Projects-disk -> <H>/unplugged/Projects-disk: совет «… --projects=<H>/Projects-disk/Projects …» → ENOTDIR: not a directory,
+  mkdir '<H>/Projects-disk', exit 2   (то же для --state)
+uid 1000 в node:24-bookworm-slim: совет «… --projects=/mnt/External/Projects» → EACCES: permission denied, mkdir
+  '/mnt/External', exit=2
+```
+
+**Как закроется.** Когда папки нет, путь идёт вверх до ближайшего существующего предка: ссылка в никуда по дороге или предок,
+куда нельзя писать, — и совет просит другую папку (`--projects=<…>`, `--state=<…>`). Тест на каждый случай.
+
+---
+
+## Д-430. Мелочи четвёртого ревью кода фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью кода: мелочи 4–7; 4 и 7 — те же, что Д-421.1 и Д-421.2).
+
+**Замер до** (`8f497ab`; ревью, `p14/r4/code/probes/`):
+
+1. Совет на Windows теперь в одинарных кавычках (`clients.mjs:274`): их понимает только PowerShell; cmd.exe — нет, а INSTALL
+   `:731` даёт пользователям cmd команду doctor. Путь с пробелом на `9095164` печатался в `"…"`, которые читают обе оболочки;
+   теперь `'--projects=C:\Users\John Smith\AI-Dev-Projects'` (`commandword.mjs`; на настоящем cmd.exe не проверено).
+2. Совет повторяется, когда ссылками в никуда оказались обе папки (`clients.mjs:317, 321`): «in place of <folder>, as install
+   cannot make one through a link that leads nowhere» — дважды, и в команде два одинаковых `<folder>` (`advice-mixes.out`,
+   случаи 10 и 16).
+
+**Как закроется.** Двойные кавычки, если в слове нет `$` и обратной кавычки, — иначе одинарные; `<projects-folder>` и
+`<state-folder>` и причина — один раз.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

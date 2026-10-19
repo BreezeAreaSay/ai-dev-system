@@ -1718,28 +1718,33 @@ four of those arrived as upstream issues #63–#66.
   source as tokens — every escape decoded, a name ended where JavaScript ends it (a no-break space
   too), a template without substitutions read as the string it is, `?.[` as `[`, a slash told from a
   division by what stands before it (a statement head's `)`; a block's `}`, a label's or a `case`'s
-  too, but not a class or function expression's; a property named `in`) — and
+  too, but not a class or function expression's; a property named `in` or `of`), a statement begun
+  where a line break ends one (after `return`, `yield`, `x++`), a `.cjs` file's HTML-like comments
+  read as a script reads them — and
   `src/core/forbidden-calls.mjs` asks the rules of them, in the server and in `desktop/`:
   the six spellings appended to a server file and a desktop file give twelve findings, where the gate
-  passed them. It knows `process.getBuiltinModule`, the module's `default`, `.then(async …)`
-  callbacks, rest elements, plain re-binding and `??=`, parentheses and comma lists around a value
-  (`(0, globalThis)`), above the use or below it, the module handed to another file (`export *`,
-  `module.exports =`, `exports["cp"] =`), `Function` through `.call`, `.apply` and `.bind`, a global's
+  passed them. It knows `process.getBuiltinModule`, and the loaders however they are reached — by a
+  plain-string key, in parentheses, through `.call` or `.apply` — the module's `default`,
+  `.then(async …)` callbacks, rest elements, plain re-binding and `??=`, parentheses, comma lists and
+  chains of assignments around a value (`(0, globalThis)`, `a = b = cp`), above the use or below it,
+  the module handed to another file (`export *`, `export const`, `module.exports =`,
+  `exports["cp"] =`), `Function` through `.call`, `.apply` and `.bind`, a global's
   `.Function`, `.shell =`, `["shell"]:` and shell accessors; a `shell` key counts only in an object
   literal — a default value or an iterated array is one — so an import, a parameter or an argument
   named `shell` passes; and a file it cannot read to its end — a template or a comment that never
-  closes — is refused rather than passed (Д-382, Д-398, Д-399, Д-407 … Д-410). It follows the
-  module object and the global objects through plain re-binding and nothing else: a module name
-  built from parts, `createRequire`, `Reflect.get` and the module put in an object by name
-  (`module.exports = { cp }`) are past it, and said to be. Bracket pairs are worked out once, a
+  closes — is refused rather than passed (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424, Д-426).
+  It follows the module object and the global objects through plain re-binding and nothing else: a
+  module name built from parts, `createRequire`, `Reflect.get` and the module put in an object by
+  name (`module.exports = { cp }`) or on `this` are past it, and said to be. Bracket pairs are worked out once, a
   closing bracket of another kind looks only a few levels down, a `from` that begins no clause
-  stops at once, and whether a bracket is a pattern is asked once, so a file costs what its length
-  does: 5,922 dependency files are read to the end in about 15 s, a 448 kB minified line in 0.2 s,
+  stops at once, whether a bracket is a pattern is asked once, and a key in brackets is read without
+  copying them, so a file costs what its length does: 5,922 dependency files are read to the end in about 15 s, a 448 kB minified line in 0.2 s,
   where it took 10 s, and 552 kB of keys in arrays nested 4,000 deep in 0.15 s, where it took 12.8 s
   (Д-401, Д-412). A test plants a finding of each rule and each check in each folder the gate walks —
   `bin/`, `src/`, `scripts/`, `hooks/` with its shell script, the app's code, scripts, `.cjs` and
   tests — and expects exactly that set: a folder left unwalked or a rule's findings dropped fails it
-  (Д-396, Д-411).
+  (Д-396, Д-411); 76 of 77 mutants of the gate's two modules fail its tests, the one left equivalent
+  (Д-425).
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be

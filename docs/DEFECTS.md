@@ -14739,7 +14739,8 @@ TEST-PLAN W6 и L4 (`fb62d3c`). Д-403 (фаза 15) берёт обе папк�
 **Замер после** (`496cb83`; агент документов — `p14/r3fix/docs/after.md`, агент кода — `p14/r3fix/code/after.md`):
 
 ```
-старые утверждения в *.md (кроме DEFECTS и program/) — 0; новые — 7 (п. 1) и 12 (п. 2)
+старые утверждения в *.md (кроме DEFECTS и program/) — 0; новые — 8 (п. 1: 7 на `fb62d3c` и `ARCHITECTURE.md:863` из
+  `af8ee87`) и 12 (п. 2)
 clients --help: remove … less any ai-dev entry the install replaced (its backup keeps it); docs:tools:check — current
 проба: Cursor с записью другой установки → install «replaced the entry of another install» → remove «restored»;
   файл {"mcpServers":{"other":…}}, копия установки хранит ai-dev другой установки
@@ -14840,8 +14841,7 @@ AI_DEV_INSTALLER_IMAGE=ai-dev-system:local sh ./bootstrap.sh --image ai-dev-syst
 
 ## Д-419. `bootstrap.ps1` печатает предупреждение об устаревшем образе после последней строки; запись Д-415 это отрицает
 
-**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью документации: must-fix 1 — по правилу «запись закрытия
-утверждает неправду»; для человека — косметика); код — `496cb83`.
+**Статус:** закрыт фазой 14 (`f9a0702`), 2026-10-19. Нашло четвёртое независимое ревью фазы 14 (ревью документации: must-fix 1 — по правилу «запись закрытия утверждает неправду»; для человека — косметика); код — `496cb83`.
 
 `bootstrap.ps1:224-230` печатает концовку, а `:231-233` — `Write-Warning "Installed from a stale image…"` уже после неё;
 `bootstrap.sh` печатает строку об устаревшем образе раньше (`:596-597`), а концовку последней. Закрытие Д-415 («Оба скрипта
@@ -14860,11 +14860,24 @@ sh ./bootstrap.sh в том же случае → последняя строк�
 
 **Как закроется.** Предупреждение — до концовки, как в `bootstrap.sh`; случай устаревшего образа — в тесте контракта.
 
+**Как закрыто** (`f9a0702`). В `bootstrap.ps1` предупреждение об устаревшем образе — до концовки, как в `bootstrap.sh`;
+случай — в тесте контракта (последняя строка ровно концовка, предпоследняя — предупреждение).
+
+**Замер после** (`f9a0702`; агент кода, `p14/r4fix/code/after.md`):
+
+```
+pwsh -File bootstrap.ps1 -Image ai-dev-system:local -AllowStaleImage -SkipSmoke (PULL=fail) → exit 0, последние строки:
+  WARNING: Installed from a stale image. Registry pull failed. …
+  AI Dev is ready. Restart the AI clients to load ai-dev.
+sh bootstrap.sh … --allow-stale-image → «Installed from a stale image. …», затем «AI Dev is ready. Restart …»
+тест «bootstrap.ps1 from a stale image says so before its last line, as bootstrap.sh does (Д-419)» — на cb01434 падает
+```
+
 ---
 
 ## Д-420. `list_policy_rules` называет пример правила, записанного выключенным, «больше не совпадающим»
 
-**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью документации: should-fix 2); код — `496cb83` (Д-413).
+**Статус:** закрыт фазой 14 (`f9a0702`), 2026-10-19. Нашло четвёртое независимое ревью фазы 14 (ревью документации: should-fix 2); код — `496cb83` (Д-413).
 
 С Д-413 правило, записанное выключенным, хранится без проверки примера. `list_policy_rules` сопоставляет его всё равно и,
 когда пример не совпадает, пишет «The example stored with the rule no longer matches: the pattern was narrowed, or the
@@ -14883,11 +14896,25 @@ switch on r4-off → refused: Rule "r4-off" does not match its own example. …
 **Как закроется.** Для выключенного правила — свои слова: пример не совпадает, и включить правило не дадут, пока его не
 поправят (то же — о контрпримере); GUARDRAILS EN/RU — так же.
 
+**Как закрыто** (`f9a0702`). У выключенного правила `list_policy_rules` говорит, что пример не совпадает с шаблоном (или
+контрпример совпадает) и включить правило не дадут, пока шаблон или образец не исправят; у включённого — прежние слова;
+счёт `broken` прежний. GUARDRAILS EN/RU и описание `list_policy_rules` — так же.
+
+**Замер после** (`f9a0702`; агент кода, `p14/r4fix/code/after.md`; проба ревью `off-rule.mjs`):
+
+```
+list r4-off enabled: false fires_on_example: false problems: ["The example stored with the rule does not match its
+  pattern: switching the rule on is refused until the pattern or the example is fixed."]; "broken": 1
+switch on r4-off → refused: Rule "r4-off" does not match its own example. …
+тест «a rule that is off with a sample that answers against it is listed as one that cannot be switched on, not as one
+  an edit disarmed (Д-420)» — на cb01434 падает
+```
+
 ---
 
 ## Д-421. Мелочи четвёртого ревью документации фазы 14
 
-**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью документации: мелочи 3–9).
+**Статус:** закрыт фазой 14 (`f9a0702`), 2026-10-19. Нашло четвёртое независимое ревью фазы 14 (ревью документации: мелочи 3–9).
 
 **Замер до** (`8f497ab`; ревью, `p14/r4/docs/`):
 
@@ -14913,6 +14940,23 @@ switch on r4-off → refused: Rule "r4-off" does not match its own example. …
 **Как закроется.** Подсказка `-Clients "cursor,vscode,…"`; слова о концовке — «когда были клиенты, которым писать»; CHANGELOG
 — «a rule that is on», «Both copies» — к фразе о бюджете; путь назад — с теми же `--project-path`/`--model-path`; пример
 MIGRATION — `--model-path`, только если он был; справка — «ai-dev or ai-dev-system»; счёт — 8.
+
+**Как закрыто** (`f9a0702`; п. 7 — эта запись). 1) Подсказка `bootstrap.ps1` — `-Clients "cursor,vscode,…"`. 2) Строка о
+перезапуске — «когда были клиенты, которым писать: записаны, уже настроены или запись Claude Code напечатана» —
+комментарии обоих скриптов и CHANGELOG; три концовки прежние. 3) CHANGELOG: «for a rule that is on» в обоих местах, «in
+both copies» — к фразе о бюджете. 4) Путь назад — с теми же `--project-path`/`--model-path`: INSTALL EN/RU, MIGRATION
+EN/RU, TEST-PLAN L5, `docker/README.md`. 5) Пример MIGRATION — `--model-path`, только если в записях была папка модели
+(«bootstrap refuses one that is not there (exit 64)»). 6) `clients --help` — «less any ai-dev or ai-dev-system entry the
+install replaced». 7) Счёт в закрытии Д-416 — 8.
+
+**Замер после** (`f9a0702`; агент кода, `p14/r4fix/code/after.md`):
+
+```
+pwsh -Command './bootstrap.ps1 -Plan -Clients "cursor,vscode"' → "clients": "cursor,vscode"; тест набирает подсказку как
+  напечатана — работает, без кавычек — отказ PowerShell
+node bin/ai-dev.mjs clients --help → remove … less any ai-dev or ai-dev-system / entry the install replaced (its backup keeps it)
+grep «after writing them», «less a 2.x entry» в *.md — 0
+```
 
 ---
 
@@ -15105,7 +15149,7 @@ this.cp = cp | (module.exports).cp = cp | { globalThis: g } = globalThis   [] �
 
 ## Д-427. `clients doctor` называет рабочие записи нечитаемыми: `--mount` с пробелом впереди и записи старых CLI Docker (регрессия Д-417)
 
-**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью кода: must-fix 1); регрессия `496cb83` (Д-417.7).
+**Статус:** закрыт фазой 14 (`f9a0702`), 2026-10-19. Нашло четвёртое независимое ревью фазы 14 (ревью кода: must-fix 1); регрессия `496cb83` (Д-417.7).
 
 `parseMount` принимает ровно грамматику Docker 29.8.2, и всё вне её doctor называет «cannot be read: Docker refuses the whole
 command over it» — и запись не запускает. Docker же исполняет: (а) значение с пробелом впереди — Docker 29 обрезает значение
@@ -15126,11 +15170,29 @@ docker create --mount <v>: 24.0.9, 27.5.1, 28.5.2 — exit 0 для каждой
 **Как закроется.** Значение обрезается, как у Docker; по своей грамматике doctor не выносит приговора: запись с непонятым
 `--mount` запускается, и «cannot be read» говорится, только если запуск не удался. Тесты — `" type=…"` и `readonly=TRUE`.
 
+**Как закрыто** (`f9a0702`). Значение `--mount` обрезается, как Go `strings.TrimSpace` (как Docker 29), а ключ или значение
+с пробелом по краю внутри — нечитаемо (как Docker 29). `clients doctor` не выносит приговора по своей грамматике: запись с
+нечитаемым `--mount` запускается, и `--mount` называется вероятной причиной — после слов самого Docker — только если запуск
+не удался. `errorLine` (`mcp-client-check.mjs`) не принимает за ошибку хвосты справки CLI Docker («Usage: docker …», «See
+'… --help'.», «Run '… --help' for more information»), а длинную строку режет посередине — причина Docker стоит в конце.
+CHANGELOG — по коду.
+
+**Замер после** (`f9a0702`; агент кода, `p14/r4fix/code/after.md`; Docker 29.8.2):
+
+```
+запись с " type=volume,source=r4f-ws,target=/data":   doctor exit 0: Cursor ok — … answered in 1261 ms   (cb01434: FAILED «cannot be read»)
+запись с …readonly=TRUE и docker = CLI 27.5.1:         doctor exit 0: Cursor ok                            (cb01434: FAILED)
+запись, которую Docker 29 отвергает (readonly=TRUE, bogus=1): FAILED — it exited with code 125 before answering: invalid
+  argument "…" for "--mount" flag: … Its --mount "…" is the likely cause, one Docker 29 cannot read: correct it in ~/.cursor/mcp.json.
+ws-shapes: 9 из 9 совпадают с Docker 29 (до — 5 расхождений); mount-shapes (52): расхождений 2 (до 4), оба — запись
+  запускается, и doctor передаёт слова Docker
+```
+
 ---
 
 ## Д-428. `bootstrap.ps1` не пишет ни одного клиента и не говорит почему, когда конфиг одного клиента испорчен (регрессия Д-415)
 
-**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью кода: must-fix 2); регрессия `496cb83` (Д-415).
+**Статус:** закрыт фазой 14 (`f9a0702`), 2026-10-19. Нашло четвёртое независимое ревью фазы 14 (ревью кода: must-fix 2); регрессия `496cb83` (Д-415).
 
 Пробный прогон установщика (`--dry-run --json`) выходит с кодом 1, когда конфиг одного клиента не читается, и скрипт бросает
 «Writing the client configs failed (exit code 1).» до записи: JSON с именем клиента и причиной лежит в `$planned` и не
@@ -15150,11 +15212,26 @@ docker create --mount <v>: 24.0.9, 27.5.1, 28.5.2 — exit 0 для каждой
 **Как закроется.** «Клиента нет» — только когда пробный прогон вышел с 0 и в нём нет клиента со статусом не `skipped`; иначе
 настоящая установка, как раньше. Тесты контракта — сломанный сосед и повтор с уже настроенным клиентом.
 
+**Как закрыто** (`f9a0702`). «Клиента нет» — только когда пробный прогон вышел с 0, его JSON прочитан и в нём нет клиента
+со статусом не `skipped`; иначе — настоящая установка, как до `496cb83`: пишет здоровых, называет сломанного, её код выхода
+решает. stderr пробного прогона выброшен (`Invoke-Native`): то же скажет установка.
+
+**Замер после** (`f9a0702`; агент кода, `p14/r4fix/code/after.md`; pwsh 7, заглушка docker; `~/.cursor` и сломанный `mcp.json` VS Code):
+
+```
+Cursor added ~/.cursor/mcp.json; VS Code FAILED …: line 1, column 16: expected a "quoted" member name;
+1 changed, 0 unchanged, 1 failed. … Exception: … Writing the client configs failed (exit code 1). exit=1
+повтор (VS Code убран, Cursor настроен): Cursor unchanged; No changes …; AI Dev is ready. Restart … exit=0
+  (cb01434: Exception до записи, ~/.cursor пуст)
+тест «bootstrap.ps1 writes the clients it can when one client's config is broken, names that one and fails; run again, a
+  client already current is not one missing (Д-428)»; мутант ревью `-ne "skipped"` → `-like "would-*"` — убит
+```
+
 ---
 
 ## Д-429. Совет `clients doctor` «which makes the folder» не выполняется, когда родителя папки не сделать
 
-**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью кода: should-fix 3); код — `496cb83` (Д-414.3).
+**Статус:** закрыт фазой 14 (`f9a0702`), 2026-10-19. Нашло четвёртое независимое ревью фазы 14 (ревью кода: should-fix 3); код — `496cb83` (Д-414.3).
 
 Исправление Д-414.3 узнаёт только папку, которая сама — ссылка в никуда. Папка под такой ссылкой и папка на отключённом диске
 под точкой монтирования, принадлежащей root (главный случай «диска нет»), получают «write the entries again, which makes the
@@ -15172,11 +15249,24 @@ uid 1000 в node:24-bookworm-slim: совет «… --projects=/mnt/External/Pro
 **Как закроется.** Когда папки нет, путь идёт вверх до ближайшего существующего предка: ссылка в никуда по дороге или предок,
 куда нельзя писать, — и совет просит другую папку (`--projects=<…>`, `--state=<…>`). Тест на каждый случай.
 
+**Как закрыто** (`f9a0702`). Для пропавшей папки, которая сама не ссылка, `missingBindSources` идёт вверх до ближайшей
+существующей: ссылка в никуда или файл по дороге, или папка, куда этому пользователю нельзя писать (`accessSync` W_OK), —
+и совет просит другую папку и говорит почему.
+
+**Замер после** (`f9a0702`; агент кода, `p14/r4fix/code/after.md`):
+
+```
+advice-mixes: совет, выполненный как написан (заполнитель → папка), — exit 0 в 16 из 16 (до — 14; случаи 14, 15 — ENOTDIR)
+uid 1000 в node:24-bookworm-slim: /mnt/External/Projects → «… as install cannot make one in /mnt, which you may not write
+  to: `… '--projects=<projects-folder>'`»; выполнен с другой папкой → Cursor updated, exit=0  (до: EACCES mkdir, exit=2)
+папка под ссылкой в никуда → «… through /tmp/h-link/work, a link that leads nowhere …» → выполнен → exit=0 (до: ENOTDIR)
+```
+
 ---
 
 ## Д-430. Мелочи четвёртого ревью кода фазы 14
 
-**Статус:** открыт. Закроет фаза 14. Нашло четвёртое независимое ревью фазы 14 (ревью кода: мелочи 4–7; 4 и 7 — те же, что Д-421.1 и Д-421.2).
+**Статус:** закрыт фазой 14 (`f9a0702`), 2026-10-19. Нашло четвёртое независимое ревью фазы 14 (ревью кода: мелочи 4–7; 4 и 7 — те же, что Д-421.1 и Д-421.2).
 
 **Замер до** (`8f497ab`; ревью, `p14/r4/code/probes/`):
 
@@ -15189,6 +15279,20 @@ uid 1000 в node:24-bookworm-slim: совет «… --projects=/mnt/External/Pro
 
 **Как закроется.** Двойные кавычки, если в слове нет `$` и обратной кавычки, — иначе одинарные; `<projects-folder>` и
 `<state-folder>` и причина — один раз.
+
+**Как закрыто** (`f9a0702`). 1) На Windows совет — в двойных кавычках, которые читают и cmd.exe, и PowerShell; одинарные
+PowerShell — только для слова с `$`, обратной кавычкой или двойной кавычкой (и типографской). 2) Заполнители
+`<projects-folder>` и `<state-folder>`, общая причина — один раз.
+
+**Замер после** (`f9a0702`; агент кода, `p14/r4fix/code/after.md`):
+
+```
+"--projects=C:\Users\John Smith\AI-Dev-Projects" (win32) → "--projects=C:\Users\John Smith\AI-Dev-Projects"; с $ → '…'
+  тест: 11 слов, настоящий pwsh читает каждое назад как было (cmd.exe здесь нет — не проверен)
+обе папки — ссылки в никуда: «… with another projects folder and another state folder in place of <projects-folder> and
+  <state-folder>, as install cannot make either through a link that leads nowhere: `… '--projects=<projects-folder>'
+  '--state=<state-folder>' …`» — причина один раз
+```
 
 ---
 

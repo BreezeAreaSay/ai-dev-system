@@ -73,22 +73,40 @@ const assignedAt = (tokens, index) => (logicalAssignment(tokens, index) ? index 
  * that is a default value (`options = { … }`) or what is iterated
  * (`of [{ … }]`) is a value, not a pattern.
  */
+// What isPattern answered for each bracket of a token array: a key deep in nested brackets climbs them once (Д-412).
+const PATTERNS = new WeakMap();
 function isPattern(tokens, open) {
+  if (!PATTERNS.has(tokens)) PATTERNS.set(tokens, new Map());
+  const known = PATTERNS.get(tokens);
+  // Each bracket the climb passes has the answer of the one it ends at.
+  const climbed = [];
+  let answer = false;
   for (let at = open; ;) {
+    if (known.has(at)) {
+      answer = known.get(at);
+      break;
+    }
+    climbed.push(at);
     const end = closing(tokens, at);
-    if (end < 0) return false;
-    if (assigns(tokens, end + 1) || isName(tokens[end + 1], "of") || isName(tokens[end + 1], "in")) return true;
-    if (assigns(tokens, at - 1) || isName(tokens[at - 1], "of") || isName(tokens[at - 1], "in")) return false;
+    if (end < 0) break;
+    if (assigns(tokens, end + 1) || isName(tokens[end + 1], "of") || isName(tokens[end + 1], "in")) {
+      answer = true;
+      break;
+    }
+    if (assigns(tokens, at - 1) || isName(tokens[at - 1], "of") || isName(tokens[at - 1], "in")) break;
     const outer = enclosing(tokens, at);
-    if (outer < 0) return false;
+    if (outer < 0) break;
     if (isPunct(tokens[outer], "(")) {
       // `class A extends make({ … }) {}` calls `make`; a parameter list is followed by its body.
-      if (isName(tokens[outer - 2], "extends")) return false;
       const shut = closing(tokens, outer);
-      return isPunct(tokens[shut + 1], "{") || (isPunct(tokens[shut + 1], "=") && isPunct(tokens[shut + 2], ">"));
+      answer = !isName(tokens[outer - 2], "extends")
+        && (isPunct(tokens[shut + 1], "{") || (isPunct(tokens[shut + 1], "=") && isPunct(tokens[shut + 2], ">")));
+      break;
     }
     at = outer;
   }
+  for (const at of climbed) known.set(at, answer);
+  return answer;
 }
 
 /** Whether the token at `index` is a key or a shorthand of an object literal — not a block, a pattern or an import. */

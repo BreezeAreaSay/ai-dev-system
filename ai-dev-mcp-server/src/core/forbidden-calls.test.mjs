@@ -378,6 +378,8 @@ test("the reader stays linear on brackets left open and on a from in every line 
   assert.ok(timed(`${"[".repeat(64000)}${")".repeat(64000)}`) < 4000, "closing brackets of another kind");
   assert.ok(timed('x.from\n"child_process"\n'.repeat(16000)) < 4000, "a from that begins no clause");
   assert.ok(timed('a, b\nfrom\n"child_process"\n'.repeat(16000)) < 4000, "nor after a list");
+  // Before, 552 kB of keys in arrays nested 4000 deep took 12.8 s: each key climbed every bracket around it.
+  assert.ok(timed(`const all = ${"[".repeat(4000)}${"{ shell: false },".repeat(32000)}${"]".repeat(4000)};`) < 4000, "keys deep in brackets");
   // A closing bracket finds its own kind under a few left open, and looks no deeper than that.
   assert.equal(closing(codeTokens(`(${"[".repeat(3)})`), 0), 4);
   assert.equal(closing(codeTokens(`(${"[".repeat(100)})`), 0), -1);

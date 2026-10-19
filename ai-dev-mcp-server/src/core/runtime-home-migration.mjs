@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { explicitRuntimeHome, legacyDoubledRuntimeRoot, resolveRuntimeStateRoot, resolveUserHome } from "./runtime-home.mjs";
+import { explicitRuntimeHome, legacyDoubledRuntimeRoot, resolveRuntimeStateRoot, resolveUserHome, sameDirectory } from "./runtime-home.mjs";
 import { atomicWriteFile, atomicWriteJson, withExclusiveFile } from "./atomic-files.mjs";
 import { withFileLock } from "./file-lock.mjs";
 
@@ -58,8 +58,9 @@ export async function migrateDoubledRuntimeHome({ env = process.env, now = () =>
 }
 
 /**
- * Where 2.x kept AI Dev's data under `~/.codex`, by the variable that names each
- * place now. The runtime that came with Codex desktop kept it there, and 2.x
+ * Where 2.x kept AI Dev's data under `.codex` — `~/.codex`, or the one
+ * {@link codexRoot} names — by the variable that names each place now. The
+ * runtime that came with Codex desktop kept it there, and 2.x
  * read a `~/.codex` folder whenever its `~/.ai-dev` twin did not exist yet — so
  * the first hook, or `ai-dev clients install`, that created `~/.ai-dev/state`
  * made the server leave the Codex-era tasks and sessions behind without a word,
@@ -67,7 +68,7 @@ export async function migrateDoubledRuntimeHome({ env = process.env, now = () =>
  * these folders are AI Dev's; the rest of `~/.codex` is Codex's own and stays.
  *
  * `cache` marks what is rebuilt or checked rather than kept: the search index
- * and the model. A Codex-era copy of a file that `~/.ai-dev` already has is
+ * and the model. A Codex-era copy of a file that the runtime tree already has is
  * dropped, not a conflict for the user to settle — a binary index or half a
  * download has nothing to compare (Д-183).
  */
@@ -80,6 +81,11 @@ export const CODEX_LEGACY_FOLDERS = Object.freeze([
   { variable: "BGE_M3_ONNX_DIR", from: ["models", "bge-m3-onnx"], to: ["models", "bge-m3-onnx"], cache: true }
 ]);
 
+/** The Codex-era folders this environment looks for: a place named by its variable was never looked for in `.codex`. */
+function unnamedCodexFolders(env) {
+  return CODEX_LEGACY_FOLDERS.filter((folder) => !env[folder.variable]);
+}
+
 /**
  * The `.codex` folder 2.x read for this install: under its own `AI_DEV_HOME`
  * when one was set — 2.x took that variable for the home and looked for
@@ -87,17 +93,32 @@ export const CODEX_LEGACY_FOLDERS = Object.freeze([
  * user's `~/.codex` into any `AI_DEV_HOME` handed one install's history to
  * another, and to a demo's temporary home that is then deleted
  * (docs/DEFECTS.md, Д-389).
+ *
+ * One value of `AI_DEV_HOME` can have been either: `<home>/.ai-dev`, the runtime
+ * folder 3.0 uses by default, which client entries carry when it is exported (Д-176).
+ * A 2.x install with that variable kept its Codex-era data in
+ * `<home>/.ai-dev/.codex`, one without it in `~/.codex`; so there the first is
+ * taken when it holds any of AI Dev's folders, and the second otherwise (Д-394).
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {Promise<string>}
  */
-function codexRoot(env) {
-  return path.join(explicitRuntimeHome(env) || resolveUserHome("", env), ".codex");
+async function codexRoot(env) {
+  const home = resolveUserHome("", env);
+  const explicit = explicitRuntimeHome(env);
+  if (!explicit) return path.join(home, ".codex");
+  const own = path.join(explicit, ".codex");
+  if (!sameDirectory(explicit, path.join(home, ".ai-dev"))) return own;
+  for (const folder of unnamedCodexFolders(env)) {
+    if (await isDirectory(path.join(own, ...folder.from))) return own;
+  }
+  return path.join(home, ".codex");
 }
 
-/** The `.codex` folders of AI Dev's that this environment would read, existing or not. */
-function codexLegacyFolders(env) {
-  const codex = codexRoot(env);
+/** The `.codex` folders of AI Dev's under `codex` that this environment would read, existing or not. */
+function codexLegacyFolders(env, codex) {
   const target = resolveRuntimeStateRoot("", env);
-  // A place named by its variable was never looked for in ~/.codex.
-  return CODEX_LEGACY_FOLDERS.filter((folder) => !env[folder.variable]).map((folder) => ({
+  return unnamedCodexFolders(env).map((folder) => ({
     ...folder,
     codex,
     source: path.join(codex, ...folder.from),
@@ -106,10 +127,12 @@ function codexLegacyFolders(env) {
 }
 
 /**
- * Move AI Dev's Codex-era folders from `~/.codex` into the runtime tree, once.
- * The same rules as {@link migrateDoubledRuntimeHome}: nothing is replaced,
- * identical files are dropped, JSONL ledgers are merged, anything else on both
- * sides stays in `~/.codex` and is reported; the move is recorded.
+ * Move AI Dev's Codex-era folders into the runtime tree, once, from the
+ * `.codex` folder 2.x read for this install — `~/.codex`, or
+ * `<AI_DEV_HOME>/.codex` ({@link codexRoot}). The same rules as
+ * {@link migrateDoubledRuntimeHome}: nothing is replaced, identical files are
+ * dropped, JSONL ledgers are merged, anything else on both sides stays in that
+ * `.codex` and is reported; the move is recorded.
  *
  * @param {{ env?: NodeJS.ProcessEnv, now?: () => Date }} [options]
  * @returns {Promise<{ status: "clean"|"migrated", from?: string, to?: string, moved: number, merged: number, duplicates: number, superseded: number, conflicts: string[], errors: Array<{ path: string, code: string, message: string }> }>}
@@ -118,7 +141,7 @@ export async function migrateCodexRuntime({ env = process.env, now = () => new D
   const empty = () => ({ moved: 0, merged: 0, duplicates: 0, superseded: 0, conflicts: [], errors: [] });
   const present = async () => {
     const found = [];
-    for (const folder of codexLegacyFolders(env)) if (await isDirectory(folder.source)) found.push(folder);
+    for (const folder of codexLegacyFolders(env, await codexRoot(env))) if (await isDirectory(folder.source)) found.push(folder);
     return found;
   };
   if (!(await present()).length) return { status: "clean", ...empty() };
@@ -451,8 +474,9 @@ export function prepareRuntimeHome({ env = process.env, log = (line) => process.
     .then((result) => report(result, "AI_DEV_HOME is the runtime folder itself now"), failed("the runtime tree out of AI_DEV_HOME/.ai-dev"))
     .then(async (result) => ({
       ...result,
+      // The folder it moves from is the one 2.x read for this install, which is not always ~/.codex (Д-394, Д-397).
       codex: await migrateCodexRuntime({ env })
-        .then((codex) => report(codex, "AI Dev's data is read from ~/.ai-dev only now"), failed("AI Dev's data out of ~/.codex")),
+        .then((codex) => report(codex, "the Codex-era folder is not read any more"), async (error) => failed(`AI Dev's data out of ${await codexRoot(env)}`)(error)),
       volume: await migrateVolumeState({ env })
         .then((volume) => report(volume, "the state is the one folder the server and the hooks share"), failed("the volume's state into the host's state folder"))
     }));
@@ -486,8 +510,9 @@ export async function describeRuntimeHome({ env = process.env } = {}) {
   const raw = String(env.AI_DEV_HOME ?? "").trim();
   const legacy = legacyDoubledRuntimeRoot(env);
   const { history } = await readMigrationRecord(root, env);
+  const codex = await codexRoot(env);
   const codexFiles = [];
-  for (const folder of codexLegacyFolders(env)) {
+  for (const folder of codexLegacyFolders(env, codex)) {
     for (const file of await listFiles(folder.source, folder.codex, 50 - codexFiles.length)) codexFiles.push(file);
   }
   return {
@@ -496,7 +521,7 @@ export async function describeRuntimeHome({ env = process.env } = {}) {
     ai_dev_home_names_home: Boolean(raw) && !explicitRuntimeHome(env),
     legacy_root: legacy,
     legacy_files: legacy ? await listFiles(legacy) : [],
-    codex_root: codexRoot(env),
+    codex_root: codex,
     codex_files: codexFiles,
     last_migration: history.at(-1) ?? null
   };

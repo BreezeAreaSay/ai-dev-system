@@ -16,7 +16,15 @@ import {
   tildify,
   unsharedStateNote
 } from "../core/client-connections.mjs";
-import { DEFAULT_DOCKER_IMAGE, dockerLaunch, missingBindSources } from "../core/docker-launch.mjs";
+import {
+  CONTAINER_MODELS,
+  CONTAINER_MODEL_DIR,
+  DEFAULT_DOCKER_IMAGE,
+  DEFAULT_DOCKER_VOLUME,
+  dockerEntryOptions,
+  dockerLaunch,
+  missingBindSources
+} from "../core/docker-launch.mjs";
 import { checkServerCommand } from "../core/mcp-client-check.mjs";
 import { MCP_CLIENTS, SERVER_NAME, clientEntry, describeEntry, discoverClients, parseClientSelection, readServerEntries } from "../core/mcp-clients.mjs";
 
@@ -30,7 +38,7 @@ export function usage() {
     "",
     "  list       every supported client, whether it is installed, and what its ai-dev entry runs",
     "  install    add ai-dev to the clients (and take out ai-dev-system, the 2.x name)",
-    "  remove     take ai-dev out again; a file nothing else touched since goes back byte for byte",
+    "  remove     take ai-dev out again; an untouched file goes back as it was, less any 2.x entry",
     "  doctor     start each client's ai-dev command and check it answers initialize",
     "  entry <client>  print the entry install would write for one client, as JSON (writes nothing)",
     "",
@@ -249,6 +257,40 @@ async function remove(values, io) {
   return results.some((result) => result.status === "failed") ? EXIT.failed : EXIT.ok;
 }
 
+// One word of a command to copy into a terminal: as it is where a shell reads it so, quoted otherwise.
+function commandWord(word) {
+  if (/^[\w@%+=:,./-]+$/.test(word) || (process.platform === "win32" && /^[\w@%+=:,.\\/-]+$/.test(word))) return word;
+  return process.platform === "win32" ? `"${word}"` : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * What `clients doctor` says of a Docker entry whose mounted folder is not here
+ * (Д-385): the folder — for a link, where it leads — and what to do. The model
+ * is optional, so the entries can be written without one; a projects or state
+ * folder is one install makes again. The command it gives keeps the options the
+ * entry runs with: writing the entries again with none of them put the default
+ * image in place of the one the entry ran (docs/DEFECTS.md, Д-397).
+ */
+function missingMountError(entry, gone) {
+  const [first] = gone;
+  const options = dockerEntryOptions(entry?.args);
+  const isModel = first.target === CONTAINER_MODELS || first.target === CONTAINER_MODEL_DIR;
+  const flags = ["--docker", `--image=${options.image}`];
+  if (options.volume && options.volume !== DEFAULT_DOCKER_VOLUME) flags.push(`--volume=${options.volume}`);
+  if (options.projects) flags.push(`--projects=${options.projects}`);
+  if (options.state) flags.push(`--state=${options.state}`);
+  if (options.model && !isModel) flags.push(`--model=${options.model}`);
+  const command = ["ai-dev", "clients", "install", ...flags].map(commandWord).join(" ");
+  const what = first.leadsTo
+    ? `the folder this entry mounts at ${first.target}: ${first.source} leads to ${first.leadsTo}, which is not here`
+    : `the folder this entry mounts at ${first.target} is not here: ${first.source}`;
+  const more = gone.length > 1 ? ` (and ${gone.length - 1} more)` : "";
+  const again = isModel
+    ? `or write the entries again with another model folder (--model=<folder>) or with none, the model then the volume's: \`${command}\``
+    : `or write the entries again, which makes the folder: \`${command}\``;
+  return `${what}${more}. Docker starts no session without it: connect the disk ${first.leadsTo ? "it leads to" : "it is on"}, ${again}.`;
+}
+
 async function doctor(values, io) {
   const home = os.homedir();
   const targets = await discoverClients({ home, env: io.env });
@@ -287,8 +329,7 @@ async function doctor(values, io) {
       // error. Said as what it is, without starting it (Д-385).
       const gone = kind === "docker" ? missingBindSources(entry?.args) : [];
       if (gone.length) {
-        const [first] = gone;
-        report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: false, error: `the folder this entry mounts at ${first.target} is not here: ${first.source}${gone.length > 1 ? ` (and ${gone.length - 1} more)` : ""}. Docker starts no session without it: connect the disk it is on, or write the entries again without it (\`ai-dev clients install --docker\`).` });
+        report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: false, error: missingMountError(entry, gone) });
         continue;
       }
       const check = await checkServerCommand(entry, { timeoutMs, env: io.env });

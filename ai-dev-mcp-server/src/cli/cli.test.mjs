@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { constants as fsConstants } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -350,8 +351,73 @@ test("clients doctor names a Docker entry whose mounted folder is gone, without 
   await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: path.join(home, "no-such", "docker"), args } } }));
   const doctor = await runNode([cli, "clients", "doctor"], { env: homeEnv(home) });
   assert.equal(doctor.code, 1);
-  assert.match(doctor.stdout, new RegExp(`Cursor\\s+FAILED — the folder this entry mounts at /models/bge-m3-onnx is not here: ${away.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\. Docker starts no session without it: connect the disk it is on, or write the entries again without it`));
+  assert.match(doctor.stdout, new RegExp(`Cursor\\s+FAILED — the folder this entry mounts at /models/bge-m3-onnx is not here: ${escapeRegExp(away)}\\. Docker starts no session without it: connect the disk it is on, or write the entries again with another model folder \\(--model=<folder>\\) or with none, the model then the volume's: \`ai-dev clients install --docker --image=ai-dev-system:3\`\\.`));
   assert.doesNotMatch(doctor.stdout, /no-such/, "the entry was not started");
+});
+
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+test("clients doctor names where a gone model link leads, and its advice writes the entries again with the entry's own options (Д-397)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+  const home = await fs.realpath(await tempDir(t));
+  await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+  const projects = path.join(home, "My Projects");
+  const models = path.join(home, "models");
+  await fs.mkdir(projects, { recursive: true });
+  await fs.mkdir(models);
+  // The link is there; the disk it leads to is not.
+  const target = path.join(home, "disk2", "bge-m3-onnx-real");
+  await fs.symlink(target, path.join(models, "bge-m3-onnx"));
+  const args = ["run", "-i", "--rm", "--mount", "type=volume,source=ai-dev-system-data,target=/data",
+    "--mount", `type=bind,source=${projects},target=${projects}`,
+    "--mount", `type=bind,source=${models}/bge-m3-onnx,target=/models/bge-m3-onnx,readonly`, "ai-dev-system:p14r2"];
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: path.join(home, "no-such", "docker"), args } } }));
+  const linked = await runNode([cli, "clients", "doctor"], { env: homeEnv(home) });
+  assert.equal(linked.code, 1);
+  // The image the entry runs, not the default one; the projects folder quoted, for its space.
+  assert.ok(linked.stdout.includes(`FAILED — the folder this entry mounts at /models/bge-m3-onnx: ${models}/bge-m3-onnx leads to ${target}, which is not here. Docker starts no session without it: connect the disk it leads to, or write the entries again with another model folder (--model=<folder>) or with none, the model then the volume's: \`ai-dev clients install --docker --image=ai-dev-system:p14r2 '--projects=${projects}'\`.`), linked.stdout);
+
+  // A projects folder that went: install makes it again, so it is not one to write the entries without.
+  await fs.mkdir(target, { recursive: true });
+  await fs.rm(projects, { recursive: true });
+  const moved = await runNode([cli, "clients", "doctor"], { env: homeEnv(home) });
+  assert.equal(moved.code, 1);
+  assert.ok(moved.stdout.includes(`FAILED — the folder this entry mounts at ${projects} is not here: ${projects}. Docker starts no session without it: connect the disk it is on, or write the entries again, which makes the folder: \`ai-dev clients install --docker --image=ai-dev-system:p14r2 '--projects=${projects}' --model=${models}\`.`), moved.stdout);
+  assert.doesNotMatch(moved.stdout, /without it \(/);
+  assert.doesNotMatch(`${linked.stdout}${moved.stdout}`, /no-such/, "the entry was not started");
+});
+
+test("the note that the model is on another disk reaches the person: on stderr from clients entry --docker, in install --docker --json (Д-385, Д-395)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+  const home = await fs.realpath(await tempDir(t));
+  // The link has to lead to another filesystem than the one it is on, which a temporary folder alone does not give.
+  const device = (await fs.stat(home)).dev;
+  const candidates = ["/dev/shm", "/run/shm"];
+  let disk = "";
+  for (const candidate of candidates) {
+    const found = await fs.stat(candidate).catch(() => null);
+    if (found?.isDirectory() && found.dev !== device && await fs.access(candidate, fsConstants.W_OK).then(() => true, () => false)) {
+      disk = candidate;
+      break;
+    }
+  }
+  if (!disk) return t.skip(`no writable folder on another filesystem than ${home}'s to link the model to (tried ${candidates.join(", ")})`);
+  const elsewhere = await fs.mkdtemp(path.join(disk, "ai-dev-model-"));
+  t.after(() => fs.rm(elsewhere, { recursive: true, force: true }));
+  const models = path.join(home, "models");
+  await fs.mkdir(models);
+  await fs.symlink(elsewhere, path.join(models, "bge-m3-onnx"));
+  const note = `${path.join(models, "bge-m3-onnx")} leads to ${elsewhere}, on another disk: every session mounts it from there, so while that disk is away Docker starts no session at all — \`ai-dev clients doctor\` names the entry then.`;
+  // Sharing decided, so no Docker is asked; the record and the state stay in this home.
+  const env = homeEnv(home, { AI_DEV_STATE_ROOT: "" });
+  const flags = ["--docker", "--image=example/ai-dev:3", `--projects=${path.join(home, "p")}`, `--model=${models}`, "--shared-state=no"];
+
+  const entry = await runNode([cli, "clients", "entry", "cursor", ...flags], { env });
+  assert.equal(entry.code, 0, entry.stderr);
+  assert.ok(JSON.parse(entry.stdout).args.includes(`type=bind,source=${models}/bge-m3-onnx,target=/models/bge-m3-onnx,readonly`));
+  assert.equal(entry.stderr.trim(), note);
+
+  const install = await runNode([cli, "clients", "install", ...flags, "--clients=cursor", "--json"], { env });
+  assert.equal(install.code, 0, install.stderr);
+  assert.equal(JSON.parse(install.stdout).note, note);
 });
 
 test("setup's flags: --model, its 2.x names --dense and --dense-python, --all, --no-clients and --no-health", () => {

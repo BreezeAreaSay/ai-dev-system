@@ -308,6 +308,61 @@ test("an install with its own AI_DEV_HOME takes its Codex-era data from its own 
   assert.ok(await fs.stat(path.join(home, ".ai-dev", "state", "archify-receipts", "r.json")));
 });
 
+test("AI_DEV_HOME naming the default runtime folder takes the .codex beside it when that holds AI Dev's data, else ~/.codex (Д-394)", async (t) => {
+  // ~/.ai-dev is 3.0's own folder, and an entry carries the variable when it is exported (Д-176): a 2.x install with
+  // the same variable kept its Codex-era data in ~/.ai-dev/.codex, one without it in ~/.codex.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-default-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const runtime = path.join(home, ".ai-dev");
+  await write(path.join(home, ".codex", "state", "archify-receipts", "r1.json"), "{\"user\":1}\n");
+
+  // Nothing of AI Dev's beside it: the user's ~/.codex, said by a trailing slash as well.
+  for (const named of [runtime, `${runtime}${path.sep}`]) {
+    const info = await describeRuntimeHome({ env: { HOME: home, AI_DEV_HOME: named } });
+    assert.equal(info.codex_root, path.join(home, ".codex"), named);
+    assert.deepEqual(info.codex_files, [path.join("state", "archify-receipts", "r1.json")]);
+  }
+  const fromHome = await migrateCodexRuntime({ env: { HOME: home, AI_DEV_HOME: runtime } });
+  assert.deepEqual([fromHome.status, fromHome.moved, fromHome.from], ["migrated", 1, path.join(home, ".codex")]);
+  assert.equal(await fs.readFile(path.join(runtime, "state", "archify-receipts", "r1.json"), "utf8"), "{\"user\":1}\n");
+
+  // AI Dev's data beside it: that .codex is this install's, and ~/.codex is left as it is.
+  await write(path.join(home, ".codex", "artifacts", "archify", "a.svg"), "<svg/>");
+  await write(path.join(runtime, ".codex", "state", "ai-dev-system", "tasks", "task-1.json"), "{\"id\":\"task-1\"}\n");
+  const env = { HOME: home, AI_DEV_HOME: runtime };
+  assert.equal((await describeRuntimeHome({ env })).codex_root, path.join(runtime, ".codex"));
+  const beside = await migrateCodexRuntime({ env });
+  assert.deepEqual([beside.status, beside.moved, beside.from], ["migrated", 1, path.join(runtime, ".codex")]);
+  assert.ok(await fs.stat(path.join(runtime, "state", "tasks", "task-1.json")));
+  assert.equal(await fs.readFile(path.join(home, ".codex", "artifacts", "archify", "a.svg"), "utf8"), "<svg/>", "not in the same run");
+});
+
+test("the start log names the .codex the data moved out of, not ~/.codex (Д-397)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-log-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const own = path.join(root, "own-home");
+  const env = { HOME: home, AI_DEV_HOME: own, AI_DEV_STATE_ROOT: "" };
+  // prepareRuntimeHome runs once per process: each case loads a module of its own.
+  const lines = async (name) => {
+    const said = [];
+    const { prepareRuntimeHome: prepare } = await import(new URL(`./runtime-home-migration.mjs?${name}`, import.meta.url).href);
+    await prepare({ env, log: (line) => said.push(line) });
+    return said;
+  };
+  await write(path.join(own, ".codex", "state", "archify-receipts", "o.json"), "{}\n");
+  assert.deepEqual(await lines("moved"), [`ai-dev: moved 1 file(s) from ${path.join(own, ".codex")} to ${own} (the Codex-era folder is not read any more).`]);
+
+  // A move that fails half-way — here the record of it cannot be written — names the same folder.
+  await write(path.join(own, ".codex", "state", "archify-receipts", "p.json"), "{}\n");
+  const record = path.join(own, "state", "runtime-home-migration.json");
+  await fs.rm(record, { force: true });
+  await fs.mkdir(record);
+  const [failed] = await lines("failed");
+  assert.ok(failed.startsWith(`ai-dev: could not move AI Dev's data out of ${path.join(own, ".codex")}: `), failed);
+});
+
 test("a Codex-era index or half a download that ~/.ai-dev has its own of is dropped, not a conflict (Д-183)", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-cache-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

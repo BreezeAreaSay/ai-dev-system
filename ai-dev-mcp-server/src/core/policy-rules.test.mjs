@@ -269,7 +269,7 @@ test("a hand-edited rule that stopped working is reported instead of silently do
 });
 
 test("the rule reader answers for values it was never given", async () => {
-  assert.deepEqual(await verifyPolicyRule({}), { checked_as: "bash", fires_on_example: null, counter_example_matches: null, timed_out: false, not_checked: false, not_run: null });
+  assert.deepEqual(await verifyPolicyRule({}), { checked_as: "bash", fires_on_example: null, counter_example_matches: null, timed_out: false, not_checked: false, not_run: null, match_error: null });
   const described = await describePolicyRule(undefined);
   assert.equal(described.id, "");
   assert.equal(described.effective_action, "warn");
@@ -429,6 +429,74 @@ test("the probes ran, the example did not: the rule is still not written (Д-383
   };
   await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: RULE, match: exampleCutOff }), /its example could not be checked, because the matching ran out of the \d+ ms it gets/);
   assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), []);
+});
+
+// A worker that failed answers `checked: true` with its error (Д-384): under a process limit, EAGAIN.
+const failedMatch = { matched: null, checked: true, timed_out: false, error: "EAGAIN", truncated: false };
+const ran = (matched) => ({ matched, checked: true, timed_out: false, error: "", truncated: false });
+
+test("a match worker that failed checked nothing: the rule is not written, and a listing names the failure (Д-393)", async (t) => {
+  const root = await tempProject(t, defaultPolicy("standard"));
+  const nothingWritten = async () => assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), [], "nothing was written");
+
+  // The probes of the pattern's cost.
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: RULE, match: async (jobs) => jobs.map(() => failedMatch) }),
+    /^Error: Rule "block-force-push" was not written: its pattern could not be checked, because the match worker failed \(EAGAIN\)\. Nothing here says the pattern is wrong; try again once the server can start a worker thread\.$/
+  );
+  await nothingWritten();
+
+  // The probes answered; the worker failed on the example, then on the counter-example alone.
+  for (const [sample, answers] of [["example", [failedMatch, failedMatch]], ["counter-example", [ran(true), failedMatch]]]) {
+    let call = 0;
+    const match = async (jobs) => (++call === 1 ? jobs.map(() => ran(false)) : answers);
+    await assert.rejects(
+      upsertPolicyRule({ projectRoot: root, rule: RULE, match }),
+      new RegExp(`^Error: Rule "block-force-push" was not written: its ${sample} could not be checked, because the match worker failed \\(EAGAIN\\)\\. Nothing here says the rule is wrong`)
+    );
+    assert.equal(call, 2, "the probes were asked, then the samples");
+    await nothingWritten();
+  }
+
+  // Whatever a matcher answers besides — here nothing at all for the samples — a rule is not written unseen to fire.
+  let asked = 0;
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: RULE, match: async (jobs) => (++asked === 1 ? jobs.map(() => ran(false)) : []) }),
+    /^Error: Rule "block-force-push" was not written: nothing showed that it fires on its example\./
+  );
+  await nothingWritten();
+
+  // A rule already in the file, listed while the worker fails: its failure is its problem, and it is not vouched for.
+  const listed = await tempProject(t, { ...defaultPolicy("standard"), rules: [...defaultPolicy("standard").rules, RULE] });
+  const report = await listPolicyRules(listed, { match: async (jobs) => jobs.map(() => failedMatch) });
+  const rule = report.rules.find((entry) => entry.id === RULE.id);
+  assert.deepEqual([rule.fires_on_example, rule.match_not_checked, rule.match_timed_out, rule.match_error], [null, false, false, "EAGAIN"]);
+  assert.deepEqual(rule.problems, ["This rule was never matched against its sample: the match worker failed (EAGAIN). Nothing here says the rule is wrong; list the rules again once the server can start a worker thread."]);
+  assert.equal(report.counts.broken, 1, "the default rules carry no sample, so nothing failed for them");
+  assert.deepEqual(report.rules.filter((entry) => entry.id !== RULE.id).map((entry) => entry.match_error), [null, null, null]);
+});
+
+test("a refusal names the sample it is about, and a sample that overran its budget is said before one left unchecked (Д-397)", async (t) => {
+  const root = await tempProject(t, defaultPolicy("standard"));
+  const after = (answers) => {
+    let call = 0;
+    return async (jobs) => (++call === 1 ? jobs.map(() => ran(false)) : answers);
+  };
+  const unrun = (notRun) => ({ matched: null, checked: false, timed_out: false, error: "", truncated: false, not_run: notRun });
+  const overran = { matched: null, checked: true, timed_out: true, error: `the match did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms`, truncated: false };
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: RULE, match: after([ran(true), unrun("start")]) }),
+    /^Error: Rule "block-force-push" was not written: its counter-example could not be checked, because the machine is so busy that no match worker started within 3000 ms\./
+  );
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: RULE, match: after([overran, unrun("deadline")]) }),
+    /^Error: Rule "block-force-push" backtracks catastrophically on its own example: the match did not finish within/
+  );
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: RULE, match: after([ran(true), overran]) }),
+    /^Error: Rule "block-force-push" backtracks catastrophically on its own counter-example:/
+  );
+  assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), [], "nothing was written");
 });
 
 test("a hand-written catastrophic rule is reported by the reader instead of hanging it", async (t) => {

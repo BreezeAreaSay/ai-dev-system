@@ -158,6 +158,8 @@ async function applyCustomRules(rules, event, text, filePath) {
   const answers = await matchWithBudget(applicable.map((rule) => ({ pattern: String(rule.pattern || ""), flags: "i", haystack })));
   const unchecked = [];
   const unstarted = [];
+  // Rules a failed thread left unmatched, by what it failed with: one line for each reason, not one per rule (Д-397).
+  const failed = new Map();
   applicable.forEach((rule, index) => {
     const name = rule.id || rule.name || "rule";
     const answer = answers[index] || { matched: null, checked: false };
@@ -168,7 +170,7 @@ async function applyCustomRules(rules, event, text, filePath) {
     }
     if (answer.matched === null && answer.error) {
       // The thread failed on it, which says nothing about the pattern (Д-384).
-      warns.push(`[policy:${name}] this rule was not evaluated: the thread matching it failed (${answer.error}). Nothing here says the pattern is wrong; this ${subject} went unchecked by it.`);
+      failed.set(answer.error, [...(failed.get(answer.error) || []), name]);
       return;
     }
     if (answer.matched === null) {
@@ -186,6 +188,10 @@ async function applyCustomRules(rules, event, text, filePath) {
   }
   if (unstarted.length) {
     warns.push(`[policy] ${unstarted.length} rule(s) were not matched: this machine is so busy that the thread matching them did not start within ${POLICY_MATCH_START_MS} ms. Not evaluated: ${listed(unstarted)}. Nothing is wrong with the rules; this ${subject} went unchecked by them.`);
+  }
+  for (const [reason, names] of failed) {
+    // The reason is the thread's own sentence, often with its full stop: inside the brackets it goes (Д-397).
+    warns.push(`[policy] ${names.length} rule(s) were not evaluated: the thread matching them failed (${reason.replace(/[.\s]+$/, "")}). Not evaluated: ${listed(names)}. Nothing here says the pattern is wrong in any of them; this ${subject} went unchecked by them.`);
   }
   return { blocks, warns };
 }

@@ -311,26 +311,53 @@ test("rules a thread could not start for are said to be the machine's doing, not
   assert.doesNotMatch(context, /was not evaluated: matching its pattern took longer|A rule ahead of them/, "neither the rule nor the rules ahead of it are blamed");
 });
 
-test("a thread that fails is said to have failed, not taken for a slow pattern or a busy machine (Д-384)", async (t) => {
+test("a thread that fails is said to have failed, in one line for every rule it left, not taken for a slow pattern or a busy machine (Д-384, Д-397)", async (t) => {
   const { root, projectRoot } = await fixture(t);
-  // A hook pack whose match thread throws before it says ready.
-  const brokenHooks = path.join(root, "broken-hooks");
-  await fs.cp(hooksSourceDir, brokenHooks, { recursive: true });
-  const lib = path.join(brokenHooks, "lib.mjs");
-  const source = await fs.readFile(lib, "utf8");
   const head = 'const { parentPort, workerData } = require("node:worker_threads");';
-  assert.ok(source.includes(head));
-  await fs.writeFile(lib, source.replace(head, 'throw new Error("boom");'));
-  await installAgentHooks({ projectRoot, hooksSourceDir: brokenHooks, targets: ["claude"], profile: "standard" });
+  // Hook packs whose match thread throws, or exits, before it says ready.
+  for (const [name, failure, reason] of [["throws", 'throw new Error("boom");', "boom"], ["exits", "process.exit(0);", "the match worker exited before it answered"]]) {
+    const brokenHooks = path.join(root, `broken-hooks-${name}`);
+    await fs.cp(hooksSourceDir, brokenHooks, { recursive: true });
+    const lib = path.join(brokenHooks, "lib.mjs");
+    const source = await fs.readFile(lib, "utf8");
+    assert.ok(source.includes(head));
+    await fs.writeFile(lib, source.replace(head, failure));
+    await installAgentHooks({ projectRoot, hooksSourceDir: brokenHooks, targets: ["claude"], profile: "standard" });
+    const policyPath = path.join(projectRoot, ".ai-dev", "policy.json");
+    const policy = JSON.parse(await fs.readFile(policyPath, "utf8"));
+    const rule = { id: "no-deploy", event: "bash", pattern: "deploy-prod", action: "block", message: "Deploys go through CI.", enabled: true };
+    const more = Array.from({ length: 30 }, (_, index) => ({ id: `rule-${index}`, event: "bash", pattern: `deploy-${index}`, action: "block", message: "m", enabled: true }));
+    await fs.writeFile(policyPath, JSON.stringify({ ...policy, rules: [...(policy.rules ?? []).filter((entry) => !/^(no-deploy|rule-\d+)$/.test(entry.id)), rule, ...more] }, null, 2));
+    const answered = runHook(projectRoot, "guard.mjs", ["bash"], { tool_name: "Bash", tool_input: { command: "./deploy-prod.sh" } });
+    assert.equal(answered.status, 0, "a rule that never ran cannot block");
+    const context = JSON.parse(answered.stdout || "{}").hookSpecificOutput?.additionalContext ?? "";
+    // The default policy's own rule is among them. Before, a line per rule, and a thread made and lost for each.
+    assert.equal(context.split("\n").filter((line) => /thread matching (it|them) failed/.test(line)).length, 1, context);
+    assert.ok(context.includes(`[policy] 32 rule(s) were not evaluated: the thread matching them failed (${reason}). Not evaluated: block-prod-migrations, no-deploy, rule-0, rule-1, rule-2, and 27 more. Nothing here says the pattern is wrong in any of them; this command went unchecked by them.`), context);
+    assert.doesNotMatch(context, /took longer|did not start within/, `${name}: neither the pattern nor a busy machine is blamed`);
+  }
+});
+
+test("a thread the permission model refuses is named in the line, its own full stop not doubled after it (Д-397)", async (t) => {
+  const { projectRoot } = await fixture(t);
+  await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], profile: "standard" });
   const policyPath = path.join(projectRoot, ".ai-dev", "policy.json");
   const policy = JSON.parse(await fs.readFile(policyPath, "utf8"));
-  const rule = { id: "no-deploy", event: "bash", pattern: "deploy-prod", action: "block", message: "Deploys go through CI.", enabled: true };
+  const rule = { id: "no-env-edit", event: "file", pattern: "\\.env", action: "block", message: "Not the env file.", enabled: true };
   await fs.writeFile(policyPath, JSON.stringify({ ...policy, rules: [...(policy.rules ?? []), rule] }, null, 2));
-  const answered = runHook(projectRoot, "guard.mjs", ["bash"], { tool_name: "Bash", tool_input: { command: "./deploy-prod.sh" } });
-  assert.equal(answered.status, 0, "a rule that never ran cannot block");
+  // Node run with --permission and without --allow-worker makes no thread: "… Use --allow-worker to manage permissions."
+  const answered = spawnSync(process.execPath, ["--permission", "--allow-fs-read=*", "--allow-fs-write=*", path.join(projectRoot, ".ai-dev", "hooks", "guard.mjs"), "file"], {
+    cwd: projectRoot,
+    input: JSON.stringify({ cwd: projectRoot, tool_name: "Write", tool_input: { file_path: "notes.md", content: "hello" } }),
+    encoding: "utf8",
+    env: { ...process.env, AI_DEV_STATE_ROOT: path.join(projectRoot, "..", "state") },
+    timeout: 20_000,
+    windowsHide: true
+  });
+  assert.equal(answered.status, 0, answered.stderr);
   const context = JSON.parse(answered.stdout || "{}").hookSpecificOutput?.additionalContext ?? "";
-  assert.match(context, /\[policy:no-deploy\] this rule was not evaluated: the thread matching it failed \(boom\)\. Nothing here says the pattern is wrong; this command went unchecked by it\./);
-  assert.doesNotMatch(context, /took longer|did not start within/, "neither the pattern nor a busy machine is blamed");
+  assert.match(context, /\[policy\] 3 rule\(s\) were not evaluated: the thread matching them failed \(Access to this API has been restricted\. Use --allow-worker to manage permissions\)\. Not evaluated: warn-eval, warn-inner-html, no-env-edit\. Nothing here says the pattern is wrong in any of them; this write went unchecked by them\./);
+  assert.doesNotMatch(context, /\.\)\./, "no full stop before the closing bracket and another after it");
 });
 
 test("a write the rules could not check is called a write (Д-388)", async (t) => {

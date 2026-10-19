@@ -143,25 +143,26 @@ function compileError(pattern) {
 }
 
 /**
- * Run the rules against the samples stored with them, under a time budget.
+ * Whether a match ran and answered neither yes nor no: the worker failed on it —
+ * it could not be made, errored or exited (Д-384). Such an answer is `checked`,
+ * since nothing was left unrun, and still says nothing about the pattern: it is
+ * no check (docs/DEFECTS.md, Д-393).
  *
- * The budget is the point. A pattern that backtracks catastrophically cannot be
- * interrupted in this thread (Node has no such switch), so every match runs in
- * a worker that is killed when it overstays — see `regex-budget.mjs` and
- * docs/DEFECTS.md, Д-16. One worker serves the whole batch, so
- * listing a policy costs one thread, not one per rule.
- *
- * The batch also has a deadline, so a policy full of slow rules cannot make
- * this listing cost the sum of their budgets (Д-22). A rule the deadline cut
- * off comes back `not_checked`, which reads differently from "matched nothing";
- * `not_run` says why: the deadline, or a machine too busy to start the match
- * (Д-239).
- *
- * @param {object[]} rules
- * @param {{ match?: typeof matchWithBudget }} [options] - `match` stands in for the budgeted matcher in tests.
- * @returns {Promise<Array<{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string, timed_out: boolean, not_checked: boolean, not_run: string | null }>>}
+ * @param {object | null | undefined} answer - One answer of the budgeted matcher.
+ * @returns {boolean}
  */
-export async function verifyPolicyRules(rules, { match = matchWithBudget } = {}) {
+function matchFailed(answer) {
+  return Boolean(answer) && answer.checked === true && !answer.timed_out && typeof answer.matched !== "boolean";
+}
+
+// What a failed match said, without the full stop it may end with: it goes inside brackets mid-sentence.
+function failureOf(answer) {
+  return String(answer?.error ?? "").replace(/[.\s]+$/, "") || "it gave no reason";
+}
+
+// Each rule's samples matched in one batch: the matcher's answer for the example and for the counter-example, or
+// null for a sample the rule does not have. A refusal reads them to name the sample at fault.
+async function matchSamples(rules, match) {
   const list = Array.isArray(rules) ? rules : [];
   const jobs = [];
   const plan = list.map((rule) => {
@@ -178,19 +179,46 @@ export async function verifyPolicyRules(rules, { match = matchWithBudget } = {})
     return slot;
   });
   const answers = await match(jobs);
-  const read = (index) => (index === -1 ? null : answers[index]);
-  return plan.map((slot) => {
-    const example = read(slot.example);
-    const counter = read(slot.counter);
-    return {
-      checked_as: slot.checked_as,
-      fires_on_example: example ? example.matched : null,
-      counter_example_matches: counter ? counter.matched : null,
-      timed_out: Boolean(example?.timed_out || counter?.timed_out),
-      not_checked: Boolean(example?.checked === false || counter?.checked === false),
-      not_run: [example, counter].find((answer) => answer?.checked === false)?.not_run ?? null
-    };
-  });
+  const read = (index) => (index === -1 ? null : answers[index] ?? null);
+  return plan.map((slot) => ({ checked_as: slot.checked_as, example: read(slot.example), counter: read(slot.counter) }));
+}
+
+// One rule's verification, read from the answers for its samples.
+function verificationOf({ checked_as: checkedAs, example, counter }) {
+  const failed = [example, counter].find(matchFailed);
+  return {
+    checked_as: checkedAs,
+    fires_on_example: typeof example?.matched === "boolean" ? example.matched : null,
+    counter_example_matches: typeof counter?.matched === "boolean" ? counter.matched : null,
+    timed_out: Boolean(example?.timed_out || counter?.timed_out),
+    not_checked: Boolean(example?.checked === false || counter?.checked === false),
+    not_run: [example, counter].find((answer) => answer?.checked === false)?.not_run ?? null,
+    match_error: failed ? failureOf(failed) : null
+  };
+}
+
+/**
+ * Run the rules against the samples stored with them, under a time budget.
+ *
+ * The budget is the point. A pattern that backtracks catastrophically cannot be
+ * interrupted in this thread (Node has no such switch), so every match runs in
+ * a worker that is killed when it overstays — see `regex-budget.mjs` and
+ * docs/DEFECTS.md, Д-16. One worker serves the whole batch, so
+ * listing a policy costs one thread, not one per rule.
+ *
+ * The batch also has a deadline, so a policy full of slow rules cannot make
+ * this listing cost the sum of their budgets (Д-22). A rule the deadline cut
+ * off comes back `not_checked`, which reads differently from "matched nothing";
+ * `not_run` says why: the deadline, or a machine too busy to start the match
+ * (Д-239). A sample the worker failed on is no check either: `match_error`
+ * carries what the worker said (Д-393).
+ *
+ * @param {object[]} rules
+ * @param {{ match?: typeof matchWithBudget }} [options] - `match` stands in for the budgeted matcher in tests.
+ * @returns {Promise<Array<{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string, timed_out: boolean, not_checked: boolean, not_run: string | null, match_error: string | null }>>}
+ */
+export async function verifyPolicyRules(rules, { match = matchWithBudget } = {}) {
+  return (await matchSamples(rules, match)).map(verificationOf);
 }
 
 /**
@@ -198,7 +226,7 @@ export async function verifyPolicyRules(rules, { match = matchWithBudget } = {})
  *
  * @param {object} rule
  * @param {{ match?: typeof matchWithBudget }} [options]
- * @returns {Promise<{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string, timed_out: boolean, not_checked: boolean, not_run: string | null }>}
+ * @returns {Promise<{ fires_on_example: boolean | null, counter_example_matches: boolean | null, checked_as: string, timed_out: boolean, not_checked: boolean, not_run: string | null, match_error: string | null }>}
  */
 export async function verifyPolicyRule(rule, options) {
   const [verification] = await verifyPolicyRules([rule ?? {}], options);
@@ -215,6 +243,9 @@ function verificationProblems(verification) {
     problems.push(`This rule was never matched against its sample: the machine is so busy that no match worker started within ${DEFAULT_WORKER_START_MS} ms. Nothing here says the rule is wrong; list the rules again when the machine is less busy.`);
   } else if (verification.not_checked) {
     problems.push(`This rule was never matched against its sample: the ${DEFAULT_MATCH_DEADLINE_MS} ms this listing gets for all rules together ran out on the rules before it. Those rules are the ones to fix; until then nothing here says whether this one still works.`);
+  }
+  if (verification.match_error) {
+    problems.push(`This rule was never matched against its sample: the match worker failed (${verification.match_error}). Nothing here says the rule is wrong; list the rules again once the server can start a worker thread.`);
   }
   if (verification.fires_on_example === false) {
     problems.push("The example stored with the rule no longer matches: the pattern was narrowed, or the example was edited.");
@@ -242,6 +273,7 @@ function describeVerifiedRule(rule, verification) {
     fires_on_example: verification.fires_on_example,
     match_timed_out: verification.timed_out,
     match_not_checked: verification.not_checked,
+    match_error: verification.match_error,
     problems: [...policyRuleProblems(rule), ...verificationProblems(verification)]
   };
 }
@@ -303,17 +335,22 @@ async function writePolicyDocument(policyPath, document) {
  * Every rule in a project's policy, with the guard's reading of it.
  *
  * @param {string} projectRoot
+ * @param {{ match?: typeof matchWithBudget }} [options] - `match` stands in for the budgeted matcher in tests.
  * @returns {Promise<object>}
  */
-export async function listPolicyRules(projectRoot) {
+export async function listPolicyRules(projectRoot, { match } = {}) {
   const root = path.resolve(projectRoot);
   const policyPath = policyPathOf(root);
   const { exists, policy, error } = await readPolicyDocument(policyPath);
   const problems = error ? [error] : [];
   if (!exists) problems.push(`${POLICY_RELATIVE_PATH} does not exist; install_agent_hooks writes it with the default rules.`);
   if (policy && !Array.isArray(policy.rules)) problems.push(`${POLICY_RELATIVE_PATH} has no "rules" array, so the guard evaluates no project rules.`);
-  const rules = await describePolicyRules(Array.isArray(policy?.rules) ? policy.rules : []);
+  const rules = await describePolicyRules(Array.isArray(policy?.rules) ? policy.rules : [], { match });
   const enabled = rules.filter((rule) => rule.enabled);
+  // `broken` counts every rule with a problem, and so a rule this listing could not match — cut off by the deadline,
+  // kept from a worker by a busy machine, or left by a worker that failed (Д-393) — although nothing says it is
+  // wrong: the count is of the rules the listing cannot vouch for, so `broken: 0` means every rule was seen to work.
+  // The problem itself says the fault is not the rule's.
   return {
     project_path: root,
     policy_path: POLICY_RELATIVE_PATH,
@@ -408,7 +445,12 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false, matc
     if (overrun !== -1) {
       throw new Error(`Rule "${merged.id}" backtracks catastrophically: matching its pattern against ${probes[overrun].length} characters built from the pattern's own alphabet did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms. The guard runs this pattern on every Bash command and every file write, so one rule like this takes the whole hook pack out of service. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
     }
-    // A probe that never ran proves nothing either way: the rule is not written unchecked (Д-239).
+    // A probe the worker failed on, like one that never ran, proves nothing either way: the rule is not written
+    // unchecked (Д-239, Д-393).
+    const failed = costs.find(matchFailed);
+    if (failed) {
+      throw new Error(`Rule "${merged.id}" was not written: its pattern could not be checked, because the match worker failed (${failureOf(failed)}). Nothing here says the pattern is wrong; try again once the server can start a worker thread.`);
+    }
     const unrun = costs.find((cost) => !cost.checked);
     if (unrun) {
       throw new Error(`Rule "${merged.id}" was not written: its pattern could not be checked, because ${unrun.error}. Try again once the machine is less busy.`);
@@ -424,22 +466,35 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false, matc
   if (patternChanged && !String(merged.example ?? "").trim()) {
     throw new Error(`Rule "${merged.id}" needs an example: pass rule.example with a snippet the pattern must match (for a file rule, rule.example_path names the path it applies to). A rule nobody proved fires is a rule that silently does nothing.`);
   }
-  const verification = await verifyPolicyRule(merged, { match });
-  // An example the matcher never reached proves nothing either way, as an unrun probe does not (Д-383).
+  const [samples] = await matchSamples([merged], match);
+  const verification = verificationOf(samples);
+  // The sample an answer is about, for the refusal to name: the example, or else the counter-example (Д-397).
+  const sampleWhere = (fault) => (fault(samples.example) ? "example" : "counter-example");
+  // A sample that overran its budget is a finding about the pattern, whatever happened to the other one (Д-397).
+  if (verification.timed_out) {
+    throw new Error(`Rule "${merged.id}" backtracks catastrophically on its own ${sampleWhere((answer) => answer?.timed_out)}: the match did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms. The guard runs this pattern on every Bash command and every file write, so a rule like this one takes the whole hook pack out of service. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
+  }
+  // A sample the worker failed on, or that no worker reached, proves nothing either way, as an unrun probe does not
+  // (Д-383, Д-393).
+  if (verification.match_error) {
+    throw new Error(`Rule "${merged.id}" was not written: its ${sampleWhere(matchFailed)} could not be checked, because the match worker failed (${verification.match_error}). Nothing here says the rule is wrong; try again once the server can start a worker thread.`);
+  }
   if (verification.not_checked) {
     const why = verification.not_run === "start"
       ? `the machine is so busy that no match worker started within ${DEFAULT_WORKER_START_MS} ms`
       : `the matching ran out of the ${DEFAULT_MATCH_DEADLINE_MS} ms it gets`;
-    throw new Error(`Rule "${merged.id}" was not written: its example could not be checked, because ${why}. Try again once the machine is less busy.`);
-  }
-  if (verification.timed_out) {
-    throw new Error(`Rule "${merged.id}" backtracks catastrophically on its own example: the match did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms. The guard runs this pattern on every Bash command and every file write, so a rule like this one takes the whole hook pack out of service. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
+    throw new Error(`Rule "${merged.id}" was not written: its ${sampleWhere((answer) => answer?.checked === false)} could not be checked, because ${why}. Try again once the machine is less busy.`);
   }
   if (verification.fires_on_example === false) {
     throw new Error(`Rule "${merged.id}" does not match its own example. The guard matches ${verification.checked_as === "file" ? "the file path, a newline, then the new content" : "the whole command line"} case-insensitively; check the escaping in the pattern.`);
   }
   if (verification.counter_example_matches === true) {
     throw new Error(`Rule "${merged.id}" also matches its counter-example, so it is broader than intended.`);
+  }
+  // The refusals above cover every answer the matcher gives; whatever else one may say, a rule with an example is
+  // written only once it was seen to fire on it (Д-393).
+  if (typeof merged.example === "string" && merged.example && verification.fires_on_example !== true) {
+    throw new Error(`Rule "${merged.id}" was not written: nothing showed that it fires on its example. A rule nobody proved fires is a rule that silently does nothing.`);
   }
 
   // The samples are stored on the rule, and the rule is committed. A caller

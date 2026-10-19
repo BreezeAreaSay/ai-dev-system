@@ -12,6 +12,7 @@ import {
   DEFAULT_DOCKER_IMAGE,
   DEFAULT_DOCKER_VOLUME,
   checkModelFolder,
+  dockerEntryOptions,
   dockerLaunch,
   dockerRunArgs,
   isDirectDockerEntry,
@@ -132,9 +133,74 @@ test("a link to another disk is said when the entry is written, and a mount whos
 
   const args = ["run", "-i", "--mount", "type=volume,source=data,target=/data", "--mount", "type=bind,source=/here,target=/workspace",
     "--mount", "type=bind,source=/gone/bge-m3-onnx,target=/models/bge-m3-onnx,readonly", "img"];
-  assert.deepEqual(missingBindSources(args, { exists: (file) => file === "/here" }), [{ source: "/gone/bge-m3-onnx", target: "/models/bge-m3-onnx" }]);
-  assert.deepEqual(missingBindSources(args, { exists: () => true }), []);
+  assert.deepEqual(missingBindSources(args, { stat: statOf({ "/here": "" }) }), [{ source: "/gone/bge-m3-onnx", target: "/models/bge-m3-onnx" }]);
+  assert.deepEqual(missingBindSources(args, { stat: () => ({}) }), []);
   assert.deepEqual(missingBindSources(undefined), []);
+});
+
+// A stat that knows a few paths: "" for one that is there, an error code for one that is not, ENOENT for the rest.
+function statOf(known) {
+  return (file) => {
+    const code = known[file] ?? "ENOENT";
+    if (code) throw Object.assign(new Error(`${code}: ${file}`), { code });
+    return {};
+  };
+}
+
+test("a --mount is read the way Docker's CLI reads it, and only a folder that is not there is missing (Д-397)", () => {
+  const gone = (...mount) => missingBindSources(["run", ...mount, "img"], { stat: statOf({ "/here": "" }) });
+  // Every shape checked against Docker 29 itself: each of these it refuses to start with "bind source path does not exist".
+  for (const mount of [
+    ["--mount", "type=bind,source=/gone,target=/x,readonly"],
+    ["--mount", "type=bind,src=/gone,dst=/x"],
+    ["--mount", "type=bind,source=/gone,destination=/x"],
+    ["--mount=type=bind,source=/gone,target=/x"],
+    ["--mount", "type=bind,\"source=/gone\",target=/x"],
+    ["--mount", "TYPE=bind,SOURCE=/gone,TARGET=/x"],
+    ["--mount", "type=Bind,source=/gone,target=/x"],
+    ["--mount", "type=bind,source=/here,src=/gone,target=/x"],
+    ["--mount", "type=bind,source=/gone,target=/y,dst=/x"]
+  ]) {
+    assert.deepEqual(gone(...mount), [{ source: "/gone", target: "/x" }], mount.join(" "));
+  }
+  // And these it starts: the last of source and src is the one, a volume is Docker's to make, and so is -v's folder.
+  for (const mount of [
+    ["--mount", "type=bind,source=/gone,src=/here,target=/x"],
+    ["--mount", "type=volume,source=gone,target=/x"],
+    ["--mount", "source=gone,target=/x"],
+    ["-v", "/gone:/x:ro"],
+    ["--volume=/gone:/x"]
+  ]) {
+    assert.deepEqual(gone(...mount), [], mount.join(" "));
+  }
+  // A quoted field holds a comma, and a doubled quote stands for one.
+  assert.deepEqual(gone("--mount", "type=bind,\"source=/a,b\",target=/x"), [{ source: "/a,b", target: "/x" }]);
+  assert.deepEqual(gone("--mount", "type=bind,\"source=/a\"\"b\",target=/x"), [{ source: "/a\"b", target: "/x" }]);
+  // A value Docker cannot parse is Docker's to say when the entry runs; nor is it a folder found missing.
+  for (const value of ["type=bind,source=\"/gone\",target=/x", "type=bind,\"source=/gone,target=/x", "type=bind,\"source=/gone\"x,target=/x", ""]) {
+    assert.deepEqual(gone("--mount", value), [], value);
+  }
+  assert.deepEqual(gone("--mount"), [], "a --mount with no value");
+
+  // Not there: ENOENT, and ENOTDIR for a file on the way. A folder this user may not look into is the daemon's to judge.
+  const spec = (source) => ["run", "--mount", `type=bind,source=${source},target=/x`, "img"];
+  const stat = statOf({ "/a/file/x": "ENOTDIR", "/locked/x": "EACCES", "/loop": "ELOOP", "/busy": "EBUSY" });
+  assert.deepEqual(missingBindSources(spec("/a/file/x"), { stat }), [{ source: "/a/file/x", target: "/x" }]);
+  for (const source of ["/locked/x", "/loop", "/busy"]) assert.deepEqual(missingBindSources(spec(source), { stat }), [], source);
+
+  // A link whose target is away says where it leads; a relative one, from where the link is.
+  const link = (target) => ({ lstat: () => ({ isSymbolicLink: () => true }), readlink: () => target, stat: statOf({}) });
+  assert.deepEqual(missingBindSources(spec("/m/bge-m3-onnx"), link("/media/disk2/bge-m3-onnx")), [{ source: "/m/bge-m3-onnx", target: "/x", leadsTo: "/media/disk2/bge-m3-onnx" }]);
+  assert.equal(missingBindSources(spec("/m/bge-m3-onnx"), link("../disk2/model"))[0].leadsTo, path.resolve("/m", "../disk2/model"));
+});
+
+test("an entry's options are read back from what it runs, so writing it again keeps them (Д-397)", () => {
+  const linux = dockerRunArgs({ image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: { source: "/home/me/models/bge-m3-onnx", target: CONTAINER_MODEL_DIR }, platform: "linux" });
+  assert.deepEqual(dockerEntryOptions(linux), { image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: "/home/me/models" });
+  const windows = dockerRunArgs({ image: "img", projects: "C:\\Users\\me\\AI-Dev-Projects", model: "C:\\models", platform: "win32" });
+  assert.deepEqual(dockerEntryOptions(windows), { image: "img", volume: DEFAULT_DOCKER_VOLUME, projects: "C:\\Users\\me\\AI-Dev-Projects", state: "", model: "C:\\models" });
+  assert.equal(dockerEntryOptions(["run", "--mount", "type=bind,source=C:\\m\\bge-m3-onnx,target=/models/bge-m3-onnx,readonly", "img"]).model, "C:\\m");
+  assert.deepEqual(dockerEntryOptions(undefined), { image: "", volume: "", projects: "", state: "", model: "" });
 });
 
 test("a 3.0 entry is told from a 2.x launcher by what it runs", () => {

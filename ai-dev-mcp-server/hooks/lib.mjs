@@ -647,9 +647,16 @@ for (const job of workerData.jobs) {
 parentPort.postMessage({ done: true });
 `;
 
+// Why a worker failed, in words that are never empty: a worker that throws `new Error("")` has failed all the same.
+// The server's copy reads a failure with this same expression, so both say the same of one (Д-397).
+function failureReason(cause) {
+  return String((cause && cause.message) || cause || "").trim() || "it gave no reason";
+}
+
 // Until the worker says `ready` it is only starting: that has its own ceiling, `startMs`, and charges no rule.
-// A worker that fails instead — it cannot be created, or errors or exits — says why in `failed`: that is not a
-// slow start, and the job it was on is answered as run, as the server's copy does (Д-384).
+// A worker that fails instead — it cannot be created, or errors or exits — comes back `failed`, its reason in
+// `error`: that is not a slow start, and the job it was on is answered as run, as the server's copy does (Д-384).
+// The flag tells the two apart, never the reason's text (Д-397).
 function runMatchBatch(jobs, budgetMs, startMs) {
   return new Promise((resolve) => {
     const results = [];
@@ -658,13 +665,14 @@ function runMatchBatch(jobs, budgetMs, startMs) {
     let settled = false;
     let timer = null;
     let worker = null;
-    const finish = (timedOutAt, failed = "") => {
+    const finish = (timedOutAt, failed = false, error = "") => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (worker) worker.terminate();
-      resolve({ results, timedOutAt, failed, startupMs: startupMs === null ? Date.now() - created : startupMs, notStarted: startupMs === null });
+      resolve({ results, timedOutAt, failed, error, startupMs: startupMs === null ? Date.now() - created : startupMs, notStarted: startupMs === null });
     };
+    const fail = (cause) => finish(-1, true, failureReason(cause));
     const arm = () => {
       clearTimeout(timer);
       timer = setTimeout(() => finish(results.length), budgetMs);
@@ -672,7 +680,7 @@ function runMatchBatch(jobs, budgetMs, startMs) {
     try {
       worker = new Worker(MATCH_WORKER_SOURCE, { eval: true, workerData: { jobs } });
     } catch (error) {
-      finish(-1, String((error && error.message) || error));
+      fail(error);
       return;
     }
     worker.on("message", (message) => {
@@ -684,8 +692,8 @@ function runMatchBatch(jobs, budgetMs, startMs) {
       results.push(message && typeof message.matched === "boolean" ? message.matched : null);
       return arm();
     });
-    worker.on("error", (error) => finish(-1, String((error && error.message) || error)));
-    worker.on("exit", () => finish(-1, "the match worker exited before it answered."));
+    worker.on("error", fail);
+    worker.on("exit", () => fail("the match worker exited before it answered"));
     timer = setTimeout(() => finish(-1), startMs);
   });
 }
@@ -698,7 +706,8 @@ function runMatchBatch(jobs, budgetMs, startMs) {
  * - `{ checked: true, matched: null }` — it outlived its own budget. The jobs
  *   behind it are run in a fresh worker, because killing the stuck one is the
  *   only way to stop it. With `error`, the worker failed on it instead of
- *   timing out, and the jobs behind it get a fresh worker the same way.
+ *   timing out, and the jobs behind it get a fresh worker the same way — or,
+ *   when it failed before it was ready, every job left gets that error.
  * - `{ checked: false, matched: null, not_run }` — never run: the deadline
  *   passed first (`not_run: "deadline"`), or no thread could start for it in
  *   time (`not_run: "start"` — the machine is too busy). The guard says how
@@ -737,11 +746,17 @@ export async function matchWithBudget(jobs, options = {}) {
       break;
     }
     const began = Date.now();
-    const { results, timedOutAt, failed, startupMs, notStarted } = await runMatchBatch(prepared.slice(offset), Math.min(budgetMs, left), startMs - starting);
+    const { results, timedOutAt, failed, error, startupMs, notStarted } = await runMatchBatch(prepared.slice(offset), Math.min(budgetMs, left), startMs - starting);
     starting += startupMs;
     matching += Math.max(0, Date.now() - began - startupMs);
-    if (notStarted && !results.length && timedOutAt < 0 && !failed) {
+    if (notStarted && !failed) {
       notRun = "start";
+      break;
+    }
+    if (notStarted) {
+      // A worker that failed before it was ready ran none of these rules, and the next one would fail the same way:
+      // every rule left is answered with its error, instead of a thread made and lost per rule (Д-397).
+      for (let index = offset; index < prepared.length; index += 1) answers[index] = { matched: null, checked: true, error };
       break;
     }
     for (let index = 0; index < results.length && offset + index < prepared.length; index += 1) {
@@ -749,7 +764,7 @@ export async function matchWithBudget(jobs, options = {}) {
     }
     const stuck = timedOutAt >= 0 ? offset + timedOutAt : offset + results.length;
     if (stuck >= prepared.length) break;
-    answers[stuck] = timedOutAt < 0 && failed ? { matched: null, checked: true, error: failed } : { matched: null, checked: true };
+    answers[stuck] = timedOutAt < 0 && failed ? { matched: null, checked: true, error } : { matched: null, checked: true };
     offset = stuck + 1;
   }
   return answers.map((answer) => answer || { matched: null, checked: false, not_run: notRun });

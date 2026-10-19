@@ -252,7 +252,7 @@ Connect AI clients to this install: write the ai-dev entry into their configs (a
 
 ## `clients_remove` (destructive)
 
-Disconnect AI clients: take the ai-dev entry out of their configs; a file nothing else touched since goes back byte for byte.
+Disconnect AI clients: take the ai-dev entry out of their configs; a file nothing else touched since goes back as it was, less a 2.x entry the install replaced.
 
 **Input:**
 

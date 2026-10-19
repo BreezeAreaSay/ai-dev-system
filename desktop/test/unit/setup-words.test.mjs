@@ -65,3 +65,16 @@ test("a model that cannot be read is said to be so, with what to do by why — n
   }
   assert.match(modelUnreadable(view, { dir: "/m", unreadable: "no code here" }).status, /"code":"no code here"/, "a reason with no code is shown whole");
 });
+
+test("EPERM's advice itself sends a macOS user to Privacy & Security, in both languages; EACCES's does not (Д-387, Д-397)", () => {
+  // The words, not only the key: an EPERM advice that read like EACCES's passed every test before.
+  const model = (code) => ({ dir: "/Users/me/Documents/models", unreadable: `${code}: operation not permitted, open '/Users/me/Documents/models/bge-m3-onnx/config.json'` });
+  const en = modelUnreadable(view("en"), model("EPERM")).wizard;
+  assert.match(en, /System Settings → Privacy & Security/);
+  assert.match(en, /readable to your user account/);
+  const ru = modelUnreadable(view("ru"), model("EPERM")).wizard;
+  assert.match(ru, /«Системные настройки → Конфиденциальность и безопасность»/);
+  assert.match(ru, /право читать папку/);
+  assert.doesNotMatch(modelUnreadable(view("en"), model("EACCES")).wizard, /Privacy & Security/);
+  assert.doesNotMatch(modelUnreadable(view("ru"), model("EACCES")).wizard, /Конфиденциальность и безопасность/);
+});

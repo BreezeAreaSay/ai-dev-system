@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -126,6 +128,57 @@ console.log(JSON.stringify({ server: await server.matchWithBudget(jobs), hooks: 
   for (const answer of hooks) {
     assert.deepEqual([answer.checked, answer.matched, answer.not_run], [true, null, undefined], JSON.stringify(hooks));
     assert.match(answer.error, /--allow-worker/);
+  }
+});
+
+test("a worker that fails before it is ready answers every job left with one reason, from one thread, the same in both copies (Д-397)", async (t) => {
+  // Each copy loaded with a match worker that fails before it says ready — it throws, throws with no message, or
+  // exits. Every worker made first marks the file every job's haystack names, so the file counts the threads.
+  // Before, both copies made a thread per job (30 rules: 1.9 s in the guard), the server took an empty message for a
+  // worker that never started, and nothing held the hooks' exit path.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "regex-budget-failing-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const head = 'const { parentPort, workerData } = require("node:worker_threads");';
+  const counted = 'const { workerData } = require("node:worker_threads"); require("node:fs").appendFileSync(workerData.jobs[0].haystack, "w"); ';
+  const cases = [
+    ["throws", 'throw new Error("boom");', "boom"],
+    ["throws-without-a-message", 'throw new Error("");', "Error"],
+    ["exits", "process.exit(0);", "the match worker exited before it answered"]
+  ];
+  for (const [name, failure, reason] of cases) {
+    const said = {};
+    for (const [copy, relative] of [["server", path.join("src", "core", "regex-budget.mjs")], ["hooks", path.join("hooks", "lib.mjs")]]) {
+      const source = await fs.readFile(path.join(serverRoot, relative), "utf8");
+      assert.ok(source.includes(head), `${relative} starts its match worker the way this test replaces`);
+      const module = path.join(root, `${name}-${copy}.mjs`);
+      await fs.writeFile(module, source.replace(head, `${counted}${failure}`));
+      const threads = path.join(root, `${name}-${copy}.threads`);
+      const { matchWithBudget: match } = await import(pathToFileURL(module).href);
+      const answers = await match(Array.from({ length: 12 }, (_, index) => ({ pattern: `p${index}`, flags: "i", haystack: threads })));
+      assert.equal(answers.length, 12);
+      for (const answer of answers) {
+        assert.deepEqual([answer.checked, answer.matched, answer.error, answer.not_run], [true, null, reason, undefined], `${copy}, ${name}: ${JSON.stringify(answer)}`);
+      }
+      assert.equal(await fs.readFile(threads, "utf8"), "w", `${copy}, ${name}: one thread for the batch, not one per job`);
+      said[copy] = answers;
+    }
+    assert.deepEqual(said.server.map((answer) => answer.error), said.hooks.map((answer) => answer.error), `${name}: both copies give one reason`);
+  }
+});
+
+test("a worker that exits on a job answers that job with the reason, and the jobs behind it from a fresh worker, in both copies (Д-384, Д-397)", async (t) => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "regex-budget-exiting-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const line = "matched = new RegExp(job.pattern, job.flags).test(job.haystack);";
+  for (const [copy, relative] of [["server", path.join("src", "core", "regex-budget.mjs")], ["hooks", path.join("hooks", "lib.mjs")]]) {
+    const source = await fs.readFile(path.join(serverRoot, relative), "utf8");
+    assert.equal(source.split(line).length, 2, `${relative} matches a job the way this test replaces`);
+    // Ready, then gone in the middle of the batch: the worker exits on the job named "exit".
+    const module = path.join(root, `${copy}.mjs`);
+    await fs.writeFile(module, source.replace(line, `if (job.pattern === "exit") process.exit(0);\n    ${line}`));
+    const { matchWithBudget: match } = await import(pathToFileURL(module).href);
+    const answers = await match([{ pattern: "alpha", flags: "", haystack: "alpha" }, { pattern: "exit", flags: "", haystack: "x" }, { pattern: "omega", flags: "", haystack: "alpha" }]);
+    assert.deepEqual(answers.map((answer) => [answer.checked, answer.matched, answer.error ?? ""]), [[true, true, ""], [true, null, "the match worker exited before it answered"], [true, false, ""]], copy);
   }
 });
 

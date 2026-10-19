@@ -268,28 +268,140 @@ export function modelMount(folder, { verify = true, join = path.join, lstat = ls
   return { source: model, target: CONTAINER_MODEL_DIR, ...(note ? { note } : {}) };
 }
 
+// The fields of one CSV record, as Go's encoding/csv reads the first record of a `--mount` value: a field that starts
+// with a double quote runs to the closing one, `""` standing for a quote in it; a quote anywhere else is an error.
+// `null` where Docker would refuse to parse the value.
+function csvRecord(text) {
+  if (!text) return null;
+  const fields = [];
+  let index = 0;
+  for (;;) {
+    let field = "";
+    if (text[index] === "\"") {
+      index += 1;
+      for (;;) {
+        const close = text.indexOf("\"", index);
+        if (close === -1) return null;
+        field += text.slice(index, close);
+        index = close + 1;
+        if (text[index] !== "\"") break;
+        field += "\"";
+        index += 1;
+      }
+      if (index < text.length && text[index] !== "," && text[index] !== "\n") return null;
+    } else {
+      let end = index;
+      while (end < text.length && text[end] !== "," && text[end] !== "\n") end += 1;
+      field = text.slice(index, end);
+      if (field.includes("\"")) return null;
+      index = end;
+    }
+    fields.push(field);
+    if (index >= text.length || text[index] === "\n") return fields;
+    index += 1;
+  }
+}
+
+/**
+ * One `--mount` value read the way Docker's CLI reads it (`opts/mount.go`): one
+ * CSV record, so a field may be double-quoted; keys, and the `type` value, in
+ * any case; `src` is `source`, `dst` and `destination` are `target`, and a key
+ * given twice keeps its last value; no `type` is a volume. `null` for a value
+ * Docker would not parse — which Docker says itself when the entry runs.
+ *
+ * @param {string} value
+ * @returns {{ type: string, source: string, target: string } | null}
+ */
+function parseMount(value) {
+  const fields = csvRecord(String(value ?? ""));
+  if (!fields) return null;
+  const mount = { type: "volume", source: "", target: "" };
+  for (const field of fields) {
+    const at = field.indexOf("=");
+    const key = (at < 0 ? field : field.slice(0, at)).toLowerCase();
+    const given = at < 0 ? "" : field.slice(at + 1);
+    if (key === "type") mount.type = given.toLowerCase();
+    else if (key === "source" || key === "src") mount.source = given;
+    else if (key === "target" || key === "dst" || key === "destination") mount.target = given;
+  }
+  return mount;
+}
+
+/** Every `--mount` of a `docker run` command line, given as `--mount <value>` or `--mount=<value>`, as the CLI takes either. */
+function mountsOf(args) {
+  const list = Array.isArray(args) ? args.map(String) : [];
+  const mounts = [];
+  for (let index = 0; index < list.length; index += 1) {
+    const argument = list[index];
+    let value = null;
+    if (argument === "--mount") {
+      // The value is the next argument, whatever it looks like: it is not read again as an option.
+      value = list[index + 1] ?? null;
+      index += 1;
+    } else if (argument.startsWith("--mount=")) {
+      value = argument.slice("--mount=".length);
+    }
+    const mount = value === null ? null : parseMount(value);
+    if (mount) mounts.push(mount);
+  }
+  return mounts;
+}
+
 /**
  * The `--mount type=bind,source=…` folders of a `docker run` command line
  * that are not there: Docker refuses to start a container over one, so a
- * client that runs the entry gets no server at all (Д-385).
+ * client that runs the entry gets no server at all (Д-385). Not there is
+ * `ENOENT` or `ENOTDIR` only: a folder this user may not look into (`EACCES`)
+ * is the daemon's to judge, and it may well mount it (Д-397). A source that is
+ * a link says where it leads (`leadsTo`), since it is the link's target that
+ * is gone.
  *
  * @param {string[]} args
- * @param {{ exists?: (path: string) => boolean }} [options]
- * @returns {Array<{ source: string, target: string }>}
+ * @param {{ stat?: (file: string) => unknown, lstat?: typeof lstatSync, readlink?: typeof readlinkSync }} [options]
+ * @returns {Array<{ source: string, target: string, leadsTo?: string }>}
  */
-export function missingBindSources(args, { exists = existsSync } = {}) {
+export function missingBindSources(args, { stat = statSync, lstat = lstatSync, readlink = readlinkSync } = {}) {
   const missing = [];
-  const list = Array.isArray(args) ? args : [];
-  for (let index = 0; index < list.length - 1; index += 1) {
-    if (list[index] !== "--mount") continue;
-    const fields = Object.fromEntries(String(list[index + 1]).split(",").map((field) => {
-      const at = field.indexOf("=");
-      return at < 0 ? [field, ""] : [field.slice(0, at), field.slice(at + 1)];
-    }));
-    const source = fields.source ?? fields.src ?? "";
-    if (fields.type === "bind" && source && !exists(source)) missing.push({ source, target: fields.target ?? fields.dst ?? fields.destination ?? "" });
+  for (const mount of mountsOf(args)) {
+    if (mount.type !== "bind" || !mount.source) continue;
+    try {
+      stat(mount.source);
+      continue;
+    } catch (error) {
+      if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") continue;
+    }
+    let leadsTo = "";
+    try {
+      if (lstat(mount.source).isSymbolicLink()) leadsTo = path.resolve(path.dirname(mount.source), readlink(mount.source));
+    } catch {
+      // Not a link, or one that cannot be read: the source is named alone.
+    }
+    missing.push({ source: mount.source, target: mount.target, ...(leadsTo ? { leadsTo } : {}) });
   }
   return missing;
+}
+
+/**
+ * What `ai-dev clients install --docker` was given for an entry it wrote, read
+ * back from the entry's command line ({@link dockerRunArgs}): the image (the
+ * last argument), the volume, the projects folder, the state folder and the
+ * model folder — the one holding `bge-m3-onnx` when the link itself is
+ * mounted. A command that writes the entry again keeps them (Д-397).
+ *
+ * @param {string[]} args
+ * @returns {{ image: string, volume: string, projects: string, state: string, model: string }}
+ */
+export function dockerEntryOptions(args) {
+  const options = { image: Array.isArray(args) ? String(args.at(-1) ?? "") : "", volume: "", projects: "", state: "", model: "" };
+  for (const mount of mountsOf(args)) {
+    if (mount.type === "volume" && mount.target === "/data") options.volume = mount.source;
+    if (mount.type !== "bind") continue;
+    if (mount.target === CONTAINER_STATE_ROOT) options.state = mount.source;
+    else if (mount.target === CONTAINER_MODELS) options.model = mount.source;
+    else if (mount.target === CONTAINER_MODEL_DIR) options.model = mount.source.replace(/[\\/]+bge-m3-onnx[\\/]*$/, "");
+    else options.projects = mount.source;
+  }
+  return options;
 }
 
 /**

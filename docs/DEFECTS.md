@@ -12980,6 +12980,293 @@ bootstrap exit 69
 
 ---
 
+## Д-382. Ворота запрещённых вызовов пропускают равнозначные записи и отказывают честному коду
+
+**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 1); код — правка Д-267
+(`src/core/forbidden-calls.mjs`, `902338a`).
+
+Заголовок модуля обещает «however the module is reached», «any name the module object was bound to», «`eval` in any
+role but an object key» и «refuses what it cannot read». На деле:
+
+- **Пропускает:**
+  - `cp?.["exec"]`, `globalThis?.[…]`, `(globalThis)[…]`, `global.globalThis[…]`: `?.` читается как `.`, и вычисляемый
+    член не виден;
+  - `default` модуля: `ns.default.exec`, `const { default: cp } = await import(…)`, `(await import(…)).default`;
+  - `.then(async (cp) => …)` и `.then(function (cp) {…})`;
+  - `const { eval: run } = globalThis` и `x ? eval : y` — исключение «ключ объекта» срабатывает на любом `eval:`;
+  - `globalThis.Function(…)`, `o.shell = true`, `{ ["shell"]: true }`;
+  - экранирование в строках и именах: `cp["\x65xec"]`, `require("child_process")`, `"shell"`,
+    `eval(…)`;
+  - имя модуля шаблоном без подстановок; `(require("child_process"))`; `{ ...all } = require(…)`;
+  - регулярное выражение в начале строки после `}`, в котором есть обратная кавычка, сбивает лексер, и запрещённый вызов
+    ниже по файлу пропущен целиком.
+- **Отказывает честному коду** («a shell option whose value cannot be read»): `import { app, shell } from "electron"`,
+  `function f({ cmd, shell })`, `({ shell }) => …`, `for (const { shell } of list)`, `f(a, shell, b)`, `[a, shell, b]` —
+  правило сокращения не проверяет, что `shell` стоит в литерале объекта.
+
+**Чем грозит.** Ворота пропускают то, что обещают ловить, а приложение с `shell` из Electron (`shell.openExternal`)
+не пройдёт их вовсе.
+
+**Замер до** (`12812ee`; `p14/review1-code/fc-probe.mjs`, `fc-probe2.mjs` — пробы ревью):
+
+```
+fc-probe:  25 MISS из 26 случаев, которые должны ловиться; 6 FP из 9 честных
+fc-probe2: 4 MISS из 10 (destructure eval from globalThis, Reflect.get globalThis eval, alias globalThis,
+           cp["exec"]); честные — ok
+```
+
+**Как закроется.** Лексер разбирает экранирование в строках и именах, шаблон без подстановок — как строку, `?.[` — как
+`[`, а `/` в начале строки после `}` — как регулярное выражение; файл, который он не дочитал (незакрытый шаблон),
+отвергается. Правила понимают `default` модуля, `.then(async …)`/`function`, остаток шаблона, скобки вокруг `require`,
+`eval:` только как ключ литерала объекта, `.Function` у глобального объекта, `.shell =` и `["shell"]:`. Правила `shell`
+смотрят только литералы объектов: не импорт, не шаблон параметров и не `for … of`. Чего ворота сознательно не делают —
+не следят за значением через переменные (`const c2 = cp`, `createRequire`, `Reflect.get`, имя модуля из частей), —
+заголовок говорит прямо. Пробы ревью — тестами.
+
+---
+
+## Д-383. `upsert_policy_rule` записывает правило, пример которого не проверялся
+
+**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 2); код — правка Д-239
+(`src/core/policy-rules.mjs`).
+
+Правка Д-239 отказывает, когда не запустились пробы паттерна, но проверка примера сразу после (`verifyPolicyRule`) может
+вернуться с `not_checked` — и это не останавливает запись: `fires_on_example` там `null`, а не `false`.
+
+**Чем грозит.** В `policy.json` попадает правило, про которое никто не знает, срабатывает ли оно на свой пример.
+
+**Замер до** (`12812ee`; `p14/review1-code/upsert-unchecked.mjs`: пробы ответили, проверка примера — `not_run: "start"`):
+
+```
+action: created verification: {"checked_as":"bash","fires_on_example":null,"counter_example_matches":null,
+  "timed_out":false,"not_checked":true,"not_run":"start"}
+written: 1
+```
+
+**Как закроется.** Непроверенный пример — отказ, как непроверенные пробы; правило не записано.
+
+---
+
+## Д-384. Копия бюджета регулярных выражений в хуках называет сбой потока «не стартовал»
+
+**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 3); код — правка Д-239 в
+`hooks/lib.mjs`.
+
+Серверная копия (`src/core/regex-budget.mjs`) отличает поток, который не успел стартовать, от потока, который упал
+(`new Worker` бросил, `error`, `exit` до `ready`): упавший отвечает `checked: true` с ошибкой, и сопоставление идёт
+дальше. Копия в хуках этого различия не держит: её `finish(-1)` не несёт ошибки, и все оставшиеся правила получают
+`not_run: "start"`, а гард пишет «the thread … did not start within 3000 ms». До фазы 14 хуки отвечали `checked: true`, как
+сервер.
+
+**Чем грозит.** Копии расходятся (правило 3 AGENTS.md), и человек получает неверную причину.
+
+**Замер до** (`12812ee`; `node --permission --allow-fs-read='*' p14/review1-code/worker-denied.mjs` — поток запрещён):
+
+```
+server: [{"matched":null,"checked":true,"timed_out":false,"error":"Access to this API has been restricted. …"}] 3 ms
+hooks:  [{"matched":null,"checked":false,"not_run":"start"}] 1 ms
+```
+
+**Как закроется.** Хуки отличают сбой от старта, как сервер: упавший поток — `checked: true` с ошибкой.
+
+---
+
+## Д-385. Модель на другом диске: когда диск отключён, запись Docker не запускает сервер вовсе
+
+**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 4); код — правка Д-368
+(`modelMount`, `src/core/docker-launch.mjs`).
+
+Запись 3.0 монтирует саму ссылку `bge-m3-onnx`, а Docker разрешает источник на хосте при каждом запуске. Ссылку
+проверяют только при установке; если диск, на который она ведёт, потом отключён, Docker отказывается монтировать
+источник — и сессия не стартует вовсе, а в журнале клиента одна ошибка Docker. До фазы 14 монтировалась папка над ссылкой:
+сессия стартовала, без плотного поиска.
+
+**Чем грозит.** Отключённый диск с моделью выключает AI Dev во всех клиентах без слова о причине.
+
+**Замер до** (`12812ee`; `p14/r1/unplugged.mjs`: запись `clients entry cursor --docker --model …`, затем цель ссылки
+убрана):
+
+```
+entry exit 0
+disk away — session exit 125; answered initialize: false; stderr: docker: Error response from daemon: invalid mount
+  config for type "bind": bind source path does not exist: /var/tmp/p14/r1-unplugged/models/bge-m3-onnx
+```
+
+**Как закроется.** Установка говорит, что сессиям нужен подключённый диск, когда ссылка ведёт на другой диск;
+`ai-dev clients doctor` называет запись, чьей смонтированной папки нет, — что сделать, без запуска.
+
+---
+
+## Д-386. Живой процесс за `hidepid` считается вышедшим, и живой замок ломается
+
+**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 5); код — правка Д-234
+(`processState`, `src/core/file-lock.mjs`; копия — `hooks/lib.mjs`).
+
+`kill(pid, 0)` с `EPERM` значит «процесс есть, он чужой». При `/proc`, смонтированном с `hidepid=2`, чужой
+`/proc/<pid>` даёт ENOENT, `procStateLetter` возвращает `""`, и `processState` отвечает «gone». Замок, который держит
+живой процесс другого пользователя, считается брошенным (класс Д-96). До фазы 14 `EPERM` всегда значил «жив».
+
+**Чем грозит.** Потерянные записи при общем каталоге на машине с `hidepid` (так настраивают серверы).
+
+**Замер до** (`12812ee`; от пользователя `ubuntu`, pid 1 — процесс root; `/proc` скрыт подстановкой `proc: () => ""`):
+
+```
+kill(1, 0): EPERM | /proc/1 hidden (hidepid=2), proc → "": gone | proc not readable (null): unknown
+```
+
+**Как закроется.** Когда `kill` ответил успехом или `EPERM`, пустой ответ `/proc` значит «не видно» — `unknown`, а не
+«gone»; выход по-прежнему ловит `kill` при следующем взгляде. Обе копии.
+
+---
+
+## Д-387. Приложение на `EPERM` модели не говорит про «Конфиденциальность и безопасность» macOS
+
+**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (should-fix 6); код — правка Д-367
+(`desktop/src/renderer/setup-words.js:79`).
+
+`EPERM` и `EACCES` дают на экранах один совет — «Make the folder and its files readable to your user account». На macOS
+`EPERM` обычно значит, что приложению не дан доступ к папке в «Конфиденциальность и безопасность» (Д-371, Д-372); совет
+самого демона (`dense-backend.mjs:167`) это говорит, экран — нет.
+
+**Замер до** (`12812ee`): `modelUnreadable(view, { unreadable: "EPERM: operation not permitted, …" })` → совет
+`wizard.model.unreadable.access` — «Make the folder and its files readable to your user account.»
+
+**Как закроется.** Свой совет для `EPERM` (EN и RU): права и доступ в «Конфиденциальность и безопасность».
+
+---
+
+## Д-388. Мелочи первого ревью фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (nit 7–9).
+
+1. **Гард говорит «this command» и о записи файла** (`hooks/guard.mjs:181`): `applyCustomRules` зовётся и для `file`.
+   Замер до (`12812ee`): текст строки — «Nothing is wrong with the rules; this command went unchecked by them.» при
+   событии `file`.
+2. **Сообщение `INSTALL_BGE_M3=1` видно не всегда** (`docker/Dockerfile:132-135`): это stderr удачного шага RUN, а
+   терминальный вид BuildKit сворачивает вывод законченного шага, и шаг из кэша не печатает ничего. Замер до — по коду;
+   документация обещает сообщение без оговорки.
+3. **Ни один тест не держит, что `static-quality.mjs` зовёт `forbiddenCalls`**: удаление вызова в любом из двух циклов
+   оставляет все тесты зелёными. Замер до (`12812ee`): `grep -rn static-quality --include=*.test.mjs` → пусто.
+
+---
+
+## Д-389. `npm run demo` уносит данные эпохи Codex из `~/.codex` в свою временную папку и удаляет их
+
+**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (must-fix, ревью понятий); код — правка Д-374
+(`scripts/demo.mjs`) и перенос `~/.codex` фазы 7 (`src/core/runtime-home-migration.mjs`, Д-104).
+
+Демо даёт серверу временный `AI_DEV_HOME`, но настоящий `HOME`. Сервер при старте переносит папки AI Dev из `~/.codex`
+(квитанции и артефакты Archify, артефакты Frontend QA, модель — все, чья переменная не задана) в свой runtime-дом, то есть
+во временную папку демо, а демо в конце её удаляет. Корень: 2.x искала папки эпохи Codex в `$AI_DEV_HOME/.codex`, когда
+`AI_DEV_HOME` был задан (`8f647df`, `mcp-stdio.mjs:219-225`, `resolveRuntimeHome` = `AI_DEV_HOME || USERPROFILE || HOME`),
+а перенос 3.0 берёт настоящий `~/.codex` в любой `AI_DEV_HOME` (`resolveUserHome` его не читает). Так же любой запуск с
+другим `AI_DEV_HOME` — вторая установка, проба — забирает `~/.codex` основной.
+
+**Чем грозит.** Пользователь 2.x, который по DEMO.md делает `npm ci` и `npm run demo` до любой другой команды 3.0,
+теряет квитанции и артефакты; CHANGELOG и DEMO.md говорят, что демо ничего не трогает.
+
+**Замер до** (`12812ee`; `HOME` во временной папке с `~/.codex/state/archify-receipts/r1.json` и
+`~/.codex/artifacts/archify/a.svg`, `AI_DEV_HOME` не задан, `npm run -s demo -- --no-color`):
+
+```
+demo exit 0
+до:    .codex/state/archify-receipts/r1.json, .codex/artifacts/archify/a.svg
+после: в HOME нет ни одного файла (кроме .npm/)
+```
+
+**Как закроется.** Перенос эпохи Codex берёт `.codex` там, где его читала 2.x: `$AI_DEV_HOME/.codex` при заданном
+`AI_DEV_HOME`, иначе `~/.codex`; демо, кроме того, закрепляет во временной папке все шесть мест переноса, как
+`test/setup.mjs`. Документация (README сервера, MIGRATION) говорит, откуда переносится.
+
+---
+
+## Д-390. CHANGELOG 3.0.0 и заметка о миграции: «Breaking» неполон, «те же 135 инструментов» неверно
+
+**Статус:** открыт. Закроет фаза 14. Нашли первые независимые ревью фазы 14 (ревью понятий: must-fix 2, should-fix 3–5,
+мелочи 9–11; ревью установки: should-fix 1); документы — `c9f1191`.
+
+**Замер до** (`12812ee`):
+
+- `CHANGELOG.md:13-14` — «A 2.x install keeps working after the update», а `AI_DEV_MODEL_PATH` 2.0.0 (папка самой модели,
+  README v2.0.0:272, монтаж в `/models/bge-m3`) лаунчер 3.0 `docker/run-mcp.sh:57-61` отвергает с кодом 64; в «Breaking»
+  этого нет (раздел признаёт это в `:808-810`, `:1234-1239`).
+- `CHANGELOG.md:11`, `docs/MIGRATION.md:5` (RU `:5`) — «the same 135 tools»: в v2.0.0 их 133 (`TOOLS.md` тега), в 2.x
+  `main` (`8f647df`) — 134; новые — `plan_security_fixes` и `render_knowledge_galaxy` (`:393` раздела говорит это сам).
+- `CHANGELOG.md:55-57` — `--dense-python` и `AI_DEV_DENSE_BACKEND=python` «do the same with a note»: переменная читается как
+  `auto` с заметкой и ничего не ставит (`dense-backend.mjs:49-60`, `setup.mjs:91`).
+- «Breaking» молчит о: памяти проекта 2.x под `/workspace/<name>` в Docker на macOS/Linux (начинается заново); переезде
+  состояния тома на хост, которого не видят лаунчеры 2.x при откате; `AI_DEV_DOCKER_NETWORK`, которую записи 3.0 не читают
+  (`docker-launch.mjs:89`); умолчаниях хуков после переустановки — проверка пакетов в npm и OSV перед установкой (имена
+  пакетов уходят на api.osv.dev) и Stop-хук, который ждёт скана безопасности (`agent-hooks.mjs:95-100`).
+- `:34` — «the same exit codes everywhere», а `uninstall` добавляет 3 и 4; `:72`, `SECURITY.md:8` — `:2` «frozen», а тег
+  `v2.*` после 3.0 двигает `:2` (`:661` раздела, `docker-publish.yml:170-172`); `:451-452` — «Two to three seconds …
+  deletes everything it made», а DEMO.md — 2,5–3,1 с (около 4 со сборкой реестра) и реестр может остаться.
+
+**Чем грозит.** Читатель журнала перед обновлением не узнаёт о части несовместимостей и получает неверное число.
+
+**Как закроется.** «Breaking» дополнен, числа и формулировки — по коду; заметка о миграции (EN/RU) — так же.
+
+---
+
+## Д-391. Документация установки: Docker до публикации, Windows, путь назад клона, первая задача в Docker
+
+**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (ревью установки: should-fix 2–7); документы —
+`c9f1191`, `12812ee`.
+
+**Замер до** (`12812ee`):
+
+- **Docker до публикации.** `README.md:69`, `docs/INSTALL.md:149,166`, `docker/README.md:56` дают `sh ./bootstrap.sh` как
+  есть; до тега v3.0.0 `:latest` — 2.x, и bootstrap останавливается с кодом 69 («has no installer either (a 2.x image
+  too)», `bootstrap.sh:246-256`). Путь до публикации INSTALL даёт только для npx (`:101-104`). `docker/README.md:353` —
+  `--old-image …:2`, тега `:2` ещё нет (на GHCR — `latest`, `main`, `v2.0.0`, `sha-*`).
+- **Windows в таблицах выбора пути** (`README.md:69`, `INSTALL.md:33-34`): «Docker … running», а `bootstrap.ps1` нужны
+  ещё Node.js 22.12+ и полный клон (`bootstrap.ps1:51-61, 84-86, 136-138`); остальные места это говорят.
+- **Команды Windows только в синтаксисе cmd** (`INSTALL.md:610, 665`, `TEST-PLAN.ru.md:37, 39`), а INSTALL велит открыть
+  PowerShell: `"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd" doctor` в pwsh — «Unexpected token 'doctor'».
+- **Путь назад клона** (`MIGRATION.md:159-162`, RU `:158-161`): `clients remove` убирает и `ai-dev`, и `ai-dev-system`, а
+  `npm run setup` 2.x клиентов не подключал — читатель остаётся без сервера в клиентах; `cd ai-dev-mcp-server` стоит после
+  команд, которые уже идут в этой папке.
+- **Первая задача в Docker на macOS/Linux** (`README.md:100-105`): `~/Dev/my-project` — вне папки проектов, которую монтирует
+  bootstrap (`~/AI-Dev-Projects` без `--project-path`); примечание есть только для Windows.
+- **TEST-PLAN** `:61` (L2) цитирует «Model in place: … 1 continued» — строку `ai-dev model install`, а не `setup`
+  (`setup-runner.mjs:235-236`: «…, N file(s) fetched, 1 continued»).
+
+**Чем грозит.** Команды не выполняются как написаны, а путь назад оставляет без сервера.
+
+**Как закроется.** Примечание для Docker до публикации (как для npx), Windows в таблицах, формы PowerShell, шаг
+переподключения в пути назад, примечание о папке проектов для Docker, цитата `setup`. Каждая команда — замером, где
+песочница позволяет.
+
+---
+
+## Д-392. Мелочи первых ревью документации фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашли первые независимые ревью фазы 14 (мелочи обоих ревью документации).
+
+**Замер до** (`12812ee`):
+
+1. `ai-dev-mcp-server/docs/ARCHITECTURE.md:152-153` — «refuses a second rule that fires on the same text»; `collides()`
+   сравнивает одинаковые паттерны на пересекающихся событиях (GUARDRAILS исправлен в этой фазе). `:18` — схема ведёт образ
+   Docker к «a server in the client's own process»; `:37-38` — «Every local client entry runs `ai-dev mcp`» (запись 2.x — нет).
+2. `docs/ru/DESKTOP.md:230` — «ИИ-клиенты», в приложении — «AI-клиенты» (`messages-ru.js:43`).
+3. `CONTRIBUTING.md:139`, `AGENTS.md:159` — описание `npm run check` без security-check, protocol-smoke и lifecycle-smoke
+   (`package.json:56`); `CONTRIBUTING.md:123` — задача `mcp-server` CI без `docs:links`; `:95` — `cd desktop` после блока,
+   который оставляет в `ai-dev-mcp-server/`.
+4. `docs/ru/INSTALL.md:635` — «Перезапустить для обновления», в приложении «Перезапустить и обновить до {version}».
+5. `docker/README.md:296` — «четыре строки» Dockerfile.bge, `INSTALL.md:524` — «two lines»; `:160` — без
+   `tool_timeout_sec = 3600` (`mcp-clients.mjs:201`).
+6. `docs/TEST-PLAN.ru.md`: `:37` «Preparing AI Dev…» (по-русски — «Подготовка AI Dev…»), `:38` «Подключить» (кнопка —
+   «Подключить выбранные»), `:52` M5 ждёт, что Stop-хук увидит задачу контейнера, но ни один шаг не ставит хуки и не начинает
+   задачу через запись Docker; `:42, :63` «навыков около 615» (seed — 614).
+7. `docs/MIGRATION.md:20` — «the warm container removed» в строке и про `bootstrap.ps1`; контейнер убирает только
+   `bootstrap.sh` (`:577-582`).
+8. `docs/INSTALL.md:388` (RU `:389`) — `command = "/usr/local/bin/docker"` как запись macOS и Linux; на Linux обычно
+   `/usr/bin/docker` (`clients entry` здесь пишет `/usr/bin/docker`).
+9. `README.ru.md:174` без «and security», `:202` без «design and diagram tooling» (расхождение до фазы).
+10. `docs/INSTALL.md:626` (RU) — коды выхода «одни для всех команд», а `uninstall` добавляет 3 и 4.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

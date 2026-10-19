@@ -860,7 +860,8 @@ A config is edited as text (`core/jsonc-edit.mjs`, `core/toml-edit.mjs`), so eve
 byte; it is written through a temp file and a rename after checking it did not change meanwhile, with its old bytes
 kept as `<file>.backup-<time>`. Writing `ai-dev` removes `ai-dev-system`, the 2.x local installer's name (Д-95).
 What was written is recorded in `mcp-clients.json` in the state folder, so `remove` restores a file nothing else
-has touched since and cuts the entry out of one that was. A **local entry** is this Node by its full path, the CLI
+has touched since — less any `ai-dev` or `ai-dev-system` entry the install replaced, which the backup beside it keeps
+— and cuts the entry out of one that was. A **local entry** is this Node by its full path, the CLI
 and `mcp` — a client started from the Dock does not have the shell's `PATH` — with `AI_DEV_VAULT_ROOT` when one is
 set or the server sits in a vault, and `AI_DEV_HOME` when one is set (Д-176); an npx package is launched from its
 app-home copy, the Windows install through `<runtime>/app/current`. A **Docker entry** (`--docker`,
@@ -970,16 +971,17 @@ every layout on every system; 2.x's PowerShell scripts worked only inside the ow
 shrink, and the gate demands the pin go once its module is back under the ceiling or gone.
 
 The same walk runs `node --check` over `bin/`, `src/`, `scripts/`, `hooks/` and the desktop app, `sh -n` over the
-hook launcher, and refuses the calls AGENTS.md forbids, read as tokens by `core/forbidden-calls.mjs` — comments,
-strings, template text and regular expressions set aside, every escape decoded (Д-267, Д-382, Д-398): `eval` and
-the `Function` constructor, called or handed on; a computed member of `globalThis`, `window`, `global` or `self`
-whose key is not one plain string naming neither; `exec` and `execSync` of `child_process` through any import,
-`require` or `import()` of the module and any name it is plainly re-bound to, and the module object exported whole;
-and a `shell` option that is not plainly off. So `import * as cp` then `cp.exec(…)`, `{ "shell": true }` and
+hook launcher, and refuses the calls AGENTS.md forbids (`core/forbidden-calls.mjs`), read as tokens by
+`core/code-tokens.mjs` — comments, strings, template text and regular expressions set aside, every escape decoded,
+a name ended where JavaScript ends it (Д-267, Д-382, Д-398, Д-407): `eval` and the `Function` constructor, called
+or handed on; a computed member of `globalThis`, `window`, `global` or `self` whose key is not one plain string
+naming neither; `exec` and `execSync` of `child_process` through any import, `require`, `import()` or
+`process.getBuiltinModule` of the module and any name it is plainly re-bound to, above or below, and the module
+object exported whole; and a `shell` option that is not plainly off. So `import * as cp` then `cp.exec(…)`, `{ "shell": true }` and
 `globalThis["ev" + "al"]` are refused like the usual forms, and a file it cannot read to its end is refused, not
 trusted. It follows the module object and the global objects through plain re-binding and nothing else — a module
-name built from parts, `createRequire` and `Reflect.get` are past it: it keeps honest code honest and is no
-sandbox. Only the desktop app's tests may call `eval` and `new Function`, to show that the page's policy refuses
+name built from parts, `createRequire`, `Reflect.get` and the module object put in an object by name are past it: it
+keeps honest code honest and is no sandbox. Only the desktop app's tests may call `eval` and `new Function`, to show that the page's policy refuses
 them.
 
 ## Operations And Distribution

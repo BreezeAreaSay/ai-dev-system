@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { performance } from "node:perf_hooks";
-import { codeTokens, forbiddenCalls } from "./forbidden-calls.mjs";
+import { closing, codeTokens } from "./code-tokens.mjs";
+import { forbiddenCalls } from "./forbidden-calls.mjs";
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
 
@@ -294,4 +295,90 @@ test("the reader stays linear where its questions used to search: one minified l
   assert.ok(timed(chain) < 4000, "re-bindings in reverse order");
   assert.deepEqual(rules(chain), ["child_process.exec"], "and the chain is still followed to its end");
   assert.ok(timed(`x = globalThis${".globalThis".repeat(20000)}["a"];`) < 4000, "a chain of globals");
+});
+
+// The probes of phase 14's third review: a space JavaScript ends a name at, a label's or a case's block taken for an
+// object literal, a comma list around a re-bound value, and three ways to the module the gate did not know (Д-407 …
+// Д-410).
+test("the spellings the third review found the gate let through are each refused (Д-407, Д-408, Д-409, Д-410)", () => {
+  const NBSP = String.fromCharCode(0xa0);
+  const IDEOGRAPHIC = String.fromCharCode(0x3000);
+  const lines = (source) => forbiddenCalls(source).map((finding) => [finding.rule, finding.line]);
+  const refused = {
+    "eval before a no-break space": [`eval${NBSP}("1");`, [["eval", 1]]],
+    "Function before an ideographic space": [`Function${IDEOGRAPHIC}("return 1")();`, [["Function", 1]]],
+    "the module's exec past a no-break space": [`import * as cp from "node:child_process";\ncp${NBSP}.exec("ls");`, [["child_process.exec", 2]]],
+    "require before a no-break space": [`const cp = require${NBSP}("child_process");\ncp.exec("ls");`, [["child_process.exec", 2]]],
+    "a shell key before a no-break space": [`spawn("x", [], { shell${NBSP}: true });`, [["shell", 1]]],
+    "a label's block": ['run: {\n  eval("1")\n  {}\n}', [["eval", 2]]],
+    "a case's block": ["switch (k) {\n  case 1: {\n    Function(code)\n    {}\n  }\n}", [["Function", 3]]],
+    "a default's block": ['switch (k) {\n  default: {\n    eval("1")\n    {}\n  }\n}', [["eval", 3]]],
+    "a case after a conditional": ['switch (k) {\n  case a ? b : c: {\n    eval("1")\n    {}\n  }\n}', [["eval", 3]]],
+    "a label's block, then a regular expression": ['run: {}\n/`/.test(s);\neval("1");', [["eval", 3]]],
+    "a global in a comma list": ['const g = (0, globalThis);\nnew g.Function("x");', [["Function", 2]]],
+    "a global in a comma list, its member": ["let g;\ng = (0, window);\ng[k];", [["global-member", 3]]],
+    "the module in a comma list, used above": ['import * as cp from "node:child_process";\nexport function run() { return proc.exec("ls"); }\nconst proc = (0, cp);', [["child_process.exec", 2]]],
+    "its default taken out below its use": ['import * as cp from "node:child_process";\nfunction run() { return y.exec("ls"); }\nconst { default: y } = cp;', [["child_process.exec", 2]]],
+    "process.getBuiltinModule": ['process.getBuiltinModule("node:child_process").exec("ls");', [["child_process.exec", 1]]],
+    "getBuiltinModule bound": ['const cp = globalThis.process.getBuiltinModule("child_process");\ncp.execSync("ls");', [["child_process.exec", 2]]],
+    "getBuiltinModule taken apart": ['const { exec } = process.getBuiltinModule("child_process");', [["child_process.exec", 1]]],
+    'module.exports["cp"] =': ['module.exports["cp"] = require("node:child_process");', [["child_process.exec", 1]]],
+    'exports["cp"] =': ['exports["cp"] = require("child_process");', [["child_process.exec", 1]]],
+    'module["exports"] =': ['module["exports"] = require("child_process");', [["child_process.exec", 1]]],
+    "a division after a class expression": ['const C = class {} / 2; eval("1"); const r = 1 / 1;', [["eval", 1]]],
+    "a division after a function expression": ['const f = function () {} / 2; eval("1"); const r = 1 / 1;', [["eval", 1]]],
+    "a regular expression after a class declaration": ['class A {}\n/`/.test(s);\neval("1");', [["eval", 3]]],
+    "after export default class": ['export default class {}\n/`/.test(s);\neval("1");', [["eval", 3]]],
+    "a key named class, then a literal": ["const o = { class: 1, options: { shell: true } };", [["shell", 1]]],
+    "a label after ??": ['const a = b ?? c;\nrun: {\n  eval("1")\n  {}\n}', [["eval", 3]]],
+    "a literal opening a substitution": ["const t = `${{ shell: true }.shell}`;", [["shell", 1]]]
+  };
+  for (const [name, [source, expected]] of Object.entries(refused)) assert.deepEqual(lines(source), expected, `${name}: ${source}`);
+});
+
+test("honest code stays honest past the third review's fixes (Д-407 … Д-410)", () => {
+  const MATH_X = String.fromCodePoint(0x1d465);
+  const honest = {
+    "a name that only begins with another": `const ${MATH_X}eval = 1;`,
+    "a method in a literal after a key": "const o = { a: { eval() { return 1; } } };",
+    "a method in a literal after a conditional": "const o = x ? { eval() {} } : null;",
+    "a literal after a conditional's colon, where statements stand": "ready ? run() : { eval() {} };",
+    "a key named case": "const o = { case: { eval() {} } };",
+    "a rest element beside spawn": 'const cp = require("child_process");\nconst { spawn, ...others } = cp;\nspawn("x");',
+    "another module through getBuiltinModule": 'const { DatabaseSync } = process.getBuiltinModule("node:sqlite");',
+    "a member of the module in a comma list": 'import * as cp from "node:child_process";\nconst start = (0, cp.spawn);\nstart("x");',
+    "spawn put in a table": 'const cp = require("child_process");\nconst table = {};\ntable["spawn"] = cp.spawn;',
+    "from as a property": 'x.from\n"child_process"'
+  };
+  for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
+  // A name ends where JavaScript ends it, and a letter outside the basic plane is one letter.
+  const NBSP = String.fromCharCode(0xa0);
+  assert.deepEqual(codeTokens(`eval${NBSP}("1")`).map((token) => [token.type, token.value]), [["name", "eval"], ["punct", "("], ["string", "1"], ["punct", ")"]]);
+  assert.deepEqual(codeTokens(`${MATH_X}1 + y`).filter((token) => token.type === "name").map((token) => token.value), [`${MATH_X}1`, "y"]);
+  // A middle dot goes on a name and cannot begin one; what can neither is read as a sign, and the reader moves on.
+  const MIDDLE_DOT = String.fromCharCode(0xb7);
+  const GUILLEMET = String.fromCharCode(0xab);
+  assert.deepEqual(codeTokens(`a${MIDDLE_DOT}b ${GUILLEMET}c`).map((token) => [token.type, token.value]), [["name", `a${MIDDLE_DOT}b`], ["punct", GUILLEMET], ["name", "c"]]);
+  // Each `{` says whether it opens an object literal: not a label's, a case's or a class's.
+  const opens = (source) => codeTokens(source).filter((token) => token.value === "{").map((token) => token.literal);
+  // In a block `a: {` is one more label's: JavaScript reads `run: { a: { b: 1 } }` as blocks, and so does the reader.
+  assert.deepEqual(opens("run: { a: { b: 1 } }"), [false, false]);
+  assert.deepEqual(opens("run: { x = { b: 1 }; }"), [false, true]);
+  assert.deepEqual(opens("switch (k) { case 1: { x = c ? { d: 1 } : { e: 2 }; } default: {} }"), [false, false, true, true, false]);
+  assert.deepEqual(opens("const C = class { m() { return { a: 1 }; } };"), [false, false, true]);
+});
+
+test("the reader stays linear on brackets left open and on a from in every line (Д-412)", () => {
+  const timed = (source) => {
+    const started = performance.now();
+    forbiddenCalls(source);
+    return performance.now() - started;
+  };
+  // Before, 128 kB of code a case's block made it misread took 84 s, and 384 kB of `x.from` before a module name 12 s.
+  assert.ok(timed(`${"[".repeat(64000)}${")".repeat(64000)}`) < 4000, "closing brackets of another kind");
+  assert.ok(timed('x.from\n"child_process"\n'.repeat(16000)) < 4000, "a from that begins no clause");
+  assert.ok(timed('a, b\nfrom\n"child_process"\n'.repeat(16000)) < 4000, "nor after a list");
+  // A closing bracket finds its own kind under a few left open, and looks no deeper than that.
+  assert.equal(closing(codeTokens(`(${"[".repeat(3)})`), 0), 4);
+  assert.equal(closing(codeTokens(`(${"[".repeat(100)})`), 0), -1);
 });

@@ -6,10 +6,10 @@
  * `import { exec } from "node:child_process"` — and every equivalent spelling
  * passed it: `import * as cp` then `cp.exec(…)`, `execSync(…)`, `{ "shell": true }`,
  * `{ shell: "/bin/sh" }`, `globalThis["ev" + "al"](…)` (docs/DEFECTS.md, Д-267).
- * So the source is read as tokens — comments, strings, template text and
- * regular-expression literals set aside, every escape in strings and names
- * decoded, a template with no substitution read as the string it is — and the
- * rules are asked of those:
+ * So the source is read as tokens (code-tokens.mjs) — comments, strings,
+ * template text and regular-expression literals set aside, every escape in
+ * strings and names decoded, a template with no substitution read as the
+ * string it is — and the rules are asked of those:
  *
  * - `eval` in any role but a key or a method of an object literal
  *   (`{ eval: true }` is a Worker option);
@@ -21,11 +21,13 @@
  *   names neither of the two, whether it is read (`globalThis[k]`) or taken
  *   out by a pattern (`const { [k]: f } = globalThis`);
  * - `exec` or `execSync` of `child_process`, through a named, default or
- *   namespace import, `require` or `import()`, its `default`, a `.then`
- *   callback, a rest element, and any name the module object is bound or
- *   plainly re-bound to (`const c2 = cp`, `cp ??= await import(…)`); and the
+ *   namespace import, `require`, `import()` or `process.getBuiltinModule`, its
+ *   `default`, a `.then` callback, a rest element, and any name the module
+ *   object is bound or plainly re-bound to (`const c2 = cp`,
+ *   `const c3 = (0, c2)`, `cp ??= await import(…)`), above or below; and the
  *   module object handed to another file — `export *`, `export { default }`,
- *   `module.exports =`, `export default` — whose `exec` would come from here;
+ *   `module.exports =`, `exports["cp"] =`, `export default` — whose `exec`
+ *   would come from here;
  * - a `shell` option with any value but `false`, `null`, `undefined`, `0` or
  *   an empty string — as a key of an object literal, computed or not, or set
  *   on a member with `=`, `??=`, `||=` or `&&=` — and a `shell` shorthand,
@@ -35,337 +37,22 @@
  * It is a reader, not a parser. It follows the module object and the global
  * objects through plain re-binding, and nothing else through anything: a
  * module name built from parts, `createRequire`, `Reflect.get`, `require`
- * itself re-bound, a key held in a variable are past it. Code written that way
+ * itself re-bound, a key held in a variable, the module object put in an
+ * object or an array by name (`module.exports = { cp }`,
+ * `export default { cp }`, `Object.assign(exports, { cp })`) or handed to a
+ * function are past it (Д-410). Code written that way
  * is not written by accident, and keeping honest code honest is what this gate
  * is for. A computed member of a global it cannot read is refused rather than
  * trusted, and so is a file it could not read to its end — a template literal
  * or a comment that never closes, where whatever follows would go unchecked.
  */
 
+import { HEAD_KEYWORDS, KEYWORDS_BEFORE_EXPRESSION, closing, codeTokens, enclosing, isName, isPunct, opening } from "./code-tokens.mjs";
+
 const MODULE_NAMES = new Set(["child_process", "node:child_process"]);
 const FORBIDDEN_MEMBERS = new Set(["exec", "execSync"]);
 const GLOBAL_OBJECTS = new Set(["globalThis", "window", "global", "self"]);
 const FALSY_LITERALS = new Set(["false", "null", "undefined", "0"]);
-// After these a `/` starts a regular expression, not a division — unless the word is a property: `stats.in / 2`.
-const KEYWORDS_BEFORE_EXPRESSION = new Set([
-  "return", "typeof", "instanceof", "in", "of", "new", "delete", "void", "throw", "case", "do", "else", "yield", "await", "default"
-]);
-// A `(` after these opens a statement's head, and a `/` after its `)` starts a regular expression: `if (x) /re/.test(s)`.
-const HEAD_KEYWORDS = new Set(["if", "while", "for", "with"]);
-// Before these a `{` opens an object literal rather than a block, a class body or a clause.
-const OBJECT_AFTER_PUNCT = new Set(["=", "(", ",", ":", "[", "?", "|", "&", "!", "...", "+", "-", "*", "%", "~", "^"]);
-const OBJECT_AFTER_NAME = new Set(["return", "yield", "await", "case", "default", "typeof", "void", "new", "throw"]);
-const SIMPLE_ESCAPES = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", v: "\v" };
-const NAME_START = /[A-Za-z_$\u0080-\uffff]/;
-const NAME_PART = /[A-Za-z0-9_$\u0080-\uffff]/;
-// JavaScript ends a line, and a `//` comment, at any of these.
-const LINE_END = /[\n\r\u2028\u2029]/g;
-const LINE_BREAKS = /\r\n|[\n\r\u2028\u2029]/g;
-const BRACED_CODE_POINT = /\{([0-9a-fA-F]+)\}/y;
-const OCTAL_ESCAPE = /[0-3][0-7]{0,2}|[4-7][0-7]?/y;
-
-const isLineEnd = (character) => character === "\n" || character === "\r" || character === "\u2028" || character === "\u2029";
-const lineBreaks = (text) => text.match(LINE_BREAKS)?.length ?? 0;
-
-/**
- * The escape after a backslash at `at` (the character after it): what it
- * stands for, where the source goes on, and the newlines it spans.
- */
-function readEscape(text, at) {
-  const character = text[at];
-  if (character === "x") {
-    const code = Number.parseInt(text.slice(at + 1, at + 3), 16);
-    return Number.isNaN(code) ? ["x", at + 1, 0] : [String.fromCharCode(code), at + 3, 0];
-  }
-  if (character === "u") {
-    BRACED_CODE_POINT.lastIndex = at + 1;
-    const braced = BRACED_CODE_POINT.exec(text);
-    if (braced) {
-      const point = Number.parseInt(braced[1], 16);
-      return [point <= 0x10ffff ? String.fromCodePoint(point) : "", at + 1 + braced[0].length, 0];
-    }
-    const code = Number.parseInt(text.slice(at + 1, at + 5), 16);
-    return /^[0-9a-fA-F]{4}$/.test(text.slice(at + 1, at + 5)) ? [String.fromCharCode(code), at + 5, 0] : ["u", at + 1, 0];
-  }
-  // A legacy octal escape, which a file that is not strict may still write: `\137` is `_`, `\0` is NUL.
-  if (character >= "0" && character <= "7") {
-    OCTAL_ESCAPE.lastIndex = at;
-    const digits = OCTAL_ESCAPE.exec(text)[0];
-    return [String.fromCharCode(Number.parseInt(digits, 8)), at + digits.length, 0];
-  }
-  // A line continuation stands for nothing.
-  if (character === "\r") return ["", text[at + 1] === "\n" ? at + 2 : at + 1, 1];
-  if (isLineEnd(character)) return ["", at + 1, 1];
-  return [SIMPLE_ESCAPES[character] ?? character ?? "", at + 1, 0];
-}
-
-/**
- * The tokens of a JavaScript source: `{ type, value, line }` with type
- * `name` (escapes decoded), `string` (the decoded text; a template literal with
- * no substitution is one), `number`, `punct`, `regex` (one per literal, its
- * text left out), or `template` (one per template literal that has
- * substitutions; the code in its `${…}` is tokenised in place). Comments leave
- * nothing, and `?.` before `[` or `(` leaves nothing either: `a?.[b]` is read
- * as `a[b]`, whatever space or comment lies between.
- *
- * A `/` is a regular expression where an expression begins, and a division
- * after an operand: after a word that is a property (`stats.in / 2`), a
- * postfix `++`, a call's `)` or an object literal's `}` it divides; after a
- * statement head's `)` (`if (x) /re/`) or a block's `}` it does not. One that
- * does not close on its line divides.
- *
- * When a template literal, a substitution or a comment never closes, the
- * array's `unterminated` property is the line it opened on: whatever follows
- * it was read as part of it.
- *
- * @param {string} source
- * @returns {Array<{ type: string, value: string, line: number }> & { unterminated?: number }}
- */
-export function codeTokens(source) {
-  const text = String(source ?? "");
-  const tokens = [];
-  let at = 0;
-  if (text.startsWith("#!")) {
-    LINE_END.lastIndex = 0;
-    at = LINE_END.exec(text)?.index ?? text.length;
-  }
-  let line = 1;
-  // Inside a template's `${…}`: how many braces of code are open in each, and the line each template opened on.
-  const templates = [];
-  // The brackets open now: for each, whether a `/` after its closing bracket starts a regular expression.
-  const opened = [];
-  // Just inside a `${`: an expression begins there, so a `/` begins a regular expression.
-  let substitutionOpened = false;
-  // Just after `?.`: it stands for `.` unless a `[` or a `(` comes next.
-  let optional = false;
-  const regexAfterClosing = (value) => {
-    const last = tokens.at(-1);
-    if (value === "(") {
-      const property = isPunct(tokens.at(-2), ".");
-      return isName(last) && !property && (HEAD_KEYWORDS.has(last.value) || (last.value === "await" && isName(tokens.at(-2), "for")));
-    }
-    if (value === "{") return !(last?.type === "punct" ? OBJECT_AFTER_PUNCT.has(last.value) : isName(last) && OBJECT_AFTER_NAME.has(last.value));
-    return false;
-  };
-  const push = (type, value, where = line) => {
-    substitutionOpened = false;
-    if (optional) {
-      optional = false;
-      if (!(type === "punct" && (value === "[" || value === "("))) tokens.push({ type: "punct", value: ".", line: where });
-    }
-    const token = { type, value, line: where };
-    if (type === "punct" && (value === "(" || value === "[" || value === "{")) opened.push(regexAfterClosing(value));
-    else if (type === "punct" && (value === ")" || value === "]" || value === "}")) token.regexAfter = opened.pop() === true;
-    tokens.push(token);
-  };
-  const unterminated = (where) => {
-    tokens.unterminated ??= where;
-  };
-  // `x++ / 2`: a postfix increment or decrement ends its operand.
-  const endsOperand = (token) => token?.type === "number" || token?.type === "string" || token?.type === "regex"
-    || (isName(token) && !KEYWORDS_BEFORE_EXPRESSION.has(token.value)) || isPunct(token, ")") || isPunct(token, "]");
-  const regexAllowed = () => {
-    if (substitutionOpened) return true;
-    const last = tokens.at(-1);
-    if (!last) return true;
-    if (last.type === "name") return KEYWORDS_BEFORE_EXPRESSION.has(last.value) && !isPunct(tokens.at(-2), ".");
-    if (last.type !== "punct") return false;
-    if (last.value === ")" || last.value === "]" || last.value === "}") return last.regexAfter === true;
-    if ((last.value === "+" || last.value === "-") && isPunct(tokens.at(-2), last.value) && endsOperand(tokens.at(-3))) return false;
-    return true;
-  };
-  const readTemplateText = () => {
-    // From just after a backtick or a `}` closing a substitution, to the next `${` or the closing backtick.
-    let cooked = "";
-    while (at < text.length) {
-      const character = text[at];
-      if (character === "\\") {
-        const [value, next, newlines] = readEscape(text, at + 1);
-        cooked += value;
-        line += newlines;
-        at = next;
-        continue;
-      }
-      if (isLineEnd(character) && !(character === "\r" && text[at + 1] === "\n")) line += 1;
-      if (character === "`") {
-        at += 1;
-        return { cooked, ended: "end" };
-      }
-      if (character === "$" && text[at + 1] === "{") {
-        at += 2;
-        return { cooked, ended: "code" };
-      }
-      cooked += character;
-      at += 1;
-    }
-    return { cooked, ended: "eof" };
-  };
-  while (at < text.length) {
-    const character = text[at];
-    if (isLineEnd(character)) {
-      if (!(character === "\r" && text[at + 1] === "\n")) line += 1;
-      at += 1;
-      continue;
-    }
-    if (/\s/.test(character)) { at += 1; continue; }
-    if (character === "/" && text[at + 1] === "/") {
-      LINE_END.lastIndex = at;
-      at = LINE_END.exec(text)?.index ?? text.length;
-      continue;
-    }
-    if (character === "/" && text[at + 1] === "*") {
-      const end = text.indexOf("*/", at + 2);
-      if (end < 0) unterminated(line);
-      const stop = end < 0 ? text.length : end + 2;
-      line += lineBreaks(text.slice(at, stop));
-      at = stop;
-      continue;
-    }
-    if (character === "'" || character === "\"") {
-      const started = line;
-      let value = "";
-      for (at += 1; at < text.length && text[at] !== character; ) {
-        if (text[at] === "\\") {
-          const [decoded, next, newlines] = readEscape(text, at + 1);
-          value += decoded;
-          line += newlines;
-          at = next;
-          continue;
-        }
-        // An unterminated string ends at its line; the line break is the main loop's to count.
-        if (text[at] === "\n" || text[at] === "\r") break;
-        value += text[at];
-        at += 1;
-      }
-      if (text[at] === character) at += 1;
-      push("string", value, started);
-      continue;
-    }
-    if (character === "`") {
-      const started = line;
-      at += 1;
-      const { cooked, ended } = readTemplateText();
-      if (ended === "end") push("string", cooked, started);
-      else {
-        push("template", "`", started);
-        if (ended === "code") {
-          templates.push({ depth: 0, line: started });
-          substitutionOpened = true;
-        } else unterminated(started);
-      }
-      continue;
-    }
-    if (character === "}" && templates.length && templates.at(-1).depth === 0) {
-      const { line: started } = templates.pop();
-      at += 1;
-      const { ended } = readTemplateText();
-      if (ended === "code") {
-        templates.push({ depth: 0, line: started });
-        substitutionOpened = true;
-      } else if (ended === "eof") unterminated(started);
-      continue;
-    }
-    if (character === "/" && regexAllowed()) {
-      const slash = at;
-      let inClass = false;
-      for (at += 1; at < text.length; at += 1) {
-        const inside = text[at];
-        if (inside === "\\" && !isLineEnd(text[at + 1] ?? "\n")) { at += 1; continue; }
-        if (isLineEnd(inside)) break;
-        if (inside === "[") inClass = true;
-        else if (inside === "]") inClass = false;
-        else if (inside === "/" && !inClass) break;
-      }
-      if (text[at] !== "/") {
-        // A regular expression never spans a line: this slash divides, and what follows it is read as code.
-        at = slash + 1;
-        push("punct", "/");
-        continue;
-      }
-      at += 1;
-      while (at < text.length && /[A-Za-z]/.test(text[at])) at += 1;
-      push("regex", "/");
-      continue;
-    }
-    if (NAME_START.test(character) || (character === "\\" && text[at + 1] === "u")) {
-      // A name, its escapes decoded: `eval` is `eval` (Д-382).
-      let value = "";
-      while (at < text.length) {
-        if (text[at] === "\\" && text[at + 1] === "u") {
-          const [decoded, next] = readEscape(text, at + 1);
-          value += decoded;
-          at = next;
-        } else if (NAME_PART.test(text[at])) {
-          value += text[at];
-          at += 1;
-        } else break;
-      }
-      push("name", value);
-      continue;
-    }
-    if (/[0-9]/.test(character) || (character === "." && /[0-9]/.test(text[at + 1] ?? ""))) {
-      const match = /^(?:0[xXoObB][0-9a-fA-F_]+n?|[0-9_]*\.?[0-9_]*(?:[eE][+-]?[0-9_]+)?n?)/.exec(text.slice(at, at + 128));
-      push("number", match[0] || character);
-      at += Math.max(1, match[0].length);
-      continue;
-    }
-    if (character === "?" && text[at + 1] === "." && !/[0-9]/.test(text[at + 2] ?? "")) {
-      at += 2;
-      optional = true;
-      continue;
-    }
-    if (character === "." && text.startsWith("...", at)) {
-      push("punct", "...");
-      at += 3;
-      continue;
-    }
-    if (templates.length) {
-      if (character === "{") templates.at(-1).depth += 1;
-      if (character === "}") templates.at(-1).depth -= 1;
-    }
-    push("punct", character);
-    at += 1;
-  }
-  if (templates.length) unterminated(templates[0].line);
-  return tokens;
-}
-
-// The bracket pairs of a token array, worked out once (a search per question made the gate quadratic, Д-401).
-const BRACKETS = new WeakMap();
-function brackets(tokens) {
-  let found = BRACKETS.get(tokens);
-  if (found) return found;
-  // `pair`: the other bracket of a pair; `holder`: the innermost bracket open at a token (for a closing one, its own).
-  found = { pair: new Int32Array(tokens.length).fill(-1), holder: new Int32Array(tokens.length).fill(-1) };
-  const open = [];
-  const kinds = { ")": "(", "]": "[", "}": "{" };
-  tokens.forEach((token, index) => {
-    found.holder[index] = open.length ? open.at(-1) : -1;
-    if (token.type !== "punct") return;
-    if (token.value === "(" || token.value === "[" || token.value === "{") open.push(index);
-    else if (kinds[token.value]) {
-      // A closing bracket with no opening one of its kind (code that does not parse) pairs with nothing.
-      const at = open.findLastIndex((start) => tokens[start].value === kinds[token.value]);
-      if (at < 0) return;
-      found.pair[open[at]] = index;
-      found.pair[index] = open[at];
-      open.length = at;
-    }
-  });
-  BRACKETS.set(tokens, found);
-  return found;
-}
-
-const isOpening = (token) => token?.type === "punct" && (token.value === "(" || token.value === "[" || token.value === "{");
-/** The index of the token that closes the bracket opened at `open`, or -1. */
-const closing = (tokens, open) => (isOpening(tokens[open]) ? brackets(tokens).pair[open] : -1);
-/** The index of the token that opened the bracket closed at `close`, or -1. */
-const opening = (tokens, close) => (tokens[close]?.type === "punct" && !isOpening(tokens[close]) && close >= 0 ? brackets(tokens).pair[close] : -1);
-/** The index of the innermost `(`, `[` or `{` that holds the token at `index`, or -1. */
-const enclosing = (tokens, index) => (index >= 0 && index < tokens.length ? brackets(tokens).holder[index] : -1);
-
-const isPunct = (token, value) => token?.type === "punct" && token.value === value;
-const isName = (token, value) => token?.type === "name" && (value === undefined || token.value === value);
 const isModuleString = (token) => token?.type === "string" && MODULE_NAMES.has(token.value);
 // `=` that assigns: not `==`, `===` or `=>`.
 const assigns = (tokens, index) => isPunct(tokens[index], "=") && !isPunct(tokens[index + 1], "=") && !isPunct(tokens[index + 1], ">")
@@ -407,11 +94,8 @@ function isPattern(tokens, open) {
 /** Whether the token at `index` is a key or a shorthand of an object literal — not a block, a pattern or an import. */
 function inObjectLiteral(tokens, index) {
   const open = enclosing(tokens, index);
-  if (open < 0 || !isPunct(tokens[open], "{")) return false;
-  const before = tokens[open - 1];
-  // After `)`, `=>`, `else` or a `;` it is a block; after `import` or `const` a clause or a pattern.
-  const literal = before?.type === "punct" ? OBJECT_AFTER_PUNCT.has(before.value) : isName(before) && OBJECT_AFTER_NAME.has(before.value);
-  if (!literal) return false;
+  // After `)`, `=>`, `else`, a `;` or a label's `:` it is a block; after `import` or `const` a clause or a pattern.
+  if (open < 0 || !isPunct(tokens[open], "{") || !tokens[open].literal) return false;
   // `import React, { shell } from "electron"`, `export { shell } from …`.
   if (isName(tokens[closing(tokens, open) + 1], "from")) return false;
   return !isPattern(tokens, open);
@@ -439,22 +123,32 @@ function moduleReaches(tokens) {
   const reaches = [];
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
-    // `require("child_process")`, `import("node:child_process", { … })`, a trailing comma and all.
-    if ((isName(token, "require") || isName(token, "import")) && isPunct(tokens[index + 1], "(") && isModuleString(tokens[index + 2])
+    // `require("child_process")`, `import("node:child_process", { … })`, a trailing comma and all, and
+    // `process.getBuiltinModule("child_process")`, which is `require` by another name (Д-410).
+    if (["require", "import", "getBuiltinModule"].some((name) => isName(token, name)) && isPunct(tokens[index + 1], "(") && isModuleString(tokens[index + 2])
       && (isPunct(tokens[index + 3], ")") || isPunct(tokens[index + 3], ","))) {
       const shut = closing(tokens, index + 1);
       if (shut < 0) continue;
-      // `module.require(…)` is the module too: the value begins at the head of its chain.
+      // `module.require(…)` and `process.getBuiltinModule(…)` are the module too: the value begins at the head of its chain.
       let start = index;
-      while (token.value === "require" && isPunct(tokens[start - 1], ".") && isName(tokens[start - 2])) start -= 2;
+      while (token.value !== "import" && isPunct(tokens[start - 1], ".") && isName(tokens[start - 2])) start -= 2;
       reaches.push({ kind: token.value, start, end: shut + 1, line: token.line });
       index = shut;
       continue;
     }
     if (isName(token, "from") && isModuleString(tokens[index + 1])) {
+      // Back to the `import` or `export` its clause begins with, over names, `*`, `,` and one `{ … }`: anything else
+      // there means this `from` begins no clause, and no search runs on to the start of the file (Д-412).
       let start = index - 1;
-      while (start >= 0 && !isName(tokens[start], "import") && !isName(tokens[start], "export")) start -= 1;
-      if (start >= 0) reaches.push({ kind: "static", start, end: index + 2, clause: [start + 1, index], line: token.line });
+      for (;;) {
+        const before = tokens[start];
+        if (isPunct(before, "}") && opening(tokens, start) >= 0) start = opening(tokens, start) - 1;
+        else if ((isName(before) && before.value !== "import" && before.value !== "export") || isPunct(before, ",") || isPunct(before, "*")) start -= 1;
+        else break;
+      }
+      if (isName(tokens[start], "import") || isName(tokens[start], "export")) {
+        reaches.push({ kind: "static", start, end: index + 2, clause: [start + 1, index], line: token.line });
+      }
     }
   }
   return reaches;
@@ -535,21 +229,22 @@ export function forbiddenCalls(source, { allowEval = false } = {}) {
     }
     return starts;
   };
-  // `{ exec, default: cp, ...rest, [key]: x } = <module>`: what each entry takes out of it, nested `default`s and all.
-  const modulePattern = (open) => {
+  // `{ exec, default: cp, ...rest, [key]: x } = <module>`: what each entry takes out of it, nested `default`s and all —
+  // the names it binds to the module, and the exec members it takes out.
+  const modulePattern = (open, bound = (name) => aliases.add(name), found = childProcessFinding) => {
     for (const pending = [open]; pending.length; ) {
       for (const index of entries(pending.pop())) {
         const first = tokens[index];
-        if (isPunct(first, "...") && isName(tokens[index + 1])) aliases.add(tokens[index + 1].value);
+        if (isPunct(first, "...") && isName(tokens[index + 1])) bound(tokens[index + 1].value);
         else if (isPunct(first, "[")) {
           const inside = tokens.slice(index + 1, closing(tokens, index));
           const key = inside.length === 1 && inside[0].type === "string" ? inside[0].value : null;
-          if (key === null || FORBIDDEN_MEMBERS.has(key)) childProcessFinding(first.line, key ?? "a computed member");
+          if (key === null || FORBIDDEN_MEMBERS.has(key)) found(first.line, key ?? "a computed member");
         } else if (first && (first.type === "name" || first.type === "string")) {
-          if (FORBIDDEN_MEMBERS.has(first.value)) childProcessFinding(first.line, first.value);
+          if (FORBIDDEN_MEMBERS.has(first.value)) found(first.line, first.value);
           if (first.value === "default" && isPunct(tokens[index + 1], ":")) {
             const binding = tokens[index + 2];
-            if (isName(binding)) aliases.add(binding.value);
+            if (isName(binding)) bound(binding.value);
             else if (isPunct(binding, "{")) pending.push(index + 2);
           }
         }
@@ -572,7 +267,11 @@ export function forbiddenCalls(source, { allowEval = false } = {}) {
   // another file — `module.exports = …`, `exports.x = …`, `export default …`.
   const handedOn = (start, what) => {
     if (isPunct(tokens[start - 1], "...")) {
-      childProcessFinding(tokens[start].line, `${what} (spread: its exec goes with it)`);
+      // A spread hands exec on with the rest; a pattern's rest element, `{ spawn, ...others } = cp`, binds a name.
+      const holder = enclosing(tokens, start);
+      if (!(isPunct(tokens[holder], "{") || isPunct(tokens[holder], "[")) || !isPattern(tokens, holder)) {
+        childProcessFinding(tokens[start].line, `${what} (spread: its exec goes with it)`);
+      }
       return;
     }
     if (isName(tokens[start - 1], "default") && isName(tokens[start - 2], "export")) {
@@ -581,9 +280,16 @@ export function forbiddenCalls(source, { allowEval = false } = {}) {
     }
     if (!assigns(tokens, start - 1)) return;
     const target = assignedAt(tokens, start - 1);
+    // The head of the chain assigned to: `module.exports.cp`, `exports["cp"]`, `module["exports"]` (Д-410).
     let head = target;
-    while (isPunct(tokens[head - 1], ".") && isName(tokens[head - 2])) head -= 2;
-    if (isName(tokens[head], "exports") || (isName(tokens[head], "module") && isName(tokens[head + 2], "exports"))) {
+    for (;;) {
+      if (isPunct(tokens[head], "]") && opening(tokens, head) > 0) head = opening(tokens, head) - 1;
+      else if (isName(tokens[head]) && isPunct(tokens[head - 1], ".")) head -= 2;
+      else break;
+    }
+    const exportsNext = isPunct(tokens[head + 1], ".") ? isName(tokens[head + 2], "exports")
+      : isPunct(tokens[head + 1], "[") && tokens[head + 2]?.type === "string" && tokens[head + 2].value === "exports" && isPunct(tokens[head + 3], "]");
+    if (isName(tokens[head], "exports") || (isName(tokens[head], "module") && exportsNext)) {
       childProcessFinding(tokens[target].line, `${what} (exported from this file)`);
     } else if (isName(tokens[target])) aliases.add(tokens[target].value);
     else if (isPunct(tokens[target], "}")) modulePattern(opening(tokens, target));
@@ -627,18 +333,27 @@ export function forbiddenCalls(source, { allowEval = false } = {}) {
     else if (!isPunct(tokens[end], ".") && !isPunct(tokens[end], "[") && !isPunct(tokens[end], "(")) handedOn(start, "the module object");
   }
 
-  // A plain re-binding hands the name on — `const c2 = cp`, `c2 ??= (cp)`, `const cp = ns.default`,
-  // `const m = await loading`, `const g = global.globalThis` — however long the chain, in any order (Д-401).
-  const boundTo = new Map();
-  for (let index = 2; index < tokens.length; index += 1) {
-    if (!assigns(tokens, index)) continue;
-    const target = assignedAt(tokens, index);
-    if (!isName(tokens[target]) || isPunct(tokens[target - 1], ".")) continue;
-    let at = index + 1;
-    if (isName(tokens[at], "await")) at += 1;
-    let depth = 0;
-    for (; isPunct(tokens[at], "("); at += 1) depth += 1;
-    if (!isName(tokens[at])) continue;
+  // The name a plain value comes down to, from `at` on: past `await`, the parentheses around it and the lists it ends
+  // (`(0, cp)` is `cp`), on through `.default`, `["default"]` and a global's own names. `[name, end]`, where `end` is
+  // just past the value, or null.
+  const plainValue = (at) => {
+    const shuts = [];
+    for (;;) {
+      if (isName(tokens[at], "await")) at += 1;
+      else if (isPunct(tokens[at], "(")) {
+        const shut = closing(tokens, at);
+        if (shut < 0) return null;
+        shuts.push(shut);
+        // The list's last item: back from the `)` to its last `,`, over whole brackets.
+        let item = shut;
+        while (item - 1 > at && !isPunct(tokens[item - 1], ",")) {
+          const open = opening(tokens, item - 1);
+          item = open > at ? open : item - 1;
+        }
+        at = item;
+      } else break;
+    }
+    if (!isName(tokens[at])) return null;
     let end = at + 1;
     for (;;) {
       const member = tokens[end + 1];
@@ -646,18 +361,42 @@ export function forbiddenCalls(source, { allowEval = false } = {}) {
       else if (isPunct(tokens[end], "[") && member?.type === "string" && member.value === "default" && isPunct(tokens[end + 2], "]")) end += 3;
       else break;
     }
-    for (; depth > 0 && isPunct(tokens[end], ")"); depth -= 1) end += 1;
+    // Each parenthesis closes right after what it holds: `(cp)`, `(0, cp)` — not `(cp.x)` or `(cp + 1)`.
+    while (shuts.length) {
+      if (end !== shuts.pop()) return null;
+      end += 1;
+    }
+    return [at, end];
+  };
+  // A plain re-binding hands the name on — `const c2 = cp`, `c2 ??= (cp)`, `const cp = ns.default`,
+  // `const m = await loading`, `const g = (0, globalThis)` — and a pattern takes the module out of one:
+  // `const { default: c3, ...rest } = c2`. However long the chain, in any order (Д-401, Д-409).
+  const boundTo = new Map();
+  const takenFrom = new Map();
+  const bind = (map, from, name) => {
+    if (!map.has(from)) map.set(from, []);
+    map.get(from).push(name);
+  };
+  for (let index = 2; index < tokens.length; index += 1) {
+    if (!assigns(tokens, index)) continue;
+    const value = plainValue(index + 1);
+    if (!value) continue;
+    const [at, end] = value;
     const after = tokens[end];
-    if (depth > 0 || (after && !isPunct(after, ";") && !isPunct(after, ",") && !isPunct(after, ")") && !isPunct(after, "}") && after.line === tokens[end - 1].line)) continue;
-    if (!boundTo.has(tokens[at].value)) boundTo.set(tokens[at].value, []);
-    boundTo.get(tokens[at].value).push(tokens[target].value);
+    if (after && !isPunct(after, ";") && !isPunct(after, ",") && !isPunct(after, ")") && !isPunct(after, "}") && after.line === tokens[end - 1].line) continue;
+    const target = assignedAt(tokens, index);
+    if (isName(tokens[target]) && !isPunct(tokens[target - 1], ".")) bind(boundTo, tokens[at].value, tokens[target].value);
+    else if (isPunct(tokens[target], "}")) modulePattern(opening(tokens, target), (name) => bind(takenFrom, tokens[at].value, name), () => {});
   }
-  for (const known of [aliases, globals]) {
+  for (const [known, maps] of [[aliases, [boundTo, takenFrom]], [globals, [boundTo]]]) {
     for (const queue = [...known]; queue.length; ) {
-      for (const name of boundTo.get(queue.pop()) ?? []) {
-        if (!known.has(name)) {
-          known.add(name);
-          queue.push(name);
+      const from = queue.pop();
+      for (const map of maps) {
+        for (const name of map.get(from) ?? []) {
+          if (!known.has(name)) {
+            known.add(name);
+            queue.push(name);
+          }
         }
       }
     }

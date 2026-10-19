@@ -47,11 +47,12 @@
  * `=>`, a method's place — right in a class's body or an object literal, a `{`
  * after it, whatever the name — or a body begun on the line it ends on: a
  * call's arguments are values, a block or a class's body after them, and a
- * name in them declares nothing (Д-466, Д-472, Д-481). A name is declared
- * again by a declaration — `const`, `let` or `var` with a name, `{` or `[`
- * after it, not a key or a method of that name —, a parameter, or `function`,
- * `function*` or `class` that is no member; a declaration's or a list's walk
- * steps over a template whole (Д-473, Д-476, Д-490).
+ * name in them declares nothing (Д-466, Д-472, Д-481, Д-499). A name is
+ * declared again by a declaration — `const`, `let` or `var` with a name, `{` or
+ * `[` after it, not a key or a method of that name —, a parameter, or
+ * `function`, `function*` or `class` that names no member; the walk of a
+ * declaration or of a parameter or argument list steps over a template whole,
+ * and one begun in a template ends with it (Д-473, Д-476, Д-490, Д-496, Д-501).
  *
  * It is a reader, not a parser. It follows the module object and the global
  * objects through plain re-binding, and nothing else through anything: a
@@ -60,21 +61,21 @@
  * `Reflect.apply`, a condition (`(ok ? require : null)(…)`), an array,
  * `require["call"]`, `module.constructor._load` — a key held in a variable,
  * the module object put in an object or an array by name
- * (`module.exports = { cp }`, `export default { cp }`,
- * `Object.assign(exports, { cp })`, `export const [run] = [cp]`), set on
- * `this` or a class's field, or on a head in parentheses
- * (`(module.exports).cp = cp`), handed to a function, or only part of a value
- * (`cp || fallback`), and a name bound to such a value; an exported `let` or
- * `var` that a pattern declares (`export let { run } = {}`), or whose name the
- * file declares again — a local of its own, a parameter, a function, a
- * class — wherever it is assigned; a global taken out by a pattern
- * (`{ globalThis: g } = globalThis`), and `await` or `yield` written as a
- * name in a script, which it reads as the keyword, are past it (Д-410, Д-426,
- * Д-432, Д-440, Д-448, Д-459, Д-460, Д-464, Д-476). Code written that way
- * is not written by accident, and keeping honest code honest is what this gate
- * is for. A computed member of a global it cannot read is refused rather than
- * trusted, and so is a file it could not read to its end — a template literal
- * or a comment that never closes, where whatever follows would go unchecked.
+ * (`module.exports = { cp }`, `export const [run] = [cp]`), set on `this` or a
+ * class's field, or on a head in parentheses (`(module.exports).cp = cp`),
+ * handed to a function, or only part of a value (`cp || fallback`), and a name
+ * bound to such a value; an exported `let` or `var` that a pattern declares
+ * (`export let { run } = {}`), or whose name the file declares again — a local
+ * of its own, a parameter, a function, a class — wherever it is assigned; a
+ * global taken out by a pattern (`{ globalThis: g } = globalThis`), `await` or
+ * `yield` written as a name in a script, which it reads as the keyword, and an
+ * object literal after `<` or `>`, which it reads as a block, are past it
+ * (Д-410, Д-426, Д-432, Д-440, Д-448, Д-459, Д-460, Д-464, Д-476, Д-502).
+ * Code written that way is not written by accident, and keeping honest code
+ * honest is what this gate is for. A computed member of a global it cannot read
+ * is refused rather than trusted, and so is a file it could not read to its
+ * end — a template literal or a comment that never closes, which would leave
+ * whatever follows unchecked.
  */
 
 import { HEAD_KEYWORDS, KEYWORDS_BEFORE_EXPRESSION, closing, codeTokens, enclosing, endsOperand, isName, isPunct, opening } from "./code-tokens.mjs";
@@ -103,10 +104,10 @@ const assignedAt = (tokens, index) => (logicalAssignment(tokens, index) ? index 
 
 /**
  * Whether the `(` at `open` begins a parameter list: a function's — `function f(run)`, `function* (run)` —, a `catch`'s
- * (no member's: `#` names one after `.`, so `this.#catch(run)` is a call), an arrow's, or a method's — right in a class's
- * body or an object literal, a `(` a `{` follows, whatever names it (`with`, `#catch`) and wherever the `{` stands. A
- * call's arguments never do: elsewhere a block after them begins on a line of its own (`f(run)⏎{`), the `{` after a
- * heritage's call is the class's body, and a statement keyword's parentheses hold none (Д-466, Д-472, Д-481, Д-487).
+ * (no member's: `this.#catch(run)` is a call), an arrow's, or a method's — right in a class's body or an object literal,
+ * a `(` a `{` follows, whatever names it (`with`, `#catch`) and wherever the `{` stands. A call's arguments never do:
+ * elsewhere a block after them begins on a line of its own (`f(run)⏎{`), the `{` after a heritage's call is the class's
+ * body, a statement keyword's parentheses hold none, and a `(` that never closes begins none (Д-466, Д-472, Д-481, Д-487).
  */
 function parameterList(tokens, open) {
   const shut = closing(tokens, open);
@@ -201,8 +202,7 @@ function plainlyOff(tokens, index) {
     && (((value?.type === "name" || value?.type === "number") && FALSY_LITERALS.has(value.value)) || (value?.type === "string" && value.value === ""));
 }
 
-// The loaders that take a module's name: `require`, `import()`, and `process.getBuiltinModule`, which is `require` by
-// another name (Д-410).
+// Loaders that take a module's name: `require`, `import()`, `process.getBuiltinModule` (`require` by another name, Д-410).
 const LOADERS = new Set(["require", "import", "getBuiltinModule"]);
 
 /** Whether the `(` at `open` calls what stands before it — `f(x)` — rather than holding a value: `(cp)`, `return (cp)`. */
@@ -290,8 +290,9 @@ function loaderCall(tokens, index) {
  */
 function moduleCall(tokens, end) {
   if (isPunct(tokens[end], "(")) return moduleArgument(tokens, end + 1) ? end : -1;
-  if (isPunct(tokens[end], ".") && (isName(tokens[end + 1], "call") || isName(tokens[end + 1], "apply")) && isPunct(tokens[end + 2], "(")) {
-    // `.call(thisArg, "child_process")`, `.apply(thisArg, ["child_process"])`: the name is the second argument.
+  if (isPunct(tokens[end], ".") && (isName(tokens[end + 1], "call") || isName(tokens[end + 1], "apply")) && isPunct(tokens[end + 2], "(") && closing(tokens, end + 2) > 0) {
+    // `.call(thisArg, "child_process")`, `.apply(thisArg, ["child_process"])`: the name is the second argument; and one
+    // that never closes is not asked where its first argument ends, which would cost the rest of the file (Д-501).
     const comma = argumentEnd(tokens, end + 3);
     const array = tokens[end + 1].value === "apply";
     const found = comma >= 0 && (array ? isPunct(tokens[comma + 1], "[") && moduleArgument(tokens, comma + 2) : moduleArgument(tokens, comma + 1));
@@ -353,14 +354,14 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
   const childProcessFinding = (line, what) => say("child_process.exec", line, `child_process ${what} is forbidden; use argv-based execution (spawn, spawnSync, execFile, execFileSync).`);
 
   // Where a declaration goes on after one declarator — `run = cp`, `{ a } = b` — to the `,` before the next, or to where
-  // it ends: a `;`, a bracket it did not open, or a line that begins a statement of its own. Each place it passes is
-  // marked: a word there is in its declaration, and not walked again — a script's `var a = let[0] + let[0]` (Д-474).
-  // The place it ends at is not: `const a = 1⏎let run = cp` is a declaration of its own (Д-480).
+  // it ends: a `;`, a bracket it did not open, the end of the template it began in (Д-501), or a line that begins a
+  // statement. Each place it passes is marked: a word there is in its declaration, and not walked again — a script's
+  // `var a = let[0] + let[0]` (Д-474); the place it ends at is not: `const a = 1⏎let run = cp` declares (Д-480).
   const walked = new Uint8Array(tokens.length + 1);
   const declaratorEnd = (at) => {
     for (let next = at; next < tokens.length; ) {
       const token = tokens[next];
-      if ([",", ";", ")", "]", "}"].some((value) => isPunct(token, value))) return next;
+      if ([",", ";", ")", "]", "}"].some((value) => isPunct(token, value)) || token.within !== tokens[at].within) return next;
       const previous = tokens[next - 1];
       // A postfix `++` or `--` ends a value too: `export const a = n++` with no `;` is over at its line (Д-441).
       const endsValue = ["number", "string", "regex"].includes(previous?.type) || isPunct(previous, ")") || isPunct(previous, "]")
@@ -758,8 +759,7 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
         say(token.value, token.line, `${token.value} is forbidden, called or handed on: this pattern takes it out by name.`);
       }
     }
-    // The last link of a chain of globals: `global.globalThis[…]` is read at `globalThis`, and `globalThis[globalThis.k]`
-    // at the first (Д-424).
+    // A chain of globals is read at its last link, `global.globalThis[…]`, and `globalThis[globalThis.k]` at the first (Д-424).
     if (isGlobal(index) && !(isPunct(next, ".") && isGlobal(index + 2))) {
       // `globalThis[…]`, `(globalThis)[…]`, `(global.globalThis)[…]`: the whole chain, in its parentheses.
       let head = index;

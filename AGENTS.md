@@ -104,8 +104,8 @@ Commands run as argument arrays with `shell: false`. The static gate reads the
 server's code and the desktop app's as tokens (`src/core/code-tokens.mjs`; the
 rules in `src/core/forbidden-calls.mjs`, docs/DEFECTS.md Д-267, Д-382, Д-398,
 Д-407 … Д-410, Д-422 … Д-426, Д-431, Д-432, Д-440 … Д-448, Д-459 … Д-466,
-Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-490), every escape decoded, and rejects
-the usual spellings and their plain equivalents:
+Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-490, Д-496, Д-499 … Д-502), every escape
+decoded, and rejects the usual spellings and their plain equivalents:
 `exec` and `execSync` of `child_process` — through a named, default or namespace
 import, `require`, `import()` or `process.getBuiltinModule` called by name, as a
 member or by a plain-string key, in parentheses, or through `.call` or `.apply`,
@@ -129,9 +129,13 @@ object or an array (`module.exports = { cp }`, `export const [run] = [cp]`), on
 `this` or a class's field, or on a head in parentheses
 (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a
 name bound to that, an exported `let` or `var` a pattern declares or whose name
-the file declares again, and a global taken out of itself by a pattern
-(`{ globalThis: g } = globalThis`) are past it — so it keeps honest code honest
-and is no sandbox. Never interpolate a variable into a
+the file declares again, a global taken out of itself by a pattern
+(`{ globalThis: g } = globalThis`), a class's member on the line after a word
+an operand follows (a field named `in` or `return`, or a value `of`), which it
+reads as an assignment or, named `class` or `function`, as declaring the name
+after it — a `class` after `in` and the like as waiting for a body too —, and an
+object literal after `<` or `>`, which it reads as a block, are past it — so it
+keeps honest code honest and is no sandbox. Never interpolate a variable into a
 command string. See `ai-dev-mcp-server/docs/SECURITY.md`.
 
 ## How a change is finished

@@ -89,7 +89,8 @@ function readEscape(text, at) {
  * class of characters or out of one — what it read.
  * Each `{` carries `literal`: whether it opens an object literal; a class's
  * body carries `classBody`; a token right in a template's substitution, no
- * bracket opened since its `${`, carries `substitution`.
+ * bracket opened since its `${`, carries `substitution`, and every token in a
+ * substitution `within`: the index of its template's first token.
  *
  * When a template literal, a substitution or a comment never closes, the
  * array's `unterminated` property is the line it opened on: whatever follows
@@ -168,11 +169,18 @@ export function codeTokens(source, { script = false } = {}) {
       if (!(type === "punct" && (value === "[" || value === "("))) tokens.push({ type: "punct", value: ".", line: where });
     }
     const token = { type, value, line: where };
-    // Right in a substitution — no bracket opened since its `${` — an expression's place, where no statement stands (Д-488).
+    // Right in a substitution — no bracket opened since its `${` — an expression's place, where no statement stands (Д-488);
+    // and the template a token's code is in, `within`: a walk begun there ends with it, a bracket left open or not (Д-501).
     if (templates.length && templates.at(-1).opened === opened.length) token.substitution = true;
+    if (templates.length) token.within = templates.at(-1).token;
     // `export * as class from …`, `export { a as class }`, `{ class: 1 }`, `import { class as k }`, `this.#class`: a name,
     // not a class.
-    if (type === "name" && (value === "class" || value === "function") && !isMember(tokens.length) && !isName(tokens.at(-1), "as")) {
+    // Right in a class's body a word that begins a member — after `{`, `;`, `}`, `static`, or a line a member ended —
+    // is the member's name: `class⏎  x⏎  static {}` is two fields and a static block, and opens no wait (Д-486, Д-499).
+    const last = tokens.at(-1);
+    const named = innermost().classBody === true && (isPunct(last, "{") || isPunct(last, ";") || isPunct(last, "}") || isName(last, "static")
+      || (last.line < where && (endsOperand(last) || isMember(tokens.length - 1) || endsAtBreak(tokens.length - 1))));
+    if (type === "name" && (value === "class" || value === "function") && !isMember(tokens.length) && !isName(tokens.at(-1), "as") && !named) {
       // `async` belongs to the function only on its line: `x = async⏎function f() {}` declares f (Д-423).
       const async = value === "function" && isName(tokens.at(-1), "async") && tokens.at(-1).line === where;
       const before = async ? tokens.length - 2 : tokens.length - 1;
@@ -183,7 +191,8 @@ export function codeTokens(source, { script = false } = {}) {
       // that name, `{ class: 1 }`, the end of a block, a field of that name, `class = 1`, `class;` (Д-425, Д-443, Д-476).
       while (bodies.at(-1)?.depth === level()) bodies.pop();
     } else if (type === "name" && value === "extends" && bodies.at(-1)?.depth === level()) bodies.at(-1).heritage = true;
-    // Class code is strict, so no class is named `static`: after a field named `class`, `static {` is a static block (Д-486).
+    // Class code is strict, so no class is named `static`: right after a `class` that waits — a field named `class` after
+    // one named `in` — `static {` is a static block (Д-486, Д-499).
     else if (type === "name" && value === "static" && isName(tokens.at(-1), "class") && bodies.at(-1)?.depth === level()) bodies.pop();
     // A `(` stands before a class's body only in its heritage: `class(run) {}` is a method of that name (Д-476).
     else if (type === "punct" && value === "(" && bodies.at(-1)?.depth === level() && bodies.at(-1).kind === "class" && bodies.at(-1).heritage !== true) bodies.pop();
@@ -201,7 +210,7 @@ export function codeTokens(source, { script = false } = {}) {
       token.literal = !owner && (fresh || valueAfter(tokens.length - 1, where));
       // A class's body: what stands right before it is the class's heritage, a call there too (Д-466).
       if (owner?.kind === "class") token.classBody = true;
-      opened.push({ regexAfter: owner ? !owner.expression : !token.literal, statements: !token.literal, conditionals: 0 });
+      opened.push({ regexAfter: owner ? !owner.expression : !token.literal, statements: !token.literal, conditionals: 0, classBody: token.classBody === true });
     } else if (type === "punct" && (value === "(" || value === "[")) {
       // In a `for` head `of` may be the keyword; anywhere else it is a name: `of / 2` divides (Д-424). A member's
       // parentheses, `o.for(of / 2)`, hold no binding for an `of` to follow (Д-464).

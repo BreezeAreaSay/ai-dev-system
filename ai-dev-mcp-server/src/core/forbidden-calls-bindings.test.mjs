@@ -5,7 +5,7 @@ import { forbiddenCalls } from "./forbidden-calls.mjs";
 
 // What the static gate reads as declaring a name, binding one or holding a pattern: a parameter list, a declaration, a
 // class's field. Its own file since forbidden-calls.test.mjs would have passed the 800 lines a module keeps
-// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489).
+// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-501).
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
 const BT = "`";
@@ -188,4 +188,60 @@ test("a field named class before a static block, a list that never closes, and t
   assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  class\n  run() {}\n}\nrun = cp;`), ["child_process.exec"]);
   // A field on the line after one that ends in a call or an index is a field too.
   assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  x = String(1)\n  run = cp\n  y = [1][0]\n  z = run\n}`), []);
+});
+
+test("a member named class or function opens no wait for a class's body, whatever member follows it (Д-499)", () => {
+  const block = (members) => `${CP}export let run;\nexport class A {\n${members.map((m) => `  ${m}\n`).join("")}  static {\n    run = cp;\n  }\n}`;
+  for (const members of [["class", "x"], ["class", "#x"], ["class", "[k]"], ["class", "class"], ["class", "extends"], ["class", "function", "static {}"]]) {
+    assert.deepEqual(rules(`const k = "k";\n${block(members)}`), ["child_process.exec"], members.join("⏎"));
+  }
+  // Read as a class's body, the static block's statements were fields: the alias it binds, and the call through it, hid.
+  assert.deepEqual(rules(`${CP}let run;\nexport class A {\n  class\n  x\n  static {\n    run = cp;\n  }\n}\nrun.exec("ls");`), ["child_process.exec"]);
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  class\n  extends() {\n    run = cp;\n  }\n}`), ["child_process.exec"]);
+  assert.deepEqual(rules("export class A {\n  class\n  extends({ shell }) {\n    return shell;\n  }\n}"), []);
+  assert.deepEqual(rules('import { spawn } from "node:child_process";\nexport class A {\n  class\n  x\n  static {\n    spawn("x", [], { shell: true })\n    {\n    }\n  }\n}'), ["shell"]);
+  // After a field named in, or a member `this.in`, `static {` right after class is still a static block (Д-486).
+  for (const members of [["in", "class"], ["x = this.in", "class"]]) assert.deepEqual(rules(block(members)), ["child_process.exec"], members.join("⏎"));
+  // What ends a member before a field named class: `static`, a member's name, `x++` — and a member between it and the block.
+  for (const members of [["static class", "x"], ["x = this.in", "class", "y"], ["y = a++", "class", "x"]]) {
+    assert.deepEqual(rules(`let a = 0;\n${block(members)}`), ["child_process.exec"], members.join("⏎"));
+  }
+  // A class expression after => in a field is still a class: its method's body on its own line, its list a list.
+  assert.deepEqual(rules("export class A {\n  x = () => class {\n    m({ shell })\n    {\n      return shell;\n    }\n  };\n}"), []);
+});
+
+test("the conditions the mutants left untested: a method named by a string, a computed one, a private one named function, what ends a wait (Д-500)", () => {
+  // A method named by a string in a literal read after `>`: no statement keyword's parentheses (P17).
+  assert.deepEqual(rules('const a = 1;\nexport const x = a > { "if"({ shell }) { return shell; } };'), []);
+  // A computed method whose body begins on its own line: its place, not its head (R3).
+  assert.deepEqual(rules(`${CP}export let run;\nconst k = "m";\nexport class A {\n  [k](run)\n  {\n    run = cp;\n  }\n}`), []);
+  // A declarator after a template in the same declaration still declares: the walk ends with its own template only (M7).
+  assert.deepEqual(rules(`${CP}export let run;\nexport function f(x) {\n  const a = ${BT}\${x}${BT}, run = cp;\n  return [a, run];\n}`), []);
+  // A private method named function, called, a block after it: a call (R13).
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  #function(x) { return x; }\n  m() {\n    this.#function(run)\n    {\n    }\n  }\n}\nrun = cp;`), ["child_process.exec"]);
+  // Where a field named class still waits for a body — after one named in —, a ; or an = ends the wait, an extends
+  // deeper than it marks no heritage (Q17, N4, M15); a static ends a wait at its own depth only, so the class whose
+  // heritage holds such a field keeps its body (R7).
+  const after = (members) => `${CP}export let run;\nconst o = { extends: "k" };\nexport class A {\n  in\n${members}\n}`;
+  assert.deepEqual(rules(after("  class;\n  static {\n    run = cp;\n  }")), ["child_process.exec"]);
+  assert.deepEqual(rules(after("  class = { run = cp } = {};")), ["child_process.exec"]);
+  assert.deepEqual(rules(after("  class\n  [o.extends]() {\n    run = cp;\n  }")), ["child_process.exec"]);
+  assert.deepEqual(rules(`${CP}export let run;\nexport const B = class extends (class {\n  class\n  static {}\n}) {\n  run = cp;\n};`), []);
+  // A script's `let` right in a substitution — the first, a later one, one in a template within another's parentheses —
+  // is a name and declares nothing: the spread after it is the module's (Z7, Z9, Z10, R6).
+  for (const code of ["${let}${{ ...cp }}", "${0}${let}${{ ...cp }}", "${f(`${let}${{ ...cp }}`)}"]) {
+    const source = `const cp = require("node:child_process");\nconst f = (s) => s;\nvar let = 1;\nmodule.exports = ${BT}${code}${BT};\n`;
+    assert.deepEqual(rules(source, { script: true }), ["child_process.exec"], code);
+  }
+});
+
+test("a file mid-edit costs what its length does: a bracket left open in each substitution, a .call( that never closes (Д-501)", () => {
+  const timed = (source, options) => {
+    const started = performance.now();
+    forbiddenCalls(source, options);
+    return performance.now() - started;
+  };
+  const n = 16000;
+  assert.ok(timed(`var a = ${`${BT}\${(let[0]}${BT} + `.repeat(n)}1;\n`, { script: true }) < 4000, "a let in an open parenthesis in each substitution");
+  assert.ok(timed(`x = ${"require.call(a + ".repeat(n)}1;\n`) < 4000, "a .call( that never closes");
 });

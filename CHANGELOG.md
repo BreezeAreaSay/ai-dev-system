@@ -1829,16 +1829,31 @@ four of those arrived as upstream issues #63–#66.
   ninth review's own, and 9 for round 9's rules — 227 failed its tests, and 8 of the 18 left changed
   an answer where the gate is right: what ends a wait after a field named `in`, a class whose heritage
   holds a field named `class`, and a script's `let` right in a substitution; tests hold them now, and
-  235 fail. Six of the ten left change no answer on a program V8 accepts: a member check added to
-  `endsAtBreak`, whose callers ask it too (Д-462); a `,` that ends the wait for a body, where none
-  stands (Д-475); a `;` that ends only a class's wait, where a function's it keeps takes a block that
-  reads the same; an `export` marked as walked, a mark only a declaration's word is asked for; and a
-  template's end kept at each substitution's end and a list that never closes taken for a list, which
-  only a program V8 refuses tells apart. The other four change one only where the gate is past, as
-  said above: the line a list begins on asked instead of the one it ends on, on an object literal
-  after `>`; and a `static` that ends every wait at its depth, a `(` that ends a class's at any depth,
-  and a `class` right after an operand on its line taken for a member's name, each of which reads
-  right a member on the line after a word an operand follows (Д-500).
+  235 fail. Of the ten left, the tenth review showed three changing an answer the reasons given here
+  did not cover — a `class` right after an operand on its line taken for a member's name, on a class
+  in a field's later substitution (Д-503); a list that never closes taken for a list, on
+  `(o.in++ / 2) / 3` (Д-508); and the line a list begins on asked instead of the one it ends on, after
+  `<`, `/` and `of` too (Д-507) — and six of its own, on round 9's conditions, that change one on code
+  V8 accepts; tests hold those six now (Д-511). Of the 281 run on round 10's code — round 9's 245, 15
+  of the tenth review's own, and 21 for round 10's rules — 259 failed its tests, and 6 of the 22 left
+  changed an answer where the gate is right — a member named like a keyword, `this.#in`, or a postfix
+  on a member, `o.new++`, `this.#new++`, read as no value's end, the same postfix at a line's end
+  before a block, and an arrow's `=>` and any `of` taken for a literal's place; tests hold them now.
+  Sorting the other 16 found a `++` after a line break read as a postfix (Д-515); of the 287 run on
+  its fix — the 281 and 6 for its rules — 271 fail, and the 16 left are those 16. Thirteen change no
+  answer on a program V8 accepts: a member check added to `endsAtBreak`, whose callers ask it too; a
+  `,` that ends the wait for a body, where none stands; an `export` marked as walked and a `.` left
+  unmarked right in a substitution, marks asked only of a declaration's word and of a name; a
+  template's end kept at each substitution's end, a walk that asks for the outermost template or stops
+  at a template's end only when it began in one, and the `static` rule only for a `class` on a line
+  before, which only a program V8 refuses tells apart; a `;` that ends only a class's wait, where a
+  function's it keeps takes a block that reads the same; and a statement keyword asked of a string
+  head, the line a list begins on asked instead of the one it ends on, a list that never closes taken
+  for a list, and a class body's mark kept on an object literal's brace, which neither 286,037
+  programs V8 accepts from four fuzzers, nor 20,741 files of real code, nor the probes tell apart. The
+  other three — a `static` that ends every wait at its depth, a `(` that ends a class's at any depth,
+  and a `class` right after an operand on its line taken for a member's name — change one only past
+  the limit above, on a `class` after a field named `in`, and read right there (Д-511, Д-515).
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be

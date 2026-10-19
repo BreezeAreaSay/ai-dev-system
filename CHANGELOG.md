@@ -1786,8 +1786,9 @@ four of those arrived as upstream issues #63–#66.
   runs in a fresh process, a 448 kB minified line in 0.4 s, where it took 10 s, 552 kB of keys in
   arrays nested 4,000 deep in 0.3 s, where it took 12.8 s, 373 kB of declarations with no semicolons
   in 0.2 s, where it took 111 s, 296 kB of class heritages with a substitution in 0.2 s, where it took
-  10–12 s, and a line of 32,000 regular expressions that never close in 0.1 s, where it took 8.8 s
-  (Д-401, Д-412, Д-424, Д-444, Д-461, Д-463). A test plants a finding of each rule and each check in
+  10–12 s, a line of 32,000 regular expressions that never close in 0.1 s, where it took 8.8 s, and
+  80 kB of keys named `const` in 0.06 s, where it took 12–23 s (Д-401, Д-412, Д-424, Д-444, Д-461,
+  Д-463, Д-474). A test plants a finding of each rule and each check in
   each folder the gate walks — `bin/`, `src/`, `scripts/`, `hooks/` with its shell script, the app's
   code, scripts, `.cjs` (read as the script it is) and tests — and expects exactly that set: a folder
   left unwalked or a rule's findings dropped fails it (Д-396, Д-411, Д-445). 76 of 77 mutants of round

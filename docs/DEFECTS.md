@@ -15296,6 +15296,255 @@ PowerShell — только для слова с `$`, обратной кавы�
 
 ---
 
+## Д-431. Закрытие Д-426 говорит, что AGENTS.md и ARCHITECTURE называют три записи за границей ворот; называют одну
+
+**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью документации: must-fix 1).
+
+«Как закрыто» Д-426 (`docs/DEFECTS.md`, запись Д-426): `this.cp = cp`, `(module.exports).cp = cp` и `{ globalThis: g } =
+globalThis` «за границей ворот названы — заголовок `forbidden-calls.mjs`, AGENTS.md, ARCHITECTURE». Все три называет только
+заголовок (`forbidden-calls.mjs:38-46`); AGENTS.md (`:120-123`) и ARCHITECTURE (`:984-985`) — только «on `this`», CHANGELOG —
+тоже только `this`. Ворота на всех трёх отвечают `[]`, так что запись говорит о границе то, чего читатель документов не узнает.
+
+**Чем грозит.** Реестр утверждает закрытие, которого нет: читатель AGENTS.md считает `(module.exports).cp = cp` пойманным.
+
+**Замер до** (`19ec505`; ревью, `p14/r5/docs/`): вхождений `(module.exports).cp` / `globalThis: g` — AGENTS.md 0/0,
+ARCHITECTURE.md 0/0, CHANGELOG.md 0/0, `forbidden-calls.mjs` 1/1; ворота — `[]` на всех трёх записях.
+
+**Как закроется.** Обе записи — в перечни границы AGENTS.md, ARCHITECTURE и CHANGELOG, рядом с `this`; тогда запись Д-426
+верна как написана.
+
+---
+
+## Д-432. Тексты ворот обещают загрузчики «however they are reached»; `export let run; run = cp` проходит
+
+**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью документации: should-fix 2).
+
+1. **«However they are reached».** AGENTS.md `:109` («`require`, `import()` or `process.getBuiltinModule` however they are
+   reached»), ARCHITECTURE `:980` («however the loader is reached»), CHANGELOG `:1726` («the loaders however they are reached
+   — by a plain-string key, in parentheses, through `.call` or `.apply`»). Ворота узнают загрузчик по имени или ключу одной
+   строкой, в скобках, через `.call` и `.apply` — и всё. AGENTS.md сам себе противоречит (`:121` — «`require` bound to another
+   name … are past it»); ARCHITECTURE и CHANGELOG этого случая не называют вовсе.
+2. **Модуль, присвоенный позже экспортированному `let` или `var`.** «The module object exported whole or by a declaration»
+   (ARCHITECTURE `:980-981`), «handed to another file (`export *`, `export const`, …)» (AGENTS.md `:110-112`, заголовок
+   `:28-31`): `export let run; run = cp;` — `[]`, хотя импортирующий файл получает `run.exec` (Node: «function»), а
+   `let run; run = cp; export { run }` ловится. Предварительный проход Д-424 помнит экспортированный декларатор по месту, и
+   присваивание ниже — другое место.
+
+**Чем грозит.** Документы обещают больше, чем ворота делают; запись модуля во внешний файл через `export let` проходит
+ворота, которые говорят, что ловят экспорт модуля.
+
+**Замер до** (`19ec505`; ревью — `gate-claims.out`, `gate-export-later.out`; повтор ведущим — `p14/r5v/gate-claims.mjs`):
+
+```
+const r = require; r("child_process").exec("x")                          []
+require.bind(null, "child_process")().exec("x")                         []
+Reflect.apply(require, null, ["child_process"]).exec("x")               []
+(ok ? require : null)("child_process").exec("x")                        []
+const g = process.getBuiltinModule; g("child_process").exec("x")       []
+import * as cp …;⏎export let run;⏎run = cp;                              []      (и export var — [])
+import * as cp …;⏎const a = cp;⏎export let run;⏎run = a;                 []
+контроль: require.call / require.apply / (0, require) / process["getBuiltinModule"]   [child_process.exec@1] ×4
+контроль: let run;⏎run = cp;⏎export { run }  → [child_process.exec@4];  export const run = cp → [child_process.exec@2]
+```
+
+**Как закроется.** «However … reached» — заменить перечнем заголовка (по имени или ключу одной строкой, в скобках, через
+`.call`/`.apply`); в перечни границы — загрузчик под другим именем, через `.bind`, `Reflect.apply` или условие. Имя,
+объявленное `export let`/`export var`, — экспортированное, где бы ему ни присвоили модуль: ворота ловят и `export let run;
+run = cp`; честное `run = cp.spawn` — без находки.
+
+---
+
+## Д-433. `clients doctor` называет `--mount`, который не читает Docker 29, причиной любого неудачного старта
+
+**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 1); код — `f9a0702` (Д-427).
+
+После неудачного старта doctor дописывает «Its --mount … is the likely cause, one Docker 29 cannot read» (`clients.mjs:390-395`)
+при любой причине: папки нет, образа нет, сервер упал или молчит, нет самого `docker`. CLI до 29 (24, 27.5, 28.5 — те, кого
+Д-427 бережёт) такой `--mount` читают, и названная причина всякий раз неверна. И `missingBindSources` сдаётся целиком, когда
+хоть один `--mount` не прочитан (`docker-launch.mjs:486`, `if (mounts.includes(null)) return [];`), — совет Д-385/Д-429 о
+пропавшей папке теряется. Тест заглушки отвергает только `bogus=1` — старта, упавшего по другой причине, тест не видит.
+
+**Чем грозит.** Человек правит исправную запись и не видит настоящей причины (диск не подключён, образа нет).
+
+**Замер до** (`19ec505`; ревью, `p14/r5/code/probes/doctor-blame.mjs`, CLI 27.5.1 против демона 29.8.2; модель —
+`type=bind,source=<H>/models,target=/models,readonly=TRUE`):
+
+```
+папки проектов нет: FAILED — it exited with code 125 before answering: docker: Error response from daemon: invalid mount
+  config for type "bind": bind source path does not exist: <H>/Projects-disk/Projects. Its --mount "…readonly=TRUE" is the
+  likely cause, one Docker 29 cannot read: correct it in ~/.cursor/mcp.json.
+образа нет:   … No such image: r5c-no-such-image:1. Its --mount … is the likely cause …
+сервер упал:  … it exited with code 3 before answering: Error: r5c the server could not open its database. Its --mount … is the likely cause …
+сервер молчит: … no answer to initialize within 15 s. Its --mount … is the likely cause …
+docker нет (--json): "error": "/Applications/Docker.app/Contents/Resources/bin/docker does not exist. Its --mount … is the likely cause …"
+контроль, та же запись здорова: exit 0: Cursor ok — ai-dev-system 2.0.0 answered in 3371 ms   (CLI 27.5 читает этот --mount)
+та же пропавшая папка, модель с `readonly` (Docker 29 читает): FAILED — the folder this entry mounts at <H>/Projects-disk/Projects is not here …
+```
+
+**Как закроется.** `--mount` называется, только когда Docker сам отверг значение `--mount` (код 125 и `for "--mount" flag` в его
+словах — так у CLI 24.0.9, 27.5.1 и 29.8.2); непрочитанный `--mount` не мешает сказать о пропавшей папке среди остальных.
+Тест — запись с `readonly=TRUE`, которую «старый» CLI заглушки читает, а старт падает по другой причине: без обвинения.
+
+---
+
+## Д-434. На Windows совет `clients doctor` для диска, которого нет, — «which makes the folder»
+
+**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 2); код — `f9a0702` (Д-429).
+
+`unmakeable` (`docker-launch.mjs:445-465`) идёт вверх от пропавшей папки и, не найдя ни одной папки выше, доходит до корня и
+молчит: `path.win32.dirname("E:\\") === "E:\\"`, цикл кончается, ответ — `null`. На Windows это и есть случай «диск не
+подключён»: проекты на `E:\Projects`, внешний диск вынут. Совет — «write the entries again, which makes the folder: …
+--projects=E:\Projects», а `fs.mkdir(…, { recursive: true })` установки на отсутствующем диске папку не сделает (не проверено
+на Windows: её здесь нет). Закрытие Д-429 («совет выполняется как написан») на Windows неверно.
+
+**Чем грозит.** Совет, выполненный как написан, падает; человек не узнаёт, что дело в диске.
+
+**Замер до** (`19ec505`; ревью, `p14/r5/code/probes/win-drive.mjs` — копия `docker-launch.mjs` с `path = path.win32` и подменённой
+файловой системой Windows):
+
+```
+E:\Projects                   -> [{"source":"E:\\Projects","target":"/workspace"}]                 (unmakeable нет)
+E:\Work\Projects              -> [{"source":"E:\\Work\\Projects","target":"/workspace"}]
+C:\Users\me\Ext-link\Projects -> […"unmakeable":{"at":"C:\\Users\\me\\Ext-link","why":"link","leadsTo":"E:\\"}]
+doctor этой копии на записи с E:\Projects: FAILED — the folder this entry mounts at /workspace is not here: E:\Projects. …
+  connect the disk it is on, or write the entries again, which makes the folder: `ai-dev clients install --docker … '--projects=E:\Projects'`.
+```
+
+**Как закроется.** Путь вверх, дошедший до корня, которого нет (`ENOENT`), — `{ at: <корень>, why: "gone" }`: «install cannot
+make one on E:\, which is not there»; тест — с семантикой путей win32.
+
+---
+
+## Д-435. `bootstrap.ps1`: запасной путь при нечитаемом JSON пробного прогона не держит ни один тест; без клиентов он возвращает слова Д-415
+
+**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 3); код — `f9a0702` (Д-428).
+
+Закрытие Д-428: «клиента нет» решается, только когда пробный прогон вышел с 0, его JSON прочитан и в нём нет клиента. Часть
+«JSON прочитан» (`try`/`catch` вокруг `ConvertFrom-Json`, `bootstrap.ps1:203`) тестом не держится: мутант без `try`/`catch`
+проходит все 8 тестов PowerShell контракта, включая тест Д-428. А без клиентов запасной путь — настоящая установка — печатает
+подсказку CLI «--clients=cursor,vscode,…», которую PowerShell читает иначе (Д-415), и кончается «Restart the AI clients…», хотя
+ничего не записано (Д-421.2). Правдоподобный повод: обе PowerShell декодируют вывод программы в кодовой странице OEM; в
+двухбайтовой (932/936/949/950) байт UTF-8 из 0x81–0x9F читается как ведущий и съедает следующий — `\` или `"` JSON — при
+не-ASCII папке пользователя (не проверено: Windows здесь нет).
+
+**Чем грозит.** Пользователь без клиентов на японской или китайской Windows получает подсказку, которую PowerShell не поймёт, и
+«перезапустите клиентов», которых нет.
+
+**Замер до** (`19ec505`; ревью, `p14/r5/code/probes/ps/run-ps.sh`, pwsh 7.6, заглушка docker; `FAKE_NODE=1` — node, чей пробный
+прогон печатает не JSON и выходит с 0; клиентов нет):
+
+```
+19ec505: … No client found here. Name one to write it anyway: --clients=cursor,vscode,…
+         AI Dev is ready. Restart the AI clients to load ai-dev.   exit=0
+контроль (JSON читается): No AI client found here (…). Name one to write its config anyway, -Clients "cursor,vscode,…", …
+         AI Dev is ready; no AI client is connected to it yet.     exit=0
+6ff80b1: ConvertFrom-Json: … Conversion from JSON failed …          exit=1
+мутант без try/catch: node --test --test-name-pattern="ps1|PowerShell" scripts/bootstrap-contract.test.mjs → # tests 8 # pass 8
+```
+
+**Как закроется.** Пробный прогон читается как UTF-8 (`[Console]::OutputEncoding` на время вызова, с возвратом прежней); тест
+контракта — node-заглушка, чей пробный прогон печатает не JSON: установка идёт и решает итог сама.
+
+---
+
+## Д-436. Выключенное правило с катастрофическим перебором описано как то, что гард запускает на каждой команде
+
+**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 4); родня Д-420 (`f9a0702`).
+
+`f9a0702` дал примеру и контрпримеру выключенного правила свои слова (Д-420), но не случаю перебора (`policy-rules.mjs:251-253`):
+«the guard — which runs it on every Bash command and every file write — will abandon it instead of answering». Выключенное
+правило гард не запускает (`effective_action: none`).
+
+**Чем грозит.** Листинг пугает тем, чего не происходит, и не говорит того, что происходит: включить правило не дадут.
+
+**Замер до** (`19ec505`; ревью, `p14/r5/code/probes/off-rule-slow.mjs`, шаблон `^(a|a)+$`, записан выключенным):
+
+```
+list r5-off-slow: enabled false, effective_action none, match_timed_out true
+   problem: Matching this pattern against its own sample did not finish within 250 ms: it backtracks catastrophically, and the
+   guard — which runs it on every Bash command and every file write — will abandon it instead of answering. …
+switch on r5-off-slow: refused — Rule "r5-off-slow" backtracks catastrophically: …
+```
+
+**Как закроется.** Для `enabled === false` — «… backtracks catastrophically: switching the rule on is refused until the pattern
+is fixed»; случай — в тест Д-420.
+
+---
+
+## Д-437. `ai-dev clients doctor` не выходит после записи, чей процесс не останавливается по SIGTERM
+
+**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: вне диффа, код до раунда — так же на `6ff80b1`).
+
+`checkServerCommand` (`mcp-client-check.mjs`) по таймауту говорит «no answer to initialize within … s» и шлёт процессу записи
+SIGTERM (`child.kill()`), но ждёт его конца: открытые трубы ребёнка держат процесс doctor. `docker run -i` передаёт сигнал
+контейнеру, а процесс с PID 1 без обработчика его не замечает (`--entrypoint sleep`); так же — CLI Docker, который ждёт
+зависший демон. Doctor печатает отчёт и висит, пока контейнер не кончится. Образ AI Dev (tini и обработчик SIGTERM сервера)
+этим не страдает; страдают записи 2.x, чужие образы и зависший Docker Desktop.
+
+**Чем грозит.** `ai-dev clients doctor` — команда, которую советуют при неработающем клиенте, — не возвращает терминал.
+
+**Замер до** (ревью, `p14/r5/code/probes/doctor-hang-29.out`: запись `docker run -i --rm … --entrypoint sleep … 600`, таймаут 5 с,
+внешний `timeout 60`):
+
+```
+6ff80b1: exit 124 after 60 s:   Cursor   FAILED — no answer to initialize within 5 s
+19ec505: exit 124 after 60 s:   Cursor   FAILED — no answer to initialize within 5 s
+```
+
+**Как закроется.** Не вышедший по SIGTERM процесс через несколько секунд получает SIGKILL; doctor выходит. Тест — команда,
+которая SIGTERM не замечает.
+
+---
+
+## Д-438. Мелочи пятого ревью кода фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: мелочь 5 и вне диффа).
+
+**Замер до** (`19ec505`; ревью, `p14/r5/code/probes/`):
+
+1. **Срез `errorLine` в 150 знаков может разрезать суррогатную пару** (`mcp-client-check.mjs:46`): эмодзи на месте среза
+   оставляет одиночный суррогат — в тексте U+FFFD, в JSON `\ud83d` (`errorline-surrogate.out`: «line length 301; high
+   surrogate at 149», «lone surrogate: yes, at 189 (\ud83d)»). Срез в 300 до `f9a0702` мог так же.
+2. **`bootstrap.ps1` печатает версию сервера Docker первой строкой** (`Assert-Docker`, `:69` и `:77`): вывод `Invoke-Native
+   { & docker version --format '{{.Server.Version}}' 2>$null }` не выброшен — `ps-json-unreadable.out`: первая строка
+   «29.8.2», так же на `6ff80b1`.
+
+**Как закроется.** 1) Срез не делит пару: позиция назад на знак, если на краю — старший суррогат (и в конце — младший).
+2) Вывод проверки Docker — в `$null`; тест контракта — первая строка не версия.
+
+---
+
+## Д-439. Мелочи пятого ревью документации фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью документации: мелочи 3–10).
+
+**Замер до** (`19ec505`; ревью, `p14/r5/docs/`):
+
+1. «Which keeps it from being switched on until the pattern or the example is fixed» (`docs/GUARDRAILS.md:179-183`, RU —
+   «включить такое правило не дадут»; `TOOLS.md:228`) верно только для инструмента: правка `policy.json` руками включает его,
+   и листинг говорит «no longer matches: the pattern was narrowed, or the example was edited» (`off-rule2.out`).
+2. «This one too mounts only the folders it is given» (`docs/INSTALL.md:213-215`, RU `:212-214`; TEST-PLAN L5 `:65`): без опций
+   bootstrap монтирует `~/AI-Dev-Projects` и папку состояния — это и говорит INSTALL `:198-200`.
+3. «(exit 64)» в MIGRATION `:111` (RU `:111`) — код одного `bootstrap.sh`; абзац называет и `-ModelPath`, а `bootstrap.ps1
+   -ModelPath <нет такой>` бросает исключение на `:119` и выходит с 1.
+4. Закрытие Д-416, «Замер после»: «7 на `fb62d3c`» — `af8ee87` (с `ARCHITECTURE.md:863`) — предок `fb62d3c`, и на нём их 8;
+   7 — добавленные `fb62d3c` (счётчик раунда 3: `af8ee87` 1, `fb62d3c` 8, `496cb83` 8, `19ec505` 8).
+5. Закрытие Д-427, «Замер после»: «mount-shapes (52)» — в пробе 53 значения (`mount-shapes.after.out` — 53 строки).
+6. CHANGELOG `:1721` — «a property named `in` or `of`»: свойство `of` читалось верно и до правки; Д-424 исправил имя `of` вне
+   заголовка `for` (`x.of / 2; /`/; eval` — `eval@2` и на `cb01434`; `const of = 10; of / 2; /`/; eval` — `unread@2` →
+   `eval@3`).
+7. CHANGELOG `:1764-1766` перечисляет, почему установка не сделает папку: ссылка в никуда, папка без права записи, — но не
+   файл на пути, о котором doctor тоже говорит («…as install cannot make one under <H>/Disk, which is a file»).
+8. Ссылки: AGENTS.md `:105-106` — «Д-267 … Д-410», а абзац несёт и текст Д-422 … Д-426; CHANGELOG `:1743` — «(Д-401,
+   Д-412)», а фраза — и о ключе в скобках без копии, это Д-424.
+
+**Как закроется.** 1) «which `upsert_policy_rule` will not switch on until …» (EN/RU, TOOLS.md — из описания инструмента).
+2) «it too reads no folder back from the entries it replaces» / «и этот запуск не берёт папки из прежних записей». 3) «(bootstrap.sh
+exits 64)». 4) «7 из `fb62d3c`». 5) 53. 6) «a property named `in`, a name `of` outside a `for` head». 7) «or under a file».
+8) Ссылки — с Д-422 … Д-426 и Д-424.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

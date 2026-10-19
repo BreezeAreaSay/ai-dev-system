@@ -14149,13 +14149,16 @@ env -i PATH=/usr/bin:/bin AI_DEV_PROJECT_PATH=$HOME/Dev sh ./bootstrap.sh --plan
 
 ---
 
-## Д-403. Bootstrap 3.0 не берёт папку проектов из записи, которую заменяет
+## Д-403. Bootstrap 3.0 не берёт папки проектов и модели из записи, которую заменяет
 
-**Статус:** открыт; записан на фазу 15 (правило 4). Нашёл ведущий при разборе Д-402 (второе ревью фазы 14).
+**Статус:** открыт; записан на фазу 15 (правило 4). Нашёл ведущий при разборе Д-402 (второе ревью фазы 14); папку
+модели добавило третье ревью фазы 14 (Д-416).
 
 Без `--project-path` (`-ProjectPath`) bootstrap монтирует `~/AI-Dev-Projects` (`bootstrap.sh:13`, `bootstrap.ps1:3`) —
 и при переходе с 2.x, чья запись несла `AI_DEV_PROJECT_PATH`, и при повторном запуске 3.0, чья запись монтирует
-другую папку: повторный bootstrap молча меняет папку, которую видит сервер.
+другую папку: повторный bootstrap молча меняет папку, которую видит сервер. С папкой модели то же: `--model-path`
+(`-ModelPath`) берётся только из параметра или `AI_DEV_MODEL_PATH` окружения, а запись 2.x несла `AI_DEV_MODEL_PATH` —
+без параметра повторный bootstrap и переход с 2.x не монтируют `/models` (замер — Д-416, `p14/r3fix/docs/model-probe.out`).
 
 **Чем грозит.** Путь обновления, описанный в заметке о миграции, работает только с тем же `--project-path`, что и в
 первый раз; правило брифа (раздел 5, п. 2) требует, чтобы установка 2.x после обновления работала сама.
@@ -14163,9 +14166,9 @@ env -i PATH=/usr/bin:/bin AI_DEV_PROJECT_PATH=$HOME/Dev sh ./bootstrap.sh --plan
 **Замер до** — Д-402 (запись 2.x → `~/AI-Dev-Projects`); для 3.0: `bootstrap.sh:13` — `project_path="${HOME}/AI-Dev-Projects"`
 до разбора аргументов, записи не читаются.
 
-**Как закроется** (фаза 15, полный тест обновления с прода): без `--project-path` bootstrap берёт папку из записи
-`ai-dev`, которую заменяет, или `AI_DEV_PROJECT_PATH` записи 2.x, и говорит, какую папку смонтировал; тест в
-`docker:upgrade-check` и в контракте bootstrap.
+**Как закроется** (фаза 15, полный тест обновления с прода): без `--project-path` и `--model-path` bootstrap берёт
+папки из записи `ai-dev`, которую заменяет, или `AI_DEV_PROJECT_PATH` и `AI_DEV_MODEL_PATH` записи 2.x, и говорит,
+какие папки смонтировал; тест в `docker:upgrade-check` и в контракте bootstrap.
 
 ---
 
@@ -14569,7 +14572,7 @@ cost-deep-arrays.mjs ревью (270 КБ) 139 мс (до 2,6 с); мутант�
 
 ## Д-413. Правило нельзя выключить, когда поток сопоставления падает (регрессия Д-393)
 
-**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью кода: should-fix 1); код — `445654d`.
+**Статус:** закрыт фазой 14 (`496cb83`), 2026-10-19. Нашло третье независимое ревью фазы 14 (ревью кода: should-fix 1); код — `445654d`.
 
 Отказ Д-393 проверяет пробы цены и образцы при любой правке правила, и `{ "id": …, "enabled": false }` — выключение,
 которое предлагают `hooks.mjs:91, 119` и GUARDRAILS (`:179`), — отказывается, когда поток не создаётся; выключенное правило
@@ -14589,12 +14592,31 @@ cost-deep-arrays.mjs ревью (270 КБ) 139 мс (до 2,6 с); мутант�
 **Как закроется.** Правило, которое после правки выключено, не сопоставляется — ни пробами, ни образцами; включение
 проверяет его снова. Проверки формы (шаблон компилируется, пример нужен при новом шаблоне) — как были.
 
+**Как закрыто** (`496cb83`). Правило, выключенное после правки (выключено, правится выключенным, создано выключенным),
+проверяется только по форме: ни проб цены, ни образцов — guard его не исполняет. Включение сопоставляет его снова, и
+отказ, если поток не стартует, остаётся. Отчёт о правиле берётся из только что сделанной проверки, а не из нового
+сопоставления (иначе выключенное правило всё-таки звало бы поток). Описание `upsert_policy_rule` и GUARDRAILS EN/RU —
+так же.
+
+**Замер после** (`496cb83`; агент кода, `p14/r3fix/code/after.md`):
+
+```
+без --allow-worker (поток не создать), проба ревью:
+{"id":"no-deploy","enabled":false}            -> updated enabled
+{"id":"no-deploy","message":"Ask a human."}   -> refused: … match worker failed (Access to this API has been restricted …)  (правило включено)
+{"id":"warn-eval","enabled":false}            -> updated enabled
+последовательность: выключить → правка сообщения → новый шаблон с примером — updated; {"enabled":true} → refused
+образ p14r3, --pids-limit 11 (EAGAIN): то же; до (3c66c39 … 22fbd78) — все три refused
+тесты: «a rule that is off after the edit is not matched at all …», «where no worker thread can be made at all, a rule
+  is still switched off, and switching it on is refused (Д-413)»; мутанты «a rule off is matched anyway», «the report
+  matches the rule again» — убиты
+```
+
 ---
 
 ## Д-414. Совет `clients doctor`: модель вместе с другой папкой, все клиенты разом, ссылка на папку проектов
 
-**Статус:** открыт. Закроет фаза 14. Нашли третье независимое ревью фазы 14 — ревью кода (should-fix 2, 3) и ревью документации (should-fix 4); код —
-`445654d` (Д-397.5).
+**Статус:** закрыт фазой 14 (`496cb83`), 2026-10-19. Нашли третье независимое ревью фазы 14 — ревью кода (should-fix 2, 3) и ревью документации (should-fix 4); код — `445654d` (Д-397.5).
 
 1. `isModel` смотрит только первую пропавшую папку, а монтирование модели — последнее: пропали папка проектов и модель —
    совет несёт `--model=…`, и выполненный он падает (exit 2, «leads nowhere»).
@@ -14618,12 +14640,28 @@ Gemini локальный + Cursor Docker, у Cursor пропала папка �
 **Как закроется.** `--model` выпадает, если среди пропавших есть модель; команда называет клиента (`--clients=<клиент>`);
 для ссылки совет — другая папка (`--projects=<папка>`, `--state=<папка>`). Тесты — каждый случай.
 
+**Как закрыто** (`496cb83`). Совет `clients doctor` переписывает запись своего клиента (`--clients=<клиент>`); `--model`
+выпадает, если папка модели — среди любых пропавших; для папки проектов или состояния, которая — ссылка в никуда, совет
+просит другую папку (`'--projects=<folder>'`, `'--state=<folder>'`) и говорит почему; при нескольких пропавших называет
+и остальные. Тесты — каждый случай, совет выполняется как написан.
+
+**Замер после** (`496cb83`; настоящий CLI и Docker, `p14/r3fix/code/probes/doctor-advice-after.mjs`):
+
+```
+A. проекты и ссылка модели пропали → совет без --model, с --clients=cursor → exit 0; запись: том и проекты, /models нет
+   (до: … --model=<H>/models → exit 2 «leads nowhere»)
+B. Gemini — локальная установка, Cursor — Docker без папки → совет с --clients=cursor → exit 0; settings.json Gemini
+   sha256 d7752a423014 → d7752a423014, без изменений   (до: «Gemini CLI updated — replaced the entry of another install»)
+C. папка проектов — ссылка в никуда → совет «… with another projects folder in place of <folder>, as install cannot make
+   one through a link that leads nowhere: `… '--projects=<folder>'`»; с <folder> = <H>/Elsewhere → exit 0
+   (до: «which makes the folder: `… --projects=<H>/Projects`» → exit 2 ENOENT mkdir)
+```
+
 ---
 
 ## Д-415. `bootstrap.ps1` без клиентов советует синтаксис CLI; концовки при `--skip-client-install`
 
-**Статус:** открыт. Закроет фаза 14. Нашли третье независимое ревью фазы 14 — ревью кода (should-fix 4, мелочь 11) и ревью документации (мелочь 7);
-код — `02a90b9` (Д-406).
+**Статус:** закрыт фазой 14 (`496cb83`, документы — `fb62d3c`), 2026-10-19. Нашли третье независимое ревью фазы 14 — ревью кода (should-fix 4, мелочь 11) и ревью документации (мелочь 7); код — `02a90b9` (Д-406).
 
 `bootstrap.ps1` теперь полагается на строку установщика «No client found here. Name one to write it anyway:
 --clients=cursor,vscode,…» — это синтаксис CLI, а не скрипта: `bootstrap.ps1 --clients=cursor` в PowerShell делает папку
@@ -14643,11 +14681,31 @@ sh ./bootstrap.sh … --skip-client-install (Cursor есть) → "AI Dev is rea
 **Как закроется.** Подсказка установщика называет параметр того, кто его запустил (`-Clients` для `bootstrap.ps1`); конец
 каждого скрипта не обещает клиентов, которых он не писал; CHANGELOG — по каждому скрипту.
 
+**Как закрыто.** `bootstrap.ps1` узнаёт, есть ли кому писать, из JSON установщика (`clients install … --dry-run --json`,
+клиенты со статусом не `skipped`), а не из его слов; без клиентов печатает свою подсказку с `-Clients cursor,vscode,…` и
+«run bootstrap.ps1 again», ничего не пишет и общее состояние не пробует. Оба скрипта кончают одной из трёх фраз: «AI Dev is
+ready. Restart the AI clients to load ai-dev.» после записи, «AI Dev is ready; no AI client is connected to it yet.» без
+клиентов, «AI Dev is ready; the AI clients' configs were left as they were.» с `--skip-client-install`
+(`-SkipClientInstall`) (`496cb83`). INSTALL EN/RU (шаг 3) и CHANGELOG описывают каждый скрипт (`fb62d3c`).
+
+**Замер после** (`496cb83`; pwsh 7 с заглушкой docker; обвязка ревью для `sh`):
+
+```
+bootstrap.ps1 -SkipSmoke (клиентов нет): exit 0; вызовы docker ["version","pull"]
+  No AI client found here (…). Name one to write its config anyway, -Clients cursor,vscode,…, or install one and run bootstrap.ps1 again.
+  AI Dev is ready; no AI client is connected to it yet.
+bootstrap.ps1 -SkipSmoke -SkipClientInstall: AI Dev is ready; the AI clients' configs were left as they were.
+bootstrap.ps1 -SkipSmoke (Cursor есть): … AI Dev is ready. Restart the AI clients to load ai-dev.
+  (до: «No client found here. … --clients=cursor,vscode,…» и «Restart the AI clients it connected to load ai-dev.» во всех трёх)
+sh ./bootstrap.sh … --skip-client-install (Cursor есть): AI Dev is ready; the AI clients' configs were left as they were.
+тесты bootstrap-contract: 32 из 32, 0 пропущено (ps1 — настоящий pwsh); мутанты 415 (4) — убиты
+```
+
 ---
 
 ## Д-416. Документация: `clients remove` теряет любую заменённую запись `ai-dev`; повторный bootstrap теряет и модель
 
-**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью документации: should-fix 2, 3, мелочь 6); документы — `744846d`.
+**Статус:** закрыт фазой 14 (`fb62d3c`, строки кода — `496cb83`), 2026-10-19. Нашло третье независимое ревью фазы 14 (ревью документации: should-fix 2, 3, мелочь 6); документы — `744846d`.
 
 1. «…кроме записи 2.x, которую установка заменила» — узко: `clients remove` убирает из исходника каждую запись `ai-dev` и
    `ai-dev-system` (`planRemove`), так что заменённая запись Docker 3.0 или запись другой установки тоже не возвращается
@@ -14670,11 +14728,29 @@ bootstrap --clients cursor --model-path $H/.ai-dev/models → монтирует
 Docker, другая установка): она остаётся в копии; повторный bootstrap — «с теми же опциями (`--project-path`,
 `--model-path`)». Д-403 (фаза 15) берёт обе папки.
 
+**Как закрыто.** 1) Тексты называют любую заменённую запись: файл возвращается без любой записи `ai-dev` или
+`ai-dev-system`, которую заменила установка (2.x, Docker, другой установки), а копия `<файл>.backup-<время>` рядом её
+хранит — INSTALL EN/RU (раздел клиентов и таблица удаления), CHANGELOG, README сервера, TEST-PLAN M7 (`fb62d3c`),
+ARCHITECTURE сервера (`af8ee87`), справка `clients` и описание `clients_remove` с TOOLS/CONTROL-API (`496cb83`).
+2) Повторный bootstrap — «с теми же параметрами (`--project-path`, `--model-path`)», а `AI_DEV_MODEL_PATH` записи 2.x
+надо назвать снова через `--model-path` (`-ModelPath`): INSTALL EN/RU, MIGRATION EN/RU, CHANGELOG, `docker/README.md`,
+TEST-PLAN W6 и L4 (`fb62d3c`). Д-403 (фаза 15) берёт обе папки.
+
+**Замер после** (`496cb83`; агент документов — `p14/r3fix/docs/after.md`, агент кода — `p14/r3fix/code/after.md`):
+
+```
+старые утверждения в *.md (кроме DEFECTS и program/) — 0; новые — 7 (п. 1) и 12 (п. 2)
+clients --help: remove … less any ai-dev entry the install replaced (its backup keeps it); docs:tools:check — current
+проба: Cursor с записью другой установки → install «replaced the entry of another install» → remove «restored»;
+  файл {"mcpServers":{"other":…}}, копия установки хранит ai-dev другой установки
+повторный bootstrap без --model-path → /models: 0; с --project-path и --model-path → обе папки (model-probe.out)
+```
+
 ---
 
 ## Д-417. Мелочи третьего ревью кода фазы 14
 
-**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью кода: мелочи 5–10, 12).
+**Статус:** закрыт фазой 14 (`496cb83`), 2026-10-19. Нашло третье независимое ревью фазы 14 (ревью кода: мелочи 5–10, 12).
 
 **Замер до** (`22fbd78`; пробы ревью — `p14/r3/code/probes/`):
 
@@ -14701,6 +14777,29 @@ Docker, другая установка): она остаётся в копии;
 **Как закроется.** Корень считается один раз; недостающий ответ — «не проверено»; комментарий — по коду; определённые
 находки — раньше «не проверено»; тесты на каждое; родитель и имя `.ai-dev` вместо `realpath` целиком; `--mount` — пустые
 строки, `bind-create-src`, конец опций у образа, неизвестный ключ — «не разобрать»; на Windows — кавычки PowerShell.
+
+**Как закрыто** (`496cb83`). 1) Корень `.codex` ищется один раз, до переноса (`migrateCodexFrom`), и им назван сбой.
+2) Недостающий или неверный ответ сопоставителя — «не проверено» («it gave no answer for this match») везде: пробы,
+образцы, список. 3) Комментарий о `broken: 0` — по коду: правила без образцов проверены только по форме. 4) Порядок
+отказов: время, пример не совпал, совпал контрпример — затем «не проверено». 5) Тесты на каждого мутанта ревью.
+6) `isHomeRuntime`: родитель через ссылки и имя `.ai-dev` (без учёта регистра на macOS и Windows). 7) `--mount` читается,
+как Docker 29: опции до образа, пустые строки впереди и CRLF пропускаются, источник `bind-create-src` не пропадает,
+значение, которое Docker отвергает, — «cannot be read» (`unreadableMounts`); на Windows совет в кавычках PowerShell.
+
+**Замер после** (`496cb83`; агент кода, `p14/r3fix/code/after.md`):
+
+```
+1. codex-fail-log: «could not move AI Dev's data out of <b>/home/.ai-dev/.codex …» (до: «… out of <b>/home/.codex»)
+2. upsert-short, upsert-noprobes: refused «… could not be checked, because the match worker failed (it gave no answer
+   for this match)» (до: created ×3)
+4. upsert-mixed: «does not match its own example» / «also matches its counter-example» раньше «could not be checked»
+6. codex-symlink-home: first start: migrated, moved 1 from <b>/home/.codex (до: clean, moved 0)
+7. против Docker 29.8.2: bogus=1, поле без ключа, пустое --mount= — CANNOT BE READ (Docker: exit 125); bind-create-src,
+   --mount после образа, значение -e '--mount' — none (до: MISSING); PowerShell 7 читает совет
+   «'--projects=C:\Users\me\My $Projects'» целым (до: «--projects=C:\Users\me\My »)
+5. мутанты: 39 из 39 убиты (17 из списка ревью); тесты: policy-rules 28, runtime-home-migration 23, docker-launch 12,
+   cli 24, regex-budget 15, bootstrap-contract 32 — все проходят
+```
 
 ---
 

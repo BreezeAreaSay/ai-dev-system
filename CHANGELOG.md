@@ -980,11 +980,12 @@ has it with what each one says.
   the hooks always wrote to `.ai-dev/state`: the server and the hooks kept two histories. What AI
   Dev kept there moves into the runtime home once, on the first start, from the `.codex` 2.x read
   for that install: `~/.codex`, or `$AI_DEV_HOME/.codex` with `AI_DEV_HOME` set, so one install
-  never takes another's; an `AI_DEV_HOME` naming `~/.ai-dev` itself, as a 3.0 setting may, takes
-  `~/.codex` when its own `.codex` holds none of AI Dev's folders (Д-394). Nothing is overwritten,
-  identical files are dropped, ledgers merged, conflicts named by `ai-dev doctor`, and the start's
-  log names the folder it moved from; a record goes into `state/runtime-home-migration.json`. The
-  rest of `.codex` is Codex's own and stays.
+  never takes another's; an `AI_DEV_HOME` naming `~/.ai-dev` itself, as a 3.0 setting may — through
+  a home that is a link too, from the first start — takes `~/.codex` when its own `.codex` holds none
+  of AI Dev's folders (Д-394, Д-417). Nothing is overwritten, identical files are dropped, ledgers
+  merged, conflicts named by `ai-dev doctor`, and the start's log names the folder it moved from, a
+  move that failed half-way too; a record goes into `state/runtime-home-migration.json`. The rest of
+  `.codex` is Codex's own and stays.
 - **The Homebrew formula and the AUR package** (`packaging/`; decision D8). Neither was ever
   published, and the formula still pointed at `v1.0.0`. `npm run packaging:check` now checks what
   the install guides and the bootstrap scripts promise each other.
@@ -1693,9 +1694,13 @@ four of those arrived as upstream issues #63–#66.
   to store a pattern or an example it could not try (Д-383) — never as a pattern that took too long. A
   thread that fails rather than starts slowly is answered as run, with its error, and the guard says
   it failed (Д-384) — once for all the rules it failed on, where it made and lost a thread per rule
-  (Д-397). Such an answer is no check either: `upsert_policy_rule` refuses the pattern, the example
-  or the counter-example the worker failed on, naming which, writes a rule with an example only once
-  it was seen to fire on it, and `list_policy_rules` shows `match_error` (Д-393). Both copies,
+  (Д-397). Such an answer is no check either, and nor is a job the matcher gave no answer for:
+  `upsert_policy_rule` refuses the pattern, the example or the counter-example the worker failed on,
+  naming which — after what a sample says of the rule, a missed example or a matched counter-example
+  — writes a rule with an example only once it was seen to fire on it, and `list_policy_rules` shows
+  `match_error` (Д-393, Д-417). A rule that is off after the edit — switched off, edited while off,
+  created off — is checked for its shape only, as the guard does not run it: it can be switched off
+  where no worker thread starts, and it is matched when it is switched on (Д-413). Both copies,
   `src/core/regex-budget.mjs` and `hooks/lib.mjs`.
 - **The static gate reads what the code does, not how it is spelled** (Д-267). It looked for the
   usual spellings of `exec`, `shell: true` and `eval`, and every equivalent passed:
@@ -1740,8 +1745,12 @@ four of those arrived as upstream issues #63–#66.
   and the 2.x `run-mcp.sh` names it. A session mounts what the link leads to every time, so while that
   disk is away Docker starts none: writing the entries says so for a link to another disk, and
   `ai-dev clients doctor` names an entry whose mounted folder is gone, without starting it — where a
-  link leads, and a command that writes the entries again with the image and folders they had
-  (Д-385, Д-397).
+  link leads, and a command that writes that client's entry again (`--clients=<client>`) with the
+  image and folders it had, less `--model` when the model's folder is among those gone, and with
+  `--projects=<folder>` or `--state=<folder>` for one that is a link leading nowhere, which install
+  cannot make; on Windows the command is quoted for PowerShell (Д-385, Д-397, Д-414, Д-417). It reads
+  a `--mount` as Docker 29 does — up to the image, a `bind-create-src` source never missing — and one
+  Docker would refuse is named as that, not as a folder gone (Д-417).
 - **`npm run demo` counts the skills it ran with and leaves your home alone** (Д-110, Д-374,
   Д-389). It printed a skill count written into the script, and the search index it built claimed
   the index of the person's own `~/.ai-dev`; the count now comes from `list_skill_groups` (614), and

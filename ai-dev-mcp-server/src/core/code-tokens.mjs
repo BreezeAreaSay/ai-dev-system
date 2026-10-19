@@ -74,7 +74,8 @@ function readEscape(text, at) {
  * `name` (escapes decoded), `string` (the decoded text; a template literal with
  * no substitution is one, marked `template`), `number`, `punct`, `regex` (one
  * per literal, its text left out), or `template` (one per template literal
- * that has substitutions; the code in its `${…}` is tokenised in place).
+ * that has substitutions; the code in its `${…}` is tokenised in place, and
+ * `last` is the index of the last token of its last substitution).
  * Comments leave nothing, and `?.` before `[` or `(` leaves nothing either:
  * `a?.[b]` is read as `a[b]`, whatever space or comment lies between.
  *
@@ -84,8 +85,10 @@ function readEscape(text, at) {
  * function expression it divides; after a statement head's `)`
  * (`if (x) /re/`), a block's `}` — a label's or a `case`'s too — or a
  * declaration's it does not. One that does not close on its line divides,
- * and no later one on that line reads again what it read.
- * Each `{` carries `literal`: whether it opens an object literal.
+ * and no later one on that line reads again, in the same state — inside a
+ * class of characters or out of one — what it read.
+ * Each `{` carries `literal`: whether it opens an object literal; a class's
+ * body carries `classBody`.
  *
  * When a template literal, a substitution or a comment never closes, the
  * array's `unterminated` property is the line it opened on: whatever follows
@@ -171,12 +174,14 @@ export function codeTokens(source, { script = false } = {}) {
       const async = value === "function" && isName(tokens.at(-1), "async") && tokens.at(-1).line === where;
       const before = async ? tokens.length - 2 : tokens.length - 1;
       const declared = isName(tokens[before], "default") && isName(tokens[before - 1], "export");
-      bodies.push({ depth: level(), expression: !declared && (fresh || valueAfter(before, where)) });
-    } else if (type === "punct" && (value === ":" || value === "}" || value === "=")) {
+      bodies.push({ depth: level(), expression: !declared && (fresh || valueAfter(before, where)), kind: value });
+    } else if (type === "punct" && (value === ":" || value === "}" || value === "=" || value === ";")) {
       // None of these stands between `class` or `function` and its body: one at that depth ends the wait — a key of
-      // that name, `{ class: 1 }`, the end of a block, a field of that name, `class = 1` (Д-425, Д-443).
+      // that name, `{ class: 1 }`, the end of a block, a field of that name, `class = 1`, `class;` (Д-425, Д-443, Д-476).
       while (bodies.at(-1)?.depth === level()) bodies.pop();
-    }
+    } else if (type === "name" && value === "extends" && bodies.at(-1)?.depth === level()) bodies.at(-1).heritage = true;
+    // A `(` stands before a class's body only in its heritage: `class(run) {}` is a method of that name (Д-476).
+    else if (type === "punct" && value === "(" && bodies.at(-1)?.depth === level() && bodies.at(-1).kind === "class" && bodies.at(-1).heritage !== true) bodies.pop();
     // In a `for` head `of` is the keyword right after the binding — a pattern's or a parenthesis's end, a member, a name
     // that is no keyword, or an `of` that is not the keyword — and nowhere else: `for (let i = of / 2; …)`,
     // `for (k in of / 2)` and `for (const k of of / 2 ? of : of)` divide, `for (let of of …)` binds it (Д-448, Д-464).
@@ -189,6 +194,8 @@ export function codeTokens(source, { script = false } = {}) {
     if (type === "punct" && value === "{") {
       const owner = bodies.at(-1)?.depth === level() ? bodies.pop() : null;
       token.literal = !owner && (fresh || valueAfter(tokens.length - 1, where));
+      // A class's body: what stands right before it is the class's heritage, a call there too (Д-466).
+      if (owner?.kind === "class") token.classBody = true;
       opened.push({ regexAfter: owner ? !owner.expression : !token.literal, statements: !token.literal, conditionals: 0 });
     } else if (type === "punct" && (value === "(" || value === "[")) {
       // In a `for` head `of` may be the keyword; anywhere else it is a name: `of / 2` divides (Д-424). A member's
@@ -301,18 +308,20 @@ export function codeTokens(source, { script = false } = {}) {
       } else {
         push("template", "`", started);
         if (ended === "code") {
-          templates.push({ depth: 0, line: started });
+          templates.push({ depth: 0, line: started, token: tokens.length - 1 });
           substitutionOpened = true;
         } else unterminated(started);
       }
       continue;
     }
     if (character === "}" && templates.length && templates.at(-1).depth === 0) {
-      const { line: started } = templates.pop();
+      const { line: started, token } = templates.pop();
       at += 1;
       const { ended } = readTemplateText();
+      // Where the template ends: a walk over a list steps over it whole, the commas of its code not the list's (Д-473).
+      if (ended === "end") tokens[token].last = tokens.length - 1;
       if (ended === "code") {
-        templates.push({ depth: 0, line: started });
+        templates.push({ depth: 0, line: started, token });
         substitutionOpened = true;
       } else if (ended === "eof") unterminated(started);
       continue;

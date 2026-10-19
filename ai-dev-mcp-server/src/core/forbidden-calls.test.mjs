@@ -467,6 +467,7 @@ test("honest code stays honest past the fourth review's fixes, and every new bra
     "a literal in a function's parameters": ['const f = function (o = { shell: true }) {} / 2; eval("1");', ["shell", "eval"]],
     "export { a as class }, then a literal": ["export { a as class };\nconst list = [{ shell: true }];", ["shell"]],
     "export * as class from, then a literal": ['export * as class from "x";\nconst o = { shell: true };', ["shell"]],
+    "export * as class from with no semicolon, then a literal": ['export * as class from "x"\nconst o = { shell: true }', ["shell"]],
     "import { class as k }, then a literal": ['import { class as k } from "x";\nconst list = [{ shell: true }];', ["shell"]],
     "an awaited module last in a list, used above": ['import * as cp from "node:child_process";\nexport function run() { return x.exec("ls"); }\nconst x = (0, await cp);', ["child_process.exec"]]
   };
@@ -626,7 +627,10 @@ test("the spellings the sixth review found the gate let through are each refused
   assert.deepEqual(lines(`var await = 2, s = "";\nvar r = await / "[" + /${BT}/.test(s);\neval("1");\nconst t = /${BT}/;`, { script: true }), [["eval", 3]]);
   assert.deepEqual(lines('var await = 2;\nvar r = await / "[" + await / "[/" + eval("1");', { script: true }), [["eval", 2]]);
   // A loader that is only part of a value is past the gate, as its header says: only the last item of a list is passed.
+  // This holds the boundary its texts name; a gate that moved it would move them too (Д-476).
   assert.deepEqual(lines('(null || require)("child_process").exec("ls");', { script: true }), []);
+  // And a loader that is not the list's last item is called by no one: `(require, 0)(…)` calls 0 (Д-476).
+  assert.deepEqual(lines('(require, 0)("child_process").exec("ls");', { script: true }), []);
 });
 
 test("honest code the sixth review found the gate refused passes, and a value ends where the next line cannot carry it on (Д-459, Д-460, Д-461, Д-464, Д-465)", () => {
@@ -725,7 +729,7 @@ test("the reader stays linear on a heritage's substitutions and on a line of reg
     forbiddenCalls(source, options);
     return performance.now() - started;
   };
-  // Before, at n = 8 000, the first took 10.0 s and the second 3.5 s; 32 000 pairs of "/[" took 8.8 s.
+  // Before, at n = 8 000, the first took 10–12 s and the second 3.5 s; 32 000 pairs of "/[" took 8.8 s.
   const n = 16000;
   assert.ok(timed(`const x = ${`class extends f${BT}\${a = 1}${BT} {} / "[" + `.repeat(n)}1;`) < 4000, "a class extends a tagged template, divided");
   assert.ok(timed(`var x = ${'await / "[" + '.repeat(n)}1;`, { script: true }) < 4000, "await divided in a script");

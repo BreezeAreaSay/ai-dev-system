@@ -138,3 +138,22 @@ test("clients doctor's advice keeps the data volume of a --mount Docker 29 canno
   assert.ok(args.includes(`type=bind,source=${gone},target=${gone}`), args.join(" "));
   assert.doesNotMatch(args.join(" "), /volume-nocopy|ai-dev-system-data/);
 });
+
+test("clients doctor's advice takes no folder bound at /data for the projects folder, and says its data is not carried over (Д-469)", skip, async (t) => {
+  const { home, doctorOf } = await sayingDockerHome(t);
+  const gone = path.join(home, "disk", "Projects");
+  const data = path.join(home, "team-data");
+  await fs.mkdir(data);
+  const command = ["ai-dev", "clients", "install", "--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${gone}`].map((word) => commandWord(word)).join(" ");
+  const instead = `on the volume ai-dev-system-data in place of the folder it binds at /data, ${data}, whose data is not carried over`;
+  // Read by Docker 29: not started, the folder gone said as it is.
+  const readable = await doctorOf([`type=bind,source=${gone},target=/workspace`, `type=bind,source=${data},target=/data`]);
+  assert.deepEqual([readable.code, readable.started], [1, 0], `${readable.stdout}${readable.stderr}`);
+  assert.ok(readable.stdout.includes(`FAILED — the folder this entry mounts at /workspace is not here: ${gone}. Docker starts no session without it: connect the disk it is on, or write the entries again, which makes the folder, and ${instead}: \`${command}\`.\n`), readable.stdout);
+  // Not read by Docker 29 — the CLIs before it bind it so — and started: the same, beside that --mount.
+  const unread = `type=bind,source=${data},target=/data,bind-nonrecursive`;
+  const says = `docker: Error response from daemon: invalid mount config for type "bind": bind source path does not exist: ${gone}\nSee 'docker run --help'.\n`;
+  const started = await doctorOf([`type=bind,source=${gone},target=/workspace`, unread], says);
+  assert.deepEqual([started.code, started.started], [1, 1], `${started.stdout}${started.stderr}`);
+  assert.ok(started.stdout.includes(`which makes the folder, and ${instead}, and without its --mount ${JSON.stringify(unread)}, which Docker 29 cannot read: \`${command}\`.\n`), started.stdout);
+});

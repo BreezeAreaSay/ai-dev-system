@@ -435,11 +435,11 @@ test("Docker's refusal is found wherever it is in what Docker wrote: after the w
 
 test("an entry's options are read back from what it runs, so writing it again keeps them (Д-397)", () => {
   const linux = dockerRunArgs({ image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: { source: "/home/me/models/bge-m3-onnx", target: CONTAINER_MODEL_DIR }, platform: "linux" });
-  assert.deepEqual(dockerEntryOptions(linux), { image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: "/home/me/models" });
+  assert.deepEqual(dockerEntryOptions(linux), { image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: "/home/me/models", data: "" });
   const windows = dockerRunArgs({ image: "img", projects: "C:\\Users\\me\\AI-Dev-Projects", model: "C:\\models", platform: "win32" });
-  assert.deepEqual(dockerEntryOptions(windows), { image: "img", volume: DEFAULT_DOCKER_VOLUME, projects: "C:\\Users\\me\\AI-Dev-Projects", state: "", model: "C:\\models" });
+  assert.deepEqual(dockerEntryOptions(windows), { image: "img", volume: DEFAULT_DOCKER_VOLUME, projects: "C:\\Users\\me\\AI-Dev-Projects", state: "", model: "C:\\models", data: "" });
   assert.equal(dockerEntryOptions(["run", "--mount", "type=bind,source=C:\\m\\bge-m3-onnx,target=/models/bge-m3-onnx,readonly", "img"]).model, "C:\\m");
-  assert.deepEqual(dockerEntryOptions(undefined), { image: "", volume: "", projects: "", state: "", model: "" });
+  assert.deepEqual(dockerEntryOptions(undefined), { image: "", volume: "", projects: "", state: "", model: "", data: "" });
 });
 
 test("the data volume of a --mount Docker 29 cannot read is read back all the same, so writing the entry again keeps it (Д-457)", () => {
@@ -458,7 +458,16 @@ test("the data volume of a --mount Docker 29 cannot read is read back all the sa
   }
   // Another --mount it cannot read beside it takes nothing from it; the ones it can read are read as before.
   assert.deepEqual(options("type=volume,source=mine,target=/data,volume-nocopy=TRUE", "type=bind,source=/m,target=/models,readonly=TRUE", "type=bind,source=/p,target=/p"),
-    { image: "img", volume: "mine", projects: "/p", state: "", model: "" });
+    { image: "img", volume: "mine", projects: "/p", state: "", model: "", data: "" });
+  // Docker cleans the path it mounts at: `dst=/data/` is the volume at /data, as the CLIs before 29 run it (Д-469).
+  assert.equal(options("type=volume,src=my-team-data,dst=/data/,volume-nocopy=TRUE").volume, "my-team-data");
+  assert.equal(options("type=volume,source=my-team-data,target=//data/").volume, "my-team-data");
+  assert.equal(options("type=bind,source=/s,target=/ai-dev-state/").state, "/s");
+  // A folder bound at /data, read or not, is no projects folder: it is the data's, in place of the volume.
+  assert.deepEqual(options("type=bind,source=/p,target=/workspace", "type=bind,source=/t,target=/data"),
+    { image: "img", volume: "", projects: "/p", state: "", model: "", data: "/t" });
+  assert.deepEqual(options("type=bind,source=/p,target=/workspace", "type=bind,source=/t,target=/data,bind-nonrecursive"),
+    { image: "img", volume: "", projects: "/p", state: "", model: "", data: "/t" });
 });
 
 test("a 3.0 entry is told from a 2.x launcher by what it runs", () => {

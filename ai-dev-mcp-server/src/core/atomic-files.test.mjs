@@ -3,9 +3,9 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { appendJsonLines, atomicAppendFile, atomicWriteFile, atomicWriteJson, truncateTornTail, withExclusiveFile } from "./atomic-files.mjs";
+import { appendJsonLines, atomicAppendFile, atomicWriteFile, atomicWriteJson, flushFile, truncateTornTail, withExclusiveFile } from "./atomic-files.mjs";
 
 /** A temp directory removed when the test ends. */
 async function tempRoot(t, prefix) {
@@ -216,4 +216,20 @@ test("the hooks cut a torn record the same way", async (t) => {
   assert.equal(truncateTornTailSync(ledger), 70 * 1024, "a torn tail longer than one read chunk");
   assert.equal(await fs.readFile(ledger, "utf8"), '{"ok":1}\n');
   assert.equal(await truncateTornTail(ledger), 0);
+});
+
+test("a file is flushed where Node allows it: the permission model's refusal of fsync fails no write, any other failure does (Д-470)", async (t) => {
+  const handle = (error) => ({ sync: async () => { if (error) throw error; } });
+  await flushFile(handle(null));
+  await flushFile(handle(Object.assign(new Error("fsync API is disabled when Permission Model is enabled."), { code: "ERR_ACCESS_DENIED" })));
+  await assert.rejects(flushFile(handle(Object.assign(new Error("EIO: i/o error, fsync"), { code: "EIO" }))), /EIO/);
+  // Under --permission, where Node 24 refuses fsync, a write and an append go through all the same.
+  const root = await fs.realpath(await tempRoot(t, "ai-dev-atomic-permission-"));
+  const module = new URL("./atomic-files.mjs", import.meta.url).href;
+  const script = `const { appendJsonLines, atomicWriteFile } = await import(${JSON.stringify(module)});
+await atomicWriteFile(${JSON.stringify(path.join(root, "state.json"))}, "{}\\n");
+await appendJsonLines(${JSON.stringify(path.join(root, "ledger.jsonl"))}, "{}\\n");`;
+  const run = spawnSync(process.execPath, ["--permission", "--allow-fs-read=*", `--allow-fs-write=${root}`, "--input-type=module", "-e", script], { encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual([await fs.readFile(path.join(root, "state.json"), "utf8"), await fs.readFile(path.join(root, "ledger.jsonl"), "utf8")], ["{}\n", "{}\n"]);
 });

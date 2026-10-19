@@ -163,9 +163,10 @@ Three steps:
    run it again, or name one with `--clients` (`-Clients` for `bootstrap.ps1`, which does the same on
    Windows) — and ends "AI Dev is ready; no AI client is connected to it yet." (Where `bootstrap.ps1`
    cannot read the installer's answer — only on a host that will not switch its console to UTF-8 —
-   the installer's own words stand instead: its `--clients=` hint and the restart; Д-452.) With
-   `--skip-client-install` (`-SkipClientInstall`) no config is written, and the last line says the
-   clients' configs were left as they were (Д-406, Д-415).
+   the installer's own words stand instead: its `--clients=` hint, then `bootstrap.ps1`'s own line
+   asking to restart the clients; Д-452.) With `--skip-client-install` (`-SkipClientInstall`) no
+   config is written, and the last line says the clients' configs were left as they were (Д-406,
+   Д-415).
 
 Until 3.0 is published, `:latest` is still a 2.x image, which has no installer of its own:
 bootstrap stops there with exit 69 ("… has no installer either (a 2.x image too)"). Build the 3.0

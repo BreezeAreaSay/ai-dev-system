@@ -21,7 +21,7 @@ import path from "node:path";
 import { Transform, Writable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import zlib from "node:zlib";
-import { renameOver } from "./atomic-files.mjs";
+import { flushFile, renameOver } from "./atomic-files.mjs";
 import { openZipEntry, readZipEntries } from "./model-archive.mjs";
 import { isApprovedVendoredDependencyPath } from "./public-distribution.mjs";
 
@@ -314,7 +314,7 @@ export async function createBackup({ contentRoot, runtimeRoot, stateRoot = path.
     };
     await zip.add(BACKUP_MANIFEST, fsReadable(Buffer.from(`${JSON.stringify(manifest, null, 2)}\n`)), now, 0o600);
     await zip.finish();
-    await handle.sync();
+    await flushFile(handle);
   } catch (error) {
     await handle.close().catch(() => undefined);
     await fsp.rm(temp, { force: true });

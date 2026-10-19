@@ -712,8 +712,8 @@ has it with what each one says.
   read goes on to the install, which writes the others, names that one and exits 1, as in
   `bootstrap.sh`, and so does one whose answer it cannot read — now only on a host that refuses the
   UTF-8 setting — the install's own words and result standing as they are: with no client, its CLI
-  hint `--clients=cursor,vscode,…` and "Restart the AI clients to load ai-dev." (Д-428, Д-435,
-  Д-452). `bootstrap.ps1` runs under Windows
+  hint `--clients=cursor,vscode,…`, then `bootstrap.ps1`'s own "AI Dev is ready. Restart the AI
+  clients to load ai-dev." (Д-428, Д-435, Д-452). `bootstrap.ps1` runs under Windows
   PowerShell 5.1 with the image's stderr thrown away safely (Д-320), and no longer prints the
   engine's version first (Д-438).
 - **The image's tags** (owner decision D9, Д-108): a push to `main` is `:edge`; a release tag
@@ -1757,13 +1757,21 @@ four of those arrived as upstream issues #63–#66.
   `.shell =`, `["shell"]:` and shell accessors; a `shell` key counts only in an object literal — a
   default value or an iterated array is one — so an import, a parameter or an argument named `shell`
   passes; a rest parameter, `function g(...run)`, binds a name and spreads nothing, whatever else the
-  name is bound to; and a file it cannot read to its end — a template or a comment that never closes —
-  is refused rather than passed (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424, Д-426, Д-432,
-  Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464, Д-465). It follows the module object and the
-  global objects through plain re-binding and nothing else: a module name built from parts,
-  `createRequire`, `Reflect.get`, a loader bound to another name or reached any other way (`.bind`,
-  `Reflect.apply`, a condition, an array, `require["call"]`), the module put in an object or an array
-  (`module.exports = { cp }`, `export const [run] = [cp]`), on `this` or on a head in parentheses
+  name is bound to; a call's arguments are values, whatever follows them — a block on the next line,
+  or a class's body after a heritage's member call — so an exported `let` named in them is still
+  caught, and an object in them is an object, its `shell` option refused; a parameter list is told by
+  `function`, `catch`, `=>` or a body begun on the line it ends on, so a method whose body begins a
+  line of its own is read as a call; a word `const`, `let` or `var` declares only with a name, `{`
+  or `[` after it — a JSON Schema's `const:` key declares nothing — and `function`, `function*` or
+  `class` only where it is no member, a template's commas are its own, and a class's field is a
+  member, neither an alias nor an export; and a file it cannot read to its end — a template or a
+  comment that never closes — is refused rather than passed (Д-382, Д-398, Д-399, Д-407 … Д-410,
+  Д-422 … Д-424, Д-426, Д-432, Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464 … Д-466, Д-472,
+  Д-473, Д-476). It follows the module object and the global objects through plain re-binding and
+  nothing else: a module name built from parts, `createRequire`, `Reflect.get`, a loader bound to
+  another name or reached any other way (`.bind`, `Reflect.apply`, a condition, an array,
+  `require["call"]`), the module put in an object or an array (`module.exports = { cp }`,
+  `export const [run] = [cp]`), on `this` or a class's field, or on a head in parentheses
   (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a name bound to that,
   an exported `let` or `var` a pattern declares or whose name the file declares again — a local, a
   parameter, a function, a class — a global taken out of itself by a pattern (`{ globalThis: g } =
@@ -1772,22 +1780,25 @@ four of those arrived as upstream issues #63–#66.
   closing bracket of another kind looks only a few levels down, a `from` that begins no clause stops
   at once, whether a bracket is a pattern is asked once, a key in brackets is read without copying
   them, a value's plain name is worked out once for each place it starts, a declaration's walk ends
-  where its statement does, a chain is walked back only for a call with the module's name, and where a
-  regular expression's reading failed on a line no later one reads it again, so a file costs what its
-  length does: 5,922 dependency files are read to the end in about 18 s, and, each the median of five
+  where its statement does and no word it passed is walked again (Д-474), a chain is walked back only
+  for a call with the module's name, and where a regular expression's reading failed on a line no
+  later one reads it again in the state it read it (Д-476), so a file costs what its length does: 5,922 dependency files are read to the end in about 18 s, and, each the median of five
   runs in a fresh process, a 448 kB minified line in 0.4 s, where it took 10 s, 552 kB of keys in
-  arrays nested 4,000 deep in 0.3 s, where it took 12.8 s, 364 kB of declarations with no semicolons
-  in 0.2 s, where it took 111 s, 289 kB of class heritages with a substitution in 0.2 s, where it took
-  12 s, and a line of 32,000 regular expressions that never close in 0.1 s, where it took 8.8 s
+  arrays nested 4,000 deep in 0.3 s, where it took 12.8 s, 373 kB of declarations with no semicolons
+  in 0.2 s, where it took 111 s, 296 kB of class heritages with a substitution in 0.2 s, where it took
+  10–12 s, and a line of 32,000 regular expressions that never close in 0.1 s, where it took 8.8 s
   (Д-401, Д-412, Д-424, Д-444, Д-461, Д-463). A test plants a finding of each rule and each check in
   each folder the gate walks — `bin/`, `src/`, `scripts/`, `hooks/` with its shell script, the app's
   code, scripts, `.cjs` (read as the script it is) and tests — and expects exactly that set: a folder
   left unwalked or a rule's findings dropped fails it (Д-396, Д-411, Д-445). 76 of 77 mutants of round
   4 failed its tests, the one left equivalent (Д-425). Round 5 counted 63 of its 65 failing and the
   two left equivalent; the sixth review showed that each of those two changes an answer on valid code,
-  and ten more of its own alive (Д-445, Д-462). Of the 139 run on round 6's code — round 5's, the
-  sixth review's, and one or more for each condition round 6 added — 138 fail its tests, and the one
-  left only adds to `endsAtBreak` a member check its one caller already makes (Д-462).
+  and ten more of its own alive (Д-445, Д-462). Of the 193 run on round 7's code — round 6's 139,
+  less the six whose code the parameter rule replaced, 22 for that rule, the seventh review's 17, and
+  21 for the declaration, template and field fixes — 190 fail its tests, and the three left change no
+  answer: a member check added to `endsAtBreak`, which its one caller makes (Д-462), an `=` that ends
+  a value, which the walk already reads as an assignment chain, and a `,` that ends the wait for a
+  body, where a substitution being a level of its own leaves none to stand (Д-475).
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be
@@ -1811,7 +1822,8 @@ four of those arrived as upstream issues #63–#66.
   both share is said once (Д-385, Д-397, Д-414, Д-417, Д-429, Д-430, Д-434, Д-454). On Windows the
   command is quoted for PowerShell and cmd.exe alike, in double quotes — in single ones, which only
   PowerShell reads, for a word with a `$`, a backtick or a double quote (Д-430). It reads a `--mount`
-  as Docker 29 does — the value trimmed, up to the image, a `bind-create-src` source never missing —
+  as Docker 29 does — the value trimmed, up to the image, a `bind-create-src` source never missing,
+  the path it mounts at cleaned as Docker cleans it (`/data/` is `/data`) —
   but does not judge an entry by that: one with a `--mount` Docker 29 cannot read — the CLIs before
   it take `readonly=TRUE` or `bind-nonrecursive` — is started like any other, and that `--mount` is
   named as the likely cause, after Docker's own words, only when Docker refused it — exit 125 and
@@ -1821,7 +1833,9 @@ four of those arrived as upstream issues #63–#66.
   quoted again here, so a character of Unicode 15.1 or 16.0, which Docker 29.8.2's Go (at 15.0)
   escapes, or a lone surrogate, which Docker is given as U+FFFD, does not hide it. A folder gone
   beside it is said all the same, the command noting that it writes the entry without that
-  `--mount`, and keeping the volume of one at `/data` (Д-417, Д-427, Д-433, Д-455, Д-457).
+  `--mount`, and keeping the volume of one at `/data`; a folder bound at `/data` in place of the
+  volume is no projects folder, and the advice says the volume takes its place without that folder's
+  data (Д-417, Д-427, Д-433, Д-455, Д-457, Д-469).
 - **`npm run demo` counts the skills it ran with and leaves your home alone** (Д-110, Д-374,
   Д-389). It printed a skill count written into the script, and the search index it built claimed
   the index of the person's own `~/.ai-dev`; the count now comes from `list_skill_groups` (614), and
@@ -1829,6 +1843,13 @@ four of those arrived as upstream issues #63–#66.
   temporary home its server moved AI Dev's Codex-era folders out of `~/.codex` into the folder, and
   they were deleted with it; now, with `AI_DEV_HOME` set, the move reads `$AI_DEV_HOME/.codex`, as
   2.x did, and the demo names every place the move would fill, so nothing leaves `~/.codex`.
+- **The server writes under Node 24's permission model** (Д-470). Node 24 refuses `fsync` to a
+  process run with `--permission` — "fsync API is disabled when Permission Model is enabled.", and
+  no flag allows it — so every write the server makes atomic failed there, and the test that runs the
+  policy rules with no worker thread failed on the Node 24 that CI runs. The write now goes on
+  unflushed where the permission model refuses the flush; any other failure of it fails the write.
+  And a test that asserted `node:sqlite`'s old cut of a text at a NUL, which Node 24 no longer makes,
+  takes either reading: the text read back through a BLOB is whole on both (Д-471).
 - **The tests pass with a temporary folder that is a link or a long path** (Д-258, Д-259, Д-373).
   Four tests compared a resolved path with one built from `os.tmpdir()`, and the bridge test bound a
   socket that a 112-byte `TMPDIR` cut short, so parallel runs collided (`EADDRINUSE` in 6 of 12):

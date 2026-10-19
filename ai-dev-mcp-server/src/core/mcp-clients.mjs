@@ -27,7 +27,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
-import { atomicWriteJson, renameOver } from "./atomic-files.mjs";
+import { atomicWriteJson, flushFile, renameOver } from "./atomic-files.mjs";
 import { isDirectDockerEntry } from "./docker-launch.mjs";
 import { processAlive } from "./file-lock.mjs";
 import { readMember, removeMember, setMember } from "./jsonc-edit.mjs";
@@ -418,7 +418,7 @@ async function replaceIfUnchanged(file, expected, next, mode, owner = null) {
     await handle.writeFile(next, "utf8");
     if (owner) await handle.chown(owner.uid, owner.gid);
     if (mode !== undefined) await handle.chmod(mode);
-    await handle.sync();
+    await flushFile(handle);
     await handle.close();
     handle = null;
     if (!sameBytes(await readBytes(file), expected)) return false;

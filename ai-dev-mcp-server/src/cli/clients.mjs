@@ -296,7 +296,9 @@ export function commandWord(word, platform = process.platform) {
  * folders gone is the model's (Д-414). A `--mount` Docker 29 cannot read is
  * not read back, so the command writes the entry without it, and says so
  * (Д-433) — but for the volume it names when it is the data's: the command
- * keeps that volume (Д-457).
+ * keeps that volume (Д-457). A folder bound at `/data` in place of the volume
+ * is said: the command puts the volume there, without that folder's data
+ * (Д-469).
  *
  * @param {string} client - The id of the client whose entry it is.
  * @param {{ args?: unknown }} entry
@@ -345,6 +347,8 @@ export function missingMountError(client, entry, gone, unreadable = []) {
     ...(made.length ? [`, which makes the ${gone.length > 1 ? `${made.join(" and ")} ` : ""}folder${made.length > 1 ? "s" : ""}`] : []),
     ...[...reasons].map(([reason, list]) => ` with another ${list.join(" folder and another ")} folder in place of ${list.map(placeholder).join(" and ")}, as install cannot make ${list.length > 1 ? "either" : "one"} ${reason}`),
     ...(roles.includes("model") ? [" with another model folder (--model=<folder>) or with none, the model then the volume's"] : []),
+    // A folder bound at /data is no option of install's: the volume takes its place, and its data stays where it is (Д-469).
+    ...(options.data ? [` on the volume ${options.volume || DEFAULT_DOCKER_VOLUME} in place of the folder it binds at /data, ${options.data}, whose data is not carried over`] : []),
     ...(unreadable.length ? [` without its --mount ${unreadable.map((value) => JSON.stringify(value)).join(" and ")}, which Docker 29 cannot read`] : [])
   ];
   const disk = gone.length > 1 ? "them: connect the disks they are on" : `it: connect the disk ${first.leadsTo ? "it leads to" : "it is on"}`;

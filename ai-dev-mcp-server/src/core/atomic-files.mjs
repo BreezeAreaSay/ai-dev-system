@@ -69,8 +69,26 @@ export async function renameOver(tempPath, targetPath) {
 }
 
 /**
+ * Flush an open file to disk. Node 24 refuses fsync under its permission model
+ * — "fsync API is disabled when Permission Model is enabled."
+ * (`ERR_ACCESS_DENIED`), and no flag allows it — and there the write goes on
+ * unflushed rather than not at all; any other failure is the write's
+ * (docs/DEFECTS.md, Д-470).
+ *
+ * @param {import("node:fs/promises").FileHandle} handle
+ * @returns {Promise<void>}
+ */
+export async function flushFile(handle) {
+  try {
+    await handle.sync();
+  } catch (error) {
+    if (error?.code !== "ERR_ACCESS_DENIED") throw error;
+  }
+}
+
+/**
  * Write a file atomically: content goes to a unique temp file in the target
- * directory, is fsync'd, then renamed over the destination. Concurrent writes to
+ * directory, is fsync'd ({@link flushFile}), then renamed over the destination. Concurrent writes to
  * the same path are serialised through an in-process queue, and rename retries
  * cover transient Windows EACCES/EPERM/EEXIST locking.
  *
@@ -92,7 +110,7 @@ export async function atomicWriteFile(filePath, data, options = "utf8") {
     try {
       handle = await fs.open(tempPath, "wx", typeof options === "object" && options?.mode !== undefined ? options.mode : 0o666);
       await handle.writeFile(data, options);
-      await handle.sync();
+      await flushFile(handle);
       await handle.close();
       handle = null;
       await replaceFile(tempPath, absolute);
@@ -172,7 +190,7 @@ async function appendUnderLock(absolute, buffer, { dropTornTail }) {
   const handle = await fs.open(absolute, "a");
   try {
     if (buffer.length) await handle.write(buffer);
-    await handle.sync();
+    await flushFile(handle);
   } finally {
     await handle.close();
   }

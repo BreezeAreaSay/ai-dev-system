@@ -318,12 +318,15 @@ const MOUNT_BOOLEANS = new Map([["true", true], ["1", true], ["false", false], [
 const GO_SPACE = "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
 const GO_EDGE_SPACE = new RegExp(`^[${GO_SPACE}]+|[${GO_SPACE}]+$`, "g");
 const goTrim = (text) => text.replace(GO_EDGE_SPACE, "");
+// A container path as Docker cleans it before it mounts there: `/data/` and `//data` are `/data` (Д-469).
+const cleanTarget = (target) => (target ? path.posix.normalize(target).replace(/(?<=.)\/$/, "") : target);
 
 /**
  * One `--mount` value read the way Docker's CLI reads it (`opts/mount.go`):
  * trimmed, then one CSV record, so a field may be double-quoted; keys, and the
  * `type` value, in any case; `src` is `source`, `dst` and `destination` are
  * `target`, and a key given twice keeps its last value; no `type` is a volume.
+ * The target is the path Docker mounts at, cleaned (`/data/` is `/data`).
  * `createsSource` is `bind-create-src`: Docker makes a missing source itself.
  * `null` for a value Docker 29 would not parse. That is no verdict on the entry:
  * the CLIs before it read more (`readonly=TRUE`, `bind-nonrecursive`), so
@@ -351,6 +354,7 @@ function parseMount(value) {
     else if (key === "target" || key === "dst" || key === "destination") mount.target = given;
     else if (key === "bind-create-src") mount.createsSource = given === null || MOUNT_BOOLEANS.get(given);
   }
+  mount.target = cleanTarget(mount.target);
   return [...kinds].every((kind) => kind === mount.type) ? mount : null;
 }
 
@@ -422,9 +426,9 @@ export function unreadableMounts(args) {
   return runOptions(args).options.filter(([name, value]) => name === "mount" && (value === null || !parseMount(value))).map(([, value]) => value ?? "");
 }
 
-// The name of the data volume a `--mount` Docker 29 cannot read mounts at `/data`, read as leniently as the CLIs
-// before it may have read it — its fields trimmed, any other key let be, as `volume-nocopy=TRUE` — or "" (Д-457).
-function dataVolumeOf(value) {
+// What a `--mount` Docker 29 cannot read mounts at `/data` — its type and source — or null: read more leniently than
+// any CLI reads one, each field trimmed and any other key let be, as `volume-nocopy=TRUE` (Д-457, Д-469).
+function dataMountOf(value) {
   const mount = { type: "volume", source: "", target: "" };
   for (const field of csvRecord(goTrim(value)) ?? []) {
     const [name, ...rest] = field.split("=");
@@ -434,7 +438,7 @@ function dataVolumeOf(value) {
     else if (key === "source" || key === "src") mount.source = given;
     else if (key === "target" || key === "dst" || key === "destination") mount.target = given;
   }
-  return mount.type === "volume" && mount.target === "/data" ? mount.source : "";
+  return cleanTarget(mount.target) === "/data" ? mount : null;
 }
 
 // Docker's words for a `--mount` value its CLI refused, the value in Go's quotes (`%q`, strconv.Quote), wherever they
@@ -573,20 +577,29 @@ export function missingBindSources(args, { stat = statSync, lstat = lstatSync, r
  * volume, the projects folder, the state folder and the model folder — the one
  * holding `bge-m3-onnx` when the link itself is mounted. A command that writes
  * the entry again keeps them (Д-397). A `--mount` Docker 29 cannot read is
- * passed over, but for the volume's name when it is the one at `/data`: written
- * again without it, the entry ran on the default volume, and the data of its
- * own was out of reach (Д-457).
+ * passed over, but for what it mounts at `/data`: written again without it,
+ * the entry ran on the default volume, and the data of its own was out of
+ * reach (Д-457). `data` is a folder bound at `/data` in place of a volume,
+ * which install does not write: no projects folder, and its data stays there
+ * (Д-469).
  *
  * @param {string[]} args
- * @returns {{ image: string, volume: string, projects: string, state: string, model: string }}
+ * @returns {{ image: string, volume: string, projects: string, state: string, model: string, data: string }}
  */
 export function dockerEntryOptions(args) {
-  const options = { image: runOptions(args).image, volume: "", projects: "", state: "", model: "" };
-  for (const value of unreadableMounts(args)) options.volume = dataVolumeOf(value) || options.volume;
+  const options = { image: runOptions(args).image, volume: "", projects: "", state: "", model: "", data: "" };
+  const atData = (mount) => {
+    if (mount.type === "volume") options.volume = mount.source;
+    else if (mount.type === "bind") options.data = mount.source;
+  };
+  for (const value of unreadableMounts(args)) {
+    const mount = dataMountOf(value);
+    if (mount?.source) atData(mount);
+  }
   for (const mount of mountsOf(args).filter(Boolean)) {
-    if (mount.type === "volume" && mount.target === "/data") options.volume = mount.source;
-    if (mount.type !== "bind") continue;
-    if (mount.target === CONTAINER_STATE_ROOT) options.state = mount.source;
+    if (mount.target === "/data") atData(mount);
+    else if (mount.type !== "bind") continue;
+    else if (mount.target === CONTAINER_STATE_ROOT) options.state = mount.source;
     else if (mount.target === CONTAINER_MODELS) options.model = mount.source;
     else if (mount.target === CONTAINER_MODEL_DIR) options.model = mount.source.replace(/[\\/]+bge-m3-onnx[\\/]*$/, "");
     else options.projects = mount.source;

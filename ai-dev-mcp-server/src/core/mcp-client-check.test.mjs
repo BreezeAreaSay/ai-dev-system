@@ -137,7 +137,9 @@ test("a warning Docker prints before it goes on is no reason a command stopped: 
     [3, [ports], ""],
     // Not Docker's: a line that only begins as its warnings do, or another program's warning, is said as before.
     [1, ["WARNING:root:the index at /data/index.db is from another version"], "WARNING:root:the index at /data/index.db is from another version"],
-    [1, ["Warning: no vault at /data/vault; run ai-dev setup first"], "Warning: no vault at /data/vault; run ai-dev setup first"]
+    [1, ["Warning: no vault at /data/vault; run ai-dev setup first"], "Warning: no vault at /data/vault; run ai-dev setup first"],
+    // A third-party server's Go log line, its warning past the line's start: the reason it stopped (Д-469).
+    [1, ["2026/10/19 12:00:00 WARNING: GITHUB_TOKEN is not set; the server cannot start without it"], "2026/10/19 12:00:00 WARNING: GITHUB_TOKEN is not set; the server cannot start without it"]
   ];
   for (const [code, lines, said] of cases) {
     const result = await checkServerCommand({ command: "docker", args: [] }, {
@@ -265,7 +267,8 @@ test("clients doctor exits after an entry that does not stop for SIGTERM: it is 
   };
   // The doctor says its verdict once the second is up, and exits when the entry's process is killed, the 5 s grace
   // on: it waits that out and no longer. Measured on 4 CPUs, idle and with 32 busy loops: 6.1–8.3 s in all, the
-  // start slower under load; 5.0–5.3 s from the verdict to the exit (Д-457).
+  // start slower under load; 5.0–5.3 s from the verdict to the exit (Д-457). On Windows the entry's process is stopped
+  // at once, SIGTERM or not, so there is no grace to wait out (Д-468).
   const started = Date.now();
   const doctor = await new Promise((resolve) => {
     const child = spawn(process.execPath, [cli, "clients", "doctor", "--clients=cursor", "--timeout=1"], { env, stdio: ["ignore", "pipe", "pipe"] });
@@ -285,7 +288,7 @@ test("clients doctor exits after an entry that does not stop for SIGTERM: it is 
   });
   assert.equal(doctor.status, 1, `${doctor.signal ?? ""} ${doctor.stdout}${doctor.stderr}`);
   assert.match(doctor.stdout, /Cursor\s+FAILED — no answer to initialize within 1 s\n/);
-  assert.ok(doctor.took >= 1000 + 5000, `the doctor exited ${doctor.took} ms after it started: before the second and the grace were up`);
+  if (process.platform !== "win32") assert.ok(doctor.took >= 1000 + 5000, `the doctor exited ${doctor.took} ms after it started: before the second and the grace were up`);
   assert.ok(doctor.afterVerdict < 5000 + 2000, `the doctor exited ${doctor.afterVerdict} ms after its verdict: past the grace`);
   assert.throws(() => process.kill(Number(readFileSync(pidFile, "utf8")), 0), { code: "ESRCH" }, "the entry's process is gone");
   // A server that answers and stops for SIGTERM, as a Node one does: the doctor does not wait out the grace after it.

@@ -986,10 +986,10 @@ to, by name or by a pattern (Д-432, Д-440, Д-459, Д-460, Д-464); and a `she
 and a file it cannot read to its end is refused, not trusted. It follows the module object and the global objects
 through plain re-binding and nothing else — a module name built from parts, `createRequire`, `Reflect.get`, a loader
 bound to another name or reached any other way (`.bind`, `Reflect.apply`, a condition, `require["call"]`), the module
-object put in an object or an array (`module.exports = { cp }`, `export const [run] = [cp]`), on `this` or on a head in
-parentheses (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a name bound to that, an
-exported `let` or `var` a pattern declares or whose name the file declares again, a global taken out of itself by a
-pattern (`{ globalThis: g } = globalThis`), and `await` or `yield` written as a name in a script are past it (Д-431,
+object put in an object or an array (`module.exports = { cp }`, `export const [run] = [cp]`), on `this` or a class's
+field, or on a head in parentheses (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a name
+bound to that, an exported `let` or `var` a pattern declares or whose name the file declares again, a global taken out
+of itself by a pattern (`{ globalThis: g } = globalThis`), and `await` or `yield` written as a name in a script are past it (Д-431,
 Д-432, Д-440, Д-448, Д-450, Д-459, Д-460, Д-464): it keeps honest code honest and is no sandbox. Only the desktop app's
 tests may call `eval` and `new Function`, to show that the page's policy refuses them.
 

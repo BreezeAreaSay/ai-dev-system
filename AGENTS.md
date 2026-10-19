@@ -125,11 +125,12 @@ re-binding and nothing else — a module name built from parts, `createRequire`,
 `Reflect.get`, a loader bound to another name or reached any other way (`.bind`,
 `Reflect.apply`, a condition, `require["call"]`), the module object put in an
 object or an array (`module.exports = { cp }`, `export const [run] = [cp]`), on
-`this` or on a head in parentheses (`(module.exports).cp = cp`), or only part of
-a value (`cp || fallback`) and a name bound to that, an exported `let` or `var`
-a pattern declares or whose name the file declares again, and a global taken out
-of itself by a pattern (`{ globalThis: g } = globalThis`) are past it — so it
-keeps honest code honest and is no sandbox. Never interpolate a variable into a
+`this` or a class's field, or on a head in parentheses
+(`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a
+name bound to that, an exported `let` or `var` a pattern declares or whose name
+the file declares again, and a global taken out of itself by a pattern
+(`{ globalThis: g } = globalThis`) are past it — so it keeps honest code honest
+and is no sandbox. Never interpolate a variable into a
 command string. See `ai-dev-mcp-server/docs/SECURITY.md`.
 
 ## How a change is finished

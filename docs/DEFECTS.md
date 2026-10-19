@@ -14270,6 +14270,38 @@ clients install → "removed the 2.x entry ai-dev-system"; clients remove → "r
 
 ---
 
+## Д-406. `bootstrap.sh` без единого ИИ-клиента ничего не пишет и говорит «AI Dev is ready. Restart the AI clients»
+
+**Статус:** открыт. Закроет фаза 14. Нашла приёмка фазы 14 — путь Docker из README в чистом контейнере на итоговом
+образе (`p14r3`, `2010ef1`).
+
+С `--clients all` (по умолчанию) bootstrap берёт только клиентов, чья папка есть (`bootstrap.sh:444-446`). Если нет ни
+одной, установщик образа не вызывается вовсе (`:539`), и о клиентах не сказано ничего, а последняя строка — «AI Dev is
+ready. Restart the AI clients to load ai-dev.» (`:596`), код 0. `ai-dev clients install`, который зовёт `bootstrap.ps1`,
+в том же случае говорит «No client found here. Name one to write it anyway: --clients=cursor,vscode,…» — но и
+`bootstrap.ps1` после этого печатает ту же строку о перезапуске клиентов (`bootstrap.ps1:211`).
+
+**Чем грозит.** Человек, поставивший Docker и AI Dev раньше ИИ-клиента, получает «готово» и не получает ни одной записи;
+что делать дальше, не сказано.
+
+**Замер до** (`2010ef1`; `p14/final/docker-final.sh`: HOME без папок клиентов, `node:24-bookworm` с Docker CLI хоста):
+
+```
+$ sh ./bootstrap.sh --image ai-dev-system:local --allow-stale-image --project-path "$HOME/Dev"
+Pulling ai-dev-system:local...
+Checking the MCP handshake...
+Installed from a stale image. Registry pull failed. …
+AI Dev is ready. Restart the AI clients to load ai-dev.
+bootstrap exit 0
+cat ~/.cursor/mcp.json → No such file or directory;  ls -a ~/.ai-dev → state
+```
+
+**Как закроется.** Когда клиентов не нашлось и ни один не назван, `bootstrap.sh` говорит то же, что CLI: клиента здесь
+нет, назовите его (`--clients cursor,…`) или поставьте и запустите bootstrap снова; последняя строка обоих скриптов не
+обещает клиентов, которых нет. Тест контракта — HOME без папок клиентов.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

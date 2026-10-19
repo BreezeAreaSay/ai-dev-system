@@ -16,7 +16,7 @@
     "ai-dev": "node bin/ai-dev.mjs",
     "daemon": "node bin/ai-dev.mjs daemon run",
     "setup": "node bin/ai-dev.mjs setup",
-    "demo": "node scripts/ensure-skill-index.mjs && node scripts/demo.mjs",
+    "demo": "node scripts/demo.mjs",
     "doctor": "node bin/ai-dev.mjs doctor",
     "dense:doctor": "node bin/ai-dev.mjs model doctor",
     "model": "node bin/ai-dev.mjs model",

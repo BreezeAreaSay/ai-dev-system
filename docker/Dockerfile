@@ -126,6 +126,14 @@ USER node
 RUN mkdir -p "${AI_DEV_VAULT_ROOT}" "${AI_DEV_STATE_ROOT}" "${AI_DEV_SEARCH_INDEX_DIR}" "${AI_DEV_FRONTEND_QA_ARTIFACT_ROOT}" \
     && node /opt/ai-dev/ai-dev-mcp-server/scripts/docker-prepare-data.mjs
 
+# Removed in 3.0 with the dense backend it installed (decision D3), and declared until 4.0 so that a build passing
+# it is told what replaced it rather than having it dropped without a word (docs/DEFECTS.md, Д-375). Last in the
+# stage, as every RUN after an ARG sees it: a build that passes it reruns only this.
+ARG INSTALL_BGE_M3=0
+RUN if [ "${INSTALL_BGE_M3}" = "1" ]; then \
+      echo "INSTALL_BGE_M3=1 is no longer used: 3.0 removed the dense backend it installed, and the ONNX model needs nothing built into the image. Put the model in the data volume once: docker run --rm -it --network bridge --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev model install — or mount a host folder that holds bge-m3-onnx/ at /models (bootstrap.sh --model-path)." >&2; \
+    fi
+
 VOLUME ["/data"]
 WORKDIR /workspace
 STOPSIGNAL SIGTERM

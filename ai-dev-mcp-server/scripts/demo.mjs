@@ -7,7 +7,10 @@
  * It builds a throwaway API project in a temporary folder, runs one real task
  * through the real server - context, routed skills, a planted bug, a refused
  * report, a failing verification, the fix, a passing one, and the pull request
- * text - then deletes everything it made. Nothing touches your repositories.
+ * text - then deletes everything it made. Nothing touches your repositories or
+ * your runtime home: the server and the skill registry check before it run with
+ * a runtime home in the temporary folder (docs/DEFECTS.md, Д-374). A clone
+ * with no skill registry yet gets one built, as `npm run setup` builds it.
  *
  * This is also what to record: `docs/DEMO.md` quotes this script's output, so a
  * recording of one `npm run demo` is a recording of the product.
@@ -124,11 +127,21 @@ test("a request with a valid token is served", () => {
 `);
 }
 
+// The server gets a runtime home of its own in the temporary folder: the search index it builds, and its claim on
+// the index folder, go with the rest instead of into yours (docs/DEFECTS.md, Д-374). So does the registry check
+// before it — a process that loads the server claims the index folder of the home it is given.
+const runtimeHome = path.join(tempRoot, "home");
+const serverEnv = {
+  ...process.env,
+  AI_DEV_HOME: runtimeHome,
+  AI_DEV_STATE_ROOT: stateRoot,
+  AI_DEV_SEARCH_INDEX_DIR: path.join(runtimeHome, "cache", "search-index")
+};
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [path.join(serverRoot, "src", "server.mjs")],
   cwd: serverRoot,
-  env: { ...process.env, AI_DEV_STATE_ROOT: stateRoot },
+  env: serverEnv,
   stderr: "pipe"
 });
 const client = new Client({ name: "ai-dev-demo", version: "1.0.0" }, { capabilities: {} });
@@ -161,6 +174,8 @@ const checkLine = (verification) =>
 let exitCode = 0;
 try {
   await buildFixture();
+  const registry = spawnSync(process.execPath, [path.join(serverRoot, "scripts", "ensure-skill-index.mjs")], { cwd: serverRoot, env: serverEnv, encoding: "utf8", shell: false });
+  if (registry.status !== 0) throw new Error(`The skill registry could not be built: ${`${registry.stdout}\n${registry.stderr}`.trim()}`);
   await client.connect(transport);
 
   process.stdout.write(`\n${bold("  AI Dev System - one task, start to finish")}\n`);
@@ -179,7 +194,10 @@ try {
     say(dim(`    ${file.path} - ${file.reasons.join(", ")}`));
   }
   say("");
-  say(bold("It routed 3 skills out of 3,227 - nobody named them:"));
+  // Both numbers measured, not written down (Д-110).
+  const library = await call("list_skill_groups", {});
+  const total = Number(library.data?.total_skills ?? JSON.parse(library.text || "{}").total_skills);
+  say(bold(`It routed ${(task.skills ?? []).length} skills out of ${total.toLocaleString("en-US")} - nobody named them:`));
   for (const skill of task.skills ?? []) {
     say(`  ${green(skill.name)} ${dim(`(${skill.routing_role ?? skill.role})`)}`);
   }

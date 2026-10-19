@@ -44,6 +44,18 @@ test("the image is the distribution, checked file by file, with no Python and th
   assert.match(dockerfile, /git config --system --add safe\.directory '\*'/, "projects of another owner are repositories (Д-311)");
 });
 
+test("a build passing INSTALL_BGE_M3=1 is told what replaced it, until 4.0 (Д-375)", () => {
+  // Removing a public name goes through a notice until 4.0 (rule 5.2 of the 3.0 program): the argument stays declared.
+  assert.ok(instructions.includes("ARG INSTALL_BGE_M3=0"));
+  const notice = /RUN if \[ "\$\{INSTALL_BGE_M3\}" = "1" \]; then \\\n\s+echo "([^"]+)" >&2/.exec(dockerfile)?.[1] ?? "";
+  assert.match(notice, /^INSTALL_BGE_M3=1 is no longer used: 3\.0 removed the dense backend it installed/);
+  assert.match(notice, /--mount type=volume,source=ai-dev-system-data,target=\/data <image> ai-dev model install/, "the way the model gets into the volume");
+  assert.match(notice, /bge-m3-onnx\/ at \/models/, "and the way a host's model is mounted");
+  // In the stage both variants build on.
+  const stage = dockerfile.slice(dockerfile.indexOf("AS server-build"), dockerfile.indexOf("AS browser-deps"));
+  assert.ok(stage.includes("ARG INSTALL_BGE_M3=0") && stage.includes('[ "${INSTALL_BGE_M3}" = "1" ]'));
+});
+
 test("pnpm is the version Frontend QA names in packageManager, not one written in the Dockerfile (Д-111)", async () => {
   const frontendQa = JSON.parse(await fs.readFile(path.join(repositoryRoot, "frontend-qa", "package.json"), "utf8"));
   assert.match(frontendQa.packageManager, /^pnpm@\d+\.\d+\.\d+/);

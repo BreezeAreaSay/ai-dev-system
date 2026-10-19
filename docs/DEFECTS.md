@@ -12949,6 +12949,37 @@ FAILED: complete_task: The latest verification (…) failed. Fix the problem and
 
 ---
 
+## Д-381. План ручной приёмки велит запускать bootstrap с локальным образом так, что bootstrap останавливается
+
+**Статус:** открыт. Закроет фаза 14. Нашла приёмка фазы 14 — путь Docker в чистом контейнере; документ — новый план
+`docs/TEST-PLAN.ru.md` (`c9f1191`).
+
+План велит до публикации 3.0 передавать bootstrap свой образ: `--image ai-dev-system:local` (`-Image` на Windows) в
+шагах W6, M5 и, по вводу, в L4. Но bootstrap сначала тянет образ из реестра (`bootstrap.sh:201`, `bootstrap.ps1:152`), а
+локальной метки в реестре нет: тянуть нечего, и защита от устаревшего образа (Д-60) останавливает установку с кодом 69,
+если не сказано `--allow-stale-image` (`-AllowStaleImage`). Шаг L5 — путь назад, `--image …:2`, — до выпуска 3.0 упирается
+во второе: образ 2.x не пишет записи сам, а установщик по умолчанию — `ghcr.io/stonebridgeway/ai-dev-system:latest`, то
+есть до выпуска тот же 2.x; нужен `AI_DEV_INSTALLER_IMAGE` с образом 3.0.
+
+**Чем грозит.** Владелец, идущий по плану, на первом же шаге Docker получает отказ вместо проверки.
+
+**Замер до** (`c9f1191`; `node:24-bookworm` с Docker CLI хоста, uid 1000, только `bootstrap.sh`, `p14/final/docker-clean.sh`):
+
+```
+$ sh ./bootstrap.sh --image ai-dev-system:p14r1
+Pulling ai-dev-system:p14r1...
+Error response from daemon: pull access denied for ai-dev-system, repository does not exist or may require 'docker login'
+Registry pull failed. The cached copy of ai-dev-system:p14r1 was created 2026-10-19T01:22:23… and is missing anything released since.
+Stopping rather than installing an image of unknown age. Restore the registry connection and run again, or re-run with --allow-stale-image.
+bootstrap exit 69
+```
+
+**Как закроется.** План говорит, как поставить свой образ на самом деле: `--image ai-dev-system:local
+--allow-stale-image` (`-Image ai-dev-system:local -AllowStaleImage`), и что предупреждение об устаревшем образе здесь
+ожидаемо; путь назад до выпуска — с `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local`. Каждая команда — замером.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

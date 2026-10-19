@@ -75,7 +75,12 @@ test("a shell option is refused unless it is plainly off", () => {
   }
   assert.deepEqual(rules('spawn("x", [], { windowsHide: true, shell: false, });'), []);
   assert.deepEqual(rules("const { shell } = options;"), [], "reading the option is not setting it");
-  assert.deepEqual(rules("options.shell = true;"), [], "a member assignment is not an object key");
+  // Set on an options object afterwards it is the same option (Д-382).
+  assert.deepEqual(rules("options.shell = true;"), ["shell"]);
+  assert.deepEqual(rules('options["shell"] = "/bin/sh";'), ["shell"]);
+  assert.deepEqual(rules("options.shell = false;\nif (options.shell === true) {}"), [], "off, and compared");
+  assert.deepEqual(rules('spawn("x", [], { ["shell"]: true });'), ["shell"], "a computed key that is one plain string");
+  assert.deepEqual(rules('spawn("x", [], { "sh\\u0065ll": true });'), ["shell"], "escaped");
 });
 
 test("what only looks like a forbidden call passes: strings, comments, templates, regular expressions, other objects' exec", () => {
@@ -107,4 +112,72 @@ test("the reader keeps lines, reads template substitutions as code, and survives
   for (const broken of ['const a = "open', "/* never closed", "const t = `open ${", "const r = /never closed"]) {
     assert.doesNotThrow(() => forbiddenCalls(broken), broken);
   }
+});
+
+// The probes of phase 14's first review, each a spelling the gate let through or an honest line it refused (Д-382).
+test("the spellings the first review of the gate found it let through are each refused (Д-382)", () => {
+  const BT = "`";
+  const refused = {
+    "optional computed member": 'import * as cp from "node:child_process";\ncp?.["exec"]("ls");',
+    "namespace .default.exec": 'import * as ns from "node:child_process";\nns.default.exec("ls");',
+    "default destructured": 'const { default: cp } = await import("node:child_process");\ncp.exec("ls");',
+    "(await import()).default": 'const cp = (await import("node:child_process")).default;\ncp.exec("ls");',
+    "import { default as cp }": 'import { default as cp } from "node:child_process";\ncp.execSync("ls");',
+    "template module name": `const cp = require(${BT}child_process${BT});\ncp.exec("ls");`,
+    "plain re-binding": 'const cp = require("child_process");\nconst c2 = cp;\nc2.exec("ls");',
+    "rest element": 'const { ...all } = require("child_process");\nall.exec("ls");',
+    "then(async (cp) =>)": 'import("child_process").then(async (cp) => cp.exec("ls"));',
+    "then(function (cp))": 'import("child_process").then(function (cp) { cp.exec("ls"); });',
+    "then(function named(cp))": 'import("child_process").then(function named(cp) { cp.exec("ls"); });',
+    "hex escape in a key": 'const cp = require("child_process");\ncp["\\x65xec"]("ls");',
+    "unicode escape in a key": 'const cp = require("child_process");\ncp["\\u0065xec"]("ls");',
+    "unicode escape in the module name": 'const cp = require("child\\u005fprocess");\ncp.exec("ls");',
+    "escaped eval": '\\u0065val("1+1");',
+    "escaped member name": 'const cp = require("child_process");\ncp.\\u0065xec("ls");',
+    "paren-wrapped require": 'const cp = (require("child_process"));\ncp.exec("ls");',
+    "globalThis.Function": 'globalThis.Function("return 1")();',
+    "globalThis?.[]": 'globalThis?.["ev" + "al"]("1");',
+    "(globalThis)[]": '(globalThis)["ev" + "al"]("1");',
+    "global.globalThis[]": 'global.globalThis["ev" + "al"]("1");',
+    "a global re-bound": 'const g = globalThis;\ng["ev" + "al"]("1");',
+    "eval in a ternary": 'const f = x ? eval : null;\nf("1");',
+    "eval destructured from a global": 'const { eval: run } = globalThis;\nrun("1");'
+  };
+  for (const [name, source] of Object.entries(refused)) assert.ok(rules(source).length > 0, `${name}: ${source}`);
+});
+
+test("honest code the first review found the gate refused passes now (Д-382)", () => {
+  const honest = {
+    "electron's shell": 'import { app, shell } from "electron";\nshell.openExternal("https://example.invalid");',
+    "a default import beside it": 'import electron, { shell } from "electron";\nshell.beep();',
+    "a parameter pattern": "function run({ cmd, shell }) { return shell ? 1 : 0; }",
+    "an arrow's parameter pattern": "const pick = ({ shell }) => shell;",
+    "an async arrow's": "const pick = async ({ shell, cwd }) => [shell, cwd];",
+    "a method's": "const o = { run({ shell }) { return shell; } };",
+    "a for-of pattern": "for (const { shell } of list) console.log(shell);",
+    "a nested pattern": "const { options: { shell } } = config;",
+    "an argument": "describe(name, shell, rest);",
+    "an array": "const names = [bash, shell, zsh];",
+    "a re-export": 'export { shell } from "electron";',
+    "an object key on a worker": "new Worker(source, { eval: true });",
+    "a regular expression after a block": "function f() {}\n/`/.test(s);\nconst y = 1;"
+  };
+  for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
+});
+
+test("a regular expression that begins a line after a block does not hide what follows it, and an unclosed template refuses the file (Д-382)", () => {
+  const BT = "`";
+  // The backtick in the expression used to open a template that ran to the end of the file.
+  const source = `function f() {}\n/${BT}/.test(s);\nconst cp = require("child_process");\ncp.exec("ls");\nconst t = ${BT}x${BT};`;
+  assert.deepEqual(forbiddenCalls(source).map((finding) => [finding.rule, finding.line]), [["child_process.exec", 4]]);
+  // A file read past its end is refused, not passed: whatever followed went unchecked.
+  for (const broken of [`const t = ${BT}open`, `const t = ${BT}a \${b`, "/* never closed\neval(x);"]) {
+    assert.deepEqual(rules(broken), ["unread"], broken);
+  }
+  assert.equal(codeTokens(`const t = ${BT}open`).unterminated, 1);
+  // A substitution that begins with a regular expression: its slash is not a division.
+  const regexInside = `lines.push(${BT}### \${/^phase\\s+\\d+/i.test(title) ? title : ${BT}Phase \${n}${BT}}${BT});\nconst note = ${BT}a ${BT};\neval(x);`;
+  assert.deepEqual(forbiddenCalls(regexInside).map((finding) => [finding.rule, finding.line]), [["eval", 3]]);
+  assert.equal(codeTokens(`const t = ${BT}a${BT};`).unterminated, undefined);
+  assert.deepEqual(codeTokens(`a?.[b] ${BT}plain${BT}`).map((token) => [token.type, token.value]), [["name", "a"], ["punct", "["], ["name", "b"], ["punct", "]"], ["string", "plain"]]);
 });

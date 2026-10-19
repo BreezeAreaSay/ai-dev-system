@@ -281,6 +281,33 @@ test("a place named by its variable is not taken from ~/.codex, and what could n
   assert.equal(evaluateRuntimeHome(await describeRuntimeHome({ env })).status, "ok");
 });
 
+test("an install with its own AI_DEV_HOME takes its Codex-era data from its own .codex, never from ~/.codex (Д-389)", async (t) => {
+  // A demo, a test run or a second install with a home of its own used to carry the user's ~/.codex into it —
+  // and a demo deletes its home when it is done. 2.x read .codex beside .ai-dev under AI_DEV_HOME.
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-own-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const own = path.join(root, "own-home");
+  await write(path.join(home, ".codex", "state", "archify-receipts", "r.json"), "{\"user\":1}\n");
+  await write(path.join(home, ".codex", "artifacts", "archify", "a.svg"), "<svg/>");
+  await write(path.join(own, ".codex", "state", "archify-receipts", "o.json"), "{\"own\":1}\n");
+  const env = { HOME: home, AI_DEV_HOME: own };
+
+  const result = await migrateCodexRuntime({ env });
+  assert.equal(result.status, "migrated");
+  assert.equal(result.from, path.join(own, ".codex"));
+  assert.equal(await fs.readFile(path.join(own, "state", "archify-receipts", "o.json"), "utf8"), "{\"own\":1}\n");
+  assert.equal(await fs.readFile(path.join(home, ".codex", "state", "archify-receipts", "r.json"), "utf8"), "{\"user\":1}\n", "the user's ~/.codex is not this install's");
+  assert.ok(await fs.stat(path.join(home, ".codex", "artifacts", "archify", "a.svg")));
+  await assert.rejects(fs.stat(path.join(own, "artifacts", "archify", "a.svg")));
+  assert.equal((await describeRuntimeHome({ env })).codex_root, path.join(own, ".codex"));
+
+  // AI_DEV_HOME naming the home itself keeps its 2.x meaning: ~/.codex is that install's.
+  const asHome = await migrateCodexRuntime({ env: { HOME: home, AI_DEV_HOME: home } });
+  assert.equal(asHome.from, path.join(home, ".codex"));
+  assert.ok(await fs.stat(path.join(home, ".ai-dev", "state", "archify-receipts", "r.json")));
+});
+
 test("a Codex-era index or half a download that ~/.ai-dev has its own of is dropped, not a conflict (Д-183)", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-cache-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));

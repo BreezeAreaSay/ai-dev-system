@@ -425,6 +425,13 @@ export async function upsertPolicyRule({ projectRoot, rule, dryRun = false, matc
     throw new Error(`Rule "${merged.id}" needs an example: pass rule.example with a snippet the pattern must match (for a file rule, rule.example_path names the path it applies to). A rule nobody proved fires is a rule that silently does nothing.`);
   }
   const verification = await verifyPolicyRule(merged, { match });
+  // An example the matcher never reached proves nothing either way, as an unrun probe does not (Д-383).
+  if (verification.not_checked) {
+    const why = verification.not_run === "start"
+      ? `the machine is so busy that no match worker started within ${DEFAULT_WORKER_START_MS} ms`
+      : `the matching ran out of the ${DEFAULT_MATCH_DEADLINE_MS} ms it gets`;
+    throw new Error(`Rule "${merged.id}" was not written: its example could not be checked, because ${why}. Try again once the machine is less busy.`);
+  }
   if (verification.timed_out) {
     throw new Error(`Rule "${merged.id}" backtracks catastrophically on its own example: the match did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms. The guard runs this pattern on every Bash command and every file write, so a rule like this one takes the whole hook pack out of service. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
   }

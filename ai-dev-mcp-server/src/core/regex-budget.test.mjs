@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import * as hookLib from "../../hooks/lib.mjs";
 import {
   DEFAULT_MATCH_BUDGET_MS,
@@ -16,6 +19,7 @@ import {
 // takes 38.8 seconds against twenty-eight characters.
 const CATASTROPHIC = "(a|a)+$";
 const CATASTROPHIC_INPUT = `${"a".repeat(40)}!`;
+const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
 test("an honest pattern answers, and its answer is the engine's", async () => {
   const answers = await matchWithBudget([
@@ -101,6 +105,28 @@ test("a worker that cannot start within its allowance runs nothing, and the answ
     { matched: null, checked: false, not_run: "start" },
     { matched: null, checked: false, not_run: "start" }
   ]);
+});
+
+test("a worker that fails, rather than starts slowly, is answered as run with its error, in both copies (Д-384)", () => {
+  // Under --permission without --allow-worker no thread can be made: a failure, not a busy machine. The hooks' copy
+  // used to call that a slow start and leave every rule behind it unrun, where the server's copy moves on.
+  const modules = [path.join(serverRoot, "src", "core", "regex-budget.mjs"), path.join(serverRoot, "hooks", "lib.mjs")]
+    .map((file) => pathToFileURL(file).href);
+  const script = `const jobs = [{ pattern: "alpha", flags: "", haystack: "alpha" }, { pattern: "beta", flags: "", haystack: "beta" }];
+const [server, hooks] = await Promise.all(${JSON.stringify(modules)}.map((url) => import(url)));
+console.log(JSON.stringify({ server: await server.matchWithBudget(jobs), hooks: await hooks.matchWithBudget(jobs) }));`;
+  const run = spawnSync(process.execPath, ["--permission", `--allow-fs-read=${serverRoot}`, "--input-type=module", "-e", script], { encoding: "utf8" });
+  assert.equal(run.status, 0, run.stderr);
+  const { server, hooks } = JSON.parse(run.stdout);
+  for (const answer of server) {
+    assert.deepEqual([answer.checked, answer.matched, answer.not_run], [true, null, undefined]);
+    assert.match(answer.error, /--allow-worker/);
+  }
+  assert.equal(hooks.length, 2);
+  for (const answer of hooks) {
+    assert.deepEqual([answer.checked, answer.matched, answer.not_run], [true, null, undefined], JSON.stringify(hooks));
+    assert.match(answer.error, /--allow-worker/);
+  }
 });
 
 test("an honest batch is not touched by the deadline, however many jobs it holds", async () => {

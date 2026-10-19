@@ -66,12 +66,14 @@ test("a process is gone, exited and waiting to be collected, running, or unknown
   assert.equal(processState(live, { proc: () => "Z" }), "exited");
   assert.equal(processState(live, { proc: () => "X" }), "exited");
   assert.equal(processState(live, { proc: () => "S" }), "running");
-  assert.equal(processState(live, { proc: () => "" }), "gone", "gone between kill and /proc");
+  // kill has just found it, so a /proc that does not show it hides it — hidepid, someone else's process — or it
+  // exited in between, which the next look's kill catches (Д-386).
+  assert.equal(processState(live, { proc: () => "" }), "unknown", "hidden from /proc, not gone");
   assert.equal(processState(live, { proc: () => null, ps: ps("Z") }), "unknown", "no /proc, and ps not asked");
   assert.deepEqual(asked, [], "ps is asked only when the caller says so");
   assert.equal(processState(live, { proc: () => null, ask: true, ps: ps("Z") }), "exited");
   assert.equal(processState(live, { proc: () => null, ask: true, ps: ps("S") }), "running");
-  assert.equal(processState(live, { proc: () => null, ask: true, ps: ps("") }), "gone");
+  assert.equal(processState(live, { proc: () => null, ask: true, ps: ps("") }), "unknown", "ps does not show what kill found");
   assert.equal(processState(live, { proc: () => null, ask: true, ps: ps(null) }), "unknown", "ps could not be asked");
   assert.equal(processState(live, { proc: () => "S", ask: true, ps: ps("Z") }), "running", "/proc, where there is one, decides");
   assert.equal(processState(live, { platform: "win32", proc: () => "Z" }), "running", "on Windows kill(pid, 0) decides");
@@ -79,7 +81,7 @@ test("a process is gone, exited and waiting to be collected, running, or unknown
   assert.equal(processState(0), "gone");
   assert.equal(processState(-1), "gone");
   // The hooks judge a lock's holder the same way.
-  for (const [letter, alive] of [["Z", false], ["X", false], ["", false], ["S", true], ["R", true], [null, true]]) {
+  for (const [letter, alive] of [["Z", false], ["X", false], ["", true], ["S", true], ["R", true], [null, true]]) {
     assert.equal(hookLib.processAlive(live, { proc: () => letter }), alive, `hooks, letter ${JSON.stringify(letter)}`);
   }
   assert.equal(hookLib.processAlive(live, { platform: "win32", proc: () => "Z" }), true);

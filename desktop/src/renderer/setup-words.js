@@ -76,7 +76,10 @@ export function unreadableCode(reason) {
  */
 export function modelUnreadable(view, model) {
   const code = unreadableCode(model.unreadable);
-  const advice = code === "EACCES" || code === "EPERM" ? "access"
+  // EPERM is not the file's mode, often: on macOS a folder under Documents, Desktop or Downloads is kept from an
+  // app until it is given access, as the daemon's own advice says (dense-backend.mjs; Д-387).
+  const advice = code === "EACCES" ? "access"
+    : code === "EPERM" ? "permission"
     : code === "ENOTDIR" ? "notDirectory"
       : code === "ELOOP" ? "loop"
         : SHARE_UNREACHABLE.has(code) ? "share" : "other";

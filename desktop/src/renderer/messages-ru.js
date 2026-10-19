@@ -367,6 +367,7 @@ export const RU = Object.freeze({
   "wizard.model.checkAgain": "Проверить снова",
   "wizard.model.unreadable": "Папку модели не прочитать: {dir} ({reason}). {advice} Затем проверьте снова; до тех пор поиск работает по словам.",
   "wizard.model.unreadable.access": "Дайте вашей учётной записи право читать папку и её файлы.",
+  "wizard.model.unreadable.permission": "Дайте вашей учётной записи право читать папку и её файлы; на macOS ещё дайте AI Dev доступ к этой папке в «Системные настройки → Конфиденциальность и безопасность».",
   "wizard.model.unreadable.notDirectory": "На этом пути вместо папки стоит файл: поставьте на его место папку.",
   "wizard.model.unreadable.loop": "Ссылка на пути ведёт сама на себя: направьте её на папку с моделью.",
   "wizard.model.unreadable.share": "Диск или сетевая папка, где она лежит, недоступны: подключите их снова.",

@@ -129,13 +129,19 @@ test("a request with a valid token is served", () => {
 
 // The server gets a runtime home of its own in the temporary folder: the search index it builds, and its claim on
 // the index folder, go with the rest instead of into yours (docs/DEFECTS.md, Д-374). So does the registry check
-// before it — a process that loads the server claims the index folder of the home it is given.
+// before it — a process that loads the server claims the index folder of the home it is given. Every place the
+// Codex-era migration takes from a `.codex` folder is named too, as the tests name them: whatever the server
+// would move into its home goes when the demo deletes that home (Д-389).
 const runtimeHome = path.join(tempRoot, "home");
 const serverEnv = {
   ...process.env,
   AI_DEV_HOME: runtimeHome,
   AI_DEV_STATE_ROOT: stateRoot,
-  AI_DEV_SEARCH_INDEX_DIR: path.join(runtimeHome, "cache", "search-index")
+  AI_DEV_SEARCH_INDEX_DIR: path.join(runtimeHome, "cache", "search-index"),
+  AI_DEV_ARCHIFY_RECEIPTS_ROOT: path.join(runtimeHome, "state", "archify-receipts"),
+  AI_DEV_FRONTEND_QA_ARTIFACT_ROOT: path.join(runtimeHome, "artifacts", "frontend-qa"),
+  AI_DEV_ARCHIFY_ARTIFACT_ROOT: path.join(runtimeHome, "artifacts", "archify"),
+  BGE_M3_ONNX_DIR: path.join(runtimeHome, "models", "bge-m3-onnx")
 };
 const transport = new StdioClientTransport({
   command: process.execPath,

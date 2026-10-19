@@ -673,6 +673,8 @@ test("a model folder is mounted read-only for the installer, checked, and handed
   await fs.mkdir(path.join(linking, "unplugged", "bge-m3-onnx"), { recursive: true });
   const led = await runBootstrap(t, ["--skip-smoke", "--model-path", linking], { folders: [".cursor"] });
   assert.equal(led.status, 0, led.stderr);
+  // And it is said that every session needs what it leads to: Docker starts none while that is away (Д-385).
+  assert.match(led.stderr, /\/bge-m3-onnx is a link to .*unplugged\/bge-m3-onnx: every session mounts what it leads to, so if that is a disk you disconnect, Docker starts no session while it is away, and the AI client's log shows Docker's "bind source path does not exist"\./);
   assert.ok(led.calls.find((call) => call[0] === "run" && call.includes("install")).includes(`--model=${linking}`));
 });
 

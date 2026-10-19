@@ -50,7 +50,7 @@ test("a model that cannot be read is said to be so, with what to do by why — n
   assert.equal(unreadableCode("something else"), "");
   for (const [reason, advice] of [
     ["EACCES: permission denied, open '/m/x'", "access"],
-    ["EPERM: operation not permitted, open '/m/x'", "access"],
+    ["EPERM: operation not permitted, open '/m/x'", "permission"],
     ["ENOTDIR: not a directory, lstat '/m/x'", "notDirectory"],
     ["ELOOP: too many symbolic links encountered, stat '/m/x'", "loop"],
     ["ESTALE: stale file handle, open '/m/x'", "share"],

@@ -367,6 +367,7 @@ export const EN = Object.freeze({
   "wizard.model.checkAgain": "Check again",
   "wizard.model.unreadable": "The model's folder cannot be read: {dir} ({reason}). {advice} Then check again; until then search works by words.",
   "wizard.model.unreadable.access": "Make the folder and its files readable to your user account.",
+  "wizard.model.unreadable.permission": "Make the folder and its files readable to your user account; on macOS, also give AI Dev access to that folder in System Settings → Privacy & Security.",
   "wizard.model.unreadable.notDirectory": "On that path a file stands where a folder should be: put a folder there.",
   "wizard.model.unreadable.loop": "A link on the way leads back to itself: point it at the folder that holds the model.",
   "wizard.model.unreadable.share": "The disk or the network share it is on cannot be reached: connect it again.",

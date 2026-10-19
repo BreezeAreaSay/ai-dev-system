@@ -648,6 +648,8 @@ parentPort.postMessage({ done: true });
 `;
 
 // Until the worker says `ready` it is only starting: that has its own ceiling, `startMs`, and charges no rule.
+// A worker that fails instead — it cannot be created, or errors or exits — says why in `failed`: that is not a
+// slow start, and the job it was on is answered as run, as the server's copy does (Д-384).
 function runMatchBatch(jobs, budgetMs, startMs) {
   return new Promise((resolve) => {
     const results = [];
@@ -656,12 +658,12 @@ function runMatchBatch(jobs, budgetMs, startMs) {
     let settled = false;
     let timer = null;
     let worker = null;
-    const finish = (timedOutAt) => {
+    const finish = (timedOutAt, failed = "") => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (worker) worker.terminate();
-      resolve({ results, timedOutAt, startupMs: startupMs === null ? Date.now() - created : startupMs, notStarted: startupMs === null });
+      resolve({ results, timedOutAt, failed, startupMs: startupMs === null ? Date.now() - created : startupMs, notStarted: startupMs === null });
     };
     const arm = () => {
       clearTimeout(timer);
@@ -669,8 +671,8 @@ function runMatchBatch(jobs, budgetMs, startMs) {
     };
     try {
       worker = new Worker(MATCH_WORKER_SOURCE, { eval: true, workerData: { jobs } });
-    } catch {
-      finish(-1);
+    } catch (error) {
+      finish(-1, String((error && error.message) || error));
       return;
     }
     worker.on("message", (message) => {
@@ -682,8 +684,8 @@ function runMatchBatch(jobs, budgetMs, startMs) {
       results.push(message && typeof message.matched === "boolean" ? message.matched : null);
       return arm();
     });
-    worker.on("error", () => finish(-1));
-    worker.on("exit", () => finish(-1));
+    worker.on("error", (error) => finish(-1, String((error && error.message) || error)));
+    worker.on("exit", () => finish(-1, "the match worker exited before it answered."));
     timer = setTimeout(() => finish(-1), startMs);
   });
 }
@@ -695,7 +697,8 @@ function runMatchBatch(jobs, budgetMs, startMs) {
  * - `{ checked: true, matched: true | false }` — the job ran.
  * - `{ checked: true, matched: null }` — it outlived its own budget. The jobs
  *   behind it are run in a fresh worker, because killing the stuck one is the
- *   only way to stop it.
+ *   only way to stop it. With `error`, the worker failed on it instead of
+ *   timing out, and the jobs behind it get a fresh worker the same way.
  * - `{ checked: false, matched: null, not_run }` — never run: the deadline
  *   passed first (`not_run: "deadline"`), or no thread could start for it in
  *   time (`not_run: "start"` — the machine is too busy). The guard says how
@@ -706,7 +709,7 @@ function runMatchBatch(jobs, budgetMs, startMs) {
  *
  * @param {Array<{ pattern: string, flags?: string, haystack?: string }>} jobs
  * @param {{ budgetMs?: number, deadlineMs?: number, startMs?: number }} [options]
- * @returns {Promise<Array<{ matched: boolean | null, checked: boolean, not_run?: "deadline" | "start" }>>}
+ * @returns {Promise<Array<{ matched: boolean | null, checked: boolean, error?: string, not_run?: "deadline" | "start" }>>}
  */
 export async function matchWithBudget(jobs, options = {}) {
   const budgetMs = Number.isFinite(options.budgetMs) && options.budgetMs > 0 ? options.budgetMs : POLICY_MATCH_BUDGET_MS;
@@ -734,10 +737,10 @@ export async function matchWithBudget(jobs, options = {}) {
       break;
     }
     const began = Date.now();
-    const { results, timedOutAt, startupMs, notStarted } = await runMatchBatch(prepared.slice(offset), Math.min(budgetMs, left), startMs - starting);
+    const { results, timedOutAt, failed, startupMs, notStarted } = await runMatchBatch(prepared.slice(offset), Math.min(budgetMs, left), startMs - starting);
     starting += startupMs;
     matching += Math.max(0, Date.now() - began - startupMs);
-    if (notStarted && !results.length && timedOutAt < 0) {
+    if (notStarted && !results.length && timedOutAt < 0 && !failed) {
       notRun = "start";
       break;
     }
@@ -746,7 +749,7 @@ export async function matchWithBudget(jobs, options = {}) {
     }
     const stuck = timedOutAt >= 0 ? offset + timedOutAt : offset + results.length;
     if (stuck >= prepared.length) break;
-    answers[stuck] = { matched: null, checked: true };
+    answers[stuck] = timedOutAt < 0 && failed ? { matched: null, checked: true, error: failed } : { matched: null, checked: true };
     offset = stuck + 1;
   }
   return answers.map((answer) => answer || { matched: null, checked: false, not_run: notRun });
@@ -872,7 +875,8 @@ export function procStateLetter(pid) {
 }
 
 // Running, or there and unknown: a process that has exited and waits to be collected (a zombie, which kill(pid, 0)
-// still answers for) is not, where /proc tells — the server's file-lock.mjs judges it the same (Д-234).
+// still answers for) is not, where /proc tells — the server's file-lock.mjs judges it the same (Д-234). A /proc
+// that does not show the process kill has just found hides it (hidepid): there, and alive (Д-386).
 export function processAlive(pid, { platform = process.platform, proc = procStateLetter } = {}) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -882,7 +886,7 @@ export function processAlive(pid, { platform = process.platform, proc = procStat
   }
   if (platform === "win32") return true;
   const letter = proc(pid);
-  return letter === null || (letter !== "" && letter !== "Z" && letter !== "X");
+  return letter !== "Z" && letter !== "X";
 }
 
 export function lockIsLive(observed, { now = Date.now(), staleMs = LOCK_STALE_MS, emptyGraceMs = EMPTY_LOCK_GRACE_MS, host = os.hostname(), alive = processAlive } = {}) {

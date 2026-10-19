@@ -63,7 +63,7 @@ test("every key the code builds from parts is in the table, for every value the 
     wizard: [...source("wizard.js").match(/const STEPS = \[([^\]]*)\]/)[1].matchAll(/"(\w+)"/g)].map((match) => `${match[1]}.title`)
   };
   assert.ok(families["wizard.clients"].length >= 5 && families.wizard.length === 5, JSON.stringify([families["wizard.clients"], families.wizard]));
-  assert.deepEqual(families["wizard.model.unreadable"], ["access", "notDirectory", "loop", "share", "other"]);
+  assert.deepEqual(families["wizard.model.unreadable"], ["access", "permission", "notDirectory", "loop", "share", "other"]);
   assert.ok(families["console.error"].length >= 6, families["console.error"].join(", "));
   const missing = Object.entries(families).flatMap(([family, values]) => values.map((value) => `${family}.${value}`)).filter((key) => !Object.hasOwn(MESSAGES.en, key));
   assert.deepEqual(missing, []);

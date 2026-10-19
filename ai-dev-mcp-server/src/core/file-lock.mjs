@@ -181,7 +181,10 @@ export function psStateLetter(pid) {
  *   (docs/DEFECTS.md, Д-234);
  * - "running";
  * - "unknown" — it is there, and nothing here tells whether it still runs:
- *   no `/proc`, and `ps` was not asked (`ask`) or could not answer.
+ *   no `/proc`, and `ps` was not asked (`ask`) or could not answer; or they
+ *   do not show the process `kill` has just found — a `/proc` mounted with
+ *   `hidepid` hides someone else's, and one that exited in between is caught
+ *   by `kill` at the next look (docs/DEFECTS.md, Д-386).
  *
  * `EPERM` means the process exists and belongs to someone else. Windows has no
  * zombies: a process that has exited is gone to `kill(pid, 0)`.
@@ -200,8 +203,7 @@ export function processState(pid, { ask = false, platform = process.platform, pr
   if (platform === "win32") return "running";
   let letter = proc(pid);
   if (letter === null && ask) letter = ps(pid);
-  if (letter === null) return "unknown";
-  if (letter === "") return "gone";
+  if (letter === null || letter === "") return "unknown";
   return letter === "Z" || letter === "X" ? "exited" : "running";
 }
 

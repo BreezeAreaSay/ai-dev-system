@@ -183,6 +183,11 @@ if [ -n "$model_path" ]; then
     printf '%s\n' "${model_path}/bge-m3-onnx is a link to $(readlink "${model_path}/bge-m3-onnx") that leads nowhere here: connect the disk it leads to, or point --model-path at another folder." >&2
     exit 64
   fi
+  # And a session mounts it every time: while what it leads to is away — a disk unplugged — Docker starts no
+  # session at all, so that is said now (Д-385).
+  if [ -L "${model_path}/bge-m3-onnx" ]; then
+    printf '%s\n' "${model_path}/bge-m3-onnx is a link to $(readlink "${model_path}/bge-m3-onnx"): every session mounts what it leads to, so if that is a disk you disconnect, Docker starts no session while it is away, and the AI client's log shows Docker's \"bind source path does not exist\"." >&2
+  fi
   if [ ! -d "${model_path}/bge-m3-onnx" ]; then
     printf '%s\n' "${model_path} holds no bge-m3-onnx/ yet; dense search will report that it is not set up until a model is put there." >&2
   fi

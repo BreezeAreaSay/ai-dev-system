@@ -311,6 +311,48 @@ test("rules a thread could not start for are said to be the machine's doing, not
   assert.doesNotMatch(context, /was not evaluated: matching its pattern took longer|A rule ahead of them/, "neither the rule nor the rules ahead of it are blamed");
 });
 
+test("a thread that fails is said to have failed, not taken for a slow pattern or a busy machine (Д-384)", async (t) => {
+  const { root, projectRoot } = await fixture(t);
+  // A hook pack whose match thread throws before it says ready.
+  const brokenHooks = path.join(root, "broken-hooks");
+  await fs.cp(hooksSourceDir, brokenHooks, { recursive: true });
+  const lib = path.join(brokenHooks, "lib.mjs");
+  const source = await fs.readFile(lib, "utf8");
+  const head = 'const { parentPort, workerData } = require("node:worker_threads");';
+  assert.ok(source.includes(head));
+  await fs.writeFile(lib, source.replace(head, 'throw new Error("boom");'));
+  await installAgentHooks({ projectRoot, hooksSourceDir: brokenHooks, targets: ["claude"], profile: "standard" });
+  const policyPath = path.join(projectRoot, ".ai-dev", "policy.json");
+  const policy = JSON.parse(await fs.readFile(policyPath, "utf8"));
+  const rule = { id: "no-deploy", event: "bash", pattern: "deploy-prod", action: "block", message: "Deploys go through CI.", enabled: true };
+  await fs.writeFile(policyPath, JSON.stringify({ ...policy, rules: [...(policy.rules ?? []), rule] }, null, 2));
+  const answered = runHook(projectRoot, "guard.mjs", ["bash"], { tool_name: "Bash", tool_input: { command: "./deploy-prod.sh" } });
+  assert.equal(answered.status, 0, "a rule that never ran cannot block");
+  const context = JSON.parse(answered.stdout || "{}").hookSpecificOutput?.additionalContext ?? "";
+  assert.match(context, /\[policy:no-deploy\] this rule was not evaluated: the thread matching it failed \(boom\)\. Nothing here says the pattern is wrong; this command went unchecked by it\./);
+  assert.doesNotMatch(context, /took longer|did not start within/, "neither the pattern nor a busy machine is blamed");
+});
+
+test("a write the rules could not check is called a write (Д-388)", async (t) => {
+  const { root, projectRoot } = await fixture(t);
+  const busyHooks = path.join(root, "busy-hooks");
+  await fs.cp(hooksSourceDir, busyHooks, { recursive: true });
+  const lib = path.join(busyHooks, "lib.mjs");
+  const source = await fs.readFile(lib, "utf8");
+  await fs.writeFile(lib, source.replace(/^export const POLICY_MATCH_START_MS = 3000;$/m, "export const POLICY_MATCH_START_MS = 1;"));
+  await installAgentHooks({ projectRoot, hooksSourceDir: busyHooks, targets: ["claude"], profile: "standard" });
+  const policyPath = path.join(projectRoot, ".ai-dev", "policy.json");
+  const policy = JSON.parse(await fs.readFile(policyPath, "utf8"));
+  const rule = { id: "no-env-edit", event: "file", pattern: "\\.env", action: "block", message: "Not the env file.", enabled: true };
+  await fs.writeFile(policyPath, JSON.stringify({ ...policy, rules: [...(policy.rules ?? []), rule] }, null, 2));
+  const answered = runHook(projectRoot, "guard.mjs", ["file"], { tool_name: "Write", tool_input: { file_path: "notes.md", content: "hello" } });
+  assert.equal(answered.status, 0);
+  const context = JSON.parse(answered.stdout || "{}").hookSpecificOutput?.additionalContext ?? "";
+  // The default policy's own file rules are among them.
+  assert.match(context, /Not evaluated: [^.]*no-env-edit\. Nothing is wrong with the rules; this write went unchecked by them\./);
+  assert.doesNotMatch(context, /this command went unchecked/);
+});
+
 test("the git hook reads the server's own rules and the diff the same way", async () => {
   assert.deepEqual(gitHookSettings({}), { pre_commit: "block", pre_push: "warn" });
   assert.deepEqual(gitHookSettings({ git_hooks: { pre_commit: "warn", pre_push: "block" } }), { pre_commit: "warn", pre_push: "block" });

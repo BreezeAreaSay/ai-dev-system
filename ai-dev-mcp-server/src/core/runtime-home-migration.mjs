@@ -80,9 +80,21 @@ export const CODEX_LEGACY_FOLDERS = Object.freeze([
   { variable: "BGE_M3_ONNX_DIR", from: ["models", "bge-m3-onnx"], to: ["models", "bge-m3-onnx"], cache: true }
 ]);
 
-/** The `~/.codex` folders of AI Dev's that this environment would read, existing or not. */
+/**
+ * The `.codex` folder 2.x read for this install: under its own `AI_DEV_HOME`
+ * when one was set — 2.x took that variable for the home and looked for
+ * `.codex` beside `.ai-dev` there — else under the user's home. Taking the
+ * user's `~/.codex` into any `AI_DEV_HOME` handed one install's history to
+ * another, and to a demo's temporary home that is then deleted
+ * (docs/DEFECTS.md, Д-389).
+ */
+function codexRoot(env) {
+  return path.join(explicitRuntimeHome(env) || resolveUserHome("", env), ".codex");
+}
+
+/** The `.codex` folders of AI Dev's that this environment would read, existing or not. */
 function codexLegacyFolders(env) {
-  const codex = path.join(resolveUserHome("", env), ".codex");
+  const codex = codexRoot(env);
   const target = resolveRuntimeStateRoot("", env);
   // A place named by its variable was never looked for in ~/.codex.
   return CODEX_LEGACY_FOLDERS.filter((folder) => !env[folder.variable]).map((folder) => ({
@@ -484,7 +496,7 @@ export async function describeRuntimeHome({ env = process.env } = {}) {
     ai_dev_home_names_home: Boolean(raw) && !explicitRuntimeHome(env),
     legacy_root: legacy,
     legacy_files: legacy ? await listFiles(legacy) : [],
-    codex_root: path.join(resolveUserHome("", env), ".codex"),
+    codex_root: codexRoot(env),
     codex_files: codexFiles,
     last_migration: history.at(-1) ?? null
   };

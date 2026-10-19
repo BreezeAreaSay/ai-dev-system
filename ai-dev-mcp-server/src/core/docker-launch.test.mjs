@@ -15,6 +15,7 @@ import {
   dockerLaunch,
   dockerRunArgs,
   isDirectDockerEntry,
+  missingBindSources,
   modelMount,
   probeStateSharing,
   resolveDockerCommand,
@@ -116,6 +117,24 @@ test("a model folder whose bge-m3-onnx is a link mounts the link itself, which D
   // The host's own path rules: a Windows folder joined the Windows way.
   const windows = modelMount("C:\\models", { join: path.win32.join, lstat: () => ({ isSymbolicLink: () => true }), stat: () => ({}) });
   assert.deepEqual(windows, { source: "C:\\models\\bge-m3-onnx", target: CONTAINER_MODEL_DIR });
+});
+
+test("a link to another disk is said when the entry is written, and a mount whose folder is gone is found (Д-385)", () => {
+  // The link resolves now; its target is on another device than the folder that holds the link.
+  const devices = { "/m": 1, "/m/bge-m3-onnx": 2 };
+  const options = { lstat: () => ({ isSymbolicLink: () => true }), stat: (file) => ({ dev: devices[file] }), readlink: () => "/media/disk2/bge-m3-onnx" };
+  const mount = modelMount("/m", options);
+  assert.deepEqual([mount.source, mount.target], ["/m/bge-m3-onnx", CONTAINER_MODEL_DIR]);
+  assert.equal(mount.note, "/m/bge-m3-onnx leads to /media/disk2/bge-m3-onnx, on another disk: every session mounts it from there, so while that disk is away Docker starts no session at all — `ai-dev clients doctor` names the entry then.");
+  devices["/m/bge-m3-onnx"] = 1;
+  assert.equal(modelMount("/m", options).note, undefined, "the same disk: nothing to say");
+  assert.ok(dockerRunArgs({ image: "img", model: mount }).includes("type=bind,source=/m/bge-m3-onnx,target=/models/bge-m3-onnx,readonly"), "the note does not reach the command line");
+
+  const args = ["run", "-i", "--mount", "type=volume,source=data,target=/data", "--mount", "type=bind,source=/here,target=/workspace",
+    "--mount", "type=bind,source=/gone/bge-m3-onnx,target=/models/bge-m3-onnx,readonly", "img"];
+  assert.deepEqual(missingBindSources(args, { exists: (file) => file === "/here" }), [{ source: "/gone/bge-m3-onnx", target: "/models/bge-m3-onnx" }]);
+  assert.deepEqual(missingBindSources(args, { exists: () => true }), []);
+  assert.deepEqual(missingBindSources(undefined), []);
 });
 
 test("a 3.0 entry is told from a 2.x launcher by what it runs", () => {

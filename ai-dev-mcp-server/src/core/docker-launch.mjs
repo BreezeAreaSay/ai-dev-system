@@ -226,8 +226,11 @@ export function checkModelFolder(folder, { exists = existsSync } = {}) {
  * the host, the link's target is not to be seen; bootstrap.sh checks it first.
  *
  * @param {string} folder - A model folder {@link checkModelFolder} took.
+ * A link to another disk is noted (`note`): Docker starts no session while
+ * that disk is away.
+ *
  * @param {{ verify?: boolean, join?: (...parts: string[]) => string, lstat?: typeof lstatSync, stat?: typeof statSync, readlink?: typeof readlinkSync }} [options]
- * @returns {{ source: string, target: string }}
+ * @returns {{ source: string, target: string, note?: string }}
  */
 export function modelMount(folder, { verify = true, join = path.join, lstat = lstatSync, stat = statSync, readlink = readlinkSync } = {}) {
   const model = join(folder, "bge-m3-onnx");
@@ -238,20 +241,55 @@ export function modelMount(folder, { verify = true, join = path.join, lstat = ls
     // Not there yet: the folder is mounted, and the model is put there later.
   }
   if (!link) return { source: folder, target: CONTAINER_MODELS };
-  if (verify) {
-    try {
-      stat(model);
-    } catch (error) {
-      let target = "";
-      try {
-        target = readlink(model);
-      } catch {
-        // Said without it.
-      }
-      throw new Error(`${model} is a link${target ? ` to ${target}` : ""} that leads nowhere here (${error?.code ?? error?.message}): connect the disk it leads to, or name another model folder. Docker would start no session that mounts it.`);
-    }
+  if (!verify) return { source: model, target: CONTAINER_MODEL_DIR };
+  let leadsTo = "";
+  try {
+    leadsTo = readlink(model);
+  } catch {
+    // Said without it.
   }
-  return { source: model, target: CONTAINER_MODEL_DIR };
+  let found;
+  try {
+    found = stat(model);
+  } catch (error) {
+    throw new Error(`${model} is a link${leadsTo ? ` to ${leadsTo}` : ""} that leads nowhere here (${error?.code ?? error?.message}): connect the disk it leads to, or name another model folder. Docker would start no session that mounts it.`);
+  }
+  // Docker refuses a mount whose source is gone, and the whole session with it: a disk the link leads to that is
+  // unplugged later takes AI Dev out of every client, where a folder mounted above the link took dense search
+  // only. So it is said when the entries are written, and `clients doctor` says it when it happens (Д-385).
+  let note = "";
+  try {
+    if (found.dev !== stat(folder).dev) {
+      note = `${model} leads to ${leadsTo || "another folder"}, on another disk: every session mounts it from there, so while that disk is away Docker starts no session at all — \`ai-dev clients doctor\` names the entry then.`;
+    }
+  } catch {
+    // The folder was checked a moment ago; a folder that went meanwhile is said by Docker.
+  }
+  return { source: model, target: CONTAINER_MODEL_DIR, ...(note ? { note } : {}) };
+}
+
+/**
+ * The `--mount type=bind,source=…` folders of a `docker run` command line
+ * that are not there: Docker refuses to start a container over one, so a
+ * client that runs the entry gets no server at all (Д-385).
+ *
+ * @param {string[]} args
+ * @param {{ exists?: (path: string) => boolean }} [options]
+ * @returns {Array<{ source: string, target: string }>}
+ */
+export function missingBindSources(args, { exists = existsSync } = {}) {
+  const missing = [];
+  const list = Array.isArray(args) ? args : [];
+  for (let index = 0; index < list.length - 1; index += 1) {
+    if (list[index] !== "--mount") continue;
+    const fields = Object.fromEntries(String(list[index + 1]).split(",").map((field) => {
+      const at = field.indexOf("=");
+      return at < 0 ? [field, ""] : [field.slice(0, at), field.slice(at + 1)];
+    }));
+    const source = fields.source ?? fields.src ?? "";
+    if (fields.type === "bind" && source && !exists(source)) missing.push({ source, target: fields.target ?? fields.dst ?? fields.destination ?? "" });
+  }
+  return missing;
 }
 
 /**

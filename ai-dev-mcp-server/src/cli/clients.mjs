@@ -16,7 +16,7 @@ import {
   tildify,
   unsharedStateNote
 } from "../core/client-connections.mjs";
-import { DEFAULT_DOCKER_IMAGE, dockerLaunch } from "../core/docker-launch.mjs";
+import { DEFAULT_DOCKER_IMAGE, dockerLaunch, missingBindSources } from "../core/docker-launch.mjs";
 import { checkServerCommand } from "../core/mcp-client-check.mjs";
 import { MCP_CLIENTS, SERVER_NAME, clientEntry, describeEntry, discoverClients, parseClientSelection, readServerEntries } from "../core/mcp-clients.mjs";
 
@@ -223,7 +223,8 @@ async function install(values, io) {
     env: io.env,
     ...(docker ? { docker, home: values.home || os.homedir(), platform: docker.platform } : {})
   });
-  const note = unsharedStateNote(docker);
+  // What the entries depend on that may go away: a model on another disk (Д-385), a state folder not shared.
+  const note = [docker?.model?.note, unsharedStateNote(docker)].filter(Boolean).join("\n");
   if (values.json) io.out(JSON.stringify({ clients: results, ...(note ? { note } : {}) }, null, 2));
   else {
     for (const line of renderResults(results)) io.out(line);
@@ -282,6 +283,14 @@ async function doctor(values, io) {
         report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: null, note: kind === "docker" ? "a 2.x Docker launcher: not started here — `ai-dev clients install --docker` replaces it with one that is" : "the entry is not an object" });
         continue;
       }
+      // A folder the entry mounts that is not there: Docker would start no container, and the client gets only its
+      // error. Said as what it is, without starting it (Д-385).
+      const gone = kind === "docker" ? missingBindSources(entry?.args) : [];
+      if (gone.length) {
+        const [first] = gone;
+        report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: false, error: `the folder this entry mounts at ${first.target} is not here: ${first.source}${gone.length > 1 ? ` (and ${gone.length - 1} more)` : ""}. Docker starts no session without it: connect the disk it is on, or write the entries again without it (\`ai-dev clients install --docker\`).` });
+        continue;
+      }
       const check = await checkServerCommand(entry, { timeoutMs, env: io.env });
       report.push({ client: row.client, label: labelOf(row), file: row.file, name, ...check });
     }
@@ -318,8 +327,7 @@ async function entry(values, positionals, io) {
   // The entry install would write, the state folder's sharing tried as install tries it (Д-334).
   const docker = await dockerFrom(values, io, { apply: false, tryState: true });
   io.out(JSON.stringify(clientEntry(client, docker ? dockerLaunch(docker) : localLaunch({ env: io.env }))));
-  const note = unsharedStateNote(docker);
-  if (note) io.err(note);
+  for (const note of [docker?.model?.note, unsharedStateNote(docker)]) if (note) io.err(note);
   return EXIT.ok;
 }
 

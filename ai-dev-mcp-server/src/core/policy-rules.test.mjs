@@ -405,6 +405,32 @@ test("a machine too busy to start a match: the rule is not written unchecked, an
   assert.ok(!described.problems.some((problem) => /rules before it/.test(problem)), "the rules ahead of it are not blamed");
 });
 
+test("the probes ran, the example did not: the rule is still not written (Д-383)", async (t) => {
+  const root = await tempProject(t, defaultPolicy("standard"));
+  let call = 0;
+  // The first batch is the pattern's probes, answered; the next is its example, which no worker reached.
+  const exampleUnrun = async (jobs) => {
+    call += 1;
+    if (call === 1) return jobs.map(() => ({ matched: false, checked: true, timed_out: false, error: "", truncated: false }));
+    return jobs.map(() => ({ matched: null, checked: false, timed_out: false, error: "", truncated: false, not_run: "start" }));
+  };
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: RULE, match: exampleUnrun }),
+    /^Error: Rule "[^"]+" was not written: its example could not be checked, because the machine is so busy that no match worker started within 3000 ms\. Try again once the machine is less busy\.$/
+  );
+  assert.equal(call, 2, "the probes were asked, then the example");
+  assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), [], "nothing was written");
+
+  call = 0;
+  const exampleCutOff = async (jobs) => {
+    call += 1;
+    if (call === 1) return jobs.map(() => ({ matched: false, checked: true, timed_out: false, error: "", truncated: false }));
+    return jobs.map(() => ({ matched: null, checked: false, timed_out: false, error: "", truncated: false, not_run: "deadline" }));
+  };
+  await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: RULE, match: exampleCutOff }), /its example could not be checked, because the matching ran out of the \d+ ms it gets/);
+  assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), []);
+});
+
 test("a hand-written catastrophic rule is reported by the reader instead of hanging it", async (t) => {
   const root = await tempProject(t, { ...defaultPolicy("standard"), rules: [{ ...CATASTROPHIC_RULE, example: `${"a".repeat(40)}!` }] });
   const started = process.hrtime.bigint();

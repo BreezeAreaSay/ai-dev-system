@@ -153,6 +153,8 @@ async function applyCustomRules(rules, event, text, filePath) {
   }
   if (!applicable.length) return { blocks, warns };
   const haystack = event === "file" ? `${filePath}\n${text}` : text;
+  // What the rules were asked about, for the lines that say it went unchecked (Д-388).
+  const subject = event === "file" ? "write" : "command";
   const answers = await matchWithBudget(applicable.map((rule) => ({ pattern: String(rule.pattern || ""), flags: "i", haystack })));
   const unchecked = [];
   const unstarted = [];
@@ -162,6 +164,11 @@ async function applyCustomRules(rules, event, text, filePath) {
     if (!answer.checked) {
       // A machine too busy to start the match is not a rule's fault (Д-239).
       (answer.not_run === "start" ? unstarted : unchecked).push(name);
+      return;
+    }
+    if (answer.matched === null && answer.error) {
+      // The thread failed on it, which says nothing about the pattern (Д-384).
+      warns.push(`[policy:${name}] this rule was not evaluated: the thread matching it failed (${answer.error}). Nothing here says the pattern is wrong; this ${subject} went unchecked by it.`);
       return;
     }
     if (answer.matched === null) {
@@ -178,7 +185,7 @@ async function applyCustomRules(rules, event, text, filePath) {
     warns.push(`[policy] ${unchecked.length} rule(s) were never matched: the ${POLICY_MATCH_DEADLINE_MS} ms this event gets for all its rules together ran out before their turn. Not evaluated: ${listed(unchecked)}. A rule ahead of them is spending the budget — find it with list_policy_rules and fix it with upsert_policy_rule; until then these rules protect nothing.`);
   }
   if (unstarted.length) {
-    warns.push(`[policy] ${unstarted.length} rule(s) were not matched: this machine is so busy that the thread matching them did not start within ${POLICY_MATCH_START_MS} ms. Not evaluated: ${listed(unstarted)}. Nothing is wrong with the rules; this command went unchecked by them.`);
+    warns.push(`[policy] ${unstarted.length} rule(s) were not matched: this machine is so busy that the thread matching them did not start within ${POLICY_MATCH_START_MS} ms. Not evaluated: ${listed(unstarted)}. Nothing is wrong with the rules; this ${subject} went unchecked by them.`);
   }
   return { blocks, warns };
 }

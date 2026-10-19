@@ -340,6 +340,20 @@ test("clients doctor names a config whose Node is gone, and exits 1", async (t) 
   }
 });
 
+test("clients doctor names a Docker entry whose mounted folder is gone, without starting it (Д-385)", async (t) => {
+  const home = await tempDir(t);
+  await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+  // The model a link led to sat on a disk that is not connected now; `docker` here would only fail.
+  const away = path.join(home, "models", "bge-m3-onnx");
+  const args = ["run", "-i", "--rm", "--mount", "type=volume,source=ai-dev-system-data,target=/data",
+    "--mount", `type=bind,source=${away},target=/models/bge-m3-onnx,readonly`, "ai-dev-system:3"];
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: path.join(home, "no-such", "docker"), args } } }));
+  const doctor = await runNode([cli, "clients", "doctor"], { env: homeEnv(home) });
+  assert.equal(doctor.code, 1);
+  assert.match(doctor.stdout, new RegExp(`Cursor\\s+FAILED — the folder this entry mounts at /models/bge-m3-onnx is not here: ${away.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\. Docker starts no session without it: connect the disk it is on, or write the entries again without it`));
+  assert.doesNotMatch(doctor.stdout, /no-such/, "the entry was not started");
+});
+
 test("setup's flags: --model, its 2.x names --dense and --dense-python, --all, --no-clients and --no-health", () => {
   assert.equal(parseSetupArgs([]).model, undefined, "unset: asked at a terminal, no elsewhere");
   for (const flags of [["--model"], ["--dense"], ["--dense-python"], ["--all"]]) assert.equal(parseSetupArgs(flags).model, true, flags.join(" "));

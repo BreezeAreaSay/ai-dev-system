@@ -18,7 +18,8 @@ MCP tools.
 - MCP-сервер и его зафиксированные npm-зависимости — только для своей платформы:
   `onnxruntime-node` без библиотек macOS, Windows и чужой архитектуры (docs/DEFECTS.md, Д-313);
 - чистые правила, промпты, quality gates и шаблоны;
-- публичный seed: custom skills, MIT-лицензированные `taste-skill` и `ui-ux-pro-max`;
+- публичный seed — 614 навыков: Membrane 460, ECC 101, свои 28, дизайн (taste-skill) 13, Understand Anything 9,
+  ui-ux-pro-max, mattpocock и Archify — по одному; все под MIT ([THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md));
 - раннер Frontend QA; Playwright и Chromium — только в варианте `-browser`;
 - `gitleaks` для `run_security_scan` без сети.
 
@@ -201,9 +202,10 @@ docker compose \
   run --rm -T ai-dev-mcp
 ```
 
-`compose.yaml` собирает образ из `.docker/build-context` (`npm run docker:prepare`), если его
-нет. `compose.local.yaml` и `docker/.env` игнорируются Git, потому что могут содержать локальные
-пути.
+Без `AI_DEV_IMAGE` сервис запускает `ai-dev-system:local` и собирает его из `.docker/build-context`
+(`npm run docker:prepare`), если его нет; опубликованный образ — `AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:latest`
+перед командой или в `docker/.env`. `compose.local.yaml` и `docker/.env` игнорируются Git, потому что могут
+содержать локальные пути.
 
 ## Сеть и права
 
@@ -279,7 +281,9 @@ docker run --rm -it --network bridge \
 `bootstrap.ps1`), `AI_DEV_MODEL_PATH` у лаунчеров 2.x и Compose. Образ сначала смотрит в
 `/models/bge-m3-onnx`, если там что-то есть, потом в том. Каталог, где лежат сами файлы модели
 (`pytorch_model.bin`, `config.json`, `onnx/`), — значение до 2.1; каждая копия его распознаёт и
-останавливается с подсказкой, а не монтирует на уровень глубже (Д-68).
+останавливается с подсказкой, а не монтирует на уровень глубже (Д-68). Если `bge-m3-onnx` в этой папке —
+ссылка на другой диск, запись 3.0 монтирует саму ссылку в `/models/bge-m3-onnx`, и Docker проходит по ней на
+хосте; ссылка, которая и на хосте ведёт в никуда, отклоняется (Д-368).
 
 **Python-бэкенда больше нет** (3.0, решение D3). Аргумент сборки `INSTALL_BGE_M3=1`, который его
 ставил, ничего не делает и при сборке говорит, что пришло на смену. Векторы, построенные им,
@@ -353,7 +357,7 @@ npm run docker:upgrade-check -- --old-image ghcr.io/stonebridgeway/ai-dev-system
 
 Workflow `.github/workflows/docker-publish.yml`:
 
-- тестирует privacy policy и метаданные пакетов;
+- тестирует privacy policy и то, что обещают друг другу страницы установки и скрипты (`packaging:check`);
 - заново создает и проверяет allowlisted context;
 - собирает validation image и вариант `-browser`;
 - выполняет MCP stdio smoke: новый том, следующая сессия, модель через том (синтетическая);
@@ -361,7 +365,8 @@ Workflow `.github/workflows/docker-publish.yml`:
 - публикует `linux/amd64` и `linux/arm64` в GHCR с SBOM и provenance attestations.
 
 Теги (решение владельца D9, Д-108): push в `main` — `:edge`; тег выпуска `vX.Y.Z` — `:X.Y.Z`,
-`:X.Y`, `:X` и `:latest`; пре-релиз — только своё имя. Мерж — не выпуск. Вариант с браузером
+`:X.Y`, `:X` и, если это не пре-релиз новейшей линии, `:latest`; пре-релиз — только своё имя; тег
+`v2.Y.Z` после выпуска 3.0 двигает `:2`, `:2.Y` и `:2.Y.Z`, но не `:latest`. Мерж — не выпуск. Вариант с браузером
 получает те же теги с суффиксом `-browser`. `:2` — линия 2.x: перед первым тегом 3.0 ручной
 запуск workflow с `freeze_2x` копирует текущий `:latest` в `:2`, если `:2` ещё нет.
 

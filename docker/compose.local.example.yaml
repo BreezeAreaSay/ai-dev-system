@@ -18,6 +18,9 @@ services:
       # and mount the folder above bge-m3-onnx/ here, read-only, as 2.x did:
       # uncomment the four lines below and point AI_DEV_MODEL_PATH at
       # ~/.ai-dev/models — the folder above it, not the model directory itself.
+      # If bge-m3-onnx there is a link to another disk, mount the link itself
+      # at /models/bge-m3-onnx instead: in the container a link inside the
+      # mounted folder leads nowhere (docs/DEFECTS.md, Д-368).
       # The launchers (docker/run-mcp.sh, run-mcp.ps1 and the Windows Claude
       # proxy ClaudeMcpProxy.cs) and the 3.0 client entry mount the same
       # variable the same way; scripts/model-mount-contract.test.mjs holds them

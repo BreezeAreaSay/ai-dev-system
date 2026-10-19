@@ -65,6 +65,12 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: npm run docs:tools:check
 
+      # Every relative link and #anchor in the tracked documentation resolves
+      # on GitHub; external links are asked only by `-- --external`.
+      - name: Documentation links
+        working-directory: ai-dev-mcp-server
+        run: npm run docs:links
+
       - name: Public seed matches its manifest
         working-directory: ai-dev-mcp-server
         run: npm run docker:seed:verify

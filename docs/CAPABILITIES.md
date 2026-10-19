@@ -49,32 +49,39 @@ block, or in the shell that launches it:
 ```bash
 AI_DEV_PROFILES=core,git        # 34 tools
 AI_DEV_PROFILES="coding memory" # commas or spaces, both work
-AI_DEV_PROFILES=all             # every profile, the same as leaving it unset
+AI_DEV_PROFILES=all             # every profile, whatever the settings say
 ```
 
 `core` is added to whatever you name, so `AI_DEV_PROFILES=git` and
 `AI_DEV_PROFILES=core,git` mean the same thing.
 
-**Unset, every profile is on.** Nothing is hidden until you ask for it, so an
-installation that never heard of profiles behaves exactly as it did before they
-existed.
+**Unset, every profile is on** — unless you chose profiles in the settings: a
+`profiles` value in `~/.ai-dev/config.json`, which the desktop app and the
+`settings_set` tool write, fills an unset or empty `AI_DEV_PROFILES` for every
+`ai-dev` command, and so for every client a local install connected. Nothing is
+hidden until you ask for it, so an installation that never heard of profiles
+behaves exactly as it did before they existed.
 
-In a client configuration it goes beside the other variables:
+In a client configuration it goes into the entry's `env` block, beside any
+variable the entry already carries (`AI_DEV_VAULT_ROOT`, `AI_DEV_HOME`):
 
 ```json
 {
   "mcpServers": {
     "ai-dev": {
-      "command": "...",
-      "args": ["..."],
+      "command": "/absolute/path/to/node",
+      "args": ["/absolute/path/to/ai-dev-mcp-server/bin/ai-dev.mjs", "mcp"],
       "env": {
-        "AI_DEV_PROJECT_PATH": "C:\\Dev",
         "AI_DEV_PROFILES": "core,git,memory"
       }
     }
   }
 }
 ```
+
+A Docker entry runs the server in a container, which its `env` block does not
+reach: there the variable goes among the `docker run` arguments,
+`"--env", "AI_DEV_PROFILES=core,git,memory"`, before the image.
 
 ## What narrowing actually costs and saves
 

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
+/**
+ * What the install pages and the install scripts promise each other: the image
+ * they name, the flags both bootstrap scripts keep, the model folder's rules,
+ * and plain `npm ci`. The Homebrew formula and the AUR package this used to
+ * check were never published and are gone in 3.0 (decision D8).
+ */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  assertCleanDistribution,
-  auditDistributionTree,
-  ownerUsername
-} from "../src/core/public-distribution.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDir, "..", "..");
@@ -31,11 +31,7 @@ const [
   bootstrapUnix,
   bootstrapWindows,
   runMcpUnix,
-  runMcpWindows,
-  launcher,
-  pkgbuild,
-  srcinfo,
-  formula
+  runMcpWindows
 ] = await Promise.all([
   read("README.md"),
   read("README.ru.md"),
@@ -45,11 +41,7 @@ const [
   read("bootstrap.sh"),
   read("bootstrap.ps1"),
   read("docker/run-mcp.sh"),
-  read("docker/run-mcp.ps1"),
-  read("packaging/launcher.sh"),
-  read("packaging/arch/PKGBUILD"),
-  read("packaging/arch/.SRCINFO"),
-  read("packaging/homebrew/ai-dev-system.rb")
+  read("docker/run-mcp.ps1")
 ]);
 
 // A placeholder that reached a published document would have readers pulling an
@@ -77,7 +69,7 @@ for (const [label, content] of [
 
 requireText(bootstrapUnix, /image=.*ghcr\.io\/stonebridgeway\/ai-dev-system:latest/, "bootstrap.sh");
 // 3.0 checks for Docker and says where it comes from rather than installing it;
-// a 2.x command line with --install-prerequisites (the packages' own docs) is
+// a 2.x command line with --install-prerequisites (2.x's install guide) is
 // told so, not refused.
 requireText(bootstrapUnix, /--install-prerequisites\)/, "bootstrap.sh");
 requireText(bootstrapUnix, /https:\/\/docs\.docker\.com\/get-docker\//, "bootstrap.sh");
@@ -113,54 +105,4 @@ for (const [label, content] of [
   assert.ok(!/npm (?:ci|install)[^\n`]*--ignore-scripts/.test(content), `${label} still tells people to pass --ignore-scripts`);
 }
 
-requireText(launcher, /@AI_DEV_SYSTEM_ROOT@/, "packaging launcher");
-requireText(launcher, /bootstrap\.sh/, "packaging launcher");
-requireText(pkgbuild, /^pkgname=ai-dev-system-git$/m, "PKGBUILD");
-requireText(pkgbuild, /^arch=\('x86_64' 'aarch64'\)$/m, "PKGBUILD");
-requireText(pkgbuild, /git\+https:\/\/github\.com\/stonebridgeway\/ai-dev-system\.git#branch=main/, "PKGBUILD");
-requireText(srcinfo, /^pkgbase = ai-dev-system-git$/m, ".SRCINFO");
-// `-git` packages compute pkgver() at build time; the committed value is only a
-// syntactically valid placeholder, so assert its shape, not an exact commit.
-requireText(srcinfo, /^\tpkgver = \d+\.\d+\.\d+\.r\d+\.g[0-9a-f]{7,}$/m, ".SRCINFO");
-requireText(srcinfo, /^\s+arch = x86_64$/m, ".SRCINFO");
-requireText(srcinfo, /^\s+arch = aarch64$/m, ".SRCINFO");
-requireText(srcinfo, /^\tsource = ai-dev-system::git\+https:\/\/github\.com\/stonebridgeway\/ai-dev-system\.git#branch=main$/m, ".SRCINFO");
-requireText(srcinfo, /^\tsha256sums = SKIP$/m, ".SRCINFO");
-requireText(formula, /^class AiDevSystem < Formula$/m, "Homebrew formula");
-requireText(formula, /^# typed: strict$/m, "Homebrew formula");
-requireText(formula, /^# frozen_string_literal: true$/m, "Homebrew formula");
-requireText(formula, /url "https:\/\/github\.com\/stonebridgeway\/ai-dev-system\/archive\/refs\/tags\/v1\.0\.0\.tar\.gz"/, "Homebrew formula");
-requireText(formula, /sha256 "ca99b696f024d3d0688088ff63f68add9c122577fbecb23a960d7efb25d0e4b5"/, "Homebrew formula");
-requireText(formula, /inreplace launcher, "@AI_DEV_SYSTEM_ROOT@", libexec/, "Homebrew formula");
-requireText(formula, /launcher\.chmod 0755/, "Homebrew formula");
-
-// What the two recipes copy has to exist: both were left naming `search-index`
-// after it was deleted, and makepkg stops at the first `cp` that fails while
-// this check, reading only text, passed (docs/DEFECTS.md, Д-136).
-const pkgbuildCopy = /cp -a \\\n([\s\S]*?)\s+"\$root\/"/.exec(pkgbuild)?.[1] ?? "";
-const pkgbuildPaths = pkgbuildCopy.split("\n").map((line) => line.replace(/\\$/, "").trim()).filter(Boolean);
-const formulaPaths = [...formula.matchAll(/libexec\.install "([^"]+)"/g)].map((match) => match[1]);
-assert.ok(pkgbuildPaths.length > 0, "PKGBUILD: the package() copy list was not found");
-assert.ok(formulaPaths.length > 0, "Homebrew formula: no libexec.install lines were found");
-for (const [label, paths] of [["PKGBUILD", pkgbuildPaths], ["Homebrew formula", formulaPaths]]) {
-  for (const relative of paths) {
-    await fs.access(path.join(repositoryRoot, relative)).catch(() => {
-      throw new Error(`${label} installs ${relative}, which is not in the repository`);
-    });
-  }
-}
-
-const packagingAudit = assertCleanDistribution(
-  await auditDistributionTree(path.join(repositoryRoot, "packaging"), {
-    forbiddenTerms: [os.homedir(), ownerUsername()]
-  }),
-  "Packaging assets"
-);
-
-process.stdout.write(`${JSON.stringify({
-  status: "passed",
-  image: publishedImage,
-  packaging_files: packagingAudit.total_files,
-  packaging_bytes: packagingAudit.total_bytes,
-  installed_paths: { pkgbuild: pkgbuildPaths.length, homebrew: formulaPaths.length }
-}, null, 2)}\n`);
+process.stdout.write(`${JSON.stringify({ status: "passed", image: publishedImage }, null, 2)}\n`);

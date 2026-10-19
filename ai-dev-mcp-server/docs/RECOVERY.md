@@ -17,9 +17,13 @@ installed package — and holds two things:
   outcomes, the record of client configs — from `AI_DEV_STATE_ROOT` when that moves it.
 
 `BACKUP-MANIFEST.json` inside lists every file with its size, sha256 and permissions. Indexes,
-caches, the model, dependencies and VCS folders are left out — `ai-dev setup` rebuilds them —
-except the vendored tree a skill runs from (Archify's), which nothing reinstalls. Links are not
-followed and are listed as left out. The archive holds your notes: keep it private.
+caches, dependencies and VCS folders are left out — `ai-dev setup` rebuilds the indexes — except
+the vendored tree a skill runs from (Archify's), which nothing reinstalls. Nothing else of the
+AI Dev home is in the archive either: not the local model — `ai-dev setup` puts it back only
+when asked, with `--model` or a yes to its question at a terminal, and `ai-dev model import`
+copies it from another machine — and not your settings, `config.json`: copy that file yourself
+if you changed any. Links are not followed and are listed as left out. The archive holds your
+notes: keep it private.
 
 2.x had a PowerShell script for this that worked only inside a full vault
 (docs/DEFECTS.md, Д-104); `scripts/backup-ai-dev-system.ps1` is now a wrapper over this command
@@ -49,12 +53,16 @@ An archive the 2.x script made holds a whole vault and has no per-file sums; it 
 
 ## Recovery Order
 
-1. Stop the AI clients, so no server is writing.
-2. `ai-dev restore <archive.zip> --confirm` (with `--overwrite` over an existing install).
+1. Quit the AI clients and the desktop app, then stop the daemon with `ai-dev daemon stop`, so
+   no server is writing. The daemon outlives its last client by its idle time (30 minutes by
+   default), and a client still running would start a new one.
+2. `ai-dev restore <archive.zip> --confirm` (with `--overwrite` over an existing install), and
+   put back `config.json` if you kept a copy.
 3. From a clone, restore the dependencies: `npm ci` in `ai-dev-mcp-server/`, and
    `ai-dev setup --frontend-qa` for Frontend QA's. A package has them already.
 4. `ai-dev setup` rebuilds the skill registry and the search index from the restored notes,
-   and runs the health check.
+   and runs the health check; with `--model` it also installs the local model when it is
+   missing and embeds the documents.
 5. `ai-dev clients install` if the install moved; then restart the clients.
 
 Do not restore cache databases over newer knowledge: rebuild them from the notes instead.

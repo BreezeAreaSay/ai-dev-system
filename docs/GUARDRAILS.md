@@ -171,7 +171,8 @@ rule that blocks `terraform destroy`, and an example it must match.
 `upsert_policy_rule` compiles the pattern exactly as the guard does
 (case-insensitively), refuses one that cannot work — including a quantified group
 holding an unbounded quantifier, which would stall the guard on a long line —
-refuses a second rule that fires on the same text, and refuses a new or changed
+refuses a second rule with the same pattern for the same event (`all` counts as
+either), and refuses a new or changed
 pattern that does not match the `example` you pass. It stores the example on the
 rule, so `list_policy_rules` can re-run it later and tell you a rule a hand edit
 disarmed; `counter_example` is checked the same way, against a pattern that grew
@@ -204,22 +205,31 @@ rather than the repository's.
 
 ## Local data and security
 
-The image contains only the audited public seed: rules, prompts, quality gates,
-allowlisted skills, and the runtime. It does not include:
+The image contains only the audited public seed — rules, prompts, quality gates,
+allowlisted skills — the runtime, and what is built from that seed: its skill
+registry, quality report, search index and routing benchmark. It does not include:
 
 - passwords, tokens, `.env` files, keys, or user configurations;
 - a personal Obsidian vault, `.codex`, `.ai-dev`, Git history, or local caches;
-- `02-knowledge/Projects`, `02-knowledge/Task Runs`, indexes, logs, or backups;
+- `02-knowledge/Projects`, `02-knowledge/Task Runs`, indexes of your data, logs, or backups;
 - the source or context of your projects;
 - the BGE-M3 weights.
 
 Data the container creates is stored in the local Docker volume
-`ai-dev-system-data`. Updating the image does not overwrite that volume. By
-default the container runs with no network, as a non-root user, with a read-only
-root filesystem, no Linux capabilities, and `no-new-privileges`.
+`ai-dev-system-data`. Its state — tasks, handoffs, the usage ledger — goes into
+your `~/.ai-dev/state` instead, mounted into the container as `AI_DEV_STATE_ROOT`,
+where that folder can be shared with the image's user, so the agent hooks on your
+machine and the server keep one state; where it cannot, the state stays in the
+volume too. Updating the image does not overwrite that volume. By default the
+container runs with no network, as a non-root user, with a read-only root
+filesystem, no Linux capabilities, and `no-new-privileges`.
 
-If a project genuinely needs internet access during verification, set
-`AI_DEV_DOCKER_NETWORK=bridge` deliberately for that run only.
+If a project genuinely needs internet access during verification, change
+`--network none` to `--network bridge` in that client's entry, deliberately and
+only while it needs it; writing the entries again (bootstrap, or
+`ai-dev clients install --docker`) puts `none` back. `AI_DEV_DOCKER_NETWORK=bridge`
+does the same for the 2.x launchers (`docker/run-mcp.sh`, `run-mcp.ps1`,
+`ClaudeMcpProxy`) only; a 3.0 entry does not read it.
 
 The server's own threat model and the rules its code follows are in
 [ai-dev-mcp-server/docs/SECURITY.md](../ai-dev-mcp-server/docs/SECURITY.md).

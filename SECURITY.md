@@ -4,8 +4,9 @@
 
 | Version | Supported |
 | ------- | --------- |
-| 1.0.x   | ✅        |
-| < 1.0   | ❌        |
+| 3.0.x   | ✅        |
+| 2.x     | ❌ — frozen when 3.0 is released; its image stays as `:2`, the way back |
+| < 2.0   | ❌        |
 
 ## Reporting a vulnerability
 
@@ -48,7 +49,12 @@ and non-goals are documented in
 
 Key points for operators:
 
-- The MCP transport is local `stdio`; no network listener is opened.
+- A client talks MCP to the server over local `stdio`. A local install's entry
+  hands the session to the user's daemon over a Unix socket in a private folder,
+  or a named pipe on Windows, behind an HMAC handshake on a secret in a file only
+  that user can read ([the daemon](ai-dev-mcp-server/docs/SECURITY.md#the-daemon));
+  no TCP listener is opened. A Docker entry runs the server in the container
+  itself.
 - The Docker image ships only the audited public seed and the indexes built
   from it — no passwords, tokens, personal vault, project sources, task history,
   or model weights.

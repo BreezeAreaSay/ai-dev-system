@@ -21,12 +21,14 @@ to fly, mouse to look, the camera kept in the address bar.
 
 ```bash
 cd ai-dev-mcp-server
-npm run galaxy                               # every note and skill
-node scripts/ai-dev.mjs galaxy knowledge workflows   # only these scopes
+npm run galaxy                                   # every note and skill
+node bin/ai-dev.mjs galaxy knowledge workflows   # only these scopes
 ```
 
-Or ask your agent to run `render_knowledge_galaxy` (profile `memory`). Either
-way the result is one file in the vault:
+Outside a clone it is the same command, `ai-dev galaxy [scope...]`, run the way
+your install runs `ai-dev` ([Install](INSTALL.md)). Or ask your agent to run
+`render_knowledge_galaxy` (profile `memory`). Either way the result is one file
+in the vault:
 
 ```
 01-system/Knowledge Galaxy.html
@@ -34,14 +36,17 @@ way the result is one file in the vault:
 
 Open it in any browser with WebGL. It works from disk and offline. Rebuild
 whenever the vault has changed: the command brings the search index up to date
-first. On the bundled seed (3,291 documents) the whole run takes about eight
-seconds.
+first. On the bundled seed (674 documents) the whole run takes 2.3–2.5 seconds
+when it builds the index from nothing and 1.2–1.3 seconds when the index is
+current, on a 2.1 GHz Xeon — the command prints both numbers, as `documents` and
+`seconds`.
 
 The tool takes `scopes` (`knowledge`, `skills`, `workflows`, `quality`,
 `projects`), `neighbors` (3–24, default 8: more gives denser, rounder
-clusters), `obsidian_vault` (the vault name for "Open in Obsidian" links,
-default: the vault folder's name) and `seed` (the same vault and seed always
-give the same galaxy).
+clusters), `refresh_index` (default `true`: the search index is brought up to
+date first; `false` draws it as it is), `obsidian_vault` (the vault name for
+"Open in Obsidian" links, default: the vault folder's name) and `seed` (the same
+vault and seed always give the same galaxy).
 
 ## Flying
 
@@ -109,10 +114,11 @@ they share.
 
 Under that: each document is joined to its eight nearest neighbours. The
 search runs in a 96-dimension principal subspace and is re-scored exactly;
-on the seed that finds 88% of the true neighbours for a tenth of the exact
-search's time. A force layout with the physics of `ngraph.forcelayout` then
-settles the result. It starts from the documents' principal coordinates, and
-springs between constellations are weaker than springs inside one.
+on the bundled seed that finds 98% of the true eight neighbours in about half
+the exact search's time. A force layout with the physics of
+`ngraph.forcelayout` then settles the result. It starts from the documents'
+principal coordinates, and springs between constellations are weaker than
+springs inside one.
 
 ## What the file contains, and what it does not do
 
@@ -128,8 +134,10 @@ markup.
 ## Limits
 
 - **Time grows with the square of the vault.** Measured on a 2.1 GHz Xeon:
-  3,291 documents in 8 s, 10,000 in 30 s, 20,000 in 94 s, nearly all of it
-  the neighbour search.
+  the bundled seed's 674 documents in 2.3–2.5 s, index included; 10,000 and
+  20,000 documents — synthetic, made from the seed's own vectors — in 33 s and
+  104 s for the graph, constellations and layout alone, about three quarters of
+  it the neighbour graph.
 - **One galaxy draws at most 20,000 documents.** Past that, narrow it with
   scopes.
 - **Past about 10,000 documents, run it from the command line.** An MCP client

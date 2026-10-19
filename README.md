@@ -60,63 +60,37 @@ scene by scene, including the verification failure and the fix.
 
 ## Install
 
-**On Windows, without a terminal** — `AI-Dev-Setup-<version>.exe` installs the desktop app
-for your account, with its own Node: no administrator, no Node, Python or Docker. The first
-start opens a wizard for the projects folder, the AI clients and the local model; updates come
-from the project's releases ([The Windows install](docs/DESKTOP.md#the-windows-install)).
-
-**Locally, from a clone** — Node.js 22.16+ (or 24+), and nothing else: search,
-hybrid ranking, the knowledge galaxy and project preparation all run in Node.
-Python is optional. Two tools run a Python script — `query_ui_ux_knowledge` and
-`generate_ui_ux_design_system`, over the UI UX Pro Max dataset — and without Python
-they say so, while the health check marks them skipped. An older Node starts the
-server, but its `node:sqlite` has no FTS5, and search answers with the version it
-needs.
-
-```bash
-cd ai-dev-mcp-server
-npm ci
-npm run setup
-```
-
-At a terminal, `setup` builds the search index, then asks whether to connect the AI
-clients it finds — Claude Code, Claude Desktop, Cursor, VS Code, Codex and Gemini
-CLI — and whether to fetch the local search model; `npm run setup -- --yes` takes the
-defaults without asking (clients yes, model no). Each client gets one entry, `ai-dev`,
-that starts this Node by its full path, so a client opened from the Dock or the Start
-menu finds it too. Every other server in those files stays as it was, each file is
-backed up before it changes, an `ai-dev-system` entry from 2.x is replaced, and
-running it again changes nothing. Restart the clients afterwards. That is the whole
-install, and it is the path to take on your own machine.
-
-The same steps one at a time go through the `ai-dev` command line — from a clone,
-`npm run ai-dev -- <command>`, or `ai-dev <command>` after `npm link`:
-
-```bash
-npm run ai-dev -- clients list      # which clients are here, and what their ai-dev entry runs
-npm run ai-dev -- clients install   # connect them (npm run clients:install is the same)
-npm run ai-dev -- clients doctor    # start each one's ai-dev command and check that it answers
-npm run ai-dev -- clients remove    # take ai-dev out; an untouched file goes back byte for byte
-```
-
-The local dense model is one flag here — `npm run setup -- --model` downloads a
-pinned, checksum-verified ONNX export of BGE-M3 (a broken download continues where it
-stopped; `AI_DEV_MODEL_MIRROR` and `HTTPS_PROXY` are honoured) and runs it through
-Node, with no Python; `npm run model -- import <folder or .zip>` copies it from a
-machine that has it, and `npm run dense:doctor` says whether it worked. In the
-packaged path one `docker run … ai-dev model install` puts it in the data volume.
-
-**Packaged, through Docker** — for a machine that should not hold a personal
-vault, or a team that wants one image everybody runs the same way:
+Three ways, one system — pick by what you have:
 
 | | |
 | --- | --- |
-| Windows | `powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1` |
-| macOS / Linux | `sh ./bootstrap.sh` (with Docker running) |
+| **Windows, no terminal** | Download `AI-Dev-Setup-<version>.exe` from the project's releases and run it. No administrator, no Node, Python or Docker: the desktop app brings its own Node, and its first-run wizard connects your AI clients and sets up the local model ([The Windows install](docs/DESKTOP.md#the-windows-install)). |
+| **One command, with Node** — macOS, Linux, Windows | `npx @stonebridgeway/ai-dev-system setup` — Node.js 22.16+ (or 24+), and nothing else. |
+| **Docker** — the server in a container | `sh ./bootstrap.sh` on macOS and Linux, `bootstrap.ps1` on Windows, with Docker running — for a machine that should not hold a personal vault, or a team that wants one image everybody runs the same way. |
 
-Every client's configuration block, Compose, the local model in a container,
-Arch/AUR, Homebrew, and what to do when it does not work:
-**[docs/INSTALL.md](docs/INSTALL.md)**.
+```bash
+npx @stonebridgeway/ai-dev-system setup
+```
+
+`setup` installs its own copy into `~/.ai-dev`, asks whether to connect the AI clients it
+finds — Claude Code, Claude Desktop, Cursor, VS Code, Codex and Gemini CLI — and whether to
+fetch the local search model (`--yes` takes the defaults: clients yes, model no), builds the
+search index, and connects the clients. Each client gets one entry, `ai-dev`, that starts your
+Node by its full path, so a client opened from the Dock or the Start menu finds it too. Every
+other server in those files stays as it was, each file is backed up before it changes, an
+`ai-dev-system` entry from 2.x is replaced, and running it again changes nothing. Restart the
+clients afterwards; that is the whole install.
+
+Search, hybrid ranking, the knowledge galaxy and project preparation all run in Node. Python is
+optional: two tools — `query_ui_ux_knowledge` and `generate_ui_ux_design_system`, over the UI
+UX Pro Max dataset — run a Python script, and without Python they say so. The local dense model
+is one flag, `setup --model`: a pinned, checksum-verified ONNX export of BGE-M3, run in Node; a
+broken download continues where it stopped, and `AI_DEV_MODEL_MIRROR` and `HTTPS_PROXY` are
+honoured. In Docker, one `docker run … ai-dev model install` puts it in the data volume.
+
+Every client's configuration block, the Docker details, the local model, updating from 2.x,
+uninstalling, and what to do when it does not work: **[docs/INSTALL.md](docs/INSTALL.md)**.
+Working on AI Dev itself, from a clone: [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Your first task
 
@@ -127,10 +101,16 @@ Use the ai-dev MCP server. Begin a task for ~/Dev/my-project:
 add CSV export for the report, cover the change with tests, and run verify_task.
 ```
 
+With Docker on Windows the server sees your projects under `/workspace`: name the project
+`/workspace/my-project`.
+
 What you should see: the agent calls `begin_task`, reports the context it
 compiled and the skills it routed, writes the code, checkpoints, runs
 `verify_task`, and only then closes the task — with a pull request description
-written from the evidence into `.ai-dev/pr/<task_id>.md`.
+written from the evidence into `.ai-dev/pr/<task_id>.md`. In a repository AI Dev
+has not seen before, it first runs `prepare_project`, which writes `AGENTS.md`
+and the checks `verify_task` runs, `.ai-dev/quality-gate.md`, from the
+project's own scripts.
 
 If it tries to close early, it will not be allowed to. That is the point.
 
@@ -153,7 +133,9 @@ into eight **capability profiles**, and only `core` is on the critical path:
 Set `AI_DEV_PROFILES=core,git` and the server advertises 34 tools instead of 135
 — about 33 KB of `tools/list` schema for the client instead of 139 KB, before
 the model has read a word of your request (measured; the command is in
-[Capabilities](docs/CAPABILITIES.md#what-narrowing-actually-costs-and-saves)). Unset, everything is on and nothing is hidden.
+[Capabilities](docs/CAPABILITIES.md#what-narrowing-actually-costs-and-saves)). Unset, everything is on and nothing is hidden —
+unless profiles were chosen in the settings (`profiles` in `~/.ai-dev/config.json`, which the
+desktop app writes): they fill an unset `AI_DEV_PROFILES` for every `ai-dev` command.
 
 **[docs/CAPABILITIES.md](docs/CAPABILITIES.md)** — what each profile carries and
 when to turn it on.
@@ -182,7 +164,8 @@ container runs with no network, no capabilities, and a read-only root filesystem
 | | |
 | --- | --- |
 | [**Demo**](docs/DEMO.md) | One real task end to end, including the failure and the fix. |
-| [**Install**](docs/INSTALL.md) | Every platform, every client, Docker, packaging, diagnostics. |
+| [**Install**](docs/INSTALL.md) | The three ways to install, every client, the local model, uninstalling, diagnostics. |
+| [**Moving from 2.x**](docs/MIGRATION.md) | What 3.0 changes for a 2.x install, what moves by itself, and the way back. |
 | [**Desktop app**](docs/DESKTOP.md) | The tray, the first-run wizard and the Status screen. |
 | [**Workflow**](docs/WORKFLOW.md) | The task lifecycle, epics, undoing a turn, memory and learning. |
 | [**Capabilities**](docs/CAPABILITIES.md) | The eight profiles and how to narrow the tool surface. |

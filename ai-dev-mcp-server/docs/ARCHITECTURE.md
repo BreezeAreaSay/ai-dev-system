@@ -10,30 +10,48 @@
 
 ## Runtime Layers
 
-1. `server.mjs`: official MCP SDK transport, protocol capabilities, resources, prompts, and tool registration.
-2. `daemon.mjs` + `transport/socket.mjs`: the same server over a local Unix socket or Windows
-   named pipe, one warm process for every client of the user, so the search index and the
-   embedding model load once and the state has one writer. `ai-dev mcp` — what client configs
-   run — bridges the client's stdio to it (`core/daemon-bridge.mjs`) and starts it when none runs
-   (`core/daemon-client.mjs`); the channel's random address, secret and mutual handshake are
-   `core/daemon-channel.mjs` (see SECURITY.md, "The Daemon"). Each session runs in its own
-   client's environment (`core/session-env.mjs`): the bridge sends it after the handshake, and
-   the daemon answers `process.env` with it for everything that session's messages set off.
-   One daemon serves one build — the code, its version, the Node it runs on and where the data
-   is, resolved as the server resolves it (`daemonIdentity`) — with its own lock and
-   `run/daemon-<build>.json`, kept current with its session count; it exits after
-   `AI_DEV_IDLE_TIMEOUT_MS` of no sessions (default 30 min). `AI_DEV_DAEMON=0` and `npm start`
-   keep the stdio path.
-3. `mcp-stdio.mjs`: composed domain-service facade and legacy-compatible rollback handler.
-4. `tool-definitions.mjs`: typed MCP contracts separated from dispatch and implementation.
-5. `core/`: path policy, atomic storage, command policy, process execution, canonical project
+```mermaid
+flowchart TB
+    cli["bin/ai-dev.mjs, src/cli/"] --> daemon["daemon.mjs + transport/socket.mjs<br/>one warm process per build"]
+    app["desktop/ app"] --> daemon
+    cli --> own["a server in the client's own process<br/>bridge fallback, AI_DEV_DAEMON=0"]
+    image["Docker image, entrypoint.sh"] --> own
+    daemon --> server["server.mjs<br/>MCP SDK, profiles, resources, prompts"]
+    own --> server
+    server --> facade["mcp-stdio.mjs<br/>host, callTool, legacy handlers"]
+    facade --> ext["extensions/"]
+    facade --> core["core/"]
+    ext --> core
+    home[("runtime home, ~/.ai-dev")]
+    vault[("content root: a vault or a seed copy")]
+    repo[(".ai-dev/ in each repository")]
+    core --> home & vault & repo
+    hooks["hooks/, run by the agent"] --> home
+    hooks -.->|reads policy| repo
+```
+
+1. `bin/ai-dev.mjs` and `src/cli/`: the one command line ([The CLI](#the-cli)).
+2. `server.mjs`: official MCP SDK transport, protocol capabilities, resources, prompts, capability profiles
+   (`core/tool-profiles.mjs`), and tool registration.
+3. `daemon.mjs` + `transport/socket.mjs`: the same server over a local Unix socket or Windows named pipe, one warm
+   process per build for every client of the user, so the index and the model load once and the state has one
+   writer. Every local client entry runs `ai-dev mcp`, which bridges the client to it; a Docker entry runs the
+   image's stdio server, with no daemon ([The Daemon](#the-daemon), [SECURITY.md](SECURITY.md#the-daemon)).
+4. `mcp-stdio.mjs`: composed domain-service facade and legacy-compatible rollback handler.
+5. `tool-definitions.mjs`: typed MCP contracts separated from dispatch and implementation.
+6. `core/`: path policy, atomic storage, command policy, process execution, canonical project
    identity, context compilation, task state, routing, outcome analytics, overlays, dashboard,
-   frontend quality, and runtime distribution.
-6. `extensions/`: capabilities registered from outside `mcp-stdio.mjs` (see below).
-7. `hooks/`: standalone scripts run by the *agent*, not by the server (see below).
-8. `core/search-*.mjs`: the SQLite FTS index on `node:sqlite` and BGE-M3 hybrid retrieval (see `search` below).
-9. Obsidian: human-readable knowledge, generated project cards, workflows, and reports.
-10. `${AI_DEV_HOME}/state` (default `~/.ai-dev/state`): runtime task state and evidence that should not clutter the vault.
+   frontend quality, install layouts, the runtime home, the daemon's channel and client, the local
+   model, and runtime distribution.
+7. `extensions/`: capabilities registered from outside `mcp-stdio.mjs` (see below).
+8. `hooks/`: standalone scripts run by the *agent*, not by the server (see below).
+9. `core/search-*.mjs`: the SQLite FTS index on `node:sqlite` and BGE-M3 hybrid retrieval (see `search` below).
+10. Obsidian: human-readable knowledge, generated project cards, workflows, and reports — the content root
+    ([Install Layouts](#install-layouts)).
+11. The runtime home, `AI_DEV_HOME` (default `~/.ai-dev`): runtime task state and evidence that should not clutter
+    the vault, and the index, the model and the daemon's files ([The Runtime Home](#the-runtime-home)).
+12. `desktop/`: the Electron app, a client of the daemon through the control API
+    ([The Desktop App And The Windows Installer](#the-desktop-app-and-the-windows-installer)).
 
 Archify is a local, vendored diagram capability. Its nine typed MCP tools and
 artifact/evidence contract are documented in [ARCHIFY.md](ARCHIFY.md).
@@ -86,11 +104,13 @@ The dependency runs one way: extensions never import `mcp-stdio.mjs`, which woul
 couple pure logic to the vault. Duplicate tool names and definitions without a handler throw at
 startup, so a broken extension can never reach a client.
 
-Registered today: `control`, `decisions`, `frontend-design`, `frontend-qa`, `galaxy`, `hooks`, `hygiene`,
-`instincts`, `lifecycle`, `mcp-inventory`, `plans`, `projects`, `pull-requests`, `rules`, `search`, `sessions`,
-`skills`, `snapshots`, `system`, `usage`, `worktrees`. Pure logic stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`,
-`change-hygiene.mjs`, `instincts.mjs`, `task-plans.mjs`, `pull-request.mjs`,
+Registered today: `control`, `coverage`, `decisions`, `epics`, `frontend-design`, `frontend-qa`, `galaxy`,
+`hooks`, `hygiene`, `instincts`, `lifecycle`, `mcp-inventory`, `plans`, `projects`, `pull-requests`, `rules`,
+`search`, `security`, `sessions`, `skills`, `snapshots`, `state`, `system`, `usage`, `worktrees`. Pure logic
+stays in `core/` (`decision-ledger.mjs`, `agent-hooks.mjs`, `change-hygiene.mjs`, `coverage-reports.mjs`,
+`instincts.mjs`, `task-plans.mjs`, `task-epics.mjs`, `pull-request.mjs`,
 `pr-template.mjs`, `rules-library.mjs`, `rules-catalog.mjs`, `session-memory.mjs`,
+`security-scan.mjs`, `security-fix-plan.mjs`, `state-pruning.mjs`,
 `skill-catalog.mjs`, `skill-cards.mjs`, `skill-registry-docs.mjs`,
 `skill-quality-report.mjs`, `skill-recommendation.mjs`, `frontend-product-quality.mjs`,
 `reference-factory.mjs`, `reference-factory-artifacts.mjs`, `frontend-qa-report.mjs`,
@@ -101,14 +121,13 @@ Registered today: `control`, `decisions`, `frontend-design`, `frontend-qa`, `gal
 `toml-lite.mjs`, and the `galaxy*.mjs` family); the extension is the MCP surface over it.
 
 `control` is the desktop app's surface ([CONTROL-API.md](CONTROL-API.md)): the install's status,
-setup, the local model, the AI clients, logs, settings and a work overview. Its tools are an opt-in
-profile, and each answer's JSON Schema — `core/control-contract.mjs` — is the tool's `outputSchema`
-and the source of the generated document. The logic it drives is shared with the CLI:
-`core/setup-runner.mjs` runs `ai-dev setup` and `setup_run` alike, `core/client-connections.mjs`
-`ai-dev clients` and the `clients_*` tools, `core/settings.mjs` keeps `~/.ai-dev/config.json` and
-fills the environment from it when a command starts; `core/log-tail.mjs`,
-`core/serving-process.mjs` and `core/workspace-overview.mjs` serve one tool each. A program reaches
-the daemon with `core/daemon-transport.mjs`, an MCP SDK transport over its socket.
+setup, the local model, the AI clients, logs, settings and a work overview, as an opt-in profile with a
+versioned contract ([The Control API Contract](#the-control-api-contract)). The logic it drives is shared
+with the CLI: `core/setup-runner.mjs` runs `ai-dev setup` and `setup_run` alike, `core/client-connections.mjs`
+`ai-dev clients` and the `clients_*` tools, `core/model-manager.mjs` `ai-dev model` and the `model_*` tools,
+and `core/settings.mjs` keeps `~/.ai-dev/config.json` and fills the environment from it when a command starts;
+`core/log-tail.mjs`, `core/serving-process.mjs` and `core/workspace-overview.mjs` serve one tool each. A program
+reaches the daemon with `core/daemon-transport.mjs`, an MCP SDK transport over its socket.
 
 The Knowledge Galaxy (`render_knowledge_galaxy`, [docs/GALAXY.md](../../docs/GALAXY.md)) is the one
 extension that also ships browser code. `src/galaxy/` holds the viewer as ordinary ES modules, so
@@ -135,7 +154,7 @@ second rule that fires on the same text, and refuses a new pattern that does not
 example the caller provides. The example is stored on the rule, so `list_policy_rules` re-runs it
 and reports a rule a hand edit silently disarmed. Nothing here imports the hook pack: the hooks
 are copied into other repositories and must not depend on server code, so the compile flags and
-the match text are mirrored, and tests pin the mirror.
+the match text are mirrored, and tests pin the mirror ([Hook and server duplicates](#hook-and-server-duplicates)).
 
 `mcp-inventory` reads the other half of the harness: which MCP servers the repository wires into
 its agents. `core/mcp-inventory.mjs` reads `.mcp.json`, both Claude Code settings files,
@@ -166,7 +185,8 @@ human decision. `complete_task` prepares the same file and links it from `next_s
 `system`, `skills`, `frontend-design`, `frontend-qa`, `search`, `projects` and `lifecycle` are
 extractions from `mcp-stdio.mjs` rather than new capabilities; each moved out with its
 definitions and each splits the same way, I/O in the extension and judgement in `core/`. Those
-six steps took the main module from 10,018 lines to 4,775.
+six steps (stage 1 of the modularity work) took the main module from 10,018 lines to 4,775;
+[Line Budgets](#line-budgets) keeps it from growing back.
 
 `system` carries `system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status`.
 Its checks fetch through `host` and hand the raw status objects to pure evaluators in
@@ -221,6 +241,8 @@ context pack:
 
 So the protection is that foreign text does not arrive on its own, not a promise that it is
 harmless.
+
+### Extracted extensions: skills, frontend, search, projects, lifecycle
 
 `skills` carries `rebuild_index`, `validate_skill_library` and `recommend_skills` — the generated
 skill catalog end to end. The extension reads the vault, the skill sources and the embedding
@@ -283,20 +305,19 @@ sparse vectors the 2.x Python helper wrote, byte for byte — with `core/python-
 `core/blake2b.mjs` for the arithmetic the two languages disagree on — so a 2.x index is read
 without a rebuild and a 2.x server rolled back reads what Node wrote; `npm run search:parity`
 takes the helper from git history and checks the files, the rankings and the galaxy export.
-`core/dense-runtime.mjs` answers whether the local BGE-M3 model can run and embeds through it —
-`core/dense-onnx.mjs` keeps one worker thread (`src/workers/dense-onnx-worker.mjs`) running
-onnxruntime-node — for hybrid queries, index rebuilds, `embed_texts` and the semantic duplicate
-check alike. `core/model-manager.mjs` installs, imports, verifies and removes the model
-(`core/dense-download.mjs` over `core/http-download.mjs`, which honours proxies; `core/model-archive.mjs`
-reads a `.zip`); a check that hashed a file right leaves a record so the next one does not read it.
+`core/dense-runtime.mjs` answers whether the local BGE-M3 model can run and embeds through it
+for hybrid queries, index rebuilds, `embed_texts` and the semantic duplicate check alike
+([The Local Model](#the-local-model)).
 `core/search-runtime.mjs` and `core/search-eval.mjs` are pure: the presets an agent actually
 names (`code`, `docs`, `skills`, …), weight normalization, the per-result score explanation, and
 the golden-case verdicts and ranking metrics.
 
 Both services are created once in `mcp-stdio.mjs` and handed to the host as `search` and
 `dense`, because they are shared rather than owned by the extension: the system extension's
-health checks query them, fourteen writers across the runtime call `markSearchIndexDirty`, and
-`prepare_project` rebuilds the index directly. The reverse direction goes through
+health checks query them, every writer of indexed text — knowledge notes, project files and cards,
+skill cards, registries and reports, decisions, rules, instinct drafts, the Reference Factory's
+manifests, the dashboard — calls `markSearchIndexDirty`, in `mcp-stdio.mjs` and in the extensions
+alike, and `prepare_project` rebuilds the index directly. The reverse direction goes through
 `extensions.handlers`, as everywhere else.
 
 `projects` carries one tool, `run_quality_gate`: the only place the server executes commands a
@@ -309,10 +330,11 @@ writes the result back onto the project's registry card. `verify_task` runs the 
 its checks and reaches it through `extensions.handlers`, so the tool stays the single
 implementation.
 
-What did not move is `detectProject`, and deliberately: it is a service, not a tool. `begin_task`,
-`compile_project_context`, the card writers and the `frontend-qa`, `rules`, `sessions` and
-`instincts` extensions all ask it what a repository is, which is eleven callers inside
-`mcp-stdio.mjs` and four outside it. It lives in `core/project-detection.mjs` over an injected
+What did not move is `detectProject`, and deliberately: it is a service, not a tool. Inside
+`mcp-stdio.mjs` the project tools (`bootstrap_project`, `prepare_project`, `register_project`, the card and
+memory refreshes), `compile_project_context` and skill recommendation ask it what a repository is; outside it,
+the `lifecycle` (`begin_task`), `frontend-qa`, `rules`, `sessions` and `instincts` extensions ask through `host`.
+It lives in `core/project-detection.mjs` over an injected
 filesystem — `pathExists`, the JSON and text readers, `stat`, the path guard and the deep
 `analyzeProject` pass all arrive as arguments — and `mcp-stdio.mjs` binds it to the real one and
 puts it on the host. The shallow pass
@@ -335,11 +357,13 @@ and `complete_task` closes it and writes down what happened.
 It is the extension with the most connections, and all of them run through `host`: the task store
 and the skill-outcome store, project identity and detection, project-state capture, the frontend
 product state, the Archify receipt store, the project-card writers and the knowledge-note writer.
-The four sibling tools it drives — `recommend_skills` for routing, `run_quality_gate` and
-`run_frontend_qa` as verification checks, `prepare_pull_request` at completion — arrive the same
+The five sibling tools it drives — `recommend_skills` for routing, `run_quality_gate`, `run_security_scan`
+and `run_frontend_qa` as verification checks, `prepare_pull_request` at completion — arrive the same
 way, as host wrappers over `extensions.handlers`. That is deliberate rather than incidental:
 reaching them through `callTool` instead would record a second usage-ledger entry for work the
-client never asked for, so a composed run would be counted twice.
+client never asked for, so a composed run would be counted twice. `verify_task` also runs two checks
+that are not tools: `change_hygiene` over the diff (`core/change-hygiene.mjs`) and, when `coverage_min`
+asks for it, `coverage` against the report the project's own test run left (`core/coverage-reports.mjs`).
 
 Its judgements are pure. `core/task-verification.mjs` decides whether a run passed (an empty run
 never does, and an unknown check type fails closed) and which acceptance criteria that passing run
@@ -375,28 +399,34 @@ supply-chain check, through `hooks/http-proxy.mjs`, their own copy of the server
 client (Д-145).
 
 The Cursor side is a versioned adapter: `CURSOR_HOOKS_CONTRACT` (in `core/agent-hooks.mjs`) pins the
-`hooks.json` format version, the event names, the deny-response shape, the date all three were last
-checked, and the sources they were checked against; `cursorHooksDocument(profile, { version })`
-picks a builder per format version and refuses an unknown one, so a new Cursor format gets its own
-builder rather than a rewrite of the current one. What the merge cannot decide comes back as
-`warnings` from `install_agent_hooks` — a file that declares another format version, and events
-where a foreign hook sits ahead of ours, since Cursor runs the first entry of an event.
+`hooks.json` format version, the event names, the deny-response shape and the secondary sources they were
+reconstructed from — Cursor itself could not be reached (docs/DEFECTS.md, Д-2) — and grades each claim: the
+version and the deny shape are corroborated; the three session events (`sessionStart`, `sessionEnd`,
+`preCompact`) and the rule that Cursor runs only the first entry of an event are unverified.
+`install_agent_hooks` returns those as `cursor_unverified`, and `npm run verify:cursor` prints the check a person
+with a real Cursor can make (`cursorVerificationPlan`). `cursorHooksDocument(profile, { version })` picks a
+builder per format version and refuses an unknown one, so a new Cursor format gets its own builder rather than a
+rewrite of the current one. What the merge cannot decide comes back as `warnings` — a file that declares another
+format version, and events where a foreign hook sits ahead of ours, which would shadow ours if that unverified
+rule holds. The file guard and cost capture stay Claude Code only: Cursor has no before-write event, and its
+payloads carry no transcript path.
 
 | Script | Event | What it does |
 | --- | --- | --- |
-| `guard.mjs bash` | PreToolUse (Bash) | Blocks git-hook bypasses, destructive and publishing commands, and policy `block` rules. |
+| `guard.mjs bash` | PreToolUse (Bash) | Blocks git-hook bypasses, destructive and publishing commands, and policy `block` rules. Under `standard` and `strict`, a package an install command names is looked up first (`supply-chain.mjs`: the npm registry's advisories and OSV): malware and a release younger than `min_release_age_hours` are refused, a release younger than `warn_release_age_days` and known vulnerabilities are warned about, and a lookup that cannot be made only warns. |
 | `guard.mjs file` | PreToolUse (Write/Edit) | Blocks secret-bearing paths, secrets in new content, and weakened linter or protected configuration. |
 | `fact-force.mjs` | PreToolUse, via `guard.mjs` | Under `fact_force`, refuses the first edit of a file in a session until a `FACTS <path>` block names its importers, the API it changes, the data it touches and the instruction it serves, and the first destructive command until a `ROLLBACK:` line says how to get back. Reads the transcript for both. |
 | `compact-advisor.mjs` | PreToolUse (Edit/Write) | Suggests `/compact` from real context size — the `usage` of the newest assistant message in the transcript — plus a per-session tool-call count. Never blocks. |
-| `post-edit.mjs` | PostToolUse | Formats the edited file with the project's own formatter when one is installed locally — never installs anything, never uses `npx`. |
+| `post-edit.mjs` | PostToolUse | Formats the edited file with the project's own formatter when one is installed locally — never installs anything, never uses `npx` — and, when the edit touched a dependency manifest or lockfile, tells the agent that nothing has scanned it yet. |
 | `session-start.mjs` | SessionStart | Injects the last handoff, open tasks, high-confidence instincts, and the installed rules index into the first turn. |
 | `session-end.mjs` | Stop, PreCompact | Distils the transcript into an unconfirmed draft record (`confirmed: false`) for `resume_session`, and writes the observation log beside it (`observe-<session>.json`: what the user said, what tools ran with what, which calls failed) that `propose_instincts` reads. |
 | `cost-capture.mjs` | Stop | Sums the `usage` of the assistant messages the transcript gained since the last run and appends them to the usage ledger, per model. Tokens only — the report prices them. |
 | `git-hooks.mjs` | git `pre-commit`, `pre-push` | Installed through `core.hooksPath` by `targets: ["git"]`, so they run for every client and for a human at a terminal. `pre-commit` refuses a staged secret, conflict marker, focused test or left-behind debugger; `pre-push` reports an active task with no verification or a failed one. |
-| `stop-check.mjs` | Stop | Cheap checks on git-modified files: leftover `console.log`/`debugger`, secrets, and a `verify_task` reminder while a task is active with uncommitted changes. |
+| `stop-check.mjs` | Stop | Cheap checks on git-modified files: leftover `console.log`/`debugger`, secrets, and a `verify_task` reminder while a task is active with uncommitted changes. When code or a dependency manifest changed after the last `run_security_scan` (its stamp is `.ai-dev/security/last-scan.json`), it sends the agent back for the security review once per stop (`security_review_on_stop: "block"`, in Claude Code) or only says so (`remind`). |
 
-`.ai-dev/policy.json` is the knob: a `profile` (`minimal` — guard and session capture only,
-`standard`, `strict`), `allow_config_edits`, `format_on_edit`, the compaction thresholds
+`.ai-dev/policy.json` is the knob: a `profile` (`minimal` — the two guards, session capture and cost capture,
+with no registry lookups and no warnings; `standard`; `strict` — standard plus push and amend warnings and, by
+default, fact forcing), `allow_config_edits`, `format_on_edit`, the compaction thresholds
 (`compact_tool_threshold`, `compact_tool_interval`, `compact_context_threshold` — absolute, `0`
 derives it from the window — `compact_context_thresholds.standard` / `.large`,
 `compact_context_window`, `compact_context_interval`), `model_rates` (per-model price overrides
@@ -404,10 +434,15 @@ for the usage report, in USD per million tokens), `completion_claims` (the compl
 linter: `enabled`, and `waivers` of `{ rule, reason, expires? }` where the reason is real),
 `fact_force` (the grounding gate: `enabled` — on by default under `strict` — `files`, `bash`,
 `expiry_minutes`, `max_denials`, `max_entries`, `exempt_globs`), `git_hooks` (`pre_commit` and
-`pre_push`, each `block`, `warn` or `off`), and a list
+`pre_push`, each `block`, `warn` or `off`), `supply_chain` (`enabled`, `min_release_age_hours`,
+`warn_release_age_days`, `osv` — `false` keeps package names away from api.osv.dev — `timeout_ms`,
+`max_packages`), `security_review_on_stop` (`block`, `remind` or `off`; `off` under `minimal`),
+`allow_commands` (regular expressions; a Bash command that matches one skips the guard's block and warn checks,
+the supply-chain lookup included — fact forcing still applies), and a list
 of hookify-style `rules` (`{ id, event, pattern, action, message }`) that add project-specific
-`block` or `warn` patterns without touching the scripts. Hooks fail open: any error exits 0 so a
-broken hook never wedges the agent.
+`block` or `warn` patterns without touching the scripts. `AI_DEV_HOOK_PROFILE` overrides the profile,
+`AI_DEV_HOOKS_ENABLED=0` turns every hook off, and `AI_DEV_DISABLED_HOOKS` names single ones. Hooks fail
+open: any error exits 0 so a broken hook never wedges the agent.
 
 What `session-end` writes is a draft, not a handoff: the fields come from heuristics over the
 transcript, so the record carries `confirmed: false` and every reader shows it with that caveat —
@@ -430,6 +465,27 @@ filling the rows that do not state them) and are applied by `usage_report` at re
 instead of freezing a stale number into the ledger. A model the table does not know is reported
 under `rates.unpriced_models` rather than counted as free.
 
+### Hook and server duplicates
+
+The hooks run inside other people's repositories without this package, so what they share with the server is a
+second copy, not an import (AGENTS.md, rule 3), and a test holds each copy to the server's answers:
+
+| What | Server | Hooks | Held together by |
+| --- | --- | --- | --- |
+| Project identity: canonical path, boundary markers, the home rule, `project_id`, `repository_id` | `core/project-identity.mjs` | `projectIdOf`, `repositoryIdOf` in `hooks/lib.mjs` | `core/project-identity.test.mjs`, `core/agent-hooks.test.mjs` |
+| The runtime home: `AI_DEV_HOME`, `sameDirectory` | `core/runtime-home.mjs` | `runtimeStateRoot`, `explicitRuntimeHome` | `core/runtime-home.test.mjs` |
+| Cross-process file locks and process liveness | `core/file-lock.mjs` | a synchronous copy in `hooks/lib.mjs` | `core/file-lock.test.mjs`; `core/atomic-files.test.mjs` runs server and hook writers on one ledger |
+| Policy-rule matching in a killable worker, under a time budget | `core/regex-budget.mjs` | `matchWithBudget` | `core/regex-budget.test.mjs` |
+| How a policy rule is compiled and what text it sees | `core/policy-rules.mjs` | `hooks/lib.mjs`, `hooks/guard.mjs` | `core/policy-rules.test.mjs`, which runs the installed guard |
+| The proxy-aware HTTP client | `core/http-download.mjs` | `hooks/http-proxy.mjs` | `core/hook-proxy.test.mjs` |
+| npm version ranges | `core/semver-lite.mjs` | `hooks/semver-lite.mjs`, byte for byte | `core/security-hooks.test.mjs` |
+| Fact-forcing defaults | `defaultPolicy` in `core/agent-hooks.mjs` | `FACT_FORCE_DEFAULTS` in `hooks/fact-force.mjs` | `core/agent-hook-scripts.test.mjs` |
+
+Two things are written rather than copied: the server's secret, leftover and protected-config patterns, as
+`.ai-dev/hooks/patterns.json` (`renderHookPatterns`), so the guard, the git hooks and the hygiene scan read one
+table; and the runtime folder the installing server ran with, as `.ai-dev-home` beside the hooks, for hooks a
+client started from the Dock or the Start menu runs without `AI_DEV_HOME` (Д-184).
+
 ### State roots
 
 `${AI_DEV_HOME}/state` (`AI_DEV_STATE_ROOT`, default `~/.ai-dev/state`) holds everything that is
@@ -437,15 +493,19 @@ runtime state rather than knowledge:
 
 ```text
 ${AI_DEV_HOME}/state/
-  tasks/<task-id>.json      task records (authoritative lifecycle state)
-  sessions/<repository-id>/ session handoffs, one file per save; hook-<id>.json is an unconfirmed
-                            hook capture until save_session(confirm_hook_draft) promotes it
-  instincts.json            learned preferences with confidence and decay
-  usage/events.jsonl        tool-call and token/cost ledger, pruned by size
-  usage/sessions/<id>.json  how far cost-capture has read each session's transcript
-  skill-outcomes.json       verification-bound routing outcomes
-  pilots.json               pilot reviews
-  archify-receipts/         server-owned receipts keyed by artifact SHA-256
+  tasks/<task-id>.json         task records (authoritative lifecycle state)
+  sessions/<repository-id>/    session handoffs, one file per save; hook-<id>.json is an unconfirmed
+                               hook capture until save_session(confirm_hook_draft) promotes it, and
+                               observe-<id>.json the hook's observation log for propose_instincts
+  guard/<session>.json         fact forcing's state: files grounded, the last rollback, denials
+  instincts.json               learned preferences with confidence and decay
+  usage/events.jsonl           tool-call and token/cost ledger, pruned by size
+  usage/sessions/<id>.json     how far cost-capture has read each session's transcript
+  skill-outcomes.json          verification-bound routing outcomes
+  pilots.json                  pilot reviews
+  archify-receipts/            server-owned receipts keyed by artifact SHA-256
+  mcp-clients.json             what `ai-dev clients` wrote into each client config
+  runtime-home-migration.json  what the last migrations of the runtime tree did, for doctor
 ```
 
 Three levels, deliberately kept apart: the vault is shared knowledge, this tree is per-user runtime
@@ -463,15 +523,26 @@ move to the repository key on the first write. Outside Git (no common dir) `repo
 
 ## Request Path
 
-```text
-MCP client
--> official SDK transport
--> typed tool contract
--> domain service
--> path/command policy
--> atomic state or bounded process
--> structured result + evidence
+```mermaid
+flowchart TD
+    local["AI client, local entry<br/>node …/bin/ai-dev.mjs mcp"] -->|stdio| bridge["ai-dev mcp: the bridge<br/>cli/bridge.mjs, core/daemon-bridge.mjs"]
+    bridge -->|"Unix socket or named pipe<br/>HMAC handshake, then the session's environment"| daemon["daemon.mjs<br/>a session per connection"]
+    bridge -.->|"no daemon can serve"| inproc["a server in the bridge's own process"]
+    app["desktop app, main process"] -->|"core/control-client.mjs<br/>core/daemon-transport.mjs"| daemon
+    dockerclient["AI client, Docker entry<br/>docker run -i --rm …"] -->|stdio| container["container: tini, entrypoint.sh,<br/>docker-bootstrap.mjs, then server.mjs"]
+    daemon --> server["server.mjs<br/>tools/list narrowed by the session's profiles"]
+    inproc --> server
+    container --> server
+    server --> calltool["mcp-stdio.mjs callTool<br/>one usage-ledger entry"]
+    calltool --> handler["handler in mcp-stdio.mjs or an extension<br/>the domain service"]
+    handler --> policy["path and command policy<br/>then atomic state or a bounded process"]
+    policy --> answer["text, and the same as structuredContent.result,<br/>with evidence"]
 ```
+
+`AI_DEV_DAEMON=0` takes the bridge out: `ai-dev mcp` then runs the stdio server itself, as `npm start`
+(`src/server.mjs`) does. Whichever process serves a session, a call goes the same way from `server.mjs` on:
+`tools/list` answers with the tools the session's capability profiles name, a call is accepted for any tool the
+server has, and `callTool` in `mcp-stdio.mjs` records it once in the usage ledger and dispatches it.
 
 Search uses a two-stage path:
 
@@ -579,24 +650,330 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
 - Task JSON records are authoritative for lifecycle state; Markdown reports are projections.
 - Skill overlay JSON is local policy; generated skill cards and dashboard are disposable projections.
 
+## The CLI
+
+`bin/ai-dev.mjs` hands its arguments to `src/cli/main.mjs`, which loads a command's module only when that command
+runs, so `help`, `version` and a mistyped command touch no data (docs/DEFECTS.md, Д-161). Before a command runs,
+`applySettingsToEnvironment` fills the variables the environment leaves unset from `config.json`, for the command
+and every process it starts. From a clone the CLI is `npm run ai-dev -- <command>` (`npm run setup`, `doctor`,
+`model`, `daemon` and `backup` are aliases); `scripts/ai-dev.mjs`, its 2.x path, runs the same `main` until 4.0.
+
+| Command | `src/cli/` | What it does |
+| --- | --- | --- |
+| `setup` | `setup.mjs` | Builds what a fresh install does not ship, connects the clients, on request gets the model and Frontend QA. |
+| `clients` | `clients.mjs` | `list`, `install`, `remove`, `doctor`, `entry`: the `ai-dev` entry in each client's config. |
+| `model` | `model.mjs` | `status`, `install`, `import`, `verify`, `remove`, `doctor`: the local model. |
+| `mcp` (`start`, `serve`) | `runtime.mjs`, `bridge.mjs` | Serves MCP on stdio: what a client config runs. |
+| `daemon` | `daemon.mjs` | `start`, `stop`, `status`, `run`. |
+| `doctor` | `runtime.mjs` | The health check as JSON (`--dense-smoke`, `--search-eval`). |
+| `reindex`, `refresh`, `dashboard`, `galaxy`, `distribution`, `acceptance` | `runtime.mjs` | Maintenance; `acceptance` — ten `npm run check` runs — in a source checkout only. |
+| `backup`, `restore` | `backup.mjs` | A `.zip` of the vault and the state, and back. |
+| `uninstall` | `uninstall.mjs` | Takes the Windows install's runtime off the computer, for its uninstaller. |
+
+Every command exits 0 when done, 1 when it failed, 2 on wrong usage and 130 when stopped with Ctrl-C (`EXIT` in
+`core/cli-args.mjs`). `daemon status` exits 1 when no daemon runs for this install, `model status` and
+`model doctor` when the model is not ready, and `mcp` when the client closed with a request no server answered
+(Д-192); `uninstall` adds 3, something is in use, and 4, the data was kept.
+
+## The Daemon
+
+`ai-dev mcp` is a bridge (`src/cli/bridge.mjs`, `core/daemon-bridge.mjs`): it passes the client's JSON-RPC lines,
+the handshake included, to the daemon of its build and back, and starts that daemon — `ai-dev daemon run`,
+detached and windowless — when none runs (`core/daemon-client.mjs`). A build is the code (its folder, version and a
+fingerprint of its sources), where its data is, and the Node it runs on (`describeBuild` in
+`core/daemon-channel.mjs` over `daemonIdentity`); clients that differ in any of these get a daemon each (Д-191).
+When no daemon can serve, the bridge runs the server in its own process and says why on stderr; when the daemon
+goes away mid-session, each unanswered request gets an error and the next message reconnects, replaying the
+client's `initialize`. `AI_DEV_DAEMON=0` makes `ai-dev mcp` serve without a bridge.
+
+The daemon (`src/daemon.mjs`) holds its build's lock beside `run/daemon-<build>.json` — refreshed every 5 s, stale
+after 60 s — and keeps in that descriptor (mode 0600) its pid, version, address, secret and session count. It
+listens on a random address (`core/runtime-paths.mjs`; Д-97, Д-107): a Unix socket in the first of `run/`,
+`$XDG_RUNTIME_DIR/ai-dev` and `/tmp/ai-dev-<uid>` where its path fits in 100 bytes and it can bind, in a folder
+only the user can open; a randomly named pipe on Windows. A connection is served only after an HMAC handshake over
+both sides' nonces; an MCP connection then sends its environment, and its session runs in it (`core/session-env.mjs`).
+
+- `ai-dev daemon start` runs it in the background, `run` in the terminal; `status` shows pid, version, uptime,
+  sessions and their clients, memory, address, log and the other daemons of the runtime home; `stop` stops them
+  all, retired ones included.
+- It exits after `AI_DEV_IDLE_TIMEOUT_MS` without a session: 30 minutes by default, `0` for never
+  (`core/daemon-idle.mjs`; the setting `daemon_idle_minutes`).
+- A daemon of new code in the same folder and environment — a `git pull`, a package updated in place — asks the
+  old one to retire (`isSupersededBy`): it takes no new session, finishes its own, and is listed in
+  `run/retired-<pid>.json` until it exits. A daemon whose descriptor is gone or names another retires too.
+- Started by a bridge, it logs to `logs/daemon.log`, set aside as `daemon.log.1` past 1 MB.
+
+## The Control API Contract
+
+The `control` profile is opt-in (`optIn` in `core/tool-profiles.mjs`): a session lists its tools only when it
+names it, as the desktop app's (`all,control`) does. `core/control-contract.mjs` holds a JSON Schema for each
+tool's answer (`CONTROL_RESULTS`), which the server advertises as the tool's `outputSchema` under `result`, so an
+MCP SDK client checks every answer; and `CONTROL_API_VERSION`, a semantic version `system_status` answers as
+`api_version`. A new optional field, tool or open-string value is a minor change; a field removed, retyped or
+newly required, or an enum value removed, is a major one; objects allow fields they do not list.
+[CONTROL-API.md](CONTROL-API.md) is rendered from the module by `scripts/render-control-api.mjs`, which
+`scripts/render-tool-reference.mjs` runs with [TOOLS.md](TOOLS.md); `npm run docs:tools:check`, run in CI, fails
+when either document is stale or a tool belongs to no capability profile.
+
+## Install Layouts
+
+`core/install-layout.mjs` says how the running code was installed (`kind`), where its content root and seed are,
+and how its commands are spelled:
+
+| `kind` | Recognised by | Content root |
+| --- | --- | --- |
+| `vault` | `03-skills-catalog/` or `01-system/` two levels above the server | the vault itself |
+| `clone` | `docker/public-seed/` in the checkout | that seed folder |
+| `package` | anything else: `npm run dist`'s folder, the npm package, the Windows install | `~/.ai-dev/vault`, synced from `seed/` |
+| `docker` | `AI_DEV_RUNTIME=docker` | `/data/ai-dev-system`, synced from the image's seed |
+
+`AI_DEV_VAULT_ROOT` names the content root and nothing else: it never changes the kind, and a package copies no
+seed into a vault named that way (Д-177). A package is also `ephemeral` when run from a one-run cache (`_npx`,
+`dlx`, `bunx`), which no client config may name; `appHome` when it runs from a copy under `<runtime>/app/`;
+`bundle` when it is the Windows install's runtime (`bundle.json`). `hint()` rewrites a clone's
+`npm run …` advice into the layout's words — `ai-dev …`, `npx @stonebridgeway/ai-dev-system …`, the Windows
+install's `app\current\ai-dev.cmd`, or a `docker run` into the volume.
+
+The sync (`core/seed-sync.mjs`) runs at every server start, as `mcp-stdio.mjs` loads, by the seed's sha256
+manifest: a file the user has not touched since it was shipped is replaced; one they changed stays, and when the
+update changed it too, the new version lands beside it as `<file>.seed-new`, which `doctor` names until it is
+deleted; a deleted file stays deleted; one the seed dropped goes unless changed; an older version never rolls a
+vault back. What was shipped is recorded in `<vault>/.ai-dev-seed.json`; a vault without that record — a 2.x
+Docker volume — is read against every seed file a 2.x image shipped (`data/seed-history.json`).
+
+## The Runtime Home
+
+`AI_DEV_HOME` names the runtime folder itself; unset, or set to the home directory as some 2.x setups did, it is
+`~/.ai-dev` (`core/runtime-home.mjs`; owner decision D2, Д-90):
+
+```text
+${AI_DEV_HOME}/             default ~/.ai-dev
+  state/                    AI_DEV_STATE_ROOT (State roots above)
+  vault/                    a package install's content root
+  cache/                    search-index/ (AI_DEV_SEARCH_INDEX_DIR); dense-model/, records of files hashed right
+  models/bge-m3-onnx/       BGE_M3_ONNX_DIR: the local model
+  artifacts/                frontend-qa/ and archify/ (AI_DEV_FRONTEND_QA_ARTIFACT_ROOT, AI_DEV_ARCHIFY_ARTIFACT_ROOT)
+  run/, logs/daemon.log     the daemon's lock, descriptor, retired daemons and usually its socket; its log
+  app/                      copies setup and the Windows install made; app/current, the one in use
+  backups/, config.json     ai-dev backup's default destination; the settings
+```
+
+`core/runtime-paths.mjs` names the daemon's places, and `core/session-env.mjs` resolves the variables above the
+same way for a daemon's build. `config.json` holds what a person sets in the app or with `settings_set` — the
+projects folder, capability profiles, model mirror and folder, the daemon's idle time and autostart, the language —
+and a setting that stands for a variable is only its default: the environment wins (`core/settings.mjs`).
+`models/bge-m3/` and `python/` are 2.x leftovers. `ai-dev uninstall --data` deletes the folder only when all it
+holds, at its top and in `models/`, `cache/` and `backups/`, is of a kind AI Dev makes (Д-297).
+
+**File locks.** A file several processes write — bridges, the daemon, the hooks, containers sharing a volume — is
+guarded by `core/file-lock.mjs` (Д-96): `<target>.lock`, created exclusively, holding `{ pid, host, token,
+acquired_at }`, stale when its process is gone from this host, when it outlives its bound (30 s unless the holder
+sets one) or when it has had no readable holder for 2 s, broken only if it is still the file judged stale, and
+released only by its own token; a long holder refreshes it. `processState` tells `gone`, `exited` (a zombie
+`kill(pid, 0)` still answers for, Д-234), `running` and `unknown`. Locks guard the JSON stores and ledgers
+(`core/atomic-files.mjs`), the daemon's descriptor, the index rebuild, the skill registry, the model folder, a
+vault's seed record, each migration and a container's first start; the hooks take the usage ledger's lock through
+their synchronous copy of the protocol.
+
+## Migrations
+
+`prepareRuntimeHome` (`core/runtime-home-migration.mjs`) brings the runtime tree to the layout 3.0 reads, once per
+process and before anything chooses a path: `mcp-stdio.mjs` awaits it as it loads, and the daemon, `setup`,
+`backup` and the CLI commands that call a tool run it first. Three moves, each under its own lock:
+
+- `<AI_DEV_HOME>/.ai-dev` into `<AI_DEV_HOME>`: 2.x appended `.ai-dev` to the variable (Д-90);
+- AI Dev's folders in `~/.codex` (`state/ai-dev-system`, `state/archify-receipts`,
+  `cache/ai-dev-system/search-index`, `artifacts/frontend-qa`, `artifacts/archify`, `models/bge-m3-onnx`) into the
+  runtime home, unless a variable names the place; the rest of `~/.codex` is Codex's and stays (Д-104);
+- in the image, the volume's `state/` into the host's state folder the entry mounts, at every start (Д-103).
+
+Nothing is written over: an identical file is dropped from the old place, a JSONL ledger is merged in time order,
+anything else on both sides — and a file that cannot move — stays and is reported, and in the `~/.codex` move a
+cache copy the runtime home already has is dropped. Each run that did something is appended to
+`state/runtime-home-migration.json` (the last 20), which the health check's `runtime_home` reads with what was left
+behind. A failure goes to stderr and does not stop the server. Other 2.x data is handled where it is read: memory
+under a `project_id` moves to the repository key on its first write, a 2.x index is read without a rebuild, a 2.x
+volume's vault is read against the seed history, and a client's `ai-dev-system` entry gives way to `ai-dev`.
+
+## Setup And First Run
+
+`core/first-run.mjs` lists what an install builds rather than ships (`FIRST_RUN_STEPS`) and decides from the disk
+what to run (`planFirstRun`): the skill registry, the skill quality report, the search index and the routing
+benchmark are required; Frontend QA's dependencies and browser, the model, and the documents' vectors made with it
+are optional and run only when asked for. The required steps are `scripts/first-run-steps.mjs`, shared by
+`ai-dev setup` and the container's start (Д-57); `core/setup-runner.mjs` adds the optional ones and runs the plan
+for `ai-dev setup` and for `setup_run`, which the desktop wizard calls through the daemon with progress and a
+cancel. At a terminal `setup` asks about the clients it found, the model and Frontend QA; `--yes` connects the
+clients and skips the downloads; without either, no client config is written unless `--clients` names some.
+`--model` installs the model and then embeds the documents, since weights without vectors change no result. Run
+from npx's cache, `setup` first installs the package into `<runtime>/app/<version>-<fingerprint>/`
+(`core/app-home.mjs`: the files `distribution.json` lists, checked by sha256, and dependencies by
+`npm ci --ignore-scripts` from its shrinkwrap; the two copies chosen last are kept) and continues from that copy,
+which the client configs then name.
+
+## The Local Model
+
+`models/bge-m3.manifest.json` pins the export dense search runs on: BGE-M3 as `Xenova/bge-m3` at a fixed revision,
+`int8`, 1024 dimensions, CLS pooling, its source, and the sha256 of its five files (`core/dense-manifest.mjs`;
+`AI_DEV_MODEL_MANIFEST` names another). `core/model-manager.mjs` installs, imports from a folder or a `.zip`,
+verifies and removes it under a lock on its folder (`BGE_M3_ONNX_DIR`, by default `models/bge-m3-onnx` in the
+runtime home), for `ai-dev model` and the control tools alike; a file once hashed right leaves a record in
+`cache/dense-model`.
+
+- **Download** (`core/dense-download.mjs`): from `AI_DEV_MODEL_MIRROR`, then `HF_ENDPOINT` (Hugging Face endpoints
+  such as `https://hf-mirror.com`), then the manifest's source; each file streams through a sha256 into
+  `<file>.part`, resumes with `Range`, and takes its name only when the digest matches. `core/http-download.mjs`
+  honours `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY` without `NODE_USE_ENV_PROXY`, and each session's
+  `NODE_EXTRA_CA_CERTS`; `AI_DEV_OFFLINE=1` refuses the download and points at `ai-dev model import`.
+- **Inference**: `core/dense-runtime.mjs` over `core/dense-onnx.mjs`, a pool around one worker thread
+  (`src/workers/dense-onnx-worker.mjs`) that loads the verified folder with `@huggingface/transformers` over
+  `onnxruntime-node`, remote models off — the runtime's inference is synchronous native work and would otherwise
+  hold the MCP loop. Both are optional dependencies, so an install whose onnxruntime-node postinstall failed still
+  runs (Д-174). `denseRuntimeSupport` reads the installed onnxruntime-node for a build of this platform: 1.30 has
+  none for Intel Macs, which search with the keyword and sparse halves only (Д-101).
+- **Diagnosis**: `ai-dev model doctor` (`core/dense-doctor.mjs`) checks Node, the runtime, the manifest, the
+  files, loading and a trial embedding, and stops at the first failure; the health check grades
+  `embedding_status` in `core/embedding-health.mjs` — `ok`; `skipped` when not installed or unsupported; `warn`
+  for wrong files or a leftover setting of the removed Python backend. `core/synthetic-model.mjs` writes a model of
+  a few kilobytes shaped like the export, so the path from model files to a ranked hybrid result is tested without
+  the real one.
+
+## Client Configs
+
+`core/mcp-clients.mjs` writes the `ai-dev` entry into each client's config — for `ai-dev clients`, `setup`, the
+control tools and the Docker installers — and `core/client-connections.mjs` decides which clients and command:
+
+| Client | Config | Format |
+| --- | --- | --- |
+| Claude Code | `~/.claude.json`, or `.claude.json` in `CLAUDE_CONFIG_DIR` | JSON `mcpServers`, `type: "stdio"` |
+| Claude Desktop | `Claude/claude_desktop_config.json` in the app-data folder, and the Store build's own | JSON `mcpServers` |
+| Cursor | `~/.cursor/mcp.json` | JSON `mcpServers` |
+| VS Code | `Code/User/mcp.json` in the app-data folder | JSON `servers`, `type: "stdio"` |
+| Codex | `config.toml` in `CODEX_HOME`, else `~/.codex` | TOML `mcp_servers`, with startup and tool timeouts |
+| Gemini CLI | `~/.gemini/settings.json` | JSON `mcpServers` |
+
+A config is edited as text (`core/jsonc-edit.mjs`, `core/toml-edit.mjs`), so everything else in it stays byte for
+byte; it is written through a temp file and a rename after checking it did not change meanwhile, with its old bytes
+kept as `<file>.backup-<time>`. Writing `ai-dev` removes `ai-dev-system`, the 2.x local installer's name (Д-95).
+What was written is recorded in `mcp-clients.json` in the state folder, so `remove` restores a file nothing else
+has touched since and cuts the entry out of one that was. A **local entry** is this Node by its full path, the CLI
+and `mcp` — a client started from the Dock does not have the shell's `PATH` — with `AI_DEV_VAULT_ROOT` when one is
+set or the server sits in a vault, and `AI_DEV_HOME` when one is set (Д-176); an npx package is launched from its
+app-home copy, the Windows install through `<runtime>/app/current`. A **Docker entry** (`--docker`,
+`core/docker-launch.mjs`) is `docker run -i --rm` with a read-only root, no network, no capabilities and
+`no-new-privileges`, mounting the volume at `/data`, the host's state folder at `/ai-dev-state` where the image's
+user can share it, the projects folder at its own path (`/workspace` on Windows) and a host model folder read-only
+at `/models`; it runs the image's stdio server, with no daemon. `bootstrap.sh` runs
+`ai-dev clients install --docker` inside the image, `bootstrap.ps1` from the checkout with the host's Node.
+`ai-dev clients doctor` (`core/mcp-client-check.mjs`) starts each entry the way its client does and checks that it
+answers `initialize`.
+
+## Distribution And The npm Package
+
+`npm run dist` (`scripts/build-dist.mjs`) builds `dist/ai-dev/`, which every installed form is made from: the npm
+package `@stonebridgeway/ai-dev-system` (owner decision D4), the Windows installer's runtime and the image's build
+context. Its files come from `distribution.allowlist.json` — groups (the server, Frontend QA's runner, the search
+cases, the seed as its manifest lists it, the notices), each mapped to where it lands in each target, read by
+`core/distribution-build.mjs`; a pattern that matches nothing stops the build. Beside them it writes the package's
+`package.json` (the CLI as `bin`, the server's dependencies and optional dependencies, a `prepack` that runs
+`scripts/verify-distribution.mjs`), the server's lockfile as `npm-shrinkwrap.json`, and `distribution.json` — every
+file's size and sha256 and a content fingerprint: the marker `install-layout.mjs` knows a package by, and the list
+`verify-distribution.mjs` checks a tree against, in the image's build too. `node_modules/` is added unless
+`--no-deps`, and `--pack` adds the tarball. Nothing is published: that is the owner's. `npm run docker:prepare`
+stages the distribution, without dependencies, in `.docker/build-context/ai-dev/` beside the Dockerfile and the
+entrypoint.
+
+## Docker
+
+The image (`docker/Dockerfile`) runs the distribution on Node 24 in a small Debian as the user `node` (uid 1000):
+dependencies from the shrinkwrap with `--ignore-scripts`, only this platform's onnxruntime binaries, every file
+checked against `distribution.json`, `ai-dev` on `PATH`, and `gitleaks`, the one security scanner that works with
+no network. It has no Python, and no browser except in the `browser` target, tagged with `-browser` added
+(`:latest-browser`), which carries Chromium for Frontend QA.
+
+- **Entry.** `tini` runs `docker/entrypoint.sh` (`umask 077`, the volume's folders, `scripts/docker-bootstrap.mjs`),
+  then the command — by default `node /opt/ai-dev/app/src/server.mjs`, the stdio server (`/opt/ai-dev/app` and
+  `/opt/ai-dev/public-seed` are links kept for the paths 2.x configs and volumes name): each client session is a
+  container of its own, with no daemon. `ai-dev clients …` runs directly, reading nothing of the volume.
+- **The prepared `/data`.** At build time `scripts/docker-prepare-data.mjs` builds into `/data` what a first start
+  builds — the seed in the vault, the skill registry, the quality report, the index, the routing benchmark — and
+  fails the build if another pass would rebuild anything. Docker copies `/data` into each new named volume, whose
+  first start waits for that copy, gives the skill folders their times back (`core/image-data.mjs`, Д-355), and
+  builds nothing.
+- **Every start** loads the server module — which moves the volume's state into the host's state folder when the
+  entry mounts one, and syncs the vault from the image's seed, where 2.x's `cp -n` never updated a file (Д-99) — then
+  runs the required steps under the volume's first-run lock, building only what is missing or stale; a start that
+  waited 40 s on another serves what is built.
+- **The model** is `/models/bge-m3-onnx` when the host mounts a folder holding it at `/models`, else
+  `models/bge-m3-onnx` in the volume (default name `ai-dev-system-data`, as in 2.x), installed once by
+  `ai-dev model install` in a `docker run` with the network.
+
+## The Desktop App And The Windows Installer
+
+The app (`desktop/`, Electron; [DESKTOP.md](../../docs/DESKTOP.md)) does not run AI Dev itself. Its main process
+keeps one MCP connection to the daemon every client shares (`desktop/src/main/daemon-link.mjs`), opened with the
+install's own `openControlClient` (`core/control-client.mjs`, imported by path) for the profiles `all,control`; the
+page (`desktop/src/renderer/`) reaches the main process only over the channels `desktop/src/main/ipc-policy.mjs`
+lists. Since a build includes its Node, the app reaches the daemon with the Node the clients' entries run
+(`desktop/src/main/node-runtime.mjs`), or it would get a daemon of its own.
+
+`npm run dist:win` (`desktop/scripts/build-windows.mjs`) builds the installer: the distribution with its win32-x64
+production dependencies, less what never loads there (`TRIMMED` in `windows-bundle.mjs`); Node 24 pinned by version
+and sha256 (`desktop/build/node-win-x64.json`) with `ai-dev.cmd`; `bundle.json` with every file's sha256; and
+electron-builder's per-user NSIS installer, the runtime in `resources/runtime`. No client runs it there — Windows
+will not replace a held file, and an update moves the program folder aside: at every start the app keeps a copy in
+`<runtime>/app/<version>-<fingerprint>/`, puts back what went missing or changed size, and points the junction
+`<runtime>/app/current`, which the clients' configs name, at it (`core/app-bundle.mjs`). An update copies the new
+runtime beside the old and moves the link; a running client keeps the old copy until it leaves. Updates come from
+the project's GitHub Releases through electron-updater (`desktop/src/main/updates.mjs`). The uninstaller
+(`desktop/build/installer.nsh`) runs `ai-dev uninstall` (`core/bundle-uninstall.mjs`): every daemon of the runtime
+home stops, the copies and the link go, and on request the clients' entries and the data.
+
+## No Python, And Backups
+
+Nothing an install needs runs Python: search, ranking, project preparation and the galaxy run in Node — with
+`core/search-documents.mjs` and `core/search-semantic.mjs` reproducing what the 2.x Python helper wrote — and the
+model through onnxruntime-node. Two tools still run a Python script, `query_ui_ux_knowledge` and
+`generate_ui_ux_design_system` over the UI UX Pro Max dataset, through the one place that picks an interpreter
+(`core/python-command.mjs`); without Python they say so, and the health check marks `ui_ux_knowledge` skipped.
+`scripts/no-python-check.mjs` runs `npm ci`, the first run, the health check and the protocol smoke with every
+interpreter taken off `PATH`, on Linux, macOS and Windows in CI (Д-85). A setting of the removed Python backend
+(`AI_DEV_DENSE_BACKEND=python`, `BGE_M3_MODEL_DIR` …) is read only to say what replaced it
+(`core/dense-backend.mjs`, decision D3).
+
+`ai-dev backup [label]` writes `ai-dev-system_<time>_<label>.zip` and its `.sha256` — to `backups/` in the runtime
+home unless `--to` names a folder — with the content root and the runtime's `state/` and a manifest
+(`BACKUP-MANIFEST.json`) of every file's sha256; indexes, caches, models and dependencies are rebuilt, not backed
+up (`core/backup-archive.mjs`, `node:zlib`, no dependency). `ai-dev restore <archive> --confirm` checks the archive
+and every file, and writes over nothing unless `--overwrite`, which it checks before the first write. Both run in
+every layout on every system; 2.x's PowerShell scripts worked only inside the owner's vault (Д-104).
+
 ## Line Budgets
 
-`scripts/static-quality.mjs` enforces two ceilings:
+`scripts/static-quality.mjs` enforces two ceilings, whose rules are `core/line-budget.mjs`, tested by
+`core/line-budget.test.mjs` without breaking a real file (docs/DEFECTS.md, Д-12):
 
-- `src/mcp-stdio.mjs` may not exceed `SYSTEM_LINE_CEILING` (5,076 today), which lives in
-  `core/system-health.mjs` so the System Dashboard reports the ceiling the gate enforces. The file
-  shrank one extraction at a time (stage 1 of the modularity work: 10,018 lines to 4,776 across
-  six steps) and the ceiling was re-pinned to its actual size plus roughly 300 lines of working room
-  after each step, so it can be edited but not re-grown. New capabilities go into `src/extensions/`,
-  so the budget only has to cover editing what is left.
-- Every module under `src/core/`, `src/extensions/` and `src/galaxy/` stays within `MODULE_LINE_CEILING` (800) —
-  the same soft ceiling `COMMON_RULES` puts on user projects.
+- `src/mcp-stdio.mjs` may not exceed `SYSTEM_LINE_CEILING`, which lives in `core/system-health.mjs` so the System
+  Dashboard reports the ceiling the gate enforces. Stage 1 took the file from 10,018 lines to 4,775 in six
+  extractions, and the ceiling was re-pinned to its size plus roughly 300 lines of working room after each, so it
+  can be edited but not re-grown. New capabilities go into `src/extensions/`.
+- Every module under `bin/`, `src/cli/`, `src/core/`, `src/extensions/` and `src/galaxy/`, and the desktop app's
+  code in `desktop/src` and `desktop/scripts` (Д-256), stays within `MODULE_LINE_CEILING` (800) — the soft ceiling
+  `COMMON_RULES` puts on user projects. `hooks/` is exempt: each hook is one file by design (Д-172).
 
-`MODULE_LINE_EXCEPTIONS` carries the modules that were already over the ceiling when the rule
-landed — `core/frontend-product-quality.mjs` at 1,222 lines and `core/reference-factory.mjs` at 812.
-An entry pins a module at its current size: it may shrink, never grow, and the gate demands the
-entry be dropped once the module is back under the ceiling or gone. All four of those conditions
-reject, each verified by breaking it deliberately against a throwaway module and reverting.
+`MODULE_LINE_EXCEPTIONS` pins the two modules that were over the ceiling when the rule landed,
+`core/frontend-product-quality.mjs` and `core/reference-factory.mjs`, at that day's size: a pinned module may only
+shrink, and the gate demands the pin go once its module is back under the ceiling or gone.
+
+The same walk runs `node --check` over `bin/`, `src/`, `scripts/`, `hooks/` and the desktop app, `sh -n` over the
+hook launcher, and refuses the calls AGENTS.md forbids: `eval` and the `Function` constructor, called or handed
+on, and a computed member of `globalThis`, `window`, `global` or `self` whose key is not one plain string naming
+neither; `exec` and `execSync` of `child_process` however the module is imported or bound; and a `shell` option
+that is not plainly off. `core/forbidden-calls.mjs` reads the source as tokens, with comments, strings, template
+text and regular expressions set aside, so
+`import * as cp` then `cp.exec(…)`, `{ "shell": true }` and `globalThis["ev" + "al"]` are refused like the usual
+forms (Д-267), and what it cannot follow through a variable is refused, not trusted. Only the desktop app's tests
+may call `eval` and `new Function`, to show that the page's policy refuses them.
 
 ## Operations And Distribution
 
@@ -605,18 +982,6 @@ reject, each verified by breaking it deliberately against a throwaway module and
   `runtime-distribution.example.json` in the repository root shows what
   `prepare_runtime_distribution` writes — the real file is git-ignored because it
   embeds machine-specific absolute paths.
-- `bin/ai-dev.mjs` is the CLI: `setup`, `clients`, `model`, `mcp`, `doctor` and the maintenance commands, in
-  `src/cli/`, parsed by `core/cli-args.mjs`. `scripts/ai-dev.mjs` is its 2.x name, kept until 4.0.
-- `core/mcp-clients.mjs` writes the `ai-dev` entry into every client's config, for the CLI and the
-  Docker installer, through `core/jsonc-edit.mjs` and `core/toml-edit.mjs`.
-- The Docker image is the distribution: `scripts/prepare-docker-context.mjs` stages what `npm run dist`
-  builds beside `docker/Dockerfile`. `core/docker-launch.mjs` is the `docker run -i --rm …` a client
-  config gets (`ai-dev clients install --docker`); `scripts/docker-prepare-data.mjs` and
-  `core/image-data.mjs` build the first start's registry, index and benchmark into the image, so a new
-  volume has nothing to build; `core/seed-sync.mjs` keeps the volume's seed current by its manifest,
-  recognising what a 2.x image left there by `data/seed-history.json` (`scripts/seed-history.mjs`);
-  `core/runtime-home-migration.mjs` moves a volume's state into the host's state folder when it is
-  mounted.
 - Remote HTTP is intentionally absent. The future VPS profile is rejected until TLS, authentication,
   allowlists, rate limiting, and threat review exist.
 

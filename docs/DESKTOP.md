@@ -303,7 +303,7 @@ The runtime is the npm package's distribution (`npm run dist`, phase 7) with its
 win32-x64, less what never loads there: onnxruntime-web (transformers carries the web runtime
 inside its own file), the WebAssembly build of sharp and what only it needs, onnxruntime-node's
 builds for other systems and processors, npm's command links. Measured on version 2.0.0: 7,847
-files, 231 MB unpacked — Node 89.5 MB, onnxruntime-node 64 MB, the seed 21 MB, sharp 18.5 MB;
+files, 231 MB unpacked — Node 89.7 MB, onnxruntime-node 64 MB, the seed 21 MB, sharp 18.5 MB;
 the installer 183 MB.
 
 Signing comes from the environment: a certificate in `WIN_CSC_LINK` (or `CSC_LINK`) with its

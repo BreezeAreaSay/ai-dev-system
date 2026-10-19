@@ -18,14 +18,23 @@ evidence-bound task completion.
 - Node.js: 22.16+ or 24+ on `PATH` (any distribution) — all of search lives in `node:sqlite`,
   which has FTS5 from 22.16; on an older Node, every search tool answers with the version it
   needs. No Python and no agent-specific runtime is required.
-- Regenerable runtime data lives under the **AI Dev home** — `AI_DEV_HOME`, default `~/.ai-dev`:
+- Runtime data lives under the **AI Dev home** — `AI_DEV_HOME`, default `~/.ai-dev`:
   - `~/.ai-dev/state` — task lifecycle, skill outcomes, pilots (override: `AI_DEV_STATE_ROOT`)
+  - `~/.ai-dev/config.json` — the settings the desktop app and `settings_set` change; a variable
+    set in the environment still wins
+  - `~/.ai-dev/vault` — the vault of a package or Windows install, made from the package's seed
+    and kept current with it (a clone reads its `docker/public-seed`; override: `AI_DEV_VAULT_ROOT`)
   - `~/.ai-dev/cache/search-index` — SQLite + dense index (override: `AI_DEV_SEARCH_INDEX_DIR`)
   - `~/.ai-dev/artifacts/frontend-qa` — QA screenshots (override: `AI_DEV_FRONTEND_QA_ARTIFACT_ROOT`)
-  - `~/.ai-dev/models/bge-m3-onnx` — the ONNX embedding model `--dense` installs
+  - `~/.ai-dev/models/bge-m3-onnx` — the ONNX embedding model `--model` installs
     (override: `BGE_M3_ONNX_DIR`)
   - `~/.ai-dev/cache/dense-model` — the record of which model files hashed right, so a
     check does not read 570 MB again
+  - `~/.ai-dev/app` — the runtime copies that `npx … setup` and the Windows app make, one folder
+    per `<version>-<fingerprint>`, and the Windows install's link to the current one, `app/current`
+  - `~/.ai-dev/run` — the daemon's descriptor, lock and usually its socket, a folder of mode 0700
+  - `~/.ai-dev/logs` — the daemon's log, `daemon.log`
+  - `~/.ai-dev/backups` — the archives `ai-dev backup` writes
   - What the Codex-era runtime kept under `~/.codex` (`state/ai-dev-system`, its search index,
     artifacts and models) moves into `~/.ai-dev` once, at the first start, and is recorded in
     `state/runtime-home-migration.json`; the rest of `~/.codex` is Codex's own and stays.
@@ -34,14 +43,17 @@ evidence-bound task completion.
 Start:
 
 ```bash
-AI_DEV_VAULT_ROOT="/path/to/vault" node src/server.mjs
+node bin/ai-dev.mjs mcp
 ```
 
-From a plain clone no vault is needed, and `npm run setup` — or `npm run clients:install` on its
-own — writes the entry into Claude Code, Claude Desktop, Cursor, VS Code, Codex and Gemini for
-you: the absolute path of the Node that ran it, then `bin/ai-dev.mjs mcp`, no vault variable,
-`"type": "stdio"` for VS Code and Claude Code, and `servers` instead of `mcpServers` for VS Code.
-`node src/server.mjs`, what 2.x configs run, starts the same server.
+That is what a client runs: MCP on stdin and stdout, served by the daemon. `AI_DEV_VAULT_ROOT`
+names a vault of your own; without it a clone reads its `docker/public-seed` and a package its
+`~/.ai-dev/vault`. From a plain clone no vault is needed, and `npm run setup` — or
+`npm run clients:install` on its own — writes the entry into Claude Code, Claude Desktop, Cursor,
+VS Code, Codex and Gemini for you: the absolute path of the Node that ran it, then
+`bin/ai-dev.mjs mcp`, no vault variable, `"type": "stdio"` for VS Code and Claude Code, and
+`servers` instead of `mcpServers` for VS Code. `node src/server.mjs`, what 2.x configs run, serves
+the same tools in the client's own process.
 
 The server negotiates MCP over stdio and exposes structured tool results, Resources, resource
 templates, Prompts, progress notifications, and tool annotations. Any stdio MCP client works —
@@ -197,7 +209,9 @@ Resources are bounded views, not a dump of the vault.
 - `review_frontend_beta`
 - `build_frontend_product`
 - `generate_frontend_references`
+- `learn_from_task`
 - `refresh_project_context`
+- `build_architecture_diagram`
 
 ## Skill Quality
 
@@ -230,9 +244,10 @@ displacing the exact workflow skill. Golden cases live in:
 
 Hybrid search works without a model: SQLite FTS, sparse aliases, and deterministic
 intent routing are always on. The optional local BGE-M3 model improves concept and
-document retrieval. The Docker image never bundles the weights; the launchers mount
-the folder above them read-only at `/models`, and the image reads the ONNX export
-from `/models/bge-m3-onnx`.
+document retrieval. The Docker image never bundles the weights: they go into the
+data volume once, or a host folder holding `bge-m3-onnx/` is mounted read-only at
+`/models`, and the image reads `/models/bge-m3-onnx` first when it holds anything,
+else the volume's ([With the Docker image](#with-the-docker-image)).
 
 ### From a source checkout
 
@@ -285,16 +300,28 @@ downloading, and keyword and sparse search work as everywhere else.
 moves an install over: it installs the ONNX model and embeds the documents again —
 vectors made by the Python backend belong to another model, are never compared
 with ONNX questions, and are replaced by this run. `--dense-python` still works as a
-name for `--dense`; the old variables are no longer read, and the health check names
+name for `--model`; the old variables are no longer read, and the health check names
 any that are still set. See
 [INSTALL](../docs/INSTALL.md#coming-from-the-python-backend).
 
 ### With the Docker image
 
-The default image already carries the ONNX runtime. Download the weights on the
-host with `npm run model -- install --no-index`, then set `AI_DEV_MODEL_PATH` to the
-folder *above* them — `~/.ai-dev/models` — and the launcher mounts it read-only as
-`/models`.
+The default image already carries the ONNX runtime. Put the weights into the data
+volume once, with the network that one run needs; every session after it keeps
+`--network none`:
+
+```bash
+docker run --rm -it --network bridge --mount type=volume,source=ai-dev-system-data,target=/data \
+  ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev model install
+```
+
+Or mount a host folder that holds `bge-m3-onnx/` — `~/.ai-dev/models`, where
+`npm run model -- install` puts it — read-only at `/models`:
+`ai-dev clients install --docker --model=<folder>`, `bootstrap.sh --model-path <folder>`
+or `bootstrap.ps1 -ModelPath <folder>` writes the mount into the entries. The image
+reads `/models/bge-m3-onnx` first when it holds anything, else the volume's model.
+`AI_DEV_MODEL_PATH` is read by the 2.x launchers, kept until 4.0, and by bootstrap
+as the default of its model path; a 3.0 entry does not read it.
 
 ## Frontend QA Config
 
@@ -352,14 +379,15 @@ npm ci
 npm run setup
 ```
 
-`npm run setup` builds what a clone does not ship — the skill registry, the
-SQLite search index and the skill-routing benchmark — and ends with the health
-check, so what is still missing is on the screen. It reaches the network only
-when asked: `--frontend-qa` installs the Frontend QA runner's lockfile with the
-pnpm it pins and then Playwright's Chromium, and passes only when that browser
-launches; `--dense` downloads the pinned ONNX export of BGE-M3 (no Python packages) and
-embeds the index with it. Everything it builds is idempotent, and anything that has
-gone out of date since is rebuilt rather than skipped.
+`npm run setup` builds what a clone does not ship — the skill registry and its
+quality report, the SQLite search index and the skill-routing benchmark — and
+ends with the health check, so what is still missing is on the screen. It
+reaches the network only when asked: `--frontend-qa` installs the Frontend QA
+runner's lockfile with the pnpm it pins and then Playwright's Chromium, and
+passes only when that browser launches; `--model` (2.x's `--dense`) downloads the pinned ONNX
+export of BGE-M3 (no Python packages) and embeds the index with it. Everything it
+builds is idempotent, and anything that has gone out of date since is rebuilt
+rather than skipped.
 
 After restoring a backup into a clone, `npm ci` and `npm run setup -- --frontend-qa` bring the
 dependencies back (`../scripts/restore-runtime.ps1` runs those two, as a wrapper until 4.0).
@@ -367,8 +395,12 @@ dependencies back (`../scripts/restore-runtime.ps1` runs those two, as a wrapper
 Environment overrides:
 
 ```text
-AI_DEV_VAULT_ROOT   absolute path to the Obsidian vault (required outside the repo)
+AI_DEV_VAULT_ROOT   the vault the server reads and writes (optional; default: the vault around the
+                    server, a clone's docker/public-seed, $AI_DEV_HOME/vault for a package or the
+                    Windows install, /data/ai-dev-system in Docker)
 AI_DEV_HOME         runtime-data root (default ~/.ai-dev)
+AI_DEV_PROFILES     capability profiles listed to the client (default: every one an agent gets;
+                    the `profiles` setting in config.json fills it when unset; ../docs/CAPABILITIES.md)
 AI_DEV_STATE_ROOT   task/outcome/pilot state (default $AI_DEV_HOME/state)
 AI_DEV_SEARCH_INDEX_DIR   search index dir (default $AI_DEV_HOME/cache/search-index)
 AI_DEV_FRONTEND_QA_ARTIFACT_ROOT   QA artifacts (default $AI_DEV_HOME/artifacts/frontend-qa)
@@ -430,8 +462,8 @@ search suite. `../scripts/run-acceptance.ps1` is a wrapper over `npm run check` 
 ## Distribution
 
 ```bash
-npm run dist          # dist/ai-dev/: the package folder, with its production dependencies
-npm run dist:pack     # and dist/stonebridgeway-ai-dev-system-<version>.tgz beside it
+npm run dist          # ../dist/ai-dev/: the package folder, with its production dependencies
+npm run dist:pack     # and ../dist/stonebridgeway-ai-dev-system-<version>.tgz beside it
 ```
 
 What ships is `distribution.allowlist.json` — the same list `npm run docker:prepare` builds the
@@ -476,7 +508,8 @@ wrote — Cursor, Gemini, VS Code, Claude Code — unless `--clients` names othe
 
 `ai-dev clients install` writes one entry, `ai-dev`, into Claude Code, Claude Desktop (and its
 Microsoft Store copy), Cursor, VS Code, Codex and Gemini: the absolute path of this Node, this
-clone's `bin/ai-dev.mjs` and `mcp`, plus `AI_DEV_VAULT_ROOT` for a vault install. Each file is
+clone's `bin/ai-dev.mjs` and `mcp`, plus `AI_DEV_VAULT_ROOT` for a vault install and
+`AI_DEV_HOME` when it names a runtime folder of its own. Each file is
 edited in place — other servers, comments and formatting stay byte for byte — written through a
 temp file and a rename, and backed up as `<file>.backup-<time>`; `ai-dev-system`, the 2.x
 name, is removed. `clients doctor` starts each entry's command and checks that it answers

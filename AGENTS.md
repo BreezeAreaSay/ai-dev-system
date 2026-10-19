@@ -16,10 +16,14 @@ still apply. This file is the part an agent gets wrong.
 ## What this repository is
 
 A local-first MCP server (148 tools — 135 for agents, 13 in the opt-in control
-API — over stdio, or one warm daemon) plus its Docker image, packaging and a
-public skill seed. It opens no network port and sends nothing anywhere. The full
-Obsidian vault it normally reads is **not** here: a standalone checkout resolves
-its content root to `docker/public-seed`.
+API — over stdio, or one warm daemon) and every form it ships in: the `ai-dev`
+command line, the npm package `@stonebridgeway/ai-dev-system`, the Docker image,
+and the desktop app with its Windows installer — plus a public skill seed. It
+opens no network port. What it fetches is what a person asks for — the local
+model, Frontend QA's browser — and the installed desktop app looks for an update
+in the project's GitHub releases. The full Obsidian vault it normally reads is
+**not** here: a standalone checkout resolves its content root to
+`docker/public-seed`.
 
 ## Where code goes
 
@@ -28,7 +32,8 @@ its content root to `docker/public-seed`.
 | pure logic, no vault, no MCP | `ai-dev-mcp-server/src/core/<name>.mjs` + `<name>.test.mjs` beside it |
 | a new MCP tool | an extension: `ai-dev-mcp-server/src/extensions/<area>.mjs` |
 | a hook that runs inside a user's repository | `ai-dev-mcp-server/hooks/` |
-| a command of the `ai-dev` CLI | `ai-dev-mcp-server/src/cli/<command>.mjs`, listed in `src/cli/main.mjs` |
+| a command of the `ai-dev` CLI | `ai-dev-mcp-server/src/cli/<command>.mjs`, listed in `src/cli/main.mjs` (`bin/ai-dev.mjs` is the entry) |
+| a file the installed system needs at run time, outside `src/` and `hooks/` | listed in `ai-dev-mcp-server/distribution.allowlist.json`, or the npm package, the image and the installer ship without it |
 | the desktop app | `desktop/src/main` (main process), `desktop/src/renderer` (the page), tests in `desktop/test` — `docs/DESKTOP.md` |
 | the Windows installer | its build in `desktop/scripts` (`build-windows.mjs`, `windows-bundle.mjs`), the NSIS step and the pinned Node in `desktop/build`; the runtime copy and its stable link in `ai-dev-mcp-server/src/core/app-bundle.mjs` — `docs/DESKTOP.md`, "The Windows install" |
 
@@ -45,7 +50,10 @@ export function createXxxTools(host) {
 }
 ```
 
-Register it in `src/tool-extensions.mjs`. The `host` object is built once by
+Register it in `src/tool-extensions.mjs`, give each tool a group in
+`scripts/render-tool-reference.mjs` and a profile in `src/core/tool-profiles.mjs`,
+and run `npm run docs:tools` — CI's `docs:tools:check` fails on a tool without
+either, and `npm run check` does not run it. The `host` object is built once by
 `mcp-stdio.mjs` and carries the shared runtime services.
 
 **An extension must never import `mcp-stdio.mjs`.** That is an import cycle and
@@ -56,7 +64,9 @@ it couples pure logic to a vault. Take what you need from `host`.
 **1. Modules are capped at 800 lines** (`MODULE_LINE_CEILING`), enforced by
 `npm run check` over `bin/`, `src/cli/`, `src/core/`, `src/extensions/`,
 `src/galaxy/` and the desktop app's code (`desktop/src`, `desktop/scripts`;
-not its tests). Two modules were already
+not its tests). The top-level `src/*.mjs`, `src/transport/`, `src/workers/`,
+`scripts/` and `hooks/` are not measured — a hook is one file by design — so
+the ceiling there is yours to keep. Two modules were already
 over it when the rule landed and are pinned at that day's size in
 `MODULE_LINE_EXCEPTIONS` — they may shrink, never grow, and once one is back
 under 800 the gate tells you to drop its pin. `src/mcp-stdio.mjs` has
@@ -65,7 +75,8 @@ the file can be edited but not re-grown. If your change does not fit, extract
 something; do not raise a ceiling.
 
 **2. Fake secrets in tests are assembled by concatenation, never written as a
-literal.** `scripts/security-check.mjs` walks `src/` and `scripts/` for leaked
+literal.** `scripts/security-check.mjs` walks `bin/`, `src/`, `scripts/`,
+`hooks/` and the desktop app's `src/`, `scripts/` and `test/` for leaked
 credentials and cannot tell your fixture from a real key. Follow what the tests
 already do:
 
@@ -77,8 +88,8 @@ const token = ["ghp_", "a".repeat(36)].join("");    // yes
 The same values written as single string literals fail the gate. Its patterns
 are an AWS `AKIA…` key, an `sk-…` secret of 20 characters or more, a private-key
 header, and any `password` / `api_key` / `secret_key` / `access_token` assigned
-a literal of 12 characters or more — so `api_key: "…"` in a fixture needs the
-same treatment.
+a literal of 12 characters or more (`passwd` too) — so `api_key: "…"` in a
+fixture needs the same treatment.
 
 **3. The hooks under `ai-dev-mcp-server/hooks/` duplicate server code on
 purpose.** They are copied into other people's repositories and run there, with
@@ -89,15 +100,22 @@ the same defect found three times: the two copies disagreeing.
 
 ## Execution safety
 
-Commands run as argument arrays with `shell: false`. The static gate rejects
-`eval`, `new Function`, `shell: true`, and `child_process.exec` — in the
-desktop app too; only its tests may call `eval` and `new Function`. Never
-interpolate a variable into a command string. See
-`ai-dev-mcp-server/docs/SECURITY.md`.
+Commands run as argument arrays with `shell: false`. The static gate reads the
+code as tokens (`src/core/forbidden-calls.mjs`, docs/DEFECTS.md Д-267) and
+rejects, however they are spelled: `exec` and `execSync` of `child_process`
+reached any way — a named, default or namespace import, `require`, `import()`;
+a `shell` option with any value but `false` (or one it cannot read); `eval` and
+the `Function` constructor, called or handed on; a computed member of
+`globalThis`, `window`, `global` or `self`. In the desktop app too; only its
+tests may call `eval` and `new Function`. Never interpolate a variable into a
+command string. See `ai-dev-mcp-server/docs/SECURITY.md`.
 
 ## How a change is finished
 
-**Everything merges to `main`.** No long-lived branches.
+**Short branches, pull requests to `main`.** No long-lived branches. A push to
+`main` publishes the `:edge` image only; a release is a `vX.Y.Z` tag, and the
+2.x line lives on as `v2.*` tags (CONTRIBUTING.md, "Branches, releases and pull
+requests").
 
 **A defect you find is written down before it is fixed**, in
 `docs/DEFECTS.md`: what is wrong, what it threatens, a measurement
@@ -137,15 +155,20 @@ diff, and do not report a result you have not seen printed.**
 
 ```bash
 cd ai-dev-mcp-server
-npm run setup           # build what a fresh clone does not ship
-npm run check           # the gate: static quality + tests + coverage + security + smokes
+npm run setup -- --no-clients   # build what a fresh clone does not ship; leave the person's AI clients alone
+npm run check           # the gate: static quality, packaging:check, the seed index, the tests with coverage
 npm run acceptance      # the gate, ten times
+npm run upgrade:test    # a 2.x clone updated to this one (Python 3 and git; ~3 minutes)
+npm run docs:tools      # after adding or changing a tool; docs:tools:check is what CI runs
+npm run docs:links      # after touching the documentation: no broken link or anchor
 npm run -s doctor       # the health check as one command
 npm run docker:seed:verify   # after touching docker/public-seed
+cd ../desktop && npm test    # the desktop app: unit tests, then end to end (xvfb-run without a display)
 ```
 
 ## Language
 
-Code, comments and public documentation are English. `README.ru.md` and
-`docs/DEFECTS.md` are Russian — keep each file in the language it is already
-in.
+Code, comments and public documentation are English. `README.ru.md`,
+`docs/ru/*`, `docker/README.md`, `docs/DEFECTS.md` and the program's own notes in
+`docs/program/` are Russian — keep each file in the language it is already in,
+and mirror a change to an English guide in its Russian twin.

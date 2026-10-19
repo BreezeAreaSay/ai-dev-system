@@ -17,15 +17,17 @@
 - Shell interpreters, control operators, inline code, dynamic package execution, and network tools fail closed.
 - Output, duration, and process trees are bounded.
 - Password notes are left unchanged by explicit owner decision. They are not exposed as MCP resources.
-- Backup archives may contain those owner-kept local notes and therefore stay under the local
-  `%AI_DEV_HOME%\backups` boundary (default `%USERPROFILE%\.ai-dev\backups`).
+- Backup archives may contain those owner-kept local notes. `ai-dev backup` writes them into the
+  AI Dev home, `<home>/backups` (`~/.ai-dev/backups`, or `$AI_DEV_HOME/backups`), on every system
+  unless `--to` names another folder, the archive and its `.sha256` with mode 0600 (on Windows
+  the folder's ACL decides who reads them).
 
 ## The Daemon
 
-`ai-dev mcp`, which every client config runs, hands the client to one daemon per user, runtime
-home and build (`src/daemon.mjs`). The daemon serves the vault, the projects' context and the
-state, so a process that could talk to it, or pass for it, would read what the agents read and
-tell them what to do. What stands in the way:
+`ai-dev mcp`, which every local client entry runs (a Docker entry runs the image instead), hands
+the client to one daemon per user, runtime home and build (`src/daemon.mjs`). The daemon serves
+the vault, the projects' context and the state, so a process that could talk to it, or pass for
+it, would read what the agents read and tell them what to do. What stands in the way:
 
 - **Who can reach it.** A Unix socket lives in a directory of mode 0700 that belongs to the user
   — the runtime's `run/`, or `$XDG_RUNTIME_DIR/ai-dev` or `/tmp/ai-dev-<uid>` when the home's

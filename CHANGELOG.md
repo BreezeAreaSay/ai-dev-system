@@ -5,7 +5,77 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [3.0.0] - Unreleased
+
+A major version because what changed is how AI Dev is installed and how a client reaches it, not
+what an agent can do with it. The server is the same — the same 135 tools, the vault and the task
+state in the same format, and the index 2.x built is read without a rebuild — but the clone is no
+longer the way in, nothing needs Python, and one process serves every AI client. A 2.x install keeps
+working after the update: [Moving from 2.x to 3.0](docs/MIGRATION.md)
+([Russian](docs/ru/MIGRATION.md)) says what changes for it, what moves by itself, what needs one
+command, and how to go back.
+
+**Highlights**
+
+- **Three ways in, none of them a clone.** The Windows installer — one `.exe` for the current user,
+  no administrator, no Node, Python or Docker; `npx @stonebridgeway/ai-dev-system setup`, one command
+  on any system, which installs a copy that outlives npx's cache; and Docker, where `bootstrap.sh`
+  and `bootstrap.ps1` write `docker run` entries and nothing runs between sessions. A clone with
+  `npm run setup` stays the way to work on AI Dev itself.
+- **No Python.** Search, its SQLite index and hybrid ranking run on `node:sqlite`; the local BGE-M3
+  model is an ONNX export on `onnxruntime-node`, installed with progress, resume, a proxy or a
+  mirror, and checked file by file against a pinned manifest (`ai-dev model install | import |
+  doctor`). Python is left to the two UI UX Pro Max tools, which say what to install without it.
+- **One daemon for every client.** Each client's entry hands its session to one warm server, so the
+  index and the model are loaded once and the state has one writer: three clients took 528 MB in
+  three processes, and take 391 MB.
+- **One command line, `ai-dev`** — `setup`, `clients`, `model`, `daemon`, `doctor`, `backup`,
+  `restore`, `uninstall` and the 2.x maintenance commands — with one parser, a one-sentence answer
+  to every mistake and the same exit codes everywhere.
+- **A desktop app** in English and Russian: the install's health in the tray, a first-run wizard for
+  the projects folder, the AI clients and the model, screens of the work — projects, costs, skills,
+  the log — a console for every tool, and settings, all through the daemon's control API.
+- **Docker as a server mode.** Each client session is its own container answering its own handshake,
+  with the server's instructions — 1.6–2.5 s on a new volume, about a second after it; the model
+  goes into the data volume once; the volume's skills follow the seed's manifest; the state is kept
+  on the host beside the agent hooks' wherever the container's user can write it there. The image is
+  built from the npm distribution, and a `-browser` variant carries Playwright and Chromium.
+- **614 skills instead of 3,228.** The Membrane connectors were cut to the 460 a developer reaches
+  for; routing (40 of 40) and the search evaluation are unchanged.
+- **Upgrades are tested, not assumed.** `npm run upgrade:test` upgrades a 2.x clone in place,
+  `npm run docker:upgrade-check` a 2.x volume and its launchers, and CI runs the server with no
+  Python on Linux, macOS and Windows.
+
+**Breaking**
+
+- **The server's name in a client is `ai-dev`**, not `ai-dev-system`. Setup and `ai-dev clients
+  install` replace the 2.x entry and say so; a 2.x entry keeps working until 4.0.
+- **Node 22.16 or newer (or 24+)** for a local install; 2.x took 22.12.
+- **The Python dense backend and the Python search helper are removed** (decision D3).
+  `npm run setup -- --model` — `npx @stonebridgeway/ai-dev-system setup --model` — moves an install
+  to the ONNX model and embeds the documents again; `--dense-python` and `AI_DEV_DENSE_BACKEND=python`
+  do the same with a note, and the other Python variables are named by the health check and no longer
+  read. An Intel Mac has no build of the ONNX runtime: dense search is off there.
+- **`AI_DEV_HOME` is the runtime folder itself** (decision D2); a 2.x tree one level down moves up on
+  the first start. `~/.codex` is no longer read; what AI Dev kept there moves once.
+- **614 skills.** The 2,614 Membrane connectors the catalogue no longer carries are dropped from the
+  registry on the first start, and are found no more.
+- **Search.** `AND`, `OR`, `NOT` and `NEAR` are words, not query syntax. `search_knowledge` searches
+  what the index holds, so a skill's reference files and notes in folders such as `build` or `.next`
+  are no longer found by it.
+- **The Docker image** has no Python, no Playwright or Chromium (the `-browser` variant has them), no
+  `/opt/ai-dev/search-index`, and no `BGE_M3_ONNX_DIR` or `AI_DEV_DENSE_INSTALLED`; the
+  `INSTALL_BGE_M3` build argument installs nothing and says what replaced it. On macOS and Linux
+  the projects are mounted at their own path rather than at `/workspace`. `bootstrap.sh` and
+  `bootstrap.ps1` no longer install Docker or Node, start a long-lived container or compile a proxy.
+- **Image tags** (decision D9): `:latest` moves only with a release tag, `:edge` follows `main`, and
+  `:2` is the 2.x line, frozen when 3.0 is released.
+- **Agent hooks** 2.x installed keep running where `node` is on the client's `PATH`; run
+  `install_agent_hooks` in each repository again for the 3.0 registrations, which find Node without
+  it.
+
+What 3.0 keeps working until 4.0 is under **Deprecated**; the [migration note](docs/MIGRATION.md)
+has it with what each one says.
 
 ### Added
 
@@ -133,7 +203,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The local model is one command, and gets through a broken connection, a proxy and a
   mirror** (`docs/DEFECTS.md`, Д-98; Д-73's missing resume). `npm run model -- install`
-  (and `npm run setup -- --dense`, which uses it) keeps a broken download as `<file>.part`
+  (and `npm run setup -- --model`, which uses it) keeps a broken download as `<file>.part`
   with a `.part.json` naming the revision and sha256 it is the start of; the next run hashes
   those bytes again and asks for the rest with `Range` — measured: a transfer cut at 50 % of
   a file is continued from the byte on disk, every byte crosses the network once and the
@@ -190,9 +260,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   5.0–5.3); a search right after a note changed 0.23 s (was 6.0: refreshed in place);
   `hybrid_search` without dense 11 ms on the seed and 21 ms on the full 2.x catalogue (was
   141 and 316, one Python process per call); `search_knowledge` 3 and 10 ms (was 233 and
-  439, every `.md` read per call); `run_search_eval` 38 of 45 in 0.7 s on the seed (was 38 of
-  45 and 45 Python processes). `search_knowledge` now searches what the index holds — notes,
-  skills as their registry entry and card, project cards — so a skill's other files (its
+  439, every `.md` read per call); `run_search_eval` on the seed in 0.7 s, scoring what the
+  helper scored (was 45 Python processes). `search_knowledge` now searches what the index
+  holds — notes, skills as their registry entry and card, project cards — so a skill's other files (its
   references: `read_skill` reads them), the generated all-skills and registry pages, and notes
   in folders such as `build`, `env`, `venv` or `.next` are no longer found by it: 149 of the 515
   files the old scan read on the seed (Д-142). WAL and a cross-process rebuild lock that honours
@@ -210,15 +280,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`npm run upgrade:test` — a 2.x install upgraded in place** (`docs/UPGRADE-TEST.md`).
   It checks the production 2.x commit out into a git worktree, has the 2.x server
-  create what three users have — the defaults, `AI_DEV_HOME` set, and the Docker
-  image's `/data` layout — a task with a checkpoint, a decision, an instinct, a
-  session handoff, the search index, Claude hooks in a repository and client
-  configurations from both 2.x installers, then upgrades the checkout to the
-  working tree with plain `npm ci` and starts the server through the 2.x client
-  entry. The 2.x index also carries dense vectors (written by the 2.x helper from
-  synthetic numbers), which the upgraded server must find current, keep byte for
-  byte through a rebuild, and search. 56 checks; the container half is a written
-  scenario for CI.
+  create what five users have — the defaults, `AI_DEV_HOME` set, the Docker image's
+  `/data` layout, the Python dense backend and the Codex runtime — a task with a
+  checkpoint, a decision, an instinct, a session handoff, the search index, Claude
+  hooks in a repository and client configurations from both 2.x installers, then
+  upgrades the checkout to the working tree with plain `npm ci` and starts the server
+  through the 2.x client entry. The 2.x index also carries dense vectors (written by
+  the 2.x helper from synthetic numbers), which the upgraded server must find current,
+  keep byte for byte through a rebuild, and search. For each user `clients install`
+  moves both installers' configs to one `ai-dev` entry with a backup, every written
+  command answers `initialize`, a second run changes nothing, and the re-installed
+  hook runs with no Node on `PATH`. 174 checks; the container half is
+  `npm run docker:upgrade-check` (above).
 
 - **The `ar-security-review` skill** (`docker/public-seed/03-skills-catalog/sources/custom/ar-security-review`).
   The workflow the tools above add up to: scan with `run_security_scan`, treat
@@ -312,9 +385,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Keys are read by physical position, so a Russian layout flies too.
   - The page follows the browser's language, English or Russian.
 
-  `search_cli.py galaxy-export` writes what the galaxy is drawn from, next to
-  the schema it reads. It folds a skill card into its skill by the same rule
-  search results use.
+  `src/core/galaxy-export.mjs` reads what the galaxy is drawn from out of the
+  search index, in the shape `src/core/galaxy.mjs` parses. It folds a skill card
+  into its skill by the same rule search results use.
 
   **Re-check after upgrading:**
   - The server now lists 135 tools. The new one is in the `memory` profile.
@@ -322,20 +395,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     modules.
 
 - **Dense search runs without Python** (`docs/DEFECTS.md`, Д-62). The local
-  BGE-M3 model now has a second backend behind the contract it always had —
-  text in, a normalized 1024-dimension vector out — and it is the default:
-  `@huggingface/transformers` over `onnxruntime-node`, both ordinary npm
-  dependencies. `npm run setup -- --dense` downloads a pinned, checksum-verified
-  ONNX export (about 600 MB) and dense search works; there is no virtualenv, no
-  `torch==2.14.0+cpu` from the PyTorch index and no 2.3 GB snapshot. The
-  model needs no Python packages; the vectors it computes are still written into
-  the index by the standard-library search helper, so Python 3 stays a
-  requirement until search moves to Node (`docs/DEFECTS.md`, Д-85).
-
-  The legacy Python path is unchanged and still there, as `--dense-python` or
-  `AI_DEV_DENSE_BACKEND=python`. `auto` — the default — prefers whichever model
-  is actually verified on disk, so an existing installation keeps using the
-  stack it already built until it chooses otherwise.
+  BGE-M3 model runs behind the contract it always had — text in, a normalized
+  1024-dimension vector out — on `@huggingface/transformers` over
+  `onnxruntime-node`, two pinned npm packages (optional ones, Д-174).
+  `npm run setup -- --model` downloads a pinned, checksum-verified ONNX export
+  (about 600 MB) and dense search works; there is no virtualenv, no
+  `torch==2.14.0+cpu` from the PyTorch index and no 2.3 GB snapshot, and Node
+  writes the vectors into the index (Д-85). It is the only backend: the Python
+  one is gone (see Removed).
 
   Inference runs on a `worker_thread`. `onnxruntime-node`'s binding declares
   itself "a simple synchronized inference session object wrap" and its `run()`
@@ -354,23 +421,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its downloader. Changing the quantisation is now a field in this file rather
   than a code change. After this, nothing in that branch is missing from `main`.
 
-- **`.github/workflows/dense-eval.yml`** (Д-62). Dispatch-only: downloads each
-  backend's model, builds the index with it, runs the golden cases and publishes
-  a comparison table. The weights come from hosts a development sandbox cannot
-  reach, so this is where the ONNX-against-Python numbers are taken.
+- **`.github/workflows/dense-eval.yml`** (Д-62). Dispatch-only: downloads the
+  pinned ONNX model, builds the index with it, runs the golden cases and publishes
+  a table of the results. The weights come from hosts a development sandbox cannot
+  reach, so this is where dense search is measured on the real model.
 
-- **Capability profiles.** The 133 tools are grouped into eight named slices —
-  `core`, `coding`, `memory`, `git`, `frontend`, `qa`, `security`, `advanced` —
+- **Capability profiles.** The 135 tools an agent sees are grouped into eight named
+  slices — `core`, `coding`, `memory`, `git`, `frontend`, `qa`, `security`, `advanced` —
   and `AI_DEV_PROFILES` narrows what `tools/list` advertises to the ones a
   session will use. `core` is always on and is added to whatever else is named;
   an unrecognised name is reported on stderr and ignored rather than taken as an
-  empty list. `AI_DEV_PROFILES=core` lists 25 tools instead of 133, about 15 KB
-  of schema in the model's context instead of 96 KB.
+  empty list. `AI_DEV_PROFILES=core` lists 25 tools instead of 135: 22,858 bytes
+  of schema in the model's context instead of 139,148.
 
   Narrowing affects the listing only: `tools/call` still accepts every tool by
   name, so a client that already knows a name keeps working and nothing becomes
-  unreachable. **Unset, every profile is on** — an existing installation behaves
-  exactly as it did before. A narrowed server says so on stderr at startup.
+  unreachable. **Unset, all eight are on**, unless profiles were chosen in the
+  settings (below) — an existing installation behaves exactly as it did before.
+  A narrowed server says so on stderr at startup.
 
   Every tool belongs to exactly one profile, and `render-tool-reference.mjs`
   fails — in CI as well — when a new tool belongs to none, the same way it
@@ -380,7 +448,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`npm run demo`.** One real task — "add authentication to the API" — run
   against the real server in a throwaway project: compiled context, three routed
   skills, a planted bug, a refused report, a failing quality gate, the fix, a
-  passing run, and the pull request text. About twenty seconds, no MCP client,
+  passing run, and the pull request text. Two to three seconds, no MCP client,
   and it deletes everything it made. `docs/DEMO.md` quotes its output.
 
 - **The model download refuses a disk it does not fit on** (`docs/DEFECTS.md`,
@@ -515,6 +583,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   beside it. `connectDaemon` and `DaemonClientTransport` take the Node the daemon runs on
   (`execPath`), for a caller that is not that Node, and `start: false` to reach only a daemon that
   runs (`ENOTRUNNING` otherwise).
+- **`npm run docs:links`** (`ai-dev-mcp-server/scripts/doc-links.mjs`): every relative link and
+  `#anchor` in the documentation git tracks must name a tracked file and a heading GitHub would slug
+  that way; `-- --external` asks the web links too. CI runs it.
+- **A note for moving from 2.x** (`docs/MIGRATION.md`, `docs/ru/MIGRATION.md`): what changes for each
+  kind of 2.x install, what moves by itself, the one command each needs, what keeps working until
+  4.0, and the way back.
 
 ### Changed
 
@@ -599,7 +673,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the sessions, `setup`, `model status` and the control API alike (its `model.unreadable`,
   contract 1.2.0), with the advice its error calls for, and the vectors it made before are said
   as kept (Д-349, Д-350, Д-357 … Д-359, Д-361, Д-363 … Д-366, Д-369 … Д-371). The desktop app's
-  screens do not read that field yet (Д-367).
+  first-run wizard and Status screen read that field too: they say why the model cannot be read
+  and what to do, and offer no download over it (Д-367).
 - **Trying the shared state folder** tells a container that could not write it from a Docker that
   did not run the image — an engine that does not answer, an image not here, which the probe no
   longer pulls: then nothing was tried, and the install says to run it again once Docker runs
@@ -654,13 +729,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`bare_node_commands`), and running `install_agent_hooks` again rewrites them.
 - **The setup flag for the local model is `--model`**; `--dense`, and 2.x's `--dense-python`,
   still work as its names, and every hint that said `npm run setup -- --dense` says `--model`.
-- **The Docker installer writes through the same module as the CLI**: its flags and its
-  entries are unchanged, it now also removes an `ai-dev-system` entry, and a failed client
-  makes the run `partial` with exit 1 instead of stopping it.
-- **`upgrade:test` covers 2.x client configs and hooks**: for each of its four 2.x users,
-  `clients install` moves both installers' configs to one `ai-dev` entry with a backup,
-  every written command answers `initialize`, a second run changes nothing, and the
-  re-installed hook runs with no Node on `PATH` — 122 checks (was 88).
 
 - **The bundled skill catalogue keeps the skills for coding and for working with
   models, and nothing else.** Membrane's 3,074 application connectors are cut to the
@@ -713,12 +781,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   one onnxruntime-node (1.30.0), and no `sharp` override — `npm ls sharp` shows
   the 0.35.4 it pinned without it.
 
-- **`bootstrap.sh --install-prerequisites` installs the Docker engine alone**
-  (Д-92): `docker.io` with apt, `moby-engine` with dnf, `docker` with pacman
-  (`-Syu`). It used to add a compose package — `docker-compose-plugin`, which
-  Ubuntu does not have — although bootstrap never uses compose. Root needs no
-  sudo now.
-
 - **`npm run setup -- --frontend-qa` installs the lockfile and Chromium, and
   passes only when the browser launches** (Д-93). The pnpm the runner pins
   installs exactly `pnpm-lock.yaml` (fetched through `npm exec`; no pnpm on the
@@ -738,30 +800,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backends silently mixed two vector spaces in one ranking. An index written
   before this cannot say what produced it, so it is re-embedded once.
 
-- **`INSTALL_BGE_M3` no longer decides whether a container can search densely**
-  (Д-62). The ONNX runtime is a normal dependency and is in every image, so the
-  default image runs dense search from mounted weights with no Python at all.
-  The build argument goes back to meaning what it says: whether the legacy torch
-  stack is present. Image size grows by about 378 MB for the runtime and the
-  library.
-
 - **One model mount point for the container** (Д-62). `AI_DEV_MODEL_PATH` is now
   the folder *above* the models — `~/.ai-dev/models` — bound at `/models`, with
-  `bge-m3-onnx/` and `bge-m3/` under it, instead of one model's directory bound
-  at `/models/bge-m3`. Both launcher scripts, the Compose example and both
-  INSTALL guides say the same thing. **Existing setups must update the
-  variable**: pointing it at `…/models/bge-m3` now mounts that directory as the
-  whole model folder and neither backend will find its files.
-
-- **The legacy model download takes a revision** (Д-62, point 1).
-  `snapshot_download("BAAI/bge-m3")` ran unpinned, so upstream could change what
-  an install received. `BGE_M3_PYTHON_REVISION` now pins it, and an index built
-  without one records its vectors as coming from an unpinned download rather
-  than implying a pin that is not there.
+  `bge-m3-onnx/` under it, instead of one model's directory bound at
+  `/models/bge-m3`. The client entries `ai-dev clients install --docker --model`
+  writes, both bootstraps' `--model-path`, the 2.x launchers, the Compose example
+  and both INSTALL guides say the same thing. **Existing setups must update the
+  variable**: a value that names the model's own folder is refused with
+  directions (Д-68).
 
 - **The README leads with what the system is for.** It had grown to 871 lines and
   opened with a release summary and an inventory; a reader could not tell in the
-  first minute which problem the project solves. It is now 181 lines: the problem,
+  first minute which problem the project solves. It is now about 200 lines: the problem,
   one task end to end, install, a first task, the eight profiles, how it works,
   and links. The reference material it carried moved, unchanged, into `docs/` —
   `INSTALL.md`, `WORKFLOW.md`, `GUARDRAILS.md`, `CAPABILITIES.md`, `DEMO.md` —
@@ -805,6 +855,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call `eval` and `new Function`) and holds its code to the 800-line ceiling; the security gate
   looks for keys in it and holds its
   dependencies to exact versions with an integrity hash in its lockfile.
+- **The install guides follow the three paths.** `README.md`, `README.ru.md` and `docs/INSTALL.md`
+  (with `docs/ru/INSTALL.md`) start from the Windows installer, `npx @stonebridgeway/ai-dev-system`
+  and Docker, then a clone for working on AI Dev; what 3.0 removed is gone from them, and the 2.x
+  ways are in the migration note (Д-376). The guides to guardrails, capabilities, the demo, the
+  galaxy, recovery and security, the server's README and the architecture describe 3.0 (Д-377), and
+  `AGENTS.md` and `CONTRIBUTING.md` name where the code lives now — `bin/`, `src/cli/`, `desktop/`,
+  the distribution — and how branches flow (Д-378).
+- **One manual acceptance plan** (`docs/TEST-PLAN.ru.md`): three systems, about 40 minutes each,
+  along the paths a person takes; it replaces the four plans written for 2.1.0 and `RETEST.ru.md`.
 
 ### Deprecated
 
@@ -814,8 +873,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   themselves — and say on stderr what replaced them. An installed `ClaudeMcpProxy.exe` is the one
   2.x compiled: it keeps answering `initialize` itself, without the server's instructions or a
   warning, until `bootstrap.ps1` rewrites Claude's config to `docker run`; `docker/ClaudeMcpProxy.cs`
-  is a byte pipe now, for whoever builds it (Д-327). `bootstrap.sh --install-prerequisites` is
-  accepted and says that bootstrap no longer installs Docker.
+  is a byte pipe now, for whoever builds it (Д-327).
 
 - **`node scripts/ai-dev.mjs`, `scripts/start-local.ps1` and
   `scripts/install-local-mcp-clients.mjs`** are `ai-dev`, `ai-dev mcp` and
@@ -839,11 +897,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`scripts/install-docker-mcp-clients.mjs`**: `ai-dev clients install --docker` writes the
   clients' Docker entries. **The long-lived runtime container** `ai-dev-system-runtime-<uid>`
   and the launchers' `docker exec` path into it, and **the compilation of the Windows proxy** by
-  bootstrap, with the handshake of its source (see Deprecated). **Python 3, Playwright and Chromium in
+  bootstrap, with the handshake of its source (see Deprecated). **Installing Docker from
+  bootstrap**: `bootstrap.sh --install-prerequisites` is accepted and only says that bootstrap no
+  longer installs Docker, and where to get it (Д-92). **Python 3, Playwright and Chromium in
   the default image** (Chromium is in `-browser`), and `BGE_M3_ONNX_DIR` in its environment,
   which hid a model installed into the volume.
 
-- **The Python dense backend** (decision D3; `docs/DEFECTS.md`, Д-98): `embeddings/`
+- **The Python dense backend** (decision D3; `docs/DEFECTS.md`, Д-62, Д-98): `embeddings/`
   (`bge_m3_embed.py`, `bge_m3_worker.py`, `requirements-bge-m3.txt`), the worker pool in
   `src/core/embedding-workers.mjs`, the image's `INSTALL_BGE_M3` stack, its
   `AI_DEV_DENSE_INSTALLED` and `BGE_M3_MODEL_DIR`, `python3-venv`, the Python job of
@@ -852,20 +912,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `AI_DEV_EMBEDDINGS_PYTHON`, `AI_DEV_PYTHON_BASE`, `BGE_M3_PYTHON_REVISION`,
   `BGE_M3_MODEL_DIR` and a `models/bge-m3` folder of torch weights are each named by the
   health check, `npm run setup` and `dense:doctor`, with the one command that moves an
-  install over: `npm run setup -- --dense`. It installs the ONNX model and embeds the
+  install over: `npm run setup -- --model`. It installs the ONNX model and embeds the
   documents again; the Python vectors are another model's, so hybrid search no longer
   compares them with ONNX questions, and this run replaces them while the rest of the index
-  stays. `--dense-python` still works as a name for `--dense`, with a note, and a Docker
-  build with `INSTALL_BGE_M3=1` says what replaced it.
+  stays. `--dense-python` still works as a name for `--model`, with a note. A Docker build
+  with `--build-arg INSTALL_BGE_M3=1` still builds, and prints that the argument is no longer
+  used and what replaced it: the model put into the data volume once with
+  `docker run … <image> ai-dev model install`, or a host folder holding `bge-m3-onnx/`
+  mounted at `/models` (`bootstrap.sh --model-path`). The argument stays declared for that
+  until 4.0 (Д-375).
 - **The Python search helper** — `search-index/search_cli.py`, its `unittest` suite
   (`test_search_freshness.py`, now `src/core/search-freshness.test.mjs`) and
   `npm run test:search-helper` — and with them the Docker image's
   `/opt/ai-dev/search-index` and its link in the `/data` volume, which nothing reads any
   more. A 2.x volume keeps a dangling `09-mcp/search-index` link, which the index skips.
-  `AI_DEV_SEARCH_ENGINE`, the way back to the helper that the previous phase added, never
-  shipped and is gone too. `scripts/run-acceptance.ps1` no longer runs Python tests, and the
-  unpublished AUR and Homebrew recipes no longer install the folder (`npm run packaging:check`
-  now fails on a path either recipe names that the repository does not have).
+  `scripts/run-acceptance.ps1` no longer runs Python tests.
 
 - **`~/.codex` is no longer read** (`docs/DEFECTS.md`, Д-104). 2.x used
   `~/.codex/state/ai-dev-system`, its index, models and artifacts whenever they existed and
@@ -874,6 +935,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   start — nothing overwritten, identical files dropped, ledgers merged, conflicts named by
   `ai-dev doctor` — with a record in `state/runtime-home-migration.json`; the rest of `~/.codex`
   is Codex's own and stays.
+- **The Homebrew formula and the AUR package** (`packaging/`; decision D8). Neither was ever
+  published, and the formula still pointed at `v1.0.0`. `npm run packaging:check` now checks what
+  the install guides and the bootstrap scripts promise each other.
 
 ### Fixed
 
@@ -897,8 +961,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   empty `mcp.json` or a comment in Gemini's `settings.json` ended the run with a stack trace,
   some clients written and some not; a `[mcp_servers.ai-dev.env]` subtable or a quoted
   `[mcp_servers."ai-dev"]` header left a second definition, and a TOML reader then refused
-  the whole file. Now the empty and the JSONC file are written (the comment kept), a broken
-  file fails only its own client, and the Codex result parses.
+  the whole file. `ai-dev clients install --docker`, which replaces it, writes the empty and the
+  JSONC file (the comment kept), fails a broken file only for its own client, and leaves a Codex
+  file that parses.
 - **An interrupted client install could leave `~/.claude.json` empty** (Д-163). Both
   installers rewrote the file in place; killed during the write, a 21 MB `~/.claude.json`
   was left at 0 bytes in 10 of 10 runs. Writes go through a temp file and a rename now — 0 of
@@ -978,11 +1043,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`npm run model -- remove` acts only on a folder it recognises as the model's** (Д-153);
   a lock it cannot create says why (Д-154); zips written with `\` between folders import
   (Д-155); `install` and `import` exit 1 when the model is not whole (Д-156).
-- **Inside a container the health check gives the mount, not `npm run setup`** (Д-157).
 - **The Docker launchers no longer take `bge-m3/` for a model** (Д-158): `run-mcp.sh`,
-  `run-mcp.ps1`, both bootstraps and `ClaudeMcpProxy` recognise `bge-m3-onnx/` only and name
-  a lone `bge-m3/` as the removed Python backend's weights. After Ctrl-C, `setup` says it
-  stopped instead of running the health check and calling it a failure.
+  `run-mcp.ps1` and `ClaudeMcpProxy` recognise `bge-m3-onnx/` only and name a lone `bge-m3/`
+  as the removed Python backend's weights, and both bootstraps look for `bge-m3-onnx/` only.
+  After Ctrl-C, `setup` says it stopped instead of running the health check and calling it a
+  failure.
 
 - **Writers of the search index no longer wait each other out or stop the server**
   (`docs/DEFECTS.md`, Д-120 … Д-122, found by the review of the Node index). A rebuild lock
@@ -1012,7 +1077,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SKILL.md` files and the folders above them and rebuilds it before reading it, and the
   search index asks for that before its status and rebuild; setup rebuilds an out-of-date
   registry and everything built from it; a subgroup that lost its skills loses its
-  generated note. `npm run upgrade:test` checks it: 62 of 62.
+  generated note. `npm run upgrade:test` checks it.
 
 - **A damaged search index no longer stops search for good** (docs/DEFECTS.md, Д-116).
   A file that is not a database was the answer to every `status` and `rebuild`
@@ -1027,7 +1092,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "frontend AND backend testing" was an FTS5 syntax error, found nothing by keyword, and
   left hybrid search ranking by its semantic half alone (keyword score 0 for all ten
   results; now 7 of 10 score on keywords).
-- **`embed_texts` embeds through the backend the server selected** (Д-133). It always
+- **`embed_texts` embeds through the ONNX model search uses** (Д-133). It always
   called the legacy Python worker pool, so with the ONNX model installed and no legacy
   virtualenv it refused with "BGE-M3 Python runtime not found"; with no model at all it
   now answers with the command that installs one, as hybrid search and the rebuild do.
@@ -1035,8 +1100,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   an interpreter that is not there** (the Python part of Д-98). `rebuild_search_index`
   with `dense_embeddings` handed the write to `embeddings/.venv/bin/python` whenever the
   ONNX export was missing — "spawn …/.venv/bin/python ENOENT"; it now answers "Dense
-  search is not installed. Run `npm run setup -- --dense` …" and leaves the index as it
-  was. The manager that downloads and resumes the model is the next phase.
+  search is not installed: the model is not on this machine. Run
+  `npm run setup -- --model` …" and leaves the index as it was.
 - **What the second review of the Node index found is fixed** (`docs/DEFECTS.md`, Д-127 … Д-132).
   A refresh that both changed a note and added one fell back to rewriting the whole index (7 of
   8 trials; 731 ms instead of 60 ms on the seed) — changed documents now go back to their rowids
@@ -1063,10 +1128,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Claude on Windows with Docker gets dense search** (Д-88). `ClaudeMcpProxy.cs`
   mounted the model folder at `/models/bge-m3`, one level below where the image
-  looks; it now mounts `/models` like the other four launchers and refuses the
-  pre-2.1 value of `AI_DEV_MODEL_PATH`. A contract test holds all five copies to
-  the Dockerfile. **Re-check after upgrading:** run `bootstrap.ps1` again so the
-  proxy is rebuilt.
+  looks. `bootstrap.ps1` now writes Claude's entry as a `docker run` that mounts a
+  named model folder at `/models`, as every client's entry does; the proxy's source,
+  kept for whoever builds it, mounts `/models` too and refuses 2.0.0's value of
+  `AI_DEV_MODEL_PATH`, and a contract test holds every copy to the folder the server
+  looks in. **Re-check after upgrading:** run `bootstrap.ps1` again so Claude's config
+  runs `docker run`; the `ClaudeMcpProxy.exe` 2.x compiled keeps the old mount.
 
 - **Membrane connectors stay out of unrelated results in the bundled seed too**
   (Д-91). The filters tested the vault's path, and the seed keeps the catalogue
@@ -1087,25 +1154,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   600 of 600 in ten runs out of ten, and `kill -9` mid-run leaves no broken line.
 
 - **The documentation says what a measurement says** (`docs/DEFECTS.md`, Д-100).
-  - README, INSTALL (EN and RU): Python 3 — the standard library only — is
-    required for search until it moves to Node; without it `npm run setup`
-    fails at the search index.
   - Clients are connected with `npm run clients:install`, which README and
     INSTALL never mentioned, instead of editing JSON by hand (on Windows it
-    needed `AI_DEV_PYTHON=python` until Д-94 was fixed). INSTALL gains the local
-    configuration for Codex and Claude Desktop, which the installer does not
-    cover yet.
-  - `npm run daemon` is marked experimental: no client can connect to it yet
-    (Д-97).
+    needed `AI_DEV_PYTHON=python` until Д-94 was fixed).
   - Schema sizes are the bytes of the `tools/list` result, with the command that
-    measures them: 22,847 for `core`, 32,726 for `core,git`, 139,134 for all 135
-    tools. The pages said 15, 23 and 98 KB.
-  - The README counts 9 tools in `security` and 3,228 skills.
+    measures them: 22,858 for `core`, 32,737 for `core,git`, 139,148 for all 135
+    tools. The pages said 15, 23 and 98 KB, and the README promised about 15 KB
+    for `core,git`, the figure for `core` alone (Д-82).
+  - The README counts 9 tools in `security` and 614 skills.
   - The server README no longer documents `AI_DEV_RUNTIME_CONFIG`, which nothing
     reads, and describes `--dense` as the ONNX export it is, not a 2.3 GB Python
     install.
-  - The test plans no longer list the closed Д-74 and Д-81 as open, and point at
-    `napi-v6`.
 
   **Re-check after upgrading:** nothing to do. The defect registry now carries
   Д-85 … Д-108 and Д-110, each with a measurement or, where this sandbox cannot
@@ -1121,28 +1180,12 @@ Nine of these came from the acceptance runs of 2026-09-15/16 on three real
 machines — macOS 15.2 on Apple Silicon, Windows 11 Pro x64, Arch Linux — and
 four of those arrived as upstream issues #63–#66.
 
-- **The README's context-budget figure for `core,git`** (`docs/DEFECTS.md`,
-  Д-82). It promised about 15 KB of schema. That is the figure for `core` alone:
-  `core,git` measures 23 KB. `docs/CAPABILITIES.md` said 22 KB and now also says
-  23, re-measured with every other row of its table.
-
 - **A fresh macOS builds its search index.** `pythonCommand()` fell back to bare
   `python`, which modern macOS does not have; a clean install ended at
   `spawn python ENOENT`, `npm run setup` reported a failed step and
   `npm run doctor` said `fail` on a machine where nothing was wrong. It is
   `python3` off Windows now, the same choice `install-local-mcp-clients.mjs`
-  already made (Д-72).
-- **The pin for the legacy model download had nowhere to go** (Д-62, point 1).
-  `dense-eval.yml` printed the current `BAAI/bge-m3` commit and told the owner
-  to set `BGE_M3_PYTHON_REVISION` to it; the cache key read that variable from
-  the `env` context, and nothing in the workflow ever defined it. A repository
-  variable would not have arrived there either — those are read through `vars` —
-  so the value could be written down and still never reach
-  `snapshot_download`, and every run scored whatever upstream held that day
-  without saying so. The legacy job now defines the pin from
-  `inputs.python_revision || vars.BGE_M3_PYTHON_REVISION`, and the reporting
-  step says which of the three a run was: pinned and current, pinned and
-  drifted, or not pinned at all.
+  already made (Д-72), and the index itself needs no Python any more (Д-85).
 
 - **A stalled download is given up on, and an abandoned one is swept.** `fetch`
   has no timeout of its own: on Windows a CDN sent 510 MB of 542 and then went
@@ -1172,8 +1215,10 @@ four of those arrived as upstream issues #63–#66.
 - **A failed setup no longer ends with `Health: ok`.** That check describes the
   vault, not the run that just failed, and it was the last line the reader saw
   (Д-78).
-- **The fast-start handshake reports the real version**, not `1.0.0`, and a
-  contract test now holds both launchers to `package.json` (Д-79, #65).
+- **A Docker client is told the real version**, not `1.0.0`: the 2.x launchers
+  answered `initialize` themselves with a version of their own, and the server
+  answers its own handshake now; a contract test holds every launcher to
+  answering none itself (Д-79, #65).
 - **The `--dense` step describes what it downloads** — about 600 MB of
   checksum-verified ONNX weights, no Python — rather than the legacy stack's
   Python environment and 2.3 GB (Д-80).
@@ -1181,12 +1226,12 @@ four of those arrived as upstream issues #63–#66.
 - **`dense-eval`'s `max_cases` input reaches the measurement.** The workflow offered a
   case count per backend and nothing passed it on: `dense-benchmark.mjs` read only
   `--out` and `--label` and called `run_search_eval` with a literal 50, so a dispatch
-  asking for 20 scored all 45 golden cases and said nothing about it. Both jobs now hand
+  asking for 20 scored all 45 golden cases and said nothing about it. The workflow now hands
   the input to the benchmark, the report records the count it was given, and a dispatch
   that names no count still scores the default (Д-62). The same report's index size was
   always absent — it read `document_count`, which `search_index_status` does not have —
   and now carries the real number.
-- **The launchers recognise the pre-2.1 value of `AI_DEV_MODEL_PATH`.** The variable
+- **The launchers recognise the 2.0.0 value of `AI_DEV_MODEL_PATH`.** The variable
   now names the folder above the models; a folder that holds model files itself was
   mounted one level too deep and dense search reported "not set up" to a user who had
   followed the previous instructions. `docker/run-mcp.sh` and `run-mcp.ps1` stop with
@@ -1196,9 +1241,8 @@ four of those arrived as upstream issues #63–#66.
   runtime never mounted `/models`, and the client configurations never carried
   `AI_DEV_MODEL_PATH`, so on the path `bootstrap.sh` sets up the weights had nowhere to
   go. `bootstrap.sh --model-path` / `bootstrap.ps1 -ModelPath` (default:
-  `AI_DEV_MODEL_PATH`) mount the folder read-only into the runtime and write the
-  variable into every client configuration; `--plan` gains `model_path` only when one
-  was given (Д-69).
+  `AI_DEV_MODEL_PATH`) put the folder, read-only at `/models`, into every client's
+  `docker run` entry; `--plan` gains `model_path` only when one was given (Д-69).
 - **A correct fresh install passes its own health check.** A new volume came up
   `degraded` for two reasons that had nothing to do with the install. The skill
   quality report is written only by `validate_skill_library` with
@@ -1224,14 +1268,14 @@ four of those arrived as upstream issues #63–#66.
   The report names the gap it found, so having cargo without cargo-audit reads
   as the different fix it is (Д-64).
 
-- **The installer takes its smoke check's temporary directory with it.** The
-  fast-start smoke waits on a launcher that can hang for as long as the user
-  lets it, and its directory was removed by an explicit `rm -rf` in each branch
-  that leaves. Terminated anywhere between the `mktemp -d` and one of those — a
-  closed terminal, a `kill` — `bootstrap.sh` left an `ai-dev-smoke.*` directory
-  in `/tmp`. A trap on EXIT, INT and TERM now covers every way out. `--plan` and
-  the 69/70 exit codes are unchanged. `bootstrap.ps1` needs nothing: its smoke
-  keeps the answer in a variable and creates no directory (Д-65).
+- **The installer leaves no smoke-check directory in `/tmp`.** The fast-start
+  smoke waited on a launcher that could hang for as long as the user let it, and
+  its directory was removed by an explicit `rm -rf` in each branch that left.
+  Terminated anywhere between the `mktemp -d` and one of those — a closed
+  terminal, a `kill` — `bootstrap.sh` left an `ai-dev-smoke.*` directory in
+  `/tmp`. The smoke check now sends the handshake to the image through
+  `docker run` and creates no directory, in either bootstrap. `--plan` and the
+  69/70 exit codes are unchanged (Д-65).
 
 - **The README links the taste-skill repository that exists.** Both READMEs
   pointed at `tt-a1i/taste-skill`, which `git ls-remote` does not find;
@@ -1271,24 +1315,21 @@ four of those arrived as upstream issues #63–#66.
   answering the same fourteen layouts in the tests (Д-48).
 
 - **A fresh clone finishes its install instead of failing the smoke check.**
-  `bootstrap.sh`, `docker/run-mcp.sh`, `docker/entrypoint.sh` and
-  `packaging/launcher.sh` were committed as `100644`, and the fast-start smoke
-  check executed the launcher directly: `Permission denied`, reported as
-  "Fast-start MCP stdio smoke check failed", exit 70, with the smoke check
-  blameless. The four files now carry the execute bit, and the launcher is
-  invoked through `sh` so a zip download of the repository — which always drops
-  the bit — installs too. The check also captures the launcher's own exit
-  status rather than letting `| grep -q` discard it, so "the launcher never ran"
-  and "the server answered without `serverInfo`" no longer share one message
-  (Д-58, upstream #51).
+  `bootstrap.sh`, `docker/run-mcp.sh` and `docker/entrypoint.sh` were committed
+  as `100644`, and the fast-start smoke check executed the launcher directly:
+  `Permission denied`, reported as "Fast-start MCP stdio smoke check failed",
+  exit 70, with the smoke check blameless. The three files now carry the execute
+  bit, and the smoke check runs no file of the clone — it sends the handshake to
+  the image through `docker run` — so a zip download of the repository, which
+  always drops the bit, installs too (Д-58, upstream #51).
 
 - **A failed `docker pull` no longer installs whatever was in the cache.**
   Bootstrap printed one line to stderr and carried on with the stale local
-  image; since the fast-start container runs with `--restart unless-stopped`,
+  image; since the fast-start container ran with `--restart unless-stopped`,
   that copy then survived reboots, and users who asked for `latest` reported
   defects already fixed. It now stops with exit 69 and prints when the cached
   copy was created and its digest. `--allow-stale-image` (`-AllowStaleImage` on
-  Windows) installs it anyway, repeating the warning after the "ready" line so
+  Windows) installs it anyway, repeating the warning at the end of the run so
   the choice stays visible. A locally built image, which has no `RepoDigests`,
   reports the digest as absent instead of aborting (Д-60, upstream #53).
 
@@ -1298,13 +1339,13 @@ four of those arrived as upstream issues #63–#66.
   neither, four critical checks failed, every search tool answered with a
   refusal until somebody called `rebuild_search_index` by hand, and the first
   thing a new user saw on a correct install was `Health: fail`. Both paths now
-  run the same three steps from the same module
-  (`scripts/first-run-steps.mjs`), idempotently and without the network: about
-  ten seconds on the first container start, nothing on the second. The
+  run the same required steps from the same module
+  (`scripts/first-run-steps.mjs`), idempotently and without the network, and the
+  image is built with them done, so a new volume builds nothing (see Changed). The
   container writes its dashboard note before the index rather than after it,
   which had left the index stale the moment the entrypoint finished. Measured
-  on an emulated volume: `fail` with 5 failing checks before, `degraded` with 0
-  after.
+  on an emulated volume: `fail` with 5 failing checks before, none failing after,
+  and `ok` once Д-63 (above) was fixed too.
 
   Two of the notes the check expects were genuinely absent from the image and
   one could never be there. A volume seeded from `docker/public-seed` is now
@@ -1315,35 +1356,32 @@ four of those arrived as upstream issues #63–#66.
   looks for the other three.
 
 - **Missing BGE-M3 weights are no longer a critical failure, and the advice
-  now fits where it is read** (upstream #52). The search index was one of the
-  embedding backend's requirements, so on a fresh container one missing
+  now fits where it is read** (upstream #52, Д-157). The search index was one of
+  the embedding backend's requirements, so on a fresh container one missing
   artefact was counted as two critical failures and the soft "dense is not set
   up" tipped into `fail`. The index has its own critical check and the backend
-  no longer claims it. The published image is built with `INSTALL_BGE_M3=0` and
-  now says so through `AI_DEV_DENSE_INSTALLED`, so the health check tells a
-  container to mount the weights (`AI_DEV_MODEL_PATH`, or an image variant
-  built with `--build-arg INSTALL_BGE_M3=1`) instead of sending it to a
-  `npm run setup -- --dense` it cannot run. A dense stack that is installed and
-  unweighted is now a warning rather than a skip: set up and unfinished is not
-  the same as never asked for.
+  no longer claims it; a model that is not there is `skipped`. Inside a
+  container the health check gives the command that installs the model into
+  the data volume, or the mount (`AI_DEV_MODEL_PATH`), instead of sending it to
+  a `npm run setup -- --dense` it cannot run.
 
-- **Frontend QA works inside the image, and a runner that cannot start says
-  so** (upstream #49). The QA runner imports two server modules by the relative
-  path they have in a checkout; in the image the server is at
+- **Frontend QA works inside the `-browser` image, and a runner that cannot
+  start says so** (upstream #49). The QA runner imports two server modules by
+  the relative path they have in a checkout; in the 2.x image the server was at
   `/opt/ai-dev/app` and that path resolved nowhere, so the runner died on its
   first import — with Playwright and Chromium installed and unreachable. The
-  Dockerfile now symlinks `/opt/ai-dev/ai-dev-mcp-server` onto the application.
+  server now lives at `/opt/ai-dev/ai-dev-mcp-server`, beside the runner as in
+  a checkout, and the browser is in the `-browser` variant (see Changed).
   The probe behind the health check took the first line of the failure, which
   for a module-resolution error is the frame Node threw from
   (`node:internal/modules/esm/resolve:275`) and never the reason; it now reads
   the reason out of the whole output and tells a dependency nobody installed
   (still optional, still `skipped`) from a file this install does not carry
-  (`fail`, naming the file). The context audit walks `runtime/` as well as
-  `app/`, through the one path correspondence the Dockerfile creates, so an
-  import the allowlist drops is caught before an image is built rather than
-  after it is published. `docker-smoke.mjs` runs `system_health_check` inside
-  the built image and fails on a failing check or on a runner that did not
-  start.
+  (`fail`, naming the file). The context audit checks that every module the
+  distribution imports is in it, so an import the allowlist drops is caught
+  before an image is built rather than after it is published.
+  `docker-smoke.mjs` runs `system_health_check` inside the built image and fails
+  on a failing check, or on a `-browser` runner that did not start.
 
 - **The runtime distribution manifest describes the platform it is on, not
   Windows.** `prepare_runtime_distribution` expected a PowerShell launcher and
@@ -1360,12 +1398,11 @@ four of those arrived as upstream issues #63–#66.
   reason instead of missing, so readiness counts only what applies. The rendered
   `Runtime Distribution.md` no longer names PowerShell where there is none.
   `scripts/ai-dev.mjs acceptance` runs the cross-platform runner that
-  `npm run acceptance` already used instead of `powershell.exe`, and `backup`
-  off Windows says it is unavailable and why rather than spawning an interpreter
-  that is not there. Measured on Linux and against an emulated image:
-  `prepared=false ready_local=false` with three missing files in a checkout and
-  four in the image, now `prepared=true ready_local=true missing_files=[]` in
-  both. Upstream #54, `docs/DEFECTS.md` Д-61.
+  `npm run acceptance` already used instead of `powershell.exe`. Measured on
+  Linux and against an emulated image: `prepared=false ready_local=false` with
+  three missing files in a checkout and four in the image, now
+  `prepared=true ready_local=true missing_files=[]` in both. Upstream #54,
+  `docs/DEFECTS.md` Д-61.
 
 - **A failed quality gate now says why, not only that it failed.** A project
   whose `npm test` is `node --test test/` fails on Node 21 and later for a
@@ -1393,8 +1430,9 @@ four of those arrived as upstream issues #63–#66.
   scanner could run. The image now carries `gitleaks` — the only one of the six
   that works with no network — pinned by digest for amd64 and arm64, and
   `system_health_check` gained a non-critical `security_scanners` check that
-  warns when the machine has none of them. `docker/README.md` and both INSTALL
-  guides carry the matrix of what can actually run under `--network none`.
+  warns when the machine has none of them. `docker/README.md` carries the matrix
+  of what can actually run under `--network none`, and both INSTALL guides point
+  to it.
   (upstream #48, docs/DEFECTS.md Д-55)
 
 - **`npx` from the package's tarball failed on Linux x64, silently** (Д-174). onnxruntime-node's
@@ -1577,6 +1615,55 @@ four of those arrived as upstream issues #63–#66.
   FIFO, `schema_version` read and written alike, Ctrl-C during the Frontend QA check reported as a
   stop, the spelling of a variable Node passes on read on Windows, and the daemon transport's
   default profiles taken from the settings.
+- **A repository AI Dev has not seen yet is told where its checks come from** (Д-380). README's
+  first task on a new repository stopped at `verify_task`: the project had no
+  `.ai-dev/quality-gate.md`, the check came back `unavailable` with "Quality gate file not found"
+  and nothing more, and `complete_task` refused. Only the routed `ai-dev-orchestrator` skill said
+  that `prepare_project` writes one. Now `begin_task` lists the missing gate among the context's
+  unknowns, and the refusal — from `run_quality_gate` or inside `verify_task`, kept in the
+  verification's record — names `prepare_project` as the next step; with it the first task runs
+  to `complete_task` in a clean container.
+- **`ai-dev daemon stop` no longer calls a daemon that has exited "still running"** (Д-234). A
+  daemon that exited while the program that started it kept its own event loop busy is a zombie
+  until that program collects it, and `kill(pid, 0)` answers for a zombie as for a live process: a
+  program that ran `stop` synchronously got "did not stop: it is still running" and exit 1 for a
+  daemon gone 6 ms after the request. A process in state `Z` — `/proc` on Linux, `ps` on macOS — is
+  exited now: the same `stop` says "Stopped" in 129 ms, exit 0. Where neither can tell, the message
+  says the process is still there, running or not yet collected.
+- **A `block` rule of `.ai-dev/policy.json` blocks on a busy machine too** (Д-239). Its pattern is
+  matched in a worker thread under a 250 ms budget, and the budget's timer started before the thread
+  did, so a thread that was slow to start was charged to the first rule: on four cores with sixteen
+  busy loops, 17 of 30 `./deploy-prod.sh` went through, with "matching its pattern took longer than
+  250 ms. Fix the pattern…". Starting the thread now has an allowance of its own (3 s) and the
+  budget counts the matching alone: 30 of 30 blocked under sixteen busy loops and under 32. A rule
+  the thread never reached is reported as not run (`not_run`) — the guard says the machine was too
+  busy to check it, and `upsert_policy_rule` refuses to store a pattern it could not try — never as
+  a pattern that took too long. Both copies, `src/core/regex-budget.mjs` and `hooks/lib.mjs`.
+- **The static gate reads what the code does, not how it is spelled** (Д-267). It looked for the
+  usual spellings of `exec`, `shell: true` and `eval`, and every equivalent passed:
+  `import * as cp` with `cp.exec(…)`, a default import, `execSync`, `{ "shell": true }`,
+  `{ shell: "/bin/sh" }`, `globalThis["ev" + "al"](…)`. `src/core/forbidden-calls.mjs` reads the
+  source as tokens and asks the rules of them, in the server and in `desktop/`: the six spellings
+  appended to a server file and a desktop file give twelve findings, where the gate passed them.
+- **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
+  account could not read — rights, a link to a disk not connected, a share — was "not installed",
+  and the wizard offered to download the model over it. Status and the wizard now say it cannot be
+  read, with the reason (`EACCES`, a folder that is a file, a loop of links, a share), what to fix,
+  and **Check again**; nothing is downloaded over it.
+- **A host model folder whose `bge-m3-onnx` is a link works in Docker** (Д-368). Docker resolves a
+  bind mount's source on the host, so a link that pointed at another disk was mounted as the folder
+  that held it, and the link inside led nowhere: the model was "not installed". A 3.0 entry mounts
+  the link itself at `/models/bge-m3-onnx`, which Docker follows on the host — measured: "Installed:
+  yes, every file matches the manifest." `bootstrap.sh` refuses a link that leads nowhere (exit 64),
+  and the 2.x `run-mcp.sh` names it.
+- **`npm run demo` counts the skills it ran with and leaves your home alone** (Д-110, Д-374). It
+  printed a skill count written into the script, and the search index it built claimed the index of
+  the person's own `~/.ai-dev`; the count now comes from `list_skill_groups` (614), and the demo's
+  runtime home, state and index stay in the temporary folder it deletes.
+- **The tests pass with a temporary folder that is a link or a long path** (Д-258, Д-259, Д-373).
+  Four tests compared a resolved path with one built from `os.tmpdir()`, and the bridge test bound a
+  socket that a 112-byte `TMPDIR` cut short, so parallel runs collided (`EADDRINUSE` in 6 of 12):
+  the whole suite now passes with `TMPDIR` a link, and 12 parallel runs under a long one.
 
 ### Security
 
@@ -1586,11 +1673,10 @@ four of those arrived as upstream issues #63–#66.
   libvips/libheif advisories in `sharp` 0.34.5 — plus moderate ones in `hono` and
   `qs`. All four are transitive. `fast-uri` (3.1.8), `hono` (4.13.8) and `qs`
   (6.16.0) moved inside their parents' ranges, resolved with `--before` a week
-  back so a fix never lands on a release younger than that. `sharp` sits outside
-  `@huggingface/transformers` 3.7.5's `^0.34.1`, so it is pinned to 0.35.4 with
-  an `overrides` entry rather than taking transformers 4.x, a major with a
-  different pipeline API; the override comes off with the move to 4.x, which
-  asks for `sharp ^0.35.4` itself. After: `pass`, 0 findings.
+  back so a fix never lands on a release younger than that. `sharp` sat outside
+  `@huggingface/transformers` 3.7.5's `^0.34.1`; it is 0.35.4 now through
+  transformers 4.3.0, which asks for `sharp ^0.35.4` itself, with no override
+  (Д-87). After: `pass`, 0 findings.
 
 ## [2.0.0] - 2026-09-13
 
@@ -3122,5 +3208,6 @@ First tagged release.
   and `compact_context_interval`, each falling back to its default when the
   value is missing or not a positive number.
 
-[Unreleased]: https://github.com/stonebridgeway/ai-dev-system/compare/v1.0.0...HEAD
+[3.0.0]: https://github.com/stonebridgeway/ai-dev-system/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/stonebridgeway/ai-dev-system/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/stonebridgeway/ai-dev-system/releases/tag/v1.0.0

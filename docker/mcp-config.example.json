@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "ai-dev": {
-      "command": "docker",
+      "command": "/usr/local/bin/docker",
       "args": [
         "run",
         "-i",

@@ -77,11 +77,11 @@ test("Unix bootstrap keeps local source builds explicit, and --model-path shows 
 });
 
 // bootstrap.sh is run by sh, the entrypoint by the image, the 2.x launcher by
-// configs that name it, the packaged launcher by the installed command. All
-// were committed as 100644 once (docs/DEFECTS.md Д-58); the repository does
-// store the bit, so the mode is asserted rather than trusted.
+// configs that name it. All were committed as 100644 once (docs/DEFECTS.md
+// Д-58); the repository does store the bit, so the mode is asserted rather than
+// trusted.
 test("the shell scripts that get executed are committed as executable", async (context) => {
-  const executables = ["bootstrap.sh", "docker/run-mcp.sh", "docker/entrypoint.sh", "packaging/launcher.sh"];
+  const executables = ["bootstrap.sh", "docker/run-mcp.sh", "docker/entrypoint.sh"];
   const result = spawnSync("git", ["ls-files", "-s", "--", ...executables], { cwd: repositoryRoot, encoding: "utf8" });
   if (result.error?.code === "ENOENT") {
     context.skip("git is unavailable on this host");

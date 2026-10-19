@@ -46,17 +46,9 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: npm test -- src/core/public-distribution.test.mjs
 
-      - name: Validate package definitions
+      - name: Validate what the install pages and scripts promise
         working-directory: ai-dev-mcp-server
         run: npm run packaging:check
-
-      - name: Validate Arch package shell and metadata
-        run: |
-          bash -n packaging/arch/PKGBUILD
-          docker run --rm \
-            --volume "$PWD:/src:ro" \
-            archlinux:base \
-            bash -lc 'source /src/packaging/arch/PKGBUILD; test "$pkgname" = ai-dev-system-git; test "${#arch[@]}" -eq 2'
 
       - name: Prepare allowlisted Docker context
         working-directory: ai-dev-mcp-server
@@ -167,13 +159,7 @@ jobs:
         run: npm run unix:launcher-smoke
 
       - name: Validate portable shell scripts
-        run: sh -n bootstrap.sh docker/run-mcp.sh docker/entrypoint.sh packaging/launcher.sh
-
-      - name: Validate Homebrew formula syntax
-        if: runner.os == 'macOS'
-        run: |
-          ruby -c packaging/homebrew/ai-dev-system.rb
-          brew style packaging/homebrew/ai-dev-system.rb
+        run: sh -n bootstrap.sh docker/run-mcp.sh docker/entrypoint.sh
 
   publish:
     # The production repository only. A fork that works in its own main (this

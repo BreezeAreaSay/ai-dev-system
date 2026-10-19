@@ -12935,9 +12935,7 @@ bge-m3-onnx/ at /models (bootstrap.sh --model-path).
 
 ## Д-377. Документация понятий и архитектуры отстала от кода фаз 2–13
 
-**Статус:** открыт. Закроет фаза 14 (бриф, фаза 14, п. 1). Нашла разведка фазы 14 — сверка GUARDRAILS, WORKFLOW,
-CAPABILITIES (EN и RU), `ai-dev-mcp-server/docs/ARCHITECTURE.md`, README сервера, GALAXY, DEMO, RECOVERY, SECURITY с
-кодом; размеры `tools/list` по профилям воспроизведены байт в байт, демо и галактика прогнаны.
+**Статус:** закрыт фазой 14 (`c9f1191`, `8c7f022`), 2026-10-19. Закроет фаза 14 (бриф, фаза 14, п. 1). Нашла разведка фазы 14 — сверка GUARDRAILS, WORKFLOW, CAPABILITIES (EN и RU), `ai-dev-mcp-server/docs/ARCHITECTURE.md`, README сервера, GALAXY, DEMO, RECOVERY, SECURITY с кодом; размеры `tools/list` по профилям воспроизведены байт в байт, демо и галактика прогнаны.
 
 **Замер до** (`076403b`):
 
@@ -12975,11 +12973,31 @@ CAPABILITIES (EN и RU), `ai-dev-mcp-server/docs/ARCHITECTURE.md`, README сер
 **Как закроется.** Документы исправлены по коду (EN и RU зеркально), ARCHITECTURE получает разделы о CLI, демоне,
 управляющем API, модели, дистрибутиве, Docker, приложении и установщике; GALAXY и DEMO — по новым замерам.
 
+**Как закрыто.** Каждый пункт исправлен по коду, EN и RU зеркально: GUARDRAILS — `--network none` записей 3.0 и
+`AI_DEV_DOCKER_NETWORK` только для лаунчеров 2.x, что образ несёт и где состояние; CAPABILITIES — `profiles` из
+`~/.ai-dev/config.json`, без примера с `AI_DEV_PROJECT_PATH`; ARCHITECTURE переписан: 25 расширений, пять инструментов
+жизненного цикла, разделы о CLI, демоне, управляющем API, раскладках установки, доме и замках, миграциях, первом
+запуске, модели, конфигах клиентов, дистрибутиве, Docker, приложении и установщике, «без Python», бюджетах строк; README
+сервера — восемь промптов, модель в Docker через том или `/models`; GALAXY и DEMO — по новым замерам; RECOVERY — демон
+и приложение; оба SECURITY — 3.0.x и демон на сокете. Второе ревью документации (`2aff656`) сверило ARCHITECTURE с
+`collides()` и схемой.
+
+**Замер после** (`2aff656`):
+
+```
+GUARDRAILS:230  "AI_DEV_DOCKER_NETWORK=bridge does the same for the 2.x launchers … only; a 3.0 entry does not read it"
+CAPABILITIES:59 "profiles value in ~/.ai-dev/config.json";  AI_DEV_PROJECT_PATH в CAPABILITIES (EN/RU) — 0
+ARCHITECTURE: "## The CLI", "## The Daemon", "## The Control API Contract", "## Install Layouts", "## The Runtime Home",
+  "## Migrations", "## Setup And First Run", "## The Local Model", "## Client Configs", "## Distribution And The npm
+  Package", "## Docker", "## The Desktop App And The Windows Installer", "## No Python, And Backups", "## Line Budgets";
+  ls src/extensions/*.mjs без тестов → 25;  "The five sibling tools it drives" (:363)
+```
+
 ---
 
 ## Д-378. AGENTS.md и CONTRIBUTING.md описывают репозиторий до программы
 
-**Статус:** открыт. Закроет фаза 14 (бриф, фаза 14, п. 2). Нашла разведка фазы 14.
+**Статус:** закрыт фазой 14 (`c9f1191`, `8c7f022`), 2026-10-19. Закроет фаза 14 (бриф, фаза 14, п. 2). Нашла разведка фазы 14.
 
 **Замер до** (`076403b`):
 
@@ -13013,11 +13031,29 @@ CAPABILITIES (EN и RU), `ai-dev-mcp-server/docs/ARCHITECTURE.md`, README сер
 **Как закроется.** Оба файла переписаны по коду: места кода (`bin/`, `desktop/`, dist), поток веток и выпусков,
 команды и ворота.
 
+**Как закрыто.** AGENTS.md: что это за репозиторий (CLI, npm-пакет, образ, приложение и установщик; что и откуда оно
+скачивает), таблица мест кода из семи строк, регистрация инструмента с группой и профилем и `docs:tools`, обход
+`security-check`, что читают ворота и где останавливаются (Д-400), ветки и выпуски (`:edge`, теги `vX.Y.Z`, линия
+`v2.*`), `npm run setup -- --no-clients`. CONTRIBUTING.md: места кода (`bin/`, `src/cli/`, `hooks/`, `desktop/`, `dist/`,
+bootstrap, обёртки `scripts/*.ps1`, процессы CI), что нужно для `upgrade:test`, установщика и e2e приложения, что гоняет
+CI по задачам, команды перед PR. Второе ревью документации (`2aff656`) сверило описание `npm run check` с `package.json`
+и строку CI с `docs:links`.
+
+**Замер после** (`2aff656`; grep по файлам):
+
+```
+AGENTS: строк таблицы мест кода — 7; render-tool-reference.mjs + tool-profiles.mjs — да; "walks bin/, src/, scripts/" — да;
+  v2.* — да; "setup -- --no-clients" — да
+CONTRIBUTING: ai-dev-mcp-server/bin/, src/cli/, hooks/, desktop/, dist/, bootstrap, scripts/*.ps1, .github/workflows — все;
+  "upgrade:test … Python 3 … git" — да; mcp-server-node-floor, desktop, macos, desktop-windows.yml, dense-eval.yml,
+  freeze-2x — все; dist:pack, dist:win, npm test, acceptance, upgrade:test, docs:tools — все
+```
+
 ---
 
 ## Д-379. CHANGELOG: раздел [Unreleased] противоречит сам себе, нет раздела 3.0.0 и заметки о миграции
 
-**Статус:** открыт. Закроет фаза 14 (бриф, фаза 14, п. 5). Нашла разведка фазы 14.
+**Статус:** закрыт фазой 14 (`c9f1191`, `8c7f022`, `2aff656`), 2026-10-19. Закроет фаза 14 (бриф, фаза 14, п. 5). Нашла разведка фазы 14.
 
 `[Unreleased]` копил записи пятнадцать фаз, и поздние отменили часть ранних, не тронув их.
 
@@ -13037,6 +13073,20 @@ CAPABILITIES (EN и RU), `ai-dev-mcp-server/docs/ARCHITECTURE.md`, README сер
 
 **Как закроется.** Раздел 3.0.0 с вводом, главным, несовместимым и ссылкой на заметку о миграции (EN/RU);
 противоречащие записи приведены к итогу программы; ссылки сравнения исправлены.
+
+**Как закрыто.** Раздел `## [3.0.0] - Unreleased`: ввод, Highlights, Breaking (дополнен по первому ревью — Д-390), ссылка на
+заметку о миграции (`docs/MIGRATION.md`, RU); записи `[Unreleased]` сведены к итогу программы — противоречащие и
+отменённые позже переписаны или убраны; правки фаз 14 сведены по одной записи на правку. Ссылки сравнения:
+`[3.0.0]` — `v2.0.0...HEAD`, `[2.0.0]` — `v1.0.0...v2.0.0`.
+
+**Замер после** (`2aff656`):
+
+```
+разделы: :8 "## [3.0.0] - Unreleased", :1730 "## [2.0.0] - 2026-09-13", :3137 "## [1.0.0] - 2026-09-01"
+ссылки: [3.0.0]: …/compare/v2.0.0...HEAD   [2.0.0]: …/compare/v1.0.0...v2.0.0   [1.0.0]: …/releases/tag/v1.0.0
+search_cli.py в 3.0.0 — только как удалённый (:272 "is gone", :954); "install-prerequisites … installs Docker" — 0;
+правки packaging/ — 0; Highlights, Breaking, ссылка на MIGRATION.md — есть
+```
 
 ---
 
@@ -13434,8 +13484,7 @@ demo exit 0;  It routed 3 skills out of 614 - nobody named them:
 
 ## Д-390. CHANGELOG 3.0.0 и заметка о миграции: «Breaking» неполон, «те же 135 инструментов» неверно
 
-**Статус:** открыт. Закроет фаза 14. Нашли первые независимые ревью фазы 14 (ревью понятий: must-fix 2, should-fix 3–5,
-мелочи 9–11; ревью установки: should-fix 1); документы — `c9f1191`.
+**Статус:** закрыт фазой 14 (`8c7f022`), 2026-10-19. Нашли первые независимые ревью фазы 14 (ревью понятий: must-fix 2, should-fix 3–5, мелочи 9–11; ревью установки: should-fix 1); документы — `c9f1191`.
 
 **Замер до** (`12812ee`):
 
@@ -13458,12 +13507,30 @@ demo exit 0;  It routed 3 skills out of 614 - nobody named them:
 
 **Как закроется.** «Breaking» дополнен, числа и формулировки — по коду; заметка о миграции (EN/RU) — так же.
 
+**Как закрыто.** «Breaking» назвал: `AI_DEV_MODEL_PATH` с папкой самой модели (лаунчер 3.0 отказывает с кодом 64), память
+проекта 2.x под `/workspace/<name>`, переезд состояния тома на хост и откат, `AI_DEV_DOCKER_NETWORK`, которую записи 3.0
+не читают, умолчания хуков после переустановки (проверка пакетов в npm и OSV, Stop-хук и скан безопасности); «те же 135»
+— «133 в 2.0.0, 134 в `main` 2.x, новые — `plan_security_fixes` и `render_knowledge_galaxy`»; `--dense-python` и
+`AI_DEV_DENSE_BACKEND=python` — читаются как `auto` с заметкой; коды выхода — `uninstall` добавляет 3 и 4; `:2` — линия
+отката, которую двигает тег `v2.*`; время демо — по DEMO.md. Заметка о миграции (EN/RU) — так же.
+
+**Замер после** (`2aff656`; второе ревью документации, сверка с кодом и тегом `v2.0.0`):
+
+```
+TOOLS.md: v2.0.0 — 133, 8f647df — 134, HEAD — 148 (135 + 13 управляющих); новые — plan_security_fixes, render_knowledge_galaxy
+AI_DEV_MODEL_PATH с файлами модели: run-mcp.sh exit 64, run-mcp.ps1 throw, bootstrap.sh --model-path exit 64,
+  clients install --docker --model= exit 2 "holds model files itself"
+AI_DEV_DENSE_BACKEND=python → auto с заметкой (dense-backend.mjs:52-58); --dense-python — заметка (setup.mjs:179)
+uninstall — 3 и 4 (uninstall.mjs:15,18), остальные — {0,1,2,130}; :latest — только с тега выпуска, freeze-2x копирует в :2
+```
+
+Остаток, найденный вторым ревью, — папка проектов в записях 2.x (Д-402).
+
 ---
 
 ## Д-391. Документация установки: Docker до публикации, Windows, путь назад клона, первая задача в Docker
 
-**Статус:** открыт. Закроет фаза 14. Нашло первое независимое ревью фазы 14 (ревью установки: should-fix 2–7); документы —
-`c9f1191`, `12812ee`.
+**Статус:** закрыт фазой 14 (`8c7f022`), 2026-10-19. Нашло первое независимое ревью фазы 14 (ревью установки: should-fix 2–7); документы — `c9f1191`, `12812ee`.
 
 **Замер до** (`12812ee`):
 
@@ -13489,11 +13556,29 @@ demo exit 0;  It routed 3 skills out of 614 - nobody named them:
 переподключения в пути назад, примечание о папке проектов для Docker, цитата `setup`. Каждая команда — замером, где
 песочница позволяет.
 
+**Как закрыто.** Docker до публикации — примечание, как для npx: свой образ (`--image ai-dev-system:local
+--allow-stale-image`, `-Image … -AllowStaleImage`) и путь назад с `AI_DEV_INSTALLER_IMAGE`; Windows в таблицах выбора
+пути — Node.js 22.12+ и клон; команды Windows — в форме PowerShell; путь назад клона — шаг переподключения 2.x
+(`npm run clients:install`), `cd` по месту; примечание о папке проектов для Docker на macOS и Linux; цитата L2 — строка
+`setup`.
+
+**Замер после** (`2aff656`; второе ревью документации):
+
+```
+:latest как 2.x (--image и AI_DEV_INSTALLER_IMAGE = ai-dev-system:2x-8f647df) → exit 69 "has no installer either (a 2.x image too)"
+sh ./bootstrap.sh --image ai-dev-system:p14r2 --allow-stale-image --clients cursor → exit 0, оба предупреждения
+путь назад (AI_DEV_INSTALLER_IMAGE=ai-dev-system:p14r2 … --image <2.x>) → exit 0, запись называет образ 2.x
+bootstrap.ps1 -Image ai-dev-system:p14r2 -AllowStaleImage -Clients cursor (pwsh 7) → exit 0; формы PowerShell — разбираются
+clients remove → ни одной записи, копии рядом; 2.x npm run clients:install (worktree 8f647df) пишет Cursor, Gemini, VS Code, ~/.claude.json
+```
+
+Остаток, найденный вторым ревью, — первая команда пути Docker до публикации требует Node (Д-404).
+
 ---
 
 ## Д-392. Мелочи первых ревью документации фазы 14
 
-**Статус:** открыт. Закроет фаза 14. Нашли первые независимые ревью фазы 14 (мелочи обоих ревью документации).
+**Статус:** закрыт фазой 14 (`8c7f022`), 2026-10-19. Нашли первые независимые ревью фазы 14 (мелочи обоих ревью документации).
 
 **Замер до** (`12812ee`):
 
@@ -13516,6 +13601,22 @@ demo exit 0;  It routed 3 skills out of 614 - nobody named them:
    `/usr/bin/docker` (`clients entry` здесь пишет `/usr/bin/docker`).
 9. `README.ru.md:174` без «and security», `:202` без «design and diagram tooling» (расхождение до фазы).
 10. `docs/INSTALL.md:626` (RU) — коды выхода «одни для всех команд», а `uninstall` добавляет 3 и 4.
+
+**Как закрыто.** Все десять пунктов по коду: ARCHITECTURE — `collides()`, схема и запись 2.x; «AI-клиенты»; описание
+`npm run check`, задача `mcp-server` CI с `docs:links`, `cd` в CONTRIBUTING; «Перезапустить и обновить до {version}»;
+Dockerfile.bge «из двух строк» и `tool_timeout_sec = 3600`; TEST-PLAN — «Подготовка AI Dev…», «Подключить выбранные»,
+шаги хуков M5, 614 навыков; MIGRATION — контейнер убирает только `bootstrap.sh`; `/usr/bin/docker` на Linux; строки
+README.ru; коды выхода `uninstall`.
+
+**Замер после** (`2aff656`; второе ревью документации):
+
+```
+collides() (policy-rules.mjs:350-354) = новая фраза ARCHITECTURE; "AI-клиенты" = messages-ru.js:43; пункт трея — :105 EN/RU
+npm run check = package.json; ci.yml: docs:links; clients entry codex --docker → /usr/bin/docker, tool_timeout_sec 3600
+TEST-PLAN: «Подготовка AI Dev…», «Подключить выбранные», строка stop-check (stop-check.mjs:96), L2 (setup-runner.mjs:235-236), 614
+```
+
+Остаток M5 — какой клиент и что ревью безопасности вернёт агента (Д-405).
 
 ---
 

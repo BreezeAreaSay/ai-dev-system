@@ -5,7 +5,7 @@ import { forbiddenCalls } from "./forbidden-calls.mjs";
 
 // What the static gate reads as declaring a name, binding one or holding a pattern: a parameter list, a declaration, a
 // class's field. Its own file since forbidden-calls.test.mjs would have passed the 800 lines a module keeps
-// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-511).
+// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-511, Д-515).
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
 const BT = "`";
@@ -263,6 +263,14 @@ test("a substitution of a field's template is an expression's place, a ?. is in 
   assert.deepEqual(rules(`${CP}export let run;\nexport function f(o) {\n  const p = o.default\n  const run = cp\n  return [p, run]\n}`), []);
   assert.deepEqual(rules("export function f(stats, total) {\n  const share = stats.new++ / total; // Function of the new count\n  return share;\n}"), []);
   assert.deepEqual(rules("export function f(counts, n) {\n  const r = counts.default-- / n; const g = eval; return g / 2;\n}"), ["eval"]);
+  for (const value of ["o.new++", "this.#in", "this.#new++"]) {
+    const body = `  m(o) {\n    const p = ${value}\n    let run = cp\n    return [p, run]\n  }`;
+    assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  #in = 1;\n  #new = 0;\n${body}\n}`), [], value);
+  }
+  // After o.new++ at a line's end a statement begins: a block, a call before it, a class's member (Д-508).
+  const after = (code) => `${CP}export let run;\nconst o = { new: 0 };\n${code}\nfunction f(x) { return x; }\nrun = cp;`;
+  assert.deepEqual(rules(after("o.new++\n{\n  f(run)\n  {\n  }\n}")), ["child_process.exec"]);
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  x = this.in++\n  class\n  y\n  static {\n    run = cp;\n  }\n}`), ["child_process.exec"]);
   // An object literal after /, <, a > that ends no arrow, a for head's of, or right after extends is a literal (Д-507).
   const spawn = 'import { spawn } from "node:child_process";\nconst a = 1;\n';
   for (const before of ["a /", "a <", "a >", "a >>"]) assert.deepEqual(rules(`${spawn}export const x = ${before} { shell: true };`), ["shell"], before);
@@ -273,6 +281,9 @@ test("a substitution of a field's template is an expression's place, a ?. is in 
   }
   assert.deepEqual(rules("export function f() {\n  for (const k of {\n    m({ shell })\n    {\n      return shell;\n    }\n  }) return k;\n}"), []);
   assert.deepEqual(rules("export const g = (a) => {\n  m({ shell: true })\n};\nfunction m(o) { return o; }"), ["shell"]);
+  // An arrow's body and a block after a name of are blocks: a call there is a call (Д-507).
+  assert.deepEqual(rules(after("export const g = (a) => {\n  f(run)\n  {\n  }\n};")), ["child_process.exec"]);
+  assert.deepEqual(rules(after("const of = 1;\nlet y = of\n{\n  f(run)\n  {\n  }\n}")), ["child_process.exec"]);
   // A member named let right in a class's body declares nothing, after a field named in too (Д-509).
   assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  in\n  let\n  run = 1\n}\nrun = cp;`), ["child_process.exec"]);
   // What ends a member before a field named class: a ;, a method's }, a field on the line before (Д-511).
@@ -283,5 +294,25 @@ test("a substitution of a field's template is an expression's place, a ?. is in 
   assert.deepEqual(rules(`${CP}export let run;\nexport function f(x) {\n  const a = ${BT}\${x}${BT} + "", run = cp;\n  return [a, run];\n}`), []);
   for (const value of ["new class", "new\n  class", "typeof\n  class", "void class"]) {
     assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  x = ${value} { run = cp }\n}`), [], value);
+  }
+});
+
+test("a ++ or -- after a line break is a prefix: a regular expression or a literal after it is its operand, and a declaration ends before it (Д-515)", () => {
+  // `a⏎++/re/.lastIndex` is `a; ++/re/.lastIndex`: the `/` begins a regular expression, and what it holds is not code.
+  assert.deepEqual(rules(`const a = 1;\nlet b = a\n++/${BT}/g.lastIndex;\nexport const g = () => eval;\n// ${BT}\n`), ["eval"]);
+  assert.deepEqual(rules(`const o = { x: 0 };\no.x\n++/${BT}/g.lastIndex;\nexport const g = () => eval;\n// ${BT}\n`), ["eval"]);
+  assert.deepEqual(rules("let n = 0;\nn\n++/eval(?:)/.lastIndex;\nexport { n };\n"), []);
+  assert.deepEqual(rules(`let n = 0;\nn\n--/${BT}/.lastIndex;\nexport { n };\n`), []);
+  assert.deepEqual(rules("let n = 0;\nn /*\n*/ ++/eval(?:)/.lastIndex;\nexport { n };\n"), []);
+  // An object literal after it is its operand, and the statement before it is over.
+  assert.deepEqual(rules("let a = 1;\na\n++\n{ shell: true }.shell;\n"), ["shell"]);
+  assert.deepEqual(rules("let a = 1;\nexport const k = a\n++\n{ shell: true }.shell;\n"), ["shell"]);
+  assert.deepEqual(rules(`${CP}export let c;\nlet b = 0;\nconst r = 1\n++b, c = cp;\nexport { r };\n`), ["child_process.exec"]);
+  assert.deepEqual(rules(`${CP}export let c;\nlet b = 0;\nlet r = b\n--b, c = cp;\nexport { r };\n`), ["child_process.exec"]);
+  // On its operand's line it is a postfix: it divides, a block follows it, and the declaration goes on after it.
+  assert.deepEqual(rules("let n = 0;\nexport const r = n++ / 2 / 1; // eval(\n"), []);
+  assert.deepEqual(rules("let a = 1;\nexport const k = a++\n{ shell: true }\n"), []);
+  for (const value of ["b++", "++b", "a +\n++b", "a\n+ +b"]) {
+    assert.deepEqual(rules(`${CP}let a = 1, b = 0;\nexport const r = ${value}, c = cp;\n`), ["child_process.exec"], value);
   }
 });

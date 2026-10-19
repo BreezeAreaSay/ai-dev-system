@@ -82,12 +82,13 @@ function readEscape(text, at) {
  *
  * A `/` is a regular expression where an expression begins, and a division
  * after an operand: after a word that is a property (`stats.in / 2`), a postfix
- * `++`, on a property too (`stats.new++ / 2`), a call's `)`, or the `}` of an
- * object literal or of a class or function expression it divides; after a
- * statement head's `)` (`if (x) /re/`), a block's `}` — a label's or a `case`'s
- * too — or a declaration's it does not. One that does not close on its line
- * divides, and no later one on that line reads again, in the same state —
- * inside a class of characters or out of one — what it read.
+ * `++`, on a property too (`stats.new++ / 2`) — not a `++` after a line break,
+ * a prefix: `a⏎++/re/.lastIndex` —, a call's `)`, or the `}` of an object
+ * literal or of a class or function expression it divides; after a statement
+ * head's `)` (`if (x) /re/`), a block's `}` — a label's or a `case`'s too — or
+ * a declaration's it does not. One that does not close on its line divides,
+ * and no later one on that line reads again, in the same state — inside a
+ * class of characters or out of one — what it read.
  * Each `{` carries `literal`: whether it opens an object literal; a class's
  * body carries `classBody`; a token right in a template's substitution, no
  * bracket opened since its `${`, carries `substitution`, and every token in a
@@ -135,14 +136,14 @@ export function codeTokens(source, { script = false } = {}) {
   const level = () => opened.length + templates.length;
   // A member's name is a name, whatever word it is: `it.return`, `o.default`, `this.#class` (Д-442, Д-443).
   const isMember = (index) => isPunct(tokens[index - 1], ".") || isPunct(tokens[index - 1], "#");
+  // A `++` or `--` is a postfix where an operand ends right before it on its line: `n++`, and a member of any name,
+  // `stats.new++` (Д-508). None follows a line break: `a⏎++b` is `a; ++b` (Д-515).
+  const postfix = (index) => (isPunct(tokens[index], "+") || isPunct(tokens[index], "-")) && tokens[index].joined === true
+    && tokens[index - 2]?.line === tokens[index - 1].line && (endsOperand(tokens[index - 2]) || isMember(index - 2));
   // `return`, `yield` and a postfix `++` or `--` end their statement at a line break: what the next line begins is a
   // statement, so a `{` there is a block and a `class` a declaration (Д-423). A member of that name, `it.return`, is an
-  // operand, and after an operand a `{` or a `class` begins a statement as well — `stats.new++` too (Д-508).
-  const endsAtBreak = (index) => {
-    const last = tokens[index];
-    if (isName(last, "return") || isName(last, "yield")) return true;
-    return (isPunct(last, "+") || isPunct(last, "-")) && last.joined === true && (endsOperand(tokens[index - 2]) || isMember(index - 2));
-  };
+  // operand, and after an operand a `{` or a `class` begins a statement as well.
+  const endsAtBreak = (index) => isName(tokens[index], "return") || isName(tokens[index], "yield") || postfix(index);
   // Whether a value begins after the token at `index`, for a token on line `where`: a `{` there opens an object
   // literal, a `class` is an expression. A label's, a `case`'s or a `default`'s `:` is followed by a statement (Д-408).
   const valueAfter = (index, where) => {
@@ -242,8 +243,9 @@ export function codeTokens(source, { script = false } = {}) {
     }
     if (last.type !== "punct") return false;
     if (last.value === ")" || last.value === "]" || last.value === "}") return last.regexAfter === true;
-    // `x++ / 2` and `stats.new++ / 2` divide; `a + + /re/` is a plus, a unary plus and a regular expression (Д-424, Д-508).
-    if ((last.value === "+" || last.value === "-") && last.joined === true && (endsOperand(tokens.at(-3)) || isMember(tokens.length - 3))) return false;
+    // `x++ / 2` and `stats.new++ / 2` divide; `a + + /re/` is a plus, a unary plus and a regular expression (Д-424, Д-508),
+    // `a⏎++/re/.lastIndex` a prefix and one (Д-515).
+    if (postfix(tokens.length - 1)) return false;
     return true;
   };
   const readTemplateText = () => {

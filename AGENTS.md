@@ -104,7 +104,7 @@ Commands run as argument arrays with `shell: false`. The static gate reads the
 server's code and the desktop app's as tokens (`src/core/code-tokens.mjs`; the
 rules in `src/core/forbidden-calls.mjs`, docs/DEFECTS.md Д-267, Д-382, Д-398,
 Д-407 … Д-410, Д-422 … Д-426, Д-431, Д-432, Д-440 … Д-448, Д-459 … Д-466, Д-472
-… Д-476, Д-480 … Д-482, Д-486 … Д-490, Д-496, Д-499 … Д-511), every escape
+… Д-476, Д-480 … Д-482, Д-486 … Д-490, Д-496, Д-499 … Д-511, Д-515), every escape
 decoded, and rejects the usual spellings and their plain equivalents: `exec` and
 `execSync` of `child_process` — through a named, default or namespace import,
 `require`, `import()` or `process.getBuiltinModule` called by name, as a member

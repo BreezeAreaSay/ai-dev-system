@@ -355,8 +355,9 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
 
   // Where a declaration goes on after one declarator — `run = cp`, `{ a } = b` — to the `,` before the next, or to where
   // it ends: a `;`, a bracket it did not open, the end of the template it began in (Д-501), or a line that begins a
-  // statement. Each place it passes is marked: a word there is in its declaration, and not walked again — a script's
-  // `var a = let[0] + let[0]` (Д-474); the place it ends at is not: `const a = 1⏎let run = cp` declares (Д-480).
+  // statement — with a word, or with a `++` or `--`, a prefix there: `1⏎++b, c = cp` assigns `c` (Д-515). Each place it
+  // passes is marked: a word there is in its declaration, and not walked again — a script's `var a = let[0] + let[0]`
+  // (Д-474); the place it ends at is not: `const a = 1⏎let run = cp` declares (Д-480).
   const walked = new Uint8Array(tokens.length + 1);
   const declaratorEnd = (at) => {
     for (let next = at; next < tokens.length; ) {
@@ -367,7 +368,7 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       const endsValue = ["number", "string", "regex"].includes(previous?.type) || isPunct(previous, ")") || isPunct(previous, "]") || isPunct(previous, "}")
         || (isName(previous) && (!KEYWORDS_BEFORE_EXPRESSION.has(previous.value) || isPunct(tokens[next - 2], ".") || isPunct(tokens[next - 2], "#")))
         || ((isPunct(previous, "+") || isPunct(previous, "-")) && previous.joined === true && (endsOperand(tokens[next - 3]) || isPunct(tokens[next - 4], ".") || isPunct(tokens[next - 4], "#")));
-      if (next > at && token.line > previous.line && endsValue && isName(token) && token.value !== "in" && token.value !== "instanceof") return next;
+      if (next > at && token.line > previous.line && endsValue && ((isName(token) && token.value !== "in" && token.value !== "instanceof") || tokens[next + 1]?.joined === true)) return next;
       // `export` only ever begins a statement, and the walk stops there whatever came before (Д-444).
       if (next > at && isName(token, "export") && !isPunct(previous, ".")) return next;
       walked[next] = 1;
@@ -521,11 +522,10 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
     if (isPunct(tokens[at], "{")) modulePattern(at);
     else if (isName(tokens[at])) aliases.add(tokens[at].value);
   };
-  // Where the module object standing at `start`, its value ending at `end`, goes: bound to a name, taken apart by a
-  // pattern, or handed to another file — `module.exports = …`, `exports.x = …`, `export default …`, an exported
-  // declaration. To another file it goes as the whole value only, one the module ends — at a `,`, a `;`, a closing
-  // bracket, a line the value cannot carry on into, or a further `=`: `export const ok = cp !== undefined` exports a
-  // boolean (Д-441, Д-459).
+  // Where the module object standing at `start`, its value ending at `end`, goes: bound to a name, taken apart by a pattern,
+  // or handed to another file — `module.exports = …`, `exports.x = …`, `export default …`, an exported declaration. To another
+  // file it goes as the whole value only, one the module ends — at a `,`, a `;`, a closing bracket, a line the value cannot
+  // carry on into, or a further `=`: `export const ok = cp !== undefined` exports a boolean (Д-441, Д-459).
   const handedOn = (start, what, end) => {
     if (isPunct(tokens[start - 1], "...")) {
       // A spread hands exec on with the rest; a rest element binds a name — a pattern's, `{ spawn, ...others } = cp`, or

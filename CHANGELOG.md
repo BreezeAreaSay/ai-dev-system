@@ -1742,7 +1742,9 @@ four of those arrived as upstream issues #63–#66.
   but right after a `for` head's binding (`for (k in of / 2)`, `o.for(of / 2)`); a regular expression
   after `break`, `continue` or `debugger`), a member's name read as a name whatever word it is
   (`it.return`, `this.#class`, `stats.new++ / 2`), a statement begun where a line break ends one
-  (after `return`, `yield`, `x++`, `o.new++`) (Д-508), a `.cjs` file's HTML-like comments read as a script reads them — `-->` where no
+  (after `return`, `yield`, `x++`, `o.new++`) (Д-508) and where one stands before a `++` or `--`, a prefix
+  there — `a⏎++/re/.lastIndex` holds a regular expression, `a⏎++⏎{ shell: true }.shell` a literal (Д-515) —,
+  a `.cjs` file's HTML-like comments read as a script reads them — `-->` where no
   token stands before it on its line, after a comment that spans lines too — and
   `src/core/forbidden-calls.mjs` asks the rules of them, in the server and in `desktop/`: the six
   spellings appended to a server file and a desktop file give twelve findings, where the gate passed
@@ -1768,7 +1770,8 @@ four of those arrived as upstream issues #63–#66.
   after it, none right in a template's substitution, where a script's `let` is a name, and none right
   in a class's body, where it names a member (Д-509) — a JSON Schema's `const:` key declares nothing;
   the one on the line after a declaration with no `;` declares too, and so does the one after a value
-  that ends in a member named like a keyword, `o.default` (Д-506) — and `function`, `function*` or
+  that ends in a member named like a keyword, `o.default` (Д-506), and a declaration's value ends before a
+  `++` or `--` that begins a line, so `1⏎++b, c = cp` assigns `c` (Д-515) — and `function`, `function*` or
   `class` only where it is no member; every walk steps over a template whole, and a declaration's or
   an argument list's begun in one ends with it, at a `?.` too (Д-504, Д-510); a substitution of a
   field's template is an expression's place — a class or function expression there is one, a name
@@ -1781,7 +1784,7 @@ four of those arrived as upstream issues #63–#66.
   end — a template or a comment that never closes — is refused rather than passed, and a list that
   never closes is reported rather than thrown on (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424,
   Д-426, Д-432, Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464 … Д-466, Д-472, Д-473, Д-476, Д-480,
-  Д-481, Д-486, Д-487, Д-490, Д-496, Д-499, Д-501, Д-503 … Д-510). It follows the module object and the global objects through plain re-binding and
+  Д-481, Д-486, Д-487, Д-490, Д-496, Д-499, Д-501, Д-503 … Д-510, Д-515). It follows the module object and the global objects through plain re-binding and
   nothing else: a module name built from parts, `createRequire`, `Reflect.get`, a loader bound to
   another name or reached any other way (`.bind`, `Reflect.apply`, a condition, an array,
   `require["call"]`), the module put in an object or an array (`module.exports = { cp }`,
@@ -1798,15 +1801,16 @@ four of those arrived as upstream issues #63–#66.
   (Д-474, Д-501), a loader's `.call(` that never closes is not walked for its first argument, and the
   walk of its arguments ends with the template it began in (Д-501, Д-510), a chain is walked back only
   for a call with the module's name, and where a regular expression's reading failed on a line no
-  later one reads it again in the state it read it (Д-476), so a file costs what its length does: 5,922 dependency files are read to the end in about 18 s, and, each the median of five
+  later one reads it again in the state it read it (Д-476), so a file costs what its length does: 5,892 dependency files (84 MB) are read to the end in about 14 s, and, each the median of five
   runs in a fresh process, a 448 kB minified line in 0.4 s, where it took 10 s, 552 kB of keys in
   arrays nested 4,000 deep in 0.3 s, where it took 12.8 s, 373 kB of declarations with no semicolons
   in 0.2 s, where it took 111 s, 296 kB of class heritages with a substitution in 0.2 s, where it took
   10–12 s, a line of 32,000 regular expressions that never close in 0.1 s, where it took 8.8 s,
   80 kB of keys named `const` in 0.06 s, where it took 12–23 s, 224 kB of templates with a `let` in
-  each substitution in 0.17 s, where it took 26 s, a 120 kB script with a parenthesis left open in
-  each substitution in 0.16 s, where it took 9.3 s, and 136 kB of `.call(` that never close in
-  0.09 s, where it took 6 s (Д-401, Д-412, Д-424, Д-444, Д-461, Д-463, Д-474, Д-488, Д-501). A test plants a finding of each rule and each check in
+  each substitution in 0.15 s, where it took 26 s, a 120 kB script with a parenthesis left open in
+  each substitution in 0.13 s, where it took 9.3 s, 136 kB of `.call(` that never close in
+  0.08 s, where it took 6 s, and 216 kB of `.call(` left open in each substitution in 0.15 s, where it
+  took 3.4 s (Д-401, Д-412, Д-424, Д-444, Д-461, Д-463, Д-474, Д-488, Д-501, Д-510). A test plants a finding of each rule and each check in
   each folder the gate walks — `bin/`, `src/`, `scripts/`, `hooks/` with its shell script, the app's
   code, scripts, `.cjs` (read as the script it is) and tests — and expects exactly that set: a folder
   left unwalked or a rule's findings dropped fails it (Д-396, Д-411, Д-445). 76 of 77 mutants of round

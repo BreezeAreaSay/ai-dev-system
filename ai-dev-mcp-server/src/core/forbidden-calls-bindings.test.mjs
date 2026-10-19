@@ -186,4 +186,6 @@ test("a field named class before a static block, a list that never closes, and t
   assert.deepEqual(rules(`${CP}export let run;\nconst o = {};\nexport class A {\n  class\n  [o.extends](x) {\n    run = cp;\n  }\n}`), ["child_process.exec"]);
   assert.deepEqual(rules(`${CP}export let run;\nif ((run) === 1) {}\nrun = cp;`), ["child_process.exec"]);
   assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  class\n  run() {}\n}\nrun = cp;`), ["child_process.exec"]);
+  // A field on the line after one that ends in a call or an index is a field too.
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  x = String(1)\n  run = cp\n  y = [1][0]\n  z = run\n}`), []);
 });

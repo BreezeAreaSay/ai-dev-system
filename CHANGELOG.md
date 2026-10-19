@@ -1791,9 +1791,10 @@ four of those arrived as upstream issues #63–#66.
   runs in a fresh process, a 448 kB minified line in 0.4 s, where it took 10 s, 552 kB of keys in
   arrays nested 4,000 deep in 0.3 s, where it took 12.8 s, 373 kB of declarations with no semicolons
   in 0.2 s, where it took 111 s, 296 kB of class heritages with a substitution in 0.2 s, where it took
-  10–12 s, a line of 32,000 regular expressions that never close in 0.1 s, where it took 8.8 s, and
-  80 kB of keys named `const` in 0.06 s, where it took 12–23 s (Д-401, Д-412, Д-424, Д-444, Д-461,
-  Д-463, Д-474). A test plants a finding of each rule and each check in
+  10–12 s, a line of 32,000 regular expressions that never close in 0.1 s, where it took 8.8 s,
+  80 kB of keys named `const` in 0.06 s, where it took 12–23 s, and 224 kB of templates with a `let`
+  in each substitution in 0.15 s, where it took 26 s (Д-401, Д-412, Д-424, Д-444, Д-461, Д-463, Д-474,
+  Д-488). A test plants a finding of each rule and each check in
   each folder the gate walks — `bin/`, `src/`, `scripts/`, `hooks/` with its shell script, the app's
   code, scripts, `.cjs` (read as the script it is) and tests — and expects exactly that set: a folder
   left unwalked or a rule's findings dropped fails it (Д-396, Д-411, Д-445). 76 of 77 mutants of round
@@ -1801,10 +1802,16 @@ four of those arrived as upstream issues #63–#66.
   two left equivalent; the sixth review showed that each of those two changes an answer on valid code,
   and ten more of its own alive (Д-445, Д-462). Of the 193 run on round 7's code — round 6's 139,
   less the six whose code the parameter rule replaced, 22 for that rule, the seventh review's 17, and
-  21 for the declaration, template and field fixes — 190 fail its tests, and the three left change no
-  answer: a member check added to `endsAtBreak`, which its one caller makes (Д-462), an `=` that ends
-  a value, which the walk already reads as an assignment chain, and a `,` that ends the wait for a
-  body, where a substitution being a level of its own leaves none to stand (Д-475).
+  21 for the declaration, template and field fixes — 190 failed its tests, and of the three left the
+  eighth review showed that one does change an answer: an `=` that ends a value would end
+  `cp⏎  === undefined` at its line; a test holds it now (Д-475, Д-482). Of the 222 run on round 8's
+  code — round 7's 193, 17 of the eighth review's own, and 12 for round 8's rules — 216 fail its
+  tests, and the six left change no answer on a program V8 accepts: a member check added to
+  `endsAtBreak`, which its one caller makes (Д-462); a `,` that ends the wait for a body, where a
+  substitution being a level of its own leaves none to stand (Д-475); and, where only a program V8
+  refuses could tell them apart, a statement keyword asked of a head that is no name — a method
+  stands there, answered by its place first —, a template's end kept at each substitution's end,
+  a `;` that ends only a class's wait, and a `(` that ends one at any depth (Д-489).
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be

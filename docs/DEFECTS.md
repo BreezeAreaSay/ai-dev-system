@@ -14320,6 +14320,301 @@ bootstrap-contract.test.mjs: 29 из 29; тест Д-406 на коде до пр
 
 ---
 
+## Д-407. Ворота читают пробел Юникода как часть имени: `eval (…)` с неразрывным пробелом проходит
+
+**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью ворот: must-fix 1); было и до фазы, лексер — `4ede652`.
+
+`NAME_START`/`NAME_PART` (`forbidden-calls.mjs:59-60`) считают буквой имени всё от U+0080, а U+00A0, U+2028, U+2029,
+U+3000, U+FEFF и другие пробелы Юникода — для JavaScript пробелы. `eval (…)` читается одним именем `"eval "`.
+
+**Чем грозит.** Равнозначная запись `eval`, `Function`, `require`, `.exec`, `shell:` проходит ворота; Node её исполняет.
+
+**Замер до** (`22fbd78`):
+
+```
+eval⍽("1");  (⍽ = U+00A0)                        → []     (контроль eval("1") → [eval@1])
+Function　("return 1")();  (U+3000)              → []
+codeTokens('eval⍽("1")') → ["eval⍽","(","1",")"]
+ревью: cp⍽.exec, require⍽("child_process"), { shell⍽: true } → []; Node исполняет все
+```
+
+**Как закроется.** Имя — по классам Юникода `ID_Start`/`ID_Continue` (и `$`, `_`, U+200C, U+200D); пробелы Юникода — пробелы.
+
+---
+
+## Д-408. Ворота пропускают `eval(…)` в блоке метки или `case`, за которым идёт блок: принят за метод литерала
+
+**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью ворот: must-fix 2); регрессия `4ede652` (исключение метода
+`{ eval() {} }`, Д-400).
+
+`{` после `:` считается литералом объекта (`OBJECT_AFTER_PUNCT`), а `run: {` и `case 1: {` открывают блок. Внутри такого
+блока `eval("1")`, перевод строки и `{}` выглядят как метод `eval() {}` литерала и пропускаются.
+
+**Чем грозит.** Вызов `eval`/`Function`, которого ворота до `4ede652` не пропускали.
+
+**Замер до** (`22fbd78`, «до» — `2aff656`):
+
+```
+run: {⏎  eval("1")⏎  {}⏎}                                       HEAD []    2aff656 [eval@2]
+switch (k) {⏎  case 1: {⏎    Function(code)⏎    {}⏎  }⏎}           HEAD []    2aff656 [Function@3]
+run: {⏎  eval("1");⏎}                                             HEAD [eval@2]
+```
+
+**Как закроется.** `:` метки, `case …:` и `default:` открывают блок: и для литерала объекта, и для чтения `/` после `}`.
+
+---
+
+## Д-409. Ворота не следят за переприсваиванием через список в скобках: `const g = (0, globalThis)`
+
+**Статус:** открыт. Закроет фаза 14. Нашли третье независимое ревью фазы 14 — ревью документации (must-fix 1) и ревью ворот (should-fix 6); код —
+`4ede652`.
+
+Цикл переприсваиваний (`forbidden-calls.mjs:632-654`) после `=` пропускает `(` и ждёт имя: в `(0, globalThis)` первым
+стоит `0`, и связь теряется. Объект модуля в том же виде (`const c = (0, cp)`) ловится только потому, что его находит
+прямой проход, — то есть лишь для использований ниже связывания. CHANGELOG 3.0.0 обещает «parentheses and comma lists
+around a value».
+
+**Чем грозит.** `g["ev" + "al"]` и `new g.Function` после `const g = (0, globalThis)` проходят; `proc.exec` в функции выше
+`const proc = (0, cp)` — тоже.
+
+**Замер до** (`22fbd78`):
+
+```
+const g = (0, globalThis);⏎new g.Function("x");                → []   (const g = globalThis → [Function@2])
+const g = (0, globalThis);⏎g[k];                                → []
+let g;⏎g = (0, window);⏎g[k];                                   → []
+import * as cp …;⏎export function run() { return proc.exec("ls"); }⏎const proc = (0, cp);   → []
+ревью: файл src/core/zz-r3-probe.mjs с `const g = (0, globalThis); return g["ev" + "al"]("1");` → "status": "passed"
+```
+
+**Как закроется.** Переприсваивание берёт последнее звено списка в скобках, как `widen`; связи, найденные прямым проходом,
+тоже идут в очередь. Тесты — оба порядка и глобальные.
+
+---
+
+## Д-410. Ворота: `process.getBuiltinModule`, `module.exports["x"] =`, деление после выражения класса
+
+**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью ворот: should-fix 3–5).
+
+1. `process.getBuiltinModule("child_process")` — тот же `require` по строке (в репозитории так берут `node:sqlite`,
+   `search-sqlite.mjs:57`), а `moduleReaches` его не знает.
+2. `module.exports["cp"] =` и `exports["cp"] =` — та же отдача модуля, что `module.exports.cp =`, а `handedOn` обходит только
+   цепочки `.имя`.
+3. `}` выражения класса (и функции) — операнд, а лексер решает «блок» и читает `/` после него как регулярное выражение:
+   `const C = class {} / 2; eval("1"); const r = 1 / 1;` — `eval` поглощён (регрессия к `2aff656`). У стрелки `() => {} / 2`
+   — синтаксическая ошибка, там ничего не меняется.
+
+**Замер до** (`22fbd78`):
+
+```
+process.getBuiltinModule("node:child_process").exec("ls");                → []
+module.exports["cp"] = require("node:child_process");                      → []   (module.exports.cp = … → [child_process.exec@1])
+const C = class {} / 2; eval("1"); const r = 1 / 1;                       → []   (2aff656 → [eval@1])
+node --check: "const C = class {} / 2;" — верно; "const f = () => {} / 2;" — SyntaxError: Unexpected token '/'
+```
+
+**Как закроется.** `getBuiltinModule` рядом с `require` и `import()`; голова `exports` ищется и через `["…"]`; `{` тела
+класса или функции в позиции значения — «деление после». Обёртки `module.exports = { cp }`, `Object.assign(…)`,
+`export default { cp }` — за границей, это названо.
+
+---
+
+## Д-411. Тест поведения ворот сажает одну находку сервера и одну приложения: выпавшие обходы и правила не видны
+
+**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью ворот: should-fix 7); тест — `4ede652` (Д-396).
+
+Фикстура `static-quality.test.mjs` кладёт `exec` в `src/core` и `eval` в `desktop/src`. Ворота, переставшие обходить
+`hooks/`, `bin/`, `desktop/scripts`, файлы `.cjs`, отбрасывающие находки `shell`, `global-member`, `unread`, без
+`node --check`, `sh -n` или бюджета строк, — тест не замечает.
+
+**Чем грозит.** Хуки (они идут в чужие репозитории) и предзагрузка приложения могут выпасть из ворот без единого
+красного теста.
+
+**Замер до** (`22fbd78`; ревью, `p14/r3/gate/tools/sq-mutants2.py`): 12 мутантов Д-396 — пойманы все; ещё 20 —
+`hooks/ not walked`, `bin/ not walked`, `desktop scripts/ not walked`, `desktop .cjs not walked`, без находок `shell`,
+`global-member`, `unread`, без `node --check`, без `sh -n`, без бюджета строк — «test PASSES (missed)».
+
+**Как закроется.** Фикстура сажает по находке каждого правила и каждой проверки в каждый обходимый угол (`bin/`, `src/`,
+`scripts/`, `hooks/` с `.sh`, `desktop/src`, `desktop/scripts`, `.cjs`, тест приложения) и ждёт ровно этот набор.
+
+---
+
+## Д-412. Цена ворот остаётся квадратичной на неверно прочитанном коде: пары скобок и обратный поиск `from`
+
+**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью ворот: should-fix 8); код — `4ede652` (Д-401).
+
+1. `brackets()` для закрывающей скобки ищет открывающую её вида по стеку (`findLastIndex`): много незакрытых скобок
+   другого вида — квадрат. Достижимо на валидном коде через неверное чтение Д-408/Д-410.
+2. `moduleReaches` для каждого `from` рядом со строкой модуля идёт назад до начала файла: `x.from⏎"child_process"` × n.
+
+**Замер до** (`22fbd78`; ревью; `node --check` — оба файла валидны):
+
+```
+блок case + /[ [[[… ]/ затем /[ )))… ]/:   32 000 → 64 КБ 19 с;  64 000 → 128 КБ 84 с
+n × (x.from⏎"child_process"):              16 000 → 384 КБ 12,4 с
+```
+
+**Как закроется.** Закрывающая скобка, не совпавшая с вершиной стека, ищет пару не глубже нескольких уровней; `from` после
+точки — свойство, а поиск `import`/`export` назад перешагивает скобки и останавливается на `;`.
+
+---
+
+## Д-413. Правило нельзя выключить, когда поток сопоставления падает (регрессия Д-393)
+
+**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью кода: should-fix 1); код — `445654d`.
+
+Отказ Д-393 проверяет пробы цены и образцы при любой правке правила, и `{ "id": …, "enabled": false }` — выключение,
+которое предлагают `hooks.mjs:91, 119` и GUARDRAILS (`:179`), — отказывается, когда поток не создаётся; выключенное правило
+гард не исполняет вовсе.
+
+**Чем грозит.** Там, где потоки не создаются, правило, мешающее работе, не выключить.
+
+**Замер до** (`22fbd78`; ревью, `p14/r3/code/probes/disable-under-failure.mjs`; повтор ведущим):
+
+```
+{"id":"no-deploy","enabled":false}   -> refused: Rule "no-deploy" was not written: its pattern could not be checked, because the match worker failed (…)
+{"id":"no-deploy","message":"Ask a human."} -> refused: …
+{"id":"warn-eval","enabled":false}   -> refused: …        (3c66c39 = 445654d~1: все три — updated)
+образ p14r3, --pids-limit 11: все три refused (EAGAIN); с src 3c66c39 — все updated
+```
+
+**Как закроется.** Правило, которое после правки выключено, не сопоставляется — ни пробами, ни образцами; включение
+проверяет его снова. Проверки формы (шаблон компилируется, пример нужен при новом шаблоне) — как были.
+
+---
+
+## Д-414. Совет `clients doctor`: модель вместе с другой папкой, все клиенты разом, ссылка на папку проектов
+
+**Статус:** открыт. Закроет фаза 14. Нашли третье независимое ревью фазы 14 — ревью кода (should-fix 2, 3) и ревью документации (should-fix 4); код —
+`445654d` (Д-397.5).
+
+1. `isModel` смотрит только первую пропавшую папку, а монтирование модели — последнее: пропали папка проектов и модель —
+   совет несёт `--model=…`, и выполненный он падает (exit 2, «leads nowhere»).
+2. Команда совета без `--clients=`: переписывает всех найденных клиентов, и клиент на локальной установке становится
+   Docker'ом.
+3. Для папки проектов или состояния, которая — ссылка в никуда, совет «write the entries again, which makes the folder»
+   падает: `mkdir` через висячую ссылку — `ENOENT`, exit 2.
+
+**Чем грозит.** Совет, выполненный как написан, не чинит или ломает соседний клиент.
+
+**Замер до** (`22fbd78`; ревью):
+
+```
+проекты и ссылка модели пропали → advice exit 2: …/bge-m3-onnx is a link to …/disk2/real that leads nowhere here (ENOENT)
+Gemini локальный + Cursor Docker, у Cursor пропала папка → advice: Cursor unchanged; Gemini CLI updated — replaced the entry
+  of another install (было node …/ai-dev.mjs mcp, стало docker run … ai-dev-system:p14r3)
+--projects=$H/Projects, ссылка → $H/unplugged/Projects → advice: ai-dev clients install … --projects=$H/Projects →
+  ENOENT: no such file or directory, mkdir '$H/Projects'  exit 2
+```
+
+**Как закроется.** `--model` выпадает, если среди пропавших есть модель; команда называет клиента (`--clients=<клиент>`);
+для ссылки совет — другая папка (`--projects=<папка>`, `--state=<папка>`). Тесты — каждый случай.
+
+---
+
+## Д-415. `bootstrap.ps1` без клиентов советует синтаксис CLI; концовки при `--skip-client-install`
+
+**Статус:** открыт. Закроет фаза 14. Нашли третье независимое ревью фазы 14 — ревью кода (should-fix 4, мелочь 11) и ревью документации (мелочь 7);
+код — `02a90b9` (Д-406).
+
+`bootstrap.ps1` теперь полагается на строку установщика «No client found here. Name one to write it anyway:
+--clients=cursor,vscode,…» — это синтаксис CLI, а не скрипта: `bootstrap.ps1 --clients=cursor` в PowerShell делает папку
+проектов `--clients=cursor` и не пишет ни одной записи. Его последняя строка «Restart the AI clients it connected to load
+ai-dev» читается двусмысленно. `bootstrap.sh --skip-client-install` и `bootstrap.ps1 -SkipClientInstall` кончают
+«Restart the AI clients…», хотя ничего не писали; CHANGELOG говорит о Д-406 про оба скрипта.
+
+**Замер до** (`22fbd78`; ревью):
+
+```
+pwsh bootstrap.ps1 (заглушка docker, клиентов нет) → "No client found here. Name one to write it anyway: --clients=cursor,vscode,…"
+  → "AI Dev is ready. Restart the AI clients it connected to load ai-dev." exit 0
+pwsh -Command './bootstrap.ps1 --clients=cursor -Plan' → "project_path": "<checkout>/--clients=cursor", "clients": "all"
+sh ./bootstrap.sh … --skip-client-install (Cursor есть) → "AI Dev is ready. Restart the AI clients to load ai-dev."; ~/.cursor пуст
+```
+
+**Как закроется.** Подсказка установщика называет параметр того, кто его запустил (`-Clients` для `bootstrap.ps1`); конец
+каждого скрипта не обещает клиентов, которых он не писал; CHANGELOG — по каждому скрипту.
+
+---
+
+## Д-416. Документация: `clients remove` теряет любую заменённую запись `ai-dev`; повторный bootstrap теряет и модель
+
+**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью документации: should-fix 2, 3, мелочь 6); документы — `744846d`.
+
+1. «…кроме записи 2.x, которую установка заменила» — узко: `clients remove` убирает из исходника каждую запись `ai-dev` и
+   `ai-dev-system` (`planRemove`), так что заменённая запись Docker 3.0 или запись другой установки тоже не возвращается
+   (`INSTALL.md:420-423, 713`, RU, `clients.mjs:41`, `control.mjs:217` → TOOLS, CONTROL-API, CHANGELOG `:226-228`, M7,
+   `ai-dev-mcp-server/README.md:518` — «gives an untouched file back exactly»).
+2. Повторный bootstrap и переход с 2.x теряют и папку модели: `--model-path` берётся только из опции или окружения, а запись
+   2.x несла `AI_DEV_MODEL_PATH`; документы (Д-402) называют только папку проектов (`INSTALL.md:191, 696`, RU, MIGRATION
+   `:21, 105-107`, RU, CHANGELOG `:86-89`, `docker/README.md:349-351`, W6).
+
+**Замер до** (`22fbd78`; ревью, временный HOME):
+
+```
+remove-probe.sh: запись 3.0 docker run … :latest → install "updated — replaced the Docker launcher entry" → remove "restored",
+  записи Docker нет (diff 4,8c4); запись другого клона node …/ai-dev.mjs mcp → то же
+bootstrap --clients cursor --model-path $H/.ai-dev/models → монтирует /models; повтор без опции → "Cursor updated", /models нет;
+  запись 2.x с AI_DEV_MODEL_PATH=$H/models + bootstrap → новая запись: том и проекты, без /models
+```
+
+**Как закроется.** Тексты называют любую заменённую запись (`ai-dev-system` или найденный `ai-dev` — лаунчер 2.x, запись
+Docker, другая установка): она остаётся в копии; повторный bootstrap — «с теми же опциями (`--project-path`,
+`--model-path`)». Д-403 (фаза 15) берёт обе папки.
+
+---
+
+## Д-417. Мелочи третьего ревью кода фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью кода: мелочи 5–10, 12).
+
+**Замер до** (`22fbd78`; пробы ревью — `p14/r3/code/probes/`):
+
+1. Журнал сбоя переноса Codex с `AI_DEV_HOME=<home>/.ai-dev` называет `~/.codex`: `codexRoot` считается заново после
+   сбоя, когда `<AI_DEV_HOME>/.codex` уже пуст (`runtime-home-migration.mjs:479`; `codex-fail-log.mjs`).
+2. Страховка «seen to fire» — только для примера: сопоставитель с ответом короче заданий оставляет пробы и контрпример
+   непроверенными — «counter-example unanswered: created», «probes unanswered: created» для `(a|a)+$`
+   (`upsert-short.mjs`, `upsert-noprobes.mjs`; настоящий `matchWithBudget` короче не отвечает).
+3. Комментарий «`broken: 0` means every rule was seen to work» (`policy-rules.mjs:350-353`) неверен: правила без примера не
+   проверяются и не считаются.
+4. Смешанные ответы: пример `false` и сбой на контрпримере — «its counter-example could not be checked … Nothing here says
+   the rule is wrong» вместо «does not match its own example» (`upsert-mixed.mjs`).
+5. Без тестов: обрезка точки в `failureOf`, `--volume`/`--state` в совете doctor, `isModel` для `/models` не-ссылки,
+   `sameDirectory` (ссылки, регистр) в `codexRoot`, условия `claude_entry`/`install_status` в `bootstrap.sh:581`, разбор
+   странных причин в `failureReason` копии хуков — мутанты каждого проходят свой файл тестов.
+6. Дом-ссылка: при первом старте `~/.ai-dev` ещё нет, `realpath` его не находит, и `AI_DEV_HOME=<настоящий дом>/.ai-dev` не
+   узнан — `~/.codex` пропущен до следующего старта (`codex-symlink-home.mjs`: «first start: clean moved 0»).
+7. `--mount` руками: пустая строка перед полями (Go csv её пропускает), `bind-create-src` (Docker создаёт источник),
+   `--mount` после образа (это аргументы контейнера), неизвестный ключ (Docker отказывает разбирать) — doctor говорит иное,
+   чем Docker; на Windows кавычки `"…"` совета не берегут `$` в PowerShell.
+
+**Чем грозит.** Ничего не ломает в обычной работе; тексты и тесты, которые не держат того, что обещают.
+
+**Как закроется.** Корень считается один раз; недостающий ответ — «не проверено»; комментарий — по коду; определённые
+находки — раньше «не проверено»; тесты на каждое; родитель и имя `.ai-dev` вместо `realpath` целиком; `--mount` — пустые
+строки, `bind-create-src`, конец опций у образа, неизвестный ключ — «не разобрать»; на Windows — кавычки PowerShell.
+
+---
+
+## Д-418. Мелочи третьего ревью документации фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашло третье независимое ревью фазы 14 (ревью документации: мелочи 5, 8, 9).
+
+**Замер до** (`22fbd78`):
+
+1. «a later build shows the notice only with `--no-cache`» сильнее правды: шаг стоит после `COPY ai-dev/`
+   (`docker/Dockerfile:90, 132-135`), и любая перемена копируемого дерева — любой `git pull` — запускает его снова (проба:
+   сборка 3 после смены файла — сообщение без `--no-cache`); CHANGELOG `:79-80, 958-960`, INSTALL EN/RU `:610-611`,
+   MIGRATION EN/RU `:126-128, 173-174`, `docker/README.md:313-314`.
+2. `docs/ru/INSTALL.md:162` — «поставьте клиента и запустите его снова»: «его» читается как клиент, а речь о скрипте.
+3. `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local …` печатает «pull access denied …» и идёт дальше (`bootstrap.sh:256`), а
+   документы не говорят, что это ожидаемо (INSTALL `:213-216`, UPGRADE-TEST EN/RU `:79-80`, MIGRATION EN/RU `:198-202`,
+   TEST-PLAN L5).
+
+**Как закроется.** «a later build of the same tree»; «запустите bootstrap снова»; оговорка про отказ скачать свой образ.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

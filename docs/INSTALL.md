@@ -158,7 +158,8 @@ Three steps:
    that sees each client's own config folder and your state folder, nothing else of your home.
    Claude Code keeps its servers in `~/.claude.json`, a file in the home itself, so its entry goes
    through its own CLI (`claude mcp add-json`); without the CLI on `PATH` the script prints the
-   command.
+   command. Every client found here gets an entry; with none installed yet nothing is written, and
+   the script says so — install one and run it again, or name one with `--clients` (Д-406).
 
 Until 3.0 is published, `:latest` is still a 2.x image, which has no installer of its own:
 bootstrap stops there with exit 69 ("… has no installer either (a 2.x image too)"). Build the 3.0

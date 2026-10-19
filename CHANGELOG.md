@@ -686,7 +686,8 @@ has it with what each one says.
   are looked at in one run first, and a look that fails while Docker runs nothing at all blames
   no folder (Д-352, Д-358, Д-360); one client that cannot be
   written does not stop the others — the exit is 1 and the 2.x container stays — and `--clients`
-  that names none is refused (Д-335, Д-336, Д-338, Д-339). `bootstrap.ps1` runs under Windows PowerShell 5.1
+  that names none is refused (Д-335, Д-336, Д-338, Д-339); with no client installed it writes nothing
+  and says so, rather than asking to restart the clients (Д-406). `bootstrap.ps1` runs under Windows PowerShell 5.1
   with the image's stderr thrown away safely (Д-320).
 - **The image's tags** (owner decision D9, Д-108): a push to `main` is `:edge`; a release tag
   `vX.Y.Z` is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`, a prerelease only its own name; the browser

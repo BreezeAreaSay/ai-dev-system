@@ -17007,7 +17007,7 @@ F457-vol-rest — по замеру ревью.
 **Замер после** (`9a64749`):
 
 ```
-docker-launch.test: dst=/data/ и target=//data/ непрочитанного --mount — том my-team-data; target=/ai-dev-state/ — state;
+docker-launch.test: dst=/data/ непрочитанного и target=//data/ прочитанного --mount — том my-team-data; target=/ai-dev-state/ — state;
   bind в /data после bind проектов (прочитанный и с bind-nonrecursive) — projects /p, data /t
 clients-doctor.test (Д-469): совет — «…, which makes the folder, and on the volume ai-dev-system-data in place of the folder it
   binds at /data, <home>/team-data, whose data is not carried over: `ai-dev clients install … --projects=<home>/disk/Projects`»;
@@ -17094,10 +17094,10 @@ test:core: # tests 1631  # pass 1624  # fail 2  # skipped 5
       + '# Nul\nbefore\x00after words'   - '# Nul\nbefore'
 ```
 
-**Как закроется.** Довод — как наблюдение, верное для своей версии: TEXT либо обрезан на NUL (Node 22), либо цел (Node 24);
+**Как закроется.** Довод — как наблюдение, верное для своей версии: TEXT либо обрезан на NUL (Node 22, 24.14, 25.9), либо цел (Node 24.17, 26);
 чтение через BLOB целое в обоих случаях — его тест держит как раньше.
 
-**Как закрыто** (`9a64749`). Проверка-довод принимает оба прочтения своей версии: TEXT обрезан на NUL (Node 22) или цел (Node 24);
+**Как закрыто** (`9a64749`). Проверка-довод принимает оба прочтения своей версии: TEXT обрезан на NUL (Node 22, 24.14, 25.9) или цел (Node 24.17, 26);
 чтение через BLOB целое на обоих — его тест держит, как раньше. CHANGELOG.
 
 **Замер после** (`9a64749`): `ok - text with NUL bytes is written whole and read whole` на v24.22.0 (`node:24-bookworm`) и на

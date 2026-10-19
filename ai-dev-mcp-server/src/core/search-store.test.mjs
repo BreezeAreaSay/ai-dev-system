@@ -457,7 +457,7 @@ test("text with NUL bytes is written whole and read whole", needsSqlite, async (
   await rebuildIndex({ vaultRoot: vault, indexPath });
   const db = openDatabase(indexPath);
   try {
-    // node:sqlite cut TEXT at a NUL before Node 24 (\u0414-113) and keeps it whole since (\u0414-471); the BLOB read is whole either way.
+    // node:sqlite cuts TEXT at a NUL in Node 22, 24.14 and 25.9 (\u0414-113) and keeps it whole in 24.17 and 26 (\u0414-471, \u0414-479); the BLOB read is whole either way.
     assert.ok(["# Nul\nbefore", "# Nul\nbefore\u0000after words"].includes(db.prepare("SELECT body FROM docs_fts").get().body), "TEXT is cut at the NUL, or whole");
     assert.equal(wholeText(db.prepare("SELECT CAST(body AS BLOB) AS body FROM docs_fts").get().body), "# Nul\nbefore\u0000after words");
   } finally {

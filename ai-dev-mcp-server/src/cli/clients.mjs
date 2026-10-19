@@ -309,8 +309,9 @@ export function commandWord(word, platform = process.platform) {
 export function missingMountError(client, entry, gone, unreadable = []) {
   const [first] = gone;
   const options = dockerEntryOptions(entry?.args);
+  // A folder bound at /data is the data's, in place of the volume: no projects folder, and none install makes (Д-478).
   const roleOf = (mount) => (mount.target === CONTAINER_MODELS || mount.target === CONTAINER_MODEL_DIR ? "model"
-    : mount.target === CONTAINER_STATE_ROOT ? "state" : "projects");
+    : mount.target === CONTAINER_STATE_ROOT ? "state" : mount.target === "/data" ? "data" : "projects");
   const roles = [...new Set(gone.map(roleOf))];
   // Why install cannot make a folder again: mkdir fails through a link that leads nowhere — the folder itself (Д-414)
   // or one on the way — under a file, and where this user may not write, as at the root-owned mount point of a disk
@@ -339,7 +340,7 @@ export function missingMountError(client, entry, gone, unreadable = []) {
     ? `the folder this entry mounts at ${first.target}: ${first.source} leads to ${first.leadsTo}, which is not here`
     : `the folder this entry mounts at ${first.target} is not here: ${first.source}`;
   const more = gone.length > 1 ? ` (nor ${gone.length > 2 ? "are the ones" : "is the one"} it mounts at ${gone.slice(1).map((mount) => mount.target).join(" and ")})` : "";
-  const made = roles.filter((role) => role !== "model" && !elsewhere.has(role));
+  const made = roles.filter((role) => role !== "model" && role !== "data" && !elsewhere.has(role));
   // A reason said once, for every folder it holds for (Д-430).
   const reasons = new Map();
   for (const [role, reason] of elsewhere) reasons.set(reason, [...(reasons.get(reason) ?? []), role]);

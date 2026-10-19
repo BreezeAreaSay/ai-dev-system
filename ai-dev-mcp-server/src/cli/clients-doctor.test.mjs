@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { readJsonc } from "../core/jsonc-edit.mjs";
-import { commandWord } from "./clients.mjs";
+import { commandWord, missingMountError } from "./clients.mjs";
 
 // `ai-dev clients doctor` on Docker entries whose `--mount` Docker 29 cannot read, the entry run by a `docker` that
 // says what Docker's CLI said, as measured. Its own file since cli.test.mjs reached the 800 lines a module keeps
@@ -156,4 +156,19 @@ test("clients doctor's advice takes no folder bound at /data for the projects fo
   const started = await doctorOf([`type=bind,source=${gone},target=/workspace`, unread], says);
   assert.deepEqual([started.code, started.started], [1, 1], `${started.stdout}${started.stderr}`);
   assert.ok(started.stdout.includes(`which makes the folder, and ${instead}, and without its --mount ${JSON.stringify(unread)}, which Docker 29 cannot read: \`${command}\`.\n`), started.stdout);
+});
+
+test("clients doctor's advice for a folder bound at /data that is itself gone: no projects folder, none install makes, and the projects folder kept (Д-478)", () => {
+  const data = path.join(path.sep, "home", "me", "disk", "ai-data");
+  const projects = path.join(path.sep, "home", "me", "Projects");
+  const entry = { args: ["run", "-i", "--rm", "--mount", `type=bind,source=${data},target=/data`, "--mount", `type=bind,source=${projects},target=${projects}`, "ai-dev-system:3"] };
+  const command = ["ai-dev", "clients", "install", "--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${projects}`].map((word) => commandWord(word)).join(" ");
+  const instead = `on the volume ai-dev-system-data in place of the folder it binds at /data, ${data}, whose data is not carried over`;
+  // The disk it is on not connected: nothing for install to make — the volume takes the folder's place.
+  assert.equal(missingMountError("cursor", entry, [{ source: data, target: "/data" }]),
+    `the folder this entry mounts at /data is not here: ${data}. Docker starts no session without it: connect the disk it is on, or write the entries again ${instead}: \`${command}\`.`);
+  // Its mount point not this user's to write in: still no reason to put a placeholder for the projects folder.
+  const blocked = { at: path.dirname(data), why: "write" };
+  assert.equal(missingMountError("cursor", entry, [{ source: data, target: "/data", unmakeable: blocked }]),
+    `the folder this entry mounts at /data is not here: ${data}. Docker starts no session without it: connect the disk it is on, or write the entries again ${instead}: \`${command}\`.`);
 });

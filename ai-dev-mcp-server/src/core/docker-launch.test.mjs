@@ -463,6 +463,10 @@ test("the data volume of a --mount Docker 29 cannot read is read back all the sa
   assert.equal(options("type=volume,src=my-team-data,dst=/data/,volume-nocopy=TRUE").volume, "my-team-data");
   assert.equal(options("type=volume,source=my-team-data,target=//data/").volume, "my-team-data");
   assert.equal(options("type=bind,source=/s,target=/ai-dev-state/").state, "/s");
+  // An image or a tmpfs at /data is neither a volume of the data's nor a folder bound in its place (Д-479).
+  for (const value of ["type=image,source=ai-dev-system:3,target=/data", "type=tmpfs,target=/data"]) {
+    assert.deepEqual([options(value).volume, options(value).data], ["", ""], value);
+  }
   // A folder bound at /data, read or not, is no projects folder: it is the data's, in place of the volume.
   assert.deepEqual(options("type=bind,source=/p,target=/workspace", "type=bind,source=/t,target=/data"),
     { image: "img", volume: "", projects: "/p", state: "", model: "", data: "/t" });

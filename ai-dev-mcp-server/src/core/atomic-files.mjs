@@ -69,11 +69,11 @@ export async function renameOver(tempPath, targetPath) {
 }
 
 /**
- * Flush an open file to disk. Node 24 refuses fsync under its permission model
- * — "fsync API is disabled when Permission Model is enabled."
- * (`ERR_ACCESS_DENIED`), and no flag allows it — and there the write goes on
- * unflushed rather than not at all; any other failure is the write's
- * (docs/DEFECTS.md, Д-470).
+ * Flush an open file to disk. Node's permission model refuses fsync in Node
+ * 24.22 and 26 (24.21 and 25.9 allow it) — "fsync API is disabled when
+ * Permission Model is enabled." (`ERR_ACCESS_DENIED`), and no flag allows it —
+ * and there the write goes on unflushed rather than not at all; any other
+ * failure is the write's (docs/DEFECTS.md, Д-470, Д-479).
  *
  * @param {import("node:fs/promises").FileHandle} handle
  * @returns {Promise<void>}
@@ -81,6 +81,26 @@ export async function renameOver(tempPath, targetPath) {
 export async function flushFile(handle) {
   try {
     await handle.sync();
+  } catch (error) {
+    if (error?.code !== "ERR_ACCESS_DENIED") throw error;
+  }
+}
+
+/**
+ * Give an open file `mode` unless it has it already: the copy that takes a
+ * file's place keeps that file's mode. Node's permission model refuses fchmod
+ * in 24.17 and later (24.14 allows it); there the copy keeps the mode open()
+ * gave it, which umask only narrows, rather than fail the write. Any other
+ * failure is the write's (docs/DEFECTS.md, Д-477).
+ *
+ * @param {import("node:fs/promises").FileHandle} handle
+ * @param {number} mode
+ * @returns {Promise<void>}
+ */
+export async function keepMode(handle, mode) {
+  if (((await handle.stat()).mode & 0o7777) === mode) return;
+  try {
+    await handle.chmod(mode);
   } catch (error) {
     if (error?.code !== "ERR_ACCESS_DENIED") throw error;
   }

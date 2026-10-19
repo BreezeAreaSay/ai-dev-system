@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { spawn, spawnSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { appendJsonLines, atomicAppendFile, atomicWriteFile, atomicWriteJson, flushFile, truncateTornTail, withExclusiveFile } from "./atomic-files.mjs";
+import { appendJsonLines, atomicAppendFile, atomicWriteFile, atomicWriteJson, flushFile, keepMode, truncateTornTail, withExclusiveFile } from "./atomic-files.mjs";
 
 /** A temp directory removed when the test ends. */
 async function tempRoot(t, prefix) {
@@ -223,13 +223,48 @@ test("a file is flushed where Node allows it: the permission model's refusal of 
   await flushFile(handle(null));
   await flushFile(handle(Object.assign(new Error("fsync API is disabled when Permission Model is enabled."), { code: "ERR_ACCESS_DENIED" })));
   await assert.rejects(flushFile(handle(Object.assign(new Error("EIO: i/o error, fsync"), { code: "EIO" }))), /EIO/);
-  // Under --permission, where Node 24 refuses fsync, a write and an append go through all the same.
+  // Under --permission, where Node refuses fsync (24.22, 26) and fchmod (24.17 and later), every write the server
+  // makes goes through all the same: a write and an append; a client's config that is new (Cursor's) and one that
+  // is there with a mode its copy must be given (Gemini's), each added to, changed and cleaned; and a backup
+  // (Д-477, Д-479).
   const root = await fs.realpath(await tempRoot(t, "ai-dev-atomic-permission-"));
-  const module = new URL("./atomic-files.mjs", import.meta.url).href;
-  const script = `const { appendJsonLines, atomicWriteFile } = await import(${JSON.stringify(module)});
-await atomicWriteFile(${JSON.stringify(path.join(root, "state.json"))}, "{}\\n");
-await appendJsonLines(${JSON.stringify(path.join(root, "ledger.jsonl"))}, "{}\\n");`;
+  await fs.mkdir(path.join(root, ".cursor"));
+  await fs.mkdir(path.join(root, ".gemini"));
+  await fs.writeFile(path.join(root, ".gemini", "settings.json"), "{}\n", { mode: 0o664 });
+  await fs.chmod(path.join(root, ".gemini", "settings.json"), 0o664);
+  await fs.mkdir(path.join(root, "vault"));
+  await fs.mkdir(path.join(root, "runtime", "state"), { recursive: true });
+  await fs.writeFile(path.join(root, "vault", "note.md"), "# Note\n");
+  const module = (name) => JSON.stringify(new URL(`./${name}`, import.meta.url).href);
+  const at = (...parts) => JSON.stringify(path.join(root, ...parts));
+  const script = `const { appendJsonLines, atomicWriteFile } = await import(${module("atomic-files.mjs")});
+const { discoverClients, installServer, removeServer } = await import(${module("mcp-clients.mjs")});
+const { createBackup } = await import(${module("backup-archive.mjs")});
+await atomicWriteFile(${at("state.json")}, "{}\\n");
+await appendJsonLines(${at("ledger.jsonl")}, "{}\\n");
+const targets = (await discoverClients({ home: ${JSON.stringify(root)}, env: {}, platform: process.platform })).filter((target) => ["cursor", "gemini"].includes(target.client));
+const statuses = [];
+for (const file of ["/a.mjs", "/b.mjs"]) statuses.push((await installServer({ targets, entryFor: () => ({ command: "node", args: [file] }) })).map((row) => row.status));
+statuses.push((await removeServer({ targets })).map((row) => row.status));
+const backup = await createBackup({ contentRoot: ${at("vault")}, runtimeRoot: ${at("runtime")}, destination: ${at("backups")}, now: new Date("2026-10-19T12:00:00Z") });
+console.log(JSON.stringify({ statuses, files: backup.files }));`;
   const run = spawnSync(process.execPath, ["--permission", "--allow-fs-read=*", `--allow-fs-write=${root}`, "--input-type=module", "-e", script], { encoding: "utf8" });
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual([await fs.readFile(path.join(root, "state.json"), "utf8"), await fs.readFile(path.join(root, "ledger.jsonl"), "utf8")], ["{}\n", "{}\n"]);
+  assert.deepEqual(JSON.parse(run.stdout), { statuses: [["added", "added"], ["updated", "updated"], ["removed", "removed"]], files: 1 }, run.stdout);
+});
+
+test("a copy is given its file's mode where Node allows it: a mode it has is not set again, the permission model's refusal fails no write, any other failure does (Д-477)", async () => {
+  const handle = (mode, error) => {
+    const set = [];
+    return { set, stat: async () => ({ mode: 0o100000 | mode }), chmod: async (to) => { set.push(to); if (error) throw error; } };
+  };
+  const same = handle(0o600);
+  await keepMode(same, 0o600);
+  assert.deepEqual(same.set, [], "the mode open() gave is the one the file had");
+  const other = handle(0o644);
+  await keepMode(other, 0o664);
+  assert.deepEqual(other.set, [0o664]);
+  await keepMode(handle(0o644, Object.assign(new Error("fchmod API is disabled when Permission Model is enabled."), { code: "ERR_ACCESS_DENIED" })), 0o664);
+  await assert.rejects(keepMode(handle(0o644, Object.assign(new Error("EPERM: operation not permitted, fchmod"), { code: "EPERM" })), 0o664), /EPERM/);
 });

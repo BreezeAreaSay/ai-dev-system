@@ -158,8 +158,12 @@ Three steps:
    that sees each client's own config folder and your state folder, nothing else of your home.
    Claude Code keeps its servers in `~/.claude.json`, a file in the home itself, so its entry goes
    through its own CLI (`claude mcp add-json`); without the CLI on `PATH` the script prints the
-   command. Every client found here gets an entry; with none installed yet nothing is written, and
-   the script says so — install one and run it again, or name one with `--clients` (Д-406).
+   command. Every client found here gets an entry, and the last line asks you to restart the
+   clients. With none installed yet nothing is written, and the script says so — install one and
+   run it again, or name one with `--clients` (`-Clients` for `bootstrap.ps1`, which does the same on
+   Windows) — and ends "AI Dev is ready; no AI client is connected to it yet." With
+   `--skip-client-install` (`-SkipClientInstall`) no config is written, and the last line says the
+   clients' configs were left as they were (Д-406, Д-415).
 
 Until 3.0 is published, `:latest` is still a 2.x image, which has no installer of its own:
 bootstrap stops there with exit 69 ("… has no installer either (a 2.x image too)"). Build the 3.0
@@ -188,10 +192,11 @@ For a different project folder and some of the clients:
 sh ./bootstrap.sh --project-path "$HOME/Dev" --clients "codex,cursor,vscode"
 ```
 
-Restart the clients afterwards. Re-running it is safe with the same `--project-path`: a config that
-already runs this image stays as it is, and the volume — vault, index, model — is kept. bootstrap
-does not read the projects folder back from an entry, so without the option it mounts
-`~/AI-Dev-Projects` again, whatever the entry mounted before. To build the image from the clone
+Restart the clients afterwards. Re-running it is safe with the same options (`--project-path`,
+`--model-path`): a config that already runs this image stays as it is, and the volume — vault,
+index, model — is kept. bootstrap does not read a folder back from an entry, so without the options
+it mounts `~/AI-Dev-Projects` again, whatever the entry mounted before, and no model folder unless
+`AI_DEV_MODEL_PATH` names one. To build the image from the clone
 instead of pulling it: `sh ./bootstrap.sh --build-local`. A client whose config cannot be written
 is named and the others are written all the same; the exit is then 1, and the 2.x runtime
 container stays until every config is rewritten (docs/DEFECTS.md, Д-335). A config that is a link
@@ -213,7 +218,9 @@ installer; otherwise bootstrap stops and asks for one (Д-323, Д-329). `:2` exi
 released — 2.x's `:latest`, copied to it before the 3.0 tag. Until then the 2.x image is
 `ghcr.io/stonebridgeway/ai-dev-system:latest` itself, the default installer too, so the installer
 has to be the 3.0 image you built: `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local sh ./bootstrap.sh
---image ghcr.io/stonebridgeway/ai-dev-system:latest`.
+--image ghcr.io/stonebridgeway/ai-dev-system:latest`. bootstrap tries to pull the installer too, so
+Docker's "pull access denied for ai-dev-system …" is expected there: an image built here is in no
+registry, and bootstrap goes on with the copy it finds here.
 
 ### On Windows
 
@@ -418,10 +425,10 @@ What the installer does with the files:
 command the way the client would and checks that it answers `initialize` with instructions — the
 check to make when a client shows the server as failed; each command has 30 seconds,
 `--timeout=<seconds>` gives it more. `clients remove` takes `ai-dev` (and `ai-dev-system`) out
-again: a file nothing else has changed since gets back exactly what it held, except a 2.x entry the
-install replaced — `ai-dev-system`, or the `ai-dev` of 2.x's Docker launcher — which does not come
-back (its bytes stay in the `<file>.backup-<time>` the install left); from any other file only the
-entry is cut. `--dry-run` shows what `install` or `remove` would change.
+again: a file nothing else has changed since gets back what it held, less any `ai-dev` or
+`ai-dev-system` entry the install replaced — 2.x's, Docker's or another install's — which does
+not come back (its bytes stay in the `<file>.backup-<time>` the install left beside it); from any
+other file only the entry is cut. `--dry-run` shows what `install` or `remove` would change.
 
 ### Hand-written Docker entries
 
@@ -608,7 +615,7 @@ check names each one it finds, and the `~/.ai-dev/models/bge-m3` folder of torch
 deleted. `--dense-python` still works as a name and does what `--model` does, and a Docker build
 passing `INSTALL_BGE_M3=1` is told what replaced it (Д-375). BuildKit's terminal view folds a
 finished step's output, which `--progress=plain` keeps on screen; a step taken from the cache prints
-nothing, so a later build shows the notice only with `--no-cache`.
+nothing, so a later build of the same tree shows the notice only with `--no-cache`.
 
 ### Checking that it worked
 
@@ -693,7 +700,7 @@ stderr, until 4.0.
 | --- | --- |
 | The Windows installer | The app offers it; **Restart to update to …** in the tray, or it is installed at **Quit**. |
 | npx | `npx @stonebridgeway/ai-dev-system@latest setup`: the new copy goes beside the old one, the entries move to it, and the two copies chosen last stay, so a client still running the previous one keeps it. |
-| Docker | `docker pull ghcr.io/stonebridgeway/ai-dev-system:latest`: the next session runs it. Running bootstrap again does the same and rewrites what changed in the entries; it mounts the projects folder it is given — `--project-path` (`-ProjectPath`), `~/AI-Dev-Projects` without one — not the one an entry mounts now, a 2.x entry's `AI_DEV_PROJECT_PATH` included, so name yours again. |
+| Docker | `docker pull ghcr.io/stonebridgeway/ai-dev-system:latest`: the next session runs it. Running bootstrap again does the same and rewrites what changed in the entries; it mounts the folders it is given, not the ones an entry mounts now, so run it with the same options: the projects folder — `--project-path` (`-ProjectPath`), `~/AI-Dev-Projects` without one — and a model folder on the host — `--model-path` (`-ModelPath`), or none when neither it nor `AI_DEV_MODEL_PATH` names one. A 2.x entry's `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH` are not read either: name those folders again. |
 | A clone | `git pull`, then `cd ai-dev-mcp-server && npm ci && npm run setup`. |
 
 An install of 2.x — a clone, the Docker launchers, the C# proxy for Claude on Windows — goes on
@@ -710,7 +717,7 @@ what needs one command from you, and how to go back: **[Moving from 2.x to 3.0](
 | Install | |
 | --- | --- |
 | The Windows installer | **Settings → Apps → Installed apps → AI Dev → Uninstall**. It asks whether to take AI Dev out of the AI clients (yes by default) and whether to delete its data, `%USERPROFILE%\.ai-dev` (no by default) — [Uninstalling](DESKTOP.md#uninstalling). |
-| npx | `npx @stonebridgeway/ai-dev-system clients remove` takes `ai-dev` out of every client — a file nothing else has changed since gets back exactly what it held, without the 2.x entry the install replaced; `npx @stonebridgeway/ai-dev-system daemon stop`; then delete `~/.ai-dev/app`, and `~/.ai-dev` itself to delete your data too: the vault, the tasks and session history, the model, the index, the backups, the settings. |
+| npx | `npx @stonebridgeway/ai-dev-system clients remove` takes `ai-dev` out of every client — a file nothing else has changed since gets back what it held, less any `ai-dev` or `ai-dev-system` entry the install replaced, which the `<file>.backup-<time>` beside it keeps; `npx @stonebridgeway/ai-dev-system daemon stop`; then delete `~/.ai-dev/app`, and `~/.ai-dev` itself to delete your data too: the vault, the tasks and session history, the model, the index, the backups, the settings. |
 | Docker | Take the `ai-dev` entry out of each client — `clients remove` from any install with Node, or by hand ([Connecting AI clients](#connecting-ai-clients) lists the files); `docker volume rm ai-dev-system-data` deletes the data, `docker image rm ghcr.io/stonebridgeway/ai-dev-system:latest` the image. `~/.ai-dev/state` holds what the server and the hooks shared. |
 
 Your projects are never touched.

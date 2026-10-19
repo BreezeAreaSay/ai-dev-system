@@ -18,7 +18,7 @@
 | У вас | Сделайте | Дальше |
 | --- | --- | --- |
 | Клон 2.x, настроенный `npm run setup` | `git pull`, затем `cd ai-dev-mcp-server && npm ci && npm run setup`; перезапустите всех ИИ-клиентов | Одна запись `ai-dev` на клиента, их обслуживает один демон; хранилище, задачи и индекс — как были |
-| 2.x через Docker (`bootstrap.sh`, `bootstrap.ps1`, `run-mcp.sh`, `run-mcp.ps1`, `ClaudeMcpProxy.exe`) | `git pull`, затем снова `bootstrap.sh` (`bootstrap.ps1` на Windows), назвав папку проектов в `--project-path` (`-ProjectPath`), если это не `~/AI-Dev-Projects`; перезапустите всех ИИ-клиентов | Записи `docker run`; том сохранён, его навыки приведены к seed 3.0; на macOS и Linux удалён долгоживущий контейнер, который запускал `bootstrap.sh` 2.x (на Windows 2.x такого не держала) |
+| 2.x через Docker (`bootstrap.sh`, `bootstrap.ps1`, `run-mcp.sh`, `run-mcp.ps1`, `ClaudeMcpProxy.exe`) | `git pull`, затем снова `bootstrap.sh` (`bootstrap.ps1` на Windows), назвав папку проектов в `--project-path` (`-ProjectPath`), если это не `~/AI-Dev-Projects`, и папку модели, если её называл `AI_DEV_MODEL_PATH` ваших записей, — в `--model-path` (`-ModelPath`); перезапустите всех ИИ-клиентов | Записи `docker run`; том сохранён, его навыки приведены к seed 3.0; на macOS и Linux удалён долгоживущий контейнер, который запускал `bootstrap.sh` 2.x (на Windows 2.x такого не держала) |
 | Установка 2.x, которую пока не хочется трогать | Пока ничего | Она продолжает работать, а предупреждения ниже говорят, что запустить, когда будете готовы |
 
 Новой машине ничего этого не нужно: поставьте 3.0 [любым из трёх способов](INSTALL.md#выбор-способа).
@@ -102,9 +102,12 @@ setup -- --model`).
   контейнере, поэтому один `docker pull` до ваших сессий не доходит. Запустите `bootstrap.sh`
   (`bootstrap.ps1`) снова: он пишет на их место записи `docker run -i --rm …` и — на macOS и Linux —
   удаляет контейнер, который держала 2.x, `ai-dev-system-runtime-<uid>`, когда переписан каждый конфиг.
-  Монтирует он ту папку проектов, которую ему назвали, — `--project-path` (`-ProjectPath`), по
-  умолчанию `~/AI-Dev-Projects`, — а не `AI_DEV_PROJECT_PATH` из ваших записей 2.x: если там была
-  другая папка, назовите её снова, `sh ./bootstrap.sh --project-path "$HOME/Dev"`.
+  Монтирует он те папки, которые ему назвали, а не те, что называют ваши записи 2.x: папку проектов —
+  `--project-path` (`-ProjectPath`), по умолчанию `~/AI-Dev-Projects`, — вместо их
+  `AI_DEV_PROJECT_PATH` и папку модели на хосте — `--model-path` (`-ModelPath`) или `AI_DEV_MODEL_PATH`
+  из окружения, без них никакую, — вместо их `AI_DEV_MODEL_PATH`. Если записи задавали эти папки,
+  назовите их снова и давайте bootstrap те же параметры при каждом следующем запуске:
+  `sh ./bootstrap.sh --project-path "$HOME/Dev" --model-path "$HOME/.ai-dev/models"`.
 - **Том сохраняется.** Его первый старт под новым образом занимает около 15 секунд, один раз. Его навыки
   приводятся к seed 3.0 по манифесту seed, а не копированием-если-нет, как в 2.x: то, что несла только
   2.x, удаляется; изменённый вами файл seed сохраняет вашу правку, а обновление лежит рядом как
@@ -124,8 +127,8 @@ setup -- --model`).
   Chromium (они в варианте `-browser`, `:latest-browser`), `/opt/ai-dev/search-index` и переменных
   `BGE_M3_ONNX_DIR` и `AI_DEV_DENSE_INSTALLED`. Сборка с `INSTALL_BGE_M3=1` получает сообщение о том, что
   его заменило, — на экране оно остаётся с `--progress=plain`: терминальный вид BuildKit сворачивает
-  вывод законченного шага. Шаг из кэша не печатает ничего, так что при следующей сборке оно видно
-  только с `--no-cache`.
+  вывод законченного шага. Шаг из кэша не печатает ничего, так что при следующей сборке того же дерева
+  оно видно только с `--no-cache`.
 - **`AI_DEV_DOCKER_NETWORK` читают только лаунчеры 2.x.** В записи 3.0 прописан `--network none`:
   проекту, чьим проверкам нужна сеть, ставят там `--network bridge`, а повторный bootstrap возвращает
   `none`.
@@ -170,7 +173,7 @@ setup -- --model`).
 | `scripts/start-local.ps1` | `ai-dev mcp` | запускает его; говорит об этом |
 | `scripts/backup-ai-dev-system.ps1`, `restore-ai-dev-system.ps1`, `restore-runtime.ps1`, `run-acceptance.ps1` | `ai-dev backup`, `ai-dev restore`, `npm ci` + `ai-dev setup --frontend-qa`, `npm run check` | запускают их; говорят об этом |
 | `--dense-python`, `AI_DEV_DENSE_BACKEND=python` | `--model` | модель ONNX, с пометкой |
-| `INSTALL_BGE_M3=1` (сборка образа) | модель в томе или в `/models` | говорит, что его заменило (на экране — с `--progress=plain`; при следующей сборке — только с `--no-cache`) |
+| `INSTALL_BGE_M3=1` (сборка образа) | модель в томе или в `/models` | говорит, что его заменило (на экране — с `--progress=plain`; при следующей сборке того же дерева — только с `--no-cache`) |
 
 Удалено сразу, как внутреннее или никогда не выпускавшееся: `scripts/install-docker-mcp-clients.mjs`
 (его запускали только bootstrap и CI), `npm run test:search-helper`, `search-index/search_cli.py` и
@@ -197,7 +200,8 @@ setup -- --model`).
   `ghcr.io/stonebridgeway/ai-dev-system:latest`, он же установщик bootstrap по умолчанию, поэтому
   `AI_DEV_INSTALLER_IMAGE` называет собранный вами образ 3.0, которым bootstrap пишет записи:
   `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local sh ./bootstrap.sh --image
-  ghcr.io/stonebridgeway/ai-dev-system:latest`.
+  ghcr.io/stonebridgeway/ai-dev-system:latest`. Ответ Docker «pull access denied for ai-dev-system …»
+  тут ожидаем: bootstrap пробует скачать и установщик, а затем продолжает с образом, собранным здесь.
 - **npx.** `npx @stonebridgeway/ai-dev-system@<версия> setup` ставит эту версию и переводит на неё
   записи; 3.0.0 — первая версия в npm.
 - **Установщик Windows.** Удалите его; обновление не ставит более старую версию.

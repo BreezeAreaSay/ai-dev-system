@@ -77,17 +77,19 @@ it, what moves by itself, what needs one command, and how to go back.
   `/opt/ai-dev/search-index`, and no `BGE_M3_ONNX_DIR` or `AI_DEV_DENSE_INSTALLED`; the
   `INSTALL_BGE_M3` build argument installs nothing and says what replaced it (BuildKit's terminal
   view folds a finished step's output, which `--progress=plain` keeps on screen; a step taken from the
-  cache prints nothing, so a later build shows the notice only with `--no-cache`). On macOS and Linux the projects are mounted
+  cache prints nothing, so a later build of the same tree shows the notice only with `--no-cache`). On macOS and Linux the projects are mounted
   at their own path rather than at `/workspace`, so what a 2.x server remembered of a project —
   sessions, instincts, decisions — stays under `/workspace/<name>` and the project's memory starts
   afresh. The volume's state — tasks, handoffs — moves to the host's `~/.ai-dev/state` wherever the
   container's user can share that folder; a rollback run by the 2.x launchers keeps its state in the
   volume and does not see what moved. A 3.0 entry has `--network none` written into it and ignores
   `AI_DEV_DOCKER_NETWORK`, which only the 2.x launchers read: change the entry itself. `bootstrap.sh`
-  and `bootstrap.ps1` mount the projects folder they are given — `--project-path` (`-ProjectPath`),
-  `~/AI-Dev-Projects` by default — not the `AI_DEV_PROJECT_PATH` a 2.x entry holds: where 2.x
-  mounted another folder, name it again. They no longer install Docker or Node, start a long-lived
-  container or compile a proxy.
+  and `bootstrap.ps1` mount the folders they are given — the projects folder, `--project-path`
+  (`-ProjectPath`), `~/AI-Dev-Projects` by default, and a model folder, `--model-path` (`-ModelPath`),
+  none unless `AI_DEV_MODEL_PATH` is set — not the `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH` a
+  2.x entry holds: where 2.x mounted a folder of yours, name it again, and run bootstrap again later
+  with the same options. They no longer install Docker or Node, start a long-lived container or
+  compile a proxy.
 - **Image tags** (decision D9): `:latest` moves only with a release tag of the newest line, and no
   longer with 2.x; `:edge` follows `main`; `:2` follows the 2.x line — a manual run copies 2.x's
   `:latest` to it before 3.0 is tagged, and after that only a `v2.*` tag moves it.
@@ -224,8 +226,9 @@ has it with what each one says.
   that is not UTF-8 is refused rather than rewritten. `ai-dev-system`, the 2.x local name, is
   removed and a Docker `ai-dev` replaced, with
   the output saying which; a second run says `No changes`. `remove` gives a file nothing else
-  touched back byte for byte (measured on all six) — less a 2.x entry the install replaced, which
-  stays in the install's backup — and otherwise cuts out only the entry;
+  touched back byte for byte (measured on all six) — less any `ai-dev` or `ai-dev-system` entry the
+  install replaced, 2.x's, Docker's or another install's, which stays in the install's backup — and
+  otherwise cuts out only the entry;
   `doctor` starts each entry's command and checks that it answers `initialize` with
   instructions (six of six, 313–361 ms), naming a command that died by its error line;
   `--timeout=<seconds>` gives each more than 30 s; `--dry-run` shows what would change.
@@ -686,9 +689,15 @@ has it with what each one says.
   are looked at in one run first, and a look that fails while Docker runs nothing at all blames
   no folder (Д-352, Д-358, Д-360); one client that cannot be
   written does not stop the others — the exit is 1 and the 2.x container stays — and `--clients`
-  that names none is refused (Д-335, Д-336, Д-338, Д-339); with no client installed it writes nothing
-  and says so, rather than asking to restart the clients (Д-406). `bootstrap.ps1` runs under Windows PowerShell 5.1
-  with the image's stderr thrown away safely (Д-320).
+  that names none is refused (Д-335, Д-336, Д-338, Д-339). Each script's last line says what it did
+  with the configs: "Restart the AI clients to load ai-dev." after writing them; with no client
+  installed it writes none and says so — `bootstrap.sh` with "No AI client found here (…). Name one
+  to write its config anyway, --clients cursor,vscode,…, or install one and run bootstrap.sh
+  again.", `bootstrap.ps1` with the same line in its own terms, `-Clients cursor,vscode,…` and
+  `run bootstrap.ps1 again` — and ends "no AI client is connected to it yet"; with
+  `--skip-client-install` (`-SkipClientInstall`) it ends "the AI clients' configs were left as they
+  were" (Д-406, Д-415). `bootstrap.ps1` runs under Windows PowerShell 5.1 with the image's stderr
+  thrown away safely (Д-320).
 - **The image's tags** (owner decision D9, Д-108): a push to `main` is `:edge`; a release tag
   `vX.Y.Z` is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`, a prerelease only its own name; the browser
   variant has the same tags with `-browser`. A manual run with `freeze_2x` copies the current
@@ -956,8 +965,8 @@ has it with what each one says.
   `docker run … <image> ai-dev model install`, or a host folder holding `bge-m3-onnx/`
   mounted at `/models` (`bootstrap.sh --model-path`). The argument stays declared for that until
   4.0 (Д-375). BuildKit's terminal view folds a finished step's output, which `--progress=plain`
-  keeps on screen; a step taken from the cache prints nothing, so a later build shows the notice only
-  with `--no-cache`.
+  keeps on screen; a step taken from the cache prints nothing, so a later build of the same tree
+  shows the notice only with `--no-cache`.
 - **The Python search helper** — `search-index/search_cli.py`, its `unittest` suite
   (`test_search_freshness.py`, now `src/core/search-freshness.test.mjs`) and
   `npm run test:search-helper` — and with them the Docker image's

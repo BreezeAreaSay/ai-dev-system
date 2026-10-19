@@ -78,6 +78,8 @@ npm run docker:upgrade-check -- --old-image ghcr.io/stonebridgeway/ai-dev-system
 the 2.x image is `ghcr.io/stonebridgeway/ai-dev-system:latest` itself: name it so, here and in the
 commands below. It is then bootstrap's default installer as well, so `bootstrap.sh --image` needs
 the 3.0 image you built to write the entries: `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local`.
+bootstrap tries to pull that one too, so Docker's "pull access denied for ai-dev-system …" is
+expected, and the image built here is used.
 
 It needs Docker, the two images and this clone with the base commit in it (`8f647df`; a shallow
 clone fetches it with `git fetch origin 8f647df1372fa5fa2a998b74e40130ed772797d0`): the 2.x

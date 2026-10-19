@@ -515,8 +515,9 @@ clone's `bin/ai-dev.mjs` and `mcp`, plus `AI_DEV_VAULT_ROOT` for a vault install
 edited in place — other servers, comments and formatting stay byte for byte — written through a
 temp file and a rename, and backed up as `<file>.backup-<time>`; `ai-dev-system`, the 2.x
 name, is removed. `clients doctor` starts each entry's command and checks that it answers
-`initialize` with instructions; `clients remove` gives an untouched file back exactly. Restart or
-reload each client after installation. Any model selected inside an MCP-capable client can use
+`initialize` with instructions; `clients remove` gives an untouched file back as it was, less any
+`ai-dev` or `ai-dev-system` entry the install replaced (its backup keeps it). Restart or reload
+each client after installation. Any model selected inside an MCP-capable client can use
 the same tools; a raw model endpoint still needs an MCP-capable host.
 
 `ai-dev mcp` does not serve the client itself: it hands the client's stdin and stdout to the

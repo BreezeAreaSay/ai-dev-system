@@ -72,18 +72,19 @@ function readEscape(text, at) {
 /**
  * The tokens of a JavaScript source: `{ type, value, line }` with type
  * `name` (escapes decoded), `string` (the decoded text; a template literal with
- * no substitution is one), `number`, `punct`, `regex` (one per literal, its
- * text left out), or `template` (one per template literal that has
- * substitutions; the code in its `${…}` is tokenised in place). Comments leave
- * nothing, and `?.` before `[` or `(` leaves nothing either: `a?.[b]` is read
- * as `a[b]`, whatever space or comment lies between.
+ * no substitution is one, marked `template`), `number`, `punct`, `regex` (one
+ * per literal, its text left out), or `template` (one per template literal
+ * that has substitutions; the code in its `${…}` is tokenised in place).
+ * Comments leave nothing, and `?.` before `[` or `(` leaves nothing either:
+ * `a?.[b]` is read as `a[b]`, whatever space or comment lies between.
  *
  * A `/` is a regular expression where an expression begins, and a division
  * after an operand: after a word that is a property (`stats.in / 2`), a
  * postfix `++`, a call's `)`, or the `}` of an object literal or of a class or
  * function expression it divides; after a statement head's `)`
  * (`if (x) /re/`), a block's `}` — a label's or a `case`'s too — or a
- * declaration's it does not. One that does not close on its line divides.
+ * declaration's it does not. One that does not close on its line divides,
+ * and no later one on that line reads again what it read.
  * Each `{` carries `literal`: whether it opens an object literal.
  *
  * When a template literal, a substitution or a comment never closes, the
@@ -123,6 +124,9 @@ export function codeTokens(source, { script = false } = {}) {
   // does, `const C = class {}`, so that a `/` after the body divides — and where it is declared it begins a regular
   // expression (Д-410). One waits inside another: `class extends f(function () {}) {}` (Д-424).
   const bodies = [];
+  // Where a body is waited for: the brackets open, and the template substitutions — a `${…}` in a class's heritage is
+  // not at its body's level, and an `=` or a `:` there ends no wait (Д-461).
+  const level = () => opened.length + templates.length;
   // A member's name is a name, whatever word it is: `it.return`, `o.default`, `this.#class` (Д-442, Д-443).
   const isMember = (index) => isPunct(tokens[index - 1], ".") || isPunct(tokens[index - 1], "#");
   // `return`, `yield` and a postfix `++` or `--` end their statement at a line break: what the next line begins is a
@@ -148,6 +152,9 @@ export function codeTokens(source, { script = false } = {}) {
   // Where `-->` may begin an HTML-like comment: no token yet on this line — a line break, or a comment that spans one,
   // since the last token, or the start of the file (Д-447).
   let lineBegins = true;
+  // Where a regular expression's scan is known to fail, by place: 1 inside a class of characters, 2 outside one. A line
+  // of slashes whose expressions never close was read again from each slash, its length squared (Д-463).
+  let failed = null;
   const push = (type, value, where = line) => {
     const fresh = substitutionOpened;
     substitutionOpened = false;
@@ -164,20 +171,28 @@ export function codeTokens(source, { script = false } = {}) {
       const async = value === "function" && isName(tokens.at(-1), "async") && tokens.at(-1).line === where;
       const before = async ? tokens.length - 2 : tokens.length - 1;
       const declared = isName(tokens[before], "default") && isName(tokens[before - 1], "export");
-      bodies.push({ depth: opened.length, expression: !declared && (fresh || valueAfter(before, where)) });
+      bodies.push({ depth: level(), expression: !declared && (fresh || valueAfter(before, where)) });
     } else if (type === "punct" && (value === ":" || value === "}" || value === "=")) {
       // None of these stands between `class` or `function` and its body: one at that depth ends the wait — a key of
       // that name, `{ class: 1 }`, the end of a block, a field of that name, `class = 1` (Д-425, Д-443).
-      while (bodies.at(-1)?.depth === opened.length) bodies.pop();
+      while (bodies.at(-1)?.depth === level()) bodies.pop();
     }
-    // `for (let i = of / 2; …)`, `for (; of / 2;)`: past an initialiser, or its place, `of` is a name (Д-448).
-    if (type === "punct" && (value === "=" || value === ";") && innermost().forHead) innermost().initialised = true;
+    // In a `for` head `of` is the keyword right after the binding — a pattern's or a parenthesis's end, a member, a name
+    // that is no keyword, or an `of` that is not the keyword — and nowhere else: `for (let i = of / 2; …)`,
+    // `for (k in of / 2)` and `for (const k of of / 2 ? of : of)` divide, `for (let of of …)` binds it (Д-448, Д-464).
+    if (type === "name" && value === "of" && innermost().forHead === true) {
+      const binding = tokens.at(-1);
+      const name = isName(binding) && (isMember(tokens.length - 1) || (binding.value === "of" ? binding.keyword !== true
+        : !KEYWORDS_BEFORE_EXPRESSION.has(binding.value) && !["let", "const", "var"].includes(binding.value)));
+      token.keyword = name || isPunct(binding, "]") || isPunct(binding, "}") || isPunct(binding, ")");
+    }
     if (type === "punct" && value === "{") {
-      const owner = bodies.at(-1)?.depth === opened.length ? bodies.pop() : null;
+      const owner = bodies.at(-1)?.depth === level() ? bodies.pop() : null;
       token.literal = !owner && (fresh || valueAfter(tokens.length - 1, where));
       opened.push({ regexAfter: owner ? !owner.expression : !token.literal, statements: !token.literal, conditionals: 0 });
     } else if (type === "punct" && (value === "(" || value === "[")) {
-      // In a `for` head `of` is a keyword; anywhere else it may be a name: `of / 2` divides (Д-424).
+      // In a `for` head `of` may be the keyword; anywhere else it is a name: `of / 2` divides (Д-424). A member's
+      // parentheses, `o.for(of / 2)`, hold no binding for an `of` to follow (Д-464).
       const forHead = value === "(" && (isName(tokens.at(-1), "for") || (isName(tokens.at(-1), "await") && isName(tokens.at(-2), "for")));
       opened.push({ regexAfter: value === "(" && headOpens(), statements: false, conditionals: 0, forHead });
     } else if (type === "punct" && (value === ")" || value === "]" || value === "}")) token.regexAfter = opened.pop()?.regexAfter === true;
@@ -195,7 +210,7 @@ export function codeTokens(source, { script = false } = {}) {
       // `debugger⏎/r/`, `break outer⏎/r/`: the statement is over, and a `/` begins the next (Д-448).
       const labelled = (isName(tokens.at(-2), "break") || isName(tokens.at(-2), "continue")) && tokens.at(-2).line === last.line;
       if (STATEMENT_ENDS.has(last.value) || labelled) return true;
-      return KEYWORDS_BEFORE_EXPRESSION.has(last.value) && (last.value !== "of" || (innermost().forHead === true && !innermost().initialised));
+      return last.value === "of" ? last.keyword === true : KEYWORDS_BEFORE_EXPRESSION.has(last.value);
     }
     if (last.type !== "punct") return false;
     if (last.value === ")" || last.value === "]" || last.value === "}") return last.regexAfter === true;
@@ -279,8 +294,11 @@ export function codeTokens(source, { script = false } = {}) {
       const started = line;
       at += 1;
       const { cooked, ended } = readTemplateText();
-      if (ended === "end") push("string", cooked, started);
-      else {
+      if (ended === "end") {
+        // Read as the string it is, and still a template: `cp⏎`x`` tags `cp` (Д-459).
+        push("string", cooked, started);
+        tokens.at(-1).template = true;
+      } else {
         push("template", "`", started);
         if (ended === "code") {
           templates.push({ depth: 0, line: started });
@@ -302,7 +320,17 @@ export function codeTokens(source, { script = false } = {}) {
     if (character === "/" && regexAllowed()) {
       const slash = at;
       let inClass = false;
+      // The places this scan passes, each with whether it is inside a class: one that fails marks them, and a later scan
+      // that comes to a marked place in the same state would fail as it did — it stops there.
+      const passed = [];
+      let known = false;
       for (at += 1; at < text.length; at += 1) {
+        const state = inClass ? 1 : 2;
+        if (failed !== null && (failed[at] & state) !== 0) {
+          known = true;
+          break;
+        }
+        passed.push(at, state);
         const inside = text[at];
         if (inside === "\\" && !isLineEnd(text[at + 1] ?? "\n")) { at += 1; continue; }
         if (isLineEnd(inside)) break;
@@ -310,7 +338,9 @@ export function codeTokens(source, { script = false } = {}) {
         else if (inside === "]") inClass = false;
         else if (inside === "/" && !inClass) break;
       }
-      if (text[at] !== "/") {
+      if (known || text[at] !== "/") {
+        failed ??= new Uint8Array(text.length + 1);
+        for (let index = 0; index < passed.length; index += 2) failed[passed[index]] |= passed[index + 1];
         // A regular expression never spans a line: this slash divides, and what follows it is read as code.
         at = slash + 1;
         push("punct", "/");

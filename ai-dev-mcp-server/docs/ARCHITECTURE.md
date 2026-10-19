@@ -970,26 +970,28 @@ every layout on every system; 2.x's PowerShell scripts worked only inside the ow
 `core/frontend-product-quality.mjs` and `core/reference-factory.mjs`, at that day's size: a pinned module may only
 shrink, and the gate demands the pin go once its module is back under the ceiling or gone.
 
-The same walk runs `node --check` over `bin/`, `src/`, `scripts/`, `hooks/` and the desktop app, `sh -n` over the
-hook launcher, and refuses the calls AGENTS.md forbids (`core/forbidden-calls.mjs`), read as tokens by
-`core/code-tokens.mjs` — comments, strings, template text and regular expressions set aside, every escape decoded,
-a name ended where JavaScript ends it — a member's name a name whatever word it is — a statement begun where a line
-break ends one, a `.cjs` file's HTML-like comments read as a script reads them (Д-267, Д-382, Д-398, Д-407, Д-423,
-Д-424, Д-442, Д-447): `eval` and the `Function` constructor, called or handed on; a computed member of `globalThis`,
-`window`, `global` or `self` whose key is not one plain string naming neither; `exec` and `execSync` of
-`child_process` through any import, `require`, `import()` or `process.getBuiltinModule` of the module — called by
-name, as a member or by a plain-string key, in parentheses, or through `.call` or `.apply` — and any name it is
-plainly re-bound to, above or below, and the module object itself exported: whole, by a declaration or a pattern, or
-through an exported `let` or `var` it is assigned to (Д-432, Д-440); and a `shell` option that is not plainly off.
-So `import * as cp` then `cp.exec(…)`, `{ "shell": true }` and
-`globalThis["ev" + "al"]` are refused like the usual forms, and a file it cannot read to its end is refused, not
-trusted. It follows the module object and the global objects through plain re-binding and nothing else — a module
-name built from parts, `createRequire`, `Reflect.get`, a loader bound to another name or reached any other way
-(`.bind`, `Reflect.apply`, a condition), the module object put in an object by name, on `this` or on a head in
-parentheses (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`), a global taken out of itself
-by a pattern (`{ globalThis: g } = globalThis`), and `await` or `yield` written as a name in a script are past it
-(Д-431, Д-448): it keeps honest code honest and is no sandbox. Only the desktop app's tests may call `eval` and `new Function`, to show that the page's policy refuses
-them.
+The same walk runs `node --check` over `bin/`, `src/`, `scripts/`, `hooks/` and the desktop app, `sh -n` over the hook
+launcher, and refuses the calls AGENTS.md forbids (`core/forbidden-calls.mjs`), read as tokens by `core/code-tokens.mjs`
+— comments, strings, template text and regular expressions set aside, every escape decoded, a name ended where
+JavaScript ends it — a member's name a name whatever word it is — a statement begun where a line break ends one, a
+`.cjs` file's HTML-like comments read as a script reads them (Д-267, Д-382, Д-398, Д-407, Д-423, Д-424, Д-442, Д-447,
+Д-461, Д-463): `eval` and the `Function` constructor, called or handed on; a computed member of `globalThis`, `window`,
+`global` or `self` whose key is not one plain string naming neither; `exec` and `execSync` of `child_process` through
+any import, `require`, `import()` or `process.getBuiltinModule` of the module — called by name, as a member or by a
+plain-string key, in parentheses, or through `.call` or `.apply` — and any name it is plainly re-bound to, above or
+below, and the module object itself exported: whole — on one line or over several, not a value it takes part in — by a
+declaration, by a pattern that declares it from the module itself, or through an exported `let` or `var` it is assigned
+to, by name or by a pattern (Д-432, Д-440, Д-459, Д-460, Д-464); and a `shell` option that is not plainly off. So
+`import * as cp` then `cp.exec(…)`, `{ "shell": true }` and `globalThis["ev" + "al"]` are refused like the usual forms,
+and a file it cannot read to its end is refused, not trusted. It follows the module object and the global objects
+through plain re-binding and nothing else — a module name built from parts, `createRequire`, `Reflect.get`, a loader
+bound to another name or reached any other way (`.bind`, `Reflect.apply`, a condition, `require["call"]`), the module
+object put in an object or an array (`module.exports = { cp }`, `export const [run] = [cp]`), on `this` or on a head in
+parentheses (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a name bound to that, an
+exported `let` or `var` a pattern declares or whose name the file declares again, a global taken out of itself by a
+pattern (`{ globalThis: g } = globalThis`), and `await` or `yield` written as a name in a script are past it (Д-431,
+Д-432, Д-440, Д-448, Д-450, Д-459, Д-460, Д-464): it keeps honest code honest and is no sandbox. Only the desktop app's
+tests may call `eval` and `new Function`, to show that the page's policy refuses them.
 
 ## Operations And Distribution
 

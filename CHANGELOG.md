@@ -1728,54 +1728,66 @@ four of those arrived as upstream issues #63–#66.
   will not switch the rule on until the pattern is fixed — not that the guard runs it on every
   command, which it does not; it still counts each in `broken`, and the tool's description names
   all three (Д-420, Д-436, Д-458).
-- **The static gate reads what the code does, not how it is spelled** (Д-267). It looked for the
-  usual spellings of `exec`, `shell: true` and `eval`, and every equivalent passed:
-  `import * as cp` with `cp.exec(…)`, a default import, `execSync`, `{ "shell": true }`,
-  `{ shell: "/bin/sh" }`, `globalThis["ev" + "al"](…)`. `src/core/code-tokens.mjs` reads the
-  source as tokens — every escape decoded, a name ended where JavaScript ends it (a no-break space
-  too), a template without substitutions read as the string it is, `?.[` as `[`, a slash told from a
-  division by what stands before it (a statement head's `)`; a block's `}`, a label's or a `case`'s
-  too, but not a class or function expression's, nor one after `delete`, `in` or `instanceof`; a
-  property named `in`, a name `of` outside a `for` head's binding; a regular expression after
-  `break`, `continue` or `debugger`), a member's name read as a name whatever word it is
+- **The static gate reads what the code does, not how it is spelled** (Д-267). It looked for the usual
+  spellings of `exec`, `shell: true` and `eval`, and every equivalent passed: `import * as cp` with
+  `cp.exec(…)`, a default import, `execSync`, `{ "shell": true }`, `{ shell: "/bin/sh" }`,
+  `globalThis["ev" + "al"](…)`. `src/core/code-tokens.mjs` reads the source as tokens — every escape
+  decoded, a name ended where JavaScript ends it (a no-break space too), a template without
+  substitutions read as the string it is, `?.[` as `[`, a slash told from a division by what stands
+  before it (a statement head's `)`; a block's `}`, a label's or a `case`'s too, but not a class or
+  function expression's — what its heritage holds, a template's substitutions included, not taken for
+  its end — nor one after `delete`, `in` or `instanceof`; a property named `in`, a name `of` anywhere
+  but right after a `for` head's binding (`for (k in of / 2)`, `o.for(of / 2)`); a regular expression
+  after `break`, `continue` or `debugger`), a member's name read as a name whatever word it is
   (`it.return`, `this.#class`), a statement begun where a line break ends one (after `return`,
   `yield`, `x++`), a `.cjs` file's HTML-like comments read as a script reads them — `-->` where no
   token stands before it on its line, after a comment that spans lines too — and
-  `src/core/forbidden-calls.mjs` asks the rules of them, in the server and in `desktop/`:
-  the six spellings appended to a server file and a desktop file give twelve findings, where the gate
-  passed them. It knows `process.getBuiltinModule`, and a loader called by name, as a member or by a
+  `src/core/forbidden-calls.mjs` asks the rules of them, in the server and in `desktop/`: the six
+  spellings appended to a server file and a desktop file give twelve findings, where the gate passed
+  them. It knows `process.getBuiltinModule`, and a loader called by name, as a member or by a
   plain-string key, in parentheses, or through `.call` or `.apply`; the module's `default`,
   `.then(async …)` callbacks, rest elements, plain re-binding and `??=`, parentheses, comma lists and
   chains of assignments around a value (`(0, globalThis)`, `a = b = cp`), above the use or below it,
-  the module itself handed to another file (`export *`, `export const`, a pattern an export declares,
-  an exported `let` or `var` it is assigned to, `module.exports =`, `exports["cp"] =`) — itself, not
-  a value it takes part in: `export const ok = cp !== undefined` passes — `Function` through `.call`,
-  `.apply` and `.bind`, a global's own name after its parentheses (`(0, globalThis).globalThis[k]`), a global's
-  `.Function`, `.shell =`, `["shell"]:` and shell accessors; a `shell` key counts only in an object
-  literal — a default value or an iterated array is one — so an import, a parameter or an argument
-  named `shell` passes; and a file it cannot read to its end — a template or a comment that never
-  closes — is refused rather than passed (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424, Д-426,
-  Д-432, Д-440 … Д-443, Д-446 … Д-448).
-  It follows the module object and the global objects through plain re-binding and nothing else: a
-  module name built from parts, `createRequire`, `Reflect.get`, a loader bound to another name or
-  reached any other way (`.bind`, `Reflect.apply`, a condition, an array), the module put in an
-  object by name (`module.exports = { cp }`), on `this` or on a head in parentheses
-  (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`), a global taken out of
-  itself by a pattern (`{ globalThis: g } = globalThis`), and `await` or `yield` written as a name in
-  a script are past it, and said to be (Д-431, Д-432, Д-440, Д-448). Bracket pairs are worked out once, a
-  closing bracket of another kind looks only a few levels down, a `from` that begins no clause
-  stops at once, whether a bracket is a pattern is asked once, a key in brackets is read without
-  copying them, a value's plain name is worked out once for each place it starts, a declaration's walk
-  ends where its statement does, and a chain is walked back only for a call with the module's name,
-  so a file costs what its length does: 5,922 dependency files are read to the end in about 16 s, a 448 kB minified line in 0.2 s,
-  where it took 10 s, 552 kB of keys in arrays nested 4,000 deep in 0.15 s, where it took 12.8 s, and
-  364 kB of declarations with no semicolons in 0.2 s, where it took 111 s (Д-401, Д-412, Д-424, Д-444).
-  A test plants a finding of each rule and each check in each folder the gate walks —
-  `bin/`, `src/`, `scripts/`, `hooks/` with its shell script, the app's code, scripts, `.cjs` (read as
-  the script it is) and tests — and expects exactly that set: a folder left unwalked or a rule's
-  findings dropped fails it (Д-396, Д-411, Д-445). 76 of 77 mutants of round 4 failed its tests, the one
-  left equivalent (Д-425); of round 5's 65 — the fifth review's 21 and one or more for each condition
-  round 5 added — 63 do, the two left equivalent (Д-445).
+  the module itself handed to another file (`export *`, `export const`, a pattern an export declares
+  from the module itself, an exported `let` or `var` the module is assigned to, by name or by a
+  pattern, `module.exports =`, `exports["cp"] =`) — itself, not a value it takes part in, on one line
+  or over several: `export const ok = cp !== undefined` passes, and so does `cp⏎ !== undefined`, and a
+  name bound to such a value is not the module's — `Function` through `.call`, `.apply` and `.bind`, a
+  global's own name after its parentheses (`(0, globalThis).globalThis[k]`), a global's `.Function`,
+  `.shell =`, `["shell"]:` and shell accessors; a `shell` key counts only in an object literal — a
+  default value or an iterated array is one — so an import, a parameter or an argument named `shell`
+  passes; a rest parameter, `function g(...run)`, binds a name and spreads nothing, whatever else the
+  name is bound to; and a file it cannot read to its end — a template or a comment that never closes —
+  is refused rather than passed (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424, Д-426, Д-432,
+  Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464, Д-465). It follows the module object and the
+  global objects through plain re-binding and nothing else: a module name built from parts,
+  `createRequire`, `Reflect.get`, a loader bound to another name or reached any other way (`.bind`,
+  `Reflect.apply`, a condition, an array, `require["call"]`), the module put in an object or an array
+  (`module.exports = { cp }`, `export const [run] = [cp]`), on `this` or on a head in parentheses
+  (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a name bound to that,
+  an exported `let` or `var` a pattern declares or whose name the file declares again — a local, a
+  parameter, a function, a class — a global taken out of itself by a pattern (`{ globalThis: g } =
+  globalThis`), and `await` or `yield` written as a name in a script are past it, and said to be
+  (Д-431, Д-432, Д-440, Д-448, Д-450, Д-459, Д-460, Д-464). Bracket pairs are worked out once, a
+  closing bracket of another kind looks only a few levels down, a `from` that begins no clause stops
+  at once, whether a bracket is a pattern is asked once, a key in brackets is read without copying
+  them, a value's plain name is worked out once for each place it starts, a declaration's walk ends
+  where its statement does, a chain is walked back only for a call with the module's name, and where a
+  regular expression's reading failed on a line no later one reads it again, so a file costs what its
+  length does: 5,922 dependency files are read to the end in about 18 s, and, each the median of five
+  runs in a fresh process, a 448 kB minified line in 0.4 s, where it took 10 s, 552 kB of keys in
+  arrays nested 4,000 deep in 0.3 s, where it took 12.8 s, 364 kB of declarations with no semicolons
+  in 0.2 s, where it took 111 s, 289 kB of class heritages with a substitution in 0.2 s, where it took
+  12 s, and a line of 32,000 regular expressions that never close in 0.1 s, where it took 8.8 s
+  (Д-401, Д-412, Д-424, Д-444, Д-461, Д-463). A test plants a finding of each rule and each check in
+  each folder the gate walks — `bin/`, `src/`, `scripts/`, `hooks/` with its shell script, the app's
+  code, scripts, `.cjs` (read as the script it is) and tests — and expects exactly that set: a folder
+  left unwalked or a rule's findings dropped fails it (Д-396, Д-411, Д-445). 76 of 77 mutants of round
+  4 failed its tests, the one left equivalent (Д-425). Round 5 counted 63 of its 65 failing and the
+  two left equivalent; the sixth review showed that each of those two changes an answer on valid code,
+  and ten more of its own alive (Д-445, Д-462). Of the 139 run on round 6's code — round 5's, the
+  sixth review's, and one or more for each condition round 6 added — 138 fail its tests, and the one
+  left only adds to `endsAtBreak` a member check its one caller already makes (Д-462).
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be

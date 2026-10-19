@@ -583,3 +583,151 @@ test("the reader stays linear on declarations without semicolons, chains of assi
   assert.ok(timed(`x${".require".repeat(n)};`) < 4000, "a chain of loader names");
   assert.ok(timed(`x${'["require"]'.repeat(n)};`) < 4000, "and keyed");
 });
+
+test("the spellings the sixth review found the gate let through are each refused, and each condition round 5 left unheld is held (Д-461, Д-462, Д-464)", () => {
+  const BT = "`";
+  const CP = 'import * as cp from "node:child_process";\n';
+  const lines = (source, options) => forbiddenCalls(source, options).map((finding) => [finding.rule, finding.line]);
+  const refused = {
+    // Д-461: a substitution in a class's heritage is a level of its own — an `=`, `=>`, `:` or `,` there ends no wait.
+    "${a = 1} in a heritage": [`let a, x;\nconst f = () => Object;\nx = class extends f${BT}\${a = 1}${BT} {} / 2; eval("1"); const r = 1 / 1;`, [["eval", 3]]],
+    "${(a) => 1} in a heritage": [`let x;\nconst f = () => Object;\nx = class extends f${BT}\${(a) => 1}${BT} {} / 2; eval("1"); const r = 1 / 1;`, [["eval", 3]]],
+    "${a ? 1 : 2} in a heritage": [`let a, x;\nconst f = () => Object;\nx = class extends f${BT}\${a ? 1 : 2}${BT} {} / 2; eval("1"); const r = 1 / 1;`, [["eval", 3]]],
+    "${a, b} in a heritage": [`let a, b, x;\nconst f = () => Object;\nx = class extends f${BT}\${a, b}${BT} {} / 2; eval("1"); const r = 1 / 1;`, [["eval", 3]]],
+    // Д-464: `of` past `in` and past the keyword is a name, and so is a member named for; a pattern assigned to an
+    // exported let.
+    "for (k in of / 2)": ['let of = 4, n = 0, k;\nfor (k in of / 2) n += k; eval("1"); n = n / 2;', [["eval", 2]]],
+    "for (const k of of / 2 ? of : of)": ['let of = [4];\nfor (const k of of / 2 ? of : of) console.log(k); eval("1"); const r = 1 / 1;', [["eval", 2]]],
+    "o.for(of / 2)": ['let of = 4;\nconst o = { for() {} };\no.for(of / 2); eval("1"); const r = 1 / 1;', [["eval", 3]]],
+    "a⏎of / 2": ['let a = 1, of = 4;\na\nof / 2; eval("1"); const r = 1 / 1;', [["eval", 3]]],
+    "({ default: run } = await import(…))": ['export let run;\n({ default: run } = await import("node:child_process"));', [["child_process.exec", 2]]],
+    "({ default: run } = cp)": [`${CP}export let run;\n({ default: run } = cp);`, [["child_process.exec", 3]]],
+    // Д-462: what round 5's surviving mutants changed — a body's waits ended together, a label only on its own line,
+    // break and continue ending a statement, the ways a whole value ends, an alias's value past its `.default`.
+    "import { class as c, function as f }, then a literal": ['import { class as c, function as f } from "x";\nconst list = [{ shell: true }];', [["shell", 2]]],
+    "break⏎n / 2": ['let n = 4;\nfor (;;) {\n  break\n  n / 2; eval("1"); const r = 1 / 1;\n}', [["eval", 4]]],
+    "continue outer⏎/r/": ['outer: for (;;) {\n  continue outer\n  /r/ / 2; eval("1"); const r = 1 / 1;\n}', [["eval", 3]]],
+    "break⏎/r/": ['for (;;) {\n  break\n  /r/ / 2; eval("1"); const r = 1 / 1;\n}', [["eval", 3]]],
+    "continue⏎/r/": ['for (;;) {\n  continue\n  /r/ / 2; eval("1"); const r = 1 / 1;\n}', [["eval", 3]]],
+    "export default cp at the file's end": [`${CP}export default cp`, [["child_process.exec", 2]]],
+    "console.log(run = cp)": [`${CP}export let run;\nconsole.log(run = cp);`, [["child_process.exec", 3]]],
+    "{ run = cp }": [`${CP}export let run;\n{ run = cp }`, [["child_process.exec", 3]]],
+    "[run = cp]": [`${CP}export let run;\n[run = cp];`, [["child_process.exec", 3]]],
+    "export const run = cp.default": [`${CP}export const run = cp.default;`, [["child_process.exec", 2]]],
+    "export default cp.default": [`${CP}export default cp.default;`, [["child_process.exec", 2]]]
+  };
+  for (const [name, [source, expected]] of Object.entries(refused)) assert.deepEqual(lines(source), expected, `${name}: ${source}`);
+  // What a `for` head binds before its `of` — a pattern, a parenthesis, a member of any name, `of` itself — and a regular
+  // expression after that `of` (Д-464).
+  const iterated = (binding, script = false) => lines(`var of, x = {}, s = "";\nfor (${binding} of /${BT}/.exec(s) ?? []) console.log(of);\neval("1");\nconst t = /${BT}/;`, { script });
+  for (const binding of ["const [m]", "const { m }", "(x)", "x.in", "x.of", "let of", "of"]) assert.deepEqual(iterated(binding, binding === "of"), [["eval", 3]], binding);
+  // A regular expression's reading that failed tells a later one only where both stand in the same state: in a class of
+  // characters or out of one (Д-463).
+  assert.deepEqual(lines(`var await = 2, s = "";\nvar r = await / "[" + /${BT}/.test(s);\neval("1");\nconst t = /${BT}/;`, { script: true }), [["eval", 3]]);
+  assert.deepEqual(lines('var await = 2;\nvar r = await / "[" + await / "[/" + eval("1");', { script: true }), [["eval", 2]]);
+  // A loader that is only part of a value is past the gate, as its header says: only the last item of a list is passed.
+  assert.deepEqual(lines('(null || require)("child_process").exec("ls");', { script: true }), []);
+});
+
+test("honest code the sixth review found the gate refused passes, and a value ends where the next line cannot carry it on (Д-459, Д-460, Д-461, Д-464, Д-465)", () => {
+  const BT = "`";
+  const CP = 'import * as cp from "node:child_process";\n';
+  const honest = {
+    // Д-459: a value the module only takes part in, carried over lines, and a name bound to such a value.
+    "cp⏎!== undefined": `${CP}export const available = cp\n  !== undefined;`,
+    "cp⏎&& typeof cp.spawn": `${CP}export const canSpawn = cp\n  && typeof cp.spawn === "function";`,
+    "cp⏎? … : …": `${CP}export const kind = cp\n  ? "real"\n  : "none";`,
+    "export default cp⏎!== undefined": `${CP}export default cp\n  !== undefined;`,
+    "module.exports.ok = cp⏎!== undefined": 'const cp = require("node:child_process");\nmodule.exports.ok = cp\n  !== undefined;',
+    "cp⏎instanceof Object": `${CP}export const ok = cp\n  instanceof Object;`,
+    "cp⏎!= null": `${CP}export const ok = cp\n  != null;`,
+    "cp⏎`tag`": `${CP}export const t = cp\n  ${BT}x${BT};`,
+    "cp⏎`${…}`": `${CP}export const t = cp\n  ${BT}\${1}${BT};`,
+    'cp⏎+ ""': `${CP}export const s = cp\n  + "";`,
+    "cp⏎in globalThis": `${CP}export const has = cp\n  in globalThis;`,
+    "cp++": 'let cp = require("node:child_process");\nexport const n = cp++;',
+    "a name bound to cp⏎? …, then indexed": `${CP}const parts = cp\n  ? ["x"]\n  : [];\nconsole.log(parts[0]);`,
+    "a private field named like a local": `${CP}export class A {\n  #proc = cp;\n}\nconst proc = { exec() {} };\nproc.exec("x");`,
+    "const ok = cp !== undefined; export { ok }": `${CP}const ok = cp !== undefined;\nexport { ok };`,
+    "const ok = cp !== undefined; export default ok": `${CP}const ok = cp !== undefined;\nexport default ok;`,
+    "let ok; ok = cp⏎!== undefined; export { ok }": `${CP}let ok;\nok = cp\n  !== undefined;\nexport { ok };`,
+    // Д-460: a local, a member, a parameter, a function or a class named like an exported let or var.
+    "a local const": 'export let cp = null;\nexport function f() {\n  const cp = require("node:child_process");\n  return cp.spawn("x");\n}',
+    "a local let, assigned below": 'import * as childProcess from "node:child_process";\nexport let runner = null;\nexport function f() {\n  let runner;\n  runner = childProcess;\n  return runner.spawn("x");\n}',
+    "a second declarator": `${CP}export let run = null;\nexport function g() {\n  let a = 1, run = cp;\n  return [a, run];\n}`,
+    "a declared pattern's name": `${CP}export let run = null;\nexport function g(o) {\n  let { x: run } = o;\n  run = cp;\n  return run;\n}`,
+    "a declared array pattern": `${CP}export let run = null;\nexport function g(o) {\n  let [run] = o;\n  run = cp;\n  return run;\n}`,
+    "a declared pattern's rest element": `${CP}export let run = null;\nexport function g(o) {\n  let { a, ...run } = o;\n  run = cp;\n  return [a, run];\n}`,
+    "a rest parameter": `${CP}export let run = null;\nexport function g(...run) {\n  run = cp;\n  return run;\n}`,
+    // Д-465: a rest parameter binds a name; it spreads nothing.
+    "a rest parameter, the module assigned to it": `${CP}export function g(...run) {\n  run = cp;\n  return run;\n}`,
+    "an arrow's rest parameter named like an alias": `${CP}const run = cp;\nrun.spawn("x");\nexport const f = (...run) => run.length;`,
+    "a method's rest parameter named like an alias": `${CP}const proc = cp;\nproc.spawn("x");\nexport class A {\n  m(...proc) {\n    return proc.length;\n  }\n}`,
+    "a computed key's target": `${CP}export let run = null;\nexport function g(o, k) {\n  let { [k]: run } = o;\n  run = cp;\n  return run;\n}`,
+    "an array pattern in an object pattern": `${CP}export let run = null;\nexport function g(o) {\n  let { a: [run] } = o;\n  run = cp;\n  return run;\n}`,
+    "a declared pattern taking the module out": `${CP}export let run = null;\nexport function g() {\n  const { default: run } = cp;\n  return run.spawn("x");\n}`,
+    "a member": `${CP}export let childProcess = null;\nexport function inject(target) {\n  target.childProcess = cp;\n}`,
+    "a private member": `${CP}export let childProcess = null;\nexport class A {\n  #childProcess;\n  inject() {\n    this.#childProcess = cp;\n  }\n}`,
+    "a parameter": `${CP}export var proc = null;\nexport function f(proc) {\n  proc = cp;\n  return proc.spawn("x");\n}`,
+    "a parameter's pattern": `${CP}export let run = null;\nexport function g({ run }) {\n  run = cp;\n  return run;\n}`,
+    "an arrow's parameter": `${CP}export let run = null;\nexport const f = (run) => {\n  run = cp;\n  return run;\n};`,
+    "a lone arrow parameter": `${CP}export let run = null;\nexport const f = run => {\n  run = cp;\n  return run;\n};`,
+    "a catch parameter": `${CP}export let run = null;\ntry {\n  run = 1;\n} catch (run) {\n  run = cp;\n}`,
+    "a function": `${CP}export let run = null;\nexport function g() {\n  function run() {}\n  run = cp;\n  return run;\n}`,
+    "a class": `${CP}export let run = null;\nexport function g() {\n  class run {}\n  return run;\n}\nrun = cp;`,
+    // A const is never assigned: the assignment throws, and nothing goes out with it.
+    "an exported const assigned": `${CP}export const run = 1;\nexport function swap() {\n  run = cp;\n}`,
+    // Д-461, Д-464: a substitution's arrow in a heritage, `of` after typeof.
+    "!class extends f`${(a) => a}` {} / 2": `const f = () => Object;\nconst n = !class extends f${BT}\${(a) => a}${BT} {} / 2 + "/${BT}".length;`,
+    "for (typeof of / 2;;)": `let of = 4, s = "";\nfor (typeof of / 2; s.length < 1; ) s += ${BT}/${BT};`
+  };
+  for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
+  // What only begins an expression ends the value above it: the module is bound, or handed on, whole.
+  const whole = {
+    "cp⏎run.spawn": [`${CP}export const run = cp\nrun.spawn("x")`, ["child_process.exec"]],
+    "cp⏎++n": [`${CP}let n = 0;\nexport default cp\n++n;`, ["child_process.exec"]],
+    "cp⏎!n": [`${CP}let n = 0;\nexport const run = cp\n!n;`, ["child_process.exec"]],
+    "cp⏎~n": [`${CP}let n = 0;\nexport const run = cp\n~n;`, ["child_process.exec"]],
+    "cp⏎{ }": [`${CP}export const run = cp\n{ }`, ["child_process.exec"]],
+    'cp⏎"x"': [`${CP}export const t = cp\n  "x";`, ["child_process.exec"]],
+    "cp⏎#x in o, then run.exec": [`${CP}class A { #x = 1; m(o) { const run = cp\n#x in o; run.exec("ls"); } }\nexport default A;`, ["child_process.exec"]],
+    "cp⏎!n, then c2.exec": [`${CP}let n = 0;\nconst c2 = cp\n!n;\nc2.exec("ls");`, ["child_process.exec"]],
+    // An exported let assigned where no declaration names it again: a statement's head, a call, a key and a label
+    // declare nothing.
+    "assigned in a function": [`${CP}export let run;\nexport function init() {\n  run = cp;\n}`, ["child_process.exec"]],
+    "assigned by import()": ['export let run;\nexport async function load() {\n  run = await import("node:child_process");\n}', ["child_process.exec"]],
+    "switch (run) {}": [`${CP}export let run;\nswitch (run) {\n  default:\n}\nrun = cp;`, ["child_process.exec"]],
+    "if (run) {}": [`${CP}export let run;\nif (run) {}\nrun = cp;`, ["child_process.exec"]],
+    "a block after a body": [`${CP}export let run;\nexport function f() {\n  run;\n}\n{\n}\nrun = cp;`, ["child_process.exec"]],
+    "a spread of an alias into a call": [`${CP}const run = cp;\nexport const f = (g) => g(...run);`, ["child_process.exec"]],
+    "a computed key of an object": [`${CP}export let run;\nconst o = { [run]: 1 };\nrun = cp;`, ["child_process.exec"]],
+    "while (f(run)) {}": [`${CP}export let run;\nwhile (f(run)) {}\nrun = cp;`, ["child_process.exec"]],
+    "{ run: 1 }": [`${CP}export let run;\nconst o = { run: 1 };\nrun = cp;`, ["child_process.exec"]],
+    "const { run: x } = o": [`${CP}export let run;\nconst { run: x } = o;\nrun = cp;`, ["child_process.exec"]],
+    "run: for (;;)": [`${CP}export let run;\nrun: for (;;) break run;\nrun = cp;`, ["child_process.exec"]],
+    "a member named let": [`${CP}export let run;\nconst config = {};\nconfig.let\nrun = cp;`, ["child_process.exec"]],
+    "o.run in a pattern's default": [`${CP}export let run;\nconst o = {};\nconst { a = o.run } = o;\nrun = cp;`, ["child_process.exec"]],
+    "run in a pattern's default": [`${CP}export let run;\nconst o = {};\nconst { a = run } = o;\nrun = cp;`, ["child_process.exec"]],
+    "run in a parameter's default": [`${CP}export let run;\nexport function f(a = run, { b = run } = {}) {\n  return [a, b];\n}\nrun = cp;`, ["child_process.exec"]],
+    "class A extends mix(run) {}": [`${CP}export let run;\nconst mix = (base) => class extends Object {};\nexport class A extends mix(run) {}\nrun = cp;`, ["child_process.exec"]]
+  };
+  for (const [name, [source, expected]] of Object.entries(whole)) assert.deepEqual(rules(source), expected, `${name}: ${source}`);
+  // A name bound to a value the module only takes part in is past the gate, as its header says.
+  assert.deepEqual(rules(`${CP}const x = cp || null;\nx.exec("ls");`), []);
+  // A pattern under `export let` declares names the gate does not follow, as its header says.
+  assert.deepEqual(rules(`${CP}export let { run } = {};\nrun = cp;`), []);
+});
+
+test("the reader stays linear on a heritage's substitutions and on a line of regular expressions that never close (Д-461, Д-463)", () => {
+  const BT = "`";
+  const timed = (source, options) => {
+    const started = performance.now();
+    forbiddenCalls(source, options);
+    return performance.now() - started;
+  };
+  // Before, at n = 8 000, the first took 10.0 s and the second 3.5 s; 32 000 pairs of "/[" took 8.8 s.
+  const n = 16000;
+  assert.ok(timed(`const x = ${`class extends f${BT}\${a = 1}${BT} {} / "[" + `.repeat(n)}1;`) < 4000, "a class extends a tagged template, divided");
+  assert.ok(timed(`var x = ${'await / "[" + '.repeat(n)}1;`, { script: true }) < 4000, "await divided in a script");
+  assert.ok(timed("/[".repeat(2 * n)) < 4000, "slashes that open classes");
+});

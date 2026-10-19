@@ -28,9 +28,15 @@
  *   (`const c2 = cp`, `const c3 = (0, c2)`, `a = b = cp`,
  *   `cp ??= await import(…)`), above or below; and the module object itself
  *   handed to another file — `export *`, `export { default }`, `export const`,
- *   a pattern it declares (`export const { default: run } = …`), an exported
- *   `let` or `var` it is assigned to, `module.exports =`, `exports["cp"] =`,
- *   `export default` — whose `exec` would come from here (Д-424, Д-432, Д-440);
+ *   a pattern it declares from the module itself
+ *   (`export const { default: run } = …`), an exported `let` or `var` the
+ *   module is assigned to, by name or by a pattern
+ *   (`({ default: run } = await import(…))`), `module.exports =`,
+ *   `exports["cp"] =`, `export default` — whose `exec` would come from here
+ *   (Д-424, Д-432, Д-440, Д-464). The module itself, a whole value: one a line
+ *   break ends only where the next line cannot carry it on, so
+ *   `cp⏎  !== undefined`, a value it takes part in, binds and hands on nothing
+ *   (Д-441, Д-459);
  * - a `shell` option with any value but `false`, `null`, `undefined`, `0` or
  *   an empty string — as a key of an object literal, computed or not, or set
  *   on a member with `=`, `??=`, `||=` or `&&=` — and a `shell` shorthand,
@@ -47,10 +53,14 @@
  * (`module.exports = { cp }`, `export default { cp }`,
  * `Object.assign(exports, { cp })`, `export const [run] = [cp]`), set on
  * `this` or on a head in parentheses (`(module.exports).cp = cp`), handed to
- * a function, or only part of a value (`cp || fallback`), a global taken out
- * by a pattern (`{ globalThis: g } = globalThis`), and `await` or `yield`
- * written as a name in a script, which it reads as the keyword, are past it
- * (Д-410, Д-426, Д-432, Д-440, Д-448). Code written that way
+ * a function, or only part of a value (`cp || fallback`), and a name bound
+ * to such a value; an exported `let` or `var` that a pattern declares
+ * (`export let { run } = {}`), or whose name the file declares again — a
+ * local of its own, a parameter, a function, a class — wherever it is
+ * assigned; a global taken out by a pattern (`{ globalThis: g } = globalThis`),
+ * and `await` or `yield` written as a name in a script, which it reads as the
+ * keyword, are past it (Д-410, Д-426, Д-432, Д-440, Д-448, Д-459, Д-460,
+ * Д-464). Code written that way
  * is not written by accident, and keeping honest code honest is what this gate
  * is for. A computed member of a global it cannot read is refused rather than
  * trusted, and so is a file it could not read to its end — a template literal
@@ -63,6 +73,7 @@ const MODULE_NAMES = new Set(["child_process", "node:child_process"]);
 const FORBIDDEN_MEMBERS = new Set(["exec", "execSync"]);
 const GLOBAL_OBJECTS = new Set(["globalThis", "window", "global", "self"]);
 const FALSY_LITERALS = new Set(["false", "null", "undefined", "0"]);
+const DECLARATIONS = new Set(["const", "let", "var"]);
 const isModuleString = (token) => token?.type === "string" && MODULE_NAMES.has(token.value);
 /** The key in the brackets opened at `open` when it is one plain string, else null — asked without copying what they
  * hold, so brackets nested in brackets cost no more than their length (Д-424). */
@@ -133,17 +144,28 @@ function inObjectLiteral(tokens, index) {
 }
 
 /**
- * Whether the value at `index` is plainly off: a falsy literal that the
- * expression ends with. A line break ends it only where the next line cannot
- * carry the expression on — `false⏎ || "/bin/sh"` is one value (Д-399).
+ * Whether a value is over before the token at `end`: the file's end, a `,`,
+ * a `;` or a closing bracket, or a line the value cannot carry on into —
+ * `cp⏎  !== undefined` and `false⏎ || "/bin/sh"` are one value each,
+ * `cp⏎run()` is two statements (Д-399, Д-459).
  */
+function valueEnds(tokens, end) {
+  const after = tokens[end];
+  if (!after || [",", ";", ")", "}", "]"].some((value) => isPunct(after, value))) return true;
+  if (after.line === tokens[end - 1].line) return false;
+  // What begins a line and only ever begins an expression: a `{`, a `!` but `!=`, a `~`, a `#`, a `++` or `--`.
+  if ((isPunct(after, "!") && !isPunct(tokens[end + 1], "=")) || ["{", "~", "#"].some((value) => isPunct(after, value))) return true;
+  if ((isPunct(after, "+") || isPunct(after, "-")) && tokens[end + 1]?.joined === true) return true;
+  // A template there tags the value, `in` and `instanceof` take it as their operand.
+  if (after.type === "template" || after.template === true || isName(after, "in") || isName(after, "instanceof")) return false;
+  return after.type !== "punct";
+}
+
+/** Whether the value at `index` is plainly off: a falsy literal that the expression ends with. */
 function plainlyOff(tokens, index) {
   const value = tokens[index];
-  const after = tokens[index + 1];
-  const carriesOn = after?.type === "punct" ? !["{", "}", ")", "]", ";", ","].includes(after.value)
-    : after?.type === "template" || isName(after, "in") || isName(after, "instanceof");
-  const ends = !after || isPunct(after, ",") || isPunct(after, "}") || isPunct(after, ";") || isPunct(after, ")") || (after.line > value.line && !carriesOn);
-  return ends && (((value?.type === "name" || value?.type === "number") && FALSY_LITERALS.has(value.value)) || (value?.type === "string" && value.value === ""));
+  return valueEnds(tokens, index + 1)
+    && (((value?.type === "name" || value?.type === "number") && FALSY_LITERALS.has(value.value)) || (value?.type === "string" && value.value === ""));
 }
 
 // The loaders that take a module's name: `require`, `import()`, and `process.getBuiltinModule`, which is `require` by
@@ -307,21 +329,25 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
     }
     return tokens.length;
   };
-  // What `export const`, `let` or `var` declares — a name, or a pattern's `{` — and the names an exported `let` or `var`
-  // declares: a module object bound to one goes to other files — the `const` where it is declared, a `let` or `var`
-  // wherever it is assigned, `export let run; run = cp` (Д-424, Д-432, Д-440).
+  // A member's name is no binding: `target.run`, `this.#run` (Д-460).
+  const isMember = (index) => isPunct(tokens[index - 1], ".") || isPunct(tokens[index - 1], "#");
+  // What `export const`, `let` or `var` declares — a name, or a pattern's opening bracket — and the names an exported
+  // `let` or `var` declares: a module object bound to one goes to other files — the `const` where it is declared, a `let`
+  // or `var` wherever it is assigned, `export let run; run = cp` (Д-424, Д-432, Д-440). What every other declaration
+  // declares too: a pattern that declares names assigns none, and a name declared there is a local of its own (Д-460).
   const exported = new Set();
   const exportedNames = new Set();
+  const declared = new Set();
   tokens.forEach((token, index) => {
-    if (!isName(token, "export") || !["const", "let", "var"].some((word) => isName(tokens[index + 1], word))) return;
-    for (let at = index + 2; at < tokens.length; at += 1) {
-      if (isName(tokens[at]) || isPunct(tokens[at], "{")) exported.add(at);
-      if (isName(tokens[at]) && !isName(tokens[index + 1], "const")) exportedNames.add(tokens[at].value);
+    if (!isName(token) || !DECLARATIONS.has(token.value) || isMember(index)) return;
+    const out = isName(tokens[index - 1], "export");
+    for (let at = index + 1; at < tokens.length; at += 1) {
+      if (isName(tokens[at]) || isPunct(tokens[at], "{") || isPunct(tokens[at], "[")) (out ? exported : declared).add(at);
+      if (out && isName(tokens[at]) && !isName(token, "const")) exportedNames.add(tokens[at].value);
       at = declaratorEnd(at);
       if (!isPunct(tokens[at], ",")) break;
     }
   });
-
   if (tokens.unterminated) {
     say("unread", tokens.unterminated, `this file could not be read past line ${tokens.unterminated}: a template literal, a substitution or a comment there never ends, so whatever follows would go unchecked.`);
   }
@@ -375,6 +401,45 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
     }
     return starts;
   };
+  // An exported `let` or `var` whose name the file declares again — a declaration of its own, in a pattern or not, a
+  // parameter, a function or a class — is not told from that local by its name: no assignment of that name is read as
+  // an export, `export let run; function f(run) { run = cp; }` (Д-460).
+  const shadowed = new Set();
+  const arrow = (at) => isPunct(tokens[at], "=") && isPunct(tokens[at + 1], ">");
+  // Where a pattern or a parameter list binds a name: each entry's name, the target past a key's `:`, a rest element's,
+  // a nested pattern's — never a key, nor what a default value holds (`{ a = run }` binds `a`).
+  const bindings = new Set();
+  const bindingsOf = (open) => {
+    for (const pending = [open]; pending.length; ) {
+      const container = pending.pop();
+      for (let at of entries(container)) {
+        if (isPunct(tokens[at], "...")) at += 1;
+        // A key — a name, a string, a computed `[…]` — is followed by its `:`; nothing in an array or a parameter list is.
+        const key = isPunct(tokens[at], "[") ? closing(tokens, at) : at;
+        if (isPunct(tokens[key + 1], ":")) at = key + 2;
+        if (isName(tokens[at])) bindings.add(at);
+        else if (isPunct(tokens[at], "{") || isPunct(tokens[at], "[")) pending.push(at);
+      }
+    }
+  };
+  tokens.forEach((token, open) => {
+    if (declared.has(open)) bindingsOf(open);
+    if (!isPunct(token, "(")) return;
+    // A list a body follows — not a statement head's, `switch`'s or a class heritage's call — or an arrow does:
+    // `function f(run) {`, `catch (run) {`, `(run) =>`.
+    const shut = closing(tokens, open);
+    const body = isPunct(tokens[shut + 1], "{") && !HEAD_KEYWORDS.has(tokens[open - 1]?.value) && !isName(tokens[open - 1], "switch")
+      && !isName(tokens[open - 2], "extends");
+    if (arrow(shut + 1) || body) bindingsOf(open);
+  });
+  tokens.forEach((token, index) => {
+    if (!isName(token) || !exportedNames.has(token.value)) return;
+    // A lone arrow parameter, `run =>`, and `function run`, `class run` declare it too; a member stands nowhere a
+    // name is bound.
+    if (bindings.has(index) || declared.has(index) || arrow(index + 1) || isName(tokens[index - 1], "function") || isName(tokens[index - 1], "class")) {
+      shadowed.add(token.value);
+    }
+  });
   // `{ exec, default: cp, ...rest, [key]: x } = <module>`: what each entry takes out of it, nested `default`s and all —
   // the names it binds to the module, and the exec members it takes out.
   const modulePattern = (open, bound = (name) => aliases.add(name), found = childProcessFinding) => {
@@ -414,16 +479,14 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
   // bracket, a line's end or a further `=`: `export const ok = cp !== undefined` exports a boolean (Д-441).
   const handedOn = (start, what, end) => {
     if (isPunct(tokens[start - 1], "...")) {
-      // A spread hands exec on with the rest; a pattern's rest element, `{ spawn, ...others } = cp`, binds a name.
+      // A spread hands exec on with the rest; a rest element binds a name — a pattern's, `{ spawn, ...others } = cp`, or
+      // a parameter list's, `function g(...run)` (Д-465).
       const holder = enclosing(tokens, start);
-      if (!(isPunct(tokens[holder], "{") || isPunct(tokens[holder], "[")) || !isPattern(tokens, holder)) {
-        childProcessFinding(tokens[start].line, `${what} (spread: its exec goes with it)`);
-      }
+      const pattern = (isPunct(tokens[holder], "{") || isPunct(tokens[holder], "[")) && isPattern(tokens, holder);
+      if (!pattern && !bindings.has(start)) childProcessFinding(tokens[start].line, `${what} (spread: its exec goes with it)`);
       return;
     }
-    const after = tokens[end];
-    const whole = !after || [",", ";", ")", "}", "]"].some((value) => isPunct(after, value)) || after.line > tokens[end - 1].line
-      || assigns(tokens, end);
+    const whole = valueEnds(tokens, end) || assigns(tokens, end);
     if (isName(tokens[start - 1], "default") && isName(tokens[start - 2], "export")) {
       if (whole) childProcessFinding(tokens[start].line, `${what} (exported as default)`);
       return;
@@ -436,16 +499,20 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       : isPunct(tokens[head + 1], "[") && tokens[head + 2]?.type === "string" && tokens[head + 2].value === "exports" && isPunct(tokens[head + 3], "]");
     if (isName(tokens[head], "exports") || (isName(tokens[head], "module") && exportsNext)) {
       if (whole) childProcessFinding(tokens[target].line, `${what} (exported from this file)`);
-    } else if (isName(tokens[target])) {
-      aliases.add(tokens[target].value);
+    } else if (isName(tokens[target]) && !isMember(target)) {
+      // A value the module only takes part in, `ok = cp !== undefined`, binds no name to it (Д-459).
+      if (!whole) return;
+      const name = tokens[target].value;
+      aliases.add(name);
       // `export const run = cp`, `export let run; run = cp`: the binding goes to other files, and the module with it.
-      if (whole && (exported.has(target) || exportedNames.has(tokens[target].value))) childProcessFinding(tokens[target].line, `${what} (exported from this file)`);
-    } else if (isPunct(tokens[target], "}")) {
-      // `export const { default: run, ...rest } = cp`: what the pattern binds to the module goes to other files (Д-440).
+      if (exported.has(target) || (exportedNames.has(name) && !shadowed.has(name))) childProcessFinding(tokens[target].line, `${what} (exported from this file)`);
+    } else if (isPunct(tokens[target], "}") && whole) {
+      // `export const { default: run, ...rest } = cp`, `({ default: run } = cp)` to an exported `let`: what the pattern
+      // binds to the module goes to other files (Д-440, Д-464).
       const open = opening(tokens, target);
-      const out = whole && exported.has(open);
       modulePattern(open, (name) => {
         aliases.add(name);
+        const out = exported.has(open) || (exportedNames.has(name) && !shadowed.has(name));
         if (out) childProcessFinding(tokens[open].line, `${what} (exported from this file as ${name})`);
       });
     }
@@ -559,11 +626,10 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
     const value = plainValue(index + 1);
     if (!value) continue;
     const [at, end] = value;
-    const after = tokens[end];
     // `[a = cp] = []` too: a default in a pattern binds the name (Д-424).
-    if (after && ![";", ",", ")", "}", "]"].some((value) => isPunct(after, value)) && after.line === tokens[end - 1].line) continue;
+    if (!valueEnds(tokens, end)) continue;
     const target = assignedAt(tokens, index);
-    if (isName(tokens[target]) && !isPunct(tokens[target - 1], ".")) bind(boundTo, tokens[at].value, tokens[target].value);
+    if (isName(tokens[target]) && !isMember(target)) bind(boundTo, tokens[at].value, tokens[target].value);
     else if (isPunct(tokens[target], "}")) modulePattern(opening(tokens, target), (name) => bind(takenFrom, tokens[at].value, name), () => {});
   }
   for (const [known, maps] of [[aliases, [boundTo, takenFrom]], [globals, [boundTo]]]) {
@@ -653,7 +719,7 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       const [start, widened] = widen(head, index + 1);
       // `(0, globalThis).globalThis[…]`: a global's own names after its parentheses are the global still (Д-446).
       let end = widened;
-      while (end > index + 1 && isPunct(tokens[end], ".") && isName(tokens[end + 1]) && GLOBAL_OBJECTS.has(tokens[end + 1].value)) end += 2;
+      while (isPunct(tokens[end], ".") && isName(tokens[end + 1]) && GLOBAL_OBJECTS.has(tokens[end + 1].value)) end += 2;
       if (isPunct(tokens[end], "[")) globalMember(end, token);
       // `const { [key]: f } = globalThis`: a computed member taken out by a pattern.
       else if (assigns(tokens, start - 1) && isPunct(tokens[start - 2], "}") && !isPunct(tokens[end], ".") && !isPunct(tokens[end], "(")) {

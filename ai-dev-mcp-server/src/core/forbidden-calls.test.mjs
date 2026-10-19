@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { performance } from "node:perf_hooks";
 import { codeTokens, forbiddenCalls } from "./forbidden-calls.mjs";
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
@@ -180,4 +181,117 @@ test("a regular expression that begins a line after a block does not hide what f
   assert.deepEqual(forbiddenCalls(regexInside).map((finding) => [finding.rule, finding.line]), [["eval", 3]]);
   assert.equal(codeTokens(`const t = ${BT}a${BT};`).unterminated, undefined);
   assert.deepEqual(codeTokens(`a?.[b] ${BT}plain${BT}`).map((token) => [token.type, token.value]), [["name", "a"], ["punct", "["], ["name", "b"], ["punct", "]"], ["string", "plain"]]);
+});
+
+// The probes of phase 14's second review: spellings inside the contract that still passed, three of them since the
+// first review's fix (Д-398), and what the reader got wrong (Д-399).
+test("the spellings the second review found the gate let through are each refused (Д-398, Д-399)", () => {
+  const LS = String.fromCharCode(0x2028);
+  const refused = {
+    "shell in a parameter's default": "function run(cmd, options = { shell: true }) {\n  return spawnSync(cmd, [], options);\n}",
+    "shell in an arrow's default": "const run = (cmd, opts = { shell: true }) => spawnSync(cmd, [], opts);",
+    "shell in what for-of iterates": "for (const options of [{ shell: true }]) {\n  spawnSync(cmd, [], options);\n}",
+    "shell in a default inside a pattern": "const { options = { shell: true } } = config;",
+    "shell in a heritage call": "class Runner extends make({ shell: true }) {}",
+    "eval by a quoted key": 'const { "eval": run } = globalThis;\nrun("1");',
+    "eval by a computed key": 'const { ["eval"]: run } = globalThis;',
+    "Function by a quoted key": 'const { "Function": F } = globalThis;',
+    "a computed key out of a global": "const { [key]: f } = globalThis;",
+    "Function.call": 'Function.call(null, "return 1")();',
+    "Function.apply": 'Function.apply(null, ["return 1"])();',
+    "globalThis.Function.call": 'globalThis.Function.call(null, "return 1")();',
+    ".constructor.constructor.call": '({}).constructor.constructor.call(null, "return 1")();',
+    "computed constructor": '({})["constructor"]["constructor"]("return 1")();',
+    "tagged constructor": "({}).constructor.constructor`return 1`();",
+    "Function.prototype.constructor": 'const F = Function.prototype.constructor;\nF("return 1")();',
+    "shell ??=": "options.shell ??= true;",
+    "shell ||=": 'options.shell ||= "/bin/sh";',
+    "shell getter": 'spawn("x", [], { get shell() { return true; } });',
+    "shell method": 'spawn("x", [], { shell() {} });',
+    "lazy module ??=": 'let cp;\nasync function load() {\n  cp ??= await import("node:child_process");\n  return cp.exec("ls");\n}',
+    "lazy module ||=": 'let cp;\ncp ||= require("node:child_process");\ncp.execSync("ls");',
+    "module in parentheses": 'import * as cp from "node:child_process";\n(cp).exec("ls");',
+    "module last in a list": 'import * as cp from "node:child_process";\n(0, cp)["execSync"]("ls");',
+    "global last in a list": '(0, globalThis)["ev" + "al"]("1");',
+    "?. then a comment": 'import * as cp from "node:child_process";\ncp?./* x */["exec"]("ls");',
+    "?. then a line break": 'globalThis?.\n  ["ev" + "al"]("1");',
+    "export *": 'export * from "node:child_process";',
+    "export * as": 'export * as cp from "node:child_process";',
+    "export { default }": 'export { default } from "node:child_process";',
+    "module.exports =": 'module.exports = require("node:child_process");',
+    "exports.x =": 'exports.cp = require("node:child_process");',
+    "module.exports spread": 'module.exports = { ...require("child_process") };',
+    "export default an alias": 'import * as cp from "node:child_process";\nexport default cp;',
+    "export { alias }": 'import * as cp from "node:child_process";\nexport { cp };',
+    "module.require": 'const cp = module.require("child_process");\ncp.exec("ls");',
+    "a trailing comma": 'const cp = require("child_process",);\ncp.exec("ls");',
+    "import() with options": 'const cp = await import("node:child_process", {});\ncp.exec("ls");',
+    "await (import())": 'const { exec } = await (import("child_process"));',
+    "ns.default re-bound": 'import * as ns from "child_process";\nconst cp = ns.default;\ncp.exec("ls");',
+    "(cp) re-bound": 'const cp = require("child_process");\nconst c2 = (cp);\nc2.exec("ls");',
+    ".then on a bound import()": 'const loading = import("child_process");\nloading.then((cp) => cp.exec("ls"));',
+    "an awaited bound import() taken apart": 'const loading = import("child_process");\nconst { exec } = await loading;',
+    "((globalThis))[]": '((globalThis))["ev" + "al"]("1");',
+    "global.globalThis re-bound": 'const g = global.globalThis;\ng["ev" + "al"]("1");',
+    "false, then || on the next line": 'spawn("x", [], { shell: false\n  || "/bin/sh" });',
+    "a long \\u{} escape in a name": "\\u{0000065}val(\"1\");",
+    "a long \\u{} escape in the module name": 'const cp = require("child\\u{000005f}process");\ncp.exec("ls");',
+    "an octal escape in the module name": 'const cp = require("child\\137process");\ncp.exec("ls");',
+    "an octal escape in a key": 'spawn("x", [], { "sh\\145ll": true });',
+    "a line continuation in the module name": 'const cp = require("child_\\\nprocess");\ncp.exec("ls");'
+  };
+  for (const [name, source] of Object.entries(refused)) assert.ok(rules(source).length > 0, `${name}: ${source}`);
+  // A division the reader took for a regular expression used to swallow the next line; a // comment, a file of CRs.
+  const lines = (source) => forbiddenCalls(source).map((finding) => [finding.rule, finding.line]);
+  assert.deepEqual(lines('import * as cp from "node:child_process";\nconst kb = stats.in / 1024\ncp.exec("ls")'), [["child_process.exec", 3]]);
+  assert.deepEqual(lines('const half = count++ / 2\neval("1")'), [["eval", 2]]);
+  // `of` is a name as well as a keyword: a slash after it that does not close on its line divides.
+  assert.deepEqual(lines('const of = 10;\nconst half = of / 2\neval("1");'), [["eval", 3]]);
+  // After a postfix `++` the slash divides even where a closing one follows on the line.
+  assert.deepEqual(lines('const x = n++ / 2, y = `/`;\neval("1");'), [["eval", 2]]);
+  assert.deepEqual(lines('const total = {\n  a: 1\n}\n/ 2; eval("1");'), [["eval", 4]]);
+  assert.deepEqual(lines('// note\reval("1");'), [["eval", 2]]);
+  assert.deepEqual(lines(`// note${LS}eval("1");`), [["eval", 2]]);
+  assert.deepEqual(lines('const a = 1;\r\nconst b = 2;\r\neval("1");'), [["eval", 3]], "CRLF counts once");
+});
+
+test("valid code the reader took for an unclosed template or comment passes, and honest look-alikes stay honest (Д-399)", () => {
+  const BT = "`";
+  const honest = {
+    "a regular expression after if (…)": `if (ready) /${BT}/.test(line);\nconst a = 1;`,
+    "after while (…)": "while (more()) /[/*]/.test(next());\nconst a = 1;",
+    "after for (…)": `for (const line of lines) /${BT}/.test(line);\nconst t = ${BT}x${BT};`,
+    "after export default": `export default /${BT}/;\nconst t = ${BT}x${BT};`,
+    "after a block on the same line": `function f() {} /${BT}/.test(s);\nconst t = 1;`,
+    "a division after a property named in": `const r = traffic.in / total, unit = ${BT}/s${BT};\nconst t = ${BT}x${BT};`,
+    "a division after an object literal": `const r = {}.size / 2, unit = ${BT}/s${BT};`,
+    "a division after a call": `const r = f(x) / 2, unit = ${BT}/s${BT};`,
+    "a method named eval": "const o = { eval() { return 1; } };",
+    "an object key named Function": "const types = { Function: describeFunction, String: describeString };",
+    "uncurrying this": "const call = Function.call.bind(Function.call);",
+    "a constructor's name": "const name = this.constructor.name;",
+    "a constructor handed on": "const Kind = value.constructor;",
+    "a call of what f returns": 'const page = f(globalThis)["innerWidth"];',
+    "a shell option plainly off with a line break": 'spawn("x", [], {\n  shell: false\n});',
+    "options.shell ??= false": "options.shell ??= false;",
+    "reading the option": "const useShell = options.shell ?? false;",
+    "spawn re-exported by name": 'export { spawn } from "node:child_process";'
+  };
+  for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
+});
+
+test("the reader stays linear where its questions used to search: one minified line, long chains (Д-401)", () => {
+  const timed = (source) => {
+    const started = performance.now();
+    forbiddenCalls(source);
+    return performance.now() - started;
+  };
+  // Before, 448 kB of `x={}/1;` on one line took 10 s and 166 kB of re-bindings in reverse order 8.6 s.
+  assert.ok(timed("x={}/1;".repeat(64000)) < 4000, "one line");
+  const reverse = [];
+  for (let index = 8000; index >= 1; index -= 1) reverse.push(`const c${index + 1} = c${index};`);
+  const chain = `${reverse.join("\n")}\nconst c1 = require("child_process");\nc8001.exec("ls");`;
+  assert.ok(timed(chain) < 4000, "re-bindings in reverse order");
+  assert.deepEqual(rules(chain), ["child_process.exec"], "and the chain is still followed to its end");
+  assert.ok(timed(`x = globalThis${".globalThis".repeat(20000)}["a"];`) < 4000, "a chain of globals");
 });

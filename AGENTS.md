@@ -102,18 +102,22 @@ the same defect found three times: the two copies disagreeing.
 
 Commands run as argument arrays with `shell: false`. The static gate reads the
 server's code and the desktop app's as tokens (`src/core/forbidden-calls.mjs`,
-docs/DEFECTS.md Д-267, Д-382), escapes decoded, and rejects the usual spellings
-and their equivalents: `exec` and `execSync` of `child_process` — through a
-named, default or namespace import, `require`, `import()`, the module's
-`default`, a `.then` callback, or a name it is bound or plainly re-bound to; a
-`shell` option, key or member, with any value but `false` (or one it cannot
-read); `eval` and the `Function` constructor, called or handed on — only the
-desktop app's tests may call them; a computed member of `globalThis`, `window`,
-`global` or `self`. A file it cannot read to its end is refused too. It follows
-a value no further than a plain assignment — a module name built from parts,
-`createRequire` or `Reflect.get` are past it — so it keeps honest code honest
-and is no sandbox. Never interpolate a variable into a command string. See
-`ai-dev-mcp-server/docs/SECURITY.md`.
+docs/DEFECTS.md Д-267, Д-382, Д-398), every escape decoded, and rejects the
+usual spellings and their plain equivalents: `exec` and `execSync` of
+`child_process` — through a named, default or namespace import, `require`,
+`import()`, the module's `default`, a `.then` callback, or a name it is bound or
+plainly re-bound to — and the module object handed to another file (`export *`,
+`module.exports =`); a `shell` option — a key, an accessor, or a member set with
+`=`, `??=`, `||=` or `&&=` — with any value but `false`, `null`, `undefined`,
+`0` or `""`, or one it cannot read; `eval` and the `Function` constructor,
+called (`.call`, `.apply` and `.bind` too) or handed on, which only the desktop
+app's tests may do; a computed member of `globalThis`, `window`, `global` or
+`self` whose key is not one plain string naming neither. A file it cannot read
+to its end is refused too. It follows the module object and the global objects
+through plain re-binding and nothing else — a module name built from parts,
+`createRequire`, `Reflect.get` or `require` re-bound are past it — so it keeps
+honest code honest and is no sandbox. Never interpolate a variable into a
+command string. See `ai-dev-mcp-server/docs/SECURITY.md`.
 
 ## How a change is finished
 

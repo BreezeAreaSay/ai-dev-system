@@ -167,8 +167,10 @@ Then the manual acceptance on the three systems, about forty minutes each:
   an isolated test; keep vault-coupled assertions in the top-level `src/*.test.mjs`.
 - Never introduce shell string interpolation into command execution — commands
   run as argument arrays with `shell: false`, and the static gate refuses `exec`, a shell
-  option, `eval` and the `Function` constructor however they are spelled (see
-  [`docs/SECURITY.md`](ai-dev-mcp-server/docs/SECURITY.md)).
+  option, `eval` and the `Function` constructor in their usual spellings and plain
+  equivalents — not in every spelling: what it reads and where it stops is in
+  [AGENTS.md](AGENTS.md#execution-safety); see also
+  [`docs/SECURITY.md`](ai-dev-mcp-server/docs/SECURITY.md).
 
 ## Skills in the seed
 

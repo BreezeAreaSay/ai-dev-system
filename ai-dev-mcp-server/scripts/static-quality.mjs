@@ -151,7 +151,9 @@ if (findings.length) {
 } else {
   console.log(JSON.stringify({
     status: "passed",
-    checked_files: files.length,
+    checked_files: files.length + desktopFiles.length,
+    checked_server_files: files.length,
+    checked_desktop_files: desktopFiles.length,
     tools: tools.length,
     prompts: PROMPTS.length,
     runtime_lines: runtimeLines,

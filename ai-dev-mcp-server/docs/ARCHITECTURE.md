@@ -970,14 +970,17 @@ every layout on every system; 2.x's PowerShell scripts worked only inside the ow
 shrink, and the gate demands the pin go once its module is back under the ceiling or gone.
 
 The same walk runs `node --check` over `bin/`, `src/`, `scripts/`, `hooks/` and the desktop app, `sh -n` over the
-hook launcher, and refuses the calls AGENTS.md forbids: `eval` and the `Function` constructor, called or handed
-on, and a computed member of `globalThis`, `window`, `global` or `self` whose key is not one plain string naming
-neither; `exec` and `execSync` of `child_process` however the module is imported or bound; and a `shell` option
-that is not plainly off. `core/forbidden-calls.mjs` reads the source as tokens, with comments, strings, template
-text and regular expressions set aside, so
-`import * as cp` then `cp.exec(…)`, `{ "shell": true }` and `globalThis["ev" + "al"]` are refused like the usual
-forms (Д-267), and what it cannot follow through a variable is refused, not trusted. Only the desktop app's tests
-may call `eval` and `new Function`, to show that the page's policy refuses them.
+hook launcher, and refuses the calls AGENTS.md forbids, read as tokens by `core/forbidden-calls.mjs` — comments,
+strings, template text and regular expressions set aside, every escape decoded (Д-267, Д-382, Д-398): `eval` and
+the `Function` constructor, called or handed on; a computed member of `globalThis`, `window`, `global` or `self`
+whose key is not one plain string naming neither; `exec` and `execSync` of `child_process` through any import,
+`require` or `import()` of the module and any name it is plainly re-bound to, and the module object exported whole;
+and a `shell` option that is not plainly off. So `import * as cp` then `cp.exec(…)`, `{ "shell": true }` and
+`globalThis["ev" + "al"]` are refused like the usual forms, and a file it cannot read to its end is refused, not
+trusted. It follows the module object and the global objects through plain re-binding and nothing else — a module
+name built from parts, `createRequire` and `Reflect.get` are past it: it keeps honest code honest and is no
+sandbox. Only the desktop app's tests may call `eval` and `new Function`, to show that the page's policy refuses
+them.
 
 ## Operations And Distribution
 

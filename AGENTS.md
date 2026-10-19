@@ -101,14 +101,19 @@ the same defect found three times: the two copies disagreeing.
 ## Execution safety
 
 Commands run as argument arrays with `shell: false`. The static gate reads the
-code as tokens (`src/core/forbidden-calls.mjs`, docs/DEFECTS.md Д-267) and
-rejects, however they are spelled: `exec` and `execSync` of `child_process`
-reached any way — a named, default or namespace import, `require`, `import()`;
-a `shell` option with any value but `false` (or one it cannot read); `eval` and
-the `Function` constructor, called or handed on; a computed member of
-`globalThis`, `window`, `global` or `self`. In the desktop app too; only its
-tests may call `eval` and `new Function`. Never interpolate a variable into a
-command string. See `ai-dev-mcp-server/docs/SECURITY.md`.
+server's code and the desktop app's as tokens (`src/core/forbidden-calls.mjs`,
+docs/DEFECTS.md Д-267, Д-382), escapes decoded, and rejects the usual spellings
+and their equivalents: `exec` and `execSync` of `child_process` — through a
+named, default or namespace import, `require`, `import()`, the module's
+`default`, a `.then` callback, or a name it is bound or plainly re-bound to; a
+`shell` option, key or member, with any value but `false` (or one it cannot
+read); `eval` and the `Function` constructor, called or handed on — only the
+desktop app's tests may call them; a computed member of `globalThis`, `window`,
+`global` or `self`. A file it cannot read to its end is refused too. It follows
+a value no further than a plain assignment — a module name built from parts,
+`createRequire` or `Reflect.get` are past it — so it keeps honest code honest
+and is no sandbox. Never interpolate a variable into a command string. See
+`ai-dev-mcp-server/docs/SECURITY.md`.
 
 ## How a change is finished
 

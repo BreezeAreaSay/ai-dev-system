@@ -538,10 +538,13 @@ mount dropped. A folder that holds model files itself (`pytorch_model.bin`, `con
 the value the variable had before 2.1, and every installer refuses it with directions rather than
 mounting it one level too deep. When `bge-m3-onnx` is a link to another disk, the entry mounts the
 link itself, which Docker follows on the host — in the container the link alone would lead nowhere;
-one that leads nowhere on the host either is refused (Д-368). Its files and folders have to be
-readable to the image's user, uid 1000; when they are not, the start report, `embedding_status`,
-`ai-dev setup` and `ai-dev model status` say so (Д-337, Д-357). The documents are embedded with it,
-with no download and no network, by `docker run --rm -it --mount
+one that leads nowhere on the host either is refused (Д-368). Every session mounts what it leads
+to, so while that disk is away Docker starts no session at all — the client's log shows Docker's
+"bind source path does not exist". Writing the entries says so, and where the command line is
+installed, `ai-dev clients doctor` names the entry whose mounted folder is gone (Д-385). The model's
+files and folders have to be readable to the image's user, uid 1000; when they are not, the start
+report, `embedding_status`, `ai-dev setup` and `ai-dev model status` say so (Д-337, Д-357). The
+documents are embedded with it, with no download and no network, by `docker run --rm -it --mount
 type=volume,source=ai-dev-system-data,target=/data --mount type=bind,source=<the folder above
 bge-m3-onnx>,target=/models,readonly ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model`
 (Д-341).

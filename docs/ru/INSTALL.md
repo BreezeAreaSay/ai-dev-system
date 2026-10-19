@@ -541,12 +541,15 @@ sh ./bootstrap.sh --model-path "$HOME/.ai-dev/models"
 это значение переменной до 2.1, и каждый установщик отказывает в ней с объяснением, а не монтирует её
 уровнем глубже. Если `bge-m3-onnx` — ссылка на другой диск, запись монтирует саму ссылку, и Docker
 проходит по ней на хосте: в контейнере одна ссылка вела бы в никуда; ссылку, которая и на хосте ведёт в
-никуда, установщик отклоняет (Д-368). Её файлы и папки должен читать пользователь образа, uid 1000;
-если не может, это говорят отчёт старта, `embedding_status`, `ai-dev setup` и `ai-dev model status`
-(Д-337, Д-357). Векторы документов строятся с ней, без загрузки и без сети, командой `docker run --rm
--it --mount type=volume,source=ai-dev-system-data,target=/data --mount type=bind,source=<папка выше
-bge-m3-onnx>,target=/models,readonly ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model`
-(Д-341).
+никуда, установщик отклоняет (Д-368). Каждая сессия монтирует то, куда ведёт ссылка, поэтому, пока этот
+диск отключён, Docker не запускает ни одной — в журнале клиента будет «bind source path does not exist».
+Об этом говорит запись конфигов, а там, где установлена командная строка, `ai-dev clients doctor`
+называет запись, чьей смонтированной папки нет (Д-385). Файлы и папки модели должен читать
+пользователь образа, uid 1000; если не может, это говорят отчёт старта, `embedding_status`, `ai-dev setup` и
+`ai-dev model status` (Д-337, Д-357). Векторы документов строятся с ней, без загрузки и без сети,
+командой `docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data --mount
+type=bind,source=<папка выше bge-m3-onnx>,target=/models,readonly
+ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model` (Д-341).
 
 ### Если нужен образ с весами внутри
 

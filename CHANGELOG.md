@@ -1661,7 +1661,9 @@ four of those arrived as upstream issues #63–#66.
   program that ran `stop` synchronously got "did not stop: it is still running" and exit 1 for a
   daemon gone 6 ms after the request. A process in state `Z` — `/proc` on Linux, `ps` on macOS — is
   exited now: the same `stop` says "Stopped" in 129 ms, exit 0. Where neither can tell, the message
-  says the process is still there, running or not yet collected.
+  says the process is still there, running or not yet collected. A process `kill` finds that `/proc`
+  does not show — `hidepid`, someone else's — is there, not gone, so a lock it holds is not broken
+  (Д-386).
 - **A `block` rule of `.ai-dev/policy.json` blocks on a busy machine too** (Д-239). Its pattern is
   matched in a worker thread under a 250 ms budget, and the budget's timer started before the thread
   did, so a thread that was slow to start was charged to the first rule: on four cores with sixteen
@@ -1669,25 +1671,37 @@ four of those arrived as upstream issues #63–#66.
   250 ms. Fix the pattern…". Starting the thread now has an allowance of its own (3 s) and the
   budget counts the matching alone: 30 of 30 blocked under sixteen busy loops and under 32. A rule
   the thread never reached is reported as not run (`not_run`) — the guard says the machine was too
-  busy to check it, and `upsert_policy_rule` refuses to store a pattern it could not try — never as
-  a pattern that took too long. Both copies, `src/core/regex-budget.mjs` and `hooks/lib.mjs`.
+  busy to check it ("this command", or "this write", went unchecked), and `upsert_policy_rule` refuses
+  to store a pattern or an example it could not try (Д-383) — never as a pattern that took too long. A
+  thread that fails rather than starts slowly is answered as run, with its error, and the guard says
+  it failed (Д-384). Both copies, `src/core/regex-budget.mjs` and `hooks/lib.mjs`.
 - **The static gate reads what the code does, not how it is spelled** (Д-267). It looked for the
   usual spellings of `exec`, `shell: true` and `eval`, and every equivalent passed:
   `import * as cp` with `cp.exec(…)`, a default import, `execSync`, `{ "shell": true }`,
   `{ shell: "/bin/sh" }`, `globalThis["ev" + "al"](…)`. `src/core/forbidden-calls.mjs` reads the
-  source as tokens and asks the rules of them, in the server and in `desktop/`: the six spellings
-  appended to a server file and a desktop file give twelve findings, where the gate passed them.
+  source as tokens — escapes decoded, a template without substitutions read as the string it is,
+  `?.[` as `[` — and asks the rules of them, in the server and in `desktop/`: the six spellings
+  appended to a server file and a desktop file give twelve findings, where the gate passed them. It
+  knows the module's `default`, `.then(async …)` callbacks, rest elements and plain re-binding, a
+  global's `.Function`, `.shell =` and `["shell"]:`; a `shell` key counts only in an object literal, so
+  an import, a parameter or an argument named `shell` passes; and a file it cannot read to its end —
+  a template or a comment that never closes — is refused rather than passed (Д-382). It does not
+  follow a value further than a plain assignment: a module name built from parts, `createRequire`
+  and `Reflect.get` are past it, and said to be.
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be
   read, with the reason (`EACCES`, a folder that is a file, a loop of links, a share), what to fix,
-  and **Check again**; nothing is downloaded over it.
+  and **Check again**; nothing is downloaded over it. An `EPERM` names macOS's Privacy & Security too
+  (Д-387).
 - **A host model folder whose `bge-m3-onnx` is a link works in Docker** (Д-368). Docker resolves a
   bind mount's source on the host, so a link that pointed at another disk was mounted as the folder
   that held it, and the link inside led nowhere: the model was "not installed". A 3.0 entry mounts
   the link itself at `/models/bge-m3-onnx`, which Docker follows on the host — measured: "Installed:
   yes, every file matches the manifest." `bootstrap.sh` refuses a link that leads nowhere (exit 64),
-  and the 2.x `run-mcp.sh` names it.
+  and the 2.x `run-mcp.sh` names it. A session mounts what the link leads to every time, so while that
+  disk is away Docker starts none: writing the entries says so for a link to another disk, and
+  `ai-dev clients doctor` names an entry whose mounted folder is gone, without starting it (Д-385).
 - **`npm run demo` counts the skills it ran with and leaves your home alone** (Д-110, Д-374,
   Д-389). It printed a skill count written into the script, and the search index it built claimed
   the index of the person's own `~/.ai-dev`; the count now comes from `list_skill_groups` (614), and

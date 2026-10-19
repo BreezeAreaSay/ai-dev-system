@@ -16092,6 +16092,352 @@ npm run lint: "status": "passed"; scripts/security-check.mjs: "status": "passed"
 
 ---
 
+## Д-450. Закрытие Д-440 говорит, что модуль в массиве назван за границей в AGENTS.md, ARCHITECTURE и CHANGELOG; там он не назван, а «шаблон экспорта» назван пойманным
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью документации: must-fix 1).
+
+«Как закрыто» Д-440: «`export const [run] = [cp]` — модуль в массиве — … названы за границей (заголовок, AGENTS.md,
+ARCHITECTURE, CHANGELOG)». Модуль в массиве называет только заголовок `forbidden-calls.mjs:46-48`. AGENTS.md (`:114`),
+ARCHITECTURE (`:982`) и CHANGELOG (`:1742`) называют пойманным «a pattern an export declares» / «exported … by a declaration or
+a pattern», а модуль в массиве или в объекте, разобранный шаблоном, проходит.
+
+**Замер до** (`8e42cda`; ревью — `p14/r6/docs/out/`; повтор ведущим — `p14/r6v/docs-claims.mjs`):
+
+```
+export const [run] = [cp]                                   []
+export const [run] = [await import("node:child_process")]   []
+export const [, run] = [0, cp]                              []
+export const { a: [run] } = { a: [cp] }                     []
+grep "array\|\[run\]\|\[cp\]" в трёх абзацах: только «argument arrays», «iterated array», загрузчик, цена
+```
+
+**Как закроется.** В трёх текстах — «the module object put in an object or an array (`module.exports = { cp }`, `export const
+[run] = [cp]`)» за границей; пойманный шаблон — «a pattern an export declares from the module itself».
+
+---
+
+## Д-451. CHANGELOG: `clients doctor` «убивает» контейнер, чей первый процесс не замечает SIGTERM; убивает он CLI Docker
+
+**Статус:** открыт. Закроет фаза 14. Нашли шестое независимое ревью фазы 14 — ревью документации (should-fix 2) и ревью кода (should-fix 1).
+
+CHANGELOG `:235-237`: «a command still running a few seconds after it is told to stop — a container whose first process ignores
+SIGTERM, a Docker CLI waiting on an engine that hangs — is killed». Убивается команда записи, для `docker run` — CLI Docker;
+контейнер живёт, пока не кончится его процесс. Закрытие Д-437 говорит это верно.
+
+**Замер до** (`8e42cda`; ревью, `p14/r6/docs/out/doctor-hang.out`, `p14/r6/code/out/doctor-hang.out`):
+
+```
+docker run -i --rm --name r6d-hang … --entrypoint sleep debian:bookworm-slim 600, --timeout=5:
+  Cursor FAILED — no answer to initialize within 5 s; exit 1 after 10 s; контейнер после: r6d-hang Up 9 seconds
+```
+
+**Как закроется.** «…is killed, so that the doctor returns — for `docker run` the Docker CLI: a container whose first process
+ignores SIGTERM runs on until that process ends (`--rm` then removes it)».
+
+---
+
+## Д-452. `bootstrap.ps1` без клиентов на запасном пути по-прежнему печатает подсказку `--clients=` и «Restart…»; закрытие Д-435 и CHANGELOG об этом молчат
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью документации: should-fix 3).
+
+Запись Д-435 называлась «… без клиентов он возвращает слова Д-415» и закрыта, но запасной путь — JSON пробного прогона не
+прочитан — без клиентов так и кончается подсказкой CLI и «Restart the AI clients…». Закрытие говорит «её итог стоит»;
+CHANGELOG `:697-699` говорит, что «Restart…» печатается, только когда были клиенты, а `:710` — что непрочитанный ответ уходит в
+установку, без оговорки.
+
+**Замер до** (`8e42cda`; ревью, `p14/r6/docs/out/ps-fallback-noclient.out`: клиентов нет, node, чей `--dry-run` печатает «(not
+JSON)» и выходит с 0, заглушка docker контракта):
+
+```
+No client found here. Name one to write it anyway: --clients=cursor,vscode,…
+AI Dev is ready. Restart the AI clients to load ai-dev.
+exit=0
+```
+
+**Как закроется.** Закрытие Д-435 и CHANGELOG говорят, что на этом пути — теперь только у хоста, который не даёт поставить
+UTF-8, — итог и слова установки стоят как есть, с её подсказкой CLI.
+
+---
+
+## Д-453. Пробы Д-448 в записи как написаны не воспроизводят «было [] ×4»: нет хвоста фаззера
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью документации: should-fix 4).
+
+«Замер до» (п. 3) и «Замер после» Д-448 приводят `x = delete class A {} / 2; eval("1")` и ещё три записи без хвоста фаззера
+`; const r = 1 / 1;`, без которого ворота находят `eval` и до правки. Счета (576, 32) верны.
+
+**Замер до** (`8e42cda`; ревью — `probes/d448.mjs`, `d448full.mjs`; повтор ведущим — `p14/r6v/docs-claims.mjs`):
+
+```
+как в записи:      19ec505 [eval@1] [eval@1] [eval@2] [eval@2];  8e42cda — то же
+с «; const r = 1 / 1;»: 19ec505 [] ×4;  8e42cda [eval@1] ×2, [eval@2] ×2
+```
+
+**Как закроется.** Хвост — в шести записях проб Д-448.
+
+---
+
+## Д-454. «Or a share not reached»: для недоступной общей папки Node не даёт `ENOENT`, и `gone` до неё не доходит
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью кода: should-fix 2).
+
+CHANGELOG `:1790-1791`, комментарий `docker-launch.mjs:469-470` и закрытие Д-434 называют общую папку `\\nas\share\` рядом с
+`E:\`. В таблице libuv 1.51.0 (`src/win/error.c`) в `ENOENT` переходят только ERROR_PATH_NOT_FOUND и ERROR_INVALID_DRIVE;
+ERROR_BAD_NETPATH (53), ERROR_BAD_NET_NAME (67) и ERROR_NOT_READY дают `UNKNOWN`, ERROR_NETWORK_UNREACHABLE — `ENETUNREACH`.
+`missingBindSources` пропускает такую запись на первом же `stat` (не `ENOENT`/`ENOTDIR`), и `gone` для общей папки не бывает;
+тест держит его только на подделанном `ENOENT`. Вынутый диск (`E:\`) — `ENOENT`, там всё верно.
+
+**Замер до** (`8e42cda`; ревью, `p14/r6/code/out/win-shapes.out`, `ext/libuv-error.c`; `path.win32` и подделанная файловая система):
+
+```
+UNC, stat → UNKNOWN:             []          (а не gone)
+сетевой диск, stat → ENETUNREACH: []
+только подделанный ENOENT теста:  {"at":"\\\\nas\\share\\","why":"gone"}
+\\?\UNC\nas\share\Projects → «on \\?\UNC\, which is not there»
+```
+
+**Как закроется.** «Or a share not reached» — убрать из CHANGELOG, комментария и описания теста; закрытие Д-434 — поправить.
+
+---
+
+## Д-455. Что отказ Docker ищется во всём stderr, а не в первой строке, не держит ни один тест; doctor показывает строку WARNING вместо причины Docker
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью кода: should-fix 3 и мелочь 10, она — давняя).
+
+Мутанты «отказ ищется только в начале stderr» (`startsWith`) и «только в первой строке» проходят все 43 теста. Реальный случай:
+испорченный `~/.docker/config.json` — Docker 29.8.2 сначала печатает «WARNING: Error parsing config file …», потом отказ. И
+`errorLine` выбирает последнюю строку со словом «error», то есть эту строку WARNING, а не причину Docker («invalid boolean value
+("TRUE")»), — так и до `c625f11`.
+
+**Замер до** (`8e42cda`; ревью, `p14/r6/code/out/r6-mutation.out`, `mutant-R6-6-case-C.out`):
+
+```
+R6-6 (startsWith), R6-7 (только первая строка): tests 43 pass 43 fail 0
+config.json испорчен, модель readonly=TRUE, CLI 29.8.2:
+  8e42cda: FAILED — it exited with code 125 before answering: WARNING: Error parsing config file (<H>/badcfg/config.json): invalid
+           character 'b' … . Its --mount "…readonly=TRUE" is the likely cause, …
+  R6-6:    FAILED — it exited with code 125 before answering: WARNING: Error parsing config file …   (без причины)
+```
+
+**Как закроется.** Тест `refusedMount` с этой строкой WARNING перед отказом; строки `WARNING:` Docker — шум для `errorLine`, и
+показана его причина.
+
+---
+
+## Д-456. Что `bootstrap.ps1` возвращает кодовую страницу в `finally`, не держит ни один тест
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью кода: should-fix 4).
+
+Мутант, переносящий возврат страницы за `try` (R6-16), проходит 12 из 12 тестов PowerShell. Когда пробный прогон бросает —
+Ctrl+C или node, которого нет, — страница остаётся UTF-8.
+
+**Замер до** (`8e42cda`; ревью, `probes/ps/codepage-leak.mjs`; страница 936 задана до скрипта):
+
+```
+Ctrl+C во время пробного прогона:      8e42cda — code page after: 936;   R6-16 — 65001
+node пропал к пробному прогону (throw): 8e42cda — 936;                    R6-16 — 65001
+```
+
+**Как закроется.** Тест контракта: node-заглушка, которая удаляет себя после `--version`, — скрипт падает, страница — 936.
+
+---
+
+## Д-457. Мелочи шестого ревью кода фазы 14: цитирование Go по таблицам Unicode Node, непроверенные экранирования, два непрочитанных `--mount`, запас в 5 с
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью кода: мелочи 5–9).
+
+**Замер до** (`8e42cda`; ревью, `p14/r6/code/out/`):
+
+1. **`goQuoted` судит о «печатаемом» по Unicode Node (16.0), а Go Docker 29.8.2 — по 15.0**: знаки 15.1/16.0 Docker
+   экранирует, `goQuoted` — нет, и `refusedMount` их не узнаёт: U+31EF, U+2FFC, U+2EBF0, U+1CC00, U+10D4A, U+1FAE9 — 6 из 6
+   (`emoji16.out`: «U+1FAE9 (Emoji 16.0): exit 125, refusedMount does not name it»); на `6f0b92e` случай H назывался.
+2. **Четыре экранирования Go без теста**: мутанты без `\r`, `\n`, `\b`, `\f` — 43 из 43 (R6-1 … R6-4).
+3. **Нет теста doctor с двумя непрочитанными `--mount`**: мутант «отвергнутым может быть только первый» (R6-9) проходит; запись
+   с `readonly=TRUE` и `bogus=1` под CLI 27.5.1 — у мутанта только слова Docker.
+4. **Запас в 5 с держится слабо**: мутанты 9 с и 12 с (R6-11, R6-12) проходят (граница теста — `took < 15_000` при
+   `--timeout=1`); у R6-12 запись ревью — «exit 1 after 17 s».
+5. **Пометка о `--mount` может скрыть смену тома данных**: непрочитанный `--mount` — том `/data`
+   (`type=volume,source=my-team-data,target=/data,volume-nocopy=TRUE`), и команда совета пишет запись с томом по умолчанию
+   (`volume-note.out`); нужна ручная правка записи.
+
+**Как закроется.** 1–2) Цитата Docker разбирается (экранирования `\a \b \f \n \r \t \v \\ \" \xHH \uHHHH \UHHHHHHHH`) и
+сравнивается со значением, как его увидел Docker (`toWellFormed`); тест — знаки 16.0 и каждое экранирование. 3) Тест doctor с
+двумя. 4) Граница теста — по запасу. 5) Пометка называет том, если непрочитанный `--mount` — `/data`.
+
+---
+
+## Д-458. Мелочи шестого ревью документации фазы 14
+
+**Статус:** открыт. Закроет фаза 14. Нашли шестое независимое ревью фазы 14 — ревью документации (мелочи 1–8) и ревью кода (мелочь 11).
+
+**Замер до** (`8e42cda`; ревью, `p14/r6/docs/out/`; повтор ведущим — `p14/r6v/docs-claims.mjs`):
+
+1. «Only part of a value (`cp || fallback`)» (AGENTS.md `:128-129`, ARCHITECTURE `:989`, CHANGELOG `:1755`, заголовок `:50`):
+   записанный локальной привязкой пример ловится — `const x = cp || fallback; x.exec("y")` → `[child_process.exec@3]`;
+   проходит экспорт — `export const run = cp || fallback` → `[]`.
+2. «Through `.call` or `.apply`» без оговорки: `require["call"](…)`, `require["apply"](…)`, `process["getBuiltinModule"]["call"](…)`
+   → `[]`; за границей их называет только заголовок.
+3. `scripts/bootstrap-ps1-contract.test.mjs:11` — «on a host without pwsh these tests skip»: без pwsh — tests 11, pass 3, skipped 8.
+4. Пути с двойной обратной кавычкой в DEFECTS (`:15424`, `:15474`, `:15527`, `:15566`, `:15608`, `:15641`) — одна строка кода
+   с «``» внутри.
+5. Слова листинга «switching the rule on is refused until …» (`policy-rules.mjs:255, 268, 273`) неточны так же, как Д-439.1:
+   правка `policy.json` руками включает правило; описание `list_policy_rules` (`hooks.mjs:82`, TOOLS.md `:228`) называет только
+   пример, хотя листинг говорит и о контрпримере, и о переборе, и считает их в `broken`.
+6. Русский: `docs/ru/GUARDRAILS.md:181` «такое правило `upsert_policy_rule` не включит» — кто кого; «пропавшая папка сказана»
+   (закрытие Д-433), «По концу проверки» (закрытие Д-437).
+7. ARCHITECTURE `:991` ссылается на (Д-431, Д-448) для границы, чьи записи загрузчика — из Д-432 и Д-440.
+8. Закрытие Д-449 — «Ссылок на файл в документах и CI нет»: `docs/program/reports/phase-02.md:17` и 28 строк DEFECTS называют
+   `bootstrap-contract.test.mjs`; все верны — файл с тестами `bootstrap.sh` остался.
+
+**Как закроется.** 1) Пример — экспорт. 2) `require["call"](…)` — в перечнях границы. 3) «the tests that run it skip». 4) Пути —
+одной строкой. 5) «upsert_policy_rule will not switch the rule on until …»; описание — образец, контрпример и перебор.
+6) «`upsert_policy_rule` не включит такое правило»; обороты переписать. 7) (Д-431, Д-432, Д-440, Д-448). 8) «ни одна ссылка на
+файл не сломалась».
+
+---
+
+## Д-459. Ворота отвергают честный модуль внутри выражения, перенесённого на строки, и имя, привязанное к такому выражению, отданное другим файлам
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью ворот: must-fix 1); у обеих версий — `19ec505` и `9756688`.
+
+«Itself, not a value it takes part in: `export const ok = cp !== undefined` passes» (CHANGELOG `:1734-1735`, ARCHITECTURE `:982`,
+AGENTS.md `:113-114`, закрытие Д-441) верно только для одной строки: в `whole` (`forbidden-calls.mjs:425-426`) любой перевод
+строки после модуля кончает значение, и цикл привязок (`:564`) так же; а цель становится псевдонимом (`:440`) и тогда, когда
+значение — не модуль, — и `export { ok }` после `const ok = cp !== undefined` — «exported by name». Перенос строки перед `?`,
+`||`, `&&` — привычка этого репозитория: строк, начинающихся с `? `, в коде сервера и приложения — 290, с `|| ` — 74, с `&& ` — 53.
+
+**Замер до** (`8e42cda`; ревью, `p14/r6/gate/out/p1.out`; повтор ведущим — `p14/r6v/gate-r6.mjs`):
+
+```
+CP + export const available = cp⏎  !== undefined;          [child_process.exec@2]   (одной строкой — [])
+CP + export const kind = cp⏎  ? "real"⏎  : "none";           [child_process.exec@2]
+… = cp⏎  && typeof cp.spawn === "function" | export default cp⏎  !== undefined | … = cp⏎  instanceof Object |
+module.exports.ok = cp⏎  !== undefined (сценарий)             [child_process.exec@2] ×4
+CP + const ok = cp !== undefined;⏎export { ok };            [child_process.exec@3]   (и export default ok)
+CP + let ok;⏎ok = cp !== undefined;⏎export { ok };          [child_process.exec@4]
+```
+
+**Как закроется.** Перевод строки кончает значение, только где следующая строка не может его продолжить (не знак — кроме `{`,
+`!` без `=`, `~`, `#`, `++`/`--` в начале; не шаблон, не `in`/`instanceof`); так — и для `whole`, и в цикле привязок; псевдоним —
+только целому значению: `const x = cp || fallback; x.exec()` тогда — часть значения, за границей, как и названо.
+
+---
+
+## Д-460. Экспортированный `let`/`var` сопоставляется по имени: локальная переменная, член или параметр того же имени — «exported from this file» (регрессия Д-432)
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью ворот: must-fix 2); регрессия `9756688` (Д-432).
+
+`exportedNames` (`forbidden-calls.mjs:319`, `:442`) — имена, без привязки: присваивание модуля локальной `const`/`let` того же
+имени во вложенной функции, члену `target.childProcess` или параметру считается экспортом. Разностный прогон ревью (150 000
+программ, 87 853 валидны для V8): все изменения `19ec505 → 9756688` совпадают с заявленными раундом 5, кроме этого семейства
+(`+local` 156, `+param` 144, `+prop` 138). Файлов репозитория и деревьев зависимостей это сегодня не касается.
+
+**Замер до** (`8e42cda`; ревью; повтор ведущим — `p14/r6v/gate-r6.mjs`):
+
+```
+export let cp = null;⏎export function f() {⏎  const cp = require("node:child_process");⏎  return cp.spawn("x");⏎}   [child_process.exec@3]   (19ec505 [])
+CP + export let childProcess = null;⏎export function inject(target) {⏎  target.childProcess = cp;⏎}                [child_process.exec@4]   (19ec505 [])
+… export let runner = null;⏎export function f() {⏎  let runner;⏎  runner = childProcess; …                         [child_process.exec@5]
+CP + export var proc = null;⏎export function f(proc) {⏎  proc = cp; …                                              [child_process.exec@4]
+```
+
+**Как закроется.** Имя считается, только если цель — не член (`.`/`#` перед ней) и не объявление на этом месте; псевдоним
+членом не становится. Параметр того же имени без областей видимости не отличить — назван в заголовке.
+
+---
+
+## Д-461. `=` внутри `${…}` шаблона в наследовании класса снимает ожидание тела: `eval` проходит, честный код — «unread», цена квадратичная (регрессия Д-443)
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью ворот: must-fix 3); регрессия `9756688` (Д-443).
+
+`=` добавлен в снятие ожидания (`code-tokens.mjs:168-172`), а `${` в `opened` не считается: `=`, `==` или `=>` в подстановке
+тегированного шаблона в `extends` снимает ожидание тела класса на той же глубине. Комментарий `:169-170` («None of these stands
+between `class` or `function` and its body») здесь неверен; так же было и с `:`.
+
+**Замер до** (`8e42cda`; ревью — `tools/fuzz2.mjs`, `out/fuzz2.out`, `out/cost-flat.out`; повтор ведущим — `p14/r6v/gate-r6.mjs`):
+
+```
+let a, x;⏎const f = () => Object;⏎x = class extends f`${a = 1}` {} / 2; eval("1"); const r = 1 / 1;   [] (19ec505 [eval@3])
+… class extends f`${(a) => 1}` {} / 2; eval("1") …                                                   [] (19ec505 [eval@2])
+честное: const n = !class extends f`${(a) => a}` {} / 2 + "/`".length;                                 [unread@2] (19ec505 [])
+фаззер (560 000 случаев, 65 293 валидны): только у 9756688 — 1 312 промахов и 1 312 ложных, все этого семейства
+цена: `class extends f`${a = 1}` {} / "[" + ` × n: 145 КБ 3 019 мс, 578 КБ 38 046 мс, 1 156 КБ 162 037 мс (19ec505: 105, 179, 342 мс)
+ведущий: n = 500, 1 000, 2 000 → 61, 177, 747 мс
+```
+
+**Как закроется.** Глубина ожидания — `opened.length + templates.length`: подстановка — своя глубина, для `=` и для `:`.
+
+---
+
+## Д-462. Мутанты R7 и R13 не эквивалентны, ещё десять мутантов раунда 5 выживают; CHANGELOG и закрытие Д-445 говорят обратное
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью ворот: should-fix 1).
+
+CHANGELOG `:1759-1761` («63 do, the two left equivalent») и закрытие Д-445 («оба эквивалентны») неверны: каждый выживший меняет
+поведение на правильной программе.
+
+**Замер до** (`8e42cda`; ревью, `p14/r6/gate/out/mut-mine.out`, `mut-lead.out`; повтор ведущим — `p14/r6v/gate-r6.mjs`):
+
+```
+R7 (while → if): import { class as c, function as f } from "x";⏎const list = [{ shell: true }];   [shell@2] → мутант []
+R13 (last = true): сценарий (null || require)("child_process").exec("ls")                          []        → мутант [child_process.exec@1]
+A1 (метка без «той же строки»): for (;;) {⏎ break⏎ n / 2; eval("1"); … }                           [eval@4]  → []
+A2 (continue — не метка): outer: for (;;) {⏎ continue outer⏎ /r/ / 2; eval("1"); … }               [eval@3]  → []
+A4, A5 (break, continue вне STATEMENT_ENDS): for (;;) {⏎ break⏎ /r/ / 2; eval("1"); … }            [eval@3]  → []
+B1 (const по имени): CP + export const run = 1;⏎export function f() {⏎ let run;⏎ run = cp; … }     []        → [child_process.exec@5]
+B2 (без !after): CP + export default cp, без перевода строки в конце                               [child_process.exec@2] → TypeError
+B3, B4, B5 (без `)`, `}`, `]` в whole): console.log(run = cp) | { run = cp } | [run = cp]           [child_process.exec@3] → []
+B8 (значение до .default): CP + export const run = cp.default; | export default cp.default;       [child_process.exec@2] → []
+итого: 20 мутантов ревью — 5 убиты, 3 эквивалентны (0 различий на 65 293 случаях фаззера), 12 выживают
+```
+
+**Как закроется.** Утверждение на каждую строку таблицы; CHANGELOG и закрытие Д-445 — по новому счёту.
+
+---
+
+## Д-463. Строка, где каждый `/` начинает незакрытое регулярное выражение, читается заново на каждом `/`: цена квадратичная (у обеих версий)
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью ворот: should-fix 2); так и на `19ec505`.
+
+Не закрывшееся на строке регулярное выражение откатывается к делению (`code-tokens.mjs:302-318`, откат `:313`), и следующий
+`/` на той же строке снова читает её до конца. CHANGELOG `:1753` («a file costs what its length does») здесь неверен.
+
+**Замер до** (`8e42cda`; ревью, `p14/r6/gate/out/cost-flat.out`; повтор ведущим — `p14/r6v/gate-r6.mjs`):
+
+```
+сценарий var x = await / "[" + … × n + 1;   55 КБ 1 009 мс, 219 КБ 15 954 мс, 438 КБ 67 276 мс (19ec505: 902, 14 415 мс)
+неправильный JS "/[" × 32 000 (63 КБ): 8 779 мс; с переводом строки каждые 50 пар (126 КБ): 113 мс
+ведущий: n = 1 000, 2 000, 4 000 → 115, 233, 817 мс
+```
+
+**Как закроется.** Неудачное чтение помечает пары (место, внутри класса знаков), что прошло; следующее, дойдя до помеченной пары
+в том же состоянии, кончается сразу — чтение то же, цена — один проход строки. Тест времени.
+
+---
+
+## Д-464. Мелочи шестого ревью ворот
+
+**Статус:** открыт. Закроет фаза 14. Нашло шестое независимое ревью фазы 14 (ревью ворот: мелочи 1–3).
+
+**Замер до** (`8e42cda`; ревью):
+
+1. **Довод закрытия Д-443 против `,` неверен для подстановок и списков спецификаторов**: `const x = class extends
+   f`${a, b}` {} / 2; eval("1")…` — `[eval@3]`, а с `,` в снятии ожидания было бы `[]`. Решение не добавлять было верным; довод —
+   нет. (После правки Д-461 подстановка — своя глубина.)
+2. **`of` и члены в заголовке `for`**: CHANGELOG `:1722` («a name `of` outside a `for` head's binding»):
+   `let of = 4, n = 0, k;⏎for (k in of / 2) n += k; eval("1"); n = n / 2;` и `for (const k of of / 2 ? of : of) …; eval("1")` — `[]`
+   у обеих версий (фаззер — 24 + 24 + 8 валидных промахов); `o.for(of / 2); eval("1"); …` — `[]`: `forHead` не спрашивает,
+   член ли `for`.
+3. **«An exported `let` or `var` it is assigned to»** (AGENTS.md `:114-115`, ARCHITECTURE `:983`, заголовок `:31-32`) не
+   ловит: `CP + export let { run } = {};⏎run = cp;`, `export let [run] = []; run = cp;`,
+   `export let run;⏎({ default: run } = await import("node:child_process"));` — `[]` у обеих версий.
+
+**Как закроется.** 1) Довод в закрытии Д-443 — поправить. 2) `in` в заголовке `for` — как инициализатор; `for` после точки —
+не заголовок; `of of` — оговорка в тексте. 3) Присваивание шаблоном экспортированному имени — находка; имена, которые объявляет
+шаблон под `export let`/`var`, — названы за границей.
+
+---
+
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 
 **Статус:** закрыт в пункте А2 очереди PROMPT-CLOSE-GAPS. Появился в пункте 3.1.

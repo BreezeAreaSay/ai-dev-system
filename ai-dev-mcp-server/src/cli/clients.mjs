@@ -140,7 +140,7 @@ const labelOf = clientLabel;
 export function renderResults(results, { home = os.homedir() } = {}) {
   return results.map((result) => {
     const notes = [];
-    if (result.previous === "docker") notes.push("replaced the Docker launcher entry");
+    if (result.previous === "docker") notes.push("replaced the Docker entry");
     else if (result.previous === "local") notes.push("replaced the entry of another install");
     else if (result.previous && result.previous !== "current") notes.push(`replaced an ${SERVER_NAME} entry that ran something else`);
     if (result.migrated?.length) notes.push(`removed the 2.x entry ${result.migrated.join(", ")}`);

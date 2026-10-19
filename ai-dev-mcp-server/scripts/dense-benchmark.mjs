@@ -3,8 +3,8 @@
  * Dense search measured on a machine that has the real weights (docs/DEFECTS.md,
  * Д-101).
  *
- * This session could not run it: `huggingface.co` is closed to it, so the
- * model cannot be fetched here. It runs in `.github/workflows/dense-eval.yml`,
+ * The development sandbox cannot run it: `huggingface.co` is closed to it, so
+ * the model cannot be fetched there. It runs in `.github/workflows/dense-eval.yml`,
  * on the ONNX export, the one backend 3.0 has (decision D3); the comparison of
  * int8 with fp32 that Д-62's criterion (2) asks for is the 2.x line's, whose
  * copy of that workflow keeps a job for each (Д-491).

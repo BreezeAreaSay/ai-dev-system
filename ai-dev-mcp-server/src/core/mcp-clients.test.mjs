@@ -384,3 +384,18 @@ test("a temp file a killed run left next to the config is removed; a live writer
   await fs.access(live);
   await fs.access(foreign);
 });
+
+test("a config keeps a mode the umask would not give its copy, through install and remove (Д-492)", { skip: process.platform === "win32" && "a 0664 mode needs POSIX" }, async (t) => {
+  const home = await tempHome(t);
+  const file = path.join(home, ".cursor", "mcp.json");
+  await fs.mkdir(path.dirname(file));
+  await fs.writeFile(file, "{\"mcpServers\": {}}\n");
+  await fs.chmod(file, 0o664);
+  const umask = process.umask(0o022);
+  t.after(() => process.umask(umask));
+  const targets = (await discoverClients({ home, env: env(home), platform: "linux" })).filter((target) => target.client === "cursor");
+  assert.deepEqual((await installServer({ targets, entryFor: (target) => clientEntry(target, LAUNCH) })).map((result) => result.status), ["added"]);
+  assert.equal((await fs.stat(file)).mode & 0o777, 0o664, "the copy that took its place was given its mode back");
+  assert.deepEqual((await removeServer({ targets })).map((result) => result.status), ["removed"]);
+  assert.equal((await fs.stat(file)).mode & 0o777, 0o664);
+});

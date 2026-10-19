@@ -1857,17 +1857,20 @@ four of those arrived as upstream issues #63–#66.
   temporary home its server moved AI Dev's Codex-era folders out of `~/.codex` into the folder, and
   they were deleted with it; now, with `AI_DEV_HOME` set, the move reads `$AI_DEV_HOME/.codex`, as
   2.x did, and the demo names every place the move would fill, so nothing leaves `~/.codex`.
-- **The server writes under Node's permission model** (Д-470, Д-477, Д-479). To a process run with
-  `--permission`, Node 24.22 and 26 refuse `fsync` — "fsync API is disabled when Permission Model is
-  enabled.", and no flag allows it — and Node 24.17 and later refuse `fchmod` too; so every write the
-  server makes atomic failed there, a client's config that was there could be neither changed nor
-  cleaned, and the test that runs the policy rules with no worker thread failed on the Node 24 that CI
-  runs. The write now goes on unflushed where the permission model refuses the flush, and a config's
-  copy is given the old file's mode only when it lacks it — where that is refused, it keeps the one it
-  was made with, which umask only narrows; any other failure of either fails the write. And a test
-  that asserted `node:sqlite`'s cut of a text at a NUL, which Node 22, 24.14 and 25.9 make and 24.17
-  and 26 do not, takes either reading: the text read back through a BLOB is whole on all of them
-  (Д-471).
+- **The server writes under Node's permission model** (Д-470, Д-477, Д-479, Д-492 … Д-494). To a
+  process run with `--permission`, Node refuses a file handle's `sync()` — 24.22 and 26.12 of the
+  versions measured: "fsync API is disabled when Permission Model is enabled.", and no flag allows
+  it — and its `chmod()` — 24.17 … 24.22, 25.9, 26.0 and 26.12; so every write the server makes
+  atomic failed there, a client's config that was there could be neither changed nor cleaned, and the
+  test that runs the policy rules with no worker thread failed on the Node 24 that CI runs. The write
+  now goes on unflushed where the permission model refuses the flush, and a config's copy is given
+  the old file's mode only when it lacks it — where that is refused, it is left with the mode it was
+  made with, the old one narrowed by umask, never wider; any other failure of either fails the write.
+  One write still fails there: a config root writes in a home it does not own, whose copy it hands to
+  the home's user with the `fchown` the permission model refuses (Д-168). And a test that asserted
+  `node:sqlite`'s cut of a text at a NUL — which Node 22, 24.14, 25.0, 25.9 and 26.0 make, and
+  24.17 … 24.22 and 26.12 do not — takes either reading: the text read back through a BLOB is whole
+  on all of them (Д-471).
 - **The tests pass with a temporary folder that is a link or a long path** (Д-258, Д-259, Д-373).
   Four tests compared a resolved path with one built from `os.tmpdir()`, and the bridge test bound a
   socket that a 112-byte `TMPDIR` cut short, so parallel runs collided (`EADDRINUSE` in 6 of 12):

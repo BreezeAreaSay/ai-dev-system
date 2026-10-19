@@ -380,7 +380,95 @@ test("the reader stays linear on brackets left open and on a from in every line 
   assert.ok(timed('a, b\nfrom\n"child_process"\n'.repeat(16000)) < 4000, "nor after a list");
   // Before, 552 kB of keys in arrays nested 4000 deep took 12.8 s: each key climbed every bracket around it.
   assert.ok(timed(`const all = ${"[".repeat(4000)}${"{ shell: false },".repeat(32000)}${"]".repeat(4000)};`) < 4000, "keys deep in brackets");
+  // Before, 63 kB of the module's computed members nested 16 000 deep took 2.6 s: each level copied what it held (Д-424).
+  assert.ok(timed(`import * as cp from "node:child_process";\n${"cp[".repeat(16000)}0${"]".repeat(16000)};`) < 4000, "computed members nested");
+  assert.ok(timed(`${"globalThis[".repeat(16000)}0${"]".repeat(16000)};`) < 4000, "a global's members nested");
   // A closing bracket finds its own kind under a few left open, and looks no deeper than that.
   assert.equal(closing(codeTokens(`(${"[".repeat(3)})`), 0), 4);
   assert.equal(closing(codeTokens(`(${"[".repeat(100)})`), 0), -1);
+});
+
+// The probes of phase 14's fourth review: two spellings round 3's changes let through, and what the gate's own texts
+// promised but it did not keep (Д-422 … Д-426).
+test("the spellings the fourth review found the gate let through are each refused (Д-422, Д-423, Д-424, Д-426)", () => {
+  const BT = "`";
+  const lines = (source, options) => forbiddenCalls(source, options).map((finding) => [finding.rule, finding.line]);
+  const refused = {
+    // Д-422: a string after `as` in an export's clause.
+    'export * as "cp" from': ['export * as "cp" from "node:child_process";', [["child_process.exec", 1]]],
+    'export * as "default" from': ['export * as "default" from "node:child_process";', [["child_process.exec", 1]]],
+    // Д-423: what follows `return`, `yield`, a postfix `++` or `async` at a line break begins a statement.
+    "a declaration after return⏎": [`function outer(ready) {\n  if (ready) return\n  function inner() {}\n  /${BT}/.test(s); eval("1"); const t = /${BT}/;\n}`, [["eval", 4]]],
+    "a declaration after yield⏎": [`function* outer() {\n  yield\n  function inner() {}\n  /${BT}/.test(s); eval("1"); const t = /${BT}/;\n}`, [["eval", 4]]],
+    "a class after n++⏎": [`let n = 0\nn++\nclass A {}\n/${BT}/.test(s); eval("1"); const t = /${BT}/;`, [["eval", 4]]],
+    "a declaration after async⏎": [`let x, async = 1;\nx = async\nfunction f() {}\n/${BT}/.test(s); eval("1"); const t = /${BT}/;`, [["eval", 4]]],
+    "a block after x++⏎": ['let x = 0\nx++\n{\n  eval("1")\n  {}\n}', [["eval", 4]]],
+    "a block after yield⏎": ['function* g() {\n  yield\n  {\n    eval("1")\n    {}\n  }\n}', [["eval", 4]]],
+    // Д-424: chains of assignments, above the use too.
+    "let a = b = cp, used above": ['import * as cp from "node:child_process";\nlet b;\nexport function run() { return a.exec("ls"); }\nlet a = b = cp;', [["child_process.exec", 3]]],
+    "const a = (b = cp)": ['import * as cp from "node:child_process";\nlet b;\nconst a = (b = cp);\na.exec("ls");', [["child_process.exec", 4]]],
+    "const g = h = globalThis": ['let h;\nconst g = h = globalThis;\ng["ev" + "al"]("1");', [["global-member", 3]]],
+    "[a = cp] = [], used above": ['import * as cp from "node:child_process";\nexport function run() { return a.exec("ls"); }\nconst [a = cp] = [];', [["child_process.exec", 2]]],
+    // Д-424: the module exported by a declaration.
+    "export const run = cp": ['import * as cp from "node:child_process";\nexport const run = cp;', [["child_process.exec", 2]]],
+    "export let run = require(…)": ['export let run = require("node:child_process");', [["child_process.exec", 1]]],
+    "export const a = 1, run = (0, cp)": ['import * as cp from "node:child_process";\nexport const a = 1, run = (0, cp);', [["child_process.exec", 2]]],
+    // Д-424: a global's member keyed by a global's member; what follows a global's parentheses.
+    "globalThis[globalThis.k]": ['globalThis.k = "ev" + "al";\nglobalThis[globalThis.k]("1");', [["global-member", 2]]],
+    "globalThis[self.k]": ['globalThis[self.k]("1");', [["global-member", 1]]],
+    "(0, globalThis).globalThis re-bound": ["const g = (0, globalThis).globalThis;\ng[k];", [["global-member", 2]]],
+    // Д-424: a body inside another's heritage or parameters.
+    "class extends f(function () {}) {} / 2": ['const C = class extends f(function () {}) {} / 2; eval("1"); const r = 1 / 1;', [["eval", 1]]],
+    "function (a = function () {}) {} / 2": ['const F = function (a = function () {}) {} / 2; eval("1"); const r = 1 / 1;', [["eval", 1]]],
+    // Д-424: `+ +` is a plus and a unary plus; `of` is a name outside a `for` head.
+    "a + + /re/": [`const n = a + + /${BT}/.test(s);\neval("1");\nconst m = /${BT}/.test(s);`, [["eval", 2]]],
+    "of / 2": ['const of = 10;\nconst half = of / 2; eval("1"); const r = 1 / 1;', [["eval", 2]]],
+    // Д-426: the loaders by other spellings.
+    'process["getBuiltinModule"](…)': ['process["getBuiltinModule"]("child_process").exec("ls");', [["child_process.exec", 1]]],
+    "(0, process.getBuiltinModule)(…)": ['(0, process.getBuiltinModule)("child_process").exec("ls");', [["child_process.exec", 1]]],
+    "getBuiltinModule.call": ['process.getBuiltinModule.call(process, "child_process").exec("ls");', [["child_process.exec", 1]]],
+    'module["require"](…)': ['module["require"]("child_process").exec("ls");', [["child_process.exec", 1]]],
+    "(0, require)(…) bound": ['const cp = (0, require)("child_process");\ncp.exec("ls");', [["child_process.exec", 2]]],
+    "require.apply": ['require.apply(null, ["child_process"]).execSync("ls");', [["child_process.exec", 1]]],
+    'require(("child_process"))': ['require(("child_process")).exec("ls");', [["child_process.exec", 1]]]
+  };
+  for (const [name, [source, expected]] of Object.entries(refused)) assert.deepEqual(lines(source), expected, `${name}: ${source}`);
+  // Д-424: a script's HTML-like comment, read as the script reads it — and in a module, `<!--` is `< ! --`.
+  const html = `const x = 1 <!-- ${BT}\neval("1")\n// ${BT}`;
+  assert.deepEqual(lines(html, { script: true }), [["eval", 2]]);
+  assert.deepEqual(lines(html), [], "in a module the backtick opens a template that holds the call");
+  assert.deepEqual(lines(`const y = 2\n--> ${BT} a comment to the end of the line\neval("1")\n// ${BT}`, { script: true }), [["eval", 3]]);
+  // `await` is a name in a script: a slash after it that does not close on its line divides, and the lines stay counted.
+  assert.deepEqual(lines('let await = 4;\nconst h = await / 2\neval("1");'), [["eval", 3]]);
+});
+
+test("honest code stays honest past the fourth review's fixes, and every new branch is held (Д-423 … Д-426)", () => {
+  const BT = "`";
+  const honest = {
+    "return⏎, then a declaration and a regular expression": `export function quoted(s) {\n  if (!s) return\n  function inner() { return 1 }\n  /${BT}/.test(s) && inner()\n}`,
+    "of in a for head": "for (const line of /x/.exec(s) ?? []) console.log(line);",
+    "x++ / 2 divides": `const half = n++ / 2, unit = ${BT}/s${BT};`,
+    "a declaration not exported": 'export const a = 1\nconst run = require("child_process");\nrun.spawn("x");',
+    "spawn exported": 'import { spawn } from "node:child_process";\nexport const start = spawn;',
+    "another module through a loader's other spelling": 'const { DatabaseSync } = process["getBuiltinModule"]("node:sqlite");',
+    "a method named import": 'loader.import("child_process").exec("x");',
+    "require handed to a function": 'foo(require)("child_process");',
+    "a member of the module in parentheses": 'import * as cp from "node:child_process";\nconst start = (cp.spawn);\nstart.exec("x");',
+    "a member of the module in parentheses, across a line": 'import * as cp from "node:child_process";\nconst start = (cp.\n  spawn);\nstart.exec("x");',
+    "a global's member by a plain key": 'const page = globalThis["innerWidth"];'
+  };
+  for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
+  // Each branch of round 3's class and function bodies (Д-425): an async function expression, a class opening a
+  // substitution, a key named class, parameters that hold a literal, `export { a as class }` then a literal at that depth.
+  const refused = {
+    "an async function expression divides": ['const f = async function () {} / 2; eval("1"); const r = 1 / 1;', ["eval"]],
+    "a class opening a substitution": [`const t = ${BT}\${class {} / 2}${BT}; eval("1"); const r = 1 / 1;`, ["eval"]],
+    "a key named class": ["const o = { class: { shell: true } };", ["shell"]],
+    "a literal in a function's parameters": ['const f = function (o = { shell: true }) {} / 2; eval("1");', ["shell", "eval"]],
+    "export { a as class }, then a literal": ["export { a as class };\nconst list = [{ shell: true }];", ["shell"]],
+    "export * as class from, then a literal": ['export * as class from "x";\nconst o = { shell: true };', ["shell"]],
+    "import { class as k }, then a literal": ['import { class as k } from "x";\nconst list = [{ shell: true }];', ["shell"]],
+    "an awaited module last in a list, used above": ['import * as cp from "node:child_process";\nexport function run() { return x.exec("ls"); }\nconst x = (0, await cp);', ["child_process.exec"]]
+  };
+  for (const [name, [source, expected]] of Object.entries(refused)) assert.deepEqual(rules(source), expected, `${name}: ${source}`);
 });

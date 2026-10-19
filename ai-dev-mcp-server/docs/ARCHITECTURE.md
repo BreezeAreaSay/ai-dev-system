@@ -973,15 +973,17 @@ shrink, and the gate demands the pin go once its module is back under the ceilin
 The same walk runs `node --check` over `bin/`, `src/`, `scripts/`, `hooks/` and the desktop app, `sh -n` over the
 hook launcher, and refuses the calls AGENTS.md forbids (`core/forbidden-calls.mjs`), read as tokens by
 `core/code-tokens.mjs` — comments, strings, template text and regular expressions set aside, every escape decoded,
-a name ended where JavaScript ends it (Д-267, Д-382, Д-398, Д-407): `eval` and the `Function` constructor, called
-or handed on; a computed member of `globalThis`, `window`, `global` or `self` whose key is not one plain string
-naming neither; `exec` and `execSync` of `child_process` through any import, `require`, `import()` or
-`process.getBuiltinModule` of the module and any name it is plainly re-bound to, above or below, and the module
-object exported whole; and a `shell` option that is not plainly off. So `import * as cp` then `cp.exec(…)`, `{ "shell": true }` and
+a name ended where JavaScript ends it, a statement begun where a line break ends one, a `.cjs` file's HTML-like
+comments read as a script reads them (Д-267, Д-382, Д-398, Д-407, Д-423, Д-424): `eval` and the `Function`
+constructor, called or handed on; a computed member of `globalThis`, `window`, `global` or `self` whose key is not
+one plain string naming neither; `exec` and `execSync` of `child_process` through any import, `require`, `import()`
+or `process.getBuiltinModule` of the module, however the loader is reached, and any name it is plainly re-bound to,
+above or below, and the module object exported whole or by a declaration; and a `shell` option that is not plainly
+off. So `import * as cp` then `cp.exec(…)`, `{ "shell": true }` and
 `globalThis["ev" + "al"]` are refused like the usual forms, and a file it cannot read to its end is refused, not
 trusted. It follows the module object and the global objects through plain re-binding and nothing else — a module
-name built from parts, `createRequire`, `Reflect.get` and the module object put in an object by name are past it: it
-keeps honest code honest and is no sandbox. Only the desktop app's tests may call `eval` and `new Function`, to show that the page's policy refuses
+name built from parts, `createRequire`, `Reflect.get` and the module object put in an object by name or on `this` are
+past it: it keeps honest code honest and is no sandbox. Only the desktop app's tests may call `eval` and `new Function`, to show that the page's policy refuses
 them.
 
 ## Operations And Distribution

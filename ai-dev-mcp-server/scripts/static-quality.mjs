@@ -80,7 +80,8 @@ for (const file of desktopFiles) {
   if (syntax.status !== 0) findings.push(`${relative}: syntax check failed: ${(syntax.stderr || syntax.stdout).trim()}`);
   const inTests = relative.startsWith("desktop/test/");
   const source = await fs.readFile(file, "utf8");
-  for (const finding of forbiddenCalls(source, { allowEval: inTests })) findings.push(`${relative}:${finding.line}: ${finding.message}`);
+  // A `.cjs` file is a script, with HTML-like comments a module does not have (Д-424).
+  for (const finding of forbiddenCalls(source, { allowEval: inTests, script: file.endsWith(".cjs") })) findings.push(`${relative}:${finding.line}: ${finding.message}`);
   if (!inTests) modules.push({ path: relative, lines: countLines(source) });
 }
 for (const file of files) {

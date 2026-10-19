@@ -83,10 +83,15 @@ function readEscape(text, at) {
  * array's `unterminated` property is the line it opened on: whatever follows
  * it was read as part of it.
  *
+ * A script — a `.cjs` file — has HTML-like comments too: `<!--` comments out
+ * the rest of its line, and so does `-->` that begins one; a module has none,
+ * there `<!--` is `< ! --` (Д-424).
+ *
  * @param {string} source
+ * @param {{ script?: boolean }} [options]
  * @returns {Array<{ type: string, value: string, line: number }> & { unterminated?: number }}
  */
-export function codeTokens(source) {
+export function codeTokens(source, { script = false } = {}) {
   const text = String(source ?? "");
   const tokens = [];
   let at = 0;
@@ -106,13 +111,22 @@ export function codeTokens(source) {
   let substitutionOpened = false;
   // Just after `?.`: it stands for `.` unless a `[` or a `(` comes next.
   let optional = false;
-  // From `class` or `function` to its body's `{`: whether it stands where a value does, `const C = class {}`, so that a
-  // `/` after the body divides — and where it is declared it begins a regular expression (Д-410).
-  let body = null;
-  // Whether a value begins after the token at `index`: a `{` there opens an object literal, a `class` is an expression.
-  // A label's, a `case`'s or a `default`'s `:` is followed by a statement (Д-408).
-  const valueAfter = (index) => {
+  // From `class` or `function` to its body's `{`, each still waiting, innermost last: whether it stands where a value
+  // does, `const C = class {}`, so that a `/` after the body divides — and where it is declared it begins a regular
+  // expression (Д-410). One waits inside another: `class extends f(function () {}) {}` (Д-424).
+  const bodies = [];
+  // `return`, `yield` and a postfix `++` or `--` end their statement at a line break: what the next line begins is a
+  // statement, so a `{` there is a block and a `class` a declaration (Д-423).
+  const endsAtBreak = (index) => {
     const last = tokens[index];
+    if (isName(last, "return") || isName(last, "yield")) return !isPunct(tokens[index - 1], ".");
+    return (isPunct(last, "+") || isPunct(last, "-")) && last.joined === true && endsOperand(tokens[index - 2]);
+  };
+  // Whether a value begins after the token at `index`, for a token on line `where`: a `{` there opens an object
+  // literal, a `class` is an expression. A label's, a `case`'s or a `default`'s `:` is followed by a statement (Д-408).
+  const valueAfter = (index, where) => {
+    const last = tokens[index];
+    if (last && last.line < where && endsAtBreak(index)) return false;
     if (last?.type === "punct") return OBJECT_AFTER_PUNCT.has(last.value) && !last.statement;
     return isName(last) && OBJECT_AFTER_NAME.has(last.value);
   };
@@ -128,21 +142,24 @@ export function codeTokens(source) {
       if (!(type === "punct" && (value === "[" || value === "("))) tokens.push({ type: "punct", value: ".", line: where });
     }
     const token = { type, value, line: where };
-    if (type === "name" && (value === "class" || value === "function") && !isPunct(tokens.at(-1), ".")) {
-      const before = value === "function" && isName(tokens.at(-1), "async") ? tokens.length - 2 : tokens.length - 1;
+    // `export * as class from …`, `export { a as class }`, `{ class: 1 }`, `import { class as k }`: a name, not a class.
+    if (type === "name" && (value === "class" || value === "function") && !isPunct(tokens.at(-1), ".") && !isName(tokens.at(-1), "as")) {
+      // `async` belongs to the function only on its line: `x = async⏎function f() {}` declares f (Д-423).
+      const async = value === "function" && isName(tokens.at(-1), "async") && tokens.at(-1).line === where;
+      const before = async ? tokens.length - 2 : tokens.length - 1;
       const declared = isName(tokens[before], "default") && isName(tokens[before - 1], "export");
-      body = { depth: opened.length, expression: !declared && (fresh || valueAfter(before)) };
-    } else if (body && body.depth === opened.length && type === "punct" && [":", ",", ";", "=", "}"].includes(value)) {
-      // `{ class: 1 }`: a key, not a class.
-      body = null;
+      bodies.push({ depth: opened.length, expression: !declared && (fresh || valueAfter(before, where)) });
+    } else if (type === "punct" && (value === ":" || value === "}")) {
+      while (bodies.at(-1)?.depth === opened.length) bodies.pop();
     }
     if (type === "punct" && value === "{") {
-      const owner = body && body.depth === opened.length ? body : null;
-      if (owner) body = null;
-      token.literal = !owner && (fresh || valueAfter(tokens.length - 1));
+      const owner = bodies.at(-1)?.depth === opened.length ? bodies.pop() : null;
+      token.literal = !owner && (fresh || valueAfter(tokens.length - 1, where));
       opened.push({ regexAfter: owner ? !owner.expression : !token.literal, statements: !token.literal, conditionals: 0 });
     } else if (type === "punct" && (value === "(" || value === "[")) {
-      opened.push({ regexAfter: value === "(" && headOpens(), statements: false, conditionals: 0 });
+      // In a `for` head `of` is a keyword; anywhere else it may be a name: `of / 2` divides (Д-424).
+      const forHead = value === "(" && (isName(tokens.at(-1), "for") || (isName(tokens.at(-1), "await") && isName(tokens.at(-2), "for")));
+      opened.push({ regexAfter: value === "(" && headOpens(), statements: false, conditionals: 0, forHead });
     } else if (type === "punct" && (value === ")" || value === "]" || value === "}")) token.regexAfter = opened.pop()?.regexAfter === true;
     tokens.push(token);
   };
@@ -156,10 +173,13 @@ export function codeTokens(source) {
     if (substitutionOpened) return true;
     const last = tokens.at(-1);
     if (!last) return true;
-    if (last.type === "name") return KEYWORDS_BEFORE_EXPRESSION.has(last.value) && !isPunct(tokens.at(-2), ".");
+    if (last.type === "name") {
+      return KEYWORDS_BEFORE_EXPRESSION.has(last.value) && !isPunct(tokens.at(-2), ".") && (last.value !== "of" || innermost().forHead === true);
+    }
     if (last.type !== "punct") return false;
     if (last.value === ")" || last.value === "]" || last.value === "}") return last.regexAfter === true;
-    if ((last.value === "+" || last.value === "-") && isPunct(tokens.at(-2), last.value) && endsOperand(tokens.at(-3))) return false;
+    // `x++ / 2` divides; `a + + /re/` is a plus, a unary plus and a regular expression (Д-424).
+    if ((last.value === "+" || last.value === "-") && last.joined === true && endsOperand(tokens.at(-3))) return false;
     return true;
   };
   const readTemplateText = () => {
@@ -196,7 +216,10 @@ export function codeTokens(source) {
       continue;
     }
     if (/\s/.test(character)) { at += 1; continue; }
-    if (character === "/" && text[at + 1] === "/") {
+    const htmlOpen = script && text.startsWith("<!--", at);
+    // `-->` begins an HTML-like comment only where nothing but spaces comes before it on its line.
+    const htmlClose = script && text.startsWith("-->", at) && /(^|[\n\r\u2028\u2029])[^\S\n\r\u2028\u2029]*$/.test(text.slice(Math.max(0, at - 256), at));
+    if ((character === "/" && text[at + 1] === "/") || htmlOpen || htmlClose) {
       LINE_END.lastIndex = at;
       at = LINE_END.exec(text)?.index ?? text.length;
       continue;
@@ -320,6 +343,8 @@ export function codeTokens(source) {
       if (character === "}") templates.at(-1).depth -= 1;
     }
     push("punct", character);
+    // `++` and `--` are one sign: a `+` right after another, with nothing between, is its second half.
+    if ((character === "+" || character === "-") && text[at - 1] === character && isPunct(tokens.at(-2), character)) tokens.at(-1).joined = true;
     if (character === "?") innermost().conditionals += 1;
     else if (character === ":") {
       // A conditional's `:` is a value's; any other where statements stand begins one: a label's, a `case`'s.

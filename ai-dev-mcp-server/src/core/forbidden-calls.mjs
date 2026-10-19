@@ -22,13 +22,15 @@
  *   out by a pattern (`const { [k]: f } = globalThis`);
  * - `exec` or `execSync` of `child_process`, through a named, default or
  *   namespace import, `require`, `import()` or `process.getBuiltinModule` —
- *   by a member or a plain-string key, in parentheses, through `.call` or
- *   `.apply` — its `default`, a `.then` callback, a rest element, and any name
- *   the module object is bound or plainly re-bound to (`const c2 = cp`,
- *   `const c3 = (0, c2)`, `a = b = cp`, `cp ??= await import(…)`), above or
- *   below; and the module object handed to another file — `export *`,
- *   `export { default }`, `export const`, `module.exports =`,
- *   `exports["cp"] =`, `export default` — whose `exec` would come from here;
+ *   called by name, as a member or by a plain-string key, in parentheses, or
+ *   through `.call` or `.apply` — its `default`, a `.then` callback, a rest
+ *   element, and any name the module object is bound or plainly re-bound to
+ *   (`const c2 = cp`, `const c3 = (0, c2)`, `a = b = cp`,
+ *   `cp ??= await import(…)`), above or below; and the module object itself
+ *   handed to another file — `export *`, `export { default }`, `export const`,
+ *   a pattern it declares (`export const { default: run } = …`), an exported
+ *   `let` or `var` it is assigned to, `module.exports =`, `exports["cp"] =`,
+ *   `export default` — whose `exec` would come from here (Д-424, Д-432, Д-440);
  * - a `shell` option with any value but `false`, `null`, `undefined`, `0` or
  *   an empty string — as a key of an object literal, computed or not, or set
  *   on a member with `=`, `??=`, `||=` or `&&=` — and a `shell` shorthand,
@@ -37,20 +39,25 @@
  *
  * It is a reader, not a parser. It follows the module object and the global
  * objects through plain re-binding, and nothing else through anything: a
- * module name built from parts, `createRequire`, `Reflect.get`, `require`
- * itself bound to another name, a key held in a variable, the module object
- * put in an object or an array by name (`module.exports = { cp }`,
- * `export default { cp }`, `Object.assign(exports, { cp })`), set on `this`
- * or on a head in parentheses (`(module.exports).cp = cp`), handed to a
- * function, and a global taken out by a pattern (`{ globalThis: g } =
- * globalThis`) are past it (Д-410, Д-426). Code written that way
+ * module name built from parts, `createRequire`, `Reflect.get`, a loader bound
+ * to another name (`const r = require`) or reached any other way — `.bind`,
+ * `Reflect.apply`, a condition (`(ok ? require : null)(…)`), an array,
+ * `require["call"]`, `module.constructor._load` — a key held in a variable,
+ * the module object put in an object or an array by name
+ * (`module.exports = { cp }`, `export default { cp }`,
+ * `Object.assign(exports, { cp })`, `export const [run] = [cp]`), set on
+ * `this` or on a head in parentheses (`(module.exports).cp = cp`), handed to
+ * a function, or only part of a value (`cp || fallback`), a global taken out
+ * by a pattern (`{ globalThis: g } = globalThis`), and `await` or `yield`
+ * written as a name in a script, which it reads as the keyword, are past it
+ * (Д-410, Д-426, Д-432, Д-440, Д-448). Code written that way
  * is not written by accident, and keeping honest code honest is what this gate
  * is for. A computed member of a global it cannot read is refused rather than
  * trusted, and so is a file it could not read to its end — a template literal
  * or a comment that never closes, where whatever follows would go unchecked.
  */
 
-import { HEAD_KEYWORDS, KEYWORDS_BEFORE_EXPRESSION, closing, codeTokens, enclosing, isName, isPunct, opening } from "./code-tokens.mjs";
+import { HEAD_KEYWORDS, KEYWORDS_BEFORE_EXPRESSION, closing, codeTokens, enclosing, endsOperand, isName, isPunct, opening } from "./code-tokens.mjs";
 
 const MODULE_NAMES = new Set(["child_process", "node:child_process"]);
 const FORBIDDEN_MEMBERS = new Set(["exec", "execSync"]);
@@ -193,8 +200,13 @@ function loaderCall(tokens, index) {
   if (!(isName(token) || keyed) || !LOADERS.has(token.value)) return null;
   // `import(…)` is a keyword's, never a member's: `loader.import(…)` is a method of its own.
   if (token.value === "import" && (keyed || isPunct(tokens[index - 1], "."))) return null;
-  let start = chainStart(tokens, keyed ? index + 1 : index);
+  // No call with the module's name after it, past any parentheses: no call — and no walk back along a chain of loader
+  // names, which made `x.require.require…` cost its length squared (Д-444).
   let end = keyed ? index + 2 : index + 1;
+  let past = end;
+  while (isPunct(tokens[past], ")")) past += 1;
+  if (moduleCall(tokens, past) < 0) return null;
+  let start = chainStart(tokens, keyed ? index + 1 : index);
   // `(0, require)`, `(process.getBuiltinModule)`: parentheses the loader ends, not a call's.
   while (isPunct(tokens[end], ")")) {
     const open = opening(tokens, end);
@@ -203,20 +215,25 @@ function loaderCall(tokens, index) {
     start = open;
     end += 1;
   }
-  let open = -1;
-  let found = false;
-  if (isPunct(tokens[end], "(")) {
-    open = end;
-    found = moduleArgument(tokens, open + 1);
-  } else if (isPunct(tokens[end], ".") && (isName(tokens[end + 1], "call") || isName(tokens[end + 1], "apply")) && isPunct(tokens[end + 2], "(")) {
-    // `.call(thisArg, "child_process")`, `.apply(thisArg, ["child_process"])`: the name is the second argument.
-    open = end + 2;
-    const comma = argumentEnd(tokens, open + 1);
-    const array = tokens[end + 1].value === "apply";
-    found = comma >= 0 && (array ? isPunct(tokens[comma + 1], "[") && moduleArgument(tokens, comma + 2) : moduleArgument(tokens, comma + 1));
-  }
-  const shut = found ? closing(tokens, open) : -1;
+  const open = moduleCall(tokens, end);
+  const shut = open >= 0 ? closing(tokens, open) : -1;
   return shut < 0 ? null : { kind: token.value, start, end: shut + 1 };
+}
+
+/**
+ * The `(` of the call at `end` whose argument is the module's name — `(…)`,
+ * `.call(thisArg, …)` or `.apply(thisArg, […])` — or -1.
+ */
+function moduleCall(tokens, end) {
+  if (isPunct(tokens[end], "(")) return moduleArgument(tokens, end + 1) ? end : -1;
+  if (isPunct(tokens[end], ".") && (isName(tokens[end + 1], "call") || isName(tokens[end + 1], "apply")) && isPunct(tokens[end + 2], "(")) {
+    // `.call(thisArg, "child_process")`, `.apply(thisArg, ["child_process"])`: the name is the second argument.
+    const comma = argumentEnd(tokens, end + 3);
+    const array = tokens[end + 1].value === "apply";
+    const found = comma >= 0 && (array ? isPunct(tokens[comma + 1], "[") && moduleArgument(tokens, comma + 2) : moduleArgument(tokens, comma + 1));
+    return found ? end + 2 : -1;
+  }
+  return -1;
 }
 
 /**
@@ -278,20 +295,28 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       const token = tokens[next];
       if ([",", ";", ")", "]", "}"].some((value) => isPunct(token, value))) return next;
       const previous = tokens[next - 1];
+      // A postfix `++` or `--` ends a value too: `export const a = n++` with no `;` is over at its line (Д-441).
       const endsValue = ["number", "string", "regex"].includes(previous?.type) || isPunct(previous, ")") || isPunct(previous, "]")
-        || isPunct(previous, "}") || (isName(previous) && !KEYWORDS_BEFORE_EXPRESSION.has(previous.value));
+        || isPunct(previous, "}") || (isName(previous) && !KEYWORDS_BEFORE_EXPRESSION.has(previous.value))
+        || ((isPunct(previous, "+") || isPunct(previous, "-")) && previous.joined === true && endsOperand(tokens[next - 3]));
       if (next > at && token.line > previous.line && endsValue && isName(token) && token.value !== "in" && token.value !== "instanceof") return next;
+      // `export` only ever begins a statement, and the walk stops there whatever came before (Д-444).
+      if (next > at && isName(token, "export") && !isPunct(previous, ".")) return next;
       const shut = closing(tokens, next);
       next = shut > next ? shut + 1 : next + 1;
     }
     return tokens.length;
   };
-  // The names `export const`, `let` or `var` declares: a module object bound to one goes to other files (Д-424).
+  // What `export const`, `let` or `var` declares — a name, or a pattern's `{` — and the names an exported `let` or `var`
+  // declares: a module object bound to one goes to other files — the `const` where it is declared, a `let` or `var`
+  // wherever it is assigned, `export let run; run = cp` (Д-424, Д-432, Д-440).
   const exported = new Set();
+  const exportedNames = new Set();
   tokens.forEach((token, index) => {
     if (!isName(token, "export") || !["const", "let", "var"].some((word) => isName(tokens[index + 1], word))) return;
     for (let at = index + 2; at < tokens.length; at += 1) {
-      if (isName(tokens[at])) exported.add(at);
+      if (isName(tokens[at]) || isPunct(tokens[at], "{")) exported.add(at);
+      if (isName(tokens[at]) && !isName(tokens[index + 1], "const")) exportedNames.add(tokens[at].value);
       at = declaratorEnd(at);
       if (!isPunct(tokens[at], ",")) break;
     }
@@ -383,9 +408,11 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
     if (isPunct(tokens[at], "{")) modulePattern(at);
     else if (isName(tokens[at])) aliases.add(tokens[at].value);
   };
-  // Where the module object standing at `start` goes: bound to a name, taken apart by a pattern, or handed to
-  // another file — `module.exports = …`, `exports.x = …`, `export default …`.
-  const handedOn = (start, what) => {
+  // Where the module object standing at `start`, its value ending at `end`, goes: bound to a name, taken apart by a
+  // pattern, or handed to another file — `module.exports = …`, `exports.x = …`, `export default …`, an exported
+  // declaration. To another file it goes as the whole value only, one the module ends — at a `,`, a `;`, a closing
+  // bracket, a line's end or a further `=`: `export const ok = cp !== undefined` exports a boolean (Д-441).
+  const handedOn = (start, what, end) => {
     if (isPunct(tokens[start - 1], "...")) {
       // A spread hands exec on with the rest; a pattern's rest element, `{ spawn, ...others } = cp`, binds a name.
       const holder = enclosing(tokens, start);
@@ -394,8 +421,11 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       }
       return;
     }
+    const after = tokens[end];
+    const whole = !after || [",", ";", ")", "}", "]"].some((value) => isPunct(after, value)) || after.line > tokens[end - 1].line
+      || assigns(tokens, end);
     if (isName(tokens[start - 1], "default") && isName(tokens[start - 2], "export")) {
-      childProcessFinding(tokens[start].line, `${what} (exported as default)`);
+      if (whole) childProcessFinding(tokens[start].line, `${what} (exported as default)`);
       return;
     }
     if (!assigns(tokens, start - 1)) return;
@@ -405,12 +435,20 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
     const exportsNext = isPunct(tokens[head + 1], ".") ? isName(tokens[head + 2], "exports")
       : isPunct(tokens[head + 1], "[") && tokens[head + 2]?.type === "string" && tokens[head + 2].value === "exports" && isPunct(tokens[head + 3], "]");
     if (isName(tokens[head], "exports") || (isName(tokens[head], "module") && exportsNext)) {
-      childProcessFinding(tokens[target].line, `${what} (exported from this file)`);
+      if (whole) childProcessFinding(tokens[target].line, `${what} (exported from this file)`);
     } else if (isName(tokens[target])) {
       aliases.add(tokens[target].value);
-      // `export const run = cp`: the binding goes to other files, and the module with it (Д-424).
-      if (exported.has(target)) childProcessFinding(tokens[target].line, `${what} (exported from this file)`);
-    } else if (isPunct(tokens[target], "}")) modulePattern(opening(tokens, target));
+      // `export const run = cp`, `export let run; run = cp`: the binding goes to other files, and the module with it.
+      if (whole && (exported.has(target) || exportedNames.has(tokens[target].value))) childProcessFinding(tokens[target].line, `${what} (exported from this file)`);
+    } else if (isPunct(tokens[target], "}")) {
+      // `export const { default: run, ...rest } = cp`: what the pattern binds to the module goes to other files (Д-440).
+      const open = opening(tokens, target);
+      const out = whole && exported.has(open);
+      modulePattern(open, (name) => {
+        aliases.add(name);
+        if (out) childProcessFinding(tokens[open].line, `${what} (exported from this file as ${name})`);
+      });
+    }
   };
 
   for (const reach of moduleReaches(tokens)) {
@@ -448,7 +486,7 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
     end = pastDefault(end);
     memberFinding(end, "");
     if (isPunct(tokens[end], ".") && isName(tokens[end + 1], "then") && isPunct(tokens[end + 2], "(")) thenParameter(end + 3);
-    else if (!isPunct(tokens[end], ".") && !isPunct(tokens[end], "[") && !isPunct(tokens[end], "(")) handedOn(start, "the module object");
+    else if (!isPunct(tokens[end], ".") && !isPunct(tokens[end], "[") && !isPunct(tokens[end], "(")) handedOn(start, "the module object", end);
   }
 
   // What follows a value and leaves it the same: `.default`, `["default"]`, a global's own names. The index past them.
@@ -463,16 +501,29 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
   // The name a plain value comes down to, from `at` on: past `await`, the parentheses around it and the lists it ends
   // (`(0, cp)` is `cp`), past an assignment it is the target of (`a = b = cp`, `(b = cp)`), on through what leaves it
   // the same, after its parentheses too (`(0, globalThis).globalThis`). `[name, end]`, where `end` is just past the
-  // value, or null (Д-409, Д-424).
-  const plainValue = (at) => {
-    const shuts = [];
+  // value, or null (Д-409, Д-424). Each start is worked out once: a chain of assignments, `a0 = (a1 = (… 0))`, asks it
+  // of every link, and walked from each it cost its length squared (Д-444).
+  const plainValues = new Map();
+  const plainValue = (from) => {
+    // The way down — each step's start, and for parentheses where they close — to a start already known or a name.
+    const steps = [];
+    let at = from;
+    let value = null;
     for (;;) {
-      if (isName(tokens[at], "await")) at += 1;
-      else if (isName(tokens[at]) && assigns(tokens, at + 1)) at += 2;
-      else if (isPunct(tokens[at], "(")) {
+      if (plainValues.has(at)) {
+        value = plainValues.get(at);
+        break;
+      }
+      if (isName(tokens[at], "await") || (isName(tokens[at]) && assigns(tokens, at + 1))) {
+        steps.push([at, -1]);
+        at += isName(tokens[at], "await") ? 1 : 2;
+      } else if (isPunct(tokens[at], "(")) {
         const shut = closing(tokens, at);
-        if (shut < 0) return null;
-        shuts.push(shut);
+        if (shut < 0) {
+          plainValues.set(at, null);
+          break;
+        }
+        steps.push([at, shut]);
         // The list's last item: back from the `)` to its last `,`, over whole brackets.
         let item = shut;
         while (item - 1 > at && !isPunct(tokens[item - 1], ",")) {
@@ -480,16 +531,19 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
           item = open > at ? open : item - 1;
         }
         at = item;
-      } else break;
+      } else {
+        value = isName(tokens[at]) ? [at, sameValue(at + 1)] : null;
+        plainValues.set(at, value);
+        break;
+      }
     }
-    if (!isName(tokens[at])) return null;
-    let end = sameValue(at + 1);
-    // Each parenthesis closes right after what it holds: `(cp)`, `(0, cp)` — not `(cp.x)` or `(cp + 1)`.
-    while (shuts.length) {
-      if (end !== shuts.pop()) return null;
-      end = sameValue(end + 1);
+    // Back up: each parenthesis closes right after what it holds — `(cp)`, `(0, cp)`, not `(cp.x)` or `(cp + 1)`.
+    for (let step = steps.length - 1; step >= 0; step -= 1) {
+      const [start, shut] = steps[step];
+      if (value && shut >= 0) value = value[1] === shut ? [value[0], sameValue(shut + 1)] : null;
+      plainValues.set(start, value);
     }
-    return [at, end];
+    return value;
   };
   // A plain re-binding hands the name on — `const c2 = cp`, `c2 ??= (cp)`, `const cp = ns.default`,
   // `const m = await loading`, `const g = (0, globalThis)`, `a = b = cp` — and a pattern takes the module out of one:
@@ -566,7 +620,7 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       memberFinding(member, token.value);
       if (isPunct(tokens[member], ".") && isName(tokens[member + 1], "then") && isPunct(tokens[member + 2], "(")) thenParameter(member + 3);
       else if (!isPunct(tokens[member], ".") && !isPunct(tokens[member], "[") && !isPunct(tokens[member], "(")) {
-        handedOn(start, token.value);
+        handedOn(start, token.value, member);
         const holder = enclosing(tokens, index);
         if (isName(tokens[holder - 1], "export") && (isPunct(previous, "{") || isPunct(previous, ","))) childProcessFinding(token.line, `${token.value} (exported by name)`);
       }
@@ -596,7 +650,10 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       // `globalThis[…]`, `(globalThis)[…]`, `(global.globalThis)[…]`: the whole chain, in its parentheses.
       let head = index;
       while (isPunct(tokens[head - 1], ".") && isGlobal(head - 2)) head -= 2;
-      const [start, end] = widen(head, index + 1);
+      const [start, widened] = widen(head, index + 1);
+      // `(0, globalThis).globalThis[…]`: a global's own names after its parentheses are the global still (Д-446).
+      let end = widened;
+      while (end > index + 1 && isPunct(tokens[end], ".") && isName(tokens[end + 1]) && GLOBAL_OBJECTS.has(tokens[end + 1].value)) end += 2;
       if (isPunct(tokens[end], "[")) globalMember(end, token);
       // `const { [key]: f } = globalThis`: a computed member taken out by a pattern.
       else if (assigns(tokens, start - 1) && isPunct(tokens[start - 2], "}") && !isPunct(tokens[end], ".") && !isPunct(tokens[end], "(")) {

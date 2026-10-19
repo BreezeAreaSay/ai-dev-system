@@ -14,7 +14,11 @@ export const KEYWORDS_BEFORE_EXPRESSION = new Set([
 export const HEAD_KEYWORDS = new Set(["if", "while", "for", "with"]);
 // Before these a `{` opens an object literal rather than a block, a class body or a clause.
 const OBJECT_AFTER_PUNCT = new Set(["=", "(", ",", ":", "[", "?", "|", "&", "!", "...", "+", "-", "*", "%", "~", "^"]);
-const OBJECT_AFTER_NAME = new Set(["return", "yield", "await", "case", "default", "typeof", "void", "new", "throw"]);
+// After these words a value begins: a `{` there is an object literal, a `class` an expression — `delete`, `in` and
+// `instanceof` too, which only ever stand before an operand (Д-448).
+const OBJECT_AFTER_NAME = new Set(["return", "yield", "await", "case", "default", "typeof", "void", "new", "throw", "delete", "in", "instanceof"]);
+// After these, and after the label one names, a statement is over: a `/` that follows begins a regular expression.
+const STATEMENT_ENDS = new Set(["break", "continue", "debugger"]);
 const SIMPLE_ESCAPES = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", v: "\v" };
 // A name is what JavaScript reads as one: a no-break or an ideographic space ends it, as any space does (Д-407).
 const NAME_START = /[\p{ID_Start}$_]/u;
@@ -25,6 +29,9 @@ const LINE_BREAKS = /\r\n|[\n\r\u2028\u2029]/g;
 const BRACED_CODE_POINT = /\{([0-9a-fA-F]+)\}/y;
 const OCTAL_ESCAPE = /[0-3][0-7]{0,2}|[4-7][0-7]?/y;
 
+// `x++ / 2`: a postfix increment or decrement ends its operand — and its value, where a declaration is read (Д-441).
+export const endsOperand = (token) => token?.type === "number" || token?.type === "string" || token?.type === "regex"
+  || (isName(token) && !KEYWORDS_BEFORE_EXPRESSION.has(token.value)) || isPunct(token, ")") || isPunct(token, "]");
 const isLineEnd = (character) => character === "\n" || character === "\r" || character === "\u2028" || character === "\u2029";
 const lineBreaks = (text) => text.match(LINE_BREAKS)?.length ?? 0;
 // The whole character at `at`, both halves of a pair: `𝑥` is one letter.
@@ -84,8 +91,9 @@ function readEscape(text, at) {
  * it was read as part of it.
  *
  * A script — a `.cjs` file — has HTML-like comments too: `<!--` comments out
- * the rest of its line, and so does `-->` that begins one; a module has none,
- * there `<!--` is `< ! --` (Д-424).
+ * the rest of its line, and so does `-->` where no token stands before it on
+ * its line — a comment that spans lines ends one; a module has none, there
+ * `<!--` is `< ! --` (Д-424, Д-447).
  *
  * @param {string} source
  * @param {{ script?: boolean }} [options]
@@ -115,11 +123,14 @@ export function codeTokens(source, { script = false } = {}) {
   // does, `const C = class {}`, so that a `/` after the body divides — and where it is declared it begins a regular
   // expression (Д-410). One waits inside another: `class extends f(function () {}) {}` (Д-424).
   const bodies = [];
+  // A member's name is a name, whatever word it is: `it.return`, `o.default`, `this.#class` (Д-442, Д-443).
+  const isMember = (index) => isPunct(tokens[index - 1], ".") || isPunct(tokens[index - 1], "#");
   // `return`, `yield` and a postfix `++` or `--` end their statement at a line break: what the next line begins is a
-  // statement, so a `{` there is a block and a `class` a declaration (Д-423).
+  // statement, so a `{` there is a block and a `class` a declaration (Д-423). A member of that name, `it.return`, is an
+  // operand, and after an operand a `{` or a `class` begins a statement as well.
   const endsAtBreak = (index) => {
     const last = tokens[index];
-    if (isName(last, "return") || isName(last, "yield")) return !isPunct(tokens[index - 1], ".");
+    if (isName(last, "return") || isName(last, "yield")) return true;
     return (isPunct(last, "+") || isPunct(last, "-")) && last.joined === true && endsOperand(tokens[index - 2]);
   };
   // Whether a value begins after the token at `index`, for a token on line `where`: a `{` there opens an object
@@ -128,30 +139,39 @@ export function codeTokens(source, { script = false } = {}) {
     const last = tokens[index];
     if (last && last.line < where && endsAtBreak(index)) return false;
     if (last?.type === "punct") return OBJECT_AFTER_PUNCT.has(last.value) && !last.statement;
-    return isName(last) && OBJECT_AFTER_NAME.has(last.value);
+    return isName(last) && OBJECT_AFTER_NAME.has(last.value) && !isMember(index);
   };
   const headOpens = () => {
     const last = tokens.at(-1);
-    return isName(last) && !isPunct(tokens.at(-2), ".") && (HEAD_KEYWORDS.has(last.value) || (last.value === "await" && isName(tokens.at(-2), "for")));
+    return isName(last) && !isMember(tokens.length - 1) && (HEAD_KEYWORDS.has(last.value) || (last.value === "await" && isName(tokens.at(-2), "for")));
   };
+  // Where `-->` may begin an HTML-like comment: no token yet on this line — a line break, or a comment that spans one,
+  // since the last token, or the start of the file (Д-447).
+  let lineBegins = true;
   const push = (type, value, where = line) => {
     const fresh = substitutionOpened;
     substitutionOpened = false;
+    lineBegins = false;
     if (optional) {
       optional = false;
       if (!(type === "punct" && (value === "[" || value === "("))) tokens.push({ type: "punct", value: ".", line: where });
     }
     const token = { type, value, line: where };
-    // `export * as class from …`, `export { a as class }`, `{ class: 1 }`, `import { class as k }`: a name, not a class.
-    if (type === "name" && (value === "class" || value === "function") && !isPunct(tokens.at(-1), ".") && !isName(tokens.at(-1), "as")) {
+    // `export * as class from …`, `export { a as class }`, `{ class: 1 }`, `import { class as k }`, `this.#class`: a name,
+    // not a class.
+    if (type === "name" && (value === "class" || value === "function") && !isMember(tokens.length) && !isName(tokens.at(-1), "as")) {
       // `async` belongs to the function only on its line: `x = async⏎function f() {}` declares f (Д-423).
       const async = value === "function" && isName(tokens.at(-1), "async") && tokens.at(-1).line === where;
       const before = async ? tokens.length - 2 : tokens.length - 1;
       const declared = isName(tokens[before], "default") && isName(tokens[before - 1], "export");
       bodies.push({ depth: opened.length, expression: !declared && (fresh || valueAfter(before, where)) });
-    } else if (type === "punct" && (value === ":" || value === "}")) {
+    } else if (type === "punct" && (value === ":" || value === "}" || value === "=")) {
+      // None of these stands between `class` or `function` and its body: one at that depth ends the wait — a key of
+      // that name, `{ class: 1 }`, the end of a block, a field of that name, `class = 1` (Д-425, Д-443).
       while (bodies.at(-1)?.depth === opened.length) bodies.pop();
     }
+    // `for (let i = of / 2; …)`, `for (; of / 2;)`: past an initialiser, or its place, `of` is a name (Д-448).
+    if (type === "punct" && (value === "=" || value === ";") && innermost().forHead) innermost().initialised = true;
     if (type === "punct" && value === "{") {
       const owner = bodies.at(-1)?.depth === opened.length ? bodies.pop() : null;
       token.literal = !owner && (fresh || valueAfter(tokens.length - 1, where));
@@ -166,15 +186,16 @@ export function codeTokens(source, { script = false } = {}) {
   const unterminated = (where) => {
     tokens.unterminated ??= where;
   };
-  // `x++ / 2`: a postfix increment or decrement ends its operand.
-  const endsOperand = (token) => token?.type === "number" || token?.type === "string" || token?.type === "regex"
-    || (isName(token) && !KEYWORDS_BEFORE_EXPRESSION.has(token.value)) || isPunct(token, ")") || isPunct(token, "]");
   const regexAllowed = () => {
     if (substitutionOpened) return true;
     const last = tokens.at(-1);
     if (!last) return true;
     if (last.type === "name") {
-      return KEYWORDS_BEFORE_EXPRESSION.has(last.value) && !isPunct(tokens.at(-2), ".") && (last.value !== "of" || innermost().forHead === true);
+      if (isMember(tokens.length - 1)) return false;
+      // `debugger⏎/r/`, `break outer⏎/r/`: the statement is over, and a `/` begins the next (Д-448).
+      const labelled = (isName(tokens.at(-2), "break") || isName(tokens.at(-2), "continue")) && tokens.at(-2).line === last.line;
+      if (STATEMENT_ENDS.has(last.value) || labelled) return true;
+      return KEYWORDS_BEFORE_EXPRESSION.has(last.value) && (last.value !== "of" || (innermost().forHead === true && !innermost().initialised));
     }
     if (last.type !== "punct") return false;
     if (last.value === ")" || last.value === "]" || last.value === "}") return last.regexAfter === true;
@@ -212,13 +233,13 @@ export function codeTokens(source, { script = false } = {}) {
     const character = text[at];
     if (isLineEnd(character)) {
       if (!(character === "\r" && text[at + 1] === "\n")) line += 1;
+      lineBegins = true;
       at += 1;
       continue;
     }
     if (/\s/.test(character)) { at += 1; continue; }
     const htmlOpen = script && text.startsWith("<!--", at);
-    // `-->` begins an HTML-like comment only where nothing but spaces comes before it on its line.
-    const htmlClose = script && text.startsWith("-->", at) && /(^|[\n\r\u2028\u2029])[^\S\n\r\u2028\u2029]*$/.test(text.slice(Math.max(0, at - 256), at));
+    const htmlClose = script && lineBegins && text.startsWith("-->", at);
     if ((character === "/" && text[at + 1] === "/") || htmlOpen || htmlClose) {
       LINE_END.lastIndex = at;
       at = LINE_END.exec(text)?.index ?? text.length;
@@ -228,7 +249,9 @@ export function codeTokens(source, { script = false } = {}) {
       const end = text.indexOf("*/", at + 2);
       if (end < 0) unterminated(line);
       const stop = end < 0 ? text.length : end + 2;
-      line += lineBreaks(text.slice(at, stop));
+      const spanned = lineBreaks(text.slice(at, stop));
+      line += spanned;
+      if (spanned) lineBegins = true;
       at = stop;
       continue;
     }

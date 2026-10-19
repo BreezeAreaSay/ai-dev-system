@@ -103,13 +103,17 @@ the same defect found three times: the two copies disagreeing.
 Commands run as argument arrays with `shell: false`. The static gate reads the
 server's code and the desktop app's as tokens (`src/core/code-tokens.mjs`; the
 rules in `src/core/forbidden-calls.mjs`, docs/DEFECTS.md Д-267, Д-382, Д-398,
-Д-407 … Д-410), every escape decoded, and rejects the
+Д-407 … Д-410, Д-422 … Д-426, Д-431, Д-432, Д-440 … Д-448), every escape
+decoded, and rejects the
 usual spellings and their plain equivalents: `exec` and `execSync` of
 `child_process` — through a named, default or namespace import, `require`,
-`import()` or `process.getBuiltinModule` however they are reached, the module's
+`import()` or `process.getBuiltinModule` called by name, as a member or by a
+plain-string key, in parentheses, or through `.call` or `.apply`, the module's
 `default`, a `.then` callback, or a name it is bound or plainly re-bound to,
-`(0, cp)` and `a = b = cp` included — and the module object handed to another
-file (`export *`, `export const`, `module.exports =`, `exports["cp"] =`); a
+`(0, cp)` and `a = b = cp` included — and the module object itself handed to
+another file (`export *`, `export const`, a pattern an export declares, an
+exported `let` or `var` it is assigned to, `module.exports =`,
+`exports["cp"] =`); a
 `shell` option — a key, an accessor, or a member set with
 `=`, `??=`, `||=` or `&&=` — with any value but `false`, `null`, `undefined`,
 `0` or `""`, or one it cannot read; `eval` and the `Function` constructor,
@@ -118,9 +122,13 @@ app's tests may do; a computed member of `globalThis`, `window`, `global` or
 `self` whose key is not one plain string naming neither. A file it cannot read
 to its end is refused too. It follows the module object and the global objects
 through plain re-binding and nothing else — a module name built from parts,
-`createRequire`, `Reflect.get`, `require` bound to another name, or the module
-object put in an object by name (`module.exports = { cp }`) or on `this` are
-past it — so it keeps honest code honest and is no sandbox. Never interpolate a variable into a
+`createRequire`, `Reflect.get`, a loader bound to another name or reached any
+other way (`.bind`, `Reflect.apply`, a condition), the module object put in an
+object by name (`module.exports = { cp }`), on `this` or on a head in
+parentheses (`(module.exports).cp = cp`), or only part of a value
+(`cp || fallback`), and a global taken out of itself by a pattern
+(`{ globalThis: g } = globalThis`) are past it — so it keeps honest code honest
+and is no sandbox. Never interpolate a variable into a
 command string. See `ai-dev-mcp-server/docs/SECURITY.md`.
 
 ## How a change is finished

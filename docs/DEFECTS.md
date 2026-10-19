@@ -14739,7 +14739,7 @@ TEST-PLAN W6 и L4 (`fb62d3c`). Д-403 (фаза 15) берёт обе папк�
 **Замер после** (`496cb83`; агент документов — `p14/r3fix/docs/after.md`, агент кода — `p14/r3fix/code/after.md`):
 
 ```
-старые утверждения в *.md (кроме DEFECTS и program/) — 0; новые — 8 (п. 1: 7 на `fb62d3c` и `ARCHITECTURE.md:863` из
+старые утверждения в *.md (кроме DEFECTS и program/) — 0; новые — 8 (п. 1: 7 из `fb62d3c` и `ARCHITECTURE.md:863` из
   `af8ee87`) и 12 (п. 2)
 clients --help: remove … less any ai-dev entry the install replaced (its backup keeps it); docs:tools:check — current
 проба: Cursor с записью другой установки → install «replaced the entry of another install» → remove «restored»;
@@ -15184,7 +15184,7 @@ CHANGELOG — по коду.
 запись с …readonly=TRUE и docker = CLI 27.5.1:         doctor exit 0: Cursor ok                            (cb01434: FAILED)
 запись, которую Docker 29 отвергает (readonly=TRUE, bogus=1): FAILED — it exited with code 125 before answering: invalid
   argument "…" for "--mount" flag: … Its --mount "…" is the likely cause, one Docker 29 cannot read: correct it in ~/.cursor/mcp.json.
-ws-shapes: 9 из 9 совпадают с Docker 29 (до — 5 расхождений); mount-shapes (52): расхождений 2 (до 4), оба — запись
+ws-shapes: 9 из 9 совпадают с Docker 29 (до — 5 расхождений); mount-shapes (53): расхождений 2 (до 4), оба — запись
   запускается, и doctor передаёт слова Docker
 ```
 

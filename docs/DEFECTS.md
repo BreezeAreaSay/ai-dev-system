@@ -15381,7 +15381,7 @@ grep "however they are reached\|however the loader is reached" AGENTS.md ARCHITE
 
 ## Д-433. `clients doctor` называет `--mount`, который не читает Docker 29, причиной любого неудачного старта
 
-**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 1); код — `f9a0702` (Д-427).
+**Статус:** закрыт фазой 14 (`c625f11`), 2026-10-19. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 1); код — `f9a0702` (Д-427).
 
 После неудачного старта doctor дописывает «Its --mount … is the likely cause, one Docker 29 cannot read» (`clients.mjs:390-395`)
 при любой причине: папки нет, образа нет, сервер упал или молчит, нет самого `docker`. CLI до 29 (24, 27.5, 28.5 — те, кого
@@ -15410,11 +15410,35 @@ docker нет (--json): "error": "/Applications/Docker.app/Contents/Resources/bi
 словах — так у CLI 24.0.9, 27.5.1 и 29.8.2); непрочитанный `--mount` не мешает сказать о пропавшей папке среди остальных.
 Тест — запись с `readonly=TRUE`, которую «старый» CLI заглушки читает, а старт падает по другой причине: без обвинения.
 
+**Как закрыто** (`c625f11`; агент кода, `p14/r5fix/code/after.md`). `refusedMount` (`docker-launch.mjs`) узнаёт `--mount`, который
+отверг сам Docker, по его словам: код 125 и `invalid argument <значение, как его цитирует Go> for "--mount" flag` — так у CLI
+24.0.9, 27.5.1 и 29.8.2; цитирование Go сверено с Docker 29.8.2 на 16 необычных значениях. `checkServerCommand` отдаёт код
+выхода и хвост stderr команды, вышедшей до ответа (в `--json` doctor их не пишет). `missingBindSources` пропускает
+непрочитанный `--mount` и проверяет остальные. Doctor: пропавшая папка без непрочитанного `--mount` рядом — как раньше, без
+старта; с ним — старт, и `--mount` назван причиной, только если Docker его отверг, а пропавшая папка сказана при любом
+неудачном старте (её совет отмечает, что команда пишет запись без этого `--mount`); ответивший старт — `ok`. Два старых
+теста ждали прежнего поведения, которое запись называет дефектом, — их ожидания стали точными новыми текстами. Тесты —
+`cli.test.mjs` (Д-433), `docker-launch.test.mjs` (16 строк Docker 29.8.2 и строка CLI 27.5.1), `mcp-client-check.test.mjs`;
+мутанты D433-a … q убиты.
+
+**Замер после** (`c625f11`; `doctor-blame.mjs` ревью, CLI 27.5.1 против демона 29.8.2 — `p14/r5fix/code/out/``doctor-blame.after.out`):
+
+```
+папки проектов нет:  FAILED — the folder this entry mounts at <H>/Projects-disk/Projects is not here: … or write the entries
+  again, which makes the folder, and without its --mount "…readonly=TRUE", which Docker 29 cannot read: `ai-dev clients install …`
+образа нет:          FAILED — it exited with code 125 before answering: docker: Error response from daemon: No such image: r5f-no-such-image:1.
+сервер упал:         FAILED — it exited with code 3 before answering: Error: r5f the server could not open its database
+сервер молчит:       exit 1 after 20 s: FAILED — no answer to initialize within 15 s          (было: exit null after 240 s, с обвинением)
+docker нет (--json): "error": "/Applications/Docker.app/Contents/Resources/bin/docker does not exist"
+контроль, запись здорова: exit 0: Cursor ok — ai-dev-system 2.0.0 answered in 1897 ms
+CLI 29.8.2 и пропавшая папка: слова Docker, «Its --mount … is the likely cause …», затем «The folder this entry mounts at … is not here …»
+```
+
 ---
 
 ## Д-434. На Windows совет `clients doctor` для диска, которого нет, — «which makes the folder»
 
-**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 2); код — `f9a0702` (Д-429).
+**Статус:** закрыт фазой 14 (`c625f11`), 2026-10-19. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 2); код — `f9a0702` (Д-429).
 
 `unmakeable` (`docker-launch.mjs:445-465`) идёт вверх от пропавшей папки и, не найдя ни одной папки выше, доходит до корня и
 молчит: `path.win32.dirname("E:\\") === "E:\\"`, цикл кончается, ответ — `null`. На Windows это и есть случай «диск не
@@ -15438,11 +15462,32 @@ doctor этой копии на записи с E:\Projects: FAILED — the fold
 **Как закроется.** Путь вверх, дошедший до корня, которого нет (`ENOENT`), — `{ at: <корень>, why: "gone" }`: «install cannot
 make one on E:\, which is not there»; тест — с семантикой путей win32.
 
+**Как закрыто** (`c625f11`; агент кода). `unmakeable` идёт вверх по правилам путей хоста (`io.path`, по умолчанию `node:path` —
+на Windows виндовые) и, дойдя до корня, которого нет (`ENOENT`/`ENOTDIR`, не ссылка), отвечает `{ at: <корень>, why: "gone" }`:
+`E:\`, `\\nas\share\`; относительный путь, дошедший до `.`, — нет. Совет doctor — «as install cannot make one on E:\, which is
+not there». Тесты — `docker-launch.test.mjs` (семантика путей win32 и подменённые функции файловой системы) и `cli.test.mjs`
+(точная фраза); подделке `stat` старых тестов добавлен корень `/` — ожидания не изменились; мутанты D434-a … e убиты. Какой
+код ошибки Node даёт на Windows для вынутого диска и недоступной общей папки, здесь не проверить: не `ENOENT` — и doctor о
+корне молчит, как раньше.
+
+**Замер после** (`c625f11`; `win-drive.mjs` ревью на копиях модуля с `path.win32` и клон с внедрённым `path.win32` —
+`p14/r5fix/code/out/``win-drive.out`):
+
+```
+E:\Projects                -> [{"source":"E:\\Projects",…,"unmakeable":{"at":"E:\\","why":"gone"}}]          (было без unmakeable)
+E:\Work\Projects           -> […,"unmakeable":{"at":"E:\\","why":"gone"}]
+\\nas\share\Projects       -> […,"unmakeable":{"at":"\\\\nas\\share\\","why":"gone"}]
+doctor: … connect the disk it is on, or write the entries again with another projects folder in place of <projects-folder>,
+  as install cannot make one on E:\, which is not there: `ai-dev clients install … '--projects=<projects-folder>'`
+  (было: «which makes the folder: … '--projects=E:\Projects'»)
+walk-up.mjs ревью (uid 1000, node:24-bookworm-slim): 14 вердиктов до и после совпадают; на POSIX `/` есть всегда
+```
+
 ---
 
 ## Д-435. `bootstrap.ps1`: запасной путь при нечитаемом JSON пробного прогона не держит ни один тест; без клиентов он возвращает слова Д-415
 
-**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 3); код — `f9a0702` (Д-428).
+**Статус:** закрыт фазой 14 (`c625f11`), 2026-10-19. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 3); код — `f9a0702` (Д-428).
 
 Закрытие Д-428: «клиента нет» решается, только когда пробный прогон вышел с 0, его JSON прочитан и в нём нет клиента. Часть
 «JSON прочитан» (`try`/`catch` вокруг `ConvertFrom-Json`, `bootstrap.ps1:203`) тестом не держится: мутант без `try`/`catch`
@@ -15470,11 +15515,30 @@ make one on E:\, which is not there»; тест — с семантикой пу
 **Как закроется.** Пробный прогон читается как UTF-8 (`[Console]::OutputEncoding` на время вызова, с возвратом прежней); тест
 контракта — node-заглушка, чей пробный прогон печатает не JSON: установка идёт и решает итог сама.
 
+**Как закрыто** (`c625f11`; агент кода). На время пробного прогона `[Console]::OutputEncoding` — UTF-8 без BOM (в try/catch:
+хост, который не даёт её поставить, читает как раньше), прежняя возвращается в `finally`; код — ASCII и конструкции Windows
+PowerShell 5.1. Запасной путь — JSON не прочитан — по-прежнему отдаёт решение установке, и её итог стоит; тест его держит.
+Тесты контракта на настоящем pwsh: node-заглушка, чей пробный прогон печатает не JSON, — установка идёт (Cursor записан, exit 0;
+сломанный Gemini назван, exit 1); кодовая страница 936 перед скриптом и пробный прогон с JSON, какой Node пишет на Windows для
+не-ASCII папки, — «No AI client found here», и страница 936 после скрипта. Мутанты D435-a … c убиты; мутант ревью без
+try/catch — «tests 11 pass 10 fail 1» (было «8 из 8»). Windows PowerShell 5.1 и хост без консоли здесь не проверить.
+
+**Замер после** (`c625f11`; `run-ps-codepage.sh` агента, pwsh 7.6, кодовая страница задана до скрипта; JSON пробного прогона — для
+пользователей ホーム, 用户, 사용자, José — `p14/r5fix/code/out/``ps-codepage.before.out`, `ps-codepage.after.out`):
+
+```
+тот же JSON в pwsh при 932/936/949/950: «Conversion from JSON failed with error: Bad JSON escape sequence: \..»; при 65001 — читается
+до,    936: … No client found here. Name one to write it anyway: --clients=cursor,vscode,… … AI Dev is ready. Restart the AI clients …
+после, 936: No AI client found here (…). Name one to write its config anyway, -Clients "cursor,vscode,…", or install one and run
+            bootstrap.ps1 again. | AI Dev is ready; no AI client is connected to it yet. | code page after: 936 | exit=0
+после, 932: то же | code page after: 932
+```
+
 ---
 
 ## Д-436. Выключенное правило с катастрофическим перебором описано как то, что гард запускает на каждой команде
 
-**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 4); родня Д-420 (`f9a0702`).
+**Статус:** закрыт фазой 14 (`c625f11`), 2026-10-19. Нашло пятое независимое ревью фазы 14 (ревью кода: should-fix 4); родня Д-420 (`f9a0702`).
 
 `f9a0702` дал примеру и контрпримеру выключенного правила свои слова (Д-420), но не случаю перебора (`policy-rules.mjs:251-253`):
 «the guard — which runs it on every Bash command and every file write — will abandon it instead of answering». Выключенное
@@ -15494,11 +15558,25 @@ switch on r5-off-slow: refused — Rule "r5-off-slow" backtracks catastrophicall
 **Как закроется.** Для `enabled === false` — «… backtracks catastrophically: switching the rule on is refused until the pattern
 is fixed»; случай — в тест Д-420.
 
+**Как закрыто** (`c625f11`; агент кода). Для выключенного правила — «…: it backtracks catastrophically, and switching the rule on is
+refused until the pattern is fixed. Bound the quantifiers; …»; включённое — со словами о гарде, как было. Тест Д-420 — третье
+правило, записанное выключенным с катастрофическим шаблоном: слова выключенного, `effective_action: none`, `broken: 3`, включение
+отвергнуто; включённое руками — слова гарда. Мутанты D436-a, b убиты.
+
+**Замер после** (`c625f11`; `off-rule-slow.mjs` ревью — `p14/r5fix/code/out/``off-rule-slow.after.out`):
+
+```
+list r5-off-slow: enabled false, effective_action none, fires_on_example null, match_timed_out true
+   problem: Matching this pattern against its own sample did not finish within 250 ms: it backtracks catastrophically, and
+   switching the rule on is refused until the pattern is fixed. Bound the quantifiers; …
+switch on r5-off-slow: refused — Rule "r5-off-slow" backtracks catastrophically: …
+```
+
 ---
 
 ## Д-437. `ai-dev clients doctor` не выходит после записи, чей процесс не останавливается по SIGTERM
 
-**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: вне диффа, код до раунда — так же на `6ff80b1`).
+**Статус:** закрыт фазой 14 (`c625f11`), 2026-10-19. Нашло пятое независимое ревью фазы 14 (ревью кода: вне диффа, код до раунда — так же на `6ff80b1`).
 
 `checkServerCommand` (`mcp-client-check.mjs`) по таймауту говорит «no answer to initialize within … s» и шлёт процессу записи
 SIGTERM (`child.kill()`), но ждёт его конца: открытые трубы ребёнка держат процесс doctor. `docker run -i` передаёт сигнал
@@ -15519,11 +15597,28 @@ SIGTERM (`child.kill()`), но ждёт его конца: открытые тр
 **Как закроется.** Не вышедший по SIGTERM процесс через несколько секунд получает SIGKILL; doctor выходит. Тест — команда,
 которая SIGTERM не замечает.
 
+**Как закрыто** (`c625f11`; агент кода). По концу проверки команда записи останавливается, как MCP-клиент останавливает сервер, —
+её stdin закрыт и SIGTERM, — и таймер `unref()` через 5 с (`STOP_GRACE_MS`) шлёт SIGKILL; вышедшему процессу Node сигналов не
+шлёт, так что сервер, остановившийся сам, не убивается. Убивается команда записи — для `docker run` это CLI Docker; контейнер,
+чей первый процесс не замечает SIGTERM, живёт, пока этот процесс не кончится (`--rm` уберёт его тогда), — имени контейнера
+doctor не знает. Тесты — `mcp-client-check.test.mjs`: процесс, не замечающий SIGTERM, кончается по SIGKILL в пределах таймаута
+и запаса; остановившийся по SIGTERM и вышедший по концу stdin — не по SIGKILL; CLI doctor подпроцессом выходит, а со здоровым
+сервером — быстрее 5 с. Мутанты D437-a … e убиты.
+
+**Замер после** (`c625f11`; агент — `doctor-hang.sh`, `p14/r5fix/code/out/``doctor-hang.after.out`; повтор ведущим на `c625f11` — запись
+`docker run -i --rm --name r5v-hang … --entrypoint sleep debian:bookworm-slim 600`, `--timeout=5`):
+
+```
+агент:   exit 1 after 10 s:   Cursor   FAILED — no answer to initialize within 5 s      (было: exit 124 after 60 s)
+ведущий: exit 1 after 10 s:   Cursor   FAILED — no answer to initialize within 5 s
+         контейнер после: r5v-hang Up 9 seconds — убран руками
+```
+
 ---
 
 ## Д-438. Мелочи пятого ревью кода фазы 14
 
-**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью кода: мелочь 5 и вне диффа).
+**Статус:** закрыт фазой 14 (`c625f11`), 2026-10-19. Нашло пятое независимое ревью фазы 14 (ревью кода: мелочь 5 и вне диффа).
 
 **Замер до** (`19ec505`; ревью, `p14/r5/code/probes/`):
 
@@ -15537,11 +15632,24 @@ SIGTERM (`child.kill()`), но ждёт его конца: открытые тр
 **Как закроется.** 1) Срез не делит пару: позиция назад на знак, если на краю — старший суррогат (и в конце — младший).
 2) Вывод проверки Docker — в `$null`; тест контракта — первая строка не версия.
 
+**Как закрыто** (`c625f11`; агент кода). 1) Срез `errorLine` кончает голову на 149, если там старший суррогат, и начинает хвост на
+знак раньше, если первым стоит младший, — пара остаётся целой. 2) Обе проверки движка в `Assert-Docker` — `$null =
+Invoke-Native { … }`; решает по-прежнему `$LASTEXITCODE`. Тесты — `mcp-client-check.test.mjs` (край головы, хвоста, оба, ни
+одного — точные тексты) и контракт `bootstrap.ps1` (первая строка — «Pulling …», заглушка `version` печатает 27.0.0; обе
+проверки — по тексту). Мутанты D438-1a … c и D438-2a, b убиты.
+
+**Замер после** (`c625f11`; `p14/r5fix/code/out/``errorline-surrogate.after.out`, `ps-json-unreadable.after.out`):
+
+```
+1. line length 301; high surrogate at 149 → error 339 chars; lone surrogate: no          (было: 340, yes, at 189 (\ud83d))
+2. bootstrap.ps1, первая строка: «Pulling ghcr.io/stonebridgeway/ai-dev-system:latest...»  (было: «29.8.2»)
+```
+
 ---
 
 ## Д-439. Мелочи пятого ревью документации фазы 14
 
-**Статус:** открыт. Закроет фаза 14. Нашло пятое независимое ревью фазы 14 (ревью документации: мелочи 3–10).
+**Статус:** закрыт фазой 14 (`c625f11`, `9756688`, `6f0b92e`), 2026-10-19. Нашло пятое независимое ревью фазы 14 (ревью документации: мелочи 3–10).
 
 **Замер до** (`19ec505`; ревью, `p14/r5/docs/`):
 
@@ -15567,6 +15675,22 @@ SIGTERM (`child.kill()`), но ждёт его конца: открытые тр
 2) «it too reads no folder back from the entries it replaces» / «и этот запуск не берёт папки из прежних записей». 3) «(bootstrap.sh
 exits 64)». 4) «7 из `fb62d3c`». 5) 53. 6) «a property named `in`, a name `of` outside a `for` head». 7) «or under a file».
 8) Ссылки — с Д-422 … Д-426 и Д-424.
+
+**Как закрыто.** 1) GUARDRAILS EN/RU — «a rule `upsert_policy_rule` will not switch on until …» / «такое правило
+`upsert_policy_rule` не включит, пока …»; описание `list_policy_rules` — «one that keeps upsert_policy_rule from switching it on»,
+TOOLS.md пересобран (`c625f11`). 2) INSTALL EN/RU и TEST-PLAN L5 — «it too reads no folder back from the entries it replaces» /
+«не берёт папки из прежних записей» (`c625f11`). 3) MIGRATION EN/RU — «(bootstrap.sh exits 64)» (`c625f11`). 4) Закрытие
+Д-416 — «7 из `fb62d3c`» (`6f0b92e`). 5) Закрытие Д-427 — «mount-shapes (53)» (`6f0b92e`). 6) CHANGELOG — «a property named
+`in`, a name `of` outside a `for` head's binding» (`9756688`). 7) CHANGELOG — «under a file» среди причин (`c625f11`).
+8) AGENTS.md — «Д-407 … Д-410, Д-422 … Д-426, …»; CHANGELOG — «(Д-401, Д-412, Д-424, Д-444)» (`9756688`).
+
+**Замер после** (`c625f11`):
+
+```
+старые формулировки («keeps it from being switched on», «mounts only the folders it», «монтирует только те папки», «монтирует
+  только названные», «(exit 64)» в MIGRATION, «a property named `in` or `of`») вне DEFECTS.md — 0
+npm run docs:links → 67 files, 334 links: 0 broken;  npm run docs:tools:check → current
+```
 
 ---
 
@@ -15935,6 +16059,25 @@ let of = 4, n = 0;⏎for (let i = of / 2, s = `/`; i < 3; i++) n += i;    []   (
 x = delete class A {} / 2; eval("1") | x = a instanceof class A {} / 2; eval("1") | debugger⏎/r/ / 2; eval("1") |
 break outer⏎/r/ / 2; eval("1")     [eval] ×4   (было [] ×4)
 ```
+
+---
+
+## Д-449. `scripts/bootstrap-contract.test.mjs` — 1 034 строки при потолке 800, который AGENTS.md велит держать и там
+
+**Статус:** открыт. Закроет фаза 14. Нашёл агент правок пятого ревью фазы 14 («Noticed, out of scope»); файл перерос потолок
+раньше — 972 строки на `19ec505`.
+
+AGENTS.md («Three rules…», правило 1): `scripts/` и `hooks/` гейт не меряет, «so the ceiling there is yours to keep». Контракт
+bootstrap держит в одном файле и тесты `bootstrap.sh`, и тесты `bootstrap.ps1`; каждый раунд фазы 14 добавлял в него тесты
+PowerShell.
+
+**Чем грозит.** Правило проекта нарушено его же тестами; следующий тест PowerShell снова ляжет в этот файл.
+
+**Замер до** (`c625f11`): `wc -l ai-dev-mcp-server/scripts/bootstrap-contract.test.mjs` → 1034 (`19ec505` — 972); тесты
+`bootstrap.ps1` — строки 736–1034, 11 тестов.
+
+**Как закроется.** Тесты `bootstrap.ps1` — в своём файле `scripts/bootstrap-ps1-contract.test.mjs`, общие заглушки — в модуле
+рядом; тестов столько же, каждый проходит, как проходил.
 
 ---
 

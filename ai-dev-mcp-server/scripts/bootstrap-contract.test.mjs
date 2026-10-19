@@ -296,6 +296,22 @@ test("the image writes the configs with each client's own folder mounted, and no
   assert.match(result.stdout, /AI Dev is ready/);
 });
 
+test("with every client the default and none here, nothing is written and that is said, not that clients need a restart (Д-406)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  const result = await runBootstrap(t, ["--skip-smoke"], { folders: [".unrelated"] });
+  if (!result) return;
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.calls.find((call) => call[0] === "run" && call.includes("install")), undefined, "no installer run, nothing written");
+  assert.match(result.stdout, /No AI client found here \(Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI\)\. Name one to write its config anyway, --clients cursor,vscode,…, or install one and run bootstrap\.sh again\./);
+  assert.match(result.stdout, /AI Dev is ready; no AI client is connected to it yet\.\n$/);
+  assert.doesNotMatch(result.stdout, /Restart the AI clients/);
+  // A client found: the usual last line, and no word of a missing one.
+  const found = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"] });
+  assert.equal(found.status, 0, found.stderr);
+  assert.match(found.stdout, /AI Dev is ready\. Restart the AI clients to load ai-dev\.\n$/);
+  assert.doesNotMatch(found.stdout, /No AI client found here/);
+});
+
 test("a client named on the command line gets its folder made and mounted; Claude Code is written by its own CLI", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const result = await runBootstrap(t, ["--skip-smoke", "--clients", "gemini,claude"], { claude: true, files: { ".claude.json": "{}" } });

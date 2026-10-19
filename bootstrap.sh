@@ -16,6 +16,7 @@ image_set=0
 clients="all"
 skip_smoke=0
 skip_client_install=0
+no_client=0
 allow_stale_image=0
 stale_warning=""
 build_local=0
@@ -575,6 +576,12 @@ if [ "$skip_client_install" -ne 1 ]; then
       printf "  claude mcp add-json ai-dev '%s' --scope user\n" "$claude_entry" >&2
     fi
   fi
+  # Every client by default, and none of them here: nothing was written, and that is said, as the image's
+  # installer says it when it is asked (Д-406).
+  if [ -z "$install_clients" ] && [ -z "$claude_entry" ] && [ "$install_status" -eq 0 ]; then
+    no_client=1
+    printf '%s\n' "No AI client found here (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI). Name one to write its config anyway, --clients cursor,vscode,…, or install one and run bootstrap.sh again."
+  fi
 fi
 
 # 2.x kept a long-lived container per user; 3.0 runs one per session. It goes
@@ -593,4 +600,8 @@ if [ "$install_status" -ne 0 ]; then
   printf '%s\n' "Some AI clients were not configured: see above for which, and why. Run bootstrap.sh again once that is fixed." >&2
   exit 1
 fi
-printf '%s\n' "AI Dev is ready. Restart the AI clients to load ai-dev."
+if [ "$no_client" -eq 1 ]; then
+  printf '%s\n' "AI Dev is ready; no AI client is connected to it yet."
+else
+  printf '%s\n' "AI Dev is ready. Restart the AI clients to load ai-dev."
+fi

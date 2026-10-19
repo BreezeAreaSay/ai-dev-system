@@ -208,7 +208,8 @@ if (-not $SkipClientInstall) {
     }
 }
 
-Write-Host "AI Dev is ready. Restart the AI clients to load ai-dev."
+# The installer has named each client it wrote, or said it found none (Д-406).
+Write-Host "AI Dev is ready. Restart the AI clients it connected to load ai-dev."
 if ($staleWarning) {
     Write-Warning "Installed from a stale image. $staleWarning"
 }

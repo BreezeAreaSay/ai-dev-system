@@ -295,7 +295,8 @@ export function commandWord(word, platform = process.platform) {
  * of a local install a Docker one, and it drops `--model` whichever of the
  * folders gone is the model's (Д-414). A `--mount` Docker 29 cannot read is
  * not read back, so the command writes the entry without it, and says so
- * (Д-433).
+ * (Д-433) — but for the volume it names when it is the data's: the command
+ * keeps that volume (Д-457).
  *
  * @param {string} client - The id of the client whose entry it is.
  * @param {{ args?: unknown }} entry

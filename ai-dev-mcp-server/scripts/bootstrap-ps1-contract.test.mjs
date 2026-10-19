@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { stubDocker } from "./bootstrap-contract-stubs.mjs";
 
 // bootstrap.ps1, the Docker path on Windows, against the same `docker` as bootstrap.sh's contract
-// (bootstrap-contract.test.mjs): pwsh runs the script itself; on a host without pwsh these tests skip.
+// (bootstrap-contract.test.mjs): pwsh runs the script itself; on a host without pwsh the tests that run it skip.
 // Its own file since the two contracts together outgrew the 800 lines a module keeps (docs/DEFECTS.md, Д-449).
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
@@ -305,6 +305,26 @@ test("bootstrap.ps1 reads the dry run as the UTF-8 Node writes, under a console 
   assert.match(result.stdout, /\nNo AI client found here \(Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI\)\. Name one to write its config anyway, -Clients "cursor,vscode,/);
   assert.doesNotMatch(result.stdout, /Writing the AI clients' configs/);
   assert.deepEqual(lines.slice(-2), ["AI Dev is ready; no AI client is connected to it yet.", "code page 936"]);
+});
+
+test("bootstrap.ps1 gives the console's code page back when its dry run throws: the node it found is gone by then (Д-456)", async (context) => {
+  if (process.platform === "win32") return context.skip("the stub docker is a shell script");
+  const { home, env } = await powerShellHome(context, { folders: [".cursor"] });
+  // A node that answers the --version Assert-Node asks for and is gone after it, so `& $node` throws inside the try
+  // around the dry run, while the code page is UTF-8.
+  const bin = path.join(path.dirname(home), "node-bin");
+  await fs.mkdir(bin);
+  const shim = path.join(bin, "node");
+  const quoted = (text) => `'${text.replaceAll("'", "'\\''")}'`;
+  await fs.writeFile(shim, `#!/bin/sh\nfor a in "$@"; do [ "$a" = --version ] && { rm -f ${quoted(shim)}; echo v22.22.0; exit 0; }; done\nexec ${quoted(process.execPath)} "$@"\n`, { mode: 0o755 });
+  const script = `[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(936); try { & '${bootstrapPowerShell.replaceAll("'", "''")}' -ProjectPath '${path.join(home, "projects").replaceAll("'", "''")}' -SkipSmoke } finally { [Console]::Out.WriteLine("code page " + [Console]::OutputEncoding.CodePage) }`;
+  const result = spawnSync("pwsh", ["-NoLogo", "-NonInteractive", "-Command", script], { encoding: "utf8", env: { ...process.env, HOME: home, AI_DEV_MODEL_PATH: "", ...env, PATH: `${bin}${path.delimiter}${env.PATH}` } });
+  if (result.error?.code === "ENOENT") return context.skip("pwsh is unavailable on this host");
+  assert.equal(result.status, 1, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  await assert.rejects(fs.access(shim), /ENOENT/, "the node was there for its version, and not for the dry run");
+  assert.match(powerShellMessage(result.stderr), /node' is not recognized as a name of a cmdlet, function, script file, or executable program/);
+  assert.doesNotMatch(result.stdout, /Writing the AI clients' configs|AI Dev is ready/);
+  assert.equal(powerShellLines(result.stdout).at(-1), "code page 936");
 });
 
 // The engine's version is asked for to see that it answers, at the start and while Docker Desktop starts: neither is

@@ -422,17 +422,43 @@ export function unreadableMounts(args) {
   return runOptions(args).options.filter(([name, value]) => name === "mount" && (value === null || !parseMount(value))).map(([, value]) => value ?? "");
 }
 
-// A string as Go's %q writes it (strconv.Quote): a character Go prints as it is, the rest escaped — how Docker's CLI
-// quotes a value it refuses, checked against Docker 29.8.2 (Д-433).
-const GO_ESCAPES = new Map([["\u0007", "\\a"], ["\b", "\\b"], ["\f", "\\f"], ["\n", "\\n"], ["\r", "\\r"], ["\t", "\\t"], ["\v", "\\v"], ["\\", "\\\\"], ["\"", "\\\""]]);
-function goQuoted(text) {
-  return `"${[...text].map((character) => {
-    if (GO_ESCAPES.has(character)) return GO_ESCAPES.get(character);
-    if (/^[\p{L}\p{M}\p{N}\p{P}\p{S} ]$/u.test(character)) return character;
-    const code = character.codePointAt(0);
-    const [letter, digits] = code < 0x20 || code === 0x7f ? ["x", 2] : code < 0x10000 ? ["u", 4] : ["U", 8];
-    return `\\${letter}${code.toString(16).padStart(digits, "0")}`;
-  }).join("")}"`;
+// The name of the data volume a `--mount` Docker 29 cannot read mounts at `/data`, read as leniently as the CLIs
+// before it may have read it — its fields trimmed, any other key let be, as `volume-nocopy=TRUE` — or "" (Д-457).
+function dataVolumeOf(value) {
+  const mount = { type: "volume", source: "", target: "" };
+  for (const field of csvRecord(goTrim(value)) ?? []) {
+    const [name, ...rest] = field.split("=");
+    const key = goTrim(name).toLowerCase();
+    const given = goTrim(rest.join("="));
+    if (key === "type") mount.type = given.toLowerCase();
+    else if (key === "source" || key === "src") mount.source = given;
+    else if (key === "target" || key === "dst" || key === "destination") mount.target = given;
+  }
+  return mount.type === "volume" && mount.target === "/data" ? mount.source : "";
+}
+
+// Docker's words for a `--mount` value its CLI refused, the value in Go's quotes (`%q`, strconv.Quote), wherever they
+// are in what it wrote: a warning may come first (Д-433, Д-455). And Go's escapes of one character by a letter.
+const MOUNT_REFUSED = /invalid argument ("(?:[^"\\\n]|\\.)*") for "--mount" flag/g;
+const GO_ESCAPED = new Map([["a", "\u0007"], ["b", "\b"], ["f", "\f"], ["n", "\n"], ["r", "\r"], ["t", "\t"], ["v", "\v"], ["\\", "\\"], ["\"", "\""]]);
+
+/**
+ * A string Go quoted, as it was: `\xHH`, `\uHHHH` and `\UHHHHHHHH` give the
+ * character of that number, `\a \b \f \n \r \t \v \\ \"` the one they stand
+ * for. Read back, not quoted again here: which characters Go escapes follows
+ * its own Unicode tables — Docker 29.8.2's Go is at Unicode 15.0, Node 22 at
+ * 16.0 — and a character of 15.1 or 16.0 was quoted otherwise than Docker
+ * quotes it (Д-457).
+ *
+ * @param {string} quoted
+ * @returns {string}
+ */
+function goUnquoted(quoted) {
+  return quoted.slice(1, -1).replace(/\\(?:x([\da-fA-F]{2})|u([\da-fA-F]{4})|U([\da-fA-F]{8})|([abfnrtv\\"]))/g, (escape, byte, unit, wide, letter) => {
+    if (letter) return GO_ESCAPED.get(letter);
+    const code = Number.parseInt(byte ?? unit ?? wide, 16);
+    return code <= 0x10ffff ? String.fromCodePoint(code) : escape;
+  });
 }
 
 /**
@@ -440,7 +466,9 @@ function goQuoted(text) {
  * words: it exits 125 and says `invalid argument "<value>" for "--mount" flag`
  * — CLI 24.0.9, 27.5.1 and 29.8.2 alike. None, when the command failed for
  * another reason: a `--mount` Docker 29 cannot read is no cause of a start that
- * an older CLI made and that failed otherwise (docs/DEFECTS.md, Д-433).
+ * an older CLI made and that failed otherwise (docs/DEFECTS.md, Д-433). Each
+ * value is compared as Docker was given it: as UTF-8, where a lone surrogate is
+ * U+FFFD (Д-457).
  *
  * @param {string[]} values
  * @param {{ code?: number | null, stderr?: string }} ended - How the command ended, and what it wrote to stderr.
@@ -448,7 +476,8 @@ function goQuoted(text) {
  */
 export function refusedMount(values, { code, stderr = "" } = {}) {
   if (code !== 125) return undefined;
-  return values.find((value) => stderr.includes(`invalid argument ${goQuoted(value)} for "--mount" flag`));
+  const named = new Set(Array.from(stderr.matchAll(MOUNT_REFUSED), ([, quoted]) => goUnquoted(quoted)));
+  return values.find((value) => named.has(String(value).toWellFormed()));
 }
 
 // Where a link leads, from where it is; "" for what is not a link, or one that cannot be read.
@@ -467,7 +496,10 @@ function linkTarget(file, { lstat, readlink, path: paths }) {
  * folder is not this user's to write in (`write`) — the root-owned mount point of
  * a disk that is not connected, say (docs/DEFECTS.md, Д-429); or the way up ends
  * at a root that is not there (`gone`) — on Windows the drive of a disk that is
- * not connected, `E:\`, or a share not reached, which no mkdir makes (Д-434).
+ * not connected, `E:\`, which no mkdir makes (Д-434). Not a share: libuv's
+ * table gives no `ENOENT` for a network path that is not reached
+ * (ERROR_BAD_NETPATH and ERROR_BAD_NET_NAME are `UNKNOWN` in it), and a folder
+ * whose `stat` fails otherwise is not said to be missing at all (Д-454).
  *
  * @param {string} folder
  * @param {{ stat: (file: string) => unknown, lstat: typeof lstatSync, readlink: typeof readlinkSync, access: typeof accessSync, path: typeof path }} io
@@ -540,13 +572,17 @@ export function missingBindSources(args, { stat = statSync, lstat = lstatSync, r
  * first argument after the options, which {@link dockerRunArgs} puts last), the
  * volume, the projects folder, the state folder and the model folder — the one
  * holding `bge-m3-onnx` when the link itself is mounted. A command that writes
- * the entry again keeps them (Д-397).
+ * the entry again keeps them (Д-397). A `--mount` Docker 29 cannot read is
+ * passed over, but for the volume's name when it is the one at `/data`: written
+ * again without it, the entry ran on the default volume, and the data of its
+ * own was out of reach (Д-457).
  *
  * @param {string[]} args
  * @returns {{ image: string, volume: string, projects: string, state: string, model: string }}
  */
 export function dockerEntryOptions(args) {
   const options = { image: runOptions(args).image, volume: "", projects: "", state: "", model: "" };
+  for (const value of unreadableMounts(args)) options.volume = dataVolumeOf(value) || options.volume;
   for (const mount of mountsOf(args).filter(Boolean)) {
     if (mount.type === "volume" && mount.target === "/data") options.volume = mount.source;
     if (mount.type !== "bind") continue;

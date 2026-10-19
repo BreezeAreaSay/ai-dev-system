@@ -116,6 +116,40 @@ test("a command that died is named by its error, not by Node's version, its stac
   assert.match(moved.error, /^it exited with code 1 before answering: Error: Cannot find module '\/old\/clone\/ai-dev-mcp-server\/src\/server\.mjs'/);
 });
 
+test("a warning Docker prints before it goes on is no reason a command stopped: the reason Docker gives is said (Д-455)", async () => {
+  // Docker 29.8.2's own words, as measured (the home shortened): its config.json broken, then a folder in its place,
+  // each before it refused a --mount; an image of another platform; ports published with the host's network.
+  const refusal = "invalid argument \"type=bind,source=/tmp,target=/models,readonly=TRUE\" for \"--mount\" flag: invalid value for 'readonly': invalid boolean value (\"TRUE\"): must be one of \"true\", \"1\", \"false\", or \"0\" (default \"true\")";
+  const usage = ["", "Usage:  docker run [OPTIONS] IMAGE [COMMAND] [ARG...]", "", "Run 'docker run --help' for more information"];
+  const platform = "WARNING: The requested image's platform (linux/arm64) does not match the detected host platform (linux/amd64/v4) and no specific platform was requested";
+  const ports = "WARNING: Published ports are discarded when using host network mode";
+  const cases = [
+    [125, ["WARNING: Error parsing config file (/home/me/.docker/config.json): invalid character 'b' looking for beginning of object key string", refusal, ...usage], refusal],
+    [125, ["WARNING: Error parsing config file (/home/me/.docker/config.json): read /home/me/.docker/config.json: is a directory", refusal, ...usage], refusal],
+    // CLI 27.5.1's own warning for a broken config.json, as measured, before its refusal.
+    [125, ["WARNING: Error loading config file: /home/me/.docker/config.json: : invalid character 'b' looking for beginning of object key string",
+      "invalid argument \"type=bind,source=/tmp,target=/models,bogus=1\" for \"--mount\" flag: unexpected key 'bogus' in 'bogus=1'", "See 'docker run --help'."],
+      "invalid argument \"type=bind,source=/tmp,target=/models,bogus=1\" for \"--mount\" flag: unexpected key 'bogus' in 'bogus=1'"],
+    [127, [platform, "docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: exec: \"/usr/local/bin/ai-dev\": stat /usr/local/bin/ai-dev: no such file or directory", "", "Run 'docker run --help' for more information"],
+      "docker: Error response from daemon: failed to create task for container: failed to create shim task: OCI runtime create failed: runc create failed: unable to start container process: error during container init: exec: \"/usr/local/bin/ai-dev\": stat /usr/local/bin/ai-dev: no such file or directory"],
+    [3, [platform], ""],
+    [3, [ports, "server: cannot open /data/index.db"], "server: cannot open /data/index.db"],
+    [3, [ports], ""],
+    // Not Docker's: a line that only begins as its warnings do, or another program's warning, is said as before.
+    [1, ["WARNING:root:the index at /data/index.db is from another version"], "WARNING:root:the index at /data/index.db is from another version"],
+    [1, ["Warning: no vault at /data/vault; run ai-dev setup first"], "Warning: no vault at /data/vault; run ai-dev setup first"]
+  ];
+  for (const [code, lines, said] of cases) {
+    const result = await checkServerCommand({ command: "docker", args: [] }, {
+      spawnProcess: fakeSpawn((child) => {
+        child.stderr.write(`${lines.join("\n")}\n`);
+        setImmediate(() => child.emit("close", code, null));
+      })
+    });
+    assert.equal(result.error, `it exited with code ${code} before answering${said ? `: ${said}` : ""}`, lines.join("\n"));
+  }
+});
+
 test("a command that does not exist, an empty one, and one that never answers", async () => {
   const missing = await checkServerCommand({ command: "/nonexistent/node-that-is-not-there", args: [] });
   assert.equal(missing.ok, false);
@@ -229,12 +263,30 @@ test("clients doctor exits after an entry that does not stop for SIGTERM: it is 
     ...process.env, HOME: home, USERPROFILE: home, APPDATA: path.join(home, "AppData", "Roaming"), LOCALAPPDATA: path.join(home, "AppData", "Local"),
     XDG_CONFIG_HOME: path.join(home, ".config"), CODEX_HOME: "", CLAUDE_CONFIG_DIR: "", AI_DEV_HOME: ""
   };
+  // The doctor says its verdict once the second is up, and exits when the entry's process is killed, the 5 s grace
+  // on: it waits that out and no longer. Measured on 4 CPUs, idle and with 32 busy loops: 6.1–8.3 s in all, the
+  // start slower under load; 5.0–5.3 s from the verdict to the exit (Д-457).
   const started = Date.now();
-  const doctor = spawnSync(process.execPath, [cli, "clients", "doctor", "--clients=cursor", "--timeout=1"], { env, encoding: "utf8", timeout: 30_000 });
-  const took = Date.now() - started;
+  const doctor = await new Promise((resolve) => {
+    const child = spawn(process.execPath, [cli, "clients", "doctor", "--clients=cursor", "--timeout=1"], { env, stdio: ["ignore", "pipe", "pipe"] });
+    const timer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    let stdout = "";
+    let stderr = "";
+    let verdict = 0;
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+      if (!verdict && stdout.includes("FAILED")) verdict = Date.now();
+    });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("close", (status, signal) => {
+      clearTimeout(timer);
+      resolve({ status, signal, stdout, stderr, took: Date.now() - started, afterVerdict: Date.now() - verdict });
+    });
+  });
   assert.equal(doctor.status, 1, `${doctor.signal ?? ""} ${doctor.stdout}${doctor.stderr}`);
   assert.match(doctor.stdout, /Cursor\s+FAILED — no answer to initialize within 1 s\n/);
-  assert.ok(took < 15_000, `the doctor exited ${took} ms after it started`);
+  assert.ok(doctor.took >= 1000 + 5000, `the doctor exited ${doctor.took} ms after it started: before the second and the grace were up`);
+  assert.ok(doctor.afterVerdict < 5000 + 2000, `the doctor exited ${doctor.afterVerdict} ms after its verdict: past the grace`);
   assert.throws(() => process.kill(Number(readFileSync(pidFile, "utf8")), 0), { code: "ESRCH" }, "the entry's process is gone");
   // A server that answers and stops for SIGTERM, as a Node one does: the doctor does not wait out the grace after it.
   const answer = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { serverInfo: { name: "s", version: "1" }, instructions: "Begin." } });

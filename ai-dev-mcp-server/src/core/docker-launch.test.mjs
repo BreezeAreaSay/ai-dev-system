@@ -299,9 +299,10 @@ test("a folder that is not there says why install could not make it again: a lin
     [{ source: "/home/me/Projects", target: "/home/me/Projects", leadsTo: path.resolve("/media/disk2/Projects") }]);
 });
 
-test("on Windows a folder on a drive or a share that is not there is one install cannot make: the way up ends at a root that is not there (Д-434)", () => {
+test("on Windows a folder on a drive that is not there is one install cannot make: the way up ends at a root that is not there (Д-434, Д-454)", () => {
   // The review's Windows file system, read with Windows' path rules: C:\ and a user's folders, a junction to E:\ — the
-  // drive of a disk that is not connected — and a file. No E:\, no \\nas\share\.
+  // drive of a disk that is not connected, whose stat fails ENOENT (ERROR_INVALID_DRIVE and ERROR_PATH_NOT_FOUND are
+  // ENOENT in libuv's table) — and a file. No E:\.
   const fault = (code, file) => Object.assign(new Error(`${code}: ${file}`), { code });
   const paths = { "c:\\": "dir", "c:\\users": "dir", "c:\\users\\me": "dir", "c:\\users\\me\\ext-link": "link:E:\\", "c:\\users\\me\\notes.txt": "file" };
   const windows = {
@@ -327,7 +328,14 @@ test("on Windows a folder on a drive or a share that is not there is one install
   };
   assert.deepEqual(blocked("E:\\Projects"), { at: "E:\\", why: "gone" });
   assert.deepEqual(blocked("E:\\Work\\Projects"), { at: "E:\\", why: "gone" }, "the root, not the first folder on the way that is not there");
+  // By the path rules alone, a UNC path's root is its share: a stat faked to fail ENOENT there ends the walk at it. What
+  // Windows gives for a share it does not reach is not measured here, and libuv's table gives no ENOENT for a network
+  // path (ERROR_BAD_NETPATH, ERROR_BAD_NET_NAME: UNKNOWN; ERROR_NETWORK_UNREACHABLE: ENETUNREACH): a folder whose stat
+  // fails so is not said to be missing at all.
   assert.deepEqual(blocked("\\\\nas\\share\\Projects"), { at: "\\\\nas\\share\\", why: "gone" });
+  for (const code of ["UNKNOWN", "ENETUNREACH"]) {
+    assert.deepEqual(missingBindSources(spec("\\\\nas\\share\\Projects"), { ...windows, stat: (file) => { throw fault(code, file); } }), [], code);
+  }
   // What the walk said before, it says as before: a link to that drive, a file on the way, a folder install makes.
   assert.deepEqual(blocked("C:\\Users\\me\\Ext-link\\Projects"), { at: "C:\\Users\\me\\Ext-link", why: "link", leadsTo: "E:\\" });
   assert.deepEqual(blocked("C:\\Users\\me\\notes.txt\\Projects"), { at: "C:\\Users\\me\\notes.txt", why: "file" });
@@ -336,7 +344,7 @@ test("on Windows a folder on a drive or a share that is not there is one install
   assert.equal(blocked("rel\\Projects", { ...windows, stat: (file) => { throw fault("ENOENT", file); } }), null);
 });
 
-test("the --mount Docker's CLI refused is told by its own words, the value quoted as Go quotes it (Д-433)", () => {
+test("the --mount Docker's CLI refused is told by its own words, the value read back from Go's quotes (Д-433, Д-457)", () => {
   // Docker 29.8.2's first line for each value it refused (`docker create --mount <value> …`, exit 125), as measured.
   const refused = [
     ["type=bind,source=/x,target=/y,readonly=TRUE", "invalid argument \"type=bind,source=/x,target=/y,readonly=TRUE\" for \"--mount\" flag: invalid value for 'readonly': invalid boolean value (\"TRUE\"): must be one of \"true\", \"1\", \"false\", or \"0\" (default \"true\")"],
@@ -375,6 +383,56 @@ test("the --mount Docker's CLI refused is told by its own words, the value quote
   assert.equal(refusedMount(["b"], { code: 125, stderr: "invalid argument \"x\\\"b\" for \"--mount\" flag: bare \" in non-quoted-field\n" }), undefined);
 });
 
+test("Docker's quotes are read back, not made again: a character Go 1.26 does not print as it is, each of Go's escapes, a lone surrogate given as U+FFFD (Д-457)", () => {
+  // Docker 29.8.2's first line for each (`docker run --mount <value> …`, exit 125), as measured. Its Go is at Unicode
+  // 15.0, Node 22 at 16.0: the characters of 15.1 and 16.0 Docker escapes, U+31EF … U+1FAE9.
+  const refused = [
+    ["type=bind,source=/x\u31ef,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\u31ef,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\u2ffc,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\u2ffc,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\u{2EBF0},target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\U0002ebf0,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\u{1CC00},target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\U0001cc00,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\u{10D4A},target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\U00010d4a,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/home/me/Models \u{1FAE9},target=/models,readonly=TRUE", "invalid argument \"type=bind,source=/home/me/Models \\U0001fae9,target=/models,readonly=TRUE\" for \"--mount\" flag: invalid value for 'readonly': invalid boolean value (\"TRUE\"): must be one of \"true\", \"1\", \"false\", or \"0\" (default \"true\")"],
+    // Each escape Go writes, the ones the lines of Д-433 do not have.
+    ["type=bind,source=/x\u0007,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\a,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\b,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\b,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\fz,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\fz,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x,target=/y,bogus=1\nz", "invalid argument \"type=bind,source=/x,target=/y,bogus=1\\nz\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\r,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\r,target=/y,bogus=1\" for \"--mount\" flag: invalid value for 'source' in 'source=/x\r': value should not have whitespace"],
+    ["type=bind,source=/x\u0001\u001f\u007f,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\x01\\x1f\\x7f,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    // A lone surrogate reaches Docker as UTF-8, that is as U+FFFD, which Go prints as it is.
+    ["type=bind,source=/x\ud800,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\ufffd,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\udc00y,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\ufffdy,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"]
+  ];
+  const usage = "\n\nUsage:  docker run [OPTIONS] IMAGE [COMMAND] [ARG...]\n\nRun 'docker run --help' for more information\n";
+  for (const [value, said] of refused) {
+    assert.equal(refusedMount(["type=volume,source=v,target=/data,bogus=1", value], { code: 125, stderr: `${said}${usage}` }), value, said);
+    assert.equal(refusedMount(["type=volume,source=v,target=/data,bogus=1"], { code: 125, stderr: `${said}${usage}` }), undefined, `${said}: not another value`);
+  }
+  // Escaped, a backslash and a quote are themselves, and \x, \u and \U take as many digits as they are written with.
+  assert.equal(refusedMount(["a\\x41\"b"], { code: 125, stderr: "invalid argument \"a\\\\x41\\\"b\" for \"--mount\" flag: x\n" }), "a\\x41\"b");
+  assert.equal(refusedMount(["AA1B"], { code: 125, stderr: "invalid argument \"\\x41\\u00411\\U00000042\" for \"--mount\" flag: x\n" }), "AA1B");
+  // A number past Unicode is no character: nothing is named, and nothing thrown.
+  assert.equal(refusedMount(["x"], { code: 125, stderr: "invalid argument \"\\U00110000\" for \"--mount\" flag: x\n" }), undefined);
+});
+
+test("Docker's refusal is found wherever it is in what Docker wrote: after the warning of a config file it could not read (Д-455)", () => {
+  // Docker 29.8.2 with its config.json broken, and with a folder in its place, as measured (the home shortened): the
+  // warning comes first, then the refusal.
+  const value = "type=bind,source=/tmp,target=/models,readonly=TRUE";
+  const refusal = "invalid argument \"type=bind,source=/tmp,target=/models,readonly=TRUE\" for \"--mount\" flag: invalid value for 'readonly': invalid boolean value (\"TRUE\"): must be one of \"true\", \"1\", \"false\", or \"0\" (default \"true\")\n\nUsage:  docker run [OPTIONS] IMAGE [COMMAND] [ARG...]\n\nRun 'docker run --help' for more information\n";
+  for (const warning of [
+    "WARNING: Error parsing config file (/home/me/.docker/config.json): invalid character 'b' looking for beginning of object key string\n",
+    "WARNING: Error parsing config file (/home/me/.docker/config.json): read /home/me/.docker/config.json: is a directory\n"
+  ]) {
+    assert.equal(refusedMount(["type=volume,source=v,target=/data,bogus=1", value], { code: 125, stderr: `${warning}${refusal}` }), value, warning);
+  }
+  // CLI 27.5.1 with its config.json broken, as measured: its own warning, then its refusal.
+  const bogus = "type=bind,source=/tmp,target=/models,bogus=1";
+  const cli27 = "WARNING: Error loading config file: /home/me/.docker/config.json: : invalid character 'b' looking for beginning of object key string\ninvalid argument \"type=bind,source=/tmp,target=/models,bogus=1\" for \"--mount\" flag: unexpected key 'bogus' in 'bogus=1'\nSee 'docker run --help'.\n";
+  assert.equal(refusedMount([value, bogus], { code: 125, stderr: cli27 }), bogus);
+});
+
 test("an entry's options are read back from what it runs, so writing it again keeps them (Д-397)", () => {
   const linux = dockerRunArgs({ image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: { source: "/home/me/models/bge-m3-onnx", target: CONTAINER_MODEL_DIR }, platform: "linux" });
   assert.deepEqual(dockerEntryOptions(linux), { image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: "/home/me/models" });
@@ -382,6 +440,25 @@ test("an entry's options are read back from what it runs, so writing it again ke
   assert.deepEqual(dockerEntryOptions(windows), { image: "img", volume: DEFAULT_DOCKER_VOLUME, projects: "C:\\Users\\me\\AI-Dev-Projects", state: "", model: "C:\\models" });
   assert.equal(dockerEntryOptions(["run", "--mount", "type=bind,source=C:\\m\\bge-m3-onnx,target=/models/bge-m3-onnx,readonly", "img"]).model, "C:\\m");
   assert.deepEqual(dockerEntryOptions(undefined), { image: "", volume: "", projects: "", state: "", model: "" });
+});
+
+test("the data volume of a --mount Docker 29 cannot read is read back all the same, so writing the entry again keeps it (Д-457)", () => {
+  const options = (...mounts) => dockerEntryOptions(["run", "-i", ...mounts.flatMap((mount) => ["--mount", mount]), "img"]);
+  // The review's entry, volume-nocopy=TRUE, which the CLIs before 29 read, and other spellings of the volume at /data.
+  for (const value of ["type=volume,source=my-team-data,target=/data,volume-nocopy=TRUE", "source=my-team-data,target=/data,bogus=1",
+    "type=volume, source=my-team-data ,dst=/data", "TYPE=Volume,SRC=my-team-data,Target=/data,volume-nocopy=TRUE",
+    "type=volume,source=my-team-data,destination=/data,volume-opt=o=bind,bogus=1"]) {
+    assert.deepEqual(unreadableMounts(["run", "--mount", value, "img"]), [value], value);
+    assert.equal(options(value).volume, "my-team-data", value);
+  }
+  // No volume at /data: another target, a bind, no source, a value no CLI parses.
+  for (const value of ["type=volume,source=other,target=/elsewhere,bogus=1", "type=bind,source=/srv/data,target=/data,bogus=1",
+    "type=volume,target=/data,bogus=1", "type=volume,\"source=x,target=/data"]) {
+    assert.equal(options(value).volume, "", value);
+  }
+  // Another --mount it cannot read beside it takes nothing from it; the ones it can read are read as before.
+  assert.deepEqual(options("type=volume,source=mine,target=/data,volume-nocopy=TRUE", "type=bind,source=/m,target=/models,readonly=TRUE", "type=bind,source=/p,target=/p"),
+    { image: "img", volume: "mine", projects: "/p", state: "", model: "" });
 });
 
 test("a 3.0 entry is told from a 2.x launcher by what it runs", () => {

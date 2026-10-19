@@ -27,7 +27,10 @@ const NOISE = [
   /^\s+[\w$]+: /, // …one per line
   /^(?:node:|file:\/\/)\S+:\d+$/, // where it was thrown
   // What the Docker CLI prints after a usage error, its own words, before 29 and since (Д-427)
-  /^(?:Usage:\s+docker\s.*|See '[^']+ --help'\.|Run '[^']+ --help' for more information)$/
+  /^(?:Usage:\s+docker\s.*|See '[^']+ --help'\.|Run '[^']+ --help' for more information)$/,
+  // A warning the Docker CLI prints before it goes on — a config file it cannot read, an image of another platform,
+  // ports with the host's network: no reason it stopped, and the first of them says "Error" (Д-455)
+  /^WARNING: /
 ];
 
 /**
@@ -51,7 +54,7 @@ function errorLine(text) {
   return `${line.slice(0, head)}\u2026${line.slice(tail)}`;
 }
 
-/** How long a command told to stop has to exit before it is killed (Д-437). */
+/** How long a command told to stop has to exit before it is killed — the command, not a container it started (Д-437, Д-451). */
 const STOP_GRACE_MS = 5000;
 
 /**
@@ -82,7 +85,9 @@ export function checkServerCommand(entry, { timeoutMs = 30_000, env = process.en
     // Told to stop as an MCP client tells a server — its stdin closed, and SIGTERM — and killed if it is still there
     // a few seconds on: a child that runs keeps this process from exiting, and `docker run -i` passes SIGTERM to a
     // container whose first process may not stop for it, as `sleep` does not; nor does a Docker CLI that waits on an
-    // engine that hangs (Д-437). Node signals no child that has exited, so one that stopped is not killed.
+    // engine that hangs (Д-437). What is killed is the command — for `docker run`, the Docker CLI: such a container
+    // runs on until that process ends, and `--rm` then removes it (Д-451). Node signals no child that has exited, so
+    // one that stopped is not killed.
     const stop = () => {
       if (!child) return;
       child.stdin.end();

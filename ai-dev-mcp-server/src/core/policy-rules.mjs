@@ -245,14 +245,15 @@ export async function verifyPolicyRule(rule, options) {
 
 // The problems a verification adds on top of the structural ones. A rule that is off was written without its
 // samples matched (Д-413), so a sample that answers against it may never have matched: it is no sign of an edit,
-// and it is said as what it holds back — switching the rule on (Д-420). Nor does the guard run a rule that is off,
-// so a pattern of one that backtracks catastrophically is said as what it holds back as well (Д-436).
+// and it is said as what it holds back — upsert_policy_rule switching the rule on (Д-420), which a hand edit of
+// policy.json does all the same (Д-458). Nor does the guard run a rule that is off, so a pattern of one that
+// backtracks catastrophically is said as what it holds back as well (Д-436).
 function verificationProblems(verification, { enabled = true } = {}) {
   const problems = [];
   if (verification.timed_out) {
     problems.push(`Matching this pattern against its own sample did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms: it backtracks catastrophically, and ${enabled
       ? "the guard — which runs it on every Bash command and every file write — will abandon it instead of answering"
-      : "switching the rule on is refused until the pattern is fixed"}. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
+      : "upsert_policy_rule will not switch the rule on until the pattern is fixed"}. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`);
   }
   if (verification.not_checked && verification.not_run === "start") {
     problems.push(`This rule was never matched against its sample: the machine is so busy that no match worker started within ${DEFAULT_WORKER_START_MS} ms. Nothing here says the rule is wrong; list the rules again when the machine is less busy.`);
@@ -265,12 +266,12 @@ function verificationProblems(verification, { enabled = true } = {}) {
   if (verification.fires_on_example === false) {
     problems.push(enabled
       ? "The example stored with the rule no longer matches: the pattern was narrowed, or the example was edited."
-      : "The example stored with the rule does not match its pattern: switching the rule on is refused until the pattern or the example is fixed.");
+      : "The example stored with the rule does not match its pattern: upsert_policy_rule will not switch the rule on until the pattern or the example is fixed.");
   }
   if (verification.counter_example_matches === true) {
     problems.push(enabled
       ? "The counter-example stored with the rule now matches: the pattern grew broader than it was meant to be."
-      : "The counter-example stored with the rule matches its pattern: switching the rule on is refused until the pattern or the counter-example is fixed.");
+      : "The counter-example stored with the rule matches its pattern: upsert_policy_rule will not switch the rule on until the pattern or the counter-example is fixed.");
   }
   return problems;
 }

@@ -60,14 +60,21 @@ if [ -n "${AI_DEV_MODEL_PATH:-}" ]; then
       exit 64
     fi
   done
-  if [ ! -d "${model_path}/bge-m3-onnx" ]; then
+  if [ -L "${model_path}/bge-m3-onnx" ] && [ ! -d "${model_path}/bge-m3-onnx" ]; then
+    printf '%s\n' "AI_DEV_MODEL_PATH=${model_path}: its bge-m3-onnx is a link to $(readlink "${model_path}/bge-m3-onnx") that leads nowhere here; dense search will report that it is not set up until the disk it leads to is connected." >&2
+  elif [ ! -d "${model_path}/bge-m3-onnx" ]; then
     if [ -d "${model_path}/bge-m3" ]; then
       printf '%s\n' "AI_DEV_MODEL_PATH=${model_path} holds bge-m3/, the weights of the Python backend 3.0 removed, and no bge-m3-onnx/; dense search will report that it is not set up. Put the ONNX model there: npm run model -- install --dir ${model_path}/bge-m3-onnx (docs/INSTALL.md)." >&2
     else
       printf '%s\n' "AI_DEV_MODEL_PATH=${model_path} holds no bge-m3-onnx/; dense search will report that it is not set up until a model is put there." >&2
     fi
   fi
-  set -- "$@" --mount "type=bind,source=${model_path},target=/models,readonly"
+  # A bge-m3-onnx that is a link is mounted itself: Docker follows it here, where the container could not (Д-368).
+  if [ -L "${model_path}/bge-m3-onnx" ] && [ -d "${model_path}/bge-m3-onnx" ]; then
+    set -- "$@" --mount "type=bind,source=${model_path}/bge-m3-onnx,target=/models/bge-m3-onnx,readonly"
+  else
+    set -- "$@" --mount "type=bind,source=${model_path},target=/models,readonly"
+  fi
 fi
 
 exec docker "$@" "${image}"

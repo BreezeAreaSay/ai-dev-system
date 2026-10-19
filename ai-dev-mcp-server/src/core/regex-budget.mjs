@@ -18,7 +18,9 @@
  * later can be refused now.
  *
  * The cost is one worker per call — roughly 40 ms of startup, paid once for a
- * whole batch of jobs, and not paid at all for an empty batch.
+ * whole batch of jobs, and not paid at all for an empty batch. Startup is the
+ * machine's cost, not a pattern's, and it is never charged to one: see
+ * {@link DEFAULT_WORKER_START_MS}.
  */
 import { Worker } from "node:worker_threads";
 
@@ -40,6 +42,22 @@ export const DEFAULT_MATCH_BUDGET_MS = 250;
  * four or five per batch.
  */
 export const DEFAULT_MATCH_DEADLINE_MS = 1000;
+
+/**
+ * How long the worker threads of one batch may take to start, all of them
+ * together.
+ *
+ * On a busy machine a thread can take longer to start than a pattern's whole
+ * budget. Charged to the first job, that startup made an honest pattern
+ * `timed_out` and its `block` rule let the command through: under 32 busy
+ * loops on 4 cores the guard let a forbidden command through 27 times in 30,
+ * telling the user to fix a pattern that had never run (docs/DEFECTS.md,
+ * Д-239). So startup has its own allowance and the deadline counts matching
+ * only: a busy machine slows a check down instead of switching rules off.
+ * Together the two still end an event well inside the ten seconds a client
+ * gives a hook.
+ */
+export const DEFAULT_WORKER_START_MS = 3000;
 
 /**
  * The longest input a budgeted match is given. Backtracking grows with input
@@ -82,12 +100,16 @@ export function clampMatchInput(text, limit = MAX_MATCH_INPUT) {
   return { text: source.slice(0, ceiling), truncated: source.length > ceiling, length: source.length };
 }
 
-// One worker, jobs in order, resolved as soon as a job outlives the budget. The
-// per-job timer starts on the worker's `ready` message, so thread startup is
-// not charged to the first pattern.
-function runBatch(jobs, budgetMs) {
+// One worker, jobs in order, resolved as soon as a job outlives the budget.
+// Until the worker says `ready` it is only starting up: that has its own
+// ceiling, `startMs`, and a worker that does not start within it comes back
+// `notStarted` with no job charged. The per-job timer starts on `ready`
+// (docs/DEFECTS.md, Д-239). `startupMs` is how long the start took.
+function runBatch(jobs, budgetMs, startMs) {
   return new Promise((resolve) => {
     const results = [];
+    const created = Date.now();
+    let startupMs = null;
     let settled = false;
     let timer = null;
     let worker = null;
@@ -96,7 +118,7 @@ function runBatch(jobs, budgetMs) {
       settled = true;
       clearTimeout(timer);
       worker?.terminate();
-      resolve({ results, ...outcome });
+      resolve({ results, startupMs: startupMs ?? Date.now() - created, notStarted: startupMs === null, ...outcome });
     };
     const arm = () => {
       clearTimeout(timer);
@@ -110,6 +132,7 @@ function runBatch(jobs, budgetMs) {
     }
     worker.on("message", (message) => {
       if (message?.ready) {
+        startupMs = Date.now() - created;
         arm();
         return;
       }
@@ -122,9 +145,7 @@ function runBatch(jobs, budgetMs) {
     });
     worker.on("error", (cause) => finish({ timedOutAt: -1, error: String(cause?.message ?? cause) }));
     worker.on("exit", () => finish({ timedOutAt: -1, error: "the match worker exited before it answered." }));
-    // Until `ready` arrives the worker is only starting up; give it the same
-    // budget again rather than no ceiling at all.
-    arm();
+    timer = setTimeout(() => finish({ timedOutAt: -1, error: "" }), startMs);
   });
 }
 
@@ -136,16 +157,22 @@ function runBatch(jobs, budgetMs) {
  *   `timed_out: true` when it outlived its own budget; the jobs behind it are
  *   still evaluated, in a fresh worker, because terminating the first one is
  *   the only way to stop the match it was stuck in.
- * - `checked: false` — the batch's deadline passed before this job's turn. It
- *   was never run, and the caller says so instead of paying for it.
+ * - `checked: false` — never run: the batch's deadline passed before this
+ *   job's turn (`not_run: "deadline"`), or no worker could start for it within
+ *   the start allowance (`not_run: "start"` — the machine is too busy, not the
+ *   pattern too slow). The caller says so instead of paying for it.
+ *
+ * The deadline counts the time the jobs run, not the time workers take to
+ * start; that has its own allowance, `startMs`, for the whole batch (Д-239).
  *
  * @param {Array<{ pattern: string, flags?: string, haystack?: string }>} jobs
- * @param {{ budgetMs?: number, deadlineMs?: number, maxInput?: number }} [options]
- * @returns {Promise<Array<{ matched: boolean | null, checked: boolean, timed_out: boolean, error: string, truncated: boolean }>>}
+ * @param {{ budgetMs?: number, deadlineMs?: number, startMs?: number, maxInput?: number }} [options]
+ * @returns {Promise<Array<{ matched: boolean | null, checked: boolean, timed_out: boolean, error: string, truncated: boolean, not_run?: "deadline" | "start" }>>}
  */
 export async function matchWithBudget(jobs, {
   budgetMs = DEFAULT_MATCH_BUDGET_MS,
   deadlineMs = DEFAULT_MATCH_DEADLINE_MS,
+  startMs = DEFAULT_WORKER_START_MS,
   maxInput = MAX_MATCH_INPUT
 } = {}) {
   const list = Array.isArray(jobs) ? jobs : [];
@@ -161,14 +188,28 @@ export async function matchWithBudget(jobs, {
   });
   const answers = new Array(prepared.length).fill(null);
   const deadline = Number.isFinite(deadlineMs) && deadlineMs > 0 ? deadlineMs : DEFAULT_MATCH_DEADLINE_MS;
-  const startedAt = Date.now();
+  const startAllowance = Number.isFinite(startMs) && startMs > 0 ? startMs : DEFAULT_WORKER_START_MS;
+  let matching = 0;
+  let starting = 0;
+  let notRun = "deadline";
   let offset = 0;
   while (offset < prepared.length) {
     // What is left of the deadline is also the ceiling for the next job: the
     // last job of a batch may not overrun the batch.
-    const left = deadline - (Date.now() - startedAt);
+    const left = deadline - matching;
     if (left <= 0) break;
-    const { results, timedOutAt, error } = await runBatch(prepared.slice(offset), Math.min(budgetMs, left));
+    if (startAllowance - starting <= 0) {
+      notRun = "start";
+      break;
+    }
+    const began = Date.now();
+    const { results, timedOutAt, error, startupMs, notStarted } = await runBatch(prepared.slice(offset), Math.min(budgetMs, left), startAllowance - starting);
+    starting += startupMs;
+    matching += Math.max(0, Date.now() - began - startupMs);
+    if (notStarted && !results.length && timedOutAt < 0 && !error) {
+      notRun = "start";
+      break;
+    }
     for (let index = 0; index < results.length && offset + index < prepared.length; index += 1) {
       answers[offset + index] = {
         matched: results[index].matched,
@@ -193,8 +234,11 @@ export async function matchWithBudget(jobs, {
     matched: null,
     checked: false,
     timed_out: false,
-    error: `the batch's ${deadline} ms deadline passed before this match was run`,
-    truncated: prepared[index].truncated
+    error: notRun === "start"
+      ? `no match worker could start within ${startAllowance} ms — the machine is too busy — so this match was not run`
+      : `the batch's ${deadline} ms deadline passed before this match was run`,
+    truncated: prepared[index].truncated,
+    not_run: notRun
   });
 }
 

@@ -4,7 +4,7 @@
 // screen, and from it again when the person comes back to it.
 import * as api from "./api.js";
 import { formatBytes, h, progressBar, show } from "./dom.js";
-import { clientChoice, clientResult, stepReason, stepTitle } from "./setup-words.js";
+import { clientChoice, clientResult, modelUnreadable, stepReason, stepTitle } from "./setup-words.js";
 
 const STEPS = ["projects", "clients", "model", "index", "done"];
 
@@ -175,6 +175,14 @@ function modelStep(view, body, footer) {
       if (model.supported === false) {
         show(body, h("p", {}, view.t("wizard.model.body")),
           h("p", { className: "notice", dataset: { field: "model-unsupported" } }, view.t("wizard.model.unsupported", { reason: model.support_reason ?? "" })));
+        return;
+      }
+      // A model this user cannot read is not missing: a download or an import would meet the same folder (Д-367).
+      if (model.unreadable) {
+        const again = h("button", { type: "button", className: "secondary", dataset: { action: "check-model" }, on: { click: () => draw(null) } }, view.t("wizard.model.checkAgain"));
+        show(body, h("p", {}, view.t("wizard.model.body")),
+          h("p", { className: "notice", dataset: { field: "model-unreadable" } }, modelUnreadable(view, model).wizard),
+          h("div", { className: "actions" }, again));
         return;
       }
       const partial = (model.partial ?? []).reduce((sum, file) => sum + (file.bytes ?? 0), 0);

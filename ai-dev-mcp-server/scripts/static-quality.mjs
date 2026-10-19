@@ -18,6 +18,9 @@ import {
   MODULE_LINE_EXCEPTIONS,
   evaluateLineBudget
 } from "../src/core/line-budget.mjs";
+// The forbidden calls are found by what the code does, not by one spelling of
+// it (docs/DEFECTS.md, Д-267): the rules and their tests live in src/core.
+import { forbiddenCalls } from "../src/core/forbidden-calls.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const node = process.execPath;
@@ -57,7 +60,7 @@ const files = [
 // to the same rules: the syntax check, the forbidden calls and the line
 // ceiling (docs/DEFECTS.md, Д-256). Its tests call eval and new Function inside
 // the page on purpose — to show the page's policy refuses them — so those two
-// are looked for in its code only; shell:true and exec in its tests too
+// are looked for in its code only; a shell and exec in its tests too
 // (Д-266, п. 3). A copy of this package without the app (the npm package, the
 // image) has nothing to check.
 const desktopRoot = path.join(root, "..", "desktop");
@@ -77,14 +80,7 @@ for (const file of desktopFiles) {
   if (syntax.status !== 0) findings.push(`${relative}: syntax check failed: ${(syntax.stderr || syntax.stdout).trim()}`);
   const inTests = relative.startsWith("desktop/test/");
   const source = await fs.readFile(file, "utf8");
-  if (!inTests && /\beval\s*\(/.test(source)) findings.push(`${relative}: eval() is forbidden.`);
-  if (!inTests && /\bnew\s+Function\s*\(/.test(source)) findings.push(`${relative}: new Function() is forbidden.`);
-  if (/\bshell\s*:\s*true\b/.test(source)) findings.push(`${relative}: shell:true is forbidden.`);
-  const importsExec = /from\s+["'](?:node:)?child_process["']/.test(source) && /import\s*\{[^}]*\bexec\b[^}]*\}/s.test(source);
-  const requiresExec = /\{[^}]*\bexec\b[^}]*\}\s*=\s*require\(\s*["'](?:node:)?child_process["']\s*\)|require\(\s*["'](?:node:)?child_process["']\s*\)\.exec\b/s.test(source);
-  if (importsExec || requiresExec) {
-    findings.push(`${relative}: child_process.exec is forbidden; use argv-based execution.`);
-  }
+  for (const finding of forbiddenCalls(source, { allowEval: inTests })) findings.push(`${relative}:${finding.line}: ${finding.message}`);
   if (!inTests) modules.push({ path: relative, lines: countLines(source) });
 }
 for (const file of files) {
@@ -98,17 +94,7 @@ for (const file of files) {
     findings.push(`${relative}: syntax check failed: ${(syntax.stderr || syntax.stdout).trim()}`);
   }
   const source = await fs.readFile(file, "utf8");
-  if (relative !== "scripts/static-quality.mjs") {
-    if (/\beval\s*\(/.test(source)) findings.push(`${relative}: eval() is forbidden.`);
-    if (/\bnew\s+Function\s*\(/.test(source)) findings.push(`${relative}: new Function() is forbidden.`);
-    if (/\bshell\s*:\s*true\b/.test(source)) findings.push(`${relative}: shell:true is forbidden.`);
-  }
-  if (
-    /from\s+["']node:child_process["']/.test(source) &&
-    /import\s*\{[^}]*\bexec\b[^}]*\}/s.test(source)
-  ) {
-    findings.push(`${relative}: child_process.exec is forbidden; use argv-based execution.`);
-  }
+  for (const finding of forbiddenCalls(source)) findings.push(`${relative}:${finding.line}: ${finding.message}`);
   // `src/galaxy/` is browser code, but code all the same: the ceiling holds there
   // too, and in the CLI (`bin/`, `src/cli/`).
   if (["bin/", "src/cli/", "src/core/", "src/extensions/", "src/galaxy/"].some((prefix) => relative.startsWith(prefix))) {

@@ -58,9 +58,12 @@ test("every key the code builds from parts is in the table, for every value the 
     "status.overall": ["ok", "degraded", "failed"],
     "wizard.step.status": ["done", "skipped", "failed"],
     "wizard.clients": [...new Set([...source("setup-words.js").match(/const known = \{([^}]*)\}/)[1].matchAll(/: "(\w+)"/g)].map((match) => match[1]))],
+    // What to do about a model that cannot be read, by why (Д-367): the lower-case words of the choice.
+    "wizard.model.unreadable": [...source("setup-words.js").match(/const advice = ([^;]*);/)[1].matchAll(/"([a-z]\w*)"/g)].map((match) => match[1]),
     wizard: [...source("wizard.js").match(/const STEPS = \[([^\]]*)\]/)[1].matchAll(/"(\w+)"/g)].map((match) => `${match[1]}.title`)
   };
   assert.ok(families["wizard.clients"].length >= 5 && families.wizard.length === 5, JSON.stringify([families["wizard.clients"], families.wizard]));
+  assert.deepEqual(families["wizard.model.unreadable"], ["access", "notDirectory", "loop", "share", "other"]);
   assert.ok(families["console.error"].length >= 6, families["console.error"].join(", "));
   const missing = Object.entries(families).flatMap(([family, values]) => values.map((value) => `${family}.${value}`)).filter((key) => !Object.hasOwn(MESSAGES.en, key));
   assert.deepEqual(missing, []);

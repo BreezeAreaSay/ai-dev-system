@@ -265,6 +265,28 @@ test("with AI_DEV_STATE_ROOT set, clients remove reads the record a Docker insta
   assert.equal(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8"), original);
 });
 
+test("clients entry --docker --model mounts a linked bge-m3-onnx itself; on the host one that leads nowhere is refused, in the image it is taken as bootstrap checked it (Д-368)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+  const home = await fs.realpath(await tempDir(t));
+  const models = path.join(home, "models");
+  await fs.mkdir(path.join(home, "disk2", "bge-m3-onnx-real"), { recursive: true });
+  await fs.mkdir(models);
+  await fs.symlink(path.join(home, "disk2", "bge-m3-onnx-real"), path.join(models, "bge-m3-onnx"));
+  const flags = ["clients", "entry", "cursor", "--docker", "--image=example/ai-dev:3", `--projects=${path.join(home, "p")}`, `--model=${models}`, "--shared-state=no", "--platform=linux"];
+  const linked = await runNode([cli, ...flags], { env: homeEnv(home) });
+  assert.equal(linked.code, 0, linked.stderr);
+  const args = JSON.parse(linked.stdout).args;
+  assert.ok(args.includes(`type=bind,source=${models}/bge-m3-onnx,target=/models/bge-m3-onnx,readonly`), args.join(" "));
+  assert.ok(!args.some((argument) => argument.endsWith("target=/models,readonly")));
+
+  await fs.rm(path.join(home, "disk2"), { recursive: true });
+  const refused = await runNode([cli, ...flags], { env: homeEnv(home) });
+  assert.equal(refused.code, 2, refused.stdout);
+  assert.match(refused.stderr, /bge-m3-onnx is a link to .*bge-m3-onnx-real that leads nowhere here \(ENOENT\): connect the disk it leads to, or name another model folder/);
+  const inImage = await runNode([cli, ...flags], { env: homeEnv(home, { AI_DEV_RUNTIME: "docker" }) });
+  assert.equal(inImage.code, 0, inImage.stderr);
+  assert.ok(JSON.parse(inImage.stdout).args.includes(`type=bind,source=${models}/bge-m3-onnx,target=/models/bge-m3-onnx,readonly`));
+});
+
 test("in the image on the host's behalf, clients install --docker makes no folder of the host's and shares the state as the host decided (Д-319, Д-322)", async (t) => {
   const home = await tempDir(t);
   await fs.mkdir(path.join(home, ".cursor"), { recursive: true });

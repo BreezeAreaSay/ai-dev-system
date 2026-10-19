@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +15,9 @@ import {
   lockIsLive,
   lockPathFor,
   processAlive,
+  processState,
+  procStateLetter,
+  psStateLetter,
   readLock,
   sameLock,
   tryAcquireFileLock,
@@ -49,6 +53,65 @@ test("a holder is live while its process runs and the lock is young", () => {
   assert.equal(processAlive(process.pid), true);
   assert.equal(processAlive(DEAD_PID), false);
   assert.equal(processAlive(0), false);
+});
+
+test("a process is gone, exited and waiting to be collected, running, or unknown — by /proc, else by ps when asked (Д-234)", () => {
+  const asked = [];
+  const ps = (letter) => (pid) => {
+    asked.push(pid);
+    return letter;
+  };
+  // A live pid, so that kill(pid, 0) answers and the letters decide.
+  const live = process.pid;
+  assert.equal(processState(live, { proc: () => "Z" }), "exited");
+  assert.equal(processState(live, { proc: () => "X" }), "exited");
+  assert.equal(processState(live, { proc: () => "S" }), "running");
+  assert.equal(processState(live, { proc: () => "" }), "gone", "gone between kill and /proc");
+  assert.equal(processState(live, { proc: () => null, ps: ps("Z") }), "unknown", "no /proc, and ps not asked");
+  assert.deepEqual(asked, [], "ps is asked only when the caller says so");
+  assert.equal(processState(live, { proc: () => null, ask: true, ps: ps("Z") }), "exited");
+  assert.equal(processState(live, { proc: () => null, ask: true, ps: ps("S") }), "running");
+  assert.equal(processState(live, { proc: () => null, ask: true, ps: ps("") }), "gone");
+  assert.equal(processState(live, { proc: () => null, ask: true, ps: ps(null) }), "unknown", "ps could not be asked");
+  assert.equal(processState(live, { proc: () => "S", ask: true, ps: ps("Z") }), "running", "/proc, where there is one, decides");
+  assert.equal(processState(live, { platform: "win32", proc: () => "Z" }), "running", "on Windows kill(pid, 0) decides");
+  assert.equal(processState(DEAD_PID), "gone");
+  assert.equal(processState(0), "gone");
+  assert.equal(processState(-1), "gone");
+  // The hooks judge a lock's holder the same way.
+  for (const [letter, alive] of [["Z", false], ["X", false], ["", false], ["S", true], ["R", true], [null, true]]) {
+    assert.equal(hookLib.processAlive(live, { proc: () => letter }), alive, `hooks, letter ${JSON.stringify(letter)}`);
+  }
+  assert.equal(hookLib.processAlive(live, { platform: "win32", proc: () => "Z" }), true);
+  assert.equal(hookLib.processAlive(DEAD_PID), false);
+  assert.equal(hookLib.processAlive(0), false);
+});
+
+test("the real letters: this process runs; a pid nobody has is not there", { skip: process.platform === "win32" && "no /proc and no ps" }, () => {
+  if (process.platform === "linux") {
+    assert.match(procStateLetter(process.pid), /^[RS]$/);
+    assert.equal(procStateLetter(DEAD_PID), "");
+  } else {
+    assert.equal(procStateLetter(process.pid), null, "no /proc here");
+  }
+  assert.match(psStateLetter(process.pid), /^[RS]$/);
+  assert.equal(psStateLetter(DEAD_PID), "");
+});
+
+test("a child that has exited while this process's loop is held up is a zombie: exited, not alive (Д-234)", { skip: process.platform === "win32" && "Windows has no zombies" }, async () => {
+  const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  // Nothing collects the child until this loop runs again, so it stays a zombie for as long as this waits.
+  const deadline = Date.now() + 10_000;
+  let state = processState(child.pid, { ask: true });
+  while (state !== "exited" && Date.now() < deadline) state = processState(child.pid, { ask: true });
+  assert.equal(state, "exited");
+  if (process.platform === "linux") {
+    assert.equal(processAlive(child.pid), false, "where /proc tells, a zombie is not alive");
+    assert.equal(hookLib.processAlive(child.pid), false);
+  }
+  await exited;
+  assert.equal(processState(child.pid, { ask: true }), "gone", "collected now");
 });
 
 test("the hooks' copy of the protocol agrees with the server's on every case", () => {

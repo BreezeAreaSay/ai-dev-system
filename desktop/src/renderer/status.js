@@ -3,6 +3,7 @@
 import * as api from "./api.js";
 import { DETAIL_ROWS, checkTitle, orderedChecks, recommendation, unsaidProblems } from "./checks.js";
 import { h, progressBar, show } from "./dom.js";
+import { modelUnreadable } from "./setup-words.js";
 
 /**
  * The rebuild Status started, while it runs: its id for Cancel, its last
@@ -50,12 +51,18 @@ function checkItem(view, check) {
     details ? h("details", {}, h("summary", {}, view.t("status.details")), details) : null);
 }
 
+/** The model's line: installed, cannot be read and why (Д-367), or not installed. */
+function modelRow(view, model) {
+  if (model.installed) return view.t("status.model.installed");
+  return model.unreadable ? modelUnreadable(view, model).status : view.t("status.model.missing");
+}
+
 function overview(view, status) {
   const index = status.index.exists
     ? view.t("status.index.documents", { documents: status.index.documents, dense: status.index.dense_documents })
     : view.t("status.index.missing");
   return h("dl", { className: "overview" },
-    h("dt", {}, view.t("status.model")), h("dd", { dataset: { field: "model" } }, view.t(status.model.installed ? "status.model.installed" : "status.model.missing")),
+    h("dt", {}, view.t("status.model")), h("dd", { dataset: { field: "model" } }, modelRow(view, status.model)),
     h("dt", {}, view.t("status.index")), h("dd", { dataset: { field: "index" } }, index),
     h("dt", {}, view.t("status.clients")), h("dd", { dataset: { field: "clients" } }, view.t("status.clients.count", status.clients)));
 }

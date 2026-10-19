@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DAEMON_PROTOCOL, acceptHandshake, describeBuild, newSecret, readLine, writeDaemonInfo, writeLine } from "./daemon-channel.mjs";
-import { tryAcquireFileLock } from "./file-lock.mjs";
+import { processState, tryAcquireFileLock } from "./file-lock.mjs";
 import { DEFAULT_START_TIMEOUT_MS, connectDaemon, daemonDisabled, daemonStatus, listDaemons, logTail, spawnDaemon, startTimeoutMs, stopDaemons } from "./daemon-client.mjs";
 import { daemonInfoPath, daemonLogPath, retiredDaemonPath, runtimeDir } from "./runtime-paths.mjs";
 
@@ -115,7 +115,7 @@ const ownBuild = () => describeBuild({ serverRoot: process.cwd(), version: "3.0.
  * channel in this test process that answers for it — `status` with what it is
  * told, `stop` by ending the process.
  */
-async function standIn(t, { build, buildParts, retired = false, sessions = 1, clientName = "cursor", answersStatus = true }) {
+async function standIn(t, { build, buildParts, retired = false, sessions = 1, clientName = "cursor", answersStatus = true, endsOnStop = true }) {
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
   // Under /tmp: a long TMPDIR would cut the socket path short (Д-201).
   const directory = process.platform === "win32" ? "" : await fs.mkdtemp(path.join("/tmp", "dcl-"));
@@ -135,7 +135,7 @@ async function standIn(t, { build, buildParts, retired = false, sessions = 1, cl
       if (message.control === "status") await writeLine(socket, { ok: true, pid: child.pid, version: "3.0.0", build, sessions, clients: [{ name: clientName, version: "1" }], retired, ...(retired ? { retired_reason: "its code was replaced" } : {}) });
       if (message.control === "stop") {
         await writeLine(socket, { ok: true, stopping: true, sessions });
-        child.kill();
+        if (endsOnStop) child.kill();
       }
       socket.end();
     } catch {
@@ -163,14 +163,8 @@ async function standIn(t, { build, buildParts, retired = false, sessions = 1, cl
   return { child, info, file };
 }
 
-const gone = (pid) => {
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch {
-    return true;
-  }
-};
+// A stand-in this test killed may wait to be collected by this very process: exited is gone (Д-234).
+const gone = (pid) => ["gone", "exited"].includes(processState(pid, { ask: true }));
 
 test("status and stop with no daemon, and with descriptors whose daemons are long gone", async (t) => {
   await fs.rm(runtimeDir(), { recursive: true, force: true });
@@ -243,6 +237,37 @@ test("status shows the daemons of other builds and the retired ones with why; st
   assert.ok(stopped.daemons.every((daemon) => daemon.stopped), JSON.stringify(stopped));
   assert.deepEqual(stopped.daemons.map((daemon) => daemon.sessions).sort(), [1, 2, 3]);
   for (const { child } of [mine, otherVault, old]) assert.equal(gone(child.pid), true);
+});
+
+test("stop counts a daemon that has exited and waits to be collected as stopped; where only ps could tell, it asks ps (Д-234)", async (t) => {
+  await fs.rm(runtimeDir(), { recursive: true, force: true });
+  t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
+  const build = await ownBuild();
+  // Its process stays: what the platform says of it is the stand-in's below.
+  const zombie = await standIn(t, { build: build.id, buildParts: build, endsOnStop: false });
+  const asks = [];
+  const macos = (pid, { ask = false } = {}) => {
+    asks.push(ask);
+    return ask ? "exited" : "unknown";
+  };
+  const started = Date.now();
+  const stopped = await stopDaemons({ timeoutMs: 5_000, state: macos });
+  assert.deepEqual(stopped.daemons.map((daemon) => [daemon.pid, daemon.stopped, daemon.reason]), [[zombie.child.pid, true, undefined]]);
+  assert.ok(Date.now() - started < 2_000, `ps is asked within a second, not at the deadline: ${Date.now() - started} ms`);
+  assert.ok(asks.filter(Boolean).length === 1 && asks.length <= 11, `ps once, after ten cheap looks: ${JSON.stringify(asks)}`);
+});
+
+test("stop that cannot tell whether a daemon's process still runs says so, rather than that it runs (Д-234)", async (t) => {
+  await fs.rm(runtimeDir(), { recursive: true, force: true });
+  t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
+  const build = await ownBuild();
+  const there = await standIn(t, { build: build.id, buildParts: build, endsOnStop: false });
+  const unknown = await stopDaemons({ timeoutMs: 200, state: () => "unknown" });
+  assert.equal(unknown.daemons[0].pid, there.child.pid);
+  assert.equal(unknown.daemons[0].stopped, false);
+  assert.match(unknown.daemons[0].reason, /^its process is still there: it runs, or it has exited and the program that started it has not collected it yet$/);
+  const running = await stopDaemons({ timeoutMs: 200, state: () => "running" });
+  assert.equal(running.daemons[0].reason, "it is still running");
 });
 
 test("a status answer of any reasonable length is read, and a daemon that does not answer status still takes stop (Д-196)", async (t) => {

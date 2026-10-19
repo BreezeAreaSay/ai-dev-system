@@ -13,7 +13,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import { ChannelError, addressListening, buildDifferences, controlRequest, describeBuild, nothingListens, openChannel, readDaemonInfo, removeDaemonInfo } from "./daemon-channel.mjs";
-import { EMPTY_LOCK_GRACE_MS, processAlive, tryAcquireFileLock } from "./file-lock.mjs";
+import { EMPTY_LOCK_GRACE_MS, processAlive, processState, tryAcquireFileLock } from "./file-lock.mjs";
 import { DAEMON_DESCRIPTOR_NAME, RETIRED_DAEMON_NAME, daemonInfoPath, daemonLogPath, runtimeDir } from "./runtime-paths.mjs";
 import { absolutePathVariables } from "./session-env.mjs";
 import { applySettingsToEnvironment } from "./settings.mjs";
@@ -359,10 +359,11 @@ export async function daemonStatus({ serverRoot, version, env: given = process.e
  * every system — Windows has no signal to send — then a wait for its process
  * to go. The descriptor of a daemon already gone is removed on the way.
  *
- * @param {{ timeoutMs?: number, env?: NodeJS.ProcessEnv }} [options] - `env` names the runtime home.
+ * @param {{ timeoutMs?: number, env?: NodeJS.ProcessEnv, state?: typeof processState }} [options] - `env` names the
+ *   runtime home; `state` tells how a pid stands (a test's stand-in for this platform's).
  * @returns {Promise<{ daemons: Array<{ pid: number, build: string, retired: boolean, stopped: boolean, sessions?: number, reason?: string, removed?: boolean }> }>}
  */
-export async function stopDaemons({ timeoutMs = 10_000, env = process.env } = {}) {
+export async function stopDaemons({ timeoutMs = 10_000, env = process.env, state: stateOf = processState } = {}) {
   const results = [];
   for (const entry of await listDaemons({ clean: true, env: absolutePathVariables(env) })) {
     const { info, retired } = entry;
@@ -381,9 +382,19 @@ export async function stopDaemons({ timeoutMs = 10_000, env = process.env } = {}
       continue;
     }
     const deadline = Date.now() + timeoutMs;
-    while (processAlive(info.pid) && Date.now() < deadline) await sleep(50);
-    const stopped = !processAlive(info.pid);
-    results.push({ ...base, stopped, sessions: answer.sessions ?? 0, ...(stopped ? {} : { reason: "it is still running" }) });
+    // A daemon that has exited may wait to be collected by the program that started it (Д-234). Where only `ps` tells
+    // the two apart, it is asked twice a second and once more at the end, not at every look.
+    let state = stateOf(info.pid);
+    for (let look = 1; (state === "running" || state === "unknown") && Date.now() < deadline; look += 1) {
+      await sleep(50);
+      state = stateOf(info.pid, { ask: look % 10 === 0 });
+    }
+    if (state === "unknown") state = stateOf(info.pid, { ask: true });
+    const stopped = state === "gone" || state === "exited";
+    const reason = state === "unknown"
+      ? "its process is still there: it runs, or it has exited and the program that started it has not collected it yet"
+      : "it is still running";
+    results.push({ ...base, stopped, sessions: answer.sessions ?? 0, ...(stopped ? {} : { reason }) });
   }
   return { daemons: results };
 }

@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as hookLib from "../../hooks/lib.mjs";
 import {
   DEFAULT_MATCH_BUDGET_MS,
+  DEFAULT_WORKER_START_MS,
   MAX_MATCH_INPUT,
   clampMatchInput,
   matchOneWithBudget,
@@ -45,12 +47,8 @@ test("the jobs behind a timed-out one are still evaluated", async () => {
     { pattern: "omega", flags: "i", haystack: "omega" },
     { pattern: CATASTROPHIC, flags: "i", haystack: CATASTROPHIC_INPUT },
     { pattern: "zeta", flags: "i", haystack: "nothing here" }
-    // The batch deadline is stated rather than inherited. At the default 1000 ms
-    // two catastrophic jobs at 150 ms plus worker startup leave nothing for the
-    // last honest job on a loaded machine, and this test then measured the
-    // deadline instead of what it claims. Measured: at deadlineMs 260 the tail
-    // comes back [true, null, null, null, null]; at 5000 it is stable. The
-    // deadline itself is covered by the next test.
+    // The batch deadline is stated rather than inherited, so that this test
+    // measures what it claims and not the deadline, which the next test covers.
   ], { budgetMs: 150, deadlineMs: 5000 });
   assert.deepEqual(answers.map((answer) => answer.matched), [true, null, true, null, false]);
   assert.deepEqual(answers.map((answer) => answer.timed_out), [false, true, false, true, false]);
@@ -74,8 +72,35 @@ test("one deadline covers the whole batch, and the jobs it cuts off say so", asy
   for (const answer of cut) {
     assert.equal(answer.matched, null);
     assert.equal(answer.timed_out, false, "never run is not the same as too slow");
+    assert.equal(answer.not_run, "deadline");
     assert.match(answer.error, /600 ms deadline passed before this match was run/);
   }
+});
+
+test("a worker's startup is charged to no pattern: budgets and a deadline far below it still answer, in both copies (Д-239)", async () => {
+  // A worker takes tens of milliseconds to start; these matches take microseconds once it has. Before the fix both
+  // copies answered none of twenty such calls: the startup ran out the first job's budget.
+  const jobs = [{ pattern: "alpha", flags: "", haystack: "alpha" }, { pattern: "omega", flags: "", haystack: "alpha" }];
+  const server = await matchWithBudget(jobs, { budgetMs: 5, deadlineMs: 5 });
+  assert.deepEqual(server.map((answer) => [answer.checked, answer.matched, answer.timed_out]), [[true, true, false], [true, false, false]]);
+  const hooks = await hookLib.matchWithBudget(jobs, { budgetMs: 5, deadlineMs: 5 });
+  assert.deepEqual(hooks, [{ matched: true, checked: true }, { matched: false, checked: true }]);
+});
+
+test("a worker that cannot start within its allowance runs nothing, and the answers say the machine is busy, not the pattern slow (Д-239)", async () => {
+  assert.equal(DEFAULT_WORKER_START_MS, 3000);
+  assert.equal(hookLib.POLICY_MATCH_START_MS, DEFAULT_WORKER_START_MS, "the hooks' copy starts its workers under the same allowance");
+  const jobs = [{ pattern: "alpha", haystack: "alpha" }, { pattern: "beta", haystack: "beta" }];
+  // No worker is ready within a millisecond.
+  const server = await matchWithBudget(jobs, { startMs: 1 });
+  for (const answer of server) {
+    assert.deepEqual([answer.checked, answer.matched, answer.timed_out, answer.not_run], [false, null, false, "start"]);
+    assert.match(answer.error, /^no match worker could start within 1 ms — the machine is too busy — so this match was not run$/);
+  }
+  assert.deepEqual(await hookLib.matchWithBudget(jobs, { startMs: 1 }), [
+    { matched: null, checked: false, not_run: "start" },
+    { matched: null, checked: false, not_run: "start" }
+  ]);
 });
 
 test("an honest batch is not touched by the deadline, however many jobs it holds", async () => {

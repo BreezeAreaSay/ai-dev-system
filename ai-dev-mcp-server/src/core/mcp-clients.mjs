@@ -29,6 +29,7 @@ import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { atomicWriteJson, renameOver } from "./atomic-files.mjs";
 import { isDirectDockerEntry } from "./docker-launch.mjs";
+import { processAlive } from "./file-lock.mjs";
 import { readMember, removeMember, setMember } from "./jsonc-edit.mjs";
 import { parseTomlLite } from "./toml-lite.mjs";
 import { removeTables, renderTable, scanToml, upsertTables } from "./toml-edit.mjs";
@@ -380,15 +381,6 @@ async function writeBackup(file, bytes, date, owner = null) {
     } catch (error) {
       if (error?.code !== "EEXIST" || attempt >= 100) throw error;
     }
-  }
-}
-
-function processAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
   }
 }
 

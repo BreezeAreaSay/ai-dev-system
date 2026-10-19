@@ -227,9 +227,11 @@ test("--data through a runtime home that is a link deletes the folder it points 
   await fs.mkdir(path.dirname(real), { recursive: true });
   await fs.rename(staged.runtime, real);
   await fs.symlink(real, staged.runtime, "dir");
+  // The removal names the link's target by its real path; the temp folder can be a link itself (Д-373).
+  const target = await fs.realpath(real);
   const result = await uninstallBundle({ env: staged.env, home: staged.home, data: true, apply: true, stop: noDaemons });
   assert.equal(result.data.removed, true, JSON.stringify(result.data));
-  assert.equal(result.data.target, real);
+  assert.equal(result.data.target, target);
   await assert.rejects(fs.access(real), { code: "ENOENT" });
   await assert.rejects(fs.lstat(staged.runtime), { code: "ENOENT" });
   await fs.access(path.dirname(real));

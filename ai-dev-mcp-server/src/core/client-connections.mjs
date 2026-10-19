@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { stableLaunch } from "./app-bundle.mjs";
 import { APP_MARKER, appCli, appFolder } from "./app-home.mjs";
 import { EXIT } from "./cli-args.mjs";
-import { DEFAULT_DOCKER_IMAGE, DEFAULT_DOCKER_VOLUME, IMAGE_UID, checkModelFolder, dockerLaunch, probeStateSharing, resolveDockerCommand, sharesHostState } from "./docker-launch.mjs";
+import { DEFAULT_DOCKER_IMAGE, DEFAULT_DOCKER_VOLUME, IMAGE_UID, checkModelFolder, dockerLaunch, modelMount, probeStateSharing, resolveDockerCommand, sharesHostState } from "./docker-launch.mjs";
 import { DISTRIBUTION_MARKER, PACKAGE_NAME, currentInstallLayout } from "./install-layout.mjs";
 import {
   SERVER_NAME,
@@ -175,7 +175,7 @@ export function clientLabel(target) {
  * @param {NodeJS.ProcessEnv} [input.env]
  * @param {boolean} [input.apply]
  * @param {typeof probeStateSharing} [input.probe]
- * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: string, state: string, record: string, platform: string, sharedState: boolean, sharedStateKind: "shared"|"refused"|"untried"|"dry", sharedStateReason: string, sharedStateGiven: boolean }>}
+ * @returns {Promise<{ docker: string, image: string, volume: string, projects: string, model: "" | { source: string, target: string }, state: string, record: string, platform: string, sharedState: boolean, sharedStateKind: "shared"|"refused"|"untried"|"dry", sharedStateReason: string, sharedStateGiven: boolean }>}
  */
 export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEFAULT_DOCKER_VOLUME, projects = "", model = "", state = "", shareState = "", docker = "", home = os.homedir(), platform = process.platform, uid = process.getuid?.(), env = process.env, apply = true, tryState = apply, probe = probeStateSharing } = {}) {
   const paths = platform === "win32" ? path.win32 : path.posix;
@@ -188,7 +188,8 @@ export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEF
     volume,
     platform,
     projects: paths.resolve(projects || paths.join(home, "AI-Dev-Projects")),
-    model: model ? checkModelFolder(paths.resolve(model)) : "",
+    // Its bge-m3-onnx mounted itself when it is a link; checked for leading somewhere where the host is to be seen (Д-368).
+    model: model ? modelMount(checkModelFolder(paths.resolve(model)), { verify: onHost, join: paths.join }) : "",
     // The record of written configs stays the host's either way.
     record: hostState,
     docker: docker || resolveDockerCommand({ env, platform, home })

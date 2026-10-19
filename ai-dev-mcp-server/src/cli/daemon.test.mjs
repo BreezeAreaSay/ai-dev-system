@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
@@ -343,6 +343,28 @@ test("a long-lived daemon sets its own log aside, and goes on writing to the sam
   assert.ok((await fs.stat(log)).size < 64 * 1024, "the fresh log holds only what came after");
   assert.ok((await fs.stat(`${log}.1`)).size > 1024 * 1024);
   assert.match(readFileSync(`${log}.1`, "utf8"), /session 1 opened/);
+});
+
+test("a daemon a program started, stopped while that program waits on the stop: stopped at once, not \"still running\" (Д-234)", async (t) => {
+  const { env } = await stage(t);
+  // The daemon is this process's child, as one the desktop app's transport starts is the app's.
+  const daemon = spawn(process.execPath, [cli, "daemon", "run"], { cwd: serverRoot, env, stdio: "ignore", windowsHide: true });
+  t.after(() => daemon.kill());
+  await until(async () => {
+    const status = await ai(env, ["daemon", "status", "--json"]);
+    try {
+      return JSON.parse(status.stdout).pid === daemon.pid;
+    } catch {
+      return false;
+    }
+  }, "the daemon to answer");
+  // Synchronous: this process's loop does not run, so nothing collects the daemon once it exits.
+  const started = Date.now();
+  const stopped = spawnSync(process.execPath, [cli, "daemon", "stop"], { cwd: serverRoot, env, encoding: "utf8", windowsHide: true });
+  const took = Date.now() - started;
+  assert.equal(stopped.status, 0, stopped.stdout + stopped.stderr);
+  assert.match(stopped.stdout, new RegExp(`^Stopped: pid ${daemon.pid}, 0 session\\(s\\) ended with it\\.$`, "m"));
+  assert.ok(took < 5_000, `it said so once the daemon exited, not at the 10 s deadline: ${took} ms`);
 });
 
 test("stop with only the descriptor of a daemon long gone says it is not running, and clears it (Д-194)", async (t) => {

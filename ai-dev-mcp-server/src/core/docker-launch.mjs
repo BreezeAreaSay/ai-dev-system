@@ -18,7 +18,8 @@
  *   names is the path the server opens (Д-312); on Windows, whose paths a Linux
  *   container cannot hold, at {@link CONTAINER_WORKSPACE}, as 2.x did;
  * - a host model folder, read-only at {@link CONTAINER_MODELS}, when one is named
- *   (2.x's `AI_DEV_MODEL_PATH`); otherwise the model is the volume's.
+ *   (2.x's `AI_DEV_MODEL_PATH`) — its `bge-m3-onnx` link at {@link CONTAINER_MODEL_DIR}
+ *   when it is one ({@link modelMount}); otherwise the model is the volume's.
  *
  * The container runs as the image's user, uid 1000, as 2.x did: one owner for
  * everything in the volume, whichever launcher — a 3.0 entry or a 2.x one —
@@ -29,7 +30,7 @@
  */
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
-import { existsSync, rmSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readlinkSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 
 /** The image a client runs unless told otherwise (owner decision D9: `:latest` is the released line). */
@@ -46,6 +47,9 @@ export const CONTAINER_WORKSPACE = "/workspace";
 
 /** Where a host model folder is mounted, read-only. */
 export const CONTAINER_MODELS = "/models";
+
+/** Where the server in the image looks for a host's model (`DOCKER_MOUNTED_MODEL_DIR` in dense-backend.mjs). */
+export const CONTAINER_MODEL_DIR = `${CONTAINER_MODELS}/bge-m3-onnx`;
 
 /**
  * Files that make a folder a model folder itself rather than the one holding
@@ -71,7 +75,8 @@ function mountable(label, folder) {
  * @param {string} input.image
  * @param {string} [input.volume]
  * @param {string} [input.projects] - The host's projects folder.
- * @param {string} [input.model] - A host folder holding `bge-m3-onnx/`.
+ * @param {string | { source: string, target: string }} [input.model] - A host folder holding `bge-m3-onnx/`
+ *   (mounted at {@link CONTAINER_MODELS}), or the mount {@link modelMount} chose for one.
  * @param {string} [input.state] - The host's state folder.
  * @param {string} [input.platform] - The host's platform.
  * @returns {string[]}
@@ -91,7 +96,10 @@ export function dockerRunArgs({ image, volume = DEFAULT_DOCKER_VOLUME, projects 
     const target = platform === "win32" ? CONTAINER_WORKSPACE : projects;
     args.push("--mount", `type=bind,source=${mountable("projects", projects)},target=${target}`);
   }
-  if (model) args.push("--mount", `type=bind,source=${mountable("model", model)},target=${CONTAINER_MODELS},readonly`);
+  if (model) {
+    const mount = typeof model === "string" ? { source: model, target: CONTAINER_MODELS } : model;
+    args.push("--mount", `type=bind,source=${mountable("model", mount.source)},target=${mount.target},readonly`);
+  }
   args.push(image);
   return args;
 }
@@ -206,6 +214,47 @@ export function checkModelFolder(folder, { exists = existsSync } = {}) {
 }
 
 /**
+ * The mount a host model folder gets: the folder at {@link CONTAINER_MODELS} —
+ * or, when its `bge-m3-onnx` is a link, that link at {@link CONTAINER_MODEL_DIR}.
+ * A link inside a mounted folder is read in the container, where an absolute
+ * target, or a relative one that leaves the folder, leads nowhere: the model
+ * was "not installed" (docs/DEFECTS.md, Д-368). Docker resolves a mount's own
+ * source on the host, so the link mounted itself is the folder it leads to.
+ *
+ * Where this runs on the host (`verify`), a link that leads nowhere here either
+ * is refused: Docker would start no session over it. In the image, writing for
+ * the host, the link's target is not to be seen; bootstrap.sh checks it first.
+ *
+ * @param {string} folder - A model folder {@link checkModelFolder} took.
+ * @param {{ verify?: boolean, join?: (...parts: string[]) => string, lstat?: typeof lstatSync, stat?: typeof statSync, readlink?: typeof readlinkSync }} [options]
+ * @returns {{ source: string, target: string }}
+ */
+export function modelMount(folder, { verify = true, join = path.join, lstat = lstatSync, stat = statSync, readlink = readlinkSync } = {}) {
+  const model = join(folder, "bge-m3-onnx");
+  let link = false;
+  try {
+    link = lstat(model).isSymbolicLink();
+  } catch {
+    // Not there yet: the folder is mounted, and the model is put there later.
+  }
+  if (!link) return { source: folder, target: CONTAINER_MODELS };
+  if (verify) {
+    try {
+      stat(model);
+    } catch (error) {
+      let target = "";
+      try {
+        target = readlink(model);
+      } catch {
+        // Said without it.
+      }
+      throw new Error(`${model} is a link${target ? ` to ${target}` : ""} that leads nowhere here (${error?.code ?? error?.message}): connect the disk it leads to, or name another model folder. Docker would start no session that mounts it.`);
+    }
+  }
+  return { source: model, target: CONTAINER_MODEL_DIR };
+}
+
+/**
  * The command line a client config gets for the image.
  *
  * @param {object} input
@@ -213,7 +262,7 @@ export function checkModelFolder(folder, { exists = existsSync } = {}) {
  * @param {string} [input.image]
  * @param {string} [input.volume]
  * @param {string} [input.projects]
- * @param {string} [input.model]
+ * @param {string | { source: string, target: string }} [input.model]
  * @param {string} [input.state]
  * @param {string} [input.platform]
  * @returns {{ command: string, args: string[], env: Record<string, string> }}

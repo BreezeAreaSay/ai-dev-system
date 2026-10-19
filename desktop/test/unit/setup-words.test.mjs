@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { translate } from "../../src/renderer/i18n.js";
-import { clientChoice, clientResult, stepReason, stepTitle } from "../../src/renderer/setup-words.js";
+import { clientChoice, clientResult, modelUnreadable, stepReason, stepTitle, unreadableCode } from "../../src/renderer/setup-words.js";
 
 const view = (language = "en") => ({ t: (key, params) => translate(language, key, params) });
 
@@ -40,4 +40,28 @@ test("a step's title and reason in the page's words; a failed step shows its err
   for (const reason of ["already built; --force rebuilds it", "not installed — pass --frontend-qa to install it", "out of date; --model rebuilds it"]) {
     assert.doesNotMatch(stepReason(view(), step({ id: "frontend_qa", status: "skipped", reason })), /--/, reason);
   }
+});
+
+test("a model that cannot be read is said to be so, with what to do by why — not \"not installed\" (Д-367)", () => {
+  const said = [];
+  const view = { t: (key, params = {}) => { said.push(key); return `${key}${Object.keys(params).length ? ` ${JSON.stringify(params)}` : ""}`; } };
+  assert.equal(unreadableCode("ENOTDIR: not a directory, lstat '/m/models.zip/bge-m3-onnx/config.json'"), "ENOTDIR");
+  assert.equal(unreadableCode("EACCES: permission denied, open '/m/x'"), "EACCES");
+  assert.equal(unreadableCode("something else"), "");
+  for (const [reason, advice] of [
+    ["EACCES: permission denied, open '/m/x'", "access"],
+    ["EPERM: operation not permitted, open '/m/x'", "access"],
+    ["ENOTDIR: not a directory, lstat '/m/x'", "notDirectory"],
+    ["ELOOP: too many symbolic links encountered, stat '/m/x'", "loop"],
+    ["ESTALE: stale file handle, open '/m/x'", "share"],
+    ["EIO: i/o error, read", "share"],
+    ["EBUSY: resource busy", "other"]
+  ]) {
+    said.length = 0;
+    const words = modelUnreadable(view, { dir: "/m", unreadable: reason });
+    assert.ok(said.includes(`wizard.model.unreadable.${advice}`), `${reason}: ${said.join(", ")}`);
+    assert.match(words.status, new RegExp(`^status\\.model\\.unreadable \\{"code":"${unreadableCode(reason)}"\\}$`));
+    assert.match(words.wizard, /"dir":"\/m"/);
+  }
+  assert.match(modelUnreadable(view, { dir: "/m", unreadable: "no code here" }).status, /"code":"no code here"/, "a reason with no code is shown whole");
 });

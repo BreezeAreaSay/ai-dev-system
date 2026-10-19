@@ -289,6 +289,28 @@ test("a policy full of slow rules costs the guard one deadline, not one budget p
   assert.doesNotMatch(JSON.parse(fast.stdout || "{}").hookSpecificOutput?.additionalContext ?? "", /were never matched|was not evaluated/);
 });
 
+test("rules a thread could not start for are said to be the machine's doing, not a rule's (Д-239)", async (t) => {
+  const { root, projectRoot } = await fixture(t);
+  // A hook pack whose threads get one millisecond to start, which no thread does: the busy machine, made certain.
+  const busyHooks = path.join(root, "busy-hooks");
+  await fs.cp(hooksSourceDir, busyHooks, { recursive: true });
+  const lib = path.join(busyHooks, "lib.mjs");
+  const source = await fs.readFile(lib, "utf8");
+  assert.match(source, /^export const POLICY_MATCH_START_MS = 3000;$/m);
+  await fs.writeFile(lib, source.replace(/^export const POLICY_MATCH_START_MS = 3000;$/m, "export const POLICY_MATCH_START_MS = 1;"));
+  await installAgentHooks({ projectRoot, hooksSourceDir: busyHooks, targets: ["claude"], profile: "standard" });
+  const policyPath = path.join(projectRoot, ".ai-dev", "policy.json");
+  const policy = JSON.parse(await fs.readFile(policyPath, "utf8"));
+  const rule = { id: "no-deploy", event: "bash", pattern: "deploy-prod", action: "block", message: "Deploys go through CI.", enabled: true };
+  await fs.writeFile(policyPath, JSON.stringify({ ...policy, rules: [...(policy.rules ?? []), rule] }, null, 2));
+  const answered = runHook(projectRoot, "guard.mjs", ["bash"], { tool_name: "Bash", tool_input: { command: "./deploy-prod.sh" } });
+  assert.equal(answered.status, 0, "a rule that never ran cannot block");
+  const context = JSON.parse(answered.stdout || "{}").hookSpecificOutput?.additionalContext ?? "";
+  // The default policy's own rule is among them.
+  assert.match(context, /\[policy\] 2 rule\(s\) were not matched: this machine is so busy that the thread matching them did not start within 1 ms\. Not evaluated: block-prod-migrations, no-deploy\. Nothing is wrong with the rules; this command went unchecked by them\./);
+  assert.doesNotMatch(context, /was not evaluated: matching its pattern took longer|A rule ahead of them/, "neither the rule nor the rules ahead of it are blamed");
+});
+
 test("the git hook reads the server's own rules and the diff the same way", async () => {
   assert.deepEqual(gitHookSettings({}), { pre_commit: "block", pre_push: "warn" });
   assert.deepEqual(gitHookSettings({ git_hooks: { pre_commit: "warn", pre_push: "block" } }), { pre_commit: "warn", pre_push: "block" });

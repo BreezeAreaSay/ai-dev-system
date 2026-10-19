@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   CONTAINER_MODELS,
+  CONTAINER_MODEL_DIR,
   CONTAINER_STATE_ROOT,
   CONTAINER_WORKSPACE,
   DEFAULT_DOCKER_IMAGE,
@@ -14,6 +15,7 @@ import {
   dockerLaunch,
   dockerRunArgs,
   isDirectDockerEntry,
+  modelMount,
   probeStateSharing,
   resolveDockerCommand,
   sharesHostState
@@ -81,6 +83,39 @@ test("a model folder is the one above bge-m3-onnx/: the model folder itself is r
   assert.throws(() => checkModelFolder(path.join(root, "models", "bge-m3-onnx-missing")), /does not exist/);
   await fs.writeFile(path.join(root, "models", "bge-m3-onnx", "config.json"), "{}");
   assert.throws(() => checkModelFolder(path.join(root, "models", "bge-m3-onnx")), /holds model files itself \(config\.json\)\. Name the folder above it/);
+});
+
+test("a model folder whose bge-m3-onnx is a link mounts the link itself, which Docker follows on the host; one that leads nowhere is refused (Д-368)", async (t) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-docker-launch-")));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const plain = path.join(root, "plain");
+  await fs.mkdir(path.join(plain, "bge-m3-onnx"), { recursive: true });
+  assert.deepEqual(modelMount(plain), { source: plain, target: CONTAINER_MODELS }, "a folder holding the model as a folder is mounted as 2.x mounted it");
+  const empty = path.join(root, "empty");
+  await fs.mkdir(empty);
+  assert.deepEqual(modelMount(empty), { source: empty, target: CONTAINER_MODELS }, "no model yet: the folder, for the model put there later");
+
+  // An absolute link to another disk: read in the container, it would lead nowhere.
+  const elsewhere = path.join(root, "disk2", "bge-m3-onnx-real");
+  await fs.mkdir(elsewhere, { recursive: true });
+  const linked = path.join(root, "linked");
+  await fs.mkdir(linked);
+  await fs.symlink(elsewhere, path.join(linked, "bge-m3-onnx"));
+  const mount = modelMount(linked);
+  assert.deepEqual(mount, { source: path.join(linked, "bge-m3-onnx"), target: CONTAINER_MODEL_DIR });
+  assert.equal(CONTAINER_MODEL_DIR, "/models/bge-m3-onnx");
+  assert.ok(dockerRunArgs({ image: "img", model: mount }).includes(`type=bind,source=${path.join(linked, "bge-m3-onnx")},target=/models/bge-m3-onnx,readonly`));
+  assert.ok(dockerRunArgs({ image: "img", model: plain }).includes(`type=bind,source=${plain},target=/models,readonly`), "a folder named as before still means /models");
+
+  const dangling = path.join(root, "dangling");
+  await fs.mkdir(dangling);
+  await fs.symlink(path.join(root, "unplugged", "bge-m3-onnx"), path.join(dangling, "bge-m3-onnx"));
+  assert.throws(() => modelMount(dangling), new RegExp(`^Error: ${path.join(dangling, "bge-m3-onnx").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} is a link to .*unplugged.* that leads nowhere here \\(ENOENT\\): connect the disk it leads to, or name another model folder\\. Docker would start no session that mounts it\\.$`));
+  // In the image, writing the configs for the host, where the link leads is not to be seen: bootstrap.sh checked it.
+  assert.deepEqual(modelMount(dangling, { verify: false }), { source: path.join(dangling, "bge-m3-onnx"), target: CONTAINER_MODEL_DIR });
+  // The host's own path rules: a Windows folder joined the Windows way.
+  const windows = modelMount("C:\\models", { join: path.win32.join, lstat: () => ({ isSymbolicLink: () => true }), stat: () => ({}) });
+  assert.deepEqual(windows, { source: "C:\\models\\bge-m3-onnx", target: CONTAINER_MODEL_DIR });
 });
 
 test("a 3.0 entry is told from a 2.x launcher by what it runs", () => {

@@ -55,3 +55,37 @@ export function stepTitle(view, step) {
   const text = view.t(key);
   return text === key ? step.title : text;
 }
+
+// The errors that mean the disk or the share the model is on cannot be reached;
+// the daemon's own list (dense-backend.mjs) is the same.
+const SHARE_UNREACHABLE = new Set(["EIO", "ESTALE", "ENOTCONN", "EHOSTDOWN", "ETIMEDOUT", "ECONNABORTED", "ECONNRESET"]);
+
+/** The error code a "cannot be read" reason starts with — `ENOTDIR` of `ENOTDIR: not a directory, …` — or "". */
+export function unreadableCode(reason) {
+  return /^[A-Z][A-Z0-9_]+(?=:|$)/.exec(String(reason ?? ""))?.[0] ?? "";
+}
+
+/**
+ * What the page says of a model this user cannot read: not "not installed",
+ * and no download over it — the folder is what needs a look, and what to do
+ * depends on why it cannot be read (Д-367).
+ *
+ * @param {{ t: (key: string, params?: object) => string }} view
+ * @param {{ dir?: string, unreadable: string }} model
+ * @returns {{ status: string, wizard: string }}
+ */
+export function modelUnreadable(view, model) {
+  const code = unreadableCode(model.unreadable);
+  const advice = code === "EACCES" || code === "EPERM" ? "access"
+    : code === "ENOTDIR" ? "notDirectory"
+      : code === "ELOOP" ? "loop"
+        : SHARE_UNREACHABLE.has(code) ? "share" : "other";
+  return {
+    status: view.t("status.model.unreadable", { code: code || model.unreadable }),
+    wizard: view.t("wizard.model.unreadable", {
+      dir: model.dir ?? "",
+      reason: model.unreadable,
+      advice: view.t(`wizard.model.unreadable.${advice}`)
+    })
+  };
+}

@@ -1,5 +1,6 @@
+import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
-import { readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -141,20 +142,80 @@ export function lockPathFor(filePath) {
 }
 
 /**
- * Whether a process with this pid is running on this machine. `EPERM` means it
- * exists and belongs to someone else, which still counts as alive.
+ * A process's state letter from `/proc/<pid>/stat` (`R`, `S`, `Z` …); "" when
+ * the process is not there; null where there is no `/proc` to read.
+ *
+ * @param {number} pid
+ * @returns {string | null}
+ */
+export function procStateLetter(pid) {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    // The name in parentheses may hold spaces and ")": the state follows the last one.
+    return stat.charAt(stat.lastIndexOf(")") + 2) || null;
+  } catch (error) {
+    return error?.code === "ENOENT" && existsSync("/proc/self/stat") ? "" : null;
+  }
+}
+
+/**
+ * A process's state letter from `ps` (macOS and the BSDs have no `/proc`); ""
+ * when `ps` knows no such process; null when `ps` could not be asked.
+ *
+ * @param {number} pid
+ * @returns {string | null}
+ */
+export function psStateLetter(pid) {
+  const result = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8", timeout: 5_000, shell: false, windowsHide: true });
+  if (result.error || result.signal) return null;
+  return result.status === 0 ? result.stdout.trim().charAt(0) : "";
+}
+
+/**
+ * How the process with this pid stands on this machine:
+ *
+ * - "gone" — there is none;
+ * - "exited" — it has exited, and the process that started it has not collected
+ *   it yet: a zombie, which `kill(pid, 0)` still answers for. A daemon started by
+ *   a program whose event loop is held up stays one until the loop runs
+ *   (docs/DEFECTS.md, Д-234);
+ * - "running";
+ * - "unknown" — it is there, and nothing here tells whether it still runs:
+ *   no `/proc`, and `ps` was not asked (`ask`) or could not answer.
+ *
+ * `EPERM` means the process exists and belongs to someone else. Windows has no
+ * zombies: a process that has exited is gone to `kill(pid, 0)`.
+ *
+ * @param {number} pid
+ * @param {{ ask?: boolean, platform?: string, proc?: (pid: number) => string | null, ps?: (pid: number) => string | null }} [options]
+ * @returns {"gone" | "exited" | "running" | "unknown"}
+ */
+export function processState(pid, { ask = false, platform = process.platform, proc = procStateLetter, ps = psStateLetter } = {}) {
+  if (!Number.isInteger(pid) || pid <= 0) return "gone";
+  try {
+    process.kill(pid, 0);
+  } catch (error) {
+    if (error?.code !== "EPERM") return "gone";
+  }
+  if (platform === "win32") return "running";
+  let letter = proc(pid);
+  if (letter === null && ask) letter = ps(pid);
+  if (letter === null) return "unknown";
+  if (letter === "") return "gone";
+  return letter === "Z" || letter === "X" ? "exited" : "running";
+}
+
+/**
+ * Whether a process with this pid is running on this machine: one that has
+ * exited and waits to be collected is not, where `/proc` tells (Д-234); one
+ * that belongs to someone else (`EPERM`) still counts.
  *
  * @param {number} pid
  * @returns {boolean}
  */
 export function processAlive(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) return false;
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === "EPERM";
-  }
+  const state = processState(pid);
+  return state === "running" || state === "unknown";
 }
 
 /**

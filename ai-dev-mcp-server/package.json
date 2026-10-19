@@ -42,6 +42,7 @@
     "packaging:check": "node scripts/validate-packaging.mjs",
     "docs:tools": "node scripts/render-tool-reference.mjs",
     "docs:tools:check": "node scripts/render-tool-reference.mjs --check",
+    "docs:links": "node scripts/doc-links.mjs",
     "clients:install": "node bin/ai-dev.mjs clients install",
     "start:legacy": "node src/mcp-stdio.mjs",
     "test": "node --import ./test/setup.mjs --test",

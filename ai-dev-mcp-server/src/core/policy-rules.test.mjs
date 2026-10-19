@@ -9,6 +9,7 @@ import { defaultPolicy, installAgentHooks } from "./agent-hooks.mjs";
 import {
   compilePolicyPattern,
   describePolicyRule,
+  describePolicyRules,
   listPolicyRules,
   policyHaystack,
   policyRuleProblems,
@@ -268,7 +269,7 @@ test("a hand-edited rule that stopped working is reported instead of silently do
 });
 
 test("the rule reader answers for values it was never given", async () => {
-  assert.deepEqual(await verifyPolicyRule({}), { checked_as: "bash", fires_on_example: null, counter_example_matches: null, timed_out: false, not_checked: false });
+  assert.deepEqual(await verifyPolicyRule({}), { checked_as: "bash", fires_on_example: null, counter_example_matches: null, timed_out: false, not_checked: false, not_run: null });
   const described = await describePolicyRule(undefined);
   assert.equal(described.id, "");
   assert.equal(described.effective_action, "warn");
@@ -380,6 +381,28 @@ test("a pattern that backtracks catastrophically is refused, even though its own
     upsertPolicyRule({ projectRoot: root, rule: { ...CATASTROPHIC_RULE, id: "overlapping-classes", pattern: "(\\w|\\d)+$", example: "abc" } }),
     /backtracks catastrophically/
   );
+});
+
+test("a machine too busy to start a match: the rule is not written unchecked, and a listing says the machine, not the rules ahead (Д-239)", async (t) => {
+  const root = await tempProject(t, defaultPolicy("standard"));
+  const busy = async (jobs) => jobs.map(() => ({
+    matched: null,
+    checked: false,
+    timed_out: false,
+    error: "no match worker could start within 3000 ms — the machine is too busy — so this match was not run",
+    truncated: false,
+    not_run: "start"
+  }));
+  await assert.rejects(
+    upsertPolicyRule({ projectRoot: root, rule: RULE, match: busy }),
+    /^Error: Rule "[^"]+" was not written: its pattern could not be checked, because no match worker could start within 3000 ms — the machine is too busy — so this match was not run\. Try again once the machine is less busy\.$/
+  );
+  assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), [], "nothing was written");
+  const [described] = await describePolicyRules([RULE], { match: busy });
+  assert.equal(described.match_not_checked, true);
+  assert.equal(described.match_timed_out, false);
+  assert.ok(described.problems.some((problem) => /^This rule was never matched against its sample: the machine is so busy that no match worker started within 3000 ms\./.test(problem)), JSON.stringify(described.problems));
+  assert.ok(!described.problems.some((problem) => /rules before it/.test(problem)), "the rules ahead of it are not blamed");
 });
 
 test("a hand-written catastrophic rule is reported by the reader instead of hanging it", async (t) => {

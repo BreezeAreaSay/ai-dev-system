@@ -626,6 +626,10 @@ export const POLICY_MATCH_BUDGET_MS = 250;
 // that abandons a hook at ten (docs/DEFECTS.md, Д-22) — so the rules
 // the deadline cuts off are reported as unchecked instead of being run.
 export const POLICY_MATCH_DEADLINE_MS = 1000;
+// How long the match threads of one event may take to start, all together. Startup is the machine's cost, not a
+// rule's: charged to the first rule, it let a forbidden command through 27 times in 30 under 32 busy loops on 4
+// cores, blaming a pattern that had never run (docs/DEFECTS.md, Д-239). The deadline above counts matching only.
+export const POLICY_MATCH_START_MS = 3000;
 export const POLICY_MATCH_MAX_INPUT = 4096;
 
 const MATCH_WORKER_SOURCE = `
@@ -643,9 +647,12 @@ for (const job of workerData.jobs) {
 parentPort.postMessage({ done: true });
 `;
 
-function runMatchBatch(jobs, budgetMs) {
+// Until the worker says `ready` it is only starting: that has its own ceiling, `startMs`, and charges no rule.
+function runMatchBatch(jobs, budgetMs, startMs) {
   return new Promise((resolve) => {
     const results = [];
+    const created = Date.now();
+    let startupMs = null;
     let settled = false;
     let timer = null;
     let worker = null;
@@ -654,7 +661,7 @@ function runMatchBatch(jobs, budgetMs) {
       settled = true;
       clearTimeout(timer);
       if (worker) worker.terminate();
-      resolve({ results, timedOutAt });
+      resolve({ results, timedOutAt, startupMs: startupMs === null ? Date.now() - created : startupMs, notStarted: startupMs === null });
     };
     const arm = () => {
       clearTimeout(timer);
@@ -667,14 +674,17 @@ function runMatchBatch(jobs, budgetMs) {
       return;
     }
     worker.on("message", (message) => {
-      if (message && message.ready) return arm();
+      if (message && message.ready) {
+        startupMs = Date.now() - created;
+        return arm();
+      }
       if (message && message.done) return finish(-1);
       results.push(message && typeof message.matched === "boolean" ? message.matched : null);
       return arm();
     });
     worker.on("error", () => finish(-1));
     worker.on("exit", () => finish(-1));
-    arm();
+    timer = setTimeout(() => finish(-1), startMs);
   });
 }
 
@@ -686,16 +696,22 @@ function runMatchBatch(jobs, budgetMs) {
  * - `{ checked: true, matched: null }` — it outlived its own budget. The jobs
  *   behind it are run in a fresh worker, because killing the stuck one is the
  *   only way to stop it.
- * - `{ checked: false, matched: null }` — the deadline passed first, so it was
- *   never run. The guard says how many of those there were, in one line.
+ * - `{ checked: false, matched: null, not_run }` — never run: the deadline
+ *   passed first (`not_run: "deadline"`), or no thread could start for it in
+ *   time (`not_run: "start"` — the machine is too busy). The guard says how
+ *   many of those there were, in one line.
+ *
+ * The deadline counts the time the rules run, not the time threads take to
+ * start; that has its own allowance, `startMs` (Д-239).
  *
  * @param {Array<{ pattern: string, flags?: string, haystack?: string }>} jobs
- * @param {{ budgetMs?: number, deadlineMs?: number }} [options]
- * @returns {Promise<Array<{ matched: boolean | null, checked: boolean }>>}
+ * @param {{ budgetMs?: number, deadlineMs?: number, startMs?: number }} [options]
+ * @returns {Promise<Array<{ matched: boolean | null, checked: boolean, not_run?: "deadline" | "start" }>>}
  */
 export async function matchWithBudget(jobs, options = {}) {
   const budgetMs = Number.isFinite(options.budgetMs) && options.budgetMs > 0 ? options.budgetMs : POLICY_MATCH_BUDGET_MS;
   const deadlineMs = Number.isFinite(options.deadlineMs) && options.deadlineMs > 0 ? options.deadlineMs : POLICY_MATCH_DEADLINE_MS;
+  const startMs = Number.isFinite(options.startMs) && options.startMs > 0 ? options.startMs : POLICY_MATCH_START_MS;
   const list = Array.isArray(jobs) ? jobs : [];
   if (!list.length) return [];
   const prepared = list.map((job) => ({
@@ -704,14 +720,27 @@ export async function matchWithBudget(jobs, options = {}) {
     haystack: String((job && job.haystack) || "").slice(0, POLICY_MATCH_MAX_INPUT)
   }));
   const answers = new Array(prepared.length).fill(null);
-  const startedAt = Date.now();
+  let matching = 0;
+  let starting = 0;
+  let notRun = "deadline";
   let offset = 0;
   while (offset < prepared.length) {
     // What is left of the deadline is also the ceiling for the next job: the
     // last rule of an event may not overrun the event.
-    const left = deadlineMs - (Date.now() - startedAt);
+    const left = deadlineMs - matching;
     if (left <= 0) break;
-    const { results, timedOutAt } = await runMatchBatch(prepared.slice(offset), Math.min(budgetMs, left));
+    if (startMs - starting <= 0) {
+      notRun = "start";
+      break;
+    }
+    const began = Date.now();
+    const { results, timedOutAt, startupMs, notStarted } = await runMatchBatch(prepared.slice(offset), Math.min(budgetMs, left), startMs - starting);
+    starting += startupMs;
+    matching += Math.max(0, Date.now() - began - startupMs);
+    if (notStarted && !results.length && timedOutAt < 0) {
+      notRun = "start";
+      break;
+    }
     for (let index = 0; index < results.length && offset + index < prepared.length; index += 1) {
       answers[offset + index] = { matched: results[index], checked: true };
     }
@@ -720,7 +749,7 @@ export async function matchWithBudget(jobs, options = {}) {
     answers[stuck] = { matched: null, checked: true };
     offset = stuck + 1;
   }
-  return answers.map((answer) => answer || { matched: null, checked: false });
+  return answers.map((answer) => answer || { matched: null, checked: false, not_run: notRun });
 }
 
 /** Split a shell command into segments on unquoted ; | & and newlines, stripping quotes. */
@@ -832,14 +861,28 @@ export function lockPathFor(filePath) {
   return `${path.resolve(filePath)}${LOCK_SUFFIX}`;
 }
 
-export function processAlive(pid) {
+// A process's state letter from /proc/<pid>/stat; "" when it is not there; null where there is no /proc.
+export function procStateLetter(pid) {
+  try {
+    const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    return stat.charAt(stat.lastIndexOf(")") + 2) || null;
+  } catch (error) {
+    return error?.code === "ENOENT" && fs.existsSync("/proc/self/stat") ? "" : null;
+  }
+}
+
+// Running, or there and unknown: a process that has exited and waits to be collected (a zombie, which kill(pid, 0)
+// still answers for) is not, where /proc tells — the server's file-lock.mjs judges it the same (Д-234).
+export function processAlive(pid, { platform = process.platform, proc = procStateLetter } = {}) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
-    return error?.code === "EPERM";
+    if (error?.code !== "EPERM") return false;
   }
+  if (platform === "win32") return true;
+  const letter = proc(pid);
+  return letter === null || (letter !== "" && letter !== "Z" && letter !== "X");
 }
 
 export function lockIsLive(observed, { now = Date.now(), staleMs = LOCK_STALE_MS, emptyGraceMs = EMPTY_LOCK_GRACE_MS, host = os.hostname(), alive = processAlive } = {}) {

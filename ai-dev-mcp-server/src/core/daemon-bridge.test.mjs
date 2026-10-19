@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
@@ -209,9 +208,11 @@ test("a request that came before the first initialize was forwarded is not answe
 });
 
 test("a socket upstream reads what came with the handshake first, then the socket, and says when it closes", async (t) => {
-  const address = process.platform === "win32"
-    ? `\\\\.\\pipe\\ai-dev-bridge-test-${process.pid}`
-    : path.join(await fs.mkdtemp(path.join(os.tmpdir(), "db-")), "s.sock");
+  // Under /tmp, not the temp folder: with a long TMPDIR libuv cuts a socket path short, and parallel runs share one
+  // name (docs/DEFECTS.md, Д-201, Д-258).
+  const directory = process.platform === "win32" ? null : await fs.mkdtemp(path.join("/tmp", "db-"));
+  if (directory) t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const address = process.platform === "win32" ? `\\\\.\\pipe\\ai-dev-bridge-test-${process.pid}` : path.join(directory, "s.sock");
   let far;
   const server = net.createServer((socket) => {
     far = socket;

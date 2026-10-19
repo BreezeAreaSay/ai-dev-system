@@ -273,7 +273,9 @@ test("the image writes the configs with each client's own folder mounted, and no
   assert.ok(install, JSON.stringify(result.calls));
   const home = await fs.realpath(result.home).catch(() => result.home);
   const sources = mounts(install).map((mount) => mount.split(",").find((part) => part.startsWith("source="))?.slice("source=".length));
-  assert.deepEqual(sources.sort(), [path.join(result.home, ".ai-dev", "state"), path.join(result.home, ".codex"), path.join(result.home, ".config", "Claude"), path.join(result.home, ".cursor")].sort());
+  // The state folder by its real path, as `--state` below: the temp folder can be a link (docs/DEFECTS.md, Д-373).
+  const state = await fs.realpath(path.join(result.home, ".ai-dev", "state"));
+  assert.deepEqual(sources.sort(), [state, path.join(result.home, ".codex"), path.join(result.home, ".config", "Claude"), path.join(result.home, ".cursor")].sort());
   assert.ok(!sources.includes(result.home) && !sources.includes(home), "the home itself is not mounted");
   for (const mount of mounts(install)) {
     const [source, target] = ["source=", "target="].map((key) => mount.split(",").find((part) => part.startsWith(key)).slice(key.length));
@@ -284,7 +286,7 @@ test("the image writes the configs with each client's own folder mounted, and no
   assert.equal(word("clients"), "claude-desktop,cursor,codex", "the clients found here; Claude Code goes through its own CLI");
   assert.equal(word("image"), "ghcr.io/stonebridgeway/ai-dev-system:latest");
   assert.equal(word("projects"), await fs.realpath(path.join(result.home, "projects")));
-  assert.equal(word("state"), await fs.realpath(path.join(result.home, ".ai-dev", "state")));
+  assert.equal(word("state"), state);
   assert.equal(word("home"), result.home);
   assert.ok(install.includes("--docker") && install.includes("ai-dev") && install.includes("clients"));
   assert.ok(install.includes("--network") && install[install.indexOf("--network") + 1] === "none");
@@ -656,6 +658,22 @@ test("a model folder is mounted read-only for the installer, checked, and handed
   assert.match(refused.stderr, /holds model files itself \(pytorch_model\.bin\)/);
   assert.match(refused.stderr, /bge-m3-onnx\//, "the message does not say what the folder should contain");
   assert.equal(refused.calls.filter((call) => call[0] === "pull" || call[0] === "run").length, 0);
+
+  // A bge-m3-onnx that is a link which leads nowhere: the image writing the configs could not tell, and no session
+  // would start over it, so it is refused here, before anything runs (Д-368).
+  const linking = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-")));
+  t.after(() => fs.rm(linking, { recursive: true, force: true }));
+  await fs.symlink(path.join(linking, "unplugged", "bge-m3-onnx"), path.join(linking, "bge-m3-onnx"));
+  const dangling = await runBootstrap(t, ["--skip-smoke", "--model-path", linking]);
+  assert.equal(dangling.status, 64, dangling.stderr);
+  assert.match(dangling.stderr, /\/bge-m3-onnx is a link to .*unplugged\/bge-m3-onnx that leads nowhere here: connect the disk it leads to, or point --model-path at another folder\./);
+  assert.doesNotMatch(dangling.stderr, /holds no bge-m3-onnx/);
+  assert.equal(dangling.calls.filter((call) => call[0] === "pull" || call[0] === "run").length, 0);
+  // One that leads somewhere is handed on as the folder holding it: the image mounts the link itself.
+  await fs.mkdir(path.join(linking, "unplugged", "bge-m3-onnx"), { recursive: true });
+  const led = await runBootstrap(t, ["--skip-smoke", "--model-path", linking], { folders: [".cursor"] });
+  assert.equal(led.status, 0, led.stderr);
+  assert.ok(led.calls.find((call) => call[0] === "run" && call.includes("install")).includes(`--model=${linking}`));
 });
 
 // The Windows installer, through pwsh where it exists (the ubuntu and macOS

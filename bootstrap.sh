@@ -177,6 +177,12 @@ if [ -n "$model_path" ]; then
       exit 64
     fi
   done
+  # A bge-m3-onnx that is a link is mounted itself, and Docker follows it here; the image, writing the configs, cannot
+  # see where it leads, so a link that leads nowhere is refused now: no session would start over it (Д-368).
+  if [ -L "${model_path}/bge-m3-onnx" ] && [ ! -d "${model_path}/bge-m3-onnx" ]; then
+    printf '%s\n' "${model_path}/bge-m3-onnx is a link to $(readlink "${model_path}/bge-m3-onnx") that leads nowhere here: connect the disk it leads to, or point --model-path at another folder." >&2
+    exit 64
+  fi
   if [ ! -d "${model_path}/bge-m3-onnx" ]; then
     printf '%s\n' "${model_path} holds no bge-m3-onnx/ yet; dense search will report that it is not set up until a model is put there." >&2
   fi

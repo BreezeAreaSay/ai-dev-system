@@ -97,6 +97,31 @@ test("a model folder with no model in it launches, and says why dense will be mi
   }
 });
 
+test("a 2.x launcher mounts a linked bge-m3-onnx itself, and says when the link leads nowhere (Д-368)", async (context) => {
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-")));
+  try {
+    const real = path.join(root, "disk2", "bge-m3-onnx-real");
+    await fs.mkdir(real, { recursive: true });
+    const models = path.join(root, "models");
+    await fs.mkdir(models);
+    await fs.symlink(real, path.join(models, "bge-m3-onnx"));
+    const linked = await launchWithModelPath(models, context);
+    if (linked === null) return;
+    assert.equal(linked.status, 0, linked.stderr);
+    assert.ok(linked.recorded.includes(`type=bind,source=${models}/bge-m3-onnx,target=/models/bge-m3-onnx,readonly`), linked.recorded);
+    assert.doesNotMatch(linked.recorded, /target=\/models,readonly/);
+    assert.equal(linked.stderr.includes("leads nowhere"), false);
+
+    await fs.rm(real, { recursive: true });
+    const dangling = await launchWithModelPath(models, context);
+    assert.equal(dangling.status, 0, "the session starts, without the model");
+    assert.match(dangling.stderr, /its bge-m3-onnx is a link to .*bge-m3-onnx-real that leads nowhere here; dense search will report that it is not set up until the disk it leads to is connected/);
+    assert.match(dangling.recorded, /target=\/models,readonly/, "the folder, as before: Docker refuses a mount of a link that leads nowhere");
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});
+
 test("a model folder with only the removed Python backend's weights is named as that (Д-158)", async (context) => {
   const models = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-"));
   await fs.mkdir(path.join(models, "bge-m3"));

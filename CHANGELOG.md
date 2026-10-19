@@ -1799,7 +1799,7 @@ four of those arrived as upstream issues #63–#66.
   in 0.2 s, where it took 111 s, 296 kB of class heritages with a substitution in 0.2 s, where it took
   10–12 s, a line of 32,000 regular expressions that never close in 0.1 s, where it took 8.8 s,
   80 kB of keys named `const` in 0.06 s, where it took 12–23 s, 224 kB of templates with a `let` in
-  each substitution in 0.15 s, where it took 26 s, a 120 kB script with a parenthesis left open in
+  each substitution in 0.17 s, where it took 26 s, a 120 kB script with a parenthesis left open in
   each substitution in 0.16 s, where it took 9.3 s, and 136 kB of `.call(` that never close in
   0.09 s, where it took 6 s (Д-401, Д-412, Д-424, Д-444, Д-461, Д-463, Д-474, Д-488, Д-501). A test plants a finding of each rule and each check in
   each folder the gate walks — `bin/`, `src/`, `scripts/`, `hooks/` with its shell script, the app's

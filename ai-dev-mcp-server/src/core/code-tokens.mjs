@@ -88,7 +88,8 @@ function readEscape(text, at) {
  * and no later one on that line reads again, in the same state — inside a
  * class of characters or out of one — what it read.
  * Each `{` carries `literal`: whether it opens an object literal; a class's
- * body carries `classBody`.
+ * body carries `classBody`; a token right in a template's substitution, no
+ * bracket opened since its `${`, carries `substitution`.
  *
  * When a template literal, a substitution or a comment never closes, the
  * array's `unterminated` property is the line it opened on: whatever follows
@@ -167,6 +168,8 @@ export function codeTokens(source, { script = false } = {}) {
       if (!(type === "punct" && (value === "[" || value === "("))) tokens.push({ type: "punct", value: ".", line: where });
     }
     const token = { type, value, line: where };
+    // Right in a substitution — no bracket opened since its `${` — an expression's place, where no statement stands (Д-488).
+    if (templates.length && templates.at(-1).opened === opened.length) token.substitution = true;
     // `export * as class from …`, `export { a as class }`, `{ class: 1 }`, `import { class as k }`, `this.#class`: a name,
     // not a class.
     if (type === "name" && (value === "class" || value === "function") && !isMember(tokens.length) && !isName(tokens.at(-1), "as")) {
@@ -180,6 +183,8 @@ export function codeTokens(source, { script = false } = {}) {
       // that name, `{ class: 1 }`, the end of a block, a field of that name, `class = 1`, `class;` (Д-425, Д-443, Д-476).
       while (bodies.at(-1)?.depth === level()) bodies.pop();
     } else if (type === "name" && value === "extends" && bodies.at(-1)?.depth === level()) bodies.at(-1).heritage = true;
+    // Class code is strict, so no class is named `static`: after a field named `class`, `static {` is a static block (Д-486).
+    else if (type === "name" && value === "static" && isName(tokens.at(-1), "class") && bodies.at(-1)?.depth === level()) bodies.pop();
     // A `(` stands before a class's body only in its heritage: `class(run) {}` is a method of that name (Д-476).
     else if (type === "punct" && value === "(" && bodies.at(-1)?.depth === level() && bodies.at(-1).kind === "class" && bodies.at(-1).heritage !== true) bodies.pop();
     // In a `for` head `of` is the keyword right after the binding — a pattern's or a parenthesis's end, a member, a name
@@ -308,7 +313,7 @@ export function codeTokens(source, { script = false } = {}) {
       } else {
         push("template", "`", started);
         if (ended === "code") {
-          templates.push({ depth: 0, line: started, token: tokens.length - 1 });
+          templates.push({ depth: 0, line: started, token: tokens.length - 1, opened: opened.length });
           substitutionOpened = true;
         } else unterminated(started);
       }
@@ -321,7 +326,7 @@ export function codeTokens(source, { script = false } = {}) {
       // Where the template ends: a walk over a list steps over it whole, the commas of its code not the list's (Д-473).
       if (ended === "end") tokens[token].last = tokens.length - 1;
       if (ended === "code") {
-        templates.push({ depth: 0, line: started, token });
+        templates.push({ depth: 0, line: started, token, opened: opened.length });
         substitutionOpened = true;
       } else if (ended === "eof") unterminated(started);
       continue;

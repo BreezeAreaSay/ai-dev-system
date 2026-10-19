@@ -4,8 +4,8 @@ import { performance } from "node:perf_hooks";
 import { forbiddenCalls } from "./forbidden-calls.mjs";
 
 // What the static gate reads as declaring a name, binding one or holding a pattern: a parameter list, a declaration, a
-// class's field. Its own file since forbidden-calls.test.mjs reached the 800 lines a module keeps (docs/DEFECTS.md,
-// Д-466, Д-472 … Д-476).
+// class's field. Its own file since forbidden-calls.test.mjs would have passed the 800 lines a module keeps
+// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489).
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
 const BT = "`";
@@ -64,7 +64,7 @@ test("a call's arguments bind no name and hold no pattern, a block after them or
   }
 });
 
-test("a word that is no declaration declares nothing, a member's `class` or `function` names nothing, and a template's commas are its own (Д-473, Д-476)", () => {
+test("a word that is no declaration declares nothing, a member's `class` or `function` names nothing, and a template's commas are not a declaration's or a list's (Д-473, Д-476)", () => {
   // Each assigns the module to the exported let where nothing declares its name again: caught.
   const refused = {
     "a key named const before it": `${CP}export let run;\nconst schema = { const: "x", run: 1 };\nrun = cp;`,
@@ -117,6 +117,9 @@ test("the declaration pass stays linear on words that declare nothing (Д-474)",
   assert.ok(timed(`export class A { ${"let() {} ".repeat(n)}}\n`) < 4000, "methods named let");
   assert.ok(timed(`var a = [${"let, ".repeat(n)}1];\n`, { script: true }) < 4000, "a script's let in an array");
   assert.ok(timed(`var a = ${"let[0] + ".repeat(n)}1;\n`, { script: true }) < 4000, "a script's let indexed");
+  // A declaration word right in a substitution walked past the template's end and on through every later one (Д-488).
+  assert.ok(timed(`var a = ${`${BT}\${let[0]}${BT} + `.repeat(n)}1;\n`, { script: true }) < 4000, "a script's let in a substitution");
+  assert.ok(timed(`var a = ${`${BT}\${0}\${let[0]}${BT} + `.repeat(n)}1;\n`, { script: true }) < 4000, "a script's let in a later substitution");
 });
 
 test("a line that begins with an operator carries the value on: a name bound to it is not the module's (Д-475, Д-482)", () => {
@@ -125,11 +128,15 @@ test("a line that begins with an operator carries the value on: a name bound to 
     assert.deepEqual(rules(source), [], source);
   }
   assert.deepEqual(rules("const g = globalThis\n/ 2\ng[0];"), []);
+  assert.deepEqual(rules(`${CP}export const ok = cp\n  === undefined;`), []);
+  assert.deepEqual(rules('const k = "x";\nconst g = globalThis\n  === undefined;\ng[k];'), []);
+  // A shell option whose value goes on past its line is not `false`.
+  assert.deepEqual(rules('spawn("x", [], { shell: false\n  === mode });\nfunction spawn() {}\nconst mode = 1;'), ["shell"]);
 });
 
 test("a declaration a line ends declares as any other, and so does the one after it with no `;` between (Д-480)", () => {
   const local = (...lines) => `${CP}export let run = null;\nexport function f(o) {\n${lines.map((line) => `  ${line}\n`).join("")}  return run;\n}`;
-  for (const lines of [["const a = 1", "let run = cp"], ["const a = String(1)", "const run = cp"], ["let a = 0", "let run", "run = cp"]]) {
+  for (const lines of [["const a = 1", "let run = cp"], ["const a = String(1)", "const run = cp"], ["let a = 0", "let run", "run = cp"], ["const a = 1", "const { default: run } = cp"]]) {
     assert.deepEqual(rules(local(...lines)), [], lines.join("⏎"));
   }
   assert.deepEqual(rules(`${CP}export var run = null;\nexport function f(o) {\n  var a = 1\n  var { run } = o\n  run = cp\n  return run\n}`), []);
@@ -138,4 +145,45 @@ test("a declaration a line ends declares as any other, and so does the one after
     const lines = ["const a = 1", "const b = 2", "const c = 3", "const d = 4"].map((line, index) => (index === at ? "let run = cp" : line));
     assert.deepEqual(rules(local(...lines)), [], lines.join("⏎"));
   }
+});
+
+test("a method's parameters are a list whatever names the method and wherever its body begins; a call stays a call (Д-481)", () => {
+  const methods = {
+    "#catch({ shell }) {": "export class A {\n  #catch({ shell }) {\n    return shell;\n  }\n}",
+    "#function({ shell }) {": "export class A {\n  #function({ shell }) {\n    return shell;\n  }\n}",
+    "with({ shell }) {": "export class Builder {\n  with({ shell }) {\n    return shell;\n  }\n}",
+    "if, for, while, switch": "export class A {\n  if({ shell }) {}\n  for({ shell }) {}\n  while({ shell }) {}\n  switch({ shell }) {}\n}",
+    "an object's with({ shell }) {": "export const b = {\n  with({ shell }) {\n    return shell;\n  }\n};",
+    "get with() {, set with(value) {": "export const z = {\n  get with() { return 1; },\n  set with({ shell }) {}\n};",
+    "m({ shell })⏎{": "export class A {\n  m({ shell })\n  {\n    return shell;\n  }\n}",
+    "m({ shell: useShell = false })⏎{": "export class A {\n  m({ shell: useShell = false })\n  {\n    return useShell;\n  }\n}"
+  };
+  for (const [name, source] of Object.entries(methods)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
+  // Each names the exported let it binds: not the module's.
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  #catch(run) {\n    run = cp;\n  }\n}`), []);
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  m(run)\n  {\n    run = cp;\n  }\n}`), []);
+  // A member's `#catch` is a call, and a call in a property's value or a field's initializer holds an option, not a list.
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  #catch(x) { return x; }\n  m() {\n    this.#catch(run)\n    {\n    }\n  }\n}\nrun = cp;`), ["child_process.exec"]);
+  assert.deepEqual(rules('import { spawn } from "node:child_process";\nexport const o = { child: spawn("x", [], { shell: true }) };'), ["shell"]);
+  assert.deepEqual(rules('import { spawn } from "node:child_process";\nexport class A {\n  child = spawn("x", [], { shell: true });\n}'), ["shell"]);
+});
+
+test("a field named class before a static block, a list that never closes, and the conditions no test held (Д-486 … Д-489)", () => {
+  // No class is named `static`: the block's code is code, not the class's fields. A sloppy script's function may be,
+  // and its body stays its own: a `/` after the function expression divides.
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  class\n  static {\n    run = cp;\n  }\n}`), ["child_process.exec"]);
+  assert.deepEqual(rules('var x = function static() {} / 2 + "/"; eval("1");\n', { script: true }), ["eval"]);
+  assert.doesNotThrow(() => forbiddenCalls("{\nf("));
+  assert.doesNotThrow(() => forbiddenCalls("{\n  const x = f(1,\n"));
+  // Only a word right in a substitution walks nothing: a declaration in a function there declares (Д-488).
+  assert.deepEqual(rules(`${CP}export let run;\nexport const t = ${BT}\${(() => {\n  let run = cp;\n  return run;\n})()}${BT};`), []);
+  // A statement `with`'s parentheses hold its object; a template's commas are not the arguments'; a template's end is
+  // where it ends; `extends` in a computed key is no heritage; an arrow needs its `>`; `class` after a newline is a
+  // field's name, and the method after it names nothing the file declares.
+  assert.deepEqual(rules("with ({ shell: true }) {}\n", { script: true }), ["shell"]);
+  assert.deepEqual(rules(`const a = 1, b = 2;\nrequire.call(${BT}\${a, b}${BT}, "child_process").exec("x");`), ["child_process.exec"]);
+  assert.deepEqual(rules(`${CP}export let run;\nexport const f = (a = ${BT}\${a}${BT}, run) => {\n  run = cp;\n};`), []);
+  assert.deepEqual(rules(`${CP}export let run;\nconst o = {};\nexport class A {\n  class\n  [o.extends](x) {\n    run = cp;\n  }\n}`), ["child_process.exec"]);
+  assert.deepEqual(rules(`${CP}export let run;\nif ((run) === 1) {}\nrun = cp;`), ["child_process.exec"]);
+  assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  class\n  run() {}\n}\nrun = cp;`), ["child_process.exec"]);
 });

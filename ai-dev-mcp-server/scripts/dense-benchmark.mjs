@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * The numbers Д-62's acceptance criterion (2) is decided on, measured on a
- * machine that has the weights.
+ * Dense search measured on a machine that has the real weights (docs/DEFECTS.md,
+ * Д-101).
  *
- * This session could not run it: `huggingface.co` and `download.pytorch.org`
- * are closed to it, so neither backend's model can be fetched here. It runs in
- * `.github/workflows/dense-eval.yml`, once per backend, and the two JSON
- * documents it writes are compared there.
+ * This session could not run it: `huggingface.co` is closed to it, so the
+ * model cannot be fetched here. It runs in `.github/workflows/dense-eval.yml`,
+ * on the ONNX export, the one backend 3.0 has (decision D3); the comparison of
+ * int8 with fp32 that Д-62's criterion (2) asks for is the 2.x line's, whose
+ * copy of that workflow keeps a job for each (Д-491).
  *
  * What it measures, in the order a user meets them: how long the backend takes
  * to answer its first query (cold start, which for ONNX is the session load),

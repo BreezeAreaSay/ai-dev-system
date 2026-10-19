@@ -1760,14 +1760,18 @@ four of those arrived as upstream issues #63–#66.
   name is bound to; a call's arguments are values, whatever follows them — a block on the next line,
   or a class's body after a heritage's member call — so an exported `let` named in them is still
   caught, and an object in them is an object, its `shell` option refused; a parameter list is told by
-  `function`, `catch`, `=>` or a body begun on the line it ends on, so a method whose body begins a
-  line of its own is read as a call; a word `const`, `let` or `var` declares only with a name, `{`
-  or `[` after it — a JSON Schema's `const:` key declares nothing — and `function`, `function*` or
-  `class` only where it is no member, a template's commas are its own, and a class's field is a
-  member, neither an alias nor an export; and a file it cannot read to its end — a template or a
-  comment that never closes — is refused rather than passed (Д-382, Д-398, Д-399, Д-407 … Д-410,
-  Д-422 … Д-424, Д-426, Д-432, Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464 … Д-466, Д-472,
-  Д-473, Д-476). It follows the module object and the global objects through plain re-binding and
+  `function`, `catch`, `=>`, a method's place — right in a class's body or an object literal, a `{`
+  after it, whatever the method is named (`with`, `#catch`) and wherever the `{` stands — or a body
+  begun on the line it ends on; a word `const`, `let` or `var` declares only with a name, `{` or `[`
+  after it — a JSON Schema's `const:` key declares nothing — and so does the one on the line after a
+  declaration with no `;`, and `function`, `function*` or `class` only where it is no member; a
+  declaration's or a list's walk steps over a template whole; a class's field is a member, neither an
+  alias nor an export (one on a line after `n++`, or after a field named `in`, is still read as an
+  assignment), and `class⏎static {` is a field and a static block; and a file it cannot read to its
+  end — a template or a comment that never closes — is refused rather than passed, and a list that
+  never closes is reported rather than thrown on (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424,
+  Д-426, Д-432, Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464 … Д-466, Д-472, Д-473, Д-476,
+  Д-480, Д-481, Д-486, Д-487, Д-490). It follows the module object and the global objects through plain re-binding and
   nothing else: a module name built from parts, `createRequire`, `Reflect.get`, a loader bound to
   another name or reached any other way (`.bind`, `Reflect.apply`, a condition, an array,
   `require["call"]`), the module put in an object or an array (`module.exports = { cp }`,
@@ -1776,11 +1780,12 @@ four of those arrived as upstream issues #63–#66.
   an exported `let` or `var` a pattern declares or whose name the file declares again — a local, a
   parameter, a function, a class — a global taken out of itself by a pattern (`{ globalThis: g } =
   globalThis`), and `await` or `yield` written as a name in a script are past it, and said to be
-  (Д-431, Д-432, Д-440, Д-448, Д-450, Д-459, Д-460, Д-464). Bracket pairs are worked out once, a
+  (Д-431, Д-432, Д-440, Д-448, Д-450, Д-459, Д-460, Д-464, Д-476). Bracket pairs are worked out once, a
   closing bracket of another kind looks only a few levels down, a `from` that begins no clause stops
   at once, whether a bracket is a pattern is asked once, a key in brackets is read without copying
   them, a value's plain name is worked out once for each place it starts, a declaration's walk ends
-  where its statement does and no word it passed is walked again (Д-474), a chain is walked back only
+  where its statement does, no word it passed is walked again and none starts right in a template's
+  substitution (Д-474, Д-488), a chain is walked back only
   for a call with the module's name, and where a regular expression's reading failed on a line no
   later one reads it again in the state it read it (Д-476), so a file costs what its length does: 5,922 dependency files are read to the end in about 18 s, and, each the median of five
   runs in a fresh process, a 448 kB minified line in 0.4 s, where it took 10 s, 552 kB of keys in

@@ -43,16 +43,15 @@
  *   whose value nobody can see. A `shell` that is not an option is left alone:
  *   an import, a parameter, a destructuring pattern, an argument (Д-382, Д-398).
  *
- * A parameter list is told from a call's arguments by `function`, `catch` or
- * `=>`, or by a body that begins on the line the list ends on: a call's
- * arguments are values, a block after them or a class's body after a
- * heritage's call (`f({ shell: true })⏎{`), and a name in them declares
- * nothing. So a method whose body begins on a line of its own is read as a
- * call: a `{ shell }` among its parameters is refused, and its parameters
- * declare no name (Д-466, Д-472). A name is declared again by a declaration —
- * `const`, `let` or `var` with a name, `{` or `[` after it, not a key or a
- * method of that name —, a parameter, or `function`, `function*` or `class`
- * that is no member; a template's commas are its own (Д-473, Д-476).
+ * A parameter list is told from a call's arguments by `function`, `catch`,
+ * `=>`, a method's place — right in a class's body or an object literal, a `{`
+ * after it, whatever the name — or a body begun on the line it ends on: a
+ * call's arguments are values, a block or a class's body after them, and a
+ * name in them declares nothing (Д-466, Д-472, Д-481). A name is declared
+ * again by a declaration — `const`, `let` or `var` with a name, `{` or `[`
+ * after it, not a key or a method of that name —, a parameter, or `function`,
+ * `function*` or `class` that is no member; a declaration's or a list's walk
+ * steps over a template whole (Д-473, Д-476, Д-490).
  *
  * It is a reader, not a parser. It follows the module object and the global
  * objects through plain re-binding, and nothing else through anything: a
@@ -103,27 +102,28 @@ const assignmentAt = (tokens, index) => {
 const assignedAt = (tokens, index) => (logicalAssignment(tokens, index) ? index - 3 : index - 1);
 
 /**
- * Whether the `(` at `open` begins a parameter list: a function's —
- * `function f(run)`, `function* (run)` —, a `catch`'s, an arrow's, or a
- * method's, whose body begins on the line the list ends on. A call's
- * arguments never do: a block after them begins on a line of its own
- * (`f(run)⏎{`), and the `{` after a class heritage's call is the class's body;
- * nor what a statement keyword's parentheses hold — `if`, `while`, `for`,
- * `for await`, `with`, `switch` (Д-466, Д-472).
+ * Whether the `(` at `open` begins a parameter list: a function's — `function f(run)`, `function* (run)` —, a `catch`'s
+ * (no member's: `#` names one after `.`, so `this.#catch(run)` is a call), an arrow's, or a method's — right in a class's
+ * body or an object literal, a `(` a `{` follows, whatever names it (`with`, `#catch`) and wherever the `{` stands. A
+ * call's arguments never do: elsewhere a block after them begins on a line of its own (`f(run)⏎{`), the `{` after a
+ * heritage's call is the class's body, and a statement keyword's parentheses hold none (Д-466, Д-472, Д-481, Д-487).
  */
 function parameterList(tokens, open) {
   const shut = closing(tokens, open);
+  if (shut < 0) return false;
   if (isPunct(tokens[shut + 1], "=") && isPunct(tokens[shut + 2], ">")) return true;
-  const member = (index) => isPunct(tokens[index - 1], ".") || isPunct(tokens[index - 1], "#");
+  const member = (index) => isPunct(tokens[index - 1], ".") || (isPunct(tokens[index - 1], "#") && isPunct(tokens[index - 2], "."));
   let at = open - 1;
   if (isName(tokens[at], "catch")) return !member(at);
   if (isName(tokens[at]) && !isName(tokens[at], "function")) at -= 1;
   if (isPunct(tokens[at], "*")) at -= 1;
   if (isName(tokens[at], "function")) return !member(at);
   const body = tokens[shut + 1];
-  if (!isPunct(body, "{") || body.line !== tokens[shut].line || body.literal === true || body.classBody === true) return false;
+  if (!isPunct(body, "{") || body.literal === true || body.classBody === true) return false;
+  const holder = tokens[enclosing(tokens, open)];
+  if (holder?.classBody === true || holder?.literal === true) return true;
   const head = tokens[open - 1];
-  return !isName(head) || !(HEAD_KEYWORDS.has(head.value) || head.value === "switch" || (head.value === "await" && isName(tokens[open - 2], "for")));
+  return body.line === tokens[shut].line && (!isName(head) || !(HEAD_KEYWORDS.has(head.value) || head.value === "switch" || (head.value === "await" && isName(tokens[open - 2], "for"))));
 }
 
 /**
@@ -391,8 +391,9 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
   const exportedNames = new Set();
   const declared = new Set();
   tokens.forEach((token, index) => {
-    if (!isName(token) || !DECLARATIONS.has(token.value) || walked[index] === 1 || isMember(index)) return;
-    // What a declaration declares follows its word: `{ const: 1 }`, `let() {}`, `[let, let]` declare nothing (Д-473).
+    if (!isName(token) || !DECLARATIONS.has(token.value) || walked[index] === 1 || token.substitution === true || isMember(index)) return;
+    // What a declaration declares follows its word: `{ const: 1 }`, `let() {}`, `[let, let]` declare nothing (Д-473), and
+    // none stands right in a template's substitution, where a walk would run past the template (Д-488).
     if (!isName(tokens[index + 1]) && !isPunct(tokens[index + 1], "{") && !isPunct(tokens[index + 1], "[")) return;
     const out = isName(tokens[index - 1], "export");
     for (let at = index + 1; at < tokens.length; at += 1) {

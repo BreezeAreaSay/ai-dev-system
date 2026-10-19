@@ -25,6 +25,7 @@ import {
   dockerEntryOptions,
   dockerLaunch,
   missingBindSources,
+  refusedMount,
   unreadableMounts
 } from "../core/docker-launch.mjs";
 import { checkServerCommand } from "../core/mcp-client-check.mjs";
@@ -292,14 +293,17 @@ export function commandWord(word, platform = process.platform) {
  * image in place of the one the entry ran (docs/DEFECTS.md, Д-397). It writes
  * this client's entry alone: written for every client found, it made a client
  * of a local install a Docker one, and it drops `--model` whichever of the
- * folders gone is the model's (Д-414).
+ * folders gone is the model's (Д-414). A `--mount` Docker 29 cannot read is
+ * not read back, so the command writes the entry without it, and says so
+ * (Д-433).
  *
  * @param {string} client - The id of the client whose entry it is.
  * @param {{ args?: unknown }} entry
  * @param {ReturnType<typeof missingBindSources>} gone
+ * @param {string[]} [unreadable] - The entry's `--mount` values Docker 29 cannot read.
  * @returns {string}
  */
-function missingMountError(client, entry, gone) {
+export function missingMountError(client, entry, gone, unreadable = []) {
   const [first] = gone;
   const options = dockerEntryOptions(entry?.args);
   const roleOf = (mount) => (mount.target === CONTAINER_MODELS || mount.target === CONTAINER_MODEL_DIR ? "model"
@@ -307,11 +311,13 @@ function missingMountError(client, entry, gone) {
   const roles = [...new Set(gone.map(roleOf))];
   // Why install cannot make a folder again: mkdir fails through a link that leads nowhere — the folder itself (Д-414)
   // or one on the way — under a file, and where this user may not write, as at the root-owned mount point of a disk
-  // not connected (Д-429). Another folder is named for it then.
+  // not connected (Д-429); and on a root that is not there, as on Windows the drive of a disk not connected (Д-434).
+  // Another folder is named for it then.
   const why = (mount) => (mount.leadsTo ? "through a link that leads nowhere" : {
     link: `through ${mount.unmakeable?.at}, a link that leads nowhere`,
     file: `under ${mount.unmakeable?.at}, which is a file`,
-    write: `in ${mount.unmakeable?.at}, which you may not write to`
+    write: `in ${mount.unmakeable?.at}, which you may not write to`,
+    gone: `on ${mount.unmakeable?.at}, which is not there`
   }[mount.unmakeable?.why] ?? "");
   const elsewhere = new Map();
   for (const role of ["projects", "state"]) {
@@ -337,7 +343,8 @@ function missingMountError(client, entry, gone) {
   const ways = [
     ...(made.length ? [`, which makes the ${gone.length > 1 ? `${made.join(" and ")} ` : ""}folder${made.length > 1 ? "s" : ""}`] : []),
     ...[...reasons].map(([reason, list]) => ` with another ${list.join(" folder and another ")} folder in place of ${list.map(placeholder).join(" and ")}, as install cannot make ${list.length > 1 ? "either" : "one"} ${reason}`),
-    ...(roles.includes("model") ? [" with another model folder (--model=<folder>) or with none, the model then the volume's"] : [])
+    ...(roles.includes("model") ? [" with another model folder (--model=<folder>) or with none, the model then the volume's"] : []),
+    ...(unreadable.length ? [` without its --mount ${unreadable.map((value) => JSON.stringify(value)).join(" and ")}, which Docker 29 cannot read`] : [])
   ];
   const disk = gone.length > 1 ? "them: connect the disks they are on" : `it: connect the disk ${first.leadsTo ? "it leads to" : "it is on"}`;
   return `${what}${more}. Docker starts no session without ${disk}, or write the entries again${ways.join(", and")}: \`${command}\`.`;
@@ -378,21 +385,25 @@ async function doctor(values, io) {
         continue;
       }
       // A folder the entry mounts that is not there: Docker would start no container, and the client gets only its
-      // error. Said as what it is, without starting it (Д-385).
+      // error. Said as what it is, without starting it (Д-385) — unless a --mount of the entry is one Docker 29 cannot
+      // read. That is no verdict: the CLIs before it read readonly=TRUE or bind-nonrecursive, and Docker 29 refuses the
+      // whole command over it before it looks at any folder. Such an entry is started like any other: that --mount is
+      // named as the likely cause only when Docker refused it, after its own words, and a folder gone is said whatever
+      // Docker said, as it is gone for every Docker (Д-417, Д-427, Д-433).
       const gone = kind === "docker" ? missingBindSources(entry?.args) : [];
-      if (gone.length) {
+      const unreadable = kind === "docker" ? unreadableMounts(entry?.args) : [];
+      if (gone.length && !unreadable.length) {
         report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: false, error: missingMountError(row.client, entry, gone) });
         continue;
       }
-      // A --mount Docker 29 cannot read is no verdict (nor is a folder then said to be missing): the CLIs before it
-      // read readonly=TRUE or bind-nonrecursive. The entry is started like any other, and that --mount is named as the
-      // likely cause only when the start fails, after Docker's own words (Д-417, Д-427).
-      const check = await checkServerCommand(entry, { timeoutMs, env: io.env });
-      const unreadable = kind === "docker" && !check.ok ? unreadableMounts(entry?.args) : [];
-      const cause = unreadable.length
-        ? { error: `${String(check.error ?? "").replace(/[.\s]+$/, "")}. Its --mount ${JSON.stringify(unreadable[0])} is the likely cause, one Docker 29 cannot read: correct it in ${tildify(row.file, home)}.` }
-        : {};
-      report.push({ client: row.client, label: labelOf(row), file: row.file, name, ...check, ...cause });
+      const { code, stderr, ...check } = await checkServerCommand(entry, { timeoutMs, env: io.env });
+      const refused = refusedMount(unreadable, { code, stderr });
+      const cause = refused === undefined ? ""
+        : `${String(check.error ?? "").replace(/[.\s]+$/, "")}. Its --mount ${JSON.stringify(refused)} is the likely cause, one Docker 29 cannot read: correct it in ${tildify(row.file, home)}.`;
+      // A start that answered is the verdict, whatever was found missing before it.
+      const advice = gone.length && !check.ok ? missingMountError(row.client, entry, gone, unreadable) : "";
+      const error = cause && advice ? `${cause} ${advice[0].toUpperCase()}${advice.slice(1)}` : cause || advice;
+      report.push({ client: row.client, label: labelOf(row), file: row.file, name, ...check, ...(error ? { error } : {}) });
     }
   }
   if (values.json) io.out(JSON.stringify({ clients: report }, null, 2));

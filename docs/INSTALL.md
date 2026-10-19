@@ -211,8 +211,8 @@ anyway is a deliberate choice: `sh ./bootstrap.sh --allow-stale-image` (`-AllowS
 Windows).
 
 The way back to 2.x is `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`, with the
-same `--project-path` and `--model-path` as every other run: this one too mounts only the folders it
-is given. A 2.x image has no installer of its own, so the configs that run it are written by an
+same `--project-path` and `--model-path` as every other run: it too reads no folder back from the
+entries it replaces. A 2.x image has no installer of its own, so the configs that run it are written by an
 image of 3.0 or later: `AI_DEV_INSTALLER_IMAGE`, `ghcr.io/stonebridgeway/ai-dev-system:latest` by
 default. It is pulled — a copy cached before 3.0 would be a 2.x one — and used only once it is seen
 to have the installer; otherwise bootstrap stops and asks for one (Д-323, Д-329). `:2` exists once

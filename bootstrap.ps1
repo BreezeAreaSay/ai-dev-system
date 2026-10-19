@@ -66,7 +66,8 @@ function Assert-Docker {
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
         throw "Docker Desktop is required: install it (winget install Docker.DockerDesktop, or https://docs.docker.com/get-docker/), start it, and run bootstrap.ps1 again."
     }
-    Invoke-Native { & docker version --format '{{.Server.Version}}' 2>$null }
+    # The engine's version is only asked for to see that it answers: it is not printed (Д-438).
+    $null = Invoke-Native { & docker version --format '{{.Server.Version}}' 2>$null }
     if ($LASTEXITCODE -eq 0) { return }
     $desktop = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
     if (Test-Path -LiteralPath $desktop) {
@@ -74,7 +75,7 @@ function Assert-Docker {
         Start-Process -FilePath $desktop -WindowStyle Hidden
         foreach ($attempt in 1..24) {
             Start-Sleep -Seconds 5
-            Invoke-Native { & docker version --format '{{.Server.Version}}' 2>$null }
+            $null = Invoke-Native { & docker version --format '{{.Server.Version}}' 2>$null }
             if ($LASTEXITCODE -eq 0) { return }
         }
     }
@@ -197,7 +198,21 @@ if (-not $SkipClientInstall) {
     # Only a dry run that passed and lists no client but skipped ones means none: one that failed — a client's
     # config it cannot read, say — leaves it to the install itself, which writes the others and names that one,
     # and whose exit decides (Д-428). The dry run's stderr is thrown away: the install says it again.
-    $planned = Invoke-Native { & $node $cli @installArgs --dry-run --json 2>$null }
+    # Its answer is read as the UTF-8 Node writes: both PowerShells decode a native command's output in the console's
+    # code page, and in a double-byte one (932, 936, 949, 950) a byte of a folder's name in UTF-8 takes the JSON's next
+    # \ or " with it (Д-435). A host that refuses the setting has its answer read as before.
+    $consoleEncoding = $null
+    try {
+        $consoleEncoding = [Console]::OutputEncoding
+        [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+    } catch {
+        $consoleEncoding = $null
+    }
+    try {
+        $planned = Invoke-Native { & $node $cli @installArgs --dry-run --json 2>$null }
+    } finally {
+        if ($null -ne $consoleEncoding) { [Console]::OutputEncoding = $consoleEncoding }
+    }
     $listed = $null
     if ($LASTEXITCODE -eq 0) {
         try { $listed = (($planned -join "`n") | ConvertFrom-Json).clients } catch { $listed = $null }

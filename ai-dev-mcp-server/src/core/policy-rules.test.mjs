@@ -613,25 +613,32 @@ test("a rule that is off after the edit is not matched at all: switched off or e
 
 test("a rule that is off with a sample that answers against it is listed as one that cannot be switched on, not as one an edit disarmed (Д-420)", async (t) => {
   const root = await tempProject(t, defaultPolicy("standard"));
-  // Written off, so their samples were never matched (Д-413): the example never matched, the counter-example always did.
+  // Written off, so their samples were never matched (Д-413): the example never matched, the counter-example always did;
+  // and the pattern that backtracks catastrophically on its example is one the guard does not run while it is off (Д-436).
   const unproved = { id: "destroy-later", event: "bash", pattern: "terraform destroy", action: "block", message: "Ask a human.", example: "terraform plan", enabled: false };
   const broad = { id: "kubectl-later", event: "bash", pattern: "kubectl\\s+", action: "warn", message: "Careful.", example: "kubectl delete pod x", counter_example: "kubectl get pods", enabled: false };
-  for (const rule of [unproved, broad]) assert.equal((await upsertPolicyRule({ projectRoot: root, rule })).action, "created");
+  const slow = { ...CATASTROPHIC_RULE, id: "slow-later", example: `${"a".repeat(40)}!`, enabled: false };
+  for (const rule of [unproved, broad, slow]) assert.equal((await upsertPolicyRule({ projectRoot: root, rule })).action, "created");
   const listed = await listPolicyRules(root);
   const byId = Object.fromEntries(listed.rules.map((rule) => [rule.id, rule]));
   assert.deepEqual(byId[unproved.id].problems, ["The example stored with the rule does not match its pattern: switching the rule on is refused until the pattern or the example is fixed."]);
   assert.deepEqual(byId[broad.id].problems, ["The counter-example stored with the rule matches its pattern: switching the rule on is refused until the pattern or the counter-example is fixed."]);
-  assert.equal(listed.counts.broken, 2, "each is still counted");
-  // As said: switching either on is refused.
+  assert.deepEqual([byId[slow.id].effective_action, byId[slow.id].match_timed_out], ["none", true]);
+  assert.deepEqual(byId[slow.id].problems, [`Matching this pattern against its own sample did not finish within ${DEFAULT_MATCH_BUDGET_MS} ms: it backtracks catastrophically, and switching the rule on is refused until the pattern is fixed. Bound the quantifiers; a quantified group whose branches overlap, as in (a|a)+, is the usual cause.`]);
+  assert.equal(listed.counts.broken, 3, "each is still counted");
+  // As said: switching any of them on is refused.
   await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: { id: unproved.id, enabled: true } }), /^Error: Rule "destroy-later" does not match its own example\./);
   await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: { id: broad.id, enabled: true } }), /^Error: Rule "kubectl-later" also matches its counter-example/);
-  // Switched on by hand, past those checks, the same samples are what an edit did to a rule that was on.
+  await assert.rejects(upsertPolicyRule({ projectRoot: root, rule: { id: slow.id, enabled: true } }), /^Error: Rule "slow-later" backtracks catastrophically/);
+  // Switched on by hand, past those checks, the same samples are what an edit did to a rule that was on — and the
+  // guard runs the slow one on every command.
   const policy = await readPolicy(root);
-  for (const rule of policy.rules) if (rule.id === unproved.id || rule.id === broad.id) rule.enabled = true;
+  for (const rule of policy.rules) if ([unproved.id, broad.id, slow.id].includes(rule.id)) rule.enabled = true;
   await fs.writeFile(path.join(root, ".ai-dev", "policy.json"), JSON.stringify(policy), "utf8");
   const edited = Object.fromEntries((await listPolicyRules(root)).rules.map((rule) => [rule.id, rule]));
   assert.match(edited[unproved.id].problems[0], /^The example stored with the rule no longer matches: the pattern was narrowed, or the example was edited\.$/);
   assert.match(edited[broad.id].problems[0], /^The counter-example stored with the rule now matches/);
+  assert.match(edited[slow.id].problems[0], /: it backtracks catastrophically, and the guard — which runs it on every Bash command and every file write — will abandon it instead of answering\. /);
 });
 
 test("where no worker thread can be made at all, a rule is still switched off, and switching it on is refused (Д-413)", async (t) => {

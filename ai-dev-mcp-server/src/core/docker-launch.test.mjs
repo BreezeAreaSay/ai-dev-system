@@ -19,6 +19,7 @@ import {
   missingBindSources,
   modelMount,
   probeStateSharing,
+  refusedMount,
   resolveDockerCommand,
   sharesHostState,
   unreadableMounts
@@ -134,22 +135,27 @@ test("a link to another disk is said when the entry is written, and a mount whos
 
   const args = ["run", "-i", "--mount", "type=volume,source=data,target=/data", "--mount", "type=bind,source=/here,target=/workspace",
     "--mount", "type=bind,source=/gone/bge-m3-onnx,target=/models/bge-m3-onnx,readonly", "img"];
-  assert.deepEqual(missingBindSources(args, { stat: statOf({ "/here": "" }) }), [{ source: "/gone/bge-m3-onnx", target: "/models/bge-m3-onnx" }]);
+  assert.deepEqual(missingBindSources(args, knownFs({ "/here": "" })), [{ source: "/gone/bge-m3-onnx", target: "/models/bge-m3-onnx" }]);
   assert.deepEqual(missingBindSources(args, { stat: () => ({}) }), []);
   assert.deepEqual(missingBindSources(undefined), []);
 });
 
-// A stat that knows a few paths: "" for one that is there, an error code for one that is not, ENOENT for the rest.
+// A stat that knows a few paths: "" for one that is there, an error code for one that is not, ENOENT for the rest —
+// but the root, which is there, as on every POSIX host: the walk up from a folder that is not there ends at it, and a
+// root that is not there is said (Д-434).
 function statOf(known) {
   return (file) => {
-    const code = known[file] ?? "ENOENT";
+    const code = known[file] ?? (file === "/" ? "" : "ENOENT");
     if (code) throw Object.assign(new Error(`${code}: ${file}`), { code });
     return {};
   };
 }
 
+// That file system, where this user may write: a folder that is not there is one install makes (Д-429).
+const knownFs = (known) => ({ stat: statOf(known), access: () => undefined });
+
 test("a --mount is read the way Docker's CLI reads it, and only a folder that is not there is missing (Д-397)", () => {
-  const gone = (...mount) => missingBindSources(["run", ...mount, "img"], { stat: statOf({ "/here": "" }) });
+  const gone = (...mount) => missingBindSources(["run", ...mount, "img"], knownFs({ "/here": "" }));
   // Every shape checked against Docker 29 itself: each of these it refuses to start with "bind source path does not exist".
   for (const mount of [
     ["--mount", "type=bind,source=/gone,target=/x,readonly"],
@@ -185,9 +191,9 @@ test("a --mount is read the way Docker's CLI reads it, and only a folder that is
 
   // Not there: ENOENT, and ENOTDIR for a file on the way. A folder this user may not look into is the daemon's to judge.
   const spec = (source) => ["run", "--mount", `type=bind,source=${source},target=/x`, "img"];
-  const stat = statOf({ "/a/file/x": "ENOTDIR", "/locked/x": "EACCES", "/loop": "ELOOP", "/busy": "EBUSY" });
-  assert.deepEqual(missingBindSources(spec("/a/file/x"), { stat }), [{ source: "/a/file/x", target: "/x" }]);
-  for (const source of ["/locked/x", "/loop", "/busy"]) assert.deepEqual(missingBindSources(spec(source), { stat }), [], source);
+  const known = knownFs({ "/a/file/x": "ENOTDIR", "/locked/x": "EACCES", "/loop": "ELOOP", "/busy": "EBUSY" });
+  assert.deepEqual(missingBindSources(spec("/a/file/x"), known), [{ source: "/a/file/x", target: "/x" }]);
+  for (const source of ["/locked/x", "/loop", "/busy"]) assert.deepEqual(missingBindSources(spec(source), known), [], source);
 
   // A link whose target is away says where it leads; a relative one, from where the link is.
   const link = (target) => ({ lstat: () => ({ isSymbolicLink: () => true }), readlink: () => target, stat: statOf({}) });
@@ -195,8 +201,8 @@ test("a --mount is read the way Docker's CLI reads it, and only a folder that is
   assert.equal(missingBindSources(spec("/m/bge-m3-onnx"), link("../disk2/model"))[0].leadsTo, path.resolve("/m", "../disk2/model"));
 });
 
-test("a --mount is read as Docker 29 reads it: up to the image, its own CSV lines, bind-create-src, and nothing from a command Docker refuses (Д-417)", () => {
-  const known = { stat: statOf({ "/here": "" }) };
+test("a --mount is read as Docker 29 reads it: up to the image, its own CSV lines, bind-create-src, and a value it refuses passed over, not the folders beside it (Д-417, Д-433)", () => {
+  const known = knownFs({ "/here": "" });
   const gone = (...args) => missingBindSources(["run", ...args], known);
   const away = [{ source: "/gone", target: "/x" }];
   // Each of these checked against Docker 29 itself: "bind source path does not exist" for every one.
@@ -219,15 +225,17 @@ test("a --mount is read as Docker 29 reads it: up to the image, its own CSV line
   ]) {
     assert.deepEqual(gone(...args), [], args.join(" "));
   }
-  // A value Docker's CLI refuses stops the whole command before any folder is looked at, the gone one beside it too.
+  // A value Docker 29's CLI refuses is passed over, and a folder gone beside it is found all the same: Docker 29 refuses
+  // the value before it looks at any folder, but the CLIs before it read some such values, and no Docker starts a
+  // session without the folder (Д-433).
   for (const value of ["type=bind,source=/gone,target=/x,bogus=1", "type=bind,source=/gone,target=/x,source", "type=bind, source=/gone,target=/x",
     ",type=bind,source=/gone,target=/x", "type=bind,,source=/gone,target=/x", "type=bind,source=/gone,target=/x,", "type=bind,source=,target=/x",
     "type=bind,source=/gone,target=/x,readonly=yes", "type=bind,source=/gone,target=/x,readonly=TRUE", "type=bind,source=/gone,target=/x,bind-create-src=",
     "type=bind,source=/gone,target=/x,bind-recursive=bogus", "type=bind,source=/gone,target=/x,bind-nonrecursive", "type=bind,source=/gone,target=/x,volume-nocopy",
     "type=bind,source=/gone,target=/x,tmpfs-size=1m", "source=/gone,target=/x,bind-create-src", "\n", ""]) {
-    assert.deepEqual(gone("--mount", value, "--mount", "type=bind,source=/gone,target=/y", "img"), [], JSON.stringify(value));
+    assert.deepEqual(gone("--mount", value, "--mount", "type=bind,source=/gone,target=/y", "img"), [{ source: "/gone", target: "/y" }], JSON.stringify(value));
   }
-  assert.deepEqual(gone("--mount=", "--mount", "type=bind,source=/gone,target=/y", "img"), [], "an empty --mount=");
+  assert.deepEqual(gone("--mount=", "--mount", "type=bind,source=/gone,target=/y", "img"), [{ source: "/gone", target: "/y" }], "an empty --mount=");
   // Which values those are, for the doctor to say; one after the image is the container's, and not among them.
   assert.deepEqual(unreadableMounts(["run", "--mount", "type=bind,source=/x,target=/y,bogus=1", "--mount", "type=bind,source=/gone,target=/z", "--mount=", "img", "--mount", "a,b"]), ["type=bind,source=/x,target=/y,bogus=1", ""]);
   assert.deepEqual(unreadableMounts(["run", "-i", "--mount", "\r\ntype=bind,source=/x,target=/y,bind-create-src", "img"]), []);
@@ -238,7 +246,7 @@ test("a --mount is read as Docker 29 reads it: up to the image, its own CSV line
 });
 
 test("a --mount value is trimmed as Docker 29 trims it, and one with a key or a value edged with space inside is not read (Д-427)", () => {
-  const gone = (value) => missingBindSources(["run", "--mount", value, "img"], { stat: statOf({}) });
+  const gone = (value) => missingBindSources(["run", "--mount", value, "img"], knownFs({}));
   const away = [{ source: "/gone", target: "/x" }];
   // Each checked against Docker 29.8.2, which starts them: what Go's TrimSpace takes off the whole value is no fault.
   for (const value of [" type=bind,source=/gone,target=/x", "\ttype=bind,source=/gone,target=/x", "type=bind,target=/x,source=/gone ",
@@ -289,6 +297,82 @@ test("a folder that is not there says why install could not make it again: a lin
   // The folder itself a link that leads nowhere: where it leads is said, as before (Д-414).
   assert.deepEqual(missingBindSources(spec("/home/me/Projects"), io({ ...home, "/home/me/Projects": "link:/media/disk2/Projects" }, ["/home/me"])),
     [{ source: "/home/me/Projects", target: "/home/me/Projects", leadsTo: path.resolve("/media/disk2/Projects") }]);
+});
+
+test("on Windows a folder on a drive or a share that is not there is one install cannot make: the way up ends at a root that is not there (Д-434)", () => {
+  // The review's Windows file system, read with Windows' path rules: C:\ and a user's folders, a junction to E:\ — the
+  // drive of a disk that is not connected — and a file. No E:\, no \\nas\share\.
+  const fault = (code, file) => Object.assign(new Error(`${code}: ${file}`), { code });
+  const paths = { "c:\\": "dir", "c:\\users": "dir", "c:\\users\\me": "dir", "c:\\users\\me\\ext-link": "link:E:\\", "c:\\users\\me\\notes.txt": "file" };
+  const windows = {
+    path: path.win32,
+    stat: (file) => {
+      const kind = paths[file.toLowerCase()];
+      if (!kind || kind.startsWith("link:")) throw fault("ENOENT", file);
+      return { isDirectory: () => kind === "dir" };
+    },
+    lstat: (file) => {
+      const kind = paths[file.toLowerCase()];
+      if (!kind) throw fault("ENOENT", file);
+      return { isSymbolicLink: () => kind.startsWith("link:") };
+    },
+    readlink: (file) => paths[file.toLowerCase()].slice("link:".length),
+    access: () => undefined
+  };
+  const spec = (source) => ["run", "--mount", `type=bind,source=${source},target=/workspace`, "img"];
+  const blocked = (source, io = windows) => {
+    const [gone] = missingBindSources(spec(source), io);
+    assert.equal(gone?.source, source);
+    return gone.unmakeable ?? null;
+  };
+  assert.deepEqual(blocked("E:\\Projects"), { at: "E:\\", why: "gone" });
+  assert.deepEqual(blocked("E:\\Work\\Projects"), { at: "E:\\", why: "gone" }, "the root, not the first folder on the way that is not there");
+  assert.deepEqual(blocked("\\\\nas\\share\\Projects"), { at: "\\\\nas\\share\\", why: "gone" });
+  // What the walk said before, it says as before: a link to that drive, a file on the way, a folder install makes.
+  assert.deepEqual(blocked("C:\\Users\\me\\Ext-link\\Projects"), { at: "C:\\Users\\me\\Ext-link", why: "link", leadsTo: "E:\\" });
+  assert.deepEqual(blocked("C:\\Users\\me\\notes.txt\\Projects"), { at: "C:\\Users\\me\\notes.txt", why: "file" });
+  assert.equal(blocked("C:\\Users\\me\\New\\Projects"), null);
+  // A relative folder's way up ends at ".", which is no root: nothing is said of it there.
+  assert.equal(blocked("rel\\Projects", { ...windows, stat: (file) => { throw fault("ENOENT", file); } }), null);
+});
+
+test("the --mount Docker's CLI refused is told by its own words, the value quoted as Go quotes it (Д-433)", () => {
+  // Docker 29.8.2's first line for each value it refused (`docker create --mount <value> …`, exit 125), as measured.
+  const refused = [
+    ["type=bind,source=/x,target=/y,readonly=TRUE", "invalid argument \"type=bind,source=/x,target=/y,readonly=TRUE\" for \"--mount\" flag: invalid value for 'readonly': invalid boolean value (\"TRUE\"): must be one of \"true\", \"1\", \"false\", or \"0\" (default \"true\")"],
+    ["type=bind,source=/x\u00a0,target=/y", "invalid argument \"type=bind,source=/x\\u00a0,target=/y\" for \"--mount\" flag: invalid value for 'source' in 'source=/x\u00a0': value should not have whitespace"],
+    ["\ufefftype=bind,source=/x,target=/y", "invalid argument \"\\ufefftype=bind,source=/x,target=/y\" for \"--mount\" flag: unknown option '\ufefftype' in '\ufefftype=bind'"],
+    ["type=bind,source=/x\t,target=/y", "invalid argument \"type=bind,source=/x\\t,target=/y\" for \"--mount\" flag: invalid value for 'source' in 'source=/x\t': value should not have whitespace"],
+    ["type=bind,source=C:\\Users\\me,target=/y,bogus=1", "invalid argument \"type=bind,source=C:\\\\Users\\\\me,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/\u041f\u0440\u043e\u0435\u043a\u0442\u044b \u{1F600},target=/y,bogus=1", "invalid argument \"type=bind,source=/\u041f\u0440\u043e\u0435\u043a\u0442\u044b \u{1F600},target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\u200b,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\u200b,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\u0001\u0007\u000b,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\x01\\a\\v,target=/y,bogus=1\" for \"--mount\" flag: invalid value for 'source' in 'source=/x\u0001\u0007\u000b': value should not have whitespace"],
+    ["type=bind,source=/x\u00ad,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\u00ad,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\u007f,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\x7f,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\u2028,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\u2028,target=/y,bogus=1\" for \"--mount\" flag: invalid value for 'source' in 'source=/x\u2028': value should not have whitespace"],
+    ["type=bind,source=/x\u0085z,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\u0085z,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\"q\",target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\\"q\\\",target=/y,bogus=1\" for \"--mount\" flag: parse error on line 1, column 20: bare \" in non-quoted-field"],
+    ["type=bind,source=/x\u{1F600}\u{E0001}\u{10FFFF},target=/y,bogus=1", "invalid argument \"type=bind,source=/x\u{1F600}\\U000e0001\\U0010ffff,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\u3000y,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\u3000y,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
+    ["type=bind,source=/x\u0300\u200d\u2060\u180e,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\u0300\\u200d\\u2060\\u180e,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"]
+  ];
+  const usage = "\n\nUsage:  docker run [OPTIONS] IMAGE [COMMAND] [ARG...]\n\nRun 'docker run --help' for more information\n";
+  for (const [value, said] of refused) {
+    assert.equal(refusedMount(["type=volume,source=v,target=/data,bogus=1", value], { code: 125, stderr: `${said}${usage}` }), value, said);
+  }
+  // CLI 27.5.1 in its own words, of a value it does not trim (Docker 29 does, and reads it): that value, not another.
+  const cli27 = "invalid argument \" type=volume,source=r5c-lead27,target=/data\" for \"--mount\" flag: unexpected key ' type' in ' type=volume'\nSee 'docker run --help'.\n";
+  assert.equal(refusedMount([" type=volume,source=r5c-lead27,target=/data"], { code: 125, stderr: cli27 }), " type=volume,source=r5c-lead27,target=/data");
+  assert.equal(refusedMount(["type=bind,source=/m,target=/models,readonly=TRUE"], { code: 125, stderr: cli27 }), undefined, "a value Docker did not name");
+  // A start that failed otherwise is no --mount's doing: another exit, the daemon's words, or none.
+  const [[value, said]] = refused;
+  assert.equal(refusedMount([value], { code: 1, stderr: said }), undefined);
+  assert.equal(refusedMount([value], { code: null, stderr: said }), undefined);
+  assert.equal(refusedMount([value], { code: 125, stderr: "docker: Error response from daemon: invalid mount config for type \"bind\": bind source path does not exist: /gone\n" }), undefined);
+  assert.equal(refusedMount([value], { code: 125 }), undefined);
+  assert.equal(refusedMount([], { code: 125, stderr: said }), undefined);
+  // A value is told whole: one that ends another value Docker quoted is not it.
+  assert.equal(refusedMount(["b"], { code: 125, stderr: "invalid argument \"x\\\"b\" for \"--mount\" flag: bare \" in non-quoted-field\n" }), undefined);
 });
 
 test("an entry's options are read back from what it runs, so writing it again keeps them (Д-397)", () => {

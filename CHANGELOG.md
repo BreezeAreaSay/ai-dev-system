@@ -230,8 +230,12 @@ has it with what each one says.
   install replaced, 2.x's, Docker's or another install's, which stays in the install's backup — and
   otherwise cuts out only the entry;
   `doctor` starts each entry's command and checks that it answers `initialize` with
-  instructions (six of six, 313–361 ms), naming a command that died by its error line;
-  `--timeout=<seconds>` gives each more than 30 s; `--dry-run` shows what would change.
+  instructions (six of six, 313–361 ms), naming a command that died by its error line — a long one
+  by its start and its end, cut between two characters, not inside a surrogate pair (Д-427, Д-438);
+  `--timeout=<seconds>` gives each more than 30 s, and a command still running a few seconds after
+  it is told to stop — a container whose first process ignores SIGTERM, a Docker CLI waiting on an
+  engine that hangs — is killed, so that the doctor returns (Д-437); `--dry-run` shows what would
+  change.
 
 - **The local model is one command, and gets through a broken connection, a proxy and a
   mirror** (`docs/DEFECTS.md`, Д-98; Д-73's missing resume). `npm run model -- install`
@@ -699,10 +703,13 @@ has it with what each one says.
   array, which `-Clients` refuses) and `run bootstrap.ps1 again` — and ends "no AI client is
   connected to it yet"; with `--skip-client-install` (`-SkipClientInstall`) it ends "the AI clients'
   configs were left as they were" (Д-406, Д-415, Д-421). `bootstrap.ps1` asks the installer first
-  (`--dry-run --json`) whether there is a client, and only a dry run that passed and lists none
-  means none: one that failed over a client's config it cannot read goes on to the install, which
-  writes the others, names that one and exits 1, as in `bootstrap.sh` (Д-428). `bootstrap.ps1` runs
-  under Windows PowerShell 5.1 with the image's stderr thrown away safely (Д-320).
+  (`--dry-run --json`) whether there is a client, its answer read as the UTF-8 Node writes — in a
+  double-byte console code page a folder's name past ASCII made it unreadable — and only a dry run
+  that passed and lists none means none: one that failed over a client's config it cannot read goes
+  on to the install, which writes the others, names that one and exits 1, as in `bootstrap.sh`, and
+  so does one whose answer it cannot read (Д-428, Д-435). `bootstrap.ps1` runs under Windows
+  PowerShell 5.1 with the image's stderr thrown away safely (Д-320), and no longer prints the
+  engine's version first (Д-438).
 - **The image's tags** (owner decision D9, Д-108): a push to `main` is `:edge`; a release tag
   `vX.Y.Z` is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`, a prerelease only its own name; the browser
   variant has the same tags with `-browser`. A manual run with `freeze_2x` copies the current
@@ -1709,8 +1716,10 @@ four of those arrived as upstream issues #63–#66.
   the guard does not run it: it can be switched off where no worker thread starts, and it is matched
   when it is switched on (Д-413). So its samples may never have matched: `list_policy_rules` says of
   an example that does not match it, or a counter-example that does, that switching the rule on is
-  refused until the pattern or that sample is fixed — not that an edit narrowed the pattern — and
-  still counts it in `broken` (Д-420).
+  refused until the pattern or that sample is fixed — not that an edit narrowed the pattern — and of
+  a pattern that backtracks catastrophically on a sample, that switching it on is refused until the
+  pattern is fixed — not that the guard runs it on every command, which it does not; and it still
+  counts each in `broken` (Д-420, Д-436).
 - **The static gate reads what the code does, not how it is spelled** (Д-267). It looked for the
   usual spellings of `exec`, `shell: true` and `eval`, and every equivalent passed:
   `import * as cp` with `cp.exec(…)`, a default import, `execSync`, `{ "shell": true }`,
@@ -1776,15 +1785,20 @@ four of those arrived as upstream issues #63–#66.
   link leads, and a command that writes that client's entry again (`--clients=<client>`) with the
   image and folders it had, less `--model` when the model's folder is among those gone, and with
   `--projects=<projects-folder>` or `--state=<state-folder>` for one install cannot make: through a
-  link that leads nowhere — the folder's own, or one on its path, as to a disk not connected — or in
-  a folder you may not write to, as the root-owned mount point of a disk not connected; a reason
-  both share is said once (Д-385, Д-397, Д-414, Д-417, Д-429, Д-430). On Windows the command
+  link that leads nowhere — the folder's own, or one on its path, as to a disk not connected — under
+  a file, in a folder you may not write to, as the root-owned mount point of a disk not connected, or
+  on a root that is not there, as on Windows the drive of a disk not connected (`E:\`) or a share
+  not reached; a reason both share is said once (Д-385, Д-397, Д-414, Д-417, Д-429, Д-430,
+  Д-434). On Windows the command
   is quoted for PowerShell and cmd.exe alike, in double quotes — in single ones, which only
   PowerShell reads, for a word with a `$`, a backtick or a double quote (Д-430). It reads a `--mount`
   as Docker 29 does — the value trimmed, up to the image, a `bind-create-src` source never missing —
   but does not judge an entry by that: one with a `--mount` Docker 29 cannot read — the CLIs before
   it take `readonly=TRUE` or `bind-nonrecursive` — is started like any other, and that `--mount` is
-  named as the likely cause, after Docker's own words, only when the start fails (Д-417, Д-427).
+  named as the likely cause, after Docker's own words, only when Docker refused it — exit 125 and
+  `for "--mount" flag` in its words, as CLI 24.0.9, 27.5.1 and 29.8.2 all say — not when the start
+  failed for another reason; a folder gone beside it is said all the same, the command noting that it
+  writes the entry without that `--mount` (Д-417, Д-427, Д-433).
 - **`npm run demo` counts the skills it ran with and leaves your home alone** (Д-110, Д-374,
   Д-389). It printed a skill count written into the script, and the search index it built claimed
   the index of the person's own `~/.ai-dev`; the count now comes from `list_skill_groups` (614), and

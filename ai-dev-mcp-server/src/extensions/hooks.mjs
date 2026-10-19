@@ -79,7 +79,7 @@ export function createHookTools(host) {
       },
       {
         name: "list_policy_rules",
-        description: "List the guard rules in .ai-dev/policy.json with the guard's own reading of each: whether it is enabled, whether a match blocks or only warns, and what stops it from working — a pattern that does not compile, an event the guard never evaluates, or a stored example the pattern does not match (for a rule that is off, one that keeps it from being switched on).",
+        description: "List the guard rules in .ai-dev/policy.json with the guard's own reading of each: whether it is enabled, whether a match blocks or only warns, and what stops it from working — a pattern that does not compile, an event the guard never evaluates, or a stored example the pattern does not match (for a rule that is off, one that keeps upsert_policy_rule from switching it on).",
         inputSchema: {
           type: "object",
           properties: { project_path: { type: "string" } },

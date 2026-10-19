@@ -37,14 +37,22 @@ const NOISE = [
  * itself was Node's version, and a moved clone was reported as "Node.js
  * v22.22.0" (docs/DEFECTS.md, Д-169). A line past 300 characters keeps its
  * start and its end: Docker says why it refused a `--mount` after the whole
- * value, which a long path made the part cut off (Д-427).
+ * value, which a long path made the part cut off (Д-427). Each cut falls
+ * between two characters, not inside a surrogate pair: half of one is no
+ * character, and `--json` wrote it as `\ud83d` (Д-438).
  */
 function errorLine(text) {
   const lines = text.split(/\r?\n/).filter((line) => line.trim() && !NOISE.some((pattern) => pattern.test(line)));
   const named = (line) => /\b(?:error|exception)\b/i.test(line);
   const line = (lines.findLast((each) => named(each) && !/^\s/.test(each)) ?? lines.findLast(named) ?? lines.at(-1) ?? "").trim();
-  return line.length > 300 ? `${line.slice(0, 150)}\u2026${line.slice(-149)}` : line;
+  if (line.length <= 300) return line;
+  const head = /[\ud800-\udbff]/.test(line[149]) ? 149 : 150;
+  const tail = /[\udc00-\udfff]/.test(line[line.length - 149]) ? line.length - 150 : line.length - 149;
+  return `${line.slice(0, head)}\u2026${line.slice(tail)}`;
 }
+
+/** How long a command told to stop has to exit before it is killed (Д-437). */
+const STOP_GRACE_MS = 5000;
 
 /**
  * @typedef {object} CommandCheck
@@ -54,14 +62,16 @@ function errorLine(text) {
  * @property {string} [protocolVersion]
  * @property {number} [instructions] - Length of the instructions it sent.
  * @property {string} [error] - What went wrong, in a sentence.
+ * @property {number | null} [code] - The exit code of a command that ended before it answered (null for a signal).
+ * @property {string} [stderr] - The end of what such a command wrote to stderr, as it wrote it.
  */
 
 /**
  * @param {{ command: string, args?: unknown[], env?: Record<string, string> }} entry
- * @param {{ timeoutMs?: number, env?: NodeJS.ProcessEnv, spawnProcess?: typeof spawn }} [options]
+ * @param {{ timeoutMs?: number, env?: NodeJS.ProcessEnv, spawnProcess?: typeof spawn, killAfterMs?: number }} [options]
  * @returns {Promise<CommandCheck>}
  */
-export function checkServerCommand(entry, { timeoutMs = 30_000, env = process.env, spawnProcess = spawn } = {}) {
+export function checkServerCommand(entry, { timeoutMs = 30_000, env = process.env, spawnProcess = spawn, killAfterMs = STOP_GRACE_MS } = {}) {
   const started = Date.now();
   const command = String(entry?.command ?? "");
   const args = Array.isArray(entry?.args) ? entry.args.map(String) : [];
@@ -69,11 +79,21 @@ export function checkServerCommand(entry, { timeoutMs = 30_000, env = process.en
     let settled = false;
     let child = null;
     let timer = null;
+    // Told to stop as an MCP client tells a server — its stdin closed, and SIGTERM — and killed if it is still there
+    // a few seconds on: a child that runs keeps this process from exiting, and `docker run -i` passes SIGTERM to a
+    // container whose first process may not stop for it, as `sleep` does not; nor does a Docker CLI that waits on an
+    // engine that hangs (Д-437). Node signals no child that has exited, so one that stopped is not killed.
+    const stop = () => {
+      if (!child) return;
+      child.stdin.end();
+      child.kill();
+      setTimeout(() => child.kill("SIGKILL"), killAfterMs).unref();
+    };
     const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      child?.kill();
+      stop();
       resolve({ ...result, ms: Date.now() - started });
     };
     if (!command) {
@@ -135,7 +155,7 @@ export function checkServerCommand(entry, { timeoutMs = 30_000, env = process.en
     child.on("close", (code, signal) => {
       const why = signal ? `was stopped by ${signal}` : `exited with code ${code}`;
       const said = errorLine(stderr);
-      finish({ ok: false, error: `it ${why} before answering${said ? `: ${said}` : ""}` });
+      finish({ ok: false, error: `it ${why} before answering${said ? `: ${said}` : ""}`, code, stderr });
     });
     child.stdin.write(`${JSON.stringify(INITIALIZE)}\n`);
   });

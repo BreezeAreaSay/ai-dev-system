@@ -108,7 +108,7 @@ you used the Python backend (`npm run setup -- --model`).
   environment, none without either — in place of their `AI_DEV_MODEL_PATH`. If they set either, name
   it again, and give bootstrap the same options every time you run it again:
   `sh ./bootstrap.sh --project-path "$HOME/Dev"`, and `--model-path "$HOME/.ai-dev/models"` only if
-  your entries had a model folder — bootstrap refuses one that is not there (exit 64).
+  your entries had a model folder — bootstrap refuses one that is not there (bootstrap.sh exits 64).
 - **The volume is kept.** Its first start under the new image takes about 15 seconds, once. Its skills are
   brought up to the 3.0 seed by the seed's manifest instead of 2.x's copy-if-missing: what only 2.x
   shipped is removed; a seed file you edited keeps your edit, with the update beside it as

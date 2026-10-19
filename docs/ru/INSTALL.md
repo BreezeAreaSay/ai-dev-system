@@ -210,8 +210,8 @@ sh ./bootstrap.sh --project-path "$HOME/Dev" --clients "codex,cursor,vscode"
 выбор: `sh ./bootstrap.sh --allow-stale-image` (`-AllowStaleImage` на Windows).
 
 Путь назад, на 2.x, — `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2` с теми же
-`--project-path` и `--model-path`, что при каждом запуске: и этот запуск монтирует только те папки,
-которые ему назвали. У образа 2.x нет своего установщика, поэтому конфиги для него пишет образ 3.0
+`--project-path` и `--model-path`, что при каждом запуске: и этот запуск не берёт папки из прежних
+записей. У образа 2.x нет своего установщика, поэтому конфиги для него пишет образ 3.0
 или новее: `AI_DEV_INSTALLER_IMAGE`, по умолчанию `ghcr.io/stonebridgeway/ai-dev-system:latest`. Он
 скачивается — копия, закэшированная до 3.0, была бы образом 2.x — и используется, только если в нём
 есть установщик; иначе bootstrap останавливается и просит его (Д-323, Д-329). `:2` появится с

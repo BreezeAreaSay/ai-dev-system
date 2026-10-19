@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import { spawn, spawnSync } from "node:child_process";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { checkServerCommand } from "./mcp-client-check.mjs";
 
 /** A child process that answers its first line on stdin with `reply`. */
@@ -120,4 +126,122 @@ test("a command that does not exist, an empty one, and one that never answers", 
   assert.match(silent.error, /no answer to initialize within 0 s/);
   const thrown = await checkServerCommand({ command: "node" }, { spawnProcess: () => { throw new Error("EACCES"); } });
   assert.match(thrown.error, /node could not be started: EACCES/);
+});
+
+test("a line too long to keep whole is cut between characters, never inside a surrogate pair (Д-438)", async () => {
+  const lone = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+  const said = async (line) => (await checkServerCommand({ command: "node", args: [] }, {
+    spawnProcess: fakeSpawn((child) => {
+      child.stderr.write(`${line}\n`);
+      setImmediate(() => child.emit("close", 1, null));
+    })
+  })).error.replace("it exited with code 1 before answering: ", "");
+  // The review's line: 301 characters, an emoji at 149 and 150, where the head is cut.
+  const head = `Error: ${"x".repeat(142)}\u{1F600}${"y".repeat(150)}`;
+  assert.equal(await said(head), `Error: ${"x".repeat(142)}\u2026${"y".repeat(149)}`);
+  // An emoji at the first two places the tail keeps: it is kept whole.
+  const tail = `Error: ${"x".repeat(150)}\u{1F600}${"y".repeat(148)}`;
+  assert.equal(tail.length, 307);
+  assert.equal(await said(tail), `Error: ${"x".repeat(143)}\u2026\u{1F600}${"y".repeat(148)}`);
+  // Both edges at once, and neither: the cut as before, 150 and 149 characters around the ellipsis.
+  const both = `Error: ${"x".repeat(142)}\u{1F600}${"z".repeat(10)}\u{1F600}${"y".repeat(148)}`;
+  assert.equal(await said(both), `Error: ${"x".repeat(142)}\u2026\u{1F600}${"y".repeat(148)}`);
+  const plain = `Error: ${"x".repeat(400)}`;
+  assert.equal(await said(plain), `Error: ${"x".repeat(143)}\u2026${"x".repeat(149)}`);
+  for (const line of [head, tail, both]) assert.doesNotMatch(await said(line), lone);
+});
+
+test("a command that ended before it answered gives back its exit code and its stderr as written (Д-433)", async () => {
+  const stderr = "invalid argument \"type=bind,source=/x,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'\nSee 'docker run --help'.\n";
+  const result = await checkServerCommand({ command: "docker", args: [] }, {
+    spawnProcess: fakeSpawn((child) => {
+      child.stderr.write(stderr);
+      setImmediate(() => child.emit("close", 125, null));
+    })
+  });
+  assert.deepEqual([result.ok, result.code, result.stderr], [false, 125, stderr]);
+  const silent = await checkServerCommand({ command: "node", args: [] }, { timeoutMs: 50, spawnProcess: fakeSpawn(() => undefined) });
+  assert.deepEqual([silent.code, silent.stderr], [undefined, undefined], "a check that ended otherwise has neither");
+});
+
+// A real child that records how it ended; `exit` resolves once it is gone. Whatever a test found, none outlives it:
+// a child still running would keep the test's own process from exiting.
+function recordedSpawn(children, t) {
+  t.after(() => {
+    for (const { child } of children) child.kill("SIGKILL");
+  });
+  return (command, args, options) => {
+    const child = spawn(command, args, options);
+    children.push({ child, exit: new Promise((resolve) => child.once("exit", (code, signal) => resolve({ code, signal, at: Date.now() }))) });
+    return child;
+  };
+}
+
+// On Windows a child is stopped by TerminateProcess, SIGTERM or not: there is no signal to ignore.
+const signals = { skip: process.platform === "win32" && "no SIGTERM to ignore on Windows" };
+
+test("a command that does not stop for SIGTERM is killed a few seconds on, so the doctor can exit (Д-437)", signals, async (t) => {
+  const children = [];
+  // As a container whose first process has no handler for SIGTERM, behind `docker run -i`: it never answers either.
+  const deaf = { command: process.execPath, args: ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"] };
+  const started = Date.now();
+  const result = await checkServerCommand(deaf, { timeoutMs: 1000, killAfterMs: 500, spawnProcess: recordedSpawn(children, t) });
+  assert.equal(result.error, "no answer to initialize within 1 s");
+  const ended = await Promise.race([children[0].exit, new Promise((resolve) => setTimeout(() => resolve(null), 10_000))]);
+  assert.ok(ended, "the child is gone");
+  assert.equal(ended.signal, "SIGKILL");
+  assert.ok(ended.at - started < 1000 + 500 + 2000, `gone ${ended.at - started} ms after the start`);
+});
+
+test("a command that stops for SIGTERM, or when its stdin closes, is not killed (Д-437)", signals, async (t) => {
+  const children = [];
+  const answer = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { serverInfo: { name: "s", version: "1" }, instructions: "Begin." } });
+  // One that answers and stops for SIGTERM, as a Node server does; one that ignores SIGTERM and stops at the end of its input.
+  const polite = `process.stdin.once("data", () => console.log(${JSON.stringify(answer)})); setInterval(() => {}, 1000)`;
+  const reader = `process.on("SIGTERM", () => {}); process.stdin.on("data", () => {}); process.stdin.on("end", () => process.exit(0)); setInterval(() => {}, 1000)`;
+  for (const script of [polite, reader]) {
+    const result = await checkServerCommand({ command: process.execPath, args: ["-e", script] }, { timeoutMs: 5000, killAfterMs: 3000, spawnProcess: recordedSpawn(children, t) });
+    assert.equal(result.ok, script === polite, result.error);
+  }
+  const [stopped, ended] = await Promise.all(children.map((each) => each.exit));
+  assert.deepEqual([stopped.code, stopped.signal], [null, "SIGTERM"]);
+  assert.deepEqual([ended.code, ended.signal], [0, null]);
+});
+
+test("clients doctor exits after an entry that does not stop for SIGTERM: it is killed a few seconds on (Д-437)", async (t) => {
+  const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-doctor-"));
+  const pidFile = path.join(home, "deaf.pid");
+  // Whatever the doctor did, nothing it started outlives the test.
+  t.after(async () => {
+    const pid = Number(await fs.readFile(pidFile, "utf8").catch(() => "0"));
+    try {
+      if (pid) process.kill(pid, "SIGKILL");
+    } catch {
+      // Gone, as it should be.
+    }
+    await fs.rm(home, { recursive: true, force: true });
+  });
+  await fs.mkdir(path.join(home, ".cursor"));
+  const script = "require('node:fs').writeFileSync(process.env.DEAF_PID, String(process.pid)); process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)";
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: process.execPath, args: ["-e", script], env: { DEAF_PID: pidFile } } } }));
+  const cli = fileURLToPath(new URL("../../bin/ai-dev.mjs", import.meta.url));
+  const env = {
+    ...process.env, HOME: home, USERPROFILE: home, APPDATA: path.join(home, "AppData", "Roaming"), LOCALAPPDATA: path.join(home, "AppData", "Local"),
+    XDG_CONFIG_HOME: path.join(home, ".config"), CODEX_HOME: "", CLAUDE_CONFIG_DIR: "", AI_DEV_HOME: ""
+  };
+  const started = Date.now();
+  const doctor = spawnSync(process.execPath, [cli, "clients", "doctor", "--clients=cursor", "--timeout=1"], { env, encoding: "utf8", timeout: 30_000 });
+  const took = Date.now() - started;
+  assert.equal(doctor.status, 1, `${doctor.signal ?? ""} ${doctor.stdout}${doctor.stderr}`);
+  assert.match(doctor.stdout, /Cursor\s+FAILED — no answer to initialize within 1 s\n/);
+  assert.ok(took < 15_000, `the doctor exited ${took} ms after it started`);
+  assert.throws(() => process.kill(Number(readFileSync(pidFile, "utf8")), 0), { code: "ESRCH" }, "the entry's process is gone");
+  // A server that answers and stops for SIGTERM, as a Node one does: the doctor does not wait out the grace after it.
+  const answer = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { serverInfo: { name: "s", version: "1" }, instructions: "Begin." } });
+  const polite = `process.stdin.once("data", () => console.log(${JSON.stringify(answer)})); setInterval(() => {}, 1000)`;
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: process.execPath, args: ["-e", polite] } } }));
+  const quick = Date.now();
+  const answered = spawnSync(process.execPath, [cli, "clients", "doctor", "--clients=cursor"], { env, encoding: "utf8", timeout: 30_000 });
+  assert.equal(answered.status, 0, `${answered.stdout}${answered.stderr}`);
+  assert.ok(Date.now() - quick < 5000, `the doctor exited ${Date.now() - quick} ms after it started`);
 });

@@ -970,3 +970,65 @@ test("bootstrap.ps1 throws a native command's stderr away only inside Invoke-Nat
   assert.deepEqual(outside, []);
   assert.ok(lines.filter((line) => /Invoke-Native \{/.test(line)).length >= 5, "the handshake, the engine checks and the cached image's age");
 });
+
+/**
+ * A `node` first on PATH for bootstrap.ps1: the installer's dry run (`--dry-run`) prints the bytes of `answer` and exits
+ * 0, as a dry run that passed does; every other run is the real node's.
+ */
+async function nodeWhoseDryRunSays(home, answer) {
+  const bin = path.join(path.dirname(home), "node-bin");
+  await fs.mkdir(bin, { recursive: true });
+  await fs.writeFile(path.join(bin, "dry-run.out"), answer);
+  const quoted = (text) => `'${text.replaceAll("'", "'\\''")}'`;
+  await fs.writeFile(path.join(bin, "node"), `#!/bin/sh\nfor a in "$@"; do [ "$a" = --dry-run ] && { cat ${quoted(path.join(bin, "dry-run.out"))}; exit 0; }; done\nexec ${quoted(process.execPath)} "$@"\n`, { mode: 0o755 });
+  return bin;
+}
+
+test("bootstrap.ps1 whose dry run answers with no JSON it can read leaves it to the install, whose result stands; and it prints no Docker version (Д-435, Д-438)", async (context) => {
+  if (process.platform === "win32") return context.skip("the stub docker is a shell script");
+  const { home, env } = await powerShellHome(context, { folders: [".cursor"] });
+  const bin = await nodeWhoseDryRunSays(home, "(not JSON)\n");
+  const written = runPowerShellBootstrap(["-SkipSmoke"], home, { ...env, PATH: `${bin}${path.delimiter}${env.PATH}` });
+  if (written.error?.code === "ENOENT") return context.skip("pwsh is unavailable on this host");
+  assert.equal(written.status, 0, `stdout: ${written.stdout}\nstderr: ${written.stderr}`);
+  const lines = powerShellLines(written.stdout);
+  // The engine's version (27.0.0 from the stub) is not the first thing said.
+  assert.equal(lines[0], "Pulling ghcr.io/stonebridgeway/ai-dev-system:latest...");
+  assert.match(written.stdout, /Writing the AI clients' configs\.\.\.\n {2}Cursor {18}added {9}~\/\.cursor\/mcp\.json\n/);
+  assert.equal(lines.at(-1), "AI Dev is ready. Restart the AI clients to load ai-dev.");
+  assert.equal(JSON.parse(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"].args[0], "run");
+  // A client's config the install cannot read: it names that one and fails, and so does the script.
+  await fs.mkdir(path.join(home, ".gemini"));
+  await fs.writeFile(path.join(home, ".gemini", "settings.json"), "{ \"mcpServers\": { broken");
+  const failed = runPowerShellBootstrap(["-SkipSmoke"], home, { ...env, PATH: `${bin}${path.delimiter}${env.PATH}` });
+  assert.equal(failed.status, 1, `stdout: ${failed.stdout}\nstderr: ${failed.stderr}`);
+  assert.match(failed.stdout, / {2}Gemini CLI {14}FAILED {8}~\/\.gemini\/settings\.json: /);
+  assert.match(powerShellMessage(failed.stderr), /Writing the client configs failed \(exit code 1\)\./);
+});
+
+test("bootstrap.ps1 reads the dry run as the UTF-8 Node writes, under a console code page that is not, and gives that code page back (Д-435)", async (context) => {
+  if (process.platform === "win32") return context.skip("the stub docker is a shell script");
+  const { home, env } = await powerShellHome(context);
+  // What the dry run answers on Windows for a user whose folder is named past ASCII, no client found: the JSON as
+  // Node writes it. Read in a double-byte code page (936 here; 932, 949 and 950 alike), a byte of such a name takes
+  // the backslash after it with it, and the JSON does not parse.
+  const names = ["\u30db\u30fc\u30e0", "\u7528\u6237", "\uc0ac\uc6a9\uc790", "Jos\u00e9"];
+  const answer = `${JSON.stringify({ clients: names.map((name) => ({ client: "cursor", file: `C:\\Users\\${name}\\.cursor\\mcp.json`, status: "skipped", reason: "not installed (no ~\\.cursor)" })) }, null, 2)}\n`;
+  const bin = await nodeWhoseDryRunSays(home, answer);
+  const script = `[Console]::OutputEncoding = [Text.Encoding]::GetEncoding(936); & '${bootstrapPowerShell.replaceAll("'", "''")}' -ProjectPath '${path.join(home, "projects").replaceAll("'", "''")}' -SkipSmoke; "code page " + [Console]::OutputEncoding.CodePage`;
+  const result = spawnSync("pwsh", ["-NoLogo", "-NonInteractive", "-Command", script], { encoding: "utf8", env: { ...process.env, HOME: home, AI_DEV_MODEL_PATH: "", ...env, PATH: `${bin}${path.delimiter}${env.PATH}` } });
+  if (result.error?.code === "ENOENT") return context.skip("pwsh is unavailable on this host");
+  assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  const lines = powerShellLines(result.stdout);
+  assert.match(result.stdout, /\nNo AI client found here \(Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI\)\. Name one to write its config anyway, -Clients "cursor,vscode,/);
+  assert.doesNotMatch(result.stdout, /Writing the AI clients' configs/);
+  assert.deepEqual(lines.slice(-2), ["AI Dev is ready; no AI client is connected to it yet.", "code page 936"]);
+});
+
+// The engine's version is asked for to see that it answers, at the start and while Docker Desktop starts: neither is
+// printed (Д-438). The second runs only on Windows with Docker Desktop installed, so this holds it on the text.
+test("bootstrap.ps1 throws away each Docker version it asks for (Д-438)", async () => {
+  const lines = (await fs.readFile(bootstrapPowerShell, "utf8")).split(/\r?\n/).filter((line) => /&\s*docker\s+version\b/.test(line.replace(/(^|\s)#.*$/, "")));
+  assert.equal(lines.length, 2);
+  for (const line of lines) assert.match(line, /^\s*\$null = Invoke-Native \{ & docker version /, line);
+});

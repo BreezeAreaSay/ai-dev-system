@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { readJsonc } from "../core/jsonc-edit.mjs";
-import { clientStatePath, commandWord } from "./clients.mjs";
+import { clientStatePath, commandWord, missingMountError } from "./clients.mjs";
 import { createIo } from "./context.mjs";
 import { parseSetupArgs } from "./setup.mjs";
 import { PassThrough } from "node:stream";
@@ -548,7 +548,8 @@ test("clients doctor's advice takes another folder where install could not make 
 });
 
 // A docker that runs what the CLIs before Docker 29 run, and refuses a --mount none of them reads, in the words of
-// Docker 29 — or of 27 with DOCKER_SAYS=27 — and with exit 125. What it runs answers initialize as the server does.
+// Docker 29 — or of 27 with DOCKER_SAYS=27 — and with exit 125. Past its options, it fails as the engine does with
+// DOCKER_FAILS: that line, and exit 125. What it runs answers initialize as the server does.
 const OLD_DOCKER = `#!/bin/sh
 printf '%s\\n' "$*" >> "$STUB_LOG"
 for a in "$@"; do
@@ -559,26 +560,34 @@ for a in "$@"; do
       exit 125 ;;
   esac
 done
+if [ -n "\${DOCKER_FAILS:-}" ]; then printf '%s\\n' "$DOCKER_FAILS" "See 'docker run --help'." >&2; exit 125; fi
 read -r line
 printf '%s\\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-06-18","serverInfo":{"name":"ai-dev-system","version":"3"},"instructions":"Begin with begin_task."}}'
 `;
 
-test("clients doctor starts an entry whose --mount it cannot read, and names that --mount only when Docker refuses to start it, after Docker's own words (Д-417, Д-427)", { skip: process.platform === "win32" && "a shell script for docker" }, async (t) => {
-  const { home, env } = await dockerEntryHome(t);
+// A home whose Cursor runs an entry of the given --mount values through the docker above, and `doctorOf`: the doctor
+// run on it, with how many times it started the entry.
+async function oldDockerHome(t) {
+  const { home, env, readEntry } = await dockerEntryHome(t);
   const docker = path.join(home, "old-cli", "docker");
   await fs.mkdir(path.dirname(docker));
   await fs.writeFile(docker, OLD_DOCKER, { mode: 0o755 });
   const log = path.join(home, "docker.log");
+  const doctorOf = async (mounts, says = "", fails = "", options = []) => {
+    await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: docker, args: ["run", "-i", "--rm", ...mounts.flatMap((mount) => ["--mount", mount]), "ai-dev-system:3"] } } }));
+    await fs.rm(log, { force: true });
+    const doctor = await runNode([cli, "clients", "doctor", ...options], { env: { ...env, STUB_LOG: log, DOCKER_SAYS: says, DOCKER_FAILS: fails } });
+    return { ...doctor, started: await fs.readFile(log, "utf8").then((text) => text.split("\n").filter(Boolean).length, () => 0) };
+  };
+  return { home, env, readEntry, doctorOf };
+}
+
+test("clients doctor starts an entry whose --mount it cannot read, and names that --mount only when Docker refuses to start it, after Docker's own words (Д-417, Д-427)", { skip: process.platform === "win32" && "a shell script for docker" }, async (t) => {
+  const { home, doctorOf } = await oldDockerHome(t);
   const projects = path.join(home, "Projects");
   const models = path.join(home, "models");
   await fs.mkdir(projects);
   await fs.mkdir(models);
-  const doctorOf = async (mounts, says = "") => {
-    await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev": { command: docker, args: ["run", "-i", "--rm", ...mounts.flatMap((mount) => ["--mount", mount]), "ai-dev-system:3"] } } }));
-    await fs.rm(log, { force: true });
-    const doctor = await runNode([cli, "clients", "doctor"], { env: { ...env, STUB_LOG: log, DOCKER_SAYS: says } });
-    return { ...doctor, started: await fs.readFile(log, "utf8").then((text) => text.split("\n").filter(Boolean).length, () => 0) };
-  };
   // Docker 29 trims a value: a space before it is no fault. And readonly=TRUE is what the CLIs before 29 take.
   for (const mounts of [
     [" type=volume,source=r4f-data,target=/data", `type=bind,source=${projects},target=${projects}`],
@@ -589,20 +598,62 @@ test("clients doctor starts an entry whose --mount it cannot read, and names tha
     assert.match(doctor.stdout, /Cursor\s+ok — ai-dev-system 3 answered in \d+ ms/);
     assert.equal(doctor.started, 1, "the entry was started");
   }
-  // One that Docker refuses: the entry is started all the same, and the --mount is named after Docker's own words —
-  // not the folders beside it, which Docker never looked at.
+  // One that Docker refuses: the entry is started all the same, and the --mount is named after Docker's own words;
+  // a folder gone beside it, which Docker 29 never looked at, is said after them — it is gone for every Docker (Д-433).
   const value = `type=bind,source=${path.join(home, "gone")},target=/x,bogus=1`;
+  const goneToo = path.join(home, "gone-too");
   for (const [says, reason] of [["", "unknown option 'bogus' in 'bogus=1'"], ["27", "unexpected key 'bogus' in 'bogus=1'"]]) {
-    const refused = await doctorOf([value, `type=bind,source=${path.join(home, "gone-too")},target=/y`], says);
+    const refused = await doctorOf([value, `type=bind,source=${goneToo},target=/y`], says);
     assert.equal(refused.code, 1);
     assert.equal(refused.started, 1);
-    assert.ok(refused.stdout.includes(`Cursor                  FAILED — it exited with code 125 before answering: invalid argument ${JSON.stringify(value)} for "--mount" flag: ${reason}. Its --mount ${JSON.stringify(value)} is the likely cause, one Docker 29 cannot read: correct it in ~${path.sep}${path.join(".cursor", "mcp.json")}.`), refused.stdout);
-    assert.doesNotMatch(refused.stdout, /is not here|Usage:|--help/);
+    assert.ok(refused.stdout.includes(`Cursor                  FAILED — it exited with code 125 before answering: invalid argument ${JSON.stringify(value)} for "--mount" flag: ${reason}. Its --mount ${JSON.stringify(value)} is the likely cause, one Docker 29 cannot read: correct it in ~${path.sep}${path.join(".cursor", "mcp.json")}. The folder this entry mounts at /y is not here: ${goneToo}. Docker starts no session without it: connect the disk it is on, or write the entries again, which makes the folder, and without its --mount ${JSON.stringify(value)}, which Docker 29 cannot read: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor --projects=${goneToo}\`.\n`), refused.stdout);
+    assert.doesNotMatch(refused.stdout, /Usage:|--help/);
   }
   // Docker gives its reason after the whole value: a line too long to keep whole loses its middle, not the reason.
   const long = `type=bind,source=${path.join(home, "x".repeat(240))},target=/x,bogus=1`;
   const cut = await doctorOf([long]);
   assert.match(cut.stdout, /FAILED — it exited with code 125 before answering: invalid argument "type=bind,source=[^…]+…[^…]+ for "--mount" flag: unknown option 'bogus' in 'bogus=1'\. Its --mount "type=bind,source=/);
+});
+
+test("clients doctor names a --mount Docker 29 cannot read only when Docker refused it: a start that failed otherwise is said in Docker's words, and a folder gone beside it as one (Д-433)", { skip: process.platform === "win32" && "a shell script for docker" }, async (t) => {
+  const { home, env, readEntry, doctorOf } = await oldDockerHome(t);
+  const models = path.join(home, "models");
+  await fs.mkdir(models);
+  // readonly=TRUE: Docker 29 refuses it, the CLIs before it read it. This one reads it, and the start fails for another
+  // reason — the image is not here — which is all that is said; nor do --json's items carry what the doctor read.
+  const odd = `type=bind,source=${models},target=/models,readonly=TRUE`;
+  const volume = "type=volume,source=r5f-data,target=/data";
+  const noImage = "docker: Error response from daemon: No such image: ai-dev-system:3";
+  const image = await doctorOf([volume, odd], "", noImage);
+  assert.deepEqual([image.code, image.started], [1, 1]);
+  assert.ok(image.stdout.includes(`Cursor                  FAILED — it exited with code 125 before answering: ${noImage}\n`), image.stdout);
+  assert.doesNotMatch(image.stdout, /likely cause|Docker 29|readonly=TRUE/);
+  const [item] = JSON.parse((await doctorOf([volume, odd], "", noImage, ["--json"])).stdout).clients;
+  assert.deepEqual([item.ok, "code" in item, "stderr" in item], [false, false, false]);
+  // The projects folder gone: beside a model mount every Docker reads, said without a start, --model kept; beside
+  // readonly=TRUE the entry is started (Docker 29 refuses that first), and the folder said unless the start answered.
+  const gone = path.join(home, "Projects-disk", "Projects");
+  const plain = await doctorOf([volume, `type=bind,source=${gone},target=${gone}`, `type=bind,source=${models},target=/models,readonly`]);
+  assert.equal(plain.started, 0);
+  assert.ok(plain.stdout.includes(`which makes the folder: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor --volume=r5f-data --projects=${gone} --model=${models}\`.\n`), plain.stdout);
+  const away = await doctorOf([volume, `type=bind,source=${gone},target=${gone}`, odd], "", `docker: Error response from daemon: invalid mount config for type "bind": bind source path does not exist: ${gone}`);
+  assert.deepEqual([away.code, away.started], [1, 1]);
+  assert.ok(away.stdout.includes(`Cursor                  FAILED — the folder this entry mounts at ${gone} is not here: ${gone}. Docker starts no session without it: connect the disk it is on, or write the entries again, which makes the folder, and without its --mount ${JSON.stringify(odd)}, which Docker 29 cannot read: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor --volume=r5f-data --projects=${gone}\`.\n`), away.stdout);
+  assert.doesNotMatch(away.stdout, /likely cause|bind source path/);
+  const [answered] = JSON.parse((await doctorOf([volume, `type=bind,source=${gone},target=${gone}`, odd], "", "", ["--json"])).stdout).clients;
+  assert.deepEqual([answered.ok, answered.error], [true, undefined]);
+  // The command as given writes the entry again: the folder made, that --mount gone, the volume kept.
+  const again = await runNode([cli, ...adviceWords(away.stdout).slice(1)], { env });
+  assert.equal(again.code, 0, `${again.stdout}${again.stderr}`);
+  await fs.access(gone);
+  const args = await readEntry();
+  assert.deepEqual([args.includes(volume), args.includes(`type=bind,source=${gone},target=${gone}`), args.some((argument) => /readonly=TRUE/.test(argument))], [true, true, false], args.join(" "));
+});
+
+test("clients doctor's advice for a folder on a drive that is not there takes another folder: install cannot make one on it (Д-434)", () => {
+  const entry = { args: ["run", "-i", "--rm", "--mount", "type=volume,source=ai-dev-system-data,target=/data", "--mount", "type=bind,source=E:\\Projects,target=/workspace", "ghcr.io/stonebridgeway/ai-dev-system:latest"] };
+  // What the walk up says on Windows of E:\Projects when E:\ is not there (docker-launch.test.mjs, Д-434).
+  assert.equal(missingMountError("cursor", entry, [{ source: "E:\\Projects", target: "/workspace", unmakeable: { at: "E:\\", why: "gone" } }]), `the folder this entry mounts at /workspace is not here: E:\\Projects. Docker starts no session without it: connect the disk it is on, or write the entries again with another projects folder in place of <projects-folder>, as install cannot make one on E:\\, which is not there: \`ai-dev clients install --docker --image=ghcr.io/stonebridgeway/ai-dev-system:latest --clients=cursor ${commandWord("--projects=<projects-folder>")}\`.`);
 });
 
 test("a command the doctor gives is quoted for the shell it is pasted into: a POSIX one, or on Windows PowerShell and cmd.exe alike (Д-417, Д-430)", (t) => {

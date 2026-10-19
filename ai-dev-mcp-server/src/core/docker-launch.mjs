@@ -422,10 +422,39 @@ export function unreadableMounts(args) {
   return runOptions(args).options.filter(([name, value]) => name === "mount" && (value === null || !parseMount(value))).map(([, value]) => value ?? "");
 }
 
+// A string as Go's %q writes it (strconv.Quote): a character Go prints as it is, the rest escaped — how Docker's CLI
+// quotes a value it refuses, checked against Docker 29.8.2 (Д-433).
+const GO_ESCAPES = new Map([["\u0007", "\\a"], ["\b", "\\b"], ["\f", "\\f"], ["\n", "\\n"], ["\r", "\\r"], ["\t", "\\t"], ["\v", "\\v"], ["\\", "\\\\"], ["\"", "\\\""]]);
+function goQuoted(text) {
+  return `"${[...text].map((character) => {
+    if (GO_ESCAPES.has(character)) return GO_ESCAPES.get(character);
+    if (/^[\p{L}\p{M}\p{N}\p{P}\p{S} ]$/u.test(character)) return character;
+    const code = character.codePointAt(0);
+    const [letter, digits] = code < 0x20 || code === 0x7f ? ["x", 2] : code < 0x10000 ? ["u", 4] : ["U", 8];
+    return `\\${letter}${code.toString(16).padStart(digits, "0")}`;
+  }).join("")}"`;
+}
+
+/**
+ * Which of `values` Docker's CLI refused to start a command over, by its own
+ * words: it exits 125 and says `invalid argument "<value>" for "--mount" flag`
+ * — CLI 24.0.9, 27.5.1 and 29.8.2 alike. None, when the command failed for
+ * another reason: a `--mount` Docker 29 cannot read is no cause of a start that
+ * an older CLI made and that failed otherwise (docs/DEFECTS.md, Д-433).
+ *
+ * @param {string[]} values
+ * @param {{ code?: number | null, stderr?: string }} ended - How the command ended, and what it wrote to stderr.
+ * @returns {string | undefined}
+ */
+export function refusedMount(values, { code, stderr = "" } = {}) {
+  if (code !== 125) return undefined;
+  return values.find((value) => stderr.includes(`invalid argument ${goQuoted(value)} for "--mount" flag`));
+}
+
 // Where a link leads, from where it is; "" for what is not a link, or one that cannot be read.
-function linkTarget(file, { lstat, readlink }) {
+function linkTarget(file, { lstat, readlink, path: paths }) {
   try {
-    return lstat(file).isSymbolicLink() ? path.resolve(path.dirname(file), readlink(file)) : "";
+    return lstat(file).isSymbolicLink() ? paths.resolve(paths.dirname(file), readlink(file)) : "";
   } catch {
     return "";
   }
@@ -436,14 +465,17 @@ function linkTarget(file, { lstat, readlink }) {
  * null when nothing here says it could not: on the way up to the nearest folder
  * that is there, a link that leads nowhere (`link`) or a file (`file`); or that
  * folder is not this user's to write in (`write`) — the root-owned mount point of
- * a disk that is not connected, say (docs/DEFECTS.md, Д-429).
+ * a disk that is not connected, say (docs/DEFECTS.md, Д-429); or the way up ends
+ * at a root that is not there (`gone`) — on Windows the drive of a disk that is
+ * not connected, `E:\`, or a share not reached, which no mkdir makes (Д-434).
  *
  * @param {string} folder
- * @param {{ stat: (file: string) => unknown, lstat: typeof lstatSync, readlink: typeof readlinkSync, access: typeof accessSync }} io
- * @returns {{ at: string, why: "link" | "file" | "write", leadsTo?: string } | null}
+ * @param {{ stat: (file: string) => unknown, lstat: typeof lstatSync, readlink: typeof readlinkSync, access: typeof accessSync, path: typeof path }} io
+ * @returns {{ at: string, why: "link" | "file" | "write" | "gone", leadsTo?: string } | null}
  */
 function unmakeable(folder, io) {
-  for (let child = folder, parent = path.dirname(folder); parent !== child; child = parent, parent = path.dirname(parent)) {
+  const paths = io.path;
+  for (let child = folder, parent = paths.dirname(folder); parent !== child; child = parent, parent = paths.dirname(parent)) {
     let found;
     try {
       found = io.stat(parent);
@@ -451,6 +483,7 @@ function unmakeable(folder, io) {
       if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") return null;
       const leadsTo = linkTarget(parent, io);
       if (leadsTo) return { at: parent, why: "link", leadsTo };
+      if (paths.parse(parent).root === parent) return { at: parent, why: "gone" };
       continue;
     }
     if (found?.isDirectory?.() === false) return { at: parent, why: "file" };
@@ -474,27 +507,28 @@ function unmakeable(folder, io) {
  * is gone; one that is not says why install could not make it again, where
  * something says so (`unmakeable`, Д-429). A mount with `bind-create-src` is not
  * missing anything: Docker makes its source. A `--mount` Docker 29 cannot read
- * stops the whole command before any folder is looked at, so then nothing is
- * said to be missing: the entry is Docker's to try (Д-417, Д-427).
+ * is passed over, not the ones beside it: Docker 29 refuses the whole command
+ * over it before it looks at any folder, but the CLIs before it read some such
+ * values, and a folder gone is gone for every one of them — so `clients doctor`
+ * starts such an entry, and says the folder unless the start answered (Д-417,
+ * Д-427, Д-433). `path` is the host's path rules, Windows' on Windows (Д-434).
  *
  * @param {string[]} args
- * @param {{ stat?: (file: string) => unknown, lstat?: typeof lstatSync, readlink?: typeof readlinkSync, access?: typeof accessSync }} [options]
+ * @param {{ stat?: (file: string) => unknown, lstat?: typeof lstatSync, readlink?: typeof readlinkSync, access?: typeof accessSync, path?: typeof path }} [options]
  * @returns {Array<{ source: string, target: string, leadsTo?: string, unmakeable?: ReturnType<typeof unmakeable> }>}
  */
-export function missingBindSources(args, { stat = statSync, lstat = lstatSync, readlink = readlinkSync, access = accessSync } = {}) {
-  const mounts = mountsOf(args);
-  if (mounts.includes(null)) return [];
+export function missingBindSources(args, { stat = statSync, lstat = lstatSync, readlink = readlinkSync, access = accessSync, path: paths = path } = {}) {
   const missing = [];
-  for (const mount of mounts) {
-    if (mount.type !== "bind" || !mount.source || mount.createsSource) continue;
+  for (const mount of mountsOf(args)) {
+    if (!mount || mount.type !== "bind" || !mount.source || mount.createsSource) continue;
     try {
       stat(mount.source);
       continue;
     } catch (error) {
       if (error?.code !== "ENOENT" && error?.code !== "ENOTDIR") continue;
     }
-    const leadsTo = linkTarget(mount.source, { lstat, readlink });
-    const blocked = leadsTo ? null : unmakeable(mount.source, { stat, lstat, readlink, access });
+    const leadsTo = linkTarget(mount.source, { lstat, readlink, path: paths });
+    const blocked = leadsTo ? null : unmakeable(mount.source, { stat, lstat, readlink, access, path: paths });
     missing.push({ source: mount.source, target: mount.target, ...(leadsTo ? { leadsTo } : {}), ...(blocked ? { unmakeable: blocked } : {}) });
   }
   return missing;

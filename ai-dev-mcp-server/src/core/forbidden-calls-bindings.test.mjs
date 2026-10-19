@@ -119,10 +119,23 @@ test("the declaration pass stays linear on words that declare nothing (Д-474)",
   assert.ok(timed(`var a = ${"let[0] + ".repeat(n)}1;\n`, { script: true }) < 4000, "a script's let indexed");
 });
 
-test("a line that begins with an operator carries the value on: a name bound to it is not the module's (Д-475)", () => {
-  for (const line of ["/ 2", "(0)", '["spawn"]', ".spawn", "* 2", "< 2"]) {
+test("a line that begins with an operator carries the value on: a name bound to it is not the module's (Д-475, Д-482)", () => {
+  for (const line of ["/ 2", "(0)", '["spawn"]', ".spawn", "* 2", "< 2", "=== undefined", "== null"]) {
     const source = `${CP}const c2 = cp\n${line}\nc2.exec("ls");`;
     assert.deepEqual(rules(source), [], source);
   }
   assert.deepEqual(rules("const g = globalThis\n/ 2\ng[0];"), []);
+});
+
+test("a declaration a line ends declares as any other, and so does the one after it with no `;` between (Д-480)", () => {
+  const local = (...lines) => `${CP}export let run = null;\nexport function f(o) {\n${lines.map((line) => `  ${line}\n`).join("")}  return run;\n}`;
+  for (const lines of [["const a = 1", "let run = cp"], ["const a = String(1)", "const run = cp"], ["let a = 0", "let run", "run = cp"]]) {
+    assert.deepEqual(rules(local(...lines)), [], lines.join("⏎"));
+  }
+  assert.deepEqual(rules(`${CP}export var run = null;\nexport function f(o) {\n  var a = 1\n  var { run } = o\n  run = cp\n  return run\n}`), []);
+  // Four in a row: each of them declares the name in turn.
+  for (let at = 0; at < 4; at += 1) {
+    const lines = ["const a = 1", "const b = 2", "const c = 3", "const d = 4"].map((line, index) => (index === at ? "let run = cp" : line));
+    assert.deepEqual(rules(local(...lines)), [], lines.join("⏎"));
+  }
 });

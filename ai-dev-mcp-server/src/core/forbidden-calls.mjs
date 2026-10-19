@@ -354,11 +354,11 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
 
   // Where a declaration goes on after one declarator — `run = cp`, `{ a } = b` — to the `,` before the next, or to where
   // it ends: a `;`, a bracket it did not open, or a line that begins a statement of its own. Each place it passes is
-  // marked: a word there is in its declaration, and not walked again — `var a = [let, let]` (Д-474).
+  // marked: a word there is in its declaration, and not walked again — a script's `var a = let[0] + let[0]` (Д-474).
+  // The place it ends at is not: `const a = 1⏎let run = cp` is a declaration of its own (Д-480).
   const walked = new Uint8Array(tokens.length + 1);
   const declaratorEnd = (at) => {
     for (let next = at; next < tokens.length; ) {
-      walked[next] = 1;
       const token = tokens[next];
       if ([",", ";", ")", "]", "}"].some((value) => isPunct(token, value))) return next;
       const previous = tokens[next - 1];
@@ -369,6 +369,7 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       if (next > at && token.line > previous.line && endsValue && isName(token) && token.value !== "in" && token.value !== "instanceof") return next;
       // `export` only ever begins a statement, and the walk stops there whatever came before (Д-444).
       if (next > at && isName(token, "export") && !isPunct(previous, ".")) return next;
+      walked[next] = 1;
       next = stepOver(tokens, next);
     }
     return tokens.length;

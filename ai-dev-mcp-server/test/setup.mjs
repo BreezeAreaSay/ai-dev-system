@@ -39,6 +39,12 @@ process.env.PYTHONDONTWRITEBYTECODE = "1";
 // its daemons on purpose, with an environment of its own, and stops them.
 process.env.AI_DEV_DAEMON = "0";
 
+// The suite checks the host: AI_DEV_RUNTIME=docker in a developer's shell would
+// make the install layout and every hint the image's. The tests about the
+// image give it themselves, as a value or in a child's environment
+// (docs/DEFECTS.md, Д-547).
+delete process.env.AI_DEV_RUNTIME;
+
 // `--experimental-test-coverage` sets NODE_V8_COVERAGE, and every process the
 // suite spawns — git, python, the installed hooks, the MCP smokes — inherits it
 // and creates its own coverage file in the same directory. A child that dies

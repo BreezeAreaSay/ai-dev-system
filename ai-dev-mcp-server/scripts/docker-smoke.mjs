@@ -12,11 +12,14 @@
  * 3. two sessions on another new volume, the second a moment after the first,
  *    as two clients start: Docker fills it as the first starts, the second
  *    waits for the copy, and neither builds anything (Д-355);
- * 4. the model through the volume (Д-99): one run with the network installs a
+ * 4. a volume made with a driver's options, a tmpfs: no name the image can
+ *    read at /data, so its advice for the model holds a placeholder for the
+ *    mount and says where the sessions keep /data (Д-539, Д-546);
+ * 5. the model through the volume (Д-99): one run with the network installs a
  *    model — a synthetic one, served from this machine as a Hugging Face mirror
  *    would — and embeds the documents; a session without the network then
  *    searches with it;
- * 5. a model folder of the host's, mounted at /models as `--model` writes it:
+ * 6. a model folder of the host's, mounted at /models as `--model` writes it:
  *    the command the start report gives builds the vectors offline, and the
  *    sessions use that folder (Д-341, Д-346).
  */
@@ -145,15 +148,15 @@ try {
     if (browser ? browserLine !== "comes with the image" : !/its -browser variant carries it/.test(browserLine)) {
       throw new Error(`The start report says of the browser: "${browserLine}".`);
     }
-    // The model goes into the volume the session runs on, whatever the host named it — in the start report and in the
-    // health check alike (Д-528, Д-541).
+    // The model goes into the volume the session runs on, whatever the host named it, and the start report calls it
+    // this one — in the start report and in the health check alike (Д-528, Д-541, Д-545).
     const modelLine = /Local BGE-M3 model: (.*)/.exec(stderr())?.[1] ?? "";
-    if (!modelLine.includes(`source=${volume},target=/data`)) {
+    if (!modelLine.includes(`source=${volume},target=/data`) || !modelLine.endsWith("puts it in this volume")) {
       throw new Error(`The start report's advice for the model does not name this volume, ${volume}: "${modelLine}".`);
     }
     const healthText = JSON.stringify(health);
     if (!healthText.includes(`source=${volume},target=/data`)) {
-      const advice = /docker run [^`"]*target=\/data[^`"]*/.exec(healthText)?.[0] ?? "no docker run with /data";
+      const advice = /docker run [^`"]*ai-dev model install/.exec(healthText)?.[0] ?? "no docker run for the model";
       throw new Error(`The health check's advice for the model does not name this volume, ${volume}: "${advice}".`);
     }
     Object.assign(report, {
@@ -191,7 +194,29 @@ try {
     spawnSync("docker", ["volume", "rm", "-f", pairVolume], { stdio: "ignore", shell: false });
   }
 
-  // 4. The model through the volume.
+  // 4. A volume made with a driver's options: the image reads no name at /data, and its advice holds a placeholder for
+  //    the mount, in the start report and in the health check alike (Д-539, Д-546).
+  const unnamedVolume = `${volume}-tmpfs`;
+  try {
+    const created = await docker(["volume", "create", "--driver", "local", "--opt", "type=tmpfs", "--opt", "device=tmpfs", unnamedVolume]);
+    if (created.status !== 0) throw new Error(`docker volume create with a driver's options exited ${created.status}: ${created.stderr.trim()}`);
+    await connect(session([], unnamedVolume), async ({ client, stderr }) => {
+      const modelLine = /Local BGE-M3 model: (.*)/.exec(stderr())?.[1] ?? "";
+      if (!modelLine.includes("--mount <what your sessions mount at /data> ") || !modelLine.endsWith("puts it where your sessions keep /data")) {
+        throw new Error(`On a volume made with a driver's options the start report's advice for the model is "${modelLine}".`);
+      }
+      const health = text(await client.callTool({ name: "system_health_check", arguments: {} }));
+      if (!health.includes("--mount <what your sessions mount at /data> ") || !health.includes("install it once where your sessions keep /data")) {
+        const advice = /[^"]*docker run [^`"]*ai-dev model install[^"]*/.exec(health)?.[0] ?? "no docker run for the model";
+        throw new Error(`On a volume made with a driver's options the health check's advice for the model is "${advice}".`);
+      }
+    });
+    report.unnamed_volume = "a placeholder for the mount";
+  } finally {
+    spawnSync("docker", ["volume", "rm", "-f", unnamedVolume], { stdio: "ignore", shell: false });
+  }
+
+  // 5. The model through the volume.
   if (withModel) {
     const mirror = await serveSyntheticModel();
     try {
@@ -226,7 +251,7 @@ try {
         };
       });
 
-      // 5. A model folder of the host's, mounted read-only at /models as `--model` writes it: the sessions use it,
+      // 6. A model folder of the host's, mounted read-only at /models as `--model` writes it: the sessions use it,
       //    and the start report's command builds the vectors with it, offline (docs/DEFECTS.md, Д-341, Д-346).
       const hostModels = path.join(mirror.folder, "models");
       for (const [name, body] of Object.entries(mirror.files)) {

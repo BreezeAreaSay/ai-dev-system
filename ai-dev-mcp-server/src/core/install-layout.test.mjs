@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { dockerCommand, frontendQaHint, hint, isEphemeralInstall, OWN_SERVER_ROOT, PACKAGE_NAME, resolveInstallLayout, runtimeRepairHint } from "./install-layout.mjs";
+import { dockerCommand, dockerEmbedCommand, frontendQaHint, hint, isEphemeralInstall, OWN_SERVER_ROOT, PACKAGE_NAME, resolveInstallLayout, runtimeRepairHint } from "./install-layout.mjs";
 
 const home = path.resolve("/home/me");
 const env = (extra = {}) => ({ HOME: home, USERPROFILE: "", ...extra });
@@ -149,6 +149,11 @@ test("hints are spelled the way each layout runs them", () => {
     "docker run --rm -it --network bridge --mount type=volume,source=team-data,target=/data <image> ai-dev model install");
   assert.equal(dockerCommand("setup --model", null),
     "docker run --rm -it --network bridge --mount <what your sessions mount at /data> <image> ai-dev model install");
+  // A model folder of the host's at /models is embedded with, offline, into the same place (Д-341, Д-546).
+  assert.equal(dockerEmbedCommand("team-data"), "docker run --rm -it --mount type=volume,source=team-data,target=/data "
+    + "--mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model");
+  assert.equal(dockerEmbedCommand(null), "docker run --rm -it --mount <what your sessions mount at /data> "
+    + "--mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model");
   assert.equal(hint("npm run check", global), "npm run check", "a script only a checkout has stays as written");
   assert.equal(hint("git pull", global), "git pull");
   const windows = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot: path.join(home, ".ai-dev") };

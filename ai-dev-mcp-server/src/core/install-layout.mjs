@@ -222,6 +222,20 @@ export function dockerCommand(words, volume = dataVolume()) {
 }
 
 /**
+ * The command that embeds the documents with a model folder of the host's,
+ * mounted at `/models` as `--model` writes it: `setup --model` finds the model
+ * whole and downloads nothing, so it needs no network (docs/DEFECTS.md, Д-341,
+ * Д-546).
+ *
+ * @param {string | null} [volume]
+ * @returns {string}
+ */
+export function dockerEmbedCommand(volume = dataVolume()) {
+  return `docker run --rm -it --mount ${dataMount(volume)} `
+    + "--mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model";
+}
+
+/**
  * How this install gets Frontend QA's browser. The image's default variant
  * ships none, and nothing installs into a client's read-only container without
  * the network: the `-browser` variant carries it (docs/DEFECTS.md, Д-316).

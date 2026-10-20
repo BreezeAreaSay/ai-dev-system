@@ -9,11 +9,13 @@
  * config, or a 2.x image's variables, is told in a sentence what replaced it
  * and the one command that moves them over, instead of being silently ignored.
  *
- * Pure on purpose: every probe arrives as a value, so each state — including
- * the ones only a stranger's machine reaches — is a test case. The one thing
- * read from the process is in the advice for a container: the volume at its
- * `/data` (docs/DEFECTS.md, Д-528, Д-541).
+ * Every probe arrives as a value, so each state — including the ones only a
+ * stranger's machine reaches — is a test case. What comes from the process
+ * itself: how this install spells its commands (the install layout `hint()`
+ * reads once), the platform where a caller names none, and in a container the
+ * volume at its `/data` (docs/DEFECTS.md, Д-528, Д-541, Д-547).
  */
+import { dataVolume } from "./docker-launch.mjs";
 import { dockerCommand, hint } from "./install-layout.mjs";
 
 /** The backend's name, as status payloads and index metadata record it. */
@@ -129,21 +131,27 @@ export function selectDenseBackend({ requested = "auto", onnxReady = false, supp
 /** Where 2.x's Docker launchers mount the host's model (`AI_DEV_MODEL_PATH` → `/models`, read-only). */
 export const DOCKER_MOUNTED_MODEL_DIR = "/models/bge-m3-onnx";
 
+// Where a model goes in a container: the data volume, or, where /data holds a mount with no volume's name, what the
+// sessions keep there (docs/DEFECTS.md, Д-547).
+const dataPlaceOf = (volume) => (volume === null ? "where your sessions keep /data" : "into the data volume");
+
 /**
  * What fixes the model inside a container, by the folder it is read from. The
  * host's folder at /models is a read-only mount, fixed on the host
  * (docs/DEFECTS.md, Д-157); the volume's is fixed by installing the model into
- * it, with the network that one run needs (Д-99).
+ * it, with the network that one run needs (Д-99) — and where `/data` holds a
+ * mount with no volume's name, into what the sessions keep there (Д-547).
  *
  * @param {string} [dir] - The model folder the container reads.
+ * @param {string | null} [volume] - The volume at `/data` ({@link dataVolume}).
  * @returns {string}
  */
-export function containerModelAdvice(dir = "") {
+export function containerModelAdvice(dir = "", volume = dataVolume()) {
   return dir === DOCKER_MOUNTED_MODEL_DIR
     ? "the folder is the host's, mounted read-only at /models (AI_DEV_MODEL_PATH): put the model right there on the host "
-      + "(`ai-dev model install --dir <that folder>/bge-m3-onnx`), or drop the mount and install it into the data volume."
-    : "install it into the data volume once, with the network that run needs: "
-      + `\`${dockerCommand("model install")}\`; `
+      + `(\`ai-dev model install --dir <that folder>/bge-m3-onnx\`), or drop the mount and install it ${dataPlaceOf(volume)}.`
+    : `install it ${volume === null ? `once ${dataPlaceOf(volume)}` : `${dataPlaceOf(volume)} once`}, with the network that run needs: `
+      + `\`${dockerCommand("model install", volume)}\`; `
       + "the sessions after it keep --network none. Or mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH).";
 }
 
@@ -152,13 +160,14 @@ export function containerModelAdvice(dir = "") {
  * permissions are put right by making it readable (docs/DEFECTS.md, Д-365).
  *
  * @param {string} unreadable - The error, as `EACCES: permission denied, …`.
- * @param {{ mounted?: boolean, platform?: string }} [options] - `mounted`: the host's folder at /models, in the image,
- *   whose host is not known; `platform`: this machine's, for a local install.
+ * @param {{ mounted?: boolean, platform?: string, volume?: string | null }} [options] - `mounted`: the host's folder at
+ *   /models, in the image, whose host is not known; `platform`: this machine's, for a local install; `volume`: the one
+ *   at the image's /data ({@link dataVolume}).
  * @returns {string}
  */
-export function unreadableModelAdvice(unreadable, { mounted = false, platform = process.platform } = {}) {
+export function unreadableModelAdvice(unreadable, { mounted = false, platform = process.platform, volume = dataVolume() } = {}) {
   const code = /^([A-Z]+):/.exec(String(unreadable ?? ""))?.[1] ?? "";
-  const orVolume = mounted ? ", or drop the mount and install the model into the data volume" : "";
+  const orVolume = mounted ? `, or drop the mount and install the model ${dataPlaceOf(volume)}` : "";
   if (code === "EACCES") {
     return mounted
       ? `The image runs as uid 1000: make the folder and its files readable to it on the host${orVolume}.`

@@ -723,10 +723,12 @@ has it with what each one says.
   a 2.x tag after 3.0, on a commit that carries this workflow, updates `:2`, never `:latest`
   (Д-325, Д-336).
 - **Hints the image gives are commands for the host**: `docker run --rm -it … <image> ai-dev …` into
-  the volume — the one at the image's `/data` by the name Docker or Podman keeps it under; the
-  default where a run mounts none there, and a placeholder for the mount where `/data` holds one
-  with no such name, a folder of the host's or a volume made with a driver's options (Д-528, Д-539,
-  Д-540) — with the network only for a download; Frontend QA in the default image points at the
+  the volume — the one at the image's `/data` by the name Docker or Podman keeps it under, which a
+  folder of the host's whose path ends `volumes/<name>/_data` reads as too; the default, named as the
+  default, where a run mounts none there or the name is 64 hex digits, as an anonymous volume's is; a
+  placeholder for the mount, and where your sessions keep `/data`, where it holds one with no such
+  name, a folder of the host's or a volume made with a driver's options (Д-528, Д-539, Д-540, Д-545,
+  Д-547) — with the network only for a download; Frontend QA in the default image points at the
   `-browser` variant instead of an install that cannot run in a client's container, and the start
   report says the same instead of setup's `--model` and `--frontend-qa` (Д-316, Д-328).
   The report checks the model, the vectors and the browser as `setup` does, so a volume with

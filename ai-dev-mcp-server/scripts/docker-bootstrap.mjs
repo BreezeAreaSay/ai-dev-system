@@ -28,12 +28,12 @@ import { fileURLToPath } from "node:url";
 import { DOCKER_MOUNTED_MODEL_DIR, containerModelAdvice } from "../src/core/dense-backend.mjs";
 import { readDenseManifest } from "../src/core/dense-manifest.mjs";
 import { defaultOnnxModelDir } from "../src/core/dense-onnx.mjs";
-import { dataMount, dataVolume } from "../src/core/docker-launch.mjs";
+import { dataPlace, dataVolume } from "../src/core/docker-launch.mjs";
 import { acquireFileLock } from "../src/core/file-lock.mjs";
 import { planFirstRun, renderFirstRunReport } from "../src/core/first-run.mjs";
 import { frontendQaInstalled } from "../src/core/frontend-qa-install.mjs";
 import { awaitImageDataCopy, restorePreparedTimes } from "../src/core/image-data.mjs";
-import { dockerCommand } from "../src/core/install-layout.mjs";
+import { dockerCommand, dockerEmbedCommand } from "../src/core/install-layout.mjs";
 import { modelStatus } from "../src/core/model-manager.mjs";
 import { QA_ROOT, frontendQaStatus } from "../src/core/setup-runner.mjs";
 import { FILE_CLOCK_MARGIN_MS } from "../src/core/skill-registry-freshness.mjs";
@@ -146,10 +146,7 @@ function imageReason({ modelDir, qaDependencies, unchecked, present, vectors = 0
   const mounted = modelDir === DOCKER_MOUNTED_MODEL_DIR;
   // A model mounted from the host is embedded with, not installed: `setup
   // --model` finds it whole and builds the vectors, downloading nothing (Д-341).
-  const embed = mounted
-    ? `docker run --rm -it --mount ${dataMount(dataVolume())} `
-      + "--mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model"
-    : install;
+  const embed = mounted ? dockerEmbedCommand() : install;
   return (step, state) => {
     if (unchecked[step.id]) return `could not be checked: ${unchecked[step.id]}`;
     if (step.id === "frontend_qa") {
@@ -160,9 +157,8 @@ function imageReason({ modelDir, qaDependencies, unchecked, present, vectors = 0
     }
     if (step.id === "dense_model") {
       if (state === "present") return `installed in ${modelDir}`;
-      // A mount at /data with no name to give is no volume the report can call this one (Д-539).
-      const where = dataVolume() === null ? "where your sessions keep /data" : "in this volume";
-      return mounted ? `not whole — ${containerModelAdvice(modelDir)}` : `not installed — \`${install}\` puts it ${where}`;
+      // This volume only for a name read at /data: the default by its name, a mount with no name by where it is (Д-539, Д-545).
+      return mounted ? `not whole — ${containerModelAdvice(modelDir)}` : `not installed — \`${install}\` puts it ${dataPlace(dataVolume())}`;
     }
     if (mounted && !present.dense_model) {
       const why = `the model at /models ${unchecked.dense_model ? "could not be checked" : "is not whole yet"}`;

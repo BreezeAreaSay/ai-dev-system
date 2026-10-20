@@ -13,6 +13,7 @@ import {
   DEFAULT_DOCKER_VOLUME,
   checkModelFolder,
   dataMount,
+  dataPlace,
   dataVolume,
   dockerEntryOptions,
   dockerLaunch,
@@ -477,7 +478,7 @@ test("the data volume of a --mount Docker 29 cannot read is read back all the sa
     { image: "img", volume: "", projects: "/p", state: "", model: "", data: "/t" });
 });
 
-test("the image names the volume at its /data as Docker, rootless Docker and Podman mount it; a run that mounts none gets the default, a mount with no name a placeholder (Д-528, Д-539 … Д-541)", () => {
+test("the image names the volume at its /data as Docker, rootless Docker and Podman mount it; a run that mounts none gets the default by its name, a mount with no name a placeholder (Д-528, Д-539 … Д-541, Д-545, Д-546)", () => {
   const line = (root, target = "/data") => `173 155 254:0 ${root} ${target} rw,relatime master:1 - ext4 /dev/vda rw,discard`;
   const other = line("/var/lib/docker/volumes/models-x/_data", "/models");
   assert.equal(volumeAtData([other, line("/var/lib/docker/volumes/team-data/_data")].join("\n")), "team-data");
@@ -492,6 +493,10 @@ test("the image names the volume at its /data as Docker, rootless Docker and Pod
   for (const mountinfo of [line(`/var/lib/docker/volumes/${"e2".repeat(32)}/_data`), other, "", "garbage"]) {
     assert.equal(volumeAtData(mountinfo), DEFAULT_DOCKER_VOLUME, mountinfo);
   }
+  // Only a name of 64 hex digits is taken for the anonymous one: these keep theirs (Д-546).
+  for (const name of ["cafe", "2024", "e2".repeat(31) + "e", "e2".repeat(32) + "e", `x${"e2".repeat(32)}`, `${"e2".repeat(32)}x`]) {
+    assert.equal(volumeAtData(line(`/var/lib/docker/volumes/${name}/_data`)), name, name);
+  }
   // A mount with no name to give — a folder, a volume made with a driver's options, a volume's subfolder, a tmpfs, a
   // name no volume may have, a folder named like volumes — and the advice holds a placeholder for it (Д-539).
   for (const root of ["/home/me/ai-dev-data", "/var/tmp/dev", "/var/lib/docker/volumes/x/_data/sub", "/", "/var/lib/docker/volumes/_x/_data", "/srv/myvolumes/x/_data"]) {
@@ -499,6 +504,10 @@ test("the image names the volume at its /data as Docker, rootless Docker and Pod
   }
   assert.equal(dataMount("team-data"), "type=volume,source=team-data,target=/data");
   assert.equal(dataMount(null), "<what your sessions mount at /data>");
+  // This volume only of a name read at /data: the default, which the image cannot tell from none, by its name (Д-545).
+  assert.equal(dataPlace("team-data"), "in this volume");
+  assert.equal(dataPlace(DEFAULT_DOCKER_VOLUME), "in the default volume, ai-dev-system-data");
+  assert.equal(dataPlace(null), "where your sessions keep /data");
   // The image's advice only: AI_DEV_RUNTIME=docker, however written; anywhere else the default, whatever is at /data.
   const read = () => line("/var/lib/docker/volumes/team-data/_data");
   for (const runtime of [undefined, "", "local", "dockers"]) assert.equal(dataVolume({ env: { AI_DEV_RUNTIME: runtime }, read }), DEFAULT_DOCKER_VOLUME, runtime);

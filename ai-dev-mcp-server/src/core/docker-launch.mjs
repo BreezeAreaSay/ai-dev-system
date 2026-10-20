@@ -43,12 +43,15 @@ export const DEFAULT_DOCKER_VOLUME = "ai-dev-system-data";
  * The named volume at a container's `/data`, from its `/proc/self/mountinfo`:
  * the host chose it (`--volume`, `AI_DEV_DATA_VOLUME`), and the root of a
  * volume's mount ends `volumes/<name>/_data` — Docker's, rootless Docker's and
- * Podman's alike, the name as Docker or Podman allows it. A run that mounts
- * nothing there gets an anonymous volume from the image's `VOLUME`, 64 hex
- * digits that `--rm` removes: the default's place, as with no `/data` at all.
- * Anything else at `/data` — a folder of the host's, a volume made with a
- * driver's options, a volume's subfolder, a tmpfs — has no name to give: null
- * (docs/DEFECTS.md, Д-528, Д-539, Д-540).
+ * Podman's alike, the name as Docker or Podman allows it; a folder of the
+ * host's whose path ends so reads as that volume, as nothing in a container
+ * tells the two apart. A run that mounts nothing there gets an anonymous
+ * volume from the image's `VOLUME`, 64 hex digits that `--rm` removes: the
+ * default's place, as with no `/data` at all — and so is a volume named so, as
+ * `docker volume create` names one it is given no name for. Anything else at
+ * `/data` — a folder of the host's, a volume made with a driver's options, a
+ * volume's subfolder, a tmpfs — has no name to give: null (docs/DEFECTS.md,
+ * Д-528, Д-539, Д-540, Д-545).
  *
  * @param {string} mountinfo
  * @returns {string | null}
@@ -72,6 +75,21 @@ export function volumeAtData(mountinfo) {
  */
 export function dataMount(volume) {
   return volume === null ? "<what your sessions mount at /data>" : `type=volume,source=${volume},target=/data`;
+}
+
+/**
+ * Where a command with {@link dataMount} of `volume` puts what it writes, in
+ * words: this volume, for a name read at `/data`; the default by its name,
+ * since the image cannot tell it from a run with no volume of its own there;
+ * where the sessions keep `/data`, for a mount with no name (docs/DEFECTS.md,
+ * Д-539, Д-545).
+ *
+ * @param {string | null} volume
+ * @returns {string}
+ */
+export function dataPlace(volume) {
+  if (volume === null) return "where your sessions keep /data";
+  return volume === DEFAULT_DOCKER_VOLUME ? `in the default volume, ${volume}` : "in this volume";
 }
 
 let ownVolume;

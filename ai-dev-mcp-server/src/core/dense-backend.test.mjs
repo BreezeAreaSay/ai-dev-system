@@ -5,6 +5,7 @@ import {
   DENSE_INSTALL_COMMAND,
   DENSE_ONNX_BACKEND,
   LEGACY_DENSE_VARIABLES,
+  containerModelAdvice,
   legacyDenseNotes,
   requestedDenseBackend,
   selectDenseBackend,
@@ -114,4 +115,18 @@ test("a model that cannot be read gets the advice its error calls for: only perm
   assert.equal(said("EINVAL"), "Look at that folder.");
   assert.doesNotMatch(said("ENOTDIR") + said("ELOOP") + said("EIO") + said("EINVAL"), /readable/, "permissions are not the advice for other errors");
   assert.doesNotMatch(said("EIO", true) + said("ESTALE", true), /Docker Desktop/);
+  // Where /data holds a mount with no volume's name, there is no data volume to install into (Д-547).
+  assert.equal(unreadableModelAdvice("EIO: i/o error, '/models/bge-m3-onnx/config.json'", { mounted: true, volume: null }),
+    "The disk or share it is on cannot be reached: reconnect it, or drop the mount and install the model where your sessions keep /data.");
+});
+
+test("in a container the model goes into the volume at /data, and where /data holds a mount with no name, where the sessions keep it (Д-547)", () => {
+  assert.equal(containerModelAdvice("", "team-data"), "install it into the data volume once, with the network that run needs: "
+    + "`docker run --rm -it --network bridge --mount type=volume,source=team-data,target=/data <image> ai-dev model install`; "
+    + "the sessions after it keep --network none. Or mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH).");
+  assert.equal(containerModelAdvice("", null), "install it once where your sessions keep /data, with the network that run needs: "
+    + "`docker run --rm -it --network bridge --mount <what your sessions mount at /data> <image> ai-dev model install`; "
+    + "the sessions after it keep --network none. Or mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH).");
+  assert.match(containerModelAdvice("/models/bge-m3-onnx", "team-data"), /, or drop the mount and install it into the data volume\.$/);
+  assert.match(containerModelAdvice("/models/bge-m3-onnx", null), /, or drop the mount and install it where your sessions keep \/data\.$/);
 });

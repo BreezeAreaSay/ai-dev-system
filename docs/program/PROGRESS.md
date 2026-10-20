@@ -464,6 +464,7 @@ ENOENT`, без `wine32` — `failed to load …\syswow64\ntdll.dll`: заглу
 | 2026-10-20 | Фаза 15: выпуск в песочнице | tarball 3.0.0 — 10 177 652 байта, 1 830 файлов; `npx …@3.0.0 version` через реестр на одну запись → `ai-dev 3.0.0`; образ `r15h`: smoke и upgrade-check — pass; путь Docker с Д-403 — exit 0; команды `RELEASE.md` без публикации — exit 0 |
 | 2026-10-20 | Фаза 15: ревью | одно: Д-572 … Д-574 (4 must-fix в `RELEASE.md`) — записаны до правки и закрыты; реестр — 574 записи, открыто 6 |
 | 2026-10-20 | После фазы 15: пакет npm — `ai-dev-system` | `check` — 2 039 тестов, 0 fail; тесты приложения — exit 0; tarball `ai-dev-system-3.0.0.tgz` (10 177 660 байт, 1 830 файлов); `npx ai-dev-system setup` дословно в чистом контейнере через реестр на одну запись — установка, клиенты, первая задача, удаление — exit 0; `npx --yes ai-dev-system@3.0.0 version` → `ai-dev 3.0.0` |
+| 2026-10-20 | После фазы 15: общий сервер (Argentum Workspace) — Д-575, Д-576 | `check` — 2 041 тест, 0 fail; сборка воркспейса повторена (клон, `npm ci` от одного пользователя ОС, запуск от другого через `sudo -n -u` строкой `env AI_DEV_VAULT=home AI_DEV_PROFILES=core node bin/ai-dev.mjs mcp`): новый участник без `setup` — `prepare_project` … `complete_task` проходят, в сборку не пишется ничего, 25 инструментов; рецепт — `docs/INSTALL.md`, «A shared server»; `acceptance` после правки не гонялся |
 
 ## Следующий шаг
 

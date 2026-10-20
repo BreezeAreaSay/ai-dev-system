@@ -30,9 +30,10 @@ const LINE_BREAKS = /\r\n|[\n\r\u2028\u2029]/g;
 const BRACED_CODE_POINT = /\{([0-9a-fA-F]+)\}/y;
 const OCTAL_ESCAPE = /[0-3][0-7]{0,2}|[4-7][0-7]?/y;
 
-// `x++ / 2`: a postfix increment or decrement ends its operand — and its value, where a declaration is read (Д-441).
+// What ends an operand: a literal, a `)` or `]`, a name but a keyword an expression follows — the name `of` too, but the
+// keyword right after a `for` head's binding (Д-517) —, and so a postfix after it: `x++ / 2` divides (Д-441).
 export const endsOperand = (token) => token?.type === "number" || token?.type === "string" || token?.type === "regex"
-  || (isName(token) && !KEYWORDS_BEFORE_EXPRESSION.has(token.value)) || isPunct(token, ")") || isPunct(token, "]");
+  || (isName(token) && (token.value === "of" ? token.keyword !== true : !KEYWORDS_BEFORE_EXPRESSION.has(token.value))) || isPunct(token, ")") || isPunct(token, "]");
 const isLineEnd = (character) => character === "\n" || character === "\r" || character === "\u2028" || character === "\u2029";
 const lineBreaks = (text) => text.match(LINE_BREAKS)?.length ?? 0;
 // The whole character at `at`, both halves of a pair: `𝑥` is one letter.
@@ -145,11 +146,13 @@ export function codeTokens(source, { script = false } = {}) {
   // operand, and after an operand a `{` or a `class` begins a statement as well.
   const endsAtBreak = (index) => isName(tokens[index], "return") || isName(tokens[index], "yield") || postfix(index);
   // Whether a value begins after the token at `index`, for a token on line `where`: a `{` there opens an object
-  // literal, a `class` is an expression. A label's, a `case`'s or a `default`'s `:` is followed by a statement (Д-408).
+  // literal, a `class` is an expression. A label's, a `case`'s or a `default`'s `:` is followed by a statement (Д-408);
+  // a `;` right in a `for` head by its test or update, a value: `for (; { shell: true }; )` (Д-527).
   const valueAfter = (index, where) => {
     const last = tokens[index];
     if (last && last.line < where && endsAtBreak(index)) return false;
-    if (last?.type === "punct") return (OBJECT_AFTER_PUNCT.has(last.value) || (last.value === ">" && !isPunct(tokens[index - 1], "="))) && !last.statement;
+    if (last?.type === "punct") return (OBJECT_AFTER_PUNCT.has(last.value) || (last.value === ">" && !isPunct(tokens[index - 1], "="))
+      || (last.value === ";" && innermost().forHead === true)) && !last.statement;
     return isName(last) && (OBJECT_AFTER_NAME.has(last.value) || last.keyword === true) && !isMember(index);
   };
   const headOpens = () => {
@@ -180,19 +183,21 @@ export function codeTokens(source, { script = false } = {}) {
     }
     const token = mark({ type, value, line: where });
     // `export * as class from …`, `export { a as class }`, `{ class: 1 }`, `import { class as k }`, `this.#class`: a name,
-    // not a class.
+    // not a class — an alias's `as` stands on `class`'s line: after `o.as` on the line before, a class begins (Д-518).
     // Right in a class's body a word that begins a member — after `{`, `;`, `}`, `static`, or a line a member ended —
     // is the member's name: `class⏎  x⏎  static {}` is two fields and a static block, and opens no wait (Д-486, Д-499).
     // A substitution of a field's template is an expression's place, whatever came before it (Д-503).
     const last = tokens.at(-1);
     const named = token.substitution !== true && innermost().classBody === true && (isPunct(last, "{") || isPunct(last, ";") || isPunct(last, "}") || isName(last, "static")
       || (last.line < where && (endsOperand(last) || isMember(tokens.length - 1) || endsAtBreak(tokens.length - 1))));
-    if (type === "name" && (value === "class" || value === "function") && !isMember(tokens.length) && !isName(tokens.at(-1), "as") && !named) {
+    if (type === "name" && (value === "class" || value === "function") && !isMember(tokens.length) && !(isName(tokens.at(-1), "as") && tokens.at(-1).line === where) && !named) {
       // `async` belongs to the function only on its line: `x = async⏎function f() {}` declares f (Д-423).
       const async = value === "function" && isName(tokens.at(-1), "async") && tokens.at(-1).line === where;
       const before = async ? tokens.length - 2 : tokens.length - 1;
       const declared = isName(tokens[before], "default") && isName(tokens[before - 1], "export");
-      bodies.push({ depth: level(), expression: !declared && (fresh || valueAfter(before, where)), kind: value });
+      // Right after `=>` it is the arrow's concise body, an expression: `(b) => class {} / 2` divides (Д-520).
+      const arrow = isPunct(tokens[before], ">") && isPunct(tokens[before - 1], "=");
+      bodies.push({ depth: level(), expression: !declared && (fresh || arrow || valueAfter(before, where)), kind: value });
     } else if (type === "punct" && (value === ":" || value === "}" || value === "=" || value === ";")) {
       // None of these stands between `class` or `function` and its body: one at that depth ends the wait — a key of
       // that name, `{ class: 1 }`, the end of a block, a field of that name, `class = 1`, `class;` (Д-425, Д-443, Д-476).
@@ -212,17 +217,26 @@ export function codeTokens(source, { script = false } = {}) {
         : !KEYWORDS_BEFORE_EXPRESSION.has(binding.value) && !["let", "const", "var"].includes(binding.value)));
       token.keyword = name || isPunct(binding, "]") || isPunct(binding, "}") || isPunct(binding, ")");
     }
+    // A `for` head's binding — right after its `(`, or after `let`, `const` or `var` there — is the one bracket `in` may follow
+    // as a pattern, `for ([k, v] in o)`; the head's test, update and iterable are values: `for (; [{ shell }] in o; )` (Д-521).
+    if (type === "punct" && (value === "{" || value === "[") && (tokens.at(-1)?.forHead === true
+      || (tokens.at(-2)?.forHead === true && ["let", "const", "var"].some((word) => isName(tokens.at(-1), word))))) token.forBinding = true;
     if (type === "punct" && value === "{") {
-      // Right after `extends` it begins the heritage, an object literal, and the class still waits for its body (Д-507).
-      const owner = bodies.at(-1)?.depth === level() && !isName(tokens.at(-1), "extends") ? bodies.pop() : null;
+      // Right after the word `extends` it begins the heritage, an object literal, and the class still waits for its body
+      // (Д-507); after a member of that name, `o.extends {`, it is the body (Д-516).
+      const owner = bodies.at(-1)?.depth === level() && !(isName(tokens.at(-1), "extends") && !isMember(tokens.length - 1)) ? bodies.pop() : null;
       token.literal = !owner && (fresh || valueAfter(tokens.length - 1, where));
       // A class's body: what stands right before it is the class's heritage, a call there too (Д-466).
       if (owner?.kind === "class") token.classBody = true;
+      // An arrow's body: no call follows it, and the line after it begins a statement (Д-521).
+      if (!owner && isPunct(tokens.at(-1), ">") && isPunct(tokens.at(-2), "=")) token.arrowBody = true;
       opened.push({ regexAfter: owner ? !owner.expression : !token.literal, statements: !token.literal, conditionals: 0, classBody: token.classBody === true });
     } else if (type === "punct" && (value === "(" || value === "[")) {
       // In a `for` head `of` may be the keyword; anywhere else it is a name: `of / 2` divides (Д-424). A member's
       // parentheses, `o.for(of / 2)`, hold no binding for an `of` to follow (Д-464).
       const forHead = value === "(" && (isName(tokens.at(-1), "for") || (isName(tokens.at(-1), "await") && isName(tokens.at(-2), "for")));
+      // A `for` head's own `(`: its binding comes right after it (Д-521).
+      if (forHead) token.forHead = true;
       opened.push({ regexAfter: value === "(" && headOpens(), statements: false, conditionals: 0, forHead });
     } else if (type === "punct" && (value === ")" || value === "]" || value === "}")) token.regexAfter = opened.pop()?.regexAfter === true;
     tokens.push(token);
@@ -311,8 +325,10 @@ export function codeTokens(source, { script = false } = {}) {
           at = next;
           continue;
         }
-        // An unterminated string ends at its line; the line break is the main loop's to count.
+        // An unterminated string ends at its line; the line break is the main loop's to count. A U+2028 or U+2029 inside it
+        // is a line break as well, which V8 counts (Д-522).
         if (text[at] === "\n" || text[at] === "\r") break;
+        if (text[at] === "\u2028" || text[at] === "\u2029") line += 1;
         value += text[at];
         at += 1;
       }
@@ -341,8 +357,10 @@ export function codeTokens(source, { script = false } = {}) {
       const { line: started, token } = templates.pop();
       at += 1;
       const { ended } = readTemplateText();
-      // Where the template ends: a walk over a list steps over it whole, the commas of its code not the list's (Д-473).
+      // Where the template ends: a walk over a list steps over it whole, the commas of its code not the list's (Д-473); and
+      // it ends an operand, whatever its last substitution ends with: `${(a) => {}}` / 2 divides (Д-520).
       if (ended === "end") tokens[token].last = tokens.length - 1;
+      if (ended === "end" && tokens.at(-1).regexAfter === true) tokens.at(-1).regexAfter = false;
       if (ended === "code") {
         templates.push({ depth: 0, line: started, token, opened: opened.length });
         substitutionOpened = true;

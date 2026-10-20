@@ -990,10 +990,10 @@ object put in an object or an array (`module.exports = { cp }`, `export const [r
 field, or on a head in parentheses (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a name
 bound to that, an exported `let` or `var` a pattern declares or whose name the file declares again, a global taken out
 of itself by a pattern (`{ globalThis: g } = globalThis`), `await` or `yield` written as a name in a script, and a class's
-member on the line after `n++` or a word an operand follows (a field named `in` or `return`, a value `of`, `this.in`),
-which it reads as an assignment or, named `class` or `function`, as declaring the name after it — a `class` after a field
-named `in` and the like as waiting for a body too —, are past it (Д-431, Д-432, Д-440, Д-448, Д-450, Д-459, Д-460, Д-464, Д-476, Д-490,
-Д-496, Д-499, Д-509): it keeps honest code honest and is no sandbox. Only the desktop app's
+member on the line after `n++` or a word an operand follows (a field named `in` or `return`, `this.in`), which it reads
+as an assignment or, named `class` or `function`, as declaring the name after it — a `class` after a field named `in` and
+the like, not `return` or `yield`, as waiting for a body too —, are past it (Д-431, Д-432, Д-440, Д-448, Д-450, Д-459, Д-460,
+Д-464, Д-476, Д-490, Д-496, Д-499, Д-509, Д-517, Д-523): it keeps honest code honest and is no sandbox. Only the desktop app's
 tests may call `eval` and `new Function`, to show that the page's policy refuses them.
 
 ## Operations And Distribution

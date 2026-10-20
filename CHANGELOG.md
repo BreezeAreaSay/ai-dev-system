@@ -1734,17 +1734,22 @@ four of those arrived as upstream issues #63–#66.
   `globalThis["ev" + "al"](…)`. `src/core/code-tokens.mjs` reads the source as tokens — every escape
   decoded, a name ended where JavaScript ends it (a no-break space too), a template without
   substitutions read as the string it is, `?.[` as `[`, an object literal told from a block by what
-  stands before it — any operator, `/`, `<` and a `>` that ends no arrow included, a `for` head's `of`,
-  `extends` (Д-507) —, a slash told from a division by what stands
-  before it (a statement head's `)`; a block's `}`, a label's or a `case`'s too, but not a class or
-  function expression's — what its heritage holds, a template's substitutions included, not taken for
-  its end — nor one after `delete`, `in` or `instanceof`; a property named `in`, a name `of` anywhere
-  but right after a `for` head's binding (`for (k in of / 2)`, `o.for(of / 2)`); a regular expression
+  stands before it — any operator, `/`, `<` and a `>` that ends no arrow included, a `for` head's `of`
+  and its `;`, `for (; { shell: true }; )` (Д-527), the word `extends` but not a member so named,
+  `o.extends {` (Д-507, Д-516) —, a slash told from a division by what stands before it (a statement
+  head's `)`; a block's `}`, a label's or a `case`'s too, but not a class or function expression's — an
+  arrow's concise body is one, `(b) => class {} / 2` (Д-520), and so is one after a `for` head's `;`
+  (Д-527), and what its heritage holds, a template's substitutions included, is not taken for its end —
+  nor one after `delete`, `in` or `instanceof`, nor a template's end, whatever its last substitution
+  ends with (Д-520); a property named `in`, a name `of` anywhere but right after a `for` head's binding
+  (`for (k in of / 2)`, `o.for(of / 2)`), as any name, `of++ / 2` too (Д-517); a regular expression
   after `break`, `continue` or `debugger`), a member's name read as a name whatever word it is
   (`it.return`, `this.#class`, `stats.new++ / 2`), a statement begun where a line break ends one
   (after `return`, `yield`, `x++`, `o.new++`) (Д-508) and where one stands before a `++` or `--`, a prefix
   there — `a⏎++/re/.lastIndex` holds a regular expression, `a⏎++⏎{ shell: true }.shell` a literal (Д-515) —,
-  a `.cjs` file's HTML-like comments read as a script reads them — `-->` where no
+  a `class` after a word `as` on the line before a class, since only an alias's `as` stands on its line,
+  `export { a as class }` (Д-518), a U+2028 or U+2029 in a string counted as the line break it is
+  (Д-522), a `.cjs` file's HTML-like comments read as a script reads them — `-->` where no
   token stands before it on its line, after a comment that spans lines too — and
   `src/core/forbidden-calls.mjs` asks the rules of them, in the server and in `desktop/`: the six
   spellings appended to a server file and a desktop file give twelve findings, where the gate passed
@@ -1770,21 +1775,25 @@ four of those arrived as upstream issues #63–#66.
   after it, none right in a template's substitution, where a script's `let` is a name, and none right
   in a class's body, where it names a member (Д-509) — a JSON Schema's `const:` key declares nothing;
   the one on the line after a declaration with no `;` declares too, and so does the one after a value
-  that ends in a member named like a keyword, `o.default` (Д-506), and a declaration's value ends before a
-  `++` or `--` that begins a line, so `1⏎++b, c = cp` assigns `c` (Д-515) — and `function`, `function*` or
-  `class` only where it is no member; every walk steps over a template whole, and a declaration's or
-  an argument list's begun in one ends with it, at a `?.` too (Д-504, Д-510); a substitution of a
+  that ends in a member named like a keyword, `o.default` (Д-506), or in a name `of` (Д-517); a value
+  that has ended ends its declaration before a line that begins with a `++` or `--` as well, so
+  `1⏎++b, c = cp` assigns `c` (Д-515), and so does an arrow's body, which no call follows, before any
+  line but one that begins with a `:` (Д-521) — and `function`, `function*` or `class` only where it
+  is no member; a pattern before `in` is one only as a `for` head's binding, so `[{ shell: true }] in o`
+  is an array, in the head's test too (Д-521); nothing takes a template's `,` for the list's around it or its name for an object
+  literal's key, so ``(0, `${a, cp}`)`` is a string (Д-519), and a declaration's or an argument list's
+  walk begun in a template ends with it, at a `?.` too (Д-504, Д-510); a substitution of a
   field's template is an expression's place — a class or function expression there is one, a name
   there assigns (Д-503, Д-505); a class's field is a member, neither an alias nor an export (one on the
-  line after `n++` or after a word an operand follows — a field named `in`, `of`, `return`, `default`
-  and the like, the name `of` as a field's value, or a member of such a name, `this.in` — is still
-  read as an assignment, and a member named `class` or `function` there as declaring the name after
-  it; after such a word, `return`, `yield` and a member's name aside, a `class` waits for a body too), and a member named `class` or `function` waits for
+  line after `n++` or after a word an operand follows — a field named `in`, `return`, `default` and
+  the like, or a member of such a name, `this.in` — is still read as an assignment, and a member named
+  `class` or `function` there as declaring the name after it; after such a word, `return`, `yield` and
+  a member's name aside, a `class` waits for a body too (Д-523)), and a member named `class` or `function` waits for
   no body, so the static block or the method after it is what it is; and a file it cannot read to its
   end — a template or a comment that never closes — is refused rather than passed, and a list that
   never closes is reported rather than thrown on (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424,
   Д-426, Д-432, Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464 … Д-466, Д-472, Д-473, Д-476, Д-480,
-  Д-481, Д-486, Д-487, Д-490, Д-496, Д-499, Д-501, Д-503 … Д-510, Д-515). It follows the module object and the global objects through plain re-binding and
+  Д-481, Д-486, Д-487, Д-490, Д-496, Д-499, Д-501, Д-503 … Д-510, Д-515 … Д-523, Д-527). It follows the module object and the global objects through plain re-binding and
   nothing else: a module name built from parts, `createRequire`, `Reflect.get`, a loader bound to
   another name or reached any other way (`.bind`, `Reflect.apply`, a condition, an array,
   `require["call"]`), the module put in an object or an array (`module.exports = { cp }`,
@@ -1801,16 +1810,18 @@ four of those arrived as upstream issues #63–#66.
   (Д-474, Д-501), a loader's `.call(` that never closes is not walked for its first argument, and the
   walk of its arguments ends with the template it began in (Д-501, Д-510), a chain is walked back only
   for a call with the module's name, and where a regular expression's reading failed on a line no
-  later one reads it again in the state it read it (Д-476), so a file costs what its length does: 5,892 dependency files (84 MB) are read to the end in about 14 s, and, each the median of five
-  runs in a fresh process, a 448 kB minified line in 0.4 s, where it took 10 s, 552 kB of keys in
-  arrays nested 4,000 deep in 0.3 s, where it took 12.8 s, 373 kB of declarations with no semicolons
-  in 0.2 s, where it took 111 s, 296 kB of class heritages with a substitution in 0.2 s, where it took
-  10–12 s, a line of 32,000 regular expressions that never close in 0.1 s, where it took 8.8 s,
-  80 kB of keys named `const` in 0.06 s, where it took 12–23 s, 224 kB of templates with a `let` in
-  each substitution in 0.15 s, where it took 26 s, a 120 kB script with a parenthesis left open in
-  each substitution in 0.13 s, where it took 9.3 s, 136 kB of `.call(` that never close in
-  0.08 s, where it took 6 s, and 216 kB of `.call(` left open in each substitution in 0.15 s, where it
-  took 3.4 s (Д-401, Д-412, Д-424, Д-444, Д-461, Д-463, Д-474, Д-488, Д-501, Д-510). A test plants a finding of each rule and each check in
+  later one reads it again in the state it read it (Д-476), so a file costs what its length does —
+  each the median of five runs in a fresh process on an otherwise idle machine, all on the final code:
+  5,892 dependency files (84 MB) are read to the end in about 15 s, a 448 kB minified line in 0.36 s,
+  where it took 10 s, 552 kB of keys in arrays nested 4,000 deep in 0.26 s, where it took 12.8 s,
+  373 kB of declarations with no semicolons in 0.20 s, where it took 111 s, 296 kB of class heritages
+  with a substitution in 0.17 s, where it took 10–12 s, a line of 32,000 regular expressions that
+  never close in 0.09 s, where it took 8.8 s, 80 kB of keys named `const` in 0.06 s, where it took
+  12–23 s, 224 kB of templates with a `let` in each substitution in 0.14 s, where it took 26 s, a
+  120 kB script with a parenthesis left open in each substitution in 0.12 s, where it took 9.3 s,
+  136 kB of `.call(` that never close in 0.07 s, where it took 6 s, and 216 kB of `.call(` left open
+  in each substitution in 0.13 s, where it took 3.4 s (Д-401, Д-412, Д-424, Д-444, Д-461, Д-463, Д-474,
+  Д-488, Д-501, Д-510, Д-526). A test plants a finding of each rule and each check in
   each folder the gate walks — `bin/`, `src/`, `scripts/`, `hooks/` with its shell script, the app's
   code, scripts, `.cjs` (read as the script it is) and tests — and expects exactly that set: a folder
   left unwalked or a rule's findings dropped fails it (Д-396, Д-411, Д-445). 76 of 77 mutants of round
@@ -1825,11 +1836,11 @@ four of those arrived as upstream issues #63–#66.
   tests, and of the six left three do change an answer on a program V8 accepts: a statement keyword
   asked of a head that is no name, a method named `"if"` in a literal after `>` (Д-466), and a `;`
   that ends only a class's wait and a `(` that ends one at any depth, on the fields round 9 fixed; a
-  test holds the first (Д-489, Д-500). Of the 245 run on round 9's code — round 8's 222, 14 of the
+  test held the first until Д-507 made a literal after `>` a literal (Д-489, Д-500, Д-524). Of the 245 run on round 9's code — round 8's 222, 14 of the
   ninth review's own, and 9 for round 9's rules — 227 failed its tests, and 8 of the 18 left changed
   an answer where the gate is right: what ends a wait after a field named `in`, a class whose heritage
   holds a field named `class`, and a script's `let` right in a substitution; tests hold them now, and
-  235 fail. Of the ten left, the tenth review showed three changing an answer the reasons given here
+  235 fail. Of the ten left, the tenth review showed three changing an answer the reasons round 9 gave
   did not cover — a `class` right after an operand on its line taken for a member's name, on a class
   in a field's later substitution (Д-503); a list that never closes taken for a list, on
   `(o.in++ / 2) / 3` (Д-508); and the line a list begins on asked instead of the one it ends on, after
@@ -1840,20 +1851,38 @@ four of those arrived as upstream issues #63–#66.
   on a member, `o.new++`, `this.#new++`, read as no value's end, the same postfix at a line's end
   before a block, and an arrow's `=>` and any `of` taken for a literal's place; tests hold them now.
   Sorting the other 16 found a `++` after a line break read as a postfix (Д-515); of the 287 run on
-  its fix — the 281 and 6 for its rules — 271 fail, and the 16 left are those 16. Thirteen change no
-  answer on a program V8 accepts: a member check added to `endsAtBreak`, whose callers ask it too; a
-  `,` that ends the wait for a body, where none stands; an `export` marked as walked and a `.` left
-  unmarked right in a substitution, marks asked only of a declaration's word and of a name; a
-  template's end kept at each substitution's end, a walk that asks for the outermost template or stops
-  at a template's end only when it began in one, and the `static` rule only for a `class` on a line
-  before, which only a program V8 refuses tells apart; a `;` that ends only a class's wait, where a
-  function's it keeps takes a block that reads the same; and a statement keyword asked of a string
-  head, the line a list begins on asked instead of the one it ends on, a list that never closes taken
-  for a list, and a class body's mark kept on an object literal's brace, which neither 286,037
-  programs V8 accepts from four fuzzers, nor 20,741 files of real code, nor the probes tell apart. The
-  other three — a `static` that ends every wait at its depth, a `(` that ends a class's at any depth,
-  and a `class` right after an operand on its line taken for a member's name — change one only past
-  the limit above, on a `class` after a field named `in`, and read right there (Д-511, Д-515).
+  its fix — the 281 and 6 for its rules — 271 fail, and the 16 left are those 16. The eleventh review
+  showed four of them changing an answer on code V8 accepts, each through a reading round 11 fixed — a
+  statement keyword asked of a string head, the line a list begins on asked instead of the one it
+  ends on (R4, 225 in the run, where R1 … R14 are named twice), and a `,` that ends the wait for a
+  body (X, 164), through a heritage that ends in a member named `extends` (Д-516); a list that never
+  closes taken for a list (R5, 226), through a class expression that is an arrow's concise body
+  (Д-520) — and one of its own alive that changes one, a postfix on a `#` member taken for none; a
+  test holds that one now (Д-524). Of the 326 run on round 11's code — the 287, 7 of the eleventh
+  review's own, and 32 for round 11's rules — 301 fail its tests, and 6 of the 25 left changed an
+  answer where the gate is right: an `of` a `for` head marks as no keyword taken for no operand's end,
+  and the keyword taken for one, `for (const k of ++/"/.lastIndex)`; any `>`, and any block's end,
+  taken for an arrow's body, which ends a declaration at a line that goes on with its value; a U+2029
+  in a string not counted; and a `;` in any bracket taken for a `for` head's; tests hold them now, and
+  307 fail. Of the 19 left, six change no answer by construction: a member check added to
+  `endsAtBreak`, whose callers ask it too; a `,` that ends the wait for a body, which stands at a
+  wait's level only after a `class` or `function` named in an import or export clause, whose `}` ends
+  the wait anyway with no `{` between; an `export` marked as walked and a `.` left unmarked right in a
+  substitution, marks asked only of a declaration's word and of a name; an arrow asked by its `>`
+  alone, where a `class` after any other `>` is a value already; and the `{` after `=>` that a class
+  or function waits for marked an arrow's body, which no class's or function's body follows in code
+  V8 accepts. Four only a program V8 refuses tells apart: a template's end kept at each
+  substitution's end, a walk that asks for the outermost template or stops at a template's end only
+  when it began in one, and the `static` rule only for a `class` on a line before. A `;` that ends
+  only a class's wait leaves a function's to take a block that reads the same. Three — a `static`
+  that ends every wait at its depth, a `(` that ends a class's at any depth, and a `class` right
+  after an operand on its line taken for a member's name — change one only past the limit above, on
+  a `class` after a field named `in`, and read right there. And five — a statement keyword asked of a
+  string head, the line a list begins on asked instead of the one it ends on, a list that never
+  closes taken for a list, a class body's mark kept on an object literal's brace, and an `export`
+  that no longer stops a declaration's walk, which a value's end before it stops first since
+  Д-517 — no program tried tells apart: neither 304,352 programs V8 accepts from five fuzzers, nor
+  20,741 files of real code, nor 375 probes (Д-511, Д-515, Д-524).
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be
@@ -1899,7 +1928,7 @@ four of those arrived as upstream issues #63–#66.
   temporary home its server moved AI Dev's Codex-era folders out of `~/.codex` into the folder, and
   they were deleted with it; now, with `AI_DEV_HOME` set, the move reads `$AI_DEV_HOME/.codex`, as
   2.x did, and the demo names every place the move would fill, so nothing leaves `~/.codex`.
-- **The server writes under Node's permission model** (Д-470, Д-477, Д-479, Д-492 … Д-494, Д-512). To
+- **The server writes under Node's permission model** (Д-470, Д-477, Д-479, Д-492 … Д-494, Д-512, Д-514). To
   a process run with `--permission`, Node refuses a file handle's `sync()` — of the x.y.0 releases
   measured, 24.22 and 26.12: "fsync API is disabled when Permission Model is enabled.", and no flag
   allows it — and its `chmod()` — 22.23, 24.15 … 24.22, 25.9, 26.0 and 26.12; so every write the
@@ -1910,9 +1939,10 @@ four of those arrived as upstream issues #63–#66.
   mode it was made with, the old one narrowed by umask, never wider; any other failure of either fails
   the write. One write still fails there: a config root writes in a home it does not own, whose copy
   it hands to the home's user with the `fchown` the permission model refuses (Д-168), and the backup
-  it made of that config stays beside it. And a test that asserted `node:sqlite`'s cut of a text at a
-  NUL — which Node 22.16 … 22.23, 24.0 … 24.15, 25.0, 25.9 and 26.0 make, and 24.16 … 24.22 and 26.12
-  do not — takes either reading: the text read back through a BLOB is whole on all of them (Д-471).
+  it made of that config stays beside it (Д-514). And a test that asserted `node:sqlite`'s cut of a
+  text at a NUL — which Node 22.16 … 22.23, 24.0 … 24.15, 25.0, 25.9 and 26.0 make, and 24.16 … 24.22
+  and 26.12 do not — takes either reading: the text read back through a BLOB is whole on all of them
+  (Д-471).
 - **The tests pass with a temporary folder that is a link or a long path** (Д-258, Д-259, Д-373).
   Four tests compared a resolved path with one built from `os.tmpdir()`, and the bridge test bound a
   socket that a 112-byte `TMPDIR` cut short, so parallel runs collided (`EADDRINUSE` in 6 of 12):

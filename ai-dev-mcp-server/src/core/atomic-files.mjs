@@ -10,7 +10,8 @@ const writeQueues = new Map();
  * (`file-lock.mjs`). They are always taken lock first, queue second. The other
  * way round deadlocks: an append that sat in the queue waiting for the lock,
  * while the lock's holder — a ledger rotation — waited in the queue behind it,
- * failed after the lock timeout and lost its line.
+ * judged the lock stale after 30 s and wrote its line, which the rotation's
+ * rewrite then dropped.
  */
 function queueFor(filePath, operation) {
   const key = path.resolve(filePath).toLowerCase();

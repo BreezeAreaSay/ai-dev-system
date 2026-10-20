@@ -169,7 +169,7 @@ for (let i = 0; i < Number(count); i += 1) {
 test("a rewrite under the lock and an append queued meanwhile do not wait on each other", async (t) => {
   // Queue first, lock second deadlocked: the append held the queue waiting for
   // the lock, the rewrite held the lock waiting for the queue, until the append
-  // took the lock for stale (30 s) and the rewrite then dropped its line.
+  // judged the lock stale (30 s) and the rewrite then dropped its line.
   const root = await tempRoot(t, "ai-dev-rotate-");
   const ledger = path.join(root, "events.jsonl");
   await fs.writeFile(ledger, Array.from({ length: 30 }, (_, i) => JSON.stringify({ i })).join("\n") + "\n", "utf8");
@@ -230,12 +230,17 @@ test("a file is flushed where Node allows it: the permission model's refusal of 
   // Under --permission, where Node refuses a FileHandle's sync() (24.22, 26.12) and chmod() (22.23, 24.15 … 24.22,
   // 25.9, 26.0, 26.12), every write the server makes goes through all the same — but for a copy root hands to the
   // config's owner, which needs the fchown it refuses (Д-168, Д-494): a write and an append; a client's config that is
-  // new (Cursor's), one whose copy needs a chmod under a umask that clears a read or write bit, as this test's 0022 does
+  // new (Cursor's), one whose copy needs a chmod under a umask that clears a read or write bit, as this test's 0002 does
   // (Gemini's, 0666), and one of its owner's alone (Claude Code's, 0600), each added to, changed and cleaned, none left
-  // wider than it was; and a backup (Д-477, Д-492, Д-512, Д-513).
-  const umask = process.umask(0o022);
+  // wider than it was; and a backup (Д-477, Д-492, Д-512, Д-513). The umask is 0002, not 0022, which hides a copy widened
+  // by the group's write bit, and it is checked to apply: under a default ACL it does not (Д-525).
+  const umask = process.umask(0o002);
   t.after(() => process.umask(umask));
   const root = await fs.realpath(await tempRoot(t, "ai-dev-atomic-permission-"));
+  if (process.platform !== "win32") {
+    await fs.writeFile(path.join(root, "umask-probe"), "", { mode: 0o666 });
+    assert.equal((await fs.stat(path.join(root, "umask-probe"))).mode & 0o777, 0o664, "a new file here takes its mode from the umask, not from a default ACL");
+  }
   await fs.mkdir(path.join(root, ".cursor"));
   await fs.mkdir(path.join(root, ".gemini"));
   await fs.writeFile(path.join(root, ".gemini", "settings.json"), "{}\n", { mode: 0o666 });

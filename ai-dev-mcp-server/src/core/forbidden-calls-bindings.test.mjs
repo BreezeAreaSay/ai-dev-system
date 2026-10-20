@@ -6,7 +6,7 @@ import { forbiddenCalls } from "./forbidden-calls.mjs";
 // What the static gate reads as declaring a name, binding one or holding a pattern: a parameter list, a declaration, a
 // class's field. Its own file since forbidden-calls.test.mjs would have passed the 800 lines a module keeps
 // (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-511, Д-515 … Д-522, Д-524, Д-527, Д-530, Д-531,
-// Д-533 … Д-537).
+// Д-533 … Д-538).
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
 const BT = "`";
@@ -465,3 +465,27 @@ test("an alias after export * before a default, an arrow's body ending a templat
   assert.deepEqual(rules("const from = 4;\nexport const v = from\n\"x\"\n/ 2; // eval( of the quotient\n"), []);
 });
 
+test("a member's index is no pattern, nor what is in it, a line break before its [ or not; nor is a bracket a member, a call or an index follows (Д-538)", () => {
+  // No ; is inserted before a [: f()⏎[k] = v is f()[k] = v, and a literal in the index is a value, its keys a literal's.
+  assert.deepEqual(rules("const o = {};\no[{ shell: true }] = 1;\n"), ["shell"]);
+  for (const head of ["const f = () => ({});\nf()", "const o = {};\no", "const s = \"ab\"", `export const t = ${BT}x${BT}`]) {
+    assert.deepEqual(rules(`${head}\n[{ shell: true }] = [1];\n`), ["shell"], head);
+  }
+  assert.deepEqual(rules("const f = () => ({});\nf()\n[{ eval: 1 }] = [1];\n"), []);
+  // In a pattern a literal whose member is assigned to — after a ., an index or a call — is a value: [{ … }.x] = v.
+  assert.deepEqual(rules("const f = () => ({});\nf();\n[{ shell: true }.x] = [1];\n"), ["shell"]);
+  assert.deepEqual(rules("const k = \"x\";\n[{ shell: true }[k]] = [1];\n"), ["shell"]);
+  assert.deepEqual(rules("[[{ shell: true }](0).x] = [1];\n"), ["shell"]);
+  assert.deepEqual(rules("export function g() {\n  [{ shell: true, f() { return {}; } }.f().x] = [1];\n}\n"), ["shell"]);
+  assert.deepEqual(rules("const a = {}, shell = 1;\n[a[{ shell }]] = [1];\n"), ["shell"]);
+  // A [ that begins a statement, a declaration's pattern or a substitution's code is a pattern still: after ;, a
+  // postfix, a head, a block, a class, debugger, yield, let, const, var, ${.
+  for (const before of [";", "x++", "if (o)", "{}", "class A {}", "debugger"]) {
+    assert.deepEqual(rules(`let shell, x = 0;\nconst o = [{}];\n${before}\n[{ shell }] = o;\nexport { shell };\n`), [], before);
+  }
+  assert.deepEqual(rules("let shell;\nconst o = [{}];\nexport function* g() {\n  yield\n  [{ shell }] = o;\n}\nexport { shell };\n"), []);
+  for (const word of ["let", "const", "var"]) {
+    assert.deepEqual(rules(`const o = [{}];\n${word}\n[{ shell }] = o;\nexport { shell };\n`), [], word);
+  }
+  assert.deepEqual(rules(`let shell;\nconst o = [{}];\nexport const s = ${BT}\${[{ shell }] = o}${BT};\nexport { shell };\n`), []);
+});

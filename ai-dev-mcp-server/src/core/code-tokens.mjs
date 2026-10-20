@@ -92,8 +92,11 @@ function readEscape(text, at) {
  * a declaration's it does not. One that does not close on its line divides,
  * and no later one on that line reads again, in the same state — inside a
  * class of characters or out of one — what it read.
- * Each `{` carries `literal`: whether it opens an object literal; a class's
- * body carries `classBody`, an arrow's `arrowBody`; a `for` head's `(` carries
+ * Each `{` carries `literal`: whether it opens an object literal; a `[` right
+ * after an operand carries `index`: it indexes a member — or, after a word like
+ * `get` or `static`, begins a computed key —, an array literal or a pattern
+ * never; a class's body carries `classBody`, an arrow's `arrowBody`; a `for`
+ * head's `(` carries
  * `forHead`, the `{` or `[` of its binding `forBinding`, and its keyword `of`
  * `keyword`; a token right in a template's substitution, no bracket opened
  * since its `${`, carries `substitution`, and every token in a substitution
@@ -228,6 +231,10 @@ export function codeTokens(source, { script = false } = {}) {
     // as a pattern, `for ([k, v] in o)`; the head's test, update and iterable are values: `for (; [{ shell }] in o; )` (Д-521).
     if (type === "punct" && (value === "{" || value === "[") && (tokens.at(-1)?.forHead === true
       || (tokens.at(-2)?.forHead === true && ["let", "const", "var"].some((word) => isName(tokens.at(-1), word))))) token.forBinding = true;
+    // A `[` right after an operand — where a `/` divides — indexes a member, a line break before it or not: `o[k] = v`, and
+    // `f()⏎[k] = v` is `f()[k] = v`; after `let`, `const`, `var` or a postfix it begins a pattern or a statement (Д-538).
+    if (type === "punct" && value === "[" && !fresh && !regexAllowed() && !postfix(tokens.length - 1)
+      && !["let", "const", "var"].some((word) => isName(tokens.at(-1), word))) token.index = true;
     if (type === "punct" && value === "{") {
       // Right after the word `extends` it begins the heritage, an object literal, and the class still waits for its body
       // (Д-507); after a member of that name, `o.extends {`, it is the body (Д-516).

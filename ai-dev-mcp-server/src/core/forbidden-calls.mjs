@@ -128,11 +128,11 @@ function parameterList(tokens, open) {
 }
 
 /**
- * Whether the `{` or `[` at `open` begins a destructuring pattern: assigned
- * to, iterated over, or a parameter — itself, or as part of one. A literal
- * that is a default value (`options = { … }`) or what is iterated
- * (`of [{ … }]`) is a value, not a pattern; so is one in a call's arguments,
- * a block after them or not (Д-472).
+ * Whether the `{` or `[` at `open` begins a destructuring pattern: assigned to, iterated over, or a
+ * parameter — itself, or as part of one. A default value (`options = { … }`), what is iterated
+ * (`of [{ … }]`), a member's index and all in it (`o[{ … }] = v`), and a bracket a member, a call or
+ * an index follows are values, not patterns; so is one in a call's arguments, a block after them or
+ * not (Д-472, Д-538).
  */
 // What isPattern answered for each bracket of a token array: a key deep in nested brackets climbs them once (Д-412).
 const PATTERNS = new WeakMap();
@@ -149,7 +149,7 @@ function isPattern(tokens, open) {
     }
     climbed.push(at);
     const end = closing(tokens, at);
-    if (end < 0) break;
+    if (end < 0 || tokens[at].index === true || isPunct(tokens[end + 1], ".") || isPunct(tokens[end + 1], "(") || tokens[end + 1]?.index === true) break;
     if (assigns(tokens, end + 1) || (isName(tokens[end + 1], "of") && tokens[end + 1].keyword === true) || (isName(tokens[end + 1], "in") && tokens[at].forBinding === true)) {
       answer = true;
       break;

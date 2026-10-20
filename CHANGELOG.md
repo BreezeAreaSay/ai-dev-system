@@ -1790,11 +1790,13 @@ four of those arrived as upstream issues #63–#66.
   so a literal in a function before the call `of(…)` is a literal (Д-534); none is looked for beyond
   the template a literal stands in, and a literal before `from` is a clause only before the module's
   string, `{ shell: true }⏎from(list)` a literal (Д-537); a call of a name `of`, or of a member of any
-  name, `x.default(cp)`, is a call, not parentheses around a value (Д-537); nothing takes a template's
-  `,` for the list's around it or its name for an object
-  literal's key, so ``(0, `${a, cp}`)`` is a string (Д-519), and a declaration's or an argument list's
-  walk begun in a template ends with it, at a `?.` too (Д-504, Д-510); a substitution of a
-  field's template is an expression's place — a class or function expression there is one, a name
+  name, `x.default(cp)`, is a call, not parentheses around a value (Д-537); a member's index is no
+  pattern, nor is anything in it, a line break before its `[` or not — `f()⏎[{ shell: true }] = v`
+  indexes what `f()` returns —, and neither is a literal a pattern assigns a member of,
+  `[{ shell: true }.x] = v` (Д-538); nothing takes a template's `,` for the list's around it or its name
+  for an object literal's key, so ``(0, `${a, cp}`)`` is a string (Д-519), and a declaration's or an
+  argument list's walk begun in a template ends with it, at a `?.` too (Д-504, Д-510); a substitution of
+  a field's template is an expression's place — a class or function expression there is one, a name
   there assigns (Д-503, Д-505); a class's field is a member, neither an alias nor an export (one on the
   line after `n++` or after a word an operand follows — a field named `in`, `return`, `default` and
   the like, or a member of such a name, `this.in` — is still read as an assignment, and a member named
@@ -1805,11 +1807,10 @@ four of those arrived as upstream issues #63–#66.
   never closes is reported rather than thrown on (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424,
   Д-426, Д-432, Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464 … Д-466, Д-472, Д-473, Д-476, Д-480,
   Д-481, Д-486, Д-487, Д-490, Д-496, Д-499, Д-501, Д-503 … Д-510, Д-515 … Д-523, Д-527, Д-530, Д-531,
-  Д-533, Д-534, Д-537). It follows the module object and the global objects through plain re-binding
-  and
-  nothing else: a module name built from parts, `createRequire`, `Reflect.get`, a loader bound to
-  another name or reached any other way (`.bind`, `Reflect.apply`, a condition, an array,
-  `require["call"]`), the module put in an object or an array (`module.exports = { cp }`,
+  Д-533, Д-534, Д-537, Д-538). It follows the module object and the global objects through plain
+  re-binding and nothing else: a module name built from parts, `createRequire`, `Reflect.get`, a
+  loader bound to another name or reached any other way (`.bind`, `Reflect.apply`, a condition, an
+  array, `require["call"]`), the module put in an object or an array (`module.exports = { cp }`,
   `export const [run] = [cp]`), on `this` or a class's field, or on a head in parentheses
   (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a name bound to that,
   an exported `let` or `var` a pattern declares or whose name the file declares again — a local, a

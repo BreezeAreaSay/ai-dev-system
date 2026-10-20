@@ -1897,8 +1897,26 @@ four of those arrived as upstream issues #63–#66.
   begins on asked instead of the one it ends on, a list that never closes taken for a list, a class
   body's mark kept on an object literal's brace, and an `export` that no longer stops a
   declaration's walk, which a value's end before it stops first since Д-517 — no program tried tells
-  apart: neither 304,352 programs V8 accepts from five fuzzers, nor 20,741 files of real code, nor
-  375 probes (Д-511, Д-515, Д-524).
+  apart: neither 304,352 programs V8 accepts from five fuzzers, nor 20,741 files of real code, nor 375
+  probes (Д-511, Д-515, Д-524). The twelfth review showed one of those four, the walk that asks for
+  the outermost template, changing an answer on code V8 accepts — a template in another's substitution
+  — and six of the others changing one only through two readings round 12 fixed: a `class` after
+  `export * as` on the line before (Д-530) and a template whose last substitution ends with `yield`
+  (Д-531); and eight of its own alive that change one too (Д-535, Д-536). Of the 359 run on round 12's
+  fixes — round 11's 326, five of them repointed where round 12 rewrote the code, 20 for round 12's
+  rules, and the twelfth review's 13, two of those repointed — 336 failed its tests, and two of the 23
+  left changed an answer: a member named `yield` taken for the keyword, and a name `from` before a
+  string for an import's; tests hold them now (Д-537). With 10 for Д-538's rules, 347 of the 369 fail
+  on the final code, and of the 22 left round 11's 18 keep the reasons above, the walk that asks for
+  the outermost template failing now, and four change no answer by construction: an alias only after
+  `export *`, since an `as` on `class`'s line stands only in an import or export list, whose `}` ends
+  the wait; a value's template asked of its `(` and the token before it, which stand where the value
+  does; a `function` after `as` on the line before read as a name, whose body's `{` is marked the same
+  whether it is waited for or not; and a `for` head's binding marked after any word right after its
+  `(`, failing until Д-538: a `[` a name stands before is a member's index now, where the pattern's
+  climb stops before it asks the mark, and no other word stands there in code V8 accepts but `let`,
+  `const` and `var`. Again no program tried tells the five above apart: neither 320,488 programs V8
+  accepts from six fuzzers, nor 20,743 files of real code, nor 564 probes (Д-535, Д-538).
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be

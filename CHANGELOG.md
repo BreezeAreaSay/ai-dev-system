@@ -728,11 +728,12 @@ has it with what each one says.
   default, where a run mounts none there or the name is 64 hex digits, as an anonymous volume's is; a
   placeholder for the mount, and where your sessions keep `/data`, where it holds one with no such
   name, a folder of the host's or a volume made with a driver's options (Д-528, Д-539, Д-540, Д-545,
-  Д-547, Д-560) — with the network only for a download, and in the image `ai-dev model doctor` sends a
-  model folder of the host's mounted at `/models` back to the host, as the start report does, not to
-  the volume the sessions would not read (Д-558); Frontend QA in the default image points at the
-  `-browser` variant instead of an install that cannot run in a client's container, and the start
-  report says the same instead of setup's `--model` and `--frontend-qa` (Д-316, Д-328).
+  Д-547, Д-560) — with the network only for a download, and in the image `ai-dev model doctor` and
+  `ai-dev model status` send a model folder of the host's mounted at `/models` back to the host, as
+  the start report does, not to the volume the sessions would not read (Д-558, Д-566, Д-569); Frontend
+  QA in the default image points at the `-browser` variant instead of an install that cannot run in a
+  client's container, and the start report says the same instead of setup's `--model` and
+  `--frontend-qa` (Д-316, Д-328).
   The report checks the model, the vectors and the browser as `setup` does, so a volume with
   the model says it has it (Д-332); a check that cannot be made is said and never stops the
   start, and a model mounted from the host is embedded with `ai-dev setup --model`, not
@@ -745,7 +746,8 @@ has it with what each one says.
   first-run wizard and Status screen read that field too: they say why the model cannot be read
   and what to do, and offer no download over it (Д-367). A developer's shell with
   `AI_DEV_RUNTIME=docker` makes neither the tests nor `npm run check`'s smokes the image's: the
-  smokes run the server in a runtime tree of their own and leave `~/.ai-dev` alone (Д-547, Д-559).
+  smokes run the server in a runtime tree of their own, with none of the shell's `AI_DEV_*` or
+  `BGE_M3_*` places, and leave `~/.ai-dev` and those places alone (Д-547, Д-559, Д-567).
 - **Trying the shared state folder** tells a container that could not write it from a Docker that
   did not run the image — an engine that does not answer, an image not here, which the probe no
   longer pulls: then nothing was tried, and the install says to run it again once Docker runs

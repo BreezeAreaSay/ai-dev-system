@@ -152,6 +152,8 @@ export function renderDenseDoctorReport(result) {
  */
 export function denseDoctorStages({ nodeVersion, support = () => ({ supported: true, reason: "" }), loadRuntime, readManifest, verifyFiles, loadModel, embedProbe, inContainer = false }) {
   let manifest = null;
+  // What fixes the model where it is the host's folder at /models in the image (Д-558, Д-569); set by the files stage.
+  let onHost = "";
   return [
     {
       key: "node",
@@ -196,9 +198,8 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
       title: "model files present and unmodified",
       run: async () => {
         const status = await verifyFiles(manifest);
+        onHost = inContainer && status.dir === DOCKER_MOUNTED_MODEL_DIR ? `In this container, ${containerModelAdvice(status.dir)}` : "";
         if (status.ready) return { ok: true, detail: `${status.present.length} file(s) verified in ${status.dir}` };
-        const mounted = inContainer && status.dir === DOCKER_MOUNTED_MODEL_DIR;
-        const onHost = mounted ? `In this container, ${containerModelAdvice(status.dir)}` : "";
         if (status.mismatched.length) {
           return {
             ok: false,
@@ -218,7 +219,10 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
     {
       key: "load",
       title: "model loads",
-      advice: `The files verified but the runtime would not load them. Run \`${hint("npm run model -- remove")}\`, then \`${hint("npm run setup -- --model")}\`.`,
+      // Read once the files stage has run: a host's folder is put right on the host (Д-569).
+      get advice() {
+        return `The files verified but the runtime would not load them. ${onHost || `Run \`${hint("npm run model -- remove")}\`, then \`${hint("npm run setup -- --model")}\`.`}`;
+      },
       run: async () => {
         const loaded = await loadModel(manifest);
         return { ok: true, detail: `loaded in ${loaded.seconds}s` };

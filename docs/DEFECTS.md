@@ -20946,7 +20946,7 @@ CHANGELOG, склеив строки: «seventeen of them repointed» — 1, «t
 ```
 
 Пометка (Д-565): E8 переписали и `78be9d7`, и `84c8317`; новый его текст есть только с `84c8317` — к строкам `84c8317`, а не
-`78be9d7` (`p14/r13fix/docs/repointed.out`, строка 301); итог 17 верен.
+`78be9d7` (`p14/r13fix/docs/repointed.out`, строка 14 — её первое поле 301); итог 17 верен.
 
 ---
 
@@ -21770,7 +21770,8 @@ What to do: Run `docker run --rm -it --network bridge --mount type=volume,source
 r15g, том r15f-doc, в /models только bge-m3-onnx/config.json: [ FAIL ] … do not match the manifest: config.json
   What to do: In this container, the folder is the host's, mounted read-only at /models (AI_DEV_MODEL_PATH): put the model right
   there on the host (`ai-dev model install --dir <that folder>/bge-m3-onnx`), or drop the mount and install it into the data volume.
-новый тест на коде 3a36bf3 → not ok 17 (Д-558); на bd275b5 → dense-doctor.test.mjs # pass 15 # fail 0
+новый тест на коде 3a36bf3 → not ok 17 в общем прогоне `before-tests.out` (в файле — тест 9); на bd275b5 → dense-doctor.test.mjs
+  # tests 17 # pass 17 # fail 0 (поправлено по Д-569)
 ```
 
 ---

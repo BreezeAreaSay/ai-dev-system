@@ -10,7 +10,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
 import { CliUsageError, EXIT, closest, parseCommandLine } from "../core/cli-args.mjs";
-import { DOCKER_MOUNTED_MODEL_DIR, legacyDenseNotes, unreadableModelAdvice } from "../core/dense-backend.mjs";
+import { DOCKER_MOUNTED_MODEL_DIR, containerModelAdvice, legacyDenseNotes, unreadableModelAdvice } from "../core/dense-backend.mjs";
 import { denseDoctorStages, renderDenseDoctorReport, runDenseDoctor } from "../core/dense-doctor.mjs";
 import { readDenseManifest } from "../core/dense-manifest.mjs";
 import { createOnnxDenseRuntime, defaultOnnxModelDir } from "../core/dense-onnx.mjs";
@@ -204,13 +204,13 @@ export async function run(argv, io) {
         if (json) return { ok: status.installed, ...status, legacy: notes };
         say(`Model: ${manifest.export} @ ${String(manifest.revision).slice(0, 12)} (${manifest.dtype}) in ${status.dir}`);
         say(status.installed ? "Installed: yes, every file matches the manifest." : "Installed: no.");
-        if (status.unreadable) {
-          const mounted = String(io.env.AI_DEV_RUNTIME ?? "") === "docker" && status.dir === DOCKER_MOUNTED_MODEL_DIR;
-          say(`Cannot be read: ${status.unreadable}. ${unreadableModelAdvice(status.unreadable, { mounted })}`);
-        }
+        // A host's folder at /models in the image is put right on the host, not by an install into the volume (Д-558, Д-566).
+        const mounted = String(io.env.AI_DEV_RUNTIME ?? "") === "docker" && status.dir === DOCKER_MOUNTED_MODEL_DIR;
+        if (status.unreadable) say(`Cannot be read: ${status.unreadable}. ${unreadableModelAdvice(status.unreadable, { mounted })}`);
         if (status.missing.length) say(`Missing: ${status.missing.join(", ")}`);
-        if (status.mismatched.length) say(`Not the pinned files: ${status.mismatched.join(", ")} — \`${hint("npm run model -- install")}\` fetches them again.`);
-        for (const part of status.partial) say(`Stopped partway: ${part.file}, ${formatBytes(part.bytes)}${part.size ? ` of ${formatBytes(part.size)}` : ""} — \`${hint("npm run model -- install")}\` continues it.`);
+        const install = hint("npm run model -- install");
+        if (status.mismatched.length) say(`Not the pinned files: ${status.mismatched.join(", ")} — ${mounted ? `in this container, ${containerModelAdvice(status.dir)}` : `\`${install}\` fetches them again.`}`);
+        for (const part of status.partial) say(`Stopped partway: ${part.file}, ${formatBytes(part.bytes)}${part.size ? ` of ${formatBytes(part.size)}` : ""} — ${mounted ? `in this container, ${containerModelAdvice(status.dir)}` : `\`${install}\` continues it.`}`);
         say(`Download from: ${status.sources_error || status.sources.map((url) => new URL(url).host).join(", ") || "nowhere, the manifest lists no sources"}`);
         if (!status.supported) say(status.support_reason);
         for (const note of notes) say(`Note: ${note}`);

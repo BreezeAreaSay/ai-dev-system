@@ -11,10 +11,10 @@ const serverRoot = path.resolve(scriptDir, "..");
 const serverPath = process.env.AI_DEV_MCP_SERVER_PATH
   ? path.resolve(process.env.AI_DEV_MCP_SERVER_PATH)
   : path.join(serverRoot, "src", "server.mjs");
-// The host's server in a runtime tree of its own, never the developer's ~/.ai-dev, whatever AI_DEV_RUNTIME their shell
-// holds (docs/DEFECTS.md, Д-559).
+// The host's server in a runtime tree of its own, never the developer's ~/.ai-dev or a place their shell names: none of
+// their AI_DEV_* or BGE_M3_* variables reaches it (docs/DEFECTS.md, Д-559, Д-567).
 const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-protocol-"));
-const { AI_DEV_RUNTIME: _runtime, ...hostEnv } = process.env;
+const hostEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(AI_DEV_|BGE_M3_)/.test(name)));
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [serverPath],

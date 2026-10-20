@@ -588,7 +588,7 @@ test("a function's, a method's, an arrow's or a class's body or a computed key e
   assert.deepEqual(rules("let shell;\nconst o = [{}];\nexport class A {\n  x = [{ shell }] = o;\n}\nexport { shell };\n"), []);
 });
 
-test("a literal in a default value behind an operator, a condition or ! is a value; a } or * ends a clause only an import's or an export's; extends at a line's end goes on (Д-561, Д-562)", () => {
+test("a literal in a default value behind an operator, a condition or ! is a value; a } or * ends a clause only an import's or an export's, and no member's import, export or as begins one; extends at a line's end goes on (Д-561, Д-562, Д-568)", () => {
   // A bracket climbs on to a pattern only as a whole entry of the bracket around it: after {, [, ,, (, ... or a key's :
   // (Д-561). A shell option behind a condition is the usual way to write one for Windows alone.
   const behind = {
@@ -619,6 +619,11 @@ test("a literal in a default value behind an operator, a condition or ! is a val
   // A } or * before a from that stands alone is no clause's end: the / after the string divides (Д-562).
   for (const source of ["let from, s;\nif (s) {}\nfrom\n\"x\" / eval(s) / 1;\n", "let from, s, b;\nconst a = b *\nfrom\n\"x\" / eval(s) / 1;\nexport { a };\n"]) {
     assert.deepEqual(rules(source), ["eval"], source);
+  }
+  // Nor does a member named import, export or as begin a clause: the block or the name after it is the code's (Д-568).
+  for (const before of ["o.export\n{}", "o.import\n{}", "this.#export\n{}", "o.import\nb, {}", "o.import\nx", "o.as\nx"]) {
+    const source = `let from, s, o = {}, b, x;\nexport class C {\n  #export;\n  m() {\n    ${before.replace("\n", "\n    ")}\n    from\n    "x" / eval(s) / 1;\n  }\n}\n`;
+    assert.deepEqual(rules(source), ["eval"], before);
   }
   for (const head of ["import x, { y } from \"./m.mjs\"", "export {\n  a\n}\nfrom \"./m.mjs\"", "export * from \"./m.mjs\"", "import {} from \"./m.mjs\"", "export * as ns from \"./m.mjs\""]) {
     assert.deepEqual(rules(`${head}\n/eval(?:)/.test("s");\n`), [], head);

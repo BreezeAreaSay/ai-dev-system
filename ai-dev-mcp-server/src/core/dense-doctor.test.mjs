@@ -144,6 +144,13 @@ test("in the image, the host's folder at /models is fixed on the host, as the st
   const volume = await doctor({ inContainer: true, verifyFiles: async () => ({ ...await lacking(), dir: "/data/runtime-home/.ai-dev/models/bge-m3-onnx" }) });
   assert.match(renderDenseDoctorReport(volume), /to start the download/);
   assert.match(renderDenseDoctorReport(await doctor({ verifyFiles: lacking })), /to start the download/);
+  // Files that verified and do not load: the host's folder is still put right on the host (Д-569).
+  const whole = async () => ({ ready: true, dir: "/models/bge-m3-onnx", present: ["config.json"], missing: [], mismatched: [] });
+  const broken = async () => { throw new Error("Protobuf parsing failed"); };
+  const load = renderDenseDoctorReport(await doctor({ inContainer: true, verifyFiles: whole, loadModel: broken }));
+  assert.match(load, /What to do: The files verified but the runtime would not load them\. In this container, the folder is the host's/);
+  assert.doesNotMatch(load, /model -- remove|model remove/);
+  assert.match(renderDenseDoctorReport(await doctor({ verifyFiles: whole, loadModel: broken })), /npm run model -- remove`, then `npm run setup -- --model`/);
 });
 
 test("stages after a failure are skipped rather than run into a worse error", async () => {

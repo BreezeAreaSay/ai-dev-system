@@ -12,11 +12,12 @@ export const KEYWORDS_BEFORE_EXPRESSION = new Set([
 ]);
 // A `(` after these opens a statement's head, and a `/` after its `)` starts a regular expression: `if (x) /re/.test(s)`.
 export const HEAD_KEYWORDS = new Set(["if", "while", "for", "with"]);
-// Before these a `{` opens an object literal rather than a block, a class body or a clause — `/` and `<` too, which
+// After these a `{` opens an object literal rather than a block, a class body or a clause — `/` and `<` too, which
 // only ever divide or compare (a regular expression is a token of its own), and a `>` that ends no arrow's `=>` (Д-507).
 const OBJECT_AFTER_PUNCT = new Set(["=", "(", ",", ":", "[", "?", "|", "&", "!", "...", "+", "-", "*", "%", "~", "^", "/", "<"]);
 // After these words a value begins: a `{` there is an object literal, a `class` an expression — `delete`, `in` and
-// `instanceof` too, which only ever stand before an operand (Д-448), `extends`, and a `for` head's `of` (Д-507).
+// `instanceof` too, which only ever stand before an operand (Д-448), and `extends`; after a `for` head's `of` too, which
+// `valueAfter` asks by its mark, `keyword` (Д-507, Д-537).
 const OBJECT_AFTER_NAME = new Set(["return", "yield", "await", "case", "default", "typeof", "void", "new", "throw", "delete", "in", "instanceof", "extends"]);
 // After these, and after the label one names, a statement is over: a `/` that follows begins a regular expression.
 const STATEMENT_ENDS = new Set(["break", "continue", "debugger"]);
@@ -31,8 +32,9 @@ const BRACED_CODE_POINT = /\{([0-9a-fA-F]+)\}/y;
 const OCTAL_ESCAPE = /[0-3][0-7]{0,2}|[4-7][0-7]?/y;
 
 // What ends an operand: a literal, a `)` or `]`, a name but a keyword an expression follows — the name `of` too, but the
-// keyword right after a `for` head's binding (Д-517) —, and so a postfix after it: `x++ / 2` divides (Д-441).
-export const endsOperand = (token) => token?.type === "number" || token?.type === "string" || token?.type === "regex"
+// keyword right after a `for` head's binding (Д-517) —, and so a postfix after it: `x++ / 2` divides (Д-441); and a template's
+// end, whatever its last substitution ends with, `${yield}` (Д-520, Д-531).
+export const endsOperand = (token) => token?.templateEnd === true || token?.type === "number" || token?.type === "string" || token?.type === "regex"
   || (isName(token) && (token.value === "of" ? token.keyword !== true : !KEYWORDS_BEFORE_EXPRESSION.has(token.value))) || isPunct(token, ")") || isPunct(token, "]");
 const isLineEnd = (character) => character === "\n" || character === "\r" || character === "\u2028" || character === "\u2029";
 const lineBreaks = (text) => text.match(LINE_BREAKS)?.length ?? 0;
@@ -91,9 +93,12 @@ function readEscape(text, at) {
  * and no later one on that line reads again, in the same state — inside a
  * class of characters or out of one — what it read.
  * Each `{` carries `literal`: whether it opens an object literal; a class's
- * body carries `classBody`; a token right in a template's substitution, no
- * bracket opened since its `${`, carries `substitution`, and every token in a
- * substitution `within`: the index of its template's first token.
+ * body carries `classBody`, an arrow's `arrowBody`; a `for` head's `(` carries
+ * `forHead`, the `{` or `[` of its binding `forBinding`, and its keyword `of`
+ * `keyword`; a token right in a template's substitution, no bracket opened
+ * since its `${`, carries `substitution`, and every token in a substitution
+ * `within`: the index of its template's first token, whose `last` is the
+ * index of the template's last token; that token carries `templateEnd`.
  *
  * When a template literal, a substitution or a comment never closes, the
  * array's `unterminated` property is the line it opened on: whatever follows
@@ -252,7 +257,7 @@ export function codeTokens(source, { script = false } = {}) {
     if (!last) return true;
     // A template's end ends an operand, whatever its last substitution ends with: `${(a) => {}}` / 2 and `${yield}` / 2
     // divide (Д-520, Д-531).
-    if (last.within !== undefined && tokens[last.within].last === tokens.length - 1) return false;
+    if (last.templateEnd === true) return false;
     if (last.type === "name") {
       if (isMember(tokens.length - 1)) return false;
       // `debugger⏎/r/`, `break outer⏎/r/`: the statement is over, and a `/` begins the next (Д-448).
@@ -260,6 +265,8 @@ export function codeTokens(source, { script = false } = {}) {
       if (STATEMENT_ENDS.has(last.value) || labelled) return true;
       return last.value === "of" ? last.keyword === true : KEYWORDS_BEFORE_EXPRESSION.has(last.value);
     }
+    // An import's or a re-export's module ends its statement: `import x from "./m.mjs"⏎/re/.test(x)` (Д-537).
+    if (last.type === "string" && (isName(tokens.at(-2), "import") || (isName(tokens.at(-2), "from") && (isPunct(tokens.at(-3), "}") || isPunct(tokens.at(-3), "*") || isName(tokens.at(-3)))))) return true;
     if (last.type !== "punct") return false;
     if (last.value === ")" || last.value === "]" || last.value === "}") return last.regexAfter === true;
     // `x++ / 2` and `stats.new++ / 2` divide; `a + + /re/` is a plus, a unary plus and a regular expression (Д-424, Д-508),
@@ -362,9 +369,10 @@ export function codeTokens(source, { script = false } = {}) {
       const { line: started, token } = templates.pop();
       at += 1;
       const { ended } = readTemplateText();
-      // Where the template ends: a walk over a list steps over it whole, the commas of its code not the list's (Д-473), and a
-      // `/` after it divides (Д-520, Д-531).
+      // Where the template ends: a walk over a list steps over it whole, the commas of its code not the list's (Д-473); its
+      // last token ends an operand, and a `/` after it divides (Д-520, Д-531).
       if (ended === "end") tokens[token].last = tokens.length - 1;
+      if (ended === "end") tokens.at(-1).templateEnd = true;
       if (ended === "code") {
         templates.push({ depth: 0, line: started, token, opened: opened.length });
         substitutionOpened = true;

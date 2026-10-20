@@ -1744,7 +1744,8 @@ four of those arrived as upstream issues #63–#66.
   nor one after `delete`, `in` or `instanceof`, nor a template's end, whatever its last substitution
   ends with, `${yield}` / 2 too (Д-520, Д-531); a property named `in`, a name `of` anywhere but right
   after a `for` head's binding (`for (k in of / 2)`, `o.for(of / 2)`), as any name, `of++ / 2` too
-  (Д-517); a regular expression after `break`, `continue` or `debugger`), a member's name read as a
+  (Д-517); a regular expression after `break`, `continue`, `debugger` or an import's module,
+  `import x from "./m.mjs"⏎/re/` (Д-537)), a member's name read as a
   name whatever word it is (`it.return`, `this.#class`, `stats.new++ / 2`), a statement begun where a
   line break ends one (after `return`, `yield`, `x++`, `o.new++`) (Д-508) and where one stands before
   a `++` or `--`, a prefix there — `a⏎++/re/.lastIndex` holds a regular expression,
@@ -1777,12 +1778,20 @@ four of those arrived as upstream issues #63–#66.
   after it, none right in a template's substitution, where a script's `let` is a name, and none right
   in a class's body, where it names a member (Д-509) — a JSON Schema's `const:` key declares nothing;
   the one on the line after a declaration with no `;` declares too, and so does the one after a value
-  that ends in a member named like a keyword, `o.default` (Д-506), or in a name `of` (Д-517); a value
+  that ends in a member named like a keyword, `o.default` (Д-506), in a name `of` (Д-517), in a
+  template, whatever its code ends with (Д-531), or in a `yield` a line break ends (Д-537); a value
   that has ended ends its declaration before a line that begins with a `++` or `--` as well, so
-  `1⏎++b, c = cp` assigns `c` (Д-515), and so does an arrow's body, which no call follows, before any
-  line but one that begins with a `:` (Д-521) — and `function`, `function*` or `class` only where it
+  `1⏎++b, c = cp` assigns `c` (Д-515) — after a postfix or such a `yield`, before one that begins with
+  a template, `(` or `[` too (Д-537) —, and so does an arrow's body, which no call follows, before any
+  line but one that begins with a `:` (Д-521), unless the body ends a template's code, which the
+  template goes on after (Д-533) — and `function`, `function*` or `class` only where it
   is no member; a pattern before `in` is one only as a `for` head's binding, so `[{ shell: true }] in o`
-  is an array, in the head's test too (Д-521); nothing takes a template's `,` for the list's around it or its name for an object
+  is an array, in the head's test too (Д-521), and one before `of` only before a `for` head's keyword,
+  so a literal in a function before the call `of(…)` is a literal (Д-534); none is looked for beyond
+  the template a literal stands in, and a literal before `from` is a clause only before the module's
+  string, `{ shell: true }⏎from(list)` a literal (Д-537); a call of a name `of`, or of a member of any
+  name, `x.default(cp)`, is a call, not parentheses around a value (Д-537); nothing takes a template's
+  `,` for the list's around it or its name for an object
   literal's key, so ``(0, `${a, cp}`)`` is a string (Д-519), and a declaration's or an argument list's
   walk begun in a template ends with it, at a `?.` too (Д-504, Д-510); a substitution of a
   field's template is an expression's place — a class or function expression there is one, a name
@@ -1795,7 +1804,9 @@ four of those arrived as upstream issues #63–#66.
   end — a template or a comment that never closes — is refused rather than passed, and a list that
   never closes is reported rather than thrown on (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424,
   Д-426, Д-432, Д-440 … Д-443, Д-446 … Д-448, Д-459 … Д-461, Д-464 … Д-466, Д-472, Д-473, Д-476, Д-480,
-  Д-481, Д-486, Д-487, Д-490, Д-496, Д-499, Д-501, Д-503 … Д-510, Д-515 … Д-523, Д-527). It follows the module object and the global objects through plain re-binding and
+  Д-481, Д-486, Д-487, Д-490, Д-496, Д-499, Д-501, Д-503 … Д-510, Д-515 … Д-523, Д-527, Д-530, Д-531,
+  Д-533, Д-534, Д-537). It follows the module object and the global objects through plain re-binding
+  and
   nothing else: a module name built from parts, `createRequire`, `Reflect.get`, a loader bound to
   another name or reached any other way (`.bind`, `Reflect.apply`, a condition, an array,
   `require["call"]`), the module put in an object or an array (`module.exports = { cp }`,

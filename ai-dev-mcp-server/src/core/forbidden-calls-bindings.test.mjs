@@ -5,7 +5,8 @@ import { forbiddenCalls } from "./forbidden-calls.mjs";
 
 // What the static gate reads as declaring a name, binding one or holding a pattern: a parameter list, a declaration, a
 // class's field. Its own file since forbidden-calls.test.mjs would have passed the 800 lines a module keeps
-// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-511, Д-515 … Д-522, Д-524, Д-527, Д-530, Д-531).
+// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-511, Д-515 … Д-522, Д-524, Д-527, Д-530, Д-531,
+// Д-533 … Д-537).
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
 const BT = "`";
@@ -405,3 +406,57 @@ test("a member named extends before a body, the name of, a word as on the line b
   assert.deepEqual(rules("export class T {\n  #new = 0;\n  share(t) {\n    return this.#new++ / t; // Function of the new count\n  }\n}\n"), []);
   assert.deepEqual(rules("export class T {\n  #in = 0;\n  share(n) {\n    const r = this.#in-- / n; const g = eval; return g / 2 + r;\n  }\n}\n"), ["eval"]);
 });
+
+test("an alias after export * before a default, an arrow's body ending a template's code, a bracket before the name of, a template's end as an operand's, a nested template's comma, the conditions round 12's mutants took away, and the gate's nits of round 12 (Д-530, Д-531, Д-533 … Д-537)", () => {
+  // An alias's as after export *, the clause followed by a default; a * that multiplies and an export default that names a
+  // value are no such clause, and a class after them on the next line declares (Д-530).
+  for (const word of ["class", "function"]) {
+    assert.deepEqual(rules(`export * as\n${word} from "./m.mjs"\nexport default { shell: true }\n`), ["shell"], word);
+  }
+  assert.deepEqual(rules("const as = 2, x = 3;\nlet v = x * as\nclass Foo {\n  m({ shell })\n  {\n    return shell;\n  }\n}\nexport { v, Foo };\n"), []);
+  assert.deepEqual(rules(`${CP}export let run;\nconst as = 1;\nexport default as\nclass Foo {\n  run = cp;\n}\nexport { Foo };\n`), []);
+  // A template's end ends an operand: a declaration after `${yield}` ends at the line, and a member after a field whose
+  // template ends with this.in or n++ is a member (Д-531).
+  assert.deepEqual(rules(`${CP}export let run;\nexport function* g() {\n  const x = ${BT}\${yield}${BT}\n  let run = cp\n  return [x, run]\n}\n`), []);
+  for (const value of ["n++", "this.in"]) {
+    assert.deepEqual(rules(`${CP}let n = 0;\nexport let run;\nexport class A {\n  in = 1;\n  x = ${BT}\${${value}}${BT}\n  run = cp\n}\n`), [], value);
+  }
+  // An arrow's body that ends a template's last substitution ends no declaration: the template goes on (Д-533).
+  assert.deepEqual(rules(`${CP}export const a = ${BT}\${() => {}}${BT}\n  .trim(), run = cp;\n`), ["child_process.exec"]);
+  for (const after of [".trim()", "[0]", `${BT}x${BT}`]) {
+    assert.deepEqual(rules(`${CP}export let run;\nconst tag = () => () => "";\nexport function f() {\n  const a = tag${BT}\${() => {}}${BT}\n    ${after}, run = cp;\n  return [a, run];\n}\n`), [], after);
+  }
+  // A bracket before the name of is no pattern: only a for head's keyword makes one (Д-534).
+  assert.deepEqual(rules(`import { of } from "./rx.mjs";\nexport function options() {\n  return { shell: true };\n}\nof(options()).subscribe(() => {});\n`), ["shell"]);
+  assert.deepEqual(rules(`import { of } from "./rx.mjs";\nexport function workerOptions() {\n  return { eval: true };\n}\nof(workerOptions()).subscribe(() => {});\n`), []);
+  assert.deepEqual(rules("let of = 0\nexport default { shell: true }\nof++\n"), ["shell"]);
+  assert.deepEqual(rules(`const of = 1;\nexport const s = ${BT}\${{ shell: true }}\${of}${BT};\n`), ["shell"]);
+  assert.deepEqual(rules("const x = [];\nexport let shell;\nfor (const { shell } of x) break;\n"), []);
+  // V6: a nested template's , is its own template's (Д-535); the conditions of round 11 the mutants J… took away (Д-536).
+  assert.deepEqual(rules(`${CP}const a = 1;\nexport const x = ${BT}\${(0, ${BT}\${a, cp}${BT}).exec}${BT};\n`), []);
+  assert.deepEqual(rules(`const a = 1, shell = 2;\nexport const x = ${BT}\${JSON.stringify({ x: ${BT}\${a, shell}${BT} })}${BT};\n`), []);
+  assert.deepEqual(rules(`const a = 1, k = "x";\nlet g;\nexport const x = ${BT}\${g = (0, ${BT}\${a, globalThis}${BT})}${BT};\nexport const v = g[k];\n`), []);
+  assert.deepEqual(rules("export const v = (b) => async function () {} / 2; // Function( of b\n"), []);
+  assert.deepEqual(rules(`let g;\nconst k = "x";\nexport const s = ${BT}\${g = (0, globalThis)}${BT};\nexport const v = g[k];\n`), ["global-member"]);
+  assert.deepEqual(rules('export const s = "a eval(1)";\n'), []);
+  assert.deepEqual(rules(`${CP}export let run;\nconst handler = () =>\n{}\n(function () {})(), run = cp;\nexport { handler };\n`), ["child_process.exec"]);
+  assert.deepEqual(rules(`${CP}export let run;\nlet a;\nconst handler = () => {}\n[a] = [1], run = cp;\nexport { handler };\n`), ["child_process.exec"]);
+  assert.deepEqual(rules("const o = {};\nexport function f() {\n  for (const\n    [k, { shell }] in o) return [k, shell];\n}\n"), []);
+  assert.deepEqual(rules("export function f() {\n  for (;\n    { shell: true };) return 1;\n}\n"), ["shell"]);
+  // The gate's nits of round 12 (Д-537): a literal in a template is no pattern of the parameter around it; a call of a
+  // name of or of a member named like a keyword is a call; from after a literal is a call too; a / after an import's
+  // module begins a regular expression; a yield and a postfix that end a line end the declaration.
+  assert.deepEqual(rules("export function f(a = `${{ shell: true }}`) { return a; }\n"), ["shell"]);
+  assert.deepEqual(rules("const o = {};\nexport const { a = `${{ shell: true }}` } = o;\n"), ["shell"]);
+  assert.deepEqual(rules(`${CP}const x = { default: (m) => m };\nx.default(cp).exec("ls");\n`), []);
+  assert.deepEqual(rules(`${CP}const of = (m) => m;\nof(cp).exec("ls");\n`), []);
+  assert.deepEqual(rules("const k = \"x\";\nconst m = new Map();\nexport const v = m.delete(globalThis)[k];\n"), []);
+  assert.deepEqual(rules("import { from } from \"./rx.mjs\"\nconst list = []\nexport const opts = { shell: true }\nfrom(list).subscribe(() => {})\n"), ["shell"]);
+  assert.deepEqual(rules("import x from \"./m.mjs\"\n/eval(?:)/.test(x);\n"), []);
+  assert.deepEqual(rules(`import "./m.mjs"\n/${BT}/.test("x");\n`), []);
+  assert.deepEqual(rules(`${CP}export let c2;\nexport function* g() {\n  let r = yield\n  const c2 = cp\n  return [r, c2];\n}\n`), []);
+  for (const value of [`${BT}x${BT}`, "(a)", "[a]"]) {
+    assert.deepEqual(rules(`${CP}export let run;\nlet n = 0, a = 1;\nconst r = n++\n${value}, run = cp;\nexport { r };\n`), ["child_process.exec"], value);
+  }
+});
+

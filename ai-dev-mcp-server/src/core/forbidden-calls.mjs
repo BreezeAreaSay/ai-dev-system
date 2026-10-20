@@ -150,13 +150,13 @@ function isPattern(tokens, open) {
     climbed.push(at);
     const end = closing(tokens, at);
     if (end < 0) break;
-    if (assigns(tokens, end + 1) || isName(tokens[end + 1], "of") || (isName(tokens[end + 1], "in") && tokens[at].forBinding === true)) {
+    if (assigns(tokens, end + 1) || (isName(tokens[end + 1], "of") && tokens[end + 1].keyword === true) || (isName(tokens[end + 1], "in") && tokens[at].forBinding === true)) {
       answer = true;
       break;
     }
     if (assigns(tokens, at - 1) || isName(tokens[at - 1], "of") || isName(tokens[at - 1], "in")) break;
     const outer = enclosing(tokens, at);
-    if (outer < 0) break;
+    if (outer < 0 || tokens[outer].within !== tokens[at].within) break;
     if (isPunct(tokens[outer], "(")) {
       answer = parameterList(tokens, outer);
       break;
@@ -173,7 +173,7 @@ function inObjectLiteral(tokens, index) {
   // After `)`, `=>`, `else`, a `;` or a label's `:` it is a block; after `import` or `const` a clause or a pattern.
   if (open < 0 || !isPunct(tokens[open], "{") || !tokens[open].literal || tokens[open].within !== tokens[index].within) return false;
   // `import React, { shell } from "electron"`, `export { shell } from …`.
-  if (isName(tokens[closing(tokens, open) + 1], "from")) return false;
+  if (isName(tokens[closing(tokens, open) + 1], "from") && tokens[closing(tokens, open) + 2]?.type === "string") return false;
   return !isPattern(tokens, open);
 }
 
@@ -208,7 +208,7 @@ const LOADERS = new Set(["require", "import", "getBuiltinModule"]);
 /** Whether the `(` at `open` calls what stands before it — `f(x)` — rather than holding a value: `(cp)`, `return (cp)`. */
 const callsAt = (tokens, open) => {
   const before = tokens[open - 1];
-  return (isName(before) && !KEYWORDS_BEFORE_EXPRESSION.has(before.value) && !HEAD_KEYWORDS.has(before.value)) || isPunct(before, ")") || isPunct(before, "]");
+  return (isName(before) && (isPunct(tokens[open - 2], ".") || isPunct(tokens[open - 2], "#") || (before.value === "of" ? before.keyword !== true : !KEYWORDS_BEFORE_EXPRESSION.has(before.value) && !HEAD_KEYWORDS.has(before.value)))) || isPunct(before, ")") || isPunct(before, "]");
 };
 
 /** The first token of the member chain whose last token is at `last`: `module.require`, `globalThis.process["x"]`. */
@@ -364,11 +364,11 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       const token = tokens[next];
       if ([",", ";", ")", "]", "}"].some((value) => isPunct(token, value)) || token.within !== tokens[at].within) return next;
       const previous = tokens[next - 1];
-      // A value ends where an operand does — a name `of` too (Д-517), a member's name as any, `o.in` (Д-506) — at a `}`, and at a postfix: `n++` (Д-441).
-      const endsValue = endsOperand(previous) || isPunct(previous, "}") || (isName(previous) && (isPunct(tokens[next - 2], ".") || isPunct(tokens[next - 2], "#")))
-        || ((isPunct(previous, "+") || isPunct(previous, "-")) && previous.joined === true && (endsOperand(tokens[next - 3]) || isPunct(tokens[next - 4], ".") || isPunct(tokens[next - 4], "#")));
-      if (next > at && token.line > previous.line && ((endsValue && ((isName(token) && token.value !== "in" && token.value !== "instanceof") || tokens[next + 1]?.joined === true))
-        || (tokens[opening(tokens, next - 1)]?.arrowBody === true && !isPunct(token, ":")))) return next;
+      // A value ends where an operand does — a name `of` too (Д-517), a member's name as any, `o.in` (Д-506), a template's end (Д-531) — at a `}`, and at a postfix, `n++` (Д-441), or a `yield` a line break ends, before which a line that begins with a template, `(` or `[` begins a statement too (Д-537).
+      const breaks = (isName(previous, "yield") && !isPunct(tokens[next - 2], ".") && !isPunct(tokens[next - 2], "#")) || ((isPunct(previous, "+") || isPunct(previous, "-")) && previous.joined === true && (endsOperand(tokens[next - 3]) || isPunct(tokens[next - 4], ".") || isPunct(tokens[next - 4], "#")));
+      const endsValue = breaks || endsOperand(previous) || isPunct(previous, "}") || (isName(previous) && (isPunct(tokens[next - 2], ".") || isPunct(tokens[next - 2], "#")));
+      if (next > at && token.line > previous.line && ((endsValue && ((isName(token) && token.value !== "in" && token.value !== "instanceof") || tokens[next + 1]?.joined === true || (breaks && (isPunct(token, "(") || isPunct(token, "[") || token.type === "template" || token.template === true))))
+        || (tokens[opening(tokens, next - 1)]?.arrowBody === true && previous.within === tokens[at].within && !isPunct(token, ":")))) return next;
       // `export` only ever begins a statement, and the walk stops there whatever came before (Д-444).
       if (next > at && isName(token, "export") && !isPunct(previous, ".")) return next;
       walked[next] = 1;

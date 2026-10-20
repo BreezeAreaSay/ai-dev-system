@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { frontendQaHint, hint, isEphemeralInstall, OWN_SERVER_ROOT, PACKAGE_NAME, resolveInstallLayout, runtimeRepairHint } from "./install-layout.mjs";
+import { dockerCommand, frontendQaHint, hint, isEphemeralInstall, OWN_SERVER_ROOT, PACKAGE_NAME, resolveInstallLayout, runtimeRepairHint } from "./install-layout.mjs";
 
 const home = path.resolve("/home/me");
 const env = (extra = {}) => ({ HOME: home, USERPROFILE: "", ...extra });
@@ -143,6 +143,9 @@ test("hints are spelled the way each layout runs them", () => {
     "the model goes into the volume, with the network that one run needs");
   assert.equal(hint("npm run model -- import <folder or .zip>", docker),
     "docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data --mount type=bind,source=<folder or .zip>,target=/import,readonly <image> ai-dev model import /import");
+  // The volume is the one at the image's /data, whatever the host named it (Д-528).
+  assert.equal(dockerCommand("setup --model", "team-data"),
+    "docker run --rm -it --network bridge --mount type=volume,source=team-data,target=/data <image> ai-dev model install");
   assert.equal(hint("npm run check", global), "npm run check", "a script only a checkout has stays as written");
   assert.equal(hint("git pull", global), "git pull");
   const windows = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot: path.join(home, ".ai-dev") };

@@ -12,7 +12,7 @@
  * Pure on purpose: every probe arrives as a value, so each state — including
  * the ones only a stranger's machine reaches — is a test case.
  */
-import { hint } from "./install-layout.mjs";
+import { dockerCommand, hint } from "./install-layout.mjs";
 
 /** The backend's name, as status payloads and index metadata record it. */
 export const DENSE_ONNX_BACKEND = "onnx";
@@ -141,7 +141,7 @@ export function containerModelAdvice(dir = "") {
     ? "the folder is the host's, mounted read-only at /models (AI_DEV_MODEL_PATH): put the model right there on the host "
       + "(`ai-dev model install --dir <that folder>/bge-m3-onnx`), or drop the mount and install it into the data volume."
     : "install it into the data volume once, with the network that run needs: "
-      + "`docker run --rm -it --network bridge --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev model install`; "
+      + `\`${dockerCommand("model install")}\`; `
       + "the sessions after it keep --network none. Or mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH).";
 }
 

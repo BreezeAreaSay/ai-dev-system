@@ -145,6 +145,11 @@ try {
     if (browser ? browserLine !== "comes with the image" : !/its -browser variant carries it/.test(browserLine)) {
       throw new Error(`The start report says of the browser: "${browserLine}".`);
     }
+    // The model goes into the volume the session runs on, whatever the host named it (Д-528).
+    const modelLine = /Local BGE-M3 model: (.*)/.exec(stderr())?.[1] ?? "";
+    if (!modelLine.includes(`source=${volume},target=/data`) || !JSON.stringify(health).includes(`source=${volume},target=/data`)) {
+      throw new Error(`The image's advice for the model does not name this volume, ${volume}: "${modelLine}".`);
+    }
     Object.assign(report, {
       first_session_ms: ms,
       instructions: instructions.length,

@@ -30,7 +30,7 @@
  */
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
-import { accessSync, constants as fsConstants, existsSync, lstatSync, readlinkSync, rmSync, statSync } from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, lstatSync, readFileSync, readlinkSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 
 /** The image a client runs unless told otherwise (owner decision D9: `:latest` is the released line). */
@@ -38,6 +38,38 @@ export const DEFAULT_DOCKER_IMAGE = "ghcr.io/stonebridgeway/ai-dev-system:latest
 
 /** The named volume the data lives in; 2.x's name, so an upgrade keeps it. */
 export const DEFAULT_DOCKER_VOLUME = "ai-dev-system-data";
+
+/**
+ * The named volume at a container's `/data`, from its `/proc/self/mountinfo`:
+ * the host chose it (`--volume`, `AI_DEV_DATA_VOLUME`), and the root of a
+ * volume's mount ends `volumes/<name>/_data` — Docker's, rootless Docker's and
+ * Podman's alike. A folder bound there keeps the default (docs/DEFECTS.md, Д-528).
+ *
+ * @param {string} mountinfo
+ * @returns {string}
+ */
+export function volumeAtData(mountinfo) {
+  // Fields: id, parent, device, root, mount point, …; of two mounts at /data the later is the one seen there.
+  const root = mountinfo.split("\n").map((line) => line.split(" ")).filter((fields) => fields[4] === "/data").at(-1)?.[3] ?? "";
+  return /(?:^|\/)volumes\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)\/_data$/.exec(root)?.[1] ?? DEFAULT_DOCKER_VOLUME;
+}
+
+let ownVolume;
+
+/** The volume the image's advice names ({@link volumeAtData}), read once; outside the image, the default. */
+export function dataVolume() {
+  if (String(process.env.AI_DEV_RUNTIME ?? "").trim().toLowerCase() !== "docker") return DEFAULT_DOCKER_VOLUME;
+  if (ownVolume === undefined) {
+    let mountinfo = "";
+    try {
+      mountinfo = readFileSync("/proc/self/mountinfo", "utf8");
+    } catch {
+      // No /proc to read: the default.
+    }
+    ownVolume = volumeAtData(mountinfo);
+  }
+  return ownVolume;
+}
 
 /** Where the host's state folder is in the container. */
 export const CONTAINER_STATE_ROOT = "/ai-dev-state";

@@ -12,6 +12,7 @@ import {
   DEFAULT_DOCKER_IMAGE,
   DEFAULT_DOCKER_VOLUME,
   checkModelFolder,
+  dataVolume,
   dockerEntryOptions,
   dockerLaunch,
   dockerRunArgs,
@@ -22,7 +23,8 @@ import {
   refusedMount,
   resolveDockerCommand,
   sharesHostState,
-  unreadableMounts
+  unreadableMounts,
+  volumeAtData
 } from "./docker-launch.mjs";
 
 const mountsOf = (args) => args.flatMap((argument, index) => (args[index - 1] === "--mount" ? [argument] : []));
@@ -472,6 +474,24 @@ test("the data volume of a --mount Docker 29 cannot read is read back all the sa
     { image: "img", volume: "", projects: "/p", state: "", model: "", data: "/t" });
   assert.deepEqual(options("type=bind,source=/p,target=/workspace", "type=bind,source=/t,target=/data,bind-nonrecursive"),
     { image: "img", volume: "", projects: "/p", state: "", model: "", data: "/t" });
+});
+
+test("the image names the volume at its /data as Docker, rootless Docker and Podman mount it; a folder bound there keeps the default (Д-528)", () => {
+  const line = (root, target = "/data") => `173 155 254:0 ${root} ${target} rw,relatime master:1 - ext4 /dev/vda rw,discard`;
+  const other = line("/var/lib/docker/volumes/models-x/_data", "/models");
+  assert.equal(volumeAtData([other, line("/var/lib/docker/volumes/team-data/_data")].join("\n")), "team-data");
+  // /var/lib/docker on a disk of its own, rootless Docker, Podman.
+  assert.equal(volumeAtData(line("/volumes/r14f-data/_data")), "r14f-data");
+  assert.equal(volumeAtData(line("/home/me/.local/share/docker/volumes/a.b_c-1/_data")), "a.b_c-1");
+  assert.equal(volumeAtData(line("/home/me/.local/share/containers/storage/volumes/pod/_data")), "pod");
+  // Of two mounts at /data the later is the one seen there.
+  assert.equal(volumeAtData([line("/var/lib/docker/volumes/first/_data"), line("/var/lib/docker/volumes/second/_data")].join("\n")), "second");
+  for (const mountinfo of [line("/home/me/ai-dev-data"), line("/var/lib/docker/volumes/x/_data/sub"), other, "", "garbage"]) {
+    assert.equal(volumeAtData(mountinfo), DEFAULT_DOCKER_VOLUME, mountinfo);
+  }
+  // Outside the image the advice is not the image's: the default, whatever this machine has at /data.
+  assert.equal(process.env.AI_DEV_RUNTIME, undefined);
+  assert.equal(dataVolume(), DEFAULT_DOCKER_VOLUME);
 });
 
 test("a 3.0 entry is told from a 2.x launcher by what it runs", () => {

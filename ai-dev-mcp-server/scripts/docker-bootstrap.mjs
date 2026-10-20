@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 import { DOCKER_MOUNTED_MODEL_DIR, containerModelAdvice } from "../src/core/dense-backend.mjs";
 import { readDenseManifest } from "../src/core/dense-manifest.mjs";
 import { defaultOnnxModelDir } from "../src/core/dense-onnx.mjs";
-import { DEFAULT_DOCKER_VOLUME } from "../src/core/docker-launch.mjs";
+import { dataVolume } from "../src/core/docker-launch.mjs";
 import { acquireFileLock } from "../src/core/file-lock.mjs";
 import { planFirstRun, renderFirstRunReport } from "../src/core/first-run.mjs";
 import { frontendQaInstalled } from "../src/core/frontend-qa-install.mjs";
@@ -147,7 +147,7 @@ function imageReason({ modelDir, qaDependencies, unchecked, present, vectors = 0
   // A model mounted from the host is embedded with, not installed: `setup
   // --model` finds it whole and builds the vectors, downloading nothing (Д-341).
   const embed = mounted
-    ? `docker run --rm -it --mount type=volume,source=${DEFAULT_DOCKER_VOLUME},target=/data `
+    ? `docker run --rm -it --mount type=volume,source=${dataVolume()},target=/data `
       + "--mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model"
     : install;
   return (step, state) => {

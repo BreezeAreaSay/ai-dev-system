@@ -458,5 +458,10 @@ test("an alias after export * before a default, an arrow's body ending a templat
   for (const value of [`${BT}x${BT}`, "(a)", "[a]"]) {
     assert.deepEqual(rules(`${CP}export let run;\nlet n = 0, a = 1;\nconst r = n++\n${value}, run = cp;\nexport { r };\n`), ["child_process.exec"], value);
   }
+  // What round 12's mutants showed untested: a function after o.as on the line before declares, and its parameters are a
+  // pattern; a member named yield goes on to its call; a name from that ends a statement before a string is no import's.
+  assert.deepEqual(rules("const o = { as: 1 };\nlet v = o.as\nfunction f({ shell }) {\n  return shell;\n}\nexport { v, f };\n"), []);
+  assert.deepEqual(rules(`${CP}export let run;\nconst o = { yield: (v) => v }, a = 1;\nexport function f() {\n  const r = o.yield\n  (a), run = cp;\n  return [r, run];\n}\n`), []);
+  assert.deepEqual(rules("const from = 4;\nexport const v = from\n\"x\"\n/ 2; // eval( of the quotient\n"), []);
 });
 

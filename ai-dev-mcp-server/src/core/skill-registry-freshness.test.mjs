@@ -171,6 +171,46 @@ test("the reader serves a current registry as it is and rebuilds a stale one fir
   assert.equal(rebuilds[0].missing, 1);
 });
 
+test("a registry that is not there is built before the first read: no `ai-dev setup` needed (Д-575)", async (t) => {
+  const fixture = await makeCatalog(t);
+  await fs.rm(fixture.registryPath);
+  const { reader, rebuilds } = readerFor(fixture, { intervalMs: 0 });
+  const [first, second] = await Promise.all([reader.read(), reader.read()]);
+  assert.equal(rebuilds.length, 1, "two first readers share one build");
+  assert.deepEqual(first.map((item) => item.path), fixture.skills);
+  assert.deepEqual(second, first);
+  assert.equal(rebuilds[0].stale, true);
+  assert.equal((await reader.ensureFresh()).action, "current", "built once, then read as any registry");
+  assert.equal(rebuilds.length, 1);
+});
+
+test("a registry that cannot be built where it is missing is tried again after a pause, and the read still says why (Д-575)", async (t) => {
+  const fixture = await makeCatalog(t);
+  await fs.rm(fixture.registryPath);
+  const clock = { now: Date.now() };
+  const errors = [];
+  let attempts = 0;
+  const reader = createSkillRegistryReader({
+    registryPath: fixture.registryPath,
+    catalogRoot: fixture.catalog,
+    now: () => clock.now,
+    retryDelays: [60_000],
+    onError: (error) => errors.push(error.message),
+    async rebuild() {
+      attempts += 1;
+      throw new Error("read-only vault");
+    }
+  });
+  await assert.rejects(reader.read(), { code: "ENOENT" });
+  assert.deepEqual(errors, ["read-only vault"]);
+  clock.now += 30_000;
+  assert.equal((await reader.ensureFresh()).action, "absent", "inside the pause it is not tried again");
+  assert.equal(attempts, 1);
+  clock.now += 30_000;
+  assert.equal((await reader.ensureFresh()).action, "failed", "after the pause it is");
+  assert.equal(attempts, 2);
+});
+
 test("the reader looks at the files at most once per interval while the registry stays the same", async (t) => {
   const fixture = await makeCatalog(t);
   const clock = { now: Date.now() };
@@ -436,13 +476,4 @@ test("a rewrite of the registry from itself keeps the date of the sources it des
   await fs.writeFile(path.join(fixture.catalog, "sources/custom/alpha/SKILL.md"), "# alpha, pulled\n");
   await keepSkillRegistryDate(fixture.registryPath, () => fs.writeFile(fixture.registryPath, JSON.stringify(fixture.skills.map((relative) => ({ path: relative })))));
   assert.equal((await checkSkillRegistry({ registryPath: fixture.registryPath, catalogRoot: fixture.catalog })).stale, true);
-});
-
-test("without a registry the reader neither builds one nor hides the missing file", async (t) => {
-  const fixture = await makeCatalog(t);
-  await fs.rm(fixture.registryPath);
-  const { reader, rebuilds } = readerFor(fixture);
-  assert.equal((await reader.ensureFresh()).action, "absent");
-  await assert.rejects(reader.read(), { code: "ENOENT" });
-  assert.equal(rebuilds.length, 0);
 });

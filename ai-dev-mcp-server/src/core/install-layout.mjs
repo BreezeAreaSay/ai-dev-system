@@ -13,7 +13,9 @@
  * whether a copy must be made to outlive npx's cache:
  *
  * - `vault`   — inside a full vault, two levels above the server;
- * - `clone`   — a checkout of this repository: the content is its `docker/public-seed`;
+ * - `clone`   — a checkout of this repository: the content is its `docker/public-seed`,
+ *               or, run by a user who cannot write there or with `AI_DEV_VAULT=home`,
+ *               the user's vault filled from it, as a package's is (Д-576);
  * - `package` — `npm run dist`'s folder, the npm package, the Windows install:
  *               `distribution.json` beside the server, the seed in `seed/`;
  * - `docker`  — the image (`AI_DEV_RUNTIME=docker`): since 3.0 the same
@@ -28,7 +30,7 @@
  * A package run by `npx` sits in npm's cache, which npm may clear at any time;
  * `ephemeral` says so, and `setup` copies it somewhere that stays.
  */
-import { existsSync, realpathSync } from "node:fs";
+import { accessSync, constants, existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { dataMount, dataVolume } from "./docker-launch.mjs";
@@ -91,10 +93,10 @@ export function isEphemeralInstall(folder) {
  */
 
 /**
- * @param {{ serverRoot?: string, env?: NodeJS.ProcessEnv, exists?: (target: string) => boolean, isManifest?: (file: string) => boolean }} [options]
+ * @param {{ serverRoot?: string, env?: NodeJS.ProcessEnv, exists?: (target: string) => boolean, isManifest?: (file: string) => boolean, writable?: (target: string) => boolean }} [options]
  * @returns {InstallLayout}
  */
-export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = process.env, exists = existsSync, isManifest = isSeedManifest } = {}) {
+export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = process.env, exists = existsSync, isManifest = isSeedManifest, writable = canWrite } = {}) {
   const server = path.resolve(serverRoot);
   const root = path.dirname(server);
   const runtimeRoot = resolveRuntimeStateRoot("", env);
@@ -113,6 +115,15 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
   } else if (exists(repositorySeed)) {
     [kind, ownContent] = ["clone", repositorySeed];
   }
+  // A clone one OS user built and others run — a shared server's build of it,
+  // an `/opt` checkout — wrote its vault into the clone: EACCES for everyone
+  // but its owner, and the owner's records gone with the next build
+  // (docs/DEFECTS.md, Д-576). Such a clone serves each user from a vault of
+  // their own, filled from its seed; `AI_DEV_VAULT=home` asks for that where
+  // the clone is writable too.
+  const homeVault = kind === "clone"
+    && (String(env.AI_DEV_VAULT ?? "").trim().toLowerCase() === "home" || !writable(repositorySeed));
+  if (homeVault) ownContent = path.join(runtimeRoot, "vault");
   const distributed = exists(path.join(root, DISTRIBUTION_MARKER)) && exists(path.join(shipped, SEED_MANIFEST));
   const contentRoot = path.resolve(explicit || ownContent);
   // The image's own vault is the seed's to keep current: 2.x's entrypoint copied
@@ -124,7 +135,9 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
   // nothing.
   const seeded = exists(path.join(contentRoot, SEED_STATE_FILE)) || isManifest(path.join(contentRoot, SEED_MANIFEST));
   const dockerSeeds = kind === "docker" && (contentRoot === path.resolve(ownContent) || seeded);
-  const ownSeed = distributed && (dockerSeeds || (kind === "package" && !explicit)) ? shipped : "";
+  const ownSeed = homeVault && !explicit
+    ? repositorySeed
+    : distributed && (dockerSeeds || (kind === "package" && !explicit)) ? shipped : "";
   return {
     serverRoot: server,
     root,
@@ -136,6 +149,15 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
     contentRoot,
     seedRoot: ownSeed
   };
+}
+
+function canWrite(target) {
+  try {
+    accessSync(target, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isInside(parent, child) {

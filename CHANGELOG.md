@@ -2035,6 +2035,17 @@ four of those arrived as upstream issues #63–#66.
   Four tests compared a resolved path with one built from `os.tmpdir()`, and the bridge test bound a
   socket that a 112-byte `TMPDIR` cut short, so parallel runs collided (`EADDRINUSE` in 6 of 12):
   the whole suite now passes with `TMPDIR` a link, and 12 parallel runs under a long one.
+- **A shared server: a user who never ran `setup`, and one who cannot write to the install**
+  (Д-575, Д-576). A vault without a skill registry routed nothing: `begin_task` and
+  `recommend_skills` failed on the missing file until `ai-dev setup` ran — in a client entry
+  written by hand, and for every new user of a shared server. The registry is now built at the
+  first request that needs it. A clone run by a user who cannot write to it — a team server that
+  builds it as one OS user and runs it as each participant, as Argentum Workspace does — wrote its
+  vault into the clone, and `prepare_project`, `sync_project_card` and `complete_task` failed with
+  EACCES. Such a clone now fills each user's `~/.ai-dev/vault` from its seed, and `AI_DEV_VAULT=home`
+  asks for that where the clone is writable. Measured the way the workspace runs it: a new
+  participant's `begin_task` … `complete_task` pass and nothing is written into the build.
+  [INSTALL.md, "A shared server"](docs/INSTALL.md#a-shared-server).
 
 ### Security
 

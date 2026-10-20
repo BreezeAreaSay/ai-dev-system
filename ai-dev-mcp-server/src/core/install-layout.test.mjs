@@ -22,6 +22,34 @@ test("a checkout of this repository is a clone: its content is the bundled seed"
   assert.equal(layout.runtimeRoot, path.join(home, ".ai-dev"));
 });
 
+test("a clone its user cannot write to serves a vault of the user's own, filled from its seed (Д-576)", () => {
+  const seed = path.join(path.dirname(OWN_SERVER_ROOT), "docker", "public-seed");
+  const readOnly = resolveInstallLayout({ serverRoot: OWN_SERVER_ROOT, env: env(), writable: (target) => target !== seed });
+  assert.equal(readOnly.kind, "clone", "commands are still spelled as a clone's");
+  assert.equal(readOnly.contentRoot, path.join(home, ".ai-dev", "vault"));
+  assert.equal(readOnly.seedRoot, seed);
+
+  const asked = resolveInstallLayout({ serverRoot: OWN_SERVER_ROOT, env: env({ AI_DEV_VAULT: " Home " }), writable: () => true });
+  assert.equal(asked.contentRoot, path.join(home, ".ai-dev", "vault"), "AI_DEV_VAULT=home asks for it where the clone is writable");
+  assert.equal(asked.seedRoot, seed);
+  assert.equal(resolveInstallLayout({ serverRoot: OWN_SERVER_ROOT, env: env({ AI_DEV_VAULT: "clone" }), writable: () => true }).contentRoot, seed,
+    "any other value leaves a writable clone as it was");
+
+  const named = resolveInstallLayout({ serverRoot: OWN_SERVER_ROOT, env: env({ AI_DEV_VAULT: "home", AI_DEV_VAULT_ROOT: "/srv/notes" }), writable: () => false });
+  assert.equal(named.contentRoot, path.resolve("/srv/notes"), "a vault named is read where it is");
+  assert.equal(named.seedRoot, "", "and is not filled from the seed");
+
+  const root = path.resolve("/usr/lib/node_modules/ai-dev-system");
+  const pkg = resolveInstallLayout({
+    serverRoot: path.join(root, "ai-dev-mcp-server"),
+    env: env({ AI_DEV_VAULT: "home" }),
+    exists: only(path.join(root, "distribution.json"), path.join(root, "seed", "public-seed.manifest.json")),
+    writable: () => false
+  });
+  assert.equal(pkg.kind, "package", "a package's vault is the user's already");
+  assert.equal(pkg.seedRoot, path.join(root, "seed"));
+});
+
 test("a full vault two levels above the server is a vault; AI_DEV_VAULT_ROOT moves the content, not the kind", () => {
   const server = path.resolve("/vault/09-mcp/ai-dev-mcp-server");
   const inVault = resolveInstallLayout({ serverRoot: server, env: env(), exists: only("/vault/03-skills-catalog") });

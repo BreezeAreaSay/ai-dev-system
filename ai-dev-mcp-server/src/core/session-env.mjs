@@ -35,6 +35,7 @@ export const DAEMON_WIDE_VARIABLES = Object.freeze([
   "HOME",
   "USERPROFILE",
   "AI_DEV_VAULT_ROOT",
+  "AI_DEV_VAULT",
   "AI_DEV_STATE_ROOT",
   "AI_DEV_SEARCH_INDEX_DIR",
   "AI_DEV_FRONTEND_QA_ARTIFACT_ROOT",
@@ -193,7 +194,7 @@ export function daemonWideEnvironment(env, { platform = process.platform } = {})
 
 /** The variables `daemonIdentity` resolves to a place rather than comparing as written. */
 const RESOLVED_VARIABLES = new Set([
-  "AI_DEV_HOME", "HOME", "USERPROFILE", "AI_DEV_VAULT_ROOT", "AI_DEV_STATE_ROOT", "AI_DEV_SEARCH_INDEX_DIR",
+  "AI_DEV_HOME", "HOME", "USERPROFILE", "AI_DEV_VAULT_ROOT", "AI_DEV_VAULT", "AI_DEV_STATE_ROOT", "AI_DEV_SEARCH_INDEX_DIR",
   "AI_DEV_FRONTEND_QA_ARTIFACT_ROOT", "AI_DEV_ARCHIFY_ARTIFACT_ROOT", "AI_DEV_ARCHIFY_RECEIPTS_ROOT",
   "BGE_M3_ONNX_DIR", "BGE_M3_MODEL_DIR", "AI_DEV_MODEL_MANIFEST", "AI_DEV_DENSE_BACKEND", "BGE_M3_DEVICE", "AI_DEV_RUNTIME"
 ]);

@@ -256,7 +256,10 @@ export async function withCurrentSkillRegistry(reader, registryDir, operation) {
  * next of `retryDelays`, or at once when the registry file changes; until then
  * the registry on disk is served as it is, and `onError` hears why. Files that
  * changed while a rebuild ran are newer than the registry it wrote, so the
- * next look rebuilds again.
+ * next look rebuilds again. A registry that is not there at all is built the
+ * same way: a server started without `ai-dev setup` — a client entry written by
+ * hand, a new user of a shared server — routed nothing and failed `begin_task`
+ * on a missing file (docs/DEFECTS.md, Д-575).
  *
  * @param {object} input
  * @param {string} input.registryPath
@@ -333,7 +336,15 @@ export function createSkillRegistryReader({
     if (rebuilding.getStore()) return { action: "current" };
     if (inFlight) return inFlight;
     const info = statOrUndefined(registryPath);
-    if (!info) return { action: "absent" };
+    if (!info) {
+      // `failed` keys a registry that is not there as "".
+      if (failures > 0 && failedKey === "" && now() < retryAt) return { action: "absent" };
+      const verdict = { stale: true, missing: 0, changed: 0, directories: 0, examples: ["no registry yet"] };
+      inFlight = rebuilding.run(true, () => runRebuild(verdict)).finally(() => {
+        inFlight = null;
+      });
+      return inFlight;
+    }
     const key = keyOf(info);
     if (key === checkedKey && now() - checkedAt < intervalMs) return { action: "current" };
     const verdict = await verdictFor(info);

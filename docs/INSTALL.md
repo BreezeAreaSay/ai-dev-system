@@ -20,6 +20,7 @@ has the rest.
 - [Updating, and coming from 2.x](#updating-and-coming-from-2x)
 - [Uninstalling](#uninstalling)
 - [When something does not work](#when-something-does-not-work)
+- [A shared server](#a-shared-server)
 - [From a clone](#from-a-clone)
 
 To start an agent with a narrowed tool surface, add `AI_DEV_PROFILES` to the `env` block of a
@@ -741,6 +742,46 @@ configure a proxy or DNS in Docker Desktop; do not put proxy passwords in a Dock
 arguments or project files. An image that is already pulled runs with no internet access. More on
 the image — the scanners in the container, Compose, GHCR — is in
 [docker/README.md](../docker/README.md) (in Russian).
+
+## A shared server
+
+A server that many people's agents run on — Argentum Workspace, a team's VPS — keeps one copy of AI
+Dev and starts it in each person's session as that person's OS user. The copy is only read: each
+user has a vault, state and daemon of their own, in their own `~/.ai-dev`.
+
+- **The npm package**, installed into a folder the users can read, works this way as it is.
+- **A clone** does too. Run by a user who cannot write to it, it fills that user's
+  `~/.ai-dev/vault` from its `docker/public-seed`, as a package fills it from its seed.
+  `AI_DEV_VAULT=home` asks for the same where the clone is writable: set it for everyone, so the
+  records of the user who built the clone do not live in a folder the next build replaces
+  (docs/DEFECTS.md, Д-576).
+- **No `setup` per user.** A vault without a skill registry gets one at the first request that
+  needs it, in about two seconds (Д-575). `setup` is still what connects a person's own clients
+  and fetches the model.
+
+A session runs `node <install>/ai-dev-mcp-server/bin/ai-dev.mjs mcp` on Node 22.16 or newer. With
+`AI_DEV_PROFILES=core` in its environment an agent gets 25 tools, about 5,700 tokens of
+definitions, instead of 135 and about 35,000 ([Capabilities](CAPABILITIES.md)).
+
+**Argentum Workspace.** Its sessions start `claude` with `--strict-mcp-config`, so the entries
+`ai-dev clients install` writes are not read there. The server is added in «Настройки ·
+Инструменты» → «Сложные подключения» → «Сервер из исходников» (Settings · Tools → Complex
+connections → Server from sources):
+
+| Field | Value |
+| --- | --- |
+| Repository | `https://github.com/stonebridgeway/ai-dev-system/tree/v3.0.0/ai-dev-mcp-server`: a tag, or a branch without `/`, because the workspace clones with `git clone --branch` |
+| Install | `npm ci`, as it guesses |
+| Build | none |
+| Launch | `env AI_DEV_VAULT=home AI_DEV_PROFILES=core node bin/ai-dev.mjs mcp`; it guesses `node bin/ai-dev.mjs`, which prints the help |
+
+Measured on a sandbox that does what the workspace does, bubblewrap aside: the clone built with
+`npm ci` as one OS user in a clean environment, the server started as another through `sudo -n -u`
+and the workspace's own launch line. The build is 330 MB (the workspace allows 1 GB). A new
+participant's first session connects in 2.2 s and its first `prepare_project` takes 3.2 s, the
+vault filled and the registry built; `begin_task` … `complete_task` pass, and nothing is written
+into the build; the next session connects in 0.2 s. Each participant keeps a daemon of 90–180 MB
+until 30 minutes pass without a session (`AI_DEV_IDLE_TIMEOUT_MS`).
 
 ## From a clone
 

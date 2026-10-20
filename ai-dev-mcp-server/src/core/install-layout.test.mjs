@@ -143,9 +143,12 @@ test("hints are spelled the way each layout runs them", () => {
     "the model goes into the volume, with the network that one run needs");
   assert.equal(hint("npm run model -- import <folder or .zip>", docker),
     "docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data --mount type=bind,source=<folder or .zip>,target=/import,readonly <image> ai-dev model import /import");
-  // The volume is the one at the image's /data, whatever the host named it (Д-528).
+  // The volume is the one at the image's /data, whatever the host named it; a mount there with no name, a placeholder
+  // (Д-528, Д-539).
   assert.equal(dockerCommand("setup --model", "team-data"),
     "docker run --rm -it --network bridge --mount type=volume,source=team-data,target=/data <image> ai-dev model install");
+  assert.equal(dockerCommand("setup --model", null),
+    "docker run --rm -it --network bridge --mount <what your sessions mount at /data> <image> ai-dev model install");
   assert.equal(hint("npm run check", global), "npm run check", "a script only a checkout has stays as written");
   assert.equal(hint("git pull", global), "git pull");
   const windows = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot: path.join(home, ".ai-dev") };

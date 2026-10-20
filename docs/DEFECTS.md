@@ -20245,7 +20245,7 @@ Y3  …export function* g() {⏎  const x = `${yield}`⏎  let run = cp …     
     `--permission`: где она падает, не проверяется ни одна запись — ни статусы, ни содержимое, ни копия.
 14. Д-512, «Замер после» (`:19097`, `:19101`): строка «"на 22 chmod" по записям — только эта … и Д-526, которая её цитирует» верна
     только с `f736c9f` (у `ab6f2ad` Д-526 нет, в Д-512 — 2), а блок помечен `ab6f2ad`.
-15. «narrowed by umask» (CHANGELOG `:1940`: «the old one narrowed by umask, never wider»; `atomic-files.mjs:97`: «which umask only
+15. «narrowed by umask» (CHANGELOG `:1939`: «the old one narrowed by umask, never wider»; `atomic-files.mjs:97`: «which umask only
     narrows»): под ACL по умолчанию копию сужает ACL папки, а umask не участвует (`copy-mode.c24u.out` ревью: строгий ACL — 600 при
     любом umask, открытый — 666); «never wider» верно.
 

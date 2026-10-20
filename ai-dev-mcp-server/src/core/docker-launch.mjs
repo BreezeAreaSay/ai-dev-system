@@ -43,31 +43,60 @@ export const DEFAULT_DOCKER_VOLUME = "ai-dev-system-data";
  * The named volume at a container's `/data`, from its `/proc/self/mountinfo`:
  * the host chose it (`--volume`, `AI_DEV_DATA_VOLUME`), and the root of a
  * volume's mount ends `volumes/<name>/_data` — Docker's, rootless Docker's and
- * Podman's alike. A folder bound there keeps the default (docs/DEFECTS.md, Д-528).
+ * Podman's alike, the name as Docker or Podman allows it. A run that mounts
+ * nothing there gets an anonymous volume from the image's `VOLUME`, 64 hex
+ * digits that `--rm` removes: the default's place, as with no `/data` at all.
+ * Anything else at `/data` — a folder of the host's, a volume made with a
+ * driver's options, a volume's subfolder, a tmpfs — has no name to give: null
+ * (docs/DEFECTS.md, Д-528, Д-539, Д-540).
  *
  * @param {string} mountinfo
- * @returns {string}
+ * @returns {string | null}
  */
 export function volumeAtData(mountinfo) {
   // Fields: id, parent, device, root, mount point, …; of two mounts at /data the later is the one seen there.
-  const root = mountinfo.split("\n").map((line) => line.split(" ")).filter((fields) => fields[4] === "/data").at(-1)?.[3] ?? "";
-  return /(?:^|\/)volumes\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)\/_data$/.exec(root)?.[1] ?? DEFAULT_DOCKER_VOLUME;
+  const fields = mountinfo.split("\n").map((line) => line.split(" ")).filter((line) => line[4] === "/data").at(-1);
+  if (!fields) return DEFAULT_DOCKER_VOLUME;
+  const name = /(?:^|\/)volumes\/([a-zA-Z0-9][a-zA-Z0-9_.-]*)\/_data$/.exec(fields[3] ?? "")?.[1];
+  if (name === undefined) return null;
+  return /^[0-9a-f]{64}$/.test(name) ? DEFAULT_DOCKER_VOLUME : name;
+}
+
+/**
+ * How a command for the host mounts the data at `/data`: the volume by its
+ * name, or, where `/data` holds a mount with none, a placeholder for that
+ * mount (docs/DEFECTS.md, Д-539).
+ *
+ * @param {string | null} volume
+ * @returns {string}
+ */
+export function dataMount(volume) {
+  return volume === null ? "<what your sessions mount at /data>" : `type=volume,source=${volume},target=/data`;
 }
 
 let ownVolume;
 
-/** The volume the image's advice names ({@link volumeAtData}), read once; outside the image, the default. */
-export function dataVolume() {
-  if (String(process.env.AI_DEV_RUNTIME ?? "").trim().toLowerCase() !== "docker") return DEFAULT_DOCKER_VOLUME;
-  if (ownVolume === undefined) {
-    let mountinfo = "";
-    try {
-      mountinfo = readFileSync("/proc/self/mountinfo", "utf8");
-    } catch {
-      // No /proc to read: the default.
-    }
-    ownVolume = volumeAtData(mountinfo);
+const readMountinfo = (read) => {
+  try {
+    return read();
+  } catch {
+    // No /proc to read: the default.
+    return "";
   }
+};
+
+/**
+ * The volume the image's advice names ({@link volumeAtData}), read once;
+ * outside the image, the default. A test gives `env` and `read` in place of
+ * the process's (docs/DEFECTS.md, Д-528, Д-541).
+ *
+ * @param {{ env?: Record<string, string | undefined>, read?: () => string }} [options]
+ * @returns {string | null}
+ */
+export function dataVolume({ env = process.env, read } = {}) {
+  if (String(env.AI_DEV_RUNTIME ?? "").trim().toLowerCase() !== "docker") return DEFAULT_DOCKER_VOLUME;
+  if (read) return volumeAtData(readMountinfo(read));
+  if (ownVolume === undefined) ownVolume = volumeAtData(readMountinfo(() => readFileSync("/proc/self/mountinfo", "utf8")));
   return ownVolume;
 }
 

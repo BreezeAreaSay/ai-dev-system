@@ -10,7 +10,9 @@
  * and the one command that moves them over, instead of being silently ignored.
  *
  * Pure on purpose: every probe arrives as a value, so each state — including
- * the ones only a stranger's machine reaches — is a test case.
+ * the ones only a stranger's machine reaches — is a test case. The one thing
+ * read from the process is in the advice for a container: the volume at its
+ * `/data` (docs/DEFECTS.md, Д-528, Д-541).
  */
 import { dockerCommand, hint } from "./install-layout.mjs";
 

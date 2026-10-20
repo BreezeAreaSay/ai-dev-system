@@ -31,7 +31,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { dataVolume } from "./docker-launch.mjs";
+import { dataMount, dataVolume } from "./docker-launch.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 import { SEED_STATE_FILE, isSeedManifest } from "./seed-sync.mjs";
 
@@ -204,10 +204,11 @@ export function hint(command, layout = currentInstallLayout()) {
  * data volume — with the network only for a download — and `setup --model`
  * there is the model's install, which embeds the index too (docs/DEFECTS.md,
  * Д-185, п. 7; Д-316). `<image>` is the one the client runs; the volume, the
- * one at its `/data` (Д-528).
+ * one at its `/data`, or a placeholder where `/data` holds a mount with no name
+ * to give (Д-528, Д-539).
  *
  * @param {string} words - What follows `ai-dev`.
- * @param {string} [volume]
+ * @param {string | null} [volume]
  * @returns {string}
  */
 export function dockerCommand(words, volume = dataVolume()) {
@@ -217,7 +218,7 @@ export function dockerCommand(words, volume = dataVolume()) {
   const mount = imported ? ` --mount type=bind,source=${imported[1]},target=/import,readonly` : "";
   if (imported) command = "model import /import";
   const network = /^model install\b/.test(command) ? " --network bridge" : "";
-  return `docker run --rm -it${network} --mount type=volume,source=${volume},target=/data${mount} <image> ai-dev ${command}`.trim();
+  return `docker run --rm -it${network} --mount ${dataMount(volume)}${mount} <image> ai-dev ${command}`.trim();
 }
 
 /**

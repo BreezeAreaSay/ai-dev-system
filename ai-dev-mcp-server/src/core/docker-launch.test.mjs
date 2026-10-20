@@ -12,6 +12,7 @@ import {
   DEFAULT_DOCKER_IMAGE,
   DEFAULT_DOCKER_VOLUME,
   checkModelFolder,
+  dataMount,
   dataVolume,
   dockerEntryOptions,
   dockerLaunch,
@@ -476,7 +477,7 @@ test("the data volume of a --mount Docker 29 cannot read is read back all the sa
     { image: "img", volume: "", projects: "/p", state: "", model: "", data: "/t" });
 });
 
-test("the image names the volume at its /data as Docker, rootless Docker and Podman mount it; a folder bound there keeps the default (Д-528)", () => {
+test("the image names the volume at its /data as Docker, rootless Docker and Podman mount it; a run that mounts none gets the default, a mount with no name a placeholder (Д-528, Д-539 … Д-541)", () => {
   const line = (root, target = "/data") => `173 155 254:0 ${root} ${target} rw,relatime master:1 - ext4 /dev/vda rw,discard`;
   const other = line("/var/lib/docker/volumes/models-x/_data", "/models");
   assert.equal(volumeAtData([other, line("/var/lib/docker/volumes/team-data/_data")].join("\n")), "team-data");
@@ -484,14 +485,27 @@ test("the image names the volume at its /data as Docker, rootless Docker and Pod
   assert.equal(volumeAtData(line("/volumes/r14f-data/_data")), "r14f-data");
   assert.equal(volumeAtData(line("/home/me/.local/share/docker/volumes/a.b_c-1/_data")), "a.b_c-1");
   assert.equal(volumeAtData(line("/home/me/.local/share/containers/storage/volumes/pod/_data")), "pod");
-  // Of two mounts at /data the later is the one seen there.
+  // Of two mounts at /data the later is the one seen there; one under /data is another.
   assert.equal(volumeAtData([line("/var/lib/docker/volumes/first/_data"), line("/var/lib/docker/volumes/second/_data")].join("\n")), "second");
-  for (const mountinfo of [line("/home/me/ai-dev-data"), line("/var/lib/docker/volumes/x/_data/sub"), other, "", "garbage"]) {
+  assert.equal(volumeAtData([line("/var/lib/docker/volumes/outer/_data"), line("/var/lib/docker/volumes/inner/_data", "/data/inner")].join("\n")), "outer");
+  // A run that mounts nothing at /data gets an anonymous volume, which --rm removes, or none at all: the default (Д-540).
+  for (const mountinfo of [line(`/var/lib/docker/volumes/${"e2".repeat(32)}/_data`), other, "", "garbage"]) {
     assert.equal(volumeAtData(mountinfo), DEFAULT_DOCKER_VOLUME, mountinfo);
   }
-  // Outside the image the advice is not the image's: the default, whatever this machine has at /data.
-  assert.equal(process.env.AI_DEV_RUNTIME, undefined);
-  assert.equal(dataVolume(), DEFAULT_DOCKER_VOLUME);
+  // A mount with no name to give — a folder, a volume made with a driver's options, a volume's subfolder, a tmpfs, a
+  // name no volume may have, a folder named like volumes — and the advice holds a placeholder for it (Д-539).
+  for (const root of ["/home/me/ai-dev-data", "/var/tmp/dev", "/var/lib/docker/volumes/x/_data/sub", "/", "/var/lib/docker/volumes/_x/_data", "/srv/myvolumes/x/_data"]) {
+    assert.equal(volumeAtData(line(root)), null, root);
+  }
+  assert.equal(dataMount("team-data"), "type=volume,source=team-data,target=/data");
+  assert.equal(dataMount(null), "<what your sessions mount at /data>");
+  // The image's advice only: AI_DEV_RUNTIME=docker, however written; anywhere else the default, whatever is at /data.
+  const read = () => line("/var/lib/docker/volumes/team-data/_data");
+  for (const runtime of [undefined, "", "local", "dockers"]) assert.equal(dataVolume({ env: { AI_DEV_RUNTIME: runtime }, read }), DEFAULT_DOCKER_VOLUME, runtime);
+  for (const runtime of ["docker", " Docker "]) assert.equal(dataVolume({ env: { AI_DEV_RUNTIME: runtime }, read }), "team-data", runtime);
+  // No /proc to read: the default.
+  const refused = () => { throw Object.assign(new Error("EACCES: permission denied, open '/proc/self/mountinfo'"), { code: "EACCES" }); };
+  assert.equal(dataVolume({ env: { AI_DEV_RUNTIME: "docker" }, read: refused }), DEFAULT_DOCKER_VOLUME);
 });
 
 test("a 3.0 entry is told from a 2.x launcher by what it runs", () => {

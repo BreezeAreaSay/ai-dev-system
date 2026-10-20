@@ -145,10 +145,16 @@ try {
     if (browser ? browserLine !== "comes with the image" : !/its -browser variant carries it/.test(browserLine)) {
       throw new Error(`The start report says of the browser: "${browserLine}".`);
     }
-    // The model goes into the volume the session runs on, whatever the host named it (Д-528).
+    // The model goes into the volume the session runs on, whatever the host named it — in the start report and in the
+    // health check alike (Д-528, Д-541).
     const modelLine = /Local BGE-M3 model: (.*)/.exec(stderr())?.[1] ?? "";
-    if (!modelLine.includes(`source=${volume},target=/data`) || !JSON.stringify(health).includes(`source=${volume},target=/data`)) {
-      throw new Error(`The image's advice for the model does not name this volume, ${volume}: "${modelLine}".`);
+    if (!modelLine.includes(`source=${volume},target=/data`)) {
+      throw new Error(`The start report's advice for the model does not name this volume, ${volume}: "${modelLine}".`);
+    }
+    const healthText = JSON.stringify(health);
+    if (!healthText.includes(`source=${volume},target=/data`)) {
+      const advice = /docker run [^`"]*target=\/data[^`"]*/.exec(healthText)?.[0] ?? "no docker run with /data";
+      throw new Error(`The health check's advice for the model does not name this volume, ${volume}: "${advice}".`);
     }
     Object.assign(report, {
       first_session_ms: ms,

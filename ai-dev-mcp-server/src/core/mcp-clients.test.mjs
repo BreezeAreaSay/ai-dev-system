@@ -395,7 +395,14 @@ test("a config keeps a mode the umask would not give its copy, through install a
   t.after(() => process.umask(umask));
   const targets = (await discoverClients({ home, env: env(home), platform: "linux" })).filter((target) => target.client === "cursor");
   assert.deepEqual((await installServer({ targets, entryFor: (target) => clientEntry(target, LAUNCH) })).map((result) => result.status), ["added"]);
-  assert.equal((await fs.stat(file)).mode & 0o777, 0o664, "the copy that took its place was given its mode back");
+  const installed = (await fs.stat(file)).mode & 0o777;
   assert.deepEqual((await removeServer({ targets })).map((result) => result.status), ["removed"]);
-  assert.equal((await fs.stat(file)).mode & 0o777, 0o664);
+  const removed = (await fs.stat(file)).mode & 0o777;
+  // The modes say so only where a new file takes its mode from the umask, which is checked after the writes: a default
+  // ACL or a filesystem that ignores modes gives another (Д-529, Д-541).
+  await fs.writeFile(path.join(home, "umask-probe"), "", { mode: 0o666 });
+  assert.equal(((await fs.stat(path.join(home, "umask-probe"))).mode & 0o777).toString(8), "644",
+    "a file made here with 666 gets 644, as umask 0022 gives: a default ACL or a filesystem that ignores modes gives another");
+  assert.equal(installed, 0o664, "the copy that took its place was given its mode back");
+  assert.equal(removed, 0o664);
 });

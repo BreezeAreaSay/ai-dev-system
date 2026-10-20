@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 528 записей. Закрыто 519, открыто 9. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 528 записей. Закрыто 520, открыто 8. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -50,11 +50,10 @@ Pro x64 и Arch Linux. Пять из этих девяти пришли отчё
 Д-382 — одиннадцать раундов её независимых ревью, каждый по правкам предыдущего. Д-376 закроет её финальный прогон, Д-403 записан
 на фазу 15, остальные она закрывает сама. Ход программы — `docs/program/PROGRESS.md`.
 
-Открыты девять: записи программы Д-101 (настоящие веса — чек-лист владельца), Д-123, Д-124 и Д-130 (Windows — проверка
+Открыты восемь: записи программы Д-101 (настоящие веса — чек-лист владельца), Д-123, Д-124 и Д-130 (Windows — проверка
 владельца), Д-318 (Docker на Linux с uid не 1000 — решение владельца), Д-376 (команды README в чистом контейнере — финальный
-прогон фазы 14), Д-403 (папки записи, которую bootstrap заменяет, — фаза 15) и Д-528 (советы образа с томом не по умолчанию —
-фаза 14), у каждой своя фаза или проверка владельца, и старая Д-2, которая кодом из песочницы не закрывается; и закрыта частично
-Д-62:
+прогон фазы 14) и Д-403 (папки записи, которую bootstrap заменяет, — фаза 15), у каждой своя фаза или проверка владельца, и старая
+Д-2, которая кодом из песочницы не закрывается; и закрыта частично Д-62:
 
 - **Д-2** — формат хуков Cursor проверен документацией, а не живым редактором. Кодом это не
   закрывается: двадцать минут в самом Cursor по четырём пунктам, `npm run verify:cursor`
@@ -19931,8 +19930,8 @@ K1 [shell@2], K2 [shell@1], K3 [shell@1] (было []); K4, K5 [eval@2] (был�
 
 ## Д-528. Советы образа ставить модель называют том `ai-dev-system-data`, а не тот, что смонтирован в `/data`: с томом, выбранным `--volume` или `AI_DEV_DATA_VOLUME`, команда из совета кладёт модель в другой том, а отчёт старта называет его «этим томом»
 
-**Статус:** открыт. Закроет фаза 14. Нашёл ведущий финальным прогоном пути Docker из README на своём томе (`r14f-data`); так с фазы
-13 (`d481c6b`, `60a8100`, `8f5a7b0`).
+**Статус:** закрыт фазой 14 (`7935087`), 2026-10-20. Нашёл ведущий финальным прогоном пути Docker из README на своём томе
+(`r14f-data`); так с фазы 13 (`d481c6b`, `60a8100`, `8f5a7b0`).
 
 Том данных выбирают двумя описанными путями: `ai-dev clients install --docker --volume=<name>` (`docs/INSTALL.md:352`, RU `:351`;
 `clients.mjs:61`) и `AI_DEV_DATA_VOLUME` у `bootstrap.sh`, `bootstrap.ps1` и лаунчеров (`bootstrap.sh --help`, `:46`). Образ же во
@@ -19966,6 +19965,33 @@ $ docker run --rm --network none --mount type=volume,source=r14f-probe-vol,targe
 **Как закроется.** Советы образа берут имя тома из `/proc/self/mountinfo`: корень монтирования `/data` вида `…/volumes/<имя>/_data`
 (Docker, rootless Docker, Podman); папка хоста в `/data` или файл, который не прочесть, оставляют `ai-dev-system-data`, как сейчас.
 Тест — разбор `mountinfo` в этих раскладках и советы с именем тома; замер — тот же `doctor` на `r14f-hint`.
+
+**Как закрыто** (`7935087`). `volumeAtData` (`docker-launch.mjs`) берёт из `/proc/self/mountinfo` корень последнего монтирования в
+`/data` и имя тома из `…/volumes/<имя>/_data` — Docker, в том числе с `/var/lib/docker` на своём диске, rootless Docker, Podman; имя
+сверяется с правилом Docker для имён томов. Папка хоста, подпапка тома, нет монтирования или файла — `ai-dev-system-data`, как
+раньше. `dataVolume()` читает файл один раз и только в образе (`AI_DEV_RUNTIME=docker`): вне образа совет не образа. Им пользуются
+`dockerCommand` (все `hint()` образа), `containerModelAdvice` — теперь через `dockerCommand("model install")`, а не своей строкой, —
+и строка модели, смонтированной с хоста, в отчёте старта. Тесты — разбор `mountinfo` в пяти раскладках и пять случаев по умолчанию,
+команда с именем тома; `docker:smoke` проверяет, что отчёт старта и проверка здоровья называют её собственный том. CHANGELOG — в
+записи о подсказках образа.
+
+**Замер после** (`7935087`, образ `ai-dev-system:r14g`):
+
+```
+$ docker run --rm --network none --mount type=volume,source=r14f-hint,target=/data ai-dev-system:r14g ai-dev doctor
+· Local BGE-M3 model: not installed — `docker run --rm -it --network bridge --mount type=volume,source=r14f-hint,target=/data <image>
+  ai-dev model install` puts it in this volume
+· Dense vectors: none yet — `docker run --rm -it --network bridge --mount type=volume,source=r14f-hint,target=/data <image> ai-dev
+  model install` embeds the documents
+  "summary": "Dense search is not installed in this container: install it into the data volume once, …: `docker run --rm -it
+  --network bridge --mount type=volume,source=r14f-hint,target=/data <image> ai-dev model install`; …"
+папка хоста в /data (--mount type=bind,…,target=/data) → тот же совет с source=ai-dev-system-data, как до правки
+node scripts/docker-smoke.mjs --image ai-dev-system:r14f (образ до правки, проверка новая) → exit 1: The image's advice for the model
+  does not name this volume, ai-dev-smoke-16497-a5e488: "not installed — `docker run … source=ai-dev-system-data …` puts it in this
+  volume".
+node scripts/docker-smoke.mjs --image ai-dev-system:r14g → "status": "pass"
+npm run check → exit 0: 2 026 тестов, 2 018 pass, 0 fail, 8 skipped
+```
 
 ---
 

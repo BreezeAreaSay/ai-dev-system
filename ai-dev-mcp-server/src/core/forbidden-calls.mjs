@@ -68,14 +68,14 @@
  * or whose name the file declares again — a local of its own, a parameter, a
  * function, a class — wherever it is assigned; a global taken out by a pattern
  * (`{ globalThis: g } = globalThis`); `await` or `yield` written as a name in a
- * script, read as the keyword; and a class's member on the line after `n++` or
- * a word an operand follows (`in`), read as an assignment or, named `class` or
- * `function`, as declaring the name after it, and a `class` after `in` as
- * waiting for a body, are past it (Д-410, Д-426, Д-432, Д-440, Д-448, Д-459,
- * Д-460, Д-464, Д-476, Д-509, Д-523). No accident writes such code; the gate
- * keeps honest code honest. A computed member of a global it cannot read is
- * refused rather than trusted, and so is a file it could not read to its end —
- * a template or a comment that never closes, leaving what follows unchecked.
+ * script, read as the keyword; and a class's member on the line after `n++` or a
+ * word an operand follows (`in`), read as an assignment or, named `class` or
+ * `function`, as declaring the name after it, and a `class` after one but `return`
+ * or `yield` as waiting for a body, are past it (Д-410, Д-426, Д-432, Д-440,
+ * Д-448, Д-459, Д-460, Д-464, Д-476, Д-509, Д-523, Д-532). No accident writes such
+ * code; the gate keeps honest code honest. A computed member of a global it cannot
+ * read is refused rather than trusted, and so is a file it could not read to its
+ * end — a template or a comment that never closes, leaving what follows unchecked.
  */
 
 import { HEAD_KEYWORDS, KEYWORDS_BEFORE_EXPRESSION, closing, codeTokens, enclosing, endsOperand, isName, isPunct, opening } from "./code-tokens.mjs";

@@ -94,8 +94,9 @@ export async function flushFile(handle) {
  * refuses a FileHandle's chmod() — of the x.y.0 releases measured, 22.23,
  * 24.15 … 24.22, 25.9, 26.0 and 26.12 (22.16 … 22.22, 24.0 … 24.14 and 25.0
  * allow it). Where it is refused, the copy is left with the mode open() gave
- * it, the file's, which umask only narrows, rather than fail the write. Any
- * other failure is the write's (docs/DEFECTS.md, Д-477, Д-492, Д-493, Д-512).
+ * it, the file's, which umask or a default ACL only narrows, rather than fail
+ * the write. Any other failure is the write's (docs/DEFECTS.md, Д-477, Д-492,
+ * Д-493, Д-512, Д-532).
  *
  * @param {import("node:fs/promises").FileHandle} handle
  * @param {number} mode

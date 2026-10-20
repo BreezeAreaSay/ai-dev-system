@@ -105,9 +105,9 @@ server's code and the desktop app's as tokens (`src/core/code-tokens.mjs`; the
 rules in `src/core/forbidden-calls.mjs`, docs/DEFECTS.md Д-267, Д-382, Д-398,
 Д-407 … Д-410, Д-422 … Д-426, Д-431, Д-432, Д-440 … Д-448, Д-459 … Д-466, Д-472
 … Д-476, Д-480 … Д-482, Д-486 … Д-490, Д-496, Д-499 … Д-511, Д-515 … Д-523,
-Д-527), every escape decoded, and rejects the usual spellings and their plain
-equivalents: `exec` and `execSync` of `child_process` — through a named, default
-or namespace import,
+Д-527, Д-530, Д-531), every escape decoded, and rejects the usual spellings and
+their plain equivalents: `exec` and `execSync` of `child_process` — through a
+named, default or namespace import,
 `require`, `import()` or `process.getBuiltinModule` called by name, as a member
 or by a plain-string key, in parentheses, or through `.call` or `.apply`, the
 module's `default`, a `.then` callback, or a name it is bound or plainly

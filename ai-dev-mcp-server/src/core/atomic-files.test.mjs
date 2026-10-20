@@ -230,29 +230,29 @@ test("a file is flushed where Node allows it: the permission model's refusal of 
   // Under --permission, where Node refuses a FileHandle's sync() (24.22, 26.12) and chmod() (22.23, 24.15 … 24.22,
   // 25.9, 26.0, 26.12), every write the server makes goes through all the same — but for a copy root hands to the
   // config's owner, which needs the fchown it refuses (Д-168, Д-494): a write and an append; a client's config that is
-  // new (Cursor's), one whose copy needs a chmod under a umask that clears a read or write bit, as this test's 0002 does
-  // (Gemini's, 0666), and one of its owner's alone (Claude Code's, 0600), each added to, changed and cleaned, none left
-  // wider than it was; and a backup (Д-477, Д-492, Д-512, Д-513). The umask is 0002, not 0022, which hides a copy widened
-  // by the group's write bit, and it is checked to apply: under a default ACL it does not (Д-525).
+  // new (Cursor's), one whose copy needs a chmod under a umask that clears a read or write bit (Gemini's, 0666), and one
+  // of its owner's alone (Claude Code's, 0600), each added to, changed and cleaned, none left wider than it was; and a
+  // backup (Д-477, Д-492, Д-512, Д-513). A umask hides a copy widened by the bits it clears, so the scenario runs twice:
+  // under 0002, which clears a bit of 0666 and shows a copy widened by the group's write bit, and under 0000, which
+  // shows one widened by the others' (Д-525, Д-529). The modes say so only where a new file takes its mode from the
+  // umask, which is checked after the writes: a default ACL or a filesystem that ignores modes gives another.
   const umask = process.umask(0o002);
   t.after(() => process.umask(umask));
-  const root = await fs.realpath(await tempRoot(t, "ai-dev-atomic-permission-"));
-  if (process.platform !== "win32") {
-    await fs.writeFile(path.join(root, "umask-probe"), "", { mode: 0o666 });
-    assert.equal((await fs.stat(path.join(root, "umask-probe"))).mode & 0o777, 0o664, "a new file here takes its mode from the umask, not from a default ACL");
-  }
-  await fs.mkdir(path.join(root, ".cursor"));
-  await fs.mkdir(path.join(root, ".gemini"));
-  await fs.writeFile(path.join(root, ".gemini", "settings.json"), "{}\n", { mode: 0o666 });
-  await fs.chmod(path.join(root, ".gemini", "settings.json"), 0o666);
-  await fs.writeFile(path.join(root, ".claude.json"), "{}\n", { mode: 0o600 });
-  await fs.chmod(path.join(root, ".claude.json"), 0o600);
-  await fs.mkdir(path.join(root, "vault"));
-  await fs.mkdir(path.join(root, "runtime", "state"), { recursive: true });
-  await fs.writeFile(path.join(root, "vault", "note.md"), "# Note\n");
-  const module = (name) => JSON.stringify(new URL(`./${name}`, import.meta.url).href);
-  const at = (...parts) => JSON.stringify(path.join(root, ...parts));
-  const script = `const { appendJsonLines, atomicWriteFile } = await import(${module("atomic-files.mjs")});
+  for (const mask of [0o002, 0o000]) {
+    process.umask(mask);
+    const root = await fs.realpath(await tempRoot(t, "ai-dev-atomic-permission-"));
+    await fs.mkdir(path.join(root, ".cursor"));
+    await fs.mkdir(path.join(root, ".gemini"));
+    await fs.writeFile(path.join(root, ".gemini", "settings.json"), "{}\n", { mode: 0o666 });
+    await fs.chmod(path.join(root, ".gemini", "settings.json"), 0o666);
+    await fs.writeFile(path.join(root, ".claude.json"), "{}\n", { mode: 0o600 });
+    await fs.chmod(path.join(root, ".claude.json"), 0o600);
+    await fs.mkdir(path.join(root, "vault"));
+    await fs.mkdir(path.join(root, "runtime", "state"), { recursive: true });
+    await fs.writeFile(path.join(root, "vault", "note.md"), "# Note\n");
+    const module = (name) => JSON.stringify(new URL(`./${name}`, import.meta.url).href);
+    const at = (...parts) => JSON.stringify(path.join(root, ...parts));
+    const script = `const { appendJsonLines, atomicWriteFile } = await import(${module("atomic-files.mjs")});
 const { discoverClients, installServer, removeServer } = await import(${module("mcp-clients.mjs")});
 const { createBackup } = await import(${module("backup-archive.mjs")});
 await atomicWriteFile(${at("state.json")}, "{}\\n");
@@ -263,13 +263,18 @@ for (const file of ["/a.mjs", "/b.mjs"]) statuses.push((await installServer({ ta
 statuses.push((await removeServer({ targets })).map((row) => row.status));
 const backup = await createBackup({ contentRoot: ${at("vault")}, runtimeRoot: ${at("runtime")}, destination: ${at("backups")}, now: new Date("2026-10-19T12:00:00Z") });
 console.log(JSON.stringify({ statuses, files: backup.files }));`;
-  const run = spawnSync(process.execPath, ["--permission", "--allow-fs-read=*", `--allow-fs-write=${root}`, "--input-type=module", "-e", script], { encoding: "utf8" });
-  assert.equal(run.status, 0, run.stderr);
-  assert.deepEqual([await fs.readFile(path.join(root, "state.json"), "utf8"), await fs.readFile(path.join(root, "ledger.jsonl"), "utf8")], ["{}\n", "{}\n"]);
-  assert.deepEqual(JSON.parse(run.stdout), { statuses: [["added", "added", "added"], ["updated", "updated", "updated"], ["removed", "removed", "removed"]], files: 1 }, run.stdout);
-  if (process.platform !== "win32") {
-    assert.equal((await fs.stat(path.join(root, ".claude.json"))).mode & 0o777, 0o600, "a config of its owner's alone stays so");
-    assert.equal((await fs.stat(path.join(root, ".gemini", "settings.json"))).mode & ~0o666 & 0o7777, 0, "no wider than it was");
+    const run = spawnSync(process.execPath, ["--permission", "--allow-fs-read=*", `--allow-fs-write=${root}`, "--input-type=module", "-e", script], { encoding: "utf8" });
+    const named = `umask ${mask.toString(8).padStart(4, "0")}`;
+    assert.equal(run.status, 0, `${named}: ${run.stderr}`);
+    assert.deepEqual([await fs.readFile(path.join(root, "state.json"), "utf8"), await fs.readFile(path.join(root, "ledger.jsonl"), "utf8")], ["{}\n", "{}\n"], named);
+    assert.deepEqual(JSON.parse(run.stdout), { statuses: [["added", "added", "added"], ["updated", "updated", "updated"], ["removed", "removed", "removed"]], files: 1 }, `${named}: ${run.stdout}`);
+    if (process.platform !== "win32") {
+      const mode = async (...parts) => ((await fs.stat(path.join(root, ...parts))).mode & 0o777).toString(8);
+      await fs.writeFile(path.join(root, "umask-probe"), "", { mode: 0o666 });
+      assert.equal(await mode("umask-probe"), (0o666 & ~mask).toString(8), `a file made here with 666 gets ${(0o666 & ~mask).toString(8)}, as ${named} gives: a default ACL or a filesystem that ignores modes gives another`);
+      assert.equal(await mode(".claude.json"), "600", `${named}: a config of its owner's alone stays so`);
+      assert.equal((await fs.stat(path.join(root, ".gemini", "settings.json"))).mode & ~0o666 & 0o7777, 0, `${named}: no wider than it was`);
+    }
   }
 });
 

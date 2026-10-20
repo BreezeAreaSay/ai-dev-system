@@ -5,7 +5,7 @@ import { forbiddenCalls } from "./forbidden-calls.mjs";
 
 // What the static gate reads as declaring a name, binding one or holding a pattern: a parameter list, a declaration, a
 // class's field. Its own file since forbidden-calls.test.mjs would have passed the 800 lines a module keeps
-// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-511, Д-515 … Д-522, Д-524, Д-527).
+// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-511, Д-515 … Д-522, Д-524, Д-527, Д-530, Д-531).
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
 const BT = "`";
@@ -317,7 +317,7 @@ test("a ++ or -- after a line break is a prefix: a regular expression or a liter
   }
 });
 
-test("a member named extends before a body, the name of, a word as on the line before, a template's code, an arrow's concise body, [ ] in o, a for head's test, update and iterable, U+2028 or U+2029 in a string, a # member's postfix (Д-516 … Д-522, Д-524, Д-527)", () => {
+test("a member named extends before a body, the name of, a word as on the line before, a template's code, an arrow's concise body, [ ] in o, a for head's test, update and iterable, U+2028 or U+2029 in a string, a # member's postfix, an alias after export *, a template's end after yield (Д-516 … Д-522, Д-524, Д-527, Д-530, Д-531)", () => {
   const o = "const o = { extends: Object, as: 1 };\n";
   const allman = "  m({ shell })\n  {\n    return shell;\n  }\n";
   // After a member named extends the { is the class's body, and no wait is left open (Д-516).
@@ -336,13 +336,16 @@ test("a member named extends before a body, the name of, a word as on the line b
   assert.deepEqual(rules("export function f() {\n  for (const k of [{ shell: true }]) return k;\n}\n"), ["shell"]);
   assert.deepEqual(rules("export function f() {\n  for (const k of ++/\"/.lastIndex) eval(k);\n}\n"), ["eval"]);
   assert.deepEqual(rules("export function f(of) {\n  for (const k of of++ / 2) eval(k); // n\n}\n"), ["eval"]);
-  // After a word as on the line before, class declares; an alias's as stands on class's line (Д-518).
+  // After a word as on the line before, class declares; an alias's as stands on class's line or after export * (Д-518, Д-530).
   for (const value of ["o.as", "as"]) {
     assert.deepEqual(rules(`${o}const as = 1;\nlet v = ${value}\nclass Foo {\n${allman}}\nexport { v, Foo };\n`), [], value);
   }
   assert.deepEqual(rules(`${CP}export let run;\n${o}let v = o.as\nclass Foo {\n  run = cp;\n}\nexport { v, Foo };\n`), []);
   for (const alias of ["export { x as class }", "export { x as\nclass }", "export * as\nclass from \"./m.mjs\""]) {
     assert.deepEqual(rules(`${CP}export let run;\nconst x = 1;\n${alias}\nif (x) {\n  run = cp;\n}\n`), ["child_process.exec"], alias);
+  }
+  for (const alias of ["export * as\nclass from \"./m.mjs\"", "export *\nas\nclass from \"./m.mjs\"", "export * as\nfunction from \"./m.mjs\"", "export { x as\nclass }"]) {
+    assert.deepEqual(rules(`${CP}export let run;\nconst x = 1;\n${alias}\n{\n  run = cp;\n}\n`), ["child_process.exec"], alias);
   }
   // A template's code stands in the template: its , is no list's, its name no literal's key (Д-519).
   for (const value of [`(0, ${BT}\${a, cp}${BT})`, `(${BT}\${a, cp}${BT})`]) {
@@ -355,13 +358,19 @@ test("a member named extends before a body, the name of, a word as on the line b
   assert.deepEqual(rules(`const a = 1, shell = "x";\nexport const o = { x: ${BT}\${a, shell}${BT}, y: 2 };\n`), []);
   assert.deepEqual(rules(`${CP}export const x = ${BT}\${(0, cp).exec("ls")}${BT};\n`), ["child_process.exec"]);
   assert.deepEqual(rules(`const a = 1, shell = "x";\nexport const o = { x: ${BT}\${a}${BT}, shell };\n`), ["shell"]);
-  // An arrow's concise body is an expression, and a template's end an operand's: the / after them divides (Д-520).
+  // An arrow's concise body is an expression, and a template's end an operand's, whatever its last substitution ends
+  // with: the / after them divides (Д-520, Д-531).
   for (const value of ["(b) => function () {}", "(b) => class {}", `${BT}\${(a) => {}}${BT}`]) {
     assert.deepEqual(rules(`export const v = ${value} / 2; // Function( of b\n`), [], value);
   }
+  for (const value of [`${BT}\${yield}${BT}`, `${BT}\${${BT}\${yield}${BT}}${BT}`]) {
+    assert.deepEqual(rules(`export function* g() {\n  const v = ${value} / 2; // Function( of n\n  return v;\n}\n`), [], value);
+  }
+  assert.deepEqual(rules(`export function* g(x) {\n  const v = ${BT}\${yield}${BT} / 2, w = eval(x) / 3;\n  return [v, w];\n}\n`), ["eval"]);
   assert.deepEqual(rules("export const v = ({ shell: true }, (y) => class {} / 2) / 2;\n"), ["shell"]);
   assert.deepEqual(rules("export const f = (b) => {}\n/eval(?:)/.test(\"x\");\n"), []);
-  // A pattern before in is one only as a for head's binding; after an arrow's body a new line begins a statement (Д-521).
+  // A pattern before in is one only as a for head's binding; after an arrow's body a new line begins a statement, but
+  // with a : (Д-521).
   assert.deepEqual(rules("const o = {};\nexport const has = [{ shell: true }] in o;\n"), ["shell"]);
   assert.deepEqual(rules("export function f(o) {\n  for (const [k, { shell }] in o) return shell;\n}\n"), []);
   for (const head of ["{ shell }", "const { shell }", "[k, { shell }]", "var [{ shell }]"]) {

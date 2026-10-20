@@ -183,14 +183,16 @@ export function codeTokens(source, { script = false } = {}) {
     }
     const token = mark({ type, value, line: where });
     // `export * as class from …`, `export { a as class }`, `{ class: 1 }`, `import { class as k }`, `this.#class`: a name,
-    // not a class — an alias's `as` stands on `class`'s line: after `o.as` on the line before, a class begins (Д-518).
+    // not a class — an alias's `as` stands on `class`'s line or after `export *`: after `o.as` on the line before, a class
+    // begins; `export { a as⏎class }` waits, and its `}` ends the wait (Д-518, Д-530).
     // Right in a class's body a word that begins a member — after `{`, `;`, `}`, `static`, or a line a member ended —
     // is the member's name: `class⏎  x⏎  static {}` is two fields and a static block, and opens no wait (Д-486, Д-499).
     // A substitution of a field's template is an expression's place, whatever came before it (Д-503).
     const last = tokens.at(-1);
     const named = token.substitution !== true && innermost().classBody === true && (isPunct(last, "{") || isPunct(last, ";") || isPunct(last, "}") || isName(last, "static")
       || (last.line < where && (endsOperand(last) || isMember(tokens.length - 1) || endsAtBreak(tokens.length - 1))));
-    if (type === "name" && (value === "class" || value === "function") && !isMember(tokens.length) && !(isName(tokens.at(-1), "as") && tokens.at(-1).line === where) && !named) {
+    const alias = isName(tokens.at(-1), "as") && (tokens.at(-1).line === where || (isPunct(tokens.at(-2), "*") && isName(tokens.at(-3), "export")));
+    if (type === "name" && (value === "class" || value === "function") && !isMember(tokens.length) && !alias && !named) {
       // `async` belongs to the function only on its line: `x = async⏎function f() {}` declares f (Д-423).
       const async = value === "function" && isName(tokens.at(-1), "async") && tokens.at(-1).line === where;
       const before = async ? tokens.length - 2 : tokens.length - 1;
@@ -228,7 +230,7 @@ export function codeTokens(source, { script = false } = {}) {
       token.literal = !owner && (fresh || valueAfter(tokens.length - 1, where));
       // A class's body: what stands right before it is the class's heritage, a call there too (Д-466).
       if (owner?.kind === "class") token.classBody = true;
-      // An arrow's body: no call follows it, and the line after it begins a statement (Д-521).
+      // An arrow's body: no call follows it, and the line after it begins a statement unless it begins with `:` (Д-521).
       if (!owner && isPunct(tokens.at(-1), ">") && isPunct(tokens.at(-2), "=")) token.arrowBody = true;
       opened.push({ regexAfter: owner ? !owner.expression : !token.literal, statements: !token.literal, conditionals: 0, classBody: token.classBody === true });
     } else if (type === "punct" && (value === "(" || value === "[")) {
@@ -248,6 +250,9 @@ export function codeTokens(source, { script = false } = {}) {
     if (substitutionOpened) return true;
     const last = tokens.at(-1);
     if (!last) return true;
+    // A template's end ends an operand, whatever its last substitution ends with: `${(a) => {}}` / 2 and `${yield}` / 2
+    // divide (Д-520, Д-531).
+    if (last.within !== undefined && tokens[last.within].last === tokens.length - 1) return false;
     if (last.type === "name") {
       if (isMember(tokens.length - 1)) return false;
       // `debugger⏎/r/`, `break outer⏎/r/`: the statement is over, and a `/` begins the next (Д-448).
@@ -357,10 +362,9 @@ export function codeTokens(source, { script = false } = {}) {
       const { line: started, token } = templates.pop();
       at += 1;
       const { ended } = readTemplateText();
-      // Where the template ends: a walk over a list steps over it whole, the commas of its code not the list's (Д-473); and
-      // it ends an operand, whatever its last substitution ends with: `${(a) => {}}` / 2 divides (Д-520).
+      // Where the template ends: a walk over a list steps over it whole, the commas of its code not the list's (Д-473), and a
+      // `/` after it divides (Д-520, Д-531).
       if (ended === "end") tokens[token].last = tokens.length - 1;
-      if (ended === "end" && tokens.at(-1).regexAfter === true) tokens.at(-1).regexAfter = false;
       if (ended === "code") {
         templates.push({ depth: 0, line: started, token, opened: opened.length });
         substitutionOpened = true;

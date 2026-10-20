@@ -1742,16 +1742,17 @@ four of those arrived as upstream issues #63–#66.
   arrow's concise body is one, `(b) => class {} / 2` (Д-520), and so is one after a `for` head's `;`
   (Д-527), and what its heritage holds, a template's substitutions included, is not taken for its end —
   nor one after `delete`, `in` or `instanceof`, nor a template's end, whatever its last substitution
-  ends with (Д-520); a property named `in`, a name `of` anywhere but right after a `for` head's binding
-  (`for (k in of / 2)`, `o.for(of / 2)`), as any name, `of++ / 2` too (Д-517); a regular expression
-  after `break`, `continue` or `debugger`), a member's name read as a name whatever word it is
-  (`it.return`, `this.#class`, `stats.new++ / 2`), a statement begun where a line break ends one
-  (after `return`, `yield`, `x++`, `o.new++`) (Д-508) and where one stands before a `++` or `--`, a prefix
-  there — `a⏎++/re/.lastIndex` holds a regular expression, `a⏎++⏎{ shell: true }.shell` a literal (Д-515) —,
-  a `class` after a word `as` on the line before a class, since only an alias's `as` stands on its line,
-  `export { a as class }` (Д-518), a U+2028 or U+2029 in a string counted as the line break it is
-  (Д-522), a `.cjs` file's HTML-like comments read as a script reads them — `-->` where no
-  token stands before it on its line, after a comment that spans lines too — and
+  ends with, `${yield}` / 2 too (Д-520, Д-531); a property named `in`, a name `of` anywhere but right
+  after a `for` head's binding (`for (k in of / 2)`, `o.for(of / 2)`), as any name, `of++ / 2` too
+  (Д-517); a regular expression after `break`, `continue` or `debugger`), a member's name read as a
+  name whatever word it is (`it.return`, `this.#class`, `stats.new++ / 2`), a statement begun where a
+  line break ends one (after `return`, `yield`, `x++`, `o.new++`) (Д-508) and where one stands before
+  a `++` or `--`, a prefix there — `a⏎++/re/.lastIndex` holds a regular expression,
+  `a⏎++⏎{ shell: true }.shell` a literal (Д-515) —, a `class` after a word `as` on the line before a
+  class, since an alias's `as` stands on its line or after `export *`, `export { a as class }`,
+  `export * as⏎class from …` (Д-518, Д-530), a U+2028 or U+2029 in a string counted as the line break
+  it is (Д-522), a `.cjs` file's HTML-like comments read as a script reads them — `-->` where no token
+  stands before it on its line, after a comment that spans lines too — and
   `src/core/forbidden-calls.mjs` asks the rules of them, in the server and in `desktop/`: the six
   spellings appended to a server file and a desktop file give twelve findings, where the gate passed
   them. It knows `process.getBuiltinModule`, and a loader called by name, as a member or by a
@@ -1860,30 +1861,32 @@ four of those arrived as upstream issues #63–#66.
   closes taken for a list (R5, 226), through a class expression that is an arrow's concise body
   (Д-520) — and one of its own alive that changes one, a postfix on a `#` member taken for none; a
   test holds that one now (Д-524). Of the 326 run on round 11's code — the 287, 7 of the eleventh
-  review's own, and 32 for round 11's rules — 301 fail its tests, and 6 of the 25 left changed an
+  review's own, and 32 for round 11's rules — 301 fail its tests, and 5 of the 25 left changed an
   answer where the gate is right: an `of` a `for` head marks as no keyword taken for no operand's end,
   and the keyword taken for one, `for (const k of ++/"/.lastIndex)`; any `>`, and any block's end,
-  taken for an arrow's body, which ends a declaration at a line that goes on with its value; a U+2029
-  in a string not counted; and a `;` in any bracket taken for a `for` head's; tests hold them now, and
-  307 fail. Of the 19 left, six change no answer by construction: a member check added to
-  `endsAtBreak`, whose callers ask it too; a `,` that ends the wait for a body, which stands at a
-  wait's level only after a `class` or `function` named in an import or export clause, whose `}` ends
-  the wait anyway with no `{` between; an `export` marked as walked and a `.` left unmarked right in a
-  substitution, marks asked only of a declaration's word and of a name; an arrow asked by its `>`
-  alone, where a `class` after any other `>` is a value already; and the `{` after `=>` that a class
-  or function waits for marked an arrow's body, which no class's or function's body follows in code
-  V8 accepts. Four only a program V8 refuses tells apart: a template's end kept at each
-  substitution's end, a walk that asks for the outermost template or stops at a template's end only
-  when it began in one, and the `static` rule only for a `class` on a line before. A `;` that ends
-  only a class's wait leaves a function's to take a block that reads the same. Three — a `static`
-  that ends every wait at its depth, a `(` that ends a class's at any depth, and a `class` right
-  after an operand on its line taken for a member's name — change one only past the limit above, on
-  a `class` after a field named `in`, and read right there. And five — a statement keyword asked of a
-  string head, the line a list begins on asked instead of the one it ends on, a list that never
-  closes taken for a list, a class body's mark kept on an object literal's brace, and an `export`
-  that no longer stops a declaration's walk, which a value's end before it stops first since
-  Д-517 — no program tried tells apart: neither 304,352 programs V8 accepts from five fuzzers, nor
-  20,741 files of real code, nor 375 probes (Д-511, Д-515, Д-524).
+  taken for an arrow's body, which ends a declaration at a line that goes on with its value; and a
+  U+2029 in a string not counted. A sixth, a `;` in any parenthesis taken for a `for` head's, changed
+  none — only a `for` head's `(` holds one in code V8 accepts — and was widened while the run went on
+  to a `;` in any bracket, which does (Д-532); tests hold those six now, and 307 fail. Of the 19 left,
+  six change no answer by construction: a member check added to `endsAtBreak`, whose callers ask it
+  too; a `,` that ends the wait for a body, which stands at a wait's level only after a `class` or
+  `function` named in an import or export clause, whose `}` ends the wait anyway with no `{`
+  between; an `export` marked as walked and a `.` left unmarked right in a substitution, marks asked
+  only of a declaration's word and of a name; an arrow asked by its `>` alone, where a `class` after
+  any other `>` is a value already; and the `{` after `=>` that a class or function waits for marked
+  an arrow's body, which no class's or function's body follows in code V8 accepts. Four only a
+  program V8 refuses tells apart: a template's end kept at each substitution's end, a walk that asks
+  for the outermost template or stops at a template's end only when it began in one, and the
+  `static` rule only for a `class` on a line before. A `;` that ends only a class's wait leaves a
+  function's to take a block that reads the same. Three — a `static` that ends every wait at its
+  depth, a `(` that ends a class's at any depth, and a `class` right after an operand on its line
+  taken for a member's name — change one only past the limit above, on a `class` after a field named
+  `in`, and read right there. And five — a statement keyword asked of a string head, the line a list
+  begins on asked instead of the one it ends on, a list that never closes taken for a list, a class
+  body's mark kept on an object literal's brace, and an `export` that no longer stops a
+  declaration's walk, which a value's end before it stops first since Д-517 — no program tried tells
+  apart: neither 304,352 programs V8 accepts from five fuzzers, nor 20,741 files of real code, nor
+  375 probes (Д-511, Д-515, Д-524).
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be
@@ -1929,21 +1932,21 @@ four of those arrived as upstream issues #63–#66.
   temporary home its server moved AI Dev's Codex-era folders out of `~/.codex` into the folder, and
   they were deleted with it; now, with `AI_DEV_HOME` set, the move reads `$AI_DEV_HOME/.codex`, as
   2.x did, and the demo names every place the move would fill, so nothing leaves `~/.codex`.
-- **The server writes under Node's permission model** (Д-470, Д-477, Д-479, Д-492 … Д-494, Д-512, Д-514). To
-  a process run with `--permission`, Node refuses a file handle's `sync()` — of the x.y.0 releases
-  measured, 24.22 and 26.12: "fsync API is disabled when Permission Model is enabled.", and no flag
-  allows it — and its `chmod()` — 22.23, 24.15 … 24.22, 25.9, 26.0 and 26.12; so every write the
-  server makes atomic failed there, a client's config that was there could be neither changed nor
+- **The server writes under Node's permission model** (Д-470, Д-477, Д-479, Д-492 … Д-494, Д-512,
+  Д-514). To a process run with `--permission`, Node refuses a file handle's `sync()` — of the x.y.0
+  releases measured, 24.22 and 26.12: "fsync API is disabled when Permission Model is enabled.", and
+  no flag allows it — and its `chmod()` — 22.23, 24.15 … 24.22, 25.9, 26.0 and 26.12; so every write
+  the server makes atomic failed there, a client's config that was there could be neither changed nor
   cleaned, and the test that runs the policy rules with no worker thread failed on the Node 24 that CI
   runs. The write now goes on unflushed where the permission model refuses the flush, and a config's
   copy is given the old file's mode only when it lacks it — where that is refused, it is left with the
-  mode it was made with, the old one narrowed by umask, never wider; any other failure of either fails
-  the write. One write still fails there: a config root writes in a home it does not own, whose copy
-  it hands to the home's user with the `fchown` the permission model refuses (Д-168), and the backup
-  it made of that config stays beside it (Д-514). And a test that asserted `node:sqlite`'s cut of a
-  text at a NUL — which Node 22.16 … 22.23, 24.0 … 24.15, 25.0, 25.9 and 26.0 make, and 24.16 … 24.22
-  and 26.12 do not — takes either reading: the text read back through a BLOB is whole on all of them
-  (Д-471).
+  mode it was made with, the old one narrowed by umask or a default ACL (Д-532), never wider; any
+  other failure of either fails the write. One write still fails there: a config root writes in a home
+  it does not own, whose copy it hands to the home's user with the `fchown` the permission model
+  refuses (Д-168), and the backup it made of that config stays beside it (Д-514). And a test that
+  asserted `node:sqlite`'s cut of a text at a NUL — which Node 22.16 … 22.23, 24.0 … 24.15, 25.0, 25.9
+  and 26.0 make, and 24.16 … 24.22 and 26.12 do not — takes either reading: the text read back through
+  a BLOB is whole on all of them (Д-471).
 - **The tests pass with a temporary folder that is a link or a long path** (Д-258, Д-259, Д-373).
   Four tests compared a resolved path with one built from `os.tmpdir()`, and the bridge test bound a
   socket that a 112-byte `TMPDIR` cut short, so parallel runs collided (`EADDRINUSE` in 6 of 12):

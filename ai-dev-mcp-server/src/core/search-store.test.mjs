@@ -400,7 +400,7 @@ test("vectors stored a slice at a time are in the index at once, and a later reb
   assert.deepEqual([closing.dense_documents, closing.dense_reused_documents, closing.dense_pending_documents], [33, 33, 0]);
 });
 
-test("2.0.0's vectors whose passage has changed since are dropped, and the table gains this format's columns (Д-NNN)", needsSqlite, async (t) => {
+test("2.0.0's vectors whose passage has changed since are dropped, and the table gains this format's columns (Д-571)", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const indexPath = path.join(tempRoot(t), "index.sqlite");
   buildVault(vault, { notes: 2, skills: 2 });

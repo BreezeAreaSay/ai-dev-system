@@ -412,7 +412,7 @@ function rankHybrid(db, {
   // Not one stored vector of the question's model: the dense half has nothing
   // to compare, so it is left out of the weights rather than scoring everyone
   // zero, and the caller is told (docs/DEFECTS.md, Д-148). 2.0.0's table records no model: its vectors are the
-  // Python backend's, never the question's (Д-NNN).
+  // Python backend's, never the question's (Д-571).
   const unmatched = Boolean(denseQuery && (!tableColumns(db, "dense_vectors").has("backend") || (denseProvenance && !hasDenseVectorsOf(db, denseProvenance))));
   if (unmatched) denseQuery = null;
   if (!denseQuery) dense = 0;

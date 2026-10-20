@@ -85,11 +85,13 @@ it, what moves by itself, what needs one command, and how to go back.
   volume and does not see what moved. A 3.0 entry has `--network none` written into it and ignores
   `AI_DEV_DOCKER_NETWORK`, which only the 2.x launchers read: change the entry itself. `bootstrap.sh`
   and `bootstrap.ps1` keep the projects and model folders the entries they replace mount — a 2.x
-  entry's `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH` too, a model folder only when it holds 3.0's
-  `bge-m3-onnx/` — and say which they kept; `--project-path` (`-ProjectPath`) and `--model-path`
-  (`-ModelPath`) name others, and with no entry the projects folder is `~/AI-Dev-Projects` and no
-  model folder is mounted; entries that name different projects folders stop them until one is named
-  (Д-403). They no longer install Docker or Node, start a long-lived container or compile a proxy.
+  entry's `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH` too, but not a model folder that holds only
+  2.x's Python model, nor a folder that is not an absolute path — and say which they kept, or that
+  they could not read them; `--project-path` (`-ProjectPath`) and `--model-path` (`-ModelPath`) name
+  others, and with no entry the projects folder is `~/AI-Dev-Projects` and no model folder is
+  mounted; entries that name different projects folders stop them until one is named (Д-403,
+  Д-573). The configs for a 2.x image are written by `:3`, the 3.x line, unless
+  `AI_DEV_INSTALLER_IMAGE` names another — not `:latest`, which a rollback points at 2.x (Д-572). They no longer install Docker or Node, start a long-lived container or compile a proxy.
 - **Image tags** (decision D9): `:latest` moves only with a release tag of the newest line, and no
   longer with 2.x; `:edge` follows `main`; `:2` follows the 2.x line — a manual run copies 2.x's
   `:latest` to it before 3.0 is tagged, and after that only a `v2.*` tag moves it.

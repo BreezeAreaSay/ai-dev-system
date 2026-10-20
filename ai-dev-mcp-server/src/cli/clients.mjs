@@ -464,7 +464,9 @@ async function folders(values, io) {
     const entry = row.entries[SERVER_NAME] ?? LEGACY_SERVER_NAMES.map((name) => row.entries[name]).find((value) => value !== undefined);
     const mounted = entryFolders(entry);
     for (const role of ["projects", "model"]) {
-      if (mounted[role]) found[role].set(mounted[role], [...(found[role].get(mounted[role]) ?? []), labelOf(row)]);
+      // One folder, written with a separator at its end or not, is one folder (docs/DEFECTS.md, Д-573).
+      const folder = mounted[role].length > 1 ? mounted[role].replace(/[\\/]+$/, "") || mounted[role] : mounted[role];
+      if (folder) found[role].set(folder, [...(found[role].get(folder) ?? []), labelOf(row)]);
     }
   }
   for (const role of ["projects", "model"]) {

@@ -57,7 +57,7 @@ const YIELD_EVERY = 64;
 
 const DENSE_COLUMNS = ["id", "vector", "dimensions", "model", "backend", "revision", "dtype", "content_hash", "mtime"];
 // 2.0.0's `dense_vectors`, from before a vector recorded its provenance: every one is the Python backend's, the only one
-// 2.x had then (docs/DEFECTS.md, Д-NNN).
+// 2.x had then (docs/DEFECTS.md, Д-571).
 const UNRECORDED_COLUMNS = ["id", "vector", "dimensions", "model", "content_hash", "mtime"];
 const unrecorded = (columns) => columns.size === UNRECORDED_COLUMNS.length && UNRECORDED_COLUMNS.every((column) => columns.has(column));
 

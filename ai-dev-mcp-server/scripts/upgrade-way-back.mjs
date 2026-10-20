@@ -55,6 +55,6 @@ export async function verifyWayBack({ label, baseRoot, checkout, env, project, e
     const hits = Array.isArray(found) ? found.length : (found.results?.length ?? 0);
     const hybrid = await call(client, "hybrid_search", { query: "code review checklist", dense_weight: 0 });
     const hybridHits = Array.isArray(hybrid) ? hybrid.length : (hybrid.results?.length ?? 0);
-    check(`${label}: the way back — 2.x searches the index 3.0 left`, hits > 0 && hybridHits > 0, `${hits} and ${hybridHits} result(s)`);
+    check(`${label}: the way back — 2.x searches: search_all and hybrid_search answer, from the index or one its freshness check rebuilt`, hits > 0 && hybridHits > 0, `${hits} and ${hybridHits} result(s)`);
   });
 }

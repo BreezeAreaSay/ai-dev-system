@@ -212,7 +212,8 @@ sh ./bootstrap.sh --project-path "$HOME/Dev" --clients "codex,cursor,vscode"
 
 Путь назад, на 2.x, — `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`; и он
 оставляет папки, которые монтируют прежние записи. У образа 2.x нет своего установщика, поэтому конфиги для него пишет образ 3.0
-или новее: `AI_DEV_INSTALLER_IMAGE`, по умолчанию `ghcr.io/stonebridgeway/ai-dev-system:latest`. Он
+или новее: `AI_DEV_INSTALLER_IMAGE`, по умолчанию `ghcr.io/stonebridgeway/ai-dev-system:3` — линия 3.x,
+которую откат `:latest` на 2.x не трогает. Он
 скачивается — копия, закэшированная до 3.0, была бы образом 2.x — и используется, только если в нём
 есть установщик; иначе bootstrap останавливается и просит его (Д-323, Д-329). `:2` появится с
 выходом 3.0 — это `:latest` 2.x, скопированный в него перед тегом 3.0. До тех пор образ 2.x — сам

@@ -55,4 +55,7 @@ test("clients folders prints each folder the entries agree on with the clients t
   await write(".gemini/settings.json", { "ai-dev-system": entry2x("/home/u/Other", "/home/u/models") });
   result = run();
   assert.equal(result.stdout, "differ\tprojects\t/home/u/Dev (Cursor); /home/u/Other (Gemini CLI)\nmodel\t/home/u/models\tCursor, Gemini CLI\n");
+  // One folder with a separator at its end and without is one folder (Д-573).
+  await write(".gemini/settings.json", { "ai-dev-system": entry2x("/home/u/Dev/", "/home/u/models//") });
+  assert.equal(run().stdout, "projects\t/home/u/Dev\tCursor, Gemini CLI\nmodel\t/home/u/models\tCursor, Gemini CLI\n");
 });

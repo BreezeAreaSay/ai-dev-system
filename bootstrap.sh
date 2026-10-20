@@ -46,12 +46,13 @@ Options:
   --skip-smoke              Skip the MCP handshake check.
   --allow-stale-image       Install the cached image when the registry pull fails.
   --skip-client-install     Do not write the AI clients' configs.
-  --plan                    Print the plan as JSON without doing anything.
+  --plan                    Print the plan as JSON without doing anything (the folders the
+                            entries mount are read only on a run, so it shows the defaults).
 
 Environment: AI_DEV_IMAGE, AI_DEV_DATA_VOLUME and AI_DEV_MODEL_PATH (the defaults of
 --image, the data volume and --model-path); AI_DEV_STATE_ROOT or AI_DEV_HOME (the state
 folder, found as the agent hooks find it); AI_DEV_INSTALLER_IMAGE (an image of 3.0 or later
-that writes the configs when --image names a 2.x one; ghcr.io/stonebridgeway/ai-dev-system:latest).
+that writes the configs when --image names a 2.x one; ghcr.io/stonebridgeway/ai-dev-system:3).
 EOF
 }
 
@@ -276,7 +277,8 @@ if [ "$skip_client_install" -ne 1 ]; then
   }
   installer_image="$image"
   if ! has_installer "$image"; then
-    installer_image="${AI_DEV_INSTALLER_IMAGE:-ghcr.io/stonebridgeway/ai-dev-system:latest}"
+    # The 3.x line, not :latest, which a rollback points at 2.x again (docs/DEFECTS.md, Д-572).
+    installer_image="${AI_DEV_INSTALLER_IMAGE:-ghcr.io/stonebridgeway/ai-dev-system:3}"
     printf '%s\n' "${image} has no installer of its own (a 2.x image): ${installer_image} writes the configs that run it."
     if ! docker pull "$installer_image" && ! docker image inspect "$installer_image" >/dev/null 2>&1; then
       printf '%s\n' "Could not pull ${installer_image}, and no copy of it is here: name an image of 3.0 or later with AI_DEV_INSTALLER_IMAGE." >&2
@@ -562,10 +564,22 @@ if [ "$skip_client_install" -ne 1 ]; then
     if wants claude-code && [ -f "${HOME}/.claude.json" ]; then
       set -- "$@" --mount "type=bind,source=${HOME}/.claude.json,target=${HOME}/.claude.json,readonly"
     fi
-    entry_folders=$(docker "$@" "$installer_image" ai-dev clients folders --clients="$clients" --home="$HOME" \
-      --platform="$installer_platform" 2>/dev/null </dev/null) || entry_folders=""
+    # A lookup that fails — an installer older than the command, a Docker error — says so (Д-573).
+    if ! entry_folders=$(docker "$@" "$installer_image" ai-dev clients folders --clients="$clients" --home="$HOME" \
+      --platform="$installer_platform" 2>/dev/null </dev/null); then
+      entry_folders=""
+      printf '%s\n' "Could not read the folders the clients' entries mount: name yours with --project-path and --model-path, or the defaults stand." >&2
+    fi
     tab=$(printf '\t')
     while IFS=$tab read -r role folder labels; do
+      # Only an absolute folder is taken from an entry: `~` or a relative one is a hand edit no session mounted as meant.
+      case "$role:$folder" in
+        projects:/*|model:/*) ;;
+        projects:*|model:*)
+          printf '%s\n' "${folder}, the ${role} folder ${labels} mounted, is not an absolute path: it is not kept; name one with --$([ "$role" = projects ] && printf project-path || printf model-path)." >&2
+          continue
+          ;;
+      esac
       case "$role" in
         projects) [ "$project_given" -eq 1 ] || { project_path=$folder; project_from=$labels; } ;;
         model) [ "$model_given" -eq 1 ] || { model_path=$folder; model_from=$labels; } ;;
@@ -582,14 +596,14 @@ EOF
     if [ -n "${project_from:-}" ]; then
       printf '%s\n' "Projects folder: ${project_path}, the one ${project_from} mounted (--project-path names another)."
     fi
-    # Only a folder that holds 3.0's model is kept: 2.0.0's entries name the Python model's own folder, which 3.0 does
-    # not run, and one that is gone mounts nothing.
+    # A folder that holds 2.x's Python model and not 3.0's is not kept: 3.0 does not run it; one that is gone mounts
+    # nothing. Any other is kept, as the first install took it (Д-573).
     if [ -n "${model_from:-}" ]; then
-      if [ -d "${model_path}/bge-m3-onnx" ]; then
-        printf '%s\n' "Model folder: ${model_path}, the one ${model_from} mounted (--model-path names another)."
-      elif [ -d "$model_path" ]; then
-        printf '%s\n' "${model_path}, the model folder ${model_from} mounted, holds no bge-m3-onnx/ (2.x's model, which 3.0 does not run): none is mounted; name one with --model-path." >&2
+      if [ -d "$model_path" ] && [ ! -d "${model_path}/bge-m3-onnx" ] && { [ -d "${model_path}/bge-m3" ] || [ -e "${model_path}/pytorch_model.bin" ]; }; then
+        printf '%s\n' "${model_path}, the model folder ${model_from} mounted, holds 2.x's Python model and no bge-m3-onnx/, which 3.0 runs: none is mounted; name one with --model-path." >&2
         model_path=""
+      elif [ -d "$model_path" ]; then
+        printf '%s\n' "Model folder: ${model_path}, the one ${model_from} mounted (--model-path names another)."
       else
         printf '%s\n' "${model_path}, the model folder ${model_from} mounted, is not here: none is mounted; name one with --model-path." >&2
         model_path=""

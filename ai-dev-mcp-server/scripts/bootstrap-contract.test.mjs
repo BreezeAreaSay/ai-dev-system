@@ -694,14 +694,27 @@ test("folders not named are the ones the entries it replaces mount, a 2.x entry'
   assert.equal(gone.status, 0, gone.stderr);
   assert.equal(word(gone.calls.find((call) => call[0] === "run" && call.includes("install")), "model"), undefined);
   assert.match(gone.stderr, /the model folder Cursor mounted, is not here/);
-  // 2.0.0's entries name the Python model's own folder: not 3.0's, not mounted, and the install goes on.
+  // A folder that holds 2.x's Python model and not 3.0's: not mounted, and the install goes on (Д-573).
   const python = path.join(root, "bge-m3");
   await fs.mkdir(python, { recursive: true });
   await fs.writeFile(path.join(python, "pytorch_model.bin"), "");
   const old = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS: `model\\t${python}\\tCursor\\n` } });
   assert.equal(old.status, 0, old.stderr);
   assert.equal(word(old.calls.find((call) => call[0] === "run" && call.includes("install")), "model"), undefined);
-  assert.match(old.stderr, /holds no bge-m3-onnx\/ \(2\.x's model, which 3\.0 does not run\)/);
+  assert.match(old.stderr, /holds 2\.x's Python model and no bge-m3-onnx\/, which 3\.0 runs: none is mounted/);
+  // Any other folder is kept, as the first install took it: a 3.0 entry's empty model folder (Д-573).
+  const empty = path.join(root, "empty-models");
+  await fs.mkdir(empty, { recursive: true });
+  const waiting = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS: `model\\t${empty}\\tCursor\\n` } });
+  assert.equal(waiting.status, 0, waiting.stderr);
+  assert.equal(word(waiting.calls.find((call) => call[0] === "run" && call.includes("install")), "model"), await fs.realpath(empty));
+  // A folder that is not absolute, a hand edit, is not kept; a lookup that fails is said (Д-573).
+  const relative = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS: "projects\\t~/Dev\\tCursor\\n" } });
+  assert.equal(word(relative.calls.find((call) => call[0] === "run" && call.includes("install")), "projects"), await fs.realpath(path.join(relative.home, "AI-Dev-Projects")));
+  assert.match(relative.stderr, /~\/Dev, the projects folder Cursor mounted, is not an absolute path: it is not kept/);
+  const failed = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS_EXIT: "64" } });
+  assert.equal(failed.status, 0, failed.stderr);
+  assert.match(failed.stderr, /Could not read the folders the clients' entries mount/);
   // Entries that mount different projects folders: which to keep is the person's.
   const differ = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS: "differ\\tprojects\\t/a (Cursor); /b (Codex)\\n" } });
   assert.equal(differ.status, 64);

@@ -157,11 +157,21 @@ if (-not $SkipClientInstall -and (-not $projectGiven -or -not $modelGiven)) {
     }
     try {
         $entryFolders = @(Invoke-Native { & $node $cli clients folders "--clients=$Clients" 2>$null })
+        # A lookup that fails says so (docs/DEFECTS.md, Д-573).
+        if ($LASTEXITCODE -ne 0) {
+            $entryFolders = @()
+            Write-Warning "Could not read the folders the clients' entries mount: name yours with -ProjectPath and -ModelPath, or the defaults stand."
+        }
     } finally {
         if ($null -ne $consoleEncoding) { [Console]::OutputEncoding = $consoleEncoding }
     }
     foreach ($line in $entryFolders) {
         $role, $folder, $labels = "$line" -split "`t", 3
+        # Only an absolute folder is taken from an entry: `~` or a relative one is a hand edit (Д-573).
+        if (($role -eq "projects" -or $role -eq "model") -and $folder -and -not [IO.Path]::IsPathRooted($folder)) {
+            Write-Warning "$folder, the $role folder $labels mounted, is not an absolute path: it is not kept."
+            continue
+        }
         if ($role -eq "differ" -and (($folder -eq "projects" -and -not $projectGiven) -or ($folder -eq "model" -and -not $modelGiven))) {
             $flag = if ($folder -eq "projects") { "-ProjectPath" } else { "-ModelPath" }
             throw "The clients' entries mount different $folder folders: $labels. Name the one to keep with $flag."
@@ -171,12 +181,16 @@ if (-not $SkipClientInstall -and (-not $projectGiven -or -not $modelGiven)) {
             Write-Host "Projects folder: $resolvedProjectPath, the one $labels mounted (-ProjectPath names another)."
         }
         if ($role -eq "model" -and -not $modelGiven -and $folder) {
-            # Only a folder that holds 3.0's model is kept: 2.0.0's entries name the Python model's own folder.
-            if (Test-Path -LiteralPath (Join-Path $folder "bge-m3-onnx") -PathType Container) {
-                $resolvedModelPath = [IO.Path]::GetFullPath($folder)
-                Write-Host "Model folder: $resolvedModelPath, the one $labels mounted (-ModelPath names another)."
+            # A folder that holds 2.x's Python model and not 3.0's is not kept; any other is, as the first install took it,
+            # and checked as a named one is (Д-573).
+            $onnx = Test-Path -LiteralPath (Join-Path $folder "bge-m3-onnx") -PathType Container
+            $python = (Test-Path -LiteralPath (Join-Path $folder "bge-m3") -PathType Container) -or (Test-Path -LiteralPath (Join-Path $folder "pytorch_model.bin"))
+            if ((Test-Path -LiteralPath $folder -PathType Container) -and -not $onnx -and $python) {
+                Write-Warning "$folder, the model folder $labels mounted, holds 2.x's Python model and no bge-m3-onnx\, which 3.0 runs: none is mounted; name one with -ModelPath."
             } elseif (Test-Path -LiteralPath $folder -PathType Container) {
-                Write-Warning "$folder, the model folder $labels mounted, holds no bge-m3-onnx\ (2.x's model, which 3.0 does not run): none is mounted; name one with -ModelPath."
+                $resolvedModelPath = [IO.Path]::GetFullPath($folder)
+                Assert-ModelFolder $resolvedModelPath
+                Write-Host "Model folder: $resolvedModelPath, the one $labels mounted (-ModelPath names another)."
             } else {
                 Write-Warning "$folder, the model folder $labels mounted, is not here: none is mounted; name one with -ModelPath."
             }

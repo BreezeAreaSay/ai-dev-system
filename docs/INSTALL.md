@@ -214,8 +214,8 @@ Windows).
 
 The way back to 2.x is `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`; it too keeps
 the folders the entries it replaces mount. A 2.x image has no installer of its own, so the configs that run it are written by an
-image of 3.0 or later: `AI_DEV_INSTALLER_IMAGE`, `ghcr.io/stonebridgeway/ai-dev-system:latest` by
-default. It is pulled — a copy cached before 3.0 would be a 2.x one — and used only once it is seen
+image of 3.0 or later: `AI_DEV_INSTALLER_IMAGE`, `ghcr.io/stonebridgeway/ai-dev-system:3` by
+default — the 3.x line, which a rollback of `:latest` to 2.x leaves alone. It is pulled — a copy cached before 3.0 would be a 2.x one — and used only once it is seen
 to have the installer; otherwise bootstrap stops and asks for one (Д-323, Д-329). `:2` exists once
 3.0 is released — 2.x's `:latest`, copied to it before the 3.0 tag. Until then the 2.x image is
 `ghcr.io/stonebridgeway/ai-dev-system:latest` itself, the default installer too, so the installer

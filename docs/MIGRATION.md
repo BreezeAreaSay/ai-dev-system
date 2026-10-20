@@ -103,9 +103,9 @@ you used the Python backend (`npm run setup -- --model`).
   writes `docker run -i --rm …` entries in their place and — on macOS and Linux — removes the
   container 2.x kept, `ai-dev-system-runtime-<uid>`, once every config is rewritten. It mounts the
   folders your entries name and says which it kept: the projects folder of their
-  `AI_DEV_PROJECT_PATH`, and the model folder of their `AI_DEV_MODEL_PATH` when it holds 3.0's model,
-  `bge-m3-onnx/` — 2.0.0's entries name the Python model's own folder, which 3.0 does not run, and
-  that one is not mounted. `--project-path` (`-ProjectPath`) and `--model-path` (`-ModelPath`) name
+  `AI_DEV_PROJECT_PATH`, and the model folder of their `AI_DEV_MODEL_PATH` — but not one that holds
+  2.x's Python model and no `bge-m3-onnx/`, which 3.0 does not run; a folder an entry names that is
+  not an absolute path is not kept either, and a lookup that fails is said. `--project-path` (`-ProjectPath`) and `--model-path` (`-ModelPath`) name
   others; with no entry to read, the projects folder is `~/AI-Dev-Projects` and no model folder is
   mounted. Entries that name different projects folders stop it (bootstrap.sh exits 64) until you
   name the one to keep.

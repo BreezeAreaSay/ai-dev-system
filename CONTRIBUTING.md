@@ -210,7 +210,8 @@ from one a user edited; `npm run docker:seed` keeps it current.
 - A push to `main` publishes the `:edge` image and nothing else. A release is a `vX.Y.Z` tag: the
   images `:X.Y.Z`, `:X.Y`, `:X` and `:latest` (each with its `-browser` twin), and a draft release
   with the Windows installer, which the owner publishes. A fix to the 2.x line ships as a `v2.Y.Z`
-  tag and moves only `:2` and its own tags.
+  tag and moves only `:2` and its own tags. Every step of a release, and how each is taken back:
+  [Releasing 3.0](docs/RELEASE.md).
 - [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): subject`.
 - Keep changes focused. Update `CHANGELOG.md` under `[Unreleased]`.
 - Never commit secrets, absolute personal paths, tokens, or a personal vault.

@@ -64,11 +64,11 @@ test("files that are there and wrong are a warning that names them and the fix",
   assert.match(mounted.summary, /\(tokenizer\.json\)\. In this container, the folder is the host's, mounted read-only at \/models/);
   // …and the volume's own folder is fixed by installing into it (Д-99).
   const inVolume = evaluateEmbeddingBackend({ ...payload({ available: false, onnx: { ...ONNX, ready: false, mismatched: ["tokenizer.json"] } }), in_container: true });
-  assert.match(inVolume.summary, /\(tokenizer\.json\)\. In this container, install it into the data volume once/);
+  assert.match(inVolume.summary, /\(tokenizer\.json\)\. In this container, install it once into the default volume, ai-dev-system-data,/);
   assert.doesNotMatch(mounted.summary, /npm run setup/);
   const mountedPartial = evaluateEmbeddingBackend({ ...payload({ available: false, onnx: { ...ONNX, ready: false, missing: ["onnx/model_int8.onnx"] } }),
     partial: [{ file: "onnx/model_int8.onnx", bytes: 1024, size: 2048 }], in_container: true });
-  assert.match(mountedPartial.summary, /stopped partway \(1\.0 KB of onnx\/model_int8\.onnx\)\. In this container, install it into the data volume once/);
+  assert.match(mountedPartial.summary, /stopped partway \(1\.0 KB of onnx\/model_int8\.onnx\)\. In this container, install it once into the default volume, ai-dev-system-data,/);
 });
 
 test("anything left of the Python backend is a warning, ready or not, until it is cleaned up", () => {

@@ -493,8 +493,9 @@ test("the image names the volume at its /data as Docker, rootless Docker and Pod
   for (const mountinfo of [line(`/var/lib/docker/volumes/${"e2".repeat(32)}/_data`), other, "", "garbage"]) {
     assert.equal(volumeAtData(mountinfo), DEFAULT_DOCKER_VOLUME, mountinfo);
   }
-  // Only a name of 64 hex digits is taken for the anonymous one: these keep theirs (Д-546).
-  for (const name of ["cafe", "2024", "e2".repeat(31) + "e", "e2".repeat(32) + "e", `x${"e2".repeat(32)}`, `${"e2".repeat(32)}x`]) {
+  // Only a name of 64 hex digits is taken for the anonymous one: these keep theirs, 64 with a letter past f or in capitals
+  // too (Д-546, Д-560).
+  for (const name of ["cafe", "2024", "e2".repeat(31) + "e", "e2".repeat(32) + "e", `x${"e2".repeat(32)}`, `${"e2".repeat(32)}x`, `${"e2".repeat(31)}eg`, "E2".repeat(32)]) {
     assert.equal(volumeAtData(line(`/var/lib/docker/volumes/${name}/_data`)), name, name);
   }
   // A mount with no name to give — a folder, a volume made with a driver's options, a volume's subfolder, a tmpfs, a

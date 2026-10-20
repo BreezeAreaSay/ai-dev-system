@@ -128,11 +128,11 @@ function parameterList(tokens, open) {
 }
 
 /**
- * Whether the `{` or `[` at `open` begins a destructuring pattern: assigned to, iterated over, or a
- * parameter — itself, or as part of one. A default value (`options = { … }`), what is iterated
- * (`of [{ … }]`), a member's index or computed name and all in it (`o[{ … }] = v`), a bracket a member, a call
- * or an index follows, and all in a function's, a method's, an arrow's or a class's body are values, not
- * patterns; so is one in a call's arguments, a block after them or not (Д-472, Д-538, Д-548, Д-555, Д-556).
+ * Whether the `{` or `[` at `open` begins a destructuring pattern: assigned to, iterated over, or a parameter — itself,
+ * or as a whole entry of one, after `{`, `[`, `,`, `(`, `...` or a key's `:`. Anything else ends the climb, and nothing in
+ * it is part of a pattern around it: a default value, behind an operator or not (`options = c ? { … } : {}`), what is
+ * iterated, a member's index or computed name, a function's, a method's, an arrow's or a class's body. A bracket a member,
+ * a call or an index follows is a value, and so is one in a call's arguments (Д-472, Д-538, Д-548, Д-555, Д-556, Д-561).
  */
 // What isPattern answered for each bracket of a token array: a key deep in nested brackets climbs them once (Д-412).
 const PATTERNS = new WeakMap();
@@ -154,7 +154,7 @@ function isPattern(tokens, open) {
       answer = true;
       break;
     }
-    if (assigns(tokens, at - 1) || isName(tokens[at - 1], "of") || isName(tokens[at - 1], "in") || (isPunct(tokens[at - 1], ">") && isPunct(tokens[at - 2], "=")) || tokens[at].classBody === true || (isPunct(tokens[at - 1], ")") && isPunct(tokens[at], "{") && parameterList(tokens, opening(tokens, at - 1))) || (isPunct(tokens[at], "[") && (isPunct(tokens[at - 1], "{") || isPunct(tokens[at - 1], ",")) && isPunct(tokens[end + 1], ":"))) break;
+    if (!(["{", "[", ",", "(", "..."].some((value) => isPunct(tokens[at - 1], value)) || (isPunct(tokens[at - 1], ":") && tokens[at - 2]?.templateEnd !== true && ["{", ","].some((value) => isPunct(["name", "string", "number"].includes(tokens[at - 2]?.type) ? tokens[at - 3] : tokens[opening(tokens, at - 2) - 1], value)))) || (isPunct(tokens[at], "[") && (isPunct(tokens[at - 1], "{") || isPunct(tokens[at - 1], ",")) && isPunct(tokens[end + 1], ":"))) break;
     const outer = enclosing(tokens, at);
     if (outer < 0 || tokens[outer].within !== tokens[at].within) break;
     if (isPunct(tokens[outer], "(")) {
@@ -366,7 +366,7 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
       const previous = tokens[next - 1];
       // A value ends where an operand does — a name `of` too (Д-517), a member's name as any, `o.in` (Д-506), a template's end (Д-531) — at a `}`, and at a postfix, `n++` (Д-441), or a `yield` a line break ends, after which a line that begins with a template, `(` or `[` begins a statement too (Д-537) — but not one that ends a template's code: the template is the operand (Д-550).
       const breaks = previous.templateEnd !== true && ((isName(previous, "yield") && !isPunct(tokens[next - 2], ".") && !isPunct(tokens[next - 2], "#")) || ((isPunct(previous, "+") || isPunct(previous, "-")) && previous.joined === true && (endsOperand(tokens[next - 3]) || isPunct(tokens[next - 4], ".") || isPunct(tokens[next - 4], "#"))));
-      const endsValue = breaks || endsOperand(previous) || isPunct(previous, "}") || (isName(previous) && (isPunct(tokens[next - 2], ".") || isPunct(tokens[next - 2], "#")));
+      const endsValue = breaks || (endsOperand(previous) && !isName(previous, "extends")) || isPunct(previous, "}") || (isName(previous) && (isPunct(tokens[next - 2], ".") || isPunct(tokens[next - 2], "#")));
       if (next > at && token.line > previous.line && ((endsValue && ((isName(token) && token.value !== "in" && token.value !== "instanceof") || tokens[next + 1]?.joined === true || (isPunct(token, "!") && !isPunct(tokens[next + 1], "=")) || isPunct(token, "~") || token.type === "number" || (token.type === "string" && token.template !== true) || (breaks && (isPunct(token, "(") || isPunct(token, "[") || token.type === "template" || token.template === true || (isName(previous, "yield") && (token.type === "regex" || isPunct(token, "+") || isPunct(token, "-")))))))
         || (tokens[opening(tokens, next - 1)]?.arrowBody === true && previous.within === tokens[at].within && !isPunct(token, ":")))) return next;
       // `export` only ever begins a statement, and the walk stops there whatever came before (Д-444).

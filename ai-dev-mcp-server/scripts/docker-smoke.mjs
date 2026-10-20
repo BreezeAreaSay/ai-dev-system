@@ -14,14 +14,16 @@
  *    waits for the copy, and neither builds anything (Д-355);
  * 4. a volume made with a driver's options, a tmpfs: no name the image can
  *    read at /data, so its advice for the model holds a placeholder for the
- *    mount and says where the sessions keep /data (Д-539, Д-546);
+ *    mount and says where the sessions keep /data, for a host's model it cannot
+ *    read too; and a session that mounts nothing at /data is told of the
+ *    default volume by its name (Д-539, Д-546, Д-557);
  * 5. the model through the volume (Д-99): one run with the network installs a
  *    model — a synthetic one, served from this machine as a Hugging Face mirror
  *    would — and embeds the documents; a session without the network then
  *    searches with it;
  * 6. a model folder of the host's, mounted at /models as `--model` writes it:
- *    the command the start report gives builds the vectors offline, and the
- *    sessions use that folder (Д-341, Д-346).
+ *    the start report gives the command for that volume, which builds the
+ *    vectors offline, and the sessions use that folder (Д-341, Д-346, Д-557).
  */
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -45,13 +47,13 @@ const withModel = !process.argv.includes("--no-model");
 const browser = process.argv.includes("--browser");
 const volume = `ai-dev-smoke-${process.pid}-${crypto.randomBytes(3).toString("hex")}`;
 
-/** What a client config runs, the 3.0 entry's flags, with this smoke's volume. */
+/** What a client config runs, the 3.0 entry's flags, with this smoke's volume, or with nothing at /data for null. */
 function session(extra = [], data = volume) {
   return [
     "run", "--rm", "-i",
     "--read-only", "--tmpfs", "/tmp:rw,exec,nosuid,size=512m", "--shm-size", "1g",
     "--network", "none", "--security-opt", "no-new-privileges:true", "--cap-drop", "ALL",
-    "--mount", `type=volume,source=${data},target=/data`,
+    ...(data === null ? [] : ["--mount", `type=volume,source=${data},target=/data`]),
     ...extra,
     image
   ];
@@ -211,10 +213,40 @@ try {
         throw new Error(`On a volume made with a driver's options the health check's advice for the model is "${advice}".`);
       }
     });
+    // A host's model folder the image cannot read, on that volume: no data volume to install the model into either
+    // (Д-557). A host that lets the image read it all the same, as some file sharing does, says so and checks nothing.
+    const unreadable = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-smoke-unreadable-"));
+    try {
+      await fs.chmod(unreadable, 0o755);
+      await fs.mkdir(path.join(unreadable, "bge-m3-onnx"));
+      await fs.chmod(path.join(unreadable, "bge-m3-onnx"), 0o000);
+      await connect(session(["--mount", `type=bind,source=${unreadable},target=/models,readonly`], unnamedVolume), async ({ client }) => {
+        const reason = String(JSON.parse(text(await client.callTool({ name: "embedding_status", arguments: {} }))).reason ?? "");
+        if (!reason.includes("cannot be read")) {
+          report.unreadable_model = `read all the same here: "${reason}"`;
+          return;
+        }
+        if (!reason.endsWith("or drop the mount and install the model where your sessions keep /data.")) {
+          throw new Error(`On a volume made with a driver's options the advice for a host's model the image cannot read is "${reason}".`);
+        }
+        report.unreadable_model = "where your sessions keep /data";
+      });
+    } finally {
+      await fs.chmod(path.join(unreadable, "bge-m3-onnx"), 0o755).catch(() => {});
+      await fs.rm(unreadable, { recursive: true, force: true });
+    }
     report.unnamed_volume = "a placeholder for the mount";
   } finally {
     spawnSync("docker", ["volume", "rm", "-f", unnamedVolume], { stdio: "ignore", shell: false });
   }
+  // Nothing mounted at /data: an anonymous volume, which --rm removes, and the default's place, by its name (Д-545, Д-557).
+  await connect(session([], null), async ({ stderr }) => {
+    const modelLine = /Local BGE-M3 model: (.*)/.exec(stderr())?.[1] ?? "";
+    if (!modelLine.includes("source=ai-dev-system-data,target=/data") || !modelLine.endsWith("puts it in the default volume, ai-dev-system-data")) {
+      throw new Error(`With nothing mounted at /data the start report's advice for the model is "${modelLine}".`);
+    }
+  });
+  report.no_data_mount = "the default volume, by its name";
 
   // 5. The model through the volume.
   if (withModel) {
@@ -262,6 +294,13 @@ try {
       const hostVolume = `${volume}-host-model`;
       const hostMount = [...manifestMount, "--mount", `type=bind,source=${hostModels},target=/models,readonly`];
       try {
+        // Before the vectors: the start report gives the command that builds them, for this volume (Д-547, Д-557).
+        await connect(session(hostMount, hostVolume), async ({ stderr }) => {
+          const vectors = /Dense vectors: (.*)/.exec(stderr())?.[1] ?? "";
+          if (!vectors.includes(`docker run --rm -it --mount type=volume,source=${hostVolume},target=/data --mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model`)) {
+            throw new Error(`Before the vectors, the start report with the host's model at /models says "${vectors}".`);
+          }
+        });
         const embed = await docker(["run", "--rm", "--network", "none", ...hostMount, "--mount", `type=volume,source=${hostVolume},target=/data`, image, "ai-dev", "setup", "--model"]);
         if (embed.status !== 0) throw new Error(`ai-dev setup --model with the host's model exited ${embed.status}: ${`${embed.stdout}\n${embed.stderr}`.trim().split("\n").filter((line) => /✗|rror/.test(line)).slice(-3).join(" | ")}`);
         await connect(session(hostMount, hostVolume), async ({ client, stderr }) => {

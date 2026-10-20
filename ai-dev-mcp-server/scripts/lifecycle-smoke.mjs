@@ -14,6 +14,7 @@ const serverRoot = path.resolve(scriptDir, "..");
 const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-lifecycle-"));
 const projectRoot = path.join(tempRoot, "project");
 const stateRoot = path.join(tempRoot, "state");
+const { AI_DEV_RUNTIME: _runtime, ...hostEnv } = process.env;
 await fs.mkdir(path.join(projectRoot, ".ai-dev"), { recursive: true });
 await fs.writeFile(path.join(projectRoot, "package.json"), JSON.stringify({
   name: "ai-dev-lifecycle-fixture",
@@ -65,8 +66,11 @@ const transport = new StdioClientTransport({
   command: process.execPath,
   args: [path.join(serverRoot, "src", "server.mjs")],
   cwd: serverRoot,
+  // The host's server in a runtime tree of its own: AI_DEV_RUNTIME=docker in a developer's shell would move their real
+  // ~/.ai-dev/state into this folder, removed below (docs/DEFECTS.md, Д-559).
   env: {
-    ...process.env,
+    ...hostEnv,
+    AI_DEV_HOME: path.join(tempRoot, "home"),
     AI_DEV_STATE_ROOT: stateRoot
   },
   stderr: "pipe"

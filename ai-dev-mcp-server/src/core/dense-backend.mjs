@@ -15,7 +15,7 @@
  * reads once), the platform where a caller names none, and in a container the
  * volume at its `/data` (docs/DEFECTS.md, Д-528, Д-541, Д-547).
  */
-import { dataVolume } from "./docker-launch.mjs";
+import { DEFAULT_DOCKER_VOLUME, dataVolume } from "./docker-launch.mjs";
 import { dockerCommand, hint } from "./install-layout.mjs";
 
 /** The backend's name, as status payloads and index metadata record it. */
@@ -131,9 +131,10 @@ export function selectDenseBackend({ requested = "auto", onnxReady = false, supp
 /** Where 2.x's Docker launchers mount the host's model (`AI_DEV_MODEL_PATH` → `/models`, read-only). */
 export const DOCKER_MOUNTED_MODEL_DIR = "/models/bge-m3-onnx";
 
-// Where a model goes in a container: the data volume, or, where /data holds a mount with no volume's name, what the
-// sessions keep there (docs/DEFECTS.md, Д-547).
-const dataPlaceOf = (volume) => (volume === null ? "where your sessions keep /data" : "into the data volume");
+// Where a model goes in a container: the data volume — the default one by its name, as the start report names it — or,
+// where /data holds a mount with no volume's name, what the sessions keep there (docs/DEFECTS.md, Д-547, Д-560).
+const dataPlaceOf = (volume) => (volume === null ? "where your sessions keep /data"
+  : volume === DEFAULT_DOCKER_VOLUME ? `into the default volume, ${volume}` : "into the data volume");
 
 /**
  * What fixes the model inside a container, by the folder it is read from. The
@@ -150,7 +151,7 @@ export function containerModelAdvice(dir = "", volume = dataVolume()) {
   return dir === DOCKER_MOUNTED_MODEL_DIR
     ? "the folder is the host's, mounted read-only at /models (AI_DEV_MODEL_PATH): put the model right there on the host "
       + `(\`ai-dev model install --dir <that folder>/bge-m3-onnx\`), or drop the mount and install it ${dataPlaceOf(volume)}.`
-    : `install it ${volume === null ? `once ${dataPlaceOf(volume)}` : `${dataPlaceOf(volume)} once`}, with the network that run needs: `
+    : `install it once ${dataPlaceOf(volume)}, with the network that run needs: `
       + `\`${dockerCommand("model install", volume)}\`; `
       + "the sessions after it keep --network none. Or mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH).";
 }

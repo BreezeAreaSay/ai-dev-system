@@ -251,7 +251,9 @@ export function codeTokens(source, { script = false } = {}) {
       // An arrow's body: no call follows it, and at its declaration's level — not in a template's code — the line after it
       // begins a statement unless it begins with `:` (Д-521, Д-533).
       if (!owner && isPunct(tokens.at(-1), ">") && isPunct(tokens.at(-2), "=")) token.arrowBody = true;
-      opened.push({ regexAfter: owner ? !owner.expression : !token.literal, statements: !token.literal, conditionals: 0, classBody: token.classBody === true });
+      // An import's or export's list: its `}` ends a clause, and a string after a `from` there is the module (Д-549).
+      const clause = ["import", "export"].some((word) => isName(tokens.at(-1), word)) || (isPunct(tokens.at(-1), ",") && isName(tokens.at(-3), "import"));
+      opened.push({ regexAfter: owner ? !owner.expression : !token.literal, statements: !token.literal, conditionals: 0, classBody: token.classBody === true, clause });
     } else if (type === "punct" && (value === "(" || value === "[")) {
       // In a `for` head `of` may be the keyword; anywhere else it is a name: `of / 2` divides (Д-424). A member's
       // parentheses, `o.for(of / 2)`, hold no binding for an `of` to follow (Д-464).
@@ -259,7 +261,11 @@ export function codeTokens(source, { script = false } = {}) {
       // A `for` head's own `(`: its binding comes right after it (Д-521).
       if (forHead) token.forHead = true;
       opened.push({ regexAfter: value === "(" && headOpens(), statements: false, conditionals: 0, forHead });
-    } else if (type === "punct" && (value === ")" || value === "]" || value === "}")) token.regexAfter = opened.pop()?.regexAfter === true;
+    } else if (type === "punct" && (value === ")" || value === "]" || value === "}")) {
+      const closed = opened.pop();
+      token.regexAfter = closed?.regexAfter === true;
+      if (closed?.clause === true) token.clause = true;
+    }
     tokens.push(token);
   };
   const unterminated = (where) => {
@@ -280,10 +286,11 @@ export function codeTokens(source, { script = false } = {}) {
       return last.value === "of" ? last.keyword === true : KEYWORDS_BEFORE_EXPRESSION.has(last.value);
     }
     // An import's or a re-export's module ends its statement: `import x from "./m.mjs"⏎/re/.test(x)` (Д-537) — a string,
-    // not a template, after an `import` no member, or after a `from` a clause's end stands before: `}`, `*`, the name an
-    // `import` or an `as` stands before, or an alias's string, `export * as "a b" from` (Д-549).
+    // not a template, after an `import` no member, or after a `from` a clause's end stands before: an import's or an
+    // export's list's `}`, an `export`'s `*`, the name an `import` or an `as` stands before, or an alias's string,
+    // `export * as "a b" from` (Д-549); a block's `}` or a product's `*` ends none (Д-562).
     const clause = isName(tokens.at(-3)) ? isName(tokens.at(-4), "import") || isName(tokens.at(-4), "as")
-      : isPunct(tokens.at(-3), "}") || isPunct(tokens.at(-3), "*") || (tokens.at(-3)?.type === "string" && isName(tokens.at(-4), "as"));
+      : tokens.at(-3)?.clause === true || (isPunct(tokens.at(-3), "*") && isName(tokens.at(-4), "export") && !isMember(tokens.length - 4)) || (tokens.at(-3)?.type === "string" && isName(tokens.at(-4), "as"));
     if (last.type === "string" && last.template !== true && ((isName(tokens.at(-2), "import") && !isMember(tokens.length - 2)) || (isName(tokens.at(-2), "from") && clause))) return true;
     if (last.type !== "punct") return false;
     if (last.value === ")" || last.value === "]" || last.value === "}") return last.regexAfter === true;

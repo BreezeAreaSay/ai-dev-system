@@ -491,7 +491,7 @@ test("a member's index is no pattern, nor what is in it, a line break before its
   assert.deepEqual(rules(`let shell;\nconst o = [{}];\nexport const s = ${BT}\${[{ shell }] = o}${BT};\nexport { shell };\n`), []);
 });
 
-test("a function's, a method's or an arrow's body ends the climb to a pattern; a module's string is one only after an import's clause; a template's end ends no line; the index after members named let, const or var; what begins a statement after a value or a yield; a class member's computed name (Д-548 … Д-556)", () => {
+test("a function's, a method's, an arrow's or a class's body or a computed key ends the climb to a pattern; a module's string is one only after import or a clause's from; a template's end ends no line, and a ( after it calls it; an alias's export no member; the index after members named let, const or var; what begins a statement after a value or a yield; a class member's computed name; the conditions round 13's mutants found untested (Д-548 … Д-556)", () => {
   // A literal a default value's body returns is a value: the climb stops at the body, an arrow's, a function's, a
   // method's or a class's, and at a computed key (Д-548, Д-555); an arrow whose body is a pattern assigned keeps it one.
   const bodies = {
@@ -586,4 +586,45 @@ test("a function's, a method's or an arrow's body ends the climb to a pattern; a
   }
   assert.deepEqual(rules("export class A {\n  m() {}\n  [{ eval: 1 }] = 1;\n}\n"), []);
   assert.deepEqual(rules("let shell;\nconst o = [{}];\nexport class A {\n  x = [{ shell }] = o;\n}\nexport { shell };\n"), []);
+});
+
+test("a literal in a default value behind an operator, a condition or ! is a value; a } or * ends a clause only an import's or an export's; extends at a line's end goes on (Д-561, Д-562)", () => {
+  // A bracket climbs on to a pattern only as a whole entry of the bracket around it: after {, [, ,, (, ... or a key's :
+  // (Д-561). A shell option behind a condition is the usual way to write one for Windows alone.
+  const behind = {
+    "a parameter's condition": "import { spawn } from \"node:child_process\";\nexport function run(cmd, args, options = process.platform === \"win32\" ? { shell: true } : {}) {\n  return spawn(cmd, args, options);\n}\n",
+    "||": "export function f(a = x || { shell: true }) { return a; }\nvar x;\n",
+    "??": "const defaults = null;\nexport const { options = defaults ?? { shell: true } } = {};\n",
+    "a condition after a :": "let o = {}, c, b, x;\n({ x = c ? b : { shell: true } } = o);\n",
+    "&&": "let c, x, o = [];\n[x = c && { shell: \"/bin/sh\" }] = o;\n",
+    "a for head": "let b;\nfor (const { a = b || { shell: true } } of []) break;\n",
+    "a catch": "let c;\ntry {} catch ({ a = c ? { shell: true } : 0 }) {}\n",
+    "a shorthand": "const shell = true;\nlet c;\nexport function f(o = c ? { shell } : {}) { return o; }\n",
+    "after {}": "let c;\nexport const h = (p = c ? {} : { shell: true }) => p;\n",
+    "!": "export function f(a = !{ shell: true }) { return a; }\n"
+  };
+  for (const [name, source] of Object.entries(behind)) assert.deepEqual(rules(source), ["shell"], name);
+  assert.deepEqual(rules(`${CP}let c;\nexport function f(o = c ? { ...cp } : {}) { return o; }\n`), ["child_process.exec"]);
+  assert.deepEqual(rules("import { Worker } from \"node:worker_threads\";\nexport function start(code, options = inline ? { eval: true } : {}) {\n  return new Worker(code, options);\n}\nvar inline;\n"), []);
+  // A key's value, a computed key's, a rest's and a parameter's pattern with a default after it stay patterns.
+  for (const source of [
+    "let o = {}, shell;\n({ a: { shell } } = o);\nexport { shell };\n",
+    "let o = {}, shell;\n({ [\"k\"]: { shell } } = o);\nexport { shell };\n",
+    "let o = [], a, shell;\n[a, ...[{ shell }]] = o;\nexport { a, shell };\n",
+    "export function f({ shell } = {}, [{ shell: s }] = []) { return [shell, s]; }\n",
+    "let o = {}, shell, s2;\n({ 0: { shell }, \"k\": [{ shell: s2 }] } = o);\nexport { shell, s2 };\n"
+  ]) {
+    assert.deepEqual(rules(source), [], source);
+  }
+  // A } or * before a from that stands alone is no clause's end: the / after the string divides (Д-562).
+  for (const source of ["let from, s;\nif (s) {}\nfrom\n\"x\" / eval(s) / 1;\n", "let from, s, b;\nconst a = b *\nfrom\n\"x\" / eval(s) / 1;\nexport { a };\n"]) {
+    assert.deepEqual(rules(source), ["eval"], source);
+  }
+  for (const head of ["import x, { y } from \"./m.mjs\"", "export {\n  a\n}\nfrom \"./m.mjs\"", "export * from \"./m.mjs\"", "import {} from \"./m.mjs\"", "export * as ns from \"./m.mjs\""]) {
+    assert.deepEqual(rules(`${head}\n/eval(?:)/.test("s");\n`), [], head);
+  }
+  // extends at a line's end: the heritage on the next line is the class's, and the declaration goes on (Д-562).
+  for (const heritage of ["\"x\"", "1", "Base"]) {
+    assert.deepEqual(rules(`${CP}let Base;\nexport const C = class extends\n  ${heritage} {}, run = cp;\n`), ["child_process.exec"], heritage);
+  }
 });

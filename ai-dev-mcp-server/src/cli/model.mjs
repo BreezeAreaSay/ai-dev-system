@@ -96,6 +96,7 @@ async function doctor({ io, dir, json }) {
   try {
     const result = await runDenseDoctor(denseDoctorStages({
       nodeVersion: process.version,
+      inContainer: String(io.env.AI_DEV_RUNTIME ?? "") === "docker",
       support: () => denseRuntimeSupport(),
       loadRuntime: () => import("onnxruntime-node"),
       readManifest: () => readDenseManifest(),

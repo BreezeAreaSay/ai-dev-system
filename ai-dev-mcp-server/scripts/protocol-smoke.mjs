@@ -1,3 +1,5 @@
+import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -9,11 +11,15 @@ const serverRoot = path.resolve(scriptDir, "..");
 const serverPath = process.env.AI_DEV_MCP_SERVER_PATH
   ? path.resolve(process.env.AI_DEV_MCP_SERVER_PATH)
   : path.join(serverRoot, "src", "server.mjs");
+// The host's server in a runtime tree of its own, never the developer's ~/.ai-dev, whatever AI_DEV_RUNTIME their shell
+// holds (docs/DEFECTS.md, Д-559).
+const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-protocol-"));
+const { AI_DEV_RUNTIME: _runtime, ...hostEnv } = process.env;
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [serverPath],
   cwd: serverRoot,
-  env: { ...process.env },
+  env: { ...hostEnv, AI_DEV_HOME: tempRoot, AI_DEV_STATE_ROOT: path.join(tempRoot, "state") },
   stderr: "pipe"
 });
 const client = new Client(
@@ -100,4 +106,5 @@ try {
   throw error;
 } finally {
   await client.close().catch(() => {});
+  await fs.rm(tempRoot, { recursive: true, force: true });
 }

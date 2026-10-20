@@ -133,6 +133,19 @@ test("files that are there but wrong get different advice from files that are ab
   assert.ok(!/start the download/.test(report), "not the advice for files that are absent");
 });
 
+test("in the image, the host's folder at /models is fixed on the host, as the start report says (Д-558)", async () => {
+  const lacking = async () => ({ ready: false, dir: "/models/bge-m3-onnx", present: ["config.json"], missing: ["tokenizer.json"], mismatched: [] });
+  const report = renderDenseDoctorReport(await doctor({ inContainer: true, verifyFiles: lacking }));
+  assert.match(report, /What to do: In this container, the folder is the host's, mounted read-only at \/models \(AI_DEV_MODEL_PATH\): put the model right there on the host/);
+  assert.doesNotMatch(report, /model install`|setup -- --model|start the download/, "nothing installed into the volume fixes a mounted folder");
+  const wrong = await doctor({ inContainer: true, verifyFiles: async () => ({ ...await lacking(), missing: [], mismatched: ["config.json"] }) });
+  assert.match(renderDenseDoctorReport(wrong), /What to do: In this container, the folder is the host's/);
+  // The volume's own folder, and the same path outside the image, keep the download's advice.
+  const volume = await doctor({ inContainer: true, verifyFiles: async () => ({ ...await lacking(), dir: "/data/runtime-home/.ai-dev/models/bge-m3-onnx" }) });
+  assert.match(renderDenseDoctorReport(volume), /to start the download/);
+  assert.match(renderDenseDoctorReport(await doctor({ verifyFiles: lacking })), /to start the download/);
+});
+
 test("stages after a failure are skipped rather than run into a worse error", async () => {
   let loadCalls = 0;
   const result = await doctor({

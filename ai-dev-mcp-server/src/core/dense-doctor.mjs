@@ -18,6 +18,7 @@
  * machine cannot reach, having no weights on it — is covered by tests that
  * stand in for the dependency rather than install it.
  */
+import { DOCKER_MOUNTED_MODEL_DIR, containerModelAdvice } from "./dense-backend.mjs";
 import { BLOCKED_DOWNLOAD_ADVICE } from "./dense-download.mjs";
 import { formatBytes } from "./disk-space.mjs";
 import { hint, runtimeRepairHint } from "./install-layout.mjs";
@@ -145,9 +146,11 @@ export function renderDenseDoctorReport(result) {
  * @param {(manifest: object) => Promise<object>} deps.verifyFiles - Hashes every file; `partial` lists stopped downloads.
  * @param {(manifest: object) => Promise<object>} deps.loadModel - Resolves when loaded.
  * @param {(manifest: object) => Promise<object>} deps.embedProbe - One trial embedding.
+ * @param {boolean} [deps.inContainer] - In the image, where the host's folder at /models is fixed on the host, as the start
+ *   report says (docs/DEFECTS.md, Д-558).
  * @returns {object[]}
  */
-export function denseDoctorStages({ nodeVersion, support = () => ({ supported: true, reason: "" }), loadRuntime, readManifest, verifyFiles, loadModel, embedProbe }) {
+export function denseDoctorStages({ nodeVersion, support = () => ({ supported: true, reason: "" }), loadRuntime, readManifest, verifyFiles, loadModel, embedProbe, inContainer = false }) {
   let manifest = null;
   return [
     {
@@ -194,11 +197,13 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
       run: async () => {
         const status = await verifyFiles(manifest);
         if (status.ready) return { ok: true, detail: `${status.present.length} file(s) verified in ${status.dir}` };
+        const mounted = inContainer && status.dir === DOCKER_MOUNTED_MODEL_DIR;
+        const onHost = mounted ? `In this container, ${containerModelAdvice(status.dir)}` : "";
         if (status.mismatched.length) {
           return {
             ok: false,
             detail: `these do not match the manifest: ${status.mismatched.join(", ")}`,
-            advice: `Run \`${hint("npm run setup -- --model")}\`: it fetches the files that do not match again. `
+            advice: onHost || `Run \`${hint("npm run setup -- --model")}\`: it fetches the files that do not match again. `
               + `\`${hint("npm run model -- remove")}\` clears the folder first, if you would rather start clean.`
           };
         }
@@ -206,7 +211,7 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
         return {
           ok: false,
           detail: `missing from ${status.dir}: ${status.missing.join(", ")}${partial.length ? `; a download stopped partway: ${partial.join(", ")}` : ""}`,
-          advice: `Run \`${hint("npm run setup -- --model")}\` to ${partial.length ? "continue" : "start"} the download (about 600 MB, no Python). ${BLOCKED_DOWNLOAD_ADVICE}`
+          advice: onHost || `Run \`${hint("npm run setup -- --model")}\` to ${partial.length ? "continue" : "start"} the download (about 600 MB, no Python). ${BLOCKED_DOWNLOAD_ADVICE}`
         };
       }
     },

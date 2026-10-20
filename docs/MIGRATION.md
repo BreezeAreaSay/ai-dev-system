@@ -36,7 +36,7 @@ A new machine needs none of this: install 3.0 [any of the three ways](INSTALL.md
 - **No Python.** Search, its index and the local model run in Node; the Python search helper is gone.
   Python is left to the two UI UX Pro Max tools, which say what to install without it.
 - **The Python dense backend is removed** (decision D3). One command moves you to the ONNX model:
-  `npm run setup -- --model` in a clone, `npx @stonebridgeway/ai-dev-system setup --model` with npx. It
+  `npm run setup -- --model` in a clone, `npx ai-dev-system setup --model` with npx. It
   embeds the documents again; the Python vectors are another model's, kept but not compared, until it
   replaces them. `AI_DEV_DENSE_BACKEND=python` is read as `auto` with a note; `BGE_M3_PYTHON`,
   `AI_DEV_EMBEDDINGS_PYTHON`, `AI_DEV_PYTHON_BASE`, `BGE_M3_PYTHON_REVISION` and `BGE_M3_MODEL_DIR`
@@ -205,6 +205,6 @@ bootstrap and CI ran it), `npm run test:search-helper`, `search-index/search_cli
   ghcr.io/stonebridgeway/ai-dev-system:latest`. Docker's "pull access denied for ai-dev-system …"
   is expected there: bootstrap tries to pull the installer too, and goes on with the image built
   here.
-- **npx.** `npx @stonebridgeway/ai-dev-system@<version> setup` installs that version and moves the
+- **npx.** `npx ai-dev-system@<version> setup` installs that version and moves the
   entries to it; 3.0.0 is the first version on npm.
 - **The Windows installer.** Uninstall it; the updater does not install an older version.

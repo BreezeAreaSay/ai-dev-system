@@ -19,7 +19,7 @@ it, what moves by itself, what needs one command, and how to go back.
 **Highlights**
 
 - **Three ways in, none of them a clone.** The Windows installer — one `.exe` for the current user,
-  no administrator, no Node, Python or Docker; `npx @stonebridgeway/ai-dev-system setup`, one command
+  no administrator, no Node, Python or Docker; `npx ai-dev-system setup`, one command
   on any system, which installs a copy that outlives npx's cache; and Docker, where `bootstrap.sh`
   and `bootstrap.ps1` write `docker run` entries and nothing runs between sessions. A clone with
   `npm run setup` stays the way to work on AI Dev itself.
@@ -54,7 +54,7 @@ it, what moves by itself, what needs one command, and how to go back.
   install` replace the 2.x entry and say so; a 2.x entry keeps working until 4.0.
 - **Node 22.16 or newer (or 24+)** for a local install; 2.x took 22.12.
 - **The Python dense backend and the Python search helper are removed** (decision D3).
-  `npm run setup -- --model` — `npx @stonebridgeway/ai-dev-system setup --model` — moves an install
+  `npm run setup -- --model` — `npx ai-dev-system setup --model` — moves an install
   to the ONNX model and embeds the documents again; `--dense-python` does the same with a note.
   `AI_DEV_DENSE_BACKEND=python` is read as `auto`, with a note naming that command, and installs
   nothing; the other Python variables are named by the health check and no longer read. An Intel Mac
@@ -511,7 +511,7 @@ has it with what each one says.
   whose filesystem will not answer `statfs` is not refused anything — an
   unmeasurable disk has no verdict.
 
-- **The npm package `@stonebridgeway/ai-dev-system`, built by `npm run dist`** (owner
+- **The npm package `ai-dev-system`, built by `npm run dist`** (owner
   decision D4; not published — that is the owner's). `scripts/build-dist.mjs` lays out
   `dist/ai-dev/` from `distribution.allowlist.json` — the one list the Docker build context is
   made from too, so the two can no longer drift (measured: 1,797 files, byte for byte the same
@@ -520,7 +520,7 @@ has it with what each one says.
   `npm run dist:pack` makes the tarball (9.9 MB, 1,800 entries, 25.7 MB unpacked) and checks
   it, unpacked, byte for byte against that list, and `prepack` refuses a folder changed since it
   was built. In a clean `node:24` container with nothing but the tarball,
-  `npx --yes ./stonebridgeway-ai-dev-system-<version>.tgz setup --yes` ends `Health: ok` with
+  `npx --yes ./ai-dev-system-<version>.tgz setup --yes` ends `Health: ok` with
   25 checks in 41–57 s, and the server it configured answers MCP with 135 tools.
 - **`npx … setup` installs a copy that outlives npx's cache.** Run from npm's `_npx` cache,
   `setup` installs the package into `~/.ai-dev/app/<version>-<fingerprint>` (its files checked
@@ -898,7 +898,7 @@ has it with what each one says.
   a full vault, a clone, an installed package or the Docker image, with no `09-mcp`
   assumption; `AI_DEV_VAULT_ROOT` still names a full vault.
 - **Hints name commands the way this install runs them**: `npm run setup -- --model` from a
-  clone, `ai-dev setup --model` from a global install, `npx @stonebridgeway/ai-dev-system setup
+  clone, `ai-dev setup --model` from a global install, `npx ai-dev-system setup
   --model` from npx; when the model runtime is missing, the way back for the install at hand
   instead of "run npm ci".
 - **The local model's packages are optional dependencies** (Д-174). `@huggingface/transformers`
@@ -931,7 +931,7 @@ has it with what each one says.
   looks for keys in it and holds its
   dependencies to exact versions with an integrity hash in its lockfile.
 - **The install guides follow the three paths.** `README.md`, `README.ru.md` and `docs/INSTALL.md`
-  (with `docs/ru/INSTALL.md`) start from the Windows installer, `npx @stonebridgeway/ai-dev-system`
+  (with `docs/ru/INSTALL.md`) start from the Windows installer, `npx ai-dev-system`
   and Docker, then a clone for working on AI Dev; what 3.0 removed is gone from them, and the 2.x
   ways are in the migration note (Д-376). The guides to guardrails, capabilities, the demo, the
   galaxy, recovery and security, the server's README and the architecture describe 3.0 (Д-377), and

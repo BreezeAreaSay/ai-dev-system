@@ -1,7 +1,7 @@
 /**
  * A copy of the app that outlives the package manager's cache.
  *
- * `npx @stonebridgeway/ai-dev-system setup` runs the package from npm's `_npx`
+ * `npx ai-dev-system setup` runs the package from npm's `_npx`
  * cache, which npm may clear at any time; a client config that names a file
  * there stops working the day it is cleared. So `setup` run from such a place
  * installs the package into `<runtime>/app/<version>-<fingerprint>/` and goes

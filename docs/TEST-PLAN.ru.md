@@ -14,8 +14,8 @@ check`, `npm run acceptance`, `npm run upgrade:test`, `docker:smoke`, `docker:up
 - **Установщик** `AI-Dev-Setup-<версия>.exe` — артефакт задачи `build` в `desktop-windows.yml` или
   `cd desktop && npm ci && npm run dist:win` (вне Windows нужен Wine).
 - **Пакет npm.** Пока он не опубликован — tarball: `cd ai-dev-mcp-server && npm ci && npm run
-  dist:pack`, файл `../dist/stonebridgeway-ai-dev-system-<версия>.tgz` (папка `dist/` в корне
-  клона); везде ниже вместо `npx @stonebridgeway/ai-dev-system` запускайте `npx --yes <путь к tgz>`.
+  dist:pack`, файл `../dist/ai-dev-system-<версия>.tgz` (папка `dist/` в корне
+  клона); везде ниже вместо `npx ai-dev-system` запускайте `npx --yes <путь к tgz>`.
 - **Образ.** Пока 3.0 не опубликован — свой: `cd ai-dev-mcp-server && npm run docker:build` даёт
   `ai-dev-system:local`. Во всех шагах ниже запускайте bootstrap с `--image ai-dev-system:local
   --allow-stale-image` (`-Image ai-dev-system:local -AllowStaleImage` на Windows): bootstrap сначала
@@ -46,20 +46,20 @@ check`, `npm run acceptance`, `npm run upgrade:test`, `docker:smoke`, `docker:up
 
 | Шаг | Что сделать | Что должно получиться |
 | --- | --- | --- |
-| M1 · 5 мин | `npx @stonebridgeway/ai-dev-system setup`, ответить «да» на подключение клиентов. | «Installed: ~/.ai-dev/app/<версия>-<отпечаток>.», затем «Health: ok — N check(s), 0 not passing.» Повторный запуск — «Already there: …». |
-| M2 · 4 мин | `npx @stonebridgeway/ai-dev-system clients doctor`; запустить Claude Desktop из Dock. | Каждый клиент — ok; в клиенте, открытом из Dock, сервер `ai-dev` есть, хотя Node поставлен через nvm или Homebrew. |
+| M1 · 5 мин | `npx ai-dev-system setup`, ответить «да» на подключение клиентов. | «Installed: ~/.ai-dev/app/<версия>-<отпечаток>.», затем «Health: ok — N check(s), 0 not passing.» Повторный запуск — «Already there: …». |
+| M2 · 4 мин | `npx ai-dev-system clients doctor`; запустить Claude Desktop из Dock. | Каждый клиент — ok; в клиенте, открытом из Dock, сервер `ai-dev` есть, хотя Node поставлен через nvm или Homebrew. |
 | M3 · 8 мин | Первая задача, как в W3. | Как в W3. |
-| M4 · 4 мин | `npx @stonebridgeway/ai-dev-system model import <путь к .zip>`, затем `model status` и `model doctor`. | «Model in place: …»; «Installed: yes, every file matches the manifest.»; `model doctor` — READY, вектор на 1024 измерения. На Intel Mac — отказ, который называет отсутствующую сборку среды ONNX (Д-101). |
+| M4 · 4 мин | `npx ai-dev-system model import <путь к .zip>`, затем `model status` и `model doctor`. | «Model in place: …»; «Installed: yes, every file matches the manifest.»; `model doctor` — READY, вектор на 1024 измерения. На Intel Mac — отказ, который называет отсутствующую сборку среды ONNX (Д-101). |
 | M5 · 8 мин | `sh ./bootstrap.sh` (с `--image ai-dev-system:local --allow-stale-image`, пока образ не опубликован). Затем в Claude Code с записью Docker (в Claude Desktop хуков нет), в репозитории внутри `~/AI-Dev-Projects` (папка, которую монтирует bootstrap): попросить агента вызвать `install_agent_hooks` для этого проекта и начать задачу (`begin_task`), поправить файл с кодом и закончить ход. В Cursor — то же, но `install_agent_hooks` с целью `cursor` (`targets: ["cursor"]`). | Claude Code добавлен через `claude mcp add-json`; остальные записи — `docker run`, резервные копии рядом; хуки стоят в проекте; Stop-хук видит задачу, начатую сервером в контейнере: «[ai-dev stop-check] Task … is … with N uncommitted file(s)» (Д-103). Эту строку хук пишет в stderr с кодом 0 — ищите её в выводе хуков клиента, а не в ответе агента. После правки кода та же остановка в Claude Code один раз возвращает агента провести ревью безопасности (умолчание `security_review_on_stop: "block"`): «[ai-dev security] N changed file(s) no security scan has seen: …»; следующая остановка проходит молча. В Cursor хук агента не возвращает и пишет эту просьбу тоже в stderr. |
 | M6 · 5 мин | На клоне 2.x: `git pull && cd ai-dev-mcp-server && npm ci && npm run setup`. | Запись `ai-dev-system` заменена на `ai-dev`; старая задача находится (`get_task`). |
-| M7 · 5 мин | `npx @stonebridgeway/ai-dev-system clients remove`; `npx @stonebridgeway/ai-dev-system daemon stop`; `docker volume rm ai-dev-system-data`. | Записей `ai-dev` нет; нетронутые файлы конфигов совпадают с исходными байт в байт — кроме файлов, где установка заменила запись `ai-dev` или `ai-dev-system` (2.x, Docker, другой установки): они вернулись без неё, её байты — в `<файл>.backup-<время>` установки; «Stopped: pid …». |
+| M7 · 5 мин | `npx ai-dev-system clients remove`; `npx ai-dev-system daemon stop`; `docker volume rm ai-dev-system-data`. | Записей `ai-dev` нет; нетронутые файлы конфигов совпадают с исходными байт в байт — кроме файлов, где установка заменила запись `ai-dev` или `ai-dev-system` (2.x, Docker, другой установки): они вернулись без неё, её байты — в `<файл>.backup-<время>` установки; «Stopped: pid …». |
 
 ## Linux (Ubuntu 24.04) — около 35 минут
 
 | Шаг | Что сделать | Что должно получиться |
 | --- | --- | --- |
-| L1 · 6 мин | `npx @stonebridgeway/ai-dev-system setup --yes`. | Как в M1. |
-| L2 · 12 мин | `npx @stonebridgeway/ai-dev-system setup --model`; прервать Ctrl-C на половине; `model status`; запустить снова. | Выход 130, скачанное сохранено; «Stopped partway: …»; повтор — «✓ Local BGE-M3 model (…): … in …/bge-m3-onnx, N file(s) fetched, 1 continued»; `hybrid_search` в клиенте даёт `dense_score`. Упакуйте папку `~/.ai-dev/models/bge-m3-onnx` в `.zip` для W4 и M4. |
+| L1 · 6 мин | `npx ai-dev-system setup --yes`. | Как в M1. |
+| L2 · 12 мин | `npx ai-dev-system setup --model`; прервать Ctrl-C на половине; `model status`; запустить снова. | Выход 130, скачанное сохранено; «Stopped partway: …»; повтор — «✓ Local BGE-M3 model (…): … in …/bge-m3-onnx, N file(s) fetched, 1 continued»; `hybrid_search` в клиенте даёт `dense_score`. Упакуйте папку `~/.ai-dev/models/bge-m3-onnx` в `.zip` для W4 и M4. |
 | L3 · 6 мин | Первая задача (Cursor или Claude Code). | Как в W3. |
 | L4 · 6 мин | На установке 2.x через Docker: `git pull`; `sh ./bootstrap.sh --model-path ~/.ai-dev/models` (с `--image ai-dev-system:local --allow-stale-image`, пока образ не опубликован). | bootstrap называет папку проектов, которую монтировали записи 2.x (`AI_DEV_PROJECT_PATH`), и монтирует её (Д-403). Записи `docker run`; контейнер 2.x `ai-dev-system-runtime-<uid>` удалён; том сохранён; навыков — 614 из seed и ваши собственные; модель доступна (`embedding_status`). |
 | L5 · 4 мин | `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`, затем снова `sh ./bootstrap.sh`; папки проектов и модели bootstrap берёт из прежних записей и называет их (Д-403). Пока 3.0 не опубликован: `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:latest` — до выпуска `:latest` и есть образ 2.x (`:2` скопируют из него), а установщика по умолчанию, `:3`, ещё нет, поэтому записи пишет собранный образ 3.0, — и обратно с `--image ai-dev-system:local --allow-stale-image`. | С `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local` — «pull access denied for ai-dev-system …» от Docker (bootstrap пробует скачать и образ установщика), и bootstrap идёт дальше с собранным здесь образом. 2.x видит задачу, начатую под 3.0 (Д-333); вернувшись на 3.0, навыки, которые вернула 2.x, снова убраны (Д-317). |

@@ -2,7 +2,7 @@
 
 Thanks for your interest in contributing. This repository holds the AI Dev MCP server and every
 form it ships in: the `ai-dev` command line and the daemon behind it, the npm package
-`@stonebridgeway/ai-dev-system`, the Docker image, and the desktop app with its Windows installer —
+`ai-dev-system`, the Docker image, and the desktop app with its Windows installer —
 plus a small public skill seed.
 
 By contributing you agree that your contributions are licensed under the

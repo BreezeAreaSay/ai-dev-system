@@ -31,7 +31,7 @@ seed навыков, ту же локальную модель — и отлич
 | --- | --- | --- | --- |
 | Для кого | Windows без терминала | своя машина: macOS, Linux или Windows | сервер в контейнере: машина, где не должно быть вашего хранилища, команда на одном образе |
 | Что нужно | 64-битная Windows | Node.js 22.16+ (или 24+) и npm | запущенный Docker Desktop (macOS, Windows) или Docker Engine (Linux); на Windows ещё Node.js 22.12+ и клон репозитория — конфиги клиентов пишет Node |
-| Что запустить | `AI-Dev-Setup-<версия>.exe` | `npx @stonebridgeway/ai-dev-system setup` | `sh ./bootstrap.sh` (macOS, Linux) или `bootstrap.ps1` (Windows) |
+| Что запустить | `AI-Dev-Setup-<версия>.exe` | `npx ai-dev-system setup` | `sh ./bootstrap.sh` (macOS, Linux) или `bootstrap.ps1` (Windows) |
 | Где работает сервер | на своём Node, из `%USERPROFILE%\.ai-dev\app` | на вашем Node, из `~/.ai-dev/app` | в контейнере на каждую сессию; данные — в томе `ai-dev-system-data` |
 | Локальная модель | шаг модели в мастере | `setup --model` | один раз `docker run … ai-dev model install` |
 | Обновления | предлагает приложение | та же команда, `@latest` | `docker pull` |
@@ -70,7 +70,7 @@ Python не нужен ни одному из них. Два инструмен�
 запускается, а каждый поисковый инструмент отвечает, какая версия ему нужна.
 
 ```bash
-npx @stonebridgeway/ai-dev-system setup
+npx ai-dev-system setup
 ```
 
 `npx` запускает пакет из своего кэша, а его npm может очистить в любой момент. Поэтому `setup`
@@ -93,15 +93,15 @@ npx @stonebridgeway/ai-dev-system setup
 4. **Печатает проверку здоровья.**
 
 Перезапустите подключённых клиентов — это вся установка. Остальные команды — та же командная строка,
-`npx @stonebridgeway/ai-dev-system <команда>` ([ниже](#командная-строка-ai-dev)); глобальная
-установка, `npm install -g @stonebridgeway/ai-dev-system`, даёт ей имя `ai-dev`, и `ai-dev setup`
+`npx ai-dev-system <команда>` ([ниже](#командная-строка-ai-dev)); глобальная
+установка, `npm install -g ai-dev-system`, даёт ей имя `ai-dev`, и `ai-dev setup`
 тогда подключает клиентов к глобальной установке. Подсказки сервера пишутся для той установки,
 которая у вас.
 
 Пока пакет не опубликован, соберите его tarball в клоне — `cd ai-dev-mcp-server && npm ci && npm
-run dist:pack`, после чего `stonebridgeway-ai-dev-system-<версия>.tgz` лежит в папке `dist/` в корне
+run dist:pack`, после чего `ai-dev-system-<версия>.tgz` лежит в папке `dist/` в корне
 клона (`../dist` от `ai-dev-mcp-server`), — и запустите в этой папке
-`npx --yes ./stonebridgeway-ai-dev-system-<версия>.tgz setup`.
+`npx --yes ./ai-dev-system-<версия>.tgz setup`.
 
 **На Linux x64** установочный скрипт onnxruntime-node качает CUDA-провайдер на 236 МБ, который
 сервер никогда не загружает, а без сети или за прокси эта загрузка падает; тогда npm пропускает
@@ -343,7 +343,7 @@ npm run docker:smoke -- --image ai-dev-system:local
 С Node на хосте — npx или клон — команду, которую запускает bootstrap, можно запустить самому:
 
 ```bash
-npx @stonebridgeway/ai-dev-system clients install --docker --projects "$HOME/Dev"
+npx ai-dev-system clients install --docker --projects "$HOME/Dev"
 ```
 
 Остальное задают `--image`, `--model`, `--volume` и `--clients`; `--dry-run` ничего не пишет;
@@ -510,7 +510,7 @@ Node, без Python.
 | | |
 | --- | --- |
 | Установщик Windows | шаг модели в мастере: **Скачать** или **Импортировать из папки…** |
-| npx | `npx @stonebridgeway/ai-dev-system setup --model` |
+| npx | `npx ai-dev-system setup --model` |
 | Docker | `docker run --rm -it --network bridge --mount type=volume,source=ai-dev-system-data,target=/data ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev model install` |
 | Клон | `npm run setup -- --model` |
 
@@ -534,7 +534,7 @@ Node, без Python.
 так. Зеркало Hugging Face — одна переменная:
 
 ```bash
-AI_DEV_MODEL_MIRROR=https://hf-mirror.com npx @stonebridgeway/ai-dev-system setup --model
+AI_DEV_MODEL_MIRROR=https://hf-mirror.com npx ai-dev-system setup --model
 ```
 
 `AI_DEV_MODEL_MIRROR` (или `HF_ENDPOINT`, который читают другие инструменты Hugging Face) пробуется
@@ -546,7 +546,7 @@ AI_DEV_MODEL_MIRROR=https://hf-mirror.com npx @stonebridgeway/ai-dev-system setu
 или `.zip` любого из них:
 
 ```bash
-npx @stonebridgeway/ai-dev-system model import /media/usb/bge-m3-onnx.zip
+npx ai-dev-system model import /media/usb/bge-m3-onnx.zip
 ```
 
 В том Docker — смонтировав её на этот один запуск: `docker run --rm -it --mount
@@ -606,7 +606,7 @@ docker build -f Dockerfile.bge -t ai-dev-system:bge-bundled "$HOME/.ai-dev/model
 2.x умел вести dense-поиск на виртуальном окружении Python с torch и весами на 2,3 ГБ
 (`--dense-python`, `AI_DEV_DENSE_BACKEND=python`, образ, собранный с `INSTALL_BGE_M3=1`). В 3.0 он
 удалён (решение D3). Переход — одна команда: в клоне `npm run setup -- --model`, с npx — `npx
-@stonebridgeway/ai-dev-system setup --model`.
+ai-dev-system setup --model`.
 
 Она ставит модель ONNX и заново строит векторы документов: векторы Python-бэкенда — векторы другой
 модели и с вопросами ONNX не сравниваются, поэтому они ждут этого запуска и им заменяются; остальной
@@ -672,7 +672,7 @@ Python-установки 2.x, лежит в `dense_backend.legacy`, и пров
 
 ## Командная строка ai-dev
 
-У каждой установки одна командная строка: `npx @stonebridgeway/ai-dev-system <команда>`, `ai-dev
+У каждой установки одна командная строка: `npx ai-dev-system <команда>`, `ai-dev
 <команда>` после глобальной установки, `npm run ai-dev -- <команда>` в клоне,
 `& "$env:USERPROFILE\.ai-dev\app\current\ai-dev.cmd" <команда>` в PowerShell после установщика
 Windows (в cmd — `"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd" <команда>`) и `docker run --rm
@@ -701,7 +701,7 @@ Ctrl-C; `uninstall` добавляет 3 — что-то занято — и 4 �
 | Установка | Обновление |
 | --- | --- |
 | Установщик Windows | Его предлагает приложение: **Перезапустить и обновить до …** в трее, или оно ставится при **Выходе**. |
-| npx | `npx @stonebridgeway/ai-dev-system@latest setup`: новая копия ставится рядом со старой, записи переходят на неё, а две последние выбранные копии остаются, так что клиент, который ещё работает на предыдущей, её сохраняет. |
+| npx | `npx ai-dev-system@latest setup`: новая копия ставится рядом со старой, записи переходят на неё, а две последние выбранные копии остаются, так что клиент, который ещё работает на предыдущей, её сохраняет. |
 | Docker | `docker pull ghcr.io/stonebridgeway/ai-dev-system:latest`: следующая сессия запустит его. Повторный bootstrap делает то же и переписывает то, что изменилось в записях, оставляя папки проектов и модели, которые они монтируют, — и `AI_DEV_PROJECT_PATH` и `AI_DEV_MODEL_PATH` записи 2.x, — если `--project-path` (`-ProjectPath`) или `--model-path` (`-ModelPath`) не называют другие. |
 | Клон | `git pull`, затем `cd ai-dev-mcp-server && npm ci && npm run setup`. |
 
@@ -718,7 +718,7 @@ Ctrl-C; `uninstall` добавляет 3 — что-то занято — и 4 �
 | Установка | |
 | --- | --- |
 | Установщик Windows | **Параметры → Приложения → Установленные приложения → AI Dev → Удалить**. Спрашивает, убрать ли AI Dev из ИИ-клиентов (по умолчанию — да) и удалить ли его данные, `%USERPROFILE%\.ai-dev` (по умолчанию — нет), — [Удаление](DESKTOP.md#удаление). |
-| npx | `npx @stonebridgeway/ai-dev-system clients remove` убирает `ai-dev` из каждого клиента — файл, который с тех пор больше ничто не меняло, получает то, что в нём было, кроме любой записи `ai-dev` или `ai-dev-system`, которую заменила установка: её хранит `<файл>.backup-<время>` рядом; `npx @stonebridgeway/ai-dev-system daemon stop`; затем удалите `~/.ai-dev/app`, а чтобы удалить и данные — сам `~/.ai-dev`: хранилище, задачи и историю сессий, модель, индекс, резервные копии, настройки. |
+| npx | `npx ai-dev-system clients remove` убирает `ai-dev` из каждого клиента — файл, который с тех пор больше ничто не меняло, получает то, что в нём было, кроме любой записи `ai-dev` или `ai-dev-system`, которую заменила установка: её хранит `<файл>.backup-<время>` рядом; `npx ai-dev-system daemon stop`; затем удалите `~/.ai-dev/app`, а чтобы удалить и данные — сам `~/.ai-dev`: хранилище, задачи и историю сессий, модель, индекс, резервные копии, настройки. |
 | Docker | Уберите запись `ai-dev` из каждого клиента — `clients remove` из любой установки с Node или вручную (файлы перечислены в [Подключение к ИИ-агентам](#подключение-к-ии-агентам)); `docker volume rm ai-dev-system-data` удаляет данные, `docker image rm ghcr.io/stonebridgeway/ai-dev-system:latest` — образ. В `~/.ai-dev/state` — то, что делили сервер и хуки. |
 
 Ваши проекты не трогаются никогда.
@@ -730,7 +730,7 @@ Ctrl-C; `uninstall` добавляет 3 — что-то занято — и 4 �
 | Установка | |
 | --- | --- |
 | Установщик Windows | экран **Статус** или `& "$env:USERPROFILE\.ai-dev\app\current\ai-dev.cmd" doctor` в PowerShell (`"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd" doctor` в cmd) |
-| npx | `npx @stonebridgeway/ai-dev-system doctor` |
+| npx | `npx ai-dev-system doctor` |
 | Docker | `docker run --rm --network none --mount type=volume,source=ai-dev-system-data,target=/data ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev doctor` |
 | Клон | `npm run -s doctor` |
 

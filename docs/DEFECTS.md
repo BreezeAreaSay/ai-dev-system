@@ -22311,6 +22311,10 @@ git fetch "$PROD" main && git checkout -B release-3.0.0 FETCH_HEAD → exit 0 (7
 grep -n 'ai-dev-system:3}' bootstrap.sh → 280; контракт bootstrap → # pass 71 # fail 0
 ```
 
+Пометка (решение владельца 2026-10-20): пакет npm переименован в `ai-dev-system`, без scope; организация в npm больше не
+нужна, только `npm login` (п. 4 — так в `RELEASE.md`). Имя и похожие на него (`aidevsystem`, `ai_dev_system`,
+`ai.dev.system`) 2026-10-20 были свободны.
+
 ---
 
 ## Д-573. Папки записей в bootstrap: папка модели 3.0 без `bge-m3-onnx/` теряется, неудачный запрос папок молчит, `~`, хвостовой `/`

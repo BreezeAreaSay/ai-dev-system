@@ -8,7 +8,7 @@ the search index read without a rebuild. What is new is the way in.
 
 - **Windows:** `AI-Dev-Setup-3.0.0.exe` below — for the current user, no administrator, nothing else
   to install first. The app updates itself from these releases.
-- **Any system with Node 22.16+:** `npx @stonebridgeway/ai-dev-system setup`
+- **Any system with Node 22.16+:** `npx ai-dev-system setup`
 - **Docker:** `sh ./bootstrap.sh` (macOS, Linux) or `.\bootstrap.ps1` (Windows) from the repository —
   [Install](https://github.com/stonebridgeway/ai-dev-system/blob/main/docs/INSTALL.md) has the details.
 
@@ -37,7 +37,7 @@ Windows, what moves by itself, and what needs one command. In short:
 
 - the client entry is `ai-dev` (the 2.x `ai-dev-system` entry keeps working until 4.0);
 - Node 22.16 or newer;
-- the Python dense backend is gone: `npx @stonebridgeway/ai-dev-system setup --model` moves to the
+- the Python dense backend is gone: `npx ai-dev-system setup --model` moves to the
   ONNX model;
 - Docker: run `bootstrap` again — it keeps the projects and model folders your entries mount; image
   tags follow releases — `:latest` is 3.x, `:2` is the 2.x line, `:edge` is `main`;

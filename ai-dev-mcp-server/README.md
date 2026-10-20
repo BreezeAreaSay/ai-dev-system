@@ -465,7 +465,7 @@ search suite. `../scripts/run-acceptance.ps1` is a wrapper over `npm run check` 
 
 ```bash
 npm run dist          # ../dist/ai-dev/: the package folder, with its production dependencies
-npm run dist:pack     # and ../dist/stonebridgeway-ai-dev-system-<version>.tgz beside it
+npm run dist:pack     # and ../dist/ai-dev-system-<version>.tgz beside it
 ```
 
 What ships is `distribution.allowlist.json` — the same list `npm run docker:prepare` builds the

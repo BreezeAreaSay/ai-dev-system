@@ -33,7 +33,7 @@ test("a full vault two levels above the server is a vault; AI_DEV_VAULT_ROOT mov
 });
 
 test("a package npx runs with AI_DEV_VAULT_ROOT set is still a package in npx's cache (Д-177)", () => {
-  const root = path.resolve("/home/me/.npm/_npx/abc/node_modules/@stonebridgeway/ai-dev-system");
+  const root = path.resolve("/home/me/.npm/_npx/abc/node_modules/ai-dev-system");
   const layout = resolveInstallLayout({
     serverRoot: path.join(root, "ai-dev-mcp-server"),
     env: env({ AI_DEV_VAULT_ROOT: "/home/me/notes" }),
@@ -44,11 +44,11 @@ test("a package npx runs with AI_DEV_VAULT_ROOT set is still a package in npx's 
   assert.equal(layout.contentRoot, path.resolve("/home/me/notes"));
   assert.equal(layout.seedRoot, "", "a vault of the user's own is not filled from the package's seed");
   assert.equal(hint("npm run setup -- --model", layout), `npx ${PACKAGE_NAME} setup --model`);
-  assert.match(runtimeRepairHint(layout), /^run `npx @stonebridgeway\/ai-dev-system setup`/);
+  assert.match(runtimeRepairHint(layout), /^run `npx ai-dev-system setup`/);
 });
 
 test("a package keeps its seed read-only and the user's vault under the runtime folder", () => {
-  const root = path.resolve("/usr/lib/node_modules/@stonebridgeway/ai-dev-system");
+  const root = path.resolve("/usr/lib/node_modules/ai-dev-system");
   const server = path.join(root, "ai-dev-mcp-server");
   const layout = resolveInstallLayout({
     serverRoot: server,
@@ -109,7 +109,7 @@ test("in the image a vault the user named is theirs, read where it is — unless
 });
 
 test("npx's cache, pnpm's and yarn's dlx and bunx are one-run folders; the app home is not", () => {
-  assert.equal(isEphemeralInstall("/home/me/.npm/_npx/0123abcd/node_modules/@stonebridgeway/ai-dev-system/ai-dev-mcp-server"), true);
+  assert.equal(isEphemeralInstall("/home/me/.npm/_npx/0123abcd/node_modules/ai-dev-system/ai-dev-mcp-server"), true);
   assert.equal(isEphemeralInstall("C:\\Users\\Me\\AppData\\Local\\npm-cache\\_npx\\0123\\node_modules\\x"), true);
   assert.equal(isEphemeralInstall("/home/me/.cache/pnpm/dlx/abc/node_modules/x"), true);
   assert.equal(isEphemeralInstall("/tmp/xfs-1234/dlx-5678/node_modules/x"), true);
@@ -206,10 +206,10 @@ test("the Windows installer's runtime is a package with a bundle, wherever it li
 test("the model runtime's way back depends on how the package got here (Д-174)", () => {
   const linux = { platform: "linux", arch: "x64" };
   assert.equal(runtimeRepairHint({ kind: "clone" }, linux), "run `npm ci` in ai-dev-mcp-server/");
-  assert.match(runtimeRepairHint({ kind: "package", ephemeral: true }, linux), /^run `npx @stonebridgeway\/ai-dev-system setup`/);
+  assert.match(runtimeRepairHint({ kind: "package", ephemeral: true }, linux), /^run `npx ai-dev-system setup`/);
   assert.equal(runtimeRepairHint({ kind: "package", appHome: true, root: "/home/me/.ai-dev/app/3.0.0-abcdef12" }, linux),
     "run `npm ci --omit=dev --ignore-scripts` in /home/me/.ai-dev/app/3.0.0-abcdef12");
-  assert.match(runtimeRepairHint({ kind: "package" }, linux), /ONNXRUNTIME_NODE_INSTALL=skip npm install -g @stonebridgeway\/ai-dev-system$/);
+  assert.match(runtimeRepairHint({ kind: "package" }, linux), /ONNXRUNTIME_NODE_INSTALL=skip npm install -g ai-dev-system$/);
   assert.equal(runtimeRepairHint({ kind: "package" }, { platform: "win32", arch: "x64" }), `install the package again: npm install -g ${PACKAGE_NAME}`,
     "only Linux x64 has the CUDA download to skip");
   assert.match(runtimeRepairHint({ kind: "docker" }), /image/);

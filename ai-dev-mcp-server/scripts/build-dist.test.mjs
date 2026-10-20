@@ -20,7 +20,7 @@ test.before(async () => {
 test.after(() => Promise.all([dist, docker].map((folder) => fs.rm(folder, { recursive: true, force: true }))));
 
 test("the Docker build context holds the distribution itself, byte for byte, and the image's own files beside it", async () => {
-  assert.equal(built.name, "@stonebridgeway/ai-dev-system");
+  assert.equal(built.name, "ai-dev-system");
   assert.equal((await verifyDistribution(dist)).ok, true);
 
   // The image is the package: the context's ai-dev/ is a distribution that verifies,

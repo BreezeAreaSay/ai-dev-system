@@ -45,12 +45,12 @@ test("the Windows install is launched through its stable link, so an update chan
 });
 
 test("a package npx runs from its cache is launched from the app home, or not at all", () => {
-  const npx = { kind: "package", ephemeral: true, appHome: false, root: "/home/me/.npm/_npx/1/node_modules/@stonebridgeway/ai-dev-system" };
+  const npx = { kind: "package", ephemeral: true, appHome: false, root: "/home/me/.npm/_npx/1/node_modules/ai-dev-system" };
   const installed = localLaunch({ env: { HOME: home }, execPath: "/usr/bin/node", layout: npx, appCliPath: () => "/home/me/.ai-dev/app/3.0.0-abc/ai-dev-mcp-server/bin/ai-dev.mjs" });
   assert.deepEqual(installed.args, ["/home/me/.ai-dev/app/3.0.0-abc/ai-dev-mcp-server/bin/ai-dev.mjs", "mcp"]);
   assert.throws(() => localLaunch({ env: { HOME: home }, layout: npx, appCliPath: () => "" }), (error) => (
     error.exitCode === EXIT.failed
     && /runs from npx's cache .* which npm may clear/.test(error.message)
-    && /Run `npx @stonebridgeway\/ai-dev-system setup` first/.test(error.message)
+    && /Run `npx ai-dev-system setup` first/.test(error.message)
   ));
 });

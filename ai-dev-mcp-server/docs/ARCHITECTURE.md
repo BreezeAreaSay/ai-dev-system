@@ -734,7 +734,7 @@ and how its commands are spelled:
 seed into a vault named that way (Д-177). A package is also `ephemeral` when run from a one-run cache (`_npx`,
 `dlx`, `bunx`), which no client config may name; `appHome` when it runs from a copy under `<runtime>/app/`;
 `bundle` when it is the Windows install's runtime (`bundle.json`). `hint()` rewrites a clone's
-`npm run …` advice into the layout's words — `ai-dev …`, `npx @stonebridgeway/ai-dev-system …`, the Windows
+`npm run …` advice into the layout's words — `ai-dev …`, `npx ai-dev-system …`, the Windows
 install's `app\current\ai-dev.cmd`, or a `docker run` into the volume.
 
 The sync (`core/seed-sync.mjs`) runs at every server start, as `mcp-stdio.mjs` loads, by the seed's sha256
@@ -876,7 +876,7 @@ answers `initialize`.
 ## Distribution And The npm Package
 
 `npm run dist` (`scripts/build-dist.mjs`) builds `dist/ai-dev/`, which every installed form is made from: the npm
-package `@stonebridgeway/ai-dev-system` (owner decision D4), the Windows installer's runtime and the image's build
+package `ai-dev-system` (owner decision D4), the Windows installer's runtime and the image's build
 context. Its files come from `distribution.allowlist.json` — groups (the server, Frontend QA's runner, the search
 cases, the seed as its manifest lists it, the notices), each mapped to where it lands in each target, read by
 `core/distribution-build.mjs`; a pattern that matches nothing stops the build. Beside them it writes the package's

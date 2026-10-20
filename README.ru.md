@@ -65,11 +65,11 @@ API», по шагам, включая падение проверки и исп
 | | |
 | --- | --- |
 | **Windows, без терминала** | Скачайте `AI-Dev-Setup-<версия>.exe` из релизов проекта и запустите. Без администратора, без Node, Python и Docker: настольное приложение несёт свой Node, а его мастер первого запуска подключает ваших AI-клиентов и ставит локальную модель ([Установка на Windows](docs/ru/DESKTOP.md#установка-на-windows)). |
-| **Одна команда, с Node** — macOS, Linux, Windows | `npx @stonebridgeway/ai-dev-system setup` — Node.js 22.16+ (или 24+), и больше ничего. |
+| **Одна команда, с Node** — macOS, Linux, Windows | `npx ai-dev-system setup` — Node.js 22.16+ (или 24+), и больше ничего. |
 | **Docker** — сервер в контейнере | `sh ./bootstrap.sh` на macOS и Linux, `bootstrap.ps1` на Windows, при запущенном Docker; на Windows ещё нужны Node.js 22.12+ и клон репозитория — конфиги клиентов пишет Node. Для машины, на которой не должно быть личного vault, или для команды, которой нужен один образ на всех. |
 
 ```bash
-npx @stonebridgeway/ai-dev-system setup
+npx ai-dev-system setup
 ```
 
 `setup` ставит свою копию в `~/.ai-dev`, спрашивает, подключить ли найденных AI-клиентов — Claude

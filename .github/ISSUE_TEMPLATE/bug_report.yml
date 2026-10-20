@@ -25,7 +25,7 @@ body:
       label: How are you running it
       options:
         - Windows installer (AI-Dev-Setup-<version>.exe)
-        - npx @stonebridgeway/ai-dev-system
+        - npx ai-dev-system
         - Docker image (GHCR), through bootstrap.sh or bootstrap.ps1
         - Docker image (built locally)
         - From a clone (npm run setup)

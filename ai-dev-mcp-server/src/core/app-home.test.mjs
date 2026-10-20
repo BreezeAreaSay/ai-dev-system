@@ -17,7 +17,7 @@ async function scratch(t) {
 /** A package as npx unpacks one: its files and the distribution.json that lists them. */
 async function writePackage(root, { version = "3.0.0", tag = "a" } = {}) {
   const files = {
-    "package.json": JSON.stringify({ name: "@stonebridgeway/ai-dev-system", version }),
+    "package.json": JSON.stringify({ name: "ai-dev-system", version }),
     "npm-shrinkwrap.json": "{}",
     "ai-dev-mcp-server/bin/ai-dev.mjs": `// cli ${tag}\n`,
     "seed/public-seed.manifest.json": "{}"
@@ -29,7 +29,7 @@ async function writePackage(root, { version = "3.0.0", tag = "a" } = {}) {
     entries.push({ path: relative, bytes: Buffer.byteLength(content), sha256: sha(content) });
   }
   const fingerprint = sha(`${tag}:${entries.map((entry) => entry.sha256).join(",")}`);
-  await fs.writeFile(path.join(root, "distribution.json"), JSON.stringify({ name: "@stonebridgeway/ai-dev-system", version, content_fingerprint: fingerprint, files: entries }));
+  await fs.writeFile(path.join(root, "distribution.json"), JSON.stringify({ name: "ai-dev-system", version, content_fingerprint: fingerprint, files: entries }));
   return { root, fingerprint };
 }
 
@@ -45,7 +45,7 @@ function fakeNpm(calls, { fail = false } = {}) {
 test("a package npx unpacked is installed once into the app home, with its dependencies, and found there after", async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
-  const pkg = await writePackage(path.join(root, "npx", "node_modules", "@stonebridgeway", "ai-dev-system"));
+  const pkg = await writePackage(path.join(root, "npx", "node_modules", "ai-dev-system"));
   const calls = [];
   const first = await installAppHome({ packageRoot: pkg.root, runtimeRoot: runtime, runNpm: fakeNpm(calls) });
   assert.equal(first.status, "installed");

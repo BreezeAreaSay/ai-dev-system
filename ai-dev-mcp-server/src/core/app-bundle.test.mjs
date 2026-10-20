@@ -18,8 +18,8 @@ async function scratch(t) {
 /** A runtime as the installer ships one: the package, a dependency, a Node, and the bundle.json that lists them. */
 async function writeBundle(root, { version = "3.0.0", tag = "a", extra = {} } = {}) {
   const files = {
-    "distribution.json": JSON.stringify({ name: "@stonebridgeway/ai-dev-system", version, files: [] }),
-    "package.json": JSON.stringify({ name: "@stonebridgeway/ai-dev-system", version }),
+    "distribution.json": JSON.stringify({ name: "ai-dev-system", version, files: [] }),
+    "package.json": JSON.stringify({ name: "ai-dev-system", version }),
     "ai-dev-mcp-server/bin/ai-dev.mjs": `// cli ${tag}\n`,
     "node_modules/zod/index.js": "export {};\n",
     "node/node.exe": `node ${tag}`,
@@ -34,7 +34,7 @@ async function writeBundle(root, { version = "3.0.0", tag = "a", extra = {} } = 
   }
   const marker = {
     schema_version: 1,
-    name: "@stonebridgeway/ai-dev-system",
+    name: "ai-dev-system",
     version,
     platform: "win32",
     arch: "x64",
@@ -129,7 +129,7 @@ test("the copy the link names is never pruned, however many npx copies come afte
     await fs.mkdir(path.join(pkg, "ai-dev-mcp-server", "bin"), { recursive: true });
     await fs.writeFile(path.join(pkg, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), content);
     await fs.writeFile(path.join(pkg, "distribution.json"), JSON.stringify({
-      name: "@stonebridgeway/ai-dev-system",
+      name: "ai-dev-system",
       version: "3.0.0",
       content_fingerprint: sha(tag),
       files: [{ path: "ai-dev-mcp-server/bin/ai-dev.mjs", bytes: Buffer.byteLength(content), sha256: sha(content) }]
@@ -151,7 +151,7 @@ test("an update of the app prunes its own copies only: the npx copy the clients 
   await fs.mkdir(path.join(pkg, "ai-dev-mcp-server", "bin"), { recursive: true });
   await fs.writeFile(path.join(pkg, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), content);
   await fs.writeFile(path.join(pkg, "distribution.json"), JSON.stringify({
-    name: "@stonebridgeway/ai-dev-system",
+    name: "ai-dev-system",
     version: "3.0.0",
     content_fingerprint: sha("npx"),
     files: [{ path: "ai-dev-mcp-server/bin/ai-dev.mjs", bytes: Buffer.byteLength(content), sha256: sha(content) }]
@@ -352,7 +352,7 @@ test("the npx prune leaves a copy a client's config still names, as the app's do
     await fs.mkdir(path.join(pkg, "ai-dev-mcp-server", "bin"), { recursive: true });
     await fs.writeFile(path.join(pkg, "ai-dev-mcp-server", "bin", "ai-dev.mjs"), content);
     await fs.writeFile(path.join(pkg, "distribution.json"), JSON.stringify({
-      name: "@stonebridgeway/ai-dev-system",
+      name: "ai-dev-system",
       version: "3.0.0",
       content_fingerprint: sha(tag),
       files: [{ path: "ai-dev-mcp-server/bin/ai-dev.mjs", bytes: Buffer.byteLength(content), sha256: sha(content) }]

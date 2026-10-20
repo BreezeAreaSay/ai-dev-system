@@ -36,7 +36,7 @@
 - **Без Python.** Поиск, его индекс и локальная модель работают в Node; поисковый помощник на Python
   удалён. Python остался двум инструментам UI UX Pro Max, и без него они говорят, что установить.
 - **Dense-бэкенд на Python удалён** (решение D3). На модель ONNX переводит одна команда: в клоне `npm
-  run setup -- --model`, с npx — `npx @stonebridgeway/ai-dev-system setup --model`. Она заново строит
+  run setup -- --model`, с npx — `npx ai-dev-system setup --model`. Она заново строит
   векторы документов; векторы Python — векторы другой модели, они хранятся, но не сравниваются, пока
   она их не заменит. `AI_DEV_DENSE_BACKEND=python` читается как `auto` с пометкой; `BGE_M3_PYTHON`,
   `AI_DEV_EMBEDDINGS_PYTHON`, `AI_DEV_PYTHON_BASE`, `BGE_M3_PYTHON_REVISION` и `BGE_M3_MODEL_DIR`
@@ -204,6 +204,6 @@ setup -- --model`).
   `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local sh ./bootstrap.sh --image
   ghcr.io/stonebridgeway/ai-dev-system:latest`. Ответ Docker «pull access denied for ai-dev-system …»
   тут ожидаем: bootstrap пробует скачать и установщик, а затем продолжает с образом, собранным здесь.
-- **npx.** `npx @stonebridgeway/ai-dev-system@<версия> setup` ставит эту версию и переводит на неё
+- **npx.** `npx ai-dev-system@<версия> setup` ставит эту версию и переводит на неё
   записи; 3.0.0 — первая версия в npm.
 - **Установщик Windows.** Удалите его; обновление не ставит более старую версию.

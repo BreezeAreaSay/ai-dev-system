@@ -42,9 +42,9 @@ async function makeBundle(dir, { version, note }) {
   await fs.mkdir(path.join(dir, "node"), { recursive: true });
   await fs.copyFile(process.execPath, path.join(dir, "node", "node"));
   await fs.chmod(path.join(dir, "node", "node"), 0o755);
-  await fs.writeFile(path.join(dir, "distribution.json"), JSON.stringify({ name: "@stonebridgeway/ai-dev-system", version, files: [] }));
+  await fs.writeFile(path.join(dir, "distribution.json"), JSON.stringify({ name: "ai-dev-system", version, files: [] }));
   const [{ sha256 }] = await listFiles(path.join(dir, "node"), { skip: (relative) => relative !== "node" });
-  await writeBundleMarker({ runtimeDir: dir, name: "@stonebridgeway/ai-dev-system", version, node: { version: process.versions.node, sha256, file: "node/node" }, fingerprintOf: bundleFingerprint });
+  await writeBundleMarker({ runtimeDir: dir, name: "ai-dev-system", version, node: { version: process.versions.node, sha256, file: "node/node" }, fingerprintOf: bundleFingerprint });
   return dir;
 }
 

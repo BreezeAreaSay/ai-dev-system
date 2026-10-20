@@ -31,7 +31,7 @@ client's entry — see [Capabilities](CAPABILITIES.md).
 | --- | --- | --- | --- |
 | For | Windows, without a terminal | your own machine: macOS, Linux or Windows | the server in a container: a machine that should not hold your vault, a team on one image |
 | You need | 64-bit Windows | Node.js 22.16+ (or 24+) and npm | Docker Desktop (macOS, Windows) or Docker Engine (Linux), running; on Windows also Node.js 22.12+ and a clone of the repository, since Node writes the clients' configs |
-| You run | `AI-Dev-Setup-<version>.exe` | `npx @stonebridgeway/ai-dev-system setup` | `sh ./bootstrap.sh` (macOS, Linux) or `bootstrap.ps1` (Windows) |
+| You run | `AI-Dev-Setup-<version>.exe` | `npx ai-dev-system setup` | `sh ./bootstrap.sh` (macOS, Linux) or `bootstrap.ps1` (Windows) |
 | The server runs | on its own Node, from `%USERPROFILE%\.ai-dev\app` | on your Node, from `~/.ai-dev/app` | in a container per session; your data in the volume `ai-dev-system-data` |
 | The local model | the wizard's model step | `setup --model` | `docker run … ai-dev model install`, once |
 | Updates | offered by the app | the same command, `@latest` | `docker pull` |
@@ -70,7 +70,7 @@ Node 22.13–22.15 and 23.x ship `node:sqlite` without the FTS5 the search index
 server starts, and every search tool answers with the version it needs.
 
 ```bash
-npx @stonebridgeway/ai-dev-system setup
+npx ai-dev-system setup
 ```
 
 `npx` runs the package from its cache, which npm may clear at any time, so `setup` first
@@ -93,15 +93,15 @@ scripts off) — and goes on from that copy:
 4. **It prints the health check.**
 
 Restart the clients it connected; that is the whole install. Every other command is the same
-command line, `npx @stonebridgeway/ai-dev-system <command>` ([below](#the-ai-dev-command-line));
-a global install, `npm install -g @stonebridgeway/ai-dev-system`, gives it the name `ai-dev`, and
+command line, `npx ai-dev-system <command>` ([below](#the-ai-dev-command-line));
+a global install, `npm install -g ai-dev-system`, gives it the name `ai-dev`, and
 `ai-dev setup` then connects the clients to the global install. The hints the server prints are
 spelled for the install you have.
 
 Until the package is published, build its tarball from a clone — `cd ai-dev-mcp-server && npm
-ci && npm run dist:pack`, which leaves `stonebridgeway-ai-dev-system-<version>.tgz` in the
+ci && npm run dist:pack`, which leaves `ai-dev-system-<version>.tgz` in the
 clone's top-level `dist/` folder (`../dist` from `ai-dev-mcp-server`) — and run
-`npx --yes ./stonebridgeway-ai-dev-system-<version>.tgz setup` in that folder.
+`npx --yes ./ai-dev-system-<version>.tgz setup` in that folder.
 
 **On Linux x64**, onnxruntime-node's install script downloads a 236 MB CUDA provider the server
 never loads, and offline or behind a proxy that download fails; npm then leaves the package out,
@@ -344,7 +344,7 @@ entrypoint — never the repository root or a vault.
 With Node on the host — npx, or a clone — the command bootstrap runs is yours to run:
 
 ```bash
-npx @stonebridgeway/ai-dev-system clients install --docker --projects "$HOME/Dev"
+npx ai-dev-system clients install --docker --projects "$HOME/Dev"
 ```
 
 `--image`, `--model`, `--volume` and `--clients` say the rest; `--dry-run` writes nothing;
@@ -510,7 +510,7 @@ from that byte. It runs in Node, with no Python.
 | | |
 | --- | --- |
 | The Windows installer | the wizard's model step: **Download**, or **Import from a folder…** |
-| npx | `npx @stonebridgeway/ai-dev-system setup --model` |
+| npx | `npx ai-dev-system setup --model` |
 | Docker | `docker run --rm -it --network bridge --mount type=volume,source=ai-dev-system-data,target=/data ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev model install` |
 | A clone | `npm run setup -- --model` |
 
@@ -533,7 +533,7 @@ that does the sign-in, such as cntlm or px, named in `HTTPS_PROXY`; the error sa
 the case. A Hugging Face mirror is one variable:
 
 ```bash
-AI_DEV_MODEL_MIRROR=https://hf-mirror.com npx @stonebridgeway/ai-dev-system setup --model
+AI_DEV_MODEL_MIRROR=https://hf-mirror.com npx ai-dev-system setup --model
 ```
 
 `AI_DEV_MODEL_MIRROR` (or `HF_ENDPOINT`, which other Hugging Face tools read) is tried first, then
@@ -545,7 +545,7 @@ No route at all? Copy the model from a machine that has one — the folder, a fo
 Hugging Face cache, or a `.zip` of any of them:
 
 ```bash
-npx @stonebridgeway/ai-dev-system model import /media/usb/bge-m3-onnx.zip
+npx ai-dev-system model import /media/usb/bge-m3-onnx.zip
 ```
 
 Into the Docker volume, mount it for that one run: `docker run --rm -it --mount
@@ -606,7 +606,7 @@ user — stays as it was.
 2.x could run dense search on a Python virtualenv with torch and 2.3 GB of weights
 (`--dense-python`, `AI_DEV_DENSE_BACKEND=python`, an image built with `INSTALL_BGE_M3=1`). 3.0
 removed it (decision D3). One command moves you over — in a clone `npm run setup -- --model`, with
-npx `npx @stonebridgeway/ai-dev-system setup --model`.
+npx `npx ai-dev-system setup --model`.
 
 It installs the ONNX model and embeds the documents again: vectors made by the Python backend are
 another model's and are not compared with ONNX questions, so they wait for this run and are replaced
@@ -671,7 +671,7 @@ clients, logs, settings — are the opt-in `control` profile:
 
 ## The ai-dev command line
 
-Every install has the same command line: `npx @stonebridgeway/ai-dev-system <command>`, `ai-dev
+Every install has the same command line: `npx ai-dev-system <command>`, `ai-dev
 <command>` after a global install, `npm run ai-dev -- <command>` in a clone,
 `& "$env:USERPROFILE\.ai-dev\app\current\ai-dev.cmd" <command>` in PowerShell after the Windows
 installer (in cmd, `"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd" <command>`), and `docker run
@@ -701,7 +701,7 @@ stderr, until 4.0.
 | Install | The update |
 | --- | --- |
 | The Windows installer | The app offers it; **Restart to update to …** in the tray, or it is installed at **Quit**. |
-| npx | `npx @stonebridgeway/ai-dev-system@latest setup`: the new copy goes beside the old one, the entries move to it, and the two copies chosen last stay, so a client still running the previous one keeps it. |
+| npx | `npx ai-dev-system@latest setup`: the new copy goes beside the old one, the entries move to it, and the two copies chosen last stay, so a client still running the previous one keeps it. |
 | Docker | `docker pull ghcr.io/stonebridgeway/ai-dev-system:latest`: the next session runs it. Running bootstrap again does the same and rewrites what changed in the entries, keeping the projects and model folders they mount — a 2.x entry's `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH` too — unless `--project-path` (`-ProjectPath`) or `--model-path` (`-ModelPath`) names others. |
 | A clone | `git pull`, then `cd ai-dev-mcp-server && npm ci && npm run setup`. |
 
@@ -719,7 +719,7 @@ what needs one command from you, and how to go back: **[Moving from 2.x to 3.0](
 | Install | |
 | --- | --- |
 | The Windows installer | **Settings → Apps → Installed apps → AI Dev → Uninstall**. It asks whether to take AI Dev out of the AI clients (yes by default) and whether to delete its data, `%USERPROFILE%\.ai-dev` (no by default) — [Uninstalling](DESKTOP.md#uninstalling). |
-| npx | `npx @stonebridgeway/ai-dev-system clients remove` takes `ai-dev` out of every client — a file nothing else has changed since gets back what it held, less any `ai-dev` or `ai-dev-system` entry the install replaced, which the `<file>.backup-<time>` beside it keeps; `npx @stonebridgeway/ai-dev-system daemon stop`; then delete `~/.ai-dev/app`, and `~/.ai-dev` itself to delete your data too: the vault, the tasks and session history, the model, the index, the backups, the settings. |
+| npx | `npx ai-dev-system clients remove` takes `ai-dev` out of every client — a file nothing else has changed since gets back what it held, less any `ai-dev` or `ai-dev-system` entry the install replaced, which the `<file>.backup-<time>` beside it keeps; `npx ai-dev-system daemon stop`; then delete `~/.ai-dev/app`, and `~/.ai-dev` itself to delete your data too: the vault, the tasks and session history, the model, the index, the backups, the settings. |
 | Docker | Take the `ai-dev` entry out of each client — `clients remove` from any install with Node, or by hand ([Connecting AI clients](#connecting-ai-clients) lists the files); `docker volume rm ai-dev-system-data` deletes the data, `docker image rm ghcr.io/stonebridgeway/ai-dev-system:latest` the image. `~/.ai-dev/state` holds what the server and the hooks shared. |
 
 Your projects are never touched.
@@ -731,7 +731,7 @@ The health check says what is wrong and what to run:
 | Install | |
 | --- | --- |
 | The Windows installer | the **Status** screen, or `& "$env:USERPROFILE\.ai-dev\app\current\ai-dev.cmd" doctor` in PowerShell (`"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd" doctor` in cmd) |
-| npx | `npx @stonebridgeway/ai-dev-system doctor` |
+| npx | `npx ai-dev-system doctor` |
 | Docker | `docker run --rm --network none --mount type=volume,source=ai-dev-system-data,target=/data ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev doctor` |
 | A clone | `npm run -s doctor` |
 

@@ -65,11 +65,11 @@ Three ways, one system — pick by what you have:
 | | |
 | --- | --- |
 | **Windows, no terminal** | Download `AI-Dev-Setup-<version>.exe` from the project's releases and run it. No administrator, no Node, Python or Docker: the desktop app brings its own Node, and its first-run wizard connects your AI clients and sets up the local model ([The Windows install](docs/DESKTOP.md#the-windows-install)). |
-| **One command, with Node** — macOS, Linux, Windows | `npx @stonebridgeway/ai-dev-system setup` — Node.js 22.16+ (or 24+), and nothing else. |
+| **One command, with Node** — macOS, Linux, Windows | `npx ai-dev-system setup` — Node.js 22.16+ (or 24+), and nothing else. |
 | **Docker** — the server in a container | `sh ./bootstrap.sh` on macOS and Linux, `bootstrap.ps1` on Windows, with Docker running; on Windows also Node.js 22.12+ and a clone of the repository, since Node writes the clients' configs. For a machine that should not hold a personal vault, or a team that wants one image everybody runs the same way. |
 
 ```bash
-npx @stonebridgeway/ai-dev-system setup
+npx ai-dev-system setup
 ```
 
 `setup` installs its own copy into `~/.ai-dev`, asks whether to connect the AI clients it

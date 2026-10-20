@@ -138,7 +138,7 @@ test("bundle.json, as the build writes it, is what the server's provisioning rea
     "ai-dev.cmd": BUNDLE_SHIM
   });
   const { bundleFingerprint, parseBundle } = await import(pathToFileURL(path.join(serverRoot, "src", "core", "app-bundle.mjs")).href);
-  const marker = await writeBundleMarker({ runtimeDir: runtime, name: "@stonebridgeway/ai-dev-system", version: "3.0.0", node: { version: "24.22.0", sha256: sha("node") }, fingerprintOf: bundleFingerprint });
+  const marker = await writeBundleMarker({ runtimeDir: runtime, name: "ai-dev-system", version: "3.0.0", node: { version: "24.22.0", sha256: sha("node") }, fingerprintOf: bundleFingerprint });
   const read = parseBundle(fs.readFileSync(path.join(runtime, "bundle.json"), "utf8"), "bundle.json");
   assert.equal(read.fingerprint, marker.fingerprint);
   assert.deepEqual(read.node, { version: "24.22.0", file: "node/node.exe", sha256: sha("node") });

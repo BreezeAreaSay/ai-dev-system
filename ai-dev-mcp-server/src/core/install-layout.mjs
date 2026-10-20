@@ -36,7 +36,7 @@ import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 import { SEED_STATE_FILE, isSeedManifest } from "./seed-sync.mjs";
 
 /** The npm package's name (owner decision D4). */
-export const PACKAGE_NAME = "@stonebridgeway/ai-dev-system";
+export const PACKAGE_NAME = "ai-dev-system";
 
 /** The file `npm run dist` writes beside the server: what was built, with the sha256 of each file. */
 export const DISTRIBUTION_MARKER = "distribution.json";

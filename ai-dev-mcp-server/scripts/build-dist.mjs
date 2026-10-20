@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * `npm run dist` — the folder every installed form of the system is made from:
- * `dist/ai-dev/`, the npm package `@stonebridgeway/ai-dev-system` (owner
+ * `dist/ai-dev/`, the npm package `ai-dev-system` (owner
  * decision D4), the Windows installer and the Docker image, whose build context
  * holds this very folder (`npm run docker:prepare`).
  *

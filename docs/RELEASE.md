@@ -8,10 +8,11 @@ the last section says where, and what it printed.
 The commands are for a POSIX shell, with the GitHub CLI (`gh`) signed in as an account that can push
 to the production repository and run its workflows, Docker for `imagetools`, and Node 24 with npm.
 
-Once, before the first release: the npm organisation `stonebridgeway` has to exist — the scope
-`@stonebridgeway` is not on npm yet (the registry answers "Scope not found"), and every guide already
-says `npx @stonebridgeway/ai-dev-system` — and `npm login` as a member of it who may publish (with
-`--otp=<code>` on `npm publish` when two-factor authentication is on).
+The npm package is `ai-dev-system`, with no scope (owner's decision, 2026-10-20): it needs no npm
+organisation, only `npm login` as the account that will own it (with `--otp=<code>` on `npm publish` when
+two-factor authentication is on). The name was free on 2026-10-20, and so were its look-alikes npm would
+refuse (`aidevsystem`, `ai_dev_system`, `ai.dev.system`): publish soon, since the guides already say
+`npx ai-dev-system`.
 
 ## What goes out
 
@@ -20,13 +21,13 @@ says `npx @stonebridgeway/ai-dev-system` — and `npm login` as a member of it w
 | The source | `main` of `stonebridgeway/ai-dev-system` and the tag `v3.0.0` | the merged pull request and the tag | reviews, merges, tags |
 | The image | `ghcr.io/stonebridgeway/ai-dev-system`: `:edge` from `main`; `:3.0.0`, `:3.0`, `:3` and `:latest`, each with a `-browser` twin, from the tag | `.github/workflows/docker-publish.yml`, job `publish` | nothing: the workflow's own token publishes |
 | The 2.x line, to go back to | `:2`, a copy of today's `:latest` | the same workflow, job `freeze-2x` | runs it once, after the merge and before the tag |
-| The npm package | `@stonebridgeway/ai-dev-system@3.0.0` | `npm run dist:pack` | `npm publish` of the tarball |
+| The npm package | `ai-dev-system@3.0.0` | `npm run dist:pack` | `npm publish` of the tarball |
 | The Windows installer | the GitHub release `v3.0.0`, as a draft | `.github/workflows/desktop-windows.yml`, jobs `build` (builds and signs) and `release` | signing (optional); publishing the draft |
 
 Today (checked 2026-10-20, read only): production `main` is `7bef129`, an ancestor of the fork; its tags
 are `v1.0.0` and `v2.0.0`; the image's tags are `:latest` and `:main` (both `7bef129`'s build,
 `sha256:87df7cde…`), `:v1.0.0`, `:v2.0.0` (`sha256:41cc9635…`) and 21 `:sha-*` — no `:2`, `:3`, `:edge` or
-`-browser` tag; `@stonebridgeway/ai-dev-system` is not on npm (`npm view` answers 404). Each push to
+`-browser` tag; `ai-dev-system` is not on npm (`npm view` answers 404). Each push to
 production `main` still publishes `:latest` (Д-108) — until the merge brings the workflow that does not.
 So `:2` will be `7bef129`'s build, not the image of the `v2.0.0` release, and `:main`, which 3.0's
 workflow no longer writes, stays a 2.x tag after the merge.
@@ -161,13 +162,12 @@ From the tagged checkout, on Node 24:
 ```sh
 git checkout v3.0.0
 cd ai-dev-mcp-server && npm ci && npm run dist:pack
-npm publish ../dist/stonebridgeway-ai-dev-system-3.0.0.tgz --access public
-npm view @stonebridgeway/ai-dev-system version                                  # 3.0.0
-npx --yes @stonebridgeway/ai-dev-system@3.0.0 version
+npm publish ../dist/ai-dev-system-3.0.0.tgz
+npm view ai-dev-system version                                                  # 3.0.0
+npx --yes ai-dev-system@3.0.0 version
 ```
 
-`--access public` because a scoped package is private by default. The tarball is about 10 MB, 1,830 files
-(`a9a02e9`'s: 10,177,652 bytes).
+A package with no scope is public as published. The tarball is about 10 MB, 1,830 files.
 
 ## 5. The Windows installer
 
@@ -204,7 +204,7 @@ Each piece goes back on its own:
 |---|---|---|
 | The image | `docker buildx imagetools create --tag ghcr.io/stonebridgeway/ai-dev-system:latest ghcr.io/stonebridgeway/ai-dev-system:2` (after `docker login ghcr.io` with a token that can write packages) | a new `bootstrap` or pull gets 2.x again — 3.0's bootstrap writes its entries with `:3`, the 3.x line, which `:latest` no longer is (`AI_DEV_INSTALLER_IMAGE` names another); entries already written name `:latest` and get 2.x on their next pull |
 | One person's Docker install | `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2` — it keeps the folders the entries mount (`docs/MIGRATION.md`) | 2.x with 3.0's mounts |
-| npm | `npm deprecate @stonebridgeway/ai-dev-system@3.0.0 "<why>"`, then a fixed 3.0.1; unpublishing is for the first 72 hours only and breaks whoever installed it | `npx` warns |
+| npm | `npm deprecate ai-dev-system@3.0.0 "<why>"`, then a fixed 3.0.1; unpublishing is for the first 72 hours only and breaks whoever installed it | `npx` warns |
 | The installer | `gh release edit v3.0.0 --repo stonebridgeway/ai-dev-system --draft=true` | the updater stops offering it; installed apps stay as they are |
 | The source | `git revert -m 1 <merge commit>` on `main`, pushed | the revert brings back 2.x's workflow: the push builds 2.x and publishes it as `:latest`, `:main` and `:sha-<commit>`, as every later push to `main` does; `:edge` stays on 3.0 |
 
@@ -221,7 +221,7 @@ commit `a9a02e9` unless another is named. Nothing was pushed or published.
 | 1 | the clone, `git fetch` of the branch, `git merge --ff-only` | exit 0; the fork's `main` (`096c982`) is an ancestor of the branch |
 | 2 | the freeze guard of `docker-publish.yml`, with production's tags and with `v3.0.0-rc.1` | "goes on: no release of 3.0 or later"; with `v3.0.0` tagged — "refuses: v3.0.0 is tagged" |
 | 3 | `git fetch "$PROD" main && git checkout -B release-3.0.0 FETCH_HEAD`; the CHANGELOG edit, its commit and the tag on the head the merge brings | exit 0 each (production's `main` is `7bef129` until the merge); the two pushes — not run |
-| 4 | `npm run dist:pack`; `npx --yes @stonebridgeway/ai-dev-system@3.0.0 version` in a clean `node:24-bookworm-slim` through a registry holding only that tarball | `stonebridgeway-ai-dev-system-3.0.0.tgz`, 10,177,652 bytes, 1,830 files; `ai-dev 3.0.0 (Node 24.22.0, linux-x64)` |
+| 4 | `npm run dist:pack`; `npx --yes ai-dev-system@3.0.0 version` in a clean `node:24-bookworm-slim` through a registry that serves that tarball and sends everything else to registry.npmjs.org | `ai-dev-system-3.0.0.tgz`, 10,177,660 bytes, 1,830 files, name `ai-dev-system`; `ai-dev 3.0.0 (Node 24.22.0, linux-x64)`, `npm view` → `3.0.0` |
 | — | the README's `npx` path in a clean container: setup, the clients, the first task, the removal | exit 0; Cursor's config restored byte for byte |
 | — | the image built from the branch: `ai-dev version`, `docker:smoke`, `docker:upgrade-check` from the 2.x image `2x-8f647df` | `3.0.0`; pass (first session 1,917 ms, next 906 ms); pass |
 | — | the README's Docker path: no client, `bootstrap.sh`, the first task, bootstrap again with no folder named and over a 2.x entry (Д-403), the way back to the 2.x image and the return | exit 0 each; the projects folder of the entries kept and named |

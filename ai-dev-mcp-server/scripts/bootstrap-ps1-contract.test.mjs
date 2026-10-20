@@ -334,3 +334,42 @@ test("bootstrap.ps1 throws away each Docker version it asks for (Д-438)", async
   assert.equal(lines.length, 2);
   for (const line of lines) assert.match(line, /^\s*\$null = Invoke-Native \{ & docker version /, line);
 });
+
+test("bootstrap.ps1 with no -ProjectPath or -ModelPath keeps the folders the 2.x entry it replaces mounts, as bootstrap.sh does (Д-403)", async (context) => {
+  if (process.platform === "win32") {
+    context.skip("the stub docker is a shell script");
+    return;
+  }
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-ps-folders-"));
+  context.after(() => fs.rm(root, { recursive: true, force: true }));
+  const home = path.join(root, "home");
+  const bin = path.join(root, "bin");
+  const dev = path.join(root, "Dev");
+  const models = path.join(root, "models");
+  await fs.mkdir(path.join(models, "bge-m3-onnx"), { recursive: true });
+  await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
+  await fs.mkdir(bin);
+  await fs.writeFile(path.join(bin, "docker"), stubDocker, { mode: 0o755 });
+  // The entry 2.x's install wrote: its launcher, the folders in its environment.
+  await fs.writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { "ai-dev-system": {
+    command: "/bin/sh", args: ["/clone/docker/run-mcp.sh"], env: { AI_DEV_IMAGE: "ghcr.io/stonebridgeway/ai-dev-system:latest", AI_DEV_PROJECT_PATH: dev, AI_DEV_MODEL_PATH: models }
+  } } }));
+  const result = spawnSync("pwsh", ["-NoLogo", "-NonInteractive", "-File", bootstrapPowerShell, "-Clients", "cursor"], {
+    encoding: "utf8",
+    env: { ...process.env, HOME: home, AI_DEV_MODEL_PATH: "", STUB_LOG: path.join(root, "docker.log"), PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      XDG_CONFIG_HOME: path.join(home, ".config"), AI_DEV_HOME: path.join(home, ".ai-dev") }
+  });
+  if (result.error?.code === "ENOENT") {
+    context.skip("pwsh is unavailable on this host");
+    return;
+  }
+  assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
+  assert.match(result.stdout, new RegExp(`Projects folder: ${dev.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}, the one Cursor mounted`));
+  assert.match(result.stdout, /Model folder: .*models, the one Cursor mounted/);
+  const entry = JSON.parse(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"];
+  const binds = entry.args.filter((argument) => argument.startsWith("type=bind,"));
+  assert.ok(binds.some((mount) => mount.startsWith(`type=bind,source=${dev},`)), JSON.stringify(binds));
+  assert.ok(binds.some((mount) => mount.startsWith(`type=bind,source=${models},target=/models`)), JSON.stringify(binds));
+  assert.ok(await fs.stat(dev).then((stat) => stat.isDirectory()), "the projects folder is made");
+  await assert.rejects(fs.stat(path.join(home, "AI-Dev-Projects")), "and not the default");
+});

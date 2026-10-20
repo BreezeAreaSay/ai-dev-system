@@ -10,7 +10,9 @@
 # home folder to write the configs (docs/DEFECTS.md, Д-89, Д-103, Д-105).
 set -eu
 
-project_path="${HOME}/AI-Dev-Projects"
+project_path=""
+project_default="${HOME}/AI-Dev-Projects"
+project_given=0
 image="${AI_DEV_IMAGE:-ghcr.io/stonebridgeway/ai-dev-system:latest}"
 image_set=0
 clients="all"
@@ -24,15 +26,18 @@ plan=0
 node_image="${AI_DEV_BOOTSTRAP_NODE_IMAGE:-node:24-bookworm-slim}"
 data_volume="${AI_DEV_DATA_VOLUME:-ai-dev-system-data}"
 model_path="${AI_DEV_MODEL_PATH:-}"
+model_given=0
+[ -z "$model_path" ] || model_given=1
 
 usage() {
   cat <<'EOF'
 Usage: sh ./bootstrap.sh [options]
 
 Options:
-  --project-path PATH       The projects folder the server sees, at the same path (default: ~/AI-Dev-Projects).
+  --project-path PATH       The projects folder the server sees, at the same path (default: the one the
+                            entries this replaces mount, 2.x's too; with none, ~/AI-Dev-Projects).
   --model-path PATH         A folder holding bge-m3-onnx/, mounted read-only as /models
-                            (default: AI_DEV_MODEL_PATH; unset: the model is the volume's —
+                            (default: AI_DEV_MODEL_PATH, or the one the entries this replaces mount; none: the model is the volume's —
                             `docker run --rm -it --network bridge --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev model install`).
   --image NAME              Docker image (default: ghcr.io/stonebridgeway/ai-dev-system:latest).
   --clients LIST            all (every client found here; the default), or some of
@@ -52,8 +57,8 @@ EOF
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --project-path) project_path="$2"; shift 2 ;;
-    --model-path) model_path="$2"; shift 2 ;;
+    --project-path) project_path="$2"; project_given=1; shift 2 ;;
+    --model-path) model_path="$2"; model_given=1; shift 2 ;;
     --image) image="$2"; image_set=1; shift 2 ;;
     --clients) clients="$2"; shift 2 ;;
     --build-local) build_local=1; shift ;;
@@ -129,7 +134,7 @@ if [ "$plan" -eq 1 ]; then
     plan_model=",\"model_path\":\"$(json_escape "$model_path")\""
   fi
   printf '{"repository":"%s","project_path":"%s","image":"%s","clients":"%s","data_volume":"%s","state_path":"%s"%s,"build_local":%s,"node_on_host_required":false}\n' \
-    "$(json_escape "$repo_root")" "$(json_escape "$project_path")" "$(json_escape "$image")" "$(json_escape "$clients")" \
+    "$(json_escape "$repo_root")" "$(json_escape "${project_path:-$project_default}")" "$(json_escape "$image")" "$(json_escape "$clients")" \
     "$(json_escape "$data_volume")" "$(json_escape "$state_path")" "$plan_model" "$build_local"
   exit 0
 fi
@@ -155,15 +160,28 @@ if ! docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
 fi
 docker_command=$(command -v docker)
 
-for folder_value in "$project_path" "$state_path" "$model_path"; do
-  case "$folder_value" in
-    *,*|*\"*) printf '%s\n' "${folder_value} has a comma or a double quote, which a docker --mount cannot hold. Choose a folder without one." >&2; exit 64 ;;
+# A folder a docker --mount can hold: no comma, no double quote.
+mountable_folder() {
+  case "$1" in
+    *,*|*\"*) printf '%s\n' "${1} has a comma or a double quote, which a docker --mount cannot hold. Choose a folder without one." >&2; exit 64 ;;
   esac
+}
+for folder_value in "$project_path" "$state_path" "$model_path"; do
+  mountable_folder "$folder_value"
 done
-mkdir -p "$project_path" "$state_path"
-project_path=$(CDPATH= cd -- "$project_path" && pwd -P)
+# The projects folder, made and named by its real path; the default when none is named or found.
+settle_projects() {
+  [ -n "$project_path" ] || project_path="$project_default"
+  mountable_folder "$project_path"
+  mkdir -p "$project_path"
+  project_path=$(CDPATH= cd -- "$project_path" && pwd -P)
+}
+mkdir -p "$state_path"
 state_path=$(CDPATH= cd -- "$state_path" && pwd -P)
-if [ -n "$model_path" ]; then
+# The model folder, checked as Docker will mount it.
+settle_model() {
+  [ -n "$model_path" ] || return 0
+  mountable_folder "$model_path"
   if [ ! -d "$model_path" ]; then
     printf '%s\n' "Model path does not exist: ${model_path}" >&2
     exit 64
@@ -192,6 +210,13 @@ if [ -n "$model_path" ]; then
   if [ ! -d "${model_path}/bge-m3-onnx" ]; then
     printf '%s\n' "${model_path} holds no bge-m3-onnx/ yet; dense search will report that it is not set up until a model is put there." >&2
   fi
+}
+# A folder named is settled now; one not named waits for the entries this install replaces (Д-403).
+if [ "$project_given" -eq 1 ] || [ "$skip_client_install" -eq 1 ]; then
+  settle_projects
+fi
+if [ "$model_given" -eq 1 ]; then
+  settle_model
 fi
 
 if [ "$build_local" -eq 1 ]; then
@@ -521,6 +546,58 @@ if [ "$skip_client_install" -ne 1 ]; then
   mounted=$(mounts_of "$candidates")
   install_clients=${candidates#,}
   install_clients=${install_clients%,}
+  # A folder not named is the one the entries this install replaces mount — a 2.x entry's AI_DEV_PROJECT_PATH and
+  # AI_DEV_MODEL_PATH too — so running bootstrap again, or after 2.x, keeps what the server sees (docs/DEFECTS.md, Д-403).
+  if [ "$project_given" -eq 0 ] || [ "$model_given" -eq 0 ]; then
+    set -- run --rm --network none --user "${uid}:${gid}" --read-only --tmpfs /tmp:rw,size=64m \
+      --env "HOME=${HOME}" --env "XDG_CONFIG_HOME=${app_data}" --env "CODEX_HOME=${codex_home}"
+    set -f
+    old_ifs=$IFS
+    IFS=$nl
+    for line in $mounted; do
+      set -- "$@" --mount "type=bind,source=${line%%,*},target=${line#*,},readonly"
+    done
+    IFS=$old_ifs
+    set +f
+    if wants claude-code && [ -f "${HOME}/.claude.json" ]; then
+      set -- "$@" --mount "type=bind,source=${HOME}/.claude.json,target=${HOME}/.claude.json,readonly"
+    fi
+    entry_folders=$(docker "$@" "$installer_image" ai-dev clients folders --clients="$clients" --home="$HOME" \
+      --platform="$installer_platform" 2>/dev/null </dev/null) || entry_folders=""
+    tab=$(printf '\t')
+    while IFS=$tab read -r role folder labels; do
+      case "$role" in
+        projects) [ "$project_given" -eq 1 ] || { project_path=$folder; project_from=$labels; } ;;
+        model) [ "$model_given" -eq 1 ] || { model_path=$folder; model_from=$labels; } ;;
+        differ)
+          if { [ "$folder" = projects ] && [ "$project_given" -eq 0 ]; } || { [ "$folder" = model ] && [ "$model_given" -eq 0 ]; }; then
+            printf '%s\n' "The clients' entries mount different ${folder} folders: ${labels}. Name the one to keep with --$([ "$folder" = projects ] && printf project-path || printf model-path)." >&2
+            exit 64
+          fi
+          ;;
+      esac
+    done <<EOF
+${entry_folders}
+EOF
+    if [ -n "${project_from:-}" ]; then
+      printf '%s\n' "Projects folder: ${project_path}, the one ${project_from} mounted (--project-path names another)."
+    fi
+    # Only a folder that holds 3.0's model is kept: 2.0.0's entries name the Python model's own folder, which 3.0 does
+    # not run, and one that is gone mounts nothing.
+    if [ -n "${model_from:-}" ]; then
+      if [ -d "${model_path}/bge-m3-onnx" ]; then
+        printf '%s\n' "Model folder: ${model_path}, the one ${model_from} mounted (--model-path names another)."
+      elif [ -d "$model_path" ]; then
+        printf '%s\n' "${model_path}, the model folder ${model_from} mounted, holds no bge-m3-onnx/ (2.x's model, which 3.0 does not run): none is mounted; name one with --model-path." >&2
+        model_path=""
+      else
+        printf '%s\n' "${model_path}, the model folder ${model_from} mounted, is not here: none is mounted; name one with --model-path." >&2
+        model_path=""
+      fi
+    fi
+  fi
+  settle_projects
+  [ "$model_given" -eq 1 ] || settle_model
   set -- run --rm --network none --user "${uid}:${gid}" --read-only --tmpfs /tmp:rw,size=64m \
     --env "HOME=${HOME}" --env "XDG_CONFIG_HOME=${app_data}" --env "CODEX_HOME=${codex_home}"
   if [ -n "$model_path" ]; then

@@ -18,7 +18,7 @@ the first start, what needs one command from you, and how to go back.
 | You have | Do this | Then |
 | --- | --- | --- |
 | A 2.x clone, set up with `npm run setup` | `git pull`, then `cd ai-dev-mcp-server && npm ci && npm run setup`; restart every AI client | One `ai-dev` entry per client, served by one daemon; your vault, tasks and index as they were |
-| 2.x through Docker (`bootstrap.sh`, `bootstrap.ps1`, `run-mcp.sh`, `run-mcp.ps1`, `ClaudeMcpProxy.exe`) | `git pull`, then run `bootstrap.sh` (`bootstrap.ps1` on Windows) again, naming your projects folder with `--project-path` (`-ProjectPath`) unless it is `~/AI-Dev-Projects`, and the model folder your entries' `AI_DEV_MODEL_PATH` named, if any, with `--model-path` (`-ModelPath`); restart every AI client | `docker run` entries; the volume kept, its skills brought up to the 3.0 seed; on macOS and Linux, 2.x's long-lived container removed (2.x kept none on Windows) |
+| 2.x through Docker (`bootstrap.sh`, `bootstrap.ps1`, `run-mcp.sh`, `run-mcp.ps1`, `ClaudeMcpProxy.exe`) | `git pull`, then run `bootstrap.sh` (`bootstrap.ps1` on Windows) again — it keeps the projects folder and the model folder your 2.x entries name; restart every AI client | `docker run` entries; the volume kept, its skills brought up to the 3.0 seed; on macOS and Linux, 2.x's long-lived container removed (2.x kept none on Windows) |
 | A 2.x install you are not ready to touch | Nothing yet | It keeps working, and the warnings below say what to run when you are |
 
 A new machine needs none of this: install 3.0 [any of the three ways](INSTALL.md#choose-a-path).
@@ -102,13 +102,13 @@ you used the Python backend (`npm run setup -- --model`).
   `docker pull` alone does not reach your sessions. Run `bootstrap.sh` (`bootstrap.ps1`) again: it
   writes `docker run -i --rm …` entries in their place and — on macOS and Linux — removes the
   container 2.x kept, `ai-dev-system-runtime-<uid>`, once every config is rewritten. It mounts the
-  folders you give it, not the ones your 2.x entries name: the projects folder — `--project-path`
-  (`-ProjectPath`), `~/AI-Dev-Projects` by default — in place of their `AI_DEV_PROJECT_PATH`, and a
-  model folder on the host — `--model-path` (`-ModelPath`), or `AI_DEV_MODEL_PATH` in the
-  environment, none without either — in place of their `AI_DEV_MODEL_PATH`. If they set either, name
-  it again, and give bootstrap the same options every time you run it again:
-  `sh ./bootstrap.sh --project-path "$HOME/Dev"`, and `--model-path "$HOME/.ai-dev/models"` only if
-  your entries had a model folder — bootstrap refuses one that is not there (bootstrap.sh exits 64).
+  folders your entries name and says which it kept: the projects folder of their
+  `AI_DEV_PROJECT_PATH`, and the model folder of their `AI_DEV_MODEL_PATH` when it holds 3.0's model,
+  `bge-m3-onnx/` — 2.0.0's entries name the Python model's own folder, which 3.0 does not run, and
+  that one is not mounted. `--project-path` (`-ProjectPath`) and `--model-path` (`-ModelPath`) name
+  others; with no entry to read, the projects folder is `~/AI-Dev-Projects` and no model folder is
+  mounted. Entries that name different projects folders stop it (bootstrap.sh exits 64) until you
+  name the one to keep.
 - **The volume is kept.** Its first start under the new image takes about 15 seconds, once. Its skills are
   brought up to the 3.0 seed by the seed's manifest instead of 2.x's copy-if-missing: what only 2.x
   shipped is removed; a seed file you edited keeps your edit, with the update beside it as
@@ -193,9 +193,8 @@ bootstrap and CI ran it), `npm run test:search-helper`, `search-index/search_cli
   beside it that dates from before the update. 2.x reads the index 3.0 wrote; for an `AI_DEV_HOME`
   that 3.0 moved up, give 2.x `AI_DEV_STATE_ROOT=$AI_DEV_HOME/state` and
   `AI_DEV_SEARCH_INDEX_DIR=$AI_DEV_HOME/cache/search-index`.
-- **Docker.** `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`, with the same
-  `--project-path` and `--model-path` as every other run, writes entries that run the 2.x image with 3.0's
-  mounts: it sees the state folder, and the tasks that moved there. Run by
+- **Docker.** `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2` keeps the folders the
+  3.0 entries mount and writes entries that run the 2.x image with 3.0's mounts: it sees the state folder, and the tasks that moved there. Run by
   2.x's own launchers (`AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2`), it keeps its state in the
   volume and does not see those tasks — [Upgrade test](UPGRADE-TEST.md) says how to copy them back.
   Either way 2.x's copy-if-missing puts back the skills 3.0 dropped, and the next 3.0 start removes

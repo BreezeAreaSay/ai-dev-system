@@ -120,7 +120,7 @@ async function hostToolsWithout(directory, hidden = ["docker", "claude"]) {
  * Run bootstrap.sh in a home of its own with the stubs first on PATH; `folders`, `files` and `links` are made in
  * that home first — `links` as written, `absoluteLinks` to a path of the home, `rootLinks` to the path given.
  */
-async function runBootstrap(t, args, { env = {}, folders = [], files = {}, links = {}, absoluteLinks = {}, rootLinks = {}, claude = false, docker = true, homeSuffix = "" } = {}) {
+async function runBootstrap(t, args, { env = {}, folders = [], files = {}, links = {}, absoluteLinks = {}, rootLinks = {}, claude = false, docker = true, homeSuffix = "", projects = true } = {}) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-run-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
@@ -139,7 +139,7 @@ async function runBootstrap(t, args, { env = {}, folders = [], files = {}, links
   const log = path.join(root, "docker.log");
   const claudeLog = path.join(root, "claude.log");
   const hostPath = await hostToolsWithout(path.join(root, "tools"));
-  const result = spawnSync(shell, [bootstrap, "--project-path", path.join(home, "projects"), ...args], {
+  const result = spawnSync(shell, [bootstrap, ...(projects ? ["--project-path", path.join(home, "projects")] : []), ...args], {
     encoding: "utf8",
     env: {
       ...process.env, HOME: `${home}${homeSuffix}`, XDG_CONFIG_HOME: "", CODEX_HOME: "", AI_DEV_HOME: "", AI_DEV_MODEL_PATH: "",
@@ -663,3 +663,48 @@ test("a model folder is mounted read-only for the installer, checked, and handed
 // terminal, a gutter on every line, and wrapped at whatever width the host
 // reports — 80 on the runner, wider here (docs/DEFECTS.md Д-71). The message is
 // what is under test, so the view is taken back off before matching.
+
+test("folders not named are the ones the entries it replaces mount, a 2.x entry's too; entries that differ stop it (Д-403)", async (t) => {
+  if (process.platform === "win32") return t.skip("the Unix script");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-folders-"));
+  t.after(() => fs.rm(root, { recursive: true, force: true }));
+  const dev = path.join(root, "Dev");
+  const models = path.join(root, "models");
+  await fs.mkdir(path.join(models, "bge-m3-onnx"), { recursive: true });
+  const found = `projects\\t${dev}\\tCursor, Gemini CLI\\nmodel\\t${models}\\tGemini CLI\\n`;
+  const kept = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS: found } });
+  if (!kept) return;
+  assert.equal(kept.status, 0, kept.stderr);
+  const asked = kept.calls.find((call) => call[0] === "run" && call.includes("folders"));
+  assert.ok(asked, "the installer is asked which folders the entries mount");
+  assert.ok(mounts(asked).every((mount) => mount.endsWith(",readonly")), "and reads them only");
+  const install = kept.calls.find((call) => call[0] === "run" && call.includes("install"));
+  const word = (call, name) => call.find((argument) => argument.startsWith(`--${name}=`))?.slice(name.length + 3);
+  assert.equal(word(install, "projects"), await fs.realpath(dev));
+  assert.equal(word(install, "model"), await fs.realpath(models));
+  assert.match(kept.stdout, /Projects folder: .*Dev, the one Cursor, Gemini CLI mounted/);
+  assert.match(kept.stdout, /Model folder: .*models, the one Gemini CLI mounted/);
+  // A folder named wins over the entries'; none found is the default.
+  const named = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], env: { FOLDERS: found } });
+  assert.equal(word(named.calls.find((call) => call[0] === "run" && call.includes("install")), "projects"), await fs.realpath(path.join(named.home, "projects")));
+  const none = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false });
+  assert.equal(word(none.calls.find((call) => call[0] === "run" && call.includes("install")), "projects"), await fs.realpath(path.join(none.home, "AI-Dev-Projects")));
+  // A model folder an entry names that is not here is said, and none is mounted.
+  const gone = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS: `model\\t${path.join(root, "gone")}\\tCursor\\n` } });
+  assert.equal(gone.status, 0, gone.stderr);
+  assert.equal(word(gone.calls.find((call) => call[0] === "run" && call.includes("install")), "model"), undefined);
+  assert.match(gone.stderr, /the model folder Cursor mounted, is not here/);
+  // 2.0.0's entries name the Python model's own folder: not 3.0's, not mounted, and the install goes on.
+  const python = path.join(root, "bge-m3");
+  await fs.mkdir(python, { recursive: true });
+  await fs.writeFile(path.join(python, "pytorch_model.bin"), "");
+  const old = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS: `model\\t${python}\\tCursor\\n` } });
+  assert.equal(old.status, 0, old.stderr);
+  assert.equal(word(old.calls.find((call) => call[0] === "run" && call.includes("install")), "model"), undefined);
+  assert.match(old.stderr, /holds no bge-m3-onnx\/ \(2\.x's model, which 3\.0 does not run\)/);
+  // Entries that mount different projects folders: which to keep is the person's.
+  const differ = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS: "differ\\tprojects\\t/a (Cursor); /b (Codex)\\n" } });
+  assert.equal(differ.status, 64);
+  assert.match(differ.stderr, /entries mount different projects folders: \/a \(Cursor\); \/b \(Codex\)\. Name the one to keep with --project-path/);
+  assert.ok(!differ.calls.some((call) => call[0] === "run" && call.includes("install")), "nothing is written");
+});

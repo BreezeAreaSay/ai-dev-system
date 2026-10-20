@@ -109,7 +109,8 @@ Code, Claude Desktop, Cursor, VS Code, Codex и Gemini CLI — и скачать
 ```
 
 С Docker сервер видит только папку проектов, которую смонтировал bootstrap, — `AI-Dev-Projects` в
-домашней папке, если `--project-path` (`-ProjectPath` на Windows) не назвал другую, — поэтому
+домашней папке, если `--project-path` (`-ProjectPath` на Windows) или записи, которые bootstrap
+заменил, не назвали другую, — поэтому
 держите проект там. На macOS и Linux сервер видит его по своему пути; на Windows он видит эту папку
 как `/workspace`: называйте проект `/workspace/my-project`.
 

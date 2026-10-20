@@ -21,7 +21,7 @@ import { isMembraneSource } from "./search-documents.mjs";
 import { buildSemanticVector, tokenizeSemantic } from "./search-semantic.mjs";
 import { collapseSearchResults, commonFilters, ftsQuery } from "./search-query.mjs";
 import { pythonRound, pythonStrip, pythonSum } from "./python-compat.mjs";
-import { isBusyError, isCorruptError, tableExists, wholeText } from "./search-sqlite.mjs";
+import { isBusyError, isCorruptError, tableColumns, tableExists, wholeText } from "./search-sqlite.mjs";
 
 /** Candidates each signal contributes, whatever the caller's limit: a fixed pool keeps the ranking prefix stable. */
 export const HYBRID_CANDIDATE_LIMIT = 500;
@@ -411,8 +411,9 @@ function rankHybrid(db, {
   let denseQuery = denseAvailable && dense > 0 && denseQueryVector?.length ? Float32Array.from(denseQueryVector) : null;
   // Not one stored vector of the question's model: the dense half has nothing
   // to compare, so it is left out of the weights rather than scoring everyone
-  // zero, and the caller is told (docs/DEFECTS.md, Д-148).
-  const unmatched = Boolean(denseQuery && denseProvenance && !hasDenseVectorsOf(db, denseProvenance));
+  // zero, and the caller is told (docs/DEFECTS.md, Д-148). 2.0.0's table records no model: its vectors are the
+  // Python backend's, never the question's (Д-NNN).
+  const unmatched = Boolean(denseQuery && (!tableColumns(db, "dense_vectors").has("backend") || (denseProvenance && !hasDenseVectorsOf(db, denseProvenance))));
   if (unmatched) denseQuery = null;
   if (!denseQuery) dense = 0;
 

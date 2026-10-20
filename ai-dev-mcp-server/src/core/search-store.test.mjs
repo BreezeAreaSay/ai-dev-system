@@ -400,7 +400,7 @@ test("vectors stored a slice at a time are in the index at once, and a later reb
   assert.deepEqual([closing.dense_documents, closing.dense_reused_documents, closing.dense_pending_documents], [33, 33, 0]);
 });
 
-test("vectors stored without their provenance are never reused", needsSqlite, async (t) => {
+test("2.0.0's vectors whose passage has changed since are dropped, and the table gains this format's columns (Д-NNN)", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const indexPath = path.join(tempRoot(t), "index.sqlite");
   buildVault(vault, { notes: 2, skills: 2 });
@@ -416,7 +416,7 @@ test("vectors stored without their provenance are never reused", needsSqlite, as
   const summary = await rebuildIndex({ vaultRoot: vault, indexPath, preserveDense: true });
   assert.deepEqual([summary.dense_enabled, summary.dense_documents, summary.dense_pending_documents], [true, 0, 4]);
   const handle = openDatabase(indexPath);
-  assert.ok(handle.prepare("PRAGMA table_info(dense_vectors)").all().some((column) => column.name === "backend"), "recreated in this format");
+  assert.ok(handle.prepare("PRAGMA table_info(dense_vectors)").all().some((column) => column.name === "backend"), "in this format now");
   handle.close();
 });
 

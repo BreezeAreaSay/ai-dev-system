@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$ProjectPath = (Join-Path $HOME "AI-Dev-Projects"),
+    [string]$ProjectPath = "",
     [string]$ModelPath = $env:AI_DEV_MODEL_PATH,
     [string]$Image = "ghcr.io/stonebridgeway/ai-dev-system:latest",
     [string]$Clients = "all",
@@ -86,7 +86,10 @@ if (-not (Test-Path -LiteralPath $cli)) {
     throw "Run this script from a complete AI Dev clone. Missing: $cli"
 }
 
-$resolvedProjectPath = [IO.Path]::GetFullPath($ProjectPath)
+# A folder not named is the one the entries this install replaces mount, found once the installer runs (Д-403).
+$projectGiven = [bool]$ProjectPath
+$modelGiven = [bool]$ModelPath
+$resolvedProjectPath = [IO.Path]::GetFullPath($(if ($ProjectPath) { $ProjectPath } else { Join-Path $HOME "AI-Dev-Projects" }))
 $resolvedModelPath = $null
 if ($ModelPath) {
     $resolvedModelPath = [IO.Path]::GetFullPath($ModelPath)
@@ -112,25 +115,28 @@ if ($Plan) {
     exit 0
 }
 
-if ($resolvedModelPath) {
-    if ($resolvedModelPath.Contains(",")) {
+# The model folder, checked as Docker will mount it.
+function Assert-ModelFolder {
+    param([string]$Folder)
+    if ($Folder.Contains(",")) {
         throw "Model path cannot contain a comma when Docker --mount syntax is used."
     }
-    if (-not (Test-Path -LiteralPath $resolvedModelPath -PathType Container)) {
-        throw "Model path does not exist: $resolvedModelPath"
+    if (-not (Test-Path -LiteralPath $Folder -PathType Container)) {
+        throw "Model path does not exist: $Folder"
     }
     # The folder above the model, holding bge-m3-onnx\, mounted read-only as
     # /models (docs/DEFECTS.md Д-69). A folder that holds model files itself is
     # the pre-Д-62 value and would leave the model one level too deep (Д-68).
     foreach ($marker in @("pytorch_model.bin", "modules.json", "config.json", "onnx")) {
-        if (Test-Path -LiteralPath (Join-Path $resolvedModelPath $marker)) {
-            throw "-ModelPath names the folder above the models, and $resolvedModelPath holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ (docs/INSTALL.md)."
+        if (Test-Path -LiteralPath (Join-Path $Folder $marker)) {
+            throw "-ModelPath names the folder above the models, and $Folder holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ (docs/INSTALL.md)."
         }
     }
-    if (-not (Test-Path -LiteralPath (Join-Path $resolvedModelPath "bge-m3-onnx"))) {
-        Write-Warning "$resolvedModelPath holds no bge-m3-onnx\ yet; dense search will report that it is not set up until a model is put there."
+    if (-not (Test-Path -LiteralPath (Join-Path $Folder "bge-m3-onnx"))) {
+        Write-Warning "$Folder holds no bge-m3-onnx\ yet; dense search will report that it is not set up until a model is put there."
     }
 }
+if ($resolvedModelPath) { Assert-ModelFolder $resolvedModelPath }
 
 Assert-Docker
 $node = $null
@@ -138,6 +144,45 @@ if ($BuildLocal -or -not $SkipClientInstall) {
     $node = Assert-Node
 }
 
+# A folder not named is the one the entries this install replaces mount — a 2.x entry's AI_DEV_PROJECT_PATH and
+# AI_DEV_MODEL_PATH too — so running bootstrap again, or after 2.x, keeps what the server sees (docs/DEFECTS.md, Д-403).
+# Read as the UTF-8 Node writes, as the install's own answer below (Д-435).
+if (-not $SkipClientInstall -and (-not $projectGiven -or -not $modelGiven)) {
+    $consoleEncoding = $null
+    try {
+        $consoleEncoding = [Console]::OutputEncoding
+        [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
+    } catch {
+        $consoleEncoding = $null
+    }
+    try {
+        $entryFolders = @(Invoke-Native { & $node $cli clients folders "--clients=$Clients" 2>$null })
+    } finally {
+        if ($null -ne $consoleEncoding) { [Console]::OutputEncoding = $consoleEncoding }
+    }
+    foreach ($line in $entryFolders) {
+        $role, $folder, $labels = "$line" -split "`t", 3
+        if ($role -eq "differ" -and (($folder -eq "projects" -and -not $projectGiven) -or ($folder -eq "model" -and -not $modelGiven))) {
+            $flag = if ($folder -eq "projects") { "-ProjectPath" } else { "-ModelPath" }
+            throw "The clients' entries mount different $folder folders: $labels. Name the one to keep with $flag."
+        }
+        if ($role -eq "projects" -and -not $projectGiven -and $folder) {
+            $resolvedProjectPath = [IO.Path]::GetFullPath($folder)
+            Write-Host "Projects folder: $resolvedProjectPath, the one $labels mounted (-ProjectPath names another)."
+        }
+        if ($role -eq "model" -and -not $modelGiven -and $folder) {
+            # Only a folder that holds 3.0's model is kept: 2.0.0's entries name the Python model's own folder.
+            if (Test-Path -LiteralPath (Join-Path $folder "bge-m3-onnx") -PathType Container) {
+                $resolvedModelPath = [IO.Path]::GetFullPath($folder)
+                Write-Host "Model folder: $resolvedModelPath, the one $labels mounted (-ModelPath names another)."
+            } elseif (Test-Path -LiteralPath $folder -PathType Container) {
+                Write-Warning "$folder, the model folder $labels mounted, holds no bge-m3-onnx\ (2.x's model, which 3.0 does not run): none is mounted; name one with -ModelPath."
+            } else {
+                Write-Warning "$folder, the model folder $labels mounted, is not here: none is mounted; name one with -ModelPath."
+            }
+        }
+    }
+}
 New-Item -ItemType Directory -Path $resolvedProjectPath -Force | Out-Null
 if ($BuildLocal) {
     Write-Host "Preparing and auditing the Docker context..."

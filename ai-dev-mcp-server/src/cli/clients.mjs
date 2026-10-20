@@ -23,21 +23,22 @@ import {
   DEFAULT_DOCKER_IMAGE,
   DEFAULT_DOCKER_VOLUME,
   dockerEntryOptions,
+  entryFolders,
   dockerLaunch,
   missingBindSources,
   refusedMount,
   unreadableMounts
 } from "../core/docker-launch.mjs";
 import { checkServerCommand } from "../core/mcp-client-check.mjs";
-import { MCP_CLIENTS, SERVER_NAME, clientEntry, describeEntry, discoverClients, parseClientSelection, readServerEntries } from "../core/mcp-clients.mjs";
+import { LEGACY_SERVER_NAMES, MCP_CLIENTS, SERVER_NAME, clientEntry, describeEntry, discoverClients, parseClientSelection, readServerEntries } from "../core/mcp-clients.mjs";
 
 export { clientStatePath } from "../core/client-connections.mjs";
 
-const SUBCOMMANDS = ["list", "install", "remove", "doctor", "entry"];
+const SUBCOMMANDS = ["list", "install", "remove", "doctor", "entry", "folders"];
 
 export function usage() {
   return [
-    "Usage: ai-dev clients <list | install | remove | doctor | entry> [options]",
+    "Usage: ai-dev clients <list | install | remove | doctor | entry | folders> [options]",
     "",
     "  list       every supported client, whether it is installed, and what its ai-dev entry runs",
     "  install    add ai-dev to the clients (and take out ai-dev-system, the 2.x name)",
@@ -45,6 +46,7 @@ export function usage() {
     "             entry the install replaced (its backup keeps it)",
     "  doctor     start each client's ai-dev command and check it answers initialize",
     "  entry <client>  print the entry install would write for one client, as JSON (writes nothing)",
+    "  folders         the projects and model folders the entries already there mount, for bootstrap (reads only)",
     "",
     "  --clients=<names>   all (every client found here; the default), or some of claude-code,",
     "                      claude-desktop, cursor, vscode, codex, gemini (claude = both Claude apps).",
@@ -449,6 +451,31 @@ async function entry(values, positionals, io) {
 }
 
 /**
+ * The projects and model folders the entries of the clients picked mount — the
+ * 3.0 entry, or else the 2.x one — for bootstrap, which keeps them when it is
+ * named none: a line "<role>\t<folder>\t<clients>" each, or "differ\t<role>\t…"
+ * when the entries name more than one (docs/DEFECTS.md, Д-403).
+ */
+async function folders(values, io) {
+  const platform = values.platform || process.platform;
+  const { chosen: targets } = chooseTargets(await discoverClients({ home: values.home || os.homedir(), env: io.env, platform }), values.clients);
+  const found = { projects: new Map(), model: new Map() };
+  for (const row of await readServerEntries(targets)) {
+    const entry = row.entries[SERVER_NAME] ?? LEGACY_SERVER_NAMES.map((name) => row.entries[name]).find((value) => value !== undefined);
+    const mounted = entryFolders(entry);
+    for (const role of ["projects", "model"]) {
+      if (mounted[role]) found[role].set(mounted[role], [...(found[role].get(mounted[role]) ?? []), labelOf(row)]);
+    }
+  }
+  for (const role of ["projects", "model"]) {
+    const seen = [...found[role]];
+    if (seen.length === 1) io.out(`${role}\t${seen[0][0]}\t${seen[0][1].join(", ")}`);
+    else if (seen.length > 1) io.out(`differ\t${role}\t${seen.map(([folder, labels]) => `${folder} (${labels.join(", ")})`).join("; ")}`);
+  }
+  return EXIT.ok;
+}
+
+/**
  * @param {string[]} argv
  * @param {import("./context.mjs").CliIo} io
  */
@@ -479,7 +506,8 @@ export async function run(argv, io) {
     install: { clients: { type: "string" }, "dry-run": { type: "boolean" }, json: { type: "boolean" }, ...dockerFlags },
     remove: { clients: { type: "string" }, "dry-run": { type: "boolean" }, json: { type: "boolean" } },
     doctor: { clients: { type: "string" }, timeout: { type: "string" }, json: { type: "boolean" } },
-    entry: dockerFlags
+    entry: dockerFlags,
+    folders: { clients: { type: "string" }, home: { type: "string" }, platform: { type: "string" } }
   }[subcommand];
   const { values, positionals } = parseCommandLine(rest, { command: `clients ${subcommand}`, options, positionals: subcommand === "entry" ? { min: 1, max: 1, names: "client" } : {} });
   if (values.help) {
@@ -491,5 +519,6 @@ export async function run(argv, io) {
   if (subcommand === "install") return install(values, io);
   if (subcommand === "remove") return remove(values, io);
   if (subcommand === "entry") return entry(values, positionals, io);
+  if (subcommand === "folders") return folders(values, io);
   return doctor(values, io);
 }

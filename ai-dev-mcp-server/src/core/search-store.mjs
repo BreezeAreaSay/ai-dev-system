@@ -56,6 +56,10 @@ const IN_PLACE_LIMIT = 0.5;
 const YIELD_EVERY = 64;
 
 const DENSE_COLUMNS = ["id", "vector", "dimensions", "model", "backend", "revision", "dtype", "content_hash", "mtime"];
+// 2.0.0's `dense_vectors`, from before a vector recorded its provenance: every one is the Python backend's, the only one
+// 2.x had then (docs/DEFECTS.md, Д-NNN).
+const UNRECORDED_COLUMNS = ["id", "vector", "dimensions", "model", "content_hash", "mtime"];
+const unrecorded = (columns) => columns.size === UNRECORDED_COLUMNS.length && UNRECORDED_COLUMNS.every((column) => columns.has(column));
 
 const CREATE_DOCUMENT_TABLES = `
   CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -131,7 +135,13 @@ function readIndexState(db) {
  * model's, which hybrid search does not compare (docs/DEFECTS.md, Д-148).
  */
 function readDenseModels(db) {
-  if (!tableExists(db, "dense_vectors") || !DENSE_COLUMNS.every((column) => tableColumns(db, "dense_vectors").has(column))) return [];
+  if (!tableExists(db, "dense_vectors")) return [];
+  const columns = tableColumns(db, "dense_vectors");
+  if (unrecorded(columns)) {
+    const documents = Number(db.prepare("SELECT count(*) AS n FROM dense_vectors").get().n);
+    return documents ? [{ backend: LEGACY_DENSE_BACKEND, revision: UNPINNED_REVISION, dtype: LEGACY_DENSE_DTYPE, documents }] : [];
+  }
+  if (!DENSE_COLUMNS.every((column) => columns.has(column))) return [];
   return db.prepare("SELECT backend, revision, dtype, count(*) AS documents FROM dense_vectors GROUP BY backend, revision, dtype").all()
     .map((row) => ({ backend: String(row.backend), revision: String(row.revision), dtype: String(row.dtype), documents: Number(row.documents) }));
 }
@@ -309,11 +319,17 @@ function denseSettings(options, previousMeta) {
   return settings;
 }
 
-/** `dense_vectors` with the columns this format needs, recreated empty otherwise. */
+/** `dense_vectors` with the columns this format needs: 2.0.0's gains them, recorded as what its vectors are; any other is recreated empty. */
 function ensureDenseTable(db) {
   if (tableExists(db, "dense_vectors")) {
     const columns = tableColumns(db, "dense_vectors");
     if (columns.size === DENSE_COLUMNS.length && DENSE_COLUMNS.every((column) => columns.has(column))) return;
+    if (unrecorded(columns)) {
+      for (const [column, value] of [["backend", LEGACY_DENSE_BACKEND], ["revision", UNPINNED_REVISION], ["dtype", LEGACY_DENSE_DTYPE]]) {
+        db.exec(`ALTER TABLE dense_vectors ADD COLUMN ${column} TEXT NOT NULL DEFAULT '${value}'`);
+      }
+      return;
+    }
     db.exec("DROP TABLE dense_vectors");
   }
   db.exec(CREATE_DENSE_TABLE);

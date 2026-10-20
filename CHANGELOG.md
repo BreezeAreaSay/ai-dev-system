@@ -84,12 +84,12 @@ it, what moves by itself, what needs one command, and how to go back.
   container's user can share that folder; a rollback run by the 2.x launchers keeps its state in the
   volume and does not see what moved. A 3.0 entry has `--network none` written into it and ignores
   `AI_DEV_DOCKER_NETWORK`, which only the 2.x launchers read: change the entry itself. `bootstrap.sh`
-  and `bootstrap.ps1` mount the folders they are given — the projects folder, `--project-path`
-  (`-ProjectPath`), `~/AI-Dev-Projects` by default, and a model folder, `--model-path` (`-ModelPath`),
-  none unless `AI_DEV_MODEL_PATH` is set — not the `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH` a
-  2.x entry holds: where 2.x mounted a folder of yours, name it again, and run bootstrap again later
-  with the same options. They no longer install Docker or Node, start a long-lived container or
-  compile a proxy.
+  and `bootstrap.ps1` keep the projects and model folders the entries they replace mount — a 2.x
+  entry's `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH` too, a model folder only when it holds 3.0's
+  `bge-m3-onnx/` — and say which they kept; `--project-path` (`-ProjectPath`) and `--model-path`
+  (`-ModelPath`) name others, and with no entry the projects folder is `~/AI-Dev-Projects` and no
+  model folder is mounted; entries that name different projects folders stop them until one is named
+  (Д-403). They no longer install Docker or Node, start a long-lived container or compile a proxy.
 - **Image tags** (decision D9): `:latest` moves only with a release tag of the newest line, and no
   longer with 2.x; `:edge` follows `main`; `:2` follows the 2.x line — a manual run copies 2.x's
   `:latest` to it before 3.0 is tagged, and after that only a `v2.*` tag moves it.
@@ -1021,6 +1021,12 @@ has it with what each one says.
 
 ### Fixed
 
+- **A 2.0.0 index keeps its vectors** (Д-571). 2.0.0's `dense_vectors` table records no model:
+  3.0 read it as no vectors at all, a rebuild dropped it, and a hybrid search with a query vector
+  failed on the missing `backend` column. Such a table now reads as the vectors of 2.x's Python
+  backend, the one 2.0.0 had — another model's, waiting for `setup --model` like any 2.x Python
+  vectors — and gains the three columns when it is next written instead of being dropped. The
+  upgrade test starts from v2.0.0 too, prod's only 2.x release, with its own vector seed (Д-570).
 - **The daemon died on a long home** (Д-97). A socket path over 107 bytes was cut short by
   libuv, the next `chmod` failed and the lock stayed behind; a home of 181 bytes — or any home
   below this session's 87-byte scratch folder — never started a daemon. The socket now moves

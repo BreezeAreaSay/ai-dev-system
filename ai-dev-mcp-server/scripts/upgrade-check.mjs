@@ -33,6 +33,11 @@
  * (docs/DEFECTS.md, Д-104): moved into `~/.ai-dev` once, with a record of it,
  * and seen by the 2.x hook from then on.
  *
+ * Then each goes back the way `docs/MIGRATION.md` gives for a clone
+ * (`upgrade-way-back.mjs`): `ai-dev clients remove`, 2.x's own client install
+ * from a checkout of the base, and the 2.x server that entry starts finds the
+ * task and searches the index 3.0 left.
+ *
  * The container half itself — pulling the 2.x image, keeping its volume, the
  * launchers the clients hold — cannot run where the published image is not
  * pullable; `docs/UPGRADE-TEST.md` describes it for CI.
@@ -44,21 +49,19 @@
  * (docs/DEFECTS.md, Д-112).
  */
 import assert from "node:assert/strict";
-import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { resolveSpawnInvocation } from "../src/core/process-runner.mjs";
 import { resolvePythonCommand } from "../src/core/python-command.mjs";
 import { openDatabase, sqliteSupport } from "../src/core/search-sqlite.mjs";
 import { writeSyntheticModel } from "../src/core/synthetic-model.mjs";
 import { startModelHost } from "../test/fixtures/model-host.mjs";
+import { call, check, checks, makeRepository, npm, readJson, run, runAsync, withServer } from "./upgrade-harness.mjs";
+import { checkoutBase, verifyWayBack } from "./upgrade-way-back.mjs";
 
 export const DEFAULT_BASE_COMMIT = "8f647df";
 
@@ -77,78 +80,6 @@ function parseArgs(argv) {
   }
   if (!options.base) throw new Error("--base needs a commit.");
   return options;
-}
-
-function run(command, args, { cwd, env = process.env, allowFailure = false, input } = {}) {
-  const result = spawnSync(command, args, { cwd, env, encoding: "utf8", windowsHide: true, shell: false, input, maxBuffer: 64 * 1024 * 1024 });
-  if (result.error) throw result.error;
-  if (!allowFailure && result.status !== 0) {
-    throw new Error(`${command} ${args.join(" ")} exited ${result.status}:\n${(result.stderr || result.stdout || "").slice(-4000)}`);
-  }
-  return result;
-}
-
-/**
- * `run` for a child that talks to a server in this process — the model mirror:
- * a synchronous spawn would stop the event loop the server answers on.
- */
-function runAsync(command, args, { cwd, env = process.env } = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, env, windowsHide: true, shell: false });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk; });
-    child.stderr.on("data", (chunk) => { stderr += chunk; });
-    child.on("error", reject);
-    child.on("close", (status) => resolve({ status, stdout, stderr }));
-  });
-}
-
-/** npm without a shell: on Windows `npm` is a `.cmd`, which the spawn adapter rewrites to `node npm-cli.js`. */
-const npmPlan = await resolveSpawnInvocation("npm", []);
-function npm(args, options) {
-  return run(npmPlan.executable, [...npmPlan.args, ...args], options);
-}
-
-const checks = [];
-function check(label, condition, detail = "") {
-  checks.push({ label, ok: Boolean(condition), detail });
-  process.stdout.write(`${condition ? "✓" : "✗"} ${label}${detail ? ` — ${detail}` : ""}\n`);
-}
-
-async function withServer({ command, args, env, cwd }, operation) {
-  const transport = new StdioClientTransport({ command, args, env, cwd, stderr: "pipe" });
-  const client = new Client({ name: "ai-dev-upgrade-test", version: "1.0.0" }, { capabilities: {} });
-  const stderr = [];
-  transport.stderr?.on("data", (chunk) => stderr.push(String(chunk)));
-  try {
-    await client.connect(transport);
-    return await operation(client);
-  } catch (error) {
-    error.message = `${error.message}\n--- server stderr ---\n${stderr.join("").slice(-3000)}`;
-    throw error;
-  } finally {
-    await client.close().catch(() => undefined);
-  }
-}
-
-async function call(client, name, args = {}) {
-  const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 600_000 });
-  const text = (result.content || []).map((item) => item.text || "").join("\n");
-  if (result.isError) throw new Error(`${name} failed: ${text.slice(0, 2000)}`);
-  try {
-    return JSON.parse(text);
-  } catch {
-    return text;
-  }
-}
-
-function makeRepository(root) {
-  run("git", ["init", "-q", root]);
-  return fs.writeFile(path.join(root, "README.md"), "# upgrade fixture\n", "utf8").then(() => {
-    run("git", ["-C", root, "add", "."]);
-    run("git", ["-C", root, "-c", "user.name=AI Dev Upgrade Test", "-c", "user.email=upgrade-test@example.invalid", "commit", "-qm", "fixture"]);
-  });
 }
 
 /**
@@ -231,7 +162,11 @@ function denseDigest(indexPath) {
   try {
     const hash = crypto.createHash("sha256");
     const byId = new Map();
-    const rows = db.prepare("SELECT id, vector, backend, revision, dtype, content_hash FROM dense_vectors ORDER BY id").all();
+    // 2.0.0 recorded no provenance; its vectors are the Python backend's, which is what 3.0 records for them.
+    const provenance = db.prepare("PRAGMA table_info(dense_vectors)").all().some((column) => column.name === "backend");
+    const rows = db.prepare(provenance
+      ? "SELECT id, vector, backend, revision, dtype, content_hash FROM dense_vectors ORDER BY id"
+      : "SELECT id, vector, 'python' AS backend, 'unpinned' AS revision, 'fp32' AS dtype, content_hash FROM dense_vectors ORDER BY id").all();
     for (const row of rows) {
       const head = `${row.id}\0${row.backend}\0${row.revision}\0${row.dtype}\0${row.content_hash}\0`;
       hash.update(head);
@@ -293,6 +228,7 @@ function seedLegacyVectors({ baseRoot, env, indexPath, backend = "onnx" }) {
   const helper = path.join(baseRoot, "search-index", "search_cli.py");
   const python = resolvePythonCommand({ env });
   const common = ["--vault-root", path.join(baseRoot, "docker", "public-seed"), "--index-path", indexPath, "--include-external-project-files"];
+  if (!readFileSync(helper, "utf8").includes('"dense-plan"')) return seedSentenceTransformerVectors({ helper, python, common, env, indexPath });
   const provenance = legacyProvenance(backend, baseRoot);
   const plan = JSON.parse(run(python, [helper, "dense-plan", ...common, ...provenance], { env }).stdout);
   const vectors = plan.records.map((record, index) => ({
@@ -308,6 +244,41 @@ function seedLegacyVectors({ baseRoot, env, indexPath, backend = "onnx" }) {
     return { vectors: rebuilt.dense_documents, digest: stored.digest, byId: stored.byId, backend };
   } finally {
     rmSync(file, { force: true });
+  }
+}
+
+/** sentence-transformers as 2.0.0's helper calls it, with the synthetic numbers of the vectors above. */
+const SENTENCE_TRANSFORMERS_STAND_IN = [
+  "class SentenceTransformer:",
+  "    def __init__(self, path, device=None):",
+  "        self.path = path",
+  "",
+  "    def encode(self, texts, batch_size=8, normalize_embeddings=True, show_progress_bar=False):",
+  "        return [[((index * 7 + position) % 101) / 101 - 0.5 for position in range(1024)] for index, _ in enumerate(texts)]",
+  ""
+].join("\n");
+
+/**
+ * 2.0.0's helper takes no vectors (`dense-plan` came with the ONNX path): it
+ * embedded with sentence-transformers from a model folder itself. Here it
+ * imports a stand-in, from a folder that holds the one file it looks for, so
+ * its own rebuild writes the vectors as it wrote real ones — with no record of
+ * the backend, revision or dtype, which later 2.x added.
+ */
+function seedSentenceTransformerVectors({ helper, python, common, env, indexPath }) {
+  const standIn = path.join(path.dirname(indexPath), "upgrade-fixture-sentence-transformers");
+  mkdirSync(path.join(standIn, "sentence_transformers"), { recursive: true });
+  mkdirSync(path.join(standIn, "model"), { recursive: true });
+  writeFileSync(path.join(standIn, "sentence_transformers", "__init__.py"), SENTENCE_TRANSFORMERS_STAND_IN);
+  writeFileSync(path.join(standIn, "model", "pytorch_model.bin"), "");
+  try {
+    const rebuilt = JSON.parse(run(python, [helper, "rebuild", ...common, "--dense-embeddings", "--dense-model-dir", path.join(standIn, "model")], {
+      env: { ...env, PYTHONPATH: standIn }
+    }).stdout);
+    const stored = denseDigest(indexPath);
+    return { vectors: rebuilt.dense_documents, digest: stored.digest, byId: stored.byId, backend: "", provenance: false };
+  } finally {
+    rmSync(standIn, { recursive: true, force: true });
   }
 }
 
@@ -348,10 +319,6 @@ function writeLegacyClientConfigs({ baseRoot, env, project }) {
 /** `search_index_status` names the count of what is in the index `indexed_document_count`. */
 function indexedDocuments(status) {
   return Number(status?.indexed_document_count ?? 0);
-}
-
-async function readJson(file) {
-  return JSON.parse(await fs.readFile(file, "utf8"));
 }
 
 /**
@@ -436,8 +403,10 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     const kept = Number(status.dense_documents) + Number(status.dense_other_model_documents || 0);
     check(`${label}: the 2.x dense vectors are all there`, vectors > 0 && kept === vectors && status.dense_backend === expected.dense.backend,
       `${kept} of ${vectors}, backend ${status.dense_backend}`);
-    check(`${label}: ${pythonBackend ? "they are another model's, so every one waits for the new model" : "they are the model 3.0 runs, so none waits"}`,
-      pythonBackend
+    // 2.0.0's vectors, written before the ONNX path, are all the Python backend's.
+    const otherModel = pythonBackend || expected.dense.provenance === false;
+    check(`${label}: ${otherModel ? "they are another model's, so every one waits for the new model" : "they are the model 3.0 runs, so none waits"}`,
+      otherModel
         ? Number(status.dense_documents) === 0 && Number(status.dense_other_model_documents) === vectors && Number(status.dense_pending_documents) >= vectors
         : Number(status.dense_documents) === vectors && !Number(status.dense_other_model_documents),
       `${status.dense_documents} of the current model, ${status.dense_other_model_documents ?? 0} of another, ${status.dense_pending_documents} waiting`);
@@ -715,7 +684,13 @@ async function main() {
     for (const scenario of scenarios) {
       await verifyUpgradedScenario({ ...scenario, base: options.base, baseRoot, temp });
     }
+    // And back, each user as MIGRATION.md tells them; one checkout of the base serves all.
+    const checkout = checkoutBase({ repoRoot, base: options.base, folder: path.join(temp, "way-back") });
+    for (const scenario of scenarios) {
+      await verifyWayBack({ ...scenario, baseRoot, checkout });
+    }
   } finally {
+    run("git", ["-C", repoRoot, "worktree", "remove", "--force", path.join(temp, "way-back")], { allowFailure: true });
     run("git", ["-C", repoRoot, "worktree", "remove", "--force", baseRoot], { allowFailure: true });
     if (!options.keep) await fs.rm(temp, { recursive: true, force: true });
   }

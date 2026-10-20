@@ -687,6 +687,24 @@ export function dockerEntryOptions(args) {
 }
 
 /**
+ * The projects and model folders an entry mounts: a 3.0 entry's binds, a 2.x
+ * entry's `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH`. What bootstrap keeps
+ * when it is named none (docs/DEFECTS.md, Д-403).
+ *
+ * @param {unknown} entry
+ * @returns {{ projects: string, model: string }}
+ */
+export function entryFolders(entry) {
+  if (!entry || typeof entry !== "object") return { projects: "", model: "" };
+  if (isDirectDockerEntry(entry)) {
+    const { projects, model } = dockerEntryOptions(entry.args.map(String));
+    return { projects, model };
+  }
+  const env = entry.env && typeof entry.env === "object" ? entry.env : {};
+  return { projects: String(env.AI_DEV_PROJECT_PATH ?? ""), model: String(env.AI_DEV_MODEL_PATH ?? "") };
+}
+
+/**
  * The command line a client config gets for the image.
  *
  * @param {object} input

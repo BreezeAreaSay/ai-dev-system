@@ -108,7 +108,8 @@ add CSV export for the report, cover the change with tests, and run verify_task.
 ```
 
 With Docker the server sees only the projects folder bootstrap mounted — `AI-Dev-Projects` in your
-home, unless `--project-path` (`-ProjectPath` on Windows) named another — so keep the project there.
+home, unless `--project-path` (`-ProjectPath` on Windows) or the entries bootstrap replaced named another —
+so keep the project there.
 On macOS and Linux the server sees it at its own path; on Windows it sees the folder as
 `/workspace`: name the project `/workspace/my-project`.
 

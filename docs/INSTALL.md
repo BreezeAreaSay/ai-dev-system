@@ -195,11 +195,10 @@ For a different project folder and some of the clients:
 sh ./bootstrap.sh --project-path "$HOME/Dev" --clients "codex,cursor,vscode"
 ```
 
-Restart the clients afterwards. Re-running it is safe with the same options (`--project-path`,
-`--model-path`): a config that already runs this image stays as it is, and the volume — vault,
-index, model — is kept. bootstrap does not read a folder back from an entry, so without the options
-it mounts `~/AI-Dev-Projects` again, whatever the entry mounted before, and no model folder unless
-`AI_DEV_MODEL_PATH` names one. To build the image from the clone
+Restart the clients afterwards. Re-running it is safe: a config that already runs this image stays
+as it is, the volume — vault, index, model — is kept, and so are the projects and model folders the
+entries mount, a 2.x entry's too, unless `--project-path` or `--model-path` names others; bootstrap
+says which it kept. To build the image from the clone
 instead of pulling it: `sh ./bootstrap.sh --build-local`. A client whose config cannot be written
 is named and the others are written all the same; the exit is then 1, and the 2.x runtime
 container stays until every config is rewritten (docs/DEFECTS.md, Д-335). A config that is a link
@@ -213,9 +212,8 @@ stops rather than installing it, and says when that copy was built and its diges
 anyway is a deliberate choice: `sh ./bootstrap.sh --allow-stale-image` (`-AllowStaleImage` on
 Windows).
 
-The way back to 2.x is `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`, with the
-same `--project-path` and `--model-path` as every other run: it too reads no folder back from the
-entries it replaces. A 2.x image has no installer of its own, so the configs that run it are written by an
+The way back to 2.x is `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-system:2`; it too keeps
+the folders the entries it replaces mount. A 2.x image has no installer of its own, so the configs that run it are written by an
 image of 3.0 or later: `AI_DEV_INSTALLER_IMAGE`, `ghcr.io/stonebridgeway/ai-dev-system:latest` by
 default. It is pulled — a copy cached before 3.0 would be a 2.x one — and used only once it is seen
 to have the installer; otherwise bootstrap stops and asks for one (Д-323, Д-329). `:2` exists once
@@ -704,7 +702,7 @@ stderr, until 4.0.
 | --- | --- |
 | The Windows installer | The app offers it; **Restart to update to …** in the tray, or it is installed at **Quit**. |
 | npx | `npx @stonebridgeway/ai-dev-system@latest setup`: the new copy goes beside the old one, the entries move to it, and the two copies chosen last stay, so a client still running the previous one keeps it. |
-| Docker | `docker pull ghcr.io/stonebridgeway/ai-dev-system:latest`: the next session runs it. Running bootstrap again does the same and rewrites what changed in the entries; it mounts the folders it is given, not the ones an entry mounts now, so run it with the same options: the projects folder — `--project-path` (`-ProjectPath`), `~/AI-Dev-Projects` without one — and a model folder on the host — `--model-path` (`-ModelPath`), or none when neither it nor `AI_DEV_MODEL_PATH` names one. A 2.x entry's `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH` are not read either: name those folders again. |
+| Docker | `docker pull ghcr.io/stonebridgeway/ai-dev-system:latest`: the next session runs it. Running bootstrap again does the same and rewrites what changed in the entries, keeping the projects and model folders they mount — a 2.x entry's `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH` too — unless `--project-path` (`-ProjectPath`) or `--model-path` (`-ModelPath`) names others. |
 | A clone | `git pull`, then `cd ai-dev-mcp-server && npm ci && npm run setup`. |
 
 An install of 2.x — a clone, the Docker launchers, the C# proxy for Claude on Windows — goes on

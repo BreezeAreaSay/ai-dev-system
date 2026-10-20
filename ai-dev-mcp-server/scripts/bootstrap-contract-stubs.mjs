@@ -4,7 +4,7 @@
  * A `docker` that logs each call (one line, the arguments joined by tabs) and
  * answers as a working engine would: the version, a pull (or a failed one, with
  * a cached copy of the image), the handshake with the server's instructions, and
- * for `ai-dev clients entry` an entry as JSON. PULL=fail makes the pull fail;
+ * for `ai-dev clients entry` an entry as JSON, for `ai-dev clients folders` FOLDERS (printf %b: \\t, \\n). PULL=fail makes the pull fail;
  * SMOKE=bad answers the handshake with something that is not the server's;
  * NO_CLI names the images without the 3.0 installer (2.x ones), space-separated;
  * INSTALL=fail makes the installer fail as one client it could not write does.
@@ -63,6 +63,7 @@ export const stubDocker = [
   '      esac',
   '      exit 0',
   '    done',
+  '    for a in "$@"; do [ "$a" = folders ] && { printf "%b" "${FOLDERS:-}"; exit 0; }; done',
   '    for a in "$@"; do [ "$a" = entry ] && { echo \'{"type":"stdio","command":"/usr/bin/docker","args":["run","-i","--rm","stub"]}\'; exit 0; }; done',
   '    for a in "$@"; do [ "$a" = install ] && { [ "${INSTALL:-}" = fail ] && { echo "  Cursor   FAILED  ~/.cursor/mcp.json: EACCES" >&2; exit 1; }; echo "  Cursor   added   ~/.cursor/mcp.json"; exit 0; }; done',
   '    cat > /dev/null',

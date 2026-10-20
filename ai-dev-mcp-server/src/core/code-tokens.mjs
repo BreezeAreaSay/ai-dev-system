@@ -94,11 +94,12 @@ function readEscape(text, at) {
  * class of characters or out of one — what it read.
  * Each `{` carries `literal`: whether it opens an object literal; a `[` right
  * after an operand carries `index`: it indexes a member — or, after a word like
- * `get` or `static`, begins a computed key —, an array literal or a pattern
- * never; a class's body carries `classBody`, an arrow's `arrowBody`; a `for`
- * head's `(` carries
- * `forHead`, the `{` or `[` of its binding `forBinding`, and its keyword `of`
- * `keyword`; a token right in a template's substitution, no bracket opened
+ * `get` or `static`, begins a computed key, after `extends` an array literal, a
+ * value too —, as does one that begins a class's member, a computed name; a
+ * pattern never; a class's body carries `classBody`, an arrow's
+ * `arrowBody`; a `for` head's `(` carries `forHead`, the `{` or `[` of its
+ * binding `forBinding`, and its keyword `of` `keyword`; a token right in a
+ * template's substitution, no bracket opened
  * since its `${`, carries `substitution`, and every token in a substitution
  * `within`: the index of its template's first token, whose `last` is the
  * index of the template's last token; that token carries `templateEnd`.
@@ -191,15 +192,16 @@ export function codeTokens(source, { script = false } = {}) {
     }
     const token = mark({ type, value, line: where });
     // `export * as class from …`, `export { a as class }`, `{ class: 1 }`, `import { class as k }`, `this.#class`: a name,
-    // not a class — an alias's `as` stands on `class`'s line or after `export *`: after `o.as` on the line before, a class
-    // begins; `export { a as⏎class }` waits, and its `}` ends the wait (Д-518, Д-530).
+    // not a class — an alias's `as` stands on `class`'s line, after `export *` (an `export` no member: `o.export * as⏎class`
+    // is a product and a class), or in a list: after `o.as` on the line before, a class begins; `export { a as⏎class }`
+    // waits, and its `}` ends the wait (Д-518, Д-530, Д-551).
     // Right in a class's body a word that begins a member — after `{`, `;`, `}`, `static`, or a line a member ended —
     // is the member's name: `class⏎  x⏎  static {}` is two fields and a static block, and opens no wait (Д-486, Д-499).
     // A substitution of a field's template is an expression's place, whatever came before it (Д-503).
     const last = tokens.at(-1);
     const named = token.substitution !== true && innermost().classBody === true && (isPunct(last, "{") || isPunct(last, ";") || isPunct(last, "}") || isName(last, "static")
       || (last.line < where && (endsOperand(last) || isMember(tokens.length - 1) || endsAtBreak(tokens.length - 1))));
-    const alias = isName(tokens.at(-1), "as") && (tokens.at(-1).line === where || (isPunct(tokens.at(-2), "*") && isName(tokens.at(-3), "export")));
+    const alias = isName(tokens.at(-1), "as") && (tokens.at(-1).line === where || (isPunct(tokens.at(-2), "*") && isName(tokens.at(-3), "export") && !isMember(tokens.length - 3)));
     if (type === "name" && (value === "class" || value === "function") && !isMember(tokens.length) && !alias && !named) {
       // `async` belongs to the function only on its line: `x = async⏎function f() {}` declares f (Д-423).
       const async = value === "function" && isName(tokens.at(-1), "async") && tokens.at(-1).line === where;
@@ -220,8 +222,9 @@ export function codeTokens(source, { script = false } = {}) {
     else if (type === "punct" && value === "(" && bodies.at(-1)?.depth === level() && bodies.at(-1).kind === "class" && bodies.at(-1).heritage !== true) bodies.pop();
     // In a `for` head `of` is the keyword right after the binding — a pattern's or a parenthesis's end, a member, a name
     // that is no keyword, or an `of` that is not the keyword — and nowhere else: `for (let i = of / 2; …)`,
-    // `for (k in of / 2)` and `for (const k of of / 2 ? of : of)` divide, `for (let of of …)` binds it (Д-448, Д-464).
-    if (type === "name" && value === "of" && innermost().forHead === true) {
+    // `for (k in of / 2)` and `for (const k of of / 2 ? of : of)` divide, `for (let of of …)` binds it (Д-448, Д-464); an
+    // `of` in a template's substitution there is a name (Д-555).
+    if (type === "name" && value === "of" && innermost().forHead === true && token.substitution !== true) {
       const binding = tokens.at(-1);
       const name = isName(binding) && (isMember(tokens.length - 1) || (binding.value === "of" ? binding.keyword !== true
         : !KEYWORDS_BEFORE_EXPRESSION.has(binding.value) && !["let", "const", "var"].includes(binding.value)));
@@ -232,9 +235,12 @@ export function codeTokens(source, { script = false } = {}) {
     if (type === "punct" && (value === "{" || value === "[") && (tokens.at(-1)?.forHead === true
       || (tokens.at(-2)?.forHead === true && ["let", "const", "var"].some((word) => isName(tokens.at(-1), word))))) token.forBinding = true;
     // A `[` right after an operand — where a `/` divides — indexes a member, a line break before it or not: `o[k] = v`, and
-    // `f()⏎[k] = v` is `f()[k] = v`; after `let`, `const`, `var` or a postfix it begins a pattern or a statement (Д-538).
-    if (type === "punct" && value === "[" && !fresh && !regexAllowed() && !postfix(tokens.length - 1)
-      && !["let", "const", "var"].some((word) => isName(tokens.at(-1), word))) token.index = true;
+    // `f()⏎[k] = v` is `f()[k] = v`; after the words `let`, `const`, `var` — no members of those names — or a postfix that
+    // ends no template it begins a pattern or a statement (Д-538, Д-552).
+    if (type === "punct" && value === "[" && !fresh && !regexAllowed() && (tokens.at(-1).templateEnd === true || !postfix(tokens.length - 1))
+      && !(["let", "const", "var"].some((word) => isName(tokens.at(-1), word)) && !isMember(tokens.length - 1))) token.index = true;
+    // One that begins a class's member — right in its body, after `{`, `;` or `}` — is a computed name, a value (Д-556).
+    if (type === "punct" && value === "[" && innermost().classBody === true && ["{", ";", "}"].some((end) => isPunct(tokens.at(-1), end))) token.index = true;
     if (type === "punct" && value === "{") {
       // Right after the word `extends` it begins the heritage, an object literal, and the class still waits for its body
       // (Д-507); after a member of that name, `o.extends {`, it is the body (Д-516).
@@ -242,7 +248,8 @@ export function codeTokens(source, { script = false } = {}) {
       token.literal = !owner && (fresh || valueAfter(tokens.length - 1, where));
       // A class's body: what stands right before it is the class's heritage, a call there too (Д-466).
       if (owner?.kind === "class") token.classBody = true;
-      // An arrow's body: no call follows it, and the line after it begins a statement unless it begins with `:` (Д-521).
+      // An arrow's body: no call follows it, and at its declaration's level — not in a template's code — the line after it
+      // begins a statement unless it begins with `:` (Д-521, Д-533).
       if (!owner && isPunct(tokens.at(-1), ">") && isPunct(tokens.at(-2), "=")) token.arrowBody = true;
       opened.push({ regexAfter: owner ? !owner.expression : !token.literal, statements: !token.literal, conditionals: 0, classBody: token.classBody === true });
     } else if (type === "punct" && (value === "(" || value === "[")) {
@@ -272,8 +279,12 @@ export function codeTokens(source, { script = false } = {}) {
       if (STATEMENT_ENDS.has(last.value) || labelled) return true;
       return last.value === "of" ? last.keyword === true : KEYWORDS_BEFORE_EXPRESSION.has(last.value);
     }
-    // An import's or a re-export's module ends its statement: `import x from "./m.mjs"⏎/re/.test(x)` (Д-537).
-    if (last.type === "string" && (isName(tokens.at(-2), "import") || (isName(tokens.at(-2), "from") && (isPunct(tokens.at(-3), "}") || isPunct(tokens.at(-3), "*") || isName(tokens.at(-3)))))) return true;
+    // An import's or a re-export's module ends its statement: `import x from "./m.mjs"⏎/re/.test(x)` (Д-537) — a string,
+    // not a template, after an `import` no member, or after a `from` a clause's end stands before: `}`, `*`, the name an
+    // `import` or an `as` stands before, or an alias's string, `export * as "a b" from` (Д-549).
+    const clause = isName(tokens.at(-3)) ? isName(tokens.at(-4), "import") || isName(tokens.at(-4), "as")
+      : isPunct(tokens.at(-3), "}") || isPunct(tokens.at(-3), "*") || (tokens.at(-3)?.type === "string" && isName(tokens.at(-4), "as"));
+    if (last.type === "string" && last.template !== true && ((isName(tokens.at(-2), "import") && !isMember(tokens.length - 2)) || (isName(tokens.at(-2), "from") && clause))) return true;
     if (last.type !== "punct") return false;
     if (last.value === ")" || last.value === "]" || last.value === "}") return last.regexAfter === true;
     // `x++ / 2` and `stats.new++ / 2` divide; `a + + /re/` is a plus, a unary plus and a regular expression (Д-424, Д-508),

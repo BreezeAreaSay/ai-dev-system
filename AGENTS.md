@@ -105,8 +105,8 @@ server's code and the desktop app's as tokens (`src/core/code-tokens.mjs`; the
 rules in `src/core/forbidden-calls.mjs`, docs/DEFECTS.md Д-267, Д-382, Д-398,
 Д-407 … Д-410, Д-422 … Д-426, Д-431, Д-432, Д-440 … Д-448, Д-459 … Д-466, Д-472
 … Д-476, Д-480 … Д-482, Д-486 … Д-490, Д-496, Д-499 … Д-511, Д-515 … Д-523,
-Д-527, Д-530, Д-531, Д-533, Д-534, Д-537, Д-538), every escape decoded, and
-rejects the usual spellings and their plain equivalents: `exec` and
+Д-527, Д-530, Д-531, Д-533, Д-534, Д-537, Д-538, Д-548 … Д-556), every escape
+decoded, and rejects the usual spellings and their plain equivalents: `exec` and
 `execSync` of `child_process` — through a named, default or namespace import,
 `require`, `import()` or `process.getBuiltinModule` called by name, as a member
 or by a plain-string key, in parentheses, or through `.call` or `.apply`, the
@@ -131,14 +131,14 @@ object or an array (`module.exports = { cp }`, `export const [run] = [cp]`), on
 (`(module.exports).cp = cp`), or only part of a value (`cp || fallback`) and a
 name bound to that, an exported `let` or `var` a pattern declares or whose name
 the file declares again, a global taken out of itself by a pattern
-(`{ globalThis: g } = globalThis`), `await` or `yield` written as a name in a
-script, which it reads as the keyword, and a class's member on the line after
-`n++` or a word an operand follows (a field named `in` or `return`, `this.in`),
-which it reads as an assignment or, named `class` or `function`, as declaring
-the name after it — a `class` after a field named `in` and the like, not
-`return` or `yield`, as waiting for a body too —, are past it — so it keeps
-honest code honest and is no sandbox. Never interpolate a variable into a command string.
-See `ai-dev-mcp-server/docs/SECURITY.md`.
+(`{ globalThis: g } = globalThis`), `await`, `yield` or `let` written as a name
+in a script, which it reads as the keyword, and a class's member on the line
+after `n++` or a word an operand follows (a field named `in` or `return`,
+`this.in`), which it reads as an assignment or, named `class` or `function`, as
+declaring the name after it — a `class` after a field named `in` and the like,
+not `return` or `yield`, as waiting for a body too —, are past it — so it keeps
+honest code honest and is no sandbox. Never interpolate a variable into a
+command string. See `ai-dev-mcp-server/docs/SECURITY.md`.
 
 ## How a change is finished
 

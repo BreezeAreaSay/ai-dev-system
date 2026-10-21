@@ -338,12 +338,18 @@ test("a rebuild's collection gives other work a turn and finds exactly what the 
   buildVault(root);
   for (let index = 0; index < 300; index += 1) write(root, `02-knowledge/many/note-${index}.md`, `# Note ${index}\n\nbody ${index}\n`);
   const plain = collectDocuments({ vaultRoot: root });
+  // Other work that waits for its turn as the collection gives it: a timer
+  // counted milliseconds instead, of which a fast runner took only ten.
   let turns = 0;
-  const other = setInterval(() => {
+  let reading = true;
+  const other = () => {
+    if (!reading) return;
     turns += 1;
-  }, 0);
+    setImmediate(other);
+  };
+  setImmediate(other);
   const yielding = await collectDocumentsYielding({ vaultRoot: root }, { sliceMs: 0 });
-  clearInterval(other);
+  reading = false;
   assert.deepEqual(yielding.docs.map((doc) => [doc.id, doc.content_hash]), plain.docs.map((doc) => [doc.id, doc.content_hash]));
   assert.equal(yielding.duplicates, plain.duplicates);
   assert.ok(plain.docs.length > 300);

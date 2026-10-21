@@ -88,7 +88,7 @@ It has passed when every step is green — the download matched every file's sha
 READY, the inference test ran (it skips only without the weights) — and the summary shows every document
 embedded (0 pending) and the golden cases at least where search stands without the model: 37 of 45, mean
 reciprocal rank 0.510 — lexical search alone on the same cases and today's catalogue (`run_search_eval`
-with `include_dense: false` on `a9a02e9`). Fewer means dense scoring makes ranking worse: record it, and do not merge. Delete the
+with `include_dense: false` on `819e8cd`). Fewer means dense scoring makes ranking worse: record it, and do not merge. Delete the
 branch afterwards:
 `git push https://github.com/stonebridgeway/ai-dev-system.git --delete release/3.0.0`.
 
@@ -214,18 +214,18 @@ or delete the tag on the package's page.
 ## What was run, and where
 
 Everything here ran in the program's sandbox — Linux, Docker 29.8.2, Node 22.22 and 24 — on the branch's
-commit `a9a02e9` unless another is named. Nothing was pushed or published.
+commit `819e8cd` unless another is named. Nothing was pushed or published.
 
 | Step | What ran | What it printed |
 |---|---|---|
-| 1 | the clone, `git fetch` of the branch, `git merge --ff-only` | exit 0; the fork's `main` (`096c982`) is an ancestor of the branch |
+| 1 | the clone, `git fetch` of the branch, `git merge --ff-only` | exit 0; the fork's `main` (`60449e3`) is an ancestor of the branch |
 | 2 | the freeze guard of `docker-publish.yml`, with production's tags and with `v3.0.0-rc.1` | "goes on: no release of 3.0 or later"; with `v3.0.0` tagged — "refuses: v3.0.0 is tagged" |
 | 3 | `git fetch "$PROD" main && git checkout -B release-3.0.0 FETCH_HEAD`; the CHANGELOG edit, its commit and the tag on the head the merge brings | exit 0 each (production's `main` is `7bef129` until the merge); the two pushes — not run |
 | 4 | `npm run dist:pack`; `npx --yes ai-dev-system@3.0.0 version` in a clean `node:24-bookworm-slim` through a registry that serves that tarball and sends everything else to registry.npmjs.org | `ai-dev-system-3.0.0.tgz`, 10,177,660 bytes, 1,830 files, name `ai-dev-system`; `ai-dev 3.0.0 (Node 24.22.0, linux-x64)`, `npm view` → `3.0.0` |
 | — | the README's `npx` path in a clean container: setup, the clients, the first task, the removal | exit 0; Cursor's config restored byte for byte |
-| — | the image built from the branch: `ai-dev version`, `docker:smoke`, `docker:upgrade-check` from the 2.x image `2x-8f647df` | `3.0.0`; pass (first session 1,917 ms, next 906 ms); pass |
+| — | the image built from the branch: `ai-dev version`, `docker:smoke`, `docker:upgrade-check` from the 2.x image `2x-86aba56` | `3.0.0`; pass (first session 1,917 ms, next 906 ms); pass |
 | — | the README's Docker path: no client, `bootstrap.sh`, the first task, bootstrap again with no folder named and over a 2.x entry (Д-403), the way back to the 2.x image and the return | exit 0 each; the projects folder of the entries kept and named |
-| — | `npm run upgrade:test` from production's `8f647df`, the `v2.0.0` tag (`346095d`) and production's `main` (`7bef129`) | 199 of 199 checks each, the way back included |
+| — | `npm run upgrade:test` from production's `86aba56`, the `v2.0.0` tag (`346095d`) and production's `main` (`7bef129`) | 199 of 199 checks each, the way back included |
 | — | `npm run check`; `npm run acceptance` | the phase 15 report (`docs/program/reports/phase-15.md`) |
 
 Not run here: anything that pushes or publishes, production's CI, `dense-eval` on the real weights, Windows

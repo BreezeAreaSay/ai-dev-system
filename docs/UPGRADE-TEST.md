@@ -8,7 +8,7 @@ a clone; `npm run docker:upgrade-check` does it for a Docker volume and the 2.x 
 
 ```bash
 cd ai-dev-mcp-server
-npm run upgrade:test                 # base: 8f647df, production main when 3.0 started
+npm run upgrade:test                 # base: 86aba56, production main when 3.0 started
 npm run upgrade:test -- --base <commit> --keep
 ```
 
@@ -81,8 +81,8 @@ the 3.0 image you built to write the entries: `AI_DEV_INSTALLER_IMAGE=ai-dev-sys
 bootstrap tries to pull that one too, so Docker's "pull access denied for ai-dev-system …" is
 expected, and the image built here is used.
 
-It needs Docker, the two images and this clone with the base commit in it (`8f647df`; a shallow
-clone fetches it with `git fetch origin 8f647df1372fa5fa2a998b74e40130ed772797d0`): the 2.x
+It needs Docker, the two images and this clone with the base commit in it (`86aba56`; a shallow
+clone fetches it with `git fetch origin 86aba56f9d2b7ebd6e883f4774778bd0625e17e3`): the 2.x
 launcher is read from there. `docker-publish.yml` runs it on every pull request against the
 production image — `:2`, or `:latest` until `:2` exists (owner decision D9). On a
 scratch volume and a scratch folder, both removed at the end:

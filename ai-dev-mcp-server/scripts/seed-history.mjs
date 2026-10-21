@@ -44,7 +44,7 @@ function git(args, { encoding = "utf8" } = {}) {
 }
 
 /** Production `main` when the 3.0 program started: the newest 2.x a volume can have been filled from. */
-export const SEED_HISTORY_BASE = "8f647df1372fa5fa2a998b74e40130ed772797d0";
+export const SEED_HISTORY_BASE = "86aba56f9d2b7ebd6e883f4774778bd0625e17e3";
 
 /**
  * The blobs' contents, by one `git cat-file --batch`: a process per blob took

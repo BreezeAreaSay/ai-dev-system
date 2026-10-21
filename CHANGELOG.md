@@ -1970,7 +1970,7 @@ four of those arrived as upstream issues #63–#66.
   them, were each run against it: none differs on 336,107 programs V8 accepts from seven fuzzers, and
   on 721 probes only the three that change one past the limit above do, each on a `class` after a
   field named `in` (Д-554). Round 15's rule for a pattern's bracket (Д-561) took the place of the
-  stops C1 … C4 and C8 change: this account is of `e987699`'s code.
+  stops C1 … C4 and C8 change: this account is of `538a632`'s code.
 - **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be

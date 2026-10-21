@@ -2,23 +2,23 @@
 
 Статус: готова (2026-10-12)
 PR: — работа идёт прямо в `main` форка по указанию владельца 2026-10-10 (PROGRESS, «Отступления»)
-· код фазы — head `d2a4adf` · старт от `main` @ `3174584` (конец фазы 5)
-Объём: `3174584..d2a4adf` — 95 файлов, +7 158 / −1 631 строк
+· код фазы — head `3aaedda` · старт от `main` @ `1b062e9` (конец фазы 5)
+Объём: `1b062e9..3aaedda` — 95 файлов, +7 158 / −1 631 строк
 
 ### 1. Пункты
 
 | # | Пункт | Статус | Где | Комментарий |
 |---|---|---|---|---|
-| 1 | `"bin": { "ai-dev": "bin/ai-dev.mjs" }`; `setup` (`--yes`, `--model`, `--frontend-qa`, `--clients=…`, вопросы в TTY), `mcp`, `clients list\|install\|remove\|doctor`, `model install\|import\|verify\|remove\|status`, `doctor`, `version`, `help`; один парсер, понятные ошибки, коды выхода | ✅ | `bin/ai-dev.mjs`, `src/cli/` (`main`, `setup`, `clients`, `model`, `runtime`, `context`), `src/core/cli-args.mjs`; `7099327`, `55de74b` | сверх списка: `model doctor` (бывший `dense:doctor`), команды 2.x (`dashboard`, `galaxy`, `reindex`, `refresh`, `distribution`, `acceptance`, `backup`); коды 0/1/2/130; команды грузятся по требованию — справка и опечатка не трогают ни рантайм, ни данные (Д-161) |
-| 2 | Один модуль записи конфигов для локального режима и Docker: Claude Code, Claude Desktop (со Store), Cursor, VS Code, Codex (чужое и комментарии сохраняются), Gemini; имя `ai-dev`; `command` — `process.execPath`, `args` — путь к CLI и `mcp`; `ai-dev-system` уходит с резервной копией; повтор ничего не меняет | ✅ | `src/core/mcp-clients.mjs`, `jsonc-edit.mjs`, `toml-edit.mjs`, `mcp-client-check.mjs`; `scripts/install-docker-mcp-clients.mjs`; `7099327`, `11d26fb` | правка файлов текстом (JSONC и TOML), атомарная запись с перечитыванием перед `rename`, симлинк — через ссылку, права файла сохраняются; `remove` возвращает нетронутый файл байт в байт (запись в `~/.ai-dev/state/mcp-clients.json`); Д-95, Д-162, Д-163 |
-| 3 | Д-103: хуки с абсолютным путём к node или через лаунчер, работают без node в PATH; обе копии | ✅ (часть фазы 6) | `hooks/with-node.sh`, `src/core/agent-hooks.mjs`; `7e2a940`, `457f230` | на macOS и Linux — `/bin/sh .ai-dev/hooks/with-node.sh <скрипт>`, git-заглушки тоже; Windows — `node`; Docker-часть Д-103 — фаза 13 |
-| 4 | `setup`, `doctor`, `clients:install`, `dense:doctor` — алиасы CLI; `scripts/ai-dev.mjs` поглощён; `scripts/start-local.ps1` удалён; Docker-лаунчеры не тронуты | ⚠️ | `package.json`, `scripts/*.mjs`, `scripts/start-local.ps1`; `7099327` | алиасы — да (и `model`, `dashboard`, `galaxy`, `refresh`, `backup`, `distribution`, `ai-dev`); `scripts/ai-dev.mjs` — делегат; `start-local.ps1` не удалён, а стал обёрткой с предупреждением до 4.0 — правило 5.2 брифа (раздел 6) |
-| 5 | Совместимость: записи 2.x работают без переустановки; хуки 2.x работают, повторный `install_agent_hooks` их обновляет; `clients install` мигрирует обе формы имени | ✅ | `scripts/upgrade-check.mjs`; `4681d50` | `upgrade:test` — 122 проверки (было 88), у всех четырёх пользователей 2.x |
-| 6 | Документация EN/RU: из клона `npm ci && npm run setup` | ✅ | README, README.ru, INSTALL, GUARDRAILS, UPGRADE-TEST (EN/RU), README сервера, ARCHITECTURE, AGENTS.md; `9882886` | |
-| — | Д-145: хук supply-chain и подсказки исправлений через прокси | ✅ | `src/core/http-download.mjs` (тело запроса, `proxyFetch`), `security-fix-registry.mjs`, `hooks/http-proxy.mjs`, `hooks/supply-chain.mjs`; `7e2a940` | записан в фазе 5 на эту фазу; копия клиента в `hooks/` по правилу 3 AGENTS.md, тест сверяет выбор прокси двух копий |
-| — | Флаг модели — `--model`, `--dense` остался синонимом | ✅ | `src/core/first-run.mjs`, подсказки в 13 модулях, тесты, документация; `55de74b` | |
-| — | Д-165 (найден пробой): повторный `install_agent_hooks` терял хуки пользователя в нашей группе | ✅ | `src/core/agent-hooks.mjs`; `575fb5c` (запись), `457f230` | поведение 2.x, но на пути миграции, который фаза 6 советует |
-| — | Независимое ревью фазы: одна must-fix, пять should-fix, одиннадцать мелочей — Д-166 … Д-172; его непроверенный пункт (`CLAUDE_CONFIG_DIR`) проверен живым Claude Code — Д-173 | ✅ | записи до правки `0990394`, `5b4b47c`; правки `5474ae6`, `2e1daaa`, `37789b4`, `c6663d1`, `35b5634`, `02e8e0b`, `6970ab5`, `d2a4adf` | каждая находка воспроизведена здесь пробой ревью или своей, записана с замером «до» и закрыта в фазе с замером «после» (раздел 4) |
+| 1 | `"bin": { "ai-dev": "bin/ai-dev.mjs" }`; `setup` (`--yes`, `--model`, `--frontend-qa`, `--clients=…`, вопросы в TTY), `mcp`, `clients list\|install\|remove\|doctor`, `model install\|import\|verify\|remove\|status`, `doctor`, `version`, `help`; один парсер, понятные ошибки, коды выхода | ✅ | `bin/ai-dev.mjs`, `src/cli/` (`main`, `setup`, `clients`, `model`, `runtime`, `context`), `src/core/cli-args.mjs`; `7d03280`, `25a1219` | сверх списка: `model doctor` (бывший `dense:doctor`), команды 2.x (`dashboard`, `galaxy`, `reindex`, `refresh`, `distribution`, `acceptance`, `backup`); коды 0/1/2/130; команды грузятся по требованию — справка и опечатка не трогают ни рантайм, ни данные (Д-161) |
+| 2 | Один модуль записи конфигов для локального режима и Docker: Claude Code, Claude Desktop (со Store), Cursor, VS Code, Codex (чужое и комментарии сохраняются), Gemini; имя `ai-dev`; `command` — `process.execPath`, `args` — путь к CLI и `mcp`; `ai-dev-system` уходит с резервной копией; повтор ничего не меняет | ✅ | `src/core/mcp-clients.mjs`, `jsonc-edit.mjs`, `toml-edit.mjs`, `mcp-client-check.mjs`; `scripts/install-docker-mcp-clients.mjs`; `7d03280`, `609057f` | правка файлов текстом (JSONC и TOML), атомарная запись с перечитыванием перед `rename`, симлинк — через ссылку, права файла сохраняются; `remove` возвращает нетронутый файл байт в байт (запись в `~/.ai-dev/state/mcp-clients.json`); Д-95, Д-162, Д-163 |
+| 3 | Д-103: хуки с абсолютным путём к node или через лаунчер, работают без node в PATH; обе копии | ✅ (часть фазы 6) | `hooks/with-node.sh`, `src/core/agent-hooks.mjs`; `b3982e8`, `ca2de9f` | на macOS и Linux — `/bin/sh .ai-dev/hooks/with-node.sh <скрипт>`, git-заглушки тоже; Windows — `node`; Docker-часть Д-103 — фаза 13 |
+| 4 | `setup`, `doctor`, `clients:install`, `dense:doctor` — алиасы CLI; `scripts/ai-dev.mjs` поглощён; `scripts/start-local.ps1` удалён; Docker-лаунчеры не тронуты | ⚠️ | `package.json`, `scripts/*.mjs`, `scripts/start-local.ps1`; `7d03280` | алиасы — да (и `model`, `dashboard`, `galaxy`, `refresh`, `backup`, `distribution`, `ai-dev`); `scripts/ai-dev.mjs` — делегат; `start-local.ps1` не удалён, а стал обёрткой с предупреждением до 4.0 — правило 5.2 брифа (раздел 6) |
+| 5 | Совместимость: записи 2.x работают без переустановки; хуки 2.x работают, повторный `install_agent_hooks` их обновляет; `clients install` мигрирует обе формы имени | ✅ | `scripts/upgrade-check.mjs`; `efb454d` | `upgrade:test` — 122 проверки (было 88), у всех четырёх пользователей 2.x |
+| 6 | Документация EN/RU: из клона `npm ci && npm run setup` | ✅ | README, README.ru, INSTALL, GUARDRAILS, UPGRADE-TEST (EN/RU), README сервера, ARCHITECTURE, AGENTS.md; `6ed4a0f` | |
+| — | Д-145: хук supply-chain и подсказки исправлений через прокси | ✅ | `src/core/http-download.mjs` (тело запроса, `proxyFetch`), `security-fix-registry.mjs`, `hooks/http-proxy.mjs`, `hooks/supply-chain.mjs`; `b3982e8` | записан в фазе 5 на эту фазу; копия клиента в `hooks/` по правилу 3 AGENTS.md, тест сверяет выбор прокси двух копий |
+| — | Флаг модели — `--model`, `--dense` остался синонимом | ✅ | `src/core/first-run.mjs`, подсказки в 13 модулях, тесты, документация; `25a1219` | |
+| — | Д-165 (найден пробой): повторный `install_agent_hooks` терял хуки пользователя в нашей группе | ✅ | `src/core/agent-hooks.mjs`; `12ed71c` (запись), `ca2de9f` | поведение 2.x, но на пути миграции, который фаза 6 советует |
+| — | Независимое ревью фазы: одна must-fix, пять should-fix, одиннадцать мелочей — Д-166 … Д-172; его непроверенный пункт (`CLAUDE_CONFIG_DIR`) проверен живым Claude Code — Д-173 | ✅ | записи до правки `1034303`, `a3294f7`; правки `17d5313`, `ef330ee`, `c5aff81`, `a8eb60f`, `6813f1c`, `e382c20`, `dcbeeff`, `3aaedda` | каждая находка воспроизведена здесь пробой ревью или своей, записана с замером «до» и закрыта в фазе с замером «после» (раздел 4) |
 
 ### 2. Дефекты
 
@@ -31,12 +31,12 @@ PR: — работа идёт прямо в `main` форка по указан�
 | Д-162 | Docker-установщик: пустой `mcp.json` → exit 1, stack trace, записан только codex; комментарий в Gemini → exit 1, записаны два из шести; подтаблица и `"ai-dev"` в Codex → `tomllib`: «Cannot declare … twice» | пустой и JSONC — exit 0, записаны все шесть, комментарий на месте; оборванный JSON — exit 1, `partial`, пять из шести записаны, строка названа; оба `config.toml` читаются | закрыт |
 | Д-163 | `~/.claude.json` на 21 388 952 байт, `SIGKILL` при изменении размера → 0 байт, 10 из 10 битые | `SIGKILL` через 150–625 мс, 20 прогонов → битых 0 (исходный 13, записанный 7); брошенные `.tmp` удаляются следующим запуском | закрыт |
 | Д-164 | репозиторий Git с `package.json` в `apps/web`: хук `project-3dab8b…` (корень), сервер `project-208b89…` (`apps/web`) | — | открыт: фаза 8 (правило 4) |
-| Д-165 | хук пользователя в группе Stop и в группе Bash рядом с нашими → после повторного `install_agent_hooks`: оба пропали (`3174584` и `9882886`) | оба на месте, в своих группах под своим matcher; третья установка ничего не меняет | закрыт |
+| Д-165 | хук пользователя в группе Stop и в группе Bash рядом с нашими → после повторного `install_agent_hooks`: оба пропали (`1b062e9` и `6ed4a0f`) | оба на месте, в своих группах под своим matcher; третья установка ничего не меняет | закрыт |
 | Д-166 | `r6/toml-overlap.mjs` (две таблицы сервера делят пустую строку) → `removeTables`: `mcp_servers.github]` — `tomllib`: «Expected '=' after a key»; `upsertTables`: ` keep` вместо `# keep`; фузз ревью, 20 000 документов (18 328 читаемых): 288 удалений и 44 вставки — невалидный TOML | оба результата читаются; фузз — 0 и 0, чужие таблицы целы; правка, которая сломала бы файл или задела чужую таблицу, отказывается до записи; BOM остаётся | закрыт |
 | Д-167 | `r6/slow-registry.mjs` (настоящий документ typescript, 2,5 МБ/с, gzip по запросу) → 3 004 мс, «typescript@latest was not fully checked: … no answer in 3s.»; `fetchPackageMetadata` на документе 66,5 МБ → «over the 40 MB cap» | 1 045 / 1 020 / 1 040 мс, предупреждений нет; ok, 2 000 версий; загрузка модели по-прежнему просит `identity` | закрыт |
 | Д-168 | от root, HOME 1000:1000 → `clients install`: `mcp.json` и копия 0:0 600, новые `settings.json` и `.codex/config.toml` 0:0, `~/.ai-dev` и запись 0:0 | всё 1000:1000, права файла те же (600) — после install и после remove | закрыт |
 | Д-169 | запись Cursor с `/old/clone/…/server.mjs` → `clients doctor`: «FAILED — it exited with code 1 before answering: Node.js v22.22.0» | «… before answering: Error: Cannot find module '/old/clone/ai-dev-mcp-server/src/server.mjs'», exit 1 | закрыт |
-| Д-170 | (по коду) тесты CLI без APPDATA/LOCALAPPDATA пишут в настоящие конфиги на Windows, 0600 там не бывает; Linux-аналог через `XDG_CONFIG_HOME`: тесты `0e7775e` один раз запустили запись разработчика (`clients doctor`) | 0 запусков, конфиг разработчика не тронут; каждый запуск CLI в тестах — со своей APPDATA, LOCALAPPDATA, XDG_CONFIG_HOME, CODEX_HOME | закрыт; прогон на Windows — чек-лист |
+| Д-170 | (по коду) тесты CLI без APPDATA/LOCALAPPDATA пишут в настоящие конфиги на Windows, 0600 там не бывает; Linux-аналог через `XDG_CONFIG_HOME`: тесты `0276572` один раз запустили запись разработчика (`clients doctor`) | 0 запусков, конфиг разработчика не тронут; каждый запуск CLI в тестах — со своей APPDATA, LOCALAPPDATA, XDG_CONFIG_HOME, CODEX_HOME | закрыт; прогон на Windows — чек-лист |
 | Д-171 | `AI_DEV_NODE=<папка bin>` → «exec: …: Permission denied», 126; `with-node.sh` без скрипта → 2 (блок для Claude Code); CRLF-копия → синтаксическая ошибка | предупреждение «… is not a Node executable; looking for Node elsewhere», хук выполнен, 0; без скрипта → 1; `.gitattributes` — клон с `core.autocrlf=true` даёт LF, лаунчер разбирается | закрыт |
 | Д-172 | 11 мелочей: симлинк-папка клиента; Ctrl-C на вопросе → 1; комментарий уезжал к нашей записи и пропадал; cp1251 → U+FFFD; BOM в TOML; Docker без `apply` писал; `bare_node_commands` на Windows; обёртка 2.x и `claude`; `--timeout=abc` → «NaN s»; «..»; `hooks/` вне статических проверок | «restored», файла нет; 130 и «Stopped with Ctrl-C at a question…»; комментарий у своего члена, вставка и удаление — исходный текст; отказ «not UTF-8 text», файл байт в байт; BOM на месте; «would-add», файл не тронут; 0 на Windows; четыре клиента 2.x и `claude` = Claude Code; exit 2 с фразой; одна точка; 411 файлов вместо 398, подброшенные `eval`, ключ и синтаксическая ошибка в `hooks/` пойманы | закрыт |
 | Д-173 | Claude Code 2.1.296 с `CLAUDE_CONFIG_DIR` (HOME и папка — временные) → `clients install --clients claude-code`: «added ~/.claude.json»; в `$CLAUDE_CONFIG_DIR/.claude.json` записи нет; `claude mcp list` — только сервер пользователя | «added …/claude-config/.claude.json»; `claude mcp list` — «ai-dev: … - √ Connected»; без переменной — то же в `~/.claude.json` | закрыт |
@@ -51,8 +51,8 @@ PR: — работа идёт прямо в `main` форка по указан�
 | `remove` возвращает исходное | `node bin/ai-dev.mjs clients remove`, `cmp` с исходными | шесть `restored`; `cmp` — шесть из шести идентичны исходным | ✅ |
 | Команда из конфига запускается и отвечает на `initialize` с `instructions` | `node bin/ai-dev.mjs clients doctor` | шесть из шести «ok — ai-dev-system 2.0.0 answered in 313–507 ms, instructions 1048 chars» | ✅ |
 | Хук работает при PATH без node | проба `d103/probe.mjs` (MCP `install_agent_hooks`, PATH только с git); тест `a hook runs with no Node on PATH …`; `upgrade:test` | 9 из 9 команд — exit 0 (2.x — 0 из 9, 127); тест 2.x-команда — 127, новая — 0; upgrade:test — 4 из 4 | ✅ |
-| `upgrade:test` покрывает конфиги и хуки 2.x | `npm run upgrade:test` | 122 из 122 за 116 с на итоговом `d2a4adf` (было 88): у четырёх пользователей 2.x оба установщика 2.x, затем `clients install` — одна запись `ai-dev` с копией, каждая команда отвечает на `initialize`, повтор ничего не меняет, переустановленный хук работает без Node в PATH | ✅ |
-| `check` и `acceptance` зелёные | раздел 4 | `check` на `d2a4adf` — exit 0, 1 609 тестов, 0 упали, покрытие строк 97,71 %; `acceptance` — «0 падений из 10» на `073ec9c` и на `d2a4adf` | ✅ |
+| `upgrade:test` покрывает конфиги и хуки 2.x | `npm run upgrade:test` | 122 из 122 за 116 с на итоговом `3aaedda` (было 88): у четырёх пользователей 2.x оба установщика 2.x, затем `clients install` — одна запись `ai-dev` с копией, каждая команда отвечает на `initialize`, повтор ничего не меняет, переустановленный хук работает без Node в PATH | ✅ |
+| `check` и `acceptance` зелёные | раздел 4 | `check` на `3aaedda` — exit 0, 1 609 тестов, 0 упали, покрытие строк 97,71 %; `acceptance` — «0 падений из 10» на `796b190` и на `3aaedda` | ✅ |
 | В чек-лист владельца: на Windows Claude Desktop, Cursor и VS Code видят `ai-dev`, `begin_task` отвечает | — | раздел 8 | ✅ |
 
 #### 3.1. Diff конфигов после `setup --yes --clients all`
@@ -158,22 +158,22 @@ PR: — работа идёт прямо в `main` форка по указан�
 
 ### 4. Проверки
 
-- `npm run check` на итоговом коде (`d2a4adf`): exit 0; 1 609 тестов, 1 592 прошли, 0 упали, 17 пропущены; покрытие
-  строк 97,71 %; 57 с (в конце фазы 5 — 1 548 тестов, 97,66 %). До ревью, на `9882886`, — 1 594 теста, 0 упали,
-  97,68 %; после правок ревью, на `073ec9c`, — 1 608 тестов, 0 упали, 97,70 %.
-- `npm run acceptance`: «0 падений из 10» на итоговом `d2a4adf` (прогоны 60–62 с, без параллельной нагрузки) и
-  «0 падений из 10» на `073ec9c` (правки ревью до Д-173; 58–62 с).
-- `npm run upgrade:test`: 122 из 122 за 116 с на итоговом `d2a4adf` и за 115 с на `073ec9c` (88 в конце фазы 5): у каждого из четырёх пользователей
+- `npm run check` на итоговом коде (`3aaedda`): exit 0; 1 609 тестов, 1 592 прошли, 0 упали, 17 пропущены; покрытие
+  строк 97,71 %; 57 с (в конце фазы 5 — 1 548 тестов, 97,66 %). До ревью, на `6ed4a0f`, — 1 594 теста, 0 упали,
+  97,68 %; после правок ревью, на `796b190`, — 1 608 тестов, 0 упали, 97,70 %.
+- `npm run acceptance`: «0 падений из 10» на итоговом `3aaedda` (прогоны 60–62 с, без параллельной нагрузки) и
+  «0 падений из 10» на `796b190` (правки ревью до Д-173; 58–62 с).
+- `npm run upgrade:test`: 122 из 122 за 116 с на итоговом `3aaedda` и за 115 с на `796b190` (88 в конце фазы 5): у каждого из четырёх пользователей
   2.x — оба установщика 2.x в его HOME, затем `clients install`: одна запись `ai-dev` вместо `ai-dev-system` и
   Docker-записи, копия у каждого файла, каждая записанная команда отвечает на `initialize`, повтор — «No changes»;
   переустановленный хук работает с PATH, где есть только git.
-- **Приёмочный сценарий на итоговом коде** (`p6/acc.sh`: HOME из шести конфигов раздела 3.1; `073ec9c` и `d2a4adf`):
+- **Приёмочный сценарий на итоговом коде** (`p6/acc.sh`: HOME из шести конфигов раздела 3.1; `796b190` и `3aaedda`):
   `setup --yes --clients all` — exit 0 за 1,8 с, 6 added, «Health: ok — 24 check(s)»; diff шести файлов совпал с разделом 3.1 строка в строку;
   повтор — «No changes: every client already runs this install»; `clients doctor` — 6 из 6 отвечают на `initialize`,
-  instructions 1 048; `clients remove` — 6 restored, `cmp` — 6 из 6 байт в байт. (Первый прогон, на `9882886`, — 3,8 с:
+  instructions 1 048; `clients remove` — 6 restored, `cmp` — 6 из 6 байт в байт. (Первый прогон, на `6ed4a0f`, — 3,8 с:
   индекс тогда строился с нуля вместе с реестром skills.)
-- **Пробы по MCP на итоговом коде** (`probes/mcp-probes.mjs`, SDK Client, HOME в scratch): 5 из 5 на `073ec9c` и на
-  `d2a4adf`, из них «чего быть не должно» — три:
+- **Пробы по MCP на итоговом коде** (`probes/mcp-probes.mjs`, SDK Client, HOME в scratch): 5 из 5 на `796b190` и на
+  `3aaedda`, из них «чего быть не должно» — три:
   1. репозиторий с регистрациями 2.x: `bare_node_commands` 2 → 0 после `install_agent_hooks`, чужие записи и
      `permissions` на месте, `echo mine` в группе Stop не пропал (не должно: потеря хука пользователя, Д-165);
   2. git-заглушки идут через лаунчер;
@@ -183,9 +183,9 @@ PR: — работа идёт прямо в `main` форка по указан�
 - **Пробы находок ревью** — до и после на одних и тех же входах (раздел 2): `r6/toml-overlap.mjs` и фузз TOML на 20 000
   документов, `r6/slow-registry.mjs` и документ на 66,5 МБ, `d168/probe.sh` от root, `d169/probe.sh`, `d170` (запись
   разработчика, считающая свои запуски), `d171` (лаунчер в своей папке), `d172/*` и pty для Ctrl-C.
-- **Ревью диффа.** Независимый субагент прочитал `3174584..9882886`, гонял свои пробы в отдельной папке и в
+- **Ревью диффа.** Независимый субагент прочитал `1b062e9..6ed4a0f`, гонял свои пробы в отдельной папке и в
   репозитории ничего не менял. Нашёл одну must-fix, пять should-fix и одиннадцать мелочей. Каждую я воспроизвёл здесь —
-  его пробой или своей (Д-170 — по коду и Linux-аналогом), записал до правки (`0990394`, Д-166 … Д-172) и закрыл:
+  его пробой или своей (Д-170 — по коду и Linux-аналогом), записал до правки (`1034303`, Д-166 … Д-172) и закрыл:
   - must-fix: правка `config.toml` портила его, когда две таблицы сервера делили пустую строку (Д-166) — та же беда,
     что Д-162: Codex не читает файл целиком. Теперь участки сливаются, а результат каждой правки перечитывается: файл,
     который не читается или в котором изменилась чужая таблица, не пишется;
@@ -203,13 +203,13 @@ PR: — работа идёт прямо в `main` форка по указан�
   скрипта; git-заглушка с одним git в PATH отказала коммиту с подложным ключом AWS; две копии выбора прокси совпадают
   текстом; правила AGENTS.md; исправление Д-165.
 - **Пробы фазы нашли своё до ревью:** Д-165 (повторный `install_agent_hooks` терял хуки пользователя) — записан до
-  правки (`575fb5c`) и закрыт; разведка — Д-161 … Д-164.
+  правки (`12ed71c`) и закрыт; разведка — Д-161 … Д-164.
 - **CLAUDE_CONFIG_DIR и живой Claude Code.** Ревью отметило как непроверенное, справочный субагент по документации
   ответа не нашёл (переменная описана как папка настроек, истории и плагинов; в issue anthropics/claude-code#3833 отчёты
   пользователей расходятся). Проверено здесь: Claude Code 2.1.296 установлен в песочнице, HOME и `CLAUDE_CONFIG_DIR` —
   временные папки. `claude mcp add --scope user` пишет в `$CLAUDE_CONFIG_DIR/.claude.json`, а `~/.claude.json` не
   создаёт; без переменной — в `~/.claude.json`. Установщик писал всегда в `~/.claude.json` — Д-173, записан до правки
-  (`5b4b47c`) и закрыт (`d2a4adf`). После правки сам Claude Code читает нашу запись и подключается: `claude mcp list` —
+  (`a3294f7`) и закрыт (`3aaedda`). После правки сам Claude Code читает нашу запись и подключается: `claude mcp list` —
   «ai-dev: /opt/node22/bin/node <clone>/ai-dev-mcp-server/bin/ai-dev.mjs mcp - √ Connected», с переменной и без; после
   `clients remove` в списке остаётся только сервер пользователя. Это первая проверка живым клиентом в программе — для
   Claude Code на Linux; остальные клиенты и другие ОС — чек-лист владельца.

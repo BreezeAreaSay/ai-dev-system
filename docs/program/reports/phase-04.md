@@ -2,34 +2,34 @@
 
 Статус: готово. CI-джоб «без Python» на macOS и Windows написан по документации и проверен только на Linux (CI форка не стартует) — в чек-лист владельца
 PR: — работа идёт прямо в `main` форка по указанию владельца 2026-10-10 (PROGRESS, «Отступления»)
-· код фазы — head `cc6e69c` · старт от `main` @ `b709e89` (конец фазы 3)
-Объём: `b709e89..cc6e69c` — 68 files changed, 3529 insertions(+), 3806 deletions(-) (из них `src` и `scripts` — 43 files, 2767 insertions(+), 1065 deletions(-)); удалён `search-index/search_cli.py`, 1 820 строк
+· код фазы — head `41a7953` · старт от `main` @ `72ba0b5` (конец фазы 3)
+Объём: `72ba0b5..41a7953` — 68 files changed, 3529 insertions(+), 3806 deletions(-) (из них `src` и `scripts` — 43 files, 2767 insertions(+), 1065 deletions(-)); удалён `search-index/search_cli.py`, 1 820 строк
 
 ### 1. Пункты
 
 | # | Пункт | Статус | Где | Комментарий |
 |---|---|---|---|---|
-| 1 | Hybrid, dense-plan и запись векторов — в Node; векторы из воркера пишутся прямо в индекс | ✅ | `src/core/search-hybrid.mjs` (485 строк), `dense-index.mjs`, `search-index.mjs`; `f0d7a93`, `6cdeba2` | dense-plan и запись векторов перенесены ещё в фазе 3; hybrid — порт `hybrid_search` с кэшем разобранных векторов по хешу содержимого; legacy-бэкенд эмбеддит через воркер (со своими папкой модели и устройством — Д-138), пишет Node |
-| 2 | `search_knowledge` — через индекс, формат ответа прежний | ✅ | `src/core/search-knowledge.mjs`; `f0d7a93`, `f1949a0` | `{ path, score, preview }`, та же оценка; что ищется теперь и чего не находит — раздел 6, п. 3 (Д-142) |
-| 3 | Python уходит: `search_cli.py` и его тесты удалены; `pythonCommand` — только для опционального; `query_ui_ux_knowledge` без Python — честная ошибка, отметка в `doctor` и в документации профиля frontend | ✅ | `f0d7a93`, `dd6a3d3`; `src/core/python-failure.mjs`, `python-command.mjs`, `system-health.mjs`, `extensions/system.mjs`; `docs/CAPABILITIES.md` (EN/RU) | 6 оставшихся случаев `test_search_freshness.py` — в `search-freshness.test.mjs`; Python запускают только два инструмента UI UX Pro Max (не один — раздел 6, п. 1) и legacy-бэкенд векторов; проверка здоровья — `ok` только если интерпретатор ответил `--version` как Python 3 (Д-139); grep — раздел 4 |
+| 1 | Hybrid, dense-plan и запись векторов — в Node; векторы из воркера пишутся прямо в индекс | ✅ | `src/core/search-hybrid.mjs` (485 строк), `dense-index.mjs`, `search-index.mjs`; `33c9ead`, `946e856` | dense-plan и запись векторов перенесены ещё в фазе 3; hybrid — порт `hybrid_search` с кэшем разобранных векторов по хешу содержимого; legacy-бэкенд эмбеддит через воркер (со своими папкой модели и устройством — Д-138), пишет Node |
+| 2 | `search_knowledge` — через индекс, формат ответа прежний | ✅ | `src/core/search-knowledge.mjs`; `33c9ead`, `c36b372` | `{ path, score, preview }`, та же оценка; что ищется теперь и чего не находит — раздел 6, п. 3 (Д-142) |
+| 3 | Python уходит: `search_cli.py` и его тесты удалены; `pythonCommand` — только для опционального; `query_ui_ux_knowledge` без Python — честная ошибка, отметка в `doctor` и в документации профиля frontend | ✅ | `33c9ead`, `976b883`; `src/core/python-failure.mjs`, `python-command.mjs`, `system-health.mjs`, `extensions/system.mjs`; `docs/CAPABILITIES.md` (EN/RU) | 6 оставшихся случаев `test_search_freshness.py` — в `search-freshness.test.mjs`; Python запускают только два инструмента UI UX Pro Max (не один — раздел 6, п. 1) и legacy-бэкенд векторов; проверка здоровья — `ok` только если интерпретатор ответил `--version` как Python 3 (Д-139); grep — раздел 4 |
 | 4 | Health и `doctor` работают без Python | ✅ | `npm run doctor` без Python | 24 проверки, `ok`; `ui_ux_knowledge` — `skipped` (необязательная) |
-| 5 | CI: джоб «чистая машина без Python» на ubuntu, macos и windows — `npm ci`, `setup`, `doctor`, protocol smoke | ⚠️ | `.github/workflows/ci.yml` (`no-python`), `scripts/no-python-check.mjs`, `src/core/python-free-path.mjs`; `f0d7a93`, `b1d7b46` | на Linux проверен в песочнице, на macOS и Windows — по документации и тестам на подменённом `platform`: CI форка не стартует (раздел 5) |
-| 6 | Документация EN/RU: «Node.js 22.13+ и больше ничего»; CONTRIBUTING без Python | ✅ | `7d0a395`, `f1949a0`: README, INSTALL, CAPABILITIES (EN/RU), README сервера, ARCHITECTURE, CONTRIBUTING, UPGRADE-TEST (EN/RU), `docker/README.md` | «22.16+» вместо «22.13+» — отступление фазы 3 |
+| 5 | CI: джоб «чистая машина без Python» на ubuntu, macos и windows — `npm ci`, `setup`, `doctor`, protocol smoke | ⚠️ | `.github/workflows/ci.yml` (`no-python`), `scripts/no-python-check.mjs`, `src/core/python-free-path.mjs`; `33c9ead`, `788edac` | на Linux проверен в песочнице, на macOS и Windows — по документации и тестам на подменённом `platform`: CI форка не стартует (раздел 5) |
+| 6 | Документация EN/RU: «Node.js 22.13+ и больше ничего»; CONTRIBUTING без Python | ✅ | `79c2de3`, `c36b372`: README, INSTALL, CAPABILITIES (EN/RU), README сервера, ARCHITECTURE, CONTRIBUTING, UPGRADE-TEST (EN/RU), `docker/README.md` | «22.16+» вместо «22.13+» — отступление фазы 3 |
 | — | Галактика знаний без Python | ✅ | `src/core/galaxy-export.mjs` (241 строка); `extensions/galaxy.mjs` | экспорт в памяти, байт в байт как у помощника |
 | — | `npm run search:parity` после удаления помощника | ✅ | `scripts/search-parity.mjs` | берёт помощник из истории git; сверяет файлы, поиск по словам, hybrid (с dense и без) и галактику |
-| — | Дефекты, найденные в фазе: Д-133 (`embed_texts`), Д-134 (тест Д-128 под нагрузкой), Д-135 (датировка реестра) | ✅/⚠️ | `46c7619`, `9a01449`; `ef99574`, `d4cd375` | Д-133 и Д-134 закрыты; Д-135 — дефект фазы 3, записан на фазу 7 (правило 4 брифа) |
-| — | Правки по независимому ревью | ✅ | `4c25f1b` (запись), `00c1cc6` … `cc6e69c` | одна «must-fix», четыре «should-fix», три замечания — все подтверждены замером и исправлены, Д-136 … Д-142 (раздел 4) |
+| — | Дефекты, найденные в фазе: Д-133 (`embed_texts`), Д-134 (тест Д-128 под нагрузкой), Д-135 (датировка реестра) | ✅/⚠️ | `fd3c979`, `665888a`; `d40c661`, `ec40b4a` | Д-133 и Д-134 закрыты; Д-135 — дефект фазы 3, записан на фазу 7 (правило 4 брифа) |
+| — | Правки по независимому ревью | ✅ | `3e8af11` (запись), `714eeca` … `41a7953` | одна «must-fix», четыре «should-fix», три замечания — все подтверждены замером и исправлены, Д-136 … Д-142 (раздел 4) |
 
 ### 2. Дефекты
 
 | № | «до»: команда → вывод | «после»: команда → вывод | Статус |
 |---|---|---|---|
-| Д-85 | PATH без Python: после фазы 3 Health fail только `hybrid_smoke_no_dense`; по MCP отказывают `hybrid_search`, `preset_search`, `explain_search`, `render_knowledge_galaxy`, `query_ui_ux_knowledge` (`spawn python3 ENOENT`), `run_search_eval` — 0 из 45 | `node scripts/no-python-check.mjs` в чистом worktree `cc6e69c`, пустой HOME: `npm ci`; `setup` — 4 built, 0 failed, Health ok 24/24; `doctor` ok; protocol smoke pass; 17 с. По MCP отвечают все 13 поисковых инструментов, `search_knowledge`, галактика, `prepare_project`, `refresh_project_memory`; `run_search_eval` 38 из 45 | закрыт |
-| Д-98 (питоновская часть) | `rebuild_search_index {dense_embeddings}` без модели → `spawn …/embeddings/.venv/bin/python ENOENT` (по коду, `babb7e2`) | → «Dense vectors were asked for, but no embedding model can run here. Dense search is not installed. Run `npm run setup -- --dense` …»; `built_at` и число документов индекса не изменились | открыт: остальное — фаза 5 (менеджер модели) |
+| Д-85 | PATH без Python: после фазы 3 Health fail только `hybrid_smoke_no_dense`; по MCP отказывают `hybrid_search`, `preset_search`, `explain_search`, `render_knowledge_galaxy`, `query_ui_ux_knowledge` (`spawn python3 ENOENT`), `run_search_eval` — 0 из 45 | `node scripts/no-python-check.mjs` в чистом worktree `41a7953`, пустой HOME: `npm ci`; `setup` — 4 built, 0 failed, Health ok 24/24; `doctor` ok; protocol smoke pass; 17 с. По MCP отвечают все 13 поисковых инструментов, `search_knowledge`, галактика, `prepare_project`, `refresh_project_memory`; `run_search_eval` 38 из 45 | закрыт |
+| Д-98 (питоновская часть) | `rebuild_search_index {dense_embeddings}` без модели → `spawn …/embeddings/.venv/bin/python ENOENT` (по коду, `8bd0a60`) | → «Dense vectors were asked for, but no embedding model can run here. Dense search is not installed. Run `npm run setup -- --dense` …»; `built_at` и число документов индекса не изменились | открыт: остальное — фаза 5 (менеджер модели) |
 | Д-102 | `search_knowledge`, 15 вопросов × 2: seed — медиана 233 мс; полный каталог 2.x — 439 мс | seed — 3 мс (p90 4); полный каталог — 10 мс (p90 18) | закрыт |
 | Д-117 (hybrid) | `hybrid_search("frontend AND backend testing")` → `keyword_score` 0 у всех 10 | у 7 из 10 `keyword_score` > 0 | закрыт |
 | Д-133 | ONNX выбран: `embed_texts` → «BGE-M3 Python runtime not found», ONNX вызван 0 раз; без модели — та же ошибка | ONNX выбран: вектор от ONNX; без модели — «Dense search is not installed. Run `npm run setup -- --dense` …» | закрыт |
-| Д-134 | `npm run acceptance` → «3 падения из 10», тест Д-128; копия теста с паузой 25 мс перед правкой — 10 из 10 падают | пауза 0, 25 и 500 мс — по 10 из 10 проходят; acceptance на `cc6e69c` — «0 падений из 10» | закрыт |
+| Д-134 | `npm run acceptance` → «3 падения из 10», тест Д-128; копия теста с паузой 25 мс перед правкой — 10 из 10 падают | пауза 0, 25 и 500 мс — по 10 из 10 проходят; acceptance на `41a7953` — «0 падений из 10» | закрыт |
 | Д-135 | правка skill сразу после того, как перестройка запомнила время, — не видна в 299 из 300; ни один тест датировку реестра не проверяет | — | открыт: фаза 7 |
 | Д-136 | `cp -a … search-index …` из `package()` PKGBUILD → exit 1; `packaging:check` passed | copy exit 0; `packaging:check` падает на пути, которого нет в репозитории | закрыт |
 | Д-137 | без Python `server.test.mjs` → fail 1 | без Python весь набор: 1 521 тест, 0 упали | закрыт |
@@ -43,27 +43,27 @@ PR: — работа идёт прямо в `main` форка по указан�
 
 | Критерий | Команда | Фактический вывод | ✅/❌ |
 |---|---|---|---|
-| Без Python: setup — 0 failed | `node scripts/no-python-check.mjs` (чистый worktree `cc6e69c`, пустой HOME) | `4 built, 3 skipped, 0 failed.` `Health: ok — 24 check(s), 0 not passing.` | ✅ |
+| Без Python: setup — 0 failed | `node scripts/no-python-check.mjs` (чистый worktree `41a7953`, пустой HOME) | `4 built, 3 skipped, 0 failed.` `Health: ok — 24 check(s), 0 not passing.` | ✅ |
 | Без Python: `doctor` ok по всем проверкам | там же, `npm run -s doctor` | `status: ok`; 19 `ok`, 5 `skipped` (frontend_qa_environment, ui_ux_knowledge, embedding_backend, dense_smoke, search_eval — необязательные или выключенные флагами), 0 fail/warn | ✅ |
 | Без Python: все 13 поисковых инструментов и `search_knowledge` отвечают | `measure2.mjs` по MCP, PATH без Python | 12 отвечают результатом; `embed_texts` без модели — «Dense search is not installed. Run `npm run setup -- --dense` …» (модели в песочнице нет); `search_knowledge` — 50 результатов | ✅ |
 | `search_knowledge` ≤ 100 мс (было ~2,5 с) | там же, 15 вопросов × 2, тёплый сервер | seed — медиана 3 мс; полный каталог 2.x — 10 мс | ✅ |
 | `hybrid_search` без dense ≤ 100 мс (было ~0,42 с) | там же | seed — медиана 11 мс; полный каталог 2.x — 21 мс (было 141 и 316, процесс Python на каждый вызов) | ✅ |
 | grep по базовому пути не находит вызовов python | grep — раздел 4 | в коде поиска, setup и doctor запуска Python нет; остались UI UX Pro Max, legacy-бэкенд векторов (`--dense-python`), проба `--version` для проверки здоровья и dev-сверка | ✅ |
 | Golden cases не хуже, чем в фазе 3 | `run_search_eval` по MCP | 38 из 45, MRR 0,514 (фаза 3: 37 из 45, MRR 0,510; перед фазой 4 с Python — 38 из 45) | ✅ |
-| `check`, `acceptance`, `upgrade:test` зелёные | раздел 4 | check — 1 521 тест, 0 упали; acceptance — «0 падений из 10» на `cc6e69c`; upgrade:test — 62 из 62 | ✅ |
+| `check`, `acceptance`, `upgrade:test` зелёные | раздел 4 | check — 1 521 тест, 0 упали; acceptance — «0 падений из 10» на `41a7953`; upgrade:test — 62 из 62 | ✅ |
 | В чек-лист владельца: чистая Windows без Python — клон, `npm ci`, `setup`, `doctor` | — | раздел 8 | ✅ |
 
 ### 4. Проверки
 
-- `npm run check` на `cc6e69c`: exit 0; 1 521 тест, 1 504 прошли, 0 упали, 17 пропущены; покрытие строк 97,51 %
+- `npm run check` на `41a7953`: exit 0; 1 521 тест, 1 504 прошли, 0 упали, 17 пропущены; покрытие строк 97,51 %
   (в конце фазы 3 — 1 480 тестов, 97,40 %). Тот же набор (`node --test`) при спрятанном Python — 1 521, 0 упали.
-- `npm run acceptance`: «0 падений из 10» на итоговом коде `cc6e69c` (прогоны 46–51 с, под нагрузкой: параллельно
-  шли `upgrade:test`, проверка «без Python» в чистом worktree и пробы). Первый прогон, на `25d1cab`, — «3 падения из 10»:
+- `npm run acceptance`: «0 падений из 10» на итоговом коде `41a7953` (прогоны 46–51 с, под нагрузкой: параллельно
+  шли `upgrade:test`, проверка «без Python» в чистом worktree и пробы). Первый прогон, на `9280640`, — «3 падения из 10»:
   тест Д-128 (Д-134, ниже).
-- `npm run upgrade:test`: 62 из 62 за 90 с на `cc6e69c` (три пользователя: по умолчанию, `AI_DEV_HOME`, том Docker);
+- `npm run upgrade:test`: 62 из 62 за 90 с на `41a7953` (три пользователя: по умолчанию, `AI_DEV_HOME`, том Docker);
   hybrid читает индекс, который держит обновлённый сервер; векторы 2.x — байт в байт.
 - Минимальная Node: релизная сборка 22.16.0, `test:core` — 1 234 теста, 0 упали, 3 пропущены.
-- `npm run search:parity` (помощник из истории git, `353feff`): seed (831 документ) и полный каталог 2.x
+- `npm run search:parity` (помощник из истории git, `b73ae2f`): seed (831 документ) и полный каталог 2.x
   (3 443) — все таблицы индекса без различий; поиск по словам — golden 85 из 85, заголовки 300 из 300;
   hybrid — 385 из 385 ответов поле в поле, с синтетическими dense-векторами — 85 из 85; галактика —
   `nodes.json`, `semantic.f32`, `dense.f32` байт в байт.
@@ -93,12 +93,12 @@ PR: — работа идёт прямо в `main` форка по указан�
 - `src/mcp-stdio.mjs`: 4 869 строк при потолке 5 076 (на старте фазы 4 891, на старте программы 4 914);
   новые модули ≤ 800 строк; `lint` и `security` чисты; `docker:prepare` и `docker:audit` прошли — в
   контексте сборки нет `search-index`.
-- **Ревью диффа.** Независимый субагент прочитал `353feff..7d0a395`, гонял свою сверку с помощником
+- **Ревью диффа.** Независимый субагент прочитал `b73ae2f..79c2de3`, гонял свою сверку с помощником
   (734 случая × 4 индекса: фильтры, веса, лимиты, без dense-таблицы, с выключенным dense; ещё 270 —
   CJK, эмодзи, длинные вопросы, BOM, кавычки — единственные расхождения — Д-117) и в репозитории ничего не
   менял. Нашёл одну «must-fix», четыре «should-fix» и три замечания; три других, которые он нашёл бы,
-  уже были исправлены после `7d0a395` (Д-133, скрипты Python в зеркале PATH, CHANGELOG фазы 3). Каждая
-  находка воспроизведена здесь своим замером, записана до правки (`4c25f1b`, Д-136 … Д-142) и исправлена:
+  уже были исправлены после `79c2de3` (Д-133, скрипты Python в зеркале PATH, CHANGELOG фазы 3). Каждая
+  находка воспроизведена здесь своим замером, записана до правки (`3e8af11`, Д-136 … Д-142) и исправлена:
   - рецепты AUR и Homebrew копировали удалённый `search-index` — сборка пакета падала (Д-136);
   - `server.test.mjs` требовал Python (Д-137);
   - legacy-перестройка теряла `dense_model_dir` и `dense_device` (Д-138);
@@ -109,7 +109,7 @@ PR: — работа идёт прямо в `main` форка по указан�
   Его предупреждение о риске CI: Windows-половина джоба впервые прогонит `setup` и `doctor` на Windows и
   требует `status: ok` — любая посторонняя Windows-проблема здоровья его уронит. Оставлено строгим
   намеренно: это и есть критерий фазы; в чек-листе владельца.
-- **Acceptance нашёл и своё.** Первый прогон acceptance на `25d1cab` — «3 падения из 10», каждый раз тест
+- **Acceptance нашёл и своё.** Первый прогон acceptance на `9280640` — «3 падения из 10», каждый раз тест
   Д-128 из фазы 3: его поддельные часы стояли раньше записи, которую он проверяет (Д-134, исправлено). Разбор
   вскрыл дефект продукта той же фазы — датировку реестра точными часами (Д-135, на фазу 7).
 

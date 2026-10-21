@@ -2,26 +2,26 @@
 
 Статус: готово
 PR: — работа идёт прямо в `main` форка по указанию владельца 2026-10-10 (PROGRESS, «Отступления»)
-· код фазы — head `37d24cb` (дальше только отчёт и журнал) · старт от `main` @ `d545d48`
-Объём: `d545d48..d61eb0e` — 72 files changed, 4107 insertions(+), 585 deletions(-)
+· код фазы — head `097f722` (дальше только отчёт и журнал) · старт от `main` @ `a99dc77`
+Объём: `a99dc77..0ef6fc7` — 72 files changed, 4107 insertions(+), 585 deletions(-)
 
 ### 1. Пункты
 
 | # | Пункт | Статус | Где | Комментарий |
 |---|---|---|---|---|
-| 1 | Д-86: `npm install`/`npm ci` без `--ignore-scripts` | ✅ | `ai-dev-mcp-server/.npmrc`, `39356ec`; документация и CI — `2a8b122` | `ignore-scripts=true` вместо `onnxruntime-node-install=skip` (отступление 1); флаг убран из README, INSTALL EN/RU, README сервера, `docker/README.md`, CONTRIBUTING, трёх TEST-PLAN; CI — простой `npm ci`; Dockerfile флаг сохраняет (в контексте сборки нет `.npmrc`); `packaging:check` стережёт и `.npmrc`, и страницы |
-| 2 | Д-87: lockfile через `npx npm@11.17.0`, override sharp | ✅ | `ai-dev-mcp-server/package-lock.json`, `package.json`, `39356ec` | 0 дублей, один onnxruntime-node 1.30.0, `npm ls sharp` → 0.35.4 без override, `npm run security` зелёный |
-| 3 | Д-88: прокси монтирует `/models` и отвергает старое значение; контрактный тест | ✅ | `docker/ClaudeMcpProxy.cs`, `scripts/model-mount-contract.test.mjs`, `3eacea4` | пять копий сверяются с Dockerfile; сборка и запуск прокси в Mono — 3 из 3, на старом — 0 из 3 |
-| 4 | Д-90: одна семантика `AI_DEV_HOME`, миграция, `doctor` | ✅ | `src/core/runtime-home.mjs`, `runtime-home-migration.mjs`, `hooks/lib.mjs`, проверка `runtime_home`, `628ac6a` | `AI_DEV_HOME`, равный домашнему каталогу, сохраняет смысл 2.x (отступление 4); идентичность проекта не менялась |
-| 5 | Д-91: Membrane по источнику | ✅ | `search-index/search_cli.py`, `src/core/skill-catalog.mjs`, `src/mcp-stdio.mjs`, `e15c598` | eligible 370 = 3 444 − 3 074 |
-| 6 | Д-92: bootstrap ставит только движок | ✅ | `bootstrap.sh`, `scripts/bootstrap-contract.test.mjs`, `fe4321a` | Ubuntu 24.04 — в контейнере; Debian, Fedora, Arch — не проверено (раздел 5) |
-| 7 | Д-93: frontend-qa по pnpm-lock, Chromium, без ✓ без браузера | ✅ | `src/core/frontend-qa-install.mjs`, `scripts/first-run.mjs`, `frontend-qa/frontend_qa_runner.mjs`, `29d2d12` | успешный путь проверен через локальное зеркало Chrome for Testing; Windows — по коду |
-| 8 | Д-94: один выбор Python | ✅ | `src/core/python-command.mjs`, `4942a8f` | сервер, установщик и legacy-venv зовут одну функцию |
-| 9 | Д-96: межпроцессная дозапись и RMW в обеих копиях | ✅ | `src/core/file-lock.mjs`, `atomic-files.mjs`, `hooks/lib.mjs`, хранилища, `a1d118d` | обрыв процесса: протухание по мёртвому pid, возрасту, пустой записи; оборванный хвост JSONL отрезается |
-| 10 | `npm run upgrade:test` | ✅ | `scripts/upgrade-check.mjs`, `454b451`, `2a8b122`, `263b5ef`; `docs/UPGRADE-TEST.md` (EN/RU) | три пользователя: по умолчанию, `AI_DEV_HOME`, раскладка тома Docker; контейнерная половина — сценарием для CI |
-| — | Д-112: `npm test` запускал тест обновления как модульный | ✅ | `263b5ef` | дефект самой фазы, найден на воротах, заведён и закрыт |
-| — | Публикация образа — только из репозитория прода | ✅ | `.github/workflows/docker-publish.yml`, `2a8b122` | отступление 2 |
-| — | Правки по независимому ревью | ✅ | `37d24cb` | шесть «should-fix» и пять замечаний исправлены, раздел 4 |
+| 1 | Д-86: `npm install`/`npm ci` без `--ignore-scripts` | ✅ | `ai-dev-mcp-server/.npmrc`, `4ac2e38`; документация и CI — `32d268a` | `ignore-scripts=true` вместо `onnxruntime-node-install=skip` (отступление 1); флаг убран из README, INSTALL EN/RU, README сервера, `docker/README.md`, CONTRIBUTING, трёх TEST-PLAN; CI — простой `npm ci`; Dockerfile флаг сохраняет (в контексте сборки нет `.npmrc`); `packaging:check` стережёт и `.npmrc`, и страницы |
+| 2 | Д-87: lockfile через `npx npm@11.17.0`, override sharp | ✅ | `ai-dev-mcp-server/package-lock.json`, `package.json`, `4ac2e38` | 0 дублей, один onnxruntime-node 1.30.0, `npm ls sharp` → 0.35.4 без override, `npm run security` зелёный |
+| 3 | Д-88: прокси монтирует `/models` и отвергает старое значение; контрактный тест | ✅ | `docker/ClaudeMcpProxy.cs`, `scripts/model-mount-contract.test.mjs`, `6dfdc95` | пять копий сверяются с Dockerfile; сборка и запуск прокси в Mono — 3 из 3, на старом — 0 из 3 |
+| 4 | Д-90: одна семантика `AI_DEV_HOME`, миграция, `doctor` | ✅ | `src/core/runtime-home.mjs`, `runtime-home-migration.mjs`, `hooks/lib.mjs`, проверка `runtime_home`, `046953e` | `AI_DEV_HOME`, равный домашнему каталогу, сохраняет смысл 2.x (отступление 4); идентичность проекта не менялась |
+| 5 | Д-91: Membrane по источнику | ✅ | `search-index/search_cli.py`, `src/core/skill-catalog.mjs`, `src/mcp-stdio.mjs`, `7dbed8f` | eligible 370 = 3 444 − 3 074 |
+| 6 | Д-92: bootstrap ставит только движок | ✅ | `bootstrap.sh`, `scripts/bootstrap-contract.test.mjs`, `f93974b` | Ubuntu 24.04 — в контейнере; Debian, Fedora, Arch — не проверено (раздел 5) |
+| 7 | Д-93: frontend-qa по pnpm-lock, Chromium, без ✓ без браузера | ✅ | `src/core/frontend-qa-install.mjs`, `scripts/first-run.mjs`, `frontend-qa/frontend_qa_runner.mjs`, `7327808` | успешный путь проверен через локальное зеркало Chrome for Testing; Windows — по коду |
+| 8 | Д-94: один выбор Python | ✅ | `src/core/python-command.mjs`, `a0c98d1` | сервер, установщик и legacy-venv зовут одну функцию |
+| 9 | Д-96: межпроцессная дозапись и RMW в обеих копиях | ✅ | `src/core/file-lock.mjs`, `atomic-files.mjs`, `hooks/lib.mjs`, хранилища, `bd11440` | обрыв процесса: протухание по мёртвому pid, возрасту, пустой записи; оборванный хвост JSONL отрезается |
+| 10 | `npm run upgrade:test` | ✅ | `scripts/upgrade-check.mjs`, `63a8ed0`, `32d268a`, `7e26153`; `docs/UPGRADE-TEST.md` (EN/RU) | три пользователя: по умолчанию, `AI_DEV_HOME`, раскладка тома Docker; контейнерная половина — сценарием для CI |
+| — | Д-112: `npm test` запускал тест обновления как модульный | ✅ | `7e26153` | дефект самой фазы, найден на воротах, заведён и закрыт |
+| — | Публикация образа — только из репозитория прода | ✅ | `.github/workflows/docker-publish.yml`, `32d268a` | отступление 2 |
+| — | Правки по независимому ревью | ✅ | `097f722` | шесть «should-fix» и пять замечаний исправлены, раздел 4 |
 
 ### 2. Дефекты
 
@@ -47,18 +47,18 @@ PR: — работа идёт прямо в `main` форка по указан�
 | `npm install` без флагов → exit 0 | чистый клон, пустой HOME, `npm install --no-audit --no-fund` | npm 10.9.4: exit 0; npm 11.17.0: exit 0 | ✅ |
 | 3 × 200 → 600 строк в 10 прогонах подряд | `node d96-measure.mjs append 10` (и jsonl, rmw, mixed) | 600 в каждом из 10 прогонов, во всех четырёх режимах | ✅ |
 | `kill -9` посреди записи не оставляет битых строк | `node d96-measure.mjs kill 10` | битых строк 0 в 10 прогонах, выжившие — 200 из 200 | ✅ |
-| `upgrade:test` зелёный | `npm run upgrade:test` | `41 of 41 checks passed in 73 s.` (на `37d24cb`) | ✅ |
-| `npm run check` зелёный | `npm run check` | exit 0: 1 354 теста, 1 337 pass, 0 fail, 17 skipped; покрытие строк 97,30 %; 1 м 7 с (на `37d24cb`) | ✅ |
-| `npm run acceptance` зелёный | `npm run acceptance` | `0 падений из 10`, прогоны по 64–72 с, 11 м 18 с (на `37d24cb`) | ✅ |
+| `upgrade:test` зелёный | `npm run upgrade:test` | `41 of 41 checks passed in 73 s.` (на `097f722`) | ✅ |
+| `npm run check` зелёный | `npm run check` | exit 0: 1 354 теста, 1 337 pass, 0 fail, 17 skipped; покрытие строк 97,30 %; 1 м 7 с (на `097f722`) | ✅ |
+| `npm run acceptance` зелёный | `npm run acceptance` | `0 падений из 10`, прогоны по 64–72 с, 11 м 18 с (на `097f722`) | ✅ |
 
 ### 4. Проверки
 
-- `npm run check` (на `37d24cb`): 1 354 / 1 337 / 0 / 17; покрытие строк 97,30 %, ветвей 85,32 %.
-- `npm run acceptance` (на `37d24cb`): `0 падений из 10`, прогоны по 64–72 с.
-- `npm run upgrade:test`: 41 из 41 за 73 с на `37d24cb` (и 41 из 41 на `263b5ef` до правок по ревью).
-- Пробы сервера по MCP (SDK Client, `scratchpad/p2/probes.mjs`), 7 из 7 как ожидалось — и до правок по ревью, и после (на `37d24cb`):
+- `npm run check` (на `097f722`): 1 354 / 1 337 / 0 / 17; покрытие строк 97,30 %, ветвей 85,32 %.
+- `npm run acceptance` (на `097f722`): `0 падений из 10`, прогоны по 64–72 с.
+- `npm run upgrade:test`: 41 из 41 за 73 с на `097f722` (и 41 из 41 на `7e26153` до правок по ревью).
+- Пробы сервера по MCP (SDK Client, `scratchpad/p2/probes.mjs`), 7 из 7 как ожидалось — и до правок по ревью, и после (на `097f722`):
   1. **Чего быть не должно:** два сервера пишут разом и теряют события расходов — 200 из 200
-     `record_usage` в журнале, отказов 0. На коде до Д-96 (`39356ec`) та же проба: 94 из 200.
+     `record_usage` в журнале, отказов 0. На коде до Д-96 (`4ac2e38`) та же проба: 94 из 200.
   2. **Чего быть не должно:** два сервера укрепляют один инстинкт и теряют обновление —
      `observations` 50 из 50. До Д-96: 35 из 50.
   3. Задача, которую 2.x положила на уровень глубже, после обновления находится через `get_task`.
@@ -76,9 +76,9 @@ PR: — работа идёт прямо в `main` форка по указан�
   в один. Исправленная проба: без `task_id` и 50 укреплений одного инстинкта.
 - `src/mcp-stdio.mjs`: 4 898 строк при потолке 5 076 (на старте фазы — 4 914); модули `src/core`
   в пределах 800, `lint` чист.
-- **Ревью диффа.** Независимый субагент прочитал весь дифф фазы (`d545d48..263b5ef`), прогнал
+- **Ревью диффа.** Независимый субагент прочитал весь дифф фазы (`a99dc77..7e26153`), прогнал
   пробы в scratchpad, в репозитории ничего не менял. Блокирующих находок нет; шесть «should-fix»
-  и восемь замечаний. Каждое перепроверено здесь до правки; исправлено в `37d24cb`:
+  и восемь замечаний. Каждое перепроверено здесь до правки; исправлено в `097f722`:
   - ротация журнала и дозапись в одном процессе — взаимная блокировка: 15 067 мс и потерянная
     строка → 14 мс; тест падает на старом порядке;
   - две миграции разом: ENOENT во втором процессе (3 из 3 здесь), повторное слияние журнала (у

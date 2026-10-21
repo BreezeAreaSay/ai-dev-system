@@ -2,22 +2,22 @@
 
 Статус: готова (2026-10-12)
 PR: — работа идёт прямо в `main` форка по указанию владельца 2026-10-10 (PROGRESS, «Отступления»)
-· код фазы — head `64a5ccf` · старт от `main` @ `6450e71` (конец фазы 6)
-Объём: `6450e71..64a5ccf` — 68 файлов, +4 615 / −614 строк
+· код фазы — head `1d6b889` · старт от `main` @ `c9d4af6` (конец фазы 6)
+Объём: `c9d4af6..1d6b889` — 68 файлов, +4 615 / −614 строк
 
 ### 1. Пункты
 
 | # | Пункт | Статус | Где | Комментарий |
 |---|---|---|---|---|
-| 1 | `npm run dist` → `dist/ai-dev/`: рантайм, prod-зависимости, seed, search-eval, манифест модели, хуки, ресурсные документы; состав — один манифест-allowlist, его же используют Docker-контекст и установщик | ✅ | `ai-dev-mcp-server/distribution.allowlist.json`, `src/core/distribution-build.mjs`, `scripts/build-dist.mjs`, `scripts/prepare-docker-context.mjs`; `943b769`, `fd8928b` | папка повторяет раскладку репозитория (`ai-dev-mcp-server/`, `frontend-qa/`, `search-eval/`, `seed/`): раннер Frontend QA импортирует сервер по относительному пути. Рядом — `package.json` пакета, `npm-shrinkwrap.json` из lockfile сервера, `distribution.json` со sha256 каждого файла. Установщик Windows (фаза 12) возьмёт ту же папку |
-| 2 | Модуль раскладки: корень приложения, seed и данные в раскладках клон, пакет/dist, Docker без допущений о `09-mcp`; `AI_DEV_VAULT_ROOT` — для полного хранилища | ✅ | `src/core/install-layout.mjs`; `src/mcp-stdio.mjs` (вместо своего `resolveVaultRoot`); `899d5c7`, `b88e8f9`, `d56c550` | четыре вида установки: `vault` (сервер внутри полного хранилища), `clone`, `package`, `docker`. `AI_DEV_VAULT_ROOT` переносит только корень содержимого, вид установки по нему не меняется (Д-177) |
-| 3 | Пользовательское хранилище: вне клона seed копируется в `~/.ai-dev/vault`, папка пакета — только для чтения; обновление по sha256-манифесту, конфликты видны в `doctor` | ✅ | `src/core/seed-sync.mjs`, проверка `vault_seed` в `src/extensions/system.mjs`; `899d5c7`, `b88e8f9`, `d56c550` | нетронутый файл заменяется; изменённый остаётся, а если обновление тоже его изменило — версия обновления кладётся рядом как `<файл>.seed-new` (как `.pacnew`), `doctor` называет её до слияния; удалённый остаётся удалённым; убранный из seed удаляется, если не менялся; старая версия хранилище не откатывает |
-| 4 | npm-пакет (D4): `files` и prepack, `npm pack`; размер и состав — в отчёт; не публиковать | ✅ | `scripts/build-dist.mjs`, `scripts/verify-distribution.mjs`; `fd8928b` | `prepack` сверяет папку с `distribution.json`; `dist:pack` распаковывает tarball и сверяет его побайтно. Размер и состав — раздел 3.1. Имя свободно (`npm view` → 404), но организации `stonebridgeway` на npm нет — раздел 8. Ничего не опубликовано |
-| 5 | Д-104: `~/.codex` — одноразовая миграция с записью в лог; поиск Codex runtime удалить; `scripts/*.ps1` — командами CLI или удалением с записью в CHANGELOG | ✅ | `src/core/runtime-home-migration.mjs`, `src/cli/backup.mjs`, `src/core/backup-archive.mjs`, `scripts/*.ps1`, `scripts/start-local.ps1`; `67ac7ec`, `663e9ce`, `d56c550` | `ai-dev backup` и `ai-dev restore` на любой ОС и в любой раскладке; четыре скрипта в `scripts/` — обёртки до 4.0 (правило 5.2 брифа); кэши времён Codex при уже существующей копии в `~/.ai-dev` отбрасываются (Д-183) |
-| — | Из фазы 6: стабильный путь к CLI в конфигах клиентов, не кэш `npx`; форма команды в подсказках по раскладке | ✅ | `src/core/app-home.mjs`, `src/cli/setup.mjs`, `src/cli/context.mjs`, `hint()` в 15 модулях; `fd8928b`, `d56c550` | `setup` из кэша npx ставит пакет в `~/.ai-dev/app/<версия>-<отпечаток>` (`npm ci --ignore-scripts` из кэша, который npx только что наполнил) и продолжает оттуда; `clients install` из кэша без такой копии отказывает. Подсказки: `npm run …` в клоне, `ai-dev …` после глобальной установки, `npx @stonebridgeway/ai-dev-system …` из npx, `node /opt/ai-dev/app/bin/ai-dev.mjs …` в образе |
-| — | Из фаз 4 и 5 (правило 4): Д-135 и Д-160 — датировка реестра skills | ✅ | `src/core/skill-registry-freshness.mjs`; `c36c9d5` | запас 2 с на грубые часы файлов, «время из будущего» — с точностью до миллисекунды |
-| — | Найдено в фазе: Д-174 (npx из tarball падает молча), Д-175 (`npm pack` выбрасывает файл seed), Д-176 (`AI_DEV_HOME` не доходит до конфигов) | ✅ | записи до правки `362aba6`, `8366d25`, `34a33cc`; правки `899d5c7`, `fd8928b` | раздел 2 |
-| — | Независимое ревью фазы: одна must-fix, семь should-fix, двенадцать мелочей и непроверенный пункт — Д-177 … Д-185 | ✅ | записи до правки `381727f`; правки `d56c550`, `b0164af` | каждую находку я воспроизвёл своей пробой, записал до правки и закрыл с замером после (раздел 4) |
+| 1 | `npm run dist` → `dist/ai-dev/`: рантайм, prod-зависимости, seed, search-eval, манифест модели, хуки, ресурсные документы; состав — один манифест-allowlist, его же используют Docker-контекст и установщик | ✅ | `ai-dev-mcp-server/distribution.allowlist.json`, `src/core/distribution-build.mjs`, `scripts/build-dist.mjs`, `scripts/prepare-docker-context.mjs`; `c029daf`, `2d56058` | папка повторяет раскладку репозитория (`ai-dev-mcp-server/`, `frontend-qa/`, `search-eval/`, `seed/`): раннер Frontend QA импортирует сервер по относительному пути. Рядом — `package.json` пакета, `npm-shrinkwrap.json` из lockfile сервера, `distribution.json` со sha256 каждого файла. Установщик Windows (фаза 12) возьмёт ту же папку |
+| 2 | Модуль раскладки: корень приложения, seed и данные в раскладках клон, пакет/dist, Docker без допущений о `09-mcp`; `AI_DEV_VAULT_ROOT` — для полного хранилища | ✅ | `src/core/install-layout.mjs`; `src/mcp-stdio.mjs` (вместо своего `resolveVaultRoot`); `d56ce5b`, `6543444`, `5db110c` | четыре вида установки: `vault` (сервер внутри полного хранилища), `clone`, `package`, `docker`. `AI_DEV_VAULT_ROOT` переносит только корень содержимого, вид установки по нему не меняется (Д-177) |
+| 3 | Пользовательское хранилище: вне клона seed копируется в `~/.ai-dev/vault`, папка пакета — только для чтения; обновление по sha256-манифесту, конфликты видны в `doctor` | ✅ | `src/core/seed-sync.mjs`, проверка `vault_seed` в `src/extensions/system.mjs`; `d56ce5b`, `6543444`, `5db110c` | нетронутый файл заменяется; изменённый остаётся, а если обновление тоже его изменило — версия обновления кладётся рядом как `<файл>.seed-new` (как `.pacnew`), `doctor` называет её до слияния; удалённый остаётся удалённым; убранный из seed удаляется, если не менялся; старая версия хранилище не откатывает |
+| 4 | npm-пакет (D4): `files` и prepack, `npm pack`; размер и состав — в отчёт; не публиковать | ✅ | `scripts/build-dist.mjs`, `scripts/verify-distribution.mjs`; `2d56058` | `prepack` сверяет папку с `distribution.json`; `dist:pack` распаковывает tarball и сверяет его побайтно. Размер и состав — раздел 3.1. Имя свободно (`npm view` → 404), но организации `stonebridgeway` на npm нет — раздел 8. Ничего не опубликовано |
+| 5 | Д-104: `~/.codex` — одноразовая миграция с записью в лог; поиск Codex runtime удалить; `scripts/*.ps1` — командами CLI или удалением с записью в CHANGELOG | ✅ | `src/core/runtime-home-migration.mjs`, `src/cli/backup.mjs`, `src/core/backup-archive.mjs`, `scripts/*.ps1`, `scripts/start-local.ps1`; `b94164f`, `af3ca63`, `5db110c` | `ai-dev backup` и `ai-dev restore` на любой ОС и в любой раскладке; четыре скрипта в `scripts/` — обёртки до 4.0 (правило 5.2 брифа); кэши времён Codex при уже существующей копии в `~/.ai-dev` отбрасываются (Д-183) |
+| — | Из фазы 6: стабильный путь к CLI в конфигах клиентов, не кэш `npx`; форма команды в подсказках по раскладке | ✅ | `src/core/app-home.mjs`, `src/cli/setup.mjs`, `src/cli/context.mjs`, `hint()` в 15 модулях; `2d56058`, `5db110c` | `setup` из кэша npx ставит пакет в `~/.ai-dev/app/<версия>-<отпечаток>` (`npm ci --ignore-scripts` из кэша, который npx только что наполнил) и продолжает оттуда; `clients install` из кэша без такой копии отказывает. Подсказки: `npm run …` в клоне, `ai-dev …` после глобальной установки, `npx @stonebridgeway/ai-dev-system …` из npx, `node /opt/ai-dev/app/bin/ai-dev.mjs …` в образе |
+| — | Из фаз 4 и 5 (правило 4): Д-135 и Д-160 — датировка реестра skills | ✅ | `src/core/skill-registry-freshness.mjs`; `95b9cb5` | запас 2 с на грубые часы файлов, «время из будущего» — с точностью до миллисекунды |
+| — | Найдено в фазе: Д-174 (npx из tarball падает молча), Д-175 (`npm pack` выбрасывает файл seed), Д-176 (`AI_DEV_HOME` не доходит до конфигов) | ✅ | записи до правки `24a1611`, `1e1ed44`, `a2feace`; правки `d56ce5b`, `2d56058` | раздел 2 |
+| — | Независимое ревью фазы: одна must-fix, семь should-fix, двенадцать мелочей и непроверенный пункт — Д-177 … Д-185 | ✅ | записи до правки `d46d128`; правки `5db110c`, `6a0733d` | каждую находку я воспроизвёл своей пробой, записал до правки и закрыл с замером после (раздел 4) |
 
 ### 2. Дефекты
 
@@ -42,7 +42,7 @@ PR: — работа идёт прямо в `main` форка по указан�
 
 | Критерий | Команда | Фактический вывод | ✅/❌ |
 |---|---|---|---|
-| Чистый контейнер без клона, только tarball: `npx --yes ./<tarball> setup --yes` → health ok, сервер отвечает по MCP | `node:24-bookworm-slim`, пустой HOME, tarball `npm run dist:pack` на `64a5ccf`; api.nuget.org недоступен (`--add-host api.nuget.org:127.0.0.1`); затем `mcp-probe.mjs` по команде из записи Claude Code | exit 0 за 38 с; «Installed: ~/.ai-dev/app/2.0.0-ff15ed45», «Health: ok — 25 check(s), 0 not passing»; кэш npx — 60 МБ без onnxruntime-node, копия приложения — 533 МБ, «onnxruntime-node loads — native binding available»; запись Claude Code — `~/.ai-dev/app/2.0.0-ff15ed45/ai-dev-mcp-server/bin/ai-dev.mjs`; по MCP: `initialize` за 413 мс, instructions 1 048 символов, 135 инструментов, `search_all` → code-reviewer, codescene, coder; `system_health_check` — ok | ✅ |
+| Чистый контейнер без клона, только tarball: `npx --yes ./<tarball> setup --yes` → health ok, сервер отвечает по MCP | `node:24-bookworm-slim`, пустой HOME, tarball `npm run dist:pack` на `1d6b889`; api.nuget.org недоступен (`--add-host api.nuget.org:127.0.0.1`); затем `mcp-probe.mjs` по команде из записи Claude Code | exit 0 за 38 с; «Installed: ~/.ai-dev/app/2.0.0-ff15ed45», «Health: ok — 25 check(s), 0 not passing»; кэш npx — 60 МБ без onnxruntime-node, копия приложения — 533 МБ, «onnxruntime-node loads — native binding available»; запись Claude Code — `~/.ai-dev/app/2.0.0-ff15ed45/ai-dev-mcp-server/bin/ai-dev.mjs`; по MCP: `initialize` за 413 мс, instructions 1 048 символов, 135 инструментов, `search_all` → code-reviewer, codescene, coder; `system_health_check` — ok | ✅ |
 | Новый tarball обновляет seed и не трогает изменённый пользователем файл (тест) | тесты `seed-sync.test.mjs` (11), сквозная проба в контейнере: tarball 2.0.0, правка и удаление пользователя, tarball 2.0.1 с двумя изменёнными заметками | тесты — 11 из 11; в контейнере `setup` из tarball 2.0.1 → «seed 2.0.1: 0 added, 1 updated, 0 removed, 1 of yours kept; 1 file(s) you changed were changed by this version too — yours were kept, and this version's is beside each as <file>.seed-new»: `Agent Rules.md` — «my own rules», в `.seed-new` — строка 2.0.1; `Code Reviewer.md` обновлён; удалённый пользователем `Prompt Patterns.md` не вернулся; `vault_seed` — warn с именем файла; копии 2.0.0 и 2.0.1 обе на месте; 2.0.0, запущенная снова, — «left as it is: it was brought up to 2.0.1, newer than this install» | ✅ |
 | `dist` и Docker-контекст собраны по одному манифесту | тест `build-dist.test.mjs`: обе сборки из `distribution.allowlist.json` | 1 797 файлов одного списка совпали байт в байт; Docker берёт свои `Dockerfile`, `container/entrypoint.sh`, `.dockerignore`, пакет — `package.json` и `npm-shrinkwrap.json` | ✅ |
 | `check`, `acceptance`, `upgrade:test` зелёные | раздел 4 | `check` — 1 662 теста, 0 упали; `acceptance` — «0 падений из 10»; `upgrade:test` — 154 из 154 | ✅ |
@@ -50,7 +50,7 @@ PR: — работа идёт прямо в `main` форка по указан�
 
 #### 3.1. Размер и состав пакета
 
-`npm run dist:pack` на `64a5ccf` (npm 10.9.4):
+`npm run dist:pack` на `1d6b889` (npm 10.9.4):
 
 | Что | Значение |
 |---|---|
@@ -71,17 +71,17 @@ onnxruntime-node для чужих ОС в ней тоже есть; обрез�
 
 ### 4. Проверки
 
-- `npm run check` на итоговом коде (`64a5ccf`): exit 0; 1 662 теста, 1 645 прошли, 0 упали, 17 пропущены; покрытие
-  строк 97,70 %; 63 с (в конце фазы 6 — 1 609 тестов, 97,71 %). До правок ревью, на `64e33d1`, — 1 650 тестов, 0 упали
+- `npm run check` на итоговом коде (`1d6b889`): exit 0; 1 662 теста, 1 645 прошли, 0 упали, 17 пропущены; покрытие
+  строк 97,70 %; 63 с (в конце фазы 6 — 1 609 тестов, 97,71 %). До правок ревью, на `d363462`, — 1 650 тестов, 0 упали
   (прогон ревьюера на копии).
-- `npm run acceptance`: «0 падений из 10» на итоговом `64a5ccf`, прогоны 62–69 с, без параллельной нагрузки.
-- `npm run upgrade:test`: 154 из 154 за 140 с на итоговом `64a5ccf`. Пять пользователей 2.x — по умолчанию, `AI_DEV_HOME`, том Docker, пользователь
+- `npm run acceptance`: «0 падений из 10» на итоговом `1d6b889`, прогоны 62–69 с, без параллельной нагрузки.
+- `npm run upgrade:test`: 154 из 154 за 140 с на итоговом `1d6b889`. Пять пользователей 2.x — по умолчанию, `AI_DEV_HOME`, том Docker, пользователь
   2.x на Python без модели и новый в фазе — **«Codex runtime»**: состояние в `~/.codex/state/ai-dev-system`, задача
   с чекпоинтом и сессия там же; после старта текущего кода — задачи и сессия в `~/.ai-dev`, запись переезда в
   `runtime-home-migration.json` (`history`), хук видит задачу, `clients install` пишет все шесть клиентов, каждая
-  команда отвечает на `initialize`. До правок ревью, на `64e33d1`, — 154 из 154 за 142 с.
+  команда отвечает на `initialize`. До правок ревью, на `d363462`, — 154 из 154 за 142 с.
 - **Критерии на итоговых tarball** (раздел 3; `final/run.sh`, контейнер `node:24-bookworm-slim`, пустой HOME,
-  api.nuget.org закрыт): tarball 2.0.0 — `npm run dist:pack` на `64a5ccf`; 2.0.1 — та же сборка из worktree того же
+  api.nuget.org закрыт): tarball 2.0.0 — `npm run dist:pack` на `1d6b889`; 2.0.1 — та же сборка из worktree того же
   коммита с версией 2.0.1 и двумя изменёнными заметками seed (манифест пересчитан).
 - **Пробы по MCP на итоговом коде** (`final/pkg/mcp-probe.mjs`: свой клиент по stdio; сервер запущен командой из
   записи Claude Code, то есть из копии в `~/.ai-dev/app`): 5 из 5, из них «чего быть не должно» — три:
@@ -99,10 +99,10 @@ onnxruntime-node для чужих ОС в ней тоже есть; обрез�
   65 535 / 65 536 записей), `probe-prune.mjs` (3.0.0, 3.1.0, снова 3.0.0, 3.2.0), `probe-symlink.mjs`, `probe-mode.mjs`,
   `probe-zipinterop.mjs` (`unzip -t` и `zipfile` Python), `probe-mig.mjs` (кэши Codex), сквозная проба tarball с
   `AI_DEV_VAULT_ROOT` (Д-177) и хук без `AI_DEV_HOME` при сервере с ним (Д-184).
-- **Ревью диффа.** Независимый субагент прочитал `6450e71..64e33d1`, собрал пакет из HEAD в своей копии и прогнал
+- **Ревью диффа.** Независимый субагент прочитал `c9d4af6..d363462`, собрал пакет из HEAD в своей копии и прогнал
   `npx` из tarball; в репозитории ничего не менял. Нашёл одну must-fix, семь should-fix и двенадцать мелочей и отметил
   непроверенный пункт. Каждую находку я воспроизвёл здесь — его пробой или своей (Д-182 и Windows-пункты — по коду и
-  моделью на Linux), записал до правки (`381727f`, Д-177 … Д-185) и закрыл (`d56c550`, `b0164af`):
+  моделью на Linux), записал до правки (`d46d128`, Д-177 … Д-185) и закрыл (`5db110c`, `6a0733d`):
   - must-fix: с `AI_DEV_VAULT_ROOT` пакет из кэша npx писал в конфиги путь в этот кэш, подсказки называли `npm run …`
     (Д-177) — вид установки теперь определяется кодом, а переменная переносит только хранилище;
   - should-fix: восстановление останавливалось на полпути (Д-178) — теперь два прохода, «всё или ничего»; копия без
@@ -155,8 +155,8 @@ onnxruntime-node для чужих ОС в ней тоже есть; обрез�
 4. **`npm-shrinkwrap.json` в пакете.** `package-lock.json` npm в tarball не кладёт; shrinkwrap npm ставит дословно — у
    пользователя то дерево, на котором прошли ворота. Его же читает `npm ci` в копии приложения.
 5. **`.gitignore` убран из seed** (`ui-ux-pro-max`, правила кэшей Python; в хранилище не нужен), а обновление seed
-   такие имена больше не копирует. Удаление файла по ошибке ушло в коммит записи Д-176 (`34a33cc`), манифест пересчитан
-   в `fd8928b`: на `34a33cc` проверка seed красная.
+   такие имена больше не копирует. Удаление файла по ошибке ушло в коммит записи Д-176 (`a2feace`), манифест пересчитан
+   в `2d56058`: на `a2feace` проверка seed красная.
 6. **`AI_DEV_HOME` в записи клиента (Д-176) и рядом с хуками (Д-184).** Сервер берёт переменную из окружения, которое
    даёт ему клиент; хукам её передаёт файл `.ai-dev/hooks/.ai-dev-home` под `.gitignore`. В окружении самого хука
    переменная главнее.

@@ -87,7 +87,7 @@ jobs:
       - name: Upgrade a 2.x volume and run the 2.x launchers
         working-directory: ai-dev-mcp-server
         run: |
-          git fetch --no-tags --depth=1 origin 8f647df1372fa5fa2a998b74e40130ed772797d0 || true
+          git fetch --no-tags --depth=1 origin 86aba56f9d2b7ebd6e883f4774778bd0625e17e3 || true
           if docker pull ghcr.io/stonebridgeway/ai-dev-system:2 || docker pull ghcr.io/stonebridgeway/ai-dev-system:latest; then
             old=$(docker image inspect ghcr.io/stonebridgeway/ai-dev-system:2 >/dev/null 2>&1 && echo ghcr.io/stonebridgeway/ai-dev-system:2 || echo ghcr.io/stonebridgeway/ai-dev-system:latest)
             npm run docker:upgrade-check -- --old-image "$old" --new-image ai-dev-system:ci

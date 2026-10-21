@@ -2,10 +2,10 @@
  "schema_version": 1,
  "$comment": "Every (path, sha256) a commit of docker/public-seed reachable from `base` held: what a 2.x volume's `cp -n` can have left. Written by scripts/seed-history.mjs; read by src/core/seed-sync.mjs.",
  "key": "sha256 of `<path>\\0<sha256 of the file>`, first 16 hex digits",
- "base": "8f647df1372fa5fa2a998b74e40130ed772797d0",
+ "base": "86aba56f9d2b7ebd6e883f4774778bd0625e17e3",
  "commits": 11,
  "first": "02a3f4d 2026-07-28",
- "last": "580d390 2026-09-27",
+ "last": "ba314b9 2026-09-27",
  "pairs": [
   "0002a0ecc30d963c",
   "000ff31ef5c81729",

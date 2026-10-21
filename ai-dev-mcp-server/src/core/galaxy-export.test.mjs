@@ -5,7 +5,7 @@ import { SEMANTIC_DIMENSIONS } from "./search-semantic.mjs";
 
 // Expected values are what the 2.x helper's `markdown_to_text`, `galaxy_preview`,
 // `note_wikilinks` and `semantic_row` printed for the same input
-// (`search-index/search_cli.py` at 353feff); the whole export is compared with
+// (`search-index/search_cli.py` at b73ae2f); the whole export is compared with
 // it byte for byte by `npm run search:parity`.
 
 test("markdown reads as text: link text, no marks, no bullets — any decimal digit numbers a list", () => {

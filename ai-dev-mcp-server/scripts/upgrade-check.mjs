@@ -2,7 +2,7 @@
 /**
  * `npm run upgrade:test` — does a 2.x install keep working after an upgrade?
  *
- * The test installs the production 2.x line from a commit (default `8f647df`,
+ * The test installs the production 2.x line from a commit (default `86aba56`,
  * production `main` when the 3.0 program started) into a git worktree, uses
  * the 2.x server to create the state a real user has — a task with a
  * checkpoint, a decision, an instinct, a session handoff, the search index,
@@ -63,7 +63,7 @@ import { startModelHost } from "../test/fixtures/model-host.mjs";
 import { call, check, checks, makeRepository, npm, readJson, run, runAsync, withServer } from "./upgrade-harness.mjs";
 import { checkoutBase, verifyWayBack } from "./upgrade-way-back.mjs";
 
-export const DEFAULT_BASE_COMMIT = "8f647df";
+export const DEFAULT_BASE_COMMIT = "86aba56";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const serverRoot = path.resolve(scriptDir, "..");

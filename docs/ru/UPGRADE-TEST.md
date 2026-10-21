@@ -8,7 +8,7 @@
 
 ```bash
 cd ai-dev-mcp-server
-npm run upgrade:test                 # база: 8f647df, main прода на старте 3.0
+npm run upgrade:test                 # база: 86aba56, main прода на старте 3.0
 npm run upgrade:test -- --base <коммит> --keep
 ```
 
@@ -81,8 +81,8 @@ npm run docker:upgrade-check -- --old-image ghcr.io/stonebridgeway/ai-dev-system
 пробует скачать и его, так что ответ Docker «pull access denied for ai-dev-system …» ожидаем, и
 берётся образ, собранный здесь.
 
-Нужны Docker, оба образа и этот клон с базовым коммитом (`8f647df`; неполный клон получает его
-командой `git fetch origin 8f647df1372fa5fa2a998b74e40130ed772797d0`): лаунчер 2.x берётся оттуда.
+Нужны Docker, оба образа и этот клон с базовым коммитом (`86aba56`; неполный клон получает его
+командой `git fetch origin 86aba56f9d2b7ebd6e883f4774778bd0625e17e3`): лаунчер 2.x берётся оттуда.
 `docker-publish.yml` запускает проверку на каждом pull request против образа апстрима — `:2`, а
 пока `:2` нет, `:latest` (решение владельца D9). На временном томе и во временной
 папке, которые в конце удаляются:

@@ -22503,7 +22503,7 @@ lstat('…\vault\blocked\inner.md') под Windows Node → ENOENT (Linux → EN
 
 ## Д-578. Windows: запрос, отправленный только что умершему демону, получает «повторите вызов» вместо нового демона
 
-**Статус:** закрыт (`dad48ab`), 2026-10-21. Нашёл второй прогон CI в PR stonebridgeway/ai-dev-system#86.
+**Статус:** закрыт (`dad48ab`, `9b5d595`), 2026-10-21. Нашёл второй прогон CI в PR stonebridgeway/ai-dev-system#86.
 
 Мост `ai-dev mcp` (`StdioBridge`, `src/core/daemon-bridge.mjs`) отвечает ошибкой «The ai-dev daemon went away while … ran
 … repeat this call» на каждый запрос, который был у демона, когда соединение закрылось. На Linux мост слышит закрытие
@@ -22524,12 +22524,16 @@ connection). The next request starts a new one; repeat this call.
 
 Тот же порядок событий в unit-тесте моста (запись отклонена, `close` раньше её обработчика) без правки даёт ту же ошибку.
 
-**Как закрыто** (`dad48ab`). Мост помнит, приняла ли запись каждый запрос. Запрос, чья запись упала или не кончилась,
-демон не получал: он уходит следующему демону, после знакомства с ним, как запросы из очереди. Ошибку «went away while …
-ran» получают только доставленные.
+**Как закрыто** (`dad48ab`, `9b5d595`). Мост помнит, приняла ли запись каждый запрос. Запрос, чья запись упала или не
+кончилась, демон не получал: он уходит следующему демону, после знакомства с ним, как запросы из очереди. Ошибку «went away
+while … ran» получают только доставленные. Этого хватило под Wine, но не на раннере GitHub (прогон на `8d620dc`, job
+119177791497, та же ошибка): Windows выставляет убитому процессу код выхода раньше, чем закрывает его дескрипторы, и запись в
+канал между этими моментами принимается. Поэтому мост перед каждым запросом спрашивает, жив ли процесс демона (`kill 0`,
+один вызов): ушедший считается потерянным сразу, и запрос уходит новому.
 
-**Замер после.** `daemon-bridge.test.mjs` — 17 из 17, новый тест «a request the dead daemon never took goes to the next
-one» проходит; `src/cli/daemon.test.mjs` на Linux — 19 из 19. Windows Node 24.22 под Wine 9: без правки тест kill -9 падает той же ошибкой («went away while tools/call ran (the daemon (pid 404) closed the connection)»), с правкой проходит.
+**Замер после.** `daemon-bridge.test.mjs` — 18 из 18; оба новых теста («a request the dead daemon never took…», «a
+request to a daemon whose process is gone…») без своей половины правки падают той же ошибкой; `src/cli/daemon.test.mjs` и
+`cli.test.mjs` на Linux — 46 из 46. Windows Node 24.22 под Wine 9: без правки тест kill -9 падает той же ошибкой («went away while tools/call ran (the daemon (pid 404) closed the connection)»), с правкой проходит.
 
 ---
 
@@ -22549,7 +22553,8 @@ stonebridgeway/ai-dev-system#86: в форке Actions не стартуют, и
 - Прочее: путь Windows вставлялся в JSON без экранирования (`security-scan`); короткое имя `RUNNER~1` во временной папке,
   чей `~` подсказка честно берёт в кавычки (`install-layout`); импорт по пути `C:\…` вместо `file://` и чтение вывода
   ребёнка по `exit` вместо `close` (`search-index-owner`); удаление папки, в которой стоит процесс (`bundle-uninstall`);
-  отметка NTFS на тик позже часов V8 (`skill-registry-freshness`); жёсткая ссылка «по регистру» на ФС, где имена и так
+  отметка NTFS на тик позже часов V8 (`skill-registry-freshness`); два писателя реестра, стартующие вместе, ждались в
+  порядке старта, хотя порядок решает блокировка (macOS, тот же файл); жёсткая ссылка «по регистру» на ФС, где имена и так
   один файл (`seed-sync`, macOS и Windows); дубль по регистру в `bundle.json`, которого NTFS не держит; `settings` ждал
   ENOTDIR, на Windows это ENOENT.
 

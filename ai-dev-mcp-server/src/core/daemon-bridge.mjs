@@ -261,8 +261,13 @@ export class StdioBridge {
       return;
     }
     if (isRequest(message)) {
-      this.#inFlight.set(message.id, message.method);
+      const entry = { method: message.method, message, delivered: false };
+      this.#inFlight.set(message.id, entry);
       if (message.method === "initialize") this.#initializeForwarded = true;
+      this.#upstream.send(message).then(() => {
+        entry.delivered = true;
+      }, () => undefined);
+      return;
     }
     this.#upstream.send(message).catch(() => undefined);
   }
@@ -282,12 +287,23 @@ export class StdioBridge {
     this.#drained();
   }
 
-  /** The upstream is gone: every request it had gets an answer now, and the next message reconnects. */
+  /**
+   * The upstream is gone: every request it took gets an answer now, one it never
+   * took goes to the next, and the next message reconnects.
+   */
   #lost(generation, reason) {
     if (generation !== this.#generation || this.#ended) return;
     this.#generation += 1;
     this.#upstream = null;
-    for (const [id, method] of this.#inFlight) {
+    const untaken = [];
+    for (const [id, { method, message, delivered }] of this.#inFlight) {
+      // Its write failed or never ended: the daemon was gone before it, as on a
+      // Windows pipe, whose end is heard of after a write into it fails.
+      if (!delivered) {
+        untaken.push(message);
+        if (method === "initialize") this.#initializeForwarded = false;
+        continue;
+      }
       this.#unanswered += 1;
       this.#write({
         jsonrpc: "2.0",
@@ -296,6 +312,7 @@ export class StdioBridge {
       });
     }
     this.#inFlight.clear();
+    this.#queue.unshift(...untaken);
     for (const settle of this.#own.values()) settle(null);
     this.#own.clear();
     this.#note(`ai-dev: lost the daemon (${reason}); the next request reconnects.`);

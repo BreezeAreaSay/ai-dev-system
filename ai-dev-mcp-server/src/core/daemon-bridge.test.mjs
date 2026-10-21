@@ -173,6 +173,32 @@ test("a daemon that dies answers its open requests with an error, and the next r
   await client.done;
 });
 
+test("a request the dead daemon never took goes to the next one, unanswered by an error", async () => {
+  const first = fakeUpstream("daemon-1", { answer: false });
+  const second = fakeUpstream("daemon-2");
+  const client = bridgeOver(first, async () => second);
+  client.send(INITIALIZE);
+  await settle();
+  first.onMessage({ jsonrpc: "2.0", id: 1, result: { serverInfo: { name: "ai-dev-system" } } });
+  client.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+  await settle();
+  // A Windows pipe whose daemon was killed: the write into it fails, and the
+  // close is heard before the failed write's promise settles, as Node orders them.
+  first.send = (message) => {
+    first.sent.push(message);
+    process.nextTick(() => first.die("the daemon (pid 1) closed the connection"));
+    return Promise.reject(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+  };
+  client.send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "search_all" } });
+  await settle();
+  await settle();
+  const answer = client.lines().find((message) => message.id === 2);
+  assert.deepEqual(answer.result, { echo: "tools/call", by: "daemon-2" }, JSON.stringify(answer));
+  assert.equal(second.sent.filter((message) => message.id === 2).length, 1);
+  client.end();
+  assert.deepEqual(await client.done, { unanswered: 0 });
+});
+
 test("a server lost again while it is being introduced is replaced again", async () => {
   const first = fakeUpstream("daemon-1");
   const dying = fakeUpstream("daemon-2", { answer: false });

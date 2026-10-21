@@ -11,6 +11,7 @@ import { StdioBridge, lineReader, socketUpstream } from "./daemon-bridge.mjs";
 function fakeUpstream(name, { answer = true } = {}) {
   const upstream = {
     name,
+    describe: name,
     sent: [],
     closed: false,
     onMessage: null,
@@ -28,6 +29,14 @@ function fakeUpstream(name, { answer = true } = {}) {
     },
     close() {
       upstream.closed = true;
+    },
+    // Its process, which `vanish` ends without a word on the connection.
+    gone: false,
+    alive() {
+      return !upstream.gone;
+    },
+    vanish() {
+      upstream.gone = true;
     },
     die(reason = "killed") {
       upstream.onClose?.(reason);
@@ -57,6 +66,16 @@ function bridgeOver(first, connect, options = {}) {
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+/** The client's answer to `id`, once it has come: a reconnect takes what a loaded machine makes it take. */
+async function answerTo(client, id) {
+  for (let tries = 0; tries < 250; tries += 1) {
+    const found = client.lines().find((message) => message.id === id);
+    if (found) return found;
+    await settle();
+  }
+  return undefined;
+}
 const INITIALIZE = { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } } };
 
 test("lines are read whole however they are cut, CRLF and blank lines included", () => {
@@ -190,11 +209,28 @@ test("a request the dead daemon never took goes to the next one, unanswered by a
     return Promise.reject(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
   };
   client.send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "search_all" } });
-  await settle();
-  await settle();
-  const answer = client.lines().find((message) => message.id === 2);
+  const answer = await answerTo(client, 2);
   assert.deepEqual(answer.result, { echo: "tools/call", by: "daemon-2" }, JSON.stringify(answer));
   assert.equal(second.sent.filter((message) => message.id === 2).length, 1);
+  client.end();
+  assert.deepEqual(await client.done, { unanswered: 0 });
+});
+
+test("a request to a daemon whose process is gone, not yet heard of on its connection, goes to a new one", async () => {
+  const first = fakeUpstream("daemon-1");
+  const second = fakeUpstream("daemon-2");
+  const client = bridgeOver(first, async () => second);
+  client.send(INITIALIZE);
+  client.send({ jsonrpc: "2.0", method: "notifications/initialized" });
+  await settle();
+  // Windows: the killed daemon is gone, its pipe not closed yet, and a write into it would be taken.
+  first.vanish();
+  client.send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "search_all" } });
+  const answer = await answerTo(client, 2);
+  assert.equal(first.sent.filter((message) => message.id === 2).length, 0, "nothing more is written to it");
+  assert.equal(first.closed, true);
+  assert.deepEqual(answer?.result, { echo: "tools/call", by: "daemon-2" }, JSON.stringify(answer));
+  assert.ok(client.notes.some((note) => /lost the daemon \(daemon-1 is gone\); the next request reconnects/.test(note)), client.notes.join("\n"));
   client.end();
   assert.deepEqual(await client.done, { unanswered: 0 });
 });

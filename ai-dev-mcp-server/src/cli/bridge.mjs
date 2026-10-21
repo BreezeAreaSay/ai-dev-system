@@ -78,7 +78,7 @@ export async function runMcpBridge({ env = process.env, note = (line) => process
       }
       if (first) profileNotes(channel.welcome, note);
       first = false;
-      return socketUpstream({ socket: channel.socket, rest: channel.rest, describe: `the daemon (pid ${channel.info.pid})` });
+      return socketUpstream({ socket: channel.socket, rest: channel.rest, describe: `the daemon (pid ${channel.info.pid})`, pid: channel.info.pid });
     } catch (error) {
       note(`ai-dev: no daemon can serve this client (${String(error.message).trim().replace(/\.+$/, "")}); serving it in this process instead.`);
       first = false;

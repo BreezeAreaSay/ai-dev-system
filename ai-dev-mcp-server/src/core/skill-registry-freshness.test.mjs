@@ -267,7 +267,9 @@ test("a writer of the registry that calls another runs it at once; writers apart
     events.push(`${name} end`);
   });
   await Promise.all([writer("a"), writer("b")]);
-  assert.deepEqual(events, ["a start", "a end", "b start", "b end"]);
+  // Which of two writers that start together goes first is the lock's to say: one runs whole, then the other.
+  const [first, second] = events[0] === "a start" ? ["a", "b"] : ["b", "a"];
+  assert.deepEqual(events, [`${first} start`, `${first} end`, `${second} start`, `${second} end`]);
 });
 
 test("a writer that builds from the registry gets a current one: a stale registry is rebuilt before it runs (Д-356)", async (t) => {

@@ -111,12 +111,22 @@ function sizes(bytes, limit = MAX_MESSAGE_BYTES) {
 /**
  * An upstream over a socket the daemon handshake left paused.
  *
- * @param {{ socket: import("node:net").Socket, rest?: Buffer, describe?: string }} channel
+ * @param {{ socket: import("node:net").Socket, rest?: Buffer, describe?: string, pid?: number }} channel
  */
-export function socketUpstream({ socket, rest, describe = "the daemon" }) {
+export function socketUpstream({ socket, rest, describe = "the daemon", pid = 0 }) {
   let closed = false;
   return {
     describe,
+    /** Whether the daemon's process is still there; one this process may not signal is. */
+    alive() {
+      if (!pid) return true;
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        return error?.code === "EPERM";
+      }
+    },
     start(onMessage, onClose) {
       const read = lineReader(onMessage, () => undefined);
       socket.on("data", read);
@@ -256,6 +266,17 @@ export class StdioBridge {
 
   #forward(message) {
     if (!this.#upstream) {
+      this.#queue.push(message);
+      this.#reconnect();
+      return;
+    }
+    // A daemon that died while idle may not have been heard of yet: Windows
+    // closes a killed process's pipe after the process is already gone, and a
+    // write into it in between is taken (docs/DEFECTS.md, Д-578).
+    if (isRequest(message) && this.#upstream.alive?.() === false) {
+      const gone = this.#upstream;
+      this.#lost(this.#generation, `${gone.describe ?? "the daemon"} is gone`);
+      gone.close?.();
       this.#queue.push(message);
       this.#reconnect();
       return;

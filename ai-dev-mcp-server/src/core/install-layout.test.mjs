@@ -121,10 +121,10 @@ test("the 3.0 image is a distribution: its seed is synced into the volume's vaul
 test("in the image a vault the user named is theirs, read where it is — unless a seed is there already (Д-321)", () => {
   const files = ["/opt/ai-dev/distribution.json", "/opt/ai-dev/seed/public-seed.manifest.json"];
   // A 2.x manifest is a manifest by its content: a file of the user's with its name is not one (Д-343).
-  const manifests = new Set(["/data/myvault/public-seed.manifest.json"]);
+  const manifests = new Set([path.resolve("/data/myvault/public-seed.manifest.json")]);
   const layoutWith = (...extra) => resolveInstallLayout({
     serverRoot: "/opt/ai-dev/ai-dev-mcp-server", env: env({ AI_DEV_RUNTIME: "docker", AI_DEV_VAULT_ROOT: "/data/myvault" }), exists: only(...files, ...extra),
-    isManifest: (file) => extra.includes(file) && manifests.has(file)
+    isManifest: (file) => only(...extra)(file) && manifests.has(path.resolve(file))
   });
   const mine = layoutWith();
   assert.deepEqual([mine.kind, mine.contentRoot, mine.seedRoot], ["docker", path.resolve("/data/myvault"), ""], "nothing is copied into it, nothing removed from it");
@@ -202,7 +202,8 @@ test("hints are spelled the way each layout runs them", () => {
 });
 
 test("without the stable link the Windows install's hint names the shim in the copy it runs", async (t) => {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-hint-"));
+  // Its long name: a Windows runner's temp folder is C:\Users\RUNNER~1\…, whose ~ the hint rightly quotes.
+  const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-hint-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const runtimeRoot = path.join(root, "rt");
   const copy = path.join(runtimeRoot, "app", "3.0.0-abcdef12");

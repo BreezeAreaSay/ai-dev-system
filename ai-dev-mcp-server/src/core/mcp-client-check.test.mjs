@@ -111,9 +111,11 @@ test("a command that died is named by its error, not by Node's version, its stac
     });
     assert.equal(result.error, `it exited with code 1 before answering${said ? `: ${said}` : ""}`, lines.join("\n"));
   }
-  const moved = await checkServerCommand({ command: process.execPath, args: ["/old/clone/ai-dev-mcp-server/src/server.mjs"] });
+  // Node names the entry as it resolved it: on Windows, on the current drive.
+  const entry = path.resolve("/old/clone/ai-dev-mcp-server/src/server.mjs");
+  const moved = await checkServerCommand({ command: process.execPath, args: [entry] });
   assert.equal(moved.ok, false);
-  assert.match(moved.error, /^it exited with code 1 before answering: Error: Cannot find module '\/old\/clone\/ai-dev-mcp-server\/src\/server\.mjs'/);
+  assert.ok(moved.error.startsWith(`it exited with code 1 before answering: Error: Cannot find module '${entry}'`), moved.error);
 });
 
 test("a warning Docker prints before it goes on is no reason a command stopped: the reason Docker gives is said (Д-455)", async () => {

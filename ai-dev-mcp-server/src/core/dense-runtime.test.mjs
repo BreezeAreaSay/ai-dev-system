@@ -77,7 +77,8 @@ test("a model this process cannot read is not ready, and says why: the health ch
   const { runtime } = runtimeWith({ verifyError: denied, env: { AI_DEV_RUNTIME: "docker" } });
   const status = await runtime.describe();
   assert.equal(status.available, false);
-  assert.match(status.reason, /the model in \/models\/bge-m3-onnx cannot be read \(EACCES: permission denied, open '\/models\/bge-m3-onnx\/config\.json'\)\. The image runs as uid 1000: make the folder and its files readable to it on the host/);
+  // The image is Linux: only there does the folder resolve to its /models mount.
+  if (process.platform !== "win32") assert.match(status.reason, /the model in \/models\/bge-m3-onnx cannot be read \(EACCES: permission denied, open '\/models\/bge-m3-onnx\/config\.json'\)\. The image runs as uid 1000: make the folder and its files readable to it on the host/);
   assert.equal(status.onnx.unreadable, "EACCES: permission denied, open '/models/bge-m3-onnx/config.json'");
   assert.equal("unreadable" in (await runtimeWith({}).runtime.describe()).onnx, false, "a readable model has no such field");
   await assert.rejects(runtime.embed({ texts: ["x"] }), /cannot be read/);
@@ -103,7 +104,7 @@ test("a model this process cannot read is not ready, and says why: the health ch
   assert.equal(fault.available, false);
   assert.equal("unreadable" in fault.onnx, false);
   assert.equal(fault.onnx.unchecked, "Cannot read properties of undefined (reading 'files')", "the details say why (Д-372)");
-  assert.equal(fault.reason, "Dense search is not ready: the model in /models/bge-m3-onnx could not be checked (Cannot read properties of undefined (reading 'files')).");
+  assert.equal(fault.reason, `Dense search is not ready: the model in ${path.resolve("/models/bge-m3-onnx")} could not be checked (Cannot read properties of undefined (reading 'files')).`);
   const local = runtimeWith({ verifyError: denied, onnxModelDir: "/home/me/.ai-dev/models/bge-m3-onnx" });
   assert.match((await local.runtime.describe()).reason, /cannot be read .*Make the folder and its files readable to the user this runs as\./);
 });

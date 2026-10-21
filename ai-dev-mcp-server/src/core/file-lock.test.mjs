@@ -61,28 +61,28 @@ test("a process is gone, exited and waiting to be collected, running, or unknown
     asked.push(pid);
     return letter;
   };
-  // A live pid, so that kill(pid, 0) answers and the letters decide.
+  // A live pid, so that kill(pid, 0) answers and the letters decide, as on a POSIX host: on Windows kill alone does.
   const live = process.pid;
-  assert.equal(processState(live, { proc: () => "Z" }), "exited");
-  assert.equal(processState(live, { proc: () => "X" }), "exited");
-  assert.equal(processState(live, { proc: () => "S" }), "running");
+  assert.equal(processState(live, { platform: "linux", proc: () => "Z" }), "exited");
+  assert.equal(processState(live, { platform: "linux", proc: () => "X" }), "exited");
+  assert.equal(processState(live, { platform: "linux", proc: () => "S" }), "running");
   // kill has just found it, so a /proc that does not show it hides it — hidepid, someone else's process — or it
   // exited in between, which the next look's kill catches (Д-386).
-  assert.equal(processState(live, { proc: () => "" }), "unknown", "hidden from /proc, not gone");
-  assert.equal(processState(live, { proc: () => null, ps: ps("Z") }), "unknown", "no /proc, and ps not asked");
+  assert.equal(processState(live, { platform: "linux", proc: () => "" }), "unknown", "hidden from /proc, not gone");
+  assert.equal(processState(live, { platform: "linux", proc: () => null, ps: ps("Z") }), "unknown", "no /proc, and ps not asked");
   assert.deepEqual(asked, [], "ps is asked only when the caller says so");
-  assert.equal(processState(live, { proc: () => null, ask: true, ps: ps("Z") }), "exited");
-  assert.equal(processState(live, { proc: () => null, ask: true, ps: ps("S") }), "running");
-  assert.equal(processState(live, { proc: () => null, ask: true, ps: ps("") }), "unknown", "ps does not show what kill found");
-  assert.equal(processState(live, { proc: () => null, ask: true, ps: ps(null) }), "unknown", "ps could not be asked");
-  assert.equal(processState(live, { proc: () => "S", ask: true, ps: ps("Z") }), "running", "/proc, where there is one, decides");
+  assert.equal(processState(live, { platform: "linux", proc: () => null, ask: true, ps: ps("Z") }), "exited");
+  assert.equal(processState(live, { platform: "linux", proc: () => null, ask: true, ps: ps("S") }), "running");
+  assert.equal(processState(live, { platform: "linux", proc: () => null, ask: true, ps: ps("") }), "unknown", "ps does not show what kill found");
+  assert.equal(processState(live, { platform: "linux", proc: () => null, ask: true, ps: ps(null) }), "unknown", "ps could not be asked");
+  assert.equal(processState(live, { platform: "linux", proc: () => "S", ask: true, ps: ps("Z") }), "running", "/proc, where there is one, decides");
   assert.equal(processState(live, { platform: "win32", proc: () => "Z" }), "running", "on Windows kill(pid, 0) decides");
   assert.equal(processState(DEAD_PID), "gone");
   assert.equal(processState(0), "gone");
   assert.equal(processState(-1), "gone");
   // The hooks judge a lock's holder the same way.
   for (const [letter, alive] of [["Z", false], ["X", false], ["", true], ["S", true], ["R", true], [null, true]]) {
-    assert.equal(hookLib.processAlive(live, { proc: () => letter }), alive, `hooks, letter ${JSON.stringify(letter)}`);
+    assert.equal(hookLib.processAlive(live, { platform: "linux", proc: () => letter }), alive, `hooks, letter ${JSON.stringify(letter)}`);
   }
   assert.equal(hookLib.processAlive(live, { platform: "win32", proc: () => "Z" }), true);
   assert.equal(hookLib.processAlive(DEAD_PID), false);

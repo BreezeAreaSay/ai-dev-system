@@ -4,7 +4,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 import { noteIdentity } from "./search-documents.mjs";
 import { CLAIM_SUFFIX, DEFAULT_INDEX_FILE, vaultIndexPath } from "./search-index-owner.mjs";
 import { loadSqlite, sqliteSupport } from "./search-sqlite.mjs";
@@ -237,14 +236,16 @@ test("vaults starting at the same moment agree on one owner", async (t) => {
     fs.mkdirSync(vault);
     return vault;
   });
-  const owner = fileURLToPath(new URL("./search-index-owner.mjs", import.meta.url));
+  // A URL, not a path: on Windows the loader refuses `C:\…` as a specifier.
+  const owner = new URL("./search-index-owner.mjs", import.meta.url).href;
   const script = `const { vaultIndexPath } = await import(${JSON.stringify(owner)}); process.stdout.write(JSON.stringify(vaultIndexPath({ dir: process.argv[1], vaultRoot: process.argv[2] })));`;
   const answers = await Promise.all(vaults.map((vault) => new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--input-type=module", "-e", script, dir, vault], { stdio: ["ignore", "pipe", "inherit"] });
     let out = "";
     child.stdout.on("data", (chunk) => { out += chunk; });
     child.on("error", reject);
-    child.on("exit", (code) => (code === 0 ? resolve(JSON.parse(out)) : reject(new Error(`exit ${code}`))));
+    // `close`, not `exit`: on Windows the pipe can still hold the answer when the process has exited.
+    child.on("close", (code) => (code === 0 ? resolve(JSON.parse(out)) : reject(new Error(`exit ${code}`))));
   })));
   const winners = answers.filter((answer) => answer.path === path.join(dir, DEFAULT_INDEX_FILE));
   assert.equal(winners.length, 1, JSON.stringify(answers));

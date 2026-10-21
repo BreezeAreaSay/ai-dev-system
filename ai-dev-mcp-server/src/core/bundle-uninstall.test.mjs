@@ -280,6 +280,10 @@ test("an entry runs the install when its command or an argument lies under the l
 });
 
 test("a bare word of an entry names no folder, whatever folder the uninstall runs in (Д-298)", async (t) => {
+  // Out of the folders before they are removed: Windows removes no folder a
+  // process is in (EBUSY), and after-hooks run in the order they were added.
+  const before = process.cwd();
+  t.after(() => process.chdir(before));
   const root = await scratch(t);
   const appsRoot = path.join(root, ".ai-dev", "app");
   const copy = path.join(appsRoot, "3.0.0-abcdef12");
@@ -288,8 +292,6 @@ test("a bare word of an entry names no folder, whatever folder the uninstall run
   const where = { appsRoot, copies: [copy], platform: process.platform };
   const clone = { command: "/usr/bin/node", args: ["/src/ai-dev-system/ai-dev-mcp-server/bin/ai-dev.mjs", "mcp"] };
   const docker = { command: "docker", args: ["run", "-i", "--rm", "ghcr.io/stonebridgeway/ai-dev-system"] };
-  const before = process.cwd();
-  t.after(() => process.chdir(before));
   for (const folder of [root, path.join(appsRoot, "current"), copy]) {
     process.chdir(folder);
     assert.equal(runsBundle(clone, where), false, `a clone's entry, from ${folder}`);

@@ -425,6 +425,14 @@ test("skills changed, added or removed while the rebuild runs are put right by t
     await fs.rm(path.join(fixture.catalog, "sources/custom/alpha"), { recursive: true });
   };
   assert.equal((await reader.ensureFresh()).action, "rebuilt");
+  // The next rebuild notes its time once the process's clock has passed what
+  // the pull wrote, as a look seconds later does. On Windows a file is stamped
+  // up to a tick (~16 ms) after the process's clock: V8 counts on from one
+  // coarse reading of the system time, NTFS stamps a fresh one, and a pull
+  // made before the rebuild began would read as made after it.
+  const pulled = ["sources/custom", "sources/custom/gamma/SKILL.md", "sources/external/pack/skills/beta/SKILL.md"];
+  const pulledAt = Math.max(...await Promise.all(pulled.map(async (relative) => (await fs.stat(path.join(fixture.catalog, relative))).mtimeMs)));
+  while (Date.now() <= pulledAt) await new Promise((resolve) => setTimeout(resolve, 5));
   clock.now += 1_000;
   assert.equal((await reader.ensureFresh()).action, "rebuilt", "the next look sees what the pull did under the rebuild");
   clock.now += 1_000;

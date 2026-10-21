@@ -182,10 +182,13 @@ test("a client without the secret is refused before it is served, and learns not
   const address = await localAddress(t);
   const secret = newSecret();
   const refused = [];
-  await listen(t, address, (socket) => acceptHandshake(socket, { secret, pid: process.pid, version: "1", build: "b" }).catch((error) => {
+  let served;
+  await listen(t, address, (socket) => (served = acceptHandshake(socket, { secret, pid: process.pid, version: "1", build: "b" }).catch((error) => {
     refused.push(error.message);
-  }));
+  })));
   await assert.rejects(openChannel(daemonInfo(address, newSecret())), /refused the connection: Authentication failed/);
+  // On a Windows pipe the daemon's write completes after the client has read it: its side ends later.
+  await served;
   assert.deepEqual(refused, ["Authentication failed: the proof does not match this daemon's secret."]);
 });
 
@@ -322,7 +325,8 @@ test("a build is the code, its version and where its data is; what one client se
   await fs.writeFile(path.join(root, "src", "a.mjs"), "export const a = 1;\n");
   await fs.writeFile(path.join(root, "src", "a.test.mjs"), "// a test\n");
   const env = { HOME: "/home/ivan", PATH: "/usr/bin", AI_DEV_VAULT_ROOT: "/v" };
-  const describe = (version, environment, more = {}) => describeBuild({ serverRoot: root, version, env: environment, platform: "linux", execPath: "/usr/bin/node", ...more });
+  // This host's platform: the runtime home is found with its path rules (`resolveInstallLayout`), and compared so.
+  const describe = (version, environment, more = {}) => describeBuild({ serverRoot: root, version, env: environment, platform: process.platform, execPath: "/usr/bin/node", ...more });
   const build = await describe("3.0.0", env);
   assert.match(build.id, /^[0-9a-f]{16}$/);
   assert.equal(build.version, "3.0.0");

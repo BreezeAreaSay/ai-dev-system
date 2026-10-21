@@ -141,7 +141,7 @@ test("six clients with servers of their own: added once, unchanged the second ti
   const first = await installServer({ targets, entryFor, statePath });
   assert.deepEqual(first.map((result) => [result.client, result.status]), MCP_CLIENTS.map((client) => [client.id, "added"]));
   for (const result of first) {
-    assert.equal(await fs.readFile(result.backup, "utf8"), before[path.relative(home, result.file)], `${result.client} backup holds the original`);
+    assert.equal(await fs.readFile(result.backup, "utf8"), before[path.relative(home, result.file).replaceAll(path.sep, "/")], `${result.client} backup holds the original`);
     // Windows keeps no owner-only bit for Node to set (docs/DEFECTS.md, Д-170).
     if (process.platform !== "win32") assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
   }

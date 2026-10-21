@@ -354,11 +354,11 @@ test("the start log names the .codex the data moved out of, not ~/.codex (Д-397
   await write(path.join(own, ".codex", "state", "archify-receipts", "o.json"), "{}\n");
   assert.deepEqual(await lines("moved"), [`ai-dev: moved 1 file(s) from ${path.join(own, ".codex")} to ${own} (the Codex-era folder is not read any more).`]);
 
-  // A move that fails half-way — here the record of it cannot be written — names the same folder.
-  await write(path.join(own, ".codex", "state", "archify-receipts", "p.json"), "{}\n");
-  const record = path.join(own, "state", "runtime-home-migration.json");
-  await fs.rm(record, { force: true });
-  await fs.mkdir(record);
+  // A move that fails half-way — here the record of it cannot be written — names the same folder. A file stands
+  // where the record's folder goes: a folder where the record goes, Windows renames aside and writes the record.
+  await write(path.join(own, ".codex", "artifacts", "archify", "p.svg"), "<svg/>");
+  await fs.rm(path.join(own, "state"), { recursive: true });
+  await write(path.join(own, "state"), "");
   const [failed] = await lines("failed");
   assert.ok(failed.startsWith(`ai-dev: could not move AI Dev's data out of ${path.join(own, ".codex")}: `), failed);
 });
@@ -368,17 +368,18 @@ test("a move out of the .codex beside AI_DEV_HOME=<home>/.ai-dev that fails half
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
   const runtime = path.join(home, ".ai-dev");
-  await write(path.join(runtime, ".codex", "state", "archify-receipts", "p.json"), "{}\n");
+  await write(path.join(runtime, ".codex", "artifacts", "archify", "p.svg"), "<svg/>");
   await write(path.join(home, ".codex", "state", "archify-receipts", "user.json"), "{}\n");
-  // The record of the move cannot be written: a folder where the file goes.
-  await fs.mkdir(path.join(runtime, "state", "runtime-home-migration.json"), { recursive: true });
+  // The record of the move cannot be written: a file where its folder goes (a folder where the file goes, Windows
+  // renames aside and writes the record).
+  await write(path.join(runtime, "state"), "");
   const said = [];
   const { prepareRuntimeHome: prepare } = await import(new URL("./runtime-home-migration.mjs?codex-fail-beside", import.meta.url).href);
   await prepare({ env: { HOME: home, AI_DEV_HOME: runtime, AI_DEV_STATE_ROOT: "" }, log: (line) => said.push(line) });
   assert.equal(said.length, 1, said.join("\n"));
   assert.ok(said[0].startsWith(`ai-dev: could not move AI Dev's data out of ${path.join(runtime, ".codex")}: `), said[0]);
   // The move had happened: the folder it names is the one it emptied, and ~/.codex was not touched.
-  await fs.access(path.join(runtime, "state", "archify-receipts", "p.json"));
+  await fs.access(path.join(runtime, "artifacts", "archify", "p.svg"));
   await fs.access(path.join(home, ".codex", "state", "archify-receipts", "user.json"));
 });
 
@@ -491,7 +492,7 @@ test("in the image, the volume's state moves into the host's state folder the ho
   await write(path.join(target, "sessions", "k", "handoff.json"), '{"from":"host"}');
   const result = await migrateVolumeState({ env });
   assert.equal(result.status, "migrated");
-  assert.deepEqual([result.moved, result.merged, result.conflicts], [1, 1, ["sessions/k/handoff.json"]]);
+  assert.deepEqual([result.moved, result.merged, result.conflicts], [1, 1, [path.join("sessions", "k", "handoff.json")]]);
   assert.equal(await fs.readFile(path.join(target, "tasks", "task-1.json"), "utf8"), '{"id":"task-1"}');
   assert.equal((await fs.readFile(path.join(target, "usage", "events.jsonl"), "utf8")).trim().split("\n").length, 2, "the ledgers are one");
   assert.equal(await fs.readFile(path.join(target, "sessions", "k", "handoff.json"), "utf8"), '{"from":"host"}', "the host's own file is not replaced");

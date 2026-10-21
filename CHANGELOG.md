@@ -2046,6 +2046,16 @@ four of those arrived as upstream issues #63–#66.
   asks for that where the clone is writable. Measured the way the workspace runs it: a new
   participant's `begin_task` … `complete_task` pass and nothing is written into the build.
   [INSTALL.md, "A shared server"](docs/INSTALL.md#a-shared-server).
+- **Windows: a request sent as the daemon died goes to the next daemon** (Д-578). The bridge hears that a
+  daemon's pipe closed only when it writes into it, so the first call after a crash was answered "the daemon
+  went away while tools/call ran; repeat this call", though the daemon never had it. A request the daemon never
+  took now goes to the new one; only one it took gets that error.
+- **Windows: a file of the user's where the seed needs a folder no longer stops the seed's update** (Д-577).
+  Windows says such a path is not there, where POSIX says it is not a folder, and the copy failed the whole
+  update; the file is kept, as on Linux and macOS.
+- **The tests pass on GitHub's macOS and Windows runners** (Д-579 … Д-581), where 3.0's CI ran for the first
+  time in its pull request: 57 failures in five jobs, all but Д-577's in tests that assumed a POSIX host, a
+  deletable open file, a runner uid of 0 or 1000, or a registry that stays missing (Д-575).
 
 ### Security
 

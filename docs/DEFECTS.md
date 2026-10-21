@@ -22533,7 +22533,8 @@ while … ran» получают только доставленные. Этог
 
 **Замер после.** `daemon-bridge.test.mjs` — 18 из 18; оба новых теста («a request the dead daemon never took…», «a
 request to a daemon whose process is gone…») без своей половины правки падают той же ошибкой; `src/cli/daemon.test.mjs` и
-`cli.test.mjs` на Linux — 46 из 46. Windows Node 24.22 под Wine 9: без правки тест kill -9 падает той же ошибкой («went away while tools/call ran (the daemon (pid 404) closed the connection)»), с правкой проходит.
+`cli.test.mjs` на Linux — 46 из 46. CI на `473049b` (run 39595472001, job 119206575522, windows-latest): «Daemon tests»
+проходят, все проверки PR зелёные. Windows Node 24.22 под Wine 9: без правки тест kill -9 падает той же ошибкой («went away while tools/call ran (the daemon (pid 404) closed the connection)»), с правкой проходит.
 
 ---
 
@@ -22563,7 +22564,8 @@ stonebridgeway/ai-dev-system#86: в форке Actions не стартуют, и
 (job 119139133549); установщик Windows, unit-тесты desktop — 3 fail из 110 (job 119139132900).
 
 **Замер после** (CI на `fd39948`): macOS — зелёный; Windows «Core unit tests» — 0 fail, 1624 pass, 35 skip; «Agent hook
-tests» — 0 fail; установщик — зелёный. Под Wine исправленные файлы проходят, кроме тестов со ссылками и `git`, которых Wine
+tests» — 0 fail; установщик — зелёный. CI на `473049b` (runs 39595472001, 39595472032, 39595472035): все 14 проверок
+зелёные, `release`, `publish` и `freeze-2x` из форка пропускаются. Под Wine исправленные файлы проходят, кроме тестов со ссылками и `git`, которых Wine
 не умеет.
 
 ---

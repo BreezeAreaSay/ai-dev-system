@@ -140,15 +140,25 @@ test("a child process started in a session, without an env of its own, gets the 
 
 test("the identity a build carries is where the data is, resolved as the server resolves it (Д-199)", () => {
   const identity = (env, platform = "linux", execPath = "/usr/bin/node") => daemonIdentity({ serverRoot, env, platform, execPath });
-  const linux = identity({ HOME: "/home/ivan", AI_DEV_VAULT_ROOT: "/data/vault" });
-  assert.equal(linux.AI_DEV_HOME, "/home/ivan/.ai-dev");
-  assert.equal(linux.AI_DEV_VAULT_ROOT, "/data/vault");
-  assert.equal(linux.AI_DEV_SEARCH_INDEX_DIR, "/home/ivan/.ai-dev/cache/search-index");
-  assert.equal(linux.BGE_M3_ONNX_DIR, "/home/ivan/.ai-dev/models/bge-m3-onnx");
-  assert.equal(linux.BGE_M3_DEVICE, "cpu");
-  assert.deepEqual(identity({ HOME: "/home/ivan/", AI_DEV_VAULT_ROOT: "/data/vault/", BGE_M3_DEVICE: "cpu", AI_DEV_DENSE_BACKEND: "" }), linux);
-  assert.equal(identity({ HOME: "/home/ivan", AI_DEV_VAULT_ROOT: "/data/vault", AI_DEV_NEW_THING: "1" }).AI_DEV_NEW_THING, "1", "an unlisted variable, as written");
-  assert.equal(identity({ HOME: "/home/ivan", AI_DEV_VAULT_ROOT: "/data/vault", AI_DEV_PROFILES: "core" }).AI_DEV_PROFILES, undefined, "a session's variable is not the daemon's");
+  // The runtime folder is resolved on this machine's paths, as the server it
+  // describes resolves it: each system's names are checked on that system.
+  const windows = process.platform === "win32";
+  const [here, onThis] = windows
+    ? [{ USERPROFILE: "C:\\Users\\Ivan", AI_DEV_VAULT_ROOT: "D:\\Vault" }, (env) => identity(env, "win32", "C:\\node.exe")]
+    : [{ HOME: "/home/ivan", AI_DEV_VAULT_ROOT: "/data/vault" }, (env) => identity(env)];
+  const named = onThis(here);
+  const home = windows ? "c:/users/ivan/.ai-dev" : "/home/ivan/.ai-dev";
+  assert.equal(named.AI_DEV_HOME, home);
+  assert.equal(named.AI_DEV_VAULT_ROOT, windows ? "d:/vault" : "/data/vault");
+  assert.equal(named.AI_DEV_SEARCH_INDEX_DIR, `${home}/cache/search-index`);
+  assert.equal(named.BGE_M3_ONNX_DIR, `${home}/models/bge-m3-onnx`);
+  assert.equal(named.BGE_M3_DEVICE, "cpu");
+  const trailing = windows
+    ? { USERPROFILE: "C:\\Users\\Ivan\\", AI_DEV_VAULT_ROOT: "d:\\vault\\" }
+    : { HOME: "/home/ivan/", AI_DEV_VAULT_ROOT: "/data/vault/" };
+  assert.deepEqual(onThis({ ...trailing, BGE_M3_DEVICE: "cpu", AI_DEV_DENSE_BACKEND: "" }), named);
+  assert.equal(onThis({ ...here, AI_DEV_NEW_THING: "1" }).AI_DEV_NEW_THING, "1", "an unlisted variable, as written");
+  assert.equal(onThis({ ...here, AI_DEV_PROFILES: "core" }).AI_DEV_PROFILES, undefined, "a session's variable is not the daemon's");
   // The home rule is the server's own, on either system.
   for (const [env, platform] of [[{ HOME: "/h", USERPROFILE: "/p" }, "linux"], [{ USERPROFILE: "C:\\Users\\i", HOME: "C:\\msys\\home" }, "win32"], [{ HOME: "C:\\only-home" }, "win32"]]) {
     const expected = userHomeDirectory({ env, platform });

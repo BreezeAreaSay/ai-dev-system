@@ -94,11 +94,13 @@ test("a stored value that is no longer valid is reported and replaced by its def
   await fs.rm(settingsPath(env));
   await fs.mkdir(settingsPath(env));
   assert.throws(() => readSettings({ env }), (error) => error.code === "EISDIR" && error.message.startsWith(`${settingsPath(env)} cannot be read: EISDIR`));
-  // Where Node names the file itself, it is named once (Д-281).
+  // Where Node names the file itself, it is named once (Д-281). Windows says a
+  // path through a file is not there (ENOENT), which reads as no settings yet.
   const plain = path.join(env.AI_DEV_HOME, "plain-file");
   await fs.writeFile(plain, "");
   const inside = path.join(plain, "config.json");
-  assert.throws(() => readSettings({ env, file: inside }), (error) => error.code === "ENOTDIR" && error.message.split(inside).length === 2);
+  if (process.platform === "win32") assert.doesNotThrow(() => readSettings({ env, file: inside }));
+  else assert.throws(() => readSettings({ env, file: inside }), (error) => error.code === "ENOTDIR" && error.message.split(inside).length === 2);
 });
 
 test("unsetOnly leaves a setting the file gives a readable value, the empty language too; the lock's wait can be bounded (Д-279)", async (t) => {

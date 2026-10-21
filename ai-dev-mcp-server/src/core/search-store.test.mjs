@@ -8,13 +8,14 @@ import { createDocumentCache } from "./search-documents.mjs";
 import { densePlan, indexStatus, rebuildIndex, storeDenseVectors } from "./search-store.mjs";
 import { DEFAULT_REBUILD_LOCK_TIMEOUT_SECONDS, rebuildLockTimeoutMs, setAside } from "./search-writer.mjs";
 import { createIndexReader, isBusyError, isCorruptError, loadSqlite, openDatabase, sqliteSupport, wholeText } from "./search-sqlite.mjs";
+import { removeAfterAll } from "../../test/fixtures/temp-folder.mjs";
 
 const supported = sqliteSupport().available;
 const needsSqlite = { skip: !supported && sqliteSupport().reason };
 
 function tempRoot(t, prefix = "search-store-") {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  removeAfterAll(root);
   return root;
 }
 

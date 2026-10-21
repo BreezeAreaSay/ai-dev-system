@@ -121,10 +121,20 @@ async function entryKind(target) {
   try {
     return (await fsp.lstat(target)).isFile() ? "file" : "other";
   } catch (error) {
-    if (error?.code === "ENOENT") return "absent";
+    // A file where the path needs a folder: POSIX says ENOTDIR, Windows ENOENT,
+    // and the copy's mkdir then failed the whole update with EEXIST.
+    if (error?.code === "ENOENT") return await underFile(path.dirname(target)) ? "other" : "absent";
     if (error?.code === "ENOTDIR") return "other";
     throw error;
   }
+}
+
+/** Whether the nearest part of this path that exists is something other than a folder. */
+async function underFile(folder) {
+  const stat = await fsp.lstat(folder).catch((error) => (error?.code === "ENOENT" ? null : Promise.reject(error)));
+  if (stat) return !stat.isDirectory() && !stat.isSymbolicLink();
+  const parent = path.dirname(folder);
+  return parent !== folder && underFile(parent);
 }
 
 /** The sha256 of a regular file, or null when there is none at the path. */

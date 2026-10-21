@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { createSearchIndexRuntime } from "./search-index.mjs";
 import { sqliteSupport } from "./search-sqlite.mjs";
+import { removeAfterAll } from "../../test/fixtures/temp-folder.mjs";
 
 const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
 
@@ -25,7 +26,7 @@ function write(root, rel, content) {
 /** A runtime over a real vault and index; every embedding request is recorded. */
 function createFixture(t, { describe = null, embed = null, refreshSkillRegistry } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "search-node-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  removeAfterAll(root);
   const vaultRoot = path.join(root, "vault");
   write(vaultRoot, "02-knowledge/deploy.md", "# Deploy runbook\n\nHow to deploy to production and roll back a database migration.");
   write(vaultRoot, "02-knowledge/review.md", "# Code review checklist\n\nWhat a reviewer checks before approving.");

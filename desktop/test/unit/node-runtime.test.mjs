@@ -39,7 +39,9 @@ test("the Node of AI_DEV_NODE, else the clients', else PATH, else where installe
   const versions = new Map([[clients, "v24.1.0"], [onPath, "v22.16.0"], [pinned, "v22.20.0"], [old, "v20.11.0"]]);
   const versionOf = (file) => versions.get(file) ?? null;
   const env = { PATH: path.dirname(onPath) };
-  const base = { env, platform: "linux", home, versionOf };
+  // The fakes are this machine's files, so the lookup is this machine's: on
+  // Windows a PATH of "C:\\…" split as Linux splits it found nothing.
+  const base = { env, platform: process.platform, home, versionOf };
   assert.deepEqual(findNode({ ...base, clientNodes: [clients] }), { path: clients, version: "v24.1.0", source: "client" });
   assert.deepEqual(findNode(base), { path: onPath, version: "v22.16.0", source: "PATH" });
   assert.deepEqual(findNode({ ...base, env: { ...env, AI_DEV_NODE: pinned }, clientNodes: [clients] }), { path: pinned, version: "v22.20.0", source: "AI_DEV_NODE" });
@@ -48,17 +50,20 @@ test("the Node of AI_DEV_NODE, else the clients', else PATH, else where installe
   assert.match(findNode({ ...base, env: { ...env, AI_DEV_NODE: path.join(root, "nothing") } }).problem, /not an executable file/);
   // A client's Node too old is passed over for the next.
   assert.equal(findNode({ ...base, clientNodes: [old] }).path, onPath);
-  const none = findNode({ env: { PATH: path.join(root, "empty") }, platform: "linux", home, versionOf });
+  const programs = path.join(root, "programs");
+  const none = findNode({ env: { PATH: path.join(root, "empty"), ProgramFiles: programs }, platform: process.platform, home, versionOf });
   assert.equal(none.path, null);
   assert.match(none.problem, /No Node\.js 22\.16 or newer was found/);
-  assert.ok(none.tried.includes("/usr/local/bin/node"), "it says where it looked");
+  const installed = process.platform === "win32" ? path.join(programs, "nodejs", "node.exe") : "/usr/local/bin/node";
+  assert.ok(none.tried.includes(installed), "it says where it looked");
 });
 
 test("nvm's versions are tried newest first", (t) => {
   const root = folder(t);
   const home = path.join(root, "home");
-  const older = fakeNode(path.join(home, ".nvm", "versions", "node", "v22.16.0", "bin"));
-  const newer = fakeNode(path.join(home, ".nvm", "versions", "node", "v24.2.0", "bin"));
+  // nvm's layout, as on Linux and macOS, wherever the test runs.
+  const older = fakeNode(path.join(home, ".nvm", "versions", "node", "v22.16.0", "bin"), "node");
+  const newer = fakeNode(path.join(home, ".nvm", "versions", "node", "v24.2.0", "bin"), "node");
   const found = findNode({ env: { PATH: "" }, platform: "linux", home, versionOf: (file) => (file === newer ? "v24.2.0" : file === older ? "v22.16.0" : null) });
   assert.equal(found.path, newer);
 });

@@ -28,7 +28,9 @@ test("the tray's colour is the health checks' verdict: red for a failing critica
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
   assert.equal((await mainCall(app, "setup_run", {})).ok, true);
-  await fs.rm(path.join(s.vault, "03-skills-catalog", "registries", "skills.index.json"));
+  // A registry that is not there is built at the first request that needs it
+  // (Д-575); an empty one, newer than every skill, is current and fails.
+  await fs.writeFile(path.join(s.vault, "03-skills-catalog", "registries", "skills.index.json"), "[]\n");
   assert.equal((await mainCall(app, "rebuild_search_index", {})).ok, true);
   // The rebuild changed something: the checks ran again after it.
   await page.waitForFunction(() => true);

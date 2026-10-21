@@ -147,8 +147,12 @@ test("bundle.json, as the build writes it, is what the server's provisioning rea
     "the shim names the Node and CLI beside it, quoted for a profile with a space");
   // Two names Windows takes for one — possible in a tree npm builds on Linux — stop the build, read back as the app reads it (Д-306, п. 1).
   write(runtime, { "node_modules/pkg/README.md": "a", "node_modules/pkg/readme.md": "b" });
-  await assert.rejects(writeBundleMarker({ runtimeDir: runtime, name: "x", version: "3.0.0", node: { version: "24.22.0", sha256: sha("node") }, fingerprintOf: bundleFingerprint, parse: parseBundle }),
-    /bundle\.json is not a runtime this AI Dev can install: node_modules\/pkg\/readme\.md listed twice/);
+  // Only a filesystem that tells the two apart holds both; on Windows and macOS
+  // the second write is the first file, and there is nothing to refuse.
+  if (fs.readdirSync(path.join(runtime, "node_modules", "pkg")).length === 2) {
+    await assert.rejects(writeBundleMarker({ runtimeDir: runtime, name: "x", version: "3.0.0", node: { version: "24.22.0", sha256: sha("node") }, fingerprintOf: bundleFingerprint, parse: parseBundle }),
+      /bundle\.json is not a runtime this AI Dev can install: node_modules\/pkg\/readme\.md listed twice/);
+  }
 });
 
 test("the composition check names what must not ship, what is missing, a Node that is not the pinned one, and a runtime over its budget", () => {

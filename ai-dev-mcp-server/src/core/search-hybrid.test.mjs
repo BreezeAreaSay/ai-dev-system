@@ -20,6 +20,7 @@ import {
 import { pythonSum } from "./python-compat.mjs";
 import { densePlan, rebuildIndex } from "./search-store.mjs";
 import { openDatabase, sqliteSupport } from "./search-sqlite.mjs";
+import { removeAfterAll } from "../../test/fixtures/temp-folder.mjs";
 
 const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
 
@@ -32,7 +33,7 @@ function write(root, rel, content) {
 /** Three notes and four skills, two of them Membrane connectors. */
 async function buildFixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "search-hybrid-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  removeAfterAll(root);
   const vault = path.join(root, "vault");
   write(vault, "02-knowledge/deploy-runbook.md", "# Deploy runbook\n\nHow to deploy to production and roll back a database migration safely.");
   write(vault, "02-knowledge/code-review.md", "# Code review checklist\n\nWhat a reviewer checks before approving a pull request: tests, naming, security.");
@@ -287,7 +288,7 @@ test("the cache keeps parsed vectors between searches and drops what the index n
 
 test("a cold cache over many documents reads them in one pass, and answers as reading them one by one does", needsSqlite, async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "search-hybrid-bulk-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  removeAfterAll(root);
   const vault = path.join(root, "vault");
   const topics = ["release review", "deploy rollback", "code review checklist", "database migration", "frontend testing"];
   for (let index = 0; index < 80; index += 1) {

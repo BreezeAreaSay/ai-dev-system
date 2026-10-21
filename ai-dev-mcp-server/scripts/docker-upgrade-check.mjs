@@ -56,6 +56,7 @@ const volume = `ai-dev-upgrade-${tag}`;
 const warm = `ai-dev-upgrade-warm-${tag}`;
 const scratch = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-docker-upgrade-"));
 const projects = path.join(scratch, "projects");
+const state = path.join(scratch, "host-state");
 const report = { status: "pass", old_image: oldImage, new_image: newImage };
 
 /** One session through a launcher: the handshake, and whatever `work` asks. */
@@ -88,6 +89,17 @@ const json = async (client, name, args = {}) => {
 function inVolume(image, script) {
   const result = run("docker", ["run", "--rm", "--network", "none", "--entrypoint", "sh", "--mount", `type=volume,source=${volume},target=/data`, image, "-c", script]);
   if (result.status !== 0) throw new Error(`in the volume: ${result.stderr.trim()}`);
+  return result.stdout.trim();
+}
+
+/**
+ * The host's state folder as the image's user sees it. What the container
+ * writes there is that user's, in folders only it may read: a host whose uid
+ * is not the image's (GitHub's runners are 1001) reads them through it.
+ */
+function inState(image, script) {
+  const result = run("docker", ["run", "--rm", "--network", "none", "--entrypoint", "sh", "--mount", `type=bind,source=${state},target=/state`, image, "-c", `cd /state && ${script}`]);
+  if (result.status !== 0) throw new Error(`in the state folder: ${result.stderr.trim()}`);
   return result.stdout.trim();
 }
 
@@ -156,11 +168,10 @@ try {
   // 4. A 3.0 entry on the same volume, sharing the host's state folder (where
   // the image's user is the host's; here the folder is opened to it whatever
   // this machine's uid): the volume's state, the task with it, moves there.
-  const state = path.join(scratch, "host-state");
   await fs.mkdir(state, { recursive: true });
   await fs.chmod(state, 0o777);
   const third = await session("docker", dockerRunArgs({ image: newImage, volume, projects, state, platform: process.platform }), {});
-  const moved = (await fs.readdir(path.join(state, "tasks")).catch(() => [])).filter((name) => name.endsWith(".json"));
+  const moved = inState(newImage, "ls tasks 2>/dev/null; true").split("\n").filter((name) => name.endsWith(".json"));
   assert(moved.includes(`${first.task}.json`), `the task is not in the host's state folder: ${moved.join(", ")}`);
   report.entry_3x = { session_ms: third.handshake.ms, instructions: third.handshake.instructions, tasks_in_host_state: moved.length };
 
@@ -184,5 +195,11 @@ try {
 } finally {
   run("docker", ["rm", "-f", warm], { stdio: "ignore" });
   run("docker", ["volume", "rm", "-f", volume], { stdio: "ignore" });
+  // The container's files in it are its user's, which this one may not remove.
+  if (await fs.stat(state).then(() => true, () => false)) {
+    try {
+      inState(newImage, "rm -rf ./* ./.[!.]* 2>/dev/null; true");
+    } catch {}
+  }
   await fs.rm(scratch, { recursive: true, force: true }).catch(() => {});
 }

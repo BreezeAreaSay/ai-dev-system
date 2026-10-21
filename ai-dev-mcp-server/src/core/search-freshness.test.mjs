@@ -24,13 +24,14 @@ import {
   UNPINNED_REVISION
 } from "./search-store.mjs";
 import { withRebuildLock } from "./search-writer.mjs";
+import { removeAfterAll } from "../../test/fixtures/temp-folder.mjs";
 
 const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
 
 /** The helper test's fixture: one note and an empty registry. */
 function setUp(t) {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), "search-freshness-"));
-  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  removeAfterAll(temp);
   const vault = path.join(temp, "vault");
   const indexPath = path.join(vault, "09-mcp", "search-index", "test.sqlite");
   fs.mkdirSync(path.join(vault, "02-knowledge"), { recursive: true });

@@ -266,10 +266,12 @@ test("a package missing a seed file still fills the vault; the file arrives once
 
 test("a seed rename by case only keeps the file; a linked folder of the user's is never written through (Д-182, Д-185)", async (t) => {
   const root = await scratch(t);
-  // Case: on Windows and macOS both names are one file — a hard link stands in for that here.
+  // Case: on Windows and macOS both names are one file — a hard link stands in for that
+  // where the filesystem tells them apart.
   const vault = path.join(root, "vault");
   await syncSeed({ seedRoot: await writeSeed(path.join(root, "a1"), { "x/skill.md": "s\n" }), contentRoot: vault, version: "1.0.0" });
-  await fs.link(path.join(vault, "x", "skill.md"), path.join(vault, "x", "SKILL.md"));
+  const upper = path.join(vault, "x", "SKILL.md");
+  if (!(await exists(upper))) await fs.link(path.join(vault, "x", "skill.md"), upper);
   const renamed = await syncSeed({ seedRoot: await writeSeed(path.join(root, "a2"), { "x/SKILL.md": "s\n" }), contentRoot: vault, version: "1.0.1" });
   assert.equal(renamed.removed, 0, "the old name is the same file: not removed");
   assert.equal(await read(vault, "x/skill.md"), "s\n");

@@ -6,6 +6,7 @@ import test from "node:test";
 import { createKnowledgeCache, KNOWLEDGE_PREVIEW_LIMIT, KNOWLEDGE_TEXT_LIMIT, knowledgeSearch } from "./search-knowledge.mjs";
 import { rebuildIndex } from "./search-store.mjs";
 import { openDatabase, sqliteSupport } from "./search-sqlite.mjs";
+import { removeAfterAll } from "../../test/fixtures/temp-folder.mjs";
 
 const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
 
@@ -21,7 +22,7 @@ function write(root, rel, content) {
  */
 async function buildFixture(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "search-knowledge-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  removeAfterAll(root);
   const vault = path.join(root, "vault");
   const project = path.join(root, "demo-repo");
   write(vault, "02-knowledge/code-review.md", "# Code review checklist\n\nWhat a reviewer checks:   code review\n\nis about tests.");

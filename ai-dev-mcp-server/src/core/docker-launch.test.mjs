@@ -129,7 +129,8 @@ test("a model folder whose bge-m3-onnx is a link mounts the link itself, which D
 test("a link to another disk is said when the entry is written, and a mount whose folder is gone is found (Д-385)", () => {
   // The link resolves now; its target is on another device than the folder that holds the link.
   const devices = { "/m": 1, "/m/bge-m3-onnx": 2 };
-  const options = { lstat: () => ({ isSymbolicLink: () => true }), stat: (file) => ({ dev: devices[file] }), readlink: () => "/media/disk2/bge-m3-onnx" };
+  // A POSIX host's folders, joined as it joins them wherever the test runs.
+  const options = { join: path.posix.join, lstat: () => ({ isSymbolicLink: () => true }), stat: (file) => ({ dev: devices[file] }), readlink: () => "/media/disk2/bge-m3-onnx" };
   const mount = modelMount("/m", options);
   assert.deepEqual([mount.source, mount.target], ["/m/bge-m3-onnx", CONTAINER_MODEL_DIR]);
   assert.equal(mount.note, "/m/bge-m3-onnx leads to /media/disk2/bge-m3-onnx, on another disk: every session mounts it from there, so while that disk is away Docker starts no session at all — `ai-dev clients doctor` names the entry then.");
@@ -156,7 +157,8 @@ function statOf(known) {
 }
 
 // That file system, where this user may write: a folder that is not there is one install makes (Д-429).
-const knownFs = (known) => ({ stat: statOf(known), access: () => undefined });
+// Its paths are a POSIX host's, read as one reads them wherever the test runs.
+const knownFs = (known) => ({ stat: statOf(known), access: () => undefined, path: path.posix });
 
 test("a --mount is read the way Docker's CLI reads it, and only a folder that is not there is missing (Д-397)", () => {
   const gone = (...mount) => missingBindSources(["run", ...mount, "img"], knownFs({ "/here": "" }));
@@ -200,9 +202,9 @@ test("a --mount is read the way Docker's CLI reads it, and only a folder that is
   for (const source of ["/locked/x", "/loop", "/busy"]) assert.deepEqual(missingBindSources(spec(source), known), [], source);
 
   // A link whose target is away says where it leads; a relative one, from where the link is.
-  const link = (target) => ({ lstat: () => ({ isSymbolicLink: () => true }), readlink: () => target, stat: statOf({}) });
+  const link = (target) => ({ lstat: () => ({ isSymbolicLink: () => true }), readlink: () => target, stat: statOf({}), path: path.posix });
   assert.deepEqual(missingBindSources(spec("/m/bge-m3-onnx"), link("/media/disk2/bge-m3-onnx")), [{ source: "/m/bge-m3-onnx", target: "/x", leadsTo: "/media/disk2/bge-m3-onnx" }]);
-  assert.equal(missingBindSources(spec("/m/bge-m3-onnx"), link("../disk2/model"))[0].leadsTo, path.resolve("/m", "../disk2/model"));
+  assert.equal(missingBindSources(spec("/m/bge-m3-onnx"), link("../disk2/model"))[0].leadsTo, path.posix.resolve("/m", "../disk2/model"));
 });
 
 test("a --mount is read as Docker 29 reads it: up to the image, its own CSV lines, bind-create-src, and a value it refuses passed over, not the folders beside it (Д-417, Д-433)", () => {

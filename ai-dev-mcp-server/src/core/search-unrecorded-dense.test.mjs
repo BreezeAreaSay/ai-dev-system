@@ -13,6 +13,7 @@ import test from "node:test";
 import { hybridSearch } from "./search-hybrid.mjs";
 import { densePlan, indexStatus, rebuildIndex } from "./search-store.mjs";
 import { openDatabase, sqliteSupport, tableColumns } from "./search-sqlite.mjs";
+import { removeAfterAll } from "../../test/fixtures/temp-folder.mjs";
 
 const needsSqlite = { skip: !sqliteSupport().available && sqliteSupport().reason };
 const PYTHON = { backend: "python", revision: "unpinned", dtype: "fp32" };
@@ -21,7 +22,7 @@ const ONNX = { backend: "onnx", revision: "abc123", dtype: "int8" };
 /** Three notes, indexed with a vector each, then left as 2.0.0 left an index: its table, its meta. */
 async function indexOf200(t) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "search-unrecorded-"));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  removeAfterAll(root);
   const vault = path.join(root, "vault");
   fs.mkdirSync(path.join(vault, "02-knowledge"), { recursive: true });
   for (const [name, text] of [["deploy", "How to deploy and roll back."], ["review", "What a reviewer checks."], ["gate", "Tests pass before a release."]]) {

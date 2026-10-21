@@ -544,7 +544,8 @@ test("an error in one directory is an error, and the findings from the others st
 
 test("osv-scanner and npm audit reporting one advisory make one finding; malware blocks", async (t) => {
   const root = await tempProject(t, { "package-lock.json": "{}" });
-  const osvReport = (await fs.readFile(path.join(FIXTURES, "osv-scanner.json"), "utf8")).replaceAll("/work/app", root);
+  // The project's folder as JSON writes it: a Windows one has backslashes to escape.
+  const osvReport = (await fs.readFile(path.join(FIXTURES, "osv-scanner.json"), "utf8")).replaceAll("/work/app", JSON.stringify(root).slice(1, -1));
   const npmReport = JSON.stringify({
     vulnerabilities: {
       axios: { name: "axios", severity: "critical", via: [{ source: 1115703, name: "axios", title: "Malware in axios", url: "https://github.com/advisories/GHSA-fw8c-xr5c-95f9", severity: "critical", range: "=1.14.1" }] },

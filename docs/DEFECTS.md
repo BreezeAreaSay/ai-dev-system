@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 593 записи. Закрыто 581, открыто 12. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 593 записи. Закрыто 586, открыто 7. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -22631,7 +22631,7 @@ tests» — 0 fail; установщик — зелёный. CI на `473049b` (
 
 ## Д-583. Mac: подпись приложения меняет бинарники рантайма после того, как их хеши записаны в `bundle.json`
 
-**Статус:** исправлен (`edc910f`), 2026-10-27; закрывается первым прогоном `desktop-macos-linux.yml` на `macos-latest`. Нашло независимое ревью 2026-10-27 коммитов `6071e68 … f7778ce` (сервер из терминала,
+**Статус:** закрыт (`edc910f`, замер — CI на `144237f`), 2026-10-27. Нашло независимое ревью 2026-10-27 коммитов `6071e68 … f7778ce` (сервер из терминала,
 приложение для macOS и Linux).
 
 `build-desktop.mjs` пишет `bundle.json` (sha256 каждого файла рантайма) до electron-builder. electron-builder 26.17
@@ -22664,7 +22664,20 @@ file the installer shipped» (`copyChecked`).
 рантайма (onnxruntime, sharp) до того, как пишется `bundle.json`; этот путь не доделан, сборки проекта подписаны ad hoc.
 
 **Замер после** (`edc910f`): `desktop-build.test.mjs` 15/15 — файл рантайма подходит под `signIgnore`, `Contents/MacOS/AI Dev` нет;
-`app-bundle.test.mjs` 17/17. Замер на macOS — первый прогон джоба (ниже, когда будет).
+`app-bundle.test.mjs` 17/17.
+
+Замер на macOS — джоб `Build the app (darwin-arm64)` 122170380991 на `144237f` (после Д-590 и Д-592: до них подпись в PR не
+ставилась вовсе):
+
+```
+• signing  file=…/mac-arm64/AI Dev.app platform=darwin type=distribution identityName=- identityHash=none
+6. The runtime in the packed app…            # checkShipped: каждый файл рантайма — те байты, что в bundle.json
+codesign --verify --deep --strict --verbose=2 "…/AI Dev.app"
+…/AI Dev.app: valid on disk
+…/AI Dev.app: satisfies its Designated Requirement
+com.apple.quarantine: 0081;00000000;Safari;  # на рантайме собранного приложения
+✔ the installed app copies its runtime, links it, and runs on it   # и в копии карантина нет (xattr -r -l)
+```
 
 ---
 
@@ -22754,7 +22767,7 @@ custom после всех добавлений и замен замера Д-58
 
 ## Д-587. AppImage на Ubuntu 24.04 не запускается без песочницы Chromium
 
-**Статус:** закрыт (`edc910f`), 2026-10-27; замер на Ubuntu 24.04 — шаг джоба Linux. Нашло то же ревью.
+**Статус:** закрыт (`edc910f`, замер на Ubuntu 24.04 — CI на `fa015fc`, `f8c2c4a`, `144237f`), 2026-10-27. Нашло то же ревью.
 
 Ubuntu 24.04 по умолчанию запрещает непривилегированные пространства имён пользователя
 (`kernel.apparmor_restrict_unprivileged_userns=1`), а песочница Chromium без них не поднимается. `.deb` ставит
@@ -22791,7 +22804,14 @@ AI-Dev-3.0.0-linux-amd64.deb:       Exec="/opt/AI Dev/ai-dev-desktop" %U; postin
 packaged.test.mjs на самой AppImage (APPIMAGE_EXTRACT_AND_RUN=1, xvfb): # tests 1 # pass 1
 ```
 
-На этой машине запрета нет, и запуск здесь — под root, с явным `--no-sandbox`; запасной путь на Ubuntu 24.04 меряет джоб.
+На этой машине запрета нет, и запуск здесь — под root, с явным `--no-sandbox`. Запасной путь на Ubuntu 24.04 — джоб
+`Build the app (linux-x64)`, шаг «Run the AppImage where Chromium's sandbox cannot start», три прогона подряд:
+
+```
+kernel.apparmor_restrict_unprivileged_userns = 1      # строки «User namespaces are allowed here» нет: unshare -Ur отказал
+✔ the installed app copies its runtime, links it, and runs on it
+ℹ tests 1  ℹ pass 1  ℹ fail 0
+```
 
 ---
 
@@ -22856,7 +22876,7 @@ ai-dev rules add --pattern=--no-verify --example='git commit --no-verify' --mess
 
 ## Д-590. Сборка Mac в пул-реквесте не подписывается, и проверка подписи меряет не ту сборку
 
-**Статус:** открыт. Нашёл первый прогон `desktop-macos-linux.yml` на PR stonebridgeway/ai-dev-system#86 (`fa015fc`).
+**Статус:** закрыт (`f8c2c4a`, с Д-592 — `144237f`), 2026-10-27. Нашёл первый прогон `desktop-macos-linux.yml` на PR stonebridgeway/ai-dev-system#86 (`fa015fc`).
 
 electron-builder 26.17 ничего не подписывает в сборке пул-реквеста: `isSignAllowed` (`codeSign/macCodeSign.js`) видит
 `GITHUB_BASE_REF` (`isPullRequest`, `builder-util`) и пишет «Current build is a part of pull request, code signing will be
@@ -22877,11 +22897,18 @@ dist/darwin-arm64/installer/mac-arm64/AI Dev.app: code has no resources but sign
 Шаги до него зелёные: рантайм запускается, установленное приложение с карантином на рантайме проходит `packaged.test.mjs`
 (1 из 1).
 
+**Как закрыто** (`f8c2c4a`). Шаг «Build the app» без сертификата ставит `CSC_FOR_PULL_REQUEST=true`: electron-builder
+подписывает PR-сборку ad hoc, как релизную; Developer ID в пул-реквесте не используется никогда. Первый прогон после правки
+упёрся в Д-592, подпись пошла после неё.
+
+**Замер после** (`144237f`, джоб 122170380991): «signing … identityName=-», «AI Dev.app: valid on disk», «satisfies its
+Designated Requirement» — выдержка в Д-583.
+
 ---
 
 ## Д-591. Тест подсказки для macOS и Linux падает на Windows: путь собран с обратными слэшами
 
-**Статус:** открыт. Нашёл тот же прогон CI (джоб Windows, `core unit tests`).
+**Статус:** закрыт (`f8c2c4a`), 2026-10-27. Нашёл тот же прогон CI (джоб Windows, `core unit tests`).
 
 Тест «hints are spelled the way each layout runs them» (`install-layout.test.mjs`), добавленный с приложением для macOS и
 Linux, строит POSIX-раскладку через `path.join`; на Windows в пути обратные слэши, и подсказка для POSIX-оболочки честно берёт
@@ -22896,11 +22923,16 @@ Linux, строит POSIX-раскладку через `path.join`; на Window
     at …/src/core/install-layout.test.mjs:204:10
 ```
 
+**Как закрыто** (`f8c2c4a`). Случаи macOS и Linux в этом тесте идут там, где такая раскладка бывает: не на Windows. Код
+подсказки не менялся.
+
+**Замер после** (джоб Windows на `f8c2c4a` и `144237f`): Core unit tests — tests 1669, pass 1633, fail 0, skipped 36.
+
 ---
 
 ## Д-592. Пустой секрет `CSC_LINK` electron-builder принимает за сертификат: Mac-приложение без секретов не подписывается
 
-**Статус:** открыт. Нашёл второй прогон `desktop-macos-linux.yml` на PR #86 (`f8c2c4a`), после правки Д-590.
+**Статус:** закрыт (`144237f`), 2026-10-27. Нашёл второй прогон `desktop-macos-linux.yml` на PR #86 (`f8c2c4a`), после правки Д-590.
 
 Workflow передаёт `CSC_LINK: ${{ secrets.MAC_CSC_LINK }}`; где секрета нет — у форка, у прода, пока владелец не добавил
 сертификат, — переменная есть и пуста. `builderConfig` считает пустую строку отсутствием сертификата (`macCertificate`) и
@@ -22922,11 +22954,23 @@ Error: /Users/runner/work/ai-dev-system/ai-dev-system/desktop not a file
 
 и шаг «The Mac app's signature holds»: «code has no resources but signature indicates they must be present».
 
+**Как закрыто** (`144237f`). `dropEmptySigning` (`runtime-bundle.mjs`) убирает из окружения заданные, но пустые `CSC_LINK`,
+`CSC_KEY_PASSWORD`, `CSC_NAME` и `APPLE_*` до того, как их прочтёт electron-builder, — так же, как пустую строку уже читал
+`builderConfig`; сборка говорит, какие убрала. Тест — `desktop-build.test.mjs`, «a signing secret that is set but empty».
+
+**Замер после** (`144237f`, джоб 122170380991):
+
+```
+CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID set but empty: taken as not set.
+• signing  file=…/AI Dev.app platform=darwin type=distribution identityName=- identityHash=none
+• skipped macOS notarization  reason=`notarize` options were unable to be generated
+```
+
 ---
 
 ## Д-593. `build-desktop.mjs` выходит с 0, когда electron-builder не довёл сборку
 
-**Статус:** открыт. Нашёл тот же прогон.
+**Статус:** закрыт (`144237f`), 2026-10-27. Нашёл тот же прогон.
 
 После ошибки Д-592 шаг «Build the app» зелёный: ни строки «6. The runtime in the packed app…», ни отчёта сборки, ни
 `.dmg` и `.zip`. Сборка не бросила в `main().catch` (там `exitCode = 1`): обещание `builder.build` осталось неразрешённым, цикл
@@ -22937,6 +22981,14 @@ Error: /Users/runner/work/ai-dev-system/ai-dev-system/desktop not a file
 
 **Замер до:** тот же джоб — шаг 7 «Build the app» passed; следующая строка лога — уже шаг «Run the shipped runtime»; шаг
 «Keep the packages» не дошёл до проверки файлов (`if-no-files-found: error`), его отменил красный шаг подписи.
+
+**Как закрыто** (`144237f`). Сборка считается неудавшейся, пока `main()` не завершился: если процесс кончается раньше,
+обработчик `exit` пишет «The build stopped before it finished: electron-builder gave no answer after the error above.» и
+ставит код 1.
+
+**Замер после.** Здесь: тот же конец скрипта вокруг обещания, которое не разрешается, — та строка и `exit 1`;
+`build-desktop.mjs --target linux-x64 --check` — `exit 0`; неизвестная цель — `exit 1`. В CI на `144237f` сборка Mac дошла до
+«6. The runtime in the packed app…» и отчёта: `.dmg` (221 489 018 байт), `.zip` (219 439 126 байт) и их `.blockmap`, 183 с.
 
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 

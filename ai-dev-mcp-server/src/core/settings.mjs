@@ -34,6 +34,9 @@ export const SETTINGS_SCHEMA_VERSION = 1;
 
 const nonEmpty = (value) => String(value ?? "").trim();
 
+/** The interface's languages; empty is the system's. */
+const LANGUAGES = Object.freeze(["", "ru", "en"]);
+
 /** The environment cuts a value at a NUL, and a process given one does not start (Д-223, Д-231). */
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
@@ -50,13 +53,16 @@ function absolutePath(name) {
 
 /**
  * Every setting: its type, default, how a value is checked, and the variable
- * it stands for, when it stands for one.
+ * it stands for, when it stands for one. `format: "path"` marks a folder, which
+ * a terminal may give relative to where it stands; `choices`, the only values
+ * a setting takes.
  */
 export const SETTINGS = Object.freeze({
   projects_root: {
     type: "string",
     default: "",
     applies: "app",
+    format: "path",
     description: "The folder your projects are in; the interface opens and lists projects from it.",
     validate: absolutePath("projects_root")
   },
@@ -112,6 +118,7 @@ export const SETTINGS = Object.freeze({
     default: "",
     env: "BGE_M3_ONNX_DIR",
     applies: "new_session",
+    format: "path",
     description: "Where the local model lives; empty is <AI Dev home>/models/bge-m3-onnx.",
     validate: absolutePath("model_dir")
   },
@@ -147,10 +154,11 @@ export const SETTINGS = Object.freeze({
     type: "string",
     default: "",
     applies: "app",
+    choices: LANGUAGES,
     description: "The interface's language: ru, en, or empty for the system's.",
     validate(value) {
       const text = nonEmpty(value).toLowerCase();
-      if (!["", "ru", "en"].includes(text)) throw new Error(`language must be ru, en or empty, not ${JSON.stringify(value)}.`);
+      if (!LANGUAGES.includes(text)) throw new Error(`language must be ru, en or empty, not ${JSON.stringify(value)}.`);
       return text;
     }
   }

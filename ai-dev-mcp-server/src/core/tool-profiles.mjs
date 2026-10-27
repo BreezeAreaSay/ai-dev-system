@@ -243,7 +243,7 @@ export const TOOL_PROFILES = Object.freeze([
   {
     id: "control",
     title: "Control",
-    summary: "What the desktop app drives: status, setup, the local model, client connections, logs, settings and an overview of the work. Listed only to a session that names it.",
+    summary: "What the desktop app drives: status, setup, the local model, client connections, logs, settings, the person's own skills and an overview of the work. Listed only to a session that names it.",
     always: false,
     // An agent's context does not carry the app's buttons, and an agent is not
     // handed `clients_remove` or `model_remove` unless its client asks for them.
@@ -261,6 +261,9 @@ export const TOOL_PROFILES = Object.freeze([
       "logs_tail",
       "settings_get",
       "settings_set",
+      "custom_skills_list",
+      "custom_skills_add",
+      "custom_skills_remove",
       "workspace_overview"
     ])
   }

@@ -184,7 +184,7 @@ test("hints are spelled the way each layout runs them", () => {
     + "--mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model");
   assert.equal(hint("npm run check", global), "npm run check", "a script only a checkout has stays as written");
   assert.equal(hint("git pull", global), "git pull");
-  const windows = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot: path.join(home, ".ai-dev") };
+  const windows = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot: path.join(home, ".ai-dev"), platform: "win32" };
   assert.equal(hint("npm run setup -- --model", windows), `${path.join(home, ".ai-dev", "app", "current", "ai-dev.cmd")} setup --model`,
     "the Windows installer puts nothing on PATH: its shim beside the stable link, unquoted, as cmd and PowerShell both run it");
   const spaced = path.resolve("/home/John Smith/.ai-dev");
@@ -199,6 +199,12 @@ test("hints are spelled the way each layout runs them", () => {
   const cyrillic = path.resolve("/home/Дмитрий/.ai-dev");
   assert.equal(hint("npm run doctor", { ...windows, runtimeRoot: cyrillic }), `${path.join(cyrillic, "app", "current", "ai-dev.cmd")} doctor`,
     "letters of any alphabet need no quotes");
+  // The macOS and Linux app: the `ai-dev` shell script beside the link, quoted for a POSIX shell.
+  const posix = { ...windows, platform: "darwin" };
+  assert.equal(hint("npm run doctor", posix), `${path.join(home, ".ai-dev", "app", "current", "ai-dev")} doctor`);
+  const quoted = path.resolve("/Users/O'Brien Smith/.ai-dev");
+  assert.equal(hint("npm run doctor", { ...posix, platform: "linux", runtimeRoot: quoted }), `'${path.join(quoted, "app", "current", "ai-dev").replaceAll("'", "'\\''")}' doctor`,
+    "in single quotes, which a POSIX shell does not expand, ' closed, escaped and opened again");
 });
 
 test("without the stable link the Windows install's hint names the shim in the copy it runs", async (t) => {
@@ -207,7 +213,7 @@ test("without the stable link the Windows install's hint names the shim in the c
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const runtimeRoot = path.join(root, "rt");
   const copy = path.join(runtimeRoot, "app", "3.0.0-abcdef12");
-  const layout = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot, root: copy };
+  const layout = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot, root: copy, platform: "win32" };
   assert.equal(hint("npm run doctor", layout), `${path.join(copy, "ai-dev.cmd")} doctor`, "a drive that holds no link (Д-299)");
   await fs.mkdir(copy, { recursive: true });
   await fs.writeFile(path.join(copy, "ai-dev.cmd"), "");

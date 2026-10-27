@@ -263,8 +263,8 @@ test("a session's capability profiles come from its own client, not from the pro
   // The desktop app's tools are listed to the session that names them, and
   // counted apart: an unset AI_DEV_PROFILES does not list them.
   const control = sessionToolCounts("all,control");
-  assert.equal(control.tools_opt_in, 13);
-  assert.equal(control.tools_listed, everything.tools_total + 13);
+  assert.equal(control.tools_opt_in, 16);
+  assert.equal(control.tools_listed, everything.tools_total + 16);
   assert.equal(everything.tools_opt_in, 0);
 
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

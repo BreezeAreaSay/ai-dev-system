@@ -19,10 +19,11 @@ import path from "node:path";
 import process from "node:process";
 import { installClients, listClients, removeClients } from "../core/client-connections.mjs";
 import { CONTROL_API_VERSION, CONTROL_RESULTS, wrappedOutputSchema } from "../core/control-contract.mjs";
+import { addCustomSkill, createCustomSkill, customSkillsRoot, listCustomSkills, removeCustomSkill, seedSkillNames } from "../core/custom-skills.mjs";
 import { readDenseManifest } from "../core/dense-manifest.mjs";
 import { parseClientSelection } from "../core/mcp-clients.mjs";
 import { defaultOnnxModelDir } from "../core/dense-onnx.mjs";
-import { currentInstallLayout } from "../core/install-layout.mjs";
+import { SEED_MANIFEST, currentInstallLayout } from "../core/install-layout.mjs";
 import { MAX_TAIL_LINES, resolveLogFile, tailLines } from "../core/log-tail.mjs";
 import { importModel, installModel, modelStatus, removeModel, verifyModel } from "../core/model-manager.mjs";
 import { logsDir } from "../core/runtime-paths.mjs";
@@ -40,7 +41,7 @@ const CLIENTS_INPUT = {
 };
 
 /** The tools whose effect cannot be taken back: their annotations say so. */
-const DESTRUCTIVE = new Set(["model_remove", "clients_remove"]);
+const DESTRUCTIVE = new Set(["model_remove", "clients_remove", "custom_skills_remove"]);
 
 /**
  * The health checks `system_status` leaves out on purpose — each takes seconds
@@ -183,6 +184,21 @@ export function createControlTools(host) {
       model
     };
   };
+  // A person's own skills sit in the custom source beside the seed's; the
+  // seed's manifest says which are AI Dev's — in a checkout that writes to the
+  // seed itself, the vault's own manifest (core/custom-skills.mjs).
+  const customRoot = () => customSkillsRoot(host.skillSourcesRoot);
+  const seedNames = () => seedSkillNames({ manifestFile: path.join(currentInstallLayout().seedRoot || host.vaultRoot, SEED_MANIFEST) });
+  const rebuiltRegistry = async () => {
+    const report = await host.handler("rebuild_index")({});
+    return { total: report.total, custom: report.custom };
+  };
+  const text = (args, name, { required = false } = {}) => {
+    const value = args[name];
+    if (value === undefined && !required) return undefined;
+    if (typeof value !== "string" || !value.trim()) throw new Error(`${name} must be a non-empty string.`);
+    return value;
+  };
   const runtime = () => ({
     callTool: host.callTool,
     vaultRoot: host.vaultRoot,
@@ -227,6 +243,17 @@ export function createControlTools(host) {
       tool("settings_set", "Change settings: each value is checked first, and nothing is written when one is wrong; null puts a setting back to its default. The answer says when each change takes effect: the mirror at once, the model folder and the profiles for sessions started afterwards (reconnect to use them), the idle time for the daemon started next. A variable set in a client's environment still wins.", {
         settings: { type: "object", description: `Settings to change: ${Object.keys(SETTINGS).join(", ")}.` }
       }, ["settings"]),
+      tool("custom_skills_list", "The skills in the custom source — the folder a person's own skills are kept in — each with its description, its folder, and whether it came with AI Dev (seed) or was added here (yours). Read-only.", {}),
+      tool("custom_skills_add", "Add a skill of your own and rebuild the skill registry, so search and routing see it at once: copy a folder that holds a SKILL.md (source), or start a new one from a template (name and description) to be written in its SKILL.md. Links and folders such as .git or node_modules are left out of a copy.", {
+        source: { type: "string", description: "An absolute path to a skill's folder, or to its SKILL.md." },
+        name: { type: "string", description: "The skill's name: lowercase letters, digits and hyphens. A new skill needs one; a copy is named by its SKILL.md, or by its folder, unless this gives another." },
+        description: { type: "string", description: "A new skill's description: what it does and when to use it." },
+        replace: { type: "boolean", default: false, description: "With source: replace a skill of yours of that name. One that came with AI Dev is never replaced." }
+      }),
+      tool("custom_skills_remove", "Remove a skill you added and rebuild the skill registry. A skill that came with AI Dev is refused: the next update would put it back.", {
+        name: { type: "string" },
+        confirm: { type: "boolean", description: "Must be true: the skill's folder is deleted." }
+      }, ["name", "confirm"]),
       tool("workspace_overview", "The work at a glance: the registered projects, the tasks open and lately finished, the epics and how far each has come, the latest decisions, and what the work has cost. Read-only.", {
         limit: { type: "integer", minimum: 1, maximum: 100, default: 10, description: "How many tasks, epics and decisions to list." }
       })
@@ -405,6 +432,35 @@ export function createControlTools(host) {
         return { ...result, note: settingsNote(result.applies) };
       },
 
+      async custom_skills_list(args = {}) {
+        only(args, []);
+        return { root: customRoot(), skills: await listCustomSkills({ root: customRoot(), seedNames: await seedNames() }) };
+      },
+
+      async custom_skills_add(args = {}) {
+        only(args, ["source", "name", "description", "replace"]);
+        const source = text(args, "source");
+        const name = text(args, "name", { required: source === undefined });
+        if (source !== undefined) {
+          if (!path.isAbsolute(source)) throw new Error("source must be an absolute path to a skill's folder or its SKILL.md.");
+          if (args.description !== undefined) throw new Error("description goes with a new skill (name and description); a copied skill's is in its SKILL.md.");
+          const added = await addCustomSkill({ root: customRoot(), source, name, replace: flag(args, "replace"), seedNames: await seedNames() });
+          const { name: skill, description, folder, replaced, files, bytes, skipped } = added;
+          return { name: skill, description, folder, created: false, replaced, files, bytes, skipped, registry: await rebuiltRegistry() };
+        }
+        if (args.replace !== undefined) throw new Error("replace goes with source: a new skill never replaces one.");
+        const created = await createCustomSkill({ root: customRoot(), name, description: text(args, "description", { required: true }) });
+        const bytes = Buffer.byteLength(readFileSync(created.file, "utf8"));
+        return { name: created.name, description: created.description, folder: created.folder, created: true, replaced: false, files: 1, bytes, skipped: [], registry: await rebuiltRegistry() };
+      },
+
+      async custom_skills_remove(args = {}) {
+        only(args, ["name", "confirm"]);
+        if (args.confirm !== true) throw new Error("confirm must be true: the skill's folder is deleted.");
+        const removed = await removeCustomSkill({ root: customRoot(), name: text(args, "name", { required: true }), seedNames: await seedNames() });
+        return { ...removed, registry: await rebuiltRegistry() };
+      },
+
       async workspace_overview(args = {}) {
         only(args, ["limit"]);
         if (args.limit !== undefined && (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 100)) {
@@ -417,6 +473,6 @@ export function createControlTools(host) {
         }, { limit: args.limit });
       }
     },
-    readOnly: ["system_status", "model_verify", "clients_list", "logs_tail", "settings_get", "workspace_overview"]
+    readOnly: ["system_status", "model_verify", "clients_list", "logs_tail", "settings_get", "custom_skills_list", "workspace_overview"]
   };
 }

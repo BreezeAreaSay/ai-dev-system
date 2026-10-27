@@ -56,6 +56,18 @@ export const BUNDLE_MARKER = "bundle.json";
 /** The command an install of the Windows installer is run by from a terminal: `<runtime>/app/current/ai-dev.cmd`. */
 export const BUNDLE_COMMAND = "ai-dev.cmd";
 
+/**
+ * The command beside an installed app's runtime, by system: `ai-dev.cmd` on
+ * Windows, the `ai-dev` shell script on macOS and Linux
+ * (`desktop/scripts/runtime-bundle.mjs`).
+ *
+ * @param {string} [platform]
+ * @returns {string}
+ */
+export function bundleCommand(platform = process.platform) {
+  return platform === "win32" ? BUNDLE_COMMAND : "ai-dev";
+}
+
 /** This module's own server folder: `<server>/src/core/install-layout.mjs`. */
 export const OWN_SERVER_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -194,7 +206,8 @@ const ALIASES = new Map([
  * clone: a package's user runs `ai-dev setup --model`, or through `npx`.
  *
  * @param {string} command - `npm run <alias> [-- args]`, as a clone types it.
- * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome"> & { serverRoot?: string, bundle?: boolean, runtimeRoot?: string }} [layout]
+ * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome"> & { serverRoot?: string, bundle?: boolean, runtimeRoot?: string, platform?: string }} [layout]
+ *   `platform`: the system the command is for; this one's when left out.
  * @returns {string}
  */
 export function hint(command, layout = currentInstallLayout()) {
@@ -211,8 +224,12 @@ export function hint(command, layout = currentInstallLayout()) {
   // single quotes, which it does not expand, `'` doubled, run with `&`
   // (docs/DEFECTS.md, Д-306, п. 2; Д-310, п. 2).
   if (layout.bundle && layout.runtimeRoot) {
-    const linked = path.join(layout.runtimeRoot, "app", "current", BUNDLE_COMMAND);
-    const shim = existsSync(linked) || !layout.root ? linked : path.join(layout.root, BUNDLE_COMMAND);
+    const platform = layout.platform ?? process.platform;
+    const command = bundleCommand(platform);
+    const linked = path.join(layout.runtimeRoot, "app", "current", command);
+    const shim = existsSync(linked) || !layout.root ? linked : path.join(layout.root, command);
+    // macOS and Linux: a shell's words, a path with anything else in single quotes.
+    if (platform !== "win32") return (/^[\p{L}\p{N}_\-.:/~@%+=,]+$/u.test(shim) ? `${shim} ${words}` : `'${shim.replaceAll("'", "'\\''")}' ${words}`).trim();
     return (/^[\p{L}\p{N}_\-.:\\/]+$/u.test(shim) ? `${shim} ${words}` : `& '${shim.replaceAll("'", "''")}' ${words}`).trim();
   }
   // `ai-dev` is on PATH for a global install; a copy npx left behind, or one

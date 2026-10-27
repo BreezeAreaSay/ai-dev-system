@@ -76,7 +76,7 @@ test("help, version and wrong usage answer with exit codes 0 and 2", async () =>
   const help = await runNode([cli, "help"]);
   assert.equal(help.code, 0);
   assert.match(help.stdout, /^ai-dev \S+ — a local MCP server/);
-  for (const name of ["setup", "clients", "model", "mcp", "doctor"]) assert.match(help.stdout, new RegExp(`\\n  ${name} `));
+  for (const name of ["setup", "clients", "settings", "skills", "rules", "servers", "model", "menu", "status", "mcp", "doctor"]) assert.match(help.stdout, new RegExp(`\\n  ${name} `));
   const version = await runNode([cli, "--version"]);
   assert.equal(version.code, 0);
   assert.match(version.stdout, /^ai-dev \d+\.\d+\.\d+ \(Node \d+/);
@@ -86,8 +86,8 @@ test("help, version and wrong usage answer with exit codes 0 and 2", async () =>
   assert.match(clientsHelp.stdout, /\n {2}remove {5}take ai-dev out again; an untouched file goes back as it was, less any ai-dev or ai-dev-system\n {13}entry the install replaced \(its backup keeps it\)\n/);
 
   const cases = [
-    [["statsu"], /There is no command "statsu"\. `ai-dev help` lists them\./],
-    [["dcotor"], /Did you mean `ai-dev doctor`\?/],
+    [["frobnicate"], /There is no command "frobnicate"\. `ai-dev help` lists them\./],
+    [["dcotor"], /Did you mean `ai-dev doctor`\?/], [["statsu"], /Did you mean `ai-dev status`\?/],
     [["setup", "--forse"], /`ai-dev setup` has no option --forse\. Did you mean --force\?/],
     [["setup", "--clients=zed"], /`ai-dev setup`: Not a client: zed\./],
     [["setup", "--yes=1"], /--yes is a switch and takes no value/],

@@ -1,10 +1,12 @@
 /**
- * The Windows install's runtime, and the one path AI clients start it by.
+ * The installed app's runtime, and the one path AI clients start it by.
  *
- * The installer (`desktop/`, `npm run dist:win`) ships the package with its
- * dependencies and a Node of its own in `resources/runtime/`, described by
- * `bundle.json`: every file with its size and sha256. AI clients must not run
- * it there. Windows will not replace a file a running process holds — the
+ * The app's build (`desktop/`, `npm run dist:win`, `dist:mac`, `dist:linux`)
+ * ships the package with its dependencies and a Node of its own in
+ * `resources/runtime/`, described by `bundle.json`: every file with its size
+ * and sha256. AI clients must not run it there: an update replaces the app's
+ * folder — an AppImage's mount is gone when the app quits — and Windows will
+ * not replace a file a running process holds — the
  * Node of every client's bridge, the daemon, the model's DLLs — and the
  * installer's update moves the whole install folder aside before writing the
  * new one, so one busy file stops the update ("File is busy, aborting").
@@ -13,8 +15,9 @@
  * (the app home `app-home.mjs` keeps for npx installs) and points the link
  * `<runtime>/app/current` at it — a directory junction on Windows, which needs
  * neither an administrator nor Developer Mode, a symbolic link elsewhere. A
- * client config names `current\node\node.exe` and
- * `current\ai-dev-mcp-server\bin\ai-dev.mjs`, and never changes.
+ * client config names `current\node\node.exe` (`current/node/bin/node` on
+ * macOS and Linux) and `current\ai-dev-mcp-server\bin\ai-dev.mjs`, and never
+ * changes.
  *
  * An update ships a new runtime: the app copies it beside the old one and
  * moves the link. A client already running keeps the files it opened, in the
@@ -33,7 +36,7 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import { APP_MARKER, CURRENT_LINK, KEPT_APP_COPIES, appFolder, copiesNamedByClients, pruneAppCopies } from "./app-home.mjs";
 import { atomicWriteJson } from "./atomic-files.mjs";
-import { BUNDLE_COMMAND, BUNDLE_MARKER } from "./install-layout.mjs";
+import { BUNDLE_MARKER, bundleCommand } from "./install-layout.mjs";
 
 export { CURRENT_LINK };
 
@@ -415,7 +418,7 @@ export async function provisionBundle({ bundleRoot, runtimeRoot, platform = proc
     serverRoot: path.join(base, "ai-dev-mcp-server"),
     node: path.join(base, ...bundle.node.file.split("/")),
     cli: path.join(base, "ai-dev-mcp-server", "bin", "ai-dev.mjs"),
-    command: path.join(base, BUNDLE_COMMAND),
+    command: path.join(base, bundleCommand(platform)),
     moved,
     ...(linkError ? { linkError } : {}),
     repaired: status === "repaired" ? copy.damaged.map((file) => file.path) : [],

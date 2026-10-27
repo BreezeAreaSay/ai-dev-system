@@ -26,6 +26,7 @@ export function packageVersion() {
  * @property {(line?: string) => void} out - A line on stdout.
  * @property {(line?: string) => void} err - A line on stderr.
  * @property {NodeJS.WritableStream & { isTTY?: boolean, columns?: number }} stdout
+ * @property {NodeJS.ReadableStream & { isTTY?: boolean }} [stdin] - What a person types; the menu reads it.
  * @property {NodeJS.ProcessEnv} env
  * @property {boolean} interactive - A person at a terminal can be asked.
  * @property {(question: string, fallback: boolean) => Promise<boolean>} ask - A yes/no
@@ -64,6 +65,7 @@ export function createIo({
   quietOnClosedPipe(stdout);
   return {
     stdout,
+    stdin,
     env,
     interactive,
     out: (line = "") => stdout.write(`${line}\n`),

@@ -16,7 +16,7 @@
  */
 
 /** The contract's version; `system_status` answers it as `api_version`. */
-export const CONTROL_API_VERSION = "1.2.0";
+export const CONTROL_API_VERSION = "1.3.0";
 
 const string = { type: "string" };
 const count = { type: "integer", minimum: 0 };
@@ -126,6 +126,19 @@ const SETTING = object({
 
 const TASK = object({ task_id: string, title: string, status: string, project: string, updated_at: string });
 
+const CUSTOM_SKILL = object({
+  name: string,
+  description: string,
+  folder: string,
+  origin: { ...choice("seed", "yours"), description: "seed: it comes with AI Dev, and is not removed; yours: added here." }
+});
+
+/** The skill registry after a change of the person's skills: rebuilt, so search and routing see it at once. */
+const REGISTRY = object({
+  total: { ...count, description: "Skills in the rebuilt registry." },
+  custom: { ...count, description: "Of them in the custom source: the seed's and the person's own." }
+});
+
 /**
  * Each control tool's answer.
  *
@@ -209,6 +222,22 @@ export const CONTROL_RESULTS = Object.freeze({
     applies: { type: "object", additionalProperties: APPLIES, description: "Per changed setting: when the change takes effect." },
     note: string
   }),
+  custom_skills_list: object({
+    root: { type: "string", description: "The custom source's folder: where a person's own skills are kept." },
+    skills: list(CUSTOM_SKILL)
+  }),
+  custom_skills_add: object({
+    name: string,
+    description: string,
+    folder: string,
+    created: { type: "boolean", description: "true: a new skill from the template, to be written in its SKILL.md; false: copied from a folder." },
+    replaced: { type: "boolean", description: "A skill of the person's of that name was replaced." },
+    files: count,
+    bytes: count,
+    skipped: { ...strings, description: "What the copy left out: links, and folders such as .git or node_modules." },
+    registry: REGISTRY
+  }),
+  custom_skills_remove: object({ name: string, folder: string, registry: REGISTRY }),
   workspace_overview: object({
     projects: list(object({ id: string, name: string, root: string, stack: strings, updated_at: string })),
     tasks: object({ active: list(TASK), recent: list(TASK) }),

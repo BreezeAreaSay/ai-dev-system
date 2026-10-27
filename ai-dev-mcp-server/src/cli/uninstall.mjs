@@ -1,9 +1,10 @@
 /**
- * `ai-dev uninstall [--clients] [--data] [--yes] [--json]` — take the Windows
- * install's runtime off this computer. Its uninstaller runs it before it
+ * `ai-dev uninstall [--clients] [--data] [--yes] [--json]` — take the desktop
+ * app's runtime off this computer. The Windows uninstaller runs it before it
  * removes the program's folder, with what the person answered to its two
- * questions, and reads the exit status (`desktop/build/installer.nsh`); the
- * work is `core/bundle-uninstall.mjs`.
+ * questions, and reads the exit status (`desktop/build/installer.nsh`); on
+ * macOS and Linux a person runs it before removing the app. The work is
+ * `core/bundle-uninstall.mjs`.
  */
 import os from "node:os";
 import { EXIT, parseCommandLine } from "../core/cli-args.mjs";
@@ -21,9 +22,10 @@ export function usage() {
   return [
     "Usage: ai-dev uninstall [--clients] [--data] [--yes] [--json]",
     "",
-    "Take the Windows install's runtime off this computer: stop the daemon, remove the runtime",
-    "copies in <runtime home>/app and the link AI clients run. Its uninstaller runs this before",
-    "it removes the program. Without --yes it only says what it would do.",
+    "Take the desktop app's runtime off this computer: stop the daemon, remove the runtime",
+    "copies in <runtime home>/app and the link AI clients run. The Windows uninstaller runs this",
+    "before it removes the program; on macOS and Linux, run it before you remove the app.",
+    "Without --yes it only says what it would do.",
     "",
     "  --clients  also take the ai-dev entry out of each AI client whose entry runs this install;",
     "             an entry of another install (a clone, npx, Docker) stays",

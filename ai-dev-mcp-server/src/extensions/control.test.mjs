@@ -274,3 +274,49 @@ test("the settings file counts for the app's transport as for a client: its mode
   assert.equal(plain, core, "the settings' profiles");
   assert.ok(plain < every, `${plain} of ${every} tools`);
 });
+
+test("a person's own skills through the daemon: listed, added from a folder or a template, removed; the seed's are kept", { timeout: 300_000 }, async (t) => {
+  const { root, vault, env } = await stage(t, { stall: false });
+  const custom = path.join(vault, "03-skills-catalog", "sources", "custom");
+  await fs.mkdir(path.join(custom, "seeded"), { recursive: true });
+  await fs.writeFile(path.join(custom, "seeded", "SKILL.md"), "---\nname: seeded\ndescription: Came with AI Dev.\n---\n# Seeded\n");
+  // The vault's own manifest says which skills came with AI Dev, as a checkout's seed does.
+  await fs.writeFile(path.join(vault, "public-seed.manifest.json"), JSON.stringify({ schema_version: 1, files: [{ path: "03-skills-catalog/sources/custom/seeded/SKILL.md", bytes: 1, sha256: "0".repeat(64) }] }));
+  const client = await connect(t, env);
+  const tools = (await client.listTools()).tools;
+  assert.equal(tools.find((item) => item.name === "custom_skills_remove").annotations.destructiveHint, true);
+  assert.equal(tools.find((item) => item.name === "custom_skills_list").annotations.readOnlyHint, true);
+
+  const before = await call(client, "custom_skills_list");
+  assert.equal(before.root, custom);
+  assert.deepEqual(before.skills.map((skill) => [skill.name, skill.origin]), [["seeded", "seed"]]);
+
+  const source = path.join(root, "mine", "release-notes");
+  await fs.mkdir(path.join(source, "refs"), { recursive: true });
+  await fs.writeFile(path.join(source, "SKILL.md"), "---\nname: release-notes\ndescription: Write release notes from merged pull requests.\n---\n# Release notes\n");
+  await fs.writeFile(path.join(source, "refs", "style.md"), "Short lines.\n");
+  const added = await call(client, "custom_skills_add", { source });
+  assert.deepEqual([added.name, added.created, added.replaced, added.files, added.skipped], ["release-notes", false, false, 2, []]);
+  assert.equal(added.registry.custom, 2, "the registry was rebuilt with it");
+  const registry = JSON.parse(await fs.readFile(path.join(vault, "03-skills-catalog", "registries", "skills.index.json"), "utf8"));
+  assert.ok(registry.some((skill) => skill.name === "release-notes"), "search and routing see it at once");
+  assert.match(await refusal(client, "custom_skills_add", { source }), /There is a skill release-notes already/);
+  assert.equal((await call(client, "custom_skills_add", { source, replace: true })).replaced, true);
+  assert.match(await refusal(client, "custom_skills_add", { source: "mine/release-notes" }), /source must be an absolute path/);
+  assert.match(await refusal(client, "custom_skills_add", { source, description: "x" }), /description goes with a new skill/);
+  assert.match(await refusal(client, "custom_skills_add", { name: "deploy-check" }), /description must be a non-empty string/);
+  assert.match(await refusal(client, "custom_skills_add", { name: "deploy-check", description: "Check.", replace: true }), /replace goes with source/);
+  assert.match(await refusal(client, "custom_skills_add", { path: source }), /Unknown argument: path/);
+
+  const created = await call(client, "custom_skills_add", { name: "deploy-check", description: "Check a deploy before calling it done." });
+  assert.equal(created.created, true);
+  assert.match(await fs.readFile(path.join(created.folder, "SKILL.md"), "utf8"), /^---\nname: deploy-check\n/);
+  assert.equal(created.registry.custom, 3);
+
+  assert.match(await refusal(client, "custom_skills_remove", { name: "seeded", confirm: true }), /comes with AI Dev/);
+  assert.match(await refusal(client, "custom_skills_remove", { name: "deploy-check" }), /confirm must be true/);
+  assert.match(await refusal(client, "custom_skills_remove", { name: "../custom", confirm: true }), /lowercase letters/);
+  const removed = await call(client, "custom_skills_remove", { name: "deploy-check", confirm: true });
+  assert.equal(removed.registry.custom, 2);
+  assert.deepEqual((await call(client, "custom_skills_list")).skills.map((skill) => [skill.name, skill.origin]), [["release-notes", "yours"], ["seeded", "seed"]]);
+});

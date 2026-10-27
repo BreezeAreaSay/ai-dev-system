@@ -22,11 +22,17 @@ const runtime = () => import("./runtime.mjs");
 export const COMMANDS = new Map([
   ["setup", { group: "Setup", summary: "Build the search index, connect your AI clients, optionally get the local model", load: () => import("./setup.mjs") }],
   ["clients", { group: "Setup", summary: "list | install | remove | doctor — the ai-dev entry in Claude, Cursor, VS Code, Codex, Gemini", load: () => import("./clients.mjs") }],
+  ["settings", { group: "Configure", summary: "list | get | set | reset — the settings file: profiles, model folder and mirror, daemon idle time", load: () => import("./settings.mjs") }],
+  ["skills", { group: "Configure", summary: "search | show | mine | add | new | remove | import | rebuild — the skill library, your own skills too", load: () => import("./skills.mjs") }],
+  ["rules", { group: "Configure", summary: "list | add | on | off | remove | hooks | install — a repository's guard rules and engineering rules", load: () => import("./rules.mjs") }],
+  ["servers", { group: "Configure", summary: "The MCP servers AI clients start for a repository, and what to check before trusting them", load: () => import("./servers.mjs") }],
   ["model", { group: "Setup", summary: "status | install | import | verify | remove | doctor — the local search model", load: () => import("./model.mjs") }],
-  ["uninstall", { group: "Setup", summary: "Take the Windows install's runtime off this computer (what its uninstaller runs)", load: () => import("./uninstall.mjs") }],
+  ["uninstall", { group: "Setup", summary: "Take the desktop app's runtime off this computer (what the Windows uninstaller runs)", load: () => import("./uninstall.mjs") }],
   ["mcp", { group: "Run", summary: "Serve MCP on stdin/stdout — what an AI client starts", load: runtime }],
   ["daemon", { group: "Run", summary: "start | stop | status | run — the one warm server every client is handed to", load: () => import("./daemon.mjs") }],
-  ["doctor", { group: "Run", summary: "Check the health of this install", load: runtime }],
+  ["menu", { group: "Run", summary: "A menu over all of this, by number — what `ai-dev` alone opens at a terminal", load: () => import("./menu.mjs") }],
+  ["status", { group: "Run", summary: "The state of this install in a few lines: model, index, clients, health checks", load: () => import("./status.mjs") }],
+  ["doctor", { group: "Run", summary: "Check the health of this install (the full report, as JSON)", load: runtime }],
   ["reindex", { group: "Maintenance", summary: "Rebuild text search, keeping the dense vectors", load: runtime }],
   ["refresh", { group: "Maintenance", summary: "Refresh overlays, outcomes, search, runtime and dashboard", load: runtime }],
   ["dashboard", { group: "Maintenance", summary: "Regenerate the Obsidian dashboard", load: runtime }],
@@ -47,7 +53,7 @@ function overview() {
     "Usage: ai-dev <command> [options]      (from a clone: npm run ai-dev -- <command>)",
     ""
   ];
-  for (const group of ["Setup", "Run", "Maintenance"]) {
+  for (const group of ["Setup", "Configure", "Run", "Maintenance"]) {
     lines.push(`${group}:`);
     for (const [name, entry] of COMMANDS) {
       if (entry.group === group) lines.push(`  ${name.padEnd(14)}${entry.summary}`);
@@ -77,7 +83,8 @@ function unknownCommand(name) {
  *   the process alive on its own (`mcp`).
  */
 export async function main(argv, io = createIo()) {
-  const [first = "help", ...rest] = argv;
+  // `ai-dev` alone: the menu for a person at a terminal, the overview for anything else.
+  const [first = io.interactive ? "menu" : "help", ...rest] = argv;
   try {
     if (first === "help" || first === "--help" || first === "-h") {
       const [topic] = rest;

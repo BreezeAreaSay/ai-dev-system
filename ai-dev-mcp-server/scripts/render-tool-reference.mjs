@@ -243,6 +243,9 @@ const GROUPS = [
       "logs_tail",
       "settings_get",
       "settings_set",
+      "custom_skills_list",
+      "custom_skills_add",
+      "custom_skills_remove",
       "workspace_overview"
     ]
   }

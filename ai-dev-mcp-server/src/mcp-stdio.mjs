@@ -494,7 +494,7 @@ async function listSkillFilesInSkillsDir(skillsDir) {
   const entries = await fs.readdir(skillsDir, { withFileTypes: true });
   const files = [];
   for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
     const skillFile = path.join(skillsDir, entry.name, "SKILL.md");
     if (await pathExists(skillFile)) {
       files.push({ folderName: entry.name, filePath: skillFile });

@@ -108,7 +108,7 @@ export const NOT_DAEMON_WIDE = Object.freeze({
   // tools, the runtime it ships and its updates. A client never sets them, so
   // the app would get a daemon of its own (docs/DEFECTS.md, Д-244).
   desktop: Object.freeze(["AI_DEV_SERVER_ROOT", "AI_DEV_DESKTOP_TEST", "AI_DEV_DESKTOP_DEVTOOLS", "AI_DEV_DESKTOP_NO_SANDBOX", "AI_DEV_DESKTOP_BUNDLE", "AI_DEV_DESKTOP_UPDATES"]),
-  // Build tooling: the Windows installer's signer (desktop/scripts/windows-bundle.mjs) among them.
+  // Build tooling: the Windows installer's signer (desktop/scripts/runtime-bundle.mjs) among them.
   tooling: Object.freeze([
     "AI_DEV_SIGN_AZURE_ENDPOINT",
     "AI_DEV_SIGN_AZURE_ACCOUNT",

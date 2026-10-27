@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 589 записей. Закрыто 581, открыто 8. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 591 запись. Закрыто 581, открыто 10. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -22851,6 +22851,50 @@ ai-dev rules add --pattern=--no-verify --example='git commit --no-verify' --mess
 
 **Замер после** (`edc910f`): `npm run docs:links` — 355 ссылок, 0 битых; во всех пяти файлах путь через «Open Anyway» / «Всё равно
 открыть» стоит первым, совета только про правый щелчок не осталось.
+
+---
+
+## Д-590. Сборка Mac в пул-реквесте не подписывается, и проверка подписи меряет не ту сборку
+
+**Статус:** открыт. Нашёл первый прогон `desktop-macos-linux.yml` на PR stonebridgeway/ai-dev-system#86 (`fa015fc`).
+
+electron-builder 26.17 ничего не подписывает в сборке пул-реквеста: `isSignAllowed` (`codeSign/macCodeSign.js`) видит
+`GITHUB_BASE_REF` (`isPullRequest`, `builder-util`) и пишет «Current build is a part of pull request, code signing will be
+skipped», если не задан `CSC_FOR_PULL_REQUEST`. Приложение остаётся с подписью исполняемого файла Electron, а ресурсы в нём уже
+наши, и печати ресурсов (`_CodeSignature/CodeResources`) нет.
+
+**Чем грозит.** Шаг «The Mac app's signature holds» красный на каждом PR, а зелёным он стал бы только на теге, где подпись
+настоящая: изменение, которое ломает подпись релиза (Д-583 — ровно такое), PR не показывает.
+
+**Замер до** (джоб `Build the app (darwin-arm64)` 122155141845, шаг 14):
+
+```
+codesign --verify --deep --strict --verbose=2 "dist/darwin-arm64/installer/mac-arm64/AI Dev.app"
+dist/darwin-arm64/installer/mac-arm64/AI Dev.app: code has no resources but signature indicates they must be present
+##[error]Process completed with exit code 1.
+```
+
+Шаги до него зелёные: рантайм запускается, установленное приложение с карантином на рантайме проходит `packaged.test.mjs`
+(1 из 1).
+
+---
+
+## Д-591. Тест подсказки для macOS и Linux падает на Windows: путь собран с обратными слэшами
+
+**Статус:** открыт. Нашёл тот же прогон CI (джоб Windows, `core unit tests`).
+
+Тест «hints are spelled the way each layout runs them» (`install-layout.test.mjs`), добавленный с приложением для macOS и
+Linux, строит POSIX-раскладку через `path.join`; на Windows в пути обратные слэши, и подсказка для POSIX-оболочки честно берёт
+его в кавычки. Код прав, тест меряет раскладку, которой на Windows не бывает.
+
+**Замер до** (джоб 122155142401, шаг 8: tests 1669, pass 1632, fail 1, skipped 36):
+
+```
+✖ hints are spelled the way each layout runs them
+  + "'D:\\home\\me\\.ai-dev\\app\\current\\ai-dev' doctor"
+  - 'D:\\home\\me\\.ai-dev\\app\\current\\ai-dev doctor'
+    at …/src/core/install-layout.test.mjs:204:10
+```
 
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 

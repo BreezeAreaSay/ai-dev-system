@@ -47,6 +47,7 @@ import {
   compositionProblems,
   compositionReport,
   danglingDependencies,
+  dropEmptySigning,
   extractTarGz,
   hostTarget,
   icoFrom,
@@ -227,6 +228,8 @@ async function main() {
   const problems = [...compositionProblems(marker.files, { nodeSha256: pin.binary_sha256, target }), versionProblem({ app: app.version, runtime: marker.version })].filter(Boolean);
   if (problems.length) throw new Error(`The runtime is not what ships:\n- ${problems.join("\n- ")}`);
   if (!options.check) {
+    const dropped = dropEmptySigning(process.env);
+    if (dropped.length) say(`   ${dropped.join(", ")} set but empty: taken as not set.`);
     const config = builderConfig({ desktopRoot, runtimeDir: where.runtime, icon: await writeIcon(target, where.root), output: where.output, target });
     const kinds = options.dir ? ["dir"] : config[{ win32: "win", darwin: "mac", linux: "linux" }[target.platform]].target.map((item) => item.target);
     say(`5. electron-builder (${kinds.join(", ")})…`);
@@ -249,7 +252,18 @@ async function main() {
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
 }
 
-main().catch((error) => {
+// A build that ends before it finishes failed: electron-builder can log an
+// error and leave its promise unsettled, and Node would end with 0 (Д-593).
+let finished = false;
+process.on("exit", () => {
+  if (finished) return;
+  say("The build stopped before it finished: electron-builder gave no answer after the error above.");
+  process.exitCode = 1;
+});
+main().then(() => {
+  finished = true;
+}, (error) => {
+  finished = true;
   say(String(error?.stack ?? error));
   process.exitCode = 1;
 });

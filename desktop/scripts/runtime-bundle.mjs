@@ -419,6 +419,23 @@ export const MAC_RUNTIME_UNSIGNED = "/Contents/Resources/runtime/";
 /** A Mac build is signed when a certificate is named (CSC_LINK or CSC_NAME, which electron-builder reads itself). */
 const macCertificate = (env) => Boolean(String(env.CSC_LINK ?? "").trim() || String(env.CSC_NAME ?? "").trim());
 
+/** The signing variables electron-builder reads itself. */
+export const SIGNING_VARIABLES = Object.freeze(["CSC_LINK", "CSC_KEY_PASSWORD", "CSC_NAME", "APPLE_ID", "APPLE_APP_SPECIFIC_PASSWORD", "APPLE_TEAM_ID"]);
+
+/**
+ * Take out the signing variables that are set but empty — a secret a fork,
+ * or a repository with no certificate yet, does not have. Set, electron-builder
+ * takes an empty CSC_LINK for a certificate and imports the folder it runs in;
+ * unset, the build is signed ad hoc, as `builderConfig` says (docs/DEFECTS.md, Д-592).
+ *
+ * @returns {string[]} the names taken out
+ */
+export function dropEmptySigning(env = process.env) {
+  const dropped = SIGNING_VARIABLES.filter((name) => Object.hasOwn(env, name) && !String(env[name] ?? "").trim());
+  for (const name of dropped) delete env[name];
+  return dropped;
+}
+
 /**
  * electron-builder's configuration of the app for a target.
  *

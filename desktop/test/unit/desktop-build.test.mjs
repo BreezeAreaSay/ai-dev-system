@@ -16,6 +16,7 @@ import {
   compositionProblems,
   compositionReport,
   danglingDependencies,
+  dropEmptySigning,
   extractTarGz,
   hostTarget,
   icoFrom,
@@ -419,4 +420,13 @@ test("electron-builder: a .dmg and a .zip for Apple silicon, signed ad hoc witho
   assert.equal(linux.linux.category, "Development");
   assert.deepEqual(linux.appImage.executableArgs, [], "the sandbox is AppRun's call, not the menu entry's (Д-587)");
   assert.deepEqual(linux.publish, [RELEASES]);
+});
+
+test("a signing secret that is set but empty is taken as not set: electron-builder would import it as a certificate (Д-592)", () => {
+  const env = { CSC_LINK: "", CSC_KEY_PASSWORD: " ", APPLE_ID: "", APPLE_TEAM_ID: "TEAM", CSC_NAME: "Developer ID Application: X", PATH: "" };
+  assert.deepEqual(dropEmptySigning(env), ["CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_ID"]);
+  assert.deepEqual(env, { APPLE_TEAM_ID: "TEAM", CSC_NAME: "Developer ID Application: X", PATH: "" }, "what is set stays, and nothing else is touched");
+  const adHoc = builderConfig({ desktopRoot, runtimeDir: "/x/runtime", icon: "/x/icon.png", output: "/x/out", env: { CSC_LINK: "" }, target: targetOf("darwin-arm64") });
+  assert.equal(adHoc.mac.identity, "-", "the same empty secret means ad hoc to the config");
+  assert.deepEqual(dropEmptySigning({}), []);
 });

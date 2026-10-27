@@ -3,6 +3,7 @@
  * tray, and one connection to the daemon every AI client shares
  * (docs/DESKTOP.md).
  */
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -11,7 +12,7 @@ import { pickLanguage, translate } from "../renderer/i18n.js";
 import { prepareRuntime, runtimeNotice, shippedRuntime } from "./bundle.mjs";
 import { confirmationDialog, consoleDecision, consoleTools, settingsDialog } from "./console-policy.mjs";
 import { DaemonLink } from "./daemon-link.mjs";
-import { EVENT_CHANNELS, INVOKE_CHANNELS, refuseCall, refuseClients, settingsToConfirm, validCallId } from "./ipc-policy.mjs";
+import { EVENT_CHANNELS, INVOKE_CHANNELS, callToConfirm, refuseCall, refuseClients, settingsToConfirm, validCallId } from "./ipc-policy.mjs";
 import { createLanguageKeeper } from "./language.mjs";
 import { findNode } from "./node-runtime.mjs";
 import { APP_ORIGIN, APP_SCHEME, PAGE_PARTITION, appFileHandler, isAppUrl, lockContents, lockSession, windowPreferences } from "./security.mjs";
@@ -27,19 +28,28 @@ const rendererRoot = path.join(desktopRoot, "src", "renderer");
 const preload = path.join(desktopRoot, "src", "preload", "preload.cjs");
 
 /**
- * The runtime the Windows installer ships, which the app copies and runs
- * through the stable link AI clients run (bundle.mjs); null in a checkout.
+ * The runtime the installed app ships, which the app copies and runs through
+ * the stable link AI clients run (bundle.mjs); null in a checkout.
  */
 const bundleRoot = shippedRuntime({ env: process.env, packaged: app.isPackaged, platform: process.platform, resourcesPath: process.resourcesPath });
 
-/** The server this app drives: beside it in a checkout, or AI_DEV_SERVER_ROOT; the Windows install's comes from its runtime. */
+/** The server this app drives: beside it in a checkout, or AI_DEV_SERVER_ROOT; an installed app's comes from its runtime. */
 function serverRoot() {
   if (process.env.AI_DEV_SERVER_ROOT) return path.resolve(process.env.AI_DEV_SERVER_ROOT);
   return path.resolve(desktopRoot, "..", "ai-dev-mcp-server");
 }
 
+/** The app's own package.json, as the build wrote it; empty when it cannot be read. */
+function appManifest() {
+  try {
+    return JSON.parse(readFileSync(path.join(app.getAppPath(), "package.json"), "utf8"));
+  } catch {
+    return {};
+  }
+}
+
 /** The installed app looks for updates (updates.mjs); a checkout does not. */
-const updates = updatesEnabled({ packaged: app.isPackaged, platform: process.platform, env: process.env });
+const updates = updatesEnabled({ packaged: app.isPackaged, platform: process.platform, env: process.env, signed: appManifest().aiDevSigned === true });
 
 /**
  * The menu: none on Windows and Linux; on macOS the app and Edit menus, which
@@ -321,6 +331,13 @@ if (!app.requestSingleInstanceLock()) {
         const parent = BrowserWindow.fromWebContents(event.sender) ?? window;
         const { response } = await dialog.showMessageBox(parent, settingsDialog(changes, t));
         if (response !== 0) return { ok: false, error: t("settings.notConfirmed"), cancelled: true, confirmed: false };
+      }
+      // A skill, a rule, the hooks: written into the person's files only after they say so, as the console's calls are.
+      if (callToConfirm(request)) {
+        const parent = BrowserWindow.fromWebContents(event.sender) ?? window;
+        const tool = consoleTools(await link.tools()).find((entry) => entry.name === request.tool) ?? { name: request.tool, destructive: false };
+        const { response } = await dialog.showMessageBox(parent, confirmationDialog(tool, request.args ?? {}, t));
+        if (response !== 0) return { ok: false, error: t("console.notConfirmed"), cancelled: true, confirmed: false };
       }
       return link.call(request.tool, request.args ?? {}, { id: request.id, onProgress: progressTo(event.sender, request.id) });
     });

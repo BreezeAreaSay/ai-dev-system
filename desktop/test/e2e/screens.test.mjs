@@ -126,8 +126,8 @@ test("a fresh install: each data screen says why it is empty, Skills says what t
   assert.match(costs, /\$0\.00|Nothing is recorded yet/);
 
   await open(page, "skills");
-  await page.waitForSelector('[data-screen="skills"] [data-state="empty"], [data-screen="skills"] [data-state="error"]');
-  assert.match(await page.textContent('[data-screen="skills"]'), /setup/i);
+  await page.waitForSelector('[data-field="catalog"] [data-state="empty"], [data-field="catalog"] [data-state="error"]');
+  assert.match(await page.textContent('[data-field="catalog"]'), /setup/i);
   await shot(page, "p11-skills-empty");
 });
 

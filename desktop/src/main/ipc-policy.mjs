@@ -74,8 +74,47 @@ export const PAGE_TOOL_ARGUMENTS = Object.freeze({
   read_skill: { name: "text", source: "text" },
   list_skill_groups: {},
   browse_skill_group: { group: "text", limit: "number" },
-  logs_tail: { log: ["daemon", "daemon.1"], lines: "number" }
+  logs_tail: { log: ["daemon", "daemon.1"], lines: "number" },
+  // The person's own skills, a repository of skills and the registry (the Skills screen).
+  custom_skills_list: {},
+  custom_skills_add: { source: "path", name: "text", description: "text", replace: "boolean" },
+  import_skill_repo: { repository_url: "text", select_skills: "boolean" },
+  rebuild_index: {},
+  // A repository's rules and the MCP servers its configs start (the Rules screen).
+  list_policy_rules: { project_path: "path" },
+  upsert_policy_rule: {
+    project_path: "path",
+    rule: { id: "text", event: ["bash", "file", "all"], pattern: "text", action: ["block", "warn"], message: "text", example: "text", enabled: "boolean" }
+  },
+  agent_hooks_status: { project_path: "path" },
+  install_agent_hooks: { project_path: "path", profile: ["minimal", "standard", "strict"] },
+  list_rule_packs: { project_path: "path" },
+  install_project_rules: { project_path: "path", dry_run: "boolean" },
+  list_mcp_servers: { project_path: "path", include_user_scope: "boolean" }
 });
+
+/**
+ * The screens' calls that change the person's files — the skill library, a
+ * repository's rules and hooks — which run only after the person confirms
+ * them in a dialog of the main process, as the tool console's do: a page that
+ * something managed to run script in cannot put a skill an agent follows, or
+ * a rule, where the person did not say so (docs/DEFECTS.md, Д-288). A dry run
+ * changes nothing and is not asked about. Removing a skill or a rule is not a
+ * screens' call at all: its button goes through the tool console, which asks
+ * too, as every call that takes back what it cannot undo does.
+ */
+export const PAGE_CONFIRMED_TOOLS = Object.freeze([
+  "custom_skills_add",
+  "import_skill_repo",
+  "upsert_policy_rule",
+  "install_agent_hooks",
+  "install_project_rules"
+]);
+
+/** Whether a screens' call must be confirmed by the person first. Call it on a call refuseCall let through. */
+export function callToConfirm(request) {
+  return PAGE_CONFIRMED_TOOLS.includes(request?.tool) && request.args?.dry_run !== true;
+}
 
 /**
  * The arguments the interface always sends; a call without one is refused.
@@ -90,7 +129,15 @@ export const PAGE_REQUIRED_ARGUMENTS = Object.freeze({
   epic_status: ["task_id"],
   search_skills: ["query"],
   read_skill: ["name"],
-  browse_skill_group: ["group"]
+  browse_skill_group: ["group"],
+  import_skill_repo: ["repository_url"],
+  list_policy_rules: ["project_path"],
+  upsert_policy_rule: ["project_path", "rule"],
+  agent_hooks_status: ["project_path"],
+  install_agent_hooks: ["project_path"],
+  list_rule_packs: ["project_path"],
+  install_project_rules: ["project_path"],
+  list_mcp_servers: ["project_path"]
 });
 
 /** The tools the interface calls. */

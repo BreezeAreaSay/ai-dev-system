@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { CONFIRMED_SETTINGS, EVENT_CHANNELS, INVOKE_CHANNELS, PAGE_REQUIRED_ARGUMENTS, PAGE_TOOLS, PAGE_TOOL_ARGUMENTS, refuseCall, refuseClients, settingsToConfirm, validCallId } from "../../src/main/ipc-policy.mjs";
+import { CONFIRMED_SETTINGS, EVENT_CHANNELS, INVOKE_CHANNELS, PAGE_CONFIRMED_TOOLS, PAGE_REQUIRED_ARGUMENTS, PAGE_TOOLS, PAGE_TOOL_ARGUMENTS, callToConfirm, refuseCall, refuseClients, settingsToConfirm, validCallId } from "../../src/main/ipc-policy.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -112,4 +112,31 @@ test("the model's mirror and folder and the profiles change only after a confirm
   assert.equal(settingsToConfirm({ tool: "system_status", args: { checks: true }, id: "call-s" }), null);
   // Each of them is one the screens may send — after the confirmation.
   for (const name of CONFIRMED_SETTINGS) assert.ok(Object.hasOwn(PAGE_TOOL_ARGUMENTS.settings_set.settings, name), name);
+});
+
+test("the screens that change the library and a repository's rules: their arguments only, each change confirmed first, a removal only through the console", () => {
+  const call = (tool, args) => refuseCall({ tool, args, id: "call-own-1" });
+  assert.equal(call("custom_skills_add", { source: "/home/me/skills/deploy-check" }), null);
+  assert.equal(call("custom_skills_add", { name: "release-notes", description: "Write release notes." }), null);
+  assert.match(call("custom_skills_add", { source: "/x", overwrite: true }), /does not send "overwrite" to custom_skills_add/);
+  assert.equal(call("import_skill_repo", { repository_url: "https://github.com/o/r", select_skills: true }), null);
+  assert.match(call("import_skill_repo", { repository_url: "https://github.com/o/r", source_group: "custom" }), /does not send "source_group"/, "the screen imports where the policy says, nowhere else");
+  const rule = { id: "no-force-push", event: "bash", pattern: "git push .*--force", action: "block", message: "No.", example: "git push --force" };
+  assert.equal(call("upsert_policy_rule", { project_path: "/repo", rule }), null);
+  assert.match(call("upsert_policy_rule", { project_path: "/repo", rule: { ...rule, event: "network" } }), /rule\.event is one of bash, file, all/);
+  assert.match(call("upsert_policy_rule", { project_path: "/repo", rule: { ...rule, counter_example: "x" } }), /does not change "counter_example"/);
+  assert.match(call("upsert_policy_rule", { rule }), /upsert_policy_rule needs project_path/);
+  assert.match(call("install_agent_hooks", { project_path: "/repo", profile: "loose" }), /profile is one of minimal, standard, strict/);
+  assert.match(call("install_project_rules", { project_path: "/repo", overwrite: true }), /does not send "overwrite"/, "a person's own edits are never written over from a screen");
+  assert.equal(call("list_mcp_servers", { project_path: "/repo", include_user_scope: true }), null);
+  for (const tool of ["custom_skills_remove", "remove_policy_rule"]) assert.match(call(tool, {}), /The interface does not call/, `${tool}: the console's, which asks first`);
+
+  assert.equal(callToConfirm({ tool: "custom_skills_add", args: { name: "x", description: "y" } }), true);
+  assert.equal(callToConfirm({ tool: "install_project_rules", args: { project_path: "/repo" } }), true);
+  assert.equal(callToConfirm({ tool: "install_project_rules", args: { project_path: "/repo", dry_run: true } }), false, "a preview writes nothing");
+  assert.equal(callToConfirm({ tool: "upsert_policy_rule", args: { project_path: "/repo", rule } }), true);
+  for (const tool of ["custom_skills_list", "list_policy_rules", "agent_hooks_status", "list_rule_packs", "list_mcp_servers", "rebuild_index"]) {
+    assert.equal(callToConfirm({ tool, args: {} }), false, `${tool} changes nothing a person keeps`);
+  }
+  for (const tool of PAGE_CONFIRMED_TOOLS) assert.ok(PAGE_TOOLS.includes(tool), tool);
 });

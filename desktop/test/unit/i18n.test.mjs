@@ -57,6 +57,10 @@ test("every key the code builds from parts is in the table, for every value the 
     "status.check": ["ok", "warn", "fail", "skipped"],
     "status.overall": ["ok", "degraded", "failed"],
     "wizard.step.status": ["done", "skipped", "failed"],
+    // A guard rule's words: the server's own values (upsert_policy_rule's schema).
+    "rules.event": ["bash", "file", "all"],
+    "rules.action": ["block", "warn"],
+    "rules.profile": ["minimal", "standard", "strict"],
     "wizard.clients": [...new Set([...source("setup-words.js").match(/const known = \{([^}]*)\}/)[1].matchAll(/: "(\w+)"/g)].map((match) => match[1]))],
     // What to do about a model that cannot be read, by why (Д-367): the lower-case words of the choice.
     "wizard.model.unreadable": [...source("setup-words.js").match(/const advice = ([^;]*);/)[1].matchAll(/"([a-z]\w*)"/g)].map((match) => match[1]),

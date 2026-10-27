@@ -1,9 +1,11 @@
 // The Skills screen: search the skill catalog, browse it by group, and read a
-// skill. Everything here only reads (`search_skills`, `list_skill_groups`,
-// `browse_skill_group`, `read_skill`).
+// skill (`search_skills`, `list_skill_groups`, `browse_skill_group`,
+// `read_skill`) — and, above it, the person's own skills and what adds to the
+// library (my-skills.js).
 import * as api from "./api.js";
 import { h, show } from "./dom.js";
 import { renderMarkdown } from "./markdown.js";
+import { ownSkillsSection } from "./my-skills.js";
 import { emptyState, errorState, formatNumber, loadingLine } from "./ui.js";
 
 const RESULTS = 20;
@@ -32,7 +34,7 @@ function groupList(view, groups, browse) {
 
 /** The Skills screen. */
 export function skillsScreen(view) {
-  const body = h("div", { className: "screen-body" });
+  const body = h("div", { className: "screen-body", dataset: { field: "catalog" } });
   const input = h("input", {
     type: "search",
     id: "skills-query",
@@ -102,5 +104,7 @@ export function skillsScreen(view) {
   if (state.group) browse(state.group);
   else if (state.query) search();
   else groups();
-  return h("section", { dataset: { screen: "skills" } }, h("h1", { tabindex: "-1" }, view.t("skills.title")), form, body);
+  // A change of the library is read again below: a new skill is found at once.
+  const own = ownSkillsSection(view, { changed: () => (state.group ? browse(state.group) : state.query ? search() : groups()) });
+  return h("section", { dataset: { screen: "skills" } }, h("h1", { tabindex: "-1" }, view.t("skills.title")), own, h("h2", {}, view.t("skills.catalog")), form, body);
 }

@@ -8,6 +8,7 @@ import { h, show } from "./dom.js";
 import { pickLanguage, translate } from "./i18n.js";
 import { logScreen } from "./log.js";
 import { projectsScreen } from "./projects.js";
+import { rulesScreen } from "./rules.js";
 import { settingsScreen } from "./settings.js";
 import { skillsScreen } from "./skills.js";
 import { statusScreen } from "./status.js";
@@ -19,6 +20,7 @@ const SCREENS = {
   projects: projectsScreen,
   costs: costsScreen,
   skills: skillsScreen,
+  rules: rulesScreen,
   console: consoleScreen,
   log: logScreen,
   settings: settingsScreen,

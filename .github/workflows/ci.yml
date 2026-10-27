@@ -175,12 +175,17 @@ jobs:
         working-directory: desktop
         run: npm test
 
-      # What the Windows installer ships, built and checked here without the
-      # installer itself: the runtime for win32-x64, its cuts, the pinned Node
-      # (the windows-latest build is .github/workflows/desktop-windows.yml).
+      # What the Windows installer and the Linux app ship, built and checked
+      # here without the packages themselves: each runtime, its cuts, the
+      # pinned Node (the packages are built by desktop-windows.yml and
+      # desktop-macos-linux.yml).
       - name: Windows runtime composition
         working-directory: desktop
-        run: node scripts/build-windows.mjs --check
+        run: node scripts/build-desktop.mjs --target win32-x64 --check
+
+      - name: Linux runtime composition
+        working-directory: desktop
+        run: node scripts/build-desktop.mjs --target linux-x64 --check
 
       - name: Keep the screenshots
         if: always()

@@ -27,14 +27,15 @@ function chunk(type, data) {
 
 /**
  * A PNG of `size` × `size` pixels: a circle of `rgb`, its edge smoothed over
- * one pixel, on transparency.
+ * one pixel, on transparency. Up to 1024: the build draws the macOS app's icon
+ * at that size, which its `.icns` is made from.
  *
  * @param {[number, number, number]} rgb
  * @param {number} [size]
  * @returns {Buffer}
  */
 export function circlePng(rgb, size = 32) {
-  if (!Number.isInteger(size) || size < 8 || size > 256) throw new RangeError("size must be a whole number from 8 to 256.");
+  if (!Number.isInteger(size) || size < 8 || size > 1024) throw new RangeError("size must be a whole number from 8 to 1024.");
   const [red, green, blue] = rgb;
   const centre = size / 2;
   const radius = size / 2 - 1;

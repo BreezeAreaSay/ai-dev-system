@@ -13,12 +13,15 @@ import { translate } from "../../src/renderer/i18n.js";
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-test("the shipped runtime is the installed app's resources/runtime on Windows, or the one a test names; a checkout has none", () => {
+test("the shipped runtime is the installed app's resources/runtime on Windows, macOS and Linux, or the one a test names; a checkout has none", () => {
   const resourcesPath = "C:\\Users\\me\\AppData\\Local\\Programs\\ai-dev-desktop\\resources";
   assert.equal(shippedRuntime({ env: {}, packaged: true, platform: "win32", resourcesPath }), path.join(resourcesPath, "runtime"));
   assert.equal(shippedRuntime({ env: {}, packaged: false, platform: "win32", resourcesPath }), null, "a checkout runs the server beside it");
-  assert.equal(shippedRuntime({ env: {}, packaged: true, platform: "darwin", resourcesPath: "/Applications/AI Dev.app/Contents/Resources" }), null,
-    "only the Windows installer ships a runtime yet");
+  const mac = "/Applications/AI Dev.app/Contents/Resources";
+  assert.equal(shippedRuntime({ env: {}, packaged: true, platform: "darwin", resourcesPath: mac }), path.join(mac, "runtime"));
+  const appImage = "/tmp/.mount_AI-DevXq1/resources";
+  assert.equal(shippedRuntime({ env: {}, packaged: true, platform: "linux", resourcesPath: appImage }), path.join(appImage, "runtime"));
+  assert.equal(shippedRuntime({ env: {}, packaged: true, platform: "freebsd", resourcesPath: appImage }), null, "no runtime is built for it");
   assert.equal(shippedRuntime({ env: { AI_DEV_DESKTOP_BUNDLE: "/tmp/bundle" }, packaged: false, platform: "linux" }), path.resolve("/tmp/bundle"));
 });
 
@@ -52,11 +55,15 @@ test("the installed app's own Node comes first after AI_DEV_NODE: the clients it
   assert.equal(findNode({ ...base, bundled: [bundled], clientNodes: [client] }).path, client, "a bundled Node too old is passed over as any is");
 });
 
-test("updates: the installed app on Windows, unless turned off; the resolver lets through the update hosts by their exact names only", () => {
+test("updates: the installed app on Windows, the AppImage, a signed Mac app, unless turned off; the resolver lets through the update hosts by their exact names only", () => {
   assert.equal(updatesEnabled({ packaged: true, platform: "win32", env: {} }), true);
   assert.equal(updatesEnabled({ packaged: true, platform: "win32", env: { AI_DEV_DESKTOP_UPDATES: "0" } }), false);
   assert.equal(updatesEnabled({ packaged: false, platform: "win32", env: {} }), false, "a checkout updates with git");
-  assert.equal(updatesEnabled({ packaged: true, platform: "linux", env: {} }), false);
+  assert.equal(updatesEnabled({ packaged: true, platform: "linux", env: {} }), false, "a .deb: the package manager updates it");
+  assert.equal(updatesEnabled({ packaged: true, platform: "linux", env: { APPIMAGE: "/home/me/AI-Dev.AppImage" } }), true);
+  assert.equal(updatesEnabled({ packaged: true, platform: "linux", env: { APPIMAGE: "/home/me/AI-Dev.AppImage", AI_DEV_DESKTOP_UPDATES: "0" } }), false);
+  assert.equal(updatesEnabled({ packaged: true, platform: "darwin", env: {} }), false, "an ad-hoc signed Mac app is replaced from the .dmg");
+  assert.equal(updatesEnabled({ packaged: true, platform: "darwin", env: {}, signed: true }), true);
   assert.equal(resolverRules({ updates: false }), "MAP * ~NOTFOUND", "as before phase 12 (Д-260)");
   const rules = resolverRules({ updates: true });
   assert.equal(rules, "MAP * ~NOTFOUND, EXCLUDE github.com, EXCLUDE objects.githubusercontent.com, EXCLUDE release-assets.githubusercontent.com");

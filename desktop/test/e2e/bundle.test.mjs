@@ -5,7 +5,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 import test from "node:test";
-import { listFiles, writeBundleMarker } from "../../scripts/windows-bundle.mjs";
+import { listFiles, writeBundleMarker } from "../../scripts/runtime-bundle.mjs";
 import { clientEnvironment, launch, mainCall, quitApp, serverModule, serverRoot, shot, stage } from "./harness.mjs";
 
 // The Windows install's runtime (docs/DESKTOP.md, "The Windows install"), on

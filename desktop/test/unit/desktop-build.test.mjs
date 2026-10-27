@@ -8,17 +8,23 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { circlePng } from "../../src/main/tray-icon.mjs";
 import {
   BUNDLE_SHIM,
+  POSIX_SHIM,
   RELEASES,
+  TARGETS,
   builderConfig,
+  commandFile,
   compositionProblems,
   compositionReport,
   danglingDependencies,
+  extractTarGz,
+  hostTarget,
   icoFrom,
   listFiles,
+  targetOf,
   trimRuntime,
   versionProblem,
   writeBundleMarker
-} from "../../scripts/windows-bundle.mjs";
+} from "../../scripts/runtime-bundle.mjs";
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const serverRoot = path.resolve(desktopRoot, "..", "ai-dev-mcp-server");
@@ -234,12 +240,178 @@ test("the app's version is its runtime's: the updater reads the app's (Ð”-306, Ð
   assert.equal(versionProblem({ app, runtime: server }), "", "as the repository stands");
 });
 
-test("the Node the installer ships is pinned: the LTS line, a version, the zip's sha256 and node.exe's", () => {
-  const pin = JSON.parse(fs.readFileSync(path.join(desktopRoot, "build", "node-win-x64.json"), "utf8"));
-  assert.match(pin.version, /^24\.\d+\.\d+$/, "Node 24 LTS until 26 is LTS (end of October 2026)");
-  assert.equal(pin.url, `https://nodejs.org/dist/v${pin.version}/node-v${pin.version}-win-x64.zip`);
-  assert.match(pin.sha256, /^[0-9a-f]{64}$/);
-  assert.match(pin.node_exe_sha256, /^[0-9a-f]{64}$/);
-  assert.equal(pin.entry, `node-v${pin.version}-win-x64/node.exe`);
-  assert.equal(pin.license, `node-v${pin.version}-win-x64/LICENSE`);
+test("the Node each build ships is pinned: the LTS line, a version, the archive's sha256 and the binary's", () => {
+  const archives = { "win32-x64": "win-x64.zip", "darwin-arm64": "darwin-arm64.tar.gz", "linux-x64": "linux-x64.tar.gz" };
+  const versions = new Set();
+  for (const target of Object.values(TARGETS)) {
+    const pin = JSON.parse(fs.readFileSync(path.join(desktopRoot, "build", target.pin), "utf8"));
+    versions.add(pin.version);
+    assert.match(pin.version, /^24\.\d+\.\d+$/, "Node 24 LTS until 26 is LTS (end of October 2026)");
+    assert.equal(pin.url, `https://nodejs.org/dist/v${pin.version}/node-v${pin.version}-${archives[target.id]}`);
+    assert.match(pin.sha256, /^[0-9a-f]{64}$/);
+    assert.match(pin.binary_sha256, /^[0-9a-f]{64}$/);
+    const folder = `node-v${pin.version}-${archives[target.id].replace(/\.(zip|tar\.gz)$/, "")}`;
+    assert.equal(pin.entry, target.platform === "win32" ? `${folder}/node.exe` : `${folder}/bin/node`);
+    assert.equal(pin.license, `${folder}/LICENSE`);
+  }
+  assert.equal(versions.size, 1, "one Node for every system");
+});
+
+test("each system's runtime keeps its own native builds: sharp with its libvips, onnxruntime-node for its processor", async (t) => {
+  const binaries = "node_modules/onnxruntime-node/bin/napi-v6";
+  const tree = {
+    [`${binaries}/darwin/arm64/onnxruntime_binding.node`]: "mac",
+    [`${binaries}/linux/arm64/onnxruntime_binding.node`]: "linux arm",
+    [`${binaries}/linux/x64/onnxruntime_binding.node`]: "linux",
+    [`${binaries}/win32/x64/onnxruntime_binding.node`]: "win",
+    "node_modules/@img/sharp-linux-x64/lib/sharp.node": "linux",
+    "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8": "vips",
+    "node_modules/@img/sharp-linuxmusl-x64/lib/sharp.node": "musl",
+    "node_modules/@img/sharp-libvips-linuxmusl-x64/lib/libvips-cpp.so.8": "musl vips",
+    "node_modules/@img/sharp-darwin-arm64/lib/sharp.node": "mac",
+    "node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.dylib": "mac vips",
+    "node_modules/@img/colour/index.js": "colour"
+  };
+  const kept = async (id) => {
+    const runtime = folder(t);
+    write(runtime, tree);
+    await trimRuntime(runtime, { target: targetOf(id) });
+    return (await listFiles(runtime)).map((file) => file.path);
+  };
+  assert.deepEqual(await kept("linux-x64"), [
+    "node_modules/@img/colour/index.js",
+    "node_modules/@img/sharp-libvips-linux-x64/lib/libvips-cpp.so.8",
+    "node_modules/@img/sharp-linux-x64/lib/sharp.node",
+    `${binaries}/linux/x64/onnxruntime_binding.node`
+  ], "glibc only: the musl builds go");
+  assert.deepEqual(await kept("darwin-arm64"), [
+    "node_modules/@img/colour/index.js",
+    "node_modules/@img/sharp-darwin-arm64/lib/sharp.node",
+    "node_modules/@img/sharp-libvips-darwin-arm64/lib/libvips-cpp.dylib",
+    `${binaries}/darwin/arm64/onnxruntime_binding.node`
+  ]);
+});
+
+test("each system's runtime is checked for its own Node, command and native files", () => {
+  const file = (relative, content = relative) => ({ path: relative, bytes: 1, sha256: sha(content) });
+  const linux = targetOf("linux-x64");
+  const complete = [
+    "distribution.json", "ai-dev", "node/LICENSE", "ai-dev-mcp-server/bin/ai-dev.mjs", "ai-dev-mcp-server/src/core/app-bundle.mjs",
+    "seed/public-seed.manifest.json", "node_modules/@modelcontextprotocol/sdk/package.json",
+    "node_modules/onnxruntime-node/bin/napi-v6/linux/x64/onnxruntime_binding.node", "node_modules/onnxruntime-node/bin/napi-v6/linux/x64/libonnxruntime.so.1",
+    "node_modules/@img/sharp-linux-x64/package.json", "node_modules/@img/sharp-libvips-linux-x64/package.json", "node_modules/@huggingface/transformers/package.json"
+  ].map((relative) => file(relative));
+  const node = file("node/bin/node", "node");
+  assert.deepEqual(compositionProblems([...complete, node], { nodeSha256: sha("node"), target: linux }), []);
+  const problems = compositionProblems([
+    ...complete.filter((item) => item.path !== "ai-dev"),
+    file("node/bin/node", "another"),
+    file("node_modules/@img/sharp-win32-x64/package.json"),
+    file("node_modules/onnxruntime-node/bin/napi-v6/linux/arm64/onnxruntime_binding.node")
+  ], { nodeSha256: sha("node"), target: linux });
+  assert.ok(problems.includes("ai-dev is missing"), problems.join("\n"));
+  assert.ok(problems.some((problem) => /node\/bin\/node has sha256 .* not the pinned/.test(problem)));
+  assert.equal(problems.filter((problem) => /must not ship/.test(problem)).length, 2);
+  // The Windows runtime is no Linux one.
+  assert.ok(compositionProblems([...complete, node], { nodeSha256: sha("node") }).includes("node/node.exe is missing"));
+});
+
+test("the command beside the runtime: ai-dev.cmd on Windows, a shell script that runs its own Node elsewhere", async (t) => {
+  assert.deepEqual(commandFile(targetOf("win32-x64")), { name: "ai-dev.cmd", text: BUNDLE_SHIM, mode: 0o644 });
+  const posix = commandFile(targetOf("linux-x64"));
+  assert.deepEqual([posix.name, posix.mode, posix.text], ["ai-dev", 0o755, POSIX_SHIM]);
+  assert.equal(commandFile(targetOf("darwin-arm64")).text, POSIX_SHIM);
+  assert.throws(() => targetOf("darwin-x64"), /There is no target "darwin-x64": the app is built for win32-x64, darwin-arm64, linux-x64\./);
+  assert.equal(hostTarget("linux", "x64"), TARGETS["linux-x64"]);
+  assert.equal(hostTarget("darwin", "x64"), null, "an Intel Mac: onnxruntime-node has no build for it");
+  if (process.platform === "win32") return;
+  // Run it: through a link to its folder, as AI clients reach it, with arguments that need quoting.
+  const root = folder(t);
+  const runtime = path.join(root, "copy");
+  write(runtime, { "ai-dev-mcp-server/bin/ai-dev.mjs": "console.log(JSON.stringify(process.argv.slice(2)));\n" });
+  fs.mkdirSync(path.join(runtime, "node", "bin"), { recursive: true });
+  fs.symlinkSync(process.execPath, path.join(runtime, "node", "bin", "node"));
+  fs.writeFileSync(path.join(runtime, "ai-dev"), POSIX_SHIM, { mode: 0o755 });
+  fs.symlinkSync(runtime, path.join(root, "current"), "dir");
+  const { spawnSync } = await import("node:child_process");
+  const ran = spawnSync(path.join(root, "current", "ai-dev"), ["skills", "new", "a b", "it's"], { encoding: "utf8" });
+  assert.equal(ran.status, 0, ran.stderr);
+  assert.deepEqual(JSON.parse(ran.stdout), ["skills", "new", "a b", "it's"]);
+});
+
+/** A `.tar.gz` of `entries` ([name, content, type]), with a GNU long name and a pax path, as Node's archives may hold. */
+async function tarGz(file, entries) {
+  const { gzipSync } = await import("node:zlib");
+  const blocks = [];
+  const header = (name, size, type, mode = 0o755) => {
+    const block = Buffer.alloc(512);
+    block.write(name.slice(0, 99), 0, "utf8");
+    block.write(`${mode.toString(8).padStart(7, "0")}\0`, 100);
+    block.write("0000000\0", 108);
+    block.write("0000000\0", 116);
+    block.write(`${size.toString(8).padStart(11, "0")}\0`, 124);
+    block.write("00000000000\0", 136);
+    block.write("        ", 148);
+    block.write(type, 156);
+    block.write("ustar\0", 257);
+    block.write("00", 263);
+    let sum = 0;
+    for (const byte of block) sum += byte;
+    block.write(`${sum.toString(8).padStart(6, "0")}\0 `, 148);
+    return block;
+  };
+  const data = (content) => {
+    const bytes = Buffer.from(content);
+    return [bytes, Buffer.alloc((512 - (bytes.length % 512)) % 512)];
+  };
+  for (const [name, content, type = "0", mode] of entries) {
+    if (type === "L" || type === "x") blocks.push(header(type === "L" ? "././@LongLink" : "PaxHeader", Buffer.byteLength(content), type), ...data(content));
+    else blocks.push(header(name, Buffer.byteLength(content), type, mode), ...data(content));
+  }
+  blocks.push(Buffer.alloc(1024));
+  fs.writeFileSync(file, gzipSync(Buffer.concat(blocks)));
+}
+
+test("a .tar.gz gives up the files asked for, with their modes, long names included", async (t) => {
+  const root = folder(t);
+  const archive = path.join(root, "node.tar.gz");
+  const long = `node-v24/${"deep/".repeat(30)}bin/node`;
+  const pax = `${long.length + 6 + String(long.length + 6).length} path=${long}\n`;
+  await tarGz(archive, [
+    ["node-v24/", "", "5"],
+    ["node-v24/LICENSE", "the licence", "0", 0o644],
+    ["node-v24/big", "x".repeat(70_000), "0", 0o644],
+    ["", `${long}\0`, "L"],
+    ["ignored-short-name", "#!/bin/node\n", "0", 0o755],
+    ["", pax, "x"],
+    ["ignored-too", "pax body", "0", 0o600],
+    ["node-v24/link", "", "2"]
+  ]);
+  const out = path.join(root, "out");
+  const written = await extractTarGz(archive, new Map([
+    ["node-v24/LICENSE", path.join(out, "LICENSE")],
+    [long, path.join(out, "node")],
+    ["node-v24/link", path.join(out, "link")],
+    ["node-v24/missing", path.join(out, "missing")]
+  ]));
+  assert.deepEqual(written, ["node-v24/LICENSE", long, long]);
+  assert.equal(fs.readFileSync(path.join(out, "LICENSE"), "utf8"), "the licence");
+  assert.equal(fs.readFileSync(path.join(out, "node"), "utf8"), "pax body", "the last entry of that name wins, as tar's own does");
+  if (process.platform !== "win32") assert.equal(fs.statSync(path.join(out, "node")).mode & 0o777, 0o600);
+  assert.equal(fs.existsSync(path.join(out, "link")), false, "a link is not written");
+});
+
+test("electron-builder: a .dmg and a .zip for Apple silicon, signed ad hoc without a certificate; an AppImage and a .deb for Linux", () => {
+  const mac = builderConfig({ desktopRoot, runtimeDir: "/x/runtime", icon: "/x/icon.png", output: "/x/out", env: {}, target: targetOf("darwin-arm64") });
+  assert.deepEqual(mac.mac.target, [{ target: "dmg", arch: ["arm64"] }, { target: "zip", arch: ["arm64"] }]);
+  assert.deepEqual([mac.mac.identity, mac.mac.hardenedRuntime, mac.extraMetadata], ["-", false, undefined]);
+  assert.equal(mac.win, undefined);
+  assert.deepEqual(mac.extraResources.map((item) => item.to), ["runtime", "runtime/node_modules"]);
+  const signed = builderConfig({ desktopRoot, runtimeDir: "/x/runtime", icon: "/x/icon.png", output: "/x/out", env: { CSC_LINK: "/secret/id.p12" }, target: targetOf("darwin-arm64") });
+  assert.deepEqual([signed.mac.identity, signed.mac.hardenedRuntime, signed.extraMetadata], [undefined, true, { aiDevSigned: true }], "a signed Mac app updates itself");
+  const linux = builderConfig({ desktopRoot, runtimeDir: "/x/runtime", icon: "/x/icon.png", output: "/x/out", env: {}, target: targetOf("linux-x64") });
+  assert.deepEqual(linux.linux.target, [{ target: "AppImage", arch: ["x64"] }, { target: "deb", arch: ["x64"] }]);
+  assert.equal(linux.executableName, "ai-dev-desktop", "a name a shell and a .desktop file take as it is");
+  assert.equal(linux.linux.category, "Development");
+  assert.deepEqual(linux.publish, [RELEASES]);
 });

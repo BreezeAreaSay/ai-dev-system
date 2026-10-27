@@ -1,9 +1,10 @@
 /**
- * The parts of the Windows installer's build that can be checked without
- * building it (docs/DESKTOP.md, "The Windows install"): what is cut from the
- * runtime's dependencies, the runtime's `bundle.json`, its composition, the
- * app's icon and electron-builder's configuration. `build-windows.mjs`
- * (`npm run dist:win`) runs them in order.
+ * The parts of the desktop app's build that can be checked without building
+ * it (docs/DESKTOP.md, "The desktop install"): what is cut from the runtime's
+ * dependencies, the runtime's `bundle.json`, its composition, the app's icon
+ * and electron-builder's configuration, for each system the app is built
+ * for. `build-desktop.mjs` (`npm run dist:win`, `dist:mac`, `dist:linux`)
+ * runs them in order.
  */
 import crypto from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -12,24 +13,92 @@ import path from "node:path";
 import { pipeline } from "node:stream/promises";
 
 /**
- * What the runtime never loads on win32-x64, cut from its `node_modules`
+ * The systems the app is built for, each with what its runtime holds: the
+ * Node it ships and where, the command beside the runtime's stable link, and
+ * the native builds of sharp and onnxruntime-node it keeps. macOS is Apple
+ * silicon only: onnxruntime-node ships no build for an Intel Mac, and the
+ * local model would not load there.
+ */
+export const TARGETS = Object.freeze({
+  "win32-x64": Object.freeze({
+    id: "win32-x64",
+    platform: "win32",
+    arch: "x64",
+    pin: "node-win-x64.json",
+    node: "node/node.exe",
+    command: "ai-dev.cmd",
+    sharp: Object.freeze(["sharp-win32-x64"]),
+    onnx: Object.freeze(["onnxruntime_binding.node", "onnxruntime.dll"])
+  }),
+  "darwin-arm64": Object.freeze({
+    id: "darwin-arm64",
+    platform: "darwin",
+    arch: "arm64",
+    pin: "node-darwin-arm64.json",
+    node: "node/bin/node",
+    command: "ai-dev",
+    sharp: Object.freeze(["sharp-darwin-arm64", "sharp-libvips-darwin-arm64"]),
+    onnx: Object.freeze(["onnxruntime_binding.node", "libonnxruntime.1.dylib"])
+  }),
+  "linux-x64": Object.freeze({
+    id: "linux-x64",
+    platform: "linux",
+    arch: "x64",
+    pin: "node-linux-x64.json",
+    node: "node/bin/node",
+    command: "ai-dev",
+    sharp: Object.freeze(["sharp-linux-x64", "sharp-libvips-linux-x64"]),
+    onnx: Object.freeze(["onnxruntime_binding.node", "libonnxruntime.so.1"])
+  })
+});
+
+/** A target by its id, or an error that lists them. */
+export function targetOf(id) {
+  if (Object.hasOwn(TARGETS, id)) return TARGETS[id];
+  throw new Error(`There is no target ${JSON.stringify(id)}: the app is built for ${Object.keys(TARGETS).join(", ")}.`);
+}
+
+/** The system the build runs on, when the app is built for it. */
+export function hostTarget(platform = process.platform, arch = process.arch) {
+  return TARGETS[`${platform}-${arch}`] ?? null;
+}
+
+/**
+ * What the runtime never loads on any system, cut from its `node_modules`
  * (brief, phase 12: "onnxruntime-web и sharp-wasm32 убрать, если импорт это
  * позволяет"). Checked on the code it ships: the dense model's end-to-end test
  * passes without them (docs/program/reports/phase-12.md).
  */
 export const TRIMMED = Object.freeze([
   Object.freeze({ path: "onnxruntime-web", why: "transformers 4.3.0 carries the web runtime inside its own file; its Node build loads onnxruntime-node" }),
-  Object.freeze({ path: "@img/sharp-wasm32", why: "sharp loads @img/sharp-win32-x64; npm installs the WebAssembly build only as a leftover nothing requires (npm ls: extraneous)" }),
+  Object.freeze({ path: "@img/sharp-wasm32", why: "sharp loads its native build for the system; npm installs the WebAssembly build only as a leftover nothing requires (npm ls: extraneous)" }),
   Object.freeze({ path: "@emnapi/runtime", why: "only @img/sharp-wasm32 requires it" }),
   Object.freeze({ path: "tslib", why: "only @emnapi/runtime requires it" }),
   Object.freeze({ path: ".bin", why: "npm's command links: the runtime runs none of them, and a link is not a file to ship" })
 ]);
 
-/** Where onnxruntime-node keeps a native build per system and processor: only win32/x64 stays. */
+/** Where onnxruntime-node keeps a native build per system and processor: only the target's stays. */
 export const ONNX_BINARIES = "onnxruntime-node/bin/napi-v6";
 
 /** The Windows install's own command beside its stable link: its Node, its CLI, the arguments as given. */
 export const BUNDLE_SHIM = "@echo off\r\n\"%~dp0node\\node.exe\" \"%~dp0ai-dev-mcp-server\\bin\\ai-dev.mjs\" %*\r\n";
+
+/**
+ * The same command on macOS and Linux: a shell script that runs the
+ * runtime's own Node from the folder it lies in — reached through the stable
+ * link, the link's folder, whose `node` the link leads into.
+ */
+export const POSIX_SHIM = [
+  "#!/bin/sh",
+  "here=$(CDPATH= cd -- \"$(dirname -- \"$0\")\" && pwd)",
+  "exec \"$here/node/bin/node\" \"$here/ai-dev-mcp-server/bin/ai-dev.mjs\" \"$@\"",
+  ""
+].join("\n");
+
+/** The command a target's runtime is run by from a terminal, and its text. */
+export function commandFile(target) {
+  return target.platform === "win32" ? { name: target.command, text: BUNDLE_SHIM, mode: 0o644 } : { name: target.command, text: POSIX_SHIM, mode: 0o755 };
+}
 
 /** What an installed runtime may weigh, unpacked; the build stops above it. */
 export const RUNTIME_BUDGET_BYTES = 360 * 1024 * 1024;
@@ -44,12 +113,14 @@ async function bytesOf(target) {
 }
 
 /**
- * Cut what the runtime never loads on win32-x64 from `<runtime>/node_modules`.
+ * Cut what the runtime never loads on the target from `<runtime>/node_modules`:
+ * the web builds, and the native builds of every other system and processor.
  *
  * @param {string} runtimeDir
+ * @param {{ target?: typeof TARGETS[keyof typeof TARGETS] }} [options] - Windows when left out.
  * @returns {Promise<Array<{ path: string, bytes: number, why: string }>>} what was cut
  */
-export async function trimRuntime(runtimeDir) {
+export async function trimRuntime(runtimeDir, { target = TARGETS["win32-x64"] } = {}) {
   const modules = path.join(runtimeDir, "node_modules");
   const removed = [];
   const cut = async (relative, why) => {
@@ -62,16 +133,16 @@ export async function trimRuntime(runtimeDir) {
   for (const item of TRIMMED) await cut(item.path, item.why);
   // sharp's native builds of other systems, should a build machine have put any there.
   for (const name of await fs.readdir(path.join(modules, "@img")).catch(() => [])) {
-    if (name.startsWith("sharp-") && name !== "sharp-win32-x64") await cut(`@img/${name}`, "a native sharp of another system");
+    if (name.startsWith("sharp-") && !target.sharp.includes(name)) await cut(`@img/${name}`, "a native sharp of another system");
   }
   const binaries = path.join(modules, ...ONNX_BINARIES.split("/"));
   for (const system of await fs.readdir(binaries).catch(() => [])) {
-    if (system !== "win32") {
+    if (system !== target.platform) {
       await cut(`${ONNX_BINARIES}/${system}`, "onnxruntime-node for another system");
       continue;
     }
     for (const arch of await fs.readdir(path.join(binaries, system)).catch(() => [])) {
-      if (arch !== "x64") await cut(`${ONNX_BINARIES}/${system}/${arch}`, "onnxruntime-node for another processor");
+      if (arch !== target.arch) await cut(`${ONNX_BINARIES}/${system}/${arch}`, "onnxruntime-node for another processor");
     }
   }
   return removed;
@@ -188,18 +259,18 @@ export async function listFiles(root, { skip = () => false } = {}) {
  * machine (two names Windows takes for one) stops the build, not the person
  * (docs/DEFECTS.md, Д-306, п. 1).
  *
- * @param {{ runtimeDir: string, name: string, version: string, node: { version: string, sha256: string, file?: string }, fingerprintOf: (files: Array<{ path: string, sha256: string }>) => string, parse?: (text: string, where: string) => unknown }} input
- *   `node.file` — where the Node is in the runtime: `node/node.exe` in the installer; a test's runtime on Linux names its own.
+ * @param {{ runtimeDir: string, name: string, version: string, node: { version: string, sha256: string, file?: string }, fingerprintOf: (files: Array<{ path: string, sha256: string }>) => string, parse?: (text: string, where: string) => unknown, target?: typeof TARGETS[keyof typeof TARGETS] }} input
+ *   `node.file` — where the Node is in the runtime: the target's (`node/node.exe` on Windows) unless given; `target` — Windows when left out.
  */
-export async function writeBundleMarker({ runtimeDir, name, version, node, fingerprintOf, parse }) {
+export async function writeBundleMarker({ runtimeDir, name, version, node, fingerprintOf, parse, target = TARGETS["win32-x64"] }) {
   const files = await listFiles(runtimeDir, { skip: (relative) => relative === "bundle.json" });
   const marker = {
     schema_version: 1,
     name,
     version,
-    platform: "win32",
-    arch: "x64",
-    node: { version: node.version, file: node.file ?? "node/node.exe", sha256: node.sha256 },
+    platform: target.platform,
+    arch: target.arch,
+    node: { version: node.version, file: node.file ?? target.node, sha256: node.sha256 },
     fingerprint: fingerprintOf(files),
     files
   };
@@ -230,50 +301,54 @@ export function compositionReport(files) {
   };
 }
 
-/** Paths a Windows runtime must not hold: the cuts above, made sure of. */
-const FORBIDDEN = [
-  /^node_modules\/onnxruntime-web\//,
-  /^node_modules\/@img\/sharp-(?!win32-x64\/)/,
-  /^node_modules\/onnxruntime-node\/bin\/napi-v6\/(?!win32\/)/,
-  /^node_modules\/onnxruntime-node\/bin\/napi-v6\/win32\/(?!x64\/)/,
-  /(?:^|\/)\.git\//
-];
+/** Paths a target's runtime must not hold: the cuts above, made sure of. */
+function forbidden(target) {
+  const onnx = `node_modules/${ONNX_BINARIES}`;
+  return [
+    /^node_modules\/onnxruntime-web\//,
+    { test: (file) => file.startsWith("node_modules/@img/sharp-") && !target.sharp.some((name) => file.startsWith(`node_modules/@img/${name}/`)) },
+    { test: (file) => file.startsWith(`${onnx}/`) && !file.startsWith(`${onnx}/${target.platform}/`) },
+    { test: (file) => file.startsWith(`${onnx}/${target.platform}/`) && !file.startsWith(`${onnx}/${target.platform}/${target.arch}/`) },
+    /(?:^|\/)\.git\//
+  ];
+}
 
-/** Files a Windows runtime cannot work without. */
-const REQUIRED = [
-  "distribution.json",
-  "ai-dev.cmd",
-  "node/node.exe",
-  "node/LICENSE",
-  "ai-dev-mcp-server/bin/ai-dev.mjs",
-  "ai-dev-mcp-server/src/core/app-bundle.mjs",
-  "seed/public-seed.manifest.json",
-  "node_modules/@modelcontextprotocol/sdk/package.json",
-  "node_modules/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime_binding.node",
-  "node_modules/onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll",
-  "node_modules/@img/sharp-win32-x64/package.json",
-  "node_modules/@huggingface/transformers/package.json"
-];
+/** Files a target's runtime cannot work without. */
+function required(target) {
+  return [
+    "distribution.json",
+    target.command,
+    target.node,
+    "node/LICENSE",
+    "ai-dev-mcp-server/bin/ai-dev.mjs",
+    "ai-dev-mcp-server/src/core/app-bundle.mjs",
+    "seed/public-seed.manifest.json",
+    "node_modules/@modelcontextprotocol/sdk/package.json",
+    ...target.onnx.map((file) => `node_modules/${ONNX_BINARIES}/${target.platform}/${target.arch}/${file}`),
+    ...target.sharp.map((name) => `node_modules/@img/${name}/package.json`),
+    "node_modules/@huggingface/transformers/package.json"
+  ];
+}
 
 /**
  * What is wrong with a runtime's composition, in words; empty when nothing is.
  *
  * @param {Array<{ path: string, bytes: number, sha256: string }>} files
- * @param {{ nodeSha256: string, budget?: number }} expected
+ * @param {{ nodeSha256: string, budget?: number, target?: typeof TARGETS[keyof typeof TARGETS] }} expected - Windows when no target is given.
  * @returns {string[]}
  */
-export function compositionProblems(files, { nodeSha256, budget = RUNTIME_BUDGET_BYTES }) {
+export function compositionProblems(files, { nodeSha256, budget = RUNTIME_BUDGET_BYTES, target = TARGETS["win32-x64"] }) {
   const problems = [];
   const byPath = new Map(files.map((file) => [file.path, file]));
-  for (const pattern of FORBIDDEN) {
+  for (const pattern of forbidden(target)) {
     const found = files.filter((file) => pattern.test(file.path));
     if (found.length) problems.push(`${found.length} file(s) that must not ship, such as ${found[0].path}`);
   }
-  for (const required of REQUIRED) {
-    if (!byPath.has(required)) problems.push(`${required} is missing`);
+  for (const file of required(target)) {
+    if (!byPath.has(file)) problems.push(`${file} is missing`);
   }
-  const node = byPath.get("node/node.exe");
-  if (node && node.sha256 !== nodeSha256) problems.push(`node/node.exe has sha256 ${node.sha256}, not the pinned ${nodeSha256}`);
+  const node = byPath.get(target.node);
+  if (node && node.sha256 !== nodeSha256) problems.push(`${target.node} has sha256 ${node.sha256}, not the pinned ${nodeSha256}`);
   const total = files.reduce((sum, file) => sum + file.bytes, 0);
   if (total > budget) problems.push(`the runtime weighs ${total} bytes, over its budget of ${budget}`);
   return problems;
@@ -338,19 +413,32 @@ function azureSigning(env) {
 /** The production repository: where updates come from (owner decision D7). */
 export const RELEASES = Object.freeze({ provider: "github", owner: "stonebridgeway", repo: "ai-dev-system", releaseType: "release" });
 
+/** A Mac build is signed when a certificate is named (CSC_LINK or CSC_NAME, which electron-builder reads itself). */
+const macCertificate = (env) => Boolean(String(env.CSC_LINK ?? "").trim() || String(env.CSC_NAME ?? "").trim());
+
 /**
- * electron-builder's configuration of the Windows installer: NSIS, for the
- * current user, no administrator. Signing comes from the environment: a
- * certificate file in `CSC_LINK` / `WIN_CSC_LINK` with its password, which
- * electron-builder reads itself, or Azure Trusted Signing named by the
- * `AI_DEV_SIGN_AZURE_*` variables. Without either the build is unsigned.
+ * electron-builder's configuration of the app for a target.
  *
- * @param {{ desktopRoot: string, runtimeDir: string, icon: string, output: string, env?: NodeJS.ProcessEnv }} input
+ * Windows: an NSIS installer for the current user, no administrator. Signing
+ * comes from the environment: a certificate file in `CSC_LINK` /
+ * `WIN_CSC_LINK` with its password, which electron-builder reads itself, or
+ * Azure Trusted Signing named by the `AI_DEV_SIGN_AZURE_*` variables. Without
+ * either the build is unsigned.
+ *
+ * macOS: a `.dmg` to drag the app from and a `.zip` beside it, for Apple
+ * silicon. With a Developer ID certificate in `CSC_LINK` it is signed with the
+ * hardened runtime (and notarized when the `APPLE_*` variables are set);
+ * without one it is signed ad hoc, which Apple silicon needs to run it at
+ * all, and opened the first time with Open in the Finder's menu.
+ *
+ * Linux: an AppImage, which runs anywhere and updates itself, and a `.deb`.
+ *
+ * @param {{ desktopRoot: string, runtimeDir: string, icon: string, output: string, env?: NodeJS.ProcessEnv, target?: typeof TARGETS[keyof typeof TARGETS] }} input
+ *   `icon`: an `.ico` for Windows, a PNG of 1024 pixels for the others; `target`: Windows when left out.
  * @returns {object}
  */
-export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = process.env }) {
-  const azure = azureSigning(env);
-  return {
+export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = process.env, target = TARGETS["win32-x64"] }) {
+  const common = {
     appId: "com.stonebridgeway.ai-dev",
     productName: "AI Dev",
     executableName: "AI Dev",
@@ -369,8 +457,48 @@ export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = pro
     npmRebuild: false,
     nodeGypRebuild: false,
     buildDependenciesFromSource: false,
+    publish: [RELEASES]
+  };
+  if (target.platform === "darwin") {
+    const signed = macCertificate(env);
+    return {
+      ...common,
+      mac: {
+        target: [{ target: "dmg", arch: [target.arch] }, { target: "zip", arch: [target.arch] }],
+        icon,
+        category: "public.app-category.developer-tools",
+        artifactName: "AI-Dev-${version}-mac-${arch}.${ext}",
+        // "-" is an ad-hoc signature: no certificate, but a binary Apple silicon runs.
+        ...(signed ? { hardenedRuntime: true } : { identity: "-", hardenedRuntime: false })
+      },
+      // Only a Developer ID build updates itself on macOS (`updates.mjs`).
+      ...(signed ? { extraMetadata: { aiDevSigned: true } } : {}),
+      dmg: { artifactName: "AI-Dev-${version}-mac-${arch}.${ext}" }
+    };
+  }
+  if (target.platform === "linux") {
+    return {
+      ...common,
+      // A name a shell and a .desktop file take as it is; the window is that .desktop file's.
+      executableName: "ai-dev-desktop",
+      extraMetadata: { desktopName: "ai-dev-desktop.desktop" },
+      linux: {
+        target: [{ target: "AppImage", arch: [target.arch] }, { target: "deb", arch: [target.arch] }],
+        icon,
+        category: "Development",
+        maintainer: "stonebridgeway",
+        synopsis: "A tray, a first-run wizard and a status screen over the AI Dev daemon",
+        artifactName: "AI-Dev-${version}-linux-${arch}.${ext}",
+        syncDesktopName: true
+      },
+      deb: { packageName: "ai-dev-desktop" }
+    };
+  }
+  const azure = azureSigning(env);
+  return {
+    ...common,
     win: {
-      target: [{ target: "nsis", arch: ["x64"] }],
+      target: [{ target: "nsis", arch: [target.arch] }],
       icon,
       artifactName: "AI-Dev-Setup-${version}.${ext}",
       ...azure
@@ -388,7 +516,79 @@ export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = pro
       include: path.join(desktopRoot, "build", "installer.nsh"),
       installerLanguages: ["en_US", "ru_RU"],
       multiLanguageInstaller: true
-    },
-    publish: [RELEASES]
+    }
   };
+}
+
+/** A field of a tar header: text up to its first NUL. */
+const tarText = (header, start, length) => header.subarray(start, start + length).toString("utf8").replace(/\0[\s\S]*$/, "");
+
+/**
+ * Take some files out of a `.tar.gz` — the Node of macOS and Linux comes as
+ * one — streaming, with their modes: `wanted` maps an entry's path in the
+ * archive to the file it is written to. A long name (GNU `L`, or a pax
+ * `path`) is read; links and folders are not written.
+ *
+ * @param {string} archive
+ * @param {Map<string, string>} wanted
+ * @returns {Promise<string[]>} the entries written
+ */
+export async function extractTarGz(archive, wanted) {
+  const { createGunzip } = await import("node:zlib");
+  const written = [];
+  let buffer = Buffer.alloc(0);
+  let entry = null; // { name, size, left, mode, type, out, chunks }
+  let longName = null;
+  const finish = async () => {
+    if (entry.out) {
+      await entry.out.close();
+      written.push(entry.name);
+    }
+    if (entry.type === "L") longName = Buffer.concat(entry.chunks).toString("utf8").replace(/\0[\s\S]*$/, "");
+    if (entry.type === "x") {
+      const pax = Buffer.concat(entry.chunks).toString("utf8");
+      const found = /(?:^|\n)\d+ path=([^\n]*)\n/.exec(pax);
+      if (found) longName = found[1];
+    }
+    entry = null;
+  };
+  for await (const chunk of createReadStream(archive).pipe(createGunzip())) {
+    buffer = buffer.length ? Buffer.concat([buffer, chunk]) : chunk;
+    for (;;) {
+      if (!entry) {
+        if (buffer.length < 512) break;
+        const header = buffer.subarray(0, 512);
+        buffer = buffer.subarray(512);
+        if (header.every((byte) => byte === 0)) continue;
+        const prefix = tarText(header, 345, 155);
+        const name = longName ?? (prefix ? `${prefix}/${tarText(header, 0, 100)}` : tarText(header, 0, 100));
+        longName = null;
+        const size = Number.parseInt(tarText(header, 124, 12).trim() || "0", 8);
+        const mode = Number.parseInt(tarText(header, 100, 8).trim() || "644", 8) & 0o777;
+        const type = String.fromCharCode(header[156] || 48);
+        const target = (type === "0" || type === "\0") && wanted.get(name);
+        let out = null;
+        if (target) {
+          await fs.mkdir(path.dirname(target), { recursive: true });
+          out = await fs.open(target, "w", mode);
+        }
+        entry = { name, size, left: size, padding: (512 - (size % 512)) % 512, mode, type, out, chunks: [] };
+      }
+      const take = Math.min(entry.left, buffer.length);
+      if (take) {
+        const piece = buffer.subarray(0, take);
+        if (entry.out) await entry.out.write(piece);
+        else if (entry.type === "L" || entry.type === "x") entry.chunks.push(Buffer.from(piece));
+        buffer = buffer.subarray(take);
+        entry.left -= take;
+      }
+      if (entry.left) break;
+      if (buffer.length < entry.padding) break;
+      buffer = buffer.subarray(entry.padding);
+      if (entry.out) await entry.out.chmod(entry.mode);
+      await finish();
+    }
+  }
+  if (entry?.out) await entry.out.close();
+  return written;
 }

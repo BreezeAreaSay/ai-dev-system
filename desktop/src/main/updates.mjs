@@ -1,5 +1,5 @@
 /**
- * Updates of the Windows install (owner decision D7): electron-updater, from
+ * Updates of the installed app (owner decision D7): electron-updater, from
  * the GitHub Releases of the production repository, `stonebridgeway/ai-dev-system`
  * — the feed the build writes into `resources/app-update.yml`. A signed build
  * has its downloads checked against the signature of the app that runs; an
@@ -22,14 +22,21 @@ export const UPDATER_PARTITION = "electron-updater";
 export const UPDATE_TIMING = Object.freeze({ firstCheckMs: 60_000, everyMs: 6 * 60 * 60_000 });
 
 /**
- * Whether this app looks for updates: the installed app on Windows, unless
- * `AI_DEV_DESKTOP_UPDATES=0`. A checkout updates with git, and the installers
- * of other systems are not built yet.
+ * Whether this app looks for updates, unless `AI_DEV_DESKTOP_UPDATES=0`: the
+ * installed app on Windows, and the AppImage on Linux (`APPIMAGE` names the
+ * file it runs from, which the update replaces). A `.deb` is updated by the
+ * package manager that installed it; a Mac app updates itself only when it is
+ * signed with a Developer ID — the signed build says so in its package.json
+ * (`aiDevSigned`) — and is otherwise replaced from the release's `.dmg`. A
+ * checkout updates with git.
  *
- * @param {{ packaged: boolean, platform: string, env: NodeJS.ProcessEnv }} where
+ * @param {{ packaged: boolean, platform: string, env: NodeJS.ProcessEnv, signed?: boolean }} where
  */
-export function updatesEnabled({ packaged, platform, env }) {
-  return packaged === true && platform === "win32" && env.AI_DEV_DESKTOP_UPDATES !== "0";
+export function updatesEnabled({ packaged, platform, env, signed = false }) {
+  if (packaged !== true || env.AI_DEV_DESKTOP_UPDATES === "0") return false;
+  if (platform === "win32") return true;
+  if (platform === "linux") return Boolean(String(env.APPIMAGE ?? "").trim());
+  return platform === "darwin" && signed === true;
 }
 
 /**

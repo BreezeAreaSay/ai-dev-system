@@ -1,6 +1,6 @@
 name: Windows installer
 
-# The Windows installer (docs/DESKTOP.md, "The Windows install"): built on
+# The Windows installer (docs/DESKTOP.md, "The desktop install"): built on
 # windows-latest by the one command a person runs on a Windows machine,
 # `npm run dist:win`, and kept as the run's artifact. On a v* tag of the
 # production repository it is also put on that tag's GitHub release — as a
@@ -12,7 +12,7 @@ name: Windows installer
 # password in WIN_CSC_KEY_PASSWORD, or Azure Trusted Signing named by the
 # AI_DEV_SIGN_AZURE_* variables and AI_DEV_SIGN_PUBLISHER, the certificate's
 # name, which the updater checks every update against — the build stops when
-# one of the four is missing (desktop/scripts/windows-bundle.mjs). Without
+# one of the four is missing (desktop/scripts/runtime-bundle.mjs). Without
 # either the installer is built unsigned.
 
 on:

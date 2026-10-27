@@ -199,7 +199,10 @@ test("hints are spelled the way each layout runs them", () => {
   const cyrillic = path.resolve("/home/Дмитрий/.ai-dev");
   assert.equal(hint("npm run doctor", { ...windows, runtimeRoot: cyrillic }), `${path.join(cyrillic, "app", "current", "ai-dev.cmd")} doctor`,
     "letters of any alphabet need no quotes");
-  // The macOS and Linux app: the `ai-dev` shell script beside the link, quoted for a POSIX shell.
+  // The macOS and Linux app: the `ai-dev` shell script beside the link, quoted for a POSIX shell. Its paths are
+  // a POSIX system's: on Windows the same layout would be written with backslashes, which a POSIX shell rightly
+  // gets in quotes.
+  if (process.platform === "win32") return;
   const posix = { ...windows, platform: "darwin" };
   assert.equal(hint("npm run doctor", posix), `${path.join(home, ".ai-dev", "app", "current", "ai-dev")} doctor`);
   const quoted = path.resolve("/Users/O'Brien Smith/.ai-dev");

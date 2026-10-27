@@ -92,15 +92,24 @@ jobs:
         working-directory: desktop
         run: npm run test:unit
 
+      # electron-builder signs nothing in a pull request's build (GITHUB_BASE_REF
+      # is set), and the Mac app would keep Electron's own signature over
+      # resources that are no longer Electron's. Without a certificate the
+      # build signs ad hoc, as a release's does, so the signature checked below
+      # is the one people get; a Developer ID is never used for a pull request.
       - name: Build the app
         working-directory: desktop
+        shell: bash
         env:
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: npm run ${{ matrix.script }}
+          SCRIPT: ${{ matrix.script }}
+        run: |
+          if [ -z "$CSC_LINK" ]; then export CSC_FOR_PULL_REQUEST=true; fi
+          npm run "$SCRIPT"
 
       # What an AI client runs: the command beside the shipped runtime, on the
       # runtime's own Node, in a home of its own — the version, a setup without

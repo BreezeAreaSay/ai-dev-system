@@ -11,8 +11,10 @@ name: macOS and Linux apps
 #
 # A Mac build is signed ad hoc unless a Developer ID certificate is given
 # (CSC_LINK with CSC_KEY_PASSWORD); with one it is signed with the hardened
-# runtime and notarized when APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and
-# APPLE_TEAM_ID are set (desktop/scripts/runtime-bundle.mjs).
+# runtime and sent for notarization when APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD
+# and APPLE_TEAM_ID are set (desktop/scripts/runtime-bundle.mjs) — a path not
+# finished yet: the runtime's native modules are not signed with the
+# Developer ID (docs/RELEASE.md, "The desktop app").
 
 on:
   pull_request:
@@ -117,16 +119,40 @@ jobs:
           "$RUNTIME/ai-dev" skills new ci-probe "Probe the shipped runtime in CI."
           "$RUNTIME/ai-dev" skills mine | grep ci-probe
 
+      # The AppImage as a person on Ubuntu 24.04 starts it: unprivileged user
+      # namespaces are refused there by default, so Chromium's sandbox cannot
+      # start, and the AppImage's AppRun starts the app without it
+      # (docs/DEFECTS.md, Д-587). The same test as below, on the AppImage.
+      - name: Run the AppImage where Chromium's sandbox cannot start
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        shell: bash
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb >/dev/null
+          echo "kernel.apparmor_restrict_unprivileged_userns = $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo absent)"
+          unshare -Ur true 2>/dev/null && echo "User namespaces are allowed here: the sandbox starts, and the fallback is not measured."
+          image=$(ls "$GITHUB_WORKSPACE"/dist/linux-x64/installer/*.AppImage)
+          AI_DEV_DESKTOP_PACKAGED="$image" APPIMAGE_EXTRACT_AND_RUN=1 \
+            xvfb-run -a -s "-screen 0 1280x900x24" node --test test/e2e/packaged.test.mjs
+
       # The app itself, as installed: it copies the runtime it ships into the
       # AI Dev home, links it, starts the daemon on its own Node and opens
-      # (desktop/test/e2e/packaged.test.mjs). Chromium's sandbox needs
-      # unprivileged user namespaces, which Ubuntu 24.04 forbids by default.
+      # (desktop/test/e2e/packaged.test.mjs). Here with Chromium's sandbox,
+      # which needs the user namespaces Ubuntu 24.04 refuses by default.
       - name: Let Chromium's sandbox run
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get install -y --no-install-recommends xvfb >/dev/null
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
             || echo "AI_DEV_DESKTOP_NO_SANDBOX=1" >> "$GITHUB_ENV"
+
+      # What a download carries: the copy the app makes must leave it behind (Д-583).
+      - name: Put a download's quarantine on the Mac app's runtime
+        if: runner.os == 'macOS'
+        env:
+          RUNTIME: ${{ matrix.runtime }}
+        run: |
+          xattr -r -w com.apple.quarantine "0081;00000000;Safari;" "$RUNTIME"
+          xattr -l "$RUNTIME/node/bin/node" | grep com.apple.quarantine
 
       - name: Run the installed app
         working-directory: desktop

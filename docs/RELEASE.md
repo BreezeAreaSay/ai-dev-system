@@ -175,10 +175,14 @@ A package with no scope is public as published. The tarball is about 10 MB, 1,83
 
 The macOS app is signed ad hoc unless the production repository has a Developer ID Application
 certificate in the secrets `MAC_CSC_LINK` (the `.p12`, base64) and `MAC_CSC_KEY_PASSWORD`; with
-`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` too, it is notarized. Ad hoc, it runs on
-Apple silicon and is opened the first time with **Open** in the Finder's menu, and it does not update
-itself: a new `.dmg` replaces it. The Linux packages are not signed; the AppImage updates itself from
-the published release, the `.deb` is installed again.
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` too, it is sent for notarization. That
+path is not finished: notarization wants every Mach-O file in the app signed with the Developer ID,
+and the runtime's native modules (onnxruntime, sharp) are left as they ship, so that their bytes
+stay the ones `bundle.json` lists; signing them would have to come before `bundle.json` is written
+(docs/DEFECTS.md, Д-583). Ad hoc, the app runs on Apple silicon and is opened the first time with
+**Open Anyway** in System Settings → Privacy & Security (macOS 15 and later; **Open** in the Finder's
+menu before), and it does not update itself: a new `.dmg` replaces it. The Linux packages are not
+signed; the AppImage updates itself from the published release, the `.deb` is installed again.
 
 Windows signing comes from the production repository's secrets and variables (owner decision D7), read by the
 job that builds on the tag, `build` ("Build the installer (windows-latest)"):

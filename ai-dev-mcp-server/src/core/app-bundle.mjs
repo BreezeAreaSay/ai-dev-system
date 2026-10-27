@@ -29,7 +29,7 @@
  * and puts back from the installer what went missing or changed size since.
  */
 import crypto from "node:crypto";
-import { createReadStream, readFileSync, realpathSync } from "node:fs";
+import { createReadStream, createWriteStream, readFileSync, realpathSync } from "node:fs";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -165,12 +165,26 @@ async function inspectCopy(folder, bundle, expected) {
   return { state: "finished", damaged };
 }
 
+/**
+ * A file's bytes and mode, and nothing else. On macOS `fs.copyFile` is
+ * copyfile(3), which carries the extended attributes along: the quarantine a
+ * downloaded app's files hold among them, and a quarantined library is
+ * refused by Gatekeeper once it is loaded from outside the app it came in
+ * (docs/DEFECTS.md, Д-583). What lands is checked against bundle.json, which
+ * the app's signature seals, as every copy is.
+ */
+async function copyBytes(from, to) {
+  const { mode } = await fs.stat(from);
+  await pipeline(createReadStream(from), createWriteStream(to, { mode }));
+  await fs.chmod(to, mode & 0o7777);
+}
+
 /** Copy one file of the runtime and check it against its size and sha256: a copy is never trusted unread. */
-async function copyChecked(bundleRoot, file, target) {
+async function copyChecked(bundleRoot, file, target, platform) {
   const shipped = path.join(bundleRoot, ...file.path.split("/"));
   await fs.mkdir(path.dirname(target), { recursive: true });
   try {
-    await fs.copyFile(shipped, target);
+    await (platform === "darwin" ? copyBytes : fs.copyFile)(shipped, target);
   } catch (error) {
     if (error?.code !== "ENOENT" || await fs.lstat(shipped).then(() => true, () => false)) throw error;
     throw new Error(`${file.path} in ${bundleRoot} is missing: the installer's copy is damaged; run the installer again.`);
@@ -187,12 +201,12 @@ async function copyChecked(bundleRoot, file, target) {
  * a running client holds cannot be replaced on Windows, and the start stops
  * saying so.
  */
-async function repairCopy({ bundleRoot, folder, files }) {
+async function repairCopy({ bundleRoot, folder, files, platform }) {
   for (const file of files) {
     const target = path.join(folder, ...file.path.split("/"));
     const partial = `${target}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.partial`;
     try {
-      await copyChecked(bundleRoot, file, partial);
+      await copyChecked(bundleRoot, file, partial, platform);
       await fs.rename(partial, target);
     } catch (error) {
       await fs.rm(partial, { force: true }).catch(() => undefined);
@@ -239,14 +253,14 @@ async function renameBusy(from, to) {
  * that stopped — a full disk, a closed app — is a `.partial` folder, never a
  * runtime a client is pointed at.
  */
-async function copyBundle({ bundleRoot, bundle, expected, folder, now, onProgress }) {
+async function copyBundle({ bundleRoot, bundle, expected, folder, now, onProgress, platform }) {
   const stage = `${folder}.${process.pid}.${crypto.randomUUID().slice(0, 8)}.partial`;
   const total = bundle.files.reduce((sum, file) => sum + file.bytes, 0);
   let done = 0;
   await fs.mkdir(stage, { recursive: true });
   try {
     for (const file of expected) {
-      await copyChecked(bundleRoot, file, path.join(stage, ...file.path.split("/")));
+      await copyChecked(bundleRoot, file, path.join(stage, ...file.path.split("/")), platform);
       if (file.path === BUNDLE_MARKER) continue;
       done += file.bytes;
       onProgress?.({ progress: done, total, file: file.path });
@@ -381,7 +395,7 @@ export async function provisionBundle({ bundleRoot, runtimeRoot, platform = proc
   if (copy.state === "finished") {
     if (copy.damaged.length) {
       status = "repaired";
-      await repairCopy({ bundleRoot, folder, files: copy.damaged });
+      await repairCopy({ bundleRoot, folder, files: copy.damaged, platform });
     }
     // Chosen again: the copy a prune keeps.
     const markerFile = path.join(folder, APP_MARKER);
@@ -389,7 +403,7 @@ export async function provisionBundle({ bundleRoot, runtimeRoot, platform = proc
     await atomicWriteJson(markerFile, { ...marker, chosen_at: now().toISOString() });
   } else {
     status = "installed";
-    await copyBundle({ bundleRoot, bundle, expected, folder, now, onProgress });
+    await copyBundle({ bundleRoot, bundle, expected, folder, now, onProgress, platform });
   }
   // A drive that cannot hold the link — exFAT, FAT32, some network shares, Wine
   // — still runs the copy: its configs name the copy itself, and change when

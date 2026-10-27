@@ -368,3 +368,23 @@ test("the npx prune leaves a copy a client's config still names, as the app's do
   assert.deepEqual(installs.flatMap((install) => install.removed).map((folder) => path.basename(folder)), [path.basename(installs[1].folder)],
     "the copies nobody names go by the count; the one Cursor runs stays");
 });
+
+test("on macOS the copy is the files' bytes and modes, not their attributes: a quarantine stays with the app (Д-583)", { skip: process.platform === "win32" && "file modes" }, async (t) => {
+  const root = await scratch(t);
+  const runtime = path.join(root, ".ai-dev");
+  const { root: bundleRoot } = await writeBundle(path.join(root, "resources", "runtime"), { extra: { "ai-dev": "#!/bin/sh\n", "node/bin/node": "node mac" } });
+  await fs.chmod(path.join(bundleRoot, "ai-dev"), 0o755);
+  await fs.chmod(path.join(bundleRoot, "node", "bin", "node"), 0o755);
+  const copied = await provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime, now: clock(), platform: "darwin" });
+  assert.equal(copied.status, "installed");
+  assert.equal(copied.command, path.join(runtime, "app", "current", "ai-dev"));
+  for (const [file, mode] of [["ai-dev", 0o755], [path.join("node", "bin", "node"), 0o755], ["package.json", (await fs.stat(path.join(bundleRoot, "package.json"))).mode & 0o777]]) {
+    assert.equal((await fs.stat(path.join(copied.folder, file))).mode & 0o777, mode, `${file} keeps its mode`);
+    assert.deepEqual(await fs.readFile(path.join(copied.folder, file)), await fs.readFile(path.join(bundleRoot, file)));
+  }
+  // A file lost later is put back the same way.
+  await fs.rm(path.join(copied.folder, "ai-dev"));
+  const repaired = await provisionBundle({ ...isolated(root), bundleRoot, runtimeRoot: runtime, now: clock(), platform: "darwin" });
+  assert.deepEqual(repaired.repaired, ["ai-dev"]);
+  assert.equal((await fs.stat(path.join(copied.folder, "ai-dev"))).mode & 0o777, 0o755);
+});

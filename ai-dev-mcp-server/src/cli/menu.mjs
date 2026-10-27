@@ -5,7 +5,10 @@
  * (`ai-dev settings set …`, `ai-dev skills new …`) with the answers given, so
  * the menu does nothing the commands do not, and says the command it ran.
  *
- * Exit codes: 0 left with q (or the input ended), 2 not at a terminal, 130 Ctrl-C.
+ * Exit codes: 0 left with q (or the input ended: Ctrl-D), 2 not at a terminal, 130 Ctrl-C.
+ *
+ * Answers reach the commands as option values (`--pattern=<text>`) or after a
+ * `--`, so a pattern such as `--no-verify` is the pattern, never an option.
  */
 import os from "node:os";
 import path from "node:path";
@@ -58,6 +61,8 @@ export function createPrompter(io) {
     };
   }
 
+  let closedByCtrlD = false;
+
   /** One line typed, or null when the input ended. */
   async function line(prompt) {
     if (piped) {
@@ -66,14 +71,25 @@ export function createPrompter(io) {
       output.write(answer === null ? "\n" : `${answer}\n`);
       return answer;
     }
+    if (closedByCtrlD) return null;
     const reader = readlinePromises.createInterface({ input, output });
+    // Ctrl-C and Ctrl-D both close the question: the key read says which it was.
+    let interrupted = false;
+    const ctrlC = (_, key) => {
+      if (key?.ctrl && key.name === "c") interrupted = true;
+    };
+    input.on("keypress", ctrlC);
     try {
       return await reader.question(prompt);
     } catch (error) {
       if (error?.code !== "ABORT_ERR" && error?.name !== "AbortError") throw error;
       output.write("\n");
-      throw new Interrupted("Stopped with Ctrl-C.");
+      if (interrupted) throw new Interrupted("Stopped with Ctrl-C.");
+      // Ctrl-D: the input ended, here as at a pipe, and every question after it is unanswered.
+      closedByCtrlD = true;
+      return null;
     } finally {
+      input.off("keypress", ctrlC);
       reader.close();
     }
   }
@@ -86,15 +102,17 @@ export function createPrompter(io) {
       if (answer === null) return null;
       return answer.trim() || fallback;
     },
-    /** Yes or no; the fallback for a bare Enter and when the input ended. */
+    /** Yes or no; the fallback for a bare Enter. No when the input ended (Ctrl-D): nobody said yes. */
     async confirm(question, fallback = false) {
       const answer = await line(`${question} ${fallback ? "[Y/n]" : "[y/N]"} `);
-      if (answer === null || !answer.trim()) return fallback;
+      if (answer === null) return false;
+      if (!answer.trim()) return fallback;
       return /^(y|yes|д|да)$/i.test(answer.trim());
     },
     /**
      * A choice from a numbered list: its id, or null for back (b, Enter, or
-     * the end of the input). q leaves the whole menu.
+     * the end of the input). q leaves the whole menu. Without `back` (the
+     * main menu) b and Enter are not choices: only q and the end of the input leave it.
      */
     async choose(title, items, { back = "Back" } = {}) {
       output.write(`\n${title}\n`);
@@ -106,12 +124,13 @@ export function createPrompter(io) {
         if (answer === null) return null;
         const word = answer.trim().toLowerCase();
         if (word === "q") throw new Leave();
-        if (word === "b" || word === "") return null;
+        if (back && (word === "b" || word === "")) return null;
+        if (word === "") continue;
         // A number, or the choice itself typed out: "ru", "on", "block".
         const found = items.find((item, index) => String(item.key ?? index + 1) === word)
           ?? items.find((item) => item.id.toLowerCase() === word || item.label.toLowerCase() === word);
         if (found) return found.id;
-        output.write(`There is no ${JSON.stringify(answer.trim())} here: a number from the list, b or q.\n`);
+        output.write(`There is no ${JSON.stringify(answer.trim())} here: a number from the list${back ? ", b" : ""} or q.\n`);
       }
     },
     close: () => piped?.close()
@@ -244,11 +263,11 @@ export async function runMenu(io, { main }) {
         }
         if (choice === "search") {
           const words = await ask.text("What should the skill do?");
-          if (words) await command("skills", "search", ...words.split(/\s+/));
+          if (words) await command("skills", "search", "--", ...words.split(/\s+/));
         } else if (choice === "new") {
           const name = await ask.text("Its name (lowercase letters, digits, hyphens)");
           const description = name ? await ask.text("What it does and when to use it, in one sentence") : null;
-          if (name && description) await command("skills", "new", name, description);
+          if (name && description) await command("skills", "new", "--", name, description);
         } else if (choice === "add") {
           const folder = await ask.text("The skill's folder");
           if (!folder) continue;
@@ -256,12 +275,12 @@ export async function runMenu(io, { main }) {
           if (await command(...words) && await ask.confirm("Replace a skill of yours of that name, if that is what stopped it?", false)) await command(...words, "--replace");
         } else if (choice === "remove" || choice === "show") {
           const name = await ask.text(choice === "remove" ? "The name of the skill to remove" : "The skill's name");
-          if (name) await command("skills", choice, name);
+          if (name) await command("skills", choice, "--", name);
         } else if (choice === "import") {
           const url = await ask.text("The repository's address (https://github.com/…)");
           if (!url) continue;
           const select = await ask.confirm("Only its skills/<name> folders that pass the import policy (recommended for a large catalog)?", true);
-          await command("skills", "import", url, ...(select ? ["--select"] : []));
+          await command("skills", "import", ...(select ? ["--select"] : []), "--", url);
         }
       }
     },
@@ -292,16 +311,16 @@ export async function runMenu(io, { main }) {
           if (!message) continue;
           const event = await ask.choose("What it watches", [{ id: "bash", label: "Shell commands" }, { id: "file", label: "File writes" }, { id: "all", label: "Both" }]);
           const action = event && await ask.choose("What a match does", [{ id: "block", label: "Refuse the call" }, { id: "warn", label: "Let it through, with the message" }]);
-          if (action) await command("rules", "add", id, "--pattern", pattern, "--example", example, "--message", message, "--event", event, "--action", action, ...where);
+          if (action) await command("rules", "add", `--pattern=${pattern}`, `--example=${example}`, `--message=${message}`, "--event", event, "--action", action, ...where, "--", id);
         }
         if (choice === "switch") {
           const id = await ask.text("The rule's id");
           const state = id && await ask.choose(`${id}:`, [{ id: "on", label: "On" }, { id: "off", label: "Off" }]);
-          if (state) await command("rules", state, id, ...where);
+          if (state) await command("rules", state, ...where, "--", id);
         }
         if (choice === "remove") {
           const id = await ask.text("The rule's id");
-          if (id) await command("rules", "remove", id, ...where);
+          if (id) await command("rules", "remove", ...where, "--", id);
         }
         if (choice === "install-hooks") {
           const profile = await ask.choose("How much the hooks do", [
@@ -379,7 +398,7 @@ export async function runMenu(io, { main }) {
     }
     if (!value) return;
     if (value === "-") await command("settings", "reset", name);
-    else await command("settings", "set", name, value);
+    else await command("settings", "set", "--", name, value);
   }
 
   const items = [

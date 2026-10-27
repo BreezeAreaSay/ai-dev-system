@@ -413,6 +413,9 @@ function azureSigning(env) {
 /** The production repository: where updates come from (owner decision D7). */
 export const RELEASES = Object.freeze({ provider: "github", owner: "stonebridgeway", repo: "ai-dev-system", releaseType: "release" });
 
+/** What electron-builder leaves unsigned in the Mac app: the runtime, whose files bundle.json lists by sha256. */
+export const MAC_RUNTIME_UNSIGNED = "/Contents/Resources/runtime/";
+
 /** A Mac build is signed when a certificate is named (CSC_LINK or CSC_NAME, which electron-builder reads itself). */
 const macCertificate = (env) => Boolean(String(env.CSC_LINK ?? "").trim() || String(env.CSC_NAME ?? "").trim());
 
@@ -469,7 +472,11 @@ export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = pro
         category: "public.app-category.developer-tools",
         artifactName: "AI-Dev-${version}-mac-${arch}.${ext}",
         // "-" is an ad-hoc signature: no certificate, but a binary Apple silicon runs.
-        ...(signed ? { hardenedRuntime: true } : { identity: "-", hardenedRuntime: false })
+        ...(signed ? { hardenedRuntime: true } : { identity: "-", hardenedRuntime: false }),
+        // The runtime keeps the bytes bundle.json lists: signing a Mach-O rewrites it, and the
+        // app would refuse its own runtime. Its Node is signed by Node.js, its native modules by
+        // their linker; the app's own signature seals them as resources (docs/DEFECTS.md, Д-583).
+        signIgnore: [MAC_RUNTIME_UNSIGNED]
       },
       // Only a Developer ID build updates itself on macOS (`updates.mjs`).
       ...(signed ? { extraMetadata: { aiDevSigned: true } } : {}),
@@ -491,6 +498,9 @@ export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = pro
         artifactName: "AI-Dev-${version}-linux-${arch}.${ext}",
         syncDesktopName: true
       },
+      // The AppImage's AppRun turns Chromium's sandbox off only where it cannot start (no user
+      // namespaces, as on Ubuntu 24.04); its menu entry would otherwise turn it off everywhere (Д-587).
+      appImage: { executableArgs: [] },
       deb: { packageName: "ai-dev-desktop" }
     };
   }

@@ -162,7 +162,8 @@ async function placeFolder(staged, target, replace) {
     await fs.rename(staged, target);
     return;
   }
-  const aside = `${target}.${randomUUID()}.old`;
+  // Hidden, as a removal's is: a folder left by a crash is never read as a second skill.
+  const aside = path.join(path.dirname(target), `.${path.basename(target)}.${randomUUID()}.old`);
   await fs.rename(target, aside);
   try {
     await fs.rename(staged, target);
@@ -170,7 +171,18 @@ async function placeFolder(staged, target, replace) {
     await fs.rename(aside, target).catch(() => {});
     throw error;
   }
-  await fs.rm(aside, { recursive: true, force: true });
+  // The skill is replaced by now: an old copy that will not go (EBUSY on Windows) is no failure of it.
+  await fs.rm(aside, { recursive: true, force: true }).catch(() => {});
+}
+
+/**
+ * The SKILL.md text with its frontmatter's `name:` set to `name`, added when
+ * it has none: the registry knows a skill by that line, not by its folder.
+ */
+function withName(text, name) {
+  return text.replace(/^(---[ \t]*\r?\n)([\s\S]*?)(\r?\n---)/, (whole, open, inside, close) => /^name:/m.test(inside)
+    ? `${open}${inside.replace(/^name:.*$/m, `name: ${name}`)}${close}`
+    : `${open}name: ${name}\n${inside}${close}`);
 }
 
 /**
@@ -194,20 +206,30 @@ export async function addCustomSkill({ root, source, name, replace = false, seed
   } catch {
     throw new Error(`${folder} holds no SKILL.md: a skill is a folder with a SKILL.md that starts with its name and description.`);
   }
-  const meta = parseSkillFrontmatter(text.replace(/^﻿/, ""), path.basename(folder));
+  text = text.replace(/^﻿/, "");
+  const meta = parseSkillFrontmatter(text, path.basename(folder));
   const skillName = checkedName(name || meta.name, name ? "The name given" : "The skill's name (its SKILL.md's, or its folder's)");
   checkedDescription(meta.description);
+  // A name given is the one the registry must know it by: its SKILL.md says so too.
+  if (skillName !== meta.name) text = withName(text, skillName);
+  if (parseSkillFrontmatter(text, skillName).name !== skillName) throw new Error(`${folder}/SKILL.md has a frontmatter the name ${skillName} cannot be written into: give it a \`name:\` line.`);
   const resolvedRoot = path.resolve(root);
   if (folder === path.join(resolvedRoot, skillName)) throw new Error(`${folder} is already the skill ${skillName}.`);
   const target = path.join(resolvedRoot, skillName);
   const existing = await lstatOrNull(target);
-  if (existing && seedNames.has(skillName)) throw new Error(`${skillName} comes with AI Dev, and the next update would put it back. Give yours another name.`);
+  if (seedNames.has(skillName)) throw new Error(`${skillName} comes with AI Dev, and the next update would put it back. Give yours another name.`);
   if (existing && !replace) throw new Error(`There is a skill ${skillName} already. Replace it, or give yours another name.`);
   if (existing && (existing.isSymbolicLink() || !existing.isDirectory())) throw new Error(`${target} is not a skill's folder: move it away first.`);
-  const { files, skipped, bytes } = await collectFiles(folder, limits);
+  const collected = await collectFiles(folder, limits);
+  // The SKILL.md is written from the text read above, a link's (as dotfile managers keep it) too.
+  const files = collected.files.filter((file) => file.relative !== "SKILL.md");
+  const skipped = collected.skipped.filter((relative) => relative !== "SKILL.md");
+  const bytes = files.reduce((sum, file) => sum + file.bytes, Buffer.byteLength(text));
   await fs.mkdir(resolvedRoot, { recursive: true });
   const staged = path.join(resolvedRoot, `.${skillName}.${randomUUID()}.adding`);
   try {
+    await fs.mkdir(staged);
+    await fs.writeFile(path.join(staged, "SKILL.md"), text, { encoding: "utf8", flag: "wx" });
     for (const file of files) {
       const destination = path.join(staged, ...file.relative.split("/"));
       await fs.mkdir(path.dirname(destination), { recursive: true });
@@ -218,7 +240,7 @@ export async function addCustomSkill({ root, source, name, replace = false, seed
     await fs.rm(staged, { recursive: true, force: true });
     throw error;
   }
-  return { name: skillName, description: checkedDescription(meta.description), folder: target, files: files.length, bytes, skipped, replaced: Boolean(existing) };
+  return { name: skillName, description: checkedDescription(meta.description), folder: target, files: files.length + 1, bytes, skipped, replaced: Boolean(existing) };
 }
 
 /** A new skill's SKILL.md: the frontmatter the registry reads and the sections a good skill has. */

@@ -55,10 +55,14 @@ For a person who wants no terminal. Download the package for your system from th
   administrator. An installer that is not signed makes Windows SmartScreen warn on its first run;
   **More info → Run anyway** goes on.
 - **macOS** (Apple silicon) — `AI-Dev-<version>-mac-arm64.dmg`; open it and drag **AI Dev** to
-  Applications. Unless the release is signed with a Developer ID, open it the first time with a
-  right click → **Open**; macOS remembers the answer.
-- **Linux** (x64) — `AI-Dev-<version>-linux-x86_64.AppImage`: `chmod +x` it and run it; or
-  `sudo apt install ./AI-Dev-<version>-linux-amd64.deb` for a menu entry.
+  Applications. Unless the release is signed with a Developer ID and notarized, macOS refuses it the
+  first time: on macOS 15 and later open it once, then **System Settings → Privacy & Security →
+  Open Anyway**; on macOS 14 and earlier, right click → **Open**. macOS remembers the answer.
+- **Linux** (x64) — `sudo apt install ./AI-Dev-<version>-linux-amd64.deb` for a menu entry; or
+  `AI-Dev-<version>-linux-x86_64.AppImage`: `chmod +x` it and run it. An AppImage needs FUSE 2,
+  which Ubuntu 22.04 and later leave out (`sudo apt install libfuse2t64` on 24.04, `libfuse2` on
+  22.04), and where unprivileged user namespaces are refused — Ubuntu 24.04's default — it starts
+  without Chromium's sandbox; the `.deb` brings the AppArmor profile that keeps it.
 
 None needs Node, Python or Docker: the app brings a Node of its own and the server it runs. The
 first start copies the runtime into `~/.ai-dev/app`, fills your vault, `~/.ai-dev/vault`, from the

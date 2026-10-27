@@ -20,6 +20,8 @@ test("the installed app copies its runtime, links it, and runs on it", { skip: !
   const s = await stage(t);
   const env = { ...s.env };
   for (const name of ["AI_DEV_NODE", "AI_DEV_SERVER_ROOT", "AI_DEV_VAULT_ROOT"]) delete env[name];
+  // An AppImage where FUSE 2 is missing runs unpacked (desktop-macos-linux.yml).
+  if (process.env.APPIMAGE_EXTRACT_AND_RUN) env.APPIMAGE_EXTRACT_AND_RUN = process.env.APPIMAGE_EXTRACT_AND_RUN;
   const app = await electron.launch({ executablePath: path.resolve(packaged), args: NO_SANDBOX ? ["--no-sandbox"] : [], env, timeout: 120_000 });
   t.after(() => quitApp(app));
   const page = await app.firstWindow();
@@ -32,6 +34,12 @@ test("the installed app copies its runtime, links it, and runs on it", { skip: !
   assert.match(path.basename(copy), /^\d+\.\d+\.\d+-[0-9a-f]{8,}$/, copy);
   const bundle = JSON.parse(await fs.readFile(path.join(copy, "bundle.json"), "utf8"));
   assert.equal(bundle.platform, process.platform);
+  if (process.platform === "darwin") {
+    // The workflow puts a download's quarantine on the shipped runtime: the copy does not carry it (Д-583).
+    const attributes = spawnSync("/usr/bin/xattr", ["-r", "-l", copy], { encoding: "utf8", shell: false });
+    assert.equal(attributes.status, 0, attributes.stderr);
+    assert.doesNotMatch(attributes.stdout, /com\.apple\.quarantine/);
+  }
   // The command beside the link — on Windows its Node and CLI, which ai-dev.cmd runs: no shell reads anything here.
   const [command, ...words] = process.platform === "win32"
     ? [path.join(current, ...bundle.node.file.split("/")), path.join(current, "ai-dev-mcp-server", "bin", "ai-dev.mjs")]

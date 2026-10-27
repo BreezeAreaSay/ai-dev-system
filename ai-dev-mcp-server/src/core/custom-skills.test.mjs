@@ -129,3 +129,42 @@ test("the list leaves out folders being added or removed, and says which skills 
   assert.deepEqual([...await seedSkillNames({ manifestFile: path.join(root, "absent.json") })], [], "no manifest: nothing came with AI Dev");
   assert.deepEqual(await listCustomSkills({ root: path.join(root, "absent") }), []);
 });
+
+test("a SKILL.md that is a link is copied as its text, and a name given is the one the SKILL.md says (Д-584, Д-585)", async (t) => {
+  const { root, custom } = await stage(t);
+  // Dotfile managers keep the SKILL.md as a link: the copy is the file it leads to.
+  const kept = await skillFolder(path.join(root, "dotfiles"), "linked-skill");
+  const alone = path.join(root, "alone");
+  const beside = path.join(root, "beside");
+  await fs.mkdir(path.join(beside, "refs"), { recursive: true });
+  await fs.mkdir(alone);
+  await fs.writeFile(path.join(beside, "refs", "a.md"), "a");
+  try {
+    await fs.symlink(path.join(kept, "SKILL.md"), path.join(alone, "SKILL.md"));
+    await fs.symlink(path.join(kept, "SKILL.md"), path.join(beside, "SKILL.md"));
+  } catch (error) {
+    if (error?.code !== "EPERM") throw error;
+    t.skip("no right to make links here");
+    return;
+  }
+  const text = await fs.readFile(path.join(kept, "SKILL.md"), "utf8");
+  const first = await addCustomSkill({ root: custom, source: alone });
+  assert.deepEqual([first.name, first.files, first.skipped], ["linked-skill", 1, []]);
+  const second = await addCustomSkill({ root: custom, source: beside, name: "linked-beside" });
+  assert.deepEqual([second.files, second.skipped], [2, []]);
+  for (const name of ["linked-skill", "linked-beside"]) {
+    assert.ok((await fs.lstat(path.join(custom, name, "SKILL.md"))).isFile(), `${name}: a file, not a link`);
+  }
+  assert.equal(await fs.readFile(path.join(custom, "linked-skill", "SKILL.md"), "utf8"), text);
+  // The name given is written into the frontmatter, where the registry reads it, and nowhere else.
+  assert.equal(await fs.readFile(path.join(custom, "linked-beside", "SKILL.md"), "utf8"), text.replace("name: linked-skill", "name: linked-beside"));
+  const nameless = await skillFolder(path.join(root, "nameless"), "nameless", { frontmatterName: "" });
+  await addCustomSkill({ root: custom, source: nameless, name: "named-now" });
+  assert.match(await fs.readFile(path.join(custom, "named-now", "SKILL.md"), "utf8"), /^---\nname: named-now\ndescription: Do nameless when asked\.\n---\n/);
+  // A copy of a seed skill under another name is that other skill, not a second `seeded`.
+  const copy = await skillFolder(path.join(root, "copy"), "copy", { frontmatterName: "seeded" });
+  await assert.rejects(addCustomSkill({ root: custom, source: copy, seedNames: new Set(["seeded"]) }), /seeded comes with AI Dev/);
+  await addCustomSkill({ root: custom, source: copy, name: "my-seeded", seedNames: new Set(["seeded"]) });
+  assert.match(await fs.readFile(path.join(custom, "my-seeded", "SKILL.md"), "utf8"), /^---\nname: my-seeded\n/);
+  assert.deepEqual((await fs.readdir(custom)).sort(), ["linked-beside", "linked-skill", "my-seeded", "named-now"], "nothing staged or set aside is left");
+});

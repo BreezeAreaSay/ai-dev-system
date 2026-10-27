@@ -405,6 +405,10 @@ test("electron-builder: a .dmg and a .zip for Apple silicon, signed ad hoc witho
   const mac = builderConfig({ desktopRoot, runtimeDir: "/x/runtime", icon: "/x/icon.png", output: "/x/out", env: {}, target: targetOf("darwin-arm64") });
   assert.deepEqual(mac.mac.target, [{ target: "dmg", arch: ["arm64"] }, { target: "zip", arch: ["arm64"] }]);
   assert.deepEqual([mac.mac.identity, mac.mac.hardenedRuntime, mac.extraMetadata], ["-", false, undefined]);
+  // Signing a Mach-O rewrites it: the runtime is left as bundle.json lists it (Д-583).
+  const runtimeFile = "/build/mac-arm64/AI Dev.app/Contents/Resources/runtime/node/bin/node";
+  assert.ok(mac.mac.signIgnore.some((pattern) => new RegExp(pattern).test(runtimeFile)));
+  assert.ok(!mac.mac.signIgnore.some((pattern) => new RegExp(pattern).test("/build/mac-arm64/AI Dev.app/Contents/MacOS/AI Dev")), "the app itself is signed");
   assert.equal(mac.win, undefined);
   assert.deepEqual(mac.extraResources.map((item) => item.to), ["runtime", "runtime/node_modules"]);
   const signed = builderConfig({ desktopRoot, runtimeDir: "/x/runtime", icon: "/x/icon.png", output: "/x/out", env: { CSC_LINK: "/secret/id.p12" }, target: targetOf("darwin-arm64") });
@@ -413,5 +417,6 @@ test("electron-builder: a .dmg and a .zip for Apple silicon, signed ad hoc witho
   assert.deepEqual(linux.linux.target, [{ target: "AppImage", arch: ["x64"] }, { target: "deb", arch: ["x64"] }]);
   assert.equal(linux.executableName, "ai-dev-desktop", "a name a shell and a .desktop file take as it is");
   assert.equal(linux.linux.category, "Development");
+  assert.deepEqual(linux.appImage.executableArgs, [], "the sandbox is AppRun's call, not the menu entry's (Д-587)");
   assert.deepEqual(linux.publish, [RELEASES]);
 });

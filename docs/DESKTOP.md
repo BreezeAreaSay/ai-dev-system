@@ -173,7 +173,8 @@ The window shows only the app's own page and gives it nothing of Node or the fil
 - the page is served under `app://ai-dev` from `desktop/src/renderer` only — nothing outside it, no
   link out of it — with a Content Security Policy that allows the page's own scripts, styles and
   images and nothing else: no inline script, no `eval`, no network;
-- the page runs isolated and sandboxed (`contextIsolation`, `sandbox`, no `nodeIntegration`) in a
+- the page runs isolated and sandboxed (`contextIsolation`, `sandbox`, no `nodeIntegration`; under
+  Chromium's own sandbox too, but for an AppImage where user namespaces are refused, below) in a
   session of its own, kept in memory; its only way out is a frozen `window.aiDev` with twelve
   functions, each one channel of the main process;
 - the main process answers those channels only from the app's page. The screens call only the tools
@@ -222,13 +223,21 @@ and sha256 in `desktop/build/node-<system>.json`).
 | --- | --- | --- |
 | Windows (x64) | `AI-Dev-Setup-<version>.exe` | `%LOCALAPPDATA%\Programs\ai-dev-desktop`, for the person running it — no administrator, with a Start menu and a desktop shortcut |
 | macOS (Apple silicon) | `AI-Dev-<version>-mac-arm64.dmg`, and a `.zip` of the same app | `/Applications/AI Dev.app`, dragged there from the `.dmg` |
-| Linux (x64) | `AI-Dev-<version>-linux-x86_64.AppImage`, or `AI-Dev-<version>-linux-amd64.deb` | an AppImage runs where it is (`chmod +x` it first); the `.deb` installs to `/opt/AI Dev`, with a menu entry, by `sudo apt install ./AI-Dev-….deb` |
+| Linux (x64) | `AI-Dev-<version>-linux-amd64.deb`, or `AI-Dev-<version>-linux-x86_64.AppImage` | the `.deb` installs to `/opt/AI Dev`, with a menu entry and an AppArmor profile, by `sudo apt install ./AI-Dev-….deb`; an AppImage runs where it is (`chmod +x` it first), with FUSE 2 (`libfuse2t64` on Ubuntu 24.04) |
 
 None needs Node, Python or Docker. A Mac with an Intel processor has no package: onnxruntime-node,
 which the local model runs on, ships no build for it — the npm package or Docker serve it, with
-word search. A Mac app that is not signed with a Developer ID (the project's builds are not, unless
-the owner adds a certificate) is opened the first time with **Open** in the Finder's menu (right
-click on the app), and macOS remembers the answer.
+word search. A Mac app that is not signed with a Developer ID and notarized (the project's builds are
+not, unless the owner adds a certificate) is refused the first time: on macOS 15 and later it is
+opened once, then allowed with **System Settings → Privacy & Security → Open Anyway**; on macOS 14
+and earlier with **Open** in the Finder's menu (right click on the app). macOS remembers the answer.
+
+Chromium's sandbox needs unprivileged user namespaces, which Ubuntu 24.04 refuses by default to a
+program without an AppArmor profile. The `.deb` installs one, and the sandbox stays. An AppImage
+cannot: its `AppRun` (electron-builder's) tries `unshare -Ur true` and, where that is refused, starts
+the app with `--no-sandbox`. The page it shows is the app's own, with no network, isolated from Node
+(above), so that costs a second wall, not the first; where it matters, install the `.deb`
+(docs/DEFECTS.md, Д-587).
 
 ### How AI clients reach it
 
@@ -375,7 +384,8 @@ stops: `AI_DEV_SIGN_PUBLISHER` is the signing certificate's name, which electron
 every update against — a wrong one would refuse every update. Without either the installer is
 unsigned, and Windows SmartScreen warns about it on first run. macOS: a Developer ID Application
 certificate in `CSC_LINK` with `CSC_KEY_PASSWORD` signs the app with the hardened runtime, and
-`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` have it notarized; without one the app
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` send it for notarization, a path not
+finished yet (docs/RELEASE.md, "The desktop app"); without one the app
 is signed ad hoc — Apple silicon runs nothing unsigned — and does not update itself. The Linux
 packages are not signed.
 

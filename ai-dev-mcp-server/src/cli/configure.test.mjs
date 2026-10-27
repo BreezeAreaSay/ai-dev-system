@@ -118,18 +118,29 @@ test("the menu runs the commands with the answers typed, and leaves with q", asy
   const { io, out } = captured({ env: { AI_DEV_HOME: home }, lines: typed, interactive: true });
   assert.equal(await runMenu(io, { main: fakeMain }), 0);
   assert.deepEqual(ran, [
-    ["settings", "set", "daemon_idle_minutes", "45"],
-    ["settings", "set", "daemon_autostart", "off"],
-    ["settings", "set", "profiles", "core,coding"],
-    ["settings", "set", "language", "en"],
-    ["skills", "new", "release-notes", "Write release notes from merged pull requests."],
+    ["settings", "set", "--", "daemon_idle_minutes", "45"],
+    ["settings", "set", "--", "daemon_autostart", "off"],
+    ["settings", "set", "--", "profiles", "core,coding"],
+    ["settings", "set", "--", "language", "en"],
+    ["skills", "new", "--", "release-notes", "Write release notes from merged pull requests."],
     ["skills", "add", path.join(os.homedir(), "skills", "mine")],
     ["skills", "add", path.join(os.homedir(), "skills", "mine"), "--replace"],
-    ["rules", "add", "no-force", "--pattern", "git push .*--force", "--example", "git push --force", "--message", "Never force-push.", "--event", "bash", "--action", "block", "--project", project]
+    // Answers as option values or after `--`: a pattern such as --no-verify stays the pattern (Д-588).
+    ["rules", "add", "--pattern=git push .*--force", "--example=git push --force", "--message=Never force-push.", "--event", "bash", "--action", "block", "--project", project, "--", "no-force"]
   ]);
-  assert.match(out(), /\$ ai-dev settings set daemon_idle_minutes 45/, "the command it ran is shown");
-  assert.match(out(), /\$ ai-dev skills new release-notes 'Write release notes from merged pull requests\.'/);
-  assert.match(out(), /There is no "zz" here: a number from the list, b or q\./);
+  assert.match(out(), /\$ ai-dev settings set -- daemon_idle_minutes 45/, "the command it ran is shown");
+  assert.match(out(), /\$ ai-dev skills new -- release-notes 'Write release notes from merged pull requests\.'/);
+  assert.match(out(), /There is no "zz" here: a number from the list or q\./);
+});
+
+test("the main menu is left with q or the end of the input only: Enter and b ask again (Д-588)", async (t) => {
+  const home = await tempDir(t);
+  const ran = [];
+  const { io, out } = captured({ env: { AI_DEV_HOME: home }, lines: ["", "b", "h", "q"], interactive: true });
+  assert.equal(await runMenu(io, { main: async (argv) => { ran.push(argv); return 0; } }), 0);
+  assert.deepEqual(ran, [["help"]], "Enter and b chose nothing and did not leave");
+  assert.match(out(), /There is no "b" here: a number from the list or q\./);
+  assert.doesNotMatch(out(), /^ {3}b {2}/m, "no b line in the main menu");
 });
 
 test("the menu ends when the input does, and refuses to start where nobody can answer", async (t) => {
@@ -138,6 +149,11 @@ test("the menu ends when the input does, and refuses to start where nobody can a
   const ended = captured({ env: { AI_DEV_HOME: home }, lines: ["2"], interactive: true });
   assert.equal(await runMenu(ended.io, { main: async (argv) => ran.push(argv) }), 0);
   assert.deepEqual(ran, []);
+  // Ended at a question whose Enter means yes: nobody said yes, and nothing is written.
+  const atQuestion = captured({ env: { AI_DEV_HOME: home }, lines: ["5", "8"], interactive: true });
+  assert.equal(await runMenu(atQuestion.io, { main: async (argv) => { ran.push(argv); return 0; } }), 0);
+  assert.deepEqual(ran, [["rules", "install", "--dry-run", "--project", process.cwd()]]);
+  assert.match(atQuestion.out(), /Write them\? \[Y\/n\]/);
   const piped = captured({ env: { AI_DEV_HOME: home } });
   assert.equal(await main(["menu"], piped.io), 2);
   assert.match(piped.err(), /nobody can answer here: run it at a terminal/);
@@ -184,6 +200,12 @@ test("skills, rules, servers and status run the server's tools from a terminal",
   const added = await runCli(["skills", "add", folder, "--json"], { env });
   assert.equal(added.code, 0, added.stderr);
   assert.equal(JSON.parse(added.stdout).name, "probe");
+  // A name given is the one the registry knows it by (Д-585).
+  const renamed = await runCli(["skills", "add", folder, "--name", "renamed-one"], { env });
+  assert.equal(renamed.code, 0, renamed.stderr);
+  const shownRenamed = await runCli(["skills", "show", "renamed-one"], { env });
+  assert.equal(shownRenamed.code, 0, shownRenamed.stderr);
+  assert.match(shownRenamed.stdout, /name: renamed-one/);
   const mine = await runCli(["skills", "mine"], { env });
   assert.match(mine.stdout, /deploy-check\s+Check a deploy/);
   assert.match(mine.stdout, /probe\s+Probe a thing/);
@@ -214,6 +236,10 @@ test("skills, rules, servers and status run the server's tools from a terminal",
   const listed = await runCli(["rules", "list", "--project", project, "--json"], { env });
   assert.equal(JSON.parse(listed.stdout).rules.find((item) => item.id === "no-force-push").enabled, false);
   assert.equal((await runCli(["rules", "add", "x", "--event", "disk"], { env, cwd: project })).code, 2);
+  // The menu's form: a pattern that starts with "-" is the pattern (Д-588).
+  const dashed = await runCli(["rules", "add", "--pattern=--no-verify", "--example=git commit --no-verify", "--message=Let the hooks run.", "--project", project, "--", "no-skip-hooks"], { env });
+  assert.equal(dashed.code, 0, dashed.stderr);
+  assert.match(dashed.stdout, /Added: block bash no-skip-hooks/);
 
   // The MCP servers its configs start, with what to check.
   const servers = await runCli(["servers", "--project", project], { env });

@@ -7,8 +7,9 @@ shares. The app is in `desktop/`, built on Electron (owner decision D5; the vers
 `ai-dev mcp` reaches, through the control API
 ([CONTROL-API.md](../ai-dev-mcp-server/docs/CONTROL-API.md)).
 
-On Windows the app comes as an installer — see [The Windows install](#the-windows-install). Elsewhere, and
-to work on the app, it runs from a checkout:
+On Windows, macOS (Apple silicon) and Linux the app comes as a package that brings everything it
+needs — see [The desktop install](#the-desktop-install). To work on the app, it runs from a
+checkout:
 
 ```bash
 cd ai-dev-mcp-server && npm ci && cd ../desktop
@@ -24,13 +25,13 @@ ahead of time).
 - **Node.js 22.16 or newer (not 23).** The daemon runs on Node, and the daemon's build includes the
   Node it runs on: the app starts and reaches the daemon with the Node your AI clients use, or the
   clients and the app would each get a daemon of their own. It looks for Node in this order:
-  `AI_DEV_NODE`; the Node the Windows install ships, which the clients it connects run too; the
+  `AI_DEV_NODE`; the Node the installed app ships, which the clients it connects run too; the
   Node an AI client's ai-dev entry runs (what `ai-dev clients install` wrote);
   `PATH`; where installers put it (`/opt/homebrew/bin`, `/usr/local/bin`, nvm, Volta,
   `Program Files\nodejs`). None found: the window says so, and **Try again** looks again — a Node
   installed since is found; one named in `AI_DEV_NODE` needs the app started again.
 - **The server beside it**: `ai-dev-mcp-server/` next to `desktop/` in a checkout, or the folder
-  `AI_DEV_SERVER_ROOT` names, with its packages installed (`npm ci` there); the Windows install
+  `AI_DEV_SERVER_ROOT` names, with its packages installed (`npm ci` there); the installed app
   runs the server of the runtime it ships. The app's own variables
   (`AI_DEV_SERVER_ROOT`, `AI_DEV_DESKTOP_*`) do not split it from the clients: it reaches their daemon.
 
@@ -82,8 +83,22 @@ read — unless the fixed file names a language of its own, which then holds.
 - **Costs** — what the work has cost today, yesterday, in the last seven days and in all, by model,
   by tool and by task, for all projects or one (`usage_report`). A cost the client did not report
   is an estimate from the published prices; a retired model's price is not checked again.
-- **Skills** — the catalog by group, a search — its first 20 matches, saying when there are more —
-  and a skill to read.
+- **Skills** — your own skills first: **Add a folder…** (one that holds a SKILL.md, chosen in the
+  system's dialog), **New skill…** (a name and one sentence of what it does; the app writes the
+  SKILL.md from a template, and you write its steps), **Import from GitHub…** (a repository of
+  skills; by default only its `skills/<name>` folders that pass the import policy, read as reference
+  data until reviewed), **Rebuild the registry**, and **Remove** beside each skill you added. A
+  skill that came with AI Dev is never removed: the next update would put it back. Search and
+  routing see a change at once. Below, the catalog by group, a search — its first 20 matches, saying
+  when there are more — and a skill to read.
+- **Rules** — one repository at a time, a project AI Dev knows or a folder you choose: its guard
+  rules (`.ai-dev/policy.json`, what the agent hooks block or warn about) — added from a form and
+  checked against a sample before they are saved, switched on and off, removed —; whether the agent
+  hooks that enforce them are installed, and installing them (minimal, standard or strict); the
+  engineering rules each assistant reads (`.ai-dev/rules`, `.claude/rules`, `.cursor/rules`,
+  `AGENTS.md`), what would be written and writing them — a file you edited is kept; and the MCP
+  servers its configs start, with what to check before trusting them (an unpinned package, a
+  credential in cleartext), your own configs too when you tick the box.
 - **Settings** — the projects folder, the tool profiles AI clients get, the model's download mirror,
   the model folder, the daemon's idle time and whether the app starts it: each with what it does,
   the value in force and where it comes from, and when a change applies — at once, to AI client
@@ -101,6 +116,12 @@ read — unless the fixed file names a language of its own, which then holds.
   readable — names and values, lists, Markdown — and as JSON, in the view you last chose while the
   app is open. Only the arguments the tool's schema names are sent. A tool that changes something
   runs only after you confirm it (see Security).
+
+Every change the Skills and Rules screens make to your files — a skill added, a repository of
+skills imported, a rule saved, the hooks or the engineering rules written — runs only after you
+confirm it in the system's message box, which names the tool and what it is given; Cancel changes
+nothing. Removing a skill or a rule goes through the tool console's confirmation, as every call
+that takes back what it cannot undo does.
 
 Every screen shows that it is loading, says why it is empty when it is, and shows an error with
 **Try again**. Everything works from the keyboard — a skip link before the header, a visible focus
@@ -190,20 +211,34 @@ The window shows only the app's own page and gives it nothing of Node or the fil
 The daemon's own protection — its socket, the secret in its descriptor, one user — is in
 [SECURITY.md](../ai-dev-mcp-server/docs/SECURITY.md).
 
-## The Windows install
+## The desktop install
 
-`AI-Dev-Setup-<version>.exe` installs the app for the person running it — no administrator, no
-Node, no Python, no Docker — into `%LOCALAPPDATA%\Programs\ai-dev-desktop`, with a Start menu and
-a desktop shortcut, and starts it. It ships the app, Electron, and in `resources\runtime` the
-runtime AI clients run: the server with its dependencies for 64-bit Windows and a Node of its own
-(Node 24 LTS, pinned by version and sha256 in `desktop/build/node-win-x64.json`).
+The app is built for three systems, each as the packages people install there; each ships the app,
+Electron, and in its `resources/runtime` the runtime AI clients run: the server with its
+dependencies for that system and processor, and a Node of its own (Node 24 LTS, pinned by version
+and sha256 in `desktop/build/node-<system>.json`).
+
+| System | Package | Installs to |
+| --- | --- | --- |
+| Windows (x64) | `AI-Dev-Setup-<version>.exe` | `%LOCALAPPDATA%\Programs\ai-dev-desktop`, for the person running it — no administrator, with a Start menu and a desktop shortcut |
+| macOS (Apple silicon) | `AI-Dev-<version>-mac-arm64.dmg`, and a `.zip` of the same app | `/Applications/AI Dev.app`, dragged there from the `.dmg` |
+| Linux (x64) | `AI-Dev-<version>-linux-x86_64.AppImage`, or `AI-Dev-<version>-linux-amd64.deb` | an AppImage runs where it is (`chmod +x` it first); the `.deb` installs to `/opt/AI Dev`, with a menu entry, by `sudo apt install ./AI-Dev-….deb` |
+
+None needs Node, Python or Docker. A Mac with an Intel processor has no package: onnxruntime-node,
+which the local model runs on, ships no build for it — the npm package or Docker serve it, with
+word search. A Mac app that is not signed with a Developer ID (the project's builds are not, unless
+the owner adds a certificate) is opened the first time with **Open** in the Finder's menu (right
+click on the app), and macOS remembers the answer.
 
 ### How AI clients reach it
 
-Windows does not replace a file a running process holds: the Node of every client's bridge, the
-daemon, the local model's DLLs. And the installer's update moves the whole program folder aside
-before it writes the new one, so a single held file would stop it ("File is busy, aborting").
-So no client runs anything in the program folder:
+No client runs anything in the app's own folder. Windows does not replace a file a running process
+holds — the Node of every client's bridge, the daemon, the local model's DLLs — and its installer's
+update moves the whole program folder aside before it writes the new one, so a single held file
+would stop it ("File is busy, aborting"); an AppImage's files exist only while it runs, at a mount
+point that changes each time; an update of the Mac app or the `.deb` replaces the folder. So the
+runtime is copied into the AI Dev home, and the clients run the copy (Windows paths shown; on
+macOS and Linux the same under `~/.ai-dev`, with `node/bin/node` and a symbolic link):
 
 ```text
 %LOCALAPPDATA%\Programs\ai-dev-desktop\resources\runtime    what the installer ships (bundle.json lists every file)
@@ -227,7 +262,11 @@ name the copy itself, and **Status** says so, with the reason the drive gave: af
 running setup again and connecting the clients (**Setup** → AI clients) points them at the new
 copy; until then they keep the one they name.
 
-`%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd` is the CLI for a terminal. Nothing is put on
+On macOS and Linux the CLI for a terminal is `~/.ai-dev/app/current/ai-dev`, a shell script that
+runs the runtime's own Node: `~/.ai-dev/app/current/ai-dev status`, or put
+`~/.ai-dev/app/current` on your `PATH`. The daemon's hints name it in full, in single quotes when
+the path holds a space. On Windows it is
+`%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd`. Nothing is put on
 `PATH`, so it is run by its full path — in cmd `"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd"
 doctor`, in PowerShell `& "$env:USERPROFILE\.ai-dev\app\current\ai-dev.cmd" doctor`. The
 daemon's hints name it in full: as it is when the path holds only letters, digits and `_-.:\/`,
@@ -237,8 +276,8 @@ double quotes instead.
 ### The first start
 
 The window says it is preparing AI Dev while the runtime is copied (the progress is shown; under
-Wine it took 35 seconds, on Windows it has not been measured yet), then starts the daemon on the
-runtime's Node. The daemon fills your vault, `%USERPROFILE%\.ai-dev\vault`, from the skill seed,
+Wine it took 35 seconds; the Linux app, from its unpacked folder, a few seconds), then starts the
+daemon on the runtime's Node. The daemon fills your vault, `~/.ai-dev/vault`, from the skill seed,
 and the first-run wizard opens. A runtime that is not what the installer shipped — a file changed
 or missing — is not run: the window says so, with **Try again**, and running the installer again is
 the way back.
@@ -257,9 +296,14 @@ it in the background, and offers **Restart to update to …** in the tray; one n
 at **Quit**. A signed build checks the download against the signature of the app that runs; an
 unsigned one against the sha512 the release lists. `AI_DEV_DESKTOP_UPDATES=0` turns the checks off.
 
+That is the Windows app and the AppImage, which replaces its own file. The `.deb` is updated by
+installing the new one (`sudo apt install ./AI-Dev-….deb`). A Mac app updates itself only when it
+is signed with a Developer ID; otherwise the new `.dmg` replaces it — drag the new app over the old
+one. Either way the next start copies the new runtime and moves the link.
+
 ### Uninstalling
 
-**Settings → Apps → Installed apps → AI Dev → Uninstall** asks, after its "Are you sure?", two
+On Windows, **Settings → Apps → Installed apps → AI Dev → Uninstall** asks, after its "Are you sure?", two
 questions before it removes the program:
 
 1. whether to take AI Dev out of the AI clients' settings — **Yes** by default: their entries run the
@@ -282,37 +326,58 @@ silent uninstall (`/S`) asks nothing and takes the default answers; an update ru
 `ai-dev uninstall` itself tells its caller by the exit status: 0 done, 1 something failed, 3
 something is in use (close the AI clients and run it again), 4 the data was kept.
 
+On macOS and Linux nothing runs when the app is removed, so run it yourself first — it says what it
+would do, and does it with `--yes`:
+
+```bash
+~/.ai-dev/app/current/ai-dev uninstall --clients --yes          # the runtime copies, the link, the clients' entries
+~/.ai-dev/app/current/ai-dev uninstall --clients --data --yes   # and AI Dev's own data in ~/.ai-dev
+```
+
+Then move the app to the Trash, delete the AppImage, or `sudo apt remove ai-dev-desktop`.
+
 ### Building it
 
 ```bash
 cd ai-dev-mcp-server && npm ci && cd ../desktop
 npm ci
-npm run dist:win
+npm run dist:win      # or dist:mac on a Mac, dist:linux on Linux
 ```
 
-On Windows this is the whole of it; on Linux and macOS electron-builder also needs Wine — 32-bit
-too — to make the uninstaller. `dist/windows/installer/` gets `AI-Dev-Setup-<version>.exe`, its
-`.blockmap` and `latest.yml` (what the updater reads from a release), and
-`dist/windows/build-report.json` the runtime's composition. `--dir` builds only the unpacked app;
-`--check` stops before electron-builder, at the runtime checked for what it must and must not
-hold, at its `bundle.json` read back by the app's own parser, and at the app's version, which must
-be the runtime's — the updater compares the app's version with a release's. The CI job `desktop`
-runs it, and `.github/workflows/desktop-windows.yml` builds the installer on `windows-latest`.
+Each builds `dist/<target>/installer/` (`dist/windows/` for Windows): `AI-Dev-Setup-<version>.exe`;
+the `.dmg` and the `.zip`; the AppImage and the `.deb` — with their `.blockmap` and the
+`latest*.yml` the updater reads from a release — and `build-report.json` beside it, the runtime's
+composition. The target is the machine's own unless `--target win32-x64|darwin-arm64|linux-x64`
+names another (`node scripts/build-desktop.mjs --target …`): the runtime's dependencies are fetched
+for the target (`npm ci --os --cpu`), but a `.dmg` is made on macOS only, and on Linux and macOS
+the Windows installer needs Wine — 32-bit too — to make its uninstaller. `--dir` builds only the
+unpacked app; `--check` stops before electron-builder, at the runtime checked for what it must and
+must not hold, at its `bundle.json` read back by the app's own parser, and at the app's version,
+which must be the runtime's — the updater compares the app's version with a release's. The CI job
+`desktop` runs the check for Windows and Linux; `.github/workflows/desktop-windows.yml` builds the
+installer on `windows-latest`, and `.github/workflows/desktop-macos-linux.yml` the Mac and Linux
+packages on `macos-latest` and `ubuntu-latest`, then runs each shipped runtime as an AI client
+does and starts the built app (`test/e2e/packaged.test.mjs`).
 
 The runtime is the npm package's distribution (`npm run dist`, phase 7) with its dependencies for
-win32-x64, less what never loads there: onnxruntime-web (transformers carries the web runtime
-inside its own file), the WebAssembly build of sharp and what only it needs, onnxruntime-node's
-builds for other systems and processors, npm's command links. Measured on version 2.0.0: 7,847
-files, 231 MB unpacked — Node 89.7 MB, onnxruntime-node 64 MB, the seed 21 MB, sharp 18.5 MB;
-the installer 183 MB.
+the target, less what never loads there: onnxruntime-web (transformers carries the web runtime
+inside its own file), the WebAssembly build of sharp and what only it needs, sharp's and
+onnxruntime-node's builds for other systems and processors (on Linux the musl ones too), npm's
+command links. Measured on version 2.0.0 for Windows: 7,847 files, 231 MB unpacked — Node 89.7 MB,
+onnxruntime-node 64 MB, the seed 21 MB, sharp 18.5 MB; the installer 183 MB. Version 3.0.0 for
+Linux: the AppImage 218 MB, the `.deb` 167 MB.
 
-Signing comes from the environment: a certificate in `WIN_CSC_LINK` (or `CSC_LINK`) with its
-password in `WIN_CSC_KEY_PASSWORD`, which electron-builder reads itself, or Azure Trusted Signing
+Signing comes from the environment. Windows: a certificate in `WIN_CSC_LINK` (or `CSC_LINK`) with
+its password in `WIN_CSC_KEY_PASSWORD`, which electron-builder reads itself, or Azure Trusted Signing
 named by `AI_DEV_SIGN_AZURE_ENDPOINT`, `AI_DEV_SIGN_AZURE_ACCOUNT`, `AI_DEV_SIGN_AZURE_PROFILE`
 and `AI_DEV_SIGN_PUBLISHER`, with the `AZURE_*` credentials. The four go together, or the build
 stops: `AI_DEV_SIGN_PUBLISHER` is the signing certificate's name, which electron-updater checks
 every update against — a wrong one would refuse every update. Without either the installer is
-unsigned, and Windows SmartScreen warns about it on first run.
+unsigned, and Windows SmartScreen warns about it on first run. macOS: a Developer ID Application
+certificate in `CSC_LINK` with `CSC_KEY_PASSWORD` signs the app with the hardened runtime, and
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` have it notarized; without one the app
+is signed ad hoc — Apple silicon runs nothing unsigned — and does not update itself. The Linux
+packages are not signed.
 
 ## Tests
 
@@ -340,7 +405,13 @@ another page with the app's functions, the developer tools; the data screens wit
 made (a project with an epic, a decision, a handoff, usage), in English and Russian, and empty on a
 fresh install; Settings — a refused value, a change for new sessions and the reconnect; the console
 — a read-only tool at once, one that changes something cancelled and then confirmed, the page
-calling the console directly; the keyboard; a daemon stopped while a screen polls it. On a Linux
+calling the console directly; your own skills — one from the template, one from a folder, one not
+confirmed and so not written, one removed through the console —; the Rules screen — a guard rule
+added, one refused by its own sample, one switched off and removed, the hooks installed, the
+engineering rules previewed, the MCP servers of a repository with their finding —; the keyboard;
+a daemon stopped while a screen polls it. With `AI_DEV_DESKTOP_PACKAGED` naming a built app's
+executable, `test/e2e/packaged.test.mjs` starts it as installed and checks that it copied its
+runtime, linked it, and runs its daemon on the shipped Node. On a Linux
 machine without a display they run under `xvfb-run`; screenshots go to `desktop/test-results/`.
 Where Chromium cannot have its own sandbox (as root, or `AI_DEV_DESKTOP_NO_SANDBOX=1` on a CI
 runner that forbids user namespaces) it runs without it; the page keeps its sandbox flag.

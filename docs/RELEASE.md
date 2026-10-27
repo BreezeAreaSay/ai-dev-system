@@ -23,6 +23,7 @@ refuse (`aidevsystem`, `ai_dev_system`, `ai.dev.system`): publish soon, since th
 | The 2.x line, to go back to | `:2`, a copy of today's `:latest` | the same workflow, job `freeze-2x` | runs it once, after the merge and before the tag |
 | The npm package | `ai-dev-system@3.0.0` | `npm run dist:pack` | `npm publish` of the tarball |
 | The Windows installer | the GitHub release `v3.0.0`, as a draft | `.github/workflows/desktop-windows.yml`, jobs `build` (builds and signs) and `release` | signing (optional); publishing the draft |
+| The macOS and Linux apps | the same draft release: the `.dmg` and `.zip` (Apple silicon), the AppImage and the `.deb` | `.github/workflows/desktop-macos-linux.yml`, jobs `build` (builds, runs the shipped runtime and the app) and `release` | a Developer ID certificate for the Mac app (optional); publishing the draft |
 
 Today (checked 2026-10-20, read only): production `main` is `7bef129`, an ancestor of the fork; its tags
 are `v1.0.0` and `v2.0.0`; the image's tags are `:latest` and `:main` (both `7bef129`'s build,
@@ -67,6 +68,7 @@ On the pull request's last commit, every job of three workflows:
 | Docker | validate, validate-browser | the image and its browser variant build, answer MCP, write a client, upgrade a 2.x volume |
 | Docker | unix-launcher (ubuntu-latest), (macos-latest) | the 2.x launchers still start the server |
 | Windows installer | Build the installer (windows-latest) | the installer builds on Windows, unsigned here |
+| macOS and Linux apps | Build the app (darwin-arm64), (linux-x64) | the packages build, their runtime runs a setup and a skill, the built app copies and runs its runtime |
 
 
 ### Dense search on the real weights
@@ -146,13 +148,13 @@ git tag -a v3.0.0 -m "AI Dev System 3.0.0" && git push "$PROD" v3.0.0
 ```
 
 The tag publishes `:3.0.0`, `:3.0`, `:3`, `:latest` and `:sha-<commit>`, each with `-browser`, and
-builds the Windows installer onto a **draft** release `v3.0.0`. A prerelease tag (`v3.0.0-rc.1`)
+builds the Windows installer, the Mac app and the Linux packages onto a **draft** release `v3.0.0`. A prerelease tag (`v3.0.0-rc.1`)
 publishes only its own name and `:sha-<commit>`, and does not move `:latest`.
 
 ```sh
 docker buildx imagetools inspect ghcr.io/stonebridgeway/ai-dev-system:latest    # now 3.0.0
 docker run --rm --entrypoint ai-dev ghcr.io/stonebridgeway/ai-dev-system:3.0.0 version   # ai-dev 3.0.0 (Node 24…)
-gh release view v3.0.0 --repo stonebridgeway/ai-dev-system                      # draft, with the .exe
+gh release view v3.0.0 --repo stonebridgeway/ai-dev-system                      # draft, with the .exe, .dmg, .zip, .AppImage, .deb
 ```
 
 ## 4. npm
@@ -169,9 +171,16 @@ npx --yes ai-dev-system@3.0.0 version
 
 A package with no scope is public as published. The tarball is about 10 MB, 1,830 files.
 
-## 5. The Windows installer
+## 5. The desktop app
 
-Signing comes from the production repository's secrets and variables (owner decision D7), read by the
+The macOS app is signed ad hoc unless the production repository has a Developer ID Application
+certificate in the secrets `MAC_CSC_LINK` (the `.p12`, base64) and `MAC_CSC_KEY_PASSWORD`; with
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` too, it is notarized. Ad hoc, it runs on
+Apple silicon and is opened the first time with **Open** in the Finder's menu, and it does not update
+itself: a new `.dmg` replaces it. The Linux packages are not signed; the AppImage updates itself from
+the published release, the `.deb` is installed again.
+
+Windows signing comes from the production repository's secrets and variables (owner decision D7), read by the
 job that builds on the tag, `build` ("Build the installer (windows-latest)"):
 
 - a certificate: secrets `WIN_CSC_LINK` (the `.pfx`, base64) and `WIN_CSC_KEY_PASSWORD`;

@@ -97,9 +97,10 @@ served in its own process, as in 2.x.
 
 ## The Control API
 
-The thirteen tools of the `control` profile (`docs/CONTROL-API.md`) are what the desktop app drives:
+The sixteen tools of the `control` profile (`docs/CONTROL-API.md`) are what the desktop app drives:
 they set the install up, download, import and delete the local model, write and take back the AI
-clients' configs, read the logs folder and change `~/.ai-dev/config.json`. They are listed only to a
+clients' configs, read the logs folder, change `~/.ai-dev/config.json`, and add and remove a
+person's own skills in the vault's custom source. They are listed only to a
 session that names the profile, but like every tool they answer a call by name in any session: a
 profile shapes an agent's context, it does not guard anything. What guards them:
 

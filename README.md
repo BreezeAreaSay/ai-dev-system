@@ -64,8 +64,8 @@ Three ways, one system — pick by what you have:
 
 | | |
 | --- | --- |
-| **Windows, no terminal** | Download `AI-Dev-Setup-<version>.exe` from the project's releases and run it. No administrator, no Node, Python or Docker: the desktop app brings its own Node, and its first-run wizard connects your AI clients and sets up the local model ([The Windows install](docs/DESKTOP.md#the-windows-install)). |
-| **One command, with Node** — macOS, Linux, Windows | `npx ai-dev-system setup` — Node.js 22.16+ (or 24+), and nothing else. |
+| **The desktop app** — Windows, macOS, Linux, no terminal | Download the package for your system from the project's releases: `AI-Dev-Setup-<version>.exe`, the `.dmg` (Apple silicon), or the AppImage / `.deb`. No Node, Python or Docker: the app brings its own Node; its wizard connects your AI clients and sets up the local model, and its screens change everything else — settings, your own skills, a repository's rules, the MCP servers it starts ([The desktop install](docs/DESKTOP.md#the-desktop-install)). |
+| **A server for AI agents, from the terminal** — macOS, Linux, Windows | `npx ai-dev-system setup` — Node.js 22.16+ (or 24+), and nothing else. Then `ai-dev` alone opens a menu over every setting, and `ai-dev settings`, `skills`, `rules`, `servers`, `status` do the same from a script, over SSH too ([Configuring a server from the terminal](docs/INSTALL.md#configuring-a-server-from-the-terminal)). |
 | **Docker** — the server in a container | `sh ./bootstrap.sh` on macOS and Linux, `bootstrap.ps1` on Windows, with Docker running; on Windows also Node.js 22.12+ and a clone of the repository, since Node writes the clients' configs. For a machine that should not hold a personal vault, or a team that wants one image everybody runs the same way. |
 
 ```bash
@@ -88,9 +88,10 @@ is one flag, `setup --model`: a pinned, checksum-verified ONNX export of BGE-M3,
 broken download continues where it stopped, and `AI_DEV_MODEL_MIRROR` and `HTTPS_PROXY` are
 honoured. In Docker, one `docker run … ai-dev model install` puts it in the data volume.
 
-Until 3.0 is published, build from a clone what is not out yet: the Windows installer
-(`cd desktop && npm ci && npm run dist:win` leaves `AI-Dev-Setup-<version>.exe` in the clone's
-`dist/windows/installer/`; outside Windows it needs Wine — [Building it](docs/DESKTOP.md#building-it)),
+Until 3.0 is published, build from a clone what is not out yet: the desktop app
+(`cd desktop && npm ci && npm run dist:win` — or `dist:mac` on a Mac, `dist:linux` on Linux — leaves
+the packages in the clone's `dist/`; the Windows installer outside Windows needs Wine —
+[Building it](docs/DESKTOP.md#building-it)),
 the npm package ([npx](docs/INSTALL.md#one-command-with-node-npx)), and the image, whose `:latest`
 tag is still a 2.x image that bootstrap cannot install 3.0 from ([Docker](docs/INSTALL.md#docker)).
 
@@ -180,7 +181,7 @@ container runs with no network, no capabilities, and a read-only root filesystem
 | [**Capabilities**](docs/CAPABILITIES.md) | The eight profiles and how to narrow the tool surface. |
 | [**Knowledge Galaxy**](docs/GALAXY.md) | The vault as a 3D galaxy to fly through, in place of Obsidian's graph view. |
 | [**Guard rails**](docs/GUARDRAILS.md) | Agent hooks, policy rules, MCP inventory, local data and security. |
-| [**Tool reference**](ai-dev-mcp-server/docs/TOOLS.md) | All 148 tools — the 135 an agent sees and the 13 of the control API — generated from the server itself. |
+| [**Tool reference**](ai-dev-mcp-server/docs/TOOLS.md) | All 151 tools — the 135 an agent sees and the 16 of the control API — generated from the server itself. |
 | [**Control API**](ai-dev-mcp-server/docs/CONTROL-API.md) | The tools an app drives the install with, and the answers they promise. |
 | [**Architecture**](ai-dev-mcp-server/docs/ARCHITECTURE.md) | How the server is put together. |
 | [**Changelog**](CHANGELOG.md) | What changed, and what to re-check after upgrading. |

@@ -22,10 +22,11 @@ Capability profiles cut that surface along the lines you already think in.
 | `advanced` | 36 | Archify diagrams, the search and skill indexes, the dashboard, usage ledger, runtime packaging. | Maintaining the system itself rather than using it. |
 
 A ninth profile, `control`, is left out of this table because an agent never
-needs it: its 13 tools — the install's status, setup, the local model, the AI
-clients connected, logs, settings and an overview of the work — are what a
-desktop app drives, and two of them delete things (`model_remove` and
-`clients_remove`, each behind `confirm`). An empty `AI_DEV_PROFILES` and `all`
+needs it: its 16 tools — the install's status, setup, the local model, the AI
+clients connected, logs, settings, the person's own skills and an overview of
+the work — are what a desktop app drives, and three of them delete things
+(`model_remove`, `clients_remove` and `custom_skills_remove`, each behind
+`confirm`). An empty `AI_DEV_PROFILES` and `all`
 leave it out; a session lists it only when it names it — `AI_DEV_PROFILES=control`,
 or `all,control` for everything. Its answers are a versioned contract:
 [CONTROL-API.md](../ai-dev-mcp-server/docs/CONTROL-API.md).

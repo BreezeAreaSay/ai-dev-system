@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 A major version because what changed is how AI Dev is installed and how a client reaches it, not
 what an agent can do with it. The server is the same — 2.0.0's 133 tools and two new ones,
-`plan_security_fixes` and `render_knowledge_galaxy`, 135 in all, plus 13 an app can opt into; the
+`plan_security_fixes` and `render_knowledge_galaxy`, 135 in all, plus 16 an app can opt into; the
 vault and the task state in the same format; and the index 2.x built is read without a rebuild — but
 the clone is no longer the way in, nothing needs Python, and one process serves every AI client. A
 2.x install keeps working after the update, except where **Breaking** below says otherwise:
@@ -18,8 +18,13 @@ it, what moves by itself, what needs one command, and how to go back.
 
 **Highlights**
 
-- **Three ways in, none of them a clone.** The Windows installer — one `.exe` for the current user,
-  no administrator, no Node, Python or Docker; `npx ai-dev-system setup`, one command
+- **Two products from one system.** For a server AI agents run on, everything is configured from
+  the terminal, over SSH too: `ai-dev` alone opens a menu, and `ai-dev settings`, `skills`, `rules`,
+  `servers` and `status` do the same from a script. For a person at their own computer, the desktop
+  app — now for Windows, macOS (Apple silicon) and Linux — has screens for the same: settings, your
+  own skills, a repository's rules and hooks, the MCP servers it starts.
+- **Three ways in, none of them a clone.** The desktop app — a Windows installer for the current
+  user, a `.dmg` for macOS, an AppImage and a `.deb` for Linux; no Node, Python or Docker; `npx ai-dev-system setup`, one command
   on any system, which installs a copy that outlives npx's cache; and Docker, where `bootstrap.sh`
   and `bootstrap.ps1` write `docker run` entries and nothing runs between sessions. A clone with
   `npm run setup` stays the way to work on AI Dev itself.
@@ -111,6 +116,50 @@ has it with what each one says.
 
 ### Added
 
+- **Configuring a server from the terminal.** `ai-dev` alone at a terminal opens a menu — a number
+  and Enter, `b` back, `q` out — over every setting and everything a person adds or changes: the
+  settings, the AI clients, skills, a repository's rules, the MCP servers, the local model, the
+  daemon, a backup; each choice runs one of the commands below with the answers given, and prints
+  it. Piped or in a script, `ai-dev` alone still prints the list of commands.
+  - `ai-dev settings [list | get | set | reset | path]` — the settings file the desktop app
+    changes: each value in force and where it comes from, a value checked before it is written, and
+    when a change takes effect; a folder may be relative or start with `~`, a switch is on/off, and
+    a variable set by hand that wins over the file is named.
+  - `ai-dev skills search | groups | browse | show | mine | add | new | remove | import | rebuild |
+    check` — the skill library: find and read skills, add a folder that holds a SKILL.md, start a
+    new skill from a template, remove one you added (one that came with AI Dev is refused: the next
+    update would put it back), import a GitHub repository of skills through the import policy,
+    rebuild and check the registry.
+  - `ai-dev rules list | add | on | off | remove | hooks [install] | packs | install` — a
+    repository's guard rules (each checked against its sample before it is saved), its agent hooks
+    and its engineering rules.
+  - `ai-dev servers [--mine]` — the MCP servers the AI clients start for a repository, with what
+    to check before trusting them.
+  - `ai-dev status` — the state in a few lines: the model, the index, the clients, the checks that
+    are not ok; exit 1 when the install does not work.
+- **A person's own skills, through the control API** (1.3.0): `custom_skills_list`,
+  `custom_skills_add` (a folder with a SKILL.md, or a new skill from a template) and
+  `custom_skills_remove`. They write the vault's custom source, where the seed's skills are too, and
+  rebuild the registry, so search and routing see the change at once; a skill the seed ships is
+  never removed or replaced. A copy leaves out links and folders such as `.git`, holds at most 500
+  files and 20 MB, and lands whole or not at all. 151 tools in all: 135 for agents, 16 in the
+  opt-in control API.
+- **The desktop app for macOS and Linux.** `npm run dist:mac` builds a `.dmg` and a `.zip` for Apple
+  silicon, `npm run dist:linux` an AppImage and a `.deb`, each with the runtime for its system and a
+  Node of its own (24.22.0, pinned by sha256 like the Windows one), copied into `~/.ai-dev/app` and
+  run through `~/.ai-dev/app/current` as on Windows; `~/.ai-dev/app/current/ai-dev` is the command
+  line beside it. The AppImage updates itself from the releases; a Mac app does when it is signed
+  with a Developer ID, and is otherwise signed ad hoc. `.github/workflows/desktop-macos-linux.yml`
+  builds both on their own systems, runs the shipped runtime as an AI client does and starts the
+  built app. Measured on Linux: the AppImage 218 MB, the `.deb` 167 MB; the built app copied its
+  runtime, linked it and ran its daemon on the shipped Node. The Intel Mac has no package:
+  onnxruntime-node ships no build for it.
+- **The desktop app: your own skills and a repository's rules.** The Skills screen adds a folder,
+  starts a new skill, imports a GitHub repository of skills, rebuilds the registry and removes a
+  skill you added; a new Rules screen shows a repository's guard rules — added, switched, removed
+  —, its agent hooks and engineering rules, and the MCP servers its configs start. Every change
+  runs only after you confirm it in the main process's dialog; a removal goes through the tool
+  console's confirmation.
 - **Docker: the AI clients run the image themselves** (`docs/DEFECTS.md`, Д-89, Д-105).
   `ai-dev clients install --docker` writes a `docker run -i --rm …` entry into every client found —
   the Docker CLI by its full path, the data volume, the projects folder, the host's state folder

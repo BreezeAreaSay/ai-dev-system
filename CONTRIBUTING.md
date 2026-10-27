@@ -2,7 +2,7 @@
 
 Thanks for your interest in contributing. This repository holds the AI Dev MCP server and every
 form it ships in: the `ai-dev` command line and the daemon behind it, the npm package
-`ai-dev-system`, the Docker image, and the desktop app with its Windows installer —
+`ai-dev-system`, the Docker image, and the desktop app with its packages for Windows, macOS and Linux —
 plus a small public skill seed.
 
 By contributing you agree that your contributions are licensed under the
@@ -24,7 +24,7 @@ file rather than replacing it.
 | `ai-dev-mcp-server/bin/`, `src/cli/` | the `ai-dev` command line: `bin/ai-dev.mjs` → `src/cli/main.mjs`, one module per command |
 | `ai-dev-mcp-server/hooks/` | the agent hooks, copied into users' repositories — a deliberate second copy of some server logic |
 | `ai-dev-mcp-server/scripts/` | build, check and smoke scripts; `distribution.allowlist.json` says which ship |
-| `desktop/` | the Electron app (`src/main`, `src/renderer`), its tests, and the Windows installer's build (`scripts/`, `build/`) |
+| `desktop/` | the Electron app (`src/main`, `src/renderer`), its tests, and the build of its packages for Windows, macOS and Linux (`scripts/`, `build/`) |
 | `docker/` | the Dockerfile, the entrypoint, compose files, the 2.x launchers kept until 4.0, and `public-seed/` (the clean bundled vault) |
 | `bootstrap.sh`, `bootstrap.ps1` | the Docker install for macOS / Linux and for Windows |
 | `scripts/*.ps1` | 2.x PowerShell wrappers, kept until 4.0, each naming the command that replaced it |
@@ -45,7 +45,7 @@ part of `npm run check`) fails when either is stale.
 
 A file the installed system needs at run time and that is not under `src/` or
 `hooks/` is listed in `ai-dev-mcp-server/distribution.allowlist.json`; otherwise
-the npm package, the Docker image and the Windows installer — all three made from
+the npm package, the Docker image and the desktop app's packages — all made from
 `npm run dist` — ship without it.
 
 The full Obsidian vault this server normally reads is **not** in this repository.
@@ -150,7 +150,7 @@ npm run upgrade:test                    # a 2.x clone from git history, updated 
 npm run docker:smoke -- --image ai-dev-system:local
 npm run docker:upgrade-check -- --old-image <a 2.x image> --new-image ai-dev-system:local
 npm run dist:pack                       # the npm tarball, checked file by file
-cd ../desktop && npm test && npm run dist:win   # the app's tests, the Windows installer
+cd ../desktop && npm test && npm run dist:win   # the app's tests, the Windows installer (dist:mac, dist:linux: the others)
 ```
 
 Then the manual acceptance on the three systems, about forty minutes each:
@@ -209,7 +209,7 @@ from one a user edited; `npm run docker:seed` keeps it current.
   to `main`. CI runs on every pull request; merge when it is green.
 - A push to `main` publishes the `:edge` image and nothing else. A release is a `vX.Y.Z` tag: the
   images `:X.Y.Z`, `:X.Y`, `:X` and `:latest` (each with its `-browser` twin), and a draft release
-  with the Windows installer, which the owner publishes. A fix to the 2.x line ships as a `v2.Y.Z`
+  with the Windows installer and the macOS and Linux packages, which the owner publishes. A fix to the 2.x line ships as a `v2.Y.Z`
   tag and moves only `:2` and its own tags. Every step of a release, and how each is taken back:
   [Releasing 3.0](docs/RELEASE.md).
 - [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): subject`.

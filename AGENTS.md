@@ -15,10 +15,10 @@ still apply. This file is the part an agent gets wrong.
 
 ## What this repository is
 
-A local-first MCP server (148 tools — 135 for agents, 13 in the opt-in control
+A local-first MCP server (151 tools — 135 for agents, 16 in the opt-in control
 API — over stdio, or one warm daemon) and every form it ships in: the `ai-dev`
 command line, the npm package `ai-dev-system`, the Docker image,
-and the desktop app with its Windows installer — plus a public skill seed. It
+and the desktop app with its packages for Windows, macOS and Linux — plus a public skill seed. It
 opens no network port. What it fetches is what a person asks for — the local
 model, Frontend QA's browser — and the installed desktop app looks for an update
 in the project's GitHub releases. The full Obsidian vault it normally reads is
@@ -35,7 +35,7 @@ in the project's GitHub releases. The full Obsidian vault it normally reads is
 | a command of the `ai-dev` CLI | `ai-dev-mcp-server/src/cli/<command>.mjs`, listed in `src/cli/main.mjs` (`bin/ai-dev.mjs` is the entry) |
 | a file the installed system needs at run time, outside `src/` and `hooks/` | listed in `ai-dev-mcp-server/distribution.allowlist.json`, or the npm package, the image and the installer ship without it |
 | the desktop app | `desktop/src/main` (main process), `desktop/src/renderer` (the page), tests in `desktop/test` — `docs/DESKTOP.md` |
-| the Windows installer | its build in `desktop/scripts` (`build-windows.mjs`, `windows-bundle.mjs`), the NSIS step and the pinned Node in `desktop/build`; the runtime copy and its stable link in `ai-dev-mcp-server/src/core/app-bundle.mjs` — `docs/DESKTOP.md`, "The Windows install" |
+| the app's packages (Windows installer, macOS `.dmg`, Linux AppImage and `.deb`) | their build in `desktop/scripts` (`build-desktop.mjs`, `runtime-bundle.mjs`, one `TARGETS` entry per system), the NSIS step and the pinned Nodes in `desktop/build`; the runtime copy and its stable link in `ai-dev-mcp-server/src/core/app-bundle.mjs` — `docs/DESKTOP.md`, "The desktop install" |
 
 **New tools are added as extensions, never by growing `mcp-stdio.mjs`.** Each
 extension exports one factory:

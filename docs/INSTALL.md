@@ -10,13 +10,14 @@ has the rest.
 ## Contents
 
 - [Choose a path](#choose-a-path)
-- [The Windows installer](#the-windows-installer)
+- [The desktop app: Windows, macOS, Linux](#the-desktop-app-windows-macos-linux)
 - [One command with Node: npx](#one-command-with-node-npx)
 - [Docker](#docker)
 - [Connecting AI clients](#connecting-ai-clients)
 - [The local model](#the-local-model)
 - [The daemon and the settings](#the-daemon-and-the-settings)
 - [The ai-dev command line](#the-ai-dev-command-line)
+- [Configuring a server from the terminal](#configuring-a-server-from-the-terminal)
 - [Updating, and coming from 2.x](#updating-and-coming-from-2x)
 - [Uninstalling](#uninstalling)
 - [When something does not work](#when-something-does-not-work)
@@ -28,14 +29,15 @@ client's entry — see [Capabilities](CAPABILITIES.md).
 
 ## Choose a path
 
-| | The Windows installer | One command with Node | Docker |
+| | The desktop app | One command with Node | Docker |
 | --- | --- | --- | --- |
-| For | Windows, without a terminal | your own machine: macOS, Linux or Windows | the server in a container: a machine that should not hold your vault, a team on one image |
-| You need | 64-bit Windows | Node.js 22.16+ (or 24+) and npm | Docker Desktop (macOS, Windows) or Docker Engine (Linux), running; on Windows also Node.js 22.12+ and a clone of the repository, since Node writes the clients' configs |
-| You run | `AI-Dev-Setup-<version>.exe` | `npx ai-dev-system setup` | `sh ./bootstrap.sh` (macOS, Linux) or `bootstrap.ps1` (Windows) |
-| The server runs | on its own Node, from `%USERPROFILE%\.ai-dev\app` | on your Node, from `~/.ai-dev/app` | in a container per session; your data in the volume `ai-dev-system-data` |
+| For | a person at their own computer, without a terminal | a server agents run on, configured from the terminal; or your own machine | the server in a container: a machine that should not hold your vault, a team on one image |
+| You need | 64-bit Windows, a Mac with Apple silicon, or 64-bit Linux | Node.js 22.16+ (or 24+) and npm | Docker Desktop (macOS, Windows) or Docker Engine (Linux), running; on Windows also Node.js 22.12+ and a clone of the repository, since Node writes the clients' configs |
+| You run | `AI-Dev-Setup-<version>.exe`, the `.dmg`, or the AppImage / `.deb` | `npx ai-dev-system setup` | `sh ./bootstrap.sh` (macOS, Linux) or `bootstrap.ps1` (Windows) |
+| The server runs | on its own Node, from `~/.ai-dev/app` (`%USERPROFILE%\.ai-dev\app`) | on your Node, from `~/.ai-dev/app` | in a container per session; your data in the volume `ai-dev-system-data` |
+| You configure it | in its window: settings, skills, rules, MCP servers | `ai-dev` alone opens a menu; or `ai-dev settings`, `skills`, `rules` ([from the terminal](#configuring-a-server-from-the-terminal)) | the same commands, through `docker run … ai-dev …` |
 | The local model | the wizard's model step | `setup --model` | `docker run … ai-dev model install`, once |
-| Updates | offered by the app | the same command, `@latest` | `docker pull` |
+| Updates | offered by the app (Windows, the AppImage) or the new package | the same command, `@latest` | `docker pull` |
 
 None of them needs Python. Two tools, `query_ui_ux_knowledge` and
 `generate_ui_ux_design_system`, run the UI UX Pro Max dataset's own Python script (`python3`;
@@ -44,25 +46,38 @@ the health check marks `ui_ux_knowledge` skipped, and nothing else changes. The 
 Python. The local model needs none either: 3.0 removed the Python dense backend (see
 [Coming from the Python backend](#coming-from-the-python-backend)).
 
-## The Windows installer
+## The desktop app: Windows, macOS, Linux
 
-For a person on Windows who wants no terminal. Download `AI-Dev-Setup-<version>.exe` from the
-project's [releases](https://github.com/stonebridgeway/ai-dev-system/releases) and run it. It
-installs the desktop app for your account — no administrator, no Node, Python or Docker — with a
-Node of its own and the server it runs. The first start copies the runtime, fills your vault,
-`%USERPROFILE%\.ai-dev\vault`, from the skill seed, and opens the wizard: the projects folder,
-the AI clients to connect, the local model, the index. Restart the clients it connected.
+For a person who wants no terminal. Download the package for your system from the project's
+[releases](https://github.com/stonebridgeway/ai-dev-system/releases):
 
-An installer that is not signed makes Windows SmartScreen warn on its first run; **More info →
-Run anyway** goes on. Updates come from the same releases: the app looks for one a minute after
-it starts and every six hours, downloads it in the background and offers to restart.
-Uninstalling asks whether to take AI Dev out of your AI clients (yes by default) and whether to
-delete its data (no by default).
+- **Windows** — `AI-Dev-Setup-<version>.exe`; run it. It installs for your account, no
+  administrator. An installer that is not signed makes Windows SmartScreen warn on its first run;
+  **More info → Run anyway** goes on.
+- **macOS** (Apple silicon) — `AI-Dev-<version>-mac-arm64.dmg`; open it and drag **AI Dev** to
+  Applications. Unless the release is signed with a Developer ID, open it the first time with a
+  right click → **Open**; macOS remembers the answer.
+- **Linux** (x64) — `AI-Dev-<version>-linux-x86_64.AppImage`: `chmod +x` it and run it; or
+  `sudo apt install ./AI-Dev-<version>-linux-amd64.deb` for a menu entry.
 
-What goes where, why every client runs it through `%USERPROFILE%\.ai-dev\app\current`, the
-command line for a terminal, and how to build the installer yourself (`cd desktop && npm run
-dist:win`): [The Windows install](DESKTOP.md#the-windows-install). The window, the tray and the
-wizard: [Desktop app](DESKTOP.md).
+None needs Node, Python or Docker: the app brings a Node of its own and the server it runs. The
+first start copies the runtime into `~/.ai-dev/app`, fills your vault, `~/.ai-dev/vault`, from the
+skill seed, and opens the wizard: the projects folder, the AI clients to connect, the local model,
+the index. Restart the clients it connected. Then its screens change everything else — the
+settings, your own skills (add a folder, start one from a template, import a GitHub repository of
+skills), a repository's guard rules, hooks and engineering rules, and the MCP servers it starts.
+
+Updates come from the same releases: the Windows app and the AppImage look for one a minute after
+they start and every six hours, download it in the background and offer to restart; the `.deb` and
+an unsigned Mac app are updated by installing the new package. Uninstalling on Windows asks whether
+to take AI Dev out of your AI clients (yes by default) and whether to delete its data (no by
+default); on macOS and Linux run `~/.ai-dev/app/current/ai-dev uninstall --clients --yes` first,
+then remove the app.
+
+What goes where, why every client runs it through `~/.ai-dev/app/current`, the command line for a
+terminal, and how to build the packages yourself (`cd desktop && npm run dist:win`, `dist:mac`,
+`dist:linux`): [The desktop install](DESKTOP.md#the-desktop-install). The window, the tray and the
+screens: [Desktop app](DESKTOP.md).
 
 ## One command with Node: npx
 
@@ -652,8 +667,8 @@ secret and the daemon proves it back (see
 [SECURITY.md](../ai-dev-mcp-server/docs/SECURITY.md#the-daemon)). A home whose path is too long for a
 socket puts it in `$XDG_RUNTIME_DIR/ai-dev` or `/tmp/ai-dev-<uid>` instead.
 
-**Settings.** `~/.ai-dev/config.json` keeps what the desktop app — or the `settings_set` tool —
-changes: the capability profiles (`AI_DEV_PROFILES`), the model mirror (`AI_DEV_MODEL_MIRROR`), the
+**Settings.** `~/.ai-dev/config.json` keeps what the desktop app, `ai-dev settings` — or the
+`settings_set` tool — changes: the capability profiles (`AI_DEV_PROFILES`), the model mirror (`AI_DEV_MODEL_MIRROR`), the
 model's folder (`BGE_M3_ONNX_DIR`), the daemon's idle time (`AI_DEV_IDLE_TIMEOUT_MS`, in minutes
 there), the projects folder, whether the desktop app starts the daemon when it starts
 (`daemon_autostart`) and the interface's language. Every `ai-dev` command started afterwards — and
@@ -674,6 +689,7 @@ clients, logs, settings — are the opt-in `control` profile:
 
 Every install has the same command line: `npx ai-dev-system <command>`, `ai-dev
 <command>` after a global install, `npm run ai-dev -- <command>` in a clone,
+`~/.ai-dev/app/current/ai-dev <command>` after the desktop app on macOS and Linux,
 `& "$env:USERPROFILE\.ai-dev\app\current\ai-dev.cmd" <command>` in PowerShell after the Windows
 installer (in cmd, `"%USERPROFILE%\.ai-dev\app\current\ai-dev.cmd" <command>`), and `docker run
 --rm -it --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev <command>` in the
@@ -681,14 +697,20 @@ image.
 
 | Command | What it does |
 | --- | --- |
+| `ai-dev` | At a terminal, a menu over everything below that you set up and change ([from the terminal](#configuring-a-server-from-the-terminal)); elsewhere, this list. |
 | `ai-dev setup` | Builds what a first start needs, connects the clients, `--model` the local model ([npx](#one-command-with-node-npx)). |
 | `ai-dev clients list \| install \| remove \| doctor \| entry` | The `ai-dev` entry in each client ([Connecting AI clients](#connecting-ai-clients)). |
+| `ai-dev settings [list \| get \| set \| reset \| path]` | The settings file: profiles, model folder and mirror, the daemon's idle time. |
+| `ai-dev skills search \| show \| mine \| add \| new \| remove \| import \| rebuild \| check` | The skill library, your own skills too. |
+| `ai-dev rules list \| add \| on \| off \| remove \| hooks \| packs \| install` | A repository's guard rules, its agent hooks, its engineering rules. |
+| `ai-dev servers [--mine]` | The MCP servers the AI clients start for a repository, and what to check before trusting them. |
+| `ai-dev status` | The state in a few lines: model, index, clients, the checks that are not ok. |
 | `ai-dev model status \| install \| import \| verify \| remove \| doctor` | The local model ([The local model](#the-local-model)). |
 | `ai-dev mcp` | What a client starts: its stdio MCP session, served by the daemon. |
 | `ai-dev daemon start \| stop \| status \| run` | The one warm server every client is handed to. |
 | `ai-dev doctor` | The health check, as JSON; `--dense-smoke` also runs the model once. |
 | `ai-dev backup`, `ai-dev restore` | The vault and the state in one archive, and back ([RECOVERY.md](../ai-dev-mcp-server/docs/RECOVERY.md)). |
-| `ai-dev uninstall` | What the Windows uninstaller runs. |
+| `ai-dev uninstall` | Takes the desktop app's runtime off the computer: what the Windows uninstaller runs, and what you run before removing the app on macOS or Linux. |
 | `ai-dev help [command]` | Every command and its options. |
 
 Every command exits 0 done, 1 failed, 2 wrong usage, 130 stopped with Ctrl-C; `uninstall` adds 3,
@@ -696,6 +718,54 @@ something is in use, and 4, the data was kept. A mistyped command or option is a
 anything is read or moved.
 `node ai-dev-mcp-server/scripts/ai-dev.mjs`, the 2.x CLI, still runs every command, with a note on
 stderr, until 4.0.
+
+## Configuring a server from the terminal
+
+A server that agents run on has no desktop app: everything the app's screens change is a command,
+and `ai-dev` alone, at a terminal — over SSH too — opens a menu over them. Type a number and Enter;
+`b` goes back, `q` leaves. Each choice runs one of the commands below with what you answered and
+prints it (`$ ai-dev settings set daemon_idle_minutes 0`), so the same step can go into a script.
+
+```bash
+ai-dev                                   # the menu
+ai-dev status                            # what works, what does not, what to do
+ai-dev settings                          # every setting: the value in force and where it comes from
+ai-dev settings set profiles core,coding # what agent clients get; a folder may be relative, ~ is home
+ai-dev settings set daemon_idle_minutes 0   # keep the daemon until it is stopped
+ai-dev settings reset model_mirror       # back to the default
+```
+
+`settings set` checks a value before it writes it and says when it takes effect: the mirror at
+once, the profiles and the model folder for AI sessions started afterwards, the idle time for the
+next daemon (`ai-dev daemon stop` ends the running one). A variable set in the environment still
+wins, and the command says so.
+
+**Skills.** Yours sit beside the ones that came with AI Dev, in the vault's custom source; an update
+leaves them alone, and search and routing see a change at once.
+
+```bash
+ai-dev skills search "review a pull request"    # find one; ai-dev skills show <name> reads it
+ai-dev skills new release-notes "Write release notes from the merged pull requests of a version."
+ai-dev skills add ./my-skills/deploy-check      # a folder with a SKILL.md (--replace: one of yours)
+ai-dev skills mine                              # yours; --all also the ones that came with AI Dev
+ai-dev skills remove deploy-check --yes         # yours only: one AI Dev ships is never removed
+ai-dev skills import https://github.com/owner/skills --select   # a repository of skills, through the import policy
+```
+
+**A repository's rules** — run in it, or name it with `--project <path>`:
+
+```bash
+ai-dev rules                                    # the guard rules the agent hooks enforce
+ai-dev rules add no-force-push --pattern 'git push .*--force' \
+  --example 'git push origin main --force' --message 'Never force-push.'
+ai-dev rules off no-force-push                  # on, off, remove <id>
+ai-dev rules hooks install --profile standard   # the hooks that enforce them (Claude Code by default)
+ai-dev rules install --dry-run                  # the engineering rules: .ai-dev/rules, .claude/rules, AGENTS.md…
+ai-dev servers --mine                           # the MCP servers its configs start, and yours
+```
+
+A rule is checked against its sample before it is saved. Every command takes `--json` for a
+script, and `ai-dev help <command>` lists its options.
 
 ## Updating, and coming from 2.x
 

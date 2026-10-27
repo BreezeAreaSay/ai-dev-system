@@ -474,10 +474,12 @@ package's `package.json` and the server's lockfile as `npm-shrinkwrap.json`; `pr
 folder against the list, and `dist:pack` checks the tarball, unpacked, byte for byte. Nothing is
 published from here.
 
-The Windows installer is made from the same folder: `cd ../desktop && npm run dist:win` adds the
-dependencies for win32-x64, a pinned Node and `bundle.json`, and builds the NSIS installer
-([The Windows install](../docs/DESKTOP.md#the-windows-install)). `ai-dev uninstall [--clients]
-[--data] --yes` is what its uninstaller runs: it stops the daemon and removes the runtime copies the
+The desktop app's packages are made from the same folder: `cd ../desktop && npm run dist:win`
+(`dist:mac`, `dist:linux`) adds the dependencies for the target, a pinned Node and `bundle.json`,
+and builds the NSIS installer, the `.dmg` and `.zip`, or the AppImage and `.deb`
+([The desktop install](../docs/DESKTOP.md#the-desktop-install)). `ai-dev uninstall [--clients]
+[--data] --yes` is what the Windows uninstaller runs, and what a person runs before removing the app
+on macOS or Linux: it stops the daemon and removes the runtime copies the
 app made in `<runtime home>/app` and their link, the clients' entries that run them with
 `--clients`, and the runtime home itself with `--data` â€” only when what is at its top, and inside
 its `models`, `cache` and `backups` folders, is AI Dev's own, and not while a runtime copy is in
@@ -490,8 +492,14 @@ Everything a person does with the server is one command line, `bin/ai-dev.mjs` â
 `npm run ai-dev -- <command>`, or `ai-dev <command>` after `npm link`:
 
 ```bash
+ai-dev                           # at a terminal: a menu over everything below you set up and change
 ai-dev setup [--yes] [--model] [--frontend-qa] [--clients=all|<names>]
 ai-dev clients list | install | remove | doctor [--clients=<names>] [--dry-run] [--json]
+ai-dev settings [list | get <name> | set <name> <value> | reset <name>... | path] [--json]
+ai-dev skills search | groups | browse | show | mine | add <folder> | new <name> <description> | remove | import <url> | rebuild | check
+ai-dev rules list | add <id> | on | off | remove | hooks [install] | packs | install [--project <path>]
+ai-dev servers [--project <path>] [--mine]
+ai-dev status [--quick] [--json]
 ai-dev model status | install | import <path> | verify | remove | doctor
 ai-dev mcp                       # what a client starts: its stdio, bridged to the daemon
 ai-dev daemon start | stop | status | run [--json]

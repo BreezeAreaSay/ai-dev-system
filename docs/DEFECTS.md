@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 589 записей. Закрыто 575, открыто 14. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 589 записей. Закрыто 581, открыто 8. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -22631,7 +22631,7 @@ tests» — 0 fail; установщик — зелёный. CI на `473049b` (
 
 ## Д-583. Mac: подпись приложения меняет бинарники рантайма после того, как их хеши записаны в `bundle.json`
 
-**Статус:** открыт. Нашло независимое ревью 2026-10-27 коммитов `6071e68 … f7778ce` (сервер из терминала,
+**Статус:** исправлен (`edc910f`), 2026-10-27; закрывается первым прогоном `desktop-macos-linux.yml` на `macos-latest`. Нашло независимое ревью 2026-10-27 коммитов `6071e68 … f7778ce` (сервер из терминала,
 приложение для macOS и Linux).
 
 `build-desktop.mjs` пишет `bundle.json` (sha256 каждого файла рантайма) до electron-builder. electron-builder 26.17
@@ -22648,11 +22648,29 @@ file the installer shipped» (`copyChecked`).
 90–100; `builderConfig({ target: darwin-arm64 })` возвращает `mac` без `signIgnore`. Проверка — первый прогон
 `desktop-macos-linux.yml` на `macos-latest`.
 
+**Как закрыто** (`edc910f`).
+
+1. `builderConfig` для Mac: `signIgnore: ["/Contents/Resources/runtime/"]` (`MAC_RUNTIME_UNSIGNED`, `runtime-bundle.mjs`).
+   electron-builder не подписывает файлы рантайма по одному, и их байты остаются теми, что перечислены в `bundle.json`. Подпись
+   самого приложения запечатывает их как ресурсы (её проверяет `codesign --verify --deep --strict` в джобе). Node рантайма подписан
+   Node.js, нативные модули — тем, кто их собрал.
+2. Нашлось по пути. На macOS `fs.copyFile` — это copyfile(3) с `COPYFILE_ALL`, и копия рантайма в `~/.ai-dev/app` уносила
+   расширенные атрибуты, карантин скачанного `.dmg` тоже; библиотеку с карантином вне приложения, из которого она пришла, Gatekeeper
+   загрузить не даёт. Теперь копия на macOS — байты и права (`copyBytes`, `app-bundle.mjs`), сверенные с `bundle.json`, как всегда.
+   Тест — `app-bundle.test.mjs`, «on macOS the copy is the files' bytes and modes».
+3. Джоб macOS ставит карантин на рантайм собранного приложения, а `packaged.test.mjs` проверяет, что в копии его нет.
+
+Ограничение остаётся и записано в `docs/RELEASE.md`: сборка с Developer ID и нотаризацией потребует подписать нативные файлы
+рантайма (onnxruntime, sharp) до того, как пишется `bundle.json`; этот путь не доделан, сборки проекта подписаны ad hoc.
+
+**Замер после** (`edc910f`): `desktop-build.test.mjs` 15/15 — файл рантайма подходит под `signIgnore`, `Contents/MacOS/AI Dev` нет;
+`app-bundle.test.mjs` 17/17. Замер на macOS — первый прогон джоба (ниже, когда будет).
+
 ---
 
 ## Д-584. `skills add`: SKILL.md, который ссылка, читается, но не копируется
 
-**Статус:** открыт. Нашло то же ревью.
+**Статус:** закрыт (`edc910f`), 2026-10-27. Нашло то же ревью.
 
 `addCustomSkill` (`src/core/custom-skills.mjs`) читает SKILL.md сквозь ссылку (так их держат менеджеры dotfiles), а при
 копировании пропускает все ссылки, SKILL.md тоже.
@@ -22666,11 +22684,25 @@ file the installer shipped» (`copyChecked`).
 `ENOENT: no such file or directory, rename '…/custom/.linked-skill.<uuid>.adding' -> '…/custom/linked-skill'`, exit 1;
 у ревью с файлом рядом — exit 0 и папка без SKILL.md.
 
+**Как закрыто** (`edc910f`). `addCustomSkill` пишет SKILL.md в подготовленную папку из прочитанного текста — ссылка он или файл;
+папка `.adding` создаётся до записи. Прочие ссылки по-прежнему не копируются. Тест — `custom-skills.test.mjs`, «a SKILL.md that is
+a link is copied as its text»: папка из одного SKILL.md-ссылки и папка с файлом рядом.
+
+**Замер после** (`edc910f`, свежий дом, `AI_DEV_VAULT=home`):
+
+```
+$ ai-dev skills add …/alone                         # SKILL.md — ссылка
+Added linked-skill: 1 file in ~/.ai-dev/vault/03-skills-catalog/sources/custom/linked-skill.     exit 0
+$ ai-dev skills add …/beside --name linked-beside   # ссылка и refs/a.md
+Added linked-beside: 2 files in …/custom/linked-beside.                                          exit 0
+-rw-r--r-- … SKILL.md (файл, не ссылка) в обеих папках
+```
+
 ---
 
 ## Д-585. `skills add --name` переименовывает только папку: реестр знает навык под именем из его SKILL.md
 
-**Статус:** открыт. Нашло то же ревью.
+**Статус:** закрыт (`edc910f`), 2026-10-27. Нашло то же ревью.
 
 Реестр берёт имя навыка из `name:` его SKILL.md, а `--name` (аргумент `name` у `custom_skills_add`) давал имя только
 папке. Защита навыков из поставки и проверка «такой уже есть» смотрели на имя папки.
@@ -22681,11 +22713,26 @@ file the installer shipped» (`copyChecked`).
 **Замер до:** `ai-dev skills add <папка с name: orig-name> --name renamed-one` → «Added renamed-one», затем
 `ai-dev skills show renamed-one` → «Skill not found: renamed-one», exit 1.
 
+**Как закрыто** (`edc910f`). Имя, данное `--name` (`name` у `custom_skills_add`), пишется в строку `name:` фронтматтера
+скопированного SKILL.md (добавляется, если её нет), и после записи проверяется, что реестр прочтёт именно его. Имя навыка из
+поставки отклоняется всегда, а не только когда его папка на месте: следующее обновление записало бы свой навык поверх. Тесты —
+`custom-skills.test.mjs` (переименование, вставка строки, копия навыка из поставки под другим именем) и `configure.test.mjs`
+(`skills add … --name renamed-one`, затем `skills show renamed-one`).
+
+**Замер после** (`edc910f`):
+
+```
+$ ai-dev skills add …/orig --name renamed-one      → Added renamed-one: 1 file …                    exit 0
+$ ai-dev skills show renamed-one                    → ---\nname: renamed-one\ndescription: …          exit 0
+$ ai-dev skills add …/orig --name ai-dev-orchestrator
+ai-dev-orchestrator comes with AI Dev, and the next update would put it back. Give yours another name.   exit 1
+```
+
 ---
 
 ## Д-586. Замена своего навыка отодвигает старую папку под видимым именем
 
-**Статус:** открыт, мелкий. Нашло то же ревью.
+**Статус:** закрыт (`edc910f`), 2026-10-27, мелкий. Нашло то же ревью.
 
 `placeFolder` при `replace` переименовывает старую папку в `custom/<имя>.<uuid>.old` — не скрытую, — а потом удаляет её.
 Удаление своего навыка, наоборот, прячет папку (`.<имя>.<uuid>.removing`).
@@ -22697,11 +22744,17 @@ file the installer shipped» (`copyChecked`).
 **Замер до:** прослежено по коду (`custom-skills.mjs`, `placeFolder`); `listCustomSkills` пропускает только имена с точкой
 в начале.
 
+**Как закрыто** (`edc910f`). Старая папка уходит в скрытую `.<имя>.<uuid>.old` рядом — её не читают ни реестр, ни `skills
+mine`, как и `.removing`; неудавшееся удаление после замены больше не ошибка: замена уже прошла.
+
+**Замер после** (`edc910f`): `custom-skills.test.mjs` 7/7, в том числе «replaced only when asked … nothing left aside»; в папке
+custom после всех добавлений и замен замера Д-584 и Д-585 нет ни одного `.old` и `.adding` (`ls -a | grep -c` → 0).
+
 ---
 
 ## Д-587. AppImage на Ubuntu 24.04 не запускается без песочницы Chromium
 
-**Статус:** открыт. Нашло то же ревью.
+**Статус:** закрыт (`edc910f`), 2026-10-27; замер на Ubuntu 24.04 — шаг джоба Linux. Нашло то же ревью.
 
 Ubuntu 24.04 по умолчанию запрещает непривилегированные пространства имён пользователя
 (`kernel.apparmor_restrict_unprivileged_userns=1`), а песочница Chromium без них не поднимается. `.deb` ставит
@@ -22714,11 +22767,37 @@ Ubuntu 24.04 по умолчанию запрещает непривилегир
 **Замер до:** прослежено; CI проверял `linux-unpacked` после `sysctl … =0`, саму AppImage — нет. На этой машине переменной
 нет (`/proc/sys/kernel/apparmor_restrict_unprivileged_userns` отсутствует), воспроизвести здесь нельзя.
 
+**Замер уточнил запись.** Ревью проследило не всё. AppRun, который electron-builder 26.17 кладёт в AppImage
+(`appImageUtil.js`, `generateAppRunScript`), сам пробует `unshare -Ur true` и, где пространства имён запрещены, запускает
+приложение с `--no-sandbox`. Замер на собранной AppImage (`--appimage-extract AppRun`, рядом ложный `unshare`, который отказывает,
+как в Ubuntu 24.04): «app started with: --no-sandbox»; там, где разрешено, — без флага. Предложенное ревью
+`app.commandLine.appendSwitch("no-sandbox")` не помогло бы: Chromium проверяет песочницу до main-скрипта. Замер под root (та же
+проверка): «FATAL:electron_main_delegate.cc:228 Running as root without --no-sandbox is not supported» и с `appendSwitch`, и без.
+
+Нашлось другое: ярлык внутри AppImage был `Exec=AppRun --no-sandbox %U` — умолчание electron-builder для старого набора
+инструментов AppImage. Запущенное из меню приложение шло без песочницы везде, и там, где она работает.
+
+**Как закрыто** (`edc910f`). `appImage: { executableArgs: [] }` в `builderConfig`: ярлык — `Exec=AppRun %U`, без песочницы
+приложение запускается только там, где она не может подняться. Документация (`docs/INSTALL.md`, `docs/DESKTOP.md` и русские):
+AppImage нужен FUSE 2 (`libfuse2t64` в Ubuntu 24.04), на Ubuntu 24.04 она идёт без песочницы Chromium, а `.deb` ставит профиль
+AppArmor, с которым песочница остаётся. Джоб Linux запускает саму AppImage до того, как снимает запрет, и печатает значение
+`kernel.apparmor_restrict_unprivileged_userns`.
+
+**Замер после** (`edc910f`, `npm run dist:linux`, 390 с):
+
+```
+AI-Dev-3.0.0-linux-x86_64.AppImage: ai-dev-desktop.desktop → Exec=AppRun %U   (было Exec=AppRun --no-sandbox %U)
+AI-Dev-3.0.0-linux-amd64.deb:       Exec="/opt/AI Dev/ai-dev-desktop" %U; postinst ставит профиль AppArmor (Ubuntu 24+)
+packaged.test.mjs на самой AppImage (APPIMAGE_EXTRACT_AND_RUN=1, xvfb): # tests 1 # pass 1
+```
+
+На этой машине запрета нет, и запуск здесь — под root, с явным `--no-sandbox`; запасной путь на Ubuntu 24.04 меряет джоб.
+
 ---
 
 ## Д-588. Меню: Enter в главном меню выходит, Ctrl-D отвечает как Ctrl-C, значение с «-» не проходит
 
-**Статус:** открыт, мелкий. Нашло то же ревью.
+**Статус:** закрыт (`edc910f`), 2026-10-27, мелкий. Нашло то же ревью.
 
 1. В главном меню пустой ввод и `b` выходили из меню, хотя строки «b» там нет.
 2. Ctrl-D (конец ввода) в терминале давал код 130, как Ctrl-C; заголовок модуля обещает 0.
@@ -22728,11 +22807,36 @@ Ubuntu 24.04 по умолчанию запрещает непривилегир
 **Замер до** (псевдотерминал, `script`): Enter в главном меню → `EXIT=0`; `2`, Ctrl-D → `EXIT=130`;
 `ai-dev rules add x --pattern --no-verify …` → «--pattern needs a value, as --pattern=<value>», exit 2.
 
+**Как закрыто** (`edc910f`).
+
+1. В главном меню (`choose` без `back`) пустой ввод спрашивает снова, `b` — «There is no "b" here: a number from the list or q».
+2. Ctrl-C от Ctrl-D отличает нажатая клавиша (`keypress` на входе): оба закрывают вопрос readline. Ctrl-D — конец ввода, как у
+   трубы: меню выходит с 0, и вопросы после него без ответа. Слушатель `SIGINT` на readline не подошёл: вопрос после него не
+   завершается, процесс выходит с 13 («unsettled top-level await»).
+3. Меню передаёт ответы значениями (`--pattern=…`, `--example=…`, `--message=…`) или после `--`: `skills new`, `search`, `show`,
+   `remove`, `import`, `settings set`, `rules add`, `on`, `off`, `remove`.
+4. Нашлось при проверке правки 2: вопрос «да/нет», на который ввод кончился, отвечал своим умолчанием — а у «Write them?» и
+   «Install them?» оно «да», и Ctrl-D записал бы правила. Теперь конец ввода на таком вопросе — «нет»: никто не согласился.
+
+Тесты — `configure.test.mjs`: команды меню с `--` и `=`, главное меню без `b` и Enter, ввод, кончившийся на «Write them? [Y/n]»
+(запущен только `--dry-run`), `rules add --pattern=--no-verify … -- no-skip-hooks` в настоящем CLI.
+
+**Замер после** (`edc910f`, псевдотерминал, `pty.fork`):
+
+```
+Enter в главном меню        → меню ждёт дальше (снят по таймауту)
+Enter, затем q              → EXIT=0
+2, Ctrl-D                   → EXIT=0
+Ctrl-D в главном меню       → EXIT=0
+2, Ctrl-C                   → EXIT=130
+ai-dev rules add --pattern=--no-verify --example='git commit --no-verify' --message=… -- no-skip-hooks → Added: block bash no-skip-hooks
+```
+
 ---
 
 ## Д-589. Документация: «правый щелчок → Открыть» на macOS 15 больше не открывает неподписанное приложение
 
-**Статус:** открыт, мелкий. Нашло то же ревью.
+**Статус:** закрыт (`edc910f`), 2026-10-27, мелкий. Нашло то же ревью.
 
 С macOS 15 Apple убрала обход Gatekeeper через Control-щелчок → «Открыть»: приложение без нотаризации открывают через
 «Системные настройки → Конфиденциальность и безопасность → Всё равно открыть». README, INSTALL и DESKTOP (и русские)
@@ -22740,6 +22844,13 @@ Ubuntu 24.04 по умолчанию запрещает непривилегир
 
 **Замер до:** `docs/DESKTOP.md` («opened the first time with **Open** in the Finder's menu»), `docs/INSTALL.md`,
 `docs/ru/*` — тот же совет без оговорки о версии.
+
+**Как закрыто** (`edc910f`). `docs/INSTALL.md`, `docs/DESKTOP.md`, `docs/RELEASE.md` и `docs/ru/INSTALL.md`, `docs/ru/DESKTOP.md`:
+на macOS 15 и новее — открыть один раз, затем «Системные настройки → Конфиденциальность и безопасность → Всё равно открыть»;
+на macOS 14 и старше — правый щелчок → «Открыть».
+
+**Замер после** (`edc910f`): `npm run docs:links` — 355 ссылок, 0 битых; во всех пяти файлах путь через «Open Anyway» / «Всё равно
+открыть» стоит первым, совета только про правый щелчок не осталось.
 
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 

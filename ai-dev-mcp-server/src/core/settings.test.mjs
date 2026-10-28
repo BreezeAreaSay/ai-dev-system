@@ -25,11 +25,11 @@ test("a change is checked, stored with mode 0600, and a null puts the default ba
   const result = await writeSettings({ model_mirror: "https://hf-mirror.com/", profiles: "git,core", daemon_idle_minutes: 5, language: "RU" }, { env });
   assert.deepEqual(result.changed.sort(), ["daemon_idle_minutes", "language", "model_mirror", "profiles"]);
   assert.equal(result.settings.model_mirror, "https://hf-mirror.com");
-  // This process started with no profiles: the change is a new session's (Д-237).
+  // This process started with no profiles: the change is a new session's.
   assert.equal(result.pending.profiles, "core,git", "in the profiles' own order");
   assert.equal(result.settings.profiles, "");
   // `all` alone is no setting at all; the desktop app's opt-in profile is not
-  // put into what every agent client gets (Д-223).
+  // put into what every agent client gets.
   assert.equal((await writeSettings({ profiles: "all" }, { env })).settings.profiles, "");
   await assert.rejects(writeSettings({ profiles: "control, all" }, { env }), /profiles cannot name control/);
   await assert.rejects(writeSettings({ profiles: "control" }, { env }), /AI_DEV_PROFILES=control itself/);
@@ -59,7 +59,7 @@ test("a wrong value is refused with what is wrong, and nothing of the change is 
     [{ model_dir: "relative/models" }, /model_dir must be an absolute path/],
     [{ daemon_idle_minutes: -1 }, /daemon_idle_minutes must be a number of minutes/],
     [{ daemon_idle_minutes: "abc" }, /daemon_idle_minutes must be a number/],
-    // Not numbers, whatever they convert to, and not a fraction of a minute (Д-221).
+    // Not numbers, whatever they convert to, and not a fraction of a minute.
     [{ daemon_idle_minutes: "" }, /daemon_idle_minutes must be a number/],
     [{ daemon_idle_minutes: "5" }, /daemon_idle_minutes must be a number/],
     [{ daemon_idle_minutes: true }, /daemon_idle_minutes must be a number/],
@@ -67,7 +67,7 @@ test("a wrong value is refused with what is wrong, and nothing of the change is 
     [{ daemon_idle_minutes: 0.0001 }, /from 1 to 10080/],
     [{ daemon_idle_minutes: 10081 }, /from 1 to 10080/],
     [{ model_dir: `${path.resolve("/models")}\u0000evil` }, /must not hold a NUL/],
-    // The environment cuts a value at a NUL, and a process given one does not start (Д-231).
+    // The environment cuts a value at a NUL, and a process given one does not start.
     [{ model_mirror: "https://hf-mirror.com/\u0000" }, /model_mirror must not hold a NUL/],
     [{ model_mirror: "https://hf-mirror.com/a\nb" }, /model_mirror must not hold a NUL or another control character/],
     [{ daemon_autostart: "yes" }, /daemon_autostart must be true or false/],
@@ -90,11 +90,11 @@ test("a stored value that is no longer valid is reported and replaced by its def
   await fs.writeFile(settingsPath(env), "{ not json");
   assert.throws(() => readSettings({ env }), /is not JSON\. Fix or remove it/);
   await assert.rejects(writeSettings({ language: "en" }, { env }), /is not JSON/);
-  // A folder in its place fails at the read, where Node names no file: the error names it (Д-274).
+  // A folder in its place fails at the read, where Node names no file: the error names it.
   await fs.rm(settingsPath(env));
   await fs.mkdir(settingsPath(env));
   assert.throws(() => readSettings({ env }), (error) => error.code === "EISDIR" && error.message.startsWith(`${settingsPath(env)} cannot be read: EISDIR`));
-  // Where Node names the file itself, it is named once (Д-281). Windows says a
+  // Where Node names the file itself, it is named once. Windows says a
   // path through a file is not there (ENOENT), which reads as no settings yet.
   const plain = path.join(env.AI_DEV_HOME, "plain-file");
   await fs.writeFile(plain, "");
@@ -103,7 +103,7 @@ test("a stored value that is no longer valid is reported and replaced by its def
   else assert.throws(() => readSettings({ env, file: inside }), (error) => error.code === "ENOTDIR" && error.message.split(inside).length === 2);
 });
 
-test("unsetOnly leaves a setting the file gives a readable value, the empty language too; the lock's wait can be bounded (Д-279)", async (t) => {
+test("unsetOnly leaves a setting the file gives a readable value, the empty language too; the lock's wait can be bounded", async (t) => {
   const env = await home(t);
   const file = settingsPath(env);
   const stored = async () => JSON.parse(await fs.readFile(file, "utf8"));
@@ -157,7 +157,7 @@ test("the file sets the variables the environment leaves unset, and never one se
   assert.deepEqual(applySettingsToEnvironment(broken), [], "a broken file leaves a starting process as it is");
 });
 
-test("the file is replaced whole through a link to it, and one a newer version wrote is left alone (Д-222, Д-223)", async (t) => {
+test("the file is replaced whole through a link to it, and one a newer version wrote is left alone", async (t) => {
   const env = await home(t);
   // Settings kept in a dotfiles repository, linked into the AI Dev home.
   const dotfiles = path.join(env.AI_DEV_HOME, "dotfiles");
@@ -183,7 +183,7 @@ test("the file is replaced whole through a link to it, and one a newer version w
   assert.equal(await fs.readFile(real, "utf8"), newer);
 });
 
-test("the value in force is a variable's where one overrides the file (Д-223)", async (t) => {
+test("the value in force is a variable's where one overrides the file", async (t) => {
   const env = await home(t);
   await writeSettings({ model_mirror: "https://from-file.example", daemon_idle_minutes: 5 }, { env });
   const current = readSettings({ env: { ...env, AI_DEV_MODEL_MIRROR: "https://from-env.example", AI_DEV_IDLE_TIMEOUT_MS: "90000" } });
@@ -191,7 +191,7 @@ test("the value in force is a variable's where one overrides the file (Д-223)",
   assert.deepEqual([current.settings.daemon_idle_minutes, current.stored.daemon_idle_minutes], [1.5, 5], "in minutes, and the file's own beside it");
 });
 
-test("a change says when it takes effect; a variable the file did not set is applied only when asked for (Д-228)", async (t) => {
+test("a change says when it takes effect; a variable the file did not set is applied only when asked for", async (t) => {
   const env = await home(t);
   const result = await writeSettings({ model_mirror: "https://hf-mirror.com", model_dir: path.resolve("/models/chosen"), profiles: "core", daemon_idle_minutes: 3, language: "en" }, { env });
   assert.deepEqual(result.applies, { model_mirror: "now", model_dir: "new_session", profiles: "new_session", daemon_idle_minutes: "next_daemon", language: "app" });
@@ -204,7 +204,7 @@ test("a change says when it takes effect; a variable the file did not set is app
   assert.equal(session.BGE_M3_ONNX_DIR, undefined, "the model folder is not this call's to change");
 });
 
-test("what is in force is what this session started with; a change since is pending, for sessions started afterwards (Д-237)", async (t) => {
+test("what is in force is what this session started with; a change since is pending, for sessions started afterwards", async (t) => {
   const env = await home(t);
   const first = path.resolve("/models/first");
   await writeSettings({ model_dir: first, profiles: "core", model_mirror: "https://one.example" }, { env });
@@ -231,7 +231,7 @@ test("what is in force is what this session started with; a change since is pend
   assert.deepEqual(readSettings({ env: byHand }).pending.model_dir, undefined);
 });
 
-test("a value the file put in the environment and a person changed since is the person's (Д-233)", async (t) => {
+test("a value the file put in the environment and a person changed since is the person's", async (t) => {
   const env = await home(t);
   await writeSettings({ model_mirror: "https://from-file.example" }, { env });
   const shell = { ...env };
@@ -250,7 +250,7 @@ test("a value the file put in the environment and a person changed since is the 
   assert.equal(listed.AI_DEV_MODEL_MIRROR, "https://typed-by-hand.example");
 });
 
-test("on Windows a variable set by hand in another case is the one in force, and the file adds no second spelling (Д-232)", async (t) => {
+test("on Windows a variable set by hand in another case is the one in force, and the file adds no second spelling", async (t) => {
   const env = await home(t);
   await writeSettings({ model_dir: path.resolve("/models/from-file"), model_mirror: "https://hf-mirror.com" }, { env });
   const client = { ...env, Bge_M3_Onnx_Dir: "C:\\models\\mine", ai_dev_settings_applied: "" };
@@ -265,7 +265,7 @@ test("on Windows a variable set by hand in another case is the one in force, and
   assert.equal(posix.BGE_M3_ONNX_DIR, path.resolve("/models/from-file"));
 });
 
-test("what is shown is what the daemon makes of the variable, a stored opt-in profile drops alone, and a newer file says so (Д-233)", async (t) => {
+test("what is shown is what the daemon makes of the variable, a stored opt-in profile drops alone, and a newer file says so", async (t) => {
   const env = await home(t);
   const shown = (value) => readSettings({ env: { ...env, AI_DEV_IDLE_TIMEOUT_MS: value } }).settings.daemon_idle_minutes;
   assert.equal(shown("abc"), 30, "a variable that is no number: the daemon's default");
@@ -285,7 +285,7 @@ test("what is shown is what the daemon makes of the variable, a stored opt-in pr
   assert.equal(newer.settings.language, "en");
 });
 
-test("a link to a settings file not made yet is written through, and stays a link (Д-233)", async (t) => {
+test("a link to a settings file not made yet is written through, and stays a link", async (t) => {
   const env = await home(t);
   const dotfiles = path.join(env.AI_DEV_HOME, "dotfiles");
   await fs.mkdir(dotfiles);
@@ -300,7 +300,7 @@ test("a link to a settings file not made yet is written through, and stays a lin
   assert.equal(JSON.parse(await fs.readFile(path.join(dotfiles, "ai-dev.json"), "utf8")).language, "ru");
 });
 
-test("a link is followed as the system follows it: from the folder it lies in, through a chain, never into a folder that is not there (Д-238)", { skip: process.platform === "win32" && "symbolic links need a privilege on Windows" }, async (t) => {
+test("a link is followed as the system follows it: from the folder it lies in, through a chain, never into a folder that is not there", { skip: process.platform === "win32" && "symbolic links need a privilege on Windows" }, async (t) => {
   const root = (await home(t)).AI_DEV_HOME;
   // The AI Dev home is itself a link, and the file a relative link up and out of it.
   await fs.mkdir(path.join(root, "data", "aidev"), { recursive: true });
@@ -329,7 +329,7 @@ test("a link is followed as the system follows it: from the folder it lies in, t
   assert.equal((await fs.lstat(settingsPath(unmounted))).isSymbolicLink(), true, "and the link is left as it is");
 });
 
-test("a schema version the file gives is read and written the same way (Д-238)", async (t) => {
+test("a schema version the file gives is read and written the same way", async (t) => {
   const env = await home(t);
   for (const given of ["1.5", "1e400", "\"abc\"", "0"]) {
     await fs.writeFile(settingsPath(env), `{ "schema_version": ${given}, "language": "en" }`);
@@ -344,7 +344,7 @@ test("a schema version the file gives is read and written the same way (Д-238)"
   await assert.rejects(writeSettings({ language: "ru" }, { env }), /written by a newer AI Dev/);
 });
 
-test("a session's environment for the tools: the mirror read again, the model folder its own, a name found whatever its case on Windows (Д-228, Д-232)", async (t) => {
+test("a session's environment for the tools: the mirror read again, the model folder its own, a name found whatever its case on Windows", async (t) => {
   const env = await home(t);
   await writeSettings({ model_mirror: "https://hf-mirror.com", model_dir: path.resolve("/models/from-file") }, { env });
   const session = sessionEnvironment({ ...env, BGE_M3_ONNX_DIR: path.resolve("/models/started-with") }, { platform: "linux" });

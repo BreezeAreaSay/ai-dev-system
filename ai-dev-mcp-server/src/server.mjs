@@ -318,7 +318,7 @@ function structuredResult(result) {
  * each notification to be larger than the last — by stacking the phases: the
  * text index written, then the documents embedded, then the closing write.
  * Before 3.0 a call said 0 of 1 when it began and 1 of 1 when it ended, and
- * nothing between (docs/DEFECTS.md, Д-187). Notifications go out at most every
+ * nothing between. Notifications go out at most every
  * 100 ms, and not at all when the client sent no progress token.
  *
  * @param {object} extra - The SDK's request context.
@@ -492,7 +492,7 @@ export function createAiDevServer({ profiles = null, track = (work) => work() } 
     tools: sessionTools(profiles).map(toolDefinition)
   }));
 
-  // `track` sees each call run: a stdio session ends between calls (docs/DEFECTS.md, Д-354).
+  // `track` sees each call run: a stdio session ends between calls.
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => track(async () => {
     const { name, arguments: args = {} } = request.params;
     if (!legacyTools.some((tool) => tool.name === name)) {
@@ -513,7 +513,7 @@ export function createAiDevServer({ profiles = null, track = (work) => work() } 
     } catch (error) {
       progress.end(`Failed ${name}`);
       const message = error instanceof Error ? error.message : String(error);
-      // An error that knows the next step carries it as `hint` (Д-380).
+      // An error that knows the next step carries it as `hint`.
       const hint = typeof error?.hint === "string" ? error.hint.trim() : "";
       return {
         content: [{
@@ -629,7 +629,7 @@ export async function startServer({ track } = {}) {
 export async function runStdioServer() {
   // The client closing stdin ends the session once what it asked for is
   // answered; the model's worker would keep the process — in Docker, the
-  // container — running for good (docs/DEFECTS.md, Д-354).
+  // container — running for good.
   const ending = createSessionEnd(() => shutdownBgeWorkers());
   const server = await startServer({ track: ending.track });
   process.stdin.once("end", ending.inputEnded);

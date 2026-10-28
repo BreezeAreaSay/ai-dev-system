@@ -89,7 +89,7 @@ async function createFixture(t) {
     // The security_scanners check asks the host which binaries exist, so the
     // fixture answers for a machine with all of them rather than for whichever
     // machine runs the suite. It also asks a subcommand scanner whether its
-    // plugin is really there (docs/DEFECTS.md, Д-64), and that goes through the
+    // plugin is really there, and that goes through the
     // host too — otherwise this unit test spawns a real `cargo` and its answer
     // depends on the machine running the suite.
     locateExecutable: async (executable) => `/usr/bin/${executable}`,
@@ -212,7 +212,7 @@ test("health check runs every check through the host", async (t) => {
   assert.match(result.recommendations[0], /include_dense_smoke=true/);
 });
 
-// Д-55: nothing told a user that this machine cannot run a single scanner, so
+// Nothing told a user that this machine cannot run a single scanner, so
 // `run_security_scan` came back empty and nobody knew why until they read it.
 test("a machine with no security scanner installed is warned about, not failed", async (t) => {
   const { calls, host, registry } = await createFixture(t);
@@ -264,7 +264,7 @@ test("health check honours the include flags and the smoke limit", async (t) => 
   assert.equal(result.recommendations.length, 0);
 });
 
-test("without the model the dense smoke is not advised, and asked for it fails with the reason (Д-147)", async (t) => {
+test("without the model the dense smoke is not advised, and asked for it fails with the reason", async (t) => {
   const { host, registry } = await createFixture(t);
   const reason = "Dense search is not installed: the model is not on this machine. Run `npm run setup -- --model` to download it.";
   host.embeddingStatus = async () => ({
@@ -359,7 +359,7 @@ test("dashboard rebuild writes the note and snapshot, and status compares finger
   assert.deepEqual(calls.filter(Array.isArray), [["markSearchIndexDirty", "generated system dashboard updated"]]);
   const markdown = await fs.readFile(path.join(vaultRoot, VAULT_PATHS.systemDashboard), "utf8");
   assert.match(markdown, /115 tools/);
-  // The runtime rows are the health checks as they ran (Д-106), without the
+  // The runtime rows are the health checks as they ran, without the
   // ones the dashboard does not run.
   const checked = rebuilt.snapshot.checks.map((check) => check.name);
   assert.ok(checked.includes("vault_root") && checked.includes("skill_registry"), checked.join(", "));
@@ -380,7 +380,7 @@ test("dashboard rebuild writes the note and snapshot, and status compares finger
   assert.equal(drifted.next_step, "Run rebuild_system_dashboard.");
 });
 
-test("before setup the dashboard says what to run, not which file is missing (Д-106)", async (t) => {
+test("before setup the dashboard says what to run, not which file is missing", async (t) => {
   const { host, registry } = await createFixture(t);
   host.readSkillIndex = async () => {
     const error = new Error("ENOENT: no such file or directory, open '/vault/03-skills-catalog/registries/skills.index.json'");

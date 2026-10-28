@@ -3,7 +3,7 @@ services:
   ai-dev-mcp:
     volumes:
       # The projects at their own path, so the path an agent names is the path
-      # the server opens (docs/DEFECTS.md, Д-312); on Windows, /workspace.
+      # the server opens; on Windows, /workspace.
       - type: bind
         source: ${AI_DEV_PROJECT_PATH:?Set AI_DEV_PROJECT_PATH to a local project or projects directory}
         target: ${AI_DEV_PROJECT_PATH}
@@ -20,7 +20,7 @@ services:
       # ~/.ai-dev/models — the folder above it, not the model directory itself.
       # If bge-m3-onnx there is a link to another disk, mount the link itself
       # at /models/bge-m3-onnx instead: in the container a link inside the
-      # mounted folder leads nowhere (docs/DEFECTS.md, Д-368).
+      # mounted folder leads nowhere.
       # The launchers (docker/run-mcp.sh, run-mcp.ps1 and the Windows Claude
       # proxy ClaudeMcpProxy.cs) and the 3.0 client entry mount the same
       # variable the same way; scripts/model-mount-contract.test.mjs holds them

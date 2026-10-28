@@ -51,27 +51,27 @@ export class DaemonLink extends EventEmitter {
   #connecting = null;
   #checking = null;
   // A check asked for after a change while one ran: it runs once more after
-  // that one, which read the install before the change (docs/DEFECTS.md, Д-284).
+  // that one, which read the install before the change.
   #checkAgain = null;
   #quick = "";
   // A reconnect under way: a retired daemon does not start a second move.
   #leaving = null;
   // Stops in flight: a loss meanwhile is what was asked for, and no move
-  // starts a daemon (docs/DEFECTS.md, Д-278).
+  // starts a daemon.
   #stopping = 0;
-  // close() moves it on: a session that opens after it is given up (docs/DEFECTS.md, Д-266, п. 10).
+  // close() moves it on: a session that opens after it is given up.
   #generation = 0;
   // The attempt under way is the offline look, which does not start a daemon.
   #lookOnly = false;
-  // The daemon retired while calls were in flight: move once they end (Д-263).
+  // The daemon retired while calls were in flight: move once they end.
   #moveWhenIdle = false;
   // The calls the person cancelled, told apart from the ones the link ended —
-  // with the key of the link's words, said in the language in force (Д-280).
+  // with the key of the link's words, said in the language in force.
   #byPerson = new WeakSet();
   #endedBy = new WeakMap();
   // Whether the app may start a daemon: the start-up asked with autostart on,
   // or the person pressed Start. The move off a retired daemon starts one only
-  // then (docs/DEFECTS.md, Д-276, п. 5).
+  // then.
   #mayStart = false;
   // What tools/list answered this session: asked once per connection.
   #tools = null;
@@ -135,7 +135,7 @@ export class DaemonLink extends EventEmitter {
     if (!this.#server || !this.#execPath) return Promise.resolve(this.state);
     if (this.#client) return Promise.resolve(this.state);
     if (this.#connecting) {
-      // The offline look does not start a daemon: Start pressed meanwhile waits for it, then starts one (Д-266, п. 10).
+      // The offline look does not start a daemon: Start pressed meanwhile waits for it, then starts one.
       if (start && this.#lookOnly) return this.#connecting.then(() => this.connect({ start, reconnecting }));
       return this.#connecting;
     }
@@ -167,7 +167,7 @@ export class DaemonLink extends EventEmitter {
     this.#quick = "";
     this.status = null;
     await this.refreshStatus({ checks: true }).catch(() => this.refreshStatus({ checks: false })).catch(() => null);
-    // The daemon went away while it answered: #lost has said so and looks for one again (Д-262).
+    // The daemon went away while it answered: #lost has said so and looks for one again.
     if (this.#client !== client) return;
     this.#set({ phase: "online", needsSetup: !this.status?.index?.exists, served_by: this.status?.served_by ?? null });
     this.#arm();
@@ -193,7 +193,7 @@ export class DaemonLink extends EventEmitter {
   /**
    * While there is no daemon, look for one every few seconds without starting
    * it: an AI client starts the daemon on its own, and the app comes back
-   * online with it (docs/DEFECTS.md, Д-243).
+   * online with it.
    */
   #retry() {
     clearTimeout(this.#retryTimer);
@@ -251,7 +251,7 @@ export class DaemonLink extends EventEmitter {
       return;
     }
     // Not asked for: the daemon stopped on its own or was killed; its log says
-    // why (Д-257, п. 6). The key says it again in another language (Д-283, п. 3).
+    // why. The key says it again in another language.
     this.#set({ phase: "offline", error: this.#t("link.lost"), errorKey: "link.lost", log: [] });
     this.#server.daemonLogTail(this.#env).then((log) => {
       if (this.state.phase === "offline" && !this.#client) this.#set({ ...this.state, log });
@@ -306,12 +306,11 @@ export class DaemonLink extends EventEmitter {
 
   /**
    * The daemon retired: the code it runs was replaced in place and a daemon
-   * of the new code serves. Leave it, so it can finish, and use the new one
-   * (docs/DEFECTS.md, Д-245).
+   * of the new code serves. Leave it, so it can finish, and use the new one.
    */
   #moveOn() {
     if (this.#leaving || this.#stopping) return;
-    // A call in flight is the retired daemon's to finish; the move waits for it (Д-263).
+    // A call in flight is the retired daemon's to finish; the move waits for it.
     if (this.#calls.size) {
       this.#moveWhenIdle = true;
       return;
@@ -337,15 +336,15 @@ export class DaemonLink extends EventEmitter {
       });
       if (result.isError) return result.content?.[0]?.text ? { ok: false, error: result.content[0].text, cancelled: false } : this.#failure("link.failed");
       const answer = result.structuredContent?.result ?? null;
-      // Every verdict the app gets is the tray's too (docs/DEFECTS.md, Д-240);
+      // Every verdict the app gets is the tray's too;
       // after a change, the checks run again — not after a tool that, by the
-      // daemon's own word, only reads (Д-286).
+      // daemon's own word, only reads.
       if (tool === "system_status") this.#accept(answer, args?.checks !== false);
       else this.#readsOnly(tool).then((reads) => reads || this.refreshStatus({ checks: true, fresh: true })).catch(() => undefined);
       return { ok: true, result: answer };
     } catch (error) {
       // Cancelled is what the person asked for; a call the link ended — the
-      // daemon went away, the app quits — failed, in the link's words (Д-263).
+      // daemon went away, the app quits — failed, in the link's words.
       if (this.#byPerson.has(controller)) return { ...this.#failure("link.cancelled"), cancelled: true };
       if (this.#endedBy.has(controller)) return this.#failure(this.#endedBy.get(controller));
       return { ok: false, error: String(error?.message ?? error), cancelled: false };
@@ -399,7 +398,7 @@ export class DaemonLink extends EventEmitter {
   /**
    * Whether a tool only reads: the interface's own list, or the daemon's
    * annotation — its list, asked for once a session, the console opened or
-   * not (Д-286). No list to be had: it may have changed something.
+   * not. No list to be had: it may have changed something.
    */
   async #readsOnly(tool) {
     if (READS_ONLY.has(tool)) return true;
@@ -422,8 +421,7 @@ export class DaemonLink extends EventEmitter {
    * daemon stopped — the session is closed, not left open; it would not stop
    * — the session stays, and the answer says why. Not knowing which daemon
    * is its own, the link keeps the session while any daemon still runs: if
-   * that one was the session's, the session ends by itself (docs/DEFECTS.md,
-   * Д-273, Д-278).
+   * that one was the session's, the session ends by itself.
    */
   async stopDaemon() {
     const client = this.#client;
@@ -441,7 +439,7 @@ export class DaemonLink extends EventEmitter {
       }
       return answer;
     } finally {
-      // Whatever came of it, a later loss is unasked again (Д-266, п. 10).
+      // Whatever came of it, a later loss is unasked again.
       this.#stopping -= 1;
     }
   }
@@ -460,8 +458,8 @@ export class DaemonLink extends EventEmitter {
     }
     // An attempt under way — the one whose first checks found the daemon
     // retired — gives up after close(); a connect() now would only share it.
-    // Wait for it, then open a new one (docs/DEFECTS.md, Д-268). While a Stop
-    // runs, it starts none (Д-278).
+    // Wait for it, then open a new one. While a Stop
+    // runs, it starts none.
     await this.#connecting?.catch(() => undefined);
     return this.connect({ start: this.#mayStart && !this.#stopping, reconnecting: true });
   }

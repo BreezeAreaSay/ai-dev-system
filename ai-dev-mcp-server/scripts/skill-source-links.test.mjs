@@ -4,7 +4,7 @@
  * They were written at different times by different hands, and they drifted:
  * the notices credit `Leonxlnx/taste-skill`, while both READMEs linked
  * `tt-a1i/taste-skill`, which does not exist — a broken link shipped to every
- * reader of the front page (docs/DEFECTS.md, Д-66).
+ * reader of the front page.
  *
  * So the notices file is the single list of sources, and a GitHub link in a
  * README has to be on it. A link to something that is not a skill source has

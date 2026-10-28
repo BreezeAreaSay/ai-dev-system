@@ -18,7 +18,7 @@
 // warns and never blocks: an install that is refused for want of an answer
 // teaches people to turn the guard off. Zero dependencies, like every hook.
 // The lookups go through HTTPS_PROXY (`http-proxy.mjs`): `fetch` alone ignores
-// it, and behind a corporate proxy nothing was ever checked (Д-145).
+// it, and behind a corporate proxy nothing was ever checked.
 import { proxyFetch } from "./http-proxy.mjs";
 import { compareVersions, isPrerelease, parseVersion, satisfies } from "./semver-lite.mjs";
 
@@ -279,7 +279,7 @@ export function verdictFor(checked, settings, now = Date.now()) {
   if (serious.length) {
     warns.push(`[supply-chain] ${label} has ${serious.length} known high or critical vulnerabilit${serious.length === 1 ? "y" : "ies"} (${serious.map((item) => item.id).slice(0, 4).join(", ")})${checked.safe ? `; ${checked.name}@${checked.safe} is the first release outside them` : "; no later release is outside them"}.`);
   }
-  // A reason that is a sentence already keeps its one full stop: "(HTTP 403).." read as a typo (docs/DEFECTS.md, Д-172).
+  // A reason that is a sentence already keeps its one full stop: "(HTTP 403).." read as a typo.
   for (const problem of checked.problems) warns.push(`[supply-chain] ${label} was not fully checked: ${String(problem).replace(/[.\s]+$/, "")}.`);
   return { blocks, warns };
 }

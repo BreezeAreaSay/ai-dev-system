@@ -49,7 +49,7 @@ test("system dashboard is deterministic, generated, and freshness-bound", () => 
   assert.equal(dashboardFreshness(current, rechecked).fresh, true);
 });
 
-test("the runtime rows are the health checks as they ran, never a constant Ready (Д-106)", () => {
+test("the runtime rows are the health checks as they ran, never a constant Ready", () => {
   const markdown = renderSystemDashboard(snapshot());
   const runtime = markdown.slice(markdown.indexOf("## Runtime"), markdown.indexOf("## Knowledge And Skills"));
   assert.match(runtime, /\| Vault root \| Ready \| Vault root exists\. \|/);

@@ -23,9 +23,9 @@ import {
   tightenFolder
 } from "./runtime-paths.mjs";
 
-// AI_DEV_HOME names the runtime folder itself (owner decision D2,
-// docs/DEFECTS.md Д-90); these tests hand it `<home>/.ai-dev`, which is where
-// the runtime tree of a user with that home lives.
+// AI_DEV_HOME names the runtime folder itself; these tests hand it
+// `<home>/.ai-dev`, which is where the runtime tree of a user with that home
+// lives.
 function withHome(home, run) {
   const previous = process.env.AI_DEV_HOME;
   process.env.AI_DEV_HOME = path.join(home, ".ai-dev");
@@ -72,7 +72,7 @@ test("a home that is not absolute still yields an absolute root", () => {
   });
 });
 
-test("every daemon start draws a name nobody can guess and take first (Д-107)", () => {
+test("every daemon start draws a name nobody can guess and take first", () => {
   const names = new Set(Array.from({ length: 50 }, () => randomDaemonName()));
   assert.equal(names.size, 50);
   for (const name of names) assert.match(name, /^ai-dev-[0-9a-f]{24}$/);
@@ -92,7 +92,7 @@ test("a socket goes in the runtime's run/ while the path is short enough", () =>
   assert.deepEqual(first, { address: path.join(runDir, "ai-dev-x.sock"), directory: runDir });
 });
 
-test("a home too long for a socket moves it to XDG_RUNTIME_DIR, then to /tmp/ai-dev-<uid> (Д-97)", () => {
+test("a home too long for a socket moves it to XDG_RUNTIME_DIR, then to /tmp/ai-dev-<uid>", () => {
   const longRun = path.join(path.sep, "home", "x".repeat(120), ".ai-dev", "run");
   const name = randomDaemonName();
   const withXdg = daemonAddressCandidates({ platform: "linux", name, runDir: longRun, env: { XDG_RUNTIME_DIR: "/run/user/1000" }, uid: 1000 });
@@ -138,7 +138,7 @@ test("a socket directory is made this user's alone: 0700, a plain directory, own
   await assert.rejects(prepareSocketDirectory(fresh, { uid: (process.getuid?.() ?? 0) + 1 }), /belongs to uid/);
 });
 
-test("a socket directory a file system leaves open after chmod is refused, so the next one is used (Д-227)", { skip: process.platform === "win32" && "POSIX modes" }, async (t) => {
+test("a socket directory a file system leaves open after chmod is refused, so the next one is used", { skip: process.platform === "win32" && "POSIX modes" }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-sockdir-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const open = path.join(root, "open");
@@ -159,7 +159,7 @@ test("a socket directory a file system leaves open after chmod is refused, so th
   assert.equal((await fs.stat(open)).mode & 0o777, 0o700, "where chmod works, the folder is made private and used");
 });
 
-test("a run folder open to others is made private; a link, another user's folder and Windows are left alone (Д-215)", { skip: process.platform === "win32" && "POSIX modes and owners" }, async (t) => {
+test("a run folder open to others is made private; a link, another user's folder and Windows are left alone", { skip: process.platform === "win32" && "POSIX modes and owners" }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-tighten-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const run = path.join(root, "run");
@@ -181,7 +181,7 @@ test("a run folder open to others is made private; a link, another user's folder
   assert.equal((await tightenFolder(path.join(root, "missing"))).state, "left");
 });
 
-test("a folder chmod changes nothing on, or may not change, is said to stay open, and why (Д-225, Д-235)", { skip: process.platform === "win32" && "POSIX modes" }, async (t) => {
+test("a folder chmod changes nothing on, or may not change, is said to stay open, and why", { skip: process.platform === "win32" && "POSIX modes" }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-tighten-open-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const run = path.join(root, "run");
@@ -205,7 +205,7 @@ test("a folder chmod changes nothing on, or may not change, is said to stay open
   assert.equal((await fs.stat(run)).mode & 0o777, 0o755);
 });
 
-test("a private folder of another user's that refuses to be opened is refused as theirs, by uid (Д-235)", { skip: process.platform === "win32" && "POSIX owners" }, async (t) => {
+test("a private folder of another user's that refuses to be opened is refused as theirs, by uid", { skip: process.platform === "win32" && "POSIX owners" }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-theirs-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const theirs = path.join(root, "ai-dev-1000");
@@ -227,11 +227,11 @@ test("a private folder of another user's that refuses to be opened is refused as
   assert.deepEqual(await tightenFolder(theirs, { uid: owner }), { state: "left", why: "it cannot be opened (EACCES)" });
 });
 
-test("the folders a leaving daemon removes run from run/ up to the highest it made, compared as Node names them (Д-214, Д-224)", () => {
+test("the folders a leaving daemon removes run from run/ up to the highest it made, compared as Node names them", () => {
   // On Windows `fs.mkdir` answers in the \\?\ namespace.
   assert.deepEqual(foldersUpTo("C:\\Users\\Me\\.ai-dev\\run", "\\\\?\\C:\\Users\\Me\\.ai-dev", { pathApi: path.win32 }),
     ["C:\\Users\\Me\\.ai-dev\\run", "C:\\Users\\Me\\.ai-dev"]);
-  // Spelled plainly, the top is the same folder (Д-235).
+  // Spelled plainly, the top is the same folder.
   assert.deepEqual(foldersUpTo("C:\\Users\\Me\\.ai-dev\\run", "C:\\Users\\Me\\.ai-dev", { pathApi: path.win32 }),
     ["C:\\Users\\Me\\.ai-dev\\run", "C:\\Users\\Me\\.ai-dev"]);
   assert.deepEqual(foldersUpTo("\\\\server\\share\\me\\.ai-dev\\run", "\\\\?\\UNC\\server\\share\\me\\.ai-dev", { pathApi: path.win32 }),

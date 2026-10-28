@@ -1,5 +1,5 @@
 // The `docker` both bootstrap contracts run against: bootstrap.sh's (bootstrap-contract.test.mjs) and bootstrap.ps1's
-// (bootstrap-ps1-contract.test.mjs), each with a home of its own and this script first on PATH (docs/DEFECTS.md, Д-449).
+// (bootstrap-ps1-contract.test.mjs), each with a home of its own and this script first on PATH.
 /**
  * A `docker` that logs each call (one line, the arguments joined by tabs) and
  * answers as a working engine would: the version, a pull (or a failed one, with

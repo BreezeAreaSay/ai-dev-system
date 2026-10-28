@@ -60,7 +60,7 @@ const DASHBOARD_SKIPS = new Set(["dense_smoke", "search_eval"]);
 
 /**
  * The skill registry, or an error that says what to run: before `setup` there
- * is none, and the dashboard summarizes it (docs/DEFECTS.md, Д-106).
+ * is none, and the dashboard summarizes it.
  */
 async function registryForDashboard(host) {
   try {
@@ -241,12 +241,12 @@ async function systemHealthCheck(host, {
   // Not critical: no scanner installed is a gap, not a broken system. It is
   // checked here because `run_security_scan` is only run on demand, so a
   // machine that can check nothing stays silent until a task asks for a scan
-  // and gets `unchecked` back (docs/DEFECTS.md, Д-55).
+  // and gets `unchecked` back.
   await report.runCheck("security_scanners", false, async () => {
     // Through the host when it offers a locator or a runner, so a fixture can
     // answer for a machine other than the one running the test. A scanner that
     // is a subcommand of another tool is asked rather than assumed: `cargo` on
-    // the PATH is not `cargo audit` (docs/DEFECTS.md, Д-64).
+    // the PATH is not `cargo audit`.
     return evaluateSecurityScanners(await securityScannerAvailability({
       locate: host.locateExecutable ?? locateExecutable,
       ...(host.runProcess ? { runner: host.runProcess } : {})
@@ -386,7 +386,7 @@ async function systemHealthCheck(host, {
   if (include_dense_smoke) {
     await report.runCheck("dense_smoke", true, async () => {
       // Asked for where the model cannot run, it still fails — the test was
-      // asked for — but says why (docs/DEFECTS.md, Д-147).
+      // asked for — but says why.
       const dense = await host.embeddingStatus({});
       if (!dense.available) return evaluateDenseSmoke([], { unavailable: dense.reason });
       return evaluateDenseSmoke(await host.hybridSearchIndex({

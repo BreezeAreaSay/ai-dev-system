@@ -15,7 +15,7 @@ function run(args, home) {
   return spawnSync(process.execPath, [script, ...args], {
     cwd: serverRoot,
     // Every place a client keeps its config, Windows's APPDATA and LOCALAPPDATA
-    // included, inside the test's home (docs/DEFECTS.md, Д-170).
+    // included, inside the test's home.
     env: {
       ...process.env,
       HOME: home,
@@ -44,7 +44,7 @@ test("the 2.x installer is a dry run without --apply, and says what replaced it"
   assert.equal(fs.existsSync(path.join(home, ".cursor", "mcp.json")), false);
 });
 
-test("`--clients claude` is Claude Code alone, as in 2.x (Д-172)", (t) => {
+test("`--clients claude` is Claude Code alone, as in 2.x", (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "local-installer-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   for (const args of [["--clients", "claude"], ["--clients=claude,cursor"]]) {
@@ -54,7 +54,7 @@ test("`--clients claude` is Claude Code alone, as in 2.x (Д-172)", (t) => {
   }
 });
 
-test("--apply writes ai-dev and takes out the ai-dev-system entry 2.x wrote (Д-95)", (t) => {
+test("--apply writes ai-dev and takes out the ai-dev-system entry 2.x wrote", (t) => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "local-installer-"));
   t.after(() => fs.rmSync(home, { recursive: true, force: true }));
   fs.mkdirSync(path.join(home, ".cursor"));
@@ -68,5 +68,5 @@ test("--apply writes ai-dev and takes out the ai-dev-system entry 2.x wrote (Д-
   const servers = JSON.parse(fs.readFileSync(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers;
   assert.deepEqual(Object.keys(servers), ["other", "ai-dev"]);
   assert.deepEqual(servers["ai-dev"], { command: process.execPath, args: [path.join(serverRoot, "bin", "ai-dev.mjs"), "mcp"] });
-  assert.equal("AI_DEV_PYTHON" in (servers["ai-dev"].env ?? {}), false, "no AI_DEV_PYTHON any more (Д-94)");
+  assert.equal("AI_DEV_PYTHON" in (servers["ai-dev"].env ?? {}), false, "no AI_DEV_PYTHON any more");
 });

@@ -12,10 +12,10 @@ import { uninstallBundle } from "../core/bundle-uninstall.mjs";
 import { tildify } from "./context.mjs";
 import { renderResults } from "./clients.mjs";
 
-/** Something was left only because it is in use: close the AI clients and run it again (docs/DEFECTS.md, Д-302). */
+/** Something was left only because it is in use: close the AI clients and run it again. */
 export const EXIT_IN_USE = 3;
 
-/** The data was kept: its folder is not one `--data` deletes (Д-297). */
+/** The data was kept: its folder is not one `--data` deletes. */
 export const EXIT_DATA_KEPT = 4;
 
 export function usage() {

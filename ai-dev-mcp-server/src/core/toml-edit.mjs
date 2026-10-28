@@ -10,8 +10,7 @@
  *
  * Treating the header as a pattern, as the Docker installer did, missed both
  * the subtables and the quoted spellings and wrote a second definition beside
- * them — a file Codex then refused to read at all, losing every server in it
- * (docs/DEFECTS.md, Д-162).
+ * them — a file Codex then refused to read at all, losing every server in it.
  *
  * The scan follows strings, multi-line strings and multi-line arrays, so a `[`
  * inside a value is never taken for a header. Values are not validated: the
@@ -313,7 +312,7 @@ function spanWithBlank(text, table) {
  * replaced. Two tables in a row can both claim the blank line between them;
  * the spans then overlap and are taken as one. Cut one at a time, the second
  * cut used offsets the first had already moved and ate the first character of
- * whatever followed — the `[` of the next header (docs/DEFECTS.md, Д-166).
+ * whatever followed — the `[` of the next header.
  */
 function cut(text, spans) {
   let result = "";

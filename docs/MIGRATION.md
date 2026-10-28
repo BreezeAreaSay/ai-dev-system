@@ -41,7 +41,7 @@ A new machine needs none of this: install 3.0 [any of the three ways](INSTALL.md
   host, except `bootstrap.ps1` on Windows (22.12+).
 - **No Python.** Search, its index and the local model run in Node; the Python search helper is gone.
   Python is left to the two UI UX Pro Max tools, which say what to install without it.
-- **The Python dense backend is removed** (decision D3). One command moves you to the ONNX model:
+- **The Python dense backend is removed.** One command moves you to the ONNX model:
   `npm run setup -- --model` in a clone, `npx ai-dev-system setup --model` with npx. It
   embeds the documents again; the Python vectors are another model's, kept but not compared, until it
   replaces them. `AI_DEV_DENSE_BACKEND=python` is read as `auto` with a note; `BGE_M3_PYTHON`,
@@ -49,7 +49,7 @@ A new machine needs none of this: install 3.0 [any of the three ways](INSTALL.md
   are named by the health check and not read — remove them, and delete `~/.ai-dev/models/bge-m3`.
   `--dense-python` still works and does what `--model` does. An Intel Mac has no build of the ONNX
   runtime: there dense search is off, and search works by words.
-- **`AI_DEV_HOME` is the runtime folder itself** (decision D2). 2.x put the tree one level down, in
+- **`AI_DEV_HOME` is the runtime folder itself.** 2.x put the tree one level down, in
   `$AI_DEV_HOME/.ai-dev`; the server, `setup` and every `ai-dev` command move it up when they start,
   without overwriting anything, and `ai-dev doctor` reports what moved (check `runtime_home`).
   `AI_DEV_HOME` set to your home folder keeps its 2.x meaning. Hooks installed into a repository look
@@ -150,7 +150,7 @@ you used the Python backend (`npm run setup -- --model`).
   model install`.
 - **Bootstrap installs nothing.** It checks for Docker and says where it comes from;
   `--install-prerequisites` is accepted and answered with that.
-- **Tags** (decision D9): `:latest` moves only with a release tag of the newest line, and no longer
+- **Tags**: `:latest` moves only with a release tag of the newest line, and no longer
   with 2.x; `:edge` follows `main`; `:2` follows the 2.x line — 2.x's `:latest`, copied to it before
   3.0 is tagged, and after that moved only by a `v2.*` tag.
 
@@ -186,7 +186,7 @@ you used the Python backend (`npm run setup -- --model`).
 Removed outright, being internal or never released: `scripts/install-docker-mcp-clients.mjs` (only
 bootstrap and CI ran it), `npm run test:search-helper`, `search-index/search_cli.py` and the image's
 `/opt/ai-dev/search-index`, `embeddings/`, and the Homebrew formula and the AUR package
-(`packaging/`), which were never published (decision D8).
+(`packaging/`), which were never published.
 
 ## The way back
 

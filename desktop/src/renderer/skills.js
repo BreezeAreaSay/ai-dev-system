@@ -11,7 +11,7 @@ import { emptyState, errorState, formatNumber, loadingLine } from "./ui.js";
 const RESULTS = 20;
 const state = { query: "", group: null };
 
-/** `text` cut to `length`, with "…" when it was cut (docs/DEFECTS.md, Д-291). */
+/** `text` cut to `length`, with "…" when it was cut. */
 const cut = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
 
 function resultList(view, skills, open) {
@@ -70,7 +70,7 @@ export function skillsScreen(view) {
     state.group = null;
     if (!state.query) return groups();
     show(body, loadingLine(view));
-    // One more than shown, to know when there are more and say so (Д-289).
+    // One more than shown, to know when there are more and say so.
     return api.call("search_skills", { query: state.query, limit: RESULTS + 1 }).then(
       (skills) => (skills.length > RESULTS
         ? results(view.t("skills.resultsFirst", { count: RESULTS }), skills.slice(0, RESULTS), search)

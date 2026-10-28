@@ -22,7 +22,7 @@ test("a checkout of this repository is a clone: its content is the bundled seed"
   assert.equal(layout.runtimeRoot, path.join(home, ".ai-dev"));
 });
 
-test("a clone its user cannot write to serves a vault of the user's own, filled from its seed (Д-576)", () => {
+test("a clone its user cannot write to serves a vault of the user's own, filled from its seed", () => {
   const seed = path.join(path.dirname(OWN_SERVER_ROOT), "docker", "public-seed");
   const readOnly = resolveInstallLayout({ serverRoot: OWN_SERVER_ROOT, env: env(), writable: (target) => target !== seed });
   assert.equal(readOnly.kind, "clone", "commands are still spelled as a clone's");
@@ -60,7 +60,7 @@ test("a full vault two levels above the server is a vault; AI_DEV_VAULT_ROOT mov
   assert.equal(named.contentRoot, path.resolve("/elsewhere/notes"));
 });
 
-test("a package npx runs with AI_DEV_VAULT_ROOT set is still a package in npx's cache (Д-177)", () => {
+test("a package npx runs with AI_DEV_VAULT_ROOT set is still a package in npx's cache", () => {
   const root = path.resolve("/home/me/.npm/_npx/abc/node_modules/ai-dev-system");
   const layout = resolveInstallLayout({
     serverRoot: path.join(root, "ai-dev-mcp-server"),
@@ -91,7 +91,7 @@ test("a package keeps its seed read-only and the user's vault under the runtime 
   assert.equal(layout.appHome, false);
 
   const custom = resolveInstallLayout({ serverRoot: server, env: env({ AI_DEV_HOME: "/data/ai" }), exists: only() });
-  assert.equal(custom.contentRoot, path.resolve("/data/ai/vault"), "AI_DEV_HOME is the runtime folder (D2)");
+  assert.equal(custom.contentRoot, path.resolve("/data/ai/vault"), "AI_DEV_HOME is the runtime folder");
   assert.equal(custom.seedRoot, "", "no marker, no seed: nothing is copied from a folder that is not a distribution");
 });
 
@@ -113,14 +113,14 @@ test("the 3.0 image is a distribution: its seed is synced into the volume's vaul
   // A 2.x image has no distribution: its entrypoint copied the seed, and nothing syncs it.
   const old = resolveInstallLayout({ serverRoot: "/opt/ai-dev/app", env: env({ AI_DEV_RUNTIME: "docker", AI_DEV_VAULT_ROOT: "/data/ai-dev-system" }), exists: only("/opt/ai-dev/public-seed/public-seed.manifest.json") });
   assert.equal(old.seedRoot, "");
-  // A package keeps the rule of Д-177: a vault of the user's own is not seeded.
+  // A package keeps the rule: a vault of the user's own is not seeded.
   const own = resolveInstallLayout({ serverRoot: "/pkg/ai-dev-mcp-server", env: env({ AI_DEV_VAULT_ROOT: "/home/me/Vault" }), exists: only("/pkg/distribution.json", "/pkg/seed/public-seed.manifest.json") });
   assert.deepEqual([own.kind, own.seedRoot], ["package", ""]);
 });
 
-test("in the image a vault the user named is theirs, read where it is — unless a seed is there already (Д-321)", () => {
+test("in the image a vault the user named is theirs, read where it is — unless a seed is there already", () => {
   const files = ["/opt/ai-dev/distribution.json", "/opt/ai-dev/seed/public-seed.manifest.json"];
-  // A 2.x manifest is a manifest by its content: a file of the user's with its name is not one (Д-343).
+  // A 2.x manifest is a manifest by its content: a file of the user's with its name is not one.
   const manifests = new Set([path.resolve("/data/myvault/public-seed.manifest.json")]);
   const layoutWith = (...extra) => resolveInstallLayout({
     serverRoot: "/opt/ai-dev/ai-dev-mcp-server", env: env({ AI_DEV_RUNTIME: "docker", AI_DEV_VAULT_ROOT: "/data/myvault" }), exists: only(...files, ...extra),
@@ -163,7 +163,7 @@ test("hints are spelled the way each layout runs them", () => {
   assert.equal(hint("npm run dense:doctor", global), "ai-dev model doctor");
   assert.equal(hint("npm run clients:install -- --clients all", global), "ai-dev clients install --clients all");
   assert.equal(hint("npm run ai-dev -- clients doctor", global), "ai-dev clients doctor");
-  // Nobody has a shell in a client's container: the host runs one of its own (Д-185, п. 7; Д-316).
+  // Nobody has a shell in a client's container: the host runs one of its own.
   const docker = { kind: "docker", ephemeral: false, appHome: false, serverRoot: "/opt/ai-dev/ai-dev-mcp-server" };
   assert.equal(hint("npm run doctor", docker), "docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev doctor");
   assert.equal(hint("npm run setup -- --model", docker),
@@ -171,13 +171,12 @@ test("hints are spelled the way each layout runs them", () => {
     "the model goes into the volume, with the network that one run needs");
   assert.equal(hint("npm run model -- import <folder or .zip>", docker),
     "docker run --rm -it --mount type=volume,source=ai-dev-system-data,target=/data --mount type=bind,source=<folder or .zip>,target=/import,readonly <image> ai-dev model import /import");
-  // The volume is the one at the image's /data, whatever the host named it; a mount there with no name, a placeholder
-  // (Д-528, Д-539).
+  // The volume is the one at the image's /data, whatever the host named it; a mount there with no name, a placeholder.
   assert.equal(dockerCommand("setup --model", "team-data"),
     "docker run --rm -it --network bridge --mount type=volume,source=team-data,target=/data <image> ai-dev model install");
   assert.equal(dockerCommand("setup --model", null),
     "docker run --rm -it --network bridge --mount <what your sessions mount at /data> <image> ai-dev model install");
-  // A model folder of the host's at /models is embedded with, offline, into the same place (Д-341, Д-546).
+  // A model folder of the host's at /models is embedded with, offline, into the same place.
   assert.equal(dockerEmbedCommand("team-data"), "docker run --rm -it --mount type=volume,source=team-data,target=/data "
     + "--mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model");
   assert.equal(dockerEmbedCommand(null), "docker run --rm -it --mount <what your sessions mount at /data> "
@@ -189,12 +188,12 @@ test("hints are spelled the way each layout runs them", () => {
     "the Windows installer puts nothing on PATH: its shim beside the stable link, unquoted, as cmd and PowerShell both run it");
   const spaced = path.resolve("/home/John Smith/.ai-dev");
   assert.equal(hint("npm run doctor", { ...windows, runtimeRoot: spaced }), `& '${path.join(spaced, "app", "current", "ai-dev.cmd")}' doctor`,
-    "a path with a space is quoted, and PowerShell runs a quoted path only after & (Д-306, п. 2)");
+    "a path with a space is quoted, and PowerShell runs a quoted path only after &");
   for (const name of ["O'Brien", "R&D", "dev(2)", "$admin"]) {
     const unusual = path.resolve(`/home/${name}/.ai-dev`);
     const shim = path.join(unusual, "app", "current", "ai-dev.cmd");
     assert.equal(hint("npm run doctor", { ...windows, runtimeRoot: unusual }), `& '${shim.replaceAll("'", "''")}' doctor`,
-      `${name}: in single quotes, which PowerShell does not expand, ' doubled (Д-310, п. 2)`);
+      `${name}: in single quotes, which PowerShell does not expand, ' doubled`);
   }
   const cyrillic = path.resolve("/home/Дмитрий/.ai-dev");
   assert.equal(hint("npm run doctor", { ...windows, runtimeRoot: cyrillic }), `${path.join(cyrillic, "app", "current", "ai-dev.cmd")} doctor`,
@@ -217,7 +216,7 @@ test("without the stable link the Windows install's hint names the shim in the c
   const runtimeRoot = path.join(root, "rt");
   const copy = path.join(runtimeRoot, "app", "3.0.0-abcdef12");
   const layout = { kind: "package", ephemeral: false, appHome: true, bundle: true, runtimeRoot, root: copy, platform: "win32" };
-  assert.equal(hint("npm run doctor", layout), `${path.join(copy, "ai-dev.cmd")} doctor`, "a drive that holds no link (Д-299)");
+  assert.equal(hint("npm run doctor", layout), `${path.join(copy, "ai-dev.cmd")} doctor`, "a drive that holds no link");
   await fs.mkdir(copy, { recursive: true });
   await fs.writeFile(path.join(copy, "ai-dev.cmd"), "");
   await fs.symlink(copy, path.join(runtimeRoot, "app", "current"), "dir");
@@ -236,12 +235,12 @@ test("the Windows installer's runtime is a package with a bundle, wherever it li
   assert.equal(layout.appHome, true);
   assert.equal(layout.seedRoot, path.join(root, "seed"), "its seed fills the user's vault, as a package's does");
   assert.match(runtimeRepairHint(layout, { platform: "win32", arch: "x64" }), /^quit AI Dev and start it again — it puts back the files of its runtime that went missing — and, if it says the installer's copy is damaged too, run the AI Dev installer again$/,
-    "a start puts back what went missing (Д-300); the installer only when its own copy is damaged");
+    "a start puts back what went missing; the installer only when its own copy is damaged");
   const npm = resolveInstallLayout({ serverRoot: path.join(root, "ai-dev-mcp-server"), env: env(), exists: only(path.join(root, "distribution.json")) });
   assert.equal(npm.bundle, false, "an npx copy has no bundle.json");
 });
 
-test("the model runtime's way back depends on how the package got here (Д-174)", () => {
+test("the model runtime's way back depends on how the package got here", () => {
   const linux = { platform: "linux", arch: "x64" };
   assert.equal(runtimeRepairHint({ kind: "clone" }, linux), "run `npm ci` in ai-dev-mcp-server/");
   assert.match(runtimeRepairHint({ kind: "package", ephemeral: true }, linux), /^run `npx ai-dev-system setup`/);
@@ -253,7 +252,7 @@ test("the model runtime's way back depends on how the package got here (Д-174)"
   assert.match(runtimeRepairHint({ kind: "docker" }), /image/);
 });
 
-test("Frontend QA's browser comes, in the image, from its -browser variant: nothing installs into a client's container (Д-316)", () => {
+test("Frontend QA's browser comes, in the image, from its -browser variant: nothing installs into a client's container", () => {
   assert.match(frontendQaHint({ kind: "docker", ephemeral: false, appHome: false }), /`-browser` variant .*`:latest-browser`/);
   assert.doesNotMatch(frontendQaHint({ kind: "docker", ephemeral: false, appHome: false }), /setup|--frontend-qa/);
   assert.equal(frontendQaHint({ kind: "clone", ephemeral: false, appHome: false }), "run `npm run setup -- --frontend-qa` to install it");

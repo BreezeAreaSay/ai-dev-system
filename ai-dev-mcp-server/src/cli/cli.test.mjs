@@ -19,8 +19,7 @@ const INITIALIZE = `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initializ
 /**
  * Every place a client keeps its config, inside `home`: on Windows VS Code's
  * and Claude Desktop's live under APPDATA and LOCALAPPDATA, not under HOME,
- * and a test that left them alone wrote to the developer's own files
- * (docs/DEFECTS.md, Д-170).
+ * and a test that left them alone wrote to the developer's own files.
  */
 function homeEnv(home, extra = {}) {
   return {
@@ -80,7 +79,7 @@ test("help, version and wrong usage answer with exit codes 0 and 2", async () =>
   const version = await runNode([cli, "--version"]);
   assert.equal(version.code, 0);
   assert.match(version.stdout, /^ai-dev \d+\.\d+\.\d+ \(Node \d+/);
-  // What `clients remove` keeps back is any entry the install replaced, 2.x's ai-dev-system too (Д-416, Д-421).
+  // What `clients remove` keeps back is any entry the install replaced, 2.x's ai-dev-system too.
   const clientsHelp = await runNode([cli, "clients", "--help"]);
   assert.equal(clientsHelp.code, 0);
   assert.match(clientsHelp.stdout, /\n {2}remove {5}take ai-dev out again; an untouched file goes back as it was, less any ai-dev or ai-dev-system\n {13}entry the install replaced \(its backup keeps it\)\n/);
@@ -105,7 +104,7 @@ test("help, version and wrong usage answer with exit codes 0 and 2", async () =>
   }
 });
 
-test("a mistyped command touches no data: the 2.x runtime folder stays where it is (Д-161)", async (t) => {
+test("a mistyped command touches no data: the 2.x runtime folder stays where it is", async (t) => {
   const home = await tempDir(t);
   const runtime = path.join(home, "rt");
   await fs.mkdir(path.join(runtime, ".ai-dev", "state"), { recursive: true });
@@ -118,7 +117,7 @@ test("a mistyped command touches no data: the 2.x runtime folder stays where it 
   assert.deepEqual(await fs.readdir(path.join(runtime, ".ai-dev", "state")), ["instincts.json"]);
 });
 
-test("`ai-dev mcp`, its synonym `start` and the 2.x `scripts/ai-dev.mjs start` serve MCP with instructions (Д-161)", async (t) => {
+test("`ai-dev mcp`, its synonym `start` and the 2.x `scripts/ai-dev.mjs start` serve MCP with instructions", async (t) => {
   const home = await tempDir(t);
   for (const args of [[cli, "mcp"], [cli, "start"], [path.join(serverRoot, "scripts", "ai-dev.mjs"), "start"], [path.join(serverRoot, "src", "server.mjs")]]) {
     const result = await runNode(args, { env: homeEnv(home), input: INITIALIZE, untilLine: /\n/ });
@@ -186,11 +185,11 @@ test("clients install --docker writes `docker run -i --rm …`, and list, entry 
   const state = path.join(home, ".ai-dev", "state");
   // Shared where Docker Desktop maps the image's user to this one; on Linux only
   // when tried and found writable as this user — the stub docker here writes
-  // nothing, so not here (Д-322). A dry run says it did not try.
+  // nothing, so not here. A dry run says it did not try.
   const shared = process.platform !== "linux";
   assert.equal(mounts.includes(`type=bind,source=${state},target=/ai-dev-state`), shared, mounts.join(" "));
   assert.ok(!written.args.includes("--user"));
-  // Tried whatever the uid (Д-334): the stub ran, and wrote nothing.
+  // Tried whatever the uid: the stub ran, and wrote nothing.
   if (!shared) assert.match(JSON.parse(install.stdout).note, /what the image's user wrote into your state folder did not reach it\. The server keeps its state in the volume/);
   await fs.access(path.join(home, "Projects"));
   await fs.access(path.join(state, "mcp-clients.json"));
@@ -217,7 +216,7 @@ test("clients install --docker writes `docker run -i --rm …`, and list, entry 
   assert.match(remove.stdout, /Cursor\s+(restored|removed)/);
 });
 
-test("clients entry --docker tries the state folder's sharing as install does, the folder made for it (Д-334)", async (t) => {
+test("clients entry --docker tries the state folder's sharing as install does, the folder made for it", async (t) => {
   if (process.platform !== "linux") return t.skip("only a Linux host tries it");
   const home = await tempDir(t);
   const bin = path.join(home, "bin");
@@ -237,7 +236,7 @@ test("clients entry --docker tries the state folder's sharing as install does, t
   assert.doesNotMatch(entry.stderr, /Docker did not run/);
 });
 
-test("the record of written configs is in the hooks' state folder; one an earlier install kept in the runtime home stays used (Д-336)", async (t) => {
+test("the record of written configs is in the hooks' state folder; one an earlier install kept in the runtime home stays used", async (t) => {
   const home = await tempDir(t);
   const runtime = path.join(home, ".ai-dev", "state", "mcp-clients.json");
   const stateRoot = path.join(home, "elsewhere");
@@ -252,7 +251,7 @@ test("the record of written configs is in the hooks' state folder; one an earlie
   assert.equal(clientStatePath(env), path.join(stateRoot, "mcp-clients.json"));
 });
 
-test("with AI_DEV_STATE_ROOT set, clients remove reads the record a Docker install wrote there, and puts the file back (Д-336)", async (t) => {
+test("with AI_DEV_STATE_ROOT set, clients remove reads the record a Docker install wrote there, and puts the file back", async (t) => {
   const home = await tempDir(t);
   const bin = path.join(home, "bin");
   await fs.mkdir(bin);
@@ -271,7 +270,7 @@ test("with AI_DEV_STATE_ROOT set, clients remove reads the record a Docker insta
   assert.equal(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8"), original);
 });
 
-test("clients entry --docker --model mounts a linked bge-m3-onnx itself; on the host one that leads nowhere is refused, in the image it is taken as bootstrap checked it (Д-368)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+test("clients entry --docker --model mounts a linked bge-m3-onnx itself; on the host one that leads nowhere is refused, in the image it is taken as bootstrap checked it", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
   const home = await fs.realpath(await tempDir(t));
   const models = path.join(home, "models");
   await fs.mkdir(path.join(home, "disk2", "bge-m3-onnx-real"), { recursive: true });
@@ -293,7 +292,7 @@ test("clients entry --docker --model mounts a linked bge-m3-onnx itself; on the 
   assert.ok(JSON.parse(inImage.stdout).args.includes(`type=bind,source=${models}/bge-m3-onnx,target=/models/bge-m3-onnx,readonly`));
 });
 
-test("in the image on the host's behalf, clients install --docker makes no folder of the host's and shares the state as the host decided (Д-319, Д-322)", async (t) => {
+test("in the image on the host's behalf, clients install --docker makes no folder of the host's and shares the state as the host decided", async (t) => {
   const home = await tempDir(t);
   await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
   const state = path.join(home, ".ai-dev", "state");
@@ -314,7 +313,7 @@ test("in the image on the host's behalf, clients install --docker makes no folde
   assert.equal(apart.code, 0, apart.stderr);
   const after = readJsonc(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"].args;
   assert.ok(!after.some((argument) => argument.includes("/ai-dev-state")), after.join(" "));
-  // Decided by bootstrap.sh, it is bootstrap.sh that says why — once, not once per run (Д-342, Д-344).
+  // Decided by bootstrap.sh, it is bootstrap.sh that says why — once, not once per run.
   assert.equal(JSON.parse(apart.stdout).note ?? "", "");
   const untried = await runNode([cli, "clients", "install", ...flags, "--shared-state=untried"], { env });
   assert.equal(untried.code, 0, untried.stderr);
@@ -324,7 +323,7 @@ test("in the image on the host's behalf, clients install --docker makes no folde
   assert.match(wrong.stderr, /--shared-state takes yes, no or untried/);
 });
 
-test("on the host, the state folder of a Docker entry is the hooks' one: AI_DEV_STATE_ROOT first (Д-328)", async (t) => {
+test("on the host, the state folder of a Docker entry is the hooks' one: AI_DEV_STATE_ROOT first", async (t) => {
   const home = await tempDir(t);
   const elsewhere = path.join(home, "elsewhere", "state");
   const entry = await runNode([cli, "clients", "entry", "cursor", "--docker", "--image=x", "--platform=darwin", `--projects=${path.join(home, "p")}`], { env: homeEnv(home, { AI_DEV_STATE_ROOT: elsewhere }) });
@@ -346,7 +345,7 @@ test("clients doctor names a config whose Node is gone, and exits 1", async (t) 
   }
 });
 
-test("clients doctor names a Docker entry whose mounted folder is gone, without starting it (Д-385)", async (t) => {
+test("clients doctor names a Docker entry whose mounted folder is gone, without starting it", async (t) => {
   const home = await tempDir(t);
   await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
   // The model a link led to sat on a disk that is not connected now; `docker` here would only fail.
@@ -362,7 +361,7 @@ test("clients doctor names a Docker entry whose mounted folder is gone, without 
 
 const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-test("clients doctor names where a gone model link leads, and its advice writes the entries again with the entry's own options (Д-397)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+test("clients doctor names where a gone model link leads, and its advice writes the entries again with the entry's own options", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
   const home = await fs.realpath(await tempDir(t));
   await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
   const projects = path.join(home, "My Projects");
@@ -413,7 +412,7 @@ async function dockerEntryHome(t) {
   return { home, writeEntry, readEntry, env: homeEnv(home, { PATH: `${bin}${path.delimiter}${process.env.PATH}`, AI_DEV_STATE_ROOT: "" }) };
 }
 
-test("clients doctor's advice drops --model whichever gone folder is the model's, and keeps the volume and the state (Д-414, Д-417)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+test("clients doctor's advice drops --model whichever gone folder is the model's, and keeps the volume and the state", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
   const { home, writeEntry, readEntry, env } = await dockerEntryHome(t);
   const projects = path.join(home, "Projects");
   const state = path.join(home, "state");
@@ -441,7 +440,7 @@ test("clients doctor's advice drops --model whichever gone folder is the model's
   assert.ok(folder.stdout.includes(`FAILED — the folder this entry mounts at /models is not here: ${path.join(home, "gone-models")}. Docker starts no session without it: connect the disk it is on, or write the entries again with another model folder (--model=<folder>) or with none, the model then the volume's: \`ai-dev clients install --docker --image=ai-dev-system:3 --clients=cursor --volume=r3f-other-data --projects=${projects}\`.`), folder.stdout);
 });
 
-test("clients doctor's advice writes the entry it is about, not every client's: a client of a local install stays one (Д-414)", async (t) => {
+test("clients doctor's advice writes the entry it is about, not every client's: a client of a local install stays one", async (t) => {
   const { home, writeEntry, env } = await dockerEntryHome(t);
   await fs.mkdir(path.join(home, ".gemini"));
   const local = `${JSON.stringify({ mcpServers: { "ai-dev": { command: process.execPath, args: [cli, "mcp"] } } }, null, 2)}\n`;
@@ -460,7 +459,7 @@ test("clients doctor's advice writes the entry it is about, not every client's: 
   assert.equal(await fs.readFile(path.join(home, ".gemini", "settings.json"), "utf8"), local, "Gemini CLI still runs the local install");
 });
 
-test("clients doctor's advice for a projects or state folder that is a link leading nowhere takes another folder: install cannot make one through it (Д-414, Д-430)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+test("clients doctor's advice for a projects or state folder that is a link leading nowhere takes another folder: install cannot make one through it", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
   const { home, writeEntry, readEntry, env } = await dockerEntryHome(t);
   const projects = path.join(home, "Projects");
   const unplugged = path.join(home, "unplugged", "Projects");
@@ -487,7 +486,7 @@ test("clients doctor's advice for a projects or state folder that is a link lead
   assert.deepEqual(adviceWords(stateDoctor.stdout).slice(3), ["--docker", "--image=ai-dev-system:3", "--clients=cursor", `--projects=${elsewhere}`, "--state=<state-folder>"]);
   assert.match(stateDoctor.stdout, /or write the entries again with another state folder in place of <state-folder>, as install cannot make one through a link that leads nowhere: `/);
 
-  // Both of them links that lead nowhere: each its own placeholder, and the reason said once (Д-430).
+  // Both of them links that lead nowhere: each its own placeholder, and the reason said once.
   await writeEntry(`type=bind,source=${state},target=/ai-dev-state`, `type=bind,source=${projects},target=${projects}`);
   const both = await runNode([cli, "clients", "doctor"], { env });
   assert.equal(both.code, 1);
@@ -499,7 +498,7 @@ test("clients doctor's advice for a projects or state folder that is a link lead
   assert.ok((await readEntry()).includes(`type=bind,source=${elsewhere},target=${elsewhere}`));
 });
 
-test("clients doctor's advice takes another folder where install could not make one: under a link that leads nowhere, or where this user may not write (Д-429)", { skip: process.platform === "win32" && "POSIX links and modes" }, async (t) => {
+test("clients doctor's advice takes another folder where install could not make one: under a link that leads nowhere, or where this user may not write", { skip: process.platform === "win32" && "POSIX links and modes" }, async (t) => {
   const { home, writeEntry, readEntry, env } = await dockerEntryHome(t);
   // The projects folder on a disk reached through a link, which is not connected: the link leads nowhere.
   const disk = path.join(home, "Projects-disk");
@@ -582,7 +581,7 @@ async function oldDockerHome(t) {
   return { home, env, readEntry, doctorOf };
 }
 
-test("clients doctor starts an entry whose --mount it cannot read, and names that --mount only when Docker refuses to start it, after Docker's own words (Д-417, Д-427)", { skip: process.platform === "win32" && "a shell script for docker" }, async (t) => {
+test("clients doctor starts an entry whose --mount it cannot read, and names that --mount only when Docker refuses to start it, after Docker's own words", { skip: process.platform === "win32" && "a shell script for docker" }, async (t) => {
   const { home, doctorOf } = await oldDockerHome(t);
   const projects = path.join(home, "Projects");
   const models = path.join(home, "models");
@@ -599,7 +598,7 @@ test("clients doctor starts an entry whose --mount it cannot read, and names tha
     assert.equal(doctor.started, 1, "the entry was started");
   }
   // One that Docker refuses: the entry is started all the same, and the --mount is named after Docker's own words;
-  // a folder gone beside it, which Docker 29 never looked at, is said after them — it is gone for every Docker (Д-433).
+  // a folder gone beside it, which Docker 29 never looked at, is said after them — it is gone for every Docker.
   const value = `type=bind,source=${path.join(home, "gone")},target=/x,bogus=1`;
   const goneToo = path.join(home, "gone-too");
   for (const [says, reason] of [["", "unknown option 'bogus' in 'bogus=1'"], ["27", "unexpected key 'bogus' in 'bogus=1'"]]) {
@@ -615,7 +614,7 @@ test("clients doctor starts an entry whose --mount it cannot read, and names tha
   assert.match(cut.stdout, /FAILED — it exited with code 125 before answering: invalid argument "type=bind,source=[^…]+…[^…]+ for "--mount" flag: unknown option 'bogus' in 'bogus=1'\. Its --mount "type=bind,source=/);
 });
 
-test("clients doctor names a --mount Docker 29 cannot read only when Docker refused it: a start that failed otherwise is said in Docker's words, and a folder gone beside it as one (Д-433)", { skip: process.platform === "win32" && "a shell script for docker" }, async (t) => {
+test("clients doctor names a --mount Docker 29 cannot read only when Docker refused it: a start that failed otherwise is said in Docker's words, and a folder gone beside it as one", { skip: process.platform === "win32" && "a shell script for docker" }, async (t) => {
   const { home, env, readEntry, doctorOf } = await oldDockerHome(t);
   const models = path.join(home, "models");
   await fs.mkdir(models);
@@ -650,13 +649,13 @@ test("clients doctor names a --mount Docker 29 cannot read only when Docker refu
   assert.deepEqual([args.includes(volume), args.includes(`type=bind,source=${gone},target=${gone}`), args.some((argument) => /readonly=TRUE/.test(argument))], [true, true, false], args.join(" "));
 });
 
-test("clients doctor's advice for a folder on a drive that is not there takes another folder: install cannot make one on it (Д-434)", () => {
+test("clients doctor's advice for a folder on a drive that is not there takes another folder: install cannot make one on it", () => {
   const entry = { args: ["run", "-i", "--rm", "--mount", "type=volume,source=ai-dev-system-data,target=/data", "--mount", "type=bind,source=E:\\Projects,target=/workspace", "ghcr.io/stonebridgeway/ai-dev-system:latest"] };
-  // What the walk up says on Windows of E:\Projects when E:\ is not there (docker-launch.test.mjs, Д-434).
+  // What the walk up says on Windows of E:\Projects when E:\ is not there (docker-launch.test.mjs).
   assert.equal(missingMountError("cursor", entry, [{ source: "E:\\Projects", target: "/workspace", unmakeable: { at: "E:\\", why: "gone" } }]), `the folder this entry mounts at /workspace is not here: E:\\Projects. Docker starts no session without it: connect the disk it is on, or write the entries again with another projects folder in place of <projects-folder>, as install cannot make one on E:\\, which is not there: \`ai-dev clients install --docker --image=ghcr.io/stonebridgeway/ai-dev-system:latest --clients=cursor ${commandWord("--projects=<projects-folder>")}\`.`);
 });
 
-test("a command the doctor gives is quoted for the shell it is pasted into: a POSIX one, or on Windows PowerShell and cmd.exe alike (Д-417, Д-430)", (t) => {
+test("a command the doctor gives is quoted for the shell it is pasted into: a POSIX one, or on Windows PowerShell and cmd.exe alike", (t) => {
   assert.equal(commandWord("--projects=/home/me/My $Projects", "linux"), "'--projects=/home/me/My $Projects'");
   assert.equal(commandWord("--state=/home/O'Brien/state", "darwin"), "'--state=/home/O'\\''Brien/state'");
   assert.equal(commandWord("--image=ghcr.io/x/ai-dev@sha256:ab12", "linux"), "--image=ghcr.io/x/ai-dev@sha256:ab12");
@@ -676,7 +675,7 @@ test("a command the doctor gives is quoted for the shell it is pasted into: a PO
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout), windows);
 });
-test("the note that the model is on another disk reaches the person: on stderr from clients entry --docker, in install --docker --json (Д-385, Д-395)", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
+test("the note that the model is on another disk reaches the person: on stderr from clients entry --docker, in install --docker --json", { skip: process.platform === "win32" && "a POSIX link" }, async (t) => {
   const home = await fs.realpath(await tempDir(t));
   // The link has to lead to another filesystem than the one it is on, which a temporary folder alone does not give.
   const device = (await fs.stat(home)).dev;
@@ -722,7 +721,7 @@ test("setup's flags: --model, its 2.x names --dense and --dense-python, --all, -
   assert.equal(parseSetupArgs(["-y"]).yes, true);
 });
 
-test("Ctrl-C at a question stops with 130, as Ctrl-C anywhere else does (Д-172)", async () => {
+test("Ctrl-C at a question stops with 130, as Ctrl-C anywhere else does", async () => {
   const terminal = () => Object.assign(new PassThrough(), { isTTY: true, columns: 80, setRawMode() { return this; } });
   const ask = (typed, fallback) => {
     const stdin = terminal();
@@ -736,7 +735,7 @@ test("Ctrl-C at a question stops with 130, as Ctrl-C anywhere else does (Д-172)
   assert.equal(await ask("\r", true), true, "Enter takes the default");
 });
 
-test("`ai-dev backup` and `ai-dev restore` run on every system, and a restore asks for --confirm (Д-104)", async (t) => {
+test("`ai-dev backup` and `ai-dev restore` run on every system, and a restore asks for --confirm", async (t) => {
   const home = await tempDir(t);
   const vault = path.join(home, "vault");
   const runtime = path.join(home, "rt");
@@ -785,7 +784,7 @@ test("`ai-dev uninstall` says what it would do, changes nothing without --yes, a
   assert.equal(said.runtime_home, runtime);
   assert.deepEqual(said.data, { asked: true, removed: false });
   await fs.access(path.join(runtime, "state", "instincts.json"));
-  // A runtime home that holds something AI Dev did not make is kept, and the exit status says so (Д-297, Д-302).
+  // A runtime home that holds something AI Dev did not make is kept, and the exit status says so.
   await fs.writeFile(path.join(runtime, "notes.txt"), "mine\n");
   const kept = await runNode([cli, "uninstall", "--data", "--yes"], { env });
   assert.equal(kept.code, 4, kept.stderr);

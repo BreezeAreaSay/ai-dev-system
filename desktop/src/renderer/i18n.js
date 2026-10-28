@@ -1,4 +1,4 @@
-// Every word the interface shows, in English and Russian (owner decision D6).
+// Every word the interface shows, in English and Russian.
 // The main process reads the same table for the tray. A test checks both
 // languages have the same keys and the same {placeholders}.
 

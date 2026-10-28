@@ -21,7 +21,7 @@ export const PAGE_PARTITION = "ai-dev-page";
  * Where the page's session sends whatever goes past every other lock: a proxy
  * that is not there. WebRTC is the one way out the policy and the session's
  * request handler do not see — STUN over UDP is off for it, and TURN over TCP
- * goes to a proxy, so it goes here and no further (docs/DEFECTS.md, Д-241).
+ * goes to a proxy, so it goes here and no further.
  */
 export const NOWHERE_PROXY = Object.freeze({ mode: "fixed_servers", proxyRules: "http://127.0.0.1:9", proxyBypassRules: "<-loopback>" });
 export const APP_HOST = "ai-dev";
@@ -61,7 +61,7 @@ const TYPES = Object.freeze({
 /**
  * The `webPreferences` of every window: no Node, an isolated and sandboxed
  * page in its own session. The developer tools are off unless asked for
- * (`AI_DEV_DESKTOP_DEVTOOLS=1`, docs/DEFECTS.md, Д-252).
+ * (`AI_DEV_DESKTOP_DEVTOOLS=1`).
  */
 export function windowPreferences(preload, { devTools = false } = {}) {
   return {
@@ -178,7 +178,7 @@ export async function lockSession(session) {
  * Keep a page where it is: no navigation away from the app, no new windows,
  * no `<webview>`, and no WebRTC out of the machine — the policy does not
  * cover WebRTC and the session never sees it, so a peer connection could
- * otherwise send to any host (docs/DEFECTS.md, Д-241).
+ * otherwise send to any host.
  *
  * @param {import("electron").WebContents} contents
  */

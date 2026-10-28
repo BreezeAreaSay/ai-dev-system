@@ -6,7 +6,7 @@
  * way they are output, written anew by each generation. So the seed check
  * does not count them as drift (`scripts/verify-public-seed.mjs`), and a 2.x
  * index is not told by them whose vault it was built from
- * (`search-index-owner.mjs`; docs/DEFECTS.md, Д-236).
+ * (`search-index-owner.mjs`).
  */
 
 /** Folders whose files are all generated, vault-relative with `/`. */

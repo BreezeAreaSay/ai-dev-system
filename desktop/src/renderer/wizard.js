@@ -13,7 +13,7 @@ const STEPS = ["projects", "clients", "model", "index", "done"];
  * it belongs to, its id for Cancel, its last progress, and who to tell when
  * it ends — and the outcome of the last one. Both outlive a redraw: a person
  * who goes to Status and back finds the download still there, with its
- * Cancel, and the build's outcome still shown (docs/DEFECTS.md, Д-249).
+ * Cancel, and the build's outcome still shown.
  */
 const wizard = { step: 0, modelInstalled: false, active: null, finished: null };
 
@@ -40,7 +40,7 @@ function start(view, step, { label, tool, args }) {
  * Show a running call in `body`: its progress and Cancel, with the focus on
  * Cancel; when it ends, `onDone` or `onFail` draws what came of it, and the
  * focus goes to the way on — the step's own main button, or Next — never to
- * "Build again", which Enter would press (docs/DEFECTS.md, Д-271, п. 1).
+ * "Build again", which Enter would press.
  */
 function attach(view, body, footer, active, { onDone, onFail }) {
   const bar = progressBar();
@@ -167,7 +167,7 @@ function modelStep(view, body, footer) {
       wizard.modelInstalled = Boolean(model.installed);
       // Without the model the way on is to skip it: search works by words.
       footer.next.textContent = view.t(model.installed ? "common.next" : "wizard.model.skip");
-      // Installed is the last word: an earlier download's failure or Cancel no longer holds (Д-271, п. 5).
+      // Installed is the last word: an earlier download's failure or Cancel no longer holds.
       if (model.installed) {
         show(body, h("p", {}, view.t("wizard.model.body")), h("p", { className: "ok", dataset: { field: "model-state" } }, view.t("wizard.model.installed")));
         return;
@@ -177,7 +177,7 @@ function modelStep(view, body, footer) {
           h("p", { className: "notice", dataset: { field: "model-unsupported" } }, view.t("wizard.model.unsupported", { reason: model.support_reason ?? "" })));
         return;
       }
-      // A model this user cannot read is not missing: a download or an import would meet the same folder (Д-367).
+      // A model this user cannot read is not missing: a download or an import would meet the same folder.
       if (model.unreadable) {
         const again = h("button", { type: "button", className: "secondary", dataset: { action: "check-model" }, on: { click: () => draw(null) } }, view.t("wizard.model.checkAgain"));
         show(body, h("p", {}, view.t("wizard.model.body")),
@@ -218,7 +218,7 @@ function modelStep(view, body, footer) {
     attach(view, body, footer, wizard.active, { onDone: (answer) => draw(outcomeNote({ answer })), onFail: (error) => draw(outcomeNote({ error })) });
     return;
   }
-  // A download that ended while the person was elsewhere says what came of it (Д-266, п. 7).
+  // A download that ended while the person was elsewhere says what came of it.
   draw(wizard.finished?.step === "model" ? outcomeNote(wizard.finished.outcome) : null);
 }
 
@@ -231,7 +231,7 @@ function indexStep(view, body, footer) {
         h("strong", {}, stepTitle(view, step)), ` — ${view.t(`wizard.step.status.${step.status}`)}`,
         reason ? h("span", { className: step.status === "failed" ? "error" : "muted" }, ` (${reason})`) : null);
     }));
-    // The outcome stays with the step (Д-249), and so does the way to build again (Д-261).
+    // The outcome stays with the step, and so does the way to build again.
     show(body, h("p", { dataset: { field: "index-result" } }, view.t("wizard.index.result", { done: count("done"), skipped: count("skipped"), failed: count("failed") })), list, startButton(true));
     footer.next.disabled = false;
   };

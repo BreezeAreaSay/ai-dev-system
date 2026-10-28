@@ -1,5 +1,5 @@
 /**
- * Which search index file a vault reads and writes (docs/DEFECTS.md, Д-195).
+ * Which search index file a vault reads and writes.
  *
  * A runtime home keeps one index directory. Until 3.0 every vault served from
  * it wrote the same `ai-dev-search.sqlite`, and nothing in the file said which
@@ -105,12 +105,12 @@ export function indexOrigin(file, vaultRoot, same) {
     // A 2.x index names no vault, only the notes it was built from: their
     // paths, content and modification times. That a path exists says nothing
     // — a vault sharing the skill catalog took the index that way
-    // (docs/DEFECTS.md, Д-219) — so only notes count, the sample spread over
+    // — so only notes count, the sample spread over
     // the table by id, and every note of the sample counts: one missing here
-    // counts against, as one changed does (Д-229). Not the notes the server
+    // counts against, as one changed does. Not the notes the server
     // writes itself — skill and project cards, group notes, dashboards: a
     // clone does not carry them and each generation writes them anew, so
-    // they say nothing of whose vault it is (Д-236).
+    // they say nothing of whose vault it is.
     const notes = db.prepare("SELECT path, mtime, content_hash FROM documents WHERE source = 'vault-note' ORDER BY id").all()
       .filter((row) => {
         const relative = String(row.path ?? "");

@@ -31,7 +31,7 @@ import {
 
 const mountsOf = (args) => args.flatMap((argument, index) => (args[index - 1] === "--mount" ? [argument] : []));
 
-test("the entry runs the image with the volume, the host's state and the projects at their own path (Д-103, Д-312)", () => {
+test("the entry runs the image with the volume, the host's state and the projects at their own path", () => {
   const args = dockerRunArgs({ image: "img:1", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", platform: "linux" });
   assert.deepEqual(args.slice(0, 3), ["run", "-i", "--rm"]);
   assert.equal(args.at(-1), "img:1");
@@ -60,7 +60,7 @@ test("on Windows the projects are at /workspace, a model folder is read-only at 
   assert.ok(!bare.includes("--user") && !bare.includes("--env"));
   assert.throws(() => dockerRunArgs({ image: "" }), /No image to run/);
   assert.throws(() => dockerRunArgs({ image: "img", projects: "/a,b" }), /comma in its path, which a docker --mount cannot hold/);
-  // A double quote outside a quoted CSV field fails every session (Д-328).
+  // A double quote outside a quoted CSV field fails every session.
   assert.throws(() => dockerRunArgs({ image: "img", state: '/home/me/"x"/state' }), /double quote in its path, which a docker --mount cannot hold/);
   assert.deepEqual(dockerLaunch({}).args.at(-1), DEFAULT_DOCKER_IMAGE);
   assert.deepEqual(dockerLaunch({ docker: "/usr/local/bin/docker", image: "x" }).command, "/usr/local/bin/docker");
@@ -83,7 +83,7 @@ test("the Docker CLI is named by its full path: a client started from the Dock h
   assert.equal(resolveDockerCommand({ env: { PATH: "relative:/nowhere" }, platform: "linux", exists: () => false }), "docker");
 });
 
-test("a model folder is the one above bge-m3-onnx/: the model folder itself is refused (Д-62)", async (t) => {
+test("a model folder is the one above bge-m3-onnx/: the model folder itself is refused", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-docker-launch-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.mkdir(path.join(root, "models", "bge-m3-onnx"), { recursive: true });
@@ -93,7 +93,7 @@ test("a model folder is the one above bge-m3-onnx/: the model folder itself is r
   assert.throws(() => checkModelFolder(path.join(root, "models", "bge-m3-onnx")), /holds model files itself \(config\.json\)\. Name the folder above it/);
 });
 
-test("a model folder whose bge-m3-onnx is a link mounts the link itself, which Docker follows on the host; one that leads nowhere is refused (Д-368)", async (t) => {
+test("a model folder whose bge-m3-onnx is a link mounts the link itself, which Docker follows on the host; one that leads nowhere is refused", async (t) => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-docker-launch-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const plain = path.join(root, "plain");
@@ -126,7 +126,7 @@ test("a model folder whose bge-m3-onnx is a link mounts the link itself, which D
   assert.deepEqual(windows, { source: "C:\\models\\bge-m3-onnx", target: CONTAINER_MODEL_DIR });
 });
 
-test("a link to another disk is said when the entry is written, and a mount whose folder is gone is found (Д-385)", () => {
+test("a link to another disk is said when the entry is written, and a mount whose folder is gone is found", () => {
   // The link resolves now; its target is on another device than the folder that holds the link.
   const devices = { "/m": 1, "/m/bge-m3-onnx": 2 };
   // A POSIX host's folders, joined as it joins them wherever the test runs.
@@ -147,7 +147,7 @@ test("a link to another disk is said when the entry is written, and a mount whos
 
 // A stat that knows a few paths: "" for one that is there, an error code for one that is not, ENOENT for the rest —
 // but the root, which is there, as on every POSIX host: the walk up from a folder that is not there ends at it, and a
-// root that is not there is said (Д-434).
+// root that is not there is said.
 function statOf(known) {
   return (file) => {
     const code = known[file] ?? (file === "/" ? "" : "ENOENT");
@@ -156,11 +156,11 @@ function statOf(known) {
   };
 }
 
-// That file system, where this user may write: a folder that is not there is one install makes (Д-429).
+// That file system, where this user may write: a folder that is not there is one install makes.
 // Its paths are a POSIX host's, read as one reads them wherever the test runs.
 const knownFs = (known) => ({ stat: statOf(known), access: () => undefined, path: path.posix });
 
-test("a --mount is read the way Docker's CLI reads it, and only a folder that is not there is missing (Д-397)", () => {
+test("a --mount is read the way Docker's CLI reads it, and only a folder that is not there is missing", () => {
   const gone = (...mount) => missingBindSources(["run", ...mount, "img"], knownFs({ "/here": "" }));
   // Every shape checked against Docker 29 itself: each of these it refuses to start with "bind source path does not exist".
   for (const mount of [
@@ -207,7 +207,7 @@ test("a --mount is read the way Docker's CLI reads it, and only a folder that is
   assert.equal(missingBindSources(spec("/m/bge-m3-onnx"), link("../disk2/model"))[0].leadsTo, path.posix.resolve("/m", "../disk2/model"));
 });
 
-test("a --mount is read as Docker 29 reads it: up to the image, its own CSV lines, bind-create-src, and a value it refuses passed over, not the folders beside it (Д-417, Д-433)", () => {
+test("a --mount is read as Docker 29 reads it: up to the image, its own CSV lines, bind-create-src, and a value it refuses passed over, not the folders beside it", () => {
   const known = knownFs({ "/here": "" });
   const gone = (...args) => missingBindSources(["run", ...args], known);
   const away = [{ source: "/gone", target: "/x" }];
@@ -233,7 +233,7 @@ test("a --mount is read as Docker 29 reads it: up to the image, its own CSV line
   }
   // A value Docker 29's CLI refuses is passed over, and a folder gone beside it is found all the same: Docker 29 refuses
   // the value before it looks at any folder, but the CLIs before it read some such values, and no Docker starts a
-  // session without the folder (Д-433).
+  // session without the folder.
   for (const value of ["type=bind,source=/gone,target=/x,bogus=1", "type=bind,source=/gone,target=/x,source", "type=bind, source=/gone,target=/x",
     ",type=bind,source=/gone,target=/x", "type=bind,,source=/gone,target=/x", "type=bind,source=/gone,target=/x,", "type=bind,source=,target=/x",
     "type=bind,source=/gone,target=/x,readonly=yes", "type=bind,source=/gone,target=/x,readonly=TRUE", "type=bind,source=/gone,target=/x,bind-create-src=",
@@ -251,7 +251,7 @@ test("a --mount is read as Docker 29 reads it: up to the image, its own CSV line
   assert.equal(dockerEntryOptions(["run", "--mount=type=bind,source=/p,target=/p,bogus=1", "--mount", "type=bind,source=/s,target=/ai-dev-state", "img"]).state, "/s", "a mount it cannot read is passed over");
 });
 
-test("a --mount value is trimmed as Docker 29 trims it, and one with a key or a value edged with space inside is not read (Д-427)", () => {
+test("a --mount value is trimmed as Docker 29 trims it, and one with a key or a value edged with space inside is not read", () => {
   const gone = (value) => missingBindSources(["run", "--mount", value, "img"], knownFs({}));
   const away = [{ source: "/gone", target: "/x" }];
   // Each checked against Docker 29.8.2, which starts them: what Go's TrimSpace takes off the whole value is no fault.
@@ -268,7 +268,7 @@ test("a --mount value is trimmed as Docker 29 trims it, and one with a key or a 
   }
 });
 
-test("a folder that is not there says why install could not make it again: a link that leads nowhere or a file on the way, or a folder above it this user may not write to (Д-429)", () => {
+test("a folder that is not there says why install could not make it again: a link that leads nowhere or a file on the way, or a folder above it this user may not write to", () => {
   // A file system of a few paths — "dir", "file", or "link:<where it leads>", every link leading nowhere — and the
   // folders this user may not write to.
   const io = (paths, locked = []) => {
@@ -300,12 +300,12 @@ test("a folder that is not there says why install could not make it again: a lin
   assert.deepEqual(missingBindSources(spec("/home/me/notes/Projects"), io({ ...home, "/home/me/notes": "file" }))[0].unmakeable, { at: "/home/me/notes", why: "file" });
   // The nearest folder that is there is this user's: install makes the rest, whatever is above it.
   assert.deepEqual(missingBindSources(spec("/home/me/a/b/Projects"), io(home, ["/", "/home"])), [{ source: "/home/me/a/b/Projects", target: "/home/me/a/b/Projects" }]);
-  // The folder itself a link that leads nowhere: where it leads is said, as before (Д-414).
+  // The folder itself a link that leads nowhere: where it leads is said, as before.
   assert.deepEqual(missingBindSources(spec("/home/me/Projects"), io({ ...home, "/home/me/Projects": "link:/media/disk2/Projects" }, ["/home/me"])),
     [{ source: "/home/me/Projects", target: "/home/me/Projects", leadsTo: path.resolve("/media/disk2/Projects") }]);
 });
 
-test("on Windows a folder on a drive that is not there is one install cannot make: the way up ends at a root that is not there (Д-434, Д-454)", () => {
+test("on Windows a folder on a drive that is not there is one install cannot make: the way up ends at a root that is not there", () => {
   // The review's Windows file system, read with Windows' path rules: C:\ and a user's folders, a junction to E:\ — the
   // drive of a disk that is not connected, whose stat fails ENOENT (ERROR_INVALID_DRIVE and ERROR_PATH_NOT_FOUND are
   // ENOENT in libuv's table) — and a file. No E:\.
@@ -350,7 +350,7 @@ test("on Windows a folder on a drive that is not there is one install cannot mak
   assert.equal(blocked("rel\\Projects", { ...windows, stat: (file) => { throw fault("ENOENT", file); } }), null);
 });
 
-test("the --mount Docker's CLI refused is told by its own words, the value read back from Go's quotes (Д-433, Д-457)", () => {
+test("the --mount Docker's CLI refused is told by its own words, the value read back from Go's quotes", () => {
   // Docker 29.8.2's first line for each value it refused (`docker create --mount <value> …`, exit 125), as measured.
   const refused = [
     ["type=bind,source=/x,target=/y,readonly=TRUE", "invalid argument \"type=bind,source=/x,target=/y,readonly=TRUE\" for \"--mount\" flag: invalid value for 'readonly': invalid boolean value (\"TRUE\"): must be one of \"true\", \"1\", \"false\", or \"0\" (default \"true\")"],
@@ -389,7 +389,7 @@ test("the --mount Docker's CLI refused is told by its own words, the value read 
   assert.equal(refusedMount(["b"], { code: 125, stderr: "invalid argument \"x\\\"b\" for \"--mount\" flag: bare \" in non-quoted-field\n" }), undefined);
 });
 
-test("Docker's quotes are read back, not made again: a character Go 1.26 does not print as it is, each of Go's escapes, a lone surrogate given as U+FFFD (Д-457)", () => {
+test("Docker's quotes are read back, not made again: a character Go 1.26 does not print as it is, each of Go's escapes, a lone surrogate given as U+FFFD", () => {
   // Docker 29.8.2's first line for each (`docker run --mount <value> …`, exit 125), as measured. Its Go is at Unicode
   // 15.0, Node 22 at 16.0: the characters of 15.1 and 16.0 Docker escapes, U+31EF … U+1FAE9.
   const refused = [
@@ -399,7 +399,7 @@ test("Docker's quotes are read back, not made again: a character Go 1.26 does no
     ["type=bind,source=/x\u{1CC00},target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\U0001cc00,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
     ["type=bind,source=/x\u{10D4A},target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\U00010d4a,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
     ["type=bind,source=/home/me/Models \u{1FAE9},target=/models,readonly=TRUE", "invalid argument \"type=bind,source=/home/me/Models \\U0001fae9,target=/models,readonly=TRUE\" for \"--mount\" flag: invalid value for 'readonly': invalid boolean value (\"TRUE\"): must be one of \"true\", \"1\", \"false\", or \"0\" (default \"true\")"],
-    // Each escape Go writes, the ones the lines of Д-433 do not have.
+    // Each escape Go writes, the ones the lines above do not have.
     ["type=bind,source=/x\u0007,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\a,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
     ["type=bind,source=/x\b,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\b,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
     ["type=bind,source=/x\fz,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\fz,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
@@ -422,7 +422,7 @@ test("Docker's quotes are read back, not made again: a character Go 1.26 does no
   assert.equal(refusedMount(["x"], { code: 125, stderr: "invalid argument \"\\U00110000\" for \"--mount\" flag: x\n" }), undefined);
 });
 
-test("Docker's refusal is found wherever it is in what Docker wrote: after the warning of a config file it could not read (Д-455)", () => {
+test("Docker's refusal is found wherever it is in what Docker wrote: after the warning of a config file it could not read", () => {
   // Docker 29.8.2 with its config.json broken, and with a folder in its place, as measured (the home shortened): the
   // warning comes first, then the refusal.
   const value = "type=bind,source=/tmp,target=/models,readonly=TRUE";
@@ -439,7 +439,7 @@ test("Docker's refusal is found wherever it is in what Docker wrote: after the w
   assert.equal(refusedMount([value, bogus], { code: 125, stderr: cli27 }), bogus);
 });
 
-test("an entry's options are read back from what it runs, so writing it again keeps them (Д-397)", () => {
+test("an entry's options are read back from what it runs, so writing it again keeps them", () => {
   const linux = dockerRunArgs({ image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: { source: "/home/me/models/bge-m3-onnx", target: CONTAINER_MODEL_DIR }, platform: "linux" });
   assert.deepEqual(dockerEntryOptions(linux), { image: "ai-dev-system:p14r2", volume: "other-data", projects: "/home/me/AI-Dev-Projects", state: "/home/me/.ai-dev/state", model: "/home/me/models", data: "" });
   const windows = dockerRunArgs({ image: "img", projects: "C:\\Users\\me\\AI-Dev-Projects", model: "C:\\models", platform: "win32" });
@@ -448,7 +448,7 @@ test("an entry's options are read back from what it runs, so writing it again ke
   assert.deepEqual(dockerEntryOptions(undefined), { image: "", volume: "", projects: "", state: "", model: "", data: "" });
 });
 
-test("the data volume of a --mount Docker 29 cannot read is read back all the same, so writing the entry again keeps it (Д-457)", () => {
+test("the data volume of a --mount Docker 29 cannot read is read back all the same, so writing the entry again keeps it", () => {
   const options = (...mounts) => dockerEntryOptions(["run", "-i", ...mounts.flatMap((mount) => ["--mount", mount]), "img"]);
   // The review's entry, volume-nocopy=TRUE, which the CLIs before 29 read, and other spellings of the volume at /data.
   for (const value of ["type=volume,source=my-team-data,target=/data,volume-nocopy=TRUE", "source=my-team-data,target=/data,bogus=1",
@@ -465,11 +465,11 @@ test("the data volume of a --mount Docker 29 cannot read is read back all the sa
   // Another --mount it cannot read beside it takes nothing from it; the ones it can read are read as before.
   assert.deepEqual(options("type=volume,source=mine,target=/data,volume-nocopy=TRUE", "type=bind,source=/m,target=/models,readonly=TRUE", "type=bind,source=/p,target=/p"),
     { image: "img", volume: "mine", projects: "/p", state: "", model: "", data: "" });
-  // Docker cleans the path it mounts at: `dst=/data/` is the volume at /data, as the CLIs before 29 run it (Д-469).
+  // Docker cleans the path it mounts at: `dst=/data/` is the volume at /data, as the CLIs before 29 run it.
   assert.equal(options("type=volume,src=my-team-data,dst=/data/,volume-nocopy=TRUE").volume, "my-team-data");
   assert.equal(options("type=volume,source=my-team-data,target=//data/").volume, "my-team-data");
   assert.equal(options("type=bind,source=/s,target=/ai-dev-state/").state, "/s");
-  // An image or a tmpfs at /data is neither a volume of the data's nor a folder bound in its place (Д-479).
+  // An image or a tmpfs at /data is neither a volume of the data's nor a folder bound in its place.
   for (const value of ["type=image,source=ai-dev-system:3,target=/data", "type=tmpfs,target=/data"]) {
     assert.deepEqual([options(value).volume, options(value).data], ["", ""], value);
   }
@@ -480,7 +480,7 @@ test("the data volume of a --mount Docker 29 cannot read is read back all the sa
     { image: "img", volume: "", projects: "/p", state: "", model: "", data: "/t" });
 });
 
-test("the image names the volume at its /data as Docker, rootless Docker and Podman mount it; a run that mounts none gets the default by its name, a mount with no name a placeholder (Д-528, Д-539 … Д-541, Д-545, Д-546)", () => {
+test("the image names the volume at its /data as Docker, rootless Docker and Podman mount it; a run that mounts none gets the default by its name, a mount with no name a placeholder", () => {
   const line = (root, target = "/data") => `173 155 254:0 ${root} ${target} rw,relatime master:1 - ext4 /dev/vda rw,discard`;
   const other = line("/var/lib/docker/volumes/models-x/_data", "/models");
   assert.equal(volumeAtData([other, line("/var/lib/docker/volumes/team-data/_data")].join("\n")), "team-data");
@@ -491,23 +491,23 @@ test("the image names the volume at its /data as Docker, rootless Docker and Pod
   // Of two mounts at /data the later is the one seen there; one under /data is another.
   assert.equal(volumeAtData([line("/var/lib/docker/volumes/first/_data"), line("/var/lib/docker/volumes/second/_data")].join("\n")), "second");
   assert.equal(volumeAtData([line("/var/lib/docker/volumes/outer/_data"), line("/var/lib/docker/volumes/inner/_data", "/data/inner")].join("\n")), "outer");
-  // A run that mounts nothing at /data gets an anonymous volume, which --rm removes, or none at all: the default (Д-540).
+  // A run that mounts nothing at /data gets an anonymous volume, which --rm removes, or none at all: the default.
   for (const mountinfo of [line(`/var/lib/docker/volumes/${"e2".repeat(32)}/_data`), other, "", "garbage"]) {
     assert.equal(volumeAtData(mountinfo), DEFAULT_DOCKER_VOLUME, mountinfo);
   }
   // Only a name of 64 hex digits is taken for the anonymous one: these keep theirs, 64 with a letter past f or in capitals
-  // too (Д-546, Д-560).
+  // too.
   for (const name of ["cafe", "2024", "e2".repeat(31) + "e", "e2".repeat(32) + "e", `x${"e2".repeat(32)}`, `${"e2".repeat(32)}x`, `${"e2".repeat(31)}eg`, "E2".repeat(32)]) {
     assert.equal(volumeAtData(line(`/var/lib/docker/volumes/${name}/_data`)), name, name);
   }
   // A mount with no name to give — a folder, a volume made with a driver's options, a volume's subfolder, a tmpfs, a
-  // name no volume may have, a folder named like volumes — and the advice holds a placeholder for it (Д-539).
+  // name no volume may have, a folder named like volumes — and the advice holds a placeholder for it.
   for (const root of ["/home/me/ai-dev-data", "/var/tmp/dev", "/var/lib/docker/volumes/x/_data/sub", "/", "/var/lib/docker/volumes/_x/_data", "/srv/myvolumes/x/_data"]) {
     assert.equal(volumeAtData(line(root)), null, root);
   }
   assert.equal(dataMount("team-data"), "type=volume,source=team-data,target=/data");
   assert.equal(dataMount(null), "<what your sessions mount at /data>");
-  // This volume only of a name read at /data: the default, which the image cannot tell from none, by its name (Д-545).
+  // This volume only of a name read at /data: the default, which the image cannot tell from none, by its name.
   assert.equal(dataPlace("team-data"), "in this volume");
   assert.equal(dataPlace(DEFAULT_DOCKER_VOLUME), "in the default volume, ai-dev-system-data");
   assert.equal(dataPlace(null), "where your sessions keep /data");
@@ -528,7 +528,7 @@ test("a 3.0 entry is told from a 2.x launcher by what it runs", () => {
   assert.equal(isDirectDockerEntry({}), false);
 });
 
-test("the state folder is shared only when the image's user, tried, writes it as the host user (Д-322, Д-331)", async (t) => {
+test("the state folder is shared only when the image's user, tried, writes it as the host user", async (t) => {
   const state = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-share-probe-"));
   t.after(() => fs.rm(state, { recursive: true, force: true }));
   const uid = process.getuid?.() ?? 0;
@@ -551,7 +551,7 @@ test("the state folder is shared only when the image's user, tried, writes it as
   const refused = probeStateSharing({ image: "img", state, uid, run: () => ({ status: 1, stdout: "", stderr: "touch: cannot touch '/ai-dev-state/x': Permission denied\n" }) });
   assert.deepEqual([refused.shared, refused.tried], [false, true]);
   assert.match(refused.reason, /could not write your state folder \(touch: cannot touch .*Permission denied\)/);
-  // Docker that did not run the image tried nothing: not a remapping host (Д-331).
+  // Docker that did not run the image tried nothing: not a remapping host.
   const down = probeStateSharing({ image: "img", state, uid, run: () => ({ status: 1, stdout: "", stderr: "failed to connect to the docker API at unix:///nowhere.sock\n" }) });
   assert.deepEqual([down.shared, down.tried], [false, false]);
   assert.match(down.reason, /Docker did not run img to try it \(failed to connect to the docker API/);

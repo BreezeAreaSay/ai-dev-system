@@ -131,7 +131,7 @@ test("a fresh install: each data screen says why it is empty, Skills says what t
   await shot(page, "p11-skills-empty");
 });
 
-test("more than a screen shows: the project card and the skill search say so (Д-289)", { timeout: 420_000 }, async (t) => {
+test("more than a screen shows: the project card and the skill search say so", { timeout: 420_000 }, async (t) => {
   const s = await stage(t, { seed: true });
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });

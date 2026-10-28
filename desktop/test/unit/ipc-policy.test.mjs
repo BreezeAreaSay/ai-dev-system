@@ -29,10 +29,10 @@ test("the page may call only the interface's tools, with a well-formed id and pl
   assert.equal(validCallId({ toString: () => "call-1" }), false);
 });
 
-test("only the arguments the interface sends, of the kind it sends (Д-253)", () => {
+test("only the arguments the interface sends, of the kind it sends", () => {
   const call = (tool, args) => refuseCall({ tool, args, id: "call-1" });
   assert.equal(call("settings_set", { settings: { projects_root: "/home/me/code" } }), null);
-  // The Settings screen changes these, each of its kind; null puts one back to its default (phase 11).
+  // The Settings screen changes these, each of its kind; null puts one back to its default.
   assert.equal(call("settings_set", { settings: { profiles: "core,git", model_mirror: "https://hf-mirror.com", model_dir: "/models", daemon_idle_minutes: 30, daemon_autostart: false } }), null);
   assert.equal(call("settings_set", { settings: { profiles: null, model_mirror: null, model_dir: null, daemon_idle_minutes: null, projects_root: null } }), null);
   assert.match(call("settings_set", { settings: { daemon_idle_minutes: "30" } }), /daemon_idle_minutes is a number/);
@@ -78,7 +78,7 @@ test("the preload exposes exactly the policy's channels", () => {
   assert.match(preload, /Object\.freeze\(\{/);
 });
 
-test("the page connects only the clients the wizard offers, with plain JSON arguments (Д-266, п. 1)", () => {
+test("the page connects only the clients the wizard offers, with plain JSON arguments", () => {
   const listed = [
     { client: "claude-code", found: true, entry: "none" },
     { client: "cursor", found: true, entry: "unreadable" },
@@ -93,7 +93,7 @@ test("the page connects only the clients the wizard offers, with plain JSON argu
   assert.equal(refuseCall({ tool: "settings_set", args: { settings: Object.assign(Object.create(null), { projects_root: "/x" }) }, id: "call-1" }), null);
 });
 
-test("a call without an argument the interface always sends is refused in words: no clients is not all of them (Д-271, п. 2)", () => {
+test("a call without an argument the interface always sends is refused in words: no clients is not all of them", () => {
   assert.match(refuseCall({ tool: "clients_install", args: {}, id: "call-1" }), /^clients_install needs clients\.$/);
   assert.match(refuseCall({ tool: "clients_install", id: "call-1" }), /^clients_install needs clients\.$/, "no arguments at all");
   assert.match(refuseCall({ tool: "model_import", args: {}, id: "call-1" }), /needs source/);
@@ -103,7 +103,7 @@ test("a call without an argument the interface always sends is refused in words:
   }
 });
 
-test("the model's mirror and folder and the profiles change only after a confirmation; the rest of Settings at once (Д-288)", () => {
+test("the model's mirror and folder and the profiles change only after a confirmation; the rest of Settings at once", () => {
   assert.deepEqual(CONFIRMED_SETTINGS, ["model_mirror", "model_dir", "profiles"]);
   const call = (settings) => ({ tool: "settings_set", args: { settings }, id: "call-s" });
   assert.deepEqual(settingsToConfirm(call({ model_mirror: "http://127.0.0.1:9/x", daemon_autostart: false })), { model_mirror: "http://127.0.0.1:9/x" });

@@ -15,7 +15,7 @@
  *   they accept (pnpm); `no-fix` when nothing published is safe.
  * - `target` — from `chooseTarget`: the first safe version old enough to trust.
  * - `breaking` — a major upgrade, where below 1.0.0 a minor counts (sharp
- *   0.34 → 0.35 in Д-82 was one).
+ *   0.34 → 0.35 was one).
  * - `commands` and `manifest_change` — exact, for the package manager that
  *   owns the lockfile.
  */

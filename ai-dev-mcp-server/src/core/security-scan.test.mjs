@@ -156,7 +156,7 @@ test("a network failure in the output is read as offline, not as a broken scan",
   assert.match(npmAudit.reason, /exited 1 without reaching the network/);
   assert.match(npmAudit.reason, /npm error code ENOTFOUND/, "the first line of stderr, not a slice of the report");
   // The one scanner on this machine never reached the network, so this run
-  // checked nothing (Д-55).
+  // checked nothing.
   assert.equal(scan.status, "unchecked");
 });
 
@@ -333,7 +333,7 @@ test("the gate's vocabulary is the one the plan states", () => {
   assert.equal(findingBlocks({}), false);
 });
 
-// Д-55: a scan where not one scanner could run used to come back `pass`, and
+// A scan where not one scanner could run used to come back `pass`, and
 // `verify_task` reduced that to `security_scan: pass` — "checked and clean" for
 // a run in which nobody looked.
 test("a scan where nothing could run is unchecked, not pass", async (t) => {
@@ -399,7 +399,7 @@ test("a machine with no scanner installed is a warning, not a failure", () => {
 
 // A machine with Rust and no plugin: `cargo` is on the PATH, `cargo audit` is
 // not installed, and health used to count the scanner as present because it
-// only ever asked about the executable (docs/DEFECTS.md, Д-64).
+// only ever asked about the executable.
 const CARGO_WITHOUT_PLUGIN = "error: no such command: `audit`";
 
 function catalogueEntry(id) {
@@ -493,7 +493,7 @@ test("the machine with cargo and no plugin counts one scanner, not two", async (
   assert.equal(after.details.missing_reasons.cargo_audit, undefined);
 });
 
-// Д-83: the package managers' audits only ever ran at the root, and only npm's
+// The package managers' audits only ever ran at the root, and only npm's
 // existed. A repository with `frontend/` and `backend/` and no lockfile at the
 // root had no dependency scan at all.
 test("each package manager's audit runs in every directory that holds its lockfile", async (t) => {

@@ -9,7 +9,7 @@ import { stubDocker } from "./bootstrap-contract-stubs.mjs";
 
 // bootstrap.ps1, the Docker path on Windows, against the same `docker` as bootstrap.sh's contract
 // (bootstrap-contract.test.mjs): pwsh runs the script itself; on a host without pwsh the tests that run it skip.
-// Its own file since the two contracts together outgrew the 800 lines a module keeps (docs/DEFECTS.md, Д-449).
+// Its own file since the two contracts together outgrew the 800 lines a module keeps.
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDir, "..", "..");
@@ -56,7 +56,7 @@ test("the PowerShell plan renders, and carries model_path only when -ModelPath i
   }
 });
 
-test("the PowerShell installer refuses the pre-Д-62 model path before it looks for Docker", async (context) => {
+test("the PowerShell installer refuses the 2.0.0 model path before it looks for Docker", async (context) => {
   // A validation that let this through would go on to Assert-Docker, which on
   // Windows may start Docker Desktop; the refusal is asserted where it cannot.
   if (process.platform === "win32") {
@@ -107,19 +107,19 @@ test("the PowerShell installer pulls, checks the server's own handshake and has 
   }
   assert.equal(result.status, 0, `stdout: ${result.stdout}\nstderr: ${result.stderr}`);
   const calls = (await fs.readFile(log, "utf8")).split("\n").filter(Boolean).map((line) => line.split("\t"))
-    // On Linux the CLI tries the state folder's sharing with the image; Windows does not (Д-322).
+    // On Linux the CLI tries the state folder's sharing with the image; Windows does not.
     .filter((call) => !(process.platform === "linux" && call[0] === "run" && call.includes("touch") && call.includes("--rm")));
   assert.deepEqual(calls.map((call) => call[0]), ["version", "pull", "run"], "no proxy built, no container kept");
   // The checkout's CLI wrote a direct docker entry into the client's config.
   const config = JSON.parse(await fs.readFile(path.join(home, ".cursor", "mcp.json"), "utf8")).mcpServers["ai-dev"];
   assert.equal(config.args[0], "run");
   assert.equal(config.args.at(-1), "ghcr.io/stonebridgeway/ai-dev-system:latest");
-  // A config written: the restart is asked for, in bootstrap.sh's words (Д-415).
+  // A config written: the restart is asked for, in bootstrap.sh's words.
   assert.match(result.stdout, /Writing the AI clients' configs\.\.\.\n[^]*\nAI Dev is ready\. Restart the AI clients to load ai-dev\.\n$/);
   assert.doesNotMatch(result.stdout, /No AI client found here/);
 });
 
-test("bootstrap.ps1 with no client here names its own -Clients and writes nothing; each of its endings is bootstrap.sh's (Д-415)", async (context) => {
+test("bootstrap.ps1 with no client here names its own -Clients and writes nothing; each of its endings is bootstrap.sh's", async (context) => {
   if (process.platform === "win32") {
     context.skip("the stub docker is a shell script");
     return;
@@ -146,7 +146,7 @@ test("bootstrap.ps1 with no client here names its own -Clients and writes nothin
   assert.match(none.stdout, /\nNo AI client found here \(Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI\)\. Name one to write its config anyway, -Clients "cursor,vscode,…", or install one and run bootstrap\.ps1 again\.\nAI Dev is ready; no AI client is connected to it yet\.\n$/);
   assert.doesNotMatch(none.stdout, /--clients|Writing the AI clients' configs|Restart the AI clients/);
   // Typed at a PowerShell prompt as it is printed, the list is one string; bare, PowerShell passes an array, which
-  // -Clients refuses (Д-421).
+  // -Clients refuses.
   const hint = /-Clients ("[^"]*")/.exec(none.stdout)[1].replace(",…", "");
   const typed = spawnSync("pwsh", ["-NoLogo", "-NonInteractive", "-Command", `& '${bootstrapPowerShell.replaceAll("'", "''")}' -Plan -Clients ${hint}`], { encoding: "utf8", env: { ...process.env, HOME: home, AI_DEV_MODEL_PATH: "" } });
   assert.equal(typed.status, 0, typed.stderr);
@@ -188,7 +188,7 @@ async function powerShellHome(context, { folders = [], files = {} } = {}) {
 // What pwsh printed, as lines, its colours taken off: it colours a warning even with no terminal.
 const powerShellLines = (output) => output.replace(/\u001B\[[0-9;]*m/g, "").split(/\r?\n/).filter((line) => line.trim() !== "");
 
-test("bootstrap.ps1 from a stale image says so before its last line, as bootstrap.sh does (Д-419)", async (context) => {
+test("bootstrap.ps1 from a stale image says so before its last line, as bootstrap.sh does", async (context) => {
   if (process.platform === "win32") return context.skip("the stub docker is a shell script");
   const { home, env } = await powerShellHome(context, { folders: [".cursor"] });
   // The documented command before the image is published: the pull fails, the copy built here is installed.
@@ -200,7 +200,7 @@ test("bootstrap.ps1 from a stale image says so before its last line, as bootstra
   assert.match(lines.at(-2), /^WARNING: Installed from a stale image\. Registry pull failed\. The cached copy of ai-dev-system:local was created 2019-01-02T03:04:05/);
 });
 
-test("bootstrap.ps1 writes the clients it can when one client's config is broken, names that one and fails; run again, a client already current is not one missing (Д-428)", async (context) => {
+test("bootstrap.ps1 writes the clients it can when one client's config is broken, names that one and fails; run again, a client already current is not one missing", async (context) => {
   if (process.platform === "win32") return context.skip("the stub docker is a shell script");
   // Cursor is fine; Gemini CLI's settings.json is not JSON, so the installer's dry run exits 1 over it. (Both live in
   // the home on Linux and macOS alike, which VS Code's config does not.)
@@ -227,7 +227,7 @@ test("bootstrap.ps1 writes the clients it can when one client's config is broken
 });
 
 // Windows PowerShell 5.1 reads a script that has no BOM in the ANSI code page: a character past ASCII in a string
-// would print as something else there, so the script spells such a character by its code (Д-415).
+// would print as something else there, so the script spells such a character by its code.
 test("bootstrap.ps1 keeps its code to ASCII; only its comments go past it", async () => {
   const lines = (await fs.readFile(bootstrapPowerShell, "utf8")).split(/\r?\n/);
   const past = lines.flatMap((line, index) => (/[^\x00-\x7F]/.test(line.replace(/(^|\s)#.*$/, "")) ? [`${index + 1}: ${line.trim()}`] : []));
@@ -236,9 +236,9 @@ test("bootstrap.ps1 keeps its code to ASCII; only its comments go past it", asyn
 
 // Windows PowerShell 5.1 turns a native command's redirected stderr into error
 // records, which `$ErrorActionPreference = "Stop"` makes fatal; the image writes
-// to stderr at every start (docs/DEFECTS.md, Д-320). No 5.1 runs here, so the
+// to stderr at every start. No 5.1 runs here, so the
 // rule is held on the text: a redirect of stderr only inside Invoke-Native.
-test("bootstrap.ps1 throws a native command's stderr away only inside Invoke-Native (Д-320)", async () => {
+test("bootstrap.ps1 throws a native command's stderr away only inside Invoke-Native", async () => {
   const lines = (await fs.readFile(bootstrapPowerShell, "utf8")).split(/\r?\n/);
   assert.ok(lines.some((line) => /^function Invoke-Native \{/.test(line)));
   let inside = false;
@@ -266,7 +266,7 @@ async function nodeWhoseDryRunSays(home, answer) {
   return bin;
 }
 
-test("bootstrap.ps1 whose dry run answers with no JSON it can read leaves it to the install, whose result stands; and it prints no Docker version (Д-435, Д-438)", async (context) => {
+test("bootstrap.ps1 whose dry run answers with no JSON it can read leaves it to the install, whose result stands; and it prints no Docker version", async (context) => {
   if (process.platform === "win32") return context.skip("the stub docker is a shell script");
   const { home, env } = await powerShellHome(context, { folders: [".cursor"] });
   const bin = await nodeWhoseDryRunSays(home, "(not JSON)\n");
@@ -288,7 +288,7 @@ test("bootstrap.ps1 whose dry run answers with no JSON it can read leaves it to 
   assert.match(powerShellMessage(failed.stderr), /Writing the client configs failed \(exit code 1\)\./);
 });
 
-test("bootstrap.ps1 reads the dry run as the UTF-8 Node writes, under a console code page that is not, and gives that code page back (Д-435)", async (context) => {
+test("bootstrap.ps1 reads the dry run as the UTF-8 Node writes, under a console code page that is not, and gives that code page back", async (context) => {
   if (process.platform === "win32") return context.skip("the stub docker is a shell script");
   const { home, env } = await powerShellHome(context);
   // What the dry run answers on Windows for a user whose folder is named past ASCII, no client found: the JSON as
@@ -307,7 +307,7 @@ test("bootstrap.ps1 reads the dry run as the UTF-8 Node writes, under a console 
   assert.deepEqual(lines.slice(-2), ["AI Dev is ready; no AI client is connected to it yet.", "code page 936"]);
 });
 
-test("bootstrap.ps1 gives the console's code page back when its dry run throws: the node it found is gone by then (Д-456)", async (context) => {
+test("bootstrap.ps1 gives the console's code page back when its dry run throws: the node it found is gone by then", async (context) => {
   if (process.platform === "win32") return context.skip("the stub docker is a shell script");
   const { home, env } = await powerShellHome(context, { folders: [".cursor"] });
   // A node that answers the --version Assert-Node asks for and is gone after it, so `& $node` throws inside the try
@@ -328,14 +328,14 @@ test("bootstrap.ps1 gives the console's code page back when its dry run throws: 
 });
 
 // The engine's version is asked for to see that it answers, at the start and while Docker Desktop starts: neither is
-// printed (Д-438). The second runs only on Windows with Docker Desktop installed, so this holds it on the text.
-test("bootstrap.ps1 throws away each Docker version it asks for (Д-438)", async () => {
+// printed. The second runs only on Windows with Docker Desktop installed, so this holds it on the text.
+test("bootstrap.ps1 throws away each Docker version it asks for", async () => {
   const lines = (await fs.readFile(bootstrapPowerShell, "utf8")).split(/\r?\n/).filter((line) => /&\s*docker\s+version\b/.test(line.replace(/(^|\s)#.*$/, "")));
   assert.equal(lines.length, 2);
   for (const line of lines) assert.match(line, /^\s*\$null = Invoke-Native \{ & docker version /, line);
 });
 
-test("bootstrap.ps1 with no -ProjectPath or -ModelPath keeps the folders the 2.x entry it replaces mounts, as bootstrap.sh does (Д-403)", async (context) => {
+test("bootstrap.ps1 with no -ProjectPath or -ModelPath keeps the folders the 2.x entry it replaces mounts, as bootstrap.sh does", async (context) => {
   if (process.platform === "win32") {
     context.skip("the stub docker is a shell script");
     return;

@@ -9,8 +9,7 @@ import { readJsonc } from "../core/jsonc-edit.mjs";
 import { commandWord, missingMountError } from "./clients.mjs";
 
 // `ai-dev clients doctor` on Docker entries whose `--mount` Docker 29 cannot read, the entry run by a `docker` that
-// says what Docker's CLI said, as measured. Its own file since cli.test.mjs reached the 800 lines a module keeps
-// (docs/DEFECTS.md, Д-455, Д-457).
+// says what Docker's CLI said, as measured. Its own file since cli.test.mjs reached the 800 lines a module keeps.
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = path.join(serverRoot, "bin", "ai-dev.mjs");
@@ -77,7 +76,7 @@ async function sayingDockerHome(t) {
 // How Docker quotes a value of plain characters, as the paths here are: as JSON does.
 const quotedByDocker = (value) => JSON.stringify(value);
 
-test("clients doctor names the --mount Docker refused when the entry has two it cannot read, the second the one refused (Д-457)", skip, async (t) => {
+test("clients doctor names the --mount Docker refused when the entry has two it cannot read, the second the one refused", skip, async (t) => {
   const { home, doctorOf } = await sayingDockerHome(t);
   const models = path.join(home, "models");
   const projects = path.join(home, "Projects");
@@ -101,7 +100,7 @@ test("clients doctor names the --mount Docker refused when the entry has two it 
   }
 });
 
-test("clients doctor says the reason Docker gave after a warning it printed first, and names the --mount it refused (Д-455)", skip, async (t) => {
+test("clients doctor says the reason Docker gave after a warning it printed first, and names the --mount it refused", skip, async (t) => {
   const { home, doctorOf } = await sayingDockerHome(t);
   const models = path.join(home, "models");
   await fs.mkdir(models);
@@ -118,7 +117,7 @@ test("clients doctor says the reason Docker gave after a warning it printed firs
   assert.doesNotMatch(doctor.stdout, /WARNING|config file/);
 });
 
-test("clients doctor's advice keeps the data volume of a --mount Docker 29 cannot read, and its command writes the entry with that volume (Д-457)", skip, async (t) => {
+test("clients doctor's advice keeps the data volume of a --mount Docker 29 cannot read, and its command writes the entry with that volume", skip, async (t) => {
   const { home, env, doctorOf, readEntry } = await sayingDockerHome(t);
   // The review's entry: the volume with volume-nocopy=TRUE, which CLI 27.5.1 reads; the projects folder gone, which its
   // engine then refuses.
@@ -139,7 +138,7 @@ test("clients doctor's advice keeps the data volume of a --mount Docker 29 canno
   assert.doesNotMatch(args.join(" "), /volume-nocopy|ai-dev-system-data/);
 });
 
-test("clients doctor's advice takes no folder bound at /data for the projects folder, and says its data is not carried over (Д-469)", skip, async (t) => {
+test("clients doctor's advice takes no folder bound at /data for the projects folder, and says its data is not carried over", skip, async (t) => {
   const { home, doctorOf } = await sayingDockerHome(t);
   const gone = path.join(home, "disk", "Projects");
   const data = path.join(home, "team-data");
@@ -158,7 +157,7 @@ test("clients doctor's advice takes no folder bound at /data for the projects fo
   assert.ok(started.stdout.includes(`which makes the folder, and ${instead}, and without its --mount ${JSON.stringify(unread)}, which Docker 29 cannot read: \`${command}\`.\n`), started.stdout);
 });
 
-test("clients doctor's advice for a folder bound at /data that is itself gone: no projects folder, none install makes, and the projects folder kept (Д-478)", () => {
+test("clients doctor's advice for a folder bound at /data that is itself gone: no projects folder, none install makes, and the projects folder kept", () => {
   const data = path.join(path.sep, "home", "me", "disk", "ai-data");
   const projects = path.join(path.sep, "home", "me", "Projects");
   const entry = { args: ["run", "-i", "--rm", "--mount", `type=bind,source=${data},target=/data`, "--mount", `type=bind,source=${projects},target=${projects}`, "ai-dev-system:3"] };

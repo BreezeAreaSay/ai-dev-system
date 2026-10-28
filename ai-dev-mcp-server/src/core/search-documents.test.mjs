@@ -295,7 +295,7 @@ test("on Windows a linked folder is entered, as os.walk enters a junction, but n
   assert.deepEqual(paths("linux"), ["02-knowledge/own.md"], "elsewhere a symlinked folder stays out, as os.walk leaves it");
 });
 
-test("on Windows a junction to a folder of the vault never takes that folder's notes away (Д-130)", { skip: !symlinks && "needs symlinks" }, (t) => {
+test("on Windows a junction to a folder of the vault never takes that folder's notes away", { skip: !symlinks && "needs symlinks" }, (t) => {
   for (const [real, link] of [
     ["02-knowledge/deep/target", "02-knowledge/link"],
     ["02-knowledge/aaa-real", "02-knowledge/zzz-link"],
@@ -333,7 +333,7 @@ test("dense passages and their hashes are the helper's", { skip: !symlinks && "t
   assert.equal(denseDocRecords(docs, { includeMembrane: true }).length, 14);
 });
 
-test("a rebuild's collection gives other work a turn and finds exactly what the plain one does (Д-194)", async (t) => {
+test("a rebuild's collection gives other work a turn and finds exactly what the plain one does", async (t) => {
   const root = tempRoot(t, "yield");
   buildVault(root);
   for (let index = 0; index < 300; index += 1) write(root, `02-knowledge/many/note-${index}.md`, `# Note ${index}\n\nbody ${index}\n`);

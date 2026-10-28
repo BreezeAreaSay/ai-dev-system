@@ -16,8 +16,8 @@ param(
 # written by `ai-dev clients install --docker` from this checkout with the Node
 # on this machine (22.12+): a Linux container cannot write a config by its
 # Windows path. Nothing is compiled here any more: 2.x built a C# proxy on the
-# user's machine for Claude (docs/DEFECTS.md, Д-105), and its launchers answered
-# the MCP handshake themselves (Д-89).
+# user's machine for Claude, and its launchers answered
+# the MCP handshake themselves.
 
 $ErrorActionPreference = "Stop"
 $staleWarning = $null
@@ -32,7 +32,7 @@ $dataVolume = if ($env:AI_DEV_DATA_VOLUME) { $env:AI_DEV_DATA_VOLUME } else { "a
 # Windows PowerShell 5.1 turns what a native command writes to a redirected
 # stderr into error records, and with $ErrorActionPreference = "Stop" the first
 # of them ends the script — and the image writes its first-run report to stderr
-# at every start (docs/DEFECTS.md, Д-320). A native command whose stderr is
+# at every start. A native command whose stderr is
 # thrown away runs through here, with "Continue"; $LASTEXITCODE says how it did.
 function Invoke-Native {
     param([Parameter(Mandatory = $true)][scriptblock]$Command)
@@ -66,7 +66,7 @@ function Assert-Docker {
     if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
         throw "Docker Desktop is required: install it (winget install Docker.DockerDesktop, or https://docs.docker.com/get-docker/), start it, and run bootstrap.ps1 again."
     }
-    # The engine's version is only asked for to see that it answers: it is not printed (Д-438).
+    # The engine's version is only asked for to see that it answers: it is not printed.
     $null = Invoke-Native { & docker version --format '{{.Server.Version}}' 2>$null }
     if ($LASTEXITCODE -eq 0) { return }
     $desktop = Join-Path $env:ProgramFiles "Docker\Docker\Docker Desktop.exe"
@@ -86,7 +86,7 @@ if (-not (Test-Path -LiteralPath $cli)) {
     throw "Run this script from a complete AI Dev clone. Missing: $cli"
 }
 
-# A folder not named is the one the entries this install replaces mount, found once the installer runs (Д-403).
+# A folder not named is the one the entries this install replaces mount, found once the installer runs.
 $projectGiven = [bool]$ProjectPath
 $modelGiven = [bool]$ModelPath
 $resolvedProjectPath = [IO.Path]::GetFullPath($(if ($ProjectPath) { $ProjectPath } else { Join-Path $HOME "AI-Dev-Projects" }))
@@ -96,7 +96,7 @@ if ($ModelPath) {
 }
 if ($Plan) {
     # Not $plan: variable names are case-insensitive, and $Plan is the switch
-    # this block is answering (docs/DEFECTS.md, Д-70).
+    # this block is answering.
     $planDocument = [pscustomobject]@{
         repository = $repoRoot
         project_path = $resolvedProjectPath
@@ -125,8 +125,8 @@ function Assert-ModelFolder {
         throw "Model path does not exist: $Folder"
     }
     # The folder above the model, holding bge-m3-onnx\, mounted read-only as
-    # /models (docs/DEFECTS.md Д-69). A folder that holds model files itself is
-    # the pre-Д-62 value and would leave the model one level too deep (Д-68).
+    # /models. A folder that holds model files itself is
+    # the 2.0.0 value and would leave the model one level too deep.
     foreach ($marker in @("pytorch_model.bin", "modules.json", "config.json", "onnx")) {
         if (Test-Path -LiteralPath (Join-Path $Folder $marker)) {
             throw "-ModelPath names the folder above the models, and $Folder holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ (docs/INSTALL.md)."
@@ -145,8 +145,8 @@ if ($BuildLocal -or -not $SkipClientInstall) {
 }
 
 # A folder not named is the one the entries this install replaces mount — a 2.x entry's AI_DEV_PROJECT_PATH and
-# AI_DEV_MODEL_PATH too — so running bootstrap again, or after 2.x, keeps what the server sees (docs/DEFECTS.md, Д-403).
-# Read as the UTF-8 Node writes, as the install's own answer below (Д-435).
+# AI_DEV_MODEL_PATH too — so running bootstrap again, or after 2.x, keeps what the server sees.
+# Read as the UTF-8 Node writes, as the install's own answer below.
 if (-not $SkipClientInstall -and (-not $projectGiven -or -not $modelGiven)) {
     $consoleEncoding = $null
     try {
@@ -157,7 +157,7 @@ if (-not $SkipClientInstall -and (-not $projectGiven -or -not $modelGiven)) {
     }
     try {
         $entryFolders = @(Invoke-Native { & $node $cli clients folders "--clients=$Clients" 2>$null })
-        # A lookup that fails says so (docs/DEFECTS.md, Д-573).
+        # A lookup that fails says so.
         if ($LASTEXITCODE -ne 0) {
             $entryFolders = @()
             Write-Warning "Could not read the folders the clients' entries mount: name yours with -ProjectPath and -ModelPath, or the defaults stand."
@@ -167,7 +167,7 @@ if (-not $SkipClientInstall -and (-not $projectGiven -or -not $modelGiven)) {
     }
     foreach ($line in $entryFolders) {
         $role, $folder, $labels = "$line" -split "`t", 3
-        # Only an absolute folder is taken from an entry: `~` or a relative one is a hand edit (Д-573).
+        # Only an absolute folder is taken from an entry: `~` or a relative one is a hand edit.
         if (($role -eq "projects" -or $role -eq "model") -and $folder -and -not [IO.Path]::IsPathRooted($folder)) {
             Write-Warning "$folder, the $role folder $labels mounted, is not an absolute path: it is not kept."
             continue
@@ -182,7 +182,7 @@ if (-not $SkipClientInstall -and (-not $projectGiven -or -not $modelGiven)) {
         }
         if ($role -eq "model" -and -not $modelGiven -and $folder) {
             # A folder that holds 2.x's Python model and not 3.0's is not kept; any other is, as the first install took it,
-            # and checked as a named one is (Д-573).
+            # and checked as a named one is.
             $onnx = Test-Path -LiteralPath (Join-Path $folder "bge-m3-onnx") -PathType Container
             $python = (Test-Path -LiteralPath (Join-Path $folder "bge-m3") -PathType Container) -or (Test-Path -LiteralPath (Join-Path $folder "pytorch_model.bin"))
             if ((Test-Path -LiteralPath $folder -PathType Container) -and -not $onnx -and $python) {
@@ -216,7 +216,7 @@ if ($BuildLocal) {
             throw "Could not pull $Image, and no cached copy exists."
         }
         # Installing whatever happened to be in the cache produced bug reports
-        # about defects already fixed upstream (docs/DEFECTS.md Д-60), so the age
+        # about defects already fixed upstream, so the age
         # of that copy is stated and using it is a deliberate choice.
         $created = (Invoke-Native { & docker image inspect --format '{{.Created}}' $Image 2>$null } | Select-Object -First 1)
         $digest = (Invoke-Native { & docker image inspect --format '{{index .RepoDigests 0}}' $Image 2>$null } | Select-Object -First 1)
@@ -233,7 +233,7 @@ if ($BuildLocal) {
 if (-not $SkipSmoke) {
     Write-Host "Checking the MCP handshake..."
     # The server's own answer, instructions and all: 2.x checked for a serverInfo
-    # a launcher wrote itself (docs/DEFECTS.md Д-89).
+    # a launcher wrote itself.
     $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ai-dev-bootstrap","version":"1"}}}'
     $response = Invoke-Native { $init | & docker run --rm -i `
         --read-only `
@@ -253,13 +253,13 @@ if (-not $SkipClientInstall) {
     $installArgs = @("clients", "install", "--docker", "--image=$Image", "--projects=$resolvedProjectPath", "--volume=$dataVolume", "--clients=$Clients")
     if ($resolvedModelPath) { $installArgs += "--model=$resolvedModelPath" }
     # Whether there is a client to write, from the installer's own answer as JSON, not from the words it prints:
-    # with none, the hint is this script's -Clients, not the CLI's --clients, and nothing is written (Д-415).
+    # with none, the hint is this script's -Clients, not the CLI's --clients, and nothing is written.
     # Only a dry run that passed and lists no client but skipped ones means none: one that failed — a client's
     # config it cannot read, say — leaves it to the install itself, which writes the others and names that one,
-    # and whose exit decides (Д-428). The dry run's stderr is thrown away: the install says it again.
+    # and whose exit decides. The dry run's stderr is thrown away: the install says it again.
     # Its answer is read as the UTF-8 Node writes: both PowerShells decode a native command's output in the console's
     # code page, and in a double-byte one (932, 936, 949, 950) a byte of a folder's name in UTF-8 takes the JSON's next
-    # \ or " with it (Д-435). A host that refuses the setting has its answer read as before.
+    # \ or " with it. A host that refuses the setting has its answer read as before.
     $consoleEncoding = $null
     try {
         $consoleEncoding = [Console]::OutputEncoding
@@ -279,7 +279,7 @@ if (-not $SkipClientInstall) {
     if ($null -ne $listed -and @($listed | Where-Object { $_.status -ne "skipped" }).Count -eq 0) {
         $noClient = $true
         # The ellipsis by its code: Windows PowerShell 5.1 reads a script without a BOM in the ANSI code page. The
-        # list in quotes: typed bare, PowerShell passes cursor,vscode as an array, which -Clients refuses (Д-421).
+        # list in quotes: typed bare, PowerShell passes cursor,vscode as an array, which -Clients refuses.
         Write-Host "No AI client found here (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI). Name one to write its config anyway, -Clients `"cursor,vscode,$([char]0x2026)`", or install one and run bootstrap.ps1 again."
     } else {
         Write-Host "Writing the AI clients' configs..."
@@ -288,7 +288,7 @@ if (-not $SkipClientInstall) {
     }
 
     # Configs of 2.x name the launcher bootstrap.ps1 copied here: it is brought up
-    # to 3.0's, which says it is the 2.x one (owner decision D10). The compiled
+    # to 3.0's, which says it is the 2.x one. The compiled
     # ClaudeMcpProxy.exe beside it is left as it is: nothing is compiled any more.
     $legacyLauncher = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::CommonApplicationData)) "AI-Dev-System\run-mcp.ps1"
     if (Test-Path -LiteralPath $legacyLauncher) {
@@ -304,8 +304,7 @@ if ($staleWarning) {
     Write-Warning "Installed from a stale image. $staleWarning"
 }
 # The last line says what was done to the clients, no more, in bootstrap.sh's words, and after the stale image's
-# warning, as there: a restart when there were clients to connect, written or already current (Д-406, Д-415,
-# Д-419, Д-421).
+# warning, as there: a restart when there were clients to connect, written or already current.
 if ($SkipClientInstall) {
     Write-Host "AI Dev is ready; the AI clients' configs were left as they were."
 } elseif ($noClient) {

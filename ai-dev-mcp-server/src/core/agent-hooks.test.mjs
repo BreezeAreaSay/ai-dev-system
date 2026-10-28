@@ -132,10 +132,10 @@ test("hook path helpers are platform-agnostic", async (t) => {
 });
 
 test("the hook decides the project boundary without climbing into the home directory", async (t) => {
-  // Д-48, the hook's copy of the rule. It is spelled out here as well as in
+  // The hook's copy of the rule. It is spelled out here as well as in
   // project-identity.test.mjs because this file is the one that travels with
-  // the hooks, and the two copies have already drifted three times (Д-45,
-  // Д-51, Д-52). Platform and home are parameters: os.tmpdir() sits inside the
+  // the hooks, and the two copies have already drifted apart three times.
+  // Platform and home are parameters: os.tmpdir() sits inside the
   // user profile on Windows, so an environment-driven test would be deciding a
   // different layout there than here.
   const { isProjectBoundaryCandidate, projectIdOf, projectRootOf, userHomeDirectory } =
@@ -238,8 +238,8 @@ test("the Cursor adapter is pinned to a checked hooks.json format version", () =
 });
 
 test("what the Cursor adapter could not verify is said at install time, and has a check", () => {
-  // Д-2: three statements in the contract stand on secondary sources, because
-  // cursor.com is unreachable from where this was built. They were recorded in
+  // Three statements in the contract stand on secondary sources, because
+  // they could not be checked against a running Cursor. They were recorded in
   // a source comment, which is the one place the person installing never looks.
   const plan = cursorVerificationPlan();
   assert.deepEqual(plan.unverified, ["events", "limits"]);
@@ -593,7 +593,7 @@ test("cost capture reads a real transcript in whole lines, chunk by chunk", asyn
   assert.deepEqual(sumAssistantUsage(path.join(fixturesDir, "does-not-exist.jsonl"), { fromOffset: 12 }), { offset: 12, messages: 0, models: [] });
 });
 
-test("hook commands find Node through the launcher on macOS and Linux, and stay `node` on Windows (Д-103)", () => {
+test("hook commands find Node through the launcher on macOS and Linux, and stay `node` on Windows", () => {
   assert.equal(hookCommandLine("guard.mjs", ["bash"], "darwin"), "/bin/sh .ai-dev/hooks/with-node.sh guard.mjs bash");
   assert.equal(hookCommandLine("session-start.mjs", [], "linux"), "/bin/sh .ai-dev/hooks/with-node.sh session-start.mjs");
   assert.equal(hookCommandLine("guard.mjs", ["bash", "--cursor"], "win32"), "node .ai-dev/hooks/guard.mjs bash --cursor");
@@ -617,7 +617,7 @@ test("the installer records this machine's Node out of git, and nothing from ins
   const status = await agentHooksStatus(projectRoot);
   assert.equal(status.recorded_node, "/opt/node/bin/node");
   assert.equal(status.recorded_node_exists, false);
-  assert.equal(status.bare_node_commands, 0, "on Windows `node …` is the 3.0 registration, not a 2.x one (Д-172)");
+  assert.equal(status.bare_node_commands, 0, "on Windows `node …` is the 3.0 registration, not a 2.x one");
   const windowsEntries = { hooks: claudeHookEntries("standard", { platform: "win32" }) };
   await fs.writeFile(path.join(projectRoot, ".claude", "settings.json"), JSON.stringify(windowsEntries));
   assert.equal((await agentHooksStatus(projectRoot, { platform: "win32" })).bare_node_commands, 0);
@@ -633,7 +633,7 @@ test("the installer records this machine's Node out of git, and nothing from ins
   await assert.rejects(fs.access(path.join(container.projectRoot, ".ai-dev", "hooks", ".node-path")));
 });
 
-test("hooks a client runs without AI_DEV_HOME keep their state where the server does (Д-184)", async (t) => {
+test("hooks a client runs without AI_DEV_HOME keep their state where the server does", async (t) => {
   const { root, projectRoot } = await fixture(t);
   const runtime = path.join(root, "runtime-of-the-server");
   await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], nodePath: "", runtimeHome: runtime });
@@ -654,7 +654,7 @@ test("hooks a client runs without AI_DEV_HOME keep their state where the server 
   assert.equal(rootSeen(), path.join(home, ".ai-dev"));
 });
 
-test("a hook runs with no Node on PATH: the 2.x command fails, the launcher finds the recorded Node (Д-103)", { skip: process.platform === "win32" && "the launcher is the POSIX form" }, async (t) => {
+test("a hook runs with no Node on PATH: the 2.x command fails, the launcher finds the recorded Node", { skip: process.platform === "win32" && "the launcher is the POSIX form" }, async (t) => {
   const { root, projectRoot } = await fixture(t);
   const marker = path.join(root, "used.log");
   const fakeNode = async (name) => {
@@ -691,17 +691,17 @@ test("a hook runs with no Node on PATH: the 2.x command fails, the launcher find
   assert.deepEqual((await fs.readFile(marker, "utf8")).trim().split("\n"), ["recorded-node", "chosen-node"], "AI_DEV_NODE comes first");
 
   const missing = runLine("/bin/sh .ai-dev/hooks/with-node.sh", noNode);
-  assert.equal(missing.status, 1, "1, not 2: Claude Code reads 2 as \"block\" (Д-171)");
+  assert.equal(missing.status, 1, "1, not 2: Claude Code reads 2 as \"block\"");
   assert.match(missing.stderr, /with-node\.sh needs the hook script to run/);
 
-  // Node's bin folder in AI_DEV_NODE is a slip, not the end of every hook (Д-171).
+  // Node's bin folder in AI_DEV_NODE is a slip, not the end of every hook.
   const folder = runLine(command, { ...noNode, AI_DEV_NODE: path.dirname(chosen) });
   assert.equal(folder.status, 0, folder.stderr);
   assert.match(folder.stderr, /AI_DEV_NODE=.* is not a Node executable; looking for Node elsewhere/);
   assert.deepEqual((await fs.readFile(marker, "utf8")).trim().split("\n"), ["recorded-node", "chosen-node", "recorded-node"]);
 });
 
-test("the launcher and the git stubs are checked out with LF where core.autocrlf would give them CRLF (Д-171)", { skip: process.platform === "win32" && "the launcher is the POSIX form" }, async (t) => {
+test("the launcher and the git stubs are checked out with LF where core.autocrlf would give them CRLF", { skip: process.platform === "win32" && "the launcher is the POSIX form" }, async (t) => {
   const { root, projectRoot } = await fixture(t);
   await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude", "git"], nodePath: "" });
   assert.equal(await fs.readFile(path.join(projectRoot, ".ai-dev", "hooks", ".gitattributes"), "utf8"), "*.sh text eol=lf\n");
@@ -720,7 +720,7 @@ test("the launcher and the git stubs are checked out with LF where core.autocrlf
   assert.match(run.stderr, /needs the hook script to run/);
 });
 
-test("a re-install keeps the hooks a person added to an AI Dev group (Д-165)", () => {
+test("a re-install keeps the hooks a person added to an AI Dev group", () => {
   const ours = () => claudeHookEntries("standard", { platform: "linux" });
   const installed = mergeClaudeSettings({}, ours());
   installed.hooks.Stop[0].hooks.push({ type: "command", command: "./scripts/notify-me.sh" });

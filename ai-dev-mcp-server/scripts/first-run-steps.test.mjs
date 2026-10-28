@@ -33,7 +33,7 @@ async function makeVault(t, files = {}) {
 }
 
 test("the required steps are exactly the ones no install can do without", () => {
-  // Д-57: the container built the registry alone, so a fresh volume had no
+  // The container built the registry alone, so a fresh volume had no
   // search index and no routing benchmark, and four critical checks failed on
   // a correct install. Both commands now run this list.
   const required = FIRST_RUN_STEPS.filter((step) => !step.optional).map((step) => step.id);
@@ -44,8 +44,7 @@ test("the required steps are exactly the ones no install can do without", () => 
 test("the steps that write into the vault run before the index that reads it", () => {
   // The quality report writes a dashboard note. Built after the index, it left
   // the index stale the moment the first run finished — a fresh install that
-  // still could not reach `ok`, just for a different reason (docs/DEFECTS.md,
-  // Д-63).
+  // still could not reach `ok`, just for a different reason.
   const order = FIRST_RUN_STEPS.map((step) => step.id);
   assert.ok(
     order.indexOf("skill_quality_report") < order.indexOf("search_index"),
@@ -68,7 +67,7 @@ test("each required step calls the tool that builds it, with the arguments that 
     }
   });
   assert.equal(await actions.skill_registry(), "3227 skill(s) indexed");
-  // Д-63: nothing wrote the report the health check reads, so every fresh
+  // Without this step nothing wrote the report the health check reads, so every fresh
   // install answered its own diagnostic with `skill_quality: report missing`.
   assert.equal(await actions.skill_quality_report(), "37 skill(s) validated");
   assert.equal(await actions.search_index(), "3442 document(s) indexed");
@@ -182,7 +181,7 @@ test("an index the vault has moved past, and a benchmark older than its cases, a
 
 test("the skill quality report is rebuilt only when the registry has moved past it", async (t) => {
   // The step exists because nothing else writes the report the health check
-  // reads (docs/DEFECTS.md, Д-63); it has to be idempotent, because it runs on
+  // reads; it has to be idempotent, because it runs on
   // every container start.
   const root = await makeVault(t, {
     "03-skills-catalog/registries/skills.index.json": "[]",
@@ -217,7 +216,7 @@ test("the skill quality report is rebuilt only when the registry has moved past 
   assert.match(step.reason, /already built/);
 });
 
-test("a registry whose skills changed on disk is rebuilt, and everything built from it (Д-119)", async (t) => {
+test("a registry whose skills changed on disk is rebuilt, and everything built from it", async (t) => {
   // What a pull that removes a skill leaves: the generated registry still
   // lists it, the file is gone. Before, setup said "already built" to all four.
   const registry = JSON.stringify([
@@ -267,7 +266,7 @@ test("a registry whose skills changed on disk is rebuilt, and everything built f
   );
 });
 
-test("after a pull that changed skills, the dense vectors in the index are still reported (Д-131)", { skip: !sqliteSupport().available && sqliteSupport().reason }, async (t) => {
+test("after a pull that changed skills, the dense vectors in the index are still reported", { skip: !sqliteSupport().available && sqliteSupport().reason }, async (t) => {
   const root = await makeVault(t, {
     "02-knowledge/deploy.md": "# Deploy\n\nHow to deploy and roll back.",
     "03-skills-catalog/sources/custom/kept/SKILL.md": "# kept\n",
@@ -322,7 +321,7 @@ test("running a plan reports every step, including the ones this caller cannot r
   assert.equal(results.length, plan.length);
 });
 
-test("a stop is no failure: the step it cuts short and those after it are skipped, and none of them announced (Д-223)", async () => {
+test("a stop is no failure: the step it cuts short and those after it are skipped, and none of them announced", async () => {
   const announced = [];
   const stop = new AbortController();
   const plan = planFirstRun({ present: {}, stale: {}, want: {} });
@@ -343,7 +342,7 @@ test("a stop is no failure: the step it cuts short and those after it are skippe
   assert.equal(results.filter((item) => item.status === "failed").length, 0);
 });
 
-test("a step that fails of something else as the stop comes failed, and says so (Д-233)", async () => {
+test("a step that fails of something else as the stop comes failed, and says so", async () => {
   const stop = new AbortController();
   const plan = planFirstRun({ present: {}, stale: {}, want: {} });
   const results = await runFirstRunPlan(plan, {
@@ -361,7 +360,7 @@ test("a step that fails of something else as the stop comes failed, and says so 
 });
 
 test("the first run counts the documents the rebuild actually reported", async () => {
-  // Д-75 (upstream #63): a fresh rebuild answers with `document_count`, which
+  // Issue #63: a fresh rebuild answers with `document_count`, which
   // was in none of the names this line read, so the first thing a new user saw
   // was "? document(s) indexed" while the index had in fact been built.
   const actions = createRequiredActions({
@@ -370,7 +369,7 @@ test("the first run counts the documents the rebuild actually reported", async (
   assert.equal(await actions.search_index(), "3442 document(s) indexed");
 });
 
-test("the vectors are not attempted after the model step failed, and say why (Д-98)", async () => {
+test("the vectors are not attempted after the model step failed, and say why", async () => {
   const plan = planFirstRun({ present: {}, stale: {}, want: { dense_model: true, dense_index: true } });
   const ran = [];
   const results = await runFirstRunPlan(plan, {

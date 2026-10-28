@@ -5,9 +5,9 @@ param(
 )
 
 # 2.x ran the gate once with this script, looking for Node in the Codex desktop
-# runtime. It is `npm run check` now, on any system, with Node from PATH
-# (docs/DEFECTS.md, Д-104), then the Frontend QA runner's tests when its
-# dependencies are installed (Д-185); `npm run acceptance` runs the gate ten times. With
+# runtime. It is `npm run check` now, on any system, with Node from PATH,
+# then the Frontend QA runner's tests when its
+# dependencies are installed; `npm run acceptance` runs the gate ten times. With
 # -IncludeDense the dense checks follow: `ai-dev doctor --dense-smoke
 # --search-eval`. This wrapper stays until 4.0 and says so on stderr.
 $ErrorActionPreference = "Stop"

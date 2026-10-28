@@ -1,6 +1,6 @@
 /**
  * An MCP SDK transport to the daemon — what a program uses where a client
- * config uses `ai-dev mcp`: the desktop app (phase 10), a test, a script.
+ * config uses `ai-dev mcp`: the desktop app, a test, a script.
  *
  *   const client = new Client({ name: "my-app", version: "1.0.0" });
  *   await client.connect(new DaemonClientTransport({ serverRoot }));
@@ -40,7 +40,7 @@ export class DaemonClientTransport {
    *   a daemon this transport starts gets it, and the session's tools run in it.
    * @param {string | null} [options.profiles] - The session's capability profiles; empty for the default
    *   surface, `control` (with or without others) for the desktop app's tools. Not given: what `env`
-   *   names, with the settings applied, as for a client's `ai-dev mcp` (docs/DEFECTS.md, Д-238).
+   *   names, with the settings applied, as for a client's `ai-dev mcp`.
    * @param {number} [options.timeoutMs] - How long to wait for a daemon this transport starts.
    * @param {string} [options.execPath] - The Node the daemon runs on; needed where this process is not
    *   that Node (Electron): the daemon's build includes it, and a client's `ai-dev mcp` runs on it.

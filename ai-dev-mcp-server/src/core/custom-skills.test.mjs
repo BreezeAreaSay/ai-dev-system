@@ -93,7 +93,7 @@ test("a new skill starts from the template, and its name and description are che
   await assert.rejects(createCustomSkill({ root: custom, name: "-x", description: "Fine." }), /lowercase letters/);
 });
 
-test("a skill just started from the template passes the structure check the health check holds it to (Д-598)", () => {
+test("a skill just started from the template passes the structure check the health check holds it to", () => {
   for (const description of ["Check a deploy before calling it done.", "x"]) {
     const verdict = evaluateSkillQuality({ name: "deploy-check", description, source: "custom" }, skillTemplate("deploy-check", description));
     assert.equal(verdict.status, "pass", JSON.stringify(verdict.findings));
@@ -140,7 +140,7 @@ test("the list leaves out folders being added or removed, and says which skills 
   assert.deepEqual(await listCustomSkills({ root: path.join(root, "absent") }), []);
 });
 
-test("a SKILL.md that is a link is copied as its text, and a name given is the one the SKILL.md says (Д-584, Д-585)", async (t) => {
+test("a SKILL.md that is a link is copied as its text, and a name given is the one the SKILL.md says", async (t) => {
   const { root, custom } = await stage(t);
   // Dotfile managers keep the SKILL.md as a link: the copy is the file it leads to.
   const kept = await skillFolder(path.join(root, "dotfiles"), "linked-skill");

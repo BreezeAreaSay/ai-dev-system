@@ -77,7 +77,7 @@ test("without --yes the uninstaller only says what it would take out", async (t)
 
 test("the uninstaller takes out what the Windows install made, and nothing of any other install", async (t) => {
   const staged = await stageHome(t);
-  // A link an update that stopped half-way left beside `current` (Д-306, п. 7).
+  // A link an update that stopped half-way left beside `current`.
   const stale = path.join(staged.runtime, "app", "current.4242.abcdef12.next");
   await fs.symlink(staged.provisioned.folder, stale, "dir");
   const stopped = [];
@@ -111,7 +111,7 @@ test("--data deletes the runtime home, and only a folder that holds nothing but 
   for (const name of own) await fs.writeFile(path.join(staged.runtime, name), "");
   await fs.mkdir(path.join(staged.runtime, ".ai-dev", "state"), { recursive: true });
   for (const name of ["logs", "run", "vault", "artifacts", "python"]) await fs.mkdir(path.join(staged.runtime, name));
-  // Inside the folders a person might name the same, what AI Dev makes there (Д-307).
+  // Inside the folders a person might name the same, what AI Dev makes there.
   for (const name of ["models/bge-m3-onnx", "models/bge-m3", "cache/search-index", "cache/dense-model", "cache/ai-dev-system"]) await fs.mkdir(path.join(staged.runtime, name), { recursive: true });
   for (const name of ["models/bge-m3-onnx.lock", "backups/ai-dev-system_2026-10-18T10-00-00Z_manual.zip", "backups/ai-dev-system_2026-10-18T10-00-00Z_manual.zip.sha256",
     "backups/ai-dev-system_2026-01-01_10-00-00_manual.zip", "backups/ai-dev-system_2026-10-18T11-00-00Z_x.zip.4242.tmp"]) {
@@ -131,7 +131,7 @@ test("--data deletes the runtime home, and only a folder that holds nothing but 
   assert.equal(await refuseDataRemoval(empty, { home: path.join(root, "me") }), "");
 });
 
-test("--data keeps a folder the person keeps other things in, whole, and says what is not AI Dev's (Д-297)", async (t) => {
+test("--data keeps a folder the person keeps other things in, whole, and says what is not AI Dev's", async (t) => {
   const staged = await stageHome(t);
   // AI_DEV_HOME set to Documents: AI Dev made its folders there beside the person's files.
   const documents = path.join(staged.home, "Documents");
@@ -155,7 +155,7 @@ test("--data keeps a folder the person keeps other things in, whole, and says wh
   assert.match((await inspectDataFolder(documents, { home: staged.home })).reason, /\(Taxes 2025, a, b, c, d, and 2 more\)/);
 });
 
-test("--data looks inside the folders a person might name the same, and at what each entry is (Д-307)", async (t) => {
+test("--data looks inside the folders a person might name the same, and at what each entry is", async (t) => {
   const root = await scratch(t);
   const home = path.join(root, "home");
   const make = async (name, files) => {
@@ -185,7 +185,7 @@ test("--data looks inside the folders a person might name the same, and at what 
   assert.equal(await fs.readFile(path.join(root, "my-obsidian", "note.md"), "utf8"), "mine", "what the link named stays");
 });
 
-test("a marker that is not JSON is not a copy's, and stops nothing (Д-308)", async (t) => {
+test("a marker that is not JSON is not a copy's, and stops nothing", async (t) => {
   const staged = await stageHome(t);
   await fs.writeFile(path.join(staged.npx, APP_MARKER), "");
   await fs.writeFile(path.join(staged.provisioned.folder, APP_MARKER), "{ truncated");
@@ -195,7 +195,7 @@ test("a marker that is not JSON is not a copy's, and stops nothing (Д-308)", as
   assert.equal(exitStatus(result), 0);
 });
 
-test("while a copy is left in use, the data is not touched: it goes whole, when it is run again (Д-309)", async (t) => {
+test("while a copy is left in use, the data is not touched: it goes whole, when it is run again", async (t) => {
   const staged = await stageHome(t);
   // Leftovers of an earlier uninstall that could not finish deleting what it moved aside.
   const aside = `${staged.runtime}.4242.removing.partial`;
@@ -221,13 +221,13 @@ test("while a copy is left in use, the data is not touched: it goes whole, when 
   await assert.rejects(fs.access(staged.runtime), { code: "ENOENT" });
 });
 
-test("--data through a runtime home that is a link deletes the folder it points at, then the link (Д-306, п. 3)", async (t) => {
+test("--data through a runtime home that is a link deletes the folder it points at, then the link", async (t) => {
   const staged = await stageHome(t);
   const real = path.join(staged.root, "elsewhere", "ai-dev-data");
   await fs.mkdir(path.dirname(real), { recursive: true });
   await fs.rename(staged.runtime, real);
   await fs.symlink(real, staged.runtime, "dir");
-  // The removal names the link's target by its real path; the temp folder can be a link itself (Д-373).
+  // The removal names the link's target by its real path; the temp folder can be a link itself.
   const target = await fs.realpath(real);
   const result = await uninstallBundle({ env: staged.env, home: staged.home, data: true, apply: true, stop: noDaemons });
   assert.equal(result.data.removed, true, JSON.stringify(result.data));
@@ -237,7 +237,7 @@ test("--data through a runtime home that is a link deletes the folder it points 
   await fs.access(path.dirname(real));
 });
 
-test("a runtime home under a linked folder is not itself a link: nothing is said of one (Д-310, п. 4)", async (t) => {
+test("a runtime home under a linked folder is not itself a link: nothing is said of one", async (t) => {
   const staged = await stageHome(t);
   const store = path.join(staged.root, "store");
   await fs.mkdir(store);
@@ -279,7 +279,7 @@ test("an entry runs the install when its command or an argument lies under the l
   assert.equal(runsBundle({ command: path.join(appsRoot, "..", "app-other", "x") }, where), false);
 });
 
-test("a bare word of an entry names no folder, whatever folder the uninstall runs in (Д-298)", async (t) => {
+test("a bare word of an entry names no folder, whatever folder the uninstall runs in", async (t) => {
   // Out of the folders before they are removed: Windows removes no folder a
   // process is in (EBUSY), and after-hooks run in the order they were added.
   const before = process.cwd();

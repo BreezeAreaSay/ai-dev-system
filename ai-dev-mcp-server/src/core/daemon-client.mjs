@@ -45,10 +45,10 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * absolute, and the settings file applied as every CLI command applies it —
  * the daemon applies it to its own too. So the build is the same on both
  * sides, and a session started from here, the desktop app's, has the mirror
- * and the model folder the settings name (docs/DEFECTS.md, Д-218).
+ * and the model folder the settings name.
  *
  * @param {NodeJS.ProcessEnv} given
- * @param {{ platform?: string }} [options] - On Windows a variable's name ignores case (Д-232).
+ * @param {{ platform?: string }} [options] - On Windows a variable's name ignores case.
  * @returns {Record<string, string>} a copy
  */
 export function daemonEnvironment(given, { platform = process.platform } = {}) {
@@ -165,7 +165,7 @@ async function reach(info, options, build) {
  *
  * Each build — the code, its version, the daemon-wide variables — has a
  * daemon of its own, so a client never waits on, or replaces, the daemon of
- * another copy of the code or another vault (docs/DEFECTS.md, Д-191). For an
+ * another copy of the code or another vault. For an
  * MCP session the channel carries `env` to the daemon: the session runs in it.
  *
  * @param {object} options
@@ -175,7 +175,7 @@ async function reach(info, options, build) {
  * @param {NodeJS.ProcessEnv} [options.env]
  * @param {"mcp" | "control"} [options.mode]
  * @param {string | null} [options.profiles] - The session's; not given, the ones its environment
- *   names once the settings are applied — as `ai-dev mcp` has them (docs/DEFECTS.md, Д-238).
+ *   names once the settings are applied — as `ai-dev mcp` has them.
  * @param {number} [options.timeoutMs]
  * @param {typeof spawn} [options.spawnImpl]
  * @param {number} [options.restartAfterMs] - for tests
@@ -188,8 +188,8 @@ async function reach(info, options, build) {
  */
 export async function connectDaemon({ serverRoot, cliPath, version, env: given = process.env, mode = "mcp", profiles = null, timeoutMs = startTimeoutMs(given), spawnImpl = spawn, restartAfterMs = RESTART_AFTER_MS, execPath = process.execPath, start: startOne = true }) {
   // The daemon runs in another folder than its caller: a relative path in the
-  // environment means, for it too, what it means here (docs/DEFECTS.md, Д-194,
-  // Д-201); and it runs with the settings applied (Д-218).
+  // environment means, for it too, what it means here; and it runs with the
+  // settings applied.
   const env = daemonEnvironment(given);
   // The build includes the Node the daemon runs on: a caller that is not
   // that Node — the desktop app is Electron — names it (`execPath`).
@@ -230,7 +230,7 @@ export async function connectDaemon({ serverRoot, cliPath, version, env: given =
     }
     // Exit 0 is a daemon that found another of this build serving, or
     // starting: the wait goes on for that one — and when it never shows up,
-    // another start takes over its abandoned lock (docs/DEFECTS.md, Д-193).
+    // another start takes over its abandoned lock.
     if (exited && Date.now() - exited.at >= restartAfterMs && starts < MAX_STARTS) start();
   }
   throw new ChannelError(`The daemon did not start within ${Math.round(timeoutMs / 1000)} s. ${await logTail(4, env)}`.trim(), { code: "ETIMEDOUT" });
@@ -240,15 +240,15 @@ export async function connectDaemon({ serverRoot, cliPath, version, env: given =
  * Remove the descriptor or retired record of a daemon that is gone — its
  * process ended, or its lock went stale because nothing refreshes it — and
  * only then: taking the file's lock proves no daemon holds it, whatever
- * process now has its pid (docs/DEFECTS.md, Д-198). A daemon hung past its
+ * process now has its pid. A daemon hung past its
  * lock's life still takes connections at its address: its record stays, and
- * `stop` asks it like any other (Д-204).
+ * `stop` asks it like any other.
  */
 async function removeStale(file, info) {
   if (await addressListening(info.address)) return false;
   // run/ may have gone meanwhile — a runtime home deleted, a daemon leaving
   // took its empty folder — and then there is nothing left to remove: the
-  // lock makes no folder (docs/DEFECTS.md, Д-215, Д-226).
+  // lock makes no folder.
   const taken = await tryAcquireFileLock(file, { staleMs: DAEMON_LOCK_STALE_MS, makeDirectory: false });
   if (!taken.release) return false;
   try {
@@ -295,7 +295,7 @@ export async function listDaemons({ clean = false, env = process.env } = {}) {
       } catch (error) {
         unreachable = clause(error.message);
         // A handshake that never came is a connection taken: a hung daemon,
-        // not a gone one — and one probe fewer in its full queue (Д-208).
+        // not a gone one — and one probe fewer in its full queue.
         answering = !nothingListens(error);
       }
     }
@@ -342,7 +342,7 @@ export async function daemonStatus({ serverRoot, version, env: given = process.e
   const mine = daemons.find((entry) => !entry.retired && entry.status && entry.info.build === build.id);
   const stale = mine ? null : daemons.find((entry) => !entry.retired && !entry.status && entry.info.build === build.id);
   // Every other daemon is shown, a retired one that does not answer too: it
-  // still has sessions, and `stop` is told why it cannot reach it (Д-197).
+  // still has sessions, and `stop` is told why it cannot reach it.
   const others = daemons.filter((entry) => entry !== mine && entry !== stale).map((entry) => summary(entry, build));
   if (mine) return { running: true, ...mine.status, ok: undefined, current: true, others };
   return {
@@ -373,7 +373,7 @@ export async function stopDaemons({ timeoutMs = 10_000, env = process.env, state
       continue;
     }
     // A daemon that did not answer `status` may still take `stop`: the answer
-    // it could not give is not the request it cannot take (Д-196).
+    // it could not give is not the request it cannot take.
     let answer;
     try {
       answer = await controlRequest(info, "stop");
@@ -382,7 +382,7 @@ export async function stopDaemons({ timeoutMs = 10_000, env = process.env, state
       continue;
     }
     const deadline = Date.now() + timeoutMs;
-    // A daemon that has exited may wait to be collected by the program that started it (Д-234). Where only `ps` tells
+    // A daemon that has exited may wait to be collected by the program that started it. Where only `ps` tells
     // the two apart, it is asked twice a second and once more at the end, not at every look.
     let state = stateOf(info.pid);
     for (let look = 1; (state === "running" || state === "unknown") && Date.now() < deadline; look += 1) {

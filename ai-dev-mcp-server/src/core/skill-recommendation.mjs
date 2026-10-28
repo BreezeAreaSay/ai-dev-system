@@ -134,7 +134,7 @@ export function shouldSkipRecommendedSkill(item, { task, context, membranePolicy
   // `hexagonal-architecture` under design, frontend, ui and ux, and it is a
   // backend architecture skill. For those the veto reads `primary_group`, the
   // one value the taxonomy settled on — read through `categories` every such
-  // skill was unreachable for any task that was not about design (Д-1).
+  // skill was unreachable for any task that was not about design.
   const designVeto = item.source === "custom" ? isDesignSkill(item) : isDesignFirstSkill(item);
   if (designVeto && !taskLooksVisual(task) && !projectStackLooksFrontend(context)) {
     return "Design/frontend skill filtered because neither task nor project is frontend/design oriented.";
@@ -235,7 +235,7 @@ export const SPECIALIST_NARROW_STACK_PENALTY = 2;
 /**
  * The one imported skill that best answers this task, or `null`.
  *
- * This is the whole of the answer to Д-1. Our own skills are routed by name and
+ * Our own skills are routed by name and
  * fill all three conventional slots, so an imported skill could never appear —
  * and it should not appear by displacing one, because the routed core carries
  * the verification contract. It gets a slot of its own instead, and earns it the
@@ -266,7 +266,7 @@ export function pickTaskSpecialist({ task, items, context, exclude = [], membran
   // Concepts are the Russian-to-English bridge, so an English task almost never
   // has any: measured, "send a notification through gmail when the build fails"
   // yields no concepts and eight of its own terms, and this exit dropped it
-  // before any scoring ran (Д-29). What matters is whether there is anything to
+  // before any scoring ran. What matters is whether there is anything to
   // score with, not which half of the vocabulary produced it. The situation-hit
   // floor below is what keeps a two-word task from matching on noise.
   if (!concepts.length && ownTerms.length < SPECIALIST_MIN_TERMS) return null;
@@ -566,7 +566,7 @@ export function recommendSkillsFromRegistry({
     });
   }
 
-  // The reserved specialist slot (Д-1). It is picked from what is left after
+  // The reserved specialist slot. It is picked from what is left after
   // the routed core, scored on `use_when` through the bilingual expansion, and
   // appended by `prioritizeRoutedRecommendations` outside the three-skill cap.
   const routedNames = deterministicRoute.skills.map((item) => item.name);

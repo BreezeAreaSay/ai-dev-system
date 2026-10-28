@@ -7,7 +7,7 @@
 #
 # 2.x installed Docker itself, kept a long-lived "runtime container", answered
 # the MCP handshake in a launcher instead of the server, and mounted the whole
-# home folder to write the configs (docs/DEFECTS.md, Д-89, Д-103, Д-105).
+# home folder to write the configs.
 set -eu
 
 project_path=""
@@ -79,8 +79,7 @@ if [ "$build_local" -eq 1 ] && [ "$image_set" -eq 0 ]; then
   image="ai-dev-system:local"
 fi
 
-# A misspelled client is a mistake, not "nothing to do"; and so is none at all
-# (docs/DEFECTS.md, Д-328, Д-336).
+# A misspelled client is a mistake, not "nothing to do"; and so is none at all.
 case "$clients" in
   *[!,]*) ;;
   *) printf '%s\n' "--clients: name at least one client, or all." >&2; exit 64 ;;
@@ -102,7 +101,7 @@ set +f
 
 # The state folder the agent hooks keep theirs in, found as they find it:
 # AI_DEV_STATE_ROOT, else AI_DEV_HOME's — unless it names the home itself, which
-# keeps 2.x's meaning — else ~/.ai-dev/state (Д-328).
+# keeps 2.x's meaning — else ~/.ai-dev/state.
 state_path="${HOME}/.ai-dev/state"
 if [ -n "${AI_DEV_STATE_ROOT:-}" ]; then
   state_path="$AI_DEV_STATE_ROOT"
@@ -188,9 +187,9 @@ settle_model() {
     exit 64
   fi
   model_path=$(CDPATH= cd -- "$model_path" && pwd -P)
-  # The folder above the model, holding bge-m3-onnx/ (docs/DEFECTS.md Д-62, Д-69):
-  # one that holds model files itself is the pre-Д-62 value and leaves the model
-  # a level too deep (Д-68); a lone bge-m3/ is the removed Python backend's weights (Д-158).
+  # The folder above the model, holding bge-m3-onnx/:
+  # one that holds model files itself is the 2.0.0 value and leaves the model
+  # a level too deep; a lone bge-m3/ is the removed Python backend's weights.
   for marker in pytorch_model.bin modules.json config.json onnx; do
     if [ -e "${model_path}/${marker}" ]; then
       printf '%s\n' "--model-path names the folder above the models, and ${model_path} holds model files itself (${marker}). Point it at the parent folder that contains bge-m3-onnx/ (docs/INSTALL.md)." >&2
@@ -198,13 +197,13 @@ settle_model() {
     fi
   done
   # A bge-m3-onnx that is a link is mounted itself, and Docker follows it here; the image, writing the configs, cannot
-  # see where it leads, so a link that leads nowhere is refused now: no session would start over it (Д-368).
+  # see where it leads, so a link that leads nowhere is refused now: no session would start over it.
   if [ -L "${model_path}/bge-m3-onnx" ] && [ ! -d "${model_path}/bge-m3-onnx" ]; then
     printf '%s\n' "${model_path}/bge-m3-onnx is a link to $(readlink "${model_path}/bge-m3-onnx") that leads nowhere here: connect the disk it leads to, or point --model-path at another folder." >&2
     exit 64
   fi
   # And a session mounts it every time: while what it leads to is away — a disk unplugged — Docker starts no
-  # session at all, so that is said now (Д-385).
+  # session at all, so that is said now.
   if [ -L "${model_path}/bge-m3-onnx" ]; then
     printf '%s\n' "${model_path}/bge-m3-onnx is a link to $(readlink "${model_path}/bge-m3-onnx"): every session mounts what it leads to, so if that is a disk you disconnect, Docker starts no session while it is away, and the AI client's log shows Docker's \"bind source path does not exist\"." >&2
   fi
@@ -212,7 +211,7 @@ settle_model() {
     printf '%s\n' "${model_path} holds no bge-m3-onnx/ yet; dense search will report that it is not set up until a model is put there." >&2
   fi
 }
-# A folder named is settled now; one not named waits for the entries this install replaces (Д-403).
+# A folder named is settled now; one not named waits for the entries this install replaces.
 if [ "$project_given" -eq 1 ] || [ "$skip_client_install" -eq 1 ]; then
   settle_projects
 fi
@@ -236,7 +235,7 @@ else
       exit 69
     fi
     # Installing whatever happened to be in the cache produced bug reports
-    # about defects already fixed upstream (docs/DEFECTS.md Д-60), so the age
+    # about defects already fixed upstream, so the age
     # of that copy is stated and using it is a deliberate choice.
     stale_created=$(docker image inspect --format '{{.Created}}' "$image" 2>/dev/null || true)
     stale_digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image" 2>/dev/null || true)
@@ -254,7 +253,7 @@ fi
 if [ "$skip_smoke" -ne 1 ]; then
   printf '%s\n' "Checking the MCP handshake..."
   # The server's own answer, instructions and all: 2.x checked for a serverInfo
-  # its launcher wrote itself (docs/DEFECTS.md Д-89).
+  # its launcher wrote itself.
   init='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ai-dev-bootstrap","version":"1"}}}'
   if ! printf '%s\n' "$init" | docker run --rm -i --read-only --tmpfs /tmp:rw,exec,nosuid,size=512m --network none \
       --security-opt no-new-privileges:true --cap-drop ALL \
@@ -269,15 +268,15 @@ if [ "$skip_client_install" -ne 1 ]; then
   # The configs are written by the image's own installer. A 2.x image has none —
   # the way back to :2 is still a 3.0 entry, which runs it — so an image of 3.0
   # writes them then: AI_DEV_INSTALLER_IMAGE, pulled as the image is, and used
-  # only once it is seen to have one (docs/DEFECTS.md, Д-323, Д-329). Both images
+  # only once it is seen to have one. Both images
   # are here by now, so no `--pull never`, which a Docker CLI before 20.10 does
-  # not know (Д-344).
+  # not know.
   has_installer() {
     docker run --rm --network none --entrypoint sh "$1" -c 'command -v ai-dev' >/dev/null 2>&1
   }
   installer_image="$image"
   if ! has_installer "$image"; then
-    # The 3.x line, not :latest, which a rollback points at 2.x again (docs/DEFECTS.md, Д-572).
+    # The 3.x line, not :latest, which a rollback points at 2.x again.
     installer_image="${AI_DEV_INSTALLER_IMAGE:-ghcr.io/stonebridgeway/ai-dev-system:3}"
     printf '%s\n' "${image} has no installer of its own (a 2.x image): ${installer_image} writes the configs that run it."
     if ! docker pull "$installer_image" && ! docker image inspect "$installer_image" >/dev/null 2>&1; then
@@ -293,11 +292,11 @@ if [ "$skip_client_install" -ne 1 ]; then
   # Whether the image's user may share the state folder, tried on Linux whatever
   # the uid: where Docker maps the container's uid 1000 to another host user —
   # rootless Docker, userns-remap, Podman — it cannot write the folder, and the
-  # server keeps its state in the volume, as 2.x did (Д-322). A Docker that did
-  # not run the image tried nothing, and is not taken for one (Д-331). Docker
+  # server keeps its state in the volume, as 2.x did. A Docker that did
+  # not run the image tried nothing, and is not taken for one. Docker
   # Desktop on macOS gives what the container writes to the user. This script
-  # decided it, so this script says why, once (Д-342, Д-344). The image is here
-  # by now: no `--pull`, which a Docker CLI before 20.10 does not know (Д-351).
+  # decided it, so this script says why, once. The image is here
+  # by now: no `--pull`, which a Docker CLI before 20.10 does not know.
   shared_state=yes
   if [ "$platform" != "Darwin" ]; then
     probe=".ai-dev-share-probe-$$"
@@ -324,7 +323,7 @@ if [ "$skip_client_install" -ne 1 ]; then
         "Your state folder is not shared with the server for now: it keeps its state in the volume. Run bootstrap.sh again once Docker runs the image." >&2
     elif [ "$shared_state" = no ]; then
       [ "$uid" -eq 1000 ] || why="the image's user (uid 1000) is not yours (uid ${uid}), so a folder of yours is not one the container may share"
-      printf '%s\n' "The agent hooks keep their state apart from the server's: ${why}. The server keeps its state in the volume, as 2.x did, and cannot write into your projects. On this machine the local install is the one to use (docs/INSTALL.md; Д-318, Д-322)." >&2
+      printf '%s\n' "The agent hooks keep their state apart from the server's: ${why}. The server keeps its state in the volume, as 2.x did, and cannot write into your projects. On this machine the local install is the one to use (docs/INSTALL.md)." >&2
     fi
   fi
 
@@ -369,7 +368,7 @@ if [ "$skip_client_install" -ne 1 ]; then
     printf '%s' "${out:-/}"
   }
   home_real=$(CDPATH= cd -- "$HOME" 2>/dev/null && pwd -P) || home_real=$HOME
-  # The root, the home or a folder above it is not handed to the installer whole (Д-339).
+  # The root, the home or a folder above it is not handed to the installer whole.
   too_wide() {
     case "$1" in /) return 0 ;; esac
     case "${HOME%/}/" in "${1%/}/"*) return 0 ;; esac
@@ -378,8 +377,7 @@ if [ "$skip_client_install" -ne 1 ]; then
   }
   # A config that is a link — a dotfiles repository — is written through it:
   # each folder on the way is mounted at the path the link spells, from the
-  # folder it really is, since the container follows the link by its spelling
-  # (Д-335, Д-338).
+  # folder it really is, since the container follows the link by its spelling.
   follow_links() {
     c_dir=$2
     h_dir=$(CDPATH= cd -- "$2" 2>/dev/null && pwd -P) || return 0
@@ -392,7 +390,7 @@ if [ "$skip_client_install" -ne 1 ]; then
         *) c_target=$(normalize_path "${c_dir}/${target}"); h_base="${h_dir}/$(dirname -- "$target")" ;;
       esac
       if ! h_tdir=$(CDPATH= cd -- "$h_base" 2>/dev/null && pwd -P); then
-        printf '%s\n' "${1}: its config leads to ${c_target}, in a folder that is not there: not configured. Make the folder, or point the link elsewhere (Д-353)." >&2
+        printf '%s\n' "${1}: its config leads to ${c_target}, in a folder that is not there: not configured. Make the folder, or point the link elsewhere." >&2
         return 1
       fi
       c_tdir=$(dirname -- "$c_target")
@@ -422,14 +420,13 @@ if [ "$skip_client_install" -ne 1 ]; then
     docker "$@" "$installer_image" 2>&1 >/dev/null
   }
   # Whether Docker runs the image at all, with no folder of the clients': what
-  # it says when it does not — a timeout, a storage driver, a daemon gone
-  # (Д-358, Д-360, Д-362).
+  # it says when it does not — a timeout, a storage driver, a daemon gone.
   engine_check() {
     docker run --rm --network none --entrypoint true "$installer_image" 2>&1 >/dev/null
   }
   # What Docker said: its first line, carried on to the next when it ends at a
   # colon — Docker Desktop names the path there — and with no carriage return;
-  # its exit status when it said nothing (Д-360, Д-366).
+  # its exit status when it said nothing.
   said() {
     text=$(printf '%s' "$1" | tr -d '\r')
     first=${text%%"$nl"*}
@@ -466,7 +463,7 @@ if [ "$skip_client_install" -ne 1 ]; then
     rest="${rest%:*}"
     file="${rest##*:}"
     folder="${rest%:*}"
-    # As the links are: a HOME with a slash at its end spells the same folder twice otherwise (Д-353).
+    # As the links are: a HOME with a slash at its end spells the same folder twice otherwise.
     case "$folder" in /*) folder=$(normalize_path "$folder") ;; esac
     wants "$client" || continue
     case ",${clients}," in
@@ -490,11 +487,10 @@ if [ "$skip_client_install" -ne 1 ]; then
   done
   # Docker takes every client's folders in one look, or each client is looked
   # at alone: a folder it refuses — outside Docker Desktop's file sharing, say —
-  # costs that client alone (Д-339, Д-352). A client whose look passes shows that
+  # costs that client alone. A client whose look passes shows that
   # Docker runs the image, so the others' were refused; only when none passes is
   # Docker asked to run it with no folder at all, and if that fails too it is the
-  # engine: said once, and the install goes on and says what fails (Д-358,
-  # Д-360, Д-362).
+  # engine: said once, and the install goes on and says what fails.
   look=0
   refused=""
   if [ "$candidates" != "," ]; then
@@ -549,7 +545,7 @@ if [ "$skip_client_install" -ne 1 ]; then
   install_clients=${candidates#,}
   install_clients=${install_clients%,}
   # A folder not named is the one the entries this install replaces mount — a 2.x entry's AI_DEV_PROJECT_PATH and
-  # AI_DEV_MODEL_PATH too — so running bootstrap again, or after 2.x, keeps what the server sees (docs/DEFECTS.md, Д-403).
+  # AI_DEV_MODEL_PATH too — so running bootstrap again, or after 2.x, keeps what the server sees.
   if [ "$project_given" -eq 0 ] || [ "$model_given" -eq 0 ]; then
     set -- run --rm --network none --user "${uid}:${gid}" --read-only --tmpfs /tmp:rw,size=64m \
       --env "HOME=${HOME}" --env "XDG_CONFIG_HOME=${app_data}" --env "CODEX_HOME=${codex_home}"
@@ -564,7 +560,7 @@ if [ "$skip_client_install" -ne 1 ]; then
     if wants claude-code && [ -f "${HOME}/.claude.json" ]; then
       set -- "$@" --mount "type=bind,source=${HOME}/.claude.json,target=${HOME}/.claude.json,readonly"
     fi
-    # A lookup that fails — an installer older than the command, a Docker error — says so (Д-573).
+    # A lookup that fails — an installer older than the command, a Docker error — says so.
     if ! entry_folders=$(docker "$@" "$installer_image" ai-dev clients folders --clients="$clients" --home="$HOME" \
       --platform="$installer_platform" 2>/dev/null </dev/null); then
       entry_folders=""
@@ -597,7 +593,7 @@ EOF
       printf '%s\n' "Projects folder: ${project_path}, the one ${project_from} mounted (--project-path names another)."
     fi
     # A folder that holds 2.x's Python model and not 3.0's is not kept: 3.0 does not run it; one that is gone mounts
-    # nothing. Any other is kept, as the first install took it (Д-573).
+    # nothing. Any other is kept, as the first install took it.
     if [ -n "${model_from:-}" ]; then
       if [ -d "$model_path" ] && [ ! -d "${model_path}/bge-m3-onnx" ] && { [ -d "${model_path}/bge-m3" ] || [ -e "${model_path}/pytorch_model.bin" ]; }; then
         printf '%s\n' "${model_path}, the model folder ${model_from} mounted, holds 2.x's Python model and no bge-m3-onnx/, which 3.0 runs: none is mounted; name one with --model-path." >&2
@@ -617,7 +613,7 @@ EOF
   if [ -n "$model_path" ]; then
     set -- "$@" --mount "type=bind,source=${model_path},target=${model_path},readonly"
   fi
-  # Claude Code's entry is printed, not written: it needs none of the clients' folders (Д-339).
+  # Claude Code's entry is printed, not written: it needs none of the clients' folders.
   claude_entry=""
   if wants claude-code && { [ -e "${HOME}/.claude.json" ] || [ -d "${HOME}/.claude" ] || [ "$clients" != "all" ]; }; then
     if entry=$(docker "$@" "$installer_image" ai-dev clients entry claude-code \
@@ -668,7 +664,7 @@ EOF
     fi
   fi
   # Every client by default, and none of them here: nothing was written, and that is said, as the image's
-  # installer says it when it is asked (Д-406).
+  # installer says it when it is asked.
   if [ -z "$install_clients" ] && [ -z "$claude_entry" ] && [ "$install_status" -eq 0 ]; then
     no_client=1
     printf '%s\n' "No AI client found here (Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI). Name one to write its config anyway, --clients cursor,vscode,…, or install one and run bootstrap.sh again."
@@ -676,7 +672,7 @@ EOF
 fi
 
 # 2.x kept a long-lived container per user; 3.0 runs one per session. It goes
-# once the configs that named it are rewritten, not before (Д-328).
+# once the configs that named it are rewritten, not before.
 old_runtime="ai-dev-system-runtime-${uid}"
 if [ "$skip_client_install" -ne 1 ] && [ "$install_status" -eq 0 ] \
     && [ "$(docker inspect --format '{{index .Config.Labels "ai-dev.system.runtime"}}' "$old_runtime" 2>/dev/null || true)" = "true" ]; then
@@ -692,7 +688,7 @@ if [ "$install_status" -ne 0 ]; then
   exit 1
 fi
 # The last line says what was done to the clients, no more: a restart when there were clients to connect —
-# written, already current, or Claude Code's entry printed for you to add (Д-415, Д-421).
+# written, already current, or Claude Code's entry printed for you to add.
 if [ "$skip_client_install" -eq 1 ]; then
   printf '%s\n' "AI Dev is ready; the AI clients' configs were left as they were."
 elif [ "$no_client" -eq 1 ]; then

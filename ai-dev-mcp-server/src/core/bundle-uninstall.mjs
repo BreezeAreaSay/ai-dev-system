@@ -26,7 +26,7 @@ import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 
 /**
  * What AI Dev makes at the top of a runtime home — and `--data` deletes a
- * folder only when nothing else is there (docs/DEFECTS.md, Д-297): its
+ * folder only when nothing else is there: its
  * folders (`python` and `.ai-dev` are what 2.x left), its settings with their
  * lock and the files a write that stopped leaves (`atomic-files.mjs`), the
  * locks of the moves 3.0 makes, and what Windows and macOS put in any folder
@@ -37,7 +37,7 @@ const OWN_FILE = /^(?:config\.json|\.config\.json\.\d+\.[0-9a-f-]+\.tmp|config\.
 
 /**
  * What AI Dev makes inside the folders whose names a person may use for
- * their own as well, when `AI_DEV_HOME` names a folder of theirs (Д-307):
+ * their own as well, when `AI_DEV_HOME` names a folder of theirs:
  * the models and their locks, the search index and the model's stamp (and the
  * 2.x cache), the archives `ai-dev backup` writes with their checksums.
  * Anything else in them keeps the whole runtime home.
@@ -63,7 +63,7 @@ export async function bundleCopies(appsRoot) {
   for (const entry of await fs.readdir(appsRoot, { withFileTypes: true }).catch(() => [])) {
     if (!entry.isDirectory()) continue;
     const folder = path.join(appsRoot, entry.name);
-    // A marker that cannot be read, or is not JSON, is not a copy's: it stops nothing (Д-308).
+    // A marker that cannot be read, or is not JSON, is not a copy's: it stops nothing.
     const marker = await fs.readFile(path.join(folder, APP_MARKER), "utf8").then((text) => JSON.parse(text)).catch(() => null);
     if (marker?.kind === "bundle") copies.push(folder);
   }
@@ -74,7 +74,7 @@ export async function bundleCopies(appsRoot) {
  * Whether a client's `ai-dev` entry runs the Windows install: its command or
  * an argument is an absolute path under the stable link or in one of its
  * copies. An entry of a clone, of an npx copy, of Docker is someone else's,
- * and stays — whatever folder the uninstall runs in (Д-298).
+ * and stays — whatever folder the uninstall runs in.
  *
  * @param {{ command?: unknown, args?: unknown } | undefined} entry
  * @param {{ appsRoot: string, copies: string[], platform?: string }} where
@@ -96,10 +96,10 @@ function holds(folder, inner) {
 
 /**
  * Where the runtime home is, and whether `--data` may delete it: the folder it
- * names or, when it is a link, the folder the link points at (Д-306, п. 3).
+ * names or, when it is a link, the folder the link points at.
  * Never a drive's root, the home folder or one above it, and never a folder
  * that holds anything AI Dev did not make — then `reason` names what is not
- * AI Dev's, and nothing is deleted (Д-297).
+ * AI Dev's, and nothing is deleted.
  *
  * @param {string} folder
  * @param {{ home?: string, platform?: string }} [options]
@@ -160,7 +160,7 @@ async function removeFolder(folder, move = fs.rename) {
 
 /**
  * Finish off what an earlier uninstall moved aside and could not delete —
- * `<name>.<pid>.removing.partial` folders, its own by their name (Д-309).
+ * `<name>.<pid>.removing.partial` folders, its own by their name.
  *
  * @param {string} parent
  * @param {string} name - What was moved: a copy's folder, or the runtime home.
@@ -222,7 +222,7 @@ export async function uninstallBundle({ env = process.env, home = os.homedir(), 
 
   if (apply) {
     result.link = await removeLink(currentLink(runtimeHome));
-    // And the links an update that stopped half-way left beside it (Д-306, п. 7).
+    // And the links an update that stopped half-way left beside it.
     result.stale_links = await removeStaleLinks(appsRoot);
     for (const folder of copies) {
       const left = await removeFolder(folder, move);
@@ -242,7 +242,7 @@ export async function uninstallBundle({ env = process.env, home = os.homedir(), 
     if (where.reason) Object.assign(result.data, { refused: true, reason: where.reason });
     else if (result.copies.left.some((left) => left.busy)) {
       // A copy a client still runs: its files are in the runtime home, which
-      // goes only whole — after the clients are closed and it is run again (Д-309).
+      // goes only whole — after the clients are closed and it is run again.
       Object.assign(result.data, { busy: true, reason: "AI Dev's runtime in it is still in use" });
     } else if (where.absent) Object.assign(result.data, { removed: apply, absent: true });
     else if (apply) {

@@ -88,7 +88,7 @@ export function renderSystemDashboard(snapshot) {
     `| ${project.name} | \`${project.id}\` | ${project.stack?.join(", ") || "unknown"} | ${project.updated_at || "-"} |`
   ));
   // Every row below the first two is a health check as it ran for this page:
-  // until 3.0 eight rows said Ready whatever was true (docs/DEFECTS.md, Д-106).
+  // until 3.0 eight rows said Ready whatever was true.
   const checkRows = (snapshot.checks ?? []).map((check) => (
     `| ${cell(checkTitle(check.name), 60)} | ${CHECK_STATUS[check.status] ?? cell(check.status, 20)} | ${cell(check.summary)} |`
   ));

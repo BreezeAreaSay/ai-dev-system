@@ -111,7 +111,7 @@ function noNodeScreen() {
     retryButton(view.t("common.retry")));
 }
 
-/** The app could not get going: what stopped it, what to do, and Try again or Restart (Д-242). */
+/** The app could not get going: what stopped it, what to do, and Try again or Restart. */
 function brokenScreen() {
   const { connection } = view;
   return h("section", { className: "centre", dataset: { screen: "broken" } },
@@ -171,11 +171,11 @@ for (const button of document.querySelectorAll("[data-nav]")) {
 
 languageSelect.addEventListener("change", async () => {
   view.language = pickLanguage(languageSelect.value, "");
-  // The state comes back in the new language: the link's own words too (Д-283, п. 3).
+  // The state comes back in the new language: the link's own words too.
   const connection = await api.setLanguage(view.language);
   if (connection) {
     view.connection = connection;
-    // The main process's language after the choice: a state sent meanwhile does not undo it (Д-284).
+    // The main process's language after the choice: a state sent meanwhile does not undo it.
     if (connection.language) view.language = connection.language;
   }
   render();
@@ -187,7 +187,7 @@ api.onState((connection) => {
   view.connection = connection ?? { phase: "offline" };
   if (connection?.language) view.language = connection.language;
   // A screen in the middle of a step keeps its place while the daemon is
-  // reachable, and across a reconnect (the daemon of new code, Д-245); any
+  // reachable, and across a reconnect (the daemon of new code); any
   // other change of phase draws the page again from the start.
   if (was !== view.connection.phase) {
     if (!["online", "reconnecting"].includes(view.connection.phase)) view.route = null;
@@ -195,7 +195,7 @@ api.onState((connection) => {
   } else if (["offline", "broken", "no-node"].includes(view.connection.phase) || view.language !== spoken) {
     // The same screen with news: a log that arrived, a reason that changed —
     // or the language, which the main process changed: the settings file,
-    // fixed, named its own (Д-283, п. 2).
+    // fixed, named its own.
     render();
   }
 });

@@ -78,7 +78,7 @@ async function standInTray(options = {}) {
   return { tray, link, view, set, goes, item, menu: () => menu };
 }
 
-test("each state is drawn in its own colour, and a failed rebuild is said in the menu (Д-254, Д-257 п. 5)", async () => {
+test("each state is drawn in its own colour, and a failed rebuild is said in the menu", async () => {
   const { tray, link, set, goes, item, menu } = await standInTray();
   const colours = Object.keys(TRAY_COLOURS);
   assert.equal(new Set(colours.map((state) => String(TRAY_COLOURS[state]))).size, colours.length, "four different colours");
@@ -95,7 +95,7 @@ test("each state is drawn in its own colour, and a failed rebuild is said in the
   assert.deepEqual(item("rebuild"), ["Rebuild failed — try again", true]);
   assert.equal(tray.menu().find((entry) => entry.id === "rebuild").label, "Rebuild failed — try again");
   assert.match(tray.tray.tip, /\nThe last rebuild failed: The index folder is a file\.$/, "and why, in the tooltip");
-  // Offline, "try again" cannot be pressed: the item says nothing of it, the tooltip still does (Д-280).
+  // Offline, "try again" cannot be pressed: the item says nothing of it, the tooltip still does.
   goes("offline");
   assert.deepEqual(item("rebuild"), ["Rebuild search index", false]);
   assert.match(tray.tray.tip, /The last rebuild failed: The index folder is a file\./);
@@ -107,7 +107,7 @@ test("each state is drawn in its own colour, and a failed rebuild is said in the
   assert.ok(menu().length > 0);
 });
 
-test("a rebuild the link ended is said again in the language chosen after (Д-280)", async () => {
+test("a rebuild the link ended is said again in the language chosen after", async () => {
   const { tray, view, goes } = await standInTray();
   tray.setRebuilding(null, { key: "link.wentAway", text: "The daemon went away." });
   goes("offline");
@@ -120,10 +120,10 @@ test("a rebuild the link ended is said again in the language chosen after (Д-28
   assert.match(tray.tooltip(), /Последняя перестройка не удалась: The index folder is a file\.$/);
 });
 
-test("a Stop that failed is said while a daemon it names runs — offline too — and Stop is offered again (Д-271 п. 6, Д-273, Д-277)", async () => {
+test("a Stop that failed is said while a daemon it names runs — offline too — and Stop is offered again", async () => {
   const running = new Set([4242]);
   const { tray, goes, item } = await standInTray({ runs: (pid) => running.has(pid), lookEveryMs: 5 });
-  // While a Stop runs, the item says so and cannot be pressed (Д-278).
+  // While a Stop runs, the item says so and cannot be pressed.
   tray.setStopping();
   assert.deepEqual(item("stop"), ["Stopping the daemon…", false]);
   assert.deepEqual(tray.menu().find((entry) => entry.id === "stop"), { id: "stop", label: "Stopping the daemon…", enabled: false });
@@ -141,7 +141,7 @@ test("a Stop that failed is said while a daemon it names runs — offline too �
   for (const deadline = Date.now() + 2_000; item("stop")[0] !== "Stop the daemon" && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 5));
   assert.deepEqual(item("stop"), ["Stop the daemon", false]);
   assert.doesNotMatch(tray.tooltip(), /after Stop/);
-  // A Stop whose request failed names no daemon: its note is about the one the app is on, and goes once the app is off it (Д-276, п. 1).
+  // A Stop whose request failed names no daemon: its note is about the one the app is on, and goes once the app is off it.
   goes("online");
   tray.setStopping();
   tray.setStopFailed({ error: "EPERM" });
@@ -160,7 +160,7 @@ test("a Stop that failed is said while a daemon it names runs — offline too �
   assert.deepEqual(item("stop"), ["Stop the daemon", true]);
 });
 
-test("a note naming two daemons holds while either runs, in the language in force; no pid ≤ 0 runs (Д-283, п. 4)", async () => {
+test("a note naming two daemons holds while either runs, in the language in force; no pid ≤ 0 runs", async () => {
   const running = new Set([501, 502]);
   const { tray, view, goes, item } = await standInTray({ runs: (pid) => running.has(pid), lookEveryMs: 5 });
   goes("offline");
@@ -180,7 +180,7 @@ test("a note naming two daemons holds while either runs, in the language in forc
   assert.equal(tray.tooltip(), "AI Dev: демон не запущен");
 });
 
-test("the tray asks the system whether a daemon runs, once a second at most: this process does, an ended one and pids 0, -1 do not (Д-283, п. 4)", async () => {
+test("the tray asks the system whether a daemon runs, once a second at most: this process does, an ended one and pids 0, -1 do not", async () => {
   const { spawn } = await import("node:child_process");
   assert.ok(NOTE_LOOK_MS <= 1_000);
   assert.equal(processRuns(process.pid), true);
@@ -190,7 +190,7 @@ test("the tray asks the system whether a daemon runs, once a second at most: thi
   assert.deepEqual([0, -1, 1.5, Number.NaN].map(processRuns), [false, false, false, false]);
 });
 
-test("the note's words: each daemon whole, its reason cut, three at most and how many more, no empty brackets (Д-284)", async () => {
+test("the note's words: each daemon whole, its reason cut, three at most and how many more, no empty brackets", async () => {
   const running = new Set([41234, 41235, 41236, 41237, 4242]);
   const { tray, view } = await standInTray({ runs: (pid) => running.has(pid) });
   const long = `Cannot reach the daemon at /home/${"x".repeat(60)}/ai-dev-0123456789abcdef01234567.sock: EAGAIN`;

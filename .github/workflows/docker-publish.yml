@@ -18,8 +18,7 @@ on:
 permissions:
   contents: read
 
-# A manual run (freeze_2x) is not cancelled by the next push to the same branch
-# (docs/DEFECTS.md, Д-325).
+# A manual run (freeze_2x) is not cancelled by the next push to the same branch.
 concurrency:
   group: docker-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
@@ -73,7 +72,7 @@ jobs:
 
       # bootstrap.sh end to end against this image, with a home outside /tmp: in
       # the container /tmp is a tmpfs, where what the installer must not do — make
-      # a folder of the host's — goes through unnoticed (docs/DEFECTS.md, Д-319).
+      # a folder of the host's — goes through unnoticed.
       - name: bootstrap.sh writes a client's config from the image
         run: |
           home="$RUNNER_TEMP/bootstrap-home"
@@ -82,7 +81,7 @@ jobs:
           node -e 'const entry = require(process.argv[1]).mcpServers["ai-dev"]; if (!entry?.args?.includes("ai-dev-system:ci")) throw new Error(`no entry for the image: ${JSON.stringify(entry)}`); console.log(entry.command, entry.args.join(" "))' "$home/.cursor/mcp.json"
           docker volume rm -f ai-dev-bootstrap-ci
 
-      # A 2.x volume and 2.x launchers against this image (owner decision D10).
+      # A 2.x volume and 2.x launchers against this image.
       # The 2.x image is the production one, whichever line its tag names now.
       - name: Upgrade a 2.x volume and run the 2.x launchers
         working-directory: ai-dev-mcp-server
@@ -120,7 +119,7 @@ jobs:
       - name: Build the browser variant
         run: docker build --target browser --tag ai-dev-system:ci-browser .docker/build-context
 
-      - name: The pnpm in the image is the one Frontend QA names (Д-111)
+      - name: The pnpm in the image is the one Frontend QA names
         run: |
           expected=$(node -p "require('./frontend-qa/package.json').packageManager.split('@')[1].split('+')[0]")
           actual=$(docker run --rm --network none --entrypoint pnpm ai-dev-system:ci-browser --version)
@@ -162,10 +161,10 @@ jobs:
         run: sh -n bootstrap.sh docker/run-mcp.sh docker/entrypoint.sh
 
   publish:
-    # The production repository only. A fork that works in its own main (this
-    # program does) must not publish an image of its own from every push.
+    # The production repository only. A fork that works in its own main must
+    # not publish an image of its own from every push.
     #
-    # The tags (owner decision D9; docs/DEFECTS.md, Д-108): a push to main is
+    # The tags: a push to main is
     # `:edge`, never `:latest` — a merge is not a release; a release tag vX.Y.Z
     # of the newest line is `:X.Y.Z`, `:X.Y`, `:X` and `:latest` — a 2.x tag
     # after 3.0, on a commit that carries this workflow, updates `:2` and `:2.Y`
@@ -225,8 +224,8 @@ jobs:
             latest=false
             suffix=${{ matrix.suffix }},onlatest=true
           # :latest only from a release of the newest line: a 2.x maintenance tag
-          # after 3.0 updates :2 and nothing else (Д-325). The line is named
-          # here: 4.0 adds v3. to it (Д-336). sha-* only from the default
+          # after 3.0 updates :2 and nothing else. The line is named
+          # here: 4.0 adds v3. to it. sha-* only from the default
           # branch and release tags.
           tags: |
             type=raw,value=edge,enable={{is_default_branch}}
@@ -255,7 +254,7 @@ jobs:
           sbom: true
 
   # Once, before the first 3.0 release tag: the 2.x image that `:latest` is now
-  # becomes `:2`, the line to roll back to (owner decision D9). 2.x was
+  # becomes `:2`, the line to roll back to. 2.x was
   # published from main with no release tags, so no `:2` exists until then.
   freeze-2x:
     if: github.event_name == 'workflow_dispatch' && inputs.freeze_2x && github.repository == 'stonebridgeway/ai-dev-system'
@@ -270,8 +269,8 @@ jobs:
           fetch-depth: 0
 
       # Once 3.0 is released, :latest is not the 2.x line, and copying it would
-      # make the way back a 3.x image (docs/DEFECTS.md, Д-325). A prerelease
-      # (v3.0.0-rc.1) does not move :latest, and so does not count (Д-336).
+      # make the way back a 3.x image. A prerelease
+      # (v3.0.0-rc.1) does not move :latest, and so does not count.
       - name: Refuse once a release of 3.0 or later is tagged
         run: |
           later=$(git tag --list 'v[3-9]*' 'v[1-9][0-9]*' | { grep -v -- - || true; } | head -n 1)

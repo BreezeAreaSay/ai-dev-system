@@ -2,7 +2,7 @@
 
 A tray icon, a first-run wizard, a Status screen, the screens of your work — projects, costs,
 skills, settings, the daemon's log — and a console for every tool, over the daemon every AI client
-shares. The app is in `desktop/`, built on Electron (owner decision D5; the version is pinned in
+shares. The app is in `desktop/`, built on Electron (the version is pinned in
 `desktop/package.json`). It does not run AI Dev itself: it drives the same daemon the clients'
 `ai-dev mcp` reaches, through the control API
 ([CONTROL-API.md](../ai-dev-mcp-server/docs/CONTROL-API.md)).
@@ -157,7 +157,7 @@ on, or **Start the daemon** pressed). The old daemon leaves once its last sessio
 
 ## Languages
 
-English and Russian (owner decision D6). The language follows the system until you choose one in
+English and Russian. The language follows the system until you choose one in
 the header, and the tray follows it. The choice is kept in the settings (`language`). While the file
 cannot take it — broken, or held by another writer — it holds for the run and is written once the
 file can: looked for twice a second, and once more at **Quit**, which waits for the file a second at
@@ -239,8 +239,7 @@ Chromium's sandbox needs unprivileged user namespaces, which Ubuntu 24.04 refuse
 program without an AppArmor profile. The `.deb` installs one, and the sandbox stays. An AppImage
 cannot: its `AppRun` (electron-builder's) tries `unshare -Ur true` and, where that is refused, starts
 the app with `--no-sandbox`. The page it shows is the app's own, with no network, isolated from Node
-(above), so that costs a second wall, not the first; where it matters, install the `.deb`
-(docs/DEFECTS.md, Д-587).
+(above), so that costs a second wall, not the first; where it matters, install the `.deb`.
 
 ### How AI clients reach it
 
@@ -303,7 +302,7 @@ seen: hashing the whole runtime at every start would take seconds.
 ### Updates
 
 The installed app looks for an update a minute after it starts and every six hours, in the GitHub
-Releases of the production repository, `stonebridgeway/ai-dev-system` (owner decision D7), downloads
+Releases of the production repository, `stonebridgeway/ai-dev-system`, downloads
 it in the background, and offers **Restart to update to …** in the tray; one not taken is installed
 at **Quit**. A signed build checks the download against the signature of the app that runs; an
 unsigned one against the sha512 the release lists. `AI_DEV_DESKTOP_UPDATES=0` turns the checks off.
@@ -371,7 +370,7 @@ installer on `windows-latest`, and `.github/workflows/desktop-macos-linux.yml` t
 packages on `macos-latest` and `ubuntu-latest`, then runs each shipped runtime as an AI client
 does and starts the built app (`test/e2e/packaged.test.mjs`).
 
-The runtime is the npm package's distribution (`npm run dist`, phase 7) with its dependencies for
+The runtime is the npm package's distribution (`npm run dist`) with its dependencies for
 the target, less what never loads there: onnxruntime-web (transformers carries the web runtime
 inside its own file), the WebAssembly build of sharp and what only it needs, sharp's and
 onnxruntime-node's builds for other systems and processors (on Linux the musl ones too), npm's
@@ -388,7 +387,7 @@ every update against — a wrong one would refuse every update. Without either t
 unsigned, and Windows SmartScreen warns about it on first run. macOS: a Developer ID Application
 certificate in `CSC_LINK` with `CSC_KEY_PASSWORD` signs the app with the hardened runtime, and
 `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` send it for notarization, a path not
-finished yet (docs/RELEASE.md, "The desktop app"); without one the app
+finished yet (the runtime's native modules are not signed with the Developer ID); without one the app
 is signed ad hoc — Apple silicon runs nothing unsigned — and does not update itself. The Linux
 packages are not signed.
 

@@ -7,7 +7,7 @@
  * while the container ran the registry alone. A fresh container therefore
  * started with no index and no benchmark, and the first thing its user saw was
  * `Health: fail` on a correct install, with every search tool refusing until
- * somebody called `rebuild_search_index` by hand (docs/DEFECTS.md, Д-57).
+ * somebody called `rebuild_search_index` by hand.
  *
  * So the required steps of `FIRST_RUN_STEPS` live here — what decides
  * whether each is needed, what each one does, and how to run a plan — and both
@@ -106,7 +106,7 @@ export function createRequiredActions({ callTool, onProgress, signal }) {
     async skill_quality_report() {
       // `validate_skill_library` is the only writer of the report the health
       // check reads, and nothing called it: every fresh install answered its own
-      // diagnostic with `skill_quality: report missing` (docs/DEFECTS.md, Д-63).
+      // diagnostic with `skill_quality: report missing`.
       // The duplicate analysis is the expensive half and the report does not
       // need it here, so it is left to whoever asks for the tool by hand.
       const result = await callTool("validate_skill_library", {
@@ -132,7 +132,7 @@ export function createRequiredActions({ callTool, onProgress, signal }) {
         // `document_count` is what the rebuild path of search_cli.py returns, and
         // none of the other three names existed on a first run — so the very
         // first thing a new user saw was "? document(s) indexed" while the
-        // index was in fact built (docs/DEFECTS.md, Д-75; upstream #63).
+        // index was in fact built (issue #63).
         `${doc.indexed_document_count ?? doc.current_document_count ?? doc.document_count ?? doc.documents ?? "?"} document(s) indexed`
       ));
     },
@@ -174,7 +174,7 @@ async function modifiedAt(target) {
  */
 export async function readRequiredState({ paths, callTool, serverRoot, skillRoutingEvalCasesPath }) {
   // A registry whose skills changed on disk — a pull that removed or rewrote
-  // some — is out of date, and so is everything built from it (Д-119). Asking
+  // some — is out of date, and so is everything built from it. Asking
   // the index first would rebuild the registry inside that call and leave the
   // plan saying "already built".
   const registry = await checkSkillRegistry({
@@ -184,7 +184,7 @@ export async function readRequiredState({ paths, callTool, serverRoot, skillRout
   const registryStale = Boolean(registry?.stale);
   // With the registry out of date the index file is asked directly: what it
   // holds now, dense vectors included, is still what setup reports, and only
-  // the tool would rebuild the registry on the way (docs/DEFECTS.md, Д-131).
+  // the tool would rebuild the registry on the way.
   const indexStatus = !existsSync(paths.searchIndexPath) ? null
     : registryStale
       ? await readIndexFileStatus({
@@ -228,12 +228,12 @@ export async function readRequiredState({ paths, callTool, serverRoot, skillRout
  * about optional steps this runner has no action for, and a caller that only
  * has the required actions still gets a full report. A step that `requires`
  * one that failed in this run is skipped and says so: the vectors after a
- * model download that failed only failed again (docs/DEFECTS.md, Д-98).
+ * model download that failed only failed again.
  *
- * A stop (`signal`) is not a fault (Д-158): the step it cuts short and the
- * steps after it are skipped and say so, and none of the rest is announced
- * (Д-223). A step that fails of something else as the stop comes — a full
- * disk — failed, and says so (Д-233).
+ * A stop (`signal`) is not a fault: the step it cuts short and the
+ * steps after it are skipped and say so, and none of the rest is announced.
+ * A step that fails of something else as the stop comes — a full
+ * disk — failed, and says so.
  *
  * @param {Array<{ id: string, run: boolean }>} plan - From `planFirstRun`.
  * @param {Record<string, () => Promise<string>>} actions

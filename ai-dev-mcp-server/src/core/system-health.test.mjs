@@ -119,7 +119,7 @@ test("recommendations name every failure and warning, plus the dense smoke hint 
   assert.equal(recommendations[1], "Fix failed check: search_smoke - no results");
   assert.equal(recommendations[2], "Review warning: required_notes - 1 missing");
   assert.deepEqual(healthRecommendations([{ name: "dense_smoke", status: "ok", summary: "ran" }]), []);
-  // Д-147: without the model the advice only turned a healthy install into a failure.
+  // Without the model the advice only turned a healthy install into a failure.
   for (const backend of [[], [{ name: "embedding_backend", status: "skipped", summary: "not installed" }]]) {
     assert.deepEqual(healthRecommendations([...backend, { name: "dense_smoke", status: "skipped", summary: "skipped" }]), []);
   }
@@ -182,7 +182,7 @@ test("search index freshness reports drift counts", () => {
   const fresh = evaluateSearchIndexFreshness({ stale: false, current_document_count: 900 });
   assert.equal(fresh.status, "ok");
   assert.match(fresh.summary, /900 document\(s\)/);
-  // Current documents, but their vectors are another model's: a warning with the command (Д-148).
+  // Current documents, but their vectors are another model's: a warning with the command.
   const otherModel = evaluateSearchIndexFreshness({ stale: false, current_document_count: 825, dense_other_model_documents: 365 });
   assert.equal(otherModel.status, "warn");
   assert.equal(otherModel.summary, "Search index is current with 825 document(s). 365 document(s) have dense vectors of another model, "
@@ -223,7 +223,7 @@ test("frontend QA environment is ready only when Playwright can launch Chromium"
   assert.equal(notInstalled.status, "skipped");
   assert.equal(notInstalled.details.optional, true);
   assert.match(notInstalled.summary, /--frontend-qa/);
-  // The image's default variant ships no browser, and a client's container installs nothing (Д-316).
+  // The image's default variant ships no browser, and a client's container installs nothing.
   const inImage = evaluateFrontendQaEnvironment({ playwright_available: false }, { kind: "docker", ephemeral: false, appHome: false });
   assert.equal(inImage.status, "skipped");
   assert.match(inImage.summary, /is missing; the image's `-browser` variant carries it/);
@@ -367,8 +367,7 @@ test("project registry check previews at most ten projects", () => {
 
 test("an empty project registry is a fresh install, not a warning", () => {
   // A correct install has no projects until somebody registers one, and warning
-  // about that put every new user at `degraded` on their first health check
-  // (docs/DEFECTS.md, Д-63).
+  // about that put every new user at `degraded` on their first health check.
   const empty = evaluateProjectRegistry([]);
   assert.equal(empty.status, "ok");
   assert.equal(empty.details.count, 0);
@@ -522,7 +521,7 @@ test("system snapshot falls back when quality, projects, and card shapes are spa
 });
 
 test("a Frontend QA runner that never started is not reported as Playwright missing", () => {
-  // Д-56: in the image Playwright and Chromium are installed and the runner
+  // In the image Playwright and Chromium are installed and the runner
   // dies importing the server, so all three flags are false for a reason that
   // has nothing to do with the optional install. Saying "run `npm run setup --
   // --frontend-qa`" sent the reader after software that was already there, and
@@ -571,7 +570,7 @@ test("no Python only skips the UI UX check: it is optional, and says how to get 
   assert.match(missing.summary, /^query_ui_ux_knowledge and generate_ui_ux_design_system need Python 3, and "python" is not on PATH\. They are optional.*AI_DEV_PYTHON/);
   const moved = evaluateUiUxKnowledge({ command: "C:\\Tools\\Python312\\python.exe", missing: true });
   assert.ok(moved.summary.includes('"C:\\Tools\\Python312\\python.exe" is not there.'), moved.summary);
-  // A file that is there but is not a Python 3 — the Store's alias, a Python 2 — is no better (Д-139).
+  // A file that is there but is not a Python 3 — the Store's alias, a Python 2 — is no better.
   const stub = evaluateUiUxKnowledge({ command: "python", failure: "Python was not found; run without arguments to install from the Microsoft Store" });
   assert.equal(stub.status, "skipped");
   assert.match(stub.summary, /"python" did not run as Python 3 \(Python was not found; run without arguments/);

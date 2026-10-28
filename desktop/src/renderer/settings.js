@@ -137,7 +137,7 @@ export function settingsScreen(view) {
           draw(h("div", { className: "ok", dataset: { field: "saved" } }, h("p", {}, view.t("settings.saved")), h("ul", {}, lines)));
         } catch (error) {
           save.disabled = false;
-          // The model's mirror and folder, the profiles: saved only once the person confirms them (Д-288).
+          // The model's mirror and folder, the profiles: saved only once the person confirms them.
           show(result, error.notConfirmed
             ? h("p", { className: "notice", role: "status", dataset: { field: "not-confirmed" } }, view.t("settings.notConfirmed"))
             : h("p", { className: "error", role: "alert", dataset: { field: "save-error" } }, view.t("common.error", { message: error.message })));

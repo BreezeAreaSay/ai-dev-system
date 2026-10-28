@@ -172,7 +172,7 @@ test("a hybrid result is shaped as the helper printed it, with the FTS snippet w
   assert.equal(first.mode, "hybrid");
   assert.match(first.preview, /\[deploy\]|\[production\]/, "the snippet marks the words");
   assert.ok(second.keyword_score === 0 ? !second.preview.includes("[") : true, "a document the words did not match shows its stored preview");
-  // Capitals AND/OR/NOT are words here, as in keyword search (Д-117).
+  // Capitals AND/OR/NOT are words here, as in keyword search.
   const operators = hybridSearch(db, { query: "deploy AND production", limit: 10 });
   assert.ok(operators[0].keyword_score > 0, JSON.stringify(operators[0]));
   assert.deepEqual(hybridSearch(db, { query: "   " }), []);
@@ -214,13 +214,13 @@ test("dense vectors count when the index has them and the caller embedded the qu
   assert.ok(zeroWeight.every((item) => item.dense_score === 0));
 
   // Vectors from another model — a 2.x index's Python fp32 ones — are not in
-  // the question's space and are not compared with it (D3, Д-98).
+  // the question's space and are not compared with it.
   const same = hybridSearch(db, { query: "pull request", limit: 10, denseQueryVector: query, denseProvenance: provenance });
   assert.equal(same.find((item) => item.path === "07-quality-gates/release-gate.md")?.dense_score, 1);
   const other = hybridSearch(db, { query: "pull request", limit: 10, denseQueryVector: query, denseProvenance: { backend: "python", revision: "unpinned", dtype: "fp32" } });
   assert.ok(other.every((item) => item.dense_score === 0), "another model's vectors score nothing");
   // Not one vector of the question's model: the dense half is left out of the
-  // weights, as with no model at all, and the answer says why (Д-148).
+  // weights, as with no model at all, and the answer says why.
   assert.equal(other.dense_unmatched, true);
   assert.equal(Object.keys(other).includes("dense_unmatched"), false, "not part of the JSON a client gets");
   assert.deepEqual(other.map((item) => [item.path, item.score]), without.map((item) => [item.path, item.score]),
@@ -232,7 +232,7 @@ test("dense vectors count when the index has them and the caller embedded the qu
 /**
  * Rows handed back by the statements that read sparse vectors, counted as
  * they are read: one statement prepared for a document, or for all of them,
- * says nothing about how many documents it read (docs/DEFECTS.md, Д-140).
+ * says nothing about how many documents it read.
  */
 function countVectorReads(db) {
   const reads = { rows: 0 };

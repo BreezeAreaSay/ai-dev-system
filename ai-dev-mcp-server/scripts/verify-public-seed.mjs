@@ -78,8 +78,8 @@ const audit = await auditDistributionTree(seedRoot);
 const onDisk = index(audit.files);
 
 // What the audit rejects is wrong in the seed itself, whatever the manifest
-// says: a secret, a forbidden path, or a text cut short by a NUL byte
-// (docs/DEFECTS.md, Д-113). Generated output is judged by neither mode: it is
+// says: a secret, a forbidden path, or a text cut short by a NUL byte.
+// Generated output is judged by neither mode: it is
 // not shipped from here, and a used checkout has project cards and a rendered
 // galaxy whose embedded data can look like a key.
 const auditFindings = audit.findings.filter((finding) => !skipped(finding.path));

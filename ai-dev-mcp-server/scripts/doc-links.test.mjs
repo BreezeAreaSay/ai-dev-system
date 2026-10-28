@@ -1,9 +1,8 @@
 /**
  * The documentation's links hold: every relative link names a file or folder
  * git tracks, and every #anchor names a heading of its target the way GitHub
- * slugs it. Phase 14 of the 3.0 program rewrote the documents around the three
- * ways to install; this keeps the rewrite, and every edit after it, from
- * leaving a reader at a 404 or at the top of the wrong page.
+ * slugs it. This keeps every edit of the documents from leaving a reader at a
+ * 404 or at the top of the wrong page.
  */
 import assert from "node:assert/strict";
 import test from "node:test";

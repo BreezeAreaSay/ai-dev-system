@@ -72,10 +72,10 @@ test("the confirmation says what runs and with what, Cancel is the default, in t
 
 // Every way a line of the dialog could end, as GTK draws it.
 const LINE_BREAK = /[\n\r\v\f\u0085\u2028\u2029]/;
-// The dialog's text with each value's further rows put back on its first (Д-292).
+// The dialog's text with each value's further rows put back on its first.
 const joined = (detail) => detail.replace(/\n {4}/g, "");
 
-test("the confirmation shows every argument that runs, each on its own line, as it is (Д-287)", () => {
+test("the confirmation shows every argument that runs, each on its own line, as it is", () => {
   const tools = consoleTools([{ name: "record_decision", inputSchema: { type: "object", properties: { project_path: {}, title: {}, decision: {}, ["a\nb"]: {} } }, annotations: {} }]);
   const [record] = tools;
   const en = (key, params) => translate("en", key, params);
@@ -99,7 +99,7 @@ test("the confirmation shows every argument that runs, each on its own line, as 
   assert.match(consoleDecision({ tool: "odd_tool", args: { anything: 1 }, id: "call-3" }, [none]).refused, /odd_tool takes no argument "anything"/);
 });
 
-test("the settings the page changes only after a confirmation: each new value on its own line, Cancel the default (Д-288)", () => {
+test("the settings the page changes only after a confirmation: each new value on its own line, Cancel the default", () => {
   const ru = settingsDialog({ model_mirror: `https://mirror.example/x${"\n".repeat(30)}`, model_dir: "/data/models" }, (key, params) => translate("ru", key, params));
   assert.deepEqual([ru.defaultId, ru.cancelId, ru.buttons], [1, 1, ["Сохранить", "Отмена"]]);
   assert.equal(ru.message, "Сохранить эти настройки?");
@@ -109,7 +109,7 @@ test("the settings the page changes only after a confirmation: each new value on
   assert.equal(lines[3], 'model_dir: "/data/models"');
 });
 
-test("a long value goes on in indented rows, so the dialog stays within the screen; a call that needs too many rows is refused (Д-292)", () => {
+test("a long value goes on in indented rows, so the dialog stays within the screen; a call that needs too many rows is refused", () => {
   const properties = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`field_${index}`, {}]));
   const tools = consoleTools([{ name: "write_many", inputSchema: { type: "object", properties }, annotations: {} }]);
   const en = (key, params) => translate("en", key, params);

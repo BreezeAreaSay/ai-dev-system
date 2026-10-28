@@ -263,7 +263,7 @@ test("resolveBaseRef and collectPullRequestChanges read a real repository", asyn
 });
 
 test("the system's own housekeeping does not name the branch's scope", () => {
-  // Д-76 (upstream #64): `.ai-dev/` is rewritten on nearly every task — brief,
+  // `.ai-dev/` is rewritten on nearly every task — brief,
   // map, quality gate, caches — so it outvoted the code the task was about and
   // the title read "feat(ai-dev): add a subtract function to the widget".
   assert.equal(

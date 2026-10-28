@@ -1,12 +1,12 @@
 /**
  * A model of five kilobytes shaped like the pinned BGE-M3 export, for tests.
  *
- * The real export is 570 MB from a host the development sandbox cannot reach,
+ * The real export is 570 MB from a host a test run may not reach,
  * so without a stand-in the path from model files to a ranked search result —
  * transformers.js loading a local directory, onnxruntime running the graph in
  * the worker thread, pooling, normalising, vectors into the index, a hybrid
- * query scoring them — ran nowhere but on a user's machine (docs/DEFECTS.md,
- * Д-101). This one goes through all of it: the same five file names, the same
+ * query scoring them — ran nowhere but on a user's machine. This one goes
+ * through all of it: the same five file names, the same
  * tokenizer class (XLM-RoBERTa with a Unigram vocabulary and Metaspace
  * splitting, as BGE-M3's), the same `config.json` model type, the same inputs
  * and output name, the same `int8` file name — and 1024-dimension vectors.

@@ -74,7 +74,7 @@ test("each platform's config paths, with APPDATA, XDG_CONFIG_HOME and CODEX_HOME
   assert.equal(xdg.vscode.file, "/cfg/Code/User/mcp.json");
   assert.equal(xdg.codex.file, "/srv/codex/config.toml");
   assert.equal(linux["claude-code"].file, "/home/u/.claude.json");
-  // Claude Code reads its user servers from CLAUDE_CONFIG_DIR when it is set, and ~/.claude.json no more (Д-173).
+  // Claude Code reads its user servers from CLAUDE_CONFIG_DIR when it is set, and ~/.claude.json no more.
   const profile = clientLocations({ home: "/home/u", env: { CLAUDE_CONFIG_DIR: "/home/u/profiles/work" }, platform: "linux" });
   assert.deepEqual(profile["claude-code"], { file: "/home/u/profiles/work/.claude.json", markers: ["/home/u/profiles/work"] });
   assert.equal(clientLocations({ home: "C:\\Users\\u", env: { CLAUDE_CONFIG_DIR: "D:\\claude" }, platform: "win32" })["claude-code"].file, "D:\\claude\\.claude.json");
@@ -142,7 +142,7 @@ test("six clients with servers of their own: added once, unchanged the second ti
   assert.deepEqual(first.map((result) => [result.client, result.status]), MCP_CLIENTS.map((client) => [client.id, "added"]));
   for (const result of first) {
     assert.equal(await fs.readFile(result.backup, "utf8"), before[path.relative(home, result.file).replaceAll(path.sep, "/")], `${result.client} backup holds the original`);
-    // Windows keeps no owner-only bit for Node to set (docs/DEFECTS.md, Д-170).
+    // Windows keeps no owner-only bit for Node to set.
     if (process.platform !== "win32") assert.equal((await fs.stat(result.backup)).mode & 0o777, 0o600);
   }
   const after = await snapshot(home, files);
@@ -188,7 +188,7 @@ test("2.x entries under either name are migrated with a backup; a Docker ai-dev 
   assert.deepEqual(Object.keys(parseTomlLite(await fs.readFile(path.join(home, ".codex", "config.toml"), "utf8")).data.mcp_servers), ["other"]);
 });
 
-test("one unreadable file is that client's failure; an empty file is an empty config; the others are written (Д-162)", async (t) => {
+test("one unreadable file is that client's failure; an empty file is an empty config; the others are written", async (t) => {
   const home = await tempHome(t);
   await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
   await fs.writeFile(path.join(home, ".cursor", "mcp.json"), "");
@@ -236,7 +236,7 @@ test("a file changed since the install loses only the entry on remove; the chang
   assert.deepEqual(readJsonc(await fs.readFile(file, "utf8")), { mcpServers: { mine: {} } });
 });
 
-test("the client saving the file mid-write keeps its change: the edit is planned again on what it wrote (Д-163)", async (t) => {
+test("the client saving the file mid-write keeps its change: the edit is planned again on what it wrote", async (t) => {
   const home = await tempHome(t);
   await fs.mkdir(path.join(home, ".cursor"), { recursive: true });
   const file = path.join(home, ".cursor", "mcp.json");
@@ -290,7 +290,7 @@ test("a symlinked config is written through the link, and the file's mode is kep
   assert.equal(path.dirname(result.backup), home, "the backup sits next to the link, not in the dotfiles repository");
 });
 
-test("written by root in someone else's home, every file and folder stays theirs (Д-168)", { skip: process.getuid?.() !== 0 && "only root gives files away" }, async (t) => {
+test("written by root in someone else's home, every file and folder stays theirs", { skip: process.getuid?.() !== 0 && "only root gives files away" }, async (t) => {
   const home = await tempHome(t);
   await fs.mkdir(path.join(home, ".cursor"));
   await fs.writeFile(path.join(home, ".cursor", "mcp.json"), "{\"mcpServers\": {}}\n", { mode: 0o600 });
@@ -311,7 +311,7 @@ test("written by root in someone else's home, every file and folder stays theirs
   assert.equal((await fs.stat(path.join(home, ".cursor", "mcp.json"))).mode & 0o777, 0o600, "the mode is kept as well");
 });
 
-test("a client folder linked from elsewhere, with no config yet: remove gives back no file at all (Д-172)", { skip: process.platform === "win32" && "a symlink needs Developer Mode on Windows" }, async (t) => {
+test("a client folder linked from elsewhere, with no config yet: remove gives back no file at all", { skip: process.platform === "win32" && "a symlink needs Developer Mode on Windows" }, async (t) => {
   const home = await tempHome(t);
   await fs.mkdir(path.join(home, "dotfiles", "cursor"), { recursive: true });
   await fs.symlink(path.join(home, "dotfiles", "cursor"), path.join(home, ".cursor"));
@@ -324,7 +324,7 @@ test("a client folder linked from elsewhere, with no config yet: remove gives ba
   assert.deepEqual(JSON.parse(await fs.readFile(statePath, "utf8")).files, {});
 });
 
-test("a config that is not UTF-8 is refused and left byte for byte, on install and on remove (Д-172)", async (t) => {
+test("a config that is not UTF-8 is refused and left byte for byte, on install and on remove", async (t) => {
   const home = await tempHome(t);
   // "серверы" in cp1251, in a comment, as an editor set to Windows-1251 saves it.
   const cp1251 = Buffer.concat([Buffer.from("{\n  // "), Buffer.from([0xf1, 0xe5, 0xf0, 0xe2, 0xe5, 0xf0, 0xfb]), Buffer.from("\n  \"mcpServers\": {}\n}\n")]);
@@ -385,7 +385,7 @@ test("a temp file a killed run left next to the config is removed; a live writer
   await fs.access(foreign);
 });
 
-test("a config keeps a mode the umask would not give its copy, through install and remove (Д-492)", { skip: process.platform === "win32" && "a 0664 mode needs POSIX" }, async (t) => {
+test("a config keeps a mode the umask would not give its copy, through install and remove", { skip: process.platform === "win32" && "a 0664 mode needs POSIX" }, async (t) => {
   const home = await tempHome(t);
   const file = path.join(home, ".cursor", "mcp.json");
   await fs.mkdir(path.dirname(file));
@@ -399,7 +399,7 @@ test("a config keeps a mode the umask would not give its copy, through install a
   assert.deepEqual((await removeServer({ targets })).map((result) => result.status), ["removed"]);
   const removed = (await fs.stat(file)).mode & 0o777;
   // The modes say so only where a new file takes its mode from the umask, which is checked after the writes: a default
-  // ACL or a filesystem that ignores modes gives another (Д-529, Д-541).
+  // ACL or a filesystem that ignores modes gives another.
   await fs.writeFile(path.join(home, "umask-probe"), "", { mode: 0o666 });
   assert.equal(((await fs.stat(path.join(home, "umask-probe"))).mode & 0o777).toString(8), "644",
     "a file made here with 666 gets 644, as umask 0022 gives: a default ACL or a filesystem that ignores modes gives another");

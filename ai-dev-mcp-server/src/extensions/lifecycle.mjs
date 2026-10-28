@@ -354,7 +354,7 @@ async function verifyTask(host, {
         result: {
           status: "unavailable",
           error: error instanceof Error ? error.message : String(error),
-          // The way forward, when the gate knows one: no gate file yet (Д-380).
+          // The way forward, when the gate knows one: no gate file yet.
           ...(typeof error?.hint === "string" && error.hint ? { hint: error.hint } : {})
         }
       });
@@ -435,7 +435,7 @@ async function verifyTask(host, {
   if (run_security_scan) {
     // The rendered report is dropped — it is the same scan as prose — but
     // `next_step` stays: it is the only line that says a scan came back
-    // `unchecked` because nothing could run (docs/DEFECTS.md, Д-55).
+    // `unchecked` because nothing could run.
     const { markdown: _markdown, ...scan } = await host.runSecurityScan({
       project_path: projectRoot,
       scanners: Array.isArray(security_scanners) ? security_scanners : undefined

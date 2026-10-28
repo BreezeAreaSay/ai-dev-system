@@ -122,7 +122,7 @@ function gitRootOf(cwd) {
   if (!top) return "";
   // A dotfiles clone in `~` answers `--show-toplevel` with the home directory
   // for every project below it, which is the server's `rawGitRoot` fallback and
-  // is gated there the same way (docs/DEFECTS.md, Д-48).
+  // is gated there the same way.
   const root = realpathOf(top);
   return isProjectBoundaryCandidate(root, { homeDir: canonicalUserHome() }) ? root : "";
 }
@@ -132,7 +132,7 @@ function gitRootOf(cwd) {
  * Git. Its `.ai-dev/policy.json` and `hooks/patterns.json` are the ones
  * `install_agent_hooks` wrote, `git status` paths are relative to it, its
  * `node_modules/.bin` holds the formatter. In a package of a monorepo this is
- * the repository, not the package (docs/DEFECTS.md, Д-189).
+ * the repository, not the package.
  */
 export function projectRootOf(cwd) {
   return gitRootOf(cwd) || realpathOf(cwd);
@@ -143,8 +143,8 @@ export function projectRootOf(cwd) {
  * resolveProjectIdentity derives it: the nearest project boundary at or above
  * `cwd` first, the Git root only when there is none, then `cwd` itself. The
  * memory a hook reads and writes is keyed by it, so that a session in
- * `<repo>/apps/web` meets the memory the server keeps for `apps/web`
- * (docs/DEFECTS.md, Д-164). For everything else the hooks use
+ * `<repo>/apps/web` meets the memory the server keeps for `apps/web`.
+ * For everything else the hooks use
  * {@link projectRootOf}.
  */
 export function identityRootOf(cwd) {
@@ -196,13 +196,13 @@ export function userHomeDirectory(options = {}) {
  * marker, so a single `package.json` in `~` — and anyone who has once run npm
  * from their home directory has one — made every project below it collapse
  * onto one memory key: the session handoffs, instincts and context of one
- * project served to an agent working in another, silently
- * (docs/DEFECTS.md, Д-48). So a marker sitting in the home directory itself, or
+ * project served to an agent working in another, silently.
+ * So a marker sitting in the home directory itself, or
  * anywhere above it, is not a boundary. Below the home directory, and outside
  * it entirely (`/srv/app`, `C:\work\app`), nothing changes.
  *
  * Pass canonical (realpath) values, as the walk does, so a home reached through
- * a symlink still compares equal to the walked path (docs/DEFECTS.md, Д-51).
+ * a symlink still compares equal to the walked path.
  */
 export function isProjectBoundaryCandidate(directory, options = {}) {
   const platform = options.platform ?? process.platform;
@@ -266,7 +266,7 @@ function projectBoundaryOf(start) {
   while (true) {
     // Once the walk reaches the home directory every remaining ancestor is
     // above it too, so there is nothing left that may be a boundary: the start
-    // directory stands for itself (docs/DEFECTS.md, Д-48).
+    // directory stands for itself.
     if (!isProjectBoundaryCandidate(current, { homeDir })) return "";
     for (const marker of BOUNDARY_MARKERS) {
       const markerPath = path.join(current, marker);
@@ -336,8 +336,8 @@ export function stateRoot() {
  * The runtime tree itself — `AI_DEV_HOME`, else `<home>/.ai-dev` — which is what
  * the server's `resolveRuntimeStateRoot` returns (src/core/runtime-home.mjs).
  *
- * `AI_DEV_HOME` names the runtime folder itself (owner decision D2,
- * docs/DEFECTS.md Д-90); 2.x appended `.ai-dev` to it on both sides. The one
+ * `AI_DEV_HOME` names the runtime folder itself; 2.x appended `.ai-dev` to it
+ * on both sides. The one
  * value that keeps the 2.x meaning is the home directory itself: taken at its
  * word it would scatter the runtime tree across the home.
  *
@@ -367,8 +367,8 @@ export const RUNTIME_HOME_FILE = ".ai-dev-home";
  * `AI_DEV_HOME` named one: `install_agent_hooks` records it beside them, kept
  * out of git like `.node-path`. A client started from the Dock or the Start
  * menu runs its hooks without the shell's variables, while its server has
- * `AI_DEV_HOME` from the client's config (Д-176) — without the record the two
- * kept their state in different places (docs/DEFECTS.md, Д-184). The server
+ * `AI_DEV_HOME` from the client's config — without the record the two
+ * kept their state in different places. The server
  * reads no such file: its environment carries the variable. In the hooks it
  * comes after `AI_DEV_HOME` and before `~/.ai-dev`, as the server's copy has
  * nothing to put between them.
@@ -613,7 +613,7 @@ export function compileRegex(source, flags = "i") {
  * A pattern that backtracks catastrophically cannot be interrupted on this
  * thread, and one such rule in `.ai-dev/policy.json` stalls the guard on every
  * Bash command and every file write: `(a|a)+$` against twenty-eight characters
- * takes 38.8 seconds (docs/DEFECTS.md, Д-16). The server refuses to
+ * takes 38.8 seconds. The server refuses to
  * write such a rule, but nothing stops a hand edit, so the guard never trusts
  * the pattern either: it matches in a worker thread it can kill.
  *
@@ -623,12 +623,12 @@ export function compileRegex(source, flags = "i") {
 export const POLICY_MATCH_BUDGET_MS = 250;
 // One deadline for the whole event on top of the per-rule budget. Thirty slow
 // rules used to cost thirty budgets — 8.7 seconds measured, against a client
-// that abandons a hook at ten (docs/DEFECTS.md, Д-22) — so the rules
+// that abandons a hook at ten — so the rules
 // the deadline cuts off are reported as unchecked instead of being run.
 export const POLICY_MATCH_DEADLINE_MS = 1000;
 // How long the match threads of one event may take to start, all together. Startup is the machine's cost, not a
 // rule's: charged to the first rule, it let a forbidden command through 27 times in 30 under 32 busy loops on 4
-// cores, blaming a pattern that had never run (docs/DEFECTS.md, Д-239). The deadline above counts matching only.
+// cores, blaming a pattern that had never run. The deadline above counts matching only.
 export const POLICY_MATCH_START_MS = 3000;
 export const POLICY_MATCH_MAX_INPUT = 4096;
 
@@ -648,15 +648,15 @@ parentPort.postMessage({ done: true });
 `;
 
 // Why a worker failed, in words that are never empty: a worker that throws `new Error("")` has failed all the same.
-// The server's copy reads a failure with this same expression, so both say the same of one (Д-397).
+// The server's copy reads a failure with this same expression, so both say the same of one.
 function failureReason(cause) {
   return String((cause && cause.message) || cause || "").trim() || "it gave no reason";
 }
 
 // Until the worker says `ready` it is only starting: that has its own ceiling, `startMs`, and charges no rule.
 // A worker that fails instead — it cannot be created, or errors or exits — comes back `failed`, its reason in
-// `error`: that is not a slow start, and the job it was on is answered as run, as the server's copy does (Д-384).
-// The flag tells the two apart, never the reason's text (Д-397).
+// `error`: that is not a slow start, and the job it was on is answered as run, as the server's copy does.
+// The flag tells the two apart, never the reason's text.
 function runMatchBatch(jobs, budgetMs, startMs) {
   return new Promise((resolve) => {
     const results = [];
@@ -714,7 +714,7 @@ function runMatchBatch(jobs, budgetMs, startMs) {
  *   many of those there were, in one line.
  *
  * The deadline counts the time the rules run, not the time threads take to
- * start; that has its own allowance, `startMs` (Д-239).
+ * start; that has its own allowance, `startMs`.
  *
  * @param {Array<{ pattern: string, flags?: string, haystack?: string }>} jobs
  * @param {{ budgetMs?: number, deadlineMs?: number, startMs?: number }} [options]
@@ -755,7 +755,7 @@ export async function matchWithBudget(jobs, options = {}) {
     }
     if (notStarted) {
       // A worker that failed before it was ready ran none of these rules, and the next one would fail the same way:
-      // every rule left is answered with its error, instead of a thread made and lost per rule (Д-397).
+      // every rule left is answered with its error, instead of a thread made and lost per rule.
       for (let index = offset; index < prepared.length; index += 1) answers[index] = { matched: null, checked: true, error };
       break;
     }
@@ -857,8 +857,8 @@ export function usageLedgerPath() {
  *
  * The usage ledger is written by every MCP server process and by these hooks
  * at once, so an append or a prune that does not hold the lock loses somebody's
- * lines (docs/DEFECTS.md, Д-96). The protocol must stay identical to the
- * server's (AGENTS.md, rule 3): the lock is `<target>.lock`, created exclusively
+ * lines. The protocol must stay identical to the
+ * server's: the lock is `<target>.lock`, created exclusively
  * and holding `{ pid, host, token, acquired_at }`; it is stale when its process
  * is gone (same host), when it is older than LOCK_STALE_MS, or when it has no
  * readable holder for EMPTY_LOCK_GRACE_MS; a stale lock is broken under
@@ -890,8 +890,8 @@ export function procStateLetter(pid) {
 }
 
 // Running, or there and unknown: a process that has exited and waits to be collected (a zombie, which kill(pid, 0)
-// still answers for) is not, where /proc tells — the server's file-lock.mjs judges it the same (Д-234). A /proc
-// that does not show the process kill has just found hides it (hidepid): there, and alive (Д-386).
+// still answers for) is not, where /proc tells — the server's file-lock.mjs judges it the same. A /proc
+// that does not show the process kill has just found hides it (hidepid): there, and alive.
 export function processAlive(pid, { platform = process.platform, proc = procStateLetter } = {}) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -1100,7 +1100,7 @@ function pruneUsageLedgerLocked(target) {
  * the hook runs on the developer's machine — and because a Stop hook must not
  * depend on an MCP round trip. The append is one O_APPEND write under the same
  * cross-process lock the server's `appendJsonLines` takes, after cutting off a
- * record a killed writer left without its newline (docs/DEFECTS.md, Д-96).
+ * record a killed writer left without its newline.
  *
  * @param {object[]} events
  * @returns {boolean} Whether anything was written.

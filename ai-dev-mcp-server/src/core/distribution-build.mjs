@@ -4,8 +4,8 @@
  * `npm run dist` (the folder the npm package and the Windows installer are
  * made from) and `npm run docker:prepare` (the image's build context) used to
  * list their files in their own code, and the lists drifted: a file one target
- * needed was missing from another until a user hit it (docs/DEFECTS.md, Д-37,
- * Д-38, Д-56, Д-57). `distribution.allowlist.json` names the groups once; each
+ * needed was missing from another until a user hit it.
+ * `distribution.allowlist.json` names the groups once; each
  * target maps a group to the folder it lands in, or leaves it out.
  *
  * No dependency beyond Node: the image's publish job and `bootstrap.sh` build
@@ -172,7 +172,7 @@ export function npmLeavesOut(relative) {
   const name = parts.at(-1);
   const folders = parts.slice(0, -1);
   const vcs = ["CVS", ".svn", ".hg", ".git"];
-  // Measured on npm 10.9.4 and 11.17 (`npm pack --dry-run` over 26 names, Д-175, Д-185).
+  // Measured on npm 10.9.4 and 11.17 (`npm pack --dry-run` over 26 names).
   return folders.some((part) => vcs.includes(part) || part === "archived-packages")
     || vcs.includes(name)
     || [".gitignore", ".npmignore", ".npmrc", ".DS_Store", "npm-debug.log", ".lock-wscript"].includes(name)
@@ -188,8 +188,8 @@ const REPOSITORY_URL = "https://github.com/stonebridgeway/ai-dev-system";
 
 /**
  * The package's own `package.json`: the server's name for itself is
- * `ai-dev-mcp-server`, private; the package is `ai-dev-system`
- * (owner decision D4), with the server's dependencies and the CLI as its bin.
+ * `ai-dev-mcp-server`, private; the package is `ai-dev-system`,
+ * with the server's dependencies and the CLI as its bin.
  *
  * @param {object} input
  * @param {object} input.server - The server's package.json.
@@ -294,7 +294,7 @@ export async function verifyDistribution(root) {
  * Stop when a seed file is not what the seed's manifest says. Every installed
  * vault judges its files by that manifest: a note edited without the manifest
  * recomputed would look changed by the user in all of them, and never be
- * updated again (docs/DEFECTS.md, Д-185).
+ * updated again.
  *
  * @param {string} seedRoot - A staged seed folder holding `public-seed.manifest.json`.
  * @returns {Promise<number>} The number of files checked.

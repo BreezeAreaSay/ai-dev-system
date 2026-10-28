@@ -64,10 +64,9 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
 }
 
 /**
- * What the runtime never loads on any system, cut from its `node_modules`
- * (brief, phase 12: "onnxruntime-web и sharp-wasm32 убрать, если импорт это
- * позволяет"). Checked on the code it ships: the dense model's end-to-end test
- * passes without them (docs/program/reports/phase-12.md).
+ * What the runtime never loads on any system, cut from its `node_modules`.
+ * Checked on the code it ships: the dense model's end-to-end test passes
+ * without them.
  */
 export const TRIMMED = Object.freeze([
   Object.freeze({ path: "onnxruntime-web", why: "transformers 4.3.0 carries the web runtime inside its own file; its Node build loads onnxruntime-node" }),
@@ -163,7 +162,7 @@ export const CUT_DEPENDENCIES = Object.freeze([
  * package's own `node_modules`, then in each one above it; the packages inside
  * other packages' `node_modules` are checked as well. Only the pairs in
  * `allowed` are not reported: a package cut here that another one comes to
- * need is (docs/DEFECTS.md, Д-304).
+ * need is.
  *
  * @param {string} modules - `<runtime>/node_modules`.
  * @param {{ allowed?: ReadonlyArray<{ from: string, to: string }> }} [options]
@@ -197,7 +196,7 @@ export async function danglingDependencies(modules, { allowed = CUT_DEPENDENCIES
     try {
       manifest = text === null ? null : JSON.parse(text);
     } catch (error) {
-      // A dependency the runtime would fail to load: the build says which (docs/DEFECTS.md, Д-308).
+      // A dependency the runtime would fail to load: the build says which.
       throw new Error(`${file} is not JSON: ${error.message}`);
     }
     for (const dependency of Object.keys(manifest?.dependencies ?? {})) {
@@ -212,7 +211,7 @@ export async function danglingDependencies(modules, { allowed = CUT_DEPENDENCIES
 /**
  * The app's version against its runtime's: the updater compares the app's
  * version with the release's, so a release that changed only the runtime
- * would reach no installed app (Д-306, п. 5).
+ * would reach no installed app.
  *
  * @param {{ app: string, runtime: string }} versions
  * @returns {string} what is wrong, or ""
@@ -256,8 +255,7 @@ export async function listFiles(root, { skip = () => false } = {}) {
  * Write `<runtime>/bundle.json`: what the installer ships, file by file, and
  * the fingerprint the app names its copy by — and read it back by `parse`, the
  * app's own parser, when given: a runtime the app would refuse on every
- * machine (two names Windows takes for one) stops the build, not the person
- * (docs/DEFECTS.md, Д-306, п. 1).
+ * machine (two names Windows takes for one) stops the build, not the person.
  *
  * @param {{ runtimeDir: string, name: string, version: string, node: { version: string, sha256: string, file?: string }, fingerprintOf: (files: Array<{ path: string, sha256: string }>) => string, parse?: (text: string, where: string) => unknown, target?: typeof TARGETS[keyof typeof TARGETS] }} input
  *   `node.file` — where the Node is in the runtime: the target's (`node/node.exe` on Windows) unless given; `target` — Windows when left out.
@@ -281,7 +279,7 @@ export async function writeBundleMarker({ runtimeDir, name, version, node, finge
   return marker;
 }
 
-/** What a runtime holds, by top-level folder (and inside node_modules, by package): the composition the phase report asks for. */
+/** What a runtime holds, by top-level folder (and inside node_modules, by package): the composition the build report carries. */
 export function compositionReport(files) {
   const groups = new Map();
   for (const file of files) {
@@ -390,7 +388,7 @@ export const AZURE_SIGNING = Object.freeze(["AI_DEV_SIGN_AZURE_ENDPOINT", "AI_DE
  * publisher is what electron-builder writes into `app-update.yml` and what
  * electron-updater checks every update's signature against: the signing
  * certificate's own name, which nothing here can guess — a wrong one refuses
- * every update to every installed app (docs/DEFECTS.md, Д-303). So the four
+ * every update to every installed app. So the four
  * are named together, or the build stops.
  */
 function azureSigning(env) {
@@ -410,7 +408,7 @@ function azureSigning(env) {
   };
 }
 
-/** The production repository: where updates come from (owner decision D7). */
+/** The production repository: where updates come from. */
 export const RELEASES = Object.freeze({ provider: "github", owner: "stonebridgeway", repo: "ai-dev-system", releaseType: "release" });
 
 /** What electron-builder leaves unsigned in the Mac app: the runtime, whose files bundle.json lists by sha256. */
@@ -426,7 +424,7 @@ export const SIGNING_VARIABLES = Object.freeze(["CSC_LINK", "CSC_KEY_PASSWORD", 
  * Take out the signing variables that are set but empty — a secret a fork,
  * or a repository with no certificate yet, does not have. Set, electron-builder
  * takes an empty CSC_LINK for a certificate and imports the folder it runs in;
- * unset, the build is signed ad hoc, as `builderConfig` says (docs/DEFECTS.md, Д-592).
+ * unset, the build is signed ad hoc, as `builderConfig` says.
  *
  * @returns {string[]} the names taken out
  */
@@ -468,7 +466,7 @@ export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = pro
     files: ["package.json", "src/**/*"],
     // electron-builder leaves out a `node_modules` folder at the top of what
     // it copies, so the runtime's dependencies are a second entry of their own:
-    // without it the installed runtime had none (docs/program/reports/phase-12.md).
+    // without it the installed runtime would have none.
     extraResources: [
       { from: runtimeDir, to: "runtime", filter: ["**/*"] },
       { from: path.join(runtimeDir, "node_modules"), to: "runtime/node_modules", filter: ["**/*"] }
@@ -492,7 +490,7 @@ export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = pro
         ...(signed ? { hardenedRuntime: true } : { identity: "-", hardenedRuntime: false }),
         // The runtime keeps the bytes bundle.json lists: signing a Mach-O rewrites it, and the
         // app would refuse its own runtime. Its Node is signed by Node.js, its native modules by
-        // their linker; the app's own signature seals them as resources (docs/DEFECTS.md, Д-583).
+        // their linker; the app's own signature seals them as resources.
         signIgnore: [MAC_RUNTIME_UNSIGNED]
       },
       // Only a Developer ID build updates itself on macOS (`updates.mjs`).
@@ -516,7 +514,7 @@ export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = pro
         syncDesktopName: true
       },
       // The AppImage's AppRun turns Chromium's sandbox off only where it cannot start (no user
-      // namespaces, as on Ubuntu 24.04); its menu entry would otherwise turn it off everywhere (Д-587).
+      // namespaces, as on Ubuntu 24.04); its menu entry would otherwise turn it off everywhere.
       appImage: { executableArgs: [] },
       deb: { packageName: "ai-dev-desktop" }
     };

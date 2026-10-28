@@ -26,10 +26,10 @@ const NOISE = [
   /^\s*[{}]\s*$/, // the error's own properties…
   /^\s+[\w$]+: /, // …one per line
   /^(?:node:|file:\/\/)\S+:\d+$/, // where it was thrown
-  // What the Docker CLI prints after a usage error, its own words, before 29 and since (Д-427)
+  // What the Docker CLI prints after a usage error, its own words, before 29 and since
   /^(?:Usage:\s+docker\s.*|See '[^']+ --help'\.|Run '[^']+ --help' for more information)$/,
   // A warning the Docker CLI prints before it goes on — a config file it cannot read, an image of another platform,
-  // ports with the host's network: no reason it stopped, and the first of them says "Error" (Д-455)
+  // ports with the host's network: no reason it stopped, and the first of them says "Error"
   /^WARNING: /
 ];
 
@@ -38,11 +38,11 @@ const NOISE = [
  * names an error — one not indented first, as Node prints the error itself
  * and indents its causes — else the last that is not noise. The last line
  * itself was Node's version, and a moved clone was reported as "Node.js
- * v22.22.0" (docs/DEFECTS.md, Д-169). A line past 300 characters keeps its
+ * v22.22.0". A line past 300 characters keeps its
  * start and its end: Docker says why it refused a `--mount` after the whole
- * value, which a long path made the part cut off (Д-427). Each cut falls
+ * value, which a long path made the part cut off. Each cut falls
  * between two characters, not inside a surrogate pair: half of one is no
- * character, and `--json` wrote it as `\ud83d` (Д-438).
+ * character, and `--json` wrote it as `\ud83d`.
  */
 function errorLine(text) {
   const lines = text.split(/\r?\n/).filter((line) => line.trim() && !NOISE.some((pattern) => pattern.test(line)));
@@ -54,7 +54,7 @@ function errorLine(text) {
   return `${line.slice(0, head)}\u2026${line.slice(tail)}`;
 }
 
-/** How long a command told to stop has to exit before it is killed — the command, not a container it started (Д-437, Д-451). */
+/** How long a command told to stop has to exit before it is killed — the command, not a container it started. */
 const STOP_GRACE_MS = 5000;
 
 /**
@@ -85,8 +85,8 @@ export function checkServerCommand(entry, { timeoutMs = 30_000, env = process.en
     // Told to stop as an MCP client tells a server — its stdin closed, and SIGTERM — and killed if it is still there
     // a few seconds on: a child that runs keeps this process from exiting, and `docker run -i` passes SIGTERM to a
     // container whose first process may not stop for it, as `sleep` does not; nor does a Docker CLI that waits on an
-    // engine that hangs (Д-437). What is killed is the command — for `docker run`, the Docker CLI: such a container
-    // runs on until that process ends, and `--rm` then removes it (Д-451). Node signals no child that has exited, so
+    // engine that hangs. What is killed is the command — for `docker run`, the Docker CLI: such a container
+    // runs on until that process ends, and `--rm` then removes it. Node signals no child that has exited, so
     // one that stopped is not killed.
     const stop = () => {
       if (!child) return;

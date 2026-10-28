@@ -55,7 +55,7 @@ test("a holder is live while its process runs and the lock is young", () => {
   assert.equal(processAlive(0), false);
 });
 
-test("a process is gone, exited and waiting to be collected, running, or unknown — by /proc, else by ps when asked (Д-234)", () => {
+test("a process is gone, exited and waiting to be collected, running, or unknown — by /proc, else by ps when asked", () => {
   const asked = [];
   const ps = (letter) => (pid) => {
     asked.push(pid);
@@ -67,7 +67,7 @@ test("a process is gone, exited and waiting to be collected, running, or unknown
   assert.equal(processState(live, { platform: "linux", proc: () => "X" }), "exited");
   assert.equal(processState(live, { platform: "linux", proc: () => "S" }), "running");
   // kill has just found it, so a /proc that does not show it hides it — hidepid, someone else's process — or it
-  // exited in between, which the next look's kill catches (Д-386).
+  // exited in between, which the next look's kill catches.
   assert.equal(processState(live, { platform: "linux", proc: () => "" }), "unknown", "hidden from /proc, not gone");
   assert.equal(processState(live, { platform: "linux", proc: () => null, ps: ps("Z") }), "unknown", "no /proc, and ps not asked");
   assert.deepEqual(asked, [], "ps is asked only when the caller says so");
@@ -100,7 +100,7 @@ test("the real letters: this process runs; a pid nobody has is not there", { ski
   assert.equal(psStateLetter(DEAD_PID), "");
 });
 
-test("a child that has exited while this process's loop is held up is a zombie: exited, not alive (Д-234)", { skip: process.platform === "win32" && "Windows has no zombies" }, async () => {
+test("a child that has exited while this process's loop is held up is a zombie: exited, not alive", { skip: process.platform === "win32" && "Windows has no zombies" }, async () => {
   const child = spawn(process.execPath, ["-e", ""], { stdio: "ignore" });
   const exited = new Promise((resolve) => child.once("exit", resolve));
   // Nothing collects the child until this loop runs again, so it stays a zombie for as long as this waits.
@@ -286,7 +286,7 @@ test("a heartbeat keeps a long-held lock live past its staleness bound, from any
   await withFileLock(target, async () => undefined, { timeoutMs: 500, staleMs: 800 });
 });
 
-test("a heartbeat whose file cannot be closed does not take the process down (Д-129)", async () => {
+test("a heartbeat whose file cannot be closed does not take the process down", async () => {
   const target = await tempFile();
   const realOpen = fs.open;
   let failedCloses = 0;
@@ -338,7 +338,7 @@ test("a process that exits while holding a lock removes it on the way out", asyn
   await assert.rejects(fs.stat(lockPathFor(target)), { code: "ENOENT" });
 });
 
-test("an exit in the middle of a release still removes the lock, and never one someone else took (Д-132)", async () => {
+test("an exit in the middle of a release still removes the lock, and never one someone else took", async () => {
   const { spawnSync } = await import("node:child_process");
   const moduleUrl = new URL("./file-lock.mjs", import.meta.url).href;
   const run = (target, body) => spawnSync(process.execPath, ["--input-type=module", "-e", `
@@ -406,10 +406,10 @@ test("a lock held for a process's life is taken now or its holder named, never w
   await third.release();
 });
 
-test("a folder the lock has to make gets the mode its owner asks for, and the usual one otherwise (Д-213)", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
+test("a folder the lock has to make gets the mode its owner asks for, and the usual one otherwise", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lock-mode-"));
   // Under a umask of 077 the folder comes out 0700 with the option or without
-  // it, and the test would prove nothing: it sets the usual one (Д-216).
+  // it, and the test would prove nothing: it sets the usual one.
   const umask = process.umask(0o022);
   t.after(() => {
     process.umask(umask);
@@ -424,7 +424,7 @@ test("a folder the lock has to make gets the mode its owner asks for, and the us
   await plain.release();
 });
 
-test("a daemon's lock: a dead holder's is broken, an empty one in the making is left to its maker (Д-193)", async () => {
+test("a daemon's lock: a dead holder's is broken, an empty one in the making is left to its maker", async () => {
   const target = await tempFile("daemon.json");
   await fs.writeFile(lockPathFor(target), JSON.stringify({ pid: DEAD_PID, host: os.hostname(), token: "dead", acquired_at: Date.now() }));
   const taken = await tryAcquireFileLock(target);
@@ -459,7 +459,7 @@ test("a stuck holder's lock can be forced, but only while it is the lock observe
   await next.release();
 });
 
-test("a lock that makes its folder names the highest one it made, and none when its folder is there (Д-226)", async (t) => {
+test("a lock that makes its folder names the highest one it made, and none when its folder is there", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lock-made-folder-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const target = path.join(root, "home", "run", "retired-4194305.json");
@@ -471,7 +471,7 @@ test("a lock that makes its folder names the highest one it made, and none when 
   await again.release();
 });
 
-test("the folder a lock made is named also when another process writes the lock first, held or abandoned (Д-235)", async (t) => {
+test("the folder a lock made is named also when another process writes the lock first, held or abandoned", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lock-made-lost-"));
   const target = path.join(root, "home", "run", "retired-4194305.json");
   const home = path.toNamespacedPath(path.join(root, "home"));
@@ -499,7 +499,7 @@ test("the folder a lock made is named also when another process writes the lock 
   await later.release();
 });
 
-test("a lock told to make no folder takes none when its folder is gone, and makes nothing (Д-226)", async (t) => {
+test("a lock told to make no folder takes none when its folder is gone, and makes nothing", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "lock-no-folder-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const missing = path.join(root, "home", "run", "daemon-0123456789abcdef.json");

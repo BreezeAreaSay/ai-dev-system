@@ -56,7 +56,7 @@ function runChild(command, args) {
 /** Call one tool in-process and print its text, as 2.x did. */
 async function callAndPrint(io, tool, input) {
   // What 2.x left in AI_DEV_HOME/.ai-dev moves first: the tools read the
-  // runtime tree (docs/DEFECTS.md, Д-90).
+  // runtime tree.
   const { prepareRuntimeHome } = await import("../core/runtime-home-migration.mjs");
   await prepareRuntimeHome();
   const { callTool, shutdownBgeWorkers } = await import("../mcp-stdio.mjs");
@@ -106,14 +106,14 @@ export async function run(argv, io, name) {
       // The client closed its end and has every answer there was to have.
       // Whatever the session left running — a server in this process when no
       // daemon could serve — goes with it. A request no server answered is a
-      // failed run for a script that piped requests in (docs/DEFECTS.md, Д-192).
+      // failed run for a script that piped requests in.
       const code = unanswered ? EXIT.failed : EXIT.ok;
       setTimeout(() => process.exit(code), 1000).unref();
       return code;
     }
     case "doctor":
       // `include_dense_smoke` is what the health check recommends, so the
-      // command it prints under can take it (docs/DEFECTS.md, Д-77).
+      // command it prints under can take it.
       return callAndPrint(io, "system_health_check", {
         include_search_smoke: true,
         include_dense_smoke: Boolean(values["dense-smoke"]),

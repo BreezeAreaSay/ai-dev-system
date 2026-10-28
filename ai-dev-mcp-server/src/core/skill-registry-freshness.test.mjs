@@ -45,8 +45,8 @@ async function makeCatalog(t) {
  * file it has been asked about to the nanosecond, Date.now() to the
  * millisecond: checked in the same millisecond, a change reads as a time in
  * the future, and this suite failed once in ten runs under load. Seeing a
- * change that early is the product's question, recorded on its own
- * (docs/DEFECTS.md, Д-159, Д-160); here every rule is checked once the change
+ * change that early is the product's question, recorded on its own;
+ * here every rule is checked once the change
  * is behind the clock.
  */
 async function staleness({ catalog, registryPath }, nowMs = Date.now() + 1000) {
@@ -171,7 +171,7 @@ test("the reader serves a current registry as it is and rebuilds a stale one fir
   assert.equal(rebuilds[0].missing, 1);
 });
 
-test("a registry that is not there is built before the first read: no `ai-dev setup` needed (Д-575)", async (t) => {
+test("a registry that is not there is built before the first read: no `ai-dev setup` needed", async (t) => {
   const fixture = await makeCatalog(t);
   await fs.rm(fixture.registryPath);
   const { reader, rebuilds } = readerFor(fixture, { intervalMs: 0 });
@@ -184,7 +184,7 @@ test("a registry that is not there is built before the first read: no `ai-dev se
   assert.equal(rebuilds.length, 1);
 });
 
-test("a registry that cannot be built where it is missing is tried again after a pause, and the read still says why (Д-575)", async (t) => {
+test("a registry that cannot be built where it is missing is tried again after a pause, and the read still says why", async (t) => {
   const fixture = await makeCatalog(t);
   await fs.rm(fixture.registryPath);
   const clock = { now: Date.now() };
@@ -242,7 +242,7 @@ test("concurrent readers share one rebuild, and reads made by the rebuild do not
   assert.equal(inner.length, 2, "the rebuild's own read saw the registry as it stood");
 });
 
-test("a writer under the registry's lock reads the registry as it stands: a stale one starts no rebuild to wait for it (Д-347)", async (t) => {
+test("a writer under the registry's lock reads the registry as it stands: a stale one starts no rebuild to wait for it", async (t) => {
   const fixture = await makeCatalog(t);
   const registryDir = path.dirname(fixture.registryPath);
   // The rebuild a read would start takes the registry's lock, as `rebuild_index` does.
@@ -254,7 +254,7 @@ test("a writer under the registry's lock reads the registry as it stands: a stal
   assert.equal((await reader.read()).length, 1, "outside a writer the stale registry is rebuilt");
 });
 
-test("a writer of the registry that calls another runs it at once; writers apart go one after the other (Д-345, Д-347, Д-348)", async (t) => {
+test("a writer of the registry that calls another runs it at once; writers apart go one after the other", async (t) => {
   const fixture = await makeCatalog(t);
   const registryDir = path.dirname(fixture.registryPath);
   const started = Date.now();
@@ -272,7 +272,7 @@ test("a writer of the registry that calls another runs it at once; writers apart
   assert.deepEqual(events, [`${first} start`, `${first} end`, `${second} start`, `${second} end`]);
 });
 
-test("a writer that builds from the registry gets a current one: a stale registry is rebuilt before it runs (Д-356)", async (t) => {
+test("a writer that builds from the registry gets a current one: a stale registry is rebuilt before it runs", async (t) => {
   const fixture = await makeCatalog(t);
   const registryDir = path.dirname(fixture.registryPath);
   const events = [];
@@ -291,7 +291,7 @@ test("a writer that builds from the registry gets a current one: a stale registr
   assert.deepEqual(seen.map((item) => item.path), ["sources/external/pack/skills/beta/SKILL.md"], "the taxonomy saw the skill gone");
 });
 
-test("a writer that builds from the registry waits for a rebuild another call started, not under the lock that rebuild needs (Д-356)", async (t) => {
+test("a writer that builds from the registry waits for a rebuild another call started, not under the lock that rebuild needs", async (t) => {
   const fixture = await makeCatalog(t);
   const registryDir = path.dirname(fixture.registryPath);
   const events = [];
@@ -381,11 +381,11 @@ test("a rebuild that leaves the registry stale is not run in a loop, but is trie
   assert.equal(attempts, 2);
 });
 
-test("skills changed, added or removed while the rebuild runs are put right by the next looks (Д-128)", async (t) => {
+test("skills changed, added or removed while the rebuild runs are put right by the next looks", async (t) => {
   const fixture = await makeCatalog(t);
   // Later than every write below, however slow the machine: the reader takes
-  // a file stamped after its clock for one from the future and ignores it
-  // (docs/DEFECTS.md, Д-134). Time still moves only by the steps below.
+  // a file stamped after its clock for one from the future and ignores it.
+  // Time still moves only by the steps below.
   const clock = { now: Date.now() + 60_000 };
   const put = async (relative, text) => {
     await fs.mkdir(path.dirname(path.join(fixture.catalog, relative)), { recursive: true });
@@ -444,7 +444,7 @@ test("skills changed, added or removed while the rebuild runs are put right by t
   assert.deepEqual(registry.map((entry) => entry.path).sort(), ["sources/custom/gamma/SKILL.md", "sources/external/pack/skills/beta/SKILL.md"]);
 });
 
-test("a skill rewritten just after the rebuild noted its time is newer than the registry, stamped a tick early or not (Д-135)", async (t) => {
+test("a skill rewritten just after the rebuild noted its time is newer than the registry, stamped a tick early or not", async (t) => {
   const fixture = await makeCatalog(t);
   const skill = path.join(fixture.catalog, "sources/custom/alpha/SKILL.md");
   const sourcesReadAt = new Date(Date.now() - 10_000);
@@ -462,7 +462,7 @@ test("a skill rewritten just after the rebuild noted its time is newer than the 
   assert.equal(registryTime - (await fs.stat(fixture.registryPath)).mtimeMs, FILE_CLOCK_MARGIN_MS);
 });
 
-test("a change stamped finer than Date.now(), in the same millisecond, is not from the future (Д-160)", () => {
+test("a change stamped finer than Date.now(), in the same millisecond, is not from the future", () => {
   const verdict = (mtimeMs) => skillRegistryStaleness({
     catalogRoot: "/v/03-skills-catalog",
     builtAtMs: 10,
@@ -485,6 +485,6 @@ test("a rewrite of the registry from itself keeps the date of the sources it des
   // A skill changed before the rewrite is still newer than the registry.
   await fs.writeFile(path.join(fixture.catalog, "sources/custom/alpha/SKILL.md"), "# alpha, pulled\n");
   await keepSkillRegistryDate(fixture.registryPath, () => fs.writeFile(fixture.registryPath, JSON.stringify(fixture.skills.map((relative) => ({ path: relative })))));
-  // Asked a second later, as every check here is: in the same millisecond the change reads as future (Д-600).
+  // Asked a second later, as every check here is: in the same millisecond the change reads as future.
   assert.equal((await staleness(fixture)).stale, true);
 });

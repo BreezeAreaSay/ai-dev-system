@@ -12,7 +12,7 @@ import net from "node:net";
 // A self-signed certificate for models.example.test, localhost and 127.0.0.1,
 // valid until 2126, made with `openssl req -x509 -newkey ec`. The key's armour
 // is assembled rather than written out: scripts/security-check.mjs reads any
-// literal key header as a leaked secret (AGENTS.md, rule 2).
+// literal key header as a leaked secret.
 const ARMOUR = (kind, edge) => `-----${edge} ${kind}-----`;
 export const TEST_TLS = Object.freeze({
   key: [
@@ -43,7 +43,7 @@ export const TEST_TLS = Object.freeze({
 // The `https://` proxy's own certificate: self-signed, for localhost and
 // 127.0.0.1 only, as a real proxy's names the proxy and not the hosts behind
 // it — the one that caught a proxy's certificate checked against the target's
-// name (docs/DEFECTS.md, Д-206). Made the same way, valid until 2126.
+// name. Made the same way, valid until 2126.
 export const TEST_PROXY_TLS = Object.freeze({
   key: [
     ARMOUR(["PRIVATE", "KEY"].join(" "), "BEGIN"),

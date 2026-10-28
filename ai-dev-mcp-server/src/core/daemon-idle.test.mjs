@@ -8,7 +8,7 @@ test("the idle timeout: milliseconds from the environment, 30 minutes otherwise,
   assert.equal(idleTimeoutMs({ AI_DEV_IDLE_TIMEOUT_MS: "60000" }), 60_000);
   assert.equal(idleTimeoutMs({ AI_DEV_IDLE_TIMEOUT_MS: "0" }), 0);
   for (const value of ["", "  ", "soon", "Infinity"]) assert.equal(idleTimeoutMs({ AI_DEV_IDLE_TIMEOUT_MS: value }), DEFAULT_IDLE_TIMEOUT_MS, value);
-  // Thirty days: past what setTimeout holds, which would fire it at once (docs/DEFECTS.md, Д-194).
+  // Thirty days: past what setTimeout holds, which would fire it at once.
   assert.equal(idleTimeoutMs({ AI_DEV_IDLE_TIMEOUT_MS: String(30 * 24 * 3600 * 1000) }), MAX_IDLE_TIMEOUT_MS);
   assert.equal(MAX_IDLE_TIMEOUT_MS, 2 ** 31 - 1);
   let fired = false;

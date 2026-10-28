@@ -21,7 +21,7 @@ test("the shipped runner pins an exact pnpm", () => {
   assert.match(pinnedPnpmVersion(manifest), /^\d+\.\d+\.\d+$/);
 });
 
-test("the install is the lockfile through the pinned pnpm, then Playwright's own Chromium (Д-93)", () => {
+test("the install is the lockfile through the pinned pnpm, then Playwright's own Chromium", () => {
   const qaRoot = path.join(path.sep, "repo", "frontend-qa");
   const [install, browser] = frontendQaInstallCommands({ qaRoot, pnpmVersion: "11.25.0", nodeExecutable: "/usr/bin/node" });
   assert.equal(install.command, "npm", "named, so the caller routes it through the process-runner adapter");

@@ -62,7 +62,7 @@ test("membrane skills are recognised by source", () => {
   assert.ok(!isMembraneSkill({}));
 });
 
-test("both places the Membrane catalogue can sit are Membrane by source (Д-91)", () => {
+test("both places the Membrane catalogue can sit are Membrane by source", () => {
   for (const source of MEMBRANE_SOURCE_IDS) assert.ok(isMembraneSkill({ source }), source);
   assert.equal(catalogSourceOfPath("03-skills-catalog/sources/external/membrane/skills/slack/SKILL.md"), "external/membrane");
   assert.equal(

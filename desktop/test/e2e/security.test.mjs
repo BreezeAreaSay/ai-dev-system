@@ -69,15 +69,15 @@ test("the page has no Node, no file system, no network, and reaches only the int
       agentTool: await window.aiDev.call("record_decision", { title: "x", decision: "y" }, "call-agent"),
       badId: await window.aiDev.call("system_status", {}, "../../etc"),
       trayId: await window.aiDev.call("system_status", {}, "tray-rebuild"),
-      // The language goes through setLanguage, never settings_set (phase 11 opened the Settings screen's own).
+      // The language goes through setLanguage, never settings_set (which takes the Settings screen's own).
       otherSetting: await window.aiDev.call("settings_set", { settings: { language: "ru" } }, "call-language"),
-      // Where the daemon downloads the model from: only after the person confirms it (Д-288).
+      // Where the daemon downloads the model from: only after the person confirms it.
       mirror: await window.aiDev.call("settings_set", { settings: { model_mirror: "http://127.0.0.1:9/x" } }, "call-mirror"),
-      // A client the wizard does not offer — not on this computer (Д-266, п. 1).
+      // A client the wizard does not offer — not on this computer.
       clientNotOffered: await window.aiDev.call("clients_install", { clients: ["codex"] }, "call-codex"),
-      // No client named is not all of them: refused in words (Д-271, п. 2).
+      // No client named is not all of them: refused in words.
       noClients: await window.aiDev.call("clients_install", {}, "call-none"),
-      // Permissions: none is granted, none is even asked for (Д-254).
+      // Permissions: none is granted, none is even asked for.
       notification: await new Promise((resolve) => setTimeout(() => Notification.requestPermission().then(resolve, (error) => resolve(`refused: ${error.name}`)), 0)),
       geolocation: await new Promise((resolve) => setTimeout(() => navigator.permissions.query({ name: "geolocation" }).then((answer) => resolve(answer.state), (error) => resolve(`refused: ${error.name}`)), 0))
     };
@@ -134,7 +134,7 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
 
-  // WebRTC from a task of the page (Д-241): STUN over UDP and TURN over TCP.
+  // WebRTC from a task of the page: STUN over UDP and TURN over TCP.
   const rtc = await page.evaluate(({ udpPort, tcpPort }) => new Promise((resolve) => setTimeout(async () => {
     try {
       const pc = new RTCPeerConnection({ iceServers: [{ urls: `stun:127.0.0.1:${udpPort}` }, { urls: `turn:127.0.0.1:${tcpPort}?transport=tcp`, username: "u", credential: "p" }] });
@@ -152,12 +152,12 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   await new Promise((resolve) => setTimeout(resolve, 500));
   assert.deepEqual({ candidates: rtc.filter((type) => type !== "host"), stun: stun.length, turn: turn.length }, { candidates: [], stun: 0, turn: 0 });
   // What WebRTC's TCP would go to: the page's session sends everything — loopback too — to a
-  // proxy that is not there (Д-241; M18, Д-270).
+  // proxy that is not there.
   const proxies = await app.evaluate(({ session }) => Promise.all(["https://example.com/", "http://127.0.0.1:8080/"].map((url) => session.fromPartition("ai-dev-page").resolveProxy(url))));
   assert.deepEqual(proxies, ["PROXY 127.0.0.1:9", "PROXY 127.0.0.1:9"]);
 
   // Names carry data too: the host of a TURN server and a dns-prefetch the page makes reach no
-  // resolver — Electron's own net log names neither (Д-260).
+  // resolver — Electron's own net log names neither.
   const mark = `m${Date.now().toString(36)}`;
   const netlog = path.join(s.root, "netlog.json");
   await app.evaluate(async ({ netLog }, file) => { await netLog.startLogging(file, { captureMode: "everything" }); }, netlog);
@@ -179,7 +179,7 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   assert.ok(logged.length > 1000, "the net log has events");
   assert.equal(logged.includes(mark), false, "no name the page chose was looked up");
 
-  // The session cancels what is not the app's page, whoever asks for it (Д-254: M4, M13).
+  // The session cancels what is not the app's page, whoever asks for it.
   const loads = await app.evaluate(async ({ BrowserWindow }, urls) => {
     // A window on the page's own session, where app://ai-dev is served.
     const window = new BrowserWindow({ show: false, webPreferences: { partition: "ai-dev-page" } });
@@ -198,7 +198,7 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   for (const [url, outcome] of Object.entries(loads)) assert.match(outcome, /ERR_BLOCKED_BY_CLIENT/, url);
   assert.deepEqual(requests, [], "no request reached the server");
 
-  // Another page with the same preload gets nothing from the main process (Д-254: M1): it has
+  // Another page with the same preload gets nothing from the main process: it has
   // window.aiDev, and every channel answers it null.
   const stranger = await app.evaluate(async ({ BrowserWindow }, preload) => {
     const window = new BrowserWindow({ show: false, webPreferences: { preload, contextIsolation: true, sandbox: true } });
@@ -209,7 +209,7 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   }, path.join(desktopRoot, "src", "preload", "preload.cjs"));
   assert.deepEqual(stranger, [null, null], "a page that is not the app's gets no answer");
 
-  // No developer tools and no default menu (Д-252).
+  // No developer tools and no default menu.
   const shipped = await app.evaluate(async ({ BrowserWindow, Menu }) => {
     const contents = BrowserWindow.getAllWindows().find((window) => window.isVisible())?.webContents ?? BrowserWindow.getAllWindows()[0].webContents;
     contents.openDevTools();

@@ -12,7 +12,7 @@ const ORDER = Object.freeze({ fail: 0, warn: 1, skipped: 2, ok: 3 });
 
 /**
  * What to do about a check that is not ok: one piece of advice per check, or
- * per group of checks one step repairs (docs/DEFECTS.md, Д-247).
+ * per group of checks one step repairs.
  */
 export const ADVICE = Object.freeze({
   search_index_file: "recommend.search_index",
@@ -57,7 +57,7 @@ export function orderedChecks(checks) {
 
 /**
  * The settings file's problems to list under the summary: those it does not
- * say already — each is said once (docs/DEFECTS.md, Д-246; Д-266, п. 8).
+ * say already — each is said once.
  */
 export function unsaidProblems(status) {
   const summary = String(status?.summary ?? "");

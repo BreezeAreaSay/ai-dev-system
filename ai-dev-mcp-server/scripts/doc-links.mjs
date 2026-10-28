@@ -26,8 +26,8 @@ import { fileURLToPath } from "node:url";
 
 export const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const NOT_DOCUMENTATION = ["docker/public-seed/"];
-// github.com/<owner>/ai-dev-system/(blob|tree)/<ref>/<path>: a link into this repository written out in full.
-const REPOSITORY_URL = /^https:\/\/github\.com\/(?:stonebridgeway|BreezeAreaSay)\/ai-dev-system\/(?:blob|tree)\/[^/]+\/(.+)$/i;
+// github.com/stonebridgeway/ai-dev-system/(blob|tree)/<ref>/<path>: a link into this repository written out in full.
+const REPOSITORY_URL = /^https:\/\/github\.com\/stonebridgeway\/ai-dev-system\/(?:blob|tree)\/[^/]+\/(.+)$/i;
 const LINE_ANCHOR = /^L\d+(?:C\d+)?(?:-L\d+(?:C\d+)?)?$/;
 
 /** The anchor GitHub gives a heading: what github-slugger does to the heading's text. */

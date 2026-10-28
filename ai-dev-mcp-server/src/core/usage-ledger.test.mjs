@@ -280,7 +280,7 @@ test("the ledger can be rotated to a line count, and says what a rotation would 
 });
 
 
-// Д-8. The prices of retired models were read from a page that no longer lists
+// The prices of retired models were read from a page that no longer lists
 // them, so nothing re-verifies them. They stay in the table because a ledger
 // keeps old events, and they are marked so a total that rests on them says so.
 test("a model the price page no longer lists is priced, marked and reported apart", async (t) => {

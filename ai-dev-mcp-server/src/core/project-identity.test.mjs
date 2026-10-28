@@ -28,7 +28,7 @@ import {
  * Point the home rule at a directory of this test's own making. The rule reads
  * the environment, but `os.tmpdir()` sits inside the user profile on Windows,
  * so a test that left the real home in place would be deciding a different
- * layout there than here (docs/DEFECTS.md, Д-48).
+ * layout there than here.
  */
 function withHome(t, homeDir) {
   const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -211,8 +211,8 @@ test("the runtime directory is not a project boundary, even when projects sit be
   const project = path.join(home, "AppData", "Local", "Temp", "project");
   await fs.mkdir(project, { recursive: true });
 
-  // AI_DEV_HOME names the runtime folder itself (owner decision D2,
-  // docs/DEFECTS.md Д-90), so the runtime tree under this fake home is spelled out.
+  // AI_DEV_HOME names the runtime folder itself, so the runtime tree under this
+  // fake home is spelled out.
   const previousHome = process.env.AI_DEV_HOME;
   process.env.AI_DEV_HOME = path.join(home, ".ai-dev");
   t.after(() => {
@@ -249,8 +249,8 @@ test("a home reached through a symlink still has its runtime directory skipped",
   const project = path.join(home, "projects", "one");
   await fs.mkdir(project, { recursive: true });
 
-  // AI_DEV_HOME names the runtime folder itself (owner decision D2,
-  // docs/DEFECTS.md Д-90), so the runtime tree under this fake home is spelled out.
+  // AI_DEV_HOME names the runtime folder itself, so the runtime tree under this
+  // fake home is spelled out.
   const previousHome = process.env.AI_DEV_HOME;
   process.env.AI_DEV_HOME = path.join(home, ".ai-dev");
   t.after(() => {
@@ -276,8 +276,8 @@ test("a real marker beside the runtime directory still stops the walk", async (t
   const project = path.join(home, "AppData", "Local", "Temp", "project");
   await fs.mkdir(project, { recursive: true });
 
-  // AI_DEV_HOME names the runtime folder itself (owner decision D2,
-  // docs/DEFECTS.md Д-90), so the runtime tree under this fake home is spelled out.
+  // AI_DEV_HOME names the runtime folder itself, so the runtime tree under this
+  // fake home is spelled out.
   const previousHome = process.env.AI_DEV_HOME;
   process.env.AI_DEV_HOME = path.join(home, ".ai-dev");
   t.after(() => {
@@ -299,7 +299,7 @@ test("the hooks copy of the derivation answers exactly like the server", async (
   }
 });
 
-test("a hook started in a package of a monorepo keys its memory to the package, as the server does (Д-164)", async (t) => {
+test("a hook started in a package of a monorepo keys its memory to the package, as the server does", async (t) => {
   // The hook went up to the Git root first and looked for a boundary only from
   // there, so a session in `apps/web` wrote its handoff under the repository's
   // key while the server read the package's.
@@ -317,7 +317,7 @@ test("a hook started in a package of a monorepo keys its memory to the package, 
     assert.equal(projectIdOf(identityRoot), identity.project_id, cwd);
     assert.equal(repositoryIdOf(identityRoot), identity.repository_id, cwd);
     assert.deepEqual(memoryKeysOf(identityRoot), memoryScopeKeys(identity), cwd);
-    // Policy, git and formatters stay the workspace's: the repository (Д-189).
+    // Policy, git and formatters stay the workspace's: the repository.
     assert.equal(projectRootOf(cwd), await fs.realpath(repo), cwd);
   }
   assert.notEqual(projectIdOf(identityRootOf(path.join(repo, "apps", "web"))), projectIdOf(identityRootOf(repo)));
@@ -372,7 +372,7 @@ test("projects outside Git fall back to the project id as their memory key", asy
 });
 
 test("a marker in the home directory or above it is not a project boundary", () => {
-  // Д-48. The walk ran to the root of the filesystem and stopped at the first
+  // The walk once ran to the root of the filesystem and stopped at the first
   // marker, so one `package.json` in `~` — which anyone who has run npm from
   // their home directory has — put every project below it under a single
   // memory key. Platform and home are parameters so both branches are decided
@@ -383,7 +383,7 @@ test("a marker in the home directory or above it is not a project boundary", () 
 });
 
 test("the hook copy of the home rule answers exactly like the server", () => {
-  // Д-45, Д-51 and Д-52 were all one defect: the two copies disagreeing. This
+  // Past defects here were all one: the two copies disagreeing. This
   // is the rule's version of that check — the same layouts through both.
   for (const [name, platform, homeDir, directory] of HOME_RULE_CASES) {
     assert.equal(
@@ -411,7 +411,7 @@ test("the home directory is read the way the platform spells it", () => {
 });
 
 test("a package.json in the home directory no longer collapses the projects below it", async (t) => {
-  // Д-48, the measurement from the record: `outer/home/AppData/Local/Temp/project`
+  // The measured case: `outer/home/AppData/Local/Temp/project`
   // with a `package.json` at `outer`. The project used to answer with `outer`'s
   // identifier — two levels above itself — and so did every other project on
   // the machine.
@@ -502,7 +502,7 @@ test("a session started in the home directory or above it keys to where it start
 });
 
 test("a home reached through a symlink is still recognised as the home", async (t) => {
-  // Д-51's lesson applied to the new comparison: macOS reaches its temp
+  // Applied to the new comparison too: macOS reaches its temp
   // directory through /var/folders -> /private/var, so an unresolved home never
   // equals the canonical path the walk reads, and the rule would silently do
   // nothing there.

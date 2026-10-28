@@ -75,7 +75,7 @@ export async function renameOver(tempPath, targetPath) {
  * 24.0 … 24.21, 25.0, 25.9 and 26.0 allow it — with "fsync API is disabled
  * when Permission Model is enabled." (`ERR_ACCESS_DENIED`), and no flag allows
  * it; there the write goes on unflushed rather than not at all. Any other
- * failure is the write's (docs/DEFECTS.md, Д-470, Д-479, Д-493, Д-512).
+ * failure is the write's.
  *
  * @param {import("node:fs/promises").FileHandle} handle
  * @returns {Promise<void>}
@@ -95,8 +95,7 @@ export async function flushFile(handle) {
  * 24.15 … 24.22, 25.9, 26.0 and 26.12 (22.16 … 22.22, 24.0 … 24.14 and 25.0
  * allow it). Where it is refused, the copy is left with the mode open() gave
  * it, the file's, which umask or a default ACL only narrows, rather than fail
- * the write. Any other failure is the write's (docs/DEFECTS.md, Д-477, Д-492,
- * Д-493, Д-512, Д-532).
+ * the write. Any other failure is the write's.
  *
  * @param {import("node:fs/promises").FileHandle} handle
  * @param {number} mode
@@ -172,7 +171,7 @@ function toBuffer(data, options) {
  * the cross-process lock for the file (`file-lock.mjs`). The previous version
  * read the whole file and renamed `old + new` over it, which kept one writer's
  * lines and dropped the others': three processes appending 200 lines each kept
- * about 210 (docs/DEFECTS.md, Д-96). A missing target is created.
+ * about 210. A missing target is created.
  *
  * Nothing already in the file is touched, so this is safe for human-edited
  * Markdown. For JSONL ledgers use {@link appendJsonLines}, which also drops a
@@ -272,7 +271,7 @@ export async function truncateTornTail(filePath) {
  * Holds the cross-process lock for `filePath` across the read and the atomic
  * rename, so two writers cannot both read the old content and lose one of
  * their changes — the JSON stores (instincts, skill outcomes, pilots, task
- * records) lost two updates in three that way (docs/DEFECTS.md, Д-96). Inside,
+ * records) lost two updates in three that way. Inside,
  * write with `atomicWriteFile`/`atomicWriteJson`: they queue after the lock, as
  * the appends do, so they cannot wait on a writer that waits on this lock.
  *

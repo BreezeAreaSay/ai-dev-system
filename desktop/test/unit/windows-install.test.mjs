@@ -25,7 +25,7 @@ test("the shipped runtime is the installed app's resources/runtime on Windows, m
   assert.equal(shippedRuntime({ env: { AI_DEV_DESKTOP_BUNDLE: "/tmp/bundle" }, packaged: false, platform: "linux" }), path.resolve("/tmp/bundle"));
 });
 
-test("Status hears of the runtime only when there is something to say: no link, or files put back (Д-299, Д-300)", () => {
+test("Status hears of the runtime only when there is something to say: no link, or files put back", () => {
   const folder = "C:\\Users\\me\\.ai-dev\\app\\3.0.0-abcdef12";
   assert.equal(runtimeNotice(null), null, "a checkout has no runtime of its own");
   assert.equal(runtimeNotice({ folder, status: "present", repaired: [] }), null);
@@ -64,7 +64,7 @@ test("updates: the installed app on Windows, the AppImage, a signed Mac app, unl
   assert.equal(updatesEnabled({ packaged: true, platform: "linux", env: { APPIMAGE: "/home/me/AI-Dev.AppImage", AI_DEV_DESKTOP_UPDATES: "0" } }), false);
   assert.equal(updatesEnabled({ packaged: true, platform: "darwin", env: {} }), false, "an ad-hoc signed Mac app is replaced from the .dmg");
   assert.equal(updatesEnabled({ packaged: true, platform: "darwin", env: {}, signed: true }), true);
-  assert.equal(resolverRules({ updates: false }), "MAP * ~NOTFOUND", "as before phase 12 (Д-260)");
+  assert.equal(resolverRules({ updates: false }), "MAP * ~NOTFOUND", "no update hosts: every name stays unresolved");
   const rules = resolverRules({ updates: true });
   assert.equal(rules, "MAP * ~NOTFOUND, EXCLUDE github.com, EXCLUDE objects.githubusercontent.com, EXCLUDE release-assets.githubusercontent.com");
   assert.doesNotMatch(rules, /\*\./, "no wildcard: a page could put a word of its own into a name it matched");
@@ -113,7 +113,7 @@ test("a downloaded update is offered in the tray, and installed at Quit if not s
   assert.equal(ids(null).some(([id]) => id === "update"), false, "nothing to offer before a download");
 });
 
-test("the NSIS uninstaller asks its questions unless /S is given — never with /SD — and does nothing of it on an update (Д-296, Д-306)", async () => {
+test("the NSIS uninstaller asks its questions unless /S is given — never with /SD — and does nothing of it on an update", async () => {
   const script = fs.readFileSync(path.join(desktopRoot, "build", "installer.nsh"), "utf8");
   const code = script.split("\n").filter((line) => !line.trimStart().startsWith(";")).join("\n").trim();
   assert.match(code, /^!ifdef BUILD_UNINSTALLER\n[\s\S]*\n!endif$/, "all of it in the uninstaller's pass: the installer's, run with -WX, refuses a variable it never uses");
@@ -128,7 +128,7 @@ test("the NSIS uninstaller asks its questions unless /S is given — never with 
   assert.match(macro, /"\$\(aiDevRemoveClients\)" IDYES aiDevClientsAnswered\n\s*StrCpy \$aiDevClients ""/, "No keeps the entries");
   assert.match(macro, /MB_DEFBUTTON2 "\$\(aiDevRemoveData\)" IDNO aiDevDataAnswered\n\s*StrCpy \$aiDevData "--data"/, "only Yes deletes the data, and No is the default button");
   assert.match(macro, /nsExec::ExecToLog '"\$INSTDIR\\resources\\runtime\\node\\node\.exe" "\$INSTDIR\\resources\\runtime\\ai-dev-mcp-server\\bin\\ai-dev\.mjs" uninstall --yes \$aiDevClients \$aiDevData'/);
-  // Its exit status, as `ai-dev uninstall` gives it (Д-297, Д-302).
+  // Its exit status, as `ai-dev uninstall` gives it.
   const { EXIT_DATA_KEPT, EXIT_IN_USE } = await import("../../../ai-dev-mcp-server/src/cli/uninstall.mjs");
   assert.match(macro, new RegExp(`\\$aiDevStatus == "${EXIT_IN_USE}"\\n\\s*MessageBox MB_RETRYCANCEL\\|MB_ICONEXCLAMATION "\\$\\(aiDevInUse\\)" IDRETRY aiDevRun`), "in use: Retry runs it again");
   assert.match(macro, new RegExp(`\\$aiDevStatus == "${EXIT_DATA_KEPT}"\\n\\s*MessageBox MB_OK\\|MB_ICONINFORMATION "\\$\\(aiDevDataKept\\)"`));

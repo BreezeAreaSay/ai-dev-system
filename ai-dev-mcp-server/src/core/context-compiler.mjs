@@ -256,7 +256,7 @@ export async function compileContextPack({
     unknowns.push("No automated test command was detected for the selected project scope.");
   }
   if (!String(qualityGate).trim()) {
-    // verify_task runs this file; a repository AI Dev has not prepared has none (docs/DEFECTS.md, Д-380).
+    // verify_task runs this file; a repository AI Dev has not prepared has none.
     unknowns.push("This project has no .ai-dev/quality-gate.md, so verify_task has no project checks to run: prepare_project writes one from the project's own scripts.");
   }
   if (domains.includes("frontend") && !projectBrief) {

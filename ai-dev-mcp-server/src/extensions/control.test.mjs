@@ -110,7 +110,7 @@ test("the control tools answer through the daemon as the contract says, refuse w
   assert.equal(status.status, "failed", "nothing built yet");
   assert.match(await refusal(client, "system_status", { check: false }), /Unknown argument: check/);
 
-  // A misspelt client is refused before anything is built (Д-220).
+  // A misspelt client is refused before anything is built.
   assert.match(await refusal(client, "setup_run", { clients: "claude-code,notepad" }), /Not a client: notepad/);
   assert.equal((await call(client, "system_status", { checks: false })).index.exists, false, "nothing was built for the refused call");
 
@@ -126,7 +126,7 @@ test("the control tools answer through the daemon as the contract says, refuse w
   assert.equal((await call(client, "system_status", { checks: false })).index.exists, true);
 
   // With the health checks: each says whether the install fails without it,
-  // and the ones this call does not run are not listed as if they were a state (Д-247).
+  // and the ones this call does not run are not listed as if they were a state.
   const checked = await call(client, "system_status", {});
   const indexFile = checked.checks.find((check) => check.name === "search_index_file");
   assert.deepEqual([indexFile?.status, indexFile?.critical], ["ok", true], JSON.stringify(indexFile));
@@ -160,7 +160,7 @@ test("the control tools answer through the daemon as the contract says, refuse w
   assert.match(await refusal(client, "model_import", { source: "relative/folder" }), /absolute path/);
   const imported = await call(client, "model_import", { source: usb });
   assert.equal(imported.ready, true);
-  assert.deepEqual([imported.present.length > 0, imported.missing], [true, []], "what is there after the import (Д-223)");
+  assert.deepEqual([imported.present.length > 0, imported.missing], [true, []], "what is there after the import");
 
   // Clients: a dry run writes nothing; removing needs confirm.
   const clients = await call(client, "clients_list");
@@ -221,7 +221,7 @@ test("copying and checking the model stop when cancelled midway, and keep what i
   assert.equal((await call(client, "model_verify", {}, { onprogress: () => undefined })).ready, true);
 });
 
-test("the settings file counts for the app's transport as for a client: its model folder, and a mirror saved in the same session (Д-218)", { timeout: 300_000 }, async (t) => {
+test("the settings file counts for the app's transport as for a client: its model folder, and a mirror saved in the same session", { timeout: 300_000 }, async (t) => {
   const { root, env, host } = await stage(t, { stall: false });
   // No daemon runs, and the settings name a model folder: the daemon the
   // transport starts applies them, and so must the transport, or it waits
@@ -244,14 +244,14 @@ test("the settings file counts for the app's transport as for a client: its mode
 
   // A model folder saved in this session is the next session's: the daemon's
   // search loaded the folder it started with, and these tools look where it
-  // does (Д-228).
+  // does.
   const chosen = path.join(root, "models-chosen");
   const saved = await call(client, "settings_set", { settings: { model_dir: chosen } });
   assert.equal(saved.applies.model_dir, "new_session");
   assert.match(saved.note, /model_dir: used by sessions started from now on/);
   assert.equal((await call(client, "system_status", { checks: false })).model.dir, folder, "this session keeps its folder");
   // And says so: in force is what it started with, the new one is pending,
-  // and no model goes to the folder it is leaving (Д-237).
+  // and no model goes to the folder it is leaving.
   const shown = await call(client, "settings_get", {});
   assert.deepEqual([shown.settings.model_dir, shown.pending.model_dir, shown.sources.model_dir], [folder, chosen, "file, as this session started"]);
   const moved = /The model folder was changed to .*models-chosen; this session still uses .*models-from-settings.*Reconnect/;
@@ -262,7 +262,7 @@ test("the settings file counts for the app's transport as for a client: its mode
   assert.equal((await call(next, "system_status", { checks: false })).model.dir, chosen, "a session started afterwards has the new one");
 
   // A program that names no profiles gets what a client's `ai-dev mcp` gets:
-  // the profiles the settings name (Д-238).
+  // the profiles the settings name.
   await call(next, "settings_set", { settings: { profiles: "core" } });
   const listed = async (profiles) => {
     const program = new Client({ name: "program", version: "1.0.0" }, { capabilities: {} });

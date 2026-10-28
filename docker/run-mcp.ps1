@@ -1,6 +1,6 @@
 # The 2.x launcher, kept so that the client configs naming it — and its copy in
-# C:\ProgramData\AI-Dev-System that bootstrap.ps1 made — work until 4.0 (owner
-# decision D10). 3.0 writes `docker run -i --rm ...` into a client's config itself
+# C:\ProgramData\AI-Dev-System that bootstrap.ps1 made — work until 4.0. 3.0
+# writes `docker run -i --rm ...` into a client's config itself
 # (bootstrap.ps1, or `ai-dev clients install --docker`); this runs the same image
 # the way it always did.
 $ErrorActionPreference = "Stop"
@@ -48,14 +48,13 @@ if ($env:AI_DEV_MODEL_PATH) {
     if ($modelPath.Contains(",")) {
         throw "AI_DEV_MODEL_PATH cannot contain a comma when Docker --mount syntax is used."
     }
-    # The folder above the model: it holds bge-m3-onnx/ (docs/DEFECTS.md, Д-62).
-    # A bge-m3/ beside it is the Python backend's weights, which 3.0 removed
-    # (decision D3, Д-158): said, not taken for a model.
+    # The folder above the model: it holds bge-m3-onnx/.
+    # A bge-m3/ beside it is the Python backend's weights, which 3.0 removed:
+    # said, not taken for a model.
     #
-    # Before Д-62 the variable named the model directory itself. A folder that
+    # In 2.0.0 the variable named the model directory itself. A folder that
     # holds model files is that old value; mounted at /models it would leave both
-    # backends looking one level too deep and reporting "not set up"
-    # (docs/DEFECTS.md Д-68).
+    # backends looking one level too deep and reporting "not set up".
     foreach ($marker in @("pytorch_model.bin", "modules.json", "config.json", "onnx")) {
         if (Test-Path -LiteralPath (Join-Path $modelPath $marker)) {
             throw "AI_DEV_MODEL_PATH now names the folder above the models, and $modelPath holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ - for a default install that is $HOME\.ai-dev\models (docs/INSTALL.md)."

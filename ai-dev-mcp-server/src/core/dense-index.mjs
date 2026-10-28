@@ -7,7 +7,7 @@
  *      the passages whose vectors are missing or stale for this model,
  *      revision and dtype;
  *   2. this module embeds them in batches through the ONNX model in a worker
- *      thread (docs/DEFECTS.md, Д-62);
+ *      thread;
  *   3. `storeDenseVectors` writes each slice as it is done, and the closing
  *      rebuild keeps them — so a cancelled run keeps what it embedded.
  *
@@ -71,7 +71,7 @@ export async function embedDensePlan({ records, embed, dimensions, batchSize = D
  * (`backend/revision/dtype`), so a vector another model made — the 2.x Python
  * backend's, an older revision's — is a document still waiting for one, not a
  * document that has one. Counted that way, `setup -- --model` re-embeds them
- * instead of calling the step done (docs/DEFECTS.md, Д-148).
+ * instead of calling the step done.
  *
  * @param {object} status - `search_index_status`, with `dense_models` from the store.
  * @param {{ backend: string, revision: string, dtype: string }|null} provenance - The current model's.

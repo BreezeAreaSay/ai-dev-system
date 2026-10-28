@@ -44,7 +44,7 @@ test("a vault keeps its own layout, and nothing else is consulted", () => {
 test("a checkout with no vault answers from the repository root", () => {
   // What a clone of this repository actually looks like: the helper trees are
   // in the root, and the seed the vault falls back to has no 09-mcp at all
-  // (docs/DEFECTS.md — the search helper could never be found).
+  // (the search helper could never be found).
   const assets = resolveRuntimeAssets({
     vaultRoot: "/repo/docker/public-seed",
     repositoryRoot: "/repo",
@@ -148,7 +148,7 @@ test("a real vault is held to the whole list, layout excuses and all", () => {
 });
 
 test("a seeded container volume is not held to a private vault's notes", () => {
-  // Д-57: `/data/ai-dev-system` is seeded from `docker/public-seed` and then
+  // `/data/ai-dev-system` is seeded from `docker/public-seed` and then
   // has the runtime trees symlinked into `09-mcp/`, which made it look like a
   // hand-made Obsidian vault — so it was held to the entry page no
   // distribution ships and reported it missing on every start.
@@ -174,7 +174,7 @@ test("a seeded container volume is not held to a private vault's notes", () => {
     repositoryRoot: "/opt/ai-dev",
     exists
   });
-  // Resolved like the neighbours: on Windows the container path lands on a drive (Д-71).
+  // Resolved like the neighbours: on Windows the container path lands on a drive.
   assert.deepEqual(mcpReadme, { path: path.resolve("/opt/ai-dev", "README.md"), source: "repository" });
 });
 

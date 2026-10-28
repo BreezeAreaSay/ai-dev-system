@@ -3,7 +3,7 @@
  * What the install pages and the install scripts promise each other: the image
  * they name, the flags both bootstrap scripts keep, the model folder's rules,
  * and plain `npm ci`. The Homebrew formula and the AUR package this used to
- * check were never published and are gone in 3.0 (decision D8).
+ * check were never published and are gone in 3.0.
  */
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
@@ -75,15 +75,13 @@ requireText(bootstrapUnix, /--install-prerequisites\)/, "bootstrap.sh");
 requireText(bootstrapUnix, /https:\/\/docs\.docker\.com\/get-docker\//, "bootstrap.sh");
 requireText(bootstrapUnix, /--build-local/, "bootstrap.sh");
 // Refusing a stale cached image is a decision a user has to be able to
-// override on either platform, so the flag is required on both sides
-// (docs/DEFECTS.md Д-60).
+// override on either platform, so the flag is required on both sides.
 requireText(bootstrapUnix, /--allow-stale-image/, "bootstrap.sh");
 requireText(bootstrapWindows, /ghcr\.io\/stonebridgeway\/ai-dev-system:latest/, "bootstrap.ps1");
 requireText(bootstrapWindows, /\[switch\]\$BuildLocal/, "bootstrap.ps1");
 requireText(bootstrapWindows, /\[switch\]\$AllowStaleImage/, "bootstrap.ps1");
 // The model folder is mounted the same way on both platforms, and the launchers
-// refuse the pre-Д-62 value — the model directory itself — with the same words
-// (docs/DEFECTS.md Д-68, Д-69).
+// refuse the 2.0.0 value — the model directory itself — with the same words.
 requireText(bootstrapUnix, /--model-path/, "bootstrap.sh");
 requireText(bootstrapWindows, /\[string\]\$ModelPath/, "bootstrap.ps1");
 requireText(runMcpUnix, /holds model files itself/, "docker/run-mcp.sh");
@@ -91,7 +89,7 @@ requireText(runMcpWindows, /holds model files itself/, "docker/run-mcp.ps1");
 
 // `npm ci` in the server needs no flag because the package's .npmrc keeps
 // dependency install scripts off — onnxruntime-node's postinstall downloads the
-// CUDA provider from api.nuget.org and fails offline (docs/DEFECTS.md, Д-86).
+// CUDA provider from api.nuget.org and fails offline.
 // The pages tell people to run plain `npm ci`, so the setting has to stay.
 const npmrc = await read("ai-dev-mcp-server/.npmrc");
 assert.match(npmrc, /^ignore-scripts=true$/m, "ai-dev-mcp-server/.npmrc no longer keeps install scripts off");

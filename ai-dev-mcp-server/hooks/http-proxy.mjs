@@ -4,11 +4,11 @@
 // with `fetch`, and Node's `fetch` reads no proxy variable unless the process
 // was started with NODE_USE_ENV_PROXY=1. Behind a corporate proxy every lookup
 // failed with "fetch failed" and the guard warned "not fully checked" on every
-// install (docs/DEFECTS.md, Д-145).
+// install.
 //
 // This is the server's client (src/core/http-download.mjs) copied, not
 // imported: the hooks run inside other people's repositories without the
-// server's package (AGENTS.md, rule 3). The proxy choice — HTTPS_PROXY,
+// server's package. The proxy choice — HTTPS_PROXY,
 // HTTP_PROXY, NO_PROXY with suffixes, ports, CIDR blocks and `*`, loopback
 // always direct — is the same code, and a test holds the two copies to the
 // same answers. Zero dependencies, like every hook.
@@ -130,7 +130,7 @@ function proxyAuthorization(proxy) {
 
 /**
  * What a 407 means, as the server's copy says it: a scheme the hook does not
- * speak, credentials the proxy refused, or none given (docs/DEFECTS.md, Д-212).
+ * speak, credentials the proxy refused, or none given.
  */
 function signInHint(proxy, challenge) {
   const schemes = [challenge ?? []].flat().join(",").toLowerCase();
@@ -151,7 +151,7 @@ function authority(host, port) {
  * proxy's own name — or its address, for a proxy named by one. Node's HTTPS
  * client takes the name to check from the Host header, and through a proxy
  * that header names the target. Same as the server's `overProxyTls`
- * (docs/DEFECTS.md, Д-206; this copy kept the defect, Д-207).
+ * (this copy kept the defect).
  */
 function overProxyTls(proxy, ca) {
   const host = bareHost(proxy.hostname);
@@ -217,7 +217,7 @@ function requestOnce(url, { method, headers, env, signal, ca, body }) {
         method,
         headers: sent,
         signal,
-        // As the server's copy: without it `Host` named port 80 (docs/DEFECTS.md, Д-211).
+        // As the server's copy: without it `Host` named port 80.
         defaultPort: 443,
         createConnection: (_options, done) => {
           tunnel(proxy, host, port, signal, ca).then((socket) => {
@@ -259,8 +259,8 @@ async function openUrl(target, { method = "GET", headers = {}, body, env = proce
 /**
  * What `proxyFetch` asks for, as `fetch` does. A registry document is a
  * tenth of its size compressed — typescript's is 15.8 MB as sent plain and
- * 2.0 MB gzipped — and the supply-chain hook has three seconds for it
- * (docs/DEFECTS.md, Д-167). The download asks for none: a `Range` resumes
+ * 2.0 MB gzipped — and the supply-chain hook has three seconds for it.
+ * The download asks for none: a `Range` resumes
  * bytes of the file itself.
  */
 const ACCEPT_ENCODING = "gzip, deflate, br";

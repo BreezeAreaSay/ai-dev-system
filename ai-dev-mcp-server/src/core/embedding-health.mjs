@@ -4,12 +4,12 @@
  *
  * Four answers, because they send a person to four different places. Ready is
  * `ok`. Not installed is `skipped` — nobody has to have the model, and a
- * correct install without it is not unhealthy (docs/DEFECTS.md, Д-59). Files
+ * correct install without it is not unhealthy. Files
  * that are there and wrong are a `warn`, and so is anything left of the
  * removed Python backend: a 2.x setting that nothing reads any more is worth
- * a sentence and the command that replaces it, every time someone looks
- * (decision D3, Д-98). A machine the runtime has no build for is `skipped`
- * with that said plainly (Д-101).
+ * a sentence and the command that replaces it, every time someone looks.
+ * A machine the runtime has no build for is `skipped`
+ * with that said plainly.
  */
 import { containerModelAdvice } from "./dense-backend.mjs";
 import { formatBytes } from "./disk-space.mjs";
@@ -42,8 +42,8 @@ export function evaluateEmbeddingBackend(status = {}) {
     };
   }
   // Inside a container the fix depends on the folder: a read-only mount from
-  // the host is fixed there (docs/DEFECTS.md, Д-157), the volume's by
-  // installing into it with the network that one run needs (Д-99).
+  // the host is fixed there, the volume's by
+  // installing into it with the network that one run needs.
   const inContainer = Boolean(status.in_container);
   if (onnx.mismatched?.length) {
     return {
@@ -53,9 +53,9 @@ export function evaluateEmbeddingBackend(status = {}) {
       details
     };
   }
-  // A check that could not be made is a fault to look at, not a model to install (docs/DEFECTS.md, Д-372).
+  // A check that could not be made is a fault to look at, not a model to install.
   if (onnx.unchecked) return { status: "warn", summary: selected.reason || `The model could not be checked: ${onnx.unchecked}`, details };
-  // A model this user cannot read is said as that first: no download continues it (docs/DEFECTS.md, Д-369).
+  // A model this user cannot read is said as that first: no download continues it.
   if (partial.length && !onnx.unreadable) {
     const started = partial.map((entry) => `${formatBytes(entry.bytes)} of ${entry.file}`).join(", ");
     return {

@@ -6,7 +6,7 @@
  * Before this the model was a download inside setup and nothing else. A
  * machine that could not reach huggingface.co had no way in; a broken copy had
  * no way out but deleting a directory by hand; and "is it installed" was
- * answered by hashing 570 MB (docs/DEFECTS.md, Д-98, Д-143).
+ * answered by hashing 570 MB.
  *
  * - `install` downloads through `dense-download.mjs`: resumable, mirrors,
  *   proxies, progress and cancel;
@@ -61,7 +61,7 @@ const PLATFORM_NAMES = Object.freeze({ "darwin-x64": "Intel Mac", "darwin-arm64"
  *
  * onnxruntime-node ships one prebuilt binding per platform and architecture
  * and nothing else; where there is none, the model cannot load and no command
- * builds one. 1.30 dropped Intel Macs (docs/DEFECTS.md, Д-101). The answer is
+ * builds one. 1.30 dropped Intel Macs. The answer is
  * read from the installed package, not from a list, so a version that adds a
  * build changes it without a code change.
  *
@@ -122,7 +122,7 @@ export async function withModelLock(dir, operation) {
     release = await acquireFileLock(path.resolve(dir), { timeoutMs: MODEL_LOCK_TIMEOUT_MS, heartbeatMs: 10_000 });
   } catch (error) {
     // Only a lock someone holds is "another operation"; a folder that cannot
-    // be written beside is said as that (docs/DEFECTS.md, Д-154).
+    // be written beside is said as that.
     if (error?.code) {
       const reason = LOCK_FAILURES[error.code] ?? String(error.message ?? error);
       throw new Error(`Cannot work in ${path.resolve(dir)}: ${reason} (${error.code}). `
@@ -159,8 +159,8 @@ export async function modelStatus({ manifest, dir, stampDir = defaultStampDir(),
   } catch (error) {
     // A model this user cannot read — a host's folder 0700, files 0600 — is one
     // that is not installed, and why: not an error that stops `setup`, `model
-    // status` or the app's status screen (docs/DEFECTS.md, Д-349, Д-359). Only
-    // a system call's: a fault of the code still throws (Д-366).
+    // status` or the app's status screen. Only
+    // a system call's: a fault of the code still throws.
     if (typeof error?.syscall !== "string") throw error;
     const missing = await filesNotThere({ manifest, dir: resolved });
     verification = { ready: false, present: [], missing, mismatched: [], hashed: [], unreadable: error.message };
@@ -174,7 +174,7 @@ export async function modelStatus({ manifest, dir, stampDir = defaultStampDir(),
   let sources = [];
   let sourcesError = "";
   try {
-    // Shown and printed as JSON: a mirror's password stays out (Д-151).
+    // Shown and printed as JSON: a mirror's password stays out.
     sources = modelSources(manifest, env).map(redactCredentials);
   } catch (error) {
     sourcesError = error.message;
@@ -193,7 +193,7 @@ export async function modelStatus({ manifest, dir, stampDir = defaultStampDir(),
     mismatched: verification.mismatched,
     partial,
     // Files this answer had to read, because they changed since the last
-    // check or were never checked; usually none (docs/DEFECTS.md, Д-143).
+    // check or were never checked; usually none.
     hashed: verification.hashed,
     ...(verification.unreadable ? { unreadable: verification.unreadable } : {}),
     installed_revision: onDisk?.revision ?? "",
@@ -381,7 +381,7 @@ export async function importModel({ manifest, source, dir, stampDir = defaultSta
       if (found.length === 1 && path.resolve(found[0]) === resolved) {
         const verification = await verifyModel({ manifest, dir: resolved, stampDir, onProgress, signal });
         if (!verification.ready) {
-          // Nothing to copy from: the source is the folder being checked (Д-156).
+          // Nothing to copy from: the source is the folder being checked.
           throw new Error(`${origin} is the model folder itself, and ${[...verification.missing, ...verification.mismatched].join(", ")} in it `
             + "is not the pinned file; there is no other copy here to take it from. Import from another copy, or "
             + `\`${hint("npm run model -- install")}\` fetches it.`);
@@ -479,7 +479,7 @@ export async function removeModel({ manifest, dir, stampDir = defaultStampDir() 
   return withModelLock(resolved, async () => {
     // Names alone are not enough: `config.json` and `manifest.json` are
     // common, and a --dir pointed at the wrong folder deleted another
-    // program's (docs/DEFECTS.md, Д-153).
+    // program's.
     if (!fs.existsSync(resolved)) return { dir: resolved, removed: [], freed: 0, freed_text: formatBytes(0), kept: [] };
     const ours = await readInstalledDenseManifest(resolved);
     if (!ours && !await holdsModelFiles({ manifest, dir: resolved, stampDir })) {

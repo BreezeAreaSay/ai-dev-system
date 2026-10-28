@@ -29,7 +29,7 @@ export const logsDir = (env) => path.join(aiDevHome(env), "logs");
  * The descriptor the daemon of one build publishes: pid, version, address,
  * secret, sessions. Each build has its own, so clients that need different
  * daemons — another copy of the code, another vault — each find theirs instead
- * of replacing each other's (docs/DEFECTS.md, Д-191). Its lock is beside it,
+ * of replacing each other's. Its lock is beside it,
  * `<descriptor>.lock`, as `file-lock.mjs` names locks.
  *
  * @param {string} build - the build's id, 16 hex digits
@@ -67,7 +67,7 @@ export const tasksStateRoot = () => path.join(aiDevHome(), "state");
  * The longest socket path used. `sockaddr_un` holds 108 bytes on Linux and 104
  * on macOS, terminating NUL included, and libuv cuts a longer path short
  * without a word: `listen` then makes a socket under a truncated name and the
- * daemon dies on the next call that names the real one (docs/DEFECTS.md, Д-97).
+ * daemon dies on the next call that names the real one.
  */
 export const MAX_SOCKET_PATH_BYTES = 100;
 
@@ -76,8 +76,7 @@ export const MAX_SOCKET_PATH_BYTES = 100;
  *
  * Every daemon start draws its own, and its descriptor says which it is. A fixed
  * name — `\\.\pipe\ai-dev-<user>` until 3.0 — is one any local process can
- * create first and so receive every client's connection (docs/DEFECTS.md,
- * Д-107).
+ * create first and so receive every client's connection.
  *
  * @param {Buffer} [bytes]
  * @returns {string}
@@ -125,7 +124,7 @@ export function daemonAddressCandidates({ platform = process.platform, name = ra
  * directory, not a link, owned by this uid, with no access for group or
  * others. `/tmp/ai-dev-<uid>` can be created by anyone before the daemon gets
  * there; a directory that is not ours is refused rather than used, and so is
- * one a file system leaves open after chmod (docs/DEFECTS.md, Д-227).
+ * one a file system leaves open after chmod.
  *
  * @param {string} directory
  * @param {{ uid?: number }} [options]
@@ -133,7 +132,7 @@ export function daemonAddressCandidates({ platform = process.platform, name = ra
  */
 export async function prepareSocketDirectory(directory, { uid = process.getuid?.() } = {}) {
   await fs.mkdir(directory, { recursive: true, mode: 0o700 });
-  // Checked and changed through one handle that never followed a link (Д-226).
+  // Checked and changed through one handle that never followed a link.
   let handle;
   try {
     handle = await fs.open(directory, FOLDER_FLAGS);
@@ -158,15 +157,15 @@ export async function prepareSocketDirectory(directory, { uid = process.getuid?.
 
 /**
  * Open a folder itself, never a link in its place: what is checked is what is
- * changed (docs/DEFECTS.md, Д-226). Windows has neither flag, and nothing here
- * opens a folder there: a pipe needs none, and modes do not guard folders (Д-235).
+ * changed. Windows has neither flag, and nothing here
+ * opens a folder there: a pipe needs none, and modes do not guard folders.
  */
 const FOLDER_FLAGS = fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fsConstants.O_NOFOLLOW ?? 0);
 
 /**
  * The owner of a folder this user may not open, when it is someone else: a
  * private folder of another user's refuses the open itself, and the refusal
- * should say whose it is, as it did before Д-226 (docs/DEFECTS.md, Д-235).
+ * should say whose it is.
  *
  * @returns {Promise<number | undefined>}
  */
@@ -178,11 +177,11 @@ async function foreignOwner(directory, uid, error) {
 
 /**
  * Make a folder of this user's private when group or others can get into it:
- * the daemon's run folder, as the lock race before Д-213's fix or the 2.x
- * layout's migration left it (docs/DEFECTS.md, Д-215). The folder is opened
+ * the daemon's run folder, as an older version's lock race or the 2.x
+ * layout's migration left it. The folder is opened
  * without following a link, checked and changed through that handle, and
  * checked again — a file system that takes the change and keeps its mode
- * says so (Д-225).
+ * says so.
  *
  * @param {string} directory
  * @param {{ uid?: number, platform?: string }} [options]
@@ -222,7 +221,7 @@ export async function tightenFolder(directory, { uid = process.getuid?.(), platf
  * The folders from `start` up to `top`, both included — what a daemon
  * leaving removes when they are empty — or none when `top` is not `start` or
  * one of its parents. `top` is as `fs.mkdir` returned it, on Windows in the
- * `\\?\` namespace, so both are compared that way (docs/DEFECTS.md, Д-224).
+ * `\\?\` namespace, so both are compared that way.
  *
  * @param {string} start
  * @param {string} top

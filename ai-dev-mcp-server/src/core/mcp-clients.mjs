@@ -5,9 +5,9 @@
  * the CLI (`ai-dev clients …`, `ai-dev setup`) and for the Docker installer.
  * Before it there were two installers with two server names (`ai-dev-system`
  * and `ai-dev`) and two sets of clients, so a machine that ran both listed the
- * server twice (docs/DEFECTS.md, Д-95); the Docker one stopped halfway on an
- * empty file and broke Codex's config (Д-162), and both rewrote a config in
- * place, so an interrupted run left `~/.claude.json` empty (Д-163).
+ * server twice; the Docker one stopped halfway on an
+ * empty file and broke Codex's config, and both rewrote a config in
+ * place, so an interrupted run left `~/.claude.json` empty.
  *
  * What happens to a file:
  * - it is edited as text (`jsonc-edit.mjs`, `toml-edit.mjs`): other servers,
@@ -102,7 +102,7 @@ export function clientLocations({ home = os.homedir(), env = process.env, platfo
   const codexHome = env.CODEX_HOME ? paths.resolve(env.CODEX_HOME) : paths.join(home, ".codex");
   // With CLAUDE_CONFIG_DIR set, Claude Code keeps its global config — user
   // servers included — in that folder's .claude.json and never reads
-  // ~/.claude.json (measured with Claude Code 2.1.296; docs/DEFECTS.md, Д-173).
+  // ~/.claude.json (measured with Claude Code 2.1.296).
   const claudeHome = env.CLAUDE_CONFIG_DIR ? paths.resolve(env.CLAUDE_CONFIG_DIR) : "";
   return {
     "claude-code": claudeHome
@@ -298,7 +298,7 @@ function sha256(bytes) {
  * a file not written yet. A client folder linked from a dotfiles repository
  * was recorded under the link's path at install and looked up under the real
  * one at remove, which then took the entry out instead of giving the file
- * back (docs/DEFECTS.md, Д-172).
+ * back.
  */
 async function realTarget(file) {
   try {
@@ -326,8 +326,7 @@ const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 /**
  * A config's text. A file that is not UTF-8 — a comment saved from an editor
  * in cp1251, a UTF-16 file from Notepad — is refused: decoded anyway, its
- * bytes came back as U+FFFD and were written over the original
- * (docs/DEFECTS.md, Д-172).
+ * bytes came back as U+FFFD and were written over the original.
  */
 function decode(bytes) {
   try {
@@ -346,8 +345,8 @@ function sameBytes(left, right) {
  * Who is to own what is written for `file`: the owner of the file, or of the
  * nearest folder above it that exists — when root writes it. `sudo` with the
  * user's HOME left every config, backup and folder it touched to root, and
- * the user's own client could no longer read its config (docs/DEFECTS.md,
- * Д-168). Anyone but root creates what is theirs already: null.
+ * the user's own client could no longer read its config. Anyone but root
+ * creates what is theirs already: null.
  */
 async function ownerFor(file) {
   if (process.getuid?.() !== 0) return null;

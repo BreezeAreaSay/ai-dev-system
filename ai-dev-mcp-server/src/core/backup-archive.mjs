@@ -3,8 +3,8 @@
  *
  * 2.x backed up and restored with two PowerShell scripts that only worked
  * inside the owner's full vault: run from a clone they stopped at their first
- * check, and `ai-dev backup` refused every system but Windows
- * (docs/DEFECTS.md, Д-104). This runs wherever Node does and keeps what an
+ * check, and `ai-dev backup` refused every system but Windows.
+ * This runs wherever Node does and keeps what an
  * install of any layout writes: the content root the server writes into (a
  * vault, the user vault of a package install, a clone's seed folder) and the
  * runtime's `state/` — tasks, sessions, the usage ledger, instincts, the
@@ -41,7 +41,7 @@ const SKIP_PATHS = [/^\.obsidian\/cache\//];
 
 /**
  * The largest 32-bit field. The value itself means "see the ZIP64 record", so a
- * size, offset or count reaching it needs ZIP64 (Д-180); a single entry that
+ * size, offset or count reaching it needs ZIP64; a single entry that
  * large needs ZIP64 sizes in its local header, which a backup of notes and
  * state does not have.
  */
@@ -51,7 +51,7 @@ const COUNT_LIMIT = 0xffff;
 /**
  * Whether the end of the archive needs the ZIP64 records: a count, size or
  * offset that does not fit its field — or fills it, since the all-ones value
- * itself sends a reader to the ZIP64 record (Д-180).
+ * itself sends a reader to the ZIP64 record.
  *
  * @param {number} count
  * @param {number} directoryOffset
@@ -75,7 +75,7 @@ const MADE_BY_UNIX = (3 << 8) | 45;
 
 function dosTime(date) {
   // Seven bits of year from 1980: a file dated after 2107 (a wrong clock, an
-  // unpacked archive) is stamped 2107 rather than ending the backup (Д-180).
+  // unpacked archive) is stamped 2107 rather than ending the backup.
   const year = Math.min(2107, Math.max(1980, date.getFullYear()));
   return {
     time: (date.getHours() << 11) | (date.getMinutes() << 5) | (date.getSeconds() >> 1),
@@ -261,7 +261,7 @@ async function sha256File(file) {
  * @param {object} input
  * @param {string} input.contentRoot - The vault, or what stands for it.
  * @param {string} input.runtimeRoot - `~/.ai-dev`, or `AI_DEV_HOME`.
- * @param {string} [input.stateRoot] - Where the server keeps its state: `AI_DEV_STATE_ROOT`, else `<runtime>/state` (Д-179).
+ * @param {string} [input.stateRoot] - Where the server keeps its state: `AI_DEV_STATE_ROOT`, else `<runtime>/state`.
  * @param {string} input.destination - The folder the archive goes into.
  * @param {string} [input.label]
  * @param {string} [input.layout] - Recorded in the manifest.
@@ -360,7 +360,7 @@ export function landingPath(root, name) {
  * against its `.sha256` when there is one, and nothing is written over an
  * existing file unless `overwrite` says so — checked for all of them first.
  *
- * All or nothing (Д-178): every file is unpacked beside where it goes and
+ * All or nothing: every file is unpacked beside where it goes and
  * checked against its sha256 in the manifest before the first one is put in
  * place; then each replaced file is set aside, and a failure while putting
  * them in place puts the set-aside ones back.

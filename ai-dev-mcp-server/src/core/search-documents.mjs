@@ -14,7 +14,7 @@
  *
  * Two departures, both where the Python helper failed outright: a document id
  * seen twice keeps its first document instead of aborting the rebuild on the
- * primary key (docs/DEFECTS.md, Д-114), and a file that cannot be read is
+ * primary key, and a file that cannot be read is
  * skipped instead of ending the walk.
  */
 import crypto from "node:crypto";
@@ -253,7 +253,7 @@ function realPathOrEmpty(target) {
  * in with `mklink /J`, vectors and all, on the first refresh after an upgrade;
  * so on Windows a linked folder is entered too. A real folder always is, as
  * `os.walk` enters it, so a junction to a folder of the vault never takes the
- * folder's own notes away from it (docs/DEFECTS.md, Д-130); both paths are
+ * folder's own notes away from it; both paths are
  * indexed, as they were by Python. The one link not followed is one into its
  * own ancestry, which `os.walk` would follow until the path grew too long. A
  * true directory symlink is entered too — Node cannot tell it from a
@@ -647,7 +647,7 @@ export function collectDocuments({ vaultRoot, includeExternalProjectFiles = true
  * {@link collectDocuments} for a rebuild, without a cache, that gives the
  * event loop a turn every `sliceMs`. In the daemon one rebuild reads every
  * note while other clients search; read in one go, 13 000 notes held their
- * searches for 1.7 s (docs/DEFECTS.md, Д-194).
+ * searches for 1.7 s.
  *
  * @param {{ vaultRoot: string, includeExternalProjectFiles?: boolean, platform?: string }} options
  * @param {{ sliceMs?: number }} [pace]
@@ -686,7 +686,7 @@ function settleDocuments(all, cache) {
   return { docs, duplicates: all.length - docs.length };
 }
 
-/** Whether a source is the Membrane catalogue, in either layout (docs/DEFECTS.md, Д-91). */
+/** Whether a source is the Membrane catalogue, in either layout. */
 export function isMembraneSource(source) {
   return pythonStr(pythonTruthy(source) ? source : "").toLowerCase().includes("membrane");
 }

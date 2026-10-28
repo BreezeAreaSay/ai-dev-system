@@ -10,7 +10,7 @@ const lock = JSON.parse(await fs.readFile(path.join(root, "package-lock.json"), 
 
 if (Number(lock.lockfileVersion) < 3) findings.push("package-lock.json must use lockfileVersion 3 or newer.");
 // The local model's packages are optional (an install that cannot build them
-// still works, docs/DEFECTS.md, Д-174), not exempt: they are pinned the same way.
+// still works), not exempt: they are pinned the same way.
 const direct = { ...manifest.dependencies, ...manifest.optionalDependencies };
 for (const [name, range] of Object.entries(direct)) {
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(String(range))) {
@@ -32,7 +32,7 @@ for (const [packagePath, metadata] of Object.entries(lock.packages ?? {})) {
   }
 }
 
-// The desktop app's own packages are pinned the same way (docs/DEFECTS.md, Д-256).
+// The desktop app's own packages are pinned the same way.
 const desktopRoot = path.join(root, "..", "desktop");
 const hasDesktop = await fs.stat(path.join(desktopRoot, "package.json")).then(() => true, () => false);
 if (hasDesktop) {
@@ -51,8 +51,8 @@ if (hasDesktop) {
   }
 }
 
-// `hooks/` ships into other people's repositories: a key there would travel with them (Д-172).
-// The desktop app's code, scripts and tests are searched too, its page (HTML, CSS) among them (Д-266, п. 3).
+// `hooks/` ships into other people's repositories: a key there would travel with them.
+// The desktop app's code, scripts and tests are searched too, its page (HTML, CSS) among them.
 const scanRoots = ["bin", "src", "scripts", "hooks", ...(hasDesktop ? ["../desktop/src", "../desktop/scripts", "../desktop/test"] : [])];
 const secretPatterns = [
   { name: "private key", pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/ },

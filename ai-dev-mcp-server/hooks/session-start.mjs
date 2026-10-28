@@ -54,7 +54,7 @@ async function main() {
   if (input.source && !["startup", "resume", "clear", "compact"].includes(input.source)) process.exit(0);
   const projectRoot = projectRootOf(input.cwd);
   // The memory is the project's the server names for this directory — in a
-  // monorepo, the package's (Д-164); policy, rules and git are the workspace's.
+  // monorepo, the package's; policy, rules and git are the workspace's.
   const identityRoot = identityRootOf(input.cwd);
   // Repository key first, then the project key older records used: memory
   // written in a task worktree is read from the main checkout and back.

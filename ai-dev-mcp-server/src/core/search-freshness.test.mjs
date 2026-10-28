@@ -1,5 +1,5 @@
 // The node:test port of `search-index/test_search_freshness.py`, the Python
-// helper's own suite, deleted with the helper in phase 4 of the program: the
+// helper's own suite, deleted with the helper: the
 // same cases, against the Node engine.
 import assert from "node:assert/strict";
 import fs from "node:fs";

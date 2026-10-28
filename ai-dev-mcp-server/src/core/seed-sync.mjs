@@ -20,7 +20,7 @@
  * start of the older would undo the newer's update.
  *
  * Docker's entrypoint copied with `cp -n`, which never updates a file that is
- * there (docs/DEFECTS.md, Д-99); this is the update that `cp -n` was not.
+ * there; this is the update that `cp -n` was not.
  *
  * What was shipped is remembered in `<vault>/.ai-dev-seed.json`, beside the
  * files it describes, so a vault restored from a backup carries its own record.
@@ -30,7 +30,7 @@
  * other; every other file is the user's and is kept, and named as a conflict
  * when this seed changed it. So is a vault a 2.x image has run on since its
  * last sync — rolled back to `:2` and returned from — which that image's
- * `cp -n` filled with its seed again (Д-317).
+ * `cp -n` filled with its seed again.
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -55,8 +55,7 @@ const MANIFEST = "public-seed.manifest.json";
  * Whether a file is a seed's manifest — JSON with a `files` list — and not the
  * user's own file of that name. 2.x's `cp -n` put its manifest beside its seed,
  * and finding one is how a sync tells that 2.x ran here; the layout asks the
- * same before it treats a vault named by `AI_DEV_VAULT_ROOT` as seeded
- * (docs/DEFECTS.md, Д-336, Д-343).
+ * same before it treats a vault named by `AI_DEV_VAULT_ROOT` as seeded.
  *
  * @param {string} file
  * @returns {boolean}
@@ -73,10 +72,10 @@ export function isSeedManifest(file) {
  * How often the holder of a sync says it is alive, and how long another start
  * waits for it: a 2.x volume's first sync takes seconds here and a minute on a
  * slow machine, which a lock taken for stale after 30 s let a second start
- * break into (docs/DEFECTS.md, Д-330). A start still waiting after 15 s goes on
+ * break into. A start still waiting after 15 s goes on
  * without the sync — the vault as it is, the next start syncs — rather than past
  * the 60 s a client gives `initialize`; in the image it then builds nothing
- * either (Д-340).
+ * either.
  */
 const SYNC_LOCK = Object.freeze({ timeoutMs: 15_000, staleMs: 20_000, heartbeatMs: 3_000 });
 
@@ -172,7 +171,7 @@ async function removeIfSha(target, ...shas) {
  * Whether a folder between the vault and this path is a link — a folder of the
  * user's own, linked in. Nothing is written or removed through one: an update
  * rewrote and deleted files in the repository a user had linked as a skills
- * folder (Д-185).
+ * folder.
  */
 function linkedFolders(contentRoot) {
   const known = new Map();
@@ -192,7 +191,7 @@ function linkedFolders(contentRoot) {
 /**
  * Whether two paths are one file: on Windows and macOS `x/skill.md` and
  * `x/SKILL.md` are, and removing the old name of a file the seed renamed by
- * case removed the file itself (Д-182).
+ * case removed the file itself.
  */
 async function sameFile(left, right) {
   const [a, b] = await Promise.all([fsp.stat(left).catch(() => null), fsp.stat(right).catch(() => null)]);
@@ -317,8 +316,8 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
   });
   // A 2.x image copies its seed into the vault with `cp -n` at every start,
   // its manifest with it, and no sync leaves that manifest there: finding it
-  // means 2.x ran here since the last sync (docs/DEFECTS.md, Д-317). A file of
-  // that name that is no seed manifest is the user's, and stays (Д-336).
+  // means 2.x ran here since the last sync. A file of
+  // that name that is no seed manifest is the user's, and stays.
   const legacyRan = async () => isSeedManifest(path.join(contentRoot, MANIFEST));
   const settled = async (state) => {
     if (fingerprint && state?.seed_fingerprint === fingerprint) return await legacyRan() ? "" : "current";
@@ -352,8 +351,8 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
       const source = inside(seedRoot, relative);
       const target = inside(contentRoot, relative);
       const previous = shipped[relative];
-      // A damaged package — or one npm packed without a file (docs/DEFECTS.md,
-      // Д-175) — still brings everything else; what it lacks keeps its old
+      // A damaged package — or one npm packed without a file — still brings
+      // everything else; what it lacks keeps its old
       // record, so the next complete seed treats it as before.
       if (await entryKind(source) !== "file") {
         counts.missing.push(relative);

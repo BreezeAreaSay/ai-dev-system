@@ -3,7 +3,7 @@
  * to work, checked in the order they depend on each other, and reported as
  * sentences.
  *
- * Д-62 asked for this by name and said why: the old path failed through a
+ * Why it exists: the old path failed through a
  * Python traceback, which tells a user who has just run an installer nothing
  * they can act on. A stage list fails at exactly one place, and the name of
  * that place *is* the diagnosis — "the model files are not here" and "the model
@@ -147,12 +147,12 @@ export function renderDenseDoctorReport(result) {
  * @param {(manifest: object) => Promise<object>} deps.loadModel - Resolves when loaded.
  * @param {(manifest: object) => Promise<object>} deps.embedProbe - One trial embedding.
  * @param {boolean} [deps.inContainer] - In the image, where the host's folder at /models is fixed on the host, as the start
- *   report says (docs/DEFECTS.md, Д-558).
+ *   report says.
  * @returns {object[]}
  */
 export function denseDoctorStages({ nodeVersion, support = () => ({ supported: true, reason: "" }), loadRuntime, readManifest, verifyFiles, loadModel, embedProbe, inContainer = false }) {
   let manifest = null;
-  // What fixes the model where it is the host's folder at /models in the image (Д-558, Д-569); set by the files stage.
+  // What fixes the model where it is the host's folder at /models in the image; set by the files stage.
   let onHost = "";
   return [
     {
@@ -171,7 +171,7 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
         + "what the system lacks.",
       run: async () => {
         // A machine with no build is a fact to state, not an error to dig
-        // through: no command makes one (docs/DEFECTS.md, Д-101).
+        // through: no command makes one.
         const answer = support();
         if (!answer.supported) {
           return {
@@ -219,7 +219,7 @@ export function denseDoctorStages({ nodeVersion, support = () => ({ supported: t
     {
       key: "load",
       title: "model loads",
-      // Read once the files stage has run: a host's folder is put right on the host (Д-569).
+      // Read once the files stage has run: a host's folder is put right on the host.
       get advice() {
         return `The files verified but the runtime would not load them. ${onHost || `Run \`${hint("npm run model -- remove")}\`, then \`${hint("npm run setup -- --model")}\`.`}`;
       },

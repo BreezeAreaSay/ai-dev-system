@@ -492,7 +492,7 @@ export function createSearchTools(host) {
     handlers: {
       search_index_status: (args) => host.search.status(args),
       // Progress and cancellation come with the request, never in the
-      // arguments: those are JSON from the client (docs/DEFECTS.md, Д-187).
+      // arguments: those are JSON from the client.
       rebuild_search_index: ({ onProgress, signal, ...args } = {}, { onProgress: progress, signal: cancel } = {}) => (
         host.search.rebuild({ ...args, ...(progress ? { onProgress: progress } : {}), ...(cancel ? { signal: cancel } : {}) })
       ),
@@ -507,8 +507,8 @@ export function createSearchTools(host) {
       explain_search: (args) => explainSearch(host, args),
       run_search_eval: (args) => runSearchEval(host, args),
       // Through the same model hybrid search and the rebuild use, and with
-      // none installed, the reason and the command that installs it
-      // (docs/DEFECTS.md, Д-133). The texts are checked here, where a client
+      // none installed, the reason and the command that installs it.
+      // The texts are checked here, where a client
       // decides how many it sends.
       embed_texts: async (args = {}) => host.dense.embed({ ...args, texts: cleanEmbedTexts(args) }),
       embedding_status: (args = {}) => host.embeddingStatus(args),

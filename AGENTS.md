@@ -141,6 +141,22 @@ not `return` or `yield`, as waiting for a body too —, are past it — so it ke
 honest code honest and is no sandbox. Never interpolate a variable into a
 command string. See `ai-dev-mcp-server/docs/SECURITY.md`.
 
+## Two branches: `develop` and `main`
+
+Work happens on **`develop`**. It holds everything: the code and the working documents —
+`AGENTS.md` (this file), `docs/DEFECTS.md`, `docs/program/`, `docs/research/`,
+`docs/TEST-PLAN.ru.md`, `docs/RELEASE.md` and `docs/ru/RELEASE.md`. **`main`** is what is
+published: the same code without those files.
+
+- A release goes one way, `develop` → `main`: merge `develop` into `main`, and when the merge
+  brings a working document back (a modify/delete conflict, or a file added since), remove it
+  there: `git rm -r --ignore-unmatch AGENTS.md docs/DEFECTS.md docs/program docs/research
+  docs/TEST-PLAN.ru.md docs/RELEASE.md docs/ru/RELEASE.md`. Never merge `main` into `develop`:
+  it would delete the working documents here.
+- Code, comments, tests, workflows and the public documents never point at a working document:
+  no `Д-` numbers, no `docs/DEFECTS.md`, no program, phases, brief, owner decisions or review
+  rounds. The registry may name the code; the code does not name the registry.
+
 ## How a change is finished
 
 **Short branches, pull requests to `main`.** No long-lived branches. A push to
@@ -161,7 +177,7 @@ cd ai-dev-mcp-server
 npm run acceptance          # ten consecutive `npm run check` runs
 ```
 
-It prints `N падений из 10`. Report that line. One green run is not evidence:
+It prints `N failures out of 10`. Report that line. One green run is not evidence:
 this project has had defects that appeared in one run out of ten, and the whole
 point of the rule is that they show up before a user finds them.
 

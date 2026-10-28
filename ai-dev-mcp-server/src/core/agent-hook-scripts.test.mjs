@@ -272,7 +272,7 @@ test("a policy full of slow rules costs the guard one deadline, not one budget p
   const elapsed = Date.now() - started;
   assert.equal(answered.status, 0);
   // Thirty per-rule budgets are 8.7 seconds measured, and the client abandons a
-  // hook at ten (docs/DEFECTS.md, Д-22).
+  // hook at ten.
   assert.ok(elapsed < 5_000, `the guard should answer near its deadline, took ${elapsed} ms`);
   const context = JSON.parse(answered.stdout || "{}").hookSpecificOutput?.additionalContext ?? "";
   const unchecked = /(\d+) rule\(s\) were never matched/.exec(context);
@@ -289,7 +289,7 @@ test("a policy full of slow rules costs the guard one deadline, not one budget p
   assert.doesNotMatch(JSON.parse(fast.stdout || "{}").hookSpecificOutput?.additionalContext ?? "", /were never matched|was not evaluated/);
 });
 
-test("rules a thread could not start for are said to be the machine's doing, not a rule's (Д-239)", async (t) => {
+test("rules a thread could not start for are said to be the machine's doing, not a rule's", async (t) => {
   const { root, projectRoot } = await fixture(t);
   // A hook pack whose threads get one millisecond to start, which no thread does: the busy machine, made certain.
   const busyHooks = path.join(root, "busy-hooks");
@@ -311,7 +311,7 @@ test("rules a thread could not start for are said to be the machine's doing, not
   assert.doesNotMatch(context, /was not evaluated: matching its pattern took longer|A rule ahead of them/, "neither the rule nor the rules ahead of it are blamed");
 });
 
-test("a thread that fails is said to have failed, in one line for every rule it left, not taken for a slow pattern or a busy machine (Д-384, Д-397)", async (t) => {
+test("a thread that fails is said to have failed, in one line for every rule it left, not taken for a slow pattern or a busy machine", async (t) => {
   const { root, projectRoot } = await fixture(t);
   const head = 'const { parentPort, workerData } = require("node:worker_threads");';
   // Hook packs whose match thread throws, or exits, before it says ready.
@@ -338,7 +338,7 @@ test("a thread that fails is said to have failed, in one line for every rule it 
   }
 });
 
-test("a thread the permission model refuses is named in the line, its own full stop not doubled after it (Д-397)", async (t) => {
+test("a thread the permission model refuses is named in the line, its own full stop not doubled after it", async (t) => {
   const { projectRoot } = await fixture(t);
   await installAgentHooks({ projectRoot, hooksSourceDir, targets: ["claude"], profile: "standard" });
   const policyPath = path.join(projectRoot, ".ai-dev", "policy.json");
@@ -360,7 +360,7 @@ test("a thread the permission model refuses is named in the line, its own full s
   assert.doesNotMatch(context, /\.\)\./, "no full stop before the closing bracket and another after it");
 });
 
-test("a write the rules could not check is called a write (Д-388)", async (t) => {
+test("a write the rules could not check is called a write", async (t) => {
   const { root, projectRoot } = await fixture(t);
   const busyHooks = path.join(root, "busy-hooks");
   await fs.cp(hooksSourceDir, busyHooks, { recursive: true });
@@ -525,7 +525,7 @@ test("session-end leaves an observation log the server can turn into instinct pr
   assert.equal(proposals.find((item) => item.kind === "resolved_error").action, "run `npm ci`");
 });
 
-test("hooks fired in a package of a monorepo keep the workspace's policy, secrets, protected configs, stop checks and formatter (Д-189)", async (t) => {
+test("hooks fired in a package of a monorepo keep the workspace's policy, secrets, protected configs, stop checks and formatter", async (t) => {
   const { root } = await fixture(t);
   const repo = path.join(root, "mono");
   const web = path.join(repo, "apps", "web");
@@ -570,7 +570,7 @@ test("hooks fired in a package of a monorepo keep the workspace's policy, secret
   }
 });
 
-test("a hook finds the open task whose project holds its directory, the nearest first (Д-189)", async (t) => {
+test("a hook finds the open task whose project holds its directory, the nearest first", async (t) => {
   const { root } = await fixture(t);
   const state = path.join(root, "state");
   const repo = path.join(root, "mono");

@@ -49,8 +49,7 @@ const EXCLUDED = [/\.(test|spec)\.[cm]?[jt]sx?$/, /(^|\/)(tests?|__tests__|__moc
  * output, which takes the leading space off the first line when that file is
  * modified only in the worktree (` M src/api.ts` arrives as `M src/api.ts`),
  * and slicing three characters off it read `rc/api.ts` — a file that does not
- * exist, so the first changed file skipped every check here
- * (docs/DEFECTS.md, Д-84).
+ * exist, so the first changed file skipped every check here.
  *
  * @param {string} status
  * @returns {string[]}

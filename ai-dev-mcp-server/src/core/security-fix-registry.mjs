@@ -7,7 +7,7 @@
  * release to have been caught. The npm malware of 2026 — axios 1.14.1,
  * `@tanstack/*`, keyv — was pulled within hours, so a security fix that lands
  * on a day-old release can install the next one. The default quarantine is
- * seven days, the same `--before` that closed Д-82.
+ * seven days.
  *
  * Publish times are only in the registry's full package document, not in the
  * abbreviated one installs use, so that is what is fetched — with a size cap,
@@ -49,7 +49,7 @@ export function registryUrl(env = process.env) {
  * @returns {Promise<{ ok: boolean, reason?: string, versions?: string[], time?: Record<string, string>, deprecated?: Record<string, string> }>}
  */
 export async function fetchPackageMetadata(name, {
-  // Through HTTPS_PROXY, which `fetch` ignores (docs/DEFECTS.md, Д-145).
+  // Through HTTPS_PROXY, which `fetch` ignores.
   fetchImpl = proxyFetch,
   registry = registryUrl(),
   timeoutMs = REGISTRY_TIMEOUT_MS

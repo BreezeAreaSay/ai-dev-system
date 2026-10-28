@@ -251,8 +251,8 @@ export async function auditDistributionTree(root, options = {}) {
     const extension = path.extname(entry.absolute).toLowerCase();
     if (extension && TEXT_EXTENSIONS.has(extension) && content.includes(0)) {
       // Any reader that takes text as a C string stops at the first NUL, and
-      // node:sqlite returns a TEXT column only up to it (docs/DEFECTS.md, Д-113).
-      // A file without an extension may be a program a skill ships (Д-132).
+      // node:sqlite returns a TEXT column only up to it.
+      // A file without an extension may be a program a skill ships.
       findings.push({ rule: "nul-byte-in-text", path: entry.relative });
     }
     if (looksTextual(content, entry.absolute)) {
@@ -394,7 +394,7 @@ const RELATIVE_IMPORT = /(?:^|[\s;(])(?:import|export)\s[^"'`]*?from\s*["'](\.[^
  * so an import resolves in the staged tree as it does where it runs. Before,
  * the Docker context had a layout of its own and the runner's imports of the
  * server resolved nowhere in it; they were broken in the published image,
- * undetected because only the server's folder was walked (docs/DEFECTS.md, Д-56).
+ * undetected because only the server's folder was walked.
  *
  * @param {string} root - Directory to walk, e.g. the staged `ai-dev-mcp-server/`.
  * @returns {Promise<Array<{ file: string, specifier: string, resolved: string }>>}

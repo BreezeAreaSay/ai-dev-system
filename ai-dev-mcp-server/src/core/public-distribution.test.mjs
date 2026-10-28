@@ -69,7 +69,7 @@ test("a staged tree that imports what it does not carry is reported before an im
 });
 
 test("the Frontend QA runner's imports of the server resolve in the distribution's own layout", async (t) => {
-  // Д-56: the runner imports the server as `../ai-dev-mcp-server`. Every target
+  // The runner imports the server as `../ai-dev-mcp-server`. Every target
   // is laid out as the distribution is, so the staged tree answers for it as is:
   // a file the runner needs and the allowlist dropped is caught before a build.
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-imports-"));
@@ -111,7 +111,7 @@ test("distribution audit blocks owner context without exposing source text", asy
   assert.deepEqual(audit.findings, [{ rule: "private-owner-context", path: "note.md" }]);
 });
 
-test("distribution audit rejects a NUL byte in a text file and nowhere else (Д-113)", async (t) => {
+test("distribution audit rejects a NUL byte in a text file and nowhere else", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-nul-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   // The shape upstream shipped: a run of NULs where a skill's description was.
@@ -120,7 +120,7 @@ test("distribution audit rejects a NUL byte in a text file and nowhere else (Д-
   ]));
   await fs.writeFile(path.join(root, "notes.txt"), Buffer.from("text\0"));
   // Images are binary and are meant to carry NULs; so is a program a skill
-  // ships without an extension (Д-132).
+  // ships without an extension.
   await fs.writeFile(path.join(root, "logo.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0x0d]));
   await fs.mkdir(path.join(root, "bin"));
   await fs.writeFile(path.join(root, "bin", "tool"), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0, 0, 0]));

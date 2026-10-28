@@ -19,9 +19,9 @@ const LINK_UNSUPPORTED = new Set(["EPERM", "EACCES", "ENOTSUP", "EOPNOTSUPP", "E
  *
  * Before 3.0 the code appended `.ai-dev` to `AI_DEV_HOME` while every document
  * and the Docker image treated the variable as the runtime folder itself, so the
- * data of everyone who set it landed one level deeper than they were told
- * (docs/DEFECTS.md, Д-90). The owner's decision D2 keeps the documented meaning;
- * this moves the data to match. Nothing is lost:
+ * data of everyone who set it landed one level deeper than they were told.
+ * 3.0 keeps the documented meaning, and this moves the data to match.
+ * Nothing is lost:
  *
  * - a file or link that does not exist at the destination is moved — never
  *   over one that appears meanwhile;
@@ -64,13 +64,13 @@ export async function migrateDoubledRuntimeHome({ env = process.env, now = () =>
  * read a `~/.codex` folder whenever its `~/.ai-dev` twin did not exist yet — so
  * the first hook, or `ai-dev clients install`, that created `~/.ai-dev/state`
  * made the server leave the Codex-era tasks and sessions behind without a word,
- * while the hooks had never read them at all (docs/DEFECTS.md, Д-104). Only
+ * while the hooks had never read them at all. Only
  * these folders are AI Dev's; the rest of `~/.codex` is Codex's own and stays.
  *
  * `cache` marks what is rebuilt or checked rather than kept: the search index
  * and the model. A Codex-era copy of a file that the runtime tree already has is
  * dropped, not a conflict for the user to settle — a binary index or half a
- * download has nothing to compare (Д-183).
+ * download has nothing to compare.
  */
 export const CODEX_LEGACY_FOLDERS = Object.freeze([
   { variable: "AI_DEV_STATE_ROOT", from: ["state", "ai-dev-system"], to: ["state"] },
@@ -91,14 +91,13 @@ function unnamedCodexFolders(env) {
  * when one was set — 2.x took that variable for the home and looked for
  * `.codex` beside `.ai-dev` there — else under the user's home. Taking the
  * user's `~/.codex` into any `AI_DEV_HOME` handed one install's history to
- * another, and to a demo's temporary home that is then deleted
- * (docs/DEFECTS.md, Д-389).
+ * another, and to a demo's temporary home that is then deleted.
  *
  * One value of `AI_DEV_HOME` can have been either: `<home>/.ai-dev`, the runtime
- * folder 3.0 uses by default, which client entries carry when it is exported (Д-176).
+ * folder 3.0 uses by default, which client entries carry when it is exported.
  * A 2.x install with that variable kept its Codex-era data in
  * `<home>/.ai-dev/.codex`, one without it in `~/.codex`; so there the first is
- * taken when it holds any of AI Dev's folders, and the second otherwise (Д-394).
+ * taken when it holds any of AI Dev's folders, and the second otherwise.
  *
  * @param {NodeJS.ProcessEnv} env
  * @returns {Promise<string>}
@@ -120,7 +119,7 @@ async function codexRoot(env) {
  * the filesystem ignores. On the first start that folder need not exist, and a
  * path that is not there resolves to itself — so a home that is a link did not
  * match its real path until something made the folder, and `~/.codex` waited
- * for the next start (docs/DEFECTS.md, Д-417). The parent, which is there, is
+ * for the next start. The parent, which is there, is
  * resolved instead, and the name compared on its own.
  *
  * @param {string} folder
@@ -161,7 +160,7 @@ export async function migrateCodexRuntime({ env = process.env, now = () => new D
 }
 
 // The move out of one `.codex` folder, found once by the caller: once a move that failed half-way has emptied it,
-// finding it again names another — the start log blamed ~/.codex for a move out of <AI_DEV_HOME>/.codex (Д-417).
+// finding it again names another — the start log blamed ~/.codex for a move out of <AI_DEV_HOME>/.codex.
 async function migrateCodexFrom(codex, { env, now = () => new Date() }) {
   const empty = () => ({ moved: 0, merged: 0, duplicates: 0, superseded: 0, conflicts: [], errors: [] });
   const present = async () => {
@@ -194,7 +193,7 @@ async function migrateCodexFrom(codex, { env, now = () => new Date() }) {
  * what a session a 2.x launcher started writes there still — moved into the
  * folder the client entry mounts from the host (`AI_DEV_STATE_ROOT`), which the
  * hooks on the host keep their state in too. Before, the hooks never saw the
- * server's tasks nor the server the hooks' handoffs (docs/DEFECTS.md, Д-103).
+ * server's tasks nor the server the hooks' handoffs.
  * Merged as the other migrations merge; re-run on every start, so the second
  * place never holds anything for long.
  *
@@ -498,8 +497,8 @@ export function prepareRuntimeHome({ env = process.env, log = (line) => process.
   prepared ??= migrateDoubledRuntimeHome({ env })
     .then((result) => report(result, "AI_DEV_HOME is the runtime folder itself now"), failed("the runtime tree out of AI_DEV_HOME/.ai-dev"))
     .then(async (result) => {
-      // The folder it moves from is the one 2.x read for this install, which is not always ~/.codex (Д-394, Д-397):
-      // found once, before the move, so a move that fails half-way names the folder it moved from (Д-417).
+      // The folder it moves from is the one 2.x read for this install, which is not always ~/.codex:
+      // found once, before the move, so a move that fails half-way names the folder it moved from.
       const codexFrom = await codexRoot(env);
       return {
         ...result,

@@ -204,7 +204,7 @@ export async function run(argv, io) {
         if (json) return { ok: status.installed, ...status, legacy: notes };
         say(`Model: ${manifest.export} @ ${String(manifest.revision).slice(0, 12)} (${manifest.dtype}) in ${status.dir}`);
         say(status.installed ? "Installed: yes, every file matches the manifest." : "Installed: no.");
-        // A host's folder at /models in the image is put right on the host, not by an install into the volume (Д-558, Д-566).
+        // A host's folder at /models in the image is put right on the host, not by an install into the volume.
         const mounted = String(io.env.AI_DEV_RUNTIME ?? "") === "docker" && status.dir === DOCKER_MOUNTED_MODEL_DIR;
         if (status.unreadable) say(`Cannot be read: ${status.unreadable}. ${unreadableModelAdvice(status.unreadable, { mounted })}`);
         if (status.missing.length) say(`Missing: ${status.missing.join(", ")}`);
@@ -234,7 +234,7 @@ export async function run(argv, io) {
           } })
           : await importModel({ manifest, source, dir, signal: stop.signal, onProgress: progress });
         progress.end();
-        // A model that is not whole is a failure, whatever got copied on the way (Д-156).
+        // A model that is not whole is a failure, whatever got copied on the way.
         if (!placed.ready) {
           const wrong = [...(placed.missing ?? []), ...(placed.mismatched ?? [])];
           throw new Error(`The model in ${dir} is not complete${wrong.length ? `: ${wrong.join(", ")} missing or not the pinned file` : ""}. `

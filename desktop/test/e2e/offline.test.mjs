@@ -31,7 +31,7 @@ test("the tray's Stop brings the window back to the Start screen", { timeout: 18
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
   // A daemon that cannot answer will not stop: the tray says so, from the daemon's answer, and the
-  // app stays on it with its one session (Д-271 п. 6, Д-273).
+  // app stays on it with its one session.
   const pid = await app.evaluate(() => globalThis.aiDevTest.link.status.served_by.pid);
   process.kill(pid, "SIGSTOP");
   t.after(() => {
@@ -67,7 +67,7 @@ test("the tray's Stop brings the window back to the Start screen", { timeout: 18
   assert.equal(tray.menu.find((item) => item.id === "stop").label, "Stop the daemon");
 });
 
-test("a daemon of another build that will not stop keeps the Stop's note, offline too, and Stop is offered again (Д-277)", { timeout: 180_000 }, async (t) => {
+test("a daemon of another build that will not stop keeps the Stop's note, offline too, and Stop is offered again", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
@@ -85,14 +85,14 @@ test("a daemon of another build that will not stop keeps the Stop's note, offlin
   });
   const stopItem = async () => (await trayNow(app)).menu.find((item) => item.id === "stop");
   const stopping = app.evaluate(() => globalThis.aiDevTest.stop());
-  // While it runs, the item says so and cannot be pressed (Д-278).
+  // While it runs, the item says so and cannot be pressed.
   assert.deepEqual(await stopItem(), { id: "stop", label: "Stopping the daemon…", enabled: false });
   await stopping;
   // The app's own daemon stopped, the other did not: offline, and the note holds.
   await page.waitForSelector('[data-screen="offline"]', { timeout: 30_000 });
   assert.deepEqual(await stopItem(), { id: "stop", label: "Stop failed — try again", enabled: true });
   assert.match(await app.evaluate(() => globalThis.aiDevTest.tray.tooltip()), new RegExp(`^AI Dev: the daemon is not running\\nStill running after Stop: daemon ${other} \\(No handshake`));
-  // It ends: the tray sees it by itself, within a look a second (Д-283, п. 4, 5).
+  // It ends: the tray sees it by itself, within a look a second (5).
   process.kill(other, "SIGKILL");
   const ended = Date.now();
   for (const deadline = ended + 10_000; (await stopItem()).enabled && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 50));
@@ -106,7 +106,7 @@ test("a daemon of another build that will not stop keeps the Stop's note, offlin
   assert.deepEqual((await listDaemons({ env: s.env })).map((entry) => entry.info.pid), []);
 });
 
-test("a tray rebuild the daemon's death ended is said again in the language chosen after (Д-280)", { timeout: 180_000 }, async (t) => {
+test("a tray rebuild the daemon's death ended is said again in the language chosen after", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
@@ -130,7 +130,7 @@ test("a tray rebuild the daemon's death ended is said again in the language chos
   assert.equal(await tip(), "AI Dev: демон не запущен\nПоследняя перестройка не удалась: Демон пропал.");
 });
 
-test("without Node.js the app says what it needs, and Try again finds one installed since (Д-251)", { timeout: 120_000 }, async (t) => {
+test("without Node.js the app says what it needs, and Try again finds one installed since", { timeout: 120_000 }, async (t) => {
   const s = await stage(t);
   const later = path.join(s.root, "installed-later", "node");
   const { page } = await launch(t, { ...s.env, AI_DEV_NODE: later });
@@ -138,7 +138,7 @@ test("without Node.js the app says what it needs, and Try again finds one instal
   assert.equal(await page.textContent("h1"), "Node.js is not found");
   assert.match(await page.textContent('[data-screen="no-node"]'), /AI_DEV_NODE names .*installed-later.*node, which is not an executable file/);
   await shot(page, "no-node");
-  // The language chosen here says the problem again, in it (Д-264, Д-270).
+  // The language chosen here says the problem again, in it.
   await page.selectOption("#language", "ru");
   await page.waitForFunction(() => document.querySelector("h1")?.textContent === "Node.js не найден");
   assert.match(await page.textContent('[data-screen="no-node"]'), /AI_DEV_NODE указывает на .*installed-later.*node, а это не исполняемый файл/);
@@ -153,7 +153,7 @@ test("without Node.js the app says what it needs, and Try again finds one instal
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
 });
 
-test("a daemon that dies is said with its log, and one a client starts later brings the app back (Д-243, Д-254)", { timeout: 180_000 }, async (t) => {
+test("a daemon that dies is said with its log, and one a client starts later brings the app back", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
@@ -161,7 +161,7 @@ test("a daemon that dies is said with its log, and one a client starts later bri
   process.kill(pid, "SIGKILL");
   await page.waitForSelector('[data-screen="offline"] [data-field="offline-error"]', { timeout: 30_000 });
   assert.match(await page.textContent('[data-field="offline-error"]'), /stopped unexpectedly/);
-  // The app's own words, said again in the language chosen (Д-283, п. 3).
+  // The app's own words, said again in the language chosen.
   await page.selectOption("#language", "ru");
   await page.waitForFunction(() => document.querySelector('[data-field="offline-error"]')?.textContent.includes("Демон неожиданно остановился"));
   await page.selectOption("#language", "en");
@@ -177,7 +177,7 @@ test("a daemon that dies is said with its log, and one a client starts later bri
   assert.notEqual(await app.evaluate(() => globalThis.aiDevTest.link.status.served_by.pid), pid);
 });
 
-test("a second launch hands over to the first, which shows its window (Д-254)", { timeout: 120_000 }, async (t) => {
+test("a second launch hands over to the first, which shows its window", { timeout: 120_000 }, async (t) => {
   const s = await stage(t);
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });

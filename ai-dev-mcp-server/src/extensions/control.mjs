@@ -46,8 +46,8 @@ const DESTRUCTIVE = new Set(["model_remove", "clients_remove", "custom_skills_re
 /**
  * The health checks `system_status` leaves out on purpose — each takes seconds
  * and runs a search of its own. They are not listed: skipped by this call is
- * not a state of the install, and an app showed them as "not set up"
- * (docs/DEFECTS.md, Д-247). `ai-dev doctor` runs them.
+ * not a state of the install, and an app showed them as "not set up".
+ * `ai-dev doctor` runs them.
  */
 const NOT_RUN_HERE = new Set(["search_smoke", "dense_smoke", "search_eval"]);
 
@@ -152,7 +152,7 @@ export function createControlTools(host) {
   };
   // A model folder changed in this session is a new session's: the daemon's
   // search keeps the folder it loaded, and a model put in the folder being
-  // left is not where the next session looks (docs/DEFECTS.md, Д-237).
+  // left is not where the next session looks.
   const folderNotMoved = () => {
     let pending;
     try {
@@ -175,7 +175,7 @@ export function createControlTools(host) {
       ready: Boolean(placed.ready),
       dir: placed.dir,
       // An import says what it copied; what is there after it is the model's
-      // own state (docs/DEFECTS.md, Д-223).
+      // own state.
       present: placed.present ?? model.present,
       missing: placed.missing ?? model.missing,
       mismatched: placed.mismatched ?? model.mismatched,
@@ -321,7 +321,7 @@ export function createControlTools(host) {
         const force = flag(args, "force");
         const clients = args.clients === false ? undefined : clientSpec(args.clients);
         // A misspelt client is refused before anything is built, as the CLI
-        // refuses it (docs/DEFECTS.md, Д-220).
+        // refuses it.
         if (clients) parseClientSelection(clients);
         if (want.model) folderNotMoved();
         const env = sessionEnvironment();

@@ -34,7 +34,7 @@ import { randomDaemonName } from "./runtime-paths.mjs";
 /**
  * A fresh local address: a short socket path, or a pipe on Windows. Under
  * /tmp, not the temp folder: with a long TMPDIR libuv cuts a socket path short,
- * and two sockets of one folder become one (docs/DEFECTS.md, Д-201).
+ * and two sockets of one folder become one.
  */
 async function localAddress(t) {
   if (process.platform === "win32") return `\\\\.\\pipe\\${randomDaemonName()}`;
@@ -243,7 +243,7 @@ test("the daemon must be the pid its descriptor names", async (t) => {
   await assert.rejects(openChannel(daemonInfo(address, secret)), /is pid \d+, not the pid \d+ its descriptor names/);
 });
 
-test("a listener that hangs with its queue full still takes the address; refused or missing does not (Д-208)", { skip: process.platform !== "linux" && "only Linux answers a full queue with EAGAIN; macOS refuses it" }, async (t) => {
+test("a listener that hangs with its queue full still takes the address; refused or missing does not", { skip: process.platform !== "linux" && "only Linux answers a full queue with EAGAIN; macOS refuses it" }, async (t) => {
   const address = await localAddress(t);
   const listener = spawn(process.execPath, ["-e", `require("node:net").createServer(() => {}).listen({ path: ${JSON.stringify(address)}, backlog: 1 }, () => process.stdout.write("ready\\n"))`], { stdio: ["ignore", "pipe", "inherit"] });
   t.after(() => listener.kill("SIGKILL"));
@@ -337,7 +337,7 @@ test("a build is the code, its version and where its data is; what one client se
   const id = async (version, environment, more) => (await describe(version, environment, more)).id;
   assert.equal(await id("3.0.0", env), build.id);
   // What each session brings along: its programs, its network, its profiles,
-  // its hooks' switches, the daemon's lifetime (docs/DEFECTS.md, Д-191).
+  // its hooks' switches, the daemon's lifetime.
   assert.equal(await id("3.0.0", {
     ...env,
     PATH: "/elsewhere",
@@ -355,7 +355,7 @@ test("a build is the code, its version and where its data is; what one client se
     AI_DEV_IDLE_TIMEOUT_MS: "5",
     AI_DEV_IMAGE: "ghcr.io/x"
   }), build.id);
-  // One place, spelled two ways, is one build (Д-199).
+  // One place, spelled two ways, is one build.
   assert.equal(await id("3.0.0", { ...env, AI_DEV_STATE_ROOT: "  " }), build.id, "a blank variable is an unset one, as the server reads it");
   assert.equal(await id("3.0.0", { ...env, AI_DEV_VAULT_ROOT: "/v/" }), build.id, "a trailing slash");
   assert.equal(await id("3.0.0", { ...env, AI_DEV_HOME: "/home/ivan/.ai-dev" }), build.id, "AI_DEV_HOME set to where it is anyway");
@@ -398,7 +398,7 @@ test("why another daemon is not this one, said by name, and which one the new co
   assert.equal(isSupersededBy(mine, { ...mine, source: "s0", environment: { ...mine.environment, AI_DEV_VAULT_ROOT: "b" } }), false, "another vault serves clients of its own");
   assert.equal(isSupersededBy(mine, null), false);
   // New code that counts one more part of a build still retires the old code's
-  // daemon: the parts both have decide (Д-205).
+  // daemon: the parts both have decide.
   const { BGE_M3_DEVICE, ...fewerParts } = mine.environment;
   assert.ok(BGE_M3_DEVICE);
   assert.equal(isSupersededBy(mine, { ...mine, source: "s0", environment: fewerParts }), true);

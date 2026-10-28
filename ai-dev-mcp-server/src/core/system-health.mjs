@@ -96,8 +96,7 @@ export function overallHealthStatus(checks) {
 }
 
 /**
- * The runtime tree: where it is, and whether a 2.x layout is still in the way
- * (docs/DEFECTS.md, Д-90).
+ * The runtime tree: where it is, and whether a 2.x layout is still in the way.
  *
  * @param {{ root: string, ai_dev_home: string, ai_dev_home_names_home: boolean, legacy_root: string, legacy_files: string[], last_migration: object|null }} info
  * @returns {{ status: string, summary: string, details: object }}
@@ -164,7 +163,7 @@ export function healthErrorDetails(err) {
 export function healthRecommendations(checks) {
   const recommendations = [];
   // Only where the model runs: elsewhere the advice turned a healthy install
-  // without the optional model into a failure (docs/DEFECTS.md, Д-147).
+  // without the optional model into a failure.
   const denseRuns = checks.some((check) => check.name === "embedding_backend" && check.status === "ok");
   if (denseRuns && checks.some((check) => check.name === "dense_smoke" && check.status === "skipped")) {
     recommendations.push("Run system_health_check with include_dense_smoke=true after MCP restarts or embedding changes.");
@@ -273,7 +272,7 @@ export function evaluateSearchIndexFile(status) {
  */
 export function evaluateSearchIndexFreshness(status) {
   // Vectors another model made are kept but never compared: the documents
-  // look embedded and the dense half of every search skips them (Д-148).
+  // look embedded and the dense half of every search skips them.
   const other = Number(status.dense_other_model_documents || 0);
   const otherModel = other
     ? ` ${other} document(s) have dense vectors of another model, which hybrid search does not compare; `
@@ -310,7 +309,7 @@ export function evaluateFrontendQaRunner({ runner, manifest, artifactsRoot }) {
  * need an interpreter — so no Python is a skipped option, not a fault:
  * everything else runs without it. "Can run" means the interpreter answered
  * `--version` as Python 3 ({@link import("./python-command.mjs").probePython}),
- * not that a file of that name exists (docs/DEFECTS.md, Д-139).
+ * not that a file of that name exists.
  *
  * @param {{ command: string, version?: string, missing?: boolean, failure?: string }} python - What the probe found.
  * @returns {{ status: string, summary: string, details: object }}
@@ -348,8 +347,8 @@ export function evaluateFrontendQaEnvironment(status, layout) {
   const because = String(status.launch_error || "").replace(/\s+/g, " ").trim();
   // A runner that could not start says nothing about Playwright, and reading
   // its three `false`s as "the optional install was skipped" is how a container
-  // with Playwright in it was told to install Playwright (docs/DEFECTS.md,
-  // Д-56). A file the runner imports being absent is a broken install.
+  // with Playwright in it was told to install Playwright. A file the runner
+  // imports being absent is a broken install.
   if (status.launch_failure === LAUNCH_MISSING_FILE) {
     return {
       status: "fail",
@@ -562,7 +561,7 @@ export function evaluateProjectRegistry(projects) {
     // An empty registry is what a correct install looks like before anybody has
     // registered a project — the state every new user is in, and warning about
     // it made `ok` unreachable on a fresh volume and taught the reader that
-    // `degraded` is normal (docs/DEFECTS.md, Д-63). It says what to do instead.
+    // `degraded` is normal. It says what to do instead.
     status: "ok",
     summary: projects.length
       ? `Project registry has ${projects.length} project card(s).`
@@ -716,7 +715,7 @@ export function dashboardSkillSource(source) {
  * @param {number} input.searchEvalCases - Number of golden search eval cases.
  * @param {number} input.runtimeLines - Line count of `src/mcp-stdio.mjs`.
  * @param {Array<{ name: string, status: string, summary?: string }>} [input.checks] - The health
- *   checks as they ran for this snapshot: the dashboard's Runtime rows (docs/DEFECTS.md, Д-106).
+ *   checks as they ran for this snapshot: the dashboard's Runtime rows.
  * @param {string} [input.generatedAt] - ISO timestamp; defaults to now.
  * @returns {object} Snapshot with `source_fingerprint`.
  */

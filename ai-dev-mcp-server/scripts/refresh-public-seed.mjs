@@ -56,7 +56,7 @@ function excludedSource(relative, entry) {
     || entry.name === ".DS_Store"
     || /\.pyc$/i.test(entry.name)
     // A name `npm pack` drops would be missing from every installed package,
-    // and the vault sync would wait for it forever (docs/DEFECTS.md, Д-175).
+    // and the vault sync would wait for it forever.
     || npmLeavesOut(relative.replaceAll("\\", "/"));
 }
 

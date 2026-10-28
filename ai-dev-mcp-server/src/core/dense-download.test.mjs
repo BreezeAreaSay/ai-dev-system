@@ -248,7 +248,7 @@ test("every source failing reports the last reason and the ways round it; no sou
   const mismatch = await attempt({ manifest: manifestFor([corrupt.base]), targetDir: await stageDir(t) });
   assert.doesNotMatch(mismatch.message, /AI_DEV_MODEL_MIRROR/, "a source that answered with other bytes is not a blocked network");
   assert.match((await attempt({ manifest: manifestFor([]), targetDir: await stageDir(t) })).message, /lists no sources/);
-  // A mirror that serves other bytes, then the manifest's own source unreachable: the mirror is named, not the network (Д-595).
+  // A mirror that serves other bytes, then the manifest's own source unreachable: the mirror is named, not the network.
   const served = await attempt({ manifest: manifestFor([dead.base]), env: { AI_DEV_MODEL_MIRROR: `${corrupt.base}/mirror` }, targetDir: await stageDir(t) });
   assert.match(served.message, /Could not fetch config\.json: 127\.0\.0\.1:\d+: .*; 127\.0\.0\.1:\d+: .*HTTP 500/s, "each source's answer, by its host");
   assert.match(served.message, /127\.0\.0\.1:\d+ is not a mirror of .* at revision \w{12}: point AI_DEV_MODEL_MIRROR at one that is/);
@@ -354,7 +354,7 @@ test("cancelling keeps what arrived, and the next run continues from it", async 
 });
 
 test("a source that goes silent is given up on within the stall window, and its bytes are kept", async (t) => {
-  // Д-73: a CDN that sent 510 MB of 542 and then nothing held a Windows run
+  // A CDN that sent 510 MB of 542 and then nothing held a Windows run
   // past ten minutes. Now it costs the stall window and none of the bytes.
   const host = await startModelHost({ files: FILES, stallAfter: new Map([["onnx/model_int8.onnx", 10_000]]) });
   t.after(() => host.close());
@@ -366,7 +366,7 @@ test("a source that goes silent is given up on within the stall window, and its 
   assert.equal((await fs.stat(`${weightsAt(dir)}${PART_SUFFIX}`)).size, 10_000);
 });
 
-test("a source that takes the connection and never answers the size probe costs one stall window, then the next serves (Д-149)", async (t) => {
+test("a source that takes the connection and never answers the size probe costs one stall window, then the next serves", async (t) => {
   // Reads and never answers; reading is what lets it see the client hang up.
   const silent = net.createServer((socket) => socket.resume());
   await new Promise((resolve) => silent.listen(0, "127.0.0.1", resolve));
@@ -389,7 +389,7 @@ test("a source that takes the connection and never answers the size probe costs 
   assert.ok(Date.now() - tunnelled < 3000);
 });
 
-test("a disk that will not take the file is said as the disk's, once, not blamed on the network (Д-150)", async (t) => {
+test("a disk that will not take the file is said as the disk's, once, not blamed on the network", async (t) => {
   const host = await startModelHost({ files: FILES });
   t.after(() => host.close());
   const dir = await stageDir(t);
@@ -407,7 +407,7 @@ test("a disk that will not take the file is said as the disk's, once, not blamed
     + "300 MB of it are kept; once that is fixed, running the install again continues from there.");
 });
 
-test("a short write is finished before the next chunk, so the bytes on disk are the bytes hashed (Д-150)", async () => {
+test("a short write is finished before the next chunk, so the bytes on disk are the bytes hashed", async () => {
   const written = [];
   const trickle = { write: async (buffer, offset, length) => { written.push(buffer.subarray(offset, offset + Math.min(3, length))); return { bytesWritten: Math.min(3, length) }; } };
   await writeAll(trickle, Buffer.from("0123456789"));
@@ -416,7 +416,7 @@ test("a short write is finished before the next chunk, so the bytes on disk are 
   await assert.rejects(writeAll(stuck, Buffer.from("x")), (error) => error.code === "EIO");
 });
 
-test("a mirror's password stays out of messages and the partial file's record (Д-151)", async (t) => {
+test("a mirror's password stays out of messages and the partial file's record", async (t) => {
   const dead = await startModelHost({ files: FILES, fail: new Map([["config.json", 503]]) });
   t.after(() => dead.close());
   const secret = ["mirror", "PW", "42"].join("");
@@ -460,7 +460,7 @@ test("2.x .part files of killed runs are swept; this version's .part is never sw
 });
 
 test("a download that does not fit is refused before a byte is fetched, and a partial one needs only the rest", async (t) => {
-  // Д-81: 601 MB of model against 280 MB of disk.
+  // 601 MB of model against 280 MB of disk.
   const host = await startModelHost({ files: FILES, headSizes: { "onnx/model_int8.onnx": 601 * MB } });
   t.after(() => host.close());
   const dir = await stageDir(t);

@@ -70,7 +70,7 @@ Three ways, one system — pick by what you have:
 
 **macOS is in development.** Its code is in the repository and CI runs its tests on a Mac, but 3.0
 has no Mac app in its release, and the terminal and Docker installs on a Mac are not supported until
-it is accepted there ([Releasing 3.0](docs/RELEASE.md#what-goes-out)).
+it is accepted there.
 
 ```bash
 npx ai-dev-system setup
@@ -194,8 +194,7 @@ container runs with no network, no capabilities, and a read-only root filesystem
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, how the test
 suite is split between a standalone checkout and a full vault, and the checks CI
-runs. Working through an AI agent? [AGENTS.md](AGENTS.md) holds the rules an
-agent gets wrong on this repository.
+runs.
 
 Participation is governed by the [Code of Conduct](CODE_OF_CONDUCT.md).
 Security reports: [SECURITY.md](SECURITY.md).

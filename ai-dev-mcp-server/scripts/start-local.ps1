@@ -13,7 +13,7 @@ $ErrorActionPreference = "Stop"
 $serverRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 if (-not $Node) {
   # Node on PATH. The Codex desktop runtime's private Node is not looked for any
-  # more (docs/DEFECTS.md, Д-104): set AI_DEV_NODE to use one.
+  # more: set AI_DEV_NODE to use one.
   $onPath = Get-Command node -CommandType Application -ErrorAction SilentlyContinue
   if ($onPath) { $Node = $onPath.Source }
 }

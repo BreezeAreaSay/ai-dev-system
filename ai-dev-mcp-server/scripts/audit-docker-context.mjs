@@ -33,8 +33,8 @@ const CONTEXT_ENTRIES = new Set([".dockerignore", "Dockerfile", "container", CON
 /**
  * Files the server reads at load time, which an import check cannot see: the
  * dense manifest is read through `createRequire` from a computed URL, and an
- * image without it died on its first start (docs/DEFECTS.md, Д-62); the seed's
- * history is read by the first sync of a 2.x volume (Д-99).
+ * image without it died on its first start; the seed's
+ * history is read by the first sync of a 2.x volume.
  */
 const REQUIRED_ASSETS = ["ai-dev-mcp-server/models/bge-m3.manifest.json", "ai-dev-mcp-server/data/seed-history.json", "seed/public-seed.manifest.json"];
 
@@ -106,7 +106,7 @@ if (absent.length) {
 // What the allowlist left out is only discovered when something imports it, and
 // by then the image is built and its server dies on startup. The Frontend QA
 // runner imports the server as `../ai-dev-mcp-server`, which is where it sits in
-// the distribution (docs/DEFECTS.md, Д-56).
+// the distribution.
 const dangling = [
   ...await findDanglingImports(path.join(distribution, "ai-dev-mcp-server")),
   ...await findDanglingImports(path.join(distribution, "frontend-qa"))

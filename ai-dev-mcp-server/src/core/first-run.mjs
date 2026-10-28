@@ -14,7 +14,7 @@
  *
  * The order is not alphabetical: the quality report writes a dashboard note
  * into the vault, so building it after the index leaves the index stale the
- * moment the first run finishes (docs/DEFECTS.md, Д-63).
+ * moment the first run finishes.
  *
  * And one thing is downloaded rather than built: the BGE-M3 model, about
  * 600 MB, which is a decision a person makes rather than something a setup
@@ -28,7 +28,7 @@
  * embedded before. Downloading the model and embedding with it are therefore
  * two steps behind the same flag — and the second needs the first: a vector
  * step that ran after a failed download only failed again, with advice to run
- * the command that had just failed (docs/DEFECTS.md, Д-98).
+ * the command that had just failed.
  *
  * This module decides *what* to do from what is already on disk. Doing it —
  * calling the tools, downloading — is `scripts/first-run.mjs`, so the plan can
@@ -73,7 +73,7 @@ export const FIRST_RUN_STEPS = Object.freeze([
     title: "Local BGE-M3 model",
     // The pinned ONNX export, checked against the manifest, run through Node;
     // continued where a broken download stopped, through AI_DEV_MODEL_MIRROR
-    // and HTTPS_PROXY when they are set (Д-62, Д-98).
+    // and HTTPS_PROXY when they are set.
     detail: "About 600 MB of checksum-verified ONNX weights for dense search; a broken download continues. No Python.",
     optional: true,
     flag: "--model"
@@ -147,7 +147,7 @@ export function setupReason(step, state) {
  *
  * Vectors another model made — a 2.x index from the Python backend — are
  * named as such: hybrid search does not compare them, so they wait for
- * `--model` like documents with none (docs/DEFECTS.md, Д-148).
+ * `--model` like documents with none.
  *
  * @param {{ current_document_count?: number, dense_documents?: number, dense_pending_documents?: number, dense_other_model_documents?: number }|null} status
  * @param {{ modelUnreadable?: boolean }} [options]
@@ -159,7 +159,7 @@ export function describeDenseCoverage(status, { modelUnreadable = false } = {}) 
   const dense = Number(status.dense_documents || 0);
   const pending = Number(status.dense_pending_documents || 0);
   const other = Number(status.dense_other_model_documents || 0);
-  // --model does not embed with a model this user cannot read (docs/DEFECTS.md, Д-363).
+  // --model does not embed with a model this user cannot read.
   if (!dense && !pending) return `Indexed: ${documents} document(s), none embedded yet (${modelUnreadable ? "the model cannot be read" : "--model embeds them"}).`;
   return `Indexed: ${documents} document(s), ${dense} with a dense vector, ${pending} waiting for one`
     + (other ? ` (${other} with a vector of another model, which hybrid search does not compare; ${modelUnreadable ? "a model this user can read embeds them again" : "--model embeds them again"}).` : ".");

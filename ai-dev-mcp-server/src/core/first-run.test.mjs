@@ -23,7 +23,7 @@ test("a bare clone builds the things every install needs, and nothing else", () 
   assert.match(plan.frontend_qa.reason, /--frontend-qa/);
 });
 
-test("an optional step nobody asked for says how this install gets it: setup's flags, or the image's own words (Д-328)", () => {
+test("an optional step nobody asked for says how this install gets it: setup's flags, or the image's own words", () => {
   const states = [];
   const plan = byId(planFirstRun({
     present: { dense_model: true },
@@ -138,7 +138,7 @@ test("the coverage line separates a half-embedded index from one never embedded"
     "Indexed: 3672 document(s), 300 with a dense vector, 382 waiting for one."
   );
   assert.equal(describeDenseCoverage(null), "No search index yet.");
-  // --model does not embed with a model this user cannot read (Д-363).
+  // --model does not embed with a model this user cannot read.
   assert.equal(
     describeDenseCoverage({ current_document_count: 338, dense_documents: 0, dense_pending_documents: 0 }, { modelUnreadable: true }),
     "Indexed: 338 document(s), none embedded yet (the model cannot be read)."
@@ -147,7 +147,7 @@ test("the coverage line separates a half-embedded index from one never embedded"
     describeDenseCoverage({ current_document_count: 825, dense_documents: 0, dense_pending_documents: 365, dense_other_model_documents: 365 }, { modelUnreadable: true }),
     "Indexed: 825 document(s), 0 with a dense vector, 365 waiting for one (365 with a vector of another model, which hybrid search does not compare; a model this user can read embeds them again)."
   );
-  // A 2.x index the Python backend embedded: kept, not compared, waiting (Д-148).
+  // A 2.x index the Python backend embedded: kept, not compared, waiting.
   assert.equal(
     describeDenseCoverage({ current_document_count: 825, dense_documents: 0, dense_pending_documents: 365, dense_other_model_documents: 365 }),
     "Indexed: 825 document(s), 0 with a dense vector, 365 waiting for one (365 with a vector of another model, "

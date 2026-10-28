@@ -22,8 +22,8 @@
  *
  * Docker fills a new volume as the first container on it starts; one started a
  * moment later finds the volume not empty, copies nothing, and runs while the
- * copy goes on — it built the registry from 51 of 614 skills (docs/DEFECTS.md,
- * Д-355). The record also says how much the data holds, and it is the first
+ * copy goes on — it built the registry from 51 of 614 skills. The record also
+ * says how much the data holds, and it is the first
  * thing copied (names in order, its own starts with a dot): a start that finds
  * it waits until the volume holds as much ({@link awaitImageDataCopy}).
  */

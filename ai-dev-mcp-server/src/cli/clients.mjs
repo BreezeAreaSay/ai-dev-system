@@ -237,7 +237,7 @@ async function install(values, io) {
     env: io.env,
     ...(docker ? { docker, home: values.home || os.homedir(), platform: docker.platform } : {})
   });
-  // What the entries depend on that may go away: a model on another disk (Д-385), a state folder not shared.
+  // What the entries depend on that may go away: a model on another disk, a state folder not shared.
   const note = [docker?.model?.note, unsharedStateNote(docker)].filter(Boolean).join("\n");
   if (values.json) io.out(JSON.stringify({ clients: results, ...(note ? { note } : {}) }, null, 2));
   else {
@@ -266,10 +266,10 @@ async function remove(values, io) {
 /**
  * One word of a command to copy into a terminal: as it is where the shell reads
  * it so, quoted otherwise. On Windows the shell is PowerShell or cmd.exe, and
- * double quotes are what both read (Д-430) — but PowerShell expands `$` and a
+ * double quotes are what both read — but PowerShell expands `$` and a
  * backtick in them, and a double quote, a typographic one too, ends them: a word
  * holding one goes in single quotes, which only PowerShell reads, a quote in it
- * doubled — the typographic ones are quotes to PowerShell too (Д-417).
+ * doubled — the typographic ones are quotes to PowerShell too.
  *
  * @param {string} word
  * @param {string} [platform]
@@ -284,23 +284,22 @@ export function commandWord(word, platform = process.platform) {
 }
 
 /**
- * What `clients doctor` says of a Docker entry whose mounted folder is not here
- * (Д-385): the folder — for a link, where it leads — and what to do. The model
+ * What `clients doctor` says of a Docker entry whose mounted folder is not here:
+ * the folder — for a link, where it leads — and what to do. The model
  * is optional, so the entries can be written without one; a projects or state
  * folder is one install makes again — but not through a link that leads
  * nowhere, nor where this user may not write, so for that one the command takes
  * another folder for the person to name, each by its own name, and a reason
- * shared is said once (Д-414, Д-429, Д-430). The command keeps the options the
+ * shared is said once. The command keeps the options the
  * entry runs with: writing the entries again with none of them put the default
- * image in place of the one the entry ran (docs/DEFECTS.md, Д-397). It writes
+ * image in place of the one the entry ran. It writes
  * this client's entry alone: written for every client found, it made a client
  * of a local install a Docker one, and it drops `--model` whichever of the
- * folders gone is the model's (Д-414). A `--mount` Docker 29 cannot read is
+ * folders gone is the model's. A `--mount` Docker 29 cannot read is
  * not read back, so the command writes the entry without it, and says so
- * (Д-433) — but for the volume it names when it is the data's: the command
- * keeps that volume (Д-457). A folder bound at `/data` in place of the volume
- * is said: the command puts the volume there, without that folder's data
- * (Д-469).
+ * — but for the volume it names when it is the data's: the command
+ * keeps that volume. A folder bound at `/data` in place of the volume
+ * is said: the command puts the volume there, without that folder's data.
  *
  * @param {string} client - The id of the client whose entry it is.
  * @param {{ args?: unknown }} entry
@@ -311,13 +310,13 @@ export function commandWord(word, platform = process.platform) {
 export function missingMountError(client, entry, gone, unreadable = []) {
   const [first] = gone;
   const options = dockerEntryOptions(entry?.args);
-  // A folder bound at /data is the data's, in place of the volume: no projects folder, and none install makes (Д-478).
+  // A folder bound at /data is the data's, in place of the volume: no projects folder, and none install makes.
   const roleOf = (mount) => (mount.target === CONTAINER_MODELS || mount.target === CONTAINER_MODEL_DIR ? "model"
     : mount.target === CONTAINER_STATE_ROOT ? "state" : mount.target === "/data" ? "data" : "projects");
   const roles = [...new Set(gone.map(roleOf))];
-  // Why install cannot make a folder again: mkdir fails through a link that leads nowhere — the folder itself (Д-414)
+  // Why install cannot make a folder again: mkdir fails through a link that leads nowhere — the folder itself
   // or one on the way — under a file, and where this user may not write, as at the root-owned mount point of a disk
-  // not connected (Д-429); and on a root that is not there, as on Windows the drive of a disk not connected (Д-434).
+  // not connected; and on a root that is not there, as on Windows the drive of a disk not connected.
   // Another folder is named for it then.
   const why = (mount) => (mount.leadsTo ? "through a link that leads nowhere" : {
     link: `through ${mount.unmakeable?.at}, a link that leads nowhere`,
@@ -343,14 +342,14 @@ export function missingMountError(client, entry, gone, unreadable = []) {
     : `the folder this entry mounts at ${first.target} is not here: ${first.source}`;
   const more = gone.length > 1 ? ` (nor ${gone.length > 2 ? "are the ones" : "is the one"} it mounts at ${gone.slice(1).map((mount) => mount.target).join(" and ")})` : "";
   const made = roles.filter((role) => role !== "model" && role !== "data" && !elsewhere.has(role));
-  // A reason said once, for every folder it holds for (Д-430).
+  // A reason said once, for every folder it holds for.
   const reasons = new Map();
   for (const [role, reason] of elsewhere) reasons.set(reason, [...(reasons.get(reason) ?? []), role]);
   const ways = [
     ...(made.length ? [`, which makes the ${gone.length > 1 ? `${made.join(" and ")} ` : ""}folder${made.length > 1 ? "s" : ""}`] : []),
     ...[...reasons].map(([reason, list]) => ` with another ${list.join(" folder and another ")} folder in place of ${list.map(placeholder).join(" and ")}, as install cannot make ${list.length > 1 ? "either" : "one"} ${reason}`),
     ...(roles.includes("model") ? [" with another model folder (--model=<folder>) or with none, the model then the volume's"] : []),
-    // A folder bound at /data is no option of install's: the volume takes its place, and its data stays where it is (Д-469).
+    // A folder bound at /data is no option of install's: the volume takes its place, and its data stays where it is.
     ...(options.data ? [` on the volume ${options.volume || DEFAULT_DOCKER_VOLUME} in place of the folder it binds at /data, ${options.data}, whose data is not carried over`] : []),
     ...(unreadable.length ? [` without its --mount ${unreadable.map((value) => JSON.stringify(value)).join(" and ")}, which Docker 29 cannot read`] : [])
   ];
@@ -365,7 +364,7 @@ async function doctor(values, io) {
   const rows = await readServerEntries(chosen);
   const seconds = values.timeout === undefined ? 30 : Number(values.timeout);
   if (!Number.isFinite(seconds) || seconds <= 0) {
-    // A bad value used to run the check anyway and report "within NaN s" (docs/DEFECTS.md, Д-172).
+    // A bad value used to run the check anyway and report "within NaN s".
     throw new CliUsageError(`--timeout takes the seconds each command has to answer, a number above 0; "${values.timeout}" is not one.`);
   }
   const timeoutMs = seconds * 1000;
@@ -387,17 +386,17 @@ async function doctor(values, io) {
       const kind = described.kind;
       // A 3.0 entry runs `docker run` and answers its own handshake: started
       // like any other. A 2.x launcher answered the handshake itself, so
-      // starting it here says nothing about the server (docs/DEFECTS.md, Д-89).
+      // starting it here says nothing about the server.
       if ((kind === "docker" && !described.direct) || kind === "invalid") {
         report.push({ client: row.client, label: labelOf(row), file: row.file, name, ok: null, note: kind === "docker" ? "a 2.x Docker launcher: not started here — `ai-dev clients install --docker` replaces it with one that is" : "the entry is not an object" });
         continue;
       }
       // A folder the entry mounts that is not there: Docker would start no container, and the client gets only its
-      // error. Said as what it is, without starting it (Д-385) — unless a --mount of the entry is one Docker 29 cannot
+      // error. Said as what it is, without starting it — unless a --mount of the entry is one Docker 29 cannot
       // read. That is no verdict: the CLIs before it read readonly=TRUE or bind-nonrecursive, and Docker 29 refuses the
       // whole command over it before it looks at any folder. Such an entry is started like any other: that --mount is
       // named as the likely cause only when Docker refused it, after its own words, and a folder gone is said whatever
-      // Docker said, as it is gone for every Docker (Д-417, Д-427, Д-433).
+      // Docker said, as it is gone for every Docker.
       const gone = kind === "docker" ? missingBindSources(entry?.args) : [];
       const unreadable = kind === "docker" ? unreadableMounts(entry?.args) : [];
       if (gone.length && !unreadable.length) {
@@ -443,7 +442,7 @@ async function entry(values, positionals, io) {
   }
   if (ids.length !== 1) throw new CliUsageError(`"${name}" names ${ids.length} clients; name one: ${ids.join(", ")}.`);
   const client = MCP_CLIENTS.find((item) => item.id === ids[0]);
-  // The entry install would write, the state folder's sharing tried as install tries it (Д-334).
+  // The entry install would write, the state folder's sharing tried as install tries it.
   const docker = await dockerFrom(values, io, { apply: false, tryState: true });
   io.out(JSON.stringify(clientEntry(client, docker ? dockerLaunch(docker) : localLaunch({ env: io.env }))));
   for (const note of [docker?.model?.note, unsharedStateNote(docker)]) if (note) io.err(note);
@@ -454,7 +453,7 @@ async function entry(values, positionals, io) {
  * The projects and model folders the entries of the clients picked mount — the
  * 3.0 entry, or else the 2.x one — for bootstrap, which keeps them when it is
  * named none: a line "<role>\t<folder>\t<clients>" each, or "differ\t<role>\t…"
- * when the entries name more than one (docs/DEFECTS.md, Д-403).
+ * when the entries name more than one.
  */
 async function folders(values, io) {
   const platform = values.platform || process.platform;
@@ -464,7 +463,7 @@ async function folders(values, io) {
     const entry = row.entries[SERVER_NAME] ?? LEGACY_SERVER_NAMES.map((name) => row.entries[name]).find((value) => value !== undefined);
     const mounted = entryFolders(entry);
     for (const role of ["projects", "model"]) {
-      // One folder, written with a separator at its end or not, is one folder (docs/DEFECTS.md, Д-573).
+      // One folder, written with a separator at its end or not, is one folder.
       const folder = mounted[role].length > 1 ? mounted[role].replace(/[\\/]+$/, "") || mounted[role] : mounted[role];
       if (folder) found[role].set(folder, [...(found[role].get(folder) ?? []), labelOf(row)]);
     }

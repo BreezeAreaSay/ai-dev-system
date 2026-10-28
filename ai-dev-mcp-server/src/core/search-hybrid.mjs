@@ -10,7 +10,7 @@
  * loaded the model itself when it was handed no query vector — here the
  * caller embeds the question or the dense half does not run — and the keyword
  * half takes the question's words as words, so a capital AND, OR, NOT or NEAR
- * no longer empties it (docs/DEFECTS.md, Д-117).
+ * no longer empties it.
  *
  * The helper parsed every document's sparse vector on every question. Here a
  * {@link createHybridCache} keeps them parsed, keyed by what they are a
@@ -252,8 +252,8 @@ function semanticCandidates(db, filters, cache) {
  * The documents a filter admits that have a dense vector, with it — only
  * vectors from the model that embedded the question, when the caller says
  * which: a 2.x index holds the Python backend's fp32 vectors, and a dot
- * product across two models ranks by nothing (decision D3, docs/DEFECTS.md,
- * Д-98). Those wait for `npm run setup -- --model` to embed them again.
+ * product across two models ranks by nothing. Those wait for
+ * `npm run setup -- --model` to embed them again.
  */
 function denseCandidates(db, filters, cache, provenance = null) {
   const where = [...filters.where];
@@ -411,8 +411,8 @@ function rankHybrid(db, {
   let denseQuery = denseAvailable && dense > 0 && denseQueryVector?.length ? Float32Array.from(denseQueryVector) : null;
   // Not one stored vector of the question's model: the dense half has nothing
   // to compare, so it is left out of the weights rather than scoring everyone
-  // zero, and the caller is told (docs/DEFECTS.md, Д-148). 2.0.0's table records no model: its vectors are the
-  // Python backend's, never the question's (Д-571).
+  // zero, and the caller is told. 2.0.0's table records no model: its vectors are the
+  // Python backend's, never the question's.
   const unmatched = Boolean(denseQuery && (!tableColumns(db, "dense_vectors").has("backend") || (denseProvenance && !hasDenseVectorsOf(db, denseProvenance))));
   if (unmatched) denseQuery = null;
   if (!denseQuery) dense = 0;

@@ -3,7 +3,7 @@
  * the health check and the MCP protocol smoke, each run with every PATH
  * directory that holds a Python interpreter taken out. CI runs it on Linux,
  * macOS and Windows, whose runners all carry Python and so never noticed that
- * search needed it (docs/DEFECTS.md, Д-85).
+ * search needed it.
  *
  * It refuses to start while an interpreter can still be found by name, and
  * fails when a step fails or the health check is not `ok`. The health check

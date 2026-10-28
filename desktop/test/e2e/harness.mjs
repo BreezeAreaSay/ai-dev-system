@@ -21,7 +21,7 @@ const fromServer = (relative) => import(pathToFileURL(path.join(serverRoot, rela
 
 /**
  * The apps each test launched: closed before its install is removed, so
- * Electron's last writes do not bring the test's folder back (Д-257, п. 11).
+ * Electron's last writes do not bring the test's folder back.
  */
 const launched = new WeakMap();
 const { startModelHost } = await fromServer("test/fixtures/model-host.mjs");
@@ -148,7 +148,7 @@ export function answerFolderDialog(app, folder) {
   }, folder);
 }
 
-/** A screenshot for the phase report, in desktop/test-results. */
+/** A screenshot, in desktop/test-results. */
 export async function shot(page, name) {
   await fs.mkdir(resultsDir, { recursive: true });
   const file = path.join(resultsDir, `${name}.png`);

@@ -1,7 +1,7 @@
 // Preloaded into `ai-dev daemon stop` a test runs (`NODE_OPTIONS=--import <this
 // file>`): right after the command reads a daemon's descriptor, the runtime home
 // goes — deleted, as a person may delete it, or emptied by a daemon leaving —
-// before `stop` takes the descriptor's lock (docs/DEFECTS.md, Д-226).
+// before `stop` takes the descriptor's lock.
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";

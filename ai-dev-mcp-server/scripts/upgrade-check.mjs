@@ -3,7 +3,7 @@
  * `npm run upgrade:test` — does a 2.x install keep working after an upgrade?
  *
  * The test installs the production 2.x line from a commit (default `86aba56`,
- * production `main` when the 3.0 program started) into a git worktree, uses
+ * production `main` when work on 3.0 started) into a git worktree, uses
  * the 2.x server to create the state a real user has — a task with a
  * checkpoint, a decision, an instinct, a session handoff, the search index,
  * agent hooks in a repository, client configurations in both 2.x formats — and
@@ -17,20 +17,20 @@
  * --dense-vectors-json`), from synthetic numbers since no model is needed to
  * check that they survive: the upgraded server must find the index current
  * without rebuilding it, keep every vector byte for byte through a refresh, and
- * search it (program phase 3).
+ * search it.
  *
  * Five users are simulated: one with the defaults; one who set
  * `AI_DEV_HOME`, whose 2.x data sits one level deeper than documented
- * (docs/DEFECTS.md, Д-90) and must be migrated without loss; the layout of
+ * and must be migrated without loss; the layout of
  * the Docker image's /data volume — `AI_DEV_HOME` under the home plus explicit
  * state, index and artifact roots, the environment the Dockerfile sets — run
- * here without a container; and one on the Python dense backend 3.0 removed
- * (decision D3), whose index holds the Python backend's vectors and whose
+ * here without a container; and one on the Python dense backend 3.0 removed,
+ * whose index holds the Python backend's vectors and whose
  * client config still says `AI_DEV_DENSE_BACKEND=python`: told what replaced
  * it, nothing of the index lost, and moved over by the one command; and one
  * who came from the Codex desktop runtime, whose 2.x server kept its state in
- * `~/.codex/state/ai-dev-system` while the hooks wrote to `~/.ai-dev/state`
- * (docs/DEFECTS.md, Д-104): moved into `~/.ai-dev` once, with a record of it,
+ * `~/.codex/state/ai-dev-system` while the hooks wrote to `~/.ai-dev/state`:
+ * moved into `~/.ai-dev` once, with a record of it,
  * and seen by the 2.x hook from then on.
  *
  * Then each goes back the way `docs/MIGRATION.md` gives for a clone
@@ -45,8 +45,7 @@
  * Usage: npm run upgrade:test [-- --base <commit>] [--keep]
  *
  * Not named `upgrade-test.mjs`: `node --test` picks up `*-test.mjs` by its own
- * patterns, and every `npm test` ran this whole scenario as a unit test
- * (docs/DEFECTS.md, Д-112).
+ * patterns, and every `npm test` ran this whole scenario as a unit test.
  */
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
@@ -102,7 +101,7 @@ async function syncWorkingTree(source, target) {
     const from = path.join(source, relative);
     const destination = path.join(target, relative);
     // Like git, a file the pull does not change is not written: it keeps its
-    // modification time, by which a 2.x index knows its vault (Д-219).
+    // modification time, by which a 2.x index knows its vault.
     const content = await fs.readFile(from);
     const before = await fs.readFile(destination).catch(() => null);
     if (!before || !before.equals(content)) {
@@ -179,7 +178,7 @@ function denseDigest(indexPath) {
   }
 }
 
-/** Documents in an index that get a dense vector: everything but Membrane's connectors (Д-91). */
+/** Documents in an index that get a dense vector: everything but Membrane's connectors. */
 function denseEligibleDocuments(indexPath) {
   if (!sqliteSupport().available || !existsSync(indexPath)) return 0;
   const db = openDatabase(indexPath);
@@ -323,7 +322,7 @@ function indexedDocuments(status) {
 
 /**
  * Notes of the user's own beside the seed's, as a 2.x user's vault has them:
- * what tells it from a copy of the seed (docs/DEFECTS.md, Д-219, Д-229).
+ * what tells it from a copy of the seed.
  */
 function ownNotesFolder(baseRoot) {
   return path.join(baseRoot, "docker", "public-seed", "02-knowledge", "upgrade-fixture");
@@ -348,9 +347,9 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
   const serverEnv = { ...env, ...(local?.env || {}) };
   // But first a command from a shell with another vault — a copy of the same
   // seed, without this user's notes — the first to run after the upgrade: it
-  // must leave the index this install's clients built to them
-  // (docs/DEFECTS.md, Д-219). It has to run: a refused option never reached
-  // the index (Д-230).
+  // must leave the index this install's clients built to them.
+  // It has to run: a refused option never reached
+  // the index.
   const otherVault = path.join(temp, `other-vault-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`);
   const ownNotes = ownNotesFolder(baseRoot);
   await fs.cp(path.join(baseRoot, "docker", "public-seed"), otherVault, { recursive: true, filter: (source) => source !== ownNotes && !source.startsWith(`${ownNotes}${path.sep}`) });
@@ -375,7 +374,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     check(`${label}: the 2.x session handoff is listed`, sessions.includes("Upgrade fixture handoff"));
     // The pull may have removed skills from the catalogue (the curation of
     // 2026-10-11 removed 2,614): the server has to notice, not go on routing
-    // to them (Д-119). Status reads the index as 2.x left it and says so.
+    // to them. Status reads the index as 2.x left it and says so.
     const status = await call(client, "search_index_status", {});
     const documents = indexedDocuments(status);
     const pulledAway = removedSkills(base);
@@ -399,7 +398,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
       `${registry.length} skill(s), 2.x had ${expected.skills}; ${listedGone.length} removed one(s) still listed`);
     const { vectors, digest, byId } = expected.dense;
     // Counted for the model that answers now: the ONNX path's vectors are its
-    // own, the Python backend's another model's, kept and waiting (Д-148).
+    // own, the Python backend's another model's, kept and waiting.
     const kept = Number(status.dense_documents) + Number(status.dense_other_model_documents || 0);
     check(`${label}: the 2.x dense vectors are all there`, vectors > 0 && kept === vectors && status.dense_backend === expected.dense.backend,
       `${kept} of ${vectors}, backend ${status.dense_backend}`);
@@ -415,7 +414,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
       const refreshed = await call(client, "rebuild_search_index", {});
       const after = denseDigest(status.index_path);
       // Every vector the rebuild keeps is a 2.x vector, unchanged; those of
-      // documents gone or rewritten (Membrane's connectors, by Д-91, and the
+      // documents gone or rewritten (Membrane's connectors, and the
       // group notes the smaller catalogue rewrote) are dropped and the
       // documents wait for an embedding run.
       const altered = [...after.byId].filter(([id, row]) => byId.get(id) !== row).length;
@@ -439,7 +438,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     const hybridHits = Array.isArray(hybrid) ? hybrid.length : (hybrid.results?.length ?? 0);
     check(`${label}: hybrid search reads the index the upgraded server keeps`, hybridHits > 0, `${hybridHits} result(s)`);
     if (pythonBackend) {
-      // D3: the backend is gone, and saying so is the server's job.
+      // The backend is gone, and saying so is the server's job.
       const embedding = await call(client, "embedding_status", {});
       const notes = embedding.dense_backend?.legacy?.notes ?? [];
       check(`${label}: embedding_status names what is left of the Python backend, with the one command`,
@@ -462,7 +461,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     // five-kilobyte stand-in served from a local mirror where huggingface.co
     // would be: it downloads the model and embeds the documents again. Not
     // `model import`, which embeds whatever it finds: the advice is what has
-    // to work (docs/DEFECTS.md, Д-148).
+    // to work.
     const usb = path.join(temp, "usb-model", "bge-m3-onnx");
     const { manifest } = await writeSyntheticModel(usb);
     const manifestFile = path.join(temp, "synthetic.manifest.json");
@@ -528,7 +527,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
   if (!aiDevHome) check(`${label}: the 2.x hook still sees the open task`, hook.stdout.includes(expected.taskId));
 
   // Re-installed, the hook runs through the Node launcher, which finds Node
-  // without it on PATH: a client opened from the Dock has none (Д-103).
+  // without it on PATH: a client opened from the Dock has none.
   await withServer({ command: local.command, args: local.args, env: serverEnv, cwd: path.dirname(local.args[0]) }, (client) => (
     call(client, "install_agent_hooks", { project_path: project, targets: ["claude"] })
   ));
@@ -557,7 +556,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
  * 3.0 writes one name. `npm run clients:install` (`ai-dev clients install`)
  * takes out the 2.x local entry `ai-dev-system`, replaces the 2.x Docker
  * `ai-dev` with this install, keeps a backup of each file, and the command it
- * writes answers `initialize` with instructions (Д-95).
+ * writes answers `initialize` with instructions.
  */
 async function verifyClientMigration({ label, baseRoot, env, local }) {
   const serverDir = path.join(baseRoot, "ai-dev-mcp-server");
@@ -599,7 +598,7 @@ async function verifyClientMigration({ label, baseRoot, env, local }) {
     doctor.status === 0 && answers.length >= 6 && answers.every((answer) => answer.ok === true && answer.instructions > 0),
     answers.map((answer) => `${answer.client}:${answer.ok}`).join(" ") || doctor.stdout.slice(0, 200));
   // `ai-dev mcp` hands each client to the daemon, which the first of them
-  // started (docs/DEFECTS.md, Д-97): one server served all six.
+  // started: one server served all six.
   const daemon = (() => {
     try {
       return JSON.parse(run(process.execPath, [cli, "daemon", "status", "--json"], { cwd: serverDir, env, allowFailure: true }).stdout);

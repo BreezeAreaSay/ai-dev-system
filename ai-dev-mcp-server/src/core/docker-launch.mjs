@@ -5,17 +5,17 @@
  * 2.x wrote a launcher into the config instead — `docker/run-mcp.sh`,
  * `run-mcp.ps1`, or on Windows for Claude a C# proxy compiled on the user's
  * machine — and the launchers answered `initialize` themselves while the
- * container came up, so the server's instructions never reached the client
- * (docs/DEFECTS.md, Д-89, Д-105). The image answers in about a second, so the
+ * container came up, so the server's instructions never reached the client.
+ * The image answers in about a second, so the
  * client runs Docker itself and the server answers its own handshake.
  *
  * What the command mounts:
  * - the volume (`/data`): the vault, the index, the model;
  * - the host's state folder at {@link CONTAINER_STATE_ROOT}, named to the server
  *   by `AI_DEV_STATE_ROOT`: the one the agent hooks on the host keep their state
- *   in, so tasks, handoffs and the usage ledger are one (Д-103);
+ *   in, so tasks, handoffs and the usage ledger are one;
  * - the projects folder at its own path on Linux and macOS, so a path the agent
- *   names is the path the server opens (Д-312); on Windows, whose paths a Linux
+ *   names is the path the server opens; on Windows, whose paths a Linux
  *   container cannot hold, at {@link CONTAINER_WORKSPACE}, as 2.x did;
  * - a host model folder, read-only at {@link CONTAINER_MODELS}, when one is named
  *   (2.x's `AI_DEV_MODEL_PATH`) — its `bge-m3-onnx` link at {@link CONTAINER_MODEL_DIR}
@@ -33,7 +33,7 @@ import crypto from "node:crypto";
 import { accessSync, constants as fsConstants, existsSync, lstatSync, readFileSync, readlinkSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 
-/** The image a client runs unless told otherwise (owner decision D9: `:latest` is the released line). */
+/** The image a client runs unless told otherwise (`:latest` is the released line). */
 export const DEFAULT_DOCKER_IMAGE = "ghcr.io/stonebridgeway/ai-dev-system:latest";
 
 /** The named volume the data lives in; 2.x's name, so an upgrade keeps it. */
@@ -50,8 +50,7 @@ export const DEFAULT_DOCKER_VOLUME = "ai-dev-system-data";
  * default's place, as with no `/data` at all — and so is a volume named so, as
  * `docker volume create` names one it is given no name for. Anything else at
  * `/data` — a folder of the host's, a volume made with a driver's options, a
- * volume's subfolder, a tmpfs — has no name to give: null (docs/DEFECTS.md,
- * Д-528, Д-539, Д-540, Д-545).
+ * volume's subfolder, a tmpfs — has no name to give: null.
  *
  * @param {string} mountinfo
  * @returns {string | null}
@@ -68,7 +67,7 @@ export function volumeAtData(mountinfo) {
 /**
  * How a command for the host mounts the data at `/data`: the volume by its
  * name, or, where `/data` holds a mount with none, a placeholder for that
- * mount (docs/DEFECTS.md, Д-539).
+ * mount.
  *
  * @param {string | null} volume
  * @returns {string}
@@ -81,8 +80,7 @@ export function dataMount(volume) {
  * Where a command with {@link dataMount} of `volume` puts what it writes, in
  * words: this volume, for a name read at `/data`; the default by its name,
  * since the image cannot tell it from a run with no volume of its own there;
- * where the sessions keep `/data`, for a mount with no name (docs/DEFECTS.md,
- * Д-539, Д-545).
+ * where the sessions keep `/data`, for a mount with no name.
  *
  * @param {string | null} volume
  * @returns {string}
@@ -106,7 +104,7 @@ const readMountinfo = (read) => {
 /**
  * The volume the image's advice names ({@link volumeAtData}), read once;
  * outside the image, the default. A test gives `env` and `read` in place of
- * the process's (docs/DEFECTS.md, Д-528, Д-541).
+ * the process's.
  *
  * @param {{ env?: Record<string, string | undefined>, read?: () => string }} [options]
  * @returns {string | null}
@@ -132,14 +130,14 @@ export const CONTAINER_MODEL_DIR = `${CONTAINER_MODELS}/bge-m3-onnx`;
 
 /**
  * Files that make a folder a model folder itself rather than the one holding
- * `bge-m3-onnx/`: the value 2.x documented before Д-62, refused by every copy.
+ * `bge-m3-onnx/`: the value 2.x documented, refused by every copy.
  */
 export const MODEL_FOLDER_MARKERS = Object.freeze(["pytorch_model.bin", "modules.json", "config.json", "onnx"]);
 
 /**
  * Docker reads a `--mount` value as one CSV record: a comma splits it, and a
  * double quote outside a quoted field fails every session ("bare \" in
- * non-quoted-field"; docs/DEFECTS.md, Д-328).
+ * non-quoted-field").
  */
 function mountable(label, folder) {
   const bad = [",", "\""].find((character) => folder.includes(character));
@@ -204,11 +202,11 @@ export function sharesHostState({ platform = process.platform, uid = process.get
  * file must be the host user's. Where Docker maps the container's uid 1000 to
  * another host uid — rootless Docker, userns-remap, Podman — that container
  * cannot write the folder at all, and a state the server cannot write is worse
- * than one kept apart in the volume, as 2.x kept it (docs/DEFECTS.md, Д-322).
+ * than one kept apart in the volume, as 2.x kept it.
  *
  * A Docker that did not run the image — an engine that does not answer, an
  * image not here yet, which the probe does not pull — has tried nothing:
- * `tried` says so, so that is not taken for a remapping host (Д-331).
+ * `tried` says so, so that is not taken for a remapping host.
  *
  * @param {{ docker?: string, image: string, state: string, uid?: number, run?: typeof spawnSync }} input
  * @returns {{ shared: boolean, tried: boolean, reason: string }}
@@ -277,7 +275,7 @@ function isFile(file) {
 
 /**
  * Refuse a model folder that is not one: missing, or a model folder itself (2.x
- * documented that before Д-62, and the server never found the files under it).
+ * documented that, and the server never found the files under it).
  *
  * @param {string} folder
  * @param {{ exists?: (target: string) => boolean }} [options]
@@ -297,7 +295,7 @@ export function checkModelFolder(folder, { exists = existsSync } = {}) {
  * or, when its `bge-m3-onnx` is a link, that link at {@link CONTAINER_MODEL_DIR}.
  * A link inside a mounted folder is read in the container, where an absolute
  * target, or a relative one that leaves the folder, leads nowhere: the model
- * was "not installed" (docs/DEFECTS.md, Д-368). Docker resolves a mount's own
+ * was "not installed". Docker resolves a mount's own
  * source on the host, so the link mounted itself is the folder it leads to.
  *
  * Where this runs on the host (`verify`), a link that leads nowhere here either
@@ -335,7 +333,7 @@ export function modelMount(folder, { verify = true, join = path.join, lstat = ls
   }
   // Docker refuses a mount whose source is gone, and the whole session with it: a disk the link leads to that is
   // unplugged later takes AI Dev out of every client, where a folder mounted above the link took dense search
-  // only. So it is said when the entries are written, and `clients doctor` says it when it happens (Д-385).
+  // only. So it is said when the entries are written, and `clients doctor` says it when it happens.
   let note = "";
   try {
     if (found.dev !== stat(folder).dev) {
@@ -350,7 +348,7 @@ export function modelMount(folder, { verify = true, join = path.join, lstat = ls
 // The fields of one CSV record, as Go's encoding/csv reads the first record of a `--mount` value: a field that starts
 // with a double quote runs to the closing one, `""` standing for a quote in it; a quote anywhere else is an error.
 // Lines end in "\n" or "\r\n", a "\r" at the very end is dropped, and empty lines before the record are skipped, as
-// Go's reader does (Д-417). `null` where Docker would refuse to parse the value.
+// Go's reader does. `null` where Docker would refuse to parse the value.
 function csvRecord(value) {
   const text = value.replaceAll("\r\n", "\n").replace(/\r$/, "").replace(/^\n+/, "");
   if (!text) return null;
@@ -385,7 +383,7 @@ function csvRecord(value) {
 
 // The keys of a `--mount` value Docker's CLI knows (Docker 29), the ones it also takes alone, as `readonly`, and the
 // booleans' spellings. Any other key, a field with no `=` that is not one of those, an empty value, and an option of
-// one kind of mount on another ("cannot mix 'volume-*' options with mount type 'bind'") are refused (Д-417).
+// one kind of mount on another ("cannot mix 'volume-*' options with mount type 'bind'") are refused.
 const MOUNT_KEYS = new Set(["type", "source", "src", "target", "dst", "destination", "readonly", "ro", "consistency",
   "bind-propagation", "bind-recursive", "bind-create-src", "volume-subpath", "volume-nocopy", "volume-driver",
   "volume-label", "volume-opt", "image-subpath", "tmpfs-size", "tmpfs-mode"]);
@@ -393,11 +391,11 @@ const MOUNT_SWITCHES = new Set(["readonly", "ro", "bind-create-src", "volume-noc
 const MOUNT_BOOLEANS = new Map([["true", true], ["1", true], ["false", false], ["0", false]]);
 
 // What Go's strings.TrimSpace takes off, Unicode's White_Space: not JavaScript's trim(), which also takes a BOM and
-// leaves U+0085. Docker 29 trims a whole `--mount` value so, and refuses a key or a value inside it edged so (Д-427).
+// leaves U+0085. Docker 29 trims a whole `--mount` value so, and refuses a key or a value inside it edged so.
 const GO_SPACE = "\\t\\n\\v\\f\\r \\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000";
 const GO_EDGE_SPACE = new RegExp(`^[${GO_SPACE}]+|[${GO_SPACE}]+$`, "g");
 const goTrim = (text) => text.replace(GO_EDGE_SPACE, "");
-// A container path as Docker cleans it before it mounts there: `/data/` and `//data` are `/data` (Д-469).
+// A container path as Docker cleans it before it mounts there: `/data/` and `//data` are `/data`.
 const cleanTarget = (target) => (target ? path.posix.normalize(target).replace(/(?<=.)\/$/, "") : target);
 
 /**
@@ -409,7 +407,7 @@ const cleanTarget = (target) => (target ? path.posix.normalize(target).replace(/
  * `createsSource` is `bind-create-src`: Docker makes a missing source itself.
  * `null` for a value Docker 29 would not parse. That is no verdict on the entry:
  * the CLIs before it read more (`readonly=TRUE`, `bind-nonrecursive`), so
- * `clients doctor` starts such an entry, and Docker says what it refuses (Д-427).
+ * `clients doctor` starts such an entry, and Docker says what it refuses.
  *
  * @param {string} value
  * @returns {{ type: string, source: string, target: string, createsSource: boolean } | null}
@@ -446,7 +444,7 @@ const RUN_SHORT_SWITCHES = "dPiqt";
 /**
  * A `docker run` command line read as Docker's CLI reads it: its options, each
  * `[name, value]` (`null` for a switch), up to the image — what follows the
- * image is the container's command, and a `--mount` there is not Docker's (Д-417).
+ * image is the container's command, and a `--mount` there is not Docker's.
  *
  * @param {string[]} args
  * @returns {{ options: Array<[string, string | null]>, image: string }}
@@ -495,8 +493,8 @@ function mountsOf(args) {
 /**
  * The `--mount` values of a `docker run` command line that Docker 29's CLI
  * cannot read: it refuses the whole command over one, before it looks at any
- * folder (Д-417). Older CLIs read some of them, so they are the entry's to
- * try, not a verdict (Д-427).
+ * folder. Older CLIs read some of them, so they are the entry's to
+ * try, not a verdict.
  *
  * @param {string[]} args
  * @returns {string[]}
@@ -506,7 +504,7 @@ export function unreadableMounts(args) {
 }
 
 // What a `--mount` Docker 29 cannot read mounts at `/data` — its type and source — or null: read more leniently than
-// any CLI reads one, each field trimmed and any other key let be, as `volume-nocopy=TRUE` (Д-457, Д-469).
+// any CLI reads one, each field trimmed and any other key let be, as `volume-nocopy=TRUE`.
 function dataMountOf(value) {
   const mount = { type: "volume", source: "", target: "" };
   for (const field of csvRecord(goTrim(value)) ?? []) {
@@ -521,7 +519,7 @@ function dataMountOf(value) {
 }
 
 // Docker's words for a `--mount` value its CLI refused, the value in Go's quotes (`%q`, strconv.Quote), wherever they
-// are in what it wrote: a warning may come first (Д-433, Д-455). And Go's escapes of one character by a letter.
+// are in what it wrote: a warning may come first. And Go's escapes of one character by a letter.
 const MOUNT_REFUSED = /invalid argument ("(?:[^"\\\n]|\\.)*") for "--mount" flag/g;
 const GO_ESCAPED = new Map([["a", "\u0007"], ["b", "\b"], ["f", "\f"], ["n", "\n"], ["r", "\r"], ["t", "\t"], ["v", "\v"], ["\\", "\\"], ["\"", "\""]]);
 
@@ -531,7 +529,7 @@ const GO_ESCAPED = new Map([["a", "\u0007"], ["b", "\b"], ["f", "\f"], ["n", "\n
  * for. Read back, not quoted again here: which characters Go escapes follows
  * its own Unicode tables — Docker 29.8.2's Go is at Unicode 15.0, Node 22 at
  * 16.0 — and a character of 15.1 or 16.0 was quoted otherwise than Docker
- * quotes it (Д-457).
+ * quotes it.
  *
  * @param {string} quoted
  * @returns {string}
@@ -549,9 +547,9 @@ function goUnquoted(quoted) {
  * words: it exits 125 and says `invalid argument "<value>" for "--mount" flag`
  * — CLI 24.0.9, 27.5.1 and 29.8.2 alike. None, when the command failed for
  * another reason: a `--mount` Docker 29 cannot read is no cause of a start that
- * an older CLI made and that failed otherwise (docs/DEFECTS.md, Д-433). Each
+ * an older CLI made and that failed otherwise. Each
  * value is compared as Docker was given it: as UTF-8, where a lone surrogate is
- * U+FFFD (Д-457).
+ * U+FFFD.
  *
  * @param {string[]} values
  * @param {{ code?: number | null, stderr?: string }} ended - How the command ended, and what it wrote to stderr.
@@ -577,12 +575,12 @@ function linkTarget(file, { lstat, readlink, path: paths }) {
  * null when nothing here says it could not: on the way up to the nearest folder
  * that is there, a link that leads nowhere (`link`) or a file (`file`); or that
  * folder is not this user's to write in (`write`) — the root-owned mount point of
- * a disk that is not connected, say (docs/DEFECTS.md, Д-429); or the way up ends
+ * a disk that is not connected, say; or the way up ends
  * at a root that is not there (`gone`) — on Windows the drive of a disk that is
- * not connected, `E:\`, which no mkdir makes (Д-434). Not a share: libuv's
+ * not connected, `E:\`, which no mkdir makes. Not a share: libuv's
  * table gives no `ENOENT` for a network path that is not reached
  * (ERROR_BAD_NETPATH and ERROR_BAD_NET_NAME are `UNKNOWN` in it), and a folder
- * whose `stat` fails otherwise is not said to be missing at all (Д-454).
+ * whose `stat` fails otherwise is not said to be missing at all.
  *
  * @param {string} folder
  * @param {{ stat: (file: string) => unknown, lstat: typeof lstatSync, readlink: typeof readlinkSync, access: typeof accessSync, path: typeof path }} io
@@ -615,18 +613,18 @@ function unmakeable(folder, io) {
 /**
  * The `--mount type=bind,source=…` folders of a `docker run` command line
  * that are not there: Docker refuses to start a container over one, so a
- * client that runs the entry gets no server at all (Д-385). Not there is
+ * client that runs the entry gets no server at all. Not there is
  * `ENOENT` or `ENOTDIR` only: a folder this user may not look into (`EACCES`)
- * is the daemon's to judge, and it may well mount it (Д-397). A source that is
+ * is the daemon's to judge, and it may well mount it. A source that is
  * a link says where it leads (`leadsTo`), since it is the link's target that
  * is gone; one that is not says why install could not make it again, where
- * something says so (`unmakeable`, Д-429). A mount with `bind-create-src` is not
+ * something says so (`unmakeable`). A mount with `bind-create-src` is not
  * missing anything: Docker makes its source. A `--mount` Docker 29 cannot read
  * is passed over, not the ones beside it: Docker 29 refuses the whole command
  * over it before it looks at any folder, but the CLIs before it read some such
  * values, and a folder gone is gone for every one of them — so `clients doctor`
- * starts such an entry, and says the folder unless the start answered (Д-417,
- * Д-427, Д-433). `path` is the host's path rules, Windows' on Windows (Д-434).
+ * starts such an entry, and says the folder unless the start answered.
+ * `path` is the host's path rules, Windows' on Windows.
  *
  * @param {string[]} args
  * @param {{ stat?: (file: string) => unknown, lstat?: typeof lstatSync, readlink?: typeof readlinkSync, access?: typeof accessSync, path?: typeof path }} [options]
@@ -655,12 +653,11 @@ export function missingBindSources(args, { stat = statSync, lstat = lstatSync, r
  * first argument after the options, which {@link dockerRunArgs} puts last), the
  * volume, the projects folder, the state folder and the model folder — the one
  * holding `bge-m3-onnx` when the link itself is mounted. A command that writes
- * the entry again keeps them (Д-397). A `--mount` Docker 29 cannot read is
+ * the entry again keeps them. A `--mount` Docker 29 cannot read is
  * passed over, but for what it mounts at `/data`: written again without it,
  * the entry ran on the default volume, and the data of its own was out of
- * reach (Д-457). `data` is a folder bound at `/data` in place of a volume,
- * which install does not write: no projects folder, and its data stays there
- * (Д-469).
+ * reach. `data` is a folder bound at `/data` in place of a volume,
+ * which install does not write: no projects folder, and its data stays there.
  *
  * @param {string[]} args
  * @returns {{ image: string, volume: string, projects: string, state: string, model: string, data: string }}
@@ -689,7 +686,7 @@ export function dockerEntryOptions(args) {
 /**
  * The projects and model folders an entry mounts: a 3.0 entry's binds, a 2.x
  * entry's `AI_DEV_PROJECT_PATH` and `AI_DEV_MODEL_PATH`. What bootstrap keeps
- * when it is named none (docs/DEFECTS.md, Д-403).
+ * when it is named none.
  *
  * @param {unknown} entry
  * @returns {{ projects: string, model: string }}

@@ -79,7 +79,7 @@ export function createIo({
         return answer === "y" || answer === "yes" || answer === "д" || answer === "да";
       } catch (error) {
         // Ctrl-C at a question is the same stop as Ctrl-C anywhere else: 130,
-        // not a failure with readline's "Aborted with Ctrl+C" (docs/DEFECTS.md, Д-172).
+        // not a failure with readline's "Aborted with Ctrl+C".
         if (error?.code !== "ABORT_ERR" && error?.name !== "AbortError") throw error;
         stdout.write("\n");
         throw Object.assign(new Error("Stopped with Ctrl-C at a question, before anything was changed."), { exitCode: EXIT.interrupted });

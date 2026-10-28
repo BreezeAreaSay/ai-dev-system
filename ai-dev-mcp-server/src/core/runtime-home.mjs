@@ -55,11 +55,11 @@ export function sameDirectory(left, right, { platform = process.platform, realpa
 /**
  * `AI_DEV_HOME`, when it names a runtime folder rather than the home itself.
  *
- * `AI_DEV_HOME` is the runtime folder (owner decision D2; docs/DEFECTS.md,
- * Д-90). One value cannot mean that: the home directory itself, which some
- * 2.x setups used because 2.x appended `.ai-dev` to the variable. Taken at its
- * word it would scatter `state/`, `cache/` and `models/` across the home, so it
- * keeps meaning what 2.x made of it — `<home>/.ai-dev`.
+ * `AI_DEV_HOME` is the runtime folder. One value cannot mean that: the home
+ * directory itself, which some 2.x setups used because 2.x appended `.ai-dev`
+ * to the variable. Taken at its word it would scatter `state/`, `cache/` and
+ * `models/` across the home, so it keeps meaning what 2.x made of it —
+ * `<home>/.ai-dev`.
  *
  * @param {NodeJS.ProcessEnv} [env]
  * @param {{ platform?: string, realpath?: (value: string) => string }} [options] - for tests
@@ -79,7 +79,7 @@ export function explicitRuntimeHome(env = process.env, options = {}) {
  * `hooks/lib.mjs`) that must give the same answer (AGENTS.md, rule 3). The copy
  * has one source more, read only when `AI_DEV_HOME` is not in the hook's own
  * environment: the folder this server ran with, recorded beside the hooks when
- * it installed them (`.ai-dev-home`, docs/DEFECTS.md Д-184) — a client started
+ * it installed them (`.ai-dev-home`) — a client started
  * from the Dock gives its server the variable from its config, not its hooks.
  *
  * @param {string} [vaultRoot]

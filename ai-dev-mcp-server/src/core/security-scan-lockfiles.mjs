@@ -3,7 +3,7 @@
  *
  * A package manager's audit reads the lockfile in the directory it runs in, so
  * a repository whose `frontend/` and `backend/` each have one — and nothing at
- * the root — used to get no dependency scan at all (docs/DEFECTS.md, Д-83).
+ * the root — used to get no dependency scan at all.
  * This module finds those directories, and says which Yarn a directory uses,
  * because Yarn 1 and Yarn 2+ audit with different commands.
  */

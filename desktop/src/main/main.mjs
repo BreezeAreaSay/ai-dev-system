@@ -54,7 +54,7 @@ const updates = updatesEnabled({ packaged: app.isPackaged, platform: process.pla
 /**
  * The menu: none on Windows and Linux; on macOS the app and Edit menus, which
  * the system's copy and paste go through. Neither has Reload or the developer
- * tools (docs/DEFECTS.md, Д-252).
+ * tools.
  */
 function applicationMenu() {
   return process.platform === "darwin" ? Menu.buildFromTemplate([{ role: "appMenu" }, { role: "editMenu" }]) : null;
@@ -62,8 +62,8 @@ function applicationMenu() {
 
 // Chromium resolves no host name in this app: the page has no network, and a
 // name it hands to WebRTC or a dns-prefetch would otherwise still go to the
-// system's resolver — a way out for what a script put in it (docs/DEFECTS.md,
-// Д-260). The daemon is reached from Node, over a socket; Node's own lookups
+// system's resolver — a way out for what a script put in it. The daemon is
+// reached from Node, over a socket; Node's own lookups
 // do not go through this rule. The installed app's updater is the one
 // exception: the update hosts, by their exact names (updates.mjs).
 app.commandLine.appendSwitch("host-resolver-rules", resolverRules({ updates }));
@@ -80,7 +80,7 @@ if (!app.requestSingleInstanceLock()) {
   let quitting = false;
   let starting = null;
   // What the window says when the start failed or no Node was found, drawn
-  // again in the language chosen afterwards (Д-264).
+  // again in the language chosen afterwards.
   let explain = null;
   // Windows open only once the page's session is locked and served.
   let ready = false;
@@ -97,10 +97,10 @@ if (!app.requestSingleInstanceLock()) {
   const devTools = process.env.AI_DEV_DESKTOP_DEVTOOLS === "1";
   const link = new DaemonLink({ env, t });
   // The language chosen, kept in the settings file — or held until the file
-  // can take it (docs/DEFECTS.md, Д-271, п. 4; Д-276, п. 2, 3; Д-279).
+  // can take it (3).
   const languages = createLanguageKeeper({ server: () => server, env, settled: (outcome) => languageSettled(outcome) });
 
-  // The link's own words are said in the language in force (Д-283, п. 3).
+  // The link's own words are said in the language in force.
   const publicState = () => {
     const { errorKey, ...state } = link.state;
     const notice = runtimeNotice(runtime);
@@ -135,15 +135,14 @@ if (!app.requestSingleInstanceLock()) {
       window = null;
     });
     window.loadURL(`${APP_ORIGIN}/index.html`);
-    // AI_DEV_DESKTOP_DEVTOOLS=1 is for working on the app: the tools open with the window (Д-266, п. 5).
+    // AI_DEV_DESKTOP_DEVTOOLS=1 is for working on the app: the tools open with the window.
     if (devTools) window.webContents.openDevTools({ mode: "detach" });
   };
 
   const quit = async () => {
     quitting = true;
     // A language that waits is written once more; the file's lock is waited
-    // for a second at most, the write already waiting for it included (Д-279,
-    // Д-283, п. 1; Д-284).
+    // for a second at most, the write already waiting for it included.
     await languages.quit().catch(() => undefined);
     await link.close();
     app.quit();
@@ -184,14 +183,14 @@ if (!app.requestSingleInstanceLock()) {
       id: "tray-rebuild",
       onProgress: ({ progress, total }) => tray.setRebuilding(total ? Math.min(99, Math.floor((progress / total) * 100)) : 0)
     });
-    // A failure is said where the rebuild was asked for (Д-257, п. 5); the
-    // link's own words by their key, said again in another language (Д-280).
+    // A failure is said where the rebuild was asked for; the
+    // link's own words by their key, said again in another language.
     tray.setRebuilding(null, result.ok || result.cancelled ? null : { key: result.key, text: result.error });
   };
 
   // The tray's Stop: a daemon that would not stop is said in the menu, as a
   // failed rebuild is — from the answer, which names it, or an error — and
-  // Stop is offered again while it runs (Д-271, п. 6; Д-273; Д-277).
+  // Stop is offered again while it runs.
   const stopFromTray = async () => {
     tray.setStopping();
     let failure = null;
@@ -207,9 +206,9 @@ if (!app.requestSingleInstanceLock()) {
 
   /**
    * A chosen language no longer waits. A write that changed the file changes
-   * what the checks see: online, they run again (Д-282). The file, fixed,
+   * what the checks see: online, they run again. The file, fixed,
    * named a language of its own, which the choice gave way to: the app speaks
-   * it now, as the next start will (Д-283, п. 2).
+   * it now, as the next start will.
    */
   const languageSettled = ({ changed, language: inFile }) => {
     if (changed && !quitting && link.state.phase === "online") link.refreshStatus({ checks: true, fresh: true }).catch(() => undefined);
@@ -225,7 +224,7 @@ if (!app.requestSingleInstanceLock()) {
   /**
    * Get going: the server, the settings, the Node the daemon runs on, the
    * daemon. Whatever stops it is shown in the window with what to do — the
-   * app never sits there silent (docs/DEFECTS.md, Д-242). Run again by Try
+   * app never sits there silent. Run again by Try
    * again, and when the app is launched a second time.
    */
   const startup = () => {
@@ -245,7 +244,7 @@ if (!app.requestSingleInstanceLock()) {
         server ??= await import(pathToFileURL(path.join(root, "src", "core", "control-client.mjs")).href);
         const read = server.readSettings({ env });
         const settings = read.settings;
-        // The language chosen while the file was broken — unless the file, fixed, names its own (Д-276, п. 2).
+        // The language chosen while the file was broken — unless the file, fixed, names its own.
         language = languages.atStart(read.stored) ?? pickLanguage(settings.language, app.getLocale());
         window?.setTitle(t("app.title"));
         tray?.refresh();
@@ -269,7 +268,7 @@ if (!app.requestSingleInstanceLock()) {
 
   const handle = (channel, listener) => ipcMain.handle(channel, (event, request) => (fromApp(event) ? listener(event, request) : null));
 
-  // macOS: a click on the Dock icon brings the window back (Д-266, п. 12).
+  // macOS: a click on the Dock icon brings the window back.
   app.on("activate", () => {
     if (ready) openWindow();
   });
@@ -288,7 +287,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     // The system's language until the settings say otherwise — a start that
-    // fails before it reads them speaks it too (Д-264).
+    // fails before it reads them speaks it too.
     language = pickLanguage("", app.getLocale());
     // The page's session serves the app's files and nothing else; the default
     // one is locked the same way, for any window that is not the app's.
@@ -325,7 +324,7 @@ if (!app.requestSingleInstanceLock()) {
         refused = listed.ok ? refuseClients(request.args.clients, listed.result.clients) : listed.error;
       }
       if (refused) return { ok: false, error: refused, cancelled: false };
-      // The model's mirror and folder, the profiles: only after the person says so (Д-288).
+      // The model's mirror and folder, the profiles: only after the person says so.
       const changes = settingsToConfirm(request);
       if (changes) {
         const parent = BrowserWindow.fromWebContents(event.sender) ?? window;
@@ -369,7 +368,7 @@ if (!app.requestSingleInstanceLock()) {
       window?.setTitle(t("app.title"));
       // A failure screen is the main process's words: say them again in this language.
       if (["broken", "no-node"].includes(link.state.phase)) explain?.();
-      // Written here, online or not: a file that cannot take it yet gets it later (Д-279).
+      // Written here, online or not: a file that cannot take it yet gets it later.
       await languages.choose(language);
       return publicState();
     });

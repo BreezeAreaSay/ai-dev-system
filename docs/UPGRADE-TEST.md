@@ -21,15 +21,15 @@ scratch directory it:
 2. creates the state five users have, each with its own home directory:
    - **default** — no `AI_DEV_HOME`;
    - **AI_DEV_HOME** — set to a folder of its own, where 2.x wrote everything one level too
-     deep, into `$AI_DEV_HOME/.ai-dev` (docs/DEFECTS.md, Д-90);
+     deep, into `$AI_DEV_HOME/.ai-dev`;
    - **Docker volume layout** — the environment `docker/Dockerfile` sets: `AI_DEV_HOME` under
      the home plus explicit state, index and artifact roots, run without a container;
    - **Python dense backend** — a client configuration with `AI_DEV_DENSE_BACKEND=python` and
      `BGE_M3_PYTHON`, the torch weights 2.x downloaded in `~/.ai-dev/models/bge-m3`, and vectors
-     labelled with the Python backend's provenance (3.0 removed that backend, decision D3);
+     labelled with the Python backend's provenance (3.0 removed that backend);
    - **Codex runtime** — `~/.codex/state/ai-dev-system` and the index folder under
      `~/.codex/cache/ai-dev-system`, which 2.x used whenever they existed and `~/.ai-dev`'s did
-     not — while the hooks always wrote to `~/.ai-dev/state` (docs/DEFECTS.md, Д-104);
+     not — while the hooks always wrote to `~/.ai-dev/state`;
 
    and for each: a task with a checkpoint, a decision, an instinct, a session handoff, the
    search index with dense vectors — written by the 2.x helper as its ONNX path writes them,
@@ -42,18 +42,18 @@ scratch directory it:
    Node search engine reads the 2.x index as it is — a status call rewrites nothing and leaves
    every vector untouched — and sees what the pull changed: skills the pull removed (the
    catalogue curation of 2026-10-11 removed 2,614 connectors) leave the skill registry and are
-   no longer found (docs/DEFECTS.md, Д-119); that a rebuild keeps byte for byte every vector whose
+   no longer found; that a rebuild keeps byte for byte every vector whose
    document is still there unchanged and drops those of documents gone or rewritten — among them
-   Membrane's connectors, which a 2.x older than the Д-91 fix embedded — leaving the rewritten
+   Membrane's connectors, which older 2.x releases embedded — leaving the rewritten
    ones to the next embedding run; that keyword and hybrid search answer, that nothing is left in
    `$AI_DEV_HOME/.ai-dev`, and that the 2.x hook still runs — and, where its copy of the old
    path cannot see the migrated task, sees it after `install_agent_hooks`; that the hook
    command `install_agent_hooks` writes now (`/bin/sh .ai-dev/hooks/with-node.sh …`) runs with a
-   PATH holding git and nothing else (docs/DEFECTS.md, Д-103); and that `npm run
+   PATH holding git and nothing else; and that `npm run
    clients:install` moves the client configurations both 2.x installers wrote to 3.0 —
    `ai-dev-system` removed, the Docker `ai-dev` replaced, all six clients written with a backup,
    every written command answering `initialize` with instructions, a second run changing
-   nothing (Д-95). For the Python dense
+   nothing. For the Python dense
    backend user it also checks that `embedding_status` names each leftover setting with the one
    command that replaces it, that the health check warns instead of failing, that hybrid search
    answers without comparing the Python vectors with anything, and that the one command the
@@ -84,7 +84,7 @@ expected, and the image built here is used.
 It needs Docker, the two images and this clone with the base commit in it (`86aba56`; a shallow
 clone fetches it with `git fetch origin 86aba56f9d2b7ebd6e883f4774778bd0625e17e3`): the 2.x
 launcher is read from there. `docker-publish.yml` runs it on every pull request against the
-production image — `:2`, or `:latest` until `:2` exists (owner decision D9). On a
+production image — `:2`, or `:latest` until `:2` exists. On a
 scratch volume and a scratch folder, both removed at the end:
 
 1. **2.x fills the volume.** The 2.x image, started through the 2.x `docker/run-mcp.sh` as 2.x
@@ -93,24 +93,23 @@ scratch volume and a scratch folder, both removed at the end:
 2. **The new image under the 2.x launcher.** The same launcher (its cold path) with the new
    image: the server answers the handshake with its own instructions; the task is there; the
    volume's skills are the new seed's plus the user's own — what 2.x shipped and 3.0 dropped is
-   gone, and the edited skill keeps the edit with `SKILL.md.seed-new` beside it (docs/DEFECTS.md,
-   Д-99).
+   gone, and the edited skill keeps the edit with `SKILL.md.seed-new` beside it.
 3. **The 2.x warm path.** A runtime container of the new image, as the 2.x bootstrap started it,
    still serves a session through the 2.x launcher; the 3.0 script of the same name passes the
-   server's own handshake through and says on stderr that it is the 2.x launcher (Д-89).
+   server's own handshake through and says on stderr that it is the 2.x launcher.
 4. **A 3.0 entry** on the same volume, with a host state folder mounted: the volume's state, the
-   task with it, moves there (Д-103).
+   task with it, moves there.
 5. **The way back as `bootstrap.sh --image …:2` writes it**: the 2.x image under a 3.0 entry
-   answers and sees the task in that state folder (Д-323, Д-333).
+   answers and sees the task in that state folder.
 6. **Back on the new image**: what that 2.x start's `cp -n` put back into the volume is removed
-   again, and the volume has the seed's skills plus the user's own (Д-317).
+   again, and the volume has the seed's skills plus the user's own.
 
 It prints the timings and counts as JSON and exits 1 at the first check that fails.
 
 **Rolling back** to the 2.x image after step 4 through 2.x's own launchers (`AI_DEV_IMAGE`) finds
 the vault, the index and the model, but not the tasks: they are in the host's state folder now,
 where a 2.x launcher does not point the server. A 3.0 entry that runs the 2.x image —
-`bootstrap.sh --image …:2` — hands it that folder, and it sees them there (docs/DEFECTS.md, Д-333).
+`bootstrap.sh --image …:2` — hands it that folder, and it sees them there.
 Nothing is lost; copied back into the volume, 2.x has them again under its own launchers too:
 
 ```bash
@@ -122,7 +121,7 @@ docker run --rm --entrypoint sh \
 
 Returning to 3.0 undoes what the rollback did to the volume: 2.x's `cp -n` put back every skill
 3.0 had dropped, its manifest with them, and the next 3.0 start finds that manifest, recognises
-what came back by the seed history and removes it again (docs/DEFECTS.md, Д-317); the tasks 2.x
+what came back by the seed history and removes it again; the tasks 2.x
 began meanwhile move into the host's state folder.
 
 The data half without Docker — the server with the image's environment on data 2.x wrote — is

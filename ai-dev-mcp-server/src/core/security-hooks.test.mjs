@@ -189,7 +189,7 @@ test("the guard asks nothing when there is nothing to ask, or when it is switche
   assert.deepEqual(unchecked.warns, [
     "[supply-chain] p@1 was not fully checked: the registry could not be read: the proxy refused to connect to registry.npmjs.org:443 (HTTP 403).",
     "[supply-chain] p@1 was not fully checked: OSV could not be read: no answer in 3s."
-  ], "one full stop, not two (Д-172)");
+  ], "one full stop, not two");
 });
 
 test("a changed manifest or lockfile is a note to the agent; other edits are not", () => {
@@ -308,7 +308,7 @@ test("installed as hooks: post-edit flags a manifest, and Stop sends the agent b
   assert.match(reminded.stderr, /no security scan has seen: src\/api\.ts/);
 });
 
-// Д-84: `git()` trims its output, so the first porcelain line lost its leading
+// `git()` trims its output, so the first porcelain line lost its leading
 // space and `slice(3)` turned ` M src/api.ts` into `rc/api.ts` — a file that
 // does not exist, so the first changed file skipped every Stop check.
 test("the Stop hook reads the first changed file too", async (t) => {

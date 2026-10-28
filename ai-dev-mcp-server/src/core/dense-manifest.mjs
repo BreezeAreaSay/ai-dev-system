@@ -5,7 +5,7 @@
  * The dense half of hybrid search used to arrive through a Python virtualenv, a
  * CPU build of torch and `snapshot_download("BAAI/bge-m3")` with no revision —
  * four things that can each fail on a user's machine, and one that can change
- * upstream without anyone noticing (docs/DEFECTS.md, Д-62). A manifest replaces
+ * upstream without anyone noticing. A manifest replaces
  * all four: a fixed revision, a fixed dtype, and a sha256 for every file, so
  * "the model is installed" is a question with a checkable answer rather than a
  * guess from a directory listing.
@@ -211,8 +211,8 @@ export async function stampVerifiedFiles({ stampFile, dir, manifest, verified })
 
 /**
  * The manifest's files that are not there at all, by a look that reads none of
- * them: of a model this user cannot read, the ones that are missing as well
- * (docs/DEFECTS.md, Д-366). A file it may not even look at is not counted.
+ * them: of a model this user cannot read, the ones that are missing as well.
+ * A file it may not even look at is not counted.
  *
  * @param {{ manifest: object, dir: string }} input
  * @returns {Promise<string[]>}
@@ -239,7 +239,7 @@ export async function filesNotThere({ manifest, dir }) {
  * With `trustStamp`, a file whose size, times and inode are what they were when
  * it last hashed right is taken as verified without being read: the server asks
  * this on every hybrid search, and reading 570 MB to answer was a second a
- * minute (docs/DEFECTS.md, Д-143). Any change to the file — rewritten, touched,
+ * minute. Any change to the file — rewritten, touched,
  * renamed over — and it is hashed again. `model verify` and `dense:doctor`
  * hash everything regardless.
  *

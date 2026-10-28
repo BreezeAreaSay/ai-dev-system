@@ -142,14 +142,14 @@ async function expectedFiles(bundleRoot, bundle) {
  * not this runtime's finished copy (a copy that stopped before its marker, a
  * folder not AI Dev's), or this runtime's copy — with the files that went
  * missing or changed size since it was made: an antivirus that took a DLL
- * away, an edit by hand (docs/DEFECTS.md, Д-300). The size, not the sha256,
+ * away, an edit by hand. The size, not the sha256,
  * is checked at every start — hashing the whole runtime would take seconds —
  * so a change that keeps a file's size is not seen.
  *
  * @returns {Promise<{ state: "absent"|"foreign"|"finished", damaged: Array<{ path: string, bytes: number, sha256: string }> }>}
  */
 async function inspectCopy(folder, bundle, expected) {
-  // A marker that cannot be read, or is not JSON, is not a finished copy's: it is copied again (Д-308).
+  // A marker that cannot be read, or is not JSON, is not a finished copy's: it is copied again.
   const marker = await fs.readFile(path.join(folder, APP_MARKER), "utf8").then((text) => JSON.parse(text)).catch(() => null);
   if (marker?.kind !== "bundle" || marker.content_fingerprint !== bundle.fingerprint) {
     return { state: await fs.lstat(folder).then(() => "foreign", () => "absent"), damaged: [] };
@@ -169,8 +169,8 @@ async function inspectCopy(folder, bundle, expected) {
  * A file's bytes and mode, and nothing else. On macOS `fs.copyFile` is
  * copyfile(3), which carries the extended attributes along: the quarantine a
  * downloaded app's files hold among them, and a quarantined library is
- * refused by Gatekeeper once it is loaded from outside the app it came in
- * (docs/DEFECTS.md, Д-583). What lands is checked against bundle.json, which
+ * refused by Gatekeeper once it is loaded from outside the app it came in.
+ * What lands is checked against bundle.json, which
  * the app's signature seals, as every copy is.
  */
 async function copyBytes(from, to) {
@@ -219,7 +219,7 @@ async function repairCopy({ bundleRoot, folder, files, platform }) {
 /**
  * Move a folder aside, then remove it. Removed in place, a folder a client
  * holds a file of would be half removed by Windows; moved, it is either gone
- * whole or left whole (Д-300). What cannot be removed after the move is a
+ * whole or left whole. What cannot be removed after the move is a
  * `.partial` folder, which a later prune finishes off.
  */
 async function removeAside(folder) {
@@ -234,7 +234,7 @@ async function removeAside(folder) {
   await fs.rm(aside, { recursive: true, force: true }).catch(() => undefined);
 }
 
-/** Rename, again while Windows says a file in it is busy: a scanner opens what was just written (Д-185). */
+/** Rename, again while Windows says a file in it is busy: a scanner opens what was just written. */
 async function renameBusy(from, to) {
   for (let attempt = 0; ; attempt += 1) {
     try {
@@ -329,8 +329,7 @@ function samePlace(left, right, platform) {
  *
  * A drive that cannot hold a link says so in its own words when the link is
  * made — `ENOTSUP` under Wine, `EISDIR` from FAT32 and exFAT, `EPERM` from
- * some shares — and whatever it says, the error carries `cannotLink`
- * (docs/DEFECTS.md, Д-295, Д-299).
+ * some shares — and whatever it says, the error carries `cannotLink`.
  *
  * @param {{ runtimeRoot: string, folder: string, platform?: string, symlink?: typeof fs.symlink }} options
  * @returns {Promise<boolean>} whether the link moved
@@ -415,7 +414,7 @@ export async function provisionBundle({ bundleRoot, runtimeRoot, platform = proc
   } catch (error) {
     if (!error?.cannotLink) throw error;
     const said = String(error.message ?? "").split("\n")[0];
-    // Node's message starts with the code already: it is said once (Д-310, п. 1).
+    // Node's message starts with the code already: it is said once.
     linkError = error.code && !said.startsWith(`${error.code}:`) ? `${error.code}: ${said}` : said;
   }
   const appsRoot = path.dirname(folder);

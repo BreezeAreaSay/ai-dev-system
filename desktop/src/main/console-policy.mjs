@@ -22,18 +22,18 @@ const NAME_LIMIT = 80;
  * How wide a row of a confirmation is: a value goes on in rows of this many
  * characters, each further row indented, so the dialog stays within the
  * screen — GTK does not break a word, and a value may have no spaces. Rows of
- * the widest letters still fit the dialog's text (docs/DEFECTS.md, Д-292).
+ * the widest letters still fit the dialog's text.
  */
 const ROW = 48;
 
-/** The most rows of arguments a confirmation shows; a call that needs more is refused, not shown in part (Д-292). */
+/** The most rows of arguments a confirmation shows; a call that needs more is refused, not shown in part. */
 const MAX_ROWS = 36;
 
 /**
  * What would not show as itself in a confirmation — controls, line and
  * paragraph separators, and the invisible format marks (direction overrides,
  * zero-width marks): each is written as its code instead, so an argument stays
- * on its own line and reads as it is (docs/DEFECTS.md, Д-287).
+ * on its own line and reads as it is.
  */
 const UNSEEN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
 
@@ -45,8 +45,8 @@ function visible(text, limit) {
 
 /**
  * Each argument on a line of its own: its name, and its value as JSON, every
- * character shown as itself and both cut (Д-287), a long value going on in
- * indented rows (Д-292). For the console's confirmation, and for the settings
+ * character shown as itself and both cut, a long value going on in
+ * indented rows. For the console's confirmation, and for the settings
  * the page may change only after one.
  *
  * @param {Array<[string, unknown]>} entries
@@ -104,7 +104,7 @@ export function consoleDecision(request, tools) {
   if (!tool) return { refused: `The daemon lists no tool ${JSON.stringify(String(request.tool)).slice(0, 80)} to this app.` };
   if (Object.keys(request.args ?? {}).length > MAX_ARGUMENTS) return { refused: `A console call has at most ${MAX_ARGUMENTS} arguments.` };
   // Only the arguments the tool's schema names: the form sends no other, and a
-  // name the page made up is one more thing the confirmation would have to show (Д-287).
+  // name the page made up is one more thing the confirmation would have to show.
   const named = tool.inputSchema?.properties && typeof tool.inputSchema.properties === "object" ? tool.inputSchema.properties : {};
   const unknown = Object.keys(request.args ?? {}).find((name) => !Object.hasOwn(named, name));
   if (unknown !== undefined) return { refused: `${tool.name} takes no argument ${JSON.stringify(visible(unknown, NAME_LIMIT).text)}.` };
@@ -140,7 +140,7 @@ export function confirmationDialog(tool, args, t) {
 /**
  * The confirmation before the page changes a setting that decides where the
  * daemon reaches out to, what it reads and writes, or which tools AI clients
- * get (ipc-policy.mjs, CONFIRMED_SETTINGS; docs/DEFECTS.md, Д-288): each new
+ * get (ipc-policy.mjs; CONFIRMED_SETTINGS): each new
  * value on a line of its own, Cancel as the default.
  *
  * @param {Record<string, unknown>} changes

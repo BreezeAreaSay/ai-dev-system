@@ -1,6 +1,6 @@
 // Below this comment, a byte-for-byte copy of src/core/semver-lite.mjs: hooks
-// run in other repositories with no access to the server package (AGENTS.md,
-// rule 3), and a contract test fails the moment the two differ.
+// run in other repositories with no access to the server package, and a
+// contract test fails the moment the two differ.
 /**
  * Just enough semver to reason about npm advisories without a dependency.
  *

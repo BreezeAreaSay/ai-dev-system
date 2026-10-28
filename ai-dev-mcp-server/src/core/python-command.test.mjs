@@ -6,7 +6,7 @@ import { bundledPythonPath, probePython, resolvePythonCommand } from "./python-c
 
 const nothing = () => false;
 
-test("without AI_DEV_PYTHON or a bundled runtime, each platform gets the name its installers provide (Д-94)", () => {
+test("without AI_DEV_PYTHON or a bundled runtime, each platform gets the name its installers provide", () => {
   assert.equal(resolvePythonCommand({ env: {}, platform: "win32", execPath: "C:\\Program Files\\nodejs\\node.exe", exists: nothing }), "python");
   assert.equal(resolvePythonCommand({ env: {}, platform: "darwin", execPath: "/usr/local/bin/node", exists: nothing }), "python3");
   assert.equal(resolvePythonCommand({ env: {}, platform: "linux", execPath: "/usr/bin/node", exists: nothing }), "python3");
@@ -27,7 +27,7 @@ test("a runtime that ships Python beside Node uses it, on either separator", () 
   assert.equal(resolvePythonCommand({ env: {}, platform: "linux", execPath: "/opt/runtime/node/bin/node", exists: (file) => file === posix }), posix);
 });
 
-test("a Python counts only when it answers --version as Python 3 (Д-139)", async () => {
+test("a Python counts only when it answers --version as Python 3", async () => {
   const locate = async (command) => (command.startsWith("/") ? command : `/usr/bin/${command}`);
   const answering = (answer) => async () => ({ ok: true, exitCode: 0, stdout: "", stderr: "", timedOut: false, ...answer });
   assert.deepEqual(await probePython("python3", { locate, runner: answering({ stdout: "Python 3.13.16\n" }) }), { command: "python3", version: "3.13.16" });

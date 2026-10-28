@@ -350,7 +350,7 @@ test("a rule written here is the rule the installed guard enforces", async (t) =
 });
 
 
-// Д-16. `(a|a)+$` passes every structural check here — the quantifier is over an
+// `(a|a)+$` passes every structural check here — the quantifier is over an
 // alternation, not over another quantifier — and needs 38.8 seconds against
 // twenty-eight characters. Two ways in, so two defences: the tool refuses to
 // write it, and the guard refuses to spend more than the budget on it even when
@@ -383,7 +383,7 @@ test("a pattern that backtracks catastrophically is refused, even though its own
   );
 });
 
-test("a machine too busy to start a match: the rule is not written unchecked, and a listing says the machine, not the rules ahead (Д-239)", async (t) => {
+test("a machine too busy to start a match: the rule is not written unchecked, and a listing says the machine, not the rules ahead", async (t) => {
   const root = await tempProject(t, defaultPolicy("standard"));
   const busy = async (jobs) => jobs.map(() => ({
     matched: null,
@@ -405,7 +405,7 @@ test("a machine too busy to start a match: the rule is not written unchecked, an
   assert.ok(!described.problems.some((problem) => /rules before it/.test(problem)), "the rules ahead of it are not blamed");
 });
 
-test("the probes ran, the example did not: the rule is still not written (Д-383)", async (t) => {
+test("the probes ran, the example did not: the rule is still not written", async (t) => {
   const root = await tempProject(t, defaultPolicy("standard"));
   let call = 0;
   // The first batch is the pattern's probes, answered; the next is its example, which no worker reached.
@@ -431,11 +431,11 @@ test("the probes ran, the example did not: the rule is still not written (Д-383
   assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), []);
 });
 
-// A worker that failed answers `checked: true` with its error (Д-384): under a process limit, EAGAIN.
+// A worker that failed answers `checked: true` with its error: under a process limit, EAGAIN.
 const failedMatch = { matched: null, checked: true, timed_out: false, error: "EAGAIN", truncated: false };
 const ran = (matched) => ({ matched, checked: true, timed_out: false, error: "", truncated: false });
 
-test("a match worker that failed checked nothing: the rule is not written, and a listing names the failure (Д-393)", async (t) => {
+test("a match worker that failed checked nothing: the rule is not written, and a listing names the failure", async (t) => {
   const root = await tempProject(t, defaultPolicy("standard"));
   const nothingWritten = async () => assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), [], "nothing was written");
 
@@ -459,7 +459,7 @@ test("a match worker that failed checked nothing: the rule is not written, and a
   }
 
   // Whatever a matcher answers besides — here nothing at all for the samples — a rule is not written unseen to fire:
-  // a sample left without an answer could not be checked (Д-417).
+  // a sample left without an answer could not be checked.
   let asked = 0;
   await assert.rejects(
     upsertPolicyRule({ projectRoot: root, rule: RULE, match: async (jobs) => (++asked === 1 ? jobs.map(() => ran(false)) : []) }),
@@ -477,7 +477,7 @@ test("a match worker that failed checked nothing: the rule is not written, and a
   assert.deepEqual(report.rules.filter((entry) => entry.id !== RULE.id).map((entry) => entry.match_error), [null, null, null]);
 });
 
-test("a refusal names the sample it is about, and a sample that overran its budget is said before one left unchecked (Д-397)", async (t) => {
+test("a refusal names the sample it is about, and a sample that overran its budget is said before one left unchecked", async (t) => {
   const root = await tempProject(t, defaultPolicy("standard"));
   const after = (answers) => {
     let call = 0;
@@ -500,7 +500,7 @@ test("a refusal names the sample it is about, and a sample that overran its budg
   assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), [], "nothing was written");
 });
 
-test("a sample's answer about the rule is said before a sample that could not be checked (Д-417)", async (t) => {
+test("a sample's answer about the rule is said before a sample that could not be checked", async (t) => {
   const root = await tempProject(t, defaultPolicy("standard"));
   const after = (answers) => {
     let call = 0;
@@ -518,7 +518,7 @@ test("a sample's answer about the rule is said before a sample that could not be
   assert.deepEqual((await readPolicy(root)).rules.filter((rule) => rule.id === RULE.id), [], "nothing was written");
 });
 
-test("a match the matcher gave no answer for checked nothing: not a cost probe, not a sample, not in a listing (Д-417)", async (t) => {
+test("a match the matcher gave no answer for checked nothing: not a cost probe, not a sample, not in a listing", async (t) => {
   const root = await tempProject(t, defaultPolicy("standard"));
   const noAnswer = /could not be checked, because the match worker failed \(it gave no answer for this match\)\./;
   // No answers at all for the probes of a pattern the real matcher times out on.
@@ -550,7 +550,7 @@ test("a match the matcher gave no answer for checked nothing: not a cost probe, 
   assert.equal(report.counts.broken, 1);
 });
 
-test("what a failed match said is put in brackets without the full stop it ended with, and never left empty (Д-417)", async (t) => {
+test("what a failed match said is put in brackets without the full stop it ended with, and never left empty", async (t) => {
   const root = await tempProject(t, defaultPolicy("standard"));
   const failing = (error) => async (jobs) => jobs.map(() => ({ ...failedMatch, error }));
   for (const [error, said] of [["spawn EAGAIN.", "spawn EAGAIN"], ["it stopped at v1.2. \n", "it stopped at v1.2"], ["", "it gave no reason"], [" . ", "it gave no reason"]]) {
@@ -565,7 +565,7 @@ test("what a failed match said is put in brackets without the full stop it ended
   }
 });
 
-test("a rule that is off after the edit is not matched at all: switched off or edited while off, it is written where no match can run; switched on, it is matched again (Д-413)", async (t) => {
+test("a rule that is off after the edit is not matched at all: switched off or edited while off, it is written where no match can run; switched on, it is matched again", async (t) => {
   const root = await tempProject(t, defaultPolicy("standard"));
   await upsertPolicyRule({ projectRoot: root, rule: RULE });
   // A worker that cannot be made, as under a process limit: every match fails. Each request is counted.
@@ -611,10 +611,10 @@ test("a rule that is off after the edit is not matched at all: switched off or e
   assert.equal((await stored(late.id)).enabled, false);
 });
 
-test("a rule that is off with a sample that answers against it is listed as one upsert_policy_rule will not switch on, not as one an edit disarmed (Д-420, Д-458)", async (t) => {
+test("a rule that is off with a sample that answers against it is listed as one upsert_policy_rule will not switch on, not as one an edit disarmed", async (t) => {
   const root = await tempProject(t, defaultPolicy("standard"));
-  // Written off, so their samples were never matched (Д-413): the example never matched, the counter-example always did;
-  // and the pattern that backtracks catastrophically on its example is one the guard does not run while it is off (Д-436).
+  // Written off, so their samples were never matched: the example never matched, the counter-example always did;
+  // and the pattern that backtracks catastrophically on its example is one the guard does not run while it is off.
   const unproved = { id: "destroy-later", event: "bash", pattern: "terraform destroy", action: "block", message: "Ask a human.", example: "terraform plan", enabled: false };
   const broad = { id: "kubectl-later", event: "bash", pattern: "kubectl\\s+", action: "warn", message: "Careful.", example: "kubectl delete pod x", counter_example: "kubectl get pods", enabled: false };
   const slow = { ...CATASTROPHIC_RULE, id: "slow-later", example: `${"a".repeat(40)}!`, enabled: false };
@@ -641,11 +641,11 @@ test("a rule that is off with a sample that answers against it is listed as one 
   assert.match(edited[slow.id].problems[0], /: it backtracks catastrophically, and the guard — which runs it on every Bash command and every file write — will abandon it instead of answering\. /);
 });
 
-test("where no worker thread can be made at all, a rule is still switched off, and switching it on is refused (Д-413)", async (t) => {
+test("where no worker thread can be made at all, a rule is still switched off, and switching it on is refused", async (t) => {
   const root = await fs.realpath(await tempProject(t, defaultPolicy("standard")));
   await upsertPolicyRule({ projectRoot: root, rule: RULE });
   const module = pathToFileURL(fileURLToPath(new URL("./policy-rules.mjs", import.meta.url))).href;
-  // Under --permission without --allow-worker no thread can be made: what Д-413 measured, with the real matcher.
+  // Under --permission without --allow-worker no thread can be made: measured here with the real matcher.
   const script = `const { upsertPolicyRule } = await import(${JSON.stringify(module)});
 const projectRoot = ${JSON.stringify(root)};
 const off = await upsertPolicyRule({ projectRoot, rule: { id: "block-force-push", enabled: false } });

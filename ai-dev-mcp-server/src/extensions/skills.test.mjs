@@ -173,7 +173,7 @@ test("rebuild_index writes every registry file and reports what it built", async
   assert.deepEqual(calls.at(-1), ["markSearchIndexDirty", "skill registry rebuilt"]);
 });
 
-test("two rebuilds of one registry run one after the other: its folders are rewritten whole (Д-345)", async (t) => {
+test("two rebuilds of one registry run one after the other: its folders are rewritten whole", async (t) => {
   const { registry, host } = await createFixture(t);
   const events = [];
   const collect = host.collectCustomSkills;
@@ -271,7 +271,7 @@ test("semantic duplicate refinement is off by default and reaches the embedder w
   assert.equal(semantic.duplicates.semantic_evaluated, 0);
 });
 
-test("near duplicates are confirmed by the model, and without it keep their lexical verdict and say why (Д-144)", async (t) => {
+test("near duplicates are confirmed by the model, and without it keep their lexical verdict and say why", async (t) => {
   const copy = registryItem({ name: "feature-builder-copy", path: "custom/feature-builder-copy/SKILL.md" });
   const { registry, calls, host, vaultRoot } = await createFixture(t, { skills: [registryItem(), copy] });
   const folder = path.join(vaultRoot, "03-skills-catalog", "sources", "custom", "feature-builder-copy");

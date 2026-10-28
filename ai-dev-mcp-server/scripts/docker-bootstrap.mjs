@@ -9,7 +9,7 @@
  * It used to run the registry alone, which left a fresh container with no index
  * and no benchmark: four critical health checks failed, every search tool
  * refused, and the first thing a new user saw was `Health: fail` on a correct
- * install (docs/DEFECTS.md, Д-57).
+ * install.
  *
  * The image builds all of it into its own /data, which Docker copies into a new
  * volume (`scripts/docker-prepare-data.mjs`): on such a volume's first start the
@@ -48,25 +48,25 @@ import {
  * A start waits for another one building the same volume — a 2.x volume's first
  * start takes 15–20 s — but not past this long from its own start: a client
  * gives `initialize` 60 s (the MCP SDK's default), and a session on what is
- * built beats none (docs/DEFECTS.md, Д-326, Д-336, Д-340).
+ * built beats none.
  */
 const START_WAIT_MS = 40_000;
 
 /**
  * The holder beats every 3 s, and one that has not for 20 s is taken for killed:
  * a fifth of a CPU left 6 s between two beats, a tenth 11 s, as the index is
- * built in one piece (Д-330, Д-336).
+ * built in one piece.
  */
 const FIRST_RUN_LOCK = Object.freeze({ staleMs: 20_000, heartbeatMs: 3_000 });
 
-/** At most this long for Docker to finish filling a new volume, out of the start's {@link START_WAIT_MS} (Д-355). */
+/** At most this long for Docker to finish filling a new volume, out of the start's {@link START_WAIT_MS}. */
 const COPY_WAIT_MS = 20_000;
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const vaultRoot = path.resolve(process.env.AI_DEV_VAULT_ROOT || "/data/ai-dev-system");
 
 // A new volume Docker is still filling from the image, as another client's start made it, is read only once the
-// copy is done — the seed is synced as the server's module loads, so that is loaded after (docs/DEFECTS.md, Д-355).
+// copy is done — the seed is synced as the server's module loads, so that is loaded after.
 // The entrypoint makes the state folder first; the image's data has none.
 const copy = await awaitImageDataCopy({
   dataRoot: path.dirname(vaultRoot),
@@ -74,7 +74,7 @@ const copy = await awaitImageDataCopy({
   timeoutMs: COPY_WAIT_MS
 });
 // One that waited out its time still uses the record, and removes it: left, it would have the copy's own start date
-// back folders this one never saw, and a registry built without them would read as current for good (Д-358).
+// back folders this one never saw, and a registry built without them would read as current for good.
 if (copy.outcome === "timed-out") {
   process.stderr.write(`→ This new volume still holds less than the image's data after ${Math.round(copy.waited_ms / 1000)} s — `
     + "Docker is still filling it, or its copy stopped: this start goes on with what is there, and a later one finishes the rest.\n");
@@ -94,7 +94,7 @@ async function exists(target) {
   return fs.access(target).then(() => true).catch(() => false);
 }
 
-/** A check that only feeds the report: one that cannot be made says why, and the start goes on (Д-337). */
+/** A check that only feeds the report: one that cannot be made says why, and the start goes on. */
 async function reported(check) {
   try {
     return { value: Boolean(await check()), error: "" };
@@ -106,8 +106,7 @@ async function reported(check) {
 /**
  * The optional steps as `setup` finds them: the model checked against its
  * manifest, the vectors by the index's own count, the browser where the runner
- * looks for it — so a start says what this volume has, not what it might
- * (docs/DEFECTS.md, Д-332).
+ * looks for it — so a start says what this volume has, not what it might.
  */
 async function optionalState(indexStatus) {
   const env = process.env;
@@ -119,7 +118,7 @@ async function optionalState(indexStatus) {
   }));
   const model = await reported(async () => {
     const status = await modelStatus({ manifest: readDenseManifest(), dir: modelDir, env });
-    // One this user cannot read is a check that could not be made (Д-337, Д-359).
+    // One this user cannot read is a check that could not be made.
     if (status.unreadable) throw new Error(status.unreadable);
     return status.installed;
   });
@@ -137,15 +136,15 @@ async function optionalState(indexStatus) {
 /**
  * The optional steps in the image's words: it has no setup flags. The model
  * goes into the volume with one run of its own, which embeds the documents too;
- * the browser comes with the `-browser` variant (docs/DEFECTS.md, Д-328, Д-332).
+ * the browser comes with the `-browser` variant.
  */
 function imageReason({ modelDir, qaDependencies, unchecked, present, vectors = 0 }) {
   const install = dockerCommand("model install");
   // A folder of the host's at /models is the model the sessions use, whole or not: what is not whole is put right
-  // on the host, as `embedding_status` says, not installed into a volume they would not read (Д-350).
+  // on the host, as `embedding_status` says, not installed into a volume they would not read.
   const mounted = modelDir === DOCKER_MOUNTED_MODEL_DIR;
   // A model mounted from the host is embedded with, not installed: `setup
-  // --model` finds it whole and builds the vectors, downloading nothing (Д-341).
+  // --model` finds it whole and builds the vectors, downloading nothing.
   const embed = mounted ? dockerEmbedCommand() : install;
   return (step, state) => {
     if (unchecked[step.id]) return `could not be checked: ${unchecked[step.id]}`;
@@ -157,12 +156,12 @@ function imageReason({ modelDir, qaDependencies, unchecked, present, vectors = 0
     }
     if (step.id === "dense_model") {
       if (state === "present") return `installed in ${modelDir}`;
-      // This volume only for a name read at /data: the default by its name, a mount with no name by where it is (Д-539, Д-545).
+      // This volume only for a name read at /data: the default by its name, a mount with no name by where it is.
       return mounted ? `not whole — ${containerModelAdvice(modelDir)}` : `not installed — \`${install}\` puts it ${dataPlace(dataVolume())}`;
     }
     if (mounted && !present.dense_model) {
       const why = `the model at /models ${unchecked.dense_model ? "could not be checked" : "is not whole yet"}`;
-      // What it embedded before stays (Д-363).
+      // What it embedded before stays.
       return vectors ? `${vectors} kept; none added while ${why}` : `none: ${why}`;
     }
     if (state === "stale") return `documents indexed since have none — \`${embed}\` embeds them`;
@@ -190,9 +189,9 @@ async function firstRunSteps() {
   const actions = createRequiredActions({ callTool });
   const announce = (step) => process.stderr.write(`→ ${step.title}: ${step.detail}\n`);
 
-  // The registry is dated as far back as a file clock may lag (Д-135): built
+  // The registry is dated as far back as a file clock may lag: built
   // within that much of a seed sync that changed the catalogue, it would read
-  // as stale at the next start and be built again for nothing (Д-328).
+  // as stale at the next start and be built again for nothing.
   const changed = seedSync?.status === "synced" && (seedSync.added + seedSync.updated + seedSync.removed) > 0;
   if (changed && plan.some((step) => step.id === "skill_registry" && step.run)) await sleep(FILE_CLOCK_MARGIN_MS);
 
@@ -236,9 +235,9 @@ try {
 
   // Each client session is a container of its own, and three clients started
   // at once build one volume: the steps go one start at a time, and the next
-  // finds built what the first built (docs/DEFECTS.md, Д-326). A start that is
+  // finds built what the first built. A start that is
   // still waiting when a client would give up serves what is built — and does
-  // not build from a vault another start is still syncing (Д-336, Д-340).
+  // not build from a vault another start is still syncing.
   let release = null;
   const syncWaitedOut = seedSync?.status === "failed" && /^Timed out after \d+ ms waiting for the lock/.test(String(seedSync.error ?? ""));
   if (syncWaitedOut) {

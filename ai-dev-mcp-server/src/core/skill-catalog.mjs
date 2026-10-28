@@ -72,8 +72,7 @@ export function isMembraneSkill(item) {
  * Where the Membrane catalogue can sit, as source ids: a vault keeps it as a
  * source of its own, the bundled seed under `external/`. Code that meant
  * "Membrane" but tested one layout's path never matched the other, and in the
- * seed all 3 074 connectors were embedded and ranked like any other skill
- * (docs/DEFECTS.md, Д-91).
+ * seed all 3 074 connectors were embedded and ranked like any other skill.
  */
 export const MEMBRANE_SOURCE_IDS = Object.freeze(["membrane/application-skills", "external/membrane"]);
 

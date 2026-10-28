@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 // own patterns — `*.test.js`, `*-test.js`, `*_test.js`, `test-*.js`, `test.js`
 // and anything under a `test/` directory, for .js, .cjs and .mjs alike. A
 // script that only happens to match ran as a unit test: the upgrade scenario,
-// two network installs and a git worktree included (docs/DEFECTS.md, Д-112).
+// two network installs and a git worktree included.
 const NODE_TEST_PATTERN = /(?:[-_]test|^test-.*|^test)\.(?:c|m)?js$/;
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

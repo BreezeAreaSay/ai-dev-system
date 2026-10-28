@@ -10,8 +10,8 @@ import { fileURLToPath } from "node:url";
 // step, so the file can be edited but not re-grown.
 import { SYSTEM_LINE_CEILING } from "../src/core/system-health.mjs";
 // The size rules themselves live in src/core so they can be tested without
-// breaking a real file on purpose and putting it back
-// (docs/DEFECTS.md, Д-12). This file is the input and output
+// breaking a real file on purpose and putting it back.
+// This file is the input and output
 // around them.
 import {
   MODULE_LINE_CEILING,
@@ -19,7 +19,7 @@ import {
   evaluateLineBudget
 } from "../src/core/line-budget.mjs";
 // The forbidden calls are found by what the code does, not by one spelling of
-// it (docs/DEFECTS.md, Д-267): the rules and their tests live in src/core.
+// it: the rules and their tests live in src/core.
 import { forbiddenCalls } from "../src/core/forbidden-calls.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -48,7 +48,7 @@ async function sourceFiles(directory, extensions = [".mjs"]) {
 
 // `hooks/` is copied into other people's repositories and runs there: the
 // syntax check and the forbidden calls hold for it as well; the line ceiling
-// does not, as each hook is one file by design (docs/DEFECTS.md, Д-172).
+// does not, as each hook is one file by design.
 const files = [
   ...await sourceFiles(path.join(root, "bin")),
   ...await sourceFiles(path.join(root, "src")),
@@ -58,10 +58,10 @@ const files = [
 
 // The desktop app (`desktop/`, beside this package in the repository) is held
 // to the same rules: the syntax check, the forbidden calls and the line
-// ceiling (docs/DEFECTS.md, Д-256). Its tests call eval and new Function inside
+// ceiling. Its tests call eval and new Function inside
 // the page on purpose — to show the page's policy refuses them — so those two
-// are looked for in its code only; a shell and exec in its tests too
-// (Д-266, п. 3). A copy of this package without the app (the npm package, the
+// are looked for in its code only; a shell and exec in its tests too.
+// A copy of this package without the app (the npm package, the
 // image) has nothing to check.
 const desktopRoot = path.join(root, "..", "desktop");
 const DESKTOP_EXTENSIONS = [".mjs", ".js", ".cjs"];
@@ -80,7 +80,7 @@ for (const file of desktopFiles) {
   if (syntax.status !== 0) findings.push(`${relative}: syntax check failed: ${(syntax.stderr || syntax.stdout).trim()}`);
   const inTests = relative.startsWith("desktop/test/");
   const source = await fs.readFile(file, "utf8");
-  // A `.cjs` file is a script, with HTML-like comments a module does not have (Д-424).
+  // A `.cjs` file is a script, with HTML-like comments a module does not have.
   for (const finding of forbiddenCalls(source, { allowEval: inTests, script: file.endsWith(".cjs") })) findings.push(`${relative}:${finding.line}: ${finding.message}`);
   if (!inTests) modules.push({ path: relative, lines: countLines(source) });
 }

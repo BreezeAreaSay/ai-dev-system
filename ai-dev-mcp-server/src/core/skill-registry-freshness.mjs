@@ -7,7 +7,7 @@
  * skill search and the search index all read the registry, not the files. A
  * `git pull` that removes, adds or rewrites skills changes the files and leaves
  * the registry as it was, so the removed skills went on being recommended and
- * found (docs/DEFECTS.md, Д-119). Three signals tell, without reading a skill:
+ * found. Three signals tell, without reading a skill:
  *
  * - an entry whose `SKILL.md` is gone;
  * - an entry whose `SKILL.md` is newer than the registry;
@@ -23,17 +23,17 @@
  * otherwise no rebuild could ever make the registry current again. The future
  * starts after the current millisecond: files are stamped finer than
  * `Date.now()` counts, and a change in this very millisecond is not one from
- * the future (docs/DEFECTS.md, Д-160).
+ * the future.
  *
  * The registry's time is the moment its sources were read, not the moment it
  * was written: `rebuild_index` dates it back to its own start
  * ({@link dateSkillRegistry}), and a rewrite from the registry itself — the
  * taxonomy, the overlays — keeps the date it had ({@link keepSkillRegistryDate}).
  * A skill changed while a rebuild ran is then newer than the registry, and the
- * next look sees it (docs/DEFECTS.md, Д-128). It is dated a little earlier
+ * next look sees it. It is dated a little earlier
  * still, by {@link FILE_CLOCK_MARGIN_MS}: the clock that stamps files lags the
  * process's own, and a skill rewritten just after the rebuild noted its time
- * was stamped before that time in 284 runs of 300 (Д-135).
+ * was stamped before that time in 284 runs of 300.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import fs from "node:fs";
@@ -49,7 +49,7 @@ export const SKILL_REGISTRY_CHECK_INTERVAL_MS = 5_000;
  * in ticks (4 ms), Windows in ~16 ms ones, HFS+ keeps seconds and FAT two. The
  * registry is dated this much before its sources were read; the cost is one
  * rebuild too many when a skill changed in the two seconds before a rebuild
- * began (docs/DEFECTS.md, Д-135).
+ * began.
  */
 export const FILE_CLOCK_MARGIN_MS = 2_000;
 
@@ -90,7 +90,7 @@ function inside(root, target) {
 export function skillRegistryStaleness({ catalogRoot, builtAtMs, paths, nowMs = Date.now(), stat = statOrUndefined }) {
   const sourcesRoot = path.join(catalogRoot, "sources");
   // Up to the end of the current millisecond: a stamp finer than Date.now() in
-  // the same millisecond is now, not the future (Д-160).
+  // the same millisecond is now, not the future.
   const newer = (info) => info.mtimeMs >= builtAtMs && info.mtimeMs < nowMs + 1;
   const examples = [];
   const note = (text) => {
@@ -197,7 +197,7 @@ export async function checkSkillRegistry({ registryPath, catalogRoot, nowMs = Da
 /**
  * Inside a rebuild of the registry, whoever started it: its own reads go
  * straight to the file. A freshness check there would start a rebuild that
- * waits for the one running — its own (docs/DEFECTS.md, Д-347).
+ * waits for the one running — its own.
  */
 const rebuilding = new AsyncLocalStorage();
 
@@ -207,7 +207,7 @@ const holding = new AsyncLocalStorage();
 /**
  * The registry's writers go one at a time across processes: in Docker each
  * session is a container of one volume, and two rebuilds at once removed each
- * other's folders (Д-326, Д-345, Д-348). The holder beats every 3 s; one silent
+ * other's folders. The holder beats every 3 s; one silent
  * for 20 s is taken for killed.
  */
 export const SKILL_REGISTRY_LOCK = Object.freeze({ timeoutMs: 120_000, staleMs: 20_000, heartbeatMs: 3_000 });
@@ -229,7 +229,7 @@ export function withSkillRegistryLock(registryDir, operation) {
 /**
  * Run a writer that builds from the registry — the taxonomy — on a current
  * one: the registry is rebuilt first when its skills changed, then the writer
- * runs under the lock and reads it as it stands (docs/DEFECTS.md, Д-356). The
+ * runs under the lock and reads it as it stands. The
  * look comes before the lock: a rebuild another call already started takes
  * the lock itself, and waiting for that rebuild while holding the lock would
  * be waiting for itself again.
@@ -259,7 +259,7 @@ export async function withCurrentSkillRegistry(reader, registryDir, operation) {
  * next look rebuilds again. A registry that is not there at all is built the
  * same way: a server started without `ai-dev setup` — a client entry written by
  * hand, a new user of a shared server — routed nothing and failed `begin_task`
- * on a missing file (docs/DEFECTS.md, Д-575).
+ * on a missing file.
  *
  * @param {object} input
  * @param {string} input.registryPath

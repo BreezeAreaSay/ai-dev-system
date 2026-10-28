@@ -6,14 +6,14 @@
  * Every file streams through a sha256 tap into `<file>.part` and takes its
  * real name only once the digest matches. A half-written 600 MB weights file
  * that looks finished is the failure worth a rename: it is indistinguishable
- * from a good one until the model fails to load, hours later (Д-42).
+ * from a good one until the model fails to load, hours later.
  *
  * ## Resuming
  *
  * A broken transfer keeps its `.part`, and the next run asks for the rest with
  * `Range` instead of starting over — the Windows acceptance run lost 510 MB of
- * 542 to one stalled connection and fetched them all again (docs/DEFECTS.md,
- * Д-73, Д-98). Bytes on disk are only worth continuing if they are known to be
+ * 542 to one stalled connection and fetched them all again. Bytes on disk are
+ * only worth continuing if they are known to be
  * the start of the right file, so every `.part` has a `.part.json` beside it
  * naming the revision and the sha256 it is a prefix of; a `.part` without one,
  * or with another revision's, is deleted rather than trusted. The existing
@@ -48,8 +48,8 @@ import { hint } from "./install-layout.mjs";
  * No byte has arrived for this long, so the transfer is dead.
  *
  * A stalled CDN is not a slow one: the Windows acceptance run watched a
- * connection send 510 MB of 542 and then nothing, with no error and no end
- * (docs/DEFECTS.md, Д-73). The timer is re-armed by every chunk, so a slow link
+ * connection send 510 MB of 542 and then nothing, with no error and no end.
+ * The timer is re-armed by every chunk, so a slow link
  * is not cut off; only a silent one is. It covers connecting too.
  */
 export const DOWNLOAD_STALL_MS = 60_000;
@@ -146,7 +146,7 @@ function sourceName(source) {
 /**
  * Write all of `chunk`: a write may take fewer bytes than offered, and the
  * running hash covers every byte of the stream, so a short write left
- * unfinished would name wrong bytes on disk as verified (docs/DEFECTS.md, Д-150).
+ * unfinished would name wrong bytes on disk as verified.
  */
 export async function writeAll(handle, chunk) {
   let written = 0;
@@ -170,7 +170,7 @@ const WRITE_FAILURES = Object.freeze({
 /**
  * A disk that would not take the file, said as that and not as a broken
  * connection — a quota, a read-only mount and a folder without rights all
- * used to read "the connection … closed" (docs/DEFECTS.md, Д-150).
+ * used to read "the connection … closed".
  *
  * @param {Error & { code?: string }} error
  * @param {{ relative: string, target: string, kept: number|null }} where
@@ -253,7 +253,7 @@ export async function usablePart(target, { revision, sha256 }) {
  * Delete 2.x `.part` files for this target left behind by runs that are gone.
  *
  * 2.x named them `<file>.<pid>.part` and removed them in a `finally` that a
- * killed process never reaches (docs/DEFECTS.md, Д-73). Nothing writes that
+ * killed process never reaches. Nothing writes that
  * name any more; the age guard stays for a 2.x install running right now.
  *
  * @param {string} target - The final path, not the temporary one.
@@ -451,7 +451,7 @@ async function fetchFile({ url, target, relative, expected, revision, env, signa
     } catch (error) {
       if (signal?.aborted || stall.signal.aborted || error?.code === "ENOSPC" || error?.writeFailed) throw error;
       const wanted = size === null ? null : size - offset;
-      // Rounded alike, a few bytes short would read as all of it (Д-595).
+      // Rounded alike, a few bytes short would read as all of it.
       const expectedBytes = wanted === null ? "" : formatBytes(received) === formatBytes(wanted)
         ? `, ${wanted - received} bytes short of ${formatBytes(wanted)}` : ` of ${formatBytes(wanted)}`;
       throw new Error(`the connection to ${sourceName(url)} closed after ${formatBytes(received)}${expectedBytes}.`);
@@ -514,8 +514,7 @@ async function probeSize({ relative, sources, env, request, signal, stallMs, sil
   for (const source of sources) {
     if (silent.has(source)) continue;
     // The same window as a GET: a source, or a proxy, that takes the
-    // connection and never answers held the install here for ever
-    // (docs/DEFECTS.md, Д-149).
+    // connection and never answers held the install here for ever.
     const stall = new AbortController();
     const timer = setTimeout(() => stall.abort(), stallMs);
     try {
@@ -642,7 +641,7 @@ export async function downloadDenseModel({
     if (lastError) {
       const kept = await fileSize(`${file.target}${PART_SUFFIX}`);
       // Every source's answer, by its host, when there were several: the last
-      // one alone would hide a mirror that served other bytes (Д-595).
+      // one alone would hide a mirror that served other bytes.
       const said = (error) => String(error.message).trim().replace(/[.!?]$/, "");
       const reason = failures.length > 1 ? failures.map((entry) => `${sourceName(entry.source)}: ${said(entry.error)}`).join("; ") : said(lastError);
       const mismatched = failures.find((entry) => entry.error?.mismatch);

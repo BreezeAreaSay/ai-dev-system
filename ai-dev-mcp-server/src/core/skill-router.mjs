@@ -300,7 +300,7 @@ export function routeSkills({ task, projectTypes = [], stack = [], maxSkills = 3
  * *beside* the routed core, never instead of it, because the routed core is the
  * part with our verification contract on it. Without a reserved slot an
  * imported skill can only appear by pushing one of ours out, which is why all
- * 101 of them were invisible (docs/DEFECTS.md, Д-1).
+ * 101 of them were invisible.
  */
 export const RESERVED_ROUTING_ROLES = Object.freeze(["capability", "specialist"]);
 

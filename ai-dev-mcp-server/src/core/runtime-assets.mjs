@@ -59,7 +59,7 @@ export const VAULT_ONLY_NOTES = Object.freeze(["00-start-here.md"]);
  * the runtime trees symlinked into `09-mcp/`, which made it look exactly like a
  * hand-made Obsidian vault to the check below — so it was held to the whole
  * note list, including the entry page no distribution ships, and a correct
- * container reported missing notes forever (docs/DEFECTS.md, Д-57). The seed
+ * container reported missing notes forever. The seed
  * says what it is; the marker is in `public-seed.manifest.json` and lands at
  * the root of whatever it seeds.
  */

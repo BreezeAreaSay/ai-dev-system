@@ -3,7 +3,7 @@
   "productName": "AI Dev",
   "version": "3.0.0",
   "private": true,
-  "description": "The AI Dev desktop app for Windows, macOS and Linux: a tray, a first-run wizard and screens over the daemon every AI client shares.",
+  "description": "The AI Dev desktop app for Windows and Linux: a tray, a first-run wizard and screens over the daemon every AI client shares.",
   "license": "PolyForm-Noncommercial-1.0.0",
   "author": "stonebridgeway",
   "homepage": "https://github.com/stonebridgeway/ai-dev-system",

@@ -116,6 +116,12 @@ test("pullRequestTitle builds a conventional title within the length budget", ()
   assert.ok(long.startsWith("feat: add a CSV export button to the report screen"), long);
   assert.ok(!/[\s,;:-]$/.test(long), long);
   assert.equal(pullRequestTitle({ task: "   ", files: [] }), "feat: update");
+  // A feature that is also tested is a feature, and the subject ends on a whole clause, not on "and".
+  assert.equal(
+    pullRequestTitle({ task: "Add CSV export for the report, cover the change with tests, and run verify_task.", files: [] }),
+    "feat: add CSV export for the report, cover the change with tests"
+  );
+  assert.equal(pullRequestTitle({ task: "Add tests for the CSV export", files: [] }), "test: add tests for the CSV export");
 });
 
 test("outstandingItems reports unmet criteria, a missing verification and blocking hygiene", () => {

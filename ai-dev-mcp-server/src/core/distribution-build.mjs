@@ -172,7 +172,7 @@ export function npmLeavesOut(relative) {
   const name = parts.at(-1);
   const folders = parts.slice(0, -1);
   const vcs = ["CVS", ".svn", ".hg", ".git"];
-  // Measured on npm 10.9.4 and 11.17 (`npm pack --dry-run` over 26 names, Д-175, Д-185).
+  // Measured on npm 10.9.4 and 11.17 (`npm pack --dry-run` over 26 names).
   return folders.some((part) => vcs.includes(part) || part === "archived-packages")
     || vcs.includes(name)
     || [".gitignore", ".npmignore", ".npmrc", ".DS_Store", "npm-debug.log", ".lock-wscript"].includes(name)
@@ -189,7 +189,7 @@ const REPOSITORY_URL = "https://github.com/stonebridgeway/ai-dev-system";
 /**
  * The package's own `package.json`: the server's name for itself is
  * `ai-dev-mcp-server`, private; the package is `ai-dev-system`
- * (owner decision D4), with the server's dependencies and the CLI as its bin.
+ *, with the server's dependencies and the CLI as its bin.
  *
  * @param {object} input
  * @param {object} input.server - The server's package.json.
@@ -294,7 +294,7 @@ export async function verifyDistribution(root) {
  * Stop when a seed file is not what the seed's manifest says. Every installed
  * vault judges its files by that manifest: a note edited without the manifest
  * recomputed would look changed by the user in all of them, and never be
- * updated again (docs/DEFECTS.md, Д-185).
+ * updated again.
  *
  * @param {string} seedRoot - A staged seed folder holding `public-seed.manifest.json`.
  * @returns {Promise<number>} The number of files checked.

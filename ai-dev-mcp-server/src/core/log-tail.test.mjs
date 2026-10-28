@@ -55,7 +55,7 @@ test("the number of lines is bounded both ways", async (t) => {
   assert.equal((await tailLines(file, { lines: -5 })).lines.length, 1);
 });
 
-test("a log that is a link to another file is refused, not followed (Д-223)", { skip: process.platform === "win32" && "symbolic links need privileges on Windows" }, async (t) => {
+test("a log that is a link to another file is refused, not followed", { skip: process.platform === "win32" && "symbolic links need privileges on Windows" }, async (t) => {
   const root = await folder(t);
   const logs = path.join(root, "logs");
   await fs.mkdir(logs);
@@ -68,7 +68,7 @@ test("a log that is a link to another file is refused, not followed (Д-223)", {
   assert.equal((await tailLines(path.join(logs, "missing.log"), { links: false })).exists, false);
 });
 
-test("a log that is a second name for a file elsewhere — a hard link — is refused too (Д-233)", async (t) => {
+test("a log that is a second name for a file elsewhere — a hard link — is refused too", async (t) => {
   const root = await folder(t);
   const logs = path.join(root, "logs");
   await fs.mkdir(logs);
@@ -85,7 +85,7 @@ test("a log that is a second name for a file elsewhere — a hard link — is re
   assert.deepEqual((await tailLines(resolveLogFile(logs, "own").file, { links: false })).lines, ["one", "two"], "a log of its own is read");
 });
 
-test("a log is read only as the file looked at: one replaced meanwhile, a folder and a FIFO are refused for what they are, and nothing waits (Д-238)", async (t) => {
+test("a log is read only as the file looked at: one replaced meanwhile, a folder and a FIFO are refused for what they are, and nothing waits", async (t) => {
   const root = await folder(t);
   const logs = path.join(root, "logs");
   await fs.mkdir(logs);

@@ -44,7 +44,7 @@ async function setup(t) {
   return { root, dir: path.join(root, "models", "bge-m3-onnx"), stampDir: path.join(root, "cache", "dense-model") };
 }
 
-test("a model this user cannot read is not installed, and says why; a fault of the code still throws (Д-359)", async (t) => {
+test("a model this user cannot read is not installed, and says why; a fault of the code still throws", async (t) => {
   const { dir, stampDir } = await setup(t);
   await writeModel(dir);
   const denied = async () => {
@@ -55,11 +55,11 @@ test("a model this user cannot read is not installed, and says why; a fault of t
   assert.equal(status.unreadable, "EACCES: permission denied, stat '/models/bge-m3-onnx/config.json'");
   assert.deepEqual([status.present, status.missing, status.mismatched, status.partial], [[], [], [], []], "its files are unseen, not missing");
   assert.equal("unreadable" in await modelStatus({ manifest: MANIFEST, dir, stampDir, env: {} }), false, "a readable model has no such field");
-  // A file not there at all is missing beside the unreadable one (Д-366).
+  // A file not there at all is missing beside the unreadable one.
   const gone = Object.keys(MANIFEST.files)[0];
   await fs.rm(path.join(dir, ...gone.split("/")));
   assert.deepEqual((await modelStatus({ manifest: MANIFEST, dir, stampDir, env: {}, verify: denied })).missing, [gone]);
-  // A fault of the code throws, a string code of Node's own included (Д-366).
+  // A fault of the code throws, a string code of Node's own included.
   await assert.rejects(modelStatus({ manifest: MANIFEST, dir, stampDir, env: {}, verify: async () => { throw new TypeError("not a filesystem error"); } }), TypeError);
   await assert.rejects(modelStatus({ manifest: MANIFEST, dir, stampDir, env: {}, verify: async () => fs.stat(undefined) }), { code: "ERR_INVALID_ARG_TYPE" });
 });
@@ -156,14 +156,14 @@ test("import from the model folder, from a folder above it, and from a cache wit
 
   const self = await importModel({ manifest: MANIFEST, source: dir, dir, stampDir });
   assert.deepEqual([self.ready, self.copied], [true, []], "importing a model folder into itself is a verify");
-  // ... which fails, and says why, when a file in it is not the pinned one (Д-156).
+  // ... which fails, and says why, when a file in it is not the pinned one.
   await fs.writeFile(path.join(dir, "onnx", "model_int8.onnx"), FILES["onnx/model_int8.onnx"].subarray(0, 100));
   await assert.rejects(importModel({ manifest: MANIFEST, source: dir, dir, stampDir }),
     /bge-m3-onnx is the model folder itself, and onnx\/model_int8\.onnx in it is not the pinned file; there is no other copy here/);
 });
 
 test("import from a zip, nested one folder deep, plain or ZIP64, with / or \\ between folders", async (t) => {
-  // Windows archivers write `\` (Д-155).
+  // Windows archivers write `\`.
   const backslashed = await setup(t);
   const windowsZip = path.join(backslashed.root, "bge-m3.zip");
   await fs.writeFile(windowsZip, makeZip(Object.entries(FILES).map(([name, data]) => ({ name: `bge-m3-onnx\\${name.split("/").join("\\")}`, data }))));
@@ -250,7 +250,7 @@ test("remove deletes the model, its partials and its record, and leaves anything
   assert.deepEqual((await removeModel({ manifest: MANIFEST, dir, stampDir })).removed, [], "removing nothing is not an error");
 });
 
-test("remove refuses a folder that is not the model's, and leaves it whole (Д-153)", async (t) => {
+test("remove refuses a folder that is not the model's, and leaves it whole", async (t) => {
   const { root, stampDir } = await setup(t);
   const app = path.join(root, "my-app");
   await fs.mkdir(app, { recursive: true });
@@ -273,7 +273,7 @@ test("remove refuses a folder that is not the model's, and leaves it whole (Д-1
   assert.equal((await removeModel({ manifest: MANIFEST, dir: copied, stampDir })).removed.length, 5);
 });
 
-test("a lock that cannot be taken for another reason says that reason, not another operation (Д-154)", async (t) => {
+test("a lock that cannot be taken for another reason says that reason, not another operation", async (t) => {
   const { root } = await setup(t);
   const file = path.join(root, "not-a-folder");
   await fs.writeFile(file, "a file where a folder should be");

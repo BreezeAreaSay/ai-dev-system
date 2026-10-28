@@ -49,7 +49,7 @@ export function registryUrl(env = process.env) {
  * @returns {Promise<{ ok: boolean, reason?: string, versions?: string[], time?: Record<string, string>, deprecated?: Record<string, string> }>}
  */
 export async function fetchPackageMetadata(name, {
-  // Through HTTPS_PROXY, which `fetch` ignores (docs/DEFECTS.md, Д-145).
+  // Through HTTPS_PROXY, which `fetch` ignores.
   fetchImpl = proxyFetch,
   registry = registryUrl(),
   timeoutMs = REGISTRY_TIMEOUT_MS

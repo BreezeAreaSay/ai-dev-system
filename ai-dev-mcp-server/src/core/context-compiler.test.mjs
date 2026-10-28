@@ -40,7 +40,7 @@ test("context compiler selects task files, excludes secrets, and stays bounded",
   assert.equal(pack.unknowns.some((item) => /quality-gate\.md/.test(item)), false, "the project has a gate");
 });
 
-test("a project with no quality gate is told what writes one (Д-380)", async (t) => {
+test("a project with no quality gate is told what writes one", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "context-compiler-gate-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   await fs.writeFile(path.join(root, "report.mjs"), "export const rows = () => [];\n");

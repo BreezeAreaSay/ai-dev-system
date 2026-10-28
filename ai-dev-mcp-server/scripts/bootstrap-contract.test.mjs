@@ -10,11 +10,11 @@ import { stubDocker } from "./bootstrap-contract-stubs.mjs";
 
 // The bootstrap scripts of the Docker path, against a `docker` that writes down
 // every call and answers what each step needs (bootstrap-contract-stubs.mjs).
-// 3.0 cut them down to three steps (program phase 13): check Docker, pull the
+// 3.0 cut them down to three steps: check Docker, pull the
 // image, write the client configs — the configs run `docker run -i --rm …`
 // themselves, written by the image on Linux and macOS and by the checkout's own
 // CLI on Windows. bootstrap.sh's contract is here, bootstrap.ps1's in
-// bootstrap-ps1-contract.test.mjs (docs/DEFECTS.md, Д-449).
+// bootstrap-ps1-contract.test.mjs.
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = path.resolve(scriptDir, "..", "..");
@@ -181,7 +181,7 @@ test("a failed pull with a cached image stops instead of installing it; --allow-
   assert.match(allowed.stderr, /Installed from a stale image\. Registry pull failed\. The cached copy .* 2019-01-02T03:04:05/);
 });
 
-test("the handshake check wants the server's own answer, instructions and all (Д-89)", async (t) => {
+test("the handshake check wants the server's own answer, instructions and all", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const good = await runBootstrap(t, ["--skip-client-install"]);
   if (!good) return;
@@ -203,7 +203,7 @@ test("the image writes the configs with each client's own folder mounted, and no
   assert.ok(install, JSON.stringify(result.calls));
   const home = await fs.realpath(result.home).catch(() => result.home);
   const sources = mounts(install).map((mount) => mount.split(",").find((part) => part.startsWith("source="))?.slice("source=".length));
-  // The state folder by its real path, as `--state` below: the temp folder can be a link (docs/DEFECTS.md, Д-373).
+  // The state folder by its real path, as `--state` below: the temp folder can be a link.
   const state = await fs.realpath(path.join(result.home, ".ai-dev", "state"));
   assert.deepEqual(sources.sort(), [state, path.join(result.home, ".codex"), path.join(result.home, ".config", "Claude"), path.join(result.home, ".cursor")].sort());
   assert.ok(!sources.includes(result.home) && !sources.includes(home), "the home itself is not mounted");
@@ -226,7 +226,7 @@ test("the image writes the configs with each client's own folder mounted, and no
   assert.match(result.stdout, /AI Dev is ready/);
 });
 
-test("with every client the default and none here, nothing is written and that is said, not that clients need a restart (Д-406)", async (t) => {
+test("with every client the default and none here, nothing is written and that is said, not that clients need a restart", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const result = await runBootstrap(t, ["--skip-smoke"], { folders: [".unrelated"] });
   if (!result) return;
@@ -242,7 +242,7 @@ test("with every client the default and none here, nothing is written and that i
   assert.doesNotMatch(found.stdout, /No AI client found here/);
 });
 
-test("the last line says what was done to the clients: left as they were, written, or none found — and a client found is never one missing (Д-415, Д-417)", async (t) => {
+test("the last line says what was done to the clients: left as they were, written, or none found — and a client found is never one missing", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   // --skip-client-install with a client here: nothing written, and no restart asked for.
   const skipped = await runBootstrap(t, ["--skip-smoke", "--skip-client-install"], { folders: [".cursor"] });
@@ -291,7 +291,7 @@ test("a client named on the command line gets its folder made and mounted; Claud
   assert.match(without.stderr, /Claude Code: its CLI is not on PATH here\. Add the entry with:\n {2}claude mcp add-json ai-dev '\{"type":"stdio"/);
 });
 
-test("the 2.x runtime container is removed once the configs that named it are rewritten, not before (Д-328)", async (t) => {
+test("the 2.x runtime container is removed once the configs that named it are rewritten, not before", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const result = await runBootstrap(t, ["--skip-smoke"], { env: { OLD_RUNTIME: "1" }, folders: [".cursor"] });
   if (!result) return;
@@ -305,7 +305,7 @@ test("the 2.x runtime container is removed once the configs that named it are re
   assert.ok(!kept.calls.some((call) => call[0] === "rm"), "configs not rewritten still name it");
 });
 
-test("a client that is not one, no client at all, or a folder a mount cannot hold stops the script before anything runs (Д-328, Д-336)", async (t) => {
+test("a client that is not one, no client at all, or a folder a mount cannot hold stops the script before anything runs", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const typo = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,cursr"]);
   if (!typo) return;
@@ -323,14 +323,14 @@ test("a client that is not one, no client at all, or a folder a mount cannot hol
   assert.match(quoted.stderr, /has a comma or a double quote, which a docker --mount cannot hold/);
 });
 
-test("the state folder is the one the hooks use: AI_DEV_STATE_ROOT, AI_DEV_HOME's, ~/.ai-dev/state (Д-328)", async (context) => {
+test("the state folder is the one the hooks use: AI_DEV_STATE_ROOT, AI_DEV_HOME's, ~/.ai-dev/state", async (context) => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-"));
   try {
     const read = (env) => JSON.parse(plan([], home, env).stdout).state_path;
     const first = plan([], home);
     if (first.error?.code === "ENOENT") return context.skip("sh is unavailable on this host");
     assert.equal(read({}), path.join(home, ".ai-dev", "state"));
-    assert.equal(read({ AI_DEV_HOME: home }), path.join(home, ".ai-dev", "state"), "AI_DEV_HOME naming the home keeps 2.x's meaning (D2)");
+    assert.equal(read({ AI_DEV_HOME: home }), path.join(home, ".ai-dev", "state"), "AI_DEV_HOME naming the home keeps 2.x's meaning");
     assert.equal(read({ AI_DEV_HOME: path.join(home, "runtime") }), path.join(home, "runtime", "state"));
     assert.equal(read({ AI_DEV_STATE_ROOT: path.join(home, "elsewhere"), AI_DEV_HOME: path.join(home, "runtime") }), path.join(home, "elsewhere"));
   } finally {
@@ -338,7 +338,7 @@ test("the state folder is the one the hooks use: AI_DEV_STATE_ROOT, AI_DEV_HOME'
   }
 });
 
-test("a 2.x image, the way back, gets its configs from the 3.0 installer, pulled and seen to have one (Д-323, Д-329)", async (t) => {
+test("a 2.x image, the way back, gets its configs from the 3.0 installer, pulled and seen to have one", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const result = await runBootstrap(t, ["--skip-smoke", "--image", "example/ai-dev-system:2"], { env: { NO_CLI: "example/ai-dev-system:2", AI_DEV_INSTALLER_IMAGE: "example/installer:3" }, folders: [".cursor"] });
   if (!result) return;
@@ -349,7 +349,7 @@ test("a 2.x image, the way back, gets its configs from the 3.0 installer, pulled
   assert.ok(install.includes("example/installer:3"), "the installer runs from the 3.0 image");
   assert.ok(install.includes("--image=example/ai-dev-system:2"), "and the configs run the image asked for");
   for (const check of result.calls.filter((call) => call.includes("command -v ai-dev"))) {
-    // Both images are here by then; a Docker CLI before 20.10 knows no --pull (Д-344).
+    // Both images are here by then; a Docker CLI before 20.10 knows no --pull.
     assert.ok(!check.includes("--pull"), check.join(" "));
   }
 
@@ -360,7 +360,7 @@ test("a 2.x image, the way back, gets its configs from the 3.0 installer, pulled
   assert.ok(!both.calls.some((call) => call[0] === "run" && call.includes("install")));
 });
 
-test("the state folder is shared only where the image's user wrote it as this user; a Docker that did not run it tried nothing (Д-322, Д-331)", async (t) => {
+test("the state folder is shared only where the image's user wrote it as this user; a Docker that did not run it tried nothing", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const shared = (call) => call.find((argument) => argument.startsWith("--shared-state="))?.slice("--shared-state=".length);
   const linux = process.platform !== "darwin";
@@ -370,7 +370,7 @@ test("the state folder is shared only where the image's user wrote it as this us
   const probe = written.calls.find((call) => call[0] === "run" && call.includes("touch"));
   assert.equal(Boolean(probe), linux, "tried on Linux whatever the uid; Docker Desktop on macOS gives the files to the user");
   if (probe) {
-    // The image is here by then: no --pull, which a Docker CLI before 20.10 does not know (Д-351).
+    // The image is here by then: no --pull, which a Docker CLI before 20.10 does not know.
     assert.deepEqual(probe.slice(0, 6), ["run", "--rm", "--network", "none", "--entrypoint", "touch"]);
     assert.ok(probe.includes("ghcr.io/stonebridgeway/ai-dev-system:latest"), "with the image the configs run");
   }
@@ -379,7 +379,7 @@ test("the state folder is shared only where the image's user wrote it as this us
   if (!linux) return;
 
   // Written, but not as this user (a remapping Docker), or refused: the volume keeps the state, and
-  // bootstrap says why once — the installer it runs does not say it again (Д-342, Д-344).
+  // bootstrap says why once — the installer it runs does not say it again.
   for (const env of [{}, { PROBE: "refused" }]) {
     const kept = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,claude-code"], { env, folders: [".cursor"], files: { ".claude.json": "{}" } });
     assert.equal(kept.status, 0, kept.stderr);
@@ -394,7 +394,7 @@ test("the state folder is shared only where the image's user wrote it as this us
   assert.match(untried.stderr, /Run bootstrap\.sh again once Docker runs the image/);
 });
 
-test("a config that is a link into dotfiles is written through it: each folder on the way is mounted where the link spells it (Д-335, Д-338)", async (t) => {
+test("a config that is a link into dotfiles is written through it: each folder on the way is mounted where the link spells it", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   // Two clients whose links end in one folder: Docker refuses a target mounted twice.
   const result = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,gemini"], {
@@ -419,7 +419,7 @@ test("a config that is a link into dotfiles is written through it: each folder o
   }
 });
 
-test("a dotfiles folder that is itself a link is mounted at the path the config's link spells, from where it really is (Д-338)", async (t) => {
+test("a dotfiles folder that is itself a link is mounted at the path the config's link spells, from where it really is", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const result = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,gemini"], {
     folders: [".cursor", ".gemini", "src/dotfiles/cursor", "src/dotfiles/gemini"],
@@ -437,7 +437,7 @@ test("a dotfiles folder that is itself a link is mounted at the path the config'
   }
 });
 
-test("a link into the home, a folder above it or the root is not followed: that client alone is not configured (Д-339)", async (t) => {
+test("a link into the home, a folder above it or the root is not followed: that client alone is not configured", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const result = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,gemini,vscode"], {
     env: { OLD_RUNTIME: "1" },
@@ -459,7 +459,7 @@ test("a link into the home, a folder above it or the root is not followed: that 
   assert.ok(!result.calls.some((call) => call[0] === "rm"), "the 2.x container stays while a config that names it may be left");
 });
 
-test("a folder Docker will not mount costs its own client alone; Claude Code's entry needs no client folder (Д-339)", async (t) => {
+test("a folder Docker will not mount costs its own client alone; Claude Code's entry needs no client folder", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-unshared-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -482,7 +482,7 @@ test("a folder Docker will not mount costs its own client alone; Claude Code's e
   assert.deepEqual(mounts(entry), [], "the entry is printed, not written: no folder of the client's");
 });
 
-test("every client's folders are looked at in one run; a folder Docker refuses, link or not, costs its own client alone (Д-352)", async (t) => {
+test("every client's folders are looked at in one run; a folder Docker refuses, link or not, costs its own client alone", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-unshared-codex-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -496,13 +496,13 @@ test("every client's folders are looked at in one run; a folder Docker refuses, 
   assert.equal(install.find((argument) => argument.startsWith("--clients=")), "--clients=cursor");
   const looks = result.calls.filter((call) => call[0] === "run" && call.includes("--entrypoint") && call[call.indexOf("--entrypoint") + 1] === "true");
   assert.equal(looks.filter((call) => call.includes("--mount")).length, 3, "one look at all, then one at each client");
-  assert.equal(looks.filter((call) => !call.includes("--mount")).length, 0, "Cursor's look passing shows Docker runs the image: no run without folders (Д-362)");
+  assert.equal(looks.filter((call) => !call.includes("--mount")).length, 0, "Cursor's look passing shows Docker runs the image: no run without folders");
   const fine = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,codex"], { env: { CODEX_HOME: codexHome }, folders: [".cursor"] });
   assert.equal(fine.status, 0, fine.stderr);
   assert.equal(fine.calls.filter((call) => call[0] === "run" && call.includes("--entrypoint") && call[call.indexOf("--entrypoint") + 1] === "true").length, 1, "Docker took them all: one look");
 });
 
-test("a look at the folders that fails while Docker runs nothing at all blames no folder: it is said once, and the install goes on (Д-358, Д-360)", async (t) => {
+test("a look at the folders that fails while Docker runs nothing at all blames no folder: it is said once, and the install goes on", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const says = {
     deadline: "docker: Error response from daemon: failed to create task for container: context deadline exceeded",
@@ -528,7 +528,7 @@ test("a look at the folders that fails while Docker runs nothing at all blames n
   assert.equal(install.find((argument) => argument.startsWith("--clients=")), "--clients=cursor,gemini");
 });
 
-test("a refused folder is told from a failing engine by the looks that pass, not by one check; Docker Desktop's words come whole (Д-362, Д-366)", async (t) => {
+test("a refused folder is told from a failing engine by the looks that pass, not by one check; Docker Desktop's words come whole", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-unshared-codex-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -558,7 +558,7 @@ test("a refused folder is told from a failing engine by the looks that pass, not
   assert.equal(refused.calls.filter((call) => call[0] === "run" && call.includes("install")).length, 0);
 });
 
-test("a HOME spelled with a slash at its end mounts each folder once; a link into a folder not there is named (Д-353)", async (t) => {
+test("a HOME spelled with a slash at its end mounts each folder once; a link into a folder not there is named", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const slashed = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor"], {
     folders: [".cursor"], files: { ".cursor/real.json": "{}" }, links: { ".cursor/mcp.json": "real.json" }, homeSuffix: "/"
@@ -591,7 +591,7 @@ test("a client folder with a space in its path is mounted whole: macOS keeps the
   assert.ok(sources.includes(path.join(appData, "Claude")) && sources.includes(path.join(appData, "Code", "User")), sources.join(" | "));
 });
 
-test("one client that cannot be written does not stop the rest, and the exit says so (Д-335)", async (t) => {
+test("one client that cannot be written does not stop the rest, and the exit says so", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const result = await runBootstrap(t, ["--skip-smoke", "--clients", "cursor,claude-code"], {
     env: { INSTALL: "fail", OLD_RUNTIME: "1" }, claude: true, folders: [".cursor"], files: { ".claude.json": "{}" }
@@ -635,7 +635,7 @@ test("a model folder is mounted read-only for the installer, checked, and handed
   assert.equal(refused.calls.filter((call) => call[0] === "pull" || call[0] === "run").length, 0);
 
   // A bge-m3-onnx that is a link which leads nowhere: the image writing the configs could not tell, and no session
-  // would start over it, so it is refused here, before anything runs (Д-368).
+  // would start over it, so it is refused here, before anything runs.
   const linking = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-")));
   t.after(() => fs.rm(linking, { recursive: true, force: true }));
   await fs.symlink(path.join(linking, "unplugged", "bge-m3-onnx"), path.join(linking, "bge-m3-onnx"));
@@ -648,7 +648,7 @@ test("a model folder is mounted read-only for the installer, checked, and handed
   await fs.mkdir(path.join(linking, "unplugged", "bge-m3-onnx"), { recursive: true });
   const led = await runBootstrap(t, ["--skip-smoke", "--model-path", linking], { folders: [".cursor"] });
   assert.equal(led.status, 0, led.stderr);
-  // And it is said that every session needs what it leads to: Docker starts none while that is away (Д-385).
+  // And it is said that every session needs what it leads to: Docker starts none while that is away.
   assert.match(led.stderr, /\/bge-m3-onnx is a link to .*unplugged\/bge-m3-onnx: every session mounts what it leads to, so if that is a disk you disconnect, Docker starts no session while it is away, and the AI client's log shows Docker's "bind source path does not exist"\./);
   assert.ok(led.calls.find((call) => call[0] === "run" && call.includes("install")).includes(`--model=${linking}`));
 });
@@ -656,15 +656,15 @@ test("a model folder is mounted read-only for the installer, checked, and handed
 // The Windows installer, through pwsh where it exists (the ubuntu and macOS
 // runners carry it too). `-Plan` failed on the first CI run because its
 // document was stored in `$plan`, which is the switch itself under
-// PowerShell's case-insensitive names (docs/DEFECTS.md Д-70); this is the
+// PowerShell's case-insensitive names; this is the
 // test that would have said so before the Windows job did.
 
 // pwsh renders a thrown message through its ConciseView: coloured even with no
 // terminal, a gutter on every line, and wrapped at whatever width the host
-// reports — 80 on the runner, wider here (docs/DEFECTS.md Д-71). The message is
+// reports — 80 on the runner, wider here. The message is
 // what is under test, so the view is taken back off before matching.
 
-test("folders not named are the ones the entries it replaces mount, a 2.x entry's too; entries that differ stop it (Д-403)", async (t) => {
+test("folders not named are the ones the entries it replaces mount, a 2.x entry's too; entries that differ stop it", async (t) => {
   if (process.platform === "win32") return t.skip("the Unix script");
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bootstrap-folders-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -694,7 +694,7 @@ test("folders not named are the ones the entries it replaces mount, a 2.x entry'
   assert.equal(gone.status, 0, gone.stderr);
   assert.equal(word(gone.calls.find((call) => call[0] === "run" && call.includes("install")), "model"), undefined);
   assert.match(gone.stderr, /the model folder Cursor mounted, is not here/);
-  // A folder that holds 2.x's Python model and not 3.0's: not mounted, and the install goes on (Д-573).
+  // A folder that holds 2.x's Python model and not 3.0's: not mounted, and the install goes on.
   const python = path.join(root, "bge-m3");
   await fs.mkdir(python, { recursive: true });
   await fs.writeFile(path.join(python, "pytorch_model.bin"), "");
@@ -702,13 +702,13 @@ test("folders not named are the ones the entries it replaces mount, a 2.x entry'
   assert.equal(old.status, 0, old.stderr);
   assert.equal(word(old.calls.find((call) => call[0] === "run" && call.includes("install")), "model"), undefined);
   assert.match(old.stderr, /holds 2\.x's Python model and no bge-m3-onnx\/, which 3\.0 runs: none is mounted/);
-  // Any other folder is kept, as the first install took it: a 3.0 entry's empty model folder (Д-573).
+  // Any other folder is kept, as the first install took it: a 3.0 entry's empty model folder.
   const empty = path.join(root, "empty-models");
   await fs.mkdir(empty, { recursive: true });
   const waiting = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS: `model\\t${empty}\\tCursor\\n` } });
   assert.equal(waiting.status, 0, waiting.stderr);
   assert.equal(word(waiting.calls.find((call) => call[0] === "run" && call.includes("install")), "model"), await fs.realpath(empty));
-  // A folder that is not absolute, a hand edit, is not kept; a lookup that fails is said (Д-573).
+  // A folder that is not absolute, a hand edit, is not kept; a lookup that fails is said.
   const relative = await runBootstrap(t, ["--skip-smoke"], { folders: [".cursor"], projects: false, env: { FOLDERS: "projects\\t~/Dev\\tCursor\\n" } });
   assert.equal(word(relative.calls.find((call) => call[0] === "run" && call.includes("install")), "projects"), await fs.realpath(path.join(relative.home, "AI-Dev-Projects")));
   assert.match(relative.stderr, /~\/Dev, the projects folder Cursor mounted, is not an absolute path: it is not kept/);

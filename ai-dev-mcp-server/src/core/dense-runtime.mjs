@@ -6,11 +6,11 @@
  * duplicate check, what `embedding_status` reports and what the health check
  * grades. One answer for all of them, or each decides differently and a user
  * gets several accounts of one machine — and two of them went to a Python pool
- * the selected backend never was (docs/DEFECTS.md, Д-133, Д-144).
+ * the selected backend never was.
  *
  * "Is the model there" is answered from the record the last check left beside
  * the cache: an unchanged file is not read again, so the answer costs a few
- * `stat` calls rather than hashing 570 MB a minute (Д-143). It is still kept
+ * `stat` calls rather than hashing 570 MB a minute. It is still kept
  * for a minute, because a search asks it every time.
  */
 import fs from "node:fs";
@@ -64,7 +64,7 @@ export function createDenseRuntime({
    * An install, import or remove rewrites the verification record, in this
    * process or another, and that ends the minute early: `setup -- --model`
    * asks before the download and embeds right after it, and a stale "not
-   * installed" made the second step refuse (docs/DEFECTS.md, Д-148).
+   * installed" made the second step refuse.
    */
   async function onnxStatus({ refresh = false } = {}) {
     if (!refresh && probe && now() - probedAt < DENSE_PROBE_TTL_MS && await recordState() === probedRecord) return probe;
@@ -73,9 +73,9 @@ export function createDenseRuntime({
     } catch (error) {
       // A model this process cannot read is a model that is not ready, and why:
       // not an error that takes the health check and `embedding_status` down
-      // (docs/DEFECTS.md, Д-349). Its files are not missing, only unseen (Д-358);
-      // those not there at all are (Д-366). A fault of the code is a check that
-      // could not be made, not a model that cannot be read (Д-371).
+      //. Its files are not missing, only unseen;
+      // those not there at all are. A fault of the code is a check that
+      // could not be made, not a model that cannot be read.
       const message = String(error?.message ?? error);
       const missing = await filesNotThere({ manifest, dir: onnxModelDir }).catch(() => []);
       probe = typeof error?.syscall === "string"
@@ -106,7 +106,7 @@ export function createDenseRuntime({
     const onnx = await onnxStatus({ refresh });
     // A stat and a small JSON read per missing file, and only while the model
     // is not ready: what a stopped download left is what the sentence says. Not
-    // of a model this user cannot read: that is what it says first (Д-369).
+    // of a model this user cannot read: that is what it says first.
     const partial = [];
     for (const relative of onnx.ready || onnx.unreadable ? [] : onnx.missing ?? []) {
       const part = await usablePart(path.join(path.resolve(onnxModelDir), relative), { revision: manifest.revision, sha256: manifest.files[relative] });

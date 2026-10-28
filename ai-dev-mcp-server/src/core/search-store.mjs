@@ -19,7 +19,7 @@
  *   (seconds, 600 by default) like the helper's — a lock file in this
  *   package's protocol (`file-lock.mjs`), since Node has no `flock`;
  * - a file that is no longer a database is set aside and built again instead
- *   of failing every search (docs/DEFECTS.md, Д-116).
+ *   of failing every search.
  *
  * The lock, the write transaction's start and the checkpoint live in
  * `search-writer.mjs`.
@@ -57,7 +57,7 @@ const YIELD_EVERY = 64;
 
 const DENSE_COLUMNS = ["id", "vector", "dimensions", "model", "backend", "revision", "dtype", "content_hash", "mtime"];
 // 2.0.0's `dense_vectors`, from before a vector recorded its provenance: every one is the Python backend's, the only one
-// 2.x had then (docs/DEFECTS.md, Д-571).
+// 2.x had then.
 const UNRECORDED_COLUMNS = ["id", "vector", "dimensions", "model", "content_hash", "mtime"];
 const unrecorded = (columns) => columns.size === UNRECORDED_COLUMNS.length && UNRECORDED_COLUMNS.every((column) => columns.has(column));
 
@@ -132,7 +132,7 @@ function readIndexState(db) {
 
 /**
  * How many stored vectors each model made: a 2.x index can hold another
- * model's, which hybrid search does not compare (docs/DEFECTS.md, Д-148).
+ * model's, which hybrid search does not compare.
  */
 function readDenseModels(db) {
   if (!tableExists(db, "dense_vectors")) return [];
@@ -213,7 +213,7 @@ export async function indexStatus({ vaultRoot, indexPath, includeExternalProject
   if (changedIds.length) reasons.push("sources_changed");
   if (deletedIds.length) reasons.push("sources_deleted");
   // Built from another vault: a file two vaults shared before 3.0, or one
-  // copied from elsewhere (docs/DEFECTS.md, Д-195).
+  // copied from elsewhere.
   const builtFrom = meta.vault_root ?? "";
   if (builtFrom && canonicalFolder(builtFrom) !== canonicalFolder(vaultRoot)) reasons.push("vault_changed");
   const indexedFingerprint = meta.source_fingerprint ?? "";
@@ -240,7 +240,7 @@ export async function indexStatus({ vaultRoot, indexPath, includeExternalProject
     indexed_fingerprint: indexedFingerprint,
     vault_root: builtFrom,
     dense_enabled: isTrue(meta.dense_enabled),
-    // An index written before 3.0 without vectors still names a backend for them (Д-186).
+    // An index written before 3.0 without vectors still names a backend for them.
     dense_backend: isTrue(meta.dense_enabled) ? meta.dense_backend ?? "" : "",
     dense_revision: isTrue(meta.dense_enabled) ? meta.dense_revision ?? "" : "",
     dense_dtype: isTrue(meta.dense_enabled) ? meta.dense_dtype ?? "" : "",
@@ -404,8 +404,7 @@ function documentWriter(db) {
 /**
  * Between two slices of a write: let the event loop turn, say how far the write
  * is, and stop if the caller cancelled — the transaction around the write is
- * rolled back, so a cancelled rebuild leaves the index as it was
- * (docs/DEFECTS.md, Д-187).
+ * rolled back, so a cancelled rebuild leaves the index as it was.
  */
 async function between(done, total, { signal, onProgress } = {}) {
   await yieldToEventLoop();
@@ -469,7 +468,7 @@ async function writeChangedDocuments(db, docs, previousMeta, watch) {
   const write = documentWriter(db);
   // A changed document goes back to its own rowid; only a new one is appended.
   // The changed ones go first: appended before them, a new document could take
-  // the rowid one of them is coming back to (docs/DEFECTS.md, Д-127).
+  // the rowid one of them is coming back to.
   const ordered = [
     ...written.filter((doc) => indexed.has(doc.id)),
     ...written.filter((doc) => !indexed.has(doc.id))
@@ -568,7 +567,7 @@ async function writeIndex(db, docs, options) {
       dense_model_dir: expandedPath(options.denseModelDir ?? ""),
       dense_dimensions: DENSE_DIMENSIONS,
       // How the vectors were made, and nothing when there are none: until 3.0
-      // an index without vectors said they came from Python (docs/DEFECTS.md, Д-186).
+      // an index without vectors said they came from Python.
       dense_backend: settings.active ? provenance.backend : "",
       dense_revision: settings.active ? provenance.revision : "",
       dense_dtype: settings.active ? provenance.dtype : "",
@@ -686,7 +685,7 @@ export async function rebuildIndex(options) {
  * a cancel, a crash or a closed laptop lost every vector of the run. This is
  * the write in between: a batch at a time, each committed, with `meta` saying
  * what the vectors are, so a later rebuild keeps them and the next embedding
- * run starts where this one stopped (docs/DEFECTS.md, Д-98). A vector for a
+ * run starts where this one stopped. A vector for a
  * document the index does not have is skipped; the closing rebuild drops any
  * whose passage has changed since.
  *

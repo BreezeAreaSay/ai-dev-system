@@ -13,7 +13,7 @@ import { checkSupplyChain } from "../../hooks/supply-chain.mjs";
 import { TEST_HOST, TEST_PROXY_TLS, TEST_TLS, startModelHost, startProxy } from "../../test/fixtures/model-host.mjs";
 
 // The supply-chain hook and the fix registry used `fetch`, which reads no
-// proxy variable: behind a proxy nothing was checked (docs/DEFECTS.md, Д-145).
+// proxy variable: behind a proxy nothing was checked.
 // The hook carries its own copy of the server's proxy client (AGENTS.md,
 // rule 3), and the two must choose the same way.
 
@@ -74,7 +74,7 @@ test("the hook's copy of the proxy choice answers as the server's does", () => {
   }
 });
 
-test("the supply-chain hook and the fix registry go through HTTP_PROXY: registry, advisories and OSV (Д-145)", async (t) => {
+test("the supply-chain hook and the fix registry go through HTTP_PROXY: registry, advisories and OSV", async (t) => {
   const registry = await startRegistry();
   t.after(() => registry.close());
   const proxy = await startProxy({ hosts: { "registry.example.test": registry.port, "osv.example.test": registry.port } });
@@ -141,7 +141,7 @@ test("HTTPS goes through a CONNECT tunnel to the host's own certificate, POST bo
   assert.deepEqual(seen, ["POST /v1/querybatch {\"q\":1}"]);
 });
 
-test("an https:// proxy is checked by its own name in the hooks' copy too, for a tunnel and for plain HTTP (Д-207)", async (t) => {
+test("an https:// proxy is checked by its own name in the hooks' copy too, for a tunnel and for plain HTTP", async (t) => {
   const files = { "config.json": "{\"ok\":true}" };
   const host = await startModelHost({ files, tls: true });
   const plain = await startModelHost({ files });
@@ -163,7 +163,7 @@ test("an https:// proxy is checked by its own name in the hooks' copy too, for a
   );
 });
 
-test("through a tunnel the Host header names the port only when the address does, in both copies (Д-211)", async (t) => {
+test("through a tunnel the Host header names the port only when the address does, in both copies", async (t) => {
   const hosts = [];
   const server = https.createServer({ key: TEST_TLS.key, cert: TEST_TLS.cert }, (request, response) => {
     hosts.push(request.headers.host);
@@ -188,7 +188,7 @@ test("through a tunnel the Host header names the port only when the address does
   assert.deepEqual(hosts, [...expected, ...expected]);
 });
 
-test("a proxy that wants credentials is told apart from one that refused them, in both copies (Д-212)", async (t) => {
+test("a proxy that wants credentials is told apart from one that refused them, in both copies", async (t) => {
   const proxy = await startProxy({ hosts: { [TEST_HOST]: 9 }, credentials: "alice:secret" });
   t.after(() => proxy.close());
   const port = new URL(proxy.url).port;
@@ -248,7 +248,7 @@ test("a 301 after a POST is followed with a GET and no body; a 307 sends the bod
   }
 });
 
-test("answers come compressed and are decoded in both copies; the model download still asks for none (Д-167)", async (t) => {
+test("answers come compressed and are decoded in both copies; the model download still asks for none", async (t) => {
   const document = JSON.stringify({ name: "typescript", readme: "a long readme ".repeat(5000) });
   const encoders = {
     gzip: zlib.gzipSync,

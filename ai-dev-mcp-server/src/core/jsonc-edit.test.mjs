@@ -48,7 +48,7 @@ test("comments, trailing commas, CRLF and tabs survive an edit untouched", () =>
   assert.equal(removeMember(written, ["mcpServers"], "ai-dev"), original);
 });
 
-test("a comment after a member's value stays with that member, on insert and on remove (Д-172)", () => {
+test("a comment after a member's value stays with that member, on insert and on remove", () => {
   const original = "{\n  \"mcpServers\": {\n    \"github\": {} // GitHub\n  }\n}\n";
   const written = setMember(original, ["mcpServers"], "ai-dev", { command: "n" });
   assert.equal(written, "{\n  \"mcpServers\": {\n    \"github\": {}, // GitHub\n    \"ai-dev\": {\n      \"command\": \"n\"\n    }\n  }\n}\n");

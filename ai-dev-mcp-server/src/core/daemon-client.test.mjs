@@ -87,7 +87,7 @@ test("a daemon that never shows up is given up on at the timeout", async () => {
   assert.ok(Date.now() - started < 3_000);
 });
 
-test("a daemon that steps aside for one that never shows up is started again, a few times at most (Д-193)", async () => {
+test("a daemon that steps aside for one that never shows up is started again, a few times at most", async () => {
   const { spawnImpl, calls } = fakeSpawn(0);
   await assert.rejects(
     connectDaemon({ serverRoot: process.cwd(), cliPath: "/cli/ai-dev.mjs", version: "3.0.0", env: HOME_ENV, spawnImpl, timeoutMs: 1_000, restartAfterMs: 100 }),
@@ -117,7 +117,7 @@ const ownBuild = () => describeBuild({ serverRoot: process.cwd(), version: "3.0.
  */
 async function standIn(t, { build, buildParts, retired = false, sessions = 1, clientName = "cursor", answersStatus = true, endsOnStop = true }) {
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-  // Under /tmp: a long TMPDIR would cut the socket path short (Д-201).
+  // Under /tmp: a long TMPDIR would cut the socket path short.
   const directory = process.platform === "win32" ? "" : await fs.mkdtemp(path.join("/tmp", "dcl-"));
   const address = process.platform === "win32" ? `\\\\.\\pipe\\ai-dev-test-${process.pid}-${child.pid}` : path.join(directory, "s.sock");
   const secret = newSecret();
@@ -163,7 +163,7 @@ async function standIn(t, { build, buildParts, retired = false, sessions = 1, cl
   return { child, info, file };
 }
 
-// A stand-in this test killed may wait to be collected by this very process: exited is gone (Д-234).
+// A stand-in this test killed may wait to be collected by this very process: exited is gone.
 const gone = (pid) => ["gone", "exited"].includes(processState(pid, { ask: true }));
 
 test("status and stop with no daemon, and with descriptors whose daemons are long gone", async (t) => {
@@ -181,7 +181,7 @@ test("status and stop with no daemon, and with descriptors whose daemons are lon
   assert.equal(status.stale, true);
   assert.equal(status.reason, "pid 4194305 is not running");
   assert.equal(existsSync(daemonInfoPath(build.id)), true, "status only looks");
-  // stop clears what is left of daemons that are gone, and says there was nothing to stop (docs/DEFECTS.md, Д-194).
+  // stop clears what is left of daemons that are gone, and says there was nothing to stop.
   const stopped = await stopDaemons();
   assert.deepEqual(stopped.daemons.map((daemon) => [daemon.pid, daemon.stopped, daemon.gone]), [[4194305, true, true], [4194305, true, true]]);
   assert.equal(existsSync(daemonInfoPath(build.id)), false);
@@ -239,7 +239,7 @@ test("status shows the daemons of other builds and the retired ones with why; st
   for (const { child } of [mine, otherVault, old]) assert.equal(gone(child.pid), true);
 });
 
-test("stop counts a daemon that has exited and waits to be collected as stopped; where only ps could tell, it asks ps (Д-234)", async (t) => {
+test("stop counts a daemon that has exited and waits to be collected as stopped; where only ps could tell, it asks ps", async (t) => {
   await fs.rm(runtimeDir(), { recursive: true, force: true });
   t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
   const build = await ownBuild();
@@ -257,7 +257,7 @@ test("stop counts a daemon that has exited and waits to be collected as stopped;
   assert.ok(asks.filter(Boolean).length === 1 && asks.length <= 11, `ps once, after ten cheap looks: ${JSON.stringify(asks)}`);
 });
 
-test("stop that cannot tell whether a daemon's process still runs says so, rather than that it runs (Д-234)", async (t) => {
+test("stop that cannot tell whether a daemon's process still runs says so, rather than that it runs", async (t) => {
   await fs.rm(runtimeDir(), { recursive: true, force: true });
   t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
   const build = await ownBuild();
@@ -270,7 +270,7 @@ test("stop that cannot tell whether a daemon's process still runs says so, rathe
   assert.equal(running.daemons[0].reason, "it is still running");
 });
 
-test("a status answer of any reasonable length is read, and a daemon that does not answer status still takes stop (Д-196)", async (t) => {
+test("a status answer of any reasonable length is read, and a daemon that does not answer status still takes stop", async (t) => {
   await fs.rm(runtimeDir(), { recursive: true, force: true });
   t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
   const build = await ownBuild();
@@ -285,7 +285,7 @@ test("a status answer of any reasonable length is read, and a daemon that does n
   assert.equal(gone(mute.child.pid), true);
 });
 
-test("a retired daemon nobody can reach is still shown; its record goes once nobody holds its lock, whoever has its pid (Д-197, Д-198)", async (t) => {
+test("a retired daemon nobody can reach is still shown; its record goes once nobody holds its lock, whoever has its pid", async (t) => {
   await fs.rm(runtimeDir(), { recursive: true, force: true });
   t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
   const build = await ownBuild();
@@ -311,7 +311,7 @@ test("a retired daemon nobody can reach is still shown; its record goes once nob
   assert.equal(gone(unrelated.pid), false, "the process that has the pid now is left alone");
 });
 
-test("a retired daemon hung past its lock's life keeps its record while its address takes connections, and stop says it did not stop (Д-204)", async (t) => {
+test("a retired daemon hung past its lock's life keeps its record while its address takes connections, and stop says it did not stop", async (t) => {
   await fs.rm(runtimeDir(), { recursive: true, force: true });
   t.after(() => fs.rm(runtimeDir(), { recursive: true, force: true }));
   const build = await ownBuild();

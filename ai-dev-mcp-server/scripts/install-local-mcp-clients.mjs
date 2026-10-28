@@ -2,11 +2,11 @@
 /**
  * The 2.x local client installer. It wrote the server as `ai-dev-system`,
  * while the Docker installer wrote `ai-dev`, so a machine that ran both listed
- * the server twice (docs/DEFECTS.md, Д-95). Both write through one module now
+ * the server twice. Both write through one module now
  * (`src/core/mcp-clients.mjs`), and this command is `ai-dev clients install`:
  * kept until 4.0 with a note on stderr and the same flags — a dry run unless
  * `--apply`, the four clients 2.x wrote unless `--clients` names others, and
- * `claude` meaning Claude Code alone, as it did (docs/DEFECTS.md, Д-172). The
+ * `claude` meaning Claude Code alone, as it did. The
  * JSON on stdout is `clients install --json`'s.
  */
 import { main } from "../src/cli/main.mjs";

@@ -6,7 +6,7 @@ import { forbiddenCalls } from "./forbidden-calls.mjs";
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
 
-test("the six spellings the gate let through are each refused (Д-267)", () => {
+test("the six spellings the gate let through are each refused", () => {
   const cases = [
     ['import * as childProcess from "node:child_process";\nchildProcess.exec(command);', ["child_process.exec"]],
     ['import cp from "node:child_process";\ncp.exec(command);', ["child_process.exec"]],
@@ -77,7 +77,7 @@ test("a shell option is refused unless it is plainly off", () => {
   }
   assert.deepEqual(rules('spawn("x", [], { windowsHide: true, shell: false, });'), []);
   assert.deepEqual(rules("const { shell } = options;"), [], "reading the option is not setting it");
-  // Set on an options object afterwards it is the same option (Д-382).
+  // Set on an options object afterwards it is the same option.
   assert.deepEqual(rules("options.shell = true;"), ["shell"]);
   assert.deepEqual(rules('options["shell"] = "/bin/sh";'), ["shell"]);
   assert.deepEqual(rules("options.shell = false;\nif (options.shell === true) {}"), [], "off, and compared");
@@ -116,8 +116,8 @@ test("the reader keeps lines, reads template substitutions as code, and survives
   }
 });
 
-// The probes of phase 14's first review, each a spelling the gate let through or an honest line it refused (Д-382).
-test("the spellings the first review of the gate found it let through are each refused (Д-382)", () => {
+// The probes of phase 14's first review, each a spelling the gate let through or an honest line it refused.
+test("the spellings the first review of the gate found it let through are each refused", () => {
   const BT = "`";
   const refused = {
     "optional computed member": 'import * as cp from "node:child_process";\ncp?.["exec"]("ls");',
@@ -148,7 +148,7 @@ test("the spellings the first review of the gate found it let through are each r
   for (const [name, source] of Object.entries(refused)) assert.ok(rules(source).length > 0, `${name}: ${source}`);
 });
 
-test("honest code the first review found the gate refused passes now (Д-382)", () => {
+test("honest code the first review found the gate refused passes now", () => {
   const honest = {
     "electron's shell": 'import { app, shell } from "electron";\nshell.openExternal("https://example.invalid");',
     "a default import beside it": 'import electron, { shell } from "electron";\nshell.beep();',
@@ -167,7 +167,7 @@ test("honest code the first review found the gate refused passes now (Д-382)", 
   for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
 });
 
-test("a regular expression that begins a line after a block does not hide what follows it, and an unclosed template refuses the file (Д-382)", () => {
+test("a regular expression that begins a line after a block does not hide what follows it, and an unclosed template refuses the file", () => {
   const BT = "`";
   // The backtick in the expression used to open a template that ran to the end of the file.
   const source = `function f() {}\n/${BT}/.test(s);\nconst cp = require("child_process");\ncp.exec("ls");\nconst t = ${BT}x${BT};`;
@@ -185,8 +185,8 @@ test("a regular expression that begins a line after a block does not hide what f
 });
 
 // The probes of phase 14's second review: spellings inside the contract that still passed, three of them since the
-// first review's fix (Д-398), and what the reader got wrong (Д-399).
-test("the spellings the second review found the gate let through are each refused (Д-398, Д-399)", () => {
+// first review's fix, and what the reader got wrong.
+test("the spellings the second review found the gate let through are each refused", () => {
   const LS = String.fromCharCode(0x2028);
   const refused = {
     "shell in a parameter's default": "function run(cmd, options = { shell: true }) {\n  return spawnSync(cmd, [], options);\n}",
@@ -256,7 +256,7 @@ test("the spellings the second review found the gate let through are each refuse
   assert.deepEqual(lines('const a = 1;\r\nconst b = 2;\r\neval("1");'), [["eval", 3]], "CRLF counts once");
 });
 
-test("valid code the reader took for an unclosed template or comment passes, and honest look-alikes stay honest (Д-399)", () => {
+test("valid code the reader took for an unclosed template or comment passes, and honest look-alikes stay honest", () => {
   const BT = "`";
   const honest = {
     "a regular expression after if (…)": `if (ready) /${BT}/.test(line);\nconst a = 1;`,
@@ -281,7 +281,7 @@ test("valid code the reader took for an unclosed template or comment passes, and
   for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
 });
 
-test("the reader stays linear where its questions used to search: one minified line, long chains (Д-401)", () => {
+test("the reader stays linear where its questions used to search: one minified line, long chains", () => {
   const timed = (source) => {
     const started = performance.now();
     forbiddenCalls(source);
@@ -300,7 +300,7 @@ test("the reader stays linear where its questions used to search: one minified l
 // The probes of phase 14's third review: a space JavaScript ends a name at, a label's or a case's block taken for an
 // object literal, a comma list around a re-bound value, and three ways to the module the gate did not know (Д-407 …
 // Д-410).
-test("the spellings the third review found the gate let through are each refused (Д-407, Д-408, Д-409, Д-410)", () => {
+test("the spellings the third review found the gate let through are each refused", () => {
   const NBSP = String.fromCharCode(0xa0);
   const IDEOGRAPHIC = String.fromCharCode(0x3000);
   const lines = (source) => forbiddenCalls(source).map((finding) => [finding.rule, finding.line]);
@@ -336,7 +336,7 @@ test("the spellings the third review found the gate let through are each refused
   for (const [name, [source, expected]] of Object.entries(refused)) assert.deepEqual(lines(source), expected, `${name}: ${source}`);
 });
 
-test("honest code stays honest past the third review's fixes (Д-407 … Д-410)", () => {
+test("honest code stays honest past the third review's fixes", () => {
   const MATH_X = String.fromCodePoint(0x1d465);
   const honest = {
     "a name that only begins with another": `const ${MATH_X}eval = 1;`,
@@ -368,7 +368,7 @@ test("honest code stays honest past the third review's fixes (Д-407 … Д-410)
   assert.deepEqual(opens("const C = class { m() { return { a: 1 }; } };"), [false, false, true]);
 });
 
-test("the reader stays linear on brackets left open and on a from in every line (Д-412)", () => {
+test("the reader stays linear on brackets left open and on a from in every line", () => {
   const timed = (source) => {
     const started = performance.now();
     forbiddenCalls(source);
@@ -380,7 +380,7 @@ test("the reader stays linear on brackets left open and on a from in every line 
   assert.ok(timed('a, b\nfrom\n"child_process"\n'.repeat(16000)) < 4000, "nor after a list");
   // Before, 552 kB of keys in arrays nested 4000 deep took 12.8 s: each key climbed every bracket around it.
   assert.ok(timed(`const all = ${"[".repeat(4000)}${"{ shell: false },".repeat(32000)}${"]".repeat(4000)};`) < 4000, "keys deep in brackets");
-  // Before, 63 kB of the module's computed members nested 16 000 deep took 2.6 s: each level copied what it held (Д-424).
+  // Before, 63 kB of the module's computed members nested 16 000 deep took 2.6 s: each level copied what it held.
   assert.ok(timed(`import * as cp from "node:child_process";\n${"cp[".repeat(16000)}0${"]".repeat(16000)};`) < 4000, "computed members nested");
   assert.ok(timed(`${"globalThis[".repeat(16000)}0${"]".repeat(16000)};`) < 4000, "a global's members nested");
   // A closing bracket finds its own kind under a few left open, and looks no deeper than that.
@@ -389,8 +389,8 @@ test("the reader stays linear on brackets left open and on a from in every line 
 });
 
 // The probes of phase 14's fourth review: two spellings round 3's changes let through, and what the gate's own texts
-// promised but it did not keep (Д-422 … Д-426).
-test("the spellings the fourth review found the gate let through are each refused (Д-422, Д-423, Д-424, Д-426)", () => {
+// promised but it did not keep.
+test("the spellings the fourth review found the gate let through are each refused", () => {
   const BT = "`";
   const lines = (source, options) => forbiddenCalls(source, options).map((finding) => [finding.rule, finding.line]);
   const refused = {
@@ -442,7 +442,7 @@ test("the spellings the fourth review found the gate let through are each refuse
   assert.deepEqual(lines('let await = 4;\nconst h = await / 2\neval("1");'), [["eval", 3]]);
 });
 
-test("honest code stays honest past the fourth review's fixes, and every new branch is held (Д-423 … Д-426)", () => {
+test("honest code stays honest past the fourth review's fixes, and every new branch is held", () => {
   const BT = "`";
   const honest = {
     "return⏎, then a declaration and a regular expression": `export function quoted(s) {\n  if (!s) return\n  function inner() { return 1 }\n  /${BT}/.test(s) && inner()\n}`,
@@ -458,7 +458,7 @@ test("honest code stays honest past the fourth review's fixes, and every new bra
     "a global's member by a plain key": 'const page = globalThis["innerWidth"];'
   };
   for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
-  // Each branch of round 3's class and function bodies (Д-425): an async function expression, a class opening a
+  // Each branch of round 3's class and function bodies: an async function expression, a class opening a
   // substitution, a key named class, parameters that hold a literal, `export { a as class }` then a literal at that depth.
   const refused = {
     "an async function expression divides": ['const f = async function () {} / 2; eval("1"); const r = 1 / 1;', ["eval"]],
@@ -476,8 +476,8 @@ test("honest code stays honest past the fourth review's fixes, and every new bra
 
 // The probes of phase 14's fifth review: what the texts promised of exports and patterns, round 4's regressions — a
 // member named like a keyword, a body's wait past a field of that name — a script's HTML-like comments, and the words
-// after which a value or a statement begins (Д-432, Д-440 … Д-448).
-test("the spellings the fifth review found the gate let through are each refused (Д-432, Д-440, Д-442, Д-443, Д-446 … Д-448)", () => {
+// after which a value or a statement begins.
+test("the spellings the fifth review found the gate let through are each refused", () => {
   const BT = "`";
   const lines = (source, options) => forbiddenCalls(source, options).map((finding) => [finding.rule, finding.line]);
   const refused = {
@@ -514,7 +514,7 @@ test("the spellings the fifth review found the gate let through are each refused
   assert.deepEqual(lines('let n = 2;\nwhile (n --> 0) eval("1");', { script: true }), [["eval", 2]], "mid-line it is a decrement and a comparison");
 });
 
-test("honest code stays honest past the fifth review's fixes, and every branch round 4 left unheld is held (Д-441 … Д-448)", () => {
+test("honest code stays honest past the fifth review's fixes, and every branch round 4 left unheld is held", () => {
   const BT = "`";
   const honest = {
     // Д-441: a value the module only takes part in is not the module.
@@ -537,7 +537,7 @@ test("honest code stays honest past the fifth review's fixes, and every branch r
     "of / 2 past an empty initialiser": `let of = 4, s = "";\nfor (; of / 2 > 1; of -= 1) s += ${BT}/${BT};`
   };
   for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
-  // Each branch of round 4's code no test held, from the fifth review's table (Д-445).
+  // Each branch of round 4's code no test held, from the fifth review's table.
   const held = {
     "for await (… of /re/)": [`async function f(s) {\n  for await (const m of /${BT}/.exec(s) ?? []) console.log(m);\n  eval("1");\n  const t = /${BT}/;\n}`, ["eval"]],
     "a keyed loader bound to a name": ['const cp = process["getBuiltinModule"]("child_process");\ncp.exec("ls");', ["child_process.exec"]],
@@ -567,7 +567,7 @@ test("honest code stays honest past the fifth review's fixes, and every branch r
   assert.deepEqual(rules("const v = (0, globalThis).foo[k];"), []);
 });
 
-test("the reader stays linear on declarations without semicolons, chains of assignments and of loader names (Д-444)", () => {
+test("the reader stays linear on declarations without semicolons, chains of assignments and of loader names", () => {
   const timed = (source) => {
     const started = performance.now();
     forbiddenCalls(source);
@@ -585,7 +585,7 @@ test("the reader stays linear on declarations without semicolons, chains of assi
   assert.ok(timed(`x${'["require"]'.repeat(n)};`) < 4000, "and keyed");
 });
 
-test("the spellings the sixth review found the gate let through are each refused, and each condition round 5 left unheld is held (Д-461, Д-462, Д-464)", () => {
+test("the spellings the sixth review found the gate let through are each refused, and each condition round 5 left unheld is held", () => {
   const BT = "`";
   const CP = 'import * as cp from "node:child_process";\n';
   const lines = (source, options) => forbiddenCalls(source, options).map((finding) => [finding.rule, finding.line]);
@@ -619,21 +619,21 @@ test("the spellings the sixth review found the gate let through are each refused
   };
   for (const [name, [source, expected]] of Object.entries(refused)) assert.deepEqual(lines(source), expected, `${name}: ${source}`);
   // What a `for` head binds before its `of` — a pattern, a parenthesis, a member of any name, `of` itself — and a regular
-  // expression after that `of` (Д-464).
+  // expression after that `of`.
   const iterated = (binding, script = false) => lines(`var of, x = {}, s = "";\nfor (${binding} of /${BT}/.exec(s) ?? []) console.log(of);\neval("1");\nconst t = /${BT}/;`, { script });
   for (const binding of ["const [m]", "const { m }", "(x)", "x.in", "x.of", "let of", "of"]) assert.deepEqual(iterated(binding, binding === "of"), [["eval", 3]], binding);
   // A regular expression's reading that failed tells a later one only where both stand in the same state: in a class of
-  // characters or out of one (Д-463).
+  // characters or out of one.
   assert.deepEqual(lines(`var await = 2, s = "";\nvar r = await / "[" + /${BT}/.test(s);\neval("1");\nconst t = /${BT}/;`, { script: true }), [["eval", 3]]);
   assert.deepEqual(lines('var await = 2;\nvar r = await / "[" + await / "[/" + eval("1");', { script: true }), [["eval", 2]]);
   // A loader that is only part of a value is past the gate, as its header says: only the last item of a list is passed.
-  // This holds the boundary its texts name; a gate that moved it would move them too (Д-476).
+  // This holds the boundary its texts name; a gate that moved it would move them too.
   assert.deepEqual(lines('(null || require)("child_process").exec("ls");', { script: true }), []);
-  // And a loader that is not the list's last item is called by no one: `(require, 0)(…)` calls 0 (Д-476).
+  // And a loader that is not the list's last item is called by no one: `(require, 0)(…)` calls 0.
   assert.deepEqual(lines('(require, 0)("child_process").exec("ls");', { script: true }), []);
 });
 
-test("honest code the sixth review found the gate refused passes, and a value ends where the next line cannot carry it on (Д-459, Д-460, Д-461, Д-464, Д-465)", () => {
+test("honest code the sixth review found the gate refused passes, and a value ends where the next line cannot carry it on", () => {
   const BT = "`";
   const CP = 'import * as cp from "node:child_process";\n';
   const honest = {
@@ -722,7 +722,7 @@ test("honest code the sixth review found the gate refused passes, and a value en
   assert.deepEqual(rules(`${CP}export let { run } = {};\nrun = cp;`), []);
 });
 
-test("the reader stays linear on a heritage's substitutions and on a line of regular expressions that never close (Д-461, Д-463)", () => {
+test("the reader stays linear on a heritage's substitutions and on a line of regular expressions that never close", () => {
   const BT = "`";
   const timed = (source, options) => {
     const started = performance.now();

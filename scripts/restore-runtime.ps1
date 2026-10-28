@@ -6,7 +6,7 @@ param(
 # 2.x reinstalled the server's and Frontend QA's dependencies with this script,
 # looking for Node and npm in the Codex desktop runtime. A clone does it with
 # `npm ci` and `ai-dev setup --frontend-qa`, on any system, with Node from PATH
-# (docs/DEFECTS.md, Д-104); this wrapper runs those two and stays until 4.0.
+#; this wrapper runs those two and stays until 4.0.
 $ErrorActionPreference = "Stop"
 [Console]::Error.WriteLine("ai-dev: scripts/restore-runtime.ps1 is ``npm ci`` plus ``ai-dev setup --frontend-qa`` now; this wrapper stays until 4.0.")
 $server = (Resolve-Path (Join-Path $PSScriptRoot "..\ai-dev-mcp-server")).Path

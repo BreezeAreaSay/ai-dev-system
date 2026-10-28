@@ -4,7 +4,7 @@
  * CLI now (`bin/ai-dev.mjs`, `src/cli/`); this path keeps working for the docs,
  * scripts and `runtime-distribution.json` files that name it, with a note on
  * stderr, until 4.0. Its `start` used to import a server that only runs when
- * started directly, and exit 0 having served nothing (docs/DEFECTS.md, Д-161).
+ * started directly, and exit 0 having served nothing.
  */
 import { main } from "../src/cli/main.mjs";
 

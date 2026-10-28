@@ -176,8 +176,7 @@ export async function recordDecision(projectRoot, input) {
   const root = path.resolve(projectRoot);
   const directory = path.join(root, ...DECISIONS_RELATIVE_DIR.split("/"));
   // Choosing the next number and writing the file under one lock: two clients
-  // recording a decision at once would otherwise both take ADR-<n+1>
-  // (docs/DEFECTS.md, Д-96).
+  // recording a decision at once would otherwise both take ADR-<n+1>.
   return withExclusiveFile(path.join(directory, ".numbering"), () => writeNextDecision(directory, input, { title, decision, status }));
 }
 

@@ -247,7 +247,7 @@ export async function addCustomSkill({ root, source, name, replace = false, seed
  * A new skill's SKILL.md: the frontmatter the registry reads and the sections a
  * good skill has — a workflow of steps, its constraints, how it is verified —
  * so that a skill just started passes the structure check the health check
- * holds every skill of yours to (docs/DEFECTS.md, Д-598). Each line says what
+ * holds every skill of yours to. Each line says what
  * to write there.
  */
 export function skillTemplate(name, description) {

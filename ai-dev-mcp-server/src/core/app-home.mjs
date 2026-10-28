@@ -53,14 +53,14 @@ const samePath = (left, right) => (["win32", "darwin"].includes(process.platform
 export function appFolder(runtimeRoot, distribution) {
   const version = String(distribution.version || "0.0.0").replace(/[^0-9A-Za-z.+-]/g, "_");
   // Hex only: a fingerprint of `../../..` named the runtime folder itself,
-  // which an install then removed (Д-185).
+  // which an install then removed.
   const fingerprint = String(distribution.content_fingerprint || "").replace(/[^0-9a-f]/gi, "").slice(0, 8) || "unknown";
   return path.join(runtimeRoot, "app", `${version}-${fingerprint}`);
 }
 
 /**
  * Rename a folder, again while Windows says a file in it is busy: an
- * antivirus scanner opens what `npm ci` just wrote (Д-185).
+ * antivirus scanner opens what `npm ci` just wrote.
  */
 async function renameFolder(from, to) {
   for (let attempt = 0; ; attempt += 1) {
@@ -95,7 +95,7 @@ const STOPPED_INSTALL_MS = 60 * 60 * 1000;
 
 /**
  * Keep the copies setup chose last — not the ones installed last: choosing an
- * installed copy again makes it the current one (Д-181) — and remove the rest
+ * installed copy again makes it the current one — and remove the rest
  * and any install that stopped partway. A copy goes aside as `.partial` before
  * it is removed, so one Windows refuses to remove completely (a running
  * server holds it) is finished off by a later install instead of staying,
@@ -105,11 +105,11 @@ const STOPPED_INSTALL_MS = 60 * 60 * 1000;
  * Each kind of copy is kept by its own count: the packages `setup` installs
  * and the runtimes the Windows install copies (`kind: "bundle"` in the
  * marker) are chosen at different times, and one kind's newer copies must not
- * push out the other's (docs/DEFECTS.md, Д-301). The copy the Windows
+ * push out the other's. The copy the Windows
  * install's stable link `current` names is never removed, however long ago it
  * was chosen: every AI client config of that install runs it
  * (`app-bundle.mjs`); nor is a copy an AI client's entry names by its own
- * folder (`named`, Д-299). The link itself is not a folder, and is left alone.
+ * folder (`named`). The link itself is not a folder, and is left alone.
  *
  * @param {string} appsRoot - `<runtime>/app`.
  * @param {number} keep - How many copies of this kind stay, the one `current` names among them.
@@ -162,7 +162,7 @@ export async function pruneAppCopies(appsRoot, keep, nowMs, { kind = "package", 
  * The folder of `<runtime>/app/` an absolute path lies in, by its name; ""
  * for a path elsewhere, and for a word that is not an absolute path: a bare
  * word of a client's entry (`mcp`, `docker`) names no folder, wherever the
- * process that reads it runs (Д-298).
+ * process that reads it runs.
  *
  * @param {unknown} word
  * @param {string} appsRoot
@@ -184,8 +184,8 @@ export function entryWords(entry) {
 /**
  * The copies in `<runtime>/app/` an AI client's entry names by their own
  * folder rather than through `current`: what a client runs when the drive
- * holds no link (Д-295), or when its entry was written by hand. A prune
- * leaves them, however old (Д-299).
+ * holds no link, or when its entry was written by hand. A prune
+ * leaves them, however old.
  *
  * @param {{ appsRoot: string, env?: NodeJS.ProcessEnv, home?: string }} options
  * @returns {Promise<string[]>}
@@ -260,7 +260,7 @@ export async function installAppHome({ packageRoot, runtimeRoot, runNpm, now = (
     await fs.rm(stage, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
-  // A client a later setup did not connect again still runs its copy: the prune leaves it (Д-310, п. 6).
+  // A client a later setup did not connect again still runs its copy: the prune leaves it.
   const named = await copiesNamedByClients({ appsRoot: path.dirname(folder), env, home }).catch(() => []);
   return result("installed", await pruneAppCopies(path.dirname(folder), KEPT_APP_COPIES, now().getTime(), { named }));
 }

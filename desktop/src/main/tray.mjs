@@ -8,7 +8,7 @@ import { circlePng, TRAY_COLOURS, trayState } from "./tray-icon.mjs";
 /** How often a Stop's note looks whether the daemons it names still run. */
 export const NOTE_LOOK_MS = 1_000;
 
-/** Whether process `pid` runs; one the app may not signal runs too. No pid ≤ 0 does: 0 and -1 name groups (Д-283, п. 4). */
+/** Whether process `pid` runs; one the app may not signal runs too. No pid ≤ 0 does: 0 and -1 name groups. */
 export function processRuns(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
@@ -29,7 +29,7 @@ export function processRuns(pid) {
  * @param {{ open: () => void, rebuild: () => void, stop: () => void, quit: () => void, update?: () => void }} actions
  */
 export function trayMenuTemplate({ t, online, rebuilding, failed = null, stopping = false, stopFailed = null, update = null }, actions) {
-  // "Try again" only where it can be pressed; offline the tooltip says why (docs/DEFECTS.md, Д-280).
+  // "Try again" only where it can be pressed; offline the tooltip says why.
   const rebuildLabel = rebuilding !== null ? t("tray.rebuilding", { percent: rebuilding }) : failed && online ? t("tray.rebuildFailed") : t("tray.rebuild");
   const stopLabel = stopping ? t("tray.stopping") : stopFailed ? t("tray.stopFailed") : t("tray.stop");
   return [
@@ -41,7 +41,7 @@ export function trayMenuTemplate({ t, online, rebuilding, failed = null, stoppin
       click: actions.rebuild
     },
     // A daemon that would not stop may be one the app is not on: Stop is
-    // offered again while it runs, and not while a Stop runs (Д-277, Д-278).
+    // offered again while it runs, and not while a Stop runs.
     { id: "stop", label: stopLabel, enabled: !stopping && (online || Boolean(stopFailed)), click: actions.stop },
     { type: "separator" },
     // A downloaded update: offered here, and installed at Quit if not sooner.
@@ -67,11 +67,11 @@ export function createTray({ electron, link, t, actions, runs = processRuns, loo
   let current = "offline";
   let rebuilding = null;
   // Why the last rebuild failed: the link's own words by their key, said in
-  // the language in force, or the daemon's text (Д-280).
+  // the language in force, or the daemon's text.
   let failed = null;
   let stopping = false;
   // Why the last Stop failed: the daemons that would not stop, each with its
-  // pid and why (Д-277, Д-283 п. 4), or the error the request ended with.
+  // pid and why, or the error the request ended with.
   let stopFailed = null;
   // A downloaded update waiting for a restart: `{ version }`, or null.
   let update = null;
@@ -82,10 +82,9 @@ export function createTray({ electron, link, t, actions, runs = processRuns, loo
   const tray = new Tray(images.offline);
   // A Stop's note holds while a daemon it names runs — the app may be off it,
   // its own having stopped. One that names none (the request itself failed)
-  // was about the daemon the app is on: it holds while the app is online
-  // (Д-276, п. 1; Д-277).
+  // was about the daemon the app is on: it holds while the app is online.
   const noteHolds = (online) => (stopFailed.daemons.length ? stopFailed.daemons.some(({ pid }) => runs(pid)) : online);
-  // Each daemon whole, with its reason cut; three at most, and how many more (Д-284).
+  // Each daemon whole, with its reason cut; three at most, and how many more.
   const cut = (text, length) => (text.length > length ? `${text.slice(0, length - 1)}…` : text);
   const daemonWords = ({ pid, reason }) => (reason ? t("tray.stopFailedDaemon", { pid, reason: cut(reason, 60) }) : t("tray.stopFailedDaemonBare", { pid }));
   const stopWords = () => {

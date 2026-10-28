@@ -1,12 +1,12 @@
 #!/bin/sh
 # The 2.x launcher, kept so that the client configs naming it work until 4.0
-# (owner decision D10). 3.0 writes `docker run -i --rm …` into a client's config
+#. 3.0 writes `docker run -i --rm …` into a client's config
 # itself — ./bootstrap.sh, or `ai-dev clients install --docker` — and this file
 # runs the same image the way 2.x's cold path did.
 #
 # Two things 2.x did here are gone. It answered `initialize` itself while the
 # server started, which lost the server's instructions and fixed the version
-# at 2.0.0 (docs/DEFECTS.md, Д-89): the image answers in about a second now.
+# at 2.0.0: the image answers in about a second now.
 # And with AI_DEV_RUNTIME_CONTAINER set it ran the server in a long-lived
 # container, which kept the image it was started with, so a pulled image never
 # reached a session: every session runs AI_DEV_IMAGE now.
@@ -46,14 +46,13 @@ if [ -n "${AI_DEV_MODEL_PATH:-}" ]; then
     *,*) printf '%s\n' "AI_DEV_MODEL_PATH cannot contain a comma." >&2; exit 64 ;;
   esac
   model_path="$(cd "${AI_DEV_MODEL_PATH}" && pwd -P)"
-  # The folder above the model: it holds bge-m3-onnx/ (docs/DEFECTS.md, Д-62).
+  # The folder above the model: it holds bge-m3-onnx/.
   # A bge-m3/ beside it is the Python backend's weights, which 3.0 removed
-  # (decision D3, Д-158): said, not taken for a model.
+  #: said, not taken for a model.
   #
   # Before Д-62 the variable named the model directory itself. A folder that
   # holds model files is that old value; mounted at /models it would leave both
-  # backends looking one level too deep and reporting "not set up"
-  # (docs/DEFECTS.md Д-68).
+  # backends looking one level too deep and reporting "not set up".
   for marker in pytorch_model.bin modules.json config.json onnx; do
     if [ -e "${model_path}/${marker}" ]; then
       printf '%s\n' "AI_DEV_MODEL_PATH now names the folder above the models, and ${model_path} holds model files itself (${marker}). Point it at the parent folder that contains bge-m3-onnx/ — for a default install that is \$HOME/.ai-dev/models (docs/INSTALL.md)." >&2
@@ -69,7 +68,7 @@ if [ -n "${AI_DEV_MODEL_PATH:-}" ]; then
       printf '%s\n' "AI_DEV_MODEL_PATH=${model_path} holds no bge-m3-onnx/; dense search will report that it is not set up until a model is put there." >&2
     fi
   fi
-  # A bge-m3-onnx that is a link is mounted itself: Docker follows it here, where the container could not (Д-368).
+  # A bge-m3-onnx that is a link is mounted itself: Docker follows it here, where the container could not.
   if [ -L "${model_path}/bge-m3-onnx" ] && [ -d "${model_path}/bge-m3-onnx" ]; then
     set -- "$@" --mount "type=bind,source=${model_path}/bge-m3-onnx,target=/models/bge-m3-onnx,readonly"
   else

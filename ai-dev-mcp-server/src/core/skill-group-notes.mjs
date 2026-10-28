@@ -5,7 +5,7 @@
  * Every rebuild wrote the notes of the subgroups it found and left the others
  * where they were, so a subgroup emptied by a seed update kept its old note —
  * listing skills that no longer exist, and indexed for search like any note
- * (docs/DEFECTS.md, Д-119). Only notes this generator wrote are removed: a
+ *. Only notes this generator wrote are removed: a
  * file is one when its frontmatter names the group and a subgroup, as
  * `renderSkillSubgroupNote` writes it; anything else in the folder is left alone.
  */

@@ -28,8 +28,8 @@
  *   retires when its descriptor is gone or names another daemon.
  *
  * Until 3.0 the daemon had no client at all, died on a socket path over 107
- * bytes and always said `sessions: 0` (docs/DEFECTS.md, Д-97); its Windows pipe
- * had a name anyone could take first (Д-107).
+ * bytes and always said `sessions: 0`; its Windows pipe
+ * had a name anyone could take first.
  */
 import { fstatSync, statSync } from "node:fs";
 import fs from "node:fs/promises";
@@ -96,7 +96,7 @@ const WATCH_INTERVAL_MS = 5_000;
 /** The log is set aside, as `daemon.log.1`, once it passes this. */
 export const LOG_ROTATE_BYTES = 1024 * 1024;
 
-/** What a client says of itself is shown, never trusted to be short (docs/DEFECTS.md, Д-196). */
+/** What a client says of itself is shown, never trusted to be short. */
 const CLIENT_LABEL_CHARS = 200;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -148,7 +148,7 @@ async function answersWithin(info, ms) {
  * one has it; an abandoned one — its process gone, or silent past
  * {@link LOCK_STALE_MS} — broken under the protocol's own mutex and only while
  * it is still the lock judged abandoned; one being created this very moment,
- * still empty, left to its maker (docs/DEFECTS.md, Д-193). A holder that is
+ * still empty, left to its maker. A holder that is
  * alive but has answered nobody for {@link UNANSWERED_TAKEOVER_MS} past its
  * start — its socket removed, its listener dead — is taken over too. Its
  * process is left alone either way: a pid in a file is not proof enough to
@@ -229,8 +229,8 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   const build = await describeBuild({ serverRoot, version: VERSION, env });
   const descriptor = daemonInfoPath(build.id);
   await fs.mkdir(runtimeDir(), { recursive: true, mode: 0o700 });
-  // The journal says what is true of run/, not what was attempted (Д-225); a
-  // look that fails says nothing of its mode (Д-235).
+  // The journal says what is true of run/, not what was attempted; a
+  // look that fails says nothing of its mode.
   const tightened = await tightenFolder(runtimeDir()).catch((error) => ({ state: "left", why: `it cannot be checked (${error?.code ?? error?.message ?? error})` }));
   if (tightened.state === "tightened") log(`${runtimeDir()} was open to other users; it is 0700 now`);
   else if (tightened.state === "open") log(`${runtimeDir()} is open to other users and stays so: ${tightened.why}`);
@@ -298,17 +298,17 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   // A daemon hung past the lock's life (a debugger, SIGSTOP, swap) finds it
   // broken and its record cleared when it wakes, and takes it again before it
   // lists itself: a record nobody holds is one `stop` may clear
-  // (docs/DEFECTS.md, Д-204). Its folder is made private as the run folder
-  // always is, even where the runtime home was deleted meanwhile (Д-205).
+  //. Its folder is made private as the run folder
+  // always is, even where the runtime home was deleted meanwhile.
   const holdRetiredRecord = async () => {
     if (await retiredLock?.holds().catch(() => false)) return true;
     await retiredLock?.release().catch(() => undefined);
     retiredLock = null;
     // A folder made again here — the runtime home was deleted under this
-    // daemon — goes when the daemon does, if it is still empty (Д-213).
+    // daemon — goes when the daemon does, if it is still empty.
     // Each folder made again is the start of the same path to run/: the
-    // shortest is the highest (Д-214). The record's lock makes the folder
-    // itself when it went again in between, and says which (Д-226).
+    // shortest is the highest. The record's lock makes the folder
+    // itself when it went again in between, and says which.
     const run = path.dirname(retiredDaemonPath(process.pid));
     const made = await fs.mkdir(run, { recursive: true, mode: 0o700 }).catch(() => undefined);
     const taken = await tryAcquireFileLock(retiredDaemonPath(process.pid), { staleMs: LOCK_STALE_MS, heartbeatMs: LOCK_HEARTBEAT_MS, directoryMode: 0o700 }).catch(() => ({}));
@@ -371,7 +371,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     await retiredLock?.release().catch(() => undefined);
     if (address && !isPipe(address)) await fs.rm(address, { force: true }).catch(() => undefined);
     // Empty folders only: a neighbour's files keep theirs (`rmdir` refuses).
-    // On Windows `mkdir` named the folder in the `\\?\` namespace (Д-224).
+    // On Windows `mkdir` named the folder in the `\\?\` namespace.
     for (const folder of foldersUpTo(runtimeDir(), madeFolder)) await fs.rmdir(folder).catch(() => undefined);
     log(`exits: ${reason}`);
     process.exit(0);
@@ -395,7 +395,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   // `status` and `stop` on its address. It holds a lock on that record as it
   // held one on its descriptor, so a record it left behind — killed, or gone
   // with the machine — is told apart from a live one whatever later has its
-  // pid (docs/DEFECTS.md, Д-198).
+  // pid.
   const retire = async (reason) => {
     if (retired || stopping) return;
     retired = { at: new Date().toISOString(), reason };
@@ -499,9 +499,9 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
 
   // A dead daemon's socket outlives it, and nothing else would remove it. One
   // whose lock was taken over may still be alive, though — it will retire and
-  // answer `status` and `stop` on that socket (docs/DEFECTS.md, Д-197) — and
+  // answer `status` and `stop` on that socket — and
   // what tells the two apart is the socket itself: a live one, even hung,
-  // takes connections, whoever has the pid now (Д-205).
+  // takes connections, whoever has the pid now.
   const previous = await readDaemonInfo(descriptor);
   if (previous && previous.pid !== process.pid && !isPipe(previous.address) && !(await addressListening(previous.address))) {
     await fs.rm(previous.address, { force: true }).catch(() => undefined);
@@ -544,8 +544,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   // A descriptor that is gone, or names another daemon, on two looks in a row
   // means this one was replaced or its runtime home removed: it steps aside
   // instead of serving on an address nobody can find. One look is not enough:
-  // Windows refuses a file for a moment while it is renamed over or scanned
-  // (docs/DEFECTS.md, Д-194).
+  // Windows refuses a file for a moment while it is renamed over or scanned.
   let strikes = 0;
   watch = setInterval(async () => {
     await rotateLog().catch(() => undefined);
@@ -553,7 +552,7 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
     if (retired) {
       // A record taken away while this daemon lives — counted gone while it
       // hung, its runtime home wiped — is published again, so `status` and
-      // `stop` find it (docs/DEFECTS.md, Д-208).
+      // `stop` find it.
       const { state, info } = await readDaemonInfoState(retiredDaemonPath(process.pid));
       const lost = state === "missing" || state === "invalid" || (state === "ok" && info.pid !== process.pid);
       if (lost || !(await retiredLock?.holds().catch(() => false))) await publish();

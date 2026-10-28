@@ -5,25 +5,25 @@
  * volume), through the MCP SDK client:
  *
  * 1. a new volume: the server answers its own handshake — instructions and all
- *    (docs/DEFECTS.md, Д-89) — the first start builds nothing (the image's data
+ * — the first start builds nothing (the image's data
  *    is copied into the volume), and the health check passes; the time from
  *    `docker run` to the answer is reported;
  * 2. the next session on that volume, timed the same way;
  * 3. two sessions on another new volume, the second a moment after the first,
  *    as two clients start: Docker fills it as the first starts, the second
- *    waits for the copy, and neither builds anything (Д-355);
+ *    waits for the copy, and neither builds anything;
  * 4. a volume made with a driver's options, a tmpfs: no name the image can
  *    read at /data, so its advice for the model holds a placeholder for the
  *    mount and says where the sessions keep /data, for a host's model it cannot
  *    read too; and a session that mounts nothing at /data is told of the
- *    default volume by its name (Д-539, Д-546, Д-557);
- * 5. the model through the volume (Д-99): one run with the network installs a
+ *    default volume by its name;
+ * 5. the model through the volume: one run with the network installs a
  *    model — a synthetic one, served from this machine as a Hugging Face mirror
  *    would — and embeds the documents; a session without the network then
  *    searches with it;
  * 6. a model folder of the host's, mounted at /models as `--model` writes it:
  *    the start report gives the command for that volume, which builds the
- *    vectors offline, and the sessions use that folder (Д-341, Д-346, Д-557).
+ *    vectors offline, and the sessions use that folder.
  */
 import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -125,7 +125,7 @@ try {
     const [tools, resources, templates, prompts] = await Promise.all([client.listTools(), client.listResources(), client.listResourceTemplates(), client.listPrompts()]);
     const recommendation = await client.callTool({ name: "recommend_skills", arguments: { task: "Review a containerized Node.js service for secrets and deployment risks", limit: 3 } });
     if (recommendation.isError) throw new Error("recommend_skills failed in the container.");
-    // The image's own diagnostic, run inside the image (docs/DEFECTS.md, Д-56, Д-57).
+    // The image's own diagnostic, run inside the image.
     const healthResult = await client.callTool({ name: "system_health_check", arguments: {} });
     if (healthResult.isError) throw new Error("system_health_check failed in the container.");
     const health = JSON.parse(text(healthResult));
@@ -136,7 +136,7 @@ try {
     }
     // The runner of the `-browser` variant must start. The default variant does
     // not ship its packages, which the check says as `missing-package`; any other
-    // failure — an import the image lacks (Д-56) — is a broken image either way.
+    // failure — an import the image lacks — is a broken image either way.
     const frontendQa = (health.checks ?? []).find((check) => check.name === "frontend_qa_environment");
     const launchFailure = frontendQa?.details?.launch_failure;
     if (launchFailure && (browser || launchFailure !== "missing-package")) {
@@ -145,13 +145,13 @@ try {
     // Docker copies the image's /data into a new volume: nothing is left to build.
     const built = /(\d+) built, \d+ skipped, \d+ failed/.exec(stderr());
     if (!built || built[1] !== "0") throw new Error(`The first start on a new volume built something: ${built?.[0] ?? "no first-run report"}.`);
-    // The start report says what this image carries (docs/DEFECTS.md, Д-332).
+    // The start report says what this image carries.
     const browserLine = /Frontend QA dependencies: (.*)/.exec(stderr())?.[1] ?? "";
     if (browser ? browserLine !== "comes with the image" : !/its -browser variant carries it/.test(browserLine)) {
       throw new Error(`The start report says of the browser: "${browserLine}".`);
     }
     // The model goes into the volume the session runs on, whatever the host named it, and the start report calls it
-    // this one — in the start report and in the health check alike (Д-528, Д-541, Д-545).
+    // this one — in the start report and in the health check alike.
     const modelLine = /Local BGE-M3 model: (.*)/.exec(stderr())?.[1] ?? "";
     if (!modelLine.includes(`source=${volume},target=/data`) || !modelLine.endsWith("puts it in this volume")) {
       throw new Error(`The start report's advice for the model does not name this volume, ${volume}: "${modelLine}".`);
@@ -197,7 +197,7 @@ try {
   }
 
   // 4. A volume made with a driver's options: the image reads no name at /data, and its advice holds a placeholder for
-  //    the mount, in the start report and in the health check alike (Д-539, Д-546).
+  //    the mount, in the start report and in the health check alike.
   const unnamedVolume = `${volume}-tmpfs`;
   try {
     const created = await docker(["volume", "create", "--driver", "local", "--opt", "type=tmpfs", "--opt", "device=tmpfs", unnamedVolume]);
@@ -214,7 +214,7 @@ try {
       }
     });
     // A host's model folder the image cannot read, on that volume: no data volume to install the model into either
-    // (Д-557). A host that lets the image read it all the same, as some file sharing does, says so and checks nothing.
+    //. A host that lets the image read it all the same, as some file sharing does, says so and checks nothing.
     const unreadable = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-smoke-unreadable-"));
     try {
       await fs.chmod(unreadable, 0o755);
@@ -239,7 +239,7 @@ try {
   } finally {
     spawnSync("docker", ["volume", "rm", "-f", unnamedVolume], { stdio: "ignore", shell: false });
   }
-  // Nothing mounted at /data: an anonymous volume, which --rm removes, and the default's place, by its name (Д-545, Д-557).
+  // Nothing mounted at /data: an anonymous volume, which --rm removes, and the default's place, by its name.
   await connect(session([], null), async ({ stderr }) => {
     const modelLine = /Local BGE-M3 model: (.*)/.exec(stderr())?.[1] ?? "";
     if (!modelLine.includes("source=ai-dev-system-data,target=/data") || !modelLine.endsWith("puts it in the default volume, ai-dev-system-data")) {
@@ -263,7 +263,7 @@ try {
       }
       const installed = JSON.parse(install.stdout);
       await connect(session(manifestMount), async ({ client, stderr }) => {
-        // The start report checks the model as setup does: this volume has it (Д-332).
+        // The start report checks the model as setup does: this volume has it.
         const modelLine = /Local BGE-M3 model: (.*)/.exec(stderr())?.[1] ?? "";
         const vectorsLine = /Dense vectors: (.*)/.exec(stderr())?.[1] ?? "";
         if (!modelLine.startsWith("installed in ") || vectorsLine !== "every indexed document has one") {
@@ -284,7 +284,7 @@ try {
       });
 
       // 6. A model folder of the host's, mounted read-only at /models as `--model` writes it: the sessions use it,
-      //    and the start report's command builds the vectors with it, offline (docs/DEFECTS.md, Д-341, Д-346).
+      //    and the start report's command builds the vectors with it, offline.
       const hostModels = path.join(mirror.folder, "models");
       for (const [name, body] of Object.entries(mirror.files)) {
         const file = path.join(hostModels, "bge-m3-onnx", name);
@@ -294,7 +294,7 @@ try {
       const hostVolume = `${volume}-host-model`;
       const hostMount = [...manifestMount, "--mount", `type=bind,source=${hostModels},target=/models,readonly`];
       try {
-        // Before the vectors: the start report gives the command that builds them, for this volume (Д-547, Д-557).
+        // Before the vectors: the start report gives the command that builds them, for this volume.
         await connect(session(hostMount, hostVolume), async ({ stderr }) => {
           const vectors = /Dense vectors: (.*)/.exec(stderr())?.[1] ?? "";
           if (!vectors.includes(`docker run --rm -it --mount type=volume,source=${hostVolume},target=/data --mount type=bind,source=<the model folder>,target=/models,readonly <image> ai-dev setup --model`)) {

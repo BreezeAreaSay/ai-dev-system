@@ -6,7 +6,7 @@
  * app home and points the stable link AI clients run at the copy
  * (`ai-dev-mcp-server/src/core/app-bundle.mjs`). It does so at every start: a
  * runtime already copied is found, not copied again, and what it lost since
- * is put back (docs/DEFECTS.md, Д-300).
+ * is put back.
  */
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -39,16 +39,16 @@ export function shippedRuntime({ env, packaged, platform, resourcesPath }) {
 export async function prepareRuntime({ bundleRoot, env, onProgress }) {
   const load = (name) => import(pathToFileURL(path.join(bundleRoot, "ai-dev-mcp-server", "src", "core", name)).href);
   const [{ provisionBundle }, { resolveRuntimeStateRoot }] = await Promise.all([load("app-bundle.mjs"), load("runtime-home.mjs")]);
-  // The clients' configs are read in the app's environment: a copy one of them names is kept (Д-299).
+  // The clients' configs are read in the app's environment: a copy one of them names is kept.
   return provisionBundle({ bundleRoot, runtimeRoot: resolveRuntimeStateRoot("", env), env, onProgress });
 }
 
 /**
  * What the Status screen says of the runtime, when there is something to
  * say: it runs from its copy because the drive holds no link — after an
- * update the clients must be connected again (Д-299) — or files of it went
+ * update the clients must be connected again — or files of it went
  * missing and were put back, which an antivirus taking them away at every
- * start would show (Д-300). Null otherwise.
+ * start would show. Null otherwise.
  *
  * @param {{ folder: string, linkError?: string, repaired?: string[] } | null} runtime
  * @returns {{ folder: string, linkError: string, repaired: string[] } | null}

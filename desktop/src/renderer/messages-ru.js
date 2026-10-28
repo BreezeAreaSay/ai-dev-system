@@ -1,4 +1,4 @@
-// The interface's words in Russian (owner decision D6); i18n.js puts the
+// The interface's words in Russian; i18n.js puts the
 // two languages together. A test checks both have the same keys and the
 // same {placeholders}.
 

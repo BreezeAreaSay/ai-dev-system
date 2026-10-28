@@ -14,7 +14,7 @@ import { CONTAINER_MODELS, MODEL_FOLDER_MARKERS, dockerRunArgs } from "../src/co
 // which bootstrap.sh hands the folder to) — and the image looks for the models
 // under one folder. ClaudeMcpProxy.cs mounted it at
 // /models/bge-m3 while the other four said /models, so Claude on Windows never
-// had dense search (docs/DEFECTS.md, Д-88) — the same decision applied in four
+// had dense search — the same decision applied in four
 // places out of five, again. This test reads every copy and holds them to one
 // answer: the folder the image's model directories sit in.
 
@@ -47,7 +47,7 @@ function quotedList(text) {
  * own (`dense-backend.mjs`). Since 3.0 there is one, the ONNX export's (the
  * Python backend's torch folder went with it, decision D3), and the image does
  * not name it in its ENV: there it would hide the model `ai-dev model install`
- * puts in the volume (docs/DEFECTS.md, Д-99).
+ * puts in the volume.
  */
 async function imageModelRoot() {
   const dockerfile = await read("docker/Dockerfile");
@@ -56,7 +56,7 @@ async function imageModelRoot() {
   return path.posix.dirname(DOCKER_MOUNTED_MODEL_DIR);
 }
 
-test("every copy mounts the model folder where the image looks for the models (Д-88)", async () => {
+test("every copy mounts the model folder where the image looks for the models", async () => {
   const expected = await imageModelRoot();
   assert.equal(expected, "/models");
   // The 3.0 client entry, built by the server's own module.
@@ -172,7 +172,7 @@ test("the built proxy mounts the folder above the models at /models and refuses 
   assert.equal(mounted.status, 0, mounted.stderr);
   assert.ok(mounted.recorded.split(/\r?\n/).includes(`type=bind,source=${models},target=/models,readonly`), mounted.recorded);
   // 3.0: the bytes pass through both ways, and the server answers its own
-  // handshake — the proxy no longer makes one up (docs/DEFECTS.md, Д-89).
+  // handshake — the proxy no longer makes one up.
   assert.equal(mounted.stdout, '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}\n');
   assert.doesNotMatch(mounted.stdout, /"serverInfo"/);
   assert.match(mounted.stderr, /the 2\.x launcher, which works until 4\.0/);
@@ -192,7 +192,7 @@ test("the built proxy mounts the folder above the models at /models and refuses 
   assert.match(warned.stderr, /holds no bge-m3-onnx/);
   assert.match(warned.recorded, /target=\/models,readonly/);
 
-  // Only the removed Python backend's weights: said as that (Д-158).
+  // Only the removed Python backend's weights: said as that.
   const legacy = path.join(built.work, "legacy");
   await fs.mkdir(path.join(legacy, "bge-m3"), { recursive: true });
   const named = await runProxy(built, legacy);

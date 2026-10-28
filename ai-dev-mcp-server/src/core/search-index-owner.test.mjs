@@ -48,7 +48,7 @@ function tempRoot(t) {
   return root;
 }
 
-test("the first vault keeps the index file a runtime home always had; every other vault gets one of its own (Д-195)", (t) => {
+test("the first vault keeps the index file a runtime home always had; every other vault gets one of its own", (t) => {
   const root = tempRoot(t);
   const dir = path.join(root, "index");
   const a = vaultIndexPath({ dir, vaultRoot: path.join(root, "vault-a") });
@@ -94,7 +94,7 @@ test("an index written before claims existed goes to the vault it was built from
   assert.equal(vaultIndexPath({ dir: unknown, vaultRoot: b }).reason, "claimed");
 });
 
-test("a vault holding only some of the index's notes is not the one it was built from, however they came; the one that is keeps it, edited, pulled or cloned again in place (Д-219, Д-229)", needsSqlite, (t) => {
+test("a vault holding only some of the index's notes is not the one it was built from, however they came; the one that is keeps it, edited, pulled or cloned again in place", needsSqlite, (t) => {
   const root = tempRoot(t);
   const owner = path.join(root, "vault-a");
   const seedCopy = path.join(root, "vault-b");
@@ -172,7 +172,7 @@ test("a vault holding only some of the index's notes is not the one it was built
   assert.equal(vaultIndexPath({ dir: noNotes, vaultRoot: seedCopy }).reason, "claimed");
 });
 
-test("the notes the server writes itself do not tell whose vault an index is: a set-up vault cloned again into its folder keeps it (Д-236)", needsSqlite, (t) => {
+test("the notes the server writes itself do not tell whose vault an index is: a set-up vault cloned again into its folder keeps it", needsSqlite, (t) => {
   const root = tempRoot(t);
   const owner = path.join(root, "vault-a");
   const seedCopy = path.join(root, "vault-b");

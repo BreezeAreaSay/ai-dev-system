@@ -11,7 +11,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 // The daemon as a client meets it: `ai-dev mcp`, the command every client
 // config runs, with nothing but the environment the client gives it
-// (docs/DEFECTS.md, Д-97). Real processes: the bridges, the daemons they start.
+//. Real processes: the bridges, the daemons they start.
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = path.join(serverRoot, "bin", "ai-dev.mjs");
@@ -95,7 +95,7 @@ const gone = (pid) => {
 /**
  * How long a daemon has to notice what was done to its files: it looks every
  * five seconds (`WATCH_INTERVAL_MS`), and a runner under load stretches that —
- * one on which a build took ten times as long missed a 20-second wait (Д-600).
+ * one on which a build took ten times as long missed a 20-second wait.
  */
 const RETIRE_WAIT_MS = 60_000;
 
@@ -186,7 +186,7 @@ test("each session lists the tools of its own AI_DEV_PROFILES, and AI_DEV_DAEMON
   assert.deepEqual(descriptors(run), [], "no daemon was started");
 });
 
-test("clients with their own PATH share one daemon, and each one's tools find that client's programs (Д-190)", { skip: process.platform === "win32" && "a POSIX shell script stands in for the scanner" }, async (t) => {
+test("clients with their own PATH share one daemon, and each one's tools find that client's programs", { skip: process.platform === "win32" && "a POSIX shell script stands in for the scanner" }, async (t) => {
   const { base, env, run } = await stage(t);
   // A GUI app's PATH: no gitleaks. A terminal's: the user's own gitleaks.
   const fakebin = path.join(base, "fakebin");
@@ -206,14 +206,14 @@ test("clients with their own PATH share one daemon, and each one's tools find th
   assert.match(await scanners(terminal.session), /gitleaks/, "nor the other way round");
 });
 
-test("clients of another vault get a daemon of their own; status shows both and says why; stop stops both (Д-191)", async (t) => {
+test("clients of another vault get a daemon of their own; status shows both and says why; stop stops both", async (t) => {
   const { env, run, vault } = await stage(t);
   const first = await client(t, env, "first");
   const otherVault = `${vault}-other`;
   await fs.cp(vault, otherVault, { recursive: true });
   await fs.writeFile(path.join(otherVault, "02-knowledge", "storage.md"), "# Other storage\n\nThe postgres schema lives elsewhere here.\n");
   // Its own index folder too: one runtime home keeps one index, whichever vault
-  // it was built from (docs/DEFECTS.md, Д-195).
+  // it was built from.
   const second = await client(t, { ...env, AI_DEV_VAULT_ROOT: otherVault, AI_DEV_SEARCH_INDEX_DIR: path.join(otherVault, ".index") }, "second");
   const third = await client(t, env, "third");
   await until(() => descriptors(run).length === 2, "two descriptors");
@@ -240,7 +240,7 @@ test("clients of another vault get a daemon of their own; status shows both and 
 test("a git pull where the code lies: the next client gets a daemon of the new code, the old one finishes its session and goes", async (t) => {
   const { base, env: staged, run } = await stage(t);
   // The old daemon takes six seconds to let go of its record's lock as it
-  // leaves: its watch looks in that moment, and must not put the record back (Д-210).
+  // leaves: its watch looks in that moment, and must not put the record back.
   const slowRelease = pathToFileURL(path.join(serverRoot, "test", "fixtures", "slow-retired-release.mjs")).href;
   const env = { ...staged, NODE_OPTIONS: `--import ${slowRelease}` };
   // A copy of the server, so that its code can change under a running daemon.
@@ -262,7 +262,7 @@ test("a git pull where the code lies: the next client gets a daemon of the new c
   const status = JSON.parse((await ai(env, ["daemon", "status", "--json"], { command: copyCli })).stdout);
   assert.equal(status.pid, second.pid);
   assert.deepEqual(status.others.map((daemon) => [daemon.pid, daemon.retired, daemon.sessions]), [[first.pid, true, 1]]);
-  // A record taken away while the old daemon lives comes back (Д-208).
+  // A record taken away while the old daemon lives comes back.
   await fs.rm(`${retired}.lock`, { force: true });
   await fs.rm(retired, { force: true });
   await until(() => existsSync(retired) && existsSync(`${retired}.lock`), "the retired daemon to publish its record again", 15_000);
@@ -276,7 +276,7 @@ test("a git pull where the code lies: the next client gets a daemon of the new c
   assert.equal(existsSync(retired), false, "and not to come back");
 });
 
-test("a retired daemon whose run folder and then whole runtime home were deleted takes neither with it nor leaves them behind (Д-214)", { skip: process.platform === "win32" && "a folder in use cannot be deleted on Windows" }, async (t) => {
+test("a retired daemon whose run folder and then whole runtime home were deleted takes neither with it nor leaves them behind", { skip: process.platform === "win32" && "a folder in use cannot be deleted on Windows" }, async (t) => {
   const { env, home, run } = await stage(t);
   const runtimeHome = path.join(home, ".ai-dev");
   const one = await client(t, env, "one");
@@ -298,7 +298,7 @@ test("a retired daemon whose run folder and then whole runtime home were deleted
   assert.equal(existsSync(runtimeHome), false, "the runtime home it made again goes with it, empty");
 });
 
-test("a retired daemon whose runtime home goes between its mkdir and its record's lock takes the folders the lock made with it (Д-226)", { skip: process.platform === "win32" && "a folder in use cannot be deleted on Windows" }, async (t) => {
+test("a retired daemon whose runtime home goes between its mkdir and its record's lock takes the folders the lock made with it", { skip: process.platform === "win32" && "a folder in use cannot be deleted on Windows" }, async (t) => {
   const { env, home, run } = await stage(t);
   const runtimeHome = path.join(home, ".ai-dev");
   const window = pathToFileURL(path.join(serverRoot, "test", "fixtures", "retired-window.mjs")).href;
@@ -313,7 +313,7 @@ test("a retired daemon whose runtime home goes between its mkdir and its record'
   assert.equal(existsSync(runtimeHome), false, "the runtime home its lock made goes with it, empty");
 });
 
-test("requests piped in and the input closed still get their answers, cold and warm (Д-192)", async (t) => {
+test("requests piped in and the input closed still get their answers, cold and warm", async (t) => {
   const { env } = await stage(t);
   const lines = [
     { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "pipe", version: "1" } } },
@@ -338,7 +338,7 @@ test("requests piped in and the input closed still get their answers, cold and w
   }
 });
 
-test("a long-lived daemon sets its own log aside, and goes on writing to the same file (Д-194)", async (t) => {
+test("a long-lived daemon sets its own log aside, and goes on writing to the same file", async (t) => {
   const { env, home } = await stage(t);
   const log = path.join(home, ".ai-dev", "logs", "daemon.log");
   await client(t, env, "first");
@@ -352,7 +352,7 @@ test("a long-lived daemon sets its own log aside, and goes on writing to the sam
   assert.match(readFileSync(`${log}.1`, "utf8"), /session 1 opened/);
 });
 
-test("a daemon a program started, stopped while that program waits on the stop: stopped at once, not \"still running\" (Д-234)", async (t) => {
+test("a daemon a program started, stopped while that program waits on the stop: stopped at once, not \"still running\"", async (t) => {
   const { env } = await stage(t);
   // The daemon is this process's child, as one the desktop app's transport starts is the app's.
   const daemon = spawn(process.execPath, [cli, "daemon", "run"], { cwd: serverRoot, env, stdio: "ignore", windowsHide: true });
@@ -374,7 +374,7 @@ test("a daemon a program started, stopped while that program waits on the stop: 
   assert.ok(took < 5_000, `it said so once the daemon exited, not at the 10 s deadline: ${took} ms`);
 });
 
-test("stop with only the descriptor of a daemon long gone says it is not running, and clears it (Д-194)", async (t) => {
+test("stop with only the descriptor of a daemon long gone says it is not running, and clears it", async (t) => {
   const { env, run } = await stage(t);
   await fs.mkdir(run, { recursive: true });
   const stale = path.join(run, "daemon-0123456789abcdef.json");
@@ -390,7 +390,7 @@ test("stop with only the descriptor of a daemon long gone says it is not running
   assert.equal(existsSync(stale), false);
 });
 
-test("stop makes no folder again when the runtime home goes while it looks at a gone daemon's descriptor (Д-226)", async (t) => {
+test("stop makes no folder again when the runtime home goes while it looks at a gone daemon's descriptor", async (t) => {
   const { env, home, run } = await stage(t);
   await fs.mkdir(run, { recursive: true, mode: 0o700 });
   await fs.writeFile(path.join(run, "daemon-0123456789abcdef.json"), JSON.stringify({ protocol: 1, pid: 4194305, address: "/nowhere.sock", secret: "a".repeat(64), build: "0123456789abcdef" }));
@@ -401,7 +401,7 @@ test("stop makes no folder again when the runtime home goes while it looks at a 
   assert.equal(existsSync(path.join(home, ".ai-dev")), false, "the runtime home deleted meanwhile stays deleted");
 });
 
-test("a daemon starting makes a run folder open to others private, and says so (Д-215, Д-225)", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
+test("a daemon starting makes a run folder open to others private, and says so", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
   const { env, home, run } = await stage(t);
   // As the lock race before Д-213's fix, or the 2.x layout's migration, left it;
   // the home is too long for a socket, so the socket lives elsewhere.
@@ -414,7 +414,7 @@ test("a daemon starting makes a run folder open to others private, and says so (
   assert.match(log, /\/run was open to other users; it is 0700 now/);
 });
 
-test("a daemon starting says what is true of its run folder when chmod changes nothing or the look at it fails (Д-225, Д-235)", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
+test("a daemon starting says what is true of its run folder when chmod changes nothing or the look at it fails", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
   const faults = pathToFileURL(path.join(serverRoot, "test", "fixtures", "run-folder-faults.mjs")).href;
   const { env, home, run } = await stage(t);
   const log = () => readFileSync(path.join(home, ".ai-dev", "logs", "daemon.log"), "utf8");
@@ -436,7 +436,7 @@ test("a daemon starting says what is true of its run folder when chmod changes n
   assert.equal(log().match(/is open to other users/g)?.length, 1, "only the first start found it open");
 });
 
-test("ai-dev daemon start, status and stop take a relative AI_DEV_HOME as the folder they run in means it (Д-201)", async (t) => {
+test("ai-dev daemon start, status and stop take a relative AI_DEV_HOME as the folder they run in means it", async (t) => {
   const { base, env } = await stage(t);
   const project = path.join(base, "project");
   await fs.mkdir(project);
@@ -467,7 +467,7 @@ test("when no daemon can start, the client is served in its own process and stde
   assert.match(text(found), /Storage/);
 });
 
-test("a home reached through a link: the first start finds the daemon it started, and the data folders appearing change nothing (Д-202)", async (t) => {
+test("a home reached through a link: the first start finds the daemon it started, and the data folders appearing change nothing", async (t) => {
   const { base, env } = await stage(t);
   // As `/var` is a link to `/private/var` on macOS: the home is reached through
   // a link, and its runtime folder is not made yet.
@@ -477,7 +477,7 @@ test("a home reached through a link: the first start finds the daemon it started
   await fs.symlink(real, linked, process.platform === "win32" ? "junction" : "dir");
   const linkEnv = { ...env, HOME: linked, USERPROFILE: linked };
   // Stopped in the test itself: the after hooks run in the order they were
-  // registered, and stage()'s removes the folder first (docs/DEFECTS.md, Д-209).
+  // registered, and stage()'s removes the folder first.
   let stopped;
   try {
     const started = await ai(linkEnv, ["daemon", "start"]);
@@ -498,7 +498,7 @@ test("a home reached through a link: the first start finds the daemon it started
   assert.match(stopped.stdout, /^Stopped: pid \d+/, stopped.stdout + stopped.stderr);
 });
 
-test("the socket a gone daemon left is cleared on the next start, whoever has its pid now (Д-205)", { skip: process.platform === "win32" && "a named pipe leaves no file behind" }, async (t) => {
+test("the socket a gone daemon left is cleared on the next start, whoever has its pid now", { skip: process.platform === "win32" && "a named pipe leaves no file behind" }, async (t) => {
   const { base, env, run } = await stage(t);
   const { describeBuild } = await import("../core/daemon-channel.mjs");
   const { absolutePathVariables } = await import("../core/session-env.mjs");

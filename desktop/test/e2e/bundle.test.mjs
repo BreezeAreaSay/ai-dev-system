@@ -148,7 +148,7 @@ test("a runtime that is not what the installer shipped is not run: the window sa
   await shot(page, "bundle-damaged");
 });
 
-test("a copy that lost files since it was made is put back at the next start, and Status says so (Д-300)", { timeout: 240_000 }, async (t) => {
+test("a copy that lost files since it was made is put back at the next start, and Status says so", { timeout: 240_000 }, async (t) => {
   const s = await stage(t);
   const bundle = await makeBundle(path.join(s.root, "bundle"), { version: "3.0.0", note: "repaired" });
   const env = installedEnv(s.env, bundle);
@@ -173,10 +173,10 @@ test("a copy that lost files since it was made is put back at the next start, an
 });
 
 // The app's folder made immutable refuses the link with EPERM, as a FAT32 or
-// exFAT drive refuses a junction (Д-299); only root may make a folder so.
+// exFAT drive refuses a junction; only root may make a folder so.
 const immutable = process.platform === "linux" && process.getuid?.() === 0 && spawnSync("chattr", ["--help"], { stdio: "ignore" }).error === undefined;
 
-test("a drive that cannot hold the link: the app runs its copy, connects clients to the copy, and Status says why and what to do (Д-299)", {
+test("a drive that cannot hold the link: the app runs its copy, connects clients to the copy, and Status says why and what to do", {
   timeout: 240_000,
   skip: immutable ? false : "needs root and chattr: an immutable folder is how this machine refuses a link"
 }, async (t) => {

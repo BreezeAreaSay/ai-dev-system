@@ -21,14 +21,14 @@ export function startupFailure(error, { serverRoot, loaded, t }) {
     if (error?.code === "ERR_MODULE_NOT_FOUND" && /Cannot find package/.test(message)) {
       return { error: t("broken.noPackages", { path: serverRoot }), hint: t("broken.noPackagesHint", { path: serverRoot }), detail: message, restart: true };
     }
-    // The server's entry module itself is missing — not one of the files it imports (Д-266, п. 4).
+    // The server's entry module itself is missing — not one of the files it imports.
     if (error?.code === "ERR_MODULE_NOT_FOUND" && /Cannot find module '[^']*[\\/]control-client\.mjs'/.test(message)) {
       return { error: t("broken.noServer", { path: serverRoot }), hint: t("broken.noServerHint"), detail: message, restart: true };
     }
     return { error: t("broken.serverFailed", { path: serverRoot }), hint: t("broken.restartHint"), detail: message, restart: true };
   }
   // The hint says what to do with the file, in the app's language; the
-  // server's own "Fix or remove it" is not said a second time (Д-269).
+  // server's own "Fix or remove it" is not said a second time.
   if (/config\.json/.test(message)) return { error: message.replace(SERVER_SETTINGS_ADVICE, "").trim(), hint: t("broken.settingsHint"), restart: false };
   return { error: message, hint: t("broken.tryAgainHint"), restart: false };
 }

@@ -14,7 +14,7 @@ import { makeZip } from "../test/fixtures/zip-writer.mjs";
 // `npm run model -- import` copies it in and embeds the vault, then the real
 // MCP server — its own process, the real worker thread, transformers.js and
 // onnxruntime-node — answers a hybrid search whose winner only the dense half
-// can find (docs/DEFECTS.md, Д-101). Then the model goes, and the server says
+// can find. Then the model goes, and the server says
 // so instead of failing the search.
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

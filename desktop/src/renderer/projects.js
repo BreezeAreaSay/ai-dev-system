@@ -9,7 +9,7 @@ import { dataTable, emptyState, errorState, formatDate, loadingLine } from "./ui
 const state = { selected: null };
 
 // How many of each the card shows. Each list asks for one more, to know when
-// there are more than it shows, and says so (docs/DEFECTS.md, Д-289).
+// there are more than it shows, and says so.
 const TASKS = 50;
 const EPICS = 10;
 const DECISIONS = 50;
@@ -81,7 +81,7 @@ function epicsSection(view, tasksOf) {
     load: async (again) => {
       const all = await tasksOf(again);
       const { shown: parents, more } = capped(view, all.slice(0, TASKS).filter((task) => task.epic?.children?.length), EPICS);
-      // The epics come from the tasks the card has: past its first ones, there may be more (Д-293).
+      // The epics come from the tasks the card has: past its first ones, there may be more.
       const beyond = !more && all.length > TASKS ? h("p", { className: "muted small", dataset: { field: "more" } }, view.t("projects.moreEpics", { tasks: TASKS })) : null;
       if (!parents.length) return [emptyState(view.t("projects.epics.empty")), beyond];
       const answers = await Promise.all(parents.map((task) => api.call("epic_status", { task_id: task.id })));

@@ -1,6 +1,6 @@
 /**
  * An index 2.0.0 wrote with dense vectors: `dense_vectors` has no backend,
- * revision or dtype, which later 2.x added (docs/DEFECTS.md, Д-571). Every
+ * revision or dtype, which later 2.x added. Every
  * vector in it is the Python backend's — the only one 2.x had then — and is
  * counted, kept and compared as such: another model's, waiting for
  * `setup -- --model`, as later 2.x's Python vectors are.

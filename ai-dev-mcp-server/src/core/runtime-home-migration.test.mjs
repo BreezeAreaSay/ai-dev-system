@@ -40,7 +40,7 @@ test("nothing to do without AI_DEV_HOME, or without a doubled tree", async (t) =
   assert.equal((await migrateDoubledRuntimeHome({ env: { HOME: home, AI_DEV_HOME: home } })).status, "not-applicable", "AI_DEV_HOME naming the home has nothing doubled");
 });
 
-test("a 2.x tree under AI_DEV_HOME/.ai-dev moves up without losing a file (Д-90)", async (t) => {
+test("a 2.x tree under AI_DEV_HOME/.ai-dev moves up without losing a file", async (t) => {
   const { aiDevHome, legacy, env } = await fixture(t);
   await write(path.join(legacy, "state", "tasks", "task-1.json"), '{"id":"task-1"}\n');
   await write(path.join(legacy, "state", "sessions", "repo-a", "handoff.json"), '{"topic":"a"}\n');
@@ -216,7 +216,7 @@ test("ledgers merge in time order; untimed records keep the old ledger first; a 
   assert.equal(mergeLedgers("", ""), "");
 });
 
-test("AI Dev's Codex-era folders move into the runtime tree; the rest of ~/.codex stays (Д-104)", async (t) => {
+test("AI Dev's Codex-era folders move into the runtime tree; the rest of ~/.codex stays", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
@@ -254,7 +254,7 @@ test("AI Dev's Codex-era folders move into the runtime tree; the rest of ~/.code
   assert.equal((await migrateCodexRuntime({ env })).status, "clean", "a second run has nothing to do");
 });
 
-test("a place named by its variable is not taken from ~/.codex, and what could not move is in doctor (Д-104)", async (t) => {
+test("a place named by its variable is not taken from ~/.codex, and what could not move is in doctor", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
@@ -281,7 +281,7 @@ test("a place named by its variable is not taken from ~/.codex, and what could n
   assert.equal(evaluateRuntimeHome(await describeRuntimeHome({ env })).status, "ok");
 });
 
-test("an install with its own AI_DEV_HOME takes its Codex-era data from its own .codex, never from ~/.codex (Д-389)", async (t) => {
+test("an install with its own AI_DEV_HOME takes its Codex-era data from its own .codex, never from ~/.codex", async (t) => {
   // A demo, a test run or a second install with a home of its own used to carry the user's ~/.codex into it —
   // and a demo deletes its home when it is done. 2.x read .codex beside .ai-dev under AI_DEV_HOME.
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-own-"));
@@ -308,8 +308,8 @@ test("an install with its own AI_DEV_HOME takes its Codex-era data from its own 
   assert.ok(await fs.stat(path.join(home, ".ai-dev", "state", "archify-receipts", "r.json")));
 });
 
-test("AI_DEV_HOME naming the default runtime folder takes the .codex beside it when that holds AI Dev's data, else ~/.codex (Д-394)", async (t) => {
-  // ~/.ai-dev is 3.0's own folder, and an entry carries the variable when it is exported (Д-176): a 2.x install with
+test("AI_DEV_HOME naming the default runtime folder takes the .codex beside it when that holds AI Dev's data, else ~/.codex", async (t) => {
+  // ~/.ai-dev is 3.0's own folder, and an entry carries the variable when it is exported: a 2.x install with
   // the same variable kept its Codex-era data in ~/.ai-dev/.codex, one without it in ~/.codex.
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-default-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -338,7 +338,7 @@ test("AI_DEV_HOME naming the default runtime folder takes the .codex beside it w
   assert.equal(await fs.readFile(path.join(home, ".codex", "artifacts", "archify", "a.svg"), "utf8"), "<svg/>", "not in the same run");
 });
 
-test("the start log names the .codex the data moved out of, not ~/.codex (Д-397)", async (t) => {
+test("the start log names the .codex the data moved out of, not ~/.codex", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-log-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
@@ -363,7 +363,7 @@ test("the start log names the .codex the data moved out of, not ~/.codex (Д-397
   assert.ok(failed.startsWith(`ai-dev: could not move AI Dev's data out of ${path.join(own, ".codex")}: `), failed);
 });
 
-test("a move out of the .codex beside AI_DEV_HOME=<home>/.ai-dev that fails half-way names that folder, not ~/.codex (Д-417)", async (t) => {
+test("a move out of the .codex beside AI_DEV_HOME=<home>/.ai-dev that fails half-way names that folder, not ~/.codex", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-fail-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
@@ -383,7 +383,7 @@ test("a move out of the .codex beside AI_DEV_HOME=<home>/.ai-dev that fails half
   await fs.access(path.join(home, ".codex", "state", "archify-receipts", "user.json"));
 });
 
-test("AI_DEV_HOME is told for <home>/.ai-dev through links, before that folder exists too (Д-394, Д-417)", { skip: process.platform === "win32" && "POSIX links" }, async (t) => {
+test("AI_DEV_HOME is told for <home>/.ai-dev through links, before that folder exists too", { skip: process.platform === "win32" && "POSIX links" }, async (t) => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-links-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   // HOME is a link to the real home, and AI_DEV_HOME names the real one's .ai-dev, which no start has made yet.
@@ -408,7 +408,7 @@ test("AI_DEV_HOME is told for <home>/.ai-dev through links, before that folder e
   assert.equal((await describeRuntimeHome({ env: { HOME: other, AI_DEV_HOME: elsewhere } })).codex_root, path.join(other, ".codex"));
 });
 
-test("AI_DEV_HOME is told for <home>/.ai-dev in the letter case a case-blind filesystem ignores (Д-394, Д-417)", { skip: process.platform === "win32" && "POSIX links" }, async (t) => {
+test("AI_DEV_HOME is told for <home>/.ai-dev in the letter case a case-blind filesystem ignores", { skip: process.platform === "win32" && "POSIX links" }, async (t) => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-case-")));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const real = path.join(root, "real-home");
@@ -425,7 +425,7 @@ console.log(JSON.stringify(await Promise.all(cases.map(async (env) => (await des
   assert.deepEqual(JSON.parse(run.stdout), [path.join(real, ".codex"), path.join(link, ".codex")]);
 });
 
-test("a Codex-era index or half a download that ~/.ai-dev has its own of is dropped, not a conflict (Д-183)", async (t) => {
+test("a Codex-era index or half a download that ~/.ai-dev has its own of is dropped, not a conflict", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-codex-cache-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const home = path.join(root, "home");
@@ -453,7 +453,7 @@ test("the test runtime pins every place the migration takes from ~/.codex: a tes
   assert.deepEqual(CODEX_LEGACY_FOLDERS.filter((folder) => !process.env[folder.variable]).map((folder) => folder.variable), []);
 });
 
-test("nothing looks for the Codex desktop runtime any more: not the server, not a script (Д-104)", async () => {
+test("nothing looks for the Codex desktop runtime any more: not the server, not a script", async () => {
   const repository = path.resolve(import.meta.dirname, "..", "..", "..");
   const places = [
     path.join(repository, "scripts"),
@@ -483,7 +483,7 @@ async function containerFixture(t, hostState) {
   return { root, runtime, volume: path.join(runtime, "state"), target: env.AI_DEV_STATE_ROOT, env };
 }
 
-test("in the image, the volume's state moves into the host's state folder the hooks share (Д-103)", async (t) => {
+test("in the image, the volume's state moves into the host's state folder the hooks share", async (t) => {
   const { runtime, volume, target, env } = await containerFixture(t);
   await write(path.join(volume, "tasks", "task-1.json"), '{"id":"task-1"}');
   await write(path.join(volume, "sessions", "k", "handoff.json"), '{"from":"volume"}');
@@ -500,7 +500,7 @@ test("in the image, the volume's state moves into the host's state folder the ho
   await assert.rejects(fs.access(path.join(volume, "tasks")), /ENOENT/);
   assert.equal((await readMigrationRecord(runtime, env)).history.at(-1).kind, "volume", "kept in the state folder, not in the one moved out");
   await assert.rejects(fs.access(path.join(volume, "runtime-home-migration.json")), /ENOENT/);
-  // The health check says where they went: the host's folder, not the runtime tree (Д-328).
+  // The health check says where they went: the host's folder, not the runtime tree.
   const health = evaluateRuntimeHome(await describeRuntimeHome({ env }));
   assert.match(health.summary, new RegExp(`were moved to ${target.replaceAll("\\", "\\\\")} from`));
   assert.doesNotMatch(health.summary, /moved here/);

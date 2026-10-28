@@ -4,7 +4,7 @@ import { createSessionEnd } from "./session-end.mjs";
 
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 
-test("a session ends when its input has and nothing it asked for is still running (Д-354)", async () => {
+test("a session ends when its input has and nothing it asked for is still running", async () => {
   let ends = 0;
   const session = createSessionEnd(() => { ends += 1; });
   let finish;
@@ -18,7 +18,7 @@ test("a session ends when its input has and nothing it asked for is still runnin
   assert.equal(ends, 1);
 });
 
-test("calls before the end do not end a session; a call that starts in the same turn as the end is waited for (Д-354)", async () => {
+test("calls before the end do not end a session; a call that starts in the same turn as the end is waited for", async () => {
   let ends = 0;
   const session = createSessionEnd(() => { ends += 1; });
   await session.track(async () => "first");

@@ -68,7 +68,7 @@ test("each way a client would see a red dot is named", async () => {
   }
 });
 
-test("a command that died is named by its error, not by Node's version, its stack or its code (Д-169)", async () => {
+test("a command that died is named by its error, not by Node's version, its stack or its code", async () => {
   const stderrs = [
     [[
       "node:internal/modules/cjs/loader:1228",
@@ -118,7 +118,7 @@ test("a command that died is named by its error, not by Node's version, its stac
   assert.ok(moved.error.startsWith(`it exited with code 1 before answering: Error: Cannot find module '${entry}'`), moved.error);
 });
 
-test("a warning Docker prints before it goes on is no reason a command stopped: the reason Docker gives is said (Д-455)", async () => {
+test("a warning Docker prints before it goes on is no reason a command stopped: the reason Docker gives is said", async () => {
   // Docker 29.8.2's own words, as measured (the home shortened): its config.json broken, then a folder in its place,
   // each before it refused a --mount; an image of another platform; ports published with the host's network.
   const refusal = "invalid argument \"type=bind,source=/tmp,target=/models,readonly=TRUE\" for \"--mount\" flag: invalid value for 'readonly': invalid boolean value (\"TRUE\"): must be one of \"true\", \"1\", \"false\", or \"0\" (default \"true\")";
@@ -140,7 +140,7 @@ test("a warning Docker prints before it goes on is no reason a command stopped: 
     // Not Docker's: a line that only begins as its warnings do, or another program's warning, is said as before.
     [1, ["WARNING:root:the index at /data/index.db is from another version"], "WARNING:root:the index at /data/index.db is from another version"],
     [1, ["Warning: no vault at /data/vault; run ai-dev setup first"], "Warning: no vault at /data/vault; run ai-dev setup first"],
-    // A third-party server's Go log line, its warning past the line's start: the reason it stopped (Д-469).
+    // A third-party server's Go log line, its warning past the line's start: the reason it stopped.
     [1, ["2026/10/19 12:00:00 WARNING: GITHUB_TOKEN is not set; the server cannot start without it"], "2026/10/19 12:00:00 WARNING: GITHUB_TOKEN is not set; the server cannot start without it"]
   ];
   for (const [code, lines, said] of cases) {
@@ -166,7 +166,7 @@ test("a command that does not exist, an empty one, and one that never answers", 
   assert.match(thrown.error, /node could not be started: EACCES/);
 });
 
-test("a line too long to keep whole is cut between characters, never inside a surrogate pair (Д-438)", async () => {
+test("a line too long to keep whole is cut between characters, never inside a surrogate pair", async () => {
   const lone = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
   const said = async (line) => (await checkServerCommand({ command: "node", args: [] }, {
     spawnProcess: fakeSpawn((child) => {
@@ -189,7 +189,7 @@ test("a line too long to keep whole is cut between characters, never inside a su
   for (const line of [head, tail, both]) assert.doesNotMatch(await said(line), lone);
 });
 
-test("a command that ended before it answered gives back its exit code and its stderr as written (Д-433)", async () => {
+test("a command that ended before it answered gives back its exit code and its stderr as written", async () => {
   const stderr = "invalid argument \"type=bind,source=/x,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'\nSee 'docker run --help'.\n";
   const result = await checkServerCommand({ command: "docker", args: [] }, {
     spawnProcess: fakeSpawn((child) => {
@@ -218,7 +218,7 @@ function recordedSpawn(children, t) {
 // On Windows a child is stopped by TerminateProcess, SIGTERM or not: there is no signal to ignore.
 const signals = { skip: process.platform === "win32" && "no SIGTERM to ignore on Windows" };
 
-test("a command that does not stop for SIGTERM is killed a few seconds on, so the doctor can exit (Д-437)", signals, async (t) => {
+test("a command that does not stop for SIGTERM is killed a few seconds on, so the doctor can exit", signals, async (t) => {
   const children = [];
   // As a container whose first process has no handler for SIGTERM, behind `docker run -i`: it never answers either.
   const deaf = { command: process.execPath, args: ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"] };
@@ -231,7 +231,7 @@ test("a command that does not stop for SIGTERM is killed a few seconds on, so th
   assert.ok(ended.at - started < 1000 + 500 + 2000, `gone ${ended.at - started} ms after the start`);
 });
 
-test("a command that stops for SIGTERM, or when its stdin closes, is not killed (Д-437)", signals, async (t) => {
+test("a command that stops for SIGTERM, or when its stdin closes, is not killed", signals, async (t) => {
   const children = [];
   const answer = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { serverInfo: { name: "s", version: "1" }, instructions: "Begin." } });
   // One that answers and stops for SIGTERM, as a Node server does; one that ignores SIGTERM and stops at the end of its input.
@@ -246,7 +246,7 @@ test("a command that stops for SIGTERM, or when its stdin closes, is not killed 
   assert.deepEqual([ended.code, ended.signal], [0, null]);
 });
 
-test("clients doctor exits after an entry that does not stop for SIGTERM: it is killed a few seconds on (Д-437)", async (t) => {
+test("clients doctor exits after an entry that does not stop for SIGTERM: it is killed a few seconds on", async (t) => {
   const home = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-doctor-"));
   const pidFile = path.join(home, "deaf.pid");
   // Whatever the doctor did, nothing it started outlives the test.
@@ -269,8 +269,8 @@ test("clients doctor exits after an entry that does not stop for SIGTERM: it is 
   };
   // The doctor says its verdict once the second is up, and exits when the entry's process is killed, the 5 s grace
   // on: it waits that out and no longer. Measured on 4 CPUs, idle and with 32 busy loops: 6.1–8.3 s in all, the
-  // start slower under load; 5.0–5.3 s from the verdict to the exit (Д-457). On Windows the entry's process is stopped
-  // at once, SIGTERM or not, so there is no grace to wait out (Д-468).
+  // start slower under load; 5.0–5.3 s from the verdict to the exit. On Windows the entry's process is stopped
+  // at once, SIGTERM or not, so there is no grace to wait out.
   const started = Date.now();
   const doctor = await new Promise((resolve) => {
     const child = spawn(process.execPath, [cli, "clients", "doctor", "--clients=cursor", "--timeout=1"], { env, stdio: ["ignore", "pipe", "pipe"] });

@@ -83,7 +83,7 @@ export function supportedVersion(version) {
 /**
  * Find the Node to run the daemon with. Without one, `problem` says why in
  * English and `reason` names the same words in the page's dictionary
- * (`node.problem.*`), so the window says it in its language (Д-264).
+ * (`node.problem.*`), so the window says it in its language.
  *
  * @param {{ env?: NodeJS.ProcessEnv, platform?: string, home?: string, bundled?: string[], clientNodes?: string[], versionOf?: (file: string) => string | null }} [options]
  *   `bundled` — the Node the Windows installer ships, through its stable link;

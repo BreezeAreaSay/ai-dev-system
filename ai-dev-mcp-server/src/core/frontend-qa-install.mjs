@@ -6,7 +6,7 @@
  * without `--frozen-lockfile`, or, with no pnpm, `npm install`, which never
  * reads `pnpm-lock.yaml` and resolved the tree afresh. It installed no browser,
  * so its ✓ meant "packages are here" while the health check two lines later
- * said Frontend QA could not run (docs/DEFECTS.md, Д-93).
+ * said Frontend QA could not run.
  *
  * Now the pnpm the runner's `packageManager` names installs exactly the
  * lockfile, Playwright installs the Chromium build it was released with, and

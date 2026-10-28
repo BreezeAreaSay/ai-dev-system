@@ -10,17 +10,17 @@
  *    path), answers with its instructions, still has the task, and has brought
  *    the volume's skills up to its seed: what 2.x shipped and the new seed
  *    dropped is gone, the user's edit is kept with the update beside it, their
- *    own skill is kept (docs/DEFECTS.md, Д-99);
+ *    own skill is kept;
  * 3. the 2.x launcher's warm path — a runtime container the 2.x bootstrap
  *    started, now of the new image — still serves a session, and the 3.0
- *    wrapper of the same name answers with the server's own handshake (Д-89);
+ *    wrapper of the same name answers with the server's own handshake;
  * 4. a 3.0 entry (`ai-dev clients entry … --docker`) on the same volume moves
- *    the volume's state, the task with it, into the host's state folder (Д-103);
+ *    the volume's state, the task with it, into the host's state folder;
  * 5. the way back as `bootstrap.sh --image …:2` writes it — the 2.x image run
  *    by a 3.0 entry — answers, and sees the task in that state folder (Д-323,
  *    Д-333);
  * 6. back on the new image, what the 2.x start's `cp -n` put back into the
- *    volume is removed again (Д-317).
+ *    volume is removed again.
  *
  * The 2.x launcher is read from git (`--old-ref`, the commit the upgrade test
  * starts from). Nothing outside a temporary folder and the volumes it names is
@@ -176,17 +176,17 @@ try {
   report.entry_3x = { session_ms: third.handshake.ms, instructions: third.handshake.instructions, tasks_in_host_state: moved.length };
 
   // 5. The way back as bootstrap --image …:2 writes it: the 2.x image under a
-  // 3.0 entry, which hands it the state folder (docs/DEFECTS.md, Д-323, Д-333).
+  // 3.0 entry, which hands it the state folder.
   const back = await session("docker", dockerRunArgs({ image: oldImage, volume, projects, state, platform: process.platform }), {}, async (client) => ({
     tasks: (await json(client, "list_tasks", {})).map((task) => task.id)
   }));
   assert(back.tasks.includes(first.task), "the 2.x image under a 3.0 entry does not see the task in the shared state folder");
   const putBack = Number(inVolume(newImage, "find /data/ai-dev-system/03-skills-catalog/sources -name SKILL.md | wc -l"));
-  // What step 6 takes away: without it, step 6 would pass having tested nothing (docs/DEFECTS.md, Д-344).
+  // What step 6 takes away: without it, step 6 would pass having tested nothing.
   assert(putBack > shippedSkills + 1, `the 2.x start under a 3.0 entry put no skills back: ${putBack}`);
   report.way_back_3x_entry = { session_ms: back.handshake.ms, task: "seen in the shared state folder", skills_after_its_cp_n: putBack };
 
-  // 6. Back on the new image: what that start's `cp -n` put back goes again (Д-317).
+  // 6. Back on the new image: what that start's `cp -n` put back goes again.
   const returned = await session("docker", dockerRunArgs({ image: newImage, volume, projects, state, platform: process.platform }), {});
   const recount = Number(inVolume(newImage, "find /data/ai-dev-system/03-skills-catalog/sources -name SKILL.md | wc -l"));
   assert(recount === shippedSkills + 1, `back on the new image the volume has ${recount} skills; the seed ships ${shippedSkills}, plus the user's own one`);

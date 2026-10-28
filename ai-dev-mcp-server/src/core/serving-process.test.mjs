@@ -3,7 +3,7 @@ import process from "node:process";
 import test from "node:test";
 import { markServingDaemon, servingProcess } from "./serving-process.mjs";
 
-test("the serving process: a client's own, then the daemon, which says when it has retired (Д-245)", () => {
+test("the serving process: a client's own, then the daemon, which says when it has retired", () => {
   assert.deepEqual(servingProcess(), { kind: "process", pid: process.pid });
   let retired = null;
   markServingDaemon({ build: "b1", startedAt: "2026-10-12T00:00:00.000Z", idleTimeoutMs: 1800000.4, sessions: () => 2, retired: () => retired });

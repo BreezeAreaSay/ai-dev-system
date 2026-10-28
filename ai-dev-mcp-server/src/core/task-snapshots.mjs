@@ -462,12 +462,12 @@ export async function captureTaskSnapshot({ taskStore, record, worktreePath, lab
  *
  * A rollback brings the tree to the snapshot's state, so every file that
  * appeared afterwards goes — including one a person wrote from another terminal
- * while the agent worked (docs/DEFECTS.md, Д-15).
+ * while the agent worked.
  *
  * What this list says, exactly: no snapshot of this task holds this path. That
  * is a fact about the snapshots, not about who wrote the file — a file the
  * agent itself created since the last snapshot is in here too, which is why the
- * warning built on it stopped calling these files somebody else's (Д-28). It
+ * warning built on it stopped calling these files somebody else's. It
  * does say something worth knowing: for these paths the undo snapshot is the
  * only record that they ever existed.
  *

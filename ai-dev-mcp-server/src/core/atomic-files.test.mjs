@@ -34,7 +34,7 @@ test("queued appends do not lose concurrent updates", async (t) => {
   assert.deepEqual(new Set(lines), new Set(Array.from({ length: 20 }, (_, index) => String(index))));
 });
 
-// --- Several processes at once (docs/DEFECTS.md, Д-96) ---------------------
+// --- Several processes at once ---------------------
 //
 // Every MCP client runs its own server process and the agent hooks run as
 // processes too, so these tests write from separate processes, the way a user's
@@ -182,7 +182,7 @@ test("a rewrite under the lock and an append queued meanwhile do not wait on eac
     const kept = (await fs.readFile(ledger, "utf8")).split("\n").filter(Boolean).slice(-10);
     await atomicWriteFile(ledger, `${kept.join("\n")}\n`);
   });
-  // Queued while the rewrite holds the lock, whatever the load: 2 ms after it began was sometimes before (Д-494).
+  // Queued while the rewrite holds the lock, whatever the load: 2 ms after it began was sometimes before.
   await held;
   const append = appendJsonLines(ledger, `${JSON.stringify({ late: true })}\n`);
   await Promise.all([rotation, append]);
@@ -222,19 +222,19 @@ test("the hooks cut a torn record the same way", async (t) => {
   assert.equal(await truncateTornTail(ledger), 0);
 });
 
-test("a file is flushed where Node allows it: the permission model's refusal of fsync fails no write, any other failure does (Д-470)", async (t) => {
+test("a file is flushed where Node allows it: the permission model's refusal of fsync fails no write, any other failure does", async (t) => {
   const handle = (error) => ({ sync: async () => { if (error) throw error; } });
   await flushFile(handle(null));
   await flushFile(handle(Object.assign(new Error("fsync API is disabled when Permission Model is enabled."), { code: "ERR_ACCESS_DENIED" })));
   await assert.rejects(flushFile(handle(Object.assign(new Error("EIO: i/o error, fsync"), { code: "EIO" }))), /EIO/);
   // Under --permission, where Node refuses a FileHandle's sync() (24.22, 26.12) and chmod() (22.23, 24.15 … 24.22,
   // 25.9, 26.0, 26.12), every write the server makes goes through all the same — but for a copy root hands to the
-  // config's owner, which needs the fchown it refuses (Д-168, Д-494): a write and an append; a client's config that is
+  // config's owner, which needs the fchown it refuses: a write and an append; a client's config that is
   // new (Cursor's), one whose copy needs a chmod under a umask that clears a read or write bit (Gemini's, 0666), and one
   // of its owner's alone (Claude Code's, 0600), each added to, changed and cleaned, none left wider than it was; and a
-  // backup (Д-477, Д-492, Д-512, Д-513). A umask hides a copy widened by the bits it clears, so the scenario runs twice:
+  // backup. A umask hides a copy widened by the bits it clears, so the scenario runs twice:
   // under 0002, which clears a bit of 0666 and shows a copy widened by the group's write bit, and under 0000, which
-  // shows one widened by the others' (Д-525, Д-529). The modes say so only where a new file takes its mode from the
+  // shows one widened by the others'. The modes say so only where a new file takes its mode from the
   // umask, which is checked after the writes: a default ACL or a filesystem that ignores modes gives another.
   const umask = process.umask(0o002);
   t.after(() => process.umask(umask));
@@ -278,7 +278,7 @@ console.log(JSON.stringify({ statuses, files: backup.files }));`;
   }
 });
 
-test("a copy is given its file's mode where Node allows it: a mode it has is not set again, the permission model's refusal fails no write, any other failure does (Д-477)", async () => {
+test("a copy is given its file's mode where Node allows it: a mode it has is not set again, the permission model's refusal fails no write, any other failure does", async () => {
   const handle = (mode, error) => {
     const set = [];
     return { set, stat: async () => ({ mode: 0o100000 | mode }), chmod: async (to) => { set.push(to); if (error) throw error; } };

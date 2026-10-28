@@ -22,7 +22,7 @@ const WORD = /[\p{L}\p{N}_]+/gu;
  *
  * Every word is quoted. The helper passed them bare, and to FTS5 a bare
  * `AND`, `OR`, `NOT` or `NEAR` is an operator: "frontend AND backend testing"
- * was a syntax error and found nothing (docs/DEFECTS.md, Д-117). Quoted, a
+ * was a syntax error and found nothing. Quoted, a
  * word is a word; for every other word the query means what it meant.
  *
  * @param {string} query

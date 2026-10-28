@@ -10,18 +10,18 @@
 ; own data (No by default). An uninstaller built "one click" runs this step
 ; silently — electron-builder's un.onInit turns silence on after its "Are you
 ; sure?" — and a silent NSIS answers a MessageBox that carries /SD itself,
-; without showing it (docs/DEFECTS.md, Д-296). So the boxes here carry no /SD
+; without showing it. So the boxes here carry no /SD
 ; and are shown only when the person did not ask for silence with /S, read
 ; from the command line as un.onInit reads it; /S takes the defaults.
 ;
 ; `ai-dev uninstall` says by its exit status what it left: 3 — files an AI
-; client still runs, which the person may close and Retry (Д-302); 4 — the
-; data, its folder holding what AI Dev did not make (Д-297); anything else but
+; client still runs, which the person may close and Retry; 4 — the
+; data, its folder holding what AI Dev did not make; anything else but
 ; 0 — another failure. Each has a box of its own.
 ;
 ; An update runs the old uninstaller too, with --updated or, in its place,
 ; --delete-app-data, and with /KEEP_APP_DATA either way: then nothing of this
-; happens (Д-306, п. 6).
+; happens.
 ;
 ; All of it is the uninstaller's: electron-builder compiles the script twice,
 ; and the installer's pass, run with -WX, refuses a variable it never uses.

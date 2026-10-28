@@ -5,7 +5,7 @@ import { clientChoice, clientResult, modelUnreadable, stepReason, stepTitle, unr
 
 const view = (language = "en") => ({ t: (key, params) => translate(language, key, params) });
 
-test("a client's row says what its ai-dev entry runs; another program's entry is not chosen for the person (Д-248)", () => {
+test("a client's row says what its ai-dev entry runs; another program's entry is not chosen for the person", () => {
   const row = (fields) => clientChoice(view(), { found: true, connected: false, entry: "none", ...fields });
   assert.deepEqual(row({}), { note: "installed", checked: true, disabled: false });
   assert.equal(row({ entry: "2.x" }).checked, true, "the 2.x entry is the same server under its old name");
@@ -28,7 +28,7 @@ test("after Connect, each client's line with the daemon's reason", () => {
   assert.equal(clientResult(view(), { client: "x", label: "X", status: "would-add" }).text, "X: would-add", "a status without words stays as it is");
 });
 
-test("a step's title and reason in the page's words; a failed step shows its error (Д-248, Д-250, Д-257 п. 3)", () => {
+test("a step's title and reason in the page's words; a failed step shows its error", () => {
   const step = (fields) => ({ id: "search_index", title: "Search index", status: "done", ...fields });
   assert.equal(stepTitle(view("ru"), step({})), "Поисковый индекс");
   assert.equal(stepTitle(view("en"), step({ id: "a_new_step", title: "A new step" })), "A new step");
@@ -42,7 +42,7 @@ test("a step's title and reason in the page's words; a failed step shows its err
   }
 });
 
-test("a model that cannot be read is said to be so, with what to do by why — not \"not installed\" (Д-367)", () => {
+test("a model that cannot be read is said to be so, with what to do by why — not \"not installed\"", () => {
   const said = [];
   const view = { t: (key, params = {}) => { said.push(key); return `${key}${Object.keys(params).length ? ` ${JSON.stringify(params)}` : ""}`; } };
   assert.equal(unreadableCode("ENOTDIR: not a directory, lstat '/m/models.zip/bge-m3-onnx/config.json'"), "ENOTDIR");
@@ -66,7 +66,7 @@ test("a model that cannot be read is said to be so, with what to do by why — n
   assert.match(modelUnreadable(view, { dir: "/m", unreadable: "no code here" }).status, /"code":"no code here"/, "a reason with no code is shown whole");
 });
 
-test("EPERM's advice itself sends a macOS user to Privacy & Security, in both languages; EACCES's does not (Д-387, Д-397)", () => {
+test("EPERM's advice itself sends a macOS user to Privacy & Security, in both languages; EACCES's does not", () => {
   // The words, not only the key: an EPERM advice that read like EACCES's passed every test before.
   const model = (code) => ({ dir: "/Users/me/Documents/models", unreadable: `${code}: operation not permitted, open '/Users/me/Documents/models/bge-m3-onnx/config.json'` });
   const en = modelUnreadable(view("en"), model("EPERM")).wizard;

@@ -449,7 +449,7 @@ export function setMember(text, path, key, value) {
       // A comment after the last value stays with that value: the comma goes
       // before it, the new member on a line of its own after it. Inserted at
       // the value, the comment ended up after the new member, and removing
-      // the member took it along (docs/DEFECTS.md, Д-172).
+      // the member took it along.
       const trailing = rest.comma >= 0;
       const withLine = splice(text, rest.end, rest.end, `${style.eol}${indent}${JSON.stringify(memberName)}: ${printed}${trailing ? "," : ""}`);
       return trailing ? withLine : splice(withLine, last.valueEnd, last.valueEnd, ",");

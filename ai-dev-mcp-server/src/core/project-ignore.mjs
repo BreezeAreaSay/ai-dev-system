@@ -3,8 +3,7 @@
  * cache, the last security scan's stamp — stays out of the project's history:
  * `.ai-dev/.gitignore` names those folders. The rest of `.ai-dev/` (the
  * project brief, the quality gate, the policy, the hooks) is the team's and
- * is not ignored. A `.gitignore` already there is added to, never replaced
- * (docs/DEFECTS.md, Д-597).
+ * is not ignored. A `.gitignore` already there is added to, never replaced.
  */
 import fs from "node:fs/promises";
 import path from "node:path";

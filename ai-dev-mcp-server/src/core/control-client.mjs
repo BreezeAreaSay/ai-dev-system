@@ -1,6 +1,6 @@
 /**
  * What a program needs to drive this install from outside it — the desktop
- * app (phase 10), a script, a test: an MCP SDK client on the daemon every AI
+ * app, a script, a test: an MCP SDK client on the daemon every AI
  * client shares, the settings, the daemon's log, stopping it.
  *
  * The app imports this module by its path inside the install, so the SDK and

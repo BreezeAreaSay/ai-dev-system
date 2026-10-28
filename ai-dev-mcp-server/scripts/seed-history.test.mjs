@@ -15,7 +15,7 @@ test("the shipped seed history is what git says for the 2.x line", { skip }, asy
   assert.deepEqual(shipped.pairs, computed.pairs, "run `node scripts/seed-history.mjs --write`");
 });
 
-test("every file of the seed a 2.x volume can hold is known to the history by itself, whatever the current manifest says (Д-315)", { skip }, async () => {
+test("every file of the seed a 2.x volume can hold is known to the history by itself, whatever the current manifest says", { skip }, async () => {
   const history = new Set(JSON.parse(await fs.readFile(SEED_HISTORY_FILE, "utf8")).pairs);
   const at2x = seedKeys([SEED_HISTORY_BASE]);
   assert.ok(at2x.size > 1000, `the seed at the base has ${at2x.size} files`);

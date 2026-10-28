@@ -26,7 +26,7 @@ test("the folders one machine writes for itself are named in .ai-dev/.gitignore,
   assert.deepEqual(MACHINE_FOLDERS, ["cache/", "security/"]);
 });
 
-test("the import graph's cache, written into a repository, is one git ignores (Д-597)", { skip: spawnSync("git", ["--version"]).status !== 0 && "no git" }, async (t) => {
+test("the import graph's cache, written into a repository, is one git ignores", { skip: spawnSync("git", ["--version"]).status !== 0 && "no git" }, async (t) => {
   const root = await project(t);
   await fs.writeFile(path.join(root, "index.js"), "import './lib.js';\n");
   await fs.writeFile(path.join(root, "lib.js"), "export const x = 1;\n");

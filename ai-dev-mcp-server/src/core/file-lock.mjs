@@ -11,7 +11,7 @@ import path from "node:path";
  * Every MCP client starts its own server process, and the agent hooks run as
  * processes of their own, so the in-process queue in `atomic-files.mjs` cannot
  * order their writes: three writers appending 200 lines each kept about 210 of
- * the 600 (docs/DEFECTS.md, Д-96). A lock file beside the target serialises
+ * the 600. A lock file beside the target serialises
  * them. `hooks/lib.mjs` carries a synchronous copy of this protocol — the hooks
  * run in other people's repositories without this package — and the two must
  * stay interchangeable: same lock path, same holder record, same staleness rule
@@ -126,7 +126,7 @@ async function refreshLock(lockPath, token, id) {
     // Unreadable for a moment, or gone: the next beat tries again.
   } finally {
     // A network file system can report a deferred write error here; nothing
-    // waits for a beat, so a throw would end the process (docs/DEFECTS.md, Д-129).
+    // waits for a beat, so a throw would end the process.
     await handle.close().catch(() => {});
   }
 }
@@ -177,14 +177,13 @@ export function psStateLetter(pid) {
  * - "gone" — there is none;
  * - "exited" — it has exited, and the process that started it has not collected
  *   it yet: a zombie, which `kill(pid, 0)` still answers for. A daemon started by
- *   a program whose event loop is held up stays one until the loop runs
- *   (docs/DEFECTS.md, Д-234);
+ *   a program whose event loop is held up stays one until the loop runs;
  * - "running";
  * - "unknown" — it is there, and nothing here tells whether it still runs:
  *   no `/proc`, and `ps` was not asked (`ask`) or could not answer; or they
  *   do not show the process `kill` has just found — a `/proc` mounted with
  *   `hidepid` hides someone else's, and one that exited in between is caught
- *   by `kill` at the next look (docs/DEFECTS.md, Д-386).
+ *   by `kill` at the next look.
  *
  * `EPERM` means the process exists and belongs to someone else. Windows has no
  * zombies: a process that has exited is gone to `kill(pid, 0)`.
@@ -209,7 +208,7 @@ export function processState(pid, { ask = false, platform = process.platform, pr
 
 /**
  * Whether a process with this pid is running on this machine: one that has
- * exited and waits to be collected is not, where `/proc` tells (Д-234); one
+ * exited and waits to be collected is not, where `/proc` tells; one
  * that belongs to someone else (`EPERM`) still counts.
  *
  * @param {number} pid
@@ -329,7 +328,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * null when it already exists. The lock comes back with its release, a check
  * that it is still this holder's, and — with `heartbeatMs` — a beat that keeps
  * proving it alive. A folder made for it is handed to `madeFolder` at once,
- * whether the lock is then taken or not (docs/DEFECTS.md, Д-235).
+ * whether the lock is then taken or not.
  */
 async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMode, makeDirectory = true, madeFolder = () => {} } = {}) {
   const token = crypto.randomUUID();
@@ -341,7 +340,7 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMod
     } catch (error) {
       if (error?.code === "ENOENT" && attempt === 0 && makeDirectory) {
         // A folder made here gets the mode its owner asked for: the locks the
-        // daemon takes in run/ make it 0700 (docs/DEFECTS.md, Д-213, Д-215).
+        // daemon takes in run/ make it 0700.
         madeFolder(await fs.mkdir(path.dirname(lockPath), { recursive: true, ...(directoryMode === undefined ? {} : { mode: directoryMode }) }));
         continue;
       }
@@ -373,7 +372,7 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMod
         await releaseLock(lockPath, token);
       } finally {
         // Only once the file is gone: an exit in the middle of the release
-        // still finds the lock to remove (docs/DEFECTS.md, Д-132).
+        // still finds the lock to remove.
         if (held.get(lockPath) === token) held.delete(lockPath);
       }
     }
@@ -392,7 +391,7 @@ async function createLock(lockPath, { record = {}, heartbeatMs = 0, directoryMod
  *   folder the lock has to make. `makeDirectory: false`: a missing folder is not made; there is no lock then.
  * @returns {Promise<{ release: () => Promise<void>, holds: () => Promise<boolean>, token: string, madeFolder?: string } | { observed: object | null, madeFolder?: string }>}
  *   `madeFolder`: the highest folder the tries made for the lock, as `fs.mkdir` names it (on Windows in the `\\?\`
- *   namespace) — also when another process took the lock first (docs/DEFECTS.md, Д-235).
+ *   namespace) — also when another process took the lock first.
  */
 export async function tryAcquireFileLock(filePath, { staleMs = LOCK_STALE_MS, heartbeatMs = 0, record = {}, directoryMode, makeDirectory = true } = {}) {
   const lockPath = lockPathFor(filePath);

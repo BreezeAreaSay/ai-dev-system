@@ -89,7 +89,7 @@ test("lines are read whole however they are cut, CRLF and blank lines included",
   assert.deepEqual(invalid, ["not json"]);
 });
 
-test("a character cut between two chunks arrives whole, in both directions (Д-188)", async () => {
+test("a character cut between two chunks arrives whole, in both directions", async () => {
   const messages = [];
   const read = lineReader((message) => messages.push(message), () => assert.fail("no invalid line"));
   const bytes = Buffer.from(`${JSON.stringify({ text: "я — ёжик 🦔" })}\n`, "utf8");
@@ -271,7 +271,7 @@ test("a request that came before the first initialize was forwarded is not answe
 
 test("a socket upstream reads what came with the handshake first, then the socket, and says when it closes", async (t) => {
   // Under /tmp, not the temp folder: with a long TMPDIR libuv cuts a socket path short, and parallel runs share one
-  // name (docs/DEFECTS.md, Д-201, Д-258).
+  // name.
   const directory = process.platform === "win32" ? null : await fs.mkdtemp(path.join("/tmp", "db-"));
   if (directory) t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const address = process.platform === "win32" ? `\\\\.\\pipe\\ai-dev-bridge-test-${process.pid}` : path.join(directory, "s.sock");
@@ -299,7 +299,7 @@ test("a socket upstream reads what came with the handshake first, then the socke
   await assert.rejects(upstream.send({ jsonrpc: "2.0", method: "x" }), /closed/);
 });
 
-test("a client that writes its requests and closes its input still gets every answer (Д-192)", async () => {
+test("a client that writes its requests and closes its input still gets every answer", async () => {
   const upstream = fakeUpstream("daemon-1", { answer: false });
   const client = bridgeOver(upstream, async () => assert.fail("no reconnect expected"));
   client.send(INITIALIZE);
@@ -348,7 +348,7 @@ test("after the client closed its input, a lost daemon or a server that never an
   assert.deepEqual(await third.done, { unanswered: 0 }, "with nothing to wait for, it leaves at once");
 });
 
-test("a cancelled request is no longer waited for, and a daemon lost later does not answer it (Д-194)", async () => {
+test("a cancelled request is no longer waited for, and a daemon lost later does not answer it", async () => {
   const first = fakeUpstream("daemon-1", { answer: false });
   const client = bridgeOver(first, async () => assert.fail("no reconnect expected"));
   client.send({ jsonrpc: "2.0", id: 5, method: "tools/call", params: { name: "rebuild_search_index" } });
@@ -381,7 +381,7 @@ test("a request cancelled while it waited for a server is never sent, nor is its
   assert.deepEqual(await client.done, { unanswered: 0 });
 });
 
-test("a message past the server's limit is answered with why, and the session goes on (Д-194)", async () => {
+test("a message past the server's limit is answered with why, and the session goes on", async () => {
   const upstream = fakeUpstream("daemon-1");
   const client = bridgeOver(upstream, async () => assert.fail("no reconnect expected"));
   const big = { jsonrpc: "2.0", id: 11, method: "tools/call", params: { name: "write_note", arguments: { body: "я".repeat(MAX_MESSAGE_BYTES / 2 + 10) } } };
@@ -392,7 +392,7 @@ test("a message past the server's limit is answered with why, and the session go
   const [refused, answered] = client.lines();
   assert.equal(refused.id, 11);
   assert.equal(refused.error.code, -32600);
-  // Megabytes would read "10.0 MB … up to 10.0 MB": the sizes are said in bytes then (Д-201).
+  // Megabytes would read "10.0 MB … up to 10.0 MB": the sizes are said in bytes then.
   assert.match(refused.error.message, /^This tools\/call message is \d+ bytes; ai-dev takes messages up to 10485760 bytes\.$/);
   assert.deepEqual(answered.result, { echo: "ping", by: "daemon-1" });
   assert.deepEqual(upstream.sent.map((message) => message.id), [12], "the server never saw it");
@@ -422,7 +422,7 @@ test("a message well past the limit is said in megabytes", async () => {
   await client.done;
 });
 
-test("when no server can be had after the client closed its input, the bridge leaves as soon as it has refused (Д-201)", async () => {
+test("when no server can be had after the client closed its input, the bridge leaves as soon as it has refused", async () => {
   const first = fakeUpstream("daemon-1", { answer: false });
   const dead = () => {
     const upstream = fakeUpstream("never", { answer: false });

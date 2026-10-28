@@ -27,7 +27,7 @@ function servers(text) {
   return data.mcp_servers ?? {};
 }
 
-test("a table with a subtable is replaced whole, so the result defines the server once (Д-162)", () => {
+test("a table with a subtable is replaced whole, so the result defines the server once", () => {
   const original = [
     "[mcp_servers.ai-dev]",
     "command = \"/bin/sh\"",
@@ -90,7 +90,7 @@ test("removing tables keeps the blank lines tidy at the start, the middle and th
   assert.equal(removeTables("a = 1\n", PREFIX), "a = 1\n", "absent: unchanged");
 });
 
-test("tables that share the blank line between them are cut whole, and the next header keeps its [ (Д-166)", () => {
+test("tables that share the blank line between them are cut whole, and the next header keeps its [", () => {
   const removed = removeTables([
     "model = \"o3\"",
     "[mcp_servers.ai-dev]",
@@ -121,7 +121,7 @@ test("tables that share the blank line between them are cut whole, and the next 
   assert.deepEqual(parseTomlLite(upserted).data.other, { z: 3 });
 });
 
-test("an edit that would break the file or touch another table is refused, and nothing is returned to write (Д-166)", () => {
+test("an edit that would break the file or touch another table is refused, and nothing is returned to write", () => {
   // A section that is not one table of the prefix: the guard, not the cut, stops it.
   for (const section of ["[mcp_servers.ai-dev]\ncommand = \"n\"\n[other]\n", "[mcp_servers.ai-dev]\ncommand = \n\"n\"\n", "[mcp_servers.github]\n"]) {
     for (const text of ["", "model = \"o3\"\n", "[mcp_servers.ai-dev]\nc = 1\n"]) {

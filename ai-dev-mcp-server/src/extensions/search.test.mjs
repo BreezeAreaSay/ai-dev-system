@@ -88,7 +88,7 @@ test("index status and rebuild pass their arguments straight to the runtime", as
   assert.deepEqual(calls[1], ["rebuild", { dense_embeddings: true }]);
 });
 
-test("a rebuild's progress listener and cancellation come with the call, never from its JSON arguments (Д-187)", async () => {
+test("a rebuild's progress listener and cancellation come with the call, never from its JSON arguments", async () => {
   const { registry, calls } = createFixture();
   const onProgress = () => undefined;
   const { signal } = new AbortController();
@@ -269,7 +269,7 @@ test("embedding tools hand their arguments to the dense runtime, the texts clean
   assert.deepEqual(calls[1], ["embeddingStatus", { device: "cuda", refresh: true }]);
 });
 
-test("embed_texts refuses what no model should be sent, and without one says what to install (Д-133)", async () => {
+test("embed_texts refuses what no model should be sent, and without one says what to install", async () => {
   const { host, registry, calls } = createFixture();
   await assert.rejects(call(registry, "embed_texts", { texts: Array.from({ length: 33 }, (_, index) => `t${index}`) }), /at most 32 texts per call/);
   await assert.rejects(call(registry, "embed_texts", {}), /texts or text is required/);

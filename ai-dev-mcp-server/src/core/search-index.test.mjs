@@ -91,7 +91,7 @@ test("search refuses to run on a Node without FTS5 and says which Node it needs"
     () => runtime.searchKnowledge({ query: "x" }), () => runtime.rebuild(), () => runtime.exportGalaxy()]) {
     await assert.rejects(call, /Node\.js 22\.16 or newer/);
   }
-  // The project tools rebuild as a courtesy: their own work stands, and the index is reported as skipped (Д-141).
+  // The project tools rebuild as a courtesy: their own work stands, and the index is reported as skipped.
   assert.deepEqual(await runtime.rebuildIfSupported({ include_external_project_files: true }), { skipped: reason });
 });
 
@@ -185,7 +185,7 @@ test("a cancel between batches keeps every stored slice, skips the closing write
   assert.equal(runtime.dirtyReason(), "", "nothing marked dirty by a cancel");
 });
 
-test("a dense rebuild with no model says what to install instead of reaching for an interpreter (Д-98)", async (t) => {
+test("a dense rebuild with no model says what to install instead of reaching for an interpreter", async (t) => {
   const { runtime, of } = await createFixture(t, {
     describe: async () => ({ backend: "onnx", available: false, reason: "Dense search is not installed. Run `npm run setup -- --model`." })
   });
@@ -194,7 +194,7 @@ test("a dense rebuild with no model says what to install instead of reaching for
   assert.equal(of("embedQuery").length, 0);
 });
 
-test("a dense rebuild hands the embedder the model folder and device the caller named (Д-138)", async (t) => {
+test("a dense rebuild hands the embedder the model folder and device the caller named", async (t) => {
   const { runtime, of } = await createFixture(t, { answers: { densePlan: { records: [{ id: "a", content_hash: "h", text: "passage: t" }] } } });
   await runtime.rebuild({ dense_embeddings: true, dense_model_dir: "/custom/bge-m3-onnx", dense_device: "cuda" });
   const { payload } = of("embedQuery")[0];
@@ -267,7 +267,7 @@ test("search refuses an empty query and passes filters through as csv", async (t
   assert.equal(of("status").length, 0, "no freshness check when told not to");
 });
 
-test("search_knowledge runs over the index after a freshness check (Д-102)", async (t) => {
+test("search_knowledge runs over the index after a freshness check", async (t) => {
   const { runtime, calls } = await createFixture(t, { answers: { knowledge: [{ path: "a.md", score: 4, preview: "a" }] } });
   await assert.rejects(() => runtime.searchKnowledge({ query: "" }), /query is required/);
   assert.deepEqual(await runtime.searchKnowledge({ query: "code review", limit: 5 }), [{ path: "a.md", score: 4, preview: "a" }]);
@@ -399,7 +399,7 @@ test("a missing model degrades the search instead of ending it", async (t) => {
   assert.equal(Object.keys(results[0]).includes("dense_unavailable"), false);
 });
 
-test("vectors all from another model: the search says the dense half had nothing to compare (Д-148)", async (t) => {
+test("vectors all from another model: the search says the dense half had nothing to compare", async (t) => {
   const { runtime } = await createFixture(t, {
     answers: { hybrid: () => Object.defineProperty([{ path: "a.md", title: "A", score: 1 }], "dense_unmatched", { value: true }) }
   });
@@ -408,7 +408,7 @@ test("vectors all from another model: the search says the dense half had nothing
   assert.equal(JSON.parse(JSON.stringify(results)).length, 1);
 });
 
-test("status counts the current model's vectors and names another model's as waiting (Д-148)", async (t) => {
+test("status counts the current model's vectors and names another model's as waiting", async (t) => {
   const python = { backend: "python", revision: "unpinned", dtype: "fp32" };
   const { runtime } = await createFixture(t, {
     answers: { status: { dense_documents: 365, dense_pending_documents: 0, dense_eligible_documents: 365, dense_models: [{ ...python, documents: 365 }] } }

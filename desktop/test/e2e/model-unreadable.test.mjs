@@ -7,7 +7,7 @@ import { answerFolderDialog, launch, mainCall, shot, stage } from "./harness.mjs
 
 // A model this user cannot read is not a model to download: the wizard and
 // Status say what is wrong with the folder, in both languages, and offer no
-// download over it (docs/DEFECTS.md, Д-367). The folder is made unreadable the
+// download over it. The folder is made unreadable the
 // way root cannot read past either: a file stands where a folder of its path
 // should be (ENOTDIR).
 

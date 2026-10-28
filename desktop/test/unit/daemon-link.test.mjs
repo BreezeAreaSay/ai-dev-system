@@ -105,7 +105,7 @@ function link(t, server, timing = {}) {
 
 const checksCalls = (calls) => calls.filter((call) => call.name === "system_status" && call.args?.checks !== false).length;
 
-test("the tray's verdict is the health checks' answer, and the quick poll does not overwrite it (Д-240)", async (t) => {
+test("the tray's verdict is the health checks' answer, and the quick poll does not overwrite it", async (t) => {
   const { server, calls } = fakeServer();
   const daemon = link(t, server);
   await daemon.connect({ start: true });
@@ -140,7 +140,7 @@ test("every system_status answer the window gets is the tray's, and a change run
   assert.equal(checksCalls(calls), before + 1, "not after a read");
 });
 
-test("a retired daemon is left for the daemon of the new code (Д-245)", async (t) => {
+test("a retired daemon is left for the daemon of the new code", async (t) => {
   const { server, clients } = fakeServer();
   const daemon = link(t, server);
   await daemon.connect({ start: true });
@@ -156,7 +156,7 @@ test("a retired daemon is left for the daemon of the new code (Д-245)", async (
   assert.ok(phases.includes("reconnecting") && !phases.includes("offline"), JSON.stringify(phases));
 });
 
-test("a daemon that goes away unasked: offline with its log; back when a client starts it again (Д-243)", async (t) => {
+test("a daemon that goes away unasked: offline with its log; back when a client starts it again", async (t) => {
   const { server, clients } = fakeServer();
   const daemon = link(t, server);
   await daemon.connect({ start: true });
@@ -166,7 +166,7 @@ test("a daemon that goes away unasked: offline with its log; back when a client 
   assert.equal(daemon.state.error, "link.lost");
   await sleep(10);
   assert.deepEqual(daemon.state.log, ["daemon: listening", "daemon: killed"]);
-  assert.equal(daemon.state.errorKey, "link.lost", "with its key, after the log came too (Д-283, п. 3)");
+  assert.equal(daemon.state.errorKey, "link.lost", "with its key, after the log came too");
   assert.equal(daemon.status, null);
   await sleep(50);
   assert.equal(daemon.state.phase, "offline", "nothing to come back to yet");
@@ -195,7 +195,7 @@ test("without a Node there is nothing to connect to, and the state says why", as
   assert.deepEqual(made.state, { phase: "broken", error: "broken", hint: "fix it", restart: false });
 });
 
-test("the daemon goes away while the link's first checks run: offline, and back when a daemon is there again (Д-262)", async (t) => {
+test("the daemon goes away while the link's first checks run: offline, and back when a daemon is there again", async (t) => {
   const { server, clients } = fakeServer();
   server.dieOnChecks = true;
   const daemon = link(t, server, { statusEveryMs: 60_000 });
@@ -239,7 +239,7 @@ test("a quick system_status the page asks for is not the tray's verdict (N4)", a
   assert.equal(daemon.status.status, "failed", "the tray keeps the checks' verdict");
 });
 
-test("an answer that says the daemon retired moves the link at once, without waiting for the next poll (Д-245)", async (t) => {
+test("an answer that says the daemon retired moves the link at once, without waiting for the next poll", async (t) => {
   const { server, clients } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -250,7 +250,7 @@ test("an answer that says the daemon retired moves the link at once, without wai
   assert.equal(clients[0].closed, true);
 });
 
-test("a call in flight when the daemon retires is finished there; the move waits for it (Д-263)", async (t) => {
+test("a call in flight when the daemon retires is finished there; the move waits for it", async (t) => {
   const { server, clients } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -269,7 +269,7 @@ test("a call in flight when the daemon retires is finished there; the move waits
   assert.equal(clients[0].closed, true);
 });
 
-test("a call the daemon's going away ends has failed; Cancel is what the person pressed (Д-263)", async (t) => {
+test("a call the daemon's going away ends has failed; Cancel is what the person pressed", async (t) => {
   const { server, clients } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -285,7 +285,7 @@ test("a call the daemon's going away ends has failed; Cancel is what the person 
   assert.deepEqual(await ended, { ok: false, error: "link.wentAway", key: "link.wentAway", cancelled: false });
 });
 
-test("Start pressed while the link looks for a daemon starts one; a failed Stop leaves later losses unasked (Д-266, п. 10)", async (t) => {
+test("Start pressed while the link looks for a daemon starts one; a failed Stop leaves later losses unasked", async (t) => {
   const { server, opens, clients } = fakeServer();
   server.down = true;
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 10 });
@@ -308,7 +308,7 @@ test("Start pressed while the link looks for a daemon starts one; a failed Stop 
   assert.equal(daemon.state.error, "link.lost");
 });
 
-test("close() while a session opens leaves no session open (Д-266, п. 10)", async (t) => {
+test("close() while a session opens leaves no session open", async (t) => {
   const { server, clients } = fakeServer();
   let open;
   server.openGate = new Promise((resolve) => { open = resolve; });
@@ -325,7 +325,7 @@ test("close() while a session opens leaves no session open (Д-266, п. 10)", as
 });
 
 
-test("a daemon that retires while the link's first checks run: the link moves to the new one (Д-268)", async (t) => {
+test("a daemon that retires while the link's first checks run: the link moves to the new one", async (t) => {
   const { server, clients } = fakeServer();
   server.retireOnChecks = 1;
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
@@ -337,7 +337,7 @@ test("a daemon that retires while the link's first checks run: the link moves to
   assert.equal((await daemon.call("clients_list", {}, { id: "call-1" })).ok, true);
 });
 
-test("the move's own first checks find that daemon retired too: the link moves again (Д-268)", async (t) => {
+test("the move's own first checks find that daemon retired too: the link moves again", async (t) => {
   const { server, clients } = fakeServer();
   server.retireOnChecks = 2;
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
@@ -348,7 +348,7 @@ test("the move's own first checks find that daemon retired too: the link moves a
   assert.deepEqual(clients.map((client) => client.closed), [true, true, false]);
 });
 
-test("the daemon going away while the move waits for a call ends the wait: nothing starts a daemon (Д-270, R2)", async (t) => {
+test("the daemon going away while the move waits for a call ends the wait: nothing starts a daemon (R2)", async (t) => {
   const { server, clients, opens } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -366,7 +366,7 @@ test("the daemon going away while the move waits for a call ends the wait: nothi
   assert.equal(opens.filter((open) => open.start).length, 1, "only the first connect started a daemon");
 });
 
-test("two Starts while one attempt runs share it, after the link has looked for a daemon (Д-270, U-c)", async (t) => {
+test("two Starts while one attempt runs share it, after the link has looked for a daemon (U-c)", async (t) => {
   const { server, opens } = fakeServer();
   server.down = true;
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 10 });
@@ -387,7 +387,7 @@ test("two Starts while one attempt runs share it, after the link has looked for 
   assert.equal(daemon.state.error, "the daemon did not start");
 });
 
-test("a daemon that will not stop keeps the link's session: online, and the answer says why (Д-273)", async (t) => {
+test("a daemon that will not stop keeps the link's session: online, and the answer says why", async (t) => {
   const { server, clients } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -406,7 +406,7 @@ test("a daemon that will not stop keeps the link's session: online, and the answ
   assert.deepEqual([daemon.state.phase, daemon.state.error], ["offline", ""]);
 });
 
-test("the link's own daemon stopped, another would not: the link's session is closed, not kept or left open (Д-278)", async (t) => {
+test("the link's own daemon stopped, another would not: the link's session is closed, not kept or left open", async (t) => {
   const { server, clients } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -417,7 +417,7 @@ test("the link's own daemon stopped, another would not: the link's session is cl
   assert.equal(clients[0].closed, true, "closed, not left open on the daemon");
 });
 
-test("not knowing its own daemon, the link keeps its session while one would not stop, and closes it once all did (Д-278)", async (t) => {
+test("not knowing its own daemon, the link keeps its session while one would not stop, and closes it once all did", async (t) => {
   const { server, clients } = fakeServer();
   // The first checks named no daemon.
   server.quick = { status: "ok", index: { exists: true, fresh: true, documents: 5 } };
@@ -435,7 +435,7 @@ test("not knowing its own daemon, the link keeps its session while one would not
   assert.equal(clients[0].closed, true);
 });
 
-test("two Stops at once: the session ending during the second is what was asked for (Д-278)", async (t) => {
+test("two Stops at once: the session ending during the second is what was asked for", async (t) => {
   const { server, clients } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -454,7 +454,7 @@ test("two Stops at once: the session ending during the second is what was asked 
   assert.deepEqual([daemon.state.phase, daemon.state.error], ["offline", ""]);
 });
 
-test("a Stop acts on the session it began with: one a move opened meanwhile stays; no move starts while it runs (Д-278)", async (t) => {
+test("a Stop acts on the session it began with: one a move opened meanwhile stays; no move starts while it runs", async (t) => {
   const { server, clients, opens } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -489,7 +489,7 @@ test("a Stop acts on the session it began with: one a move opened meanwhile stay
   assert.deepEqual([daemon.state.phase, daemon.state.error], ["offline", ""]);
 });
 
-test("a move whose next session is opened while a Stop runs starts no daemon (Д-278)", async (t) => {
+test("a move whose next session is opened while a Stop runs starts no daemon", async (t) => {
   const { server, clients, opens } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -515,7 +515,7 @@ test("a move whose next session is opened while a Stop runs starts no daemon (Д
   assert.deepEqual([daemon.state.phase, daemon.state.error], ["offline", ""]);
 });
 
-test("checks asked for after a change while others run: they run once more after those, which read the install before it (Д-284)", async (t) => {
+test("checks asked for after a change while others run: they run once more after those, which read the install before it", async (t) => {
   const { server, calls } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -535,7 +535,7 @@ test("checks asked for after a change while others run: they run once more after
   // With none in flight, a fresh caller just asks.
   await daemon.refreshStatus({ checks: true, fresh: true });
   assert.equal(checksCalls(calls) - before, 3);
-  // A tool that changes something, while checks run: they run again after (Д-284, п. 1).
+  // A tool that changes something, while checks run: they run again after.
   server.held = { name: "system_status" };
   const another = daemon.refreshStatus({ checks: true });
   await sleep(10);
@@ -547,7 +547,7 @@ test("checks asked for after a change while others run: they run once more after
   assert.equal(checksCalls(calls) - before, 5, "the change's own checks, after the ones that ran");
 });
 
-test("the move off a retired daemon starts one only when the app may start one (Д-276, п. 5)", async (t) => {
+test("the move off a retired daemon starts one only when the app may start one", async (t) => {
   // Autostart off: the link only looked, and found a client's daemon.
   const looked = fakeServer();
   looked.server.down = true;
@@ -575,7 +575,7 @@ test("the move off a retired daemon starts one only when the app may start one (
   assert.deepEqual(started.opens.map((open) => open.start), [true, true]);
 });
 
-test("a tool the daemon marks read-only asks for no checks, the console opened or not; its list is asked once a session (Д-286)", async (t) => {
+test("a tool the daemon marks read-only asks for no checks, the console opened or not; its list is asked once a session", async (t) => {
   const { server, calls } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
   await daemon.connect({ start: true });

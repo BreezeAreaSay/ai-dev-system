@@ -51,7 +51,7 @@ test("the Docker build context holds the distribution itself, byte for byte, and
   const manifest = JSON.parse(await fs.readFile(path.join(dist, "package.json"), "utf8"));
   await fs.access(path.join(dist, manifest.bin["ai-dev"]));
   assert.deepEqual(Object.keys(manifest.optionalDependencies).sort(), ["@huggingface/transformers", "onnxruntime-node"],
-    "the model runtime is optional: its postinstall failing does not fail an install (Д-174)");
+    "the model runtime is optional: its postinstall failing does not fail an install");
   const shrinkwrap = JSON.parse(await fs.readFile(path.join(dist, "npm-shrinkwrap.json"), "utf8"));
   assert.equal(shrinkwrap.packages[""].name, manifest.name);
   assert.equal(shrinkwrap.packages["node_modules/onnxruntime-node"].optional, true);

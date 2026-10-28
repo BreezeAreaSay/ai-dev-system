@@ -1,12 +1,11 @@
 // The 2.x launcher Claude on Windows was configured with, kept so that the
-// configs naming it work until 4.0 (owner decision D10). 3.0 writes
+// configs naming it work until 4.0. 3.0 writes
 // `docker run -i --rm ...` into a client's config itself (bootstrap.ps1, or
-// `ai-dev clients install --docker`) and compiles nothing on the user's machine
-// (docs/DEFECTS.md, Д-105).
+// `ai-dev clients install --docker`) and compiles nothing on the user's machine.
 //
 // It used to answer `initialize` itself while the container started and drop
 // the server's own answer, which lost the server's instructions and fixed the
-// version at 2.0.0 (Д-89). The image answers in about a second now: the proxy
+// version at 2.0.0. The image answers in about a second now: the proxy
 // passes the bytes through, both ways, and the server answers its handshake.
 using System;
 using System.Collections.Generic;
@@ -99,8 +98,8 @@ internal static class ClaudeMcpProxy
     // As in run-mcp.sh and run-mcp.ps1: the folder holds bge-m3-onnx\, and the
     // image looks for it under /models. This copy mounted it at /models/bge-m3,
     // one level too deep, so Claude on Windows never had dense search
-    // (docs/DEFECTS.md, Д-88). A lone bge-m3\ is the removed Python backend's
-    // weights (Д-158).
+    //. A lone bge-m3\ is the removed Python backend's
+    // weights.
     private static readonly string[] ModelFileMarkers = { "pytorch_model.bin", "modules.json", "config.json", "onnx" };
 
     private static string ModelMountSource()
@@ -109,7 +108,7 @@ internal static class ClaudeMcpProxy
         if (fullPath == null) return null;
         // Before Д-62 the variable named the model directory itself. A folder
         // that holds model files is that old value, and mounted at /models it
-        // would leave both backends looking one level too deep (Д-68).
+        // would leave both backends looking one level too deep.
         foreach (var marker in ModelFileMarkers)
         {
             var candidate = Path.Combine(fullPath, marker);

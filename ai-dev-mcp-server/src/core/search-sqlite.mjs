@@ -206,7 +206,7 @@ export function createIndexReader(filePath, { delays = READ_RETRY_DELAYS_MS, idl
       }
     } finally {
       // After any read, a failed one too: an ordinary SQL error used to keep
-      // the file open for good (docs/DEFECTS.md, Д-132).
+      // the file open for good.
       closeWhenIdle();
     }
     throw new Error(`SQLite index remained busy after ${delays.length + 1} attempts: ${filePath}`, { cause: lastError });
@@ -230,7 +230,7 @@ const UTF8 = new TextDecoder("utf-8", { ignoreBOM: true });
 
 /**
  * A text column read whole. `node:sqlite` cuts a TEXT value at its first NUL
- * (docs/DEFECTS.md, Д-113), so free text is selected `CAST(... AS BLOB)` and
+ *, so free text is selected `CAST(... AS BLOB)` and
  * decoded here.
  *
  * @param {Uint8Array|string|null} value

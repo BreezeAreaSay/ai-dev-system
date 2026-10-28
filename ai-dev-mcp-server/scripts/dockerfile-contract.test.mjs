@@ -35,16 +35,16 @@ test("the image is the distribution, checked file by file, with no Python and th
   const apt = /apt-get install -y --no-install-recommends ([^\n]+)/.exec(dockerfile)?.[1] ?? "";
   assert.deepEqual(apt.replace(/\\$/, "").trim().split(/\s+/).sort(), ["ca-certificates", "git", "tini"]);
   assert.doesNotMatch(code, /python/i);
-  // A model folder in the ENV would hide the one `ai-dev model install` puts in the volume (docs/DEFECTS.md, Д-99).
+  // A model folder in the ENV would hide the one `ai-dev model install` puts in the volume.
   assert.doesNotMatch(code, /BGE_M3_ONNX_DIR=/);
   // The default target is the server; the browser is a variant of its own.
   const stages = instructions.filter((line) => line.startsWith("FROM "));
   assert.equal(stages.at(-1), "FROM server-build AS server");
   assert.ok(stages.includes("FROM browser-deps AS browser"));
-  assert.match(dockerfile, /git config --system --add safe\.directory '\*'/, "projects of another owner are repositories (Д-311)");
+  assert.match(dockerfile, /git config --system --add safe\.directory '\*'/, "projects of another owner are repositories");
 });
 
-test("a build passing INSTALL_BGE_M3=1 is told what replaced it, until 4.0 (Д-375)", () => {
+test("a build passing INSTALL_BGE_M3=1 is told what replaced it, until 4.0", () => {
   // Removing a public name goes through a notice until 4.0 (rule 5.2 of the 3.0 program): the argument stays declared.
   assert.ok(instructions.includes("ARG INSTALL_BGE_M3=0"));
   const notice = /RUN if \[ "\$\{INSTALL_BGE_M3\}" = "1" \]; then \\\n\s+echo "([^"]+)" >&2/.exec(dockerfile)?.[1] ?? "";
@@ -56,7 +56,7 @@ test("a build passing INSTALL_BGE_M3=1 is told what replaced it, until 4.0 (Д-3
   assert.ok(stage.includes("ARG INSTALL_BGE_M3=0") && stage.includes('[ "${INSTALL_BGE_M3}" = "1" ]'));
 });
 
-test("pnpm is the version Frontend QA names in packageManager, not one written in the Dockerfile (Д-111)", async () => {
+test("pnpm is the version Frontend QA names in packageManager, not one written in the Dockerfile", async () => {
   const frontendQa = JSON.parse(await fs.readFile(path.join(repositoryRoot, "frontend-qa", "package.json"), "utf8"));
   assert.match(frontendQa.packageManager, /^pnpm@\d+\.\d+\.\d+/);
   assert.doesNotMatch(code, /pnpm@\d/, "a pnpm version in the Dockerfile drifts from packageManager");

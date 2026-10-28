@@ -103,7 +103,7 @@ test("a cut that went too far is found: a dependency nothing ships any more", as
     "onnxruntime-web is cut on purpose; a nested dependency is found where it is");
 });
 
-test("only the pairs cut on purpose pass: a cut package another one needs is found, inside nested node_modules too (Д-304)", async (t) => {
+test("only the pairs cut on purpose pass: a cut package another one needs is found, inside nested node_modules too", async (t) => {
   const modules = path.join(folder(t), "node_modules");
   write(modules, {
     // A dependency update: a package the runtime loads comes to need tslib, which the trim cuts.
@@ -121,7 +121,7 @@ test("only the pairs cut on purpose pass: a cut package another one needs is fou
     { package: "some-lib", missing: "tslib" }
   ], "the transformers → onnxruntime-web pair passes; the same dependency of another package does not");
   write(modules, { "broken/package.json": "{ not json" });
-  await assert.rejects(danglingDependencies(modules), /broken[\\/]package\.json is not JSON: /, "a manifest it cannot read stops the build by its name (Д-308)");
+  await assert.rejects(danglingDependencies(modules), /broken[\\/]package\.json is not JSON: /, "a manifest it cannot read stops the build by its name");
 });
 
 test("the files of a runtime: sorted, each with its size and sha256, and a link refused", async (t) => {
@@ -152,7 +152,7 @@ test("bundle.json, as the build writes it, is what the server's provisioning rea
   assert.equal(read.files.some((file) => file.path === "bundle.json"), false, "it does not list itself");
   assert.equal(BUNDLE_SHIM, "@echo off\r\n\"%~dp0node\\node.exe\" \"%~dp0ai-dev-mcp-server\\bin\\ai-dev.mjs\" %*\r\n",
     "the shim names the Node and CLI beside it, quoted for a profile with a space");
-  // Two names Windows takes for one — possible in a tree npm builds on Linux — stop the build, read back as the app reads it (Д-306, п. 1).
+  // Two names Windows takes for one — possible in a tree npm builds on Linux — stop the build, read back as the app reads it.
   write(runtime, { "node_modules/pkg/README.md": "a", "node_modules/pkg/readme.md": "b" });
   // Only a filesystem that tells the two apart holds both; on Windows and macOS
   // the second write is the first file, and there is nothing to refuse.
@@ -226,14 +226,14 @@ test("electron-builder's configuration: NSIS for the current user without an adm
   const azure = { AI_DEV_SIGN_AZURE_ENDPOINT: "https://eus.codesigning.azure.net", AI_DEV_SIGN_AZURE_ACCOUNT: "acct", AI_DEV_SIGN_AZURE_PROFILE: "prof" };
   const signed = builderConfig({ desktopRoot, runtimeDir: "/x", icon: "/x.ico", output: "/o", env: { ...azure, AI_DEV_SIGN_PUBLISHER: "Stonebridgeway LLC" } });
   assert.deepEqual(signed.win.azureSignOptions, { publisherName: "Stonebridgeway LLC", endpoint: "https://eus.codesigning.azure.net", codeSigningAccountName: "acct", certificateProfileName: "prof" });
-  // No publisher guessed: the updater checks every update against it (Д-303).
+  // No publisher guessed: the updater checks every update against it.
   assert.throws(() => builderConfig({ desktopRoot, runtimeDir: "/x", icon: "/x.ico", output: "/o", env: { ...azure, AI_DEV_SIGN_PUBLISHER: "" } }),
     /Azure signing is set up \(AI_DEV_SIGN_AZURE_ENDPOINT\) but not AI_DEV_SIGN_PUBLISHER: AI_DEV_SIGN_PUBLISHER is the signing certificate's name/);
   assert.throws(() => builderConfig({ desktopRoot, runtimeDir: "/x", icon: "/x.ico", output: "/o", env: { AI_DEV_SIGN_AZURE_ENDPOINT: "https://x", AI_DEV_SIGN_PUBLISHER: "P" } }),
     /but not AI_DEV_SIGN_AZURE_ACCOUNT, AI_DEV_SIGN_AZURE_PROFILE:/);
 });
 
-test("the app's version is its runtime's: the updater reads the app's (Д-306, п. 5)", () => {
+test("the app's version is its runtime's: the updater reads the app's", () => {
   assert.equal(versionProblem({ app: "3.0.0", runtime: "3.0.0" }), "");
   assert.match(versionProblem({ app: "2.0.0", runtime: "3.0.0" }), /^the app is version 2\.0\.0 and its runtime 3\.0\.0: /);
   const app = JSON.parse(fs.readFileSync(path.join(desktopRoot, "package.json"), "utf8")).version;
@@ -406,7 +406,7 @@ test("electron-builder: a .dmg and a .zip for Apple silicon, signed ad hoc witho
   const mac = builderConfig({ desktopRoot, runtimeDir: "/x/runtime", icon: "/x/icon.png", output: "/x/out", env: {}, target: targetOf("darwin-arm64") });
   assert.deepEqual(mac.mac.target, [{ target: "dmg", arch: ["arm64"] }, { target: "zip", arch: ["arm64"] }]);
   assert.deepEqual([mac.mac.identity, mac.mac.hardenedRuntime, mac.extraMetadata], ["-", false, undefined]);
-  // Signing a Mach-O rewrites it: the runtime is left as bundle.json lists it (Д-583).
+  // Signing a Mach-O rewrites it: the runtime is left as bundle.json lists it.
   const runtimeFile = "/build/mac-arm64/AI Dev.app/Contents/Resources/runtime/node/bin/node";
   assert.ok(mac.mac.signIgnore.some((pattern) => new RegExp(pattern).test(runtimeFile)));
   assert.ok(!mac.mac.signIgnore.some((pattern) => new RegExp(pattern).test("/build/mac-arm64/AI Dev.app/Contents/MacOS/AI Dev")), "the app itself is signed");
@@ -418,11 +418,11 @@ test("electron-builder: a .dmg and a .zip for Apple silicon, signed ad hoc witho
   assert.deepEqual(linux.linux.target, [{ target: "AppImage", arch: ["x64"] }, { target: "deb", arch: ["x64"] }]);
   assert.equal(linux.executableName, "ai-dev-desktop", "a name a shell and a .desktop file take as it is");
   assert.equal(linux.linux.category, "Development");
-  assert.deepEqual(linux.appImage.executableArgs, [], "the sandbox is AppRun's call, not the menu entry's (Д-587)");
+  assert.deepEqual(linux.appImage.executableArgs, [], "the sandbox is AppRun's call, not the menu entry's");
   assert.deepEqual(linux.publish, [RELEASES]);
 });
 
-test("a signing secret that is set but empty is taken as not set: electron-builder would import it as a certificate (Д-592)", () => {
+test("a signing secret that is set but empty is taken as not set: electron-builder would import it as a certificate", () => {
   const env = { CSC_LINK: "", CSC_KEY_PASSWORD: " ", APPLE_ID: "", APPLE_TEAM_ID: "TEAM", CSC_NAME: "Developer ID Application: X", PATH: "" };
   assert.deepEqual(dropEmptySigning(env), ["CSC_LINK", "CSC_KEY_PASSWORD", "APPLE_ID"]);
   assert.deepEqual(env, { APPLE_TEAM_ID: "TEAM", CSC_NAME: "Developer ID Application: X", PATH: "" }, "what is set stays, and nothing else is touched");

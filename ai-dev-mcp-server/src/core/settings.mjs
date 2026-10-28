@@ -37,14 +37,14 @@ const nonEmpty = (value) => String(value ?? "").trim();
 /** The interface's languages; empty is the system's. */
 const LANGUAGES = Object.freeze(["", "ru", "en"]);
 
-/** The environment cuts a value at a NUL, and a process given one does not start (Д-223, Д-231). */
+/** The environment cuts a value at a NUL, and a process given one does not start. */
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
 function absolutePath(name) {
   return (value) => {
     const text = nonEmpty(value);
     if (!text) return "";
-    // The environment cuts a value at a NUL: every process would use another folder (Д-223).
+    // The environment cuts a value at a NUL: every process would use another folder.
     if (CONTROL_CHARACTERS.test(text)) throw new Error(`${name} must not hold a NUL or another control character.`);
     if (!path.isAbsolute(text)) throw new Error(`${name} must be an absolute path, not ${JSON.stringify(text)}.`);
     return path.resolve(text);
@@ -78,11 +78,11 @@ export const SETTINGS = Object.freeze({
       const parsed = parseProfileSetting(text);
       if (parsed.unknown.length) throw new Error(`profiles names ${parsed.unknown.map((name) => JSON.stringify(name)).join(", ")}, which ${parsed.unknown.length === 1 ? "is not a profile" : "are not profiles"}.`);
       // This is what every agent client without its own AI_DEV_PROFILES gets:
-      // the desktop app's tools stay out of it (docs/DEFECTS.md, Д-223).
+      // the desktop app's tools stay out of it.
       const optIn = parsed.ids.filter((id) => findProfile(id)?.optIn);
       if (optIn.length) {
         // A value stored before this check keeps the rest of what it names:
-        // `core,control` read back is `core`, not every profile (Д-233).
+        // `core,control` read back is `core`, not every profile.
         const rest = parsed.ids.filter((id) => !optIn.includes(id));
         throw Object.assign(new Error(`profiles cannot name ${optIn.join(", ")}: it is the desktop app's, and a client that wants it sets AI_DEV_PROFILES=${optIn.join(",")} itself.`), {
           kept: parsed.all ? "" : rest.join(","),
@@ -128,12 +128,12 @@ export const SETTINGS = Object.freeze({
     env: "AI_DEV_IDLE_TIMEOUT_MS",
     applies: "next_daemon",
     toEnv: (minutes) => String(Math.round(minutes * 60_000)),
-    // What the daemon makes of the variable, whatever it holds (Д-233).
+    // What the daemon makes of the variable, whatever it holds.
     fromEnv: (text) => idleTimeoutMs({ AI_DEV_IDLE_TIMEOUT_MS: text }) / 60_000,
     description: "How long the daemon stays without a client, in minutes, from 1 to 10080 (a week); 0 keeps it until it is stopped.",
     validate(value) {
       // A number, not something that converts to one: an emptied field is
-      // not 0, and a fraction of a minute is not a timeout (docs/DEFECTS.md, Д-221).
+      // not 0, and a fraction of a minute is not a timeout.
       if (typeof value !== "number" || !Number.isFinite(value) || (value !== 0 && (value < 1 || value > 7 * 24 * 60))) {
         throw new Error(`daemon_idle_minutes must be a number of minutes from 1 to 10080 (a week), or 0 to keep the daemon until it is stopped, not ${JSON.stringify(value)}.`);
       }
@@ -193,7 +193,7 @@ function readStored(file) {
   } catch (error) {
     if (error?.code === "ENOENT") return {};
     // Node names the file in some read errors and not in others: a folder in
-    // its place fails at the read, after the open (docs/DEFECTS.md, Д-274).
+    // its place fails at the read, after the open.
     if (String(error?.message ?? "").includes(file)) throw error;
     throw Object.assign(new Error(`${file} cannot be read: ${error?.message ?? error}`), { code: error?.code });
   }
@@ -210,11 +210,11 @@ function readStored(file) {
 /**
  * The name `env` holds `name` under: itself, or — on Windows, where a name
  * ignores case and a plain copy of the environment keeps the spelling it was
- * given — the spelling it has there (docs/DEFECTS.md, Д-203, Д-232).
+ * given — the spelling it has there.
  */
 function environmentKey(env, name, platform) {
   if (platform !== "win32" || Object.hasOwn(env, name)) return name;
-  // Of two spellings, the one Node's spawn passes on: the first in sorted order (Д-238).
+  // Of two spellings, the one Node's spawn passes on: the first in sorted order.
   const wanted = name.toUpperCase();
   return Object.keys(env).filter((key) => key.toUpperCase() === wanted).sort()[0] ?? name;
 }
@@ -226,7 +226,7 @@ const fingerprint = (value) => crypto.createHash("sha256").update(String(value))
  * The variables the settings file put into `env`, each with the fingerprint
  * of the value it put there: `AI_DEV_SETTINGS_APPLIED=NAME:1a2b3c4d,…`. A
  * variable that holds something else now was set by hand since — in a shell
- * that inherited the list — and is the person's (Д-233); so is one listed
+ * that inherited the list — and is the person's; so is one listed
  * without a fingerprint, which says nothing of its value.
  */
 function appliedVariables(env, platform) {
@@ -259,7 +259,7 @@ function appliedVariables(env, platform) {
  * In force means for the process `env` belongs to — or the daemon session:
  * a setting that does not apply at once is the value its environment got
  * when it started, and a change of the file since is `pending`, for sessions
- * started afterwards or the next daemon (docs/DEFECTS.md, Д-237).
+ * started afterwards or the next daemon.
  *
  * @param {{ env?: NodeJS.ProcessEnv, file?: string, platform?: string }} [options]
  * @returns {{ file: string, schema_version: number, settings: Record<string, unknown>, stored: Record<string, unknown>, sources: Record<string, string>, pending: Record<string, unknown>, problems: string[] }}
@@ -300,13 +300,13 @@ export function readSettings({ env = process.env, file = settingsPath(env), plat
     }
     const variable = setting.env ? nonEmpty(env[environmentKey(env, setting.env, platform)]) : "";
     if (variable && !applied.has(setting.env)) {
-      // The value in force is the variable's, which the file does not change (Д-223).
+      // The value in force is the variable's, which the file does not change.
       source = `environment (${setting.env})`;
       value = setting.fromEnv ? setting.fromEnv(variable) : variable;
     } else if (setting.env && setting.applies !== "now") {
       // What the environment got from the file when it started — nothing, if
       // the file had nothing then — is what this process or session uses: a
-      // model folder its daemon loaded, the profiles it listed (Д-237).
+      // model folder its daemon loaded, the profiles it listed.
       const started = variable ? (setting.fromEnv ? setting.fromEnv(variable) : variable) : setting.default;
       if (JSON.stringify(started) !== JSON.stringify(value)) {
         pending[name] = value;
@@ -325,11 +325,11 @@ const MAX_LINKS = 40;
 
 /**
  * Where to write `file`: the file a link names — a dotfiles repository keeps
- * its link (Д-222), and one whose file is not made yet gets it there (Д-233)
+ * its link, and one whose file is not made yet gets it there
  * — or the path itself. A hard link to it is not kept: the file is replaced
  * whole. A link is read as the system reads it: from the folder it really
  * lies in, through a chain of links to its end; a link into a folder that is
- * not there is refused and named (Д-238).
+ * not there is refused and named.
  */
 async function writeTarget(file) {
   try {
@@ -374,7 +374,7 @@ function names(stored, name) {
  * @param {{ env?: NodeJS.ProcessEnv, file?: string, platform?: string, unsetOnly?: boolean, lockTimeoutMs?: number }} [options]
  *   `unsetOnly`: a setting the file already gives a value it reads keeps it —
  *   decided under the lock, so a value written meanwhile is not written over
- *   (the desktop app's language, docs/DEFECTS.md, Д-279); `lockTimeoutMs`: how
+ *   (the desktop app's language); `lockTimeoutMs`: how
  *   long to wait for the file's lock.
  * @returns {Promise<{ changed: string[], settings: Record<string, unknown>, pending: Record<string, unknown>, applies: Record<string, string> }>}
  *   `applies`: when each changed setting takes effect (`now`, `new_session`, `next_daemon`, `app`);
@@ -389,7 +389,7 @@ export async function writeSettings(changes, { env = process.env, file = setting
   return withExclusiveFile(file, async () => {
     const stored = readStored(file);
     // A file a newer AI Dev wrote keeps its format: this version would write
-    // its own schema over keys it does not know the meaning of (Д-223).
+    // its own schema over keys it does not know the meaning of.
     if ((declaredSchema(stored) ?? SETTINGS_SCHEMA_VERSION) > SETTINGS_SCHEMA_VERSION) {
       throw new Error(`${file} was written by a newer AI Dev (settings schema ${stored.schema_version}, this one knows ${SETTINGS_SCHEMA_VERSION}); change the settings with that version.`);
     }
@@ -404,7 +404,7 @@ export async function writeSettings(changes, { env = process.env, file = setting
     }
     if (changed.length) {
       // Replaced whole and flushed, through a link to wherever the file
-      // really lives (Д-222).
+      // really lives.
       await atomicWriteFile(await writeTarget(file), `${JSON.stringify(next, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     }
     const applies = Object.fromEntries(changed.map((name) => [name, SETTINGS[name].applies]));
@@ -473,11 +473,11 @@ const READ_AT_EVERY_USE = Object.values(SETTINGS).filter((setting) => setting.en
 /**
  * A session's environment as a tool that acts for it reads it: a copy that —
  * on Windows, as the daemon's own environment does — finds a variable
- * whatever the case of its name (Д-232), with the settings that apply at once
+ * whatever the case of its name, with the settings that apply at once
  * read again: a mirror saved a moment ago counts in this very session, and a
- * variable the client set itself still wins (Д-218). The model folder is not
+ * variable the client set itself still wins. The model folder is not
  * one of them: the daemon's search loaded its folder when it started, and the
- * tools must look where it does — a new folder is a new session's (Д-228).
+ * tools must look where it does — a new folder is a new session's.
  *
  * @param {NodeJS.ProcessEnv} [env]
  * @param {{ platform?: string }} [options]

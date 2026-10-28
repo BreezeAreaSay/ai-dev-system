@@ -5,8 +5,7 @@ name: Windows installer
 # `npm run dist:win`, and kept as the run's artifact. On a v* tag of the
 # production repository it is also put on that tag's GitHub release — as a
 # draft when the release does not exist yet: electron-updater reads only
-# published releases, so an update reaches people when the owner publishes it
-# (owner decision D7).
+# published releases, so an update reaches people when the owner publishes it.
 #
 # Signing comes from the environment: a certificate in WIN_CSC_LINK with its
 # password in WIN_CSC_KEY_PASSWORD, or Azure Trusted Signing named by the

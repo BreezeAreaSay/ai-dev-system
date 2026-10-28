@@ -52,13 +52,13 @@ const MAX_SEMANTIC_DUPLICATE_PATHS = 32;
  */
 async function rebuildIndex(host) {
   await fs.mkdir(host.skillRegistryDir, { recursive: true });
-  // One rebuild at a time across the volume's sessions, and none waiting for itself (docs/DEFECTS.md, Д-345, Д-347).
+  // One rebuild at a time across the volume's sessions, and none waiting for itself.
   return withSkillRegistryLock(host.skillRegistryDir, () => rebuildIndexHeld(host, path.join(host.skillRegistryDir, path.basename(SKILL_REGISTRY_FILES.combined))));
 }
 
 async function rebuildIndexHeld(host, combinedPath) {
   // Before the first SKILL.md is read: the registry is dated by it, so a skill
-  // changed while this runs is newer than the registry (docs/DEFECTS.md, Д-128).
+  // changed while this runs is newer than the registry.
   const sourcesReadAt = new Date();
 
   const [outcomeStatus, overlays] = await Promise.all([
@@ -120,7 +120,7 @@ function dotProduct(left, right) {
  * Only pairs that fit inside one bounded embedding batch are evaluated; the
  * rest keep their lexical verdict. Without the local model every pair keeps
  * it, and the answer says why: the semantic pass is a refinement, and its
- * absence used to take the whole report down (docs/DEFECTS.md, Д-144).
+ * absence used to take the whole report down.
  */
 async function refineDuplicatePairsWithBge(host, pairs, records) {
   if (!pairs.length) return { evaluated: 0, pairs: [] };

@@ -29,7 +29,7 @@ test("what clients of one daemon must share is where the data is and which model
   }
   for (const name of ["PATH", "Path", "PATHEXT", "HTTPS_PROXY", "https_proxy", "NO_PROXY", "NODE_EXTRA_CA_CERTS", "NODE_USE_ENV_PROXY", "NODE_OPTIONS", "APPDATA", "XDG_CONFIG_HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "HF_ENDPOINT", "PLAYWRIGHT_BROWSERS_PATH",
     "AI_DEV_PROFILES", "AI_DEV_OFFLINE", "AI_DEV_MODEL_MIRROR", "AI_DEV_DAEMON", "AI_DEV_IDLE_TIMEOUT_MS", "AI_DEV_HOOK_PROFILE", "AI_DEV_IMAGE",
-    // The desktop app's own: the app and the clients share one daemon whatever they say (Д-244).
+    // The desktop app's own: the app and the clients share one daemon whatever they say.
     "AI_DEV_SERVER_ROOT", "AI_DEV_DESKTOP_TEST", "AI_DEV_DESKTOP_DEVTOOLS", "AI_DEV_DESKTOP_NO_SANDBOX", "AI_DEV_DESKTOP_BUNDLE", "AI_DEV_DESKTOP_UPDATES", "AI_DEV_NODE"]) {
     assert.equal(isDaemonWide(name, { platform: "linux" }), false, name);
   }
@@ -60,7 +60,7 @@ test("every AI_DEV_ and BGE_ variable the code names is classified on purpose", 
   };
   for (const directory of ["src", "hooks", "bin", "scripts"]) walk(path.join(serverRoot, directory));
   walk(path.join(repositoryRoot, "docker"));
-  // The desktop app passes its environment to the daemon's transport too (docs/DEFECTS.md, Д-266, п. 2).
+  // The desktop app passes its environment to the daemon's transport too.
   for (const directory of ["src", "scripts", "test"]) {
     if (fs.existsSync(path.join(repositoryRoot, "desktop", directory))) walk(path.join(repositoryRoot, "desktop", directory));
   }
@@ -138,7 +138,7 @@ test("a child process started in a session, without an env of its own, gets the 
   }
 });
 
-test("the identity a build carries is where the data is, resolved as the server resolves it (Д-199)", () => {
+test("the identity a build carries is where the data is, resolved as the server resolves it", () => {
   const identity = (env, platform = "linux", execPath = "/usr/bin/node") => daemonIdentity({ serverRoot, env, platform, execPath });
   // The runtime folder is resolved on this machine's paths, as the server it
   // describes resolves it: each system's names are checked on that system.
@@ -167,7 +167,7 @@ test("the identity a build carries is where the data is, resolved as the server 
   }
 });
 
-test("a data folder under a link is one folder before it exists and after; a Windows name is read without case (Д-202, Д-203, Д-205)", (t) => {
+test("a data folder under a link is one folder before it exists and after; a Windows name is read without case", (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "ai-dev-identity-"));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   fs.mkdirSync(path.join(root, "real"));
@@ -192,7 +192,7 @@ test("a data folder under a link is one folder before it exists and after; a Win
   assert.equal(posix({ HOME: "/home/a" }).USERPROFILE, undefined, "and no part at all where it is not set");
 });
 
-test("of two spellings of one name on Windows, the one Node's spawn passes on is the one read, in any order (Д-238)", () => {
+test("of two spellings of one name on Windows, the one Node's spawn passes on is the one read, in any order", () => {
   const orders = [
     [["bge_m3_onnx_dir", "C:\\lower"], ["Bge_M3_Onnx_Dir", "C:\\mixed"]],
     [["Bge_M3_Onnx_Dir", "C:\\mixed"], ["bge_m3_onnx_dir", "C:\\lower"]]

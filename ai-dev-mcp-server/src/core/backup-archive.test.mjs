@@ -163,7 +163,7 @@ async function writeZip(file, entries) {
   }
 }
 
-test("a restore over a live install with one bad entry in the middle changes nothing (Д-178)", async (t) => {
+test("a restore over a live install with one bad entry in the middle changes nothing", async (t) => {
   const root = await scratch(t);
   const vault = path.join(root, "vault");
   const runtime = path.join(root, ".ai-dev");
@@ -180,7 +180,7 @@ test("a restore over a live install with one bad entry in the middle changes not
   assert.deepEqual((await fs.readdir(vault)).sort(), ["a.md", "b.md", "c.md", "d.md", "e.md"], "and nothing is left beside them");
 });
 
-test("the state comes from where the server keeps it, AI_DEV_STATE_ROOT included (Д-179)", async (t) => {
+test("the state comes from where the server keeps it, AI_DEV_STATE_ROOT included", async (t) => {
   const root = await scratch(t);
   const state = path.join(root, "my-state");
   await put(state, { "tasks/t1.json": "{}\n" });
@@ -191,7 +191,7 @@ test("the state comes from where the server keeps it, AI_DEV_STATE_ROOT included
   assert.equal(await read(state, "tasks/t1.json"), "{}\n");
 });
 
-test("a file dated after 2107 is kept, the ZIP64 records start at the all-ones values, and modes come back (Д-180, Д-185)", async (t) => {
+test("a file dated after 2107 is kept, the ZIP64 records start at the all-ones values, and modes come back", async (t) => {
   const root = await scratch(t);
   const vault = path.join(root, "vault");
   await put(vault, { "future.md": "x\n", "scan.sh": "#!/bin/sh\n", "note.md": "n\n" });

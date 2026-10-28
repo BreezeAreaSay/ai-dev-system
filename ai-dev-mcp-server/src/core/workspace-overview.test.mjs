@@ -56,7 +56,7 @@ test("the serving process says whether a daemon answers, and how busy it is", ()
   markServingDaemon({ build: "abcd", startedAt: "2026-10-12T00:00:00.000Z", idleTimeoutMs: 60_000, sessions: () => sessions });
   sessions = 3;
   assert.deepEqual(servingProcess(), { kind: "daemon", pid: process.pid, build: "abcd", sessions: 3, started_at: "2026-10-12T00:00:00.000Z", idle_timeout_ms: 60_000 });
-  // A fraction in the variable is still a whole number in the answer, as the contract says (Д-223).
+  // A fraction in the variable is still a whole number in the answer, as the contract says.
   markServingDaemon({ build: "abcd", startedAt: "2026-10-12T00:00:00.000Z", idleTimeoutMs: 60_000.5, sessions: () => 0 });
   assert.equal(servingProcess().idle_timeout_ms, 60_001);
 });

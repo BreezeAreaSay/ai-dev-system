@@ -113,7 +113,7 @@ test("SDK runtime exposes tools, resources, prompts, and structured results", as
   });
   // The two UI UX Pro Max tools run the dataset's own Python script, the only
   // tools here that need an interpreter. Without one they answer with what to
-  // install, and nothing else needs it — the suite included (docs/DEFECTS.md, Д-137).
+  // install, and nothing else needs it — the suite included.
   const python = spawnSync(resolvePythonCommand(), ["--version"], { encoding: "utf8", shell: false, windowsHide: true });
   if (!python.error && python.status === 0 && /Python 3/.test(`${python.stdout}${python.stderr}`)) {
     assert.equal(uiUxKnowledge.isError, false);
@@ -165,7 +165,7 @@ test("a tool that needs one of two arguments says so where a caller can read it"
   }
 });
 
-test("a tool error that knows the next step says it under the error (Д-380)", async (t) => {
+test("a tool error that knows the next step says it under the error", async (t) => {
   // A repository AI Dev has not prepared has no quality gate; the refusal used to stop at "not found".
   const project = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-no-gate-"));
   const { client, server } = await connectedPair();
@@ -224,7 +224,7 @@ test("the usage ledger records every caller once: direct calls, transport calls,
   assert.equal(failures.length, 2, "one failure per call, from whichever caller made it");
 });
 
-test("a tool's progress reaches the client as one rising count across its phases, and a cancelled call stops (Д-187)", async () => {
+test("a tool's progress reaches the client as one rising count across its phases, and a cancelled call stops", async () => {
   const sent = [];
   let clock = 0;
   const reporter = progressReporter({ _meta: { progressToken: "p1" }, sendNotification: async (notification) => sent.push(notification.params) }, { now: () => clock });
@@ -279,7 +279,7 @@ test("a session's capability profiles come from its own client, not from the pro
   assert.equal((await client.listTools()).tools.length, core.tools_listed);
 });
 
-test("stdin closed right after a call: the call is answered, then the server exits (Д-354)", async () => {
+test("stdin closed right after a call: the call is answered, then the server exits", async () => {
   const server = path.join(path.dirname(new URL(import.meta.url).pathname), "server.mjs");
   const child = spawn(process.execPath, [server], { stdio: ["pipe", "pipe", "ignore"], env: process.env });
   let out = "";

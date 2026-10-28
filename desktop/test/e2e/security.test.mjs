@@ -71,13 +71,13 @@ test("the page has no Node, no file system, no network, and reaches only the int
       trayId: await window.aiDev.call("system_status", {}, "tray-rebuild"),
       // The language goes through setLanguage, never settings_set (phase 11 opened the Settings screen's own).
       otherSetting: await window.aiDev.call("settings_set", { settings: { language: "ru" } }, "call-language"),
-      // Where the daemon downloads the model from: only after the person confirms it (Д-288).
+      // Where the daemon downloads the model from: only after the person confirms it.
       mirror: await window.aiDev.call("settings_set", { settings: { model_mirror: "http://127.0.0.1:9/x" } }, "call-mirror"),
-      // A client the wizard does not offer — not on this computer (Д-266, п. 1).
+      // A client the wizard does not offer — not on this computer.
       clientNotOffered: await window.aiDev.call("clients_install", { clients: ["codex"] }, "call-codex"),
-      // No client named is not all of them: refused in words (Д-271, п. 2).
+      // No client named is not all of them: refused in words.
       noClients: await window.aiDev.call("clients_install", {}, "call-none"),
-      // Permissions: none is granted, none is even asked for (Д-254).
+      // Permissions: none is granted, none is even asked for.
       notification: await new Promise((resolve) => setTimeout(() => Notification.requestPermission().then(resolve, (error) => resolve(`refused: ${error.name}`)), 0)),
       geolocation: await new Promise((resolve) => setTimeout(() => navigator.permissions.query({ name: "geolocation" }).then((answer) => resolve(answer.state), (error) => resolve(`refused: ${error.name}`)), 0))
     };
@@ -134,7 +134,7 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
 
-  // WebRTC from a task of the page (Д-241): STUN over UDP and TURN over TCP.
+  // WebRTC from a task of the page: STUN over UDP and TURN over TCP.
   const rtc = await page.evaluate(({ udpPort, tcpPort }) => new Promise((resolve) => setTimeout(async () => {
     try {
       const pc = new RTCPeerConnection({ iceServers: [{ urls: `stun:127.0.0.1:${udpPort}` }, { urls: `turn:127.0.0.1:${tcpPort}?transport=tcp`, username: "u", credential: "p" }] });
@@ -152,12 +152,12 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   await new Promise((resolve) => setTimeout(resolve, 500));
   assert.deepEqual({ candidates: rtc.filter((type) => type !== "host"), stun: stun.length, turn: turn.length }, { candidates: [], stun: 0, turn: 0 });
   // What WebRTC's TCP would go to: the page's session sends everything — loopback too — to a
-  // proxy that is not there (Д-241; M18, Д-270).
+  // proxy that is not there (M18).
   const proxies = await app.evaluate(({ session }) => Promise.all(["https://example.com/", "http://127.0.0.1:8080/"].map((url) => session.fromPartition("ai-dev-page").resolveProxy(url))));
   assert.deepEqual(proxies, ["PROXY 127.0.0.1:9", "PROXY 127.0.0.1:9"]);
 
   // Names carry data too: the host of a TURN server and a dns-prefetch the page makes reach no
-  // resolver — Electron's own net log names neither (Д-260).
+  // resolver — Electron's own net log names neither.
   const mark = `m${Date.now().toString(36)}`;
   const netlog = path.join(s.root, "netlog.json");
   await app.evaluate(async ({ netLog }, file) => { await netLog.startLogging(file, { captureMode: "everything" }); }, netlog);
@@ -209,7 +209,7 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   }, path.join(desktopRoot, "src", "preload", "preload.cjs"));
   assert.deepEqual(stranger, [null, null], "a page that is not the app's gets no answer");
 
-  // No developer tools and no default menu (Д-252).
+  // No developer tools and no default menu.
   const shipped = await app.evaluate(async ({ BrowserWindow, Menu }) => {
     const contents = BrowserWindow.getAllWindows().find((window) => window.isVisible())?.webContents ?? BrowserWindow.getAllWindows()[0].webContents;
     contents.openDevTools();

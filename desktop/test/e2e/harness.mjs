@@ -21,7 +21,7 @@ const fromServer = (relative) => import(pathToFileURL(path.join(serverRoot, rela
 
 /**
  * The apps each test launched: closed before its install is removed, so
- * Electron's last writes do not bring the test's folder back (Д-257, п. 11).
+ * Electron's last writes do not bring the test's folder back.
  */
 const launched = new WeakMap();
 const { startModelHost } = await fromServer("test/fixtures/model-host.mjs");

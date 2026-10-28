@@ -313,7 +313,7 @@ export async function loadImportGraph(projectRoot, { cachePath = IMPORT_GRAPH_CA
   }
   const graph = await scanImportGraph(root, options);
   await fs.mkdir(path.dirname(cacheFile), { recursive: true }).catch(() => undefined);
-  // The cache is this machine's: kept out of the project's history (Д-597).
+  // The cache is this machine's: kept out of the project's history.
   if (cachePath.startsWith(".ai-dev/")) await ignoreMachineFiles(root);
   await atomicWriteFile(cacheFile, `${JSON.stringify(graph, null, 2)}\n`, "utf8").catch(() => undefined);
   return { ...graph, from_cache: false };

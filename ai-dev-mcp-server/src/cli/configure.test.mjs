@@ -125,7 +125,7 @@ test("the menu runs the commands with the answers typed, and leaves with q", asy
     ["skills", "new", "--", "release-notes", "Write release notes from merged pull requests."],
     ["skills", "add", path.join(os.homedir(), "skills", "mine")],
     ["skills", "add", path.join(os.homedir(), "skills", "mine"), "--replace"],
-    // Answers as option values or after `--`: a pattern such as --no-verify stays the pattern (Д-588).
+    // Answers as option values or after `--`: a pattern such as --no-verify stays the pattern.
     ["rules", "add", "--pattern=git push .*--force", "--example=git push --force", "--message=Never force-push.", "--event", "bash", "--action", "block", "--project", project, "--", "no-force"]
   ]);
   assert.match(out(), /\$ ai-dev settings set -- daemon_idle_minutes 45/, "the command it ran is shown");
@@ -133,7 +133,7 @@ test("the menu runs the commands with the answers typed, and leaves with q", asy
   assert.match(out(), /There is no "zz" here: a number from the list or q\./);
 });
 
-test("the main menu is left with q or the end of the input only: Enter and b ask again (Д-588)", async (t) => {
+test("the main menu is left with q or the end of the input only: Enter and b ask again", async (t) => {
   const home = await tempDir(t);
   const ran = [];
   const { io, out } = captured({ env: { AI_DEV_HOME: home }, lines: ["", "b", "h", "q"], interactive: true });
@@ -200,7 +200,7 @@ test("skills, rules, servers and status run the server's tools from a terminal",
   const added = await runCli(["skills", "add", folder, "--json"], { env });
   assert.equal(added.code, 0, added.stderr);
   assert.equal(JSON.parse(added.stdout).name, "probe");
-  // A name given is the one the registry knows it by (Д-585).
+  // A name given is the one the registry knows it by.
   const renamed = await runCli(["skills", "add", folder, "--name", "renamed-one"], { env });
   assert.equal(renamed.code, 0, renamed.stderr);
   const shownRenamed = await runCli(["skills", "show", "renamed-one"], { env });
@@ -236,7 +236,7 @@ test("skills, rules, servers and status run the server's tools from a terminal",
   const listed = await runCli(["rules", "list", "--project", project, "--json"], { env });
   assert.equal(JSON.parse(listed.stdout).rules.find((item) => item.id === "no-force-push").enabled, false);
   assert.equal((await runCli(["rules", "add", "x", "--event", "disk"], { env, cwd: project })).code, 2);
-  // The menu's form: a pattern that starts with "-" is the pattern (Д-588).
+  // The menu's form: a pattern that starts with "-" is the pattern.
   const dashed = await runCli(["rules", "add", "--pattern=--no-verify", "--example=git commit --no-verify", "--message=Let the hooks run.", "--project", project, "--", "no-skip-hooks"], { env });
   assert.equal(dashed.code, 0, dashed.stderr);
   assert.match(dashed.stdout, /Added: block bash no-skip-hooks/);
@@ -246,7 +246,7 @@ test("skills, rules, servers and status run the server's tools from a terminal",
   assert.equal(servers.code, 0, servers.stderr);
   assert.match(servers.stdout, /pg\s+npx -y @example\/pg\s+\(claude-code\)/);
   assert.match(servers.stdout, /warn · pg: npx -y @example\/pg fetches and runs/);
-  // None at all: the advice is a command at a terminal, not an agent's tool (Д-599, п. 3).
+  // None at all: the advice is a command at a terminal, not an agent's tool.
   await fs.mkdir(path.join(root, "bare"), { recursive: true });
   const bare = await runCli(["servers", "--project", path.join(root, "bare")], { env });
   assert.match(bare.stdout, /`ai-dev clients install` \(or the client's own settings\) registers one/);

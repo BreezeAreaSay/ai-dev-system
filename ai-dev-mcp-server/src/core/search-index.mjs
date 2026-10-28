@@ -38,7 +38,7 @@ import { densePlan, indexStatus, rebuildIndex, storeDenseVectors } from "./searc
 import { csvValue } from "./text-format.mjs";
 import { hint } from "./install-layout.mjs";
 
-/** Which index file a vault reads and writes (`search-index-owner.mjs`, Д-195). */
+/** Which index file a vault reads and writes (`search-index-owner.mjs`). */
 export { vaultIndexPath } from "./search-index-owner.mjs";
 
 /** How long a fresh-index verdict is trusted before it is checked again. */
@@ -133,7 +133,7 @@ function withDenseNote(results, issue) {
  * @param {() => Promise<object[]>} deps.hardNegativeRules - Reranker guardrails.
  * @param {() => Promise<object[]>} deps.readSkillIndex - Registry, for intent routing.
  * @param {() => Promise<unknown>} [deps.refreshSkillRegistry] - Rebuilds the skill registry when
- *   its skills changed on disk; the index's skill documents are read from it (docs/DEFECTS.md, Д-119).
+ *   its skills changed on disk; the index's skill documents are read from it.
  * @param {object} deps.ranking - Pure ranking collaborators.
  * @param {NodeJS.ProcessEnv} [deps.env]
  * @param {ReturnType<typeof createNodeSearchEngine>} [deps.engine] - A stand-in, for tests.
@@ -274,7 +274,7 @@ export function createSearchIndexRuntime({
    * need a vector are planned and embedded by the model a slice at a time,
    * each slice stored as it is done, and the closing rebuild keeps what was
    * stored. `onProgress` hears after every batch and `signal` stops between
-   * batches; either way nothing embedded is lost (docs/DEFECTS.md, Д-98).
+   * batches; either way nothing embedded is lost.
    * Without a model the answer is an error that says what to install.
    *
    * `onProgress` hears the text index being written (`indexing`) and the
@@ -334,7 +334,7 @@ export function createSearchIndexRuntime({
         includeMembrane,
         ...watch,
         // The model and device the caller named, as the 2.x helper was given
-        // them; the ONNX model has its own and ignores both (Д-138).
+        // them; the ONNX model has its own and ignores both.
         embed: (texts) => embedQuery({
           texts,
           normalize: true,
@@ -470,7 +470,7 @@ export function createSearchIndexRuntime({
 
   /**
    * `search_knowledge`: every word of the question looked for in each indexed
-   * document's path and text, best first (docs/DEFECTS.md, Д-102).
+   * document's path and text, best first.
    */
   async function searchKnowledge({ query, limit = 10, ensure_fresh = true }) {
     if (!query || typeof query !== "string") throw new Error("query is required.");
@@ -560,7 +560,7 @@ export function createSearchIndexRuntime({
       denseProvenance
     });
     // A question embedded, and not one document has a vector of its model —
-    // a 2.x index made by another one (docs/DEFECTS.md, Д-148): the dense half
+    // a 2.x index made by another one: the dense half
     // did not run, and the answer says so instead of ranking as if it had.
     if (results.dense_unmatched && !denseIssue) {
       denseIssue = `no indexed document has a vector of the installed model yet; \`${hint("npm run setup -- --model")}\` embeds them`;

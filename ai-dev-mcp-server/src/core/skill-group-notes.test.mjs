@@ -38,7 +38,7 @@ test("a generated subgroup note is recognised by its own group and a subgroup in
   assert.equal(isGeneratedSubgroupNote(note.replaceAll("\n", "\r\n"), "integrations-automation"), true, "CRLF too");
 });
 
-test("subgroups with members get notes; a subgroup that lost its members loses its note (Д-119)", async (t) => {
+test("subgroups with members get notes; a subgroup that lost its members loses its note", async (t) => {
   const { root, write } = await makeGroups(t);
   const group = { id: "integrations-automation", subgroups: [{ id: "developer-tools" }, { id: "crm-sales" }] };
   const before = [

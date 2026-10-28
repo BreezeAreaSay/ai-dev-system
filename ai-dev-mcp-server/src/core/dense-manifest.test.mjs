@@ -166,7 +166,7 @@ test("a file name that climbs out of the model directory is not a model file", (
   }
 });
 
-test("a checked file is trusted while it is unchanged, and read again the moment it changes (Д-143)", async () => {
+test("a checked file is trusted while it is unchanged, and read again the moment it changes", async () => {
   const dir = await stage({ "config.json": "config", "onnx/model_int8.onnx": "weights" });
   const stampDir = await fs.mkdtemp(path.join(os.tmpdir(), "dense-stamp-"));
   const stampFile = verifiedStampPath(stampDir, dir);
@@ -188,7 +188,7 @@ test("a checked file is trusted while it is unchanged, and read again the moment
   // The same length, other bytes: what a size-only record would miss. The
   // time is moved on by hand: a coarse clock can give a write within the same
   // few milliseconds the old time, which a model file never sees and a test
-  // can (docs/DEFECTS.md, Д-135).
+  // can.
   const weights = path.join(dir, "onnx", "model_int8.onnx");
   await fs.writeFile(weights, "WEIGHTS");
   await fs.utimes(weights, new Date(Date.now() + 5_000), new Date(Date.now() + 5_000));

@@ -53,7 +53,7 @@ test("a package npx unpacked is installed once into the app home, with its depen
   assert.equal(first.cli, appCli(first.folder));
   assert.equal(await fs.readFile(first.cli, "utf8"), "// cli a\n");
   assert.deepEqual(calls[0].args, ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--prefer-offline"],
-    "no install scripts: no CUDA download (Д-174)");
+    "no install scripts: no CUDA download");
   assert.notEqual(calls[0].cwd, first.folder, "npm runs in a staging folder, so a stopped install is never taken for a finished one");
   await fs.access(path.join(first.folder, "node_modules", "zod", "index.js"));
   const marker = JSON.parse(await fs.readFile(path.join(first.folder, APP_MARKER), "utf8"));
@@ -112,7 +112,7 @@ test("the folder is named by version and fingerprint, and nothing in either esca
   assert.equal(appFolder("/r", { version: "3.0.0", content_fingerprint: "ab/../cd" }), path.join("/r", "app", "3.0.0-abcd"));
 });
 
-test("a copy setup chose again is the current one: the prune keeps it, not the one installed after it (Д-181)", async (t) => {
+test("a copy setup chose again is the current one: the prune keeps it, not the one installed after it", async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
   let clock = Date.now();

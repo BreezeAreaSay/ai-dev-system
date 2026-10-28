@@ -105,7 +105,7 @@ test("a built index is current, and every kind of change makes it stale with the
   assert.deepEqual([stale.added, stale.changed, stale.deleted], [["02-knowledge/new.md"], ["02-knowledge/topic-1.md"], ["02-knowledge/topic-2.md"]]);
 });
 
-test("an index without vectors names no backend for them, one written before 3.0 included (Д-186)", needsSqlite, async (t) => {
+test("an index without vectors names no backend for them, one written before 3.0 included", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const indexPath = path.join(tempRoot(t), "index", "ai-dev-search.sqlite");
   buildVault(vault, { notes: 2, skills: 2 });
@@ -134,7 +134,7 @@ test("an index without vectors names no backend for them, one written before 3.0
   assert.deepEqual([old.dense_backend, old.dense_revision, old.dense_dtype], ["", "", ""]);
 });
 
-test("an index names the vault it was built from, and is stale for any other — the same notes included (Д-195)", needsSqlite, async (t) => {
+test("an index names the vault it was built from, and is stale for any other — the same notes included", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const copy = tempRoot(t);
   const indexPath = path.join(tempRoot(t), "index", "ai-dev-search.sqlite");
@@ -169,7 +169,7 @@ test("writing in place leaves exactly what a full rebuild writes", needsSqlite, 
   assert.equal((await indexStatus({ vaultRoot: vault, indexPath: inPlace })).stale, false);
 });
 
-test("a rebuild cancelled while it writes leaves the index as it was, and says how far it got (Д-187)", needsSqlite, async (t) => {
+test("a rebuild cancelled while it writes leaves the index as it was, and says how far it got", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const indexPath = path.join(tempRoot(t), "index", "ai-dev-search.sqlite");
   buildVault(vault, { notes: 300, skills: 30 });
@@ -363,7 +363,7 @@ test("supplied vectors are stored where their passage still matches, and kept by
   assert.deepEqual([dropped.dense_enabled, dropped.dense_documents], [false, 0]);
 });
 
-test("vectors stored a slice at a time are in the index at once, and a later rebuild keeps them (Д-98)", needsSqlite, async (t) => {
+test("vectors stored a slice at a time are in the index at once, and a later rebuild keeps them", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const indexPath = path.join(tempRoot(t), "index.sqlite");
   buildVault(vault);
@@ -401,7 +401,7 @@ test("vectors stored a slice at a time are in the index at once, and a later reb
   assert.deepEqual([closing.dense_documents, closing.dense_reused_documents, closing.dense_pending_documents], [33, 33, 0]);
 });
 
-test("2.0.0's vectors whose passage has changed since are dropped, and the table gains this format's columns (Д-571)", needsSqlite, async (t) => {
+test("2.0.0's vectors whose passage has changed since are dropped, and the table gains this format's columns", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const indexPath = path.join(tempRoot(t), "index.sqlite");
   buildVault(vault, { notes: 2, skills: 2 });
@@ -499,7 +499,7 @@ test("a changed document rewritten in place keeps its rowid, so ties come back i
   assert.deepEqual(rowids(), before, "documents and their text stay at the rowids a full rebuild gave them");
 });
 
-test("a refresh that changes the newest note and adds one walked before it stays in place (Д-127)", needsSqlite, async (t) => {
+test("a refresh that changes the newest note and adds one walked before it stays in place", needsSqlite, async (t) => {
   const vault = tempRoot(t);
   const indexPath = path.join(tempRoot(t), "index.sqlite");
   for (let index = 0; index < 20; index += 1) write(vault, `02-knowledge/n${String(index).padStart(2, "0")}.md`, `# Note ${index}\n\nbody ${index}`);
@@ -608,7 +608,7 @@ test("a reader lets go of the file when idle, and at once when the file is damag
   assert.equal(await reader.read((db) => db.prepare("SELECT count(*) AS n FROM documents").get().n), 5, "and opened again on the next read");
   await new Promise((resolve) => setTimeout(resolve, 120));
 
-  // A read that fails with an ordinary SQL error lets go of the file too (Д-132).
+  // A read that fails with an ordinary SQL error lets go of the file too.
   await assert.rejects(reader.read((db) => db.prepare("SELECT no_such_column FROM documents").all()), /no such column/);
   assert.equal(reader.isOpen(), true);
   await new Promise((resolve) => setTimeout(resolve, 120));

@@ -28,7 +28,7 @@
  * target is this machine's when not named. A `.dmg` is made on macOS only; on
  * Linux and macOS the NSIS installer needs Wine (32-bit too): its uninstaller
  * is made by running the installer. Nothing is published: a release is the
- * owner's (brief, section 2).
+ * owner's (section 2).
  */
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";
@@ -253,7 +253,7 @@ async function main() {
 }
 
 // A build that ends before it finishes failed: electron-builder can log an
-// error and leave its promise unsettled, and Node would end with 0 (Д-593).
+// error and leave its promise unsettled, and Node would end with 0.
 let finished = false;
 process.on("exit", () => {
   if (finished) return;

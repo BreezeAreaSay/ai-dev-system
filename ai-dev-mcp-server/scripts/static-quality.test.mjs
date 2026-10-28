@@ -10,10 +10,10 @@ import { MODULE_LINE_EXCEPTIONS } from "../src/core/line-budget.mjs";
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // The gate is held by what it does, not by how its source reads: a test that matched its text stayed green with the
-// call commented out, behind `if (false)`, or with the findings dropped before the verdict (docs/DEFECTS.md, Д-396).
+// call commented out, behind `if (false)`, or with the findings dropped before the verdict.
 // So a finding of each rule and of each check is planted in each folder the gate walks, and exactly that set is what
-// it must say: one folder left unwalked, or one rule's findings dropped, fails here (Д-411).
-test("the gate refuses each rule and each check planted in each folder it walks, and lets the app's tests call eval (Д-388, Д-396, Д-411)", {
+// it must say: one folder left unwalked, or one rule's findings dropped, fails here.
+test("the gate refuses each rule and each check planted in each folder it walks, and lets the app's tests call eval", {
   skip: process.platform === "win32" && "the fixture links to the real modules, and a symbolic link needs a privilege on Windows"
 }, async () => {
   const fixture = await fs.mkdtemp(path.join(os.tmpdir(), "static-quality-"));
@@ -53,7 +53,7 @@ test("the gate refuses each rule and each check planted in each folder it walks,
       // The desktop app beside it: its code, its scripts and its .cjs; eval is refused there and allowed in its tests,
       // where a shell is refused as anywhere.
       [path.join(desktop, "src", "zz-planted.js")]: 'eval("1");\n',
-      // Read as the script it is: its HTML-like comment hides the backtick a module would open a template with (Д-445).
+      // Read as the script it is: its HTML-like comment hides the backtick a module would open a template with.
       [path.join(desktop, "src", "zz-planted.cjs")]: 'const x = 1 <!-- `\neval("1");\nrequire("node:child_process").execSync("ls");\n// `\n',
       [path.join(desktop, "src", "zz-long.js")]: tooLong,
       [path.join(desktop, "scripts", "zz-planted.mjs")]: 'const { exec } = await import("node:child_process");\n',

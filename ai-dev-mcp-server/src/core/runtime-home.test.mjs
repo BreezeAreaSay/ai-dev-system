@@ -20,7 +20,7 @@ test("without AI_DEV_HOME the runtime tree is <home>/.ai-dev", () => {
   assert.equal(legacyDoubledRuntimeRoot({ HOME }), "");
 });
 
-test("AI_DEV_HOME is the runtime folder itself, as the documentation always said (Д-90)", () => {
+test("AI_DEV_HOME is the runtime folder itself, as the documentation always said", () => {
   const env = { HOME, AI_DEV_HOME: "/data/runtime-home/.ai-dev" };
   assert.equal(resolveRuntimeStateRoot("", env), path.resolve("/data/runtime-home/.ai-dev"));
   assert.equal(legacyDoubledRuntimeRoot(env), path.join(path.resolve("/data/runtime-home/.ai-dev"), ".ai-dev"));

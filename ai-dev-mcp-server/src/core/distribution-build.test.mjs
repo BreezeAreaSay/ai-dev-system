@@ -95,7 +95,7 @@ test("the allowlist names a group for each target, and every group lands somewhe
   }
 });
 
-test("what npm pack leaves out of a tarball, whatever `files` says (Д-175, Д-185)", () => {
+test("what npm pack leaves out of a tarball, whatever `files` says", () => {
   const dropped = ["a/.gitignore", "a/.npmrc", "a/.npmignore", "a/.DS_Store", "a/npm-debug.log", "a/x.orig", "a/._x", "a/.x.swp",
     "a/.wafpickle-7", "a/.lock-wscript", "a/.git", "a/CVS", "a/.svn/x", "a/.hg/x", "a/build/config.gypi", "b/archived-packages/x.tgz"];
   const kept = ["a/config.gypi", "a/.package-lock.json", "a/.github/workflows/ci.yml", "a/yarn.lock", "a/package-lock.json",
@@ -104,7 +104,7 @@ test("what npm pack leaves out of a tarball, whatever `files` says (Д-175, Д-1
   for (const file of kept) assert.equal(npmLeavesOut(file), false, file);
 });
 
-test("a seed file that is not what the seed's manifest says stops the build (Д-185)", async (t) => {
+test("a seed file that is not what the seed's manifest says stops the build", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-seed-drift-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const files = { "01-system/a.md": "a\n", "b.md": "b\n" };

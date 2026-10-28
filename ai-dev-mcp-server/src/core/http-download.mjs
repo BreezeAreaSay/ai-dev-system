@@ -5,7 +5,7 @@
  * unless the process was started with `NODE_USE_ENV_PROXY=1` — which nobody
  * running `npm run setup` sets. Behind a corporate proxy the download failed
  * with a bare "fetch failed" while curl, npm and git in the same shell went
- * through (docs/DEFECTS.md, Д-98). This module reads `HTTPS_PROXY`,
+ * through. This module reads `HTTPS_PROXY`,
  * `HTTP_PROXY` and `NO_PROXY` the way npm and curl do, tunnels HTTPS through
  * the proxy with `CONNECT`, and turns the network's failures into sentences
  * that name the host and say what to try.
@@ -14,8 +14,7 @@
  * keep-alive. The response body is handed back as a stream, as sent, so the
  * caller decides how bytes reach the disk — and where a `Range` resumes
  * them. `proxyFetch` wraps it in the part of `fetch` the security checks use,
- * compression included, so they go through the proxy as well
- * (docs/DEFECTS.md, Д-145, Д-167).
+ * compression included, so they go through the proxy as well.
  */
 import fs from "node:fs";
 import http from "node:http";
@@ -59,7 +58,7 @@ const extraCaFiles = new Map();
  * environments differ, and each session's connections — to the host, and to
  * an `https://` proxy on the way — trust what that client's own process would
  * have: the bundled roots, the system's store if it asks for it, and its own
- * extra file if it names one (docs/DEFECTS.md, Д-191, Д-200). A file that
+ * extra file if it names one. A file that
  * cannot be read is skipped, as Node skips it.
  *
  * @param {NodeJS.ProcessEnv} env
@@ -90,7 +89,7 @@ export function trustedAuthorities(env) {
  * Proxy and mirror addresses carry a user name and password when the network
  * wants them — the documentation says to put them there — and every message,
  * `--json` answer and `.part.json` that names a source is the kind of text
- * that ends up pasted into an issue (docs/DEFECTS.md, Д-151).
+ * that ends up pasted into an issue.
  *
  * @param {string|URL} text
  * @returns {string}
@@ -293,7 +292,7 @@ export function describeNetworkError(error, url, proxy) {
  * proxy's own name — or its address, for a proxy named by one. Node's HTTPS
  * client takes the name to check from the Host header, and through a proxy
  * that header names the target: a proxy's certificate was held against
- * huggingface.co (docs/DEFECTS.md, Д-206).
+ * huggingface.co.
  *
  * @param {URL} proxy
  * @param {string[] | undefined} ca
@@ -384,14 +383,14 @@ function requestOnce(url, { method, headers, env, signal, ca: given, body }) {
         headers: sent,
         signal,
         // Without an agent the request has no port of its own, and Node wrote
-        // `Host: <name>:80` for an https:// address (docs/DEFECTS.md, Д-211).
+        // `Host: <name>:80` for an https:// address.
         defaultPort: 443,
         createConnection: (_options, done) => {
           tunnel(proxy, host, port, signal, ca).then((socket) => {
             // `host` is what the certificate is checked against; without it
             // Node falls back to the name the socket was opened with — the
             // proxy's — and an IP-literal target was never checked against
-            // its own address (docs/DEFECTS.md, Д-152). SNI takes names only.
+            // its own address. SNI takes names only.
             const secure = tls.connect({
               socket,
               host,
@@ -457,7 +456,7 @@ export async function openUrl(target, { method = "GET", headers = {}, body, env 
  * What `proxyFetch` asks for, as `fetch` does. A registry document is a
  * tenth of its size compressed — typescript's is 15.8 MB as sent plain and
  * 2.0 MB gzipped — and the supply-chain hook has three seconds for it
- * (docs/DEFECTS.md, Д-167). The download asks for none: a `Range` resumes
+ *. The download asks for none: a `Range` resumes
  * bytes of the file itself.
  */
 const ACCEPT_ENCODING = "gzip, deflate, br";
@@ -501,7 +500,7 @@ async function readBody(body, signal) {
  * The part of `fetch` the registry and advisory lookups use, through the
  * proxy the environment names: `fetch` itself ignores `HTTPS_PROXY`, so
  * behind a corporate proxy those lookups failed with "fetch failed" and
- * `run_security_scan` offered no fix versions (docs/DEFECTS.md, Д-145).
+ * `run_security_scan` offered no fix versions.
  *
  * A deadline from `AbortSignal.timeout` rejects with its `TimeoutError`, as
  * `fetch` does, so callers that name a timeout keep naming it. Answers come

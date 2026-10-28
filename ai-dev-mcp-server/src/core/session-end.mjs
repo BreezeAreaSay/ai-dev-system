@@ -2,7 +2,7 @@
  * When a stdio session is over: its client closed stdin, and everything it
  * asked for is answered. Until then the session keeps what it runs; after it,
  * the model's worker thread is all that would keep the process alive — in
- * Docker, the container, for good (docs/DEFECTS.md, Д-354).
+ * Docker, the container, for good.
  *
  * Nothing is cut short: `onEnd` runs only between calls, and the process then
  * exits on its own once the last answer is written.

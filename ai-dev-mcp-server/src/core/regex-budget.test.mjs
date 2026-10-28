@@ -83,7 +83,7 @@ test("one deadline covers the whole batch, and the jobs it cuts off say so", asy
   }
 });
 
-test("a worker's startup is charged to no pattern: budgets and a deadline far below it still answer, in both copies (Д-239)", async () => {
+test("a worker's startup is charged to no pattern: budgets and a deadline far below it still answer, in both copies", async () => {
   // A worker takes tens of milliseconds to start; these matches take microseconds once it has. Before the fix both
   // copies answered none of twenty such calls: the startup ran out the first job's budget.
   const jobs = [{ pattern: "alpha", flags: "", haystack: "alpha" }, { pattern: "omega", flags: "", haystack: "alpha" }];
@@ -93,7 +93,7 @@ test("a worker's startup is charged to no pattern: budgets and a deadline far be
   assert.deepEqual(hooks, [{ matched: true, checked: true }, { matched: false, checked: true }]);
 });
 
-test("a worker that cannot start within its allowance runs nothing, and the answers say the machine is busy, not the pattern slow (Д-239)", async () => {
+test("a worker that cannot start within its allowance runs nothing, and the answers say the machine is busy, not the pattern slow", async () => {
   assert.equal(DEFAULT_WORKER_START_MS, 3000);
   assert.equal(hookLib.POLICY_MATCH_START_MS, DEFAULT_WORKER_START_MS, "the hooks' copy starts its workers under the same allowance");
   const jobs = [{ pattern: "alpha", haystack: "alpha" }, { pattern: "beta", haystack: "beta" }];
@@ -109,7 +109,7 @@ test("a worker that cannot start within its allowance runs nothing, and the answ
   ]);
 });
 
-test("a worker that fails, rather than starts slowly, is answered as run with its error, in both copies (Д-384)", () => {
+test("a worker that fails, rather than starts slowly, is answered as run with its error, in both copies", () => {
   // Under --permission without --allow-worker no thread can be made: a failure, not a busy machine. The hooks' copy
   // used to call that a slow start and leave every rule behind it unrun, where the server's copy moves on.
   const modules = [path.join(serverRoot, "src", "core", "regex-budget.mjs"), path.join(serverRoot, "hooks", "lib.mjs")]
@@ -131,7 +131,7 @@ console.log(JSON.stringify({ server: await server.matchWithBudget(jobs), hooks: 
   }
 });
 
-test("a worker that fails before it is ready answers every job left with one reason, from one thread, the same in both copies (Д-397)", async (t) => {
+test("a worker that fails before it is ready answers every job left with one reason, from one thread, the same in both copies", async (t) => {
   // Each copy loaded with a match worker that fails before it says ready — it throws, throws with no message, or
   // exits. Every worker made first marks the file every job's haystack names, so the file counts the threads.
   // Before, both copies made a thread per job (30 rules: 1.9 s in the guard), the server took an empty message for a
@@ -144,7 +144,7 @@ test("a worker that fails before it is ready answers every job left with one rea
     ["throws", 'throw new Error("boom");', "boom"],
     ["throws-without-a-message", 'throw new Error("");', "Error"],
     ["exits", "process.exit(0);", "the match worker exited before it answered"],
-    // Odd things thrown: each copy reads them with the same expression, and says the same of each (Д-417).
+    // Odd things thrown: each copy reads them with the same expression, and says the same of each.
     ["throws-null", "throw null;", "it gave no reason"],
     ["throws-zero", "throw 0;", "it gave no reason"],
     ["throws-blanks", 'throw "  ";', "it gave no reason"],
@@ -175,7 +175,7 @@ test("a worker that fails before it is ready answers every job left with one rea
   }
 });
 
-test("a worker that exits on a job answers that job with the reason, and the jobs behind it from a fresh worker, in both copies (Д-384, Д-397)", async (t) => {
+test("a worker that exits on a job answers that job with the reason, and the jobs behind it from a fresh worker, in both copies", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "regex-budget-exiting-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const line = "matched = new RegExp(job.pattern, job.flags).test(job.haystack);";

@@ -3,7 +3,7 @@
  *
  * In 2.x both were PowerShell scripts that worked only inside the owner's full
  * vault; `ai-dev backup` refused every system but Windows, and a clone or a
- * package had no backup at all (docs/DEFECTS.md, Д-104). These run wherever
+ * package had no backup at all. These run wherever
  * Node does, for every layout: the vault this install reads and the runtime's
  * `state/`, each file with its sha256 (`core/backup-archive.mjs`).
  */
@@ -69,7 +69,7 @@ export async function run(argv, io, name) {
   await prepareRuntimeHome({ env: io.env });
   const layout = currentInstallLayout();
   const runtimeRoot = layout.runtimeRoot;
-  // Where the server keeps its state: AI_DEV_STATE_ROOT moves it (Д-179).
+  // Where the server keeps its state: AI_DEV_STATE_ROOT moves it.
   const stateRoot = io.env.AI_DEV_STATE_ROOT ? path.resolve(io.env.AI_DEV_STATE_ROOT) : path.join(runtimeRoot, "state");
 
   if (name === "backup") {

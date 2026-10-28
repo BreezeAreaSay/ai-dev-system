@@ -1,7 +1,6 @@
 /**
  * How long a daemon nobody talks to stays: the daemon reads it when it starts,
- * the settings show it as the value in force — one reading for both
- * (docs/DEFECTS.md, Д-233).
+ * the settings show it as the value in force — one reading for both.
  */
 import process from "node:process";
 
@@ -14,8 +13,7 @@ export const DEFAULT_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**
  * The longest delay a Node timer holds, about 24.8 days. A longer one fires at
- * once: a daemon told to wait thirty days left as soon as it started
- * (docs/DEFECTS.md, Д-194).
+ * once: a daemon told to wait thirty days left as soon as it started.
  */
 export const MAX_IDLE_TIMEOUT_MS = 2 ** 31 - 1;
 

@@ -10,13 +10,13 @@
  * (`daemon-channel.mjs`), and everything a session's messages set off — the
  * tools, the processes they start, the downloads they make — reads that
  * environment through `process.env`. Work of the daemon's own, outside any
- * session, reads the environment it was started with (docs/DEFECTS.md, Д-190).
+ * session, reads the environment it was started with.
  *
  * What clients of one daemon cannot set differently is what the server reads
  * once, when it loads, or shares between sessions: where its data is, which
  * model it loads. Those variables are part of the daemon's build
  * (`daemonWideEnvironment`), and a client that sets them otherwise is served by
- * a daemon of its own (Д-191).
+ * a daemon of its own.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { realpathSync } from "node:fs";
@@ -106,7 +106,7 @@ export const NOT_DAEMON_WIDE = Object.freeze({
   ]),
   // The desktop app's own: where its server is, its test hooks, its developer
   // tools, the runtime it ships and its updates. A client never sets them, so
-  // the app would get a daemon of its own (docs/DEFECTS.md, Д-244).
+  // the app would get a daemon of its own.
   desktop: Object.freeze(["AI_DEV_SERVER_ROOT", "AI_DEV_DESKTOP_TEST", "AI_DEV_DESKTOP_DEVTOOLS", "AI_DEV_DESKTOP_NO_SANDBOX", "AI_DEV_DESKTOP_BUNDLE", "AI_DEV_DESKTOP_UPDATES"]),
   // Build tooling: the Windows installer's signer (desktop/scripts/runtime-bundle.mjs) among them.
   tooling: Object.freeze([
@@ -129,7 +129,7 @@ const NOT_DAEMON_WIDE_NAMES = new Set(Object.values(NOT_DAEMON_WIDE).flat());
  * Variables that hold a path. The bridge resolves them against its own working
  * directory before anything else sees them: the daemon runs in another one,
  * and a relative `AI_DEV_HOME` meant one folder to the client and another to
- * the daemon it started (docs/DEFECTS.md, Д-194).
+ * the daemon it started.
  */
 const PATH_VARIABLES = new Set([
   "AI_DEV_HOME",
@@ -155,7 +155,7 @@ const foldName = (name, platform) => (platform === "win32" ? name.toUpperCase() 
 /**
  * Whether `name` is the spelling a child process gets when an environment
  * object holds two spellings of one name on Windows: Node's `spawn` keeps the
- * first in sorted order (docs/DEFECTS.md, Д-238). An upper-case spelling sorts
+ * first in sorted order. An upper-case spelling sorts
  * before every other.
  */
 const spawnKeeps = (name, held) => held === undefined || name < held;
@@ -203,7 +203,7 @@ const RESOLVED_VARIABLES = new Set([
  * A path with its deepest existing folder resolved through links and the rest
  * appended as written: the answer stays the same when the rest is created, so
  * a runtime home under a link (`/var` on macOS, a moved home, an 8.3 name) is
- * one folder before the bridge makes it and after (docs/DEFECTS.md, Д-202).
+ * one folder before the bridge makes it and after.
  */
 function realPrefix(resolved, paths) {
   const rest = [];
@@ -241,7 +241,7 @@ export function canonicalFolder(value, platform = process.platform) {
  * What a daemon's clients must have in common, by name: where the data is —
  * resolved as the server resolves it, so two spellings of one folder are one
  * — the switches it reads once, and the Node it runs on. Any other `AI_DEV_*`
- * or `BGE_*` variable is compared as written (docs/DEFECTS.md, Д-199).
+ * or `BGE_*` variable is compared as written.
  *
  * The home folder is read as the server reads it for project identity
  * (`userHomeDirectory` in `project-identity.mjs`): `USERPROFILE` before `HOME`
@@ -254,7 +254,7 @@ export function canonicalFolder(value, platform = process.platform) {
 export function daemonIdentity({ serverRoot, env = process.env, platform = process.platform, execPath = process.execPath }) {
   // On Windows a name ignores case, as `process.env` does there: the bridge
   // hands a plain copy, the daemon its own environment, and both must read
-  // `Ai_Dev_Vault_Root` as the vault (docs/DEFECTS.md, Д-203).
+  // `Ai_Dev_Vault_Root` as the vault.
   const view = platform === "win32" ? environmentObject(env, { platform }) : env;
   const read = (name) => String(view?.[name] ?? "").trim();
   const folder = (value) => (value ? canonicalFolder(value, platform) : "");
@@ -264,7 +264,7 @@ export function daemonIdentity({ serverRoot, env = process.env, platform = proce
   const home = platform === "win32" ? read("USERPROFILE") || read("HOME") : read("HOME") || read("USERPROFILE");
   // The runtime tree and the protected project root read `USERPROFILE` first
   // everywhere (`resolveUserHome`); where that is another folder than the home
-  // — WSL passing the Windows profile on — it is a part of its own (Д-205).
+  // — WSL passing the Windows profile on — it is a part of its own.
   const profile = folder(read("USERPROFILE") || read("HOME"));
   const identity = {
     "the home folder": folder(home),

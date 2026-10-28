@@ -15,7 +15,7 @@ import { checkSkillRegistry } from "../src/core/skill-registry-freshness.mjs";
 //
 // A registry that is there but out of date — a pull changed the skills — is
 // rebuilt here too, once, before the test processes start: each of them would
-// otherwise rebuild the same files at the same time (docs/DEFECTS.md, Д-132).
+// otherwise rebuild the same files at the same time.
 const catalogRoot = path.join(vaultRoot, "03-skills-catalog");
 const registryPath = path.join(catalogRoot, "registries", "skills.index.json");
 const verdict = existsSync(registryPath) ? await checkSkillRegistry({ registryPath, catalogRoot }) : null;

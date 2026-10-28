@@ -59,7 +59,7 @@ test("without the model it is a state with two ways out, and in a container the 
   assert.match(container.reason, /Or mount a folder holding bge-m3-onnx\/ at \/models/);
 });
 
-test("the sentence names what the check found: other files, some missing, a stopped download (Д-146)", () => {
+test("the sentence names what the check found: other files, some missing, a stopped download", () => {
   const dir = "/home/u/.ai-dev/models/bge-m3-onnx";
   const all = ["config.json", "tokenizer.json", "tokenizer_config.json", "special_tokens_map.json", "onnx/model_int8.onnx"];
   const tampered = selectDenseBackend({ files: { dir, present: all.slice(0, 4), missing: [], mismatched: ["onnx/model_int8.onnx"] } });
@@ -80,7 +80,7 @@ test("the sentence names what the check found: other files, some missing, a stop
   assert.doesNotMatch(mounted.reason, /npm run setup/, "a read-only mount is not fixed by a download inside the container");
   const mountedPartial = selectDenseBackend({ inContainer: true, files: { dir: "/models/bge-m3-onnx", present: all.slice(1), missing: ["config.json"], partial: ["config.json"] } });
   assert.match(mountedPartial.reason, /lacks config\.json\. In this container, the folder is the host's/);
-  // The volume's own folder is fixed by installing into it, not on the host (Д-99).
+  // The volume's own folder is fixed by installing into it, not on the host.
   const volume = selectDenseBackend({ inContainer: true, files: { dir: "/data/runtime-home/.ai-dev/models/bge-m3-onnx", present: all.slice(1), missing: [], mismatched: ["config.json"] } });
   assert.match(volume.reason, /In this container, install it once into the default volume, ai-dev-system-data,/);
 });
@@ -94,33 +94,33 @@ test("a machine with no runtime build is told so, whatever is on disk", () => {
   assert.equal(selectDenseBackend().available, false, "defaults alone are a valid call");
 });
 
-test("a model that cannot be read gets the advice its error calls for: only permissions are made readable (Д-365, Д-371, Д-372)", () => {
+test("a model that cannot be read gets the advice its error calls for: only permissions are made readable", () => {
   const said = (code, mounted = false) => unreadableModelAdvice(`${code}: what the system said, '/models/bge-m3-onnx/config.json'`, { mounted });
   assert.equal(said("EACCES"), "Make the folder and its files readable to the user this runs as.");
   assert.equal(said("EACCES", true), "The image runs as uid 1000: make the folder and its files readable to it on the host, or drop the mount and install the model into the default volume, ai-dev-system-data.");
-  // EPERM is often macOS keeping a folder from an app, not a mode: said where the host may be a Mac (Д-371, Д-372).
+  // EPERM is often macOS keeping a folder from an app, not a mode: said where the host may be a Mac.
   assert.equal(said("EPERM", true), "The image runs as uid 1000: make the folder and its files readable to it on the host (on macOS, give Docker Desktop access to that folder in Privacy & Security), or drop the mount and install the model into the default volume, ai-dev-system-data.");
   const local = (platform) => unreadableModelAdvice("EPERM: operation not permitted, open '…/config.json'", { platform });
   assert.equal(local("darwin"), "Make the folder and its files readable to the user this runs as, and give the app this runs in access to that folder in Privacy & Security.");
   assert.equal(local("linux"), "Make the folder and its files readable to the user this runs as.");
   assert.equal(local("win32"), "Make the folder and its files readable to the user this runs as.");
-  // A file where a folder should be, the model's own or one above or inside it: put a folder there (Д-372).
+  // A file where a folder should be, the model's own or one above or inside it: put a folder there.
   assert.equal(said("ENOTDIR", true), "On that path a file stands where a folder should be (the model's folder, one inside it, or one above it): put a folder there, or drop the mount and install the model into the default volume, ai-dev-system-data.");
   assert.equal(said("ENOTDIR"), "On that path a file stands where a folder should be (the model's folder, one inside it, or one above it): put a folder there.");
   assert.equal(said("ELOOP", true), "A link on the way leads back to itself: point it at the folder that holds the model, or drop the mount and install the model into the default volume, ai-dev-system-data.");
-  // A share that dropped, on any engine: no Docker Desktop named (Д-371).
+  // A share that dropped, on any engine: no Docker Desktop named.
   for (const code of ["EIO", "ESTALE", "ENOTCONN", "EHOSTDOWN", "ETIMEDOUT", "ECONNABORTED", "ECONNRESET"]) {
     assert.equal(said(code, true), "The disk or share it is on cannot be reached: reconnect it, or drop the mount and install the model into the default volume, ai-dev-system-data.", code);
   }
   assert.equal(said("EINVAL"), "Look at that folder.");
   assert.doesNotMatch(said("ENOTDIR") + said("ELOOP") + said("EIO") + said("EINVAL"), /readable/, "permissions are not the advice for other errors");
   assert.doesNotMatch(said("EIO", true) + said("ESTALE", true), /Docker Desktop/);
-  // Where /data holds a mount with no volume's name, there is no data volume to install into (Д-547).
+  // Where /data holds a mount with no volume's name, there is no data volume to install into.
   assert.equal(unreadableModelAdvice("EIO: i/o error, '/models/bge-m3-onnx/config.json'", { mounted: true, volume: null }),
     "The disk or share it is on cannot be reached: reconnect it, or drop the mount and install the model where your sessions keep /data.");
 });
 
-test("in a container the model goes into the volume at /data, and where /data holds a mount with no name, where the sessions keep it (Д-547)", () => {
+test("in a container the model goes into the volume at /data, and where /data holds a mount with no name, where the sessions keep it", () => {
   assert.equal(containerModelAdvice("", "team-data"), "install it once into the data volume, with the network that run needs: "
     + "`docker run --rm -it --network bridge --mount type=volume,source=team-data,target=/data <image> ai-dev model install`; "
     + "the sessions after it keep --network none. Or mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH).");
@@ -129,7 +129,7 @@ test("in a container the model goes into the volume at /data, and where /data ho
     + "the sessions after it keep --network none. Or mount a folder holding bge-m3-onnx/ at /models (AI_DEV_MODEL_PATH).");
   assert.match(containerModelAdvice("/models/bge-m3-onnx", "team-data"), /, or drop the mount and install it into the data volume\.$/);
   assert.match(containerModelAdvice("/models/bge-m3-onnx", null), /, or drop the mount and install it where your sessions keep \/data\.$/);
-  // The default volume by its name, as the start report names it (Д-560).
+  // The default volume by its name, as the start report names it.
   assert.match(containerModelAdvice("", "ai-dev-system-data"), /^install it once into the default volume, ai-dev-system-data, with .*source=ai-dev-system-data,target=\/data /);
   assert.match(unreadableModelAdvice("EIO: i/o error", { mounted: true, volume: "team-data" }), /install the model into the data volume\.$/);
 });

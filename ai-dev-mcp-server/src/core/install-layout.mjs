@@ -15,7 +15,7 @@
  * - `vault`   — inside a full vault, two levels above the server;
  * - `clone`   — a checkout of this repository: the content is its `docker/public-seed`,
  *               or, run by a user who cannot write there or with `AI_DEV_VAULT=home`,
- *               the user's vault filled from it, as a package's is (Д-576);
+ *               the user's vault filled from it, as a package's is;
  * - `package` — `npm run dist`'s folder, the npm package, the Windows install:
  *               `distribution.json` beside the server, the seed in `seed/`;
  * - `docker`  — the image (`AI_DEV_RUNTIME=docker`): since 3.0 the same
@@ -25,7 +25,7 @@
  * the user's own is read where it is, whatever installed the code — and a
  * package's seed is not copied into it. Deciding the kind by that variable
  * made a package npx ran look like a vault, so its client configs pointed into
- * npx's cache (docs/DEFECTS.md, Д-177).
+ * npx's cache.
  *
  * A package run by `npx` sits in npm's cache, which npm may clear at any time;
  * `ephemeral` says so, and `setup` copies it somewhere that stays.
@@ -37,7 +37,7 @@ import { dataMount, dataVolume } from "./docker-launch.mjs";
 import { resolveRuntimeStateRoot } from "./runtime-home.mjs";
 import { SEED_STATE_FILE, isSeedManifest } from "./seed-sync.mjs";
 
-/** The npm package's name (owner decision D4). */
+/** The npm package's name. */
 export const PACKAGE_NAME = "ai-dev-system";
 
 /** The file `npm run dist` writes beside the server: what was built, with the sha256 of each file. */
@@ -130,7 +130,7 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
   // A clone one OS user built and others run — a shared server's build of it,
   // an `/opt` checkout — wrote its vault into the clone: EACCES for everyone
   // but its owner, and the owner's records gone with the next build
-  // (docs/DEFECTS.md, Д-576). Such a clone serves each user from a vault of
+  //. Such a clone serves each user from a vault of
   // their own, filled from its seed; `AI_DEV_VAULT=home` asks for that where
   // the clone is writable too.
   const homeVault = kind === "clone"
@@ -143,7 +143,7 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
   // Д-99). A vault named instead is the user's, read where it is, as a package
   // reads one — unless a seed is there already: a sync's record, or the manifest
   // 2.x's `cp -n` put beside its seed, a manifest and not a file of the user's
-  // that has its name (Д-321, Д-343). A 2.x image has no distribution and syncs
+  // that has its name. A 2.x image has no distribution and syncs
   // nothing.
   const seeded = exists(path.join(contentRoot, SEED_STATE_FILE)) || isManifest(path.join(contentRoot, SEED_MANIFEST));
   const dockerSeeds = kind === "docker" && (contentRoot === path.resolve(ownContent) || seeded);
@@ -221,8 +221,7 @@ export function hint(command, layout = currentInstallLayout()) {
   // that holds no link — which names the runtime's own Node. A path of
   // letters, digits and `_-.:\/` runs as it is in cmd and PowerShell both; any
   // other is written for PowerShell, the shell Windows Terminal opens: in
-  // single quotes, which it does not expand, `'` doubled, run with `&`
-  // (docs/DEFECTS.md, Д-306, п. 2; Д-310, п. 2).
+  // single quotes, which it does not expand, `'` doubled, run with `&`.
   if (layout.bundle && layout.runtimeRoot) {
     const platform = layout.platform ?? process.platform;
     const command = bundleCommand(platform);
@@ -244,7 +243,7 @@ export function hint(command, layout = currentInstallLayout()) {
  * there is the model's install, which embeds the index too (docs/DEFECTS.md,
  * Д-185, п. 7; Д-316). `<image>` is the one the client runs; the volume, the
  * one at its `/data`, or a placeholder where `/data` holds a mount with no name
- * to give (Д-528, Д-539).
+ * to give.
  *
  * @param {string} words - What follows `ai-dev`.
  * @param {string | null} [volume]
@@ -277,7 +276,7 @@ export function dockerEmbedCommand(volume = dataVolume()) {
 /**
  * How this install gets Frontend QA's browser. The image's default variant
  * ships none, and nothing installs into a client's read-only container without
- * the network: the `-browser` variant carries it (docs/DEFECTS.md, Д-316).
+ * the network: the `-browser` variant carries it.
  *
  * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome">} [layout]
  * @returns {string}
@@ -292,7 +291,7 @@ export function frontendQaHint(layout = currentInstallLayout()) {
  * transformers) back. Both are optional dependencies: an install whose
  * onnxruntime-node postinstall failed — on Linux x64 it fetches a CUDA provider
  * the server never loads, and a proxy or a closed api.nuget.org stops it —
- * goes on without them (docs/DEFECTS.md, Д-174). "Run npm ci" is right only
+ * goes on without them. "Run npm ci" is right only
  * in a clone.
  *
  * @param {Pick<InstallLayout, "kind"|"ephemeral"|"appHome"|"root"> & { bundle?: boolean }} [layout]
@@ -304,7 +303,7 @@ export function runtimeRepairHint(layout = currentInstallLayout(), { platform = 
   if (layout.kind === "docker") return "pull or rebuild the image, which is built with it";
   // The installer ships the runtime with its dependencies; there is no npm to
   // run. The app checks its copy at every start and puts back what went
-  // missing, from the installer's own copy (Д-300).
+  // missing, from the installer's own copy.
   if (layout.bundle) return "quit AI Dev and start it again — it puts back the files of its runtime that went missing — and, if it says the installer's copy is damaged too, run the AI Dev installer again";
   if (layout.ephemeral) return `run \`npx ${PACKAGE_NAME} setup\`, which installs a copy with it`;
   if (layout.appHome) return `run \`npm ci --omit=dev --ignore-scripts\` in ${layout.root}`;

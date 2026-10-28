@@ -6,8 +6,7 @@
  *   it, `distribution.json` and all. The image installs the dependencies from
  *   its shrinkwrap and checks every file against that list (`docker/Dockerfile`):
  *   the image is the package, not a layout of its own. Before 3.0 the context
- *   had one (`app/`, `runtime/`, `public-seed/`), and the two drifted apart
- *   (docs/DEFECTS.md, Д-37, Д-56, Д-57);
+ *   had one (`app/`, `runtime/`, `public-seed/`), and the two drifted apart;
  * - `Dockerfile` and `container/entrypoint.sh` — the allowlist's groups only the
  *   image needs;
  * - `.dockerignore`, so nothing else reaches the builder;

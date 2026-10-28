@@ -8,7 +8,7 @@ import { MESSAGES, translate } from "../../src/renderer/i18n.js";
 
 /**
  * Every health check the server runs, read from its code (`runCheck("name"`),
- * so a new one cannot go unnamed (docs/DEFECTS.md, Д-266, п. 9) — but the three
+ * so a new one cannot go unnamed — but the three
  * `system_status` never lists (`NOT_RUN_HERE` in src/extensions/control.mjs).
  */
 function serverCheckNames() {
@@ -32,7 +32,7 @@ const CHECK_NAMES = serverCheckNames();
 
 const view = (language) => ({ t: (key, params) => translate(language, key, params) });
 
-test("every piece of advice belongs to a real check and says something specific (Д-247)", () => {
+test("every piece of advice belongs to a real check and says something specific", () => {
   for (const [name, key] of Object.entries(ADVICE)) {
     assert.ok(CHECK_NAMES.includes(name), `${name} is a check`);
     for (const language of ["en", "ru"]) assert.ok(Object.hasOwn(MESSAGES[language], key), `${key} in ${language}`);
@@ -57,12 +57,12 @@ test("each check has a name in both languages, and the order is failing first, t
   assert.deepEqual(ordered, ["e", "c", "b", "d", "a"]);
 });
 
-test("a settings problem is listed under the summary only when the summary does not say it (Д-266 п. 8, Д-275)", () => {
+test("a settings problem is listed under the summary only when the summary does not say it", () => {
   const problem = 'daemon_idle_minutes: must be a number of minutes, not "forever". The default is used.';
   assert.deepEqual(unsaidProblems({ summary: problem, settings_problems: [problem] }), [], "said by the summary: not again");
   const full = "the search index is not built (setup_run builds it); required_notes: 2 required notes are missing.; search_index_file: SQLite search index is missing.";
   assert.deepEqual(unsaidProblems({ summary: full, settings_problems: [problem] }), [problem], "a full summary: the list says it");
-  // The summary is the first problems joined: one among them is said already (Д-281).
+  // The summary is the first problems joined: one among them is said already.
   assert.deepEqual(unsaidProblems({ summary: `the search index is not built (setup_run builds it); ${problem}`, settings_problems: [problem] }), []);
   assert.deepEqual(unsaidProblems({ summary: full }), []);
   assert.deepEqual(unsaidProblems(null), []);

@@ -29,10 +29,10 @@ export function servingProcess() {
     build: daemon.build,
     sessions: daemon.sessions(),
     started_at: daemon.startedAt,
-    // A whole number, as the contract says, whatever fraction the variable held (Д-223).
+    // A whole number, as the contract says, whatever fraction the variable held.
     idle_timeout_ms: Math.round(daemon.idleTimeoutMs),
     // A program that stays connected — the desktop app — moves to the daemon
-    // of the new code instead of keeping this one alive (docs/DEFECTS.md, Д-245).
+    // of the new code instead of keeping this one alive.
     ...(retired ? { retired: true, retired_reason: String(retired.reason ?? "") } : {})
   };
 }

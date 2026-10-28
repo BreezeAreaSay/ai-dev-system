@@ -34,7 +34,7 @@ test("a download that stopped partway is skipped with what is kept and how to co
   assert.match(verdict.summary, /a model download stopped partway \(312 MB of onnx\/model_int8\.onnx\)\. `npm run setup -- --model` continues it from there\./);
 });
 
-test("a model this user cannot read is said as that, not as a download to continue (Д-369)", () => {
+test("a model this user cannot read is said as that, not as a download to continue", () => {
   const reason = "Dense search is not ready: the model in /models/bge-m3-onnx cannot be read (EACCES: permission denied, open '/models/bge-m3-onnx/tokenizer.json'). The image runs as uid 1000: …";
   const verdict = evaluateEmbeddingBackend(payload({
     available: false,
@@ -45,7 +45,7 @@ test("a model this user cannot read is said as that, not as a download to contin
   assert.deepEqual([verdict.status, verdict.summary], ["skipped", reason]);
 });
 
-test("a model check that could not be made is a warning with its fault, not a model to install (Д-372)", () => {
+test("a model check that could not be made is a warning with its fault, not a model to install", () => {
   const reason = "Dense search is not ready: the model in /models/bge-m3-onnx could not be checked (Cannot read properties of undefined (reading 'files')).";
   const verdict = evaluateEmbeddingBackend(payload({
     available: false,
@@ -59,10 +59,10 @@ test("files that are there and wrong are a warning that names them and the fix",
   const verdict = evaluateEmbeddingBackend(payload({ available: false, onnx: { ...ONNX, ready: false, mismatched: ["onnx/model_int8.onnx"] } }));
   assert.equal(verdict.status, "warn");
   assert.match(verdict.summary, /^The model files in \/m\/bge-m3-onnx do not match the manifest \(onnx\/model_int8\.onnx\)\. Run `npm run setup -- --model`: it fetches those files again\.$/);
-  // In a container the host's folder at /models is a read-only mount: the fix is on the host (Д-157)…
+  // In a container the host's folder at /models is a read-only mount: the fix is on the host…
   const mounted = evaluateEmbeddingBackend({ ...payload({ available: false, onnx: { ...ONNX, dir: "/models/bge-m3-onnx", ready: false, mismatched: ["tokenizer.json"] } }), in_container: true });
   assert.match(mounted.summary, /\(tokenizer\.json\)\. In this container, the folder is the host's, mounted read-only at \/models/);
-  // …and the volume's own folder is fixed by installing into it (Д-99).
+  // …and the volume's own folder is fixed by installing into it.
   const inVolume = evaluateEmbeddingBackend({ ...payload({ available: false, onnx: { ...ONNX, ready: false, mismatched: ["tokenizer.json"] } }), in_container: true });
   assert.match(inVolume.summary, /\(tokenizer\.json\)\. In this container, install it once into the default volume, ai-dev-system-data,/);
   assert.doesNotMatch(mounted.summary, /npm run setup/);

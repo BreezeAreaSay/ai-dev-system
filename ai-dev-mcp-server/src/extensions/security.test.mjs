@@ -46,7 +46,7 @@ test("a scan with nothing installed reports it instead of claiming the project i
   // No marker files and (in the worst case) real binaries: naming one scanner
   // that needs a lock file keeps this hermetic.
   const result = await call(registry, "run_security_scan", { project_path: root, scanners: ["cargo_audit"], offline: true });
-  // `unchecked`, not `pass`: nothing ran, so nothing was found clean (Д-55).
+  // `unchecked`, not `pass`: nothing ran, so nothing was found clean.
   assert.equal(result.status, "unchecked");
   assert.equal(result.summary.checked, 0);
   assert.match(result.next_step, /No scanner could run here/);

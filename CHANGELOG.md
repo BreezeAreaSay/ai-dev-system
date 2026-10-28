@@ -66,21 +66,21 @@ it, what moves by itself, what needs one command, and how to go back.
 - **The server's name in a client is `ai-dev`**, not `ai-dev-system`. Setup and `ai-dev clients
   install` replace the 2.x entry and say so; a 2.x entry keeps working until 4.0.
 - **Node 22.16 or newer (or 24+)** for a local install; 2.x took 22.12.
-- **The Python dense backend and the Python search helper are removed** (decision D3).
+- **The Python dense backend and the Python search helper are removed**.
   `npm run setup -- --model` — `npx ai-dev-system setup --model` — moves an install
   to the ONNX model and embeds the documents again; `--dense-python` does the same with a note.
   `AI_DEV_DENSE_BACKEND=python` is read as `auto`, with a note naming that command, and installs
   nothing; the other Python variables are named by the health check and no longer read. An Intel Mac
   has no build of the ONNX runtime: dense search is off there.
-- **`AI_DEV_HOME` is the runtime folder itself** (decision D2); a 2.x tree one level down moves up on
+- **`AI_DEV_HOME` is the runtime folder itself**; a 2.x tree one level down moves up on
   the first start. A `.codex` folder is no longer read: AI Dev's Codex-era folders move into the
   runtime home once — from `~/.codex`, or, with `AI_DEV_HOME` set, from `$AI_DEV_HOME/.codex`, where
   2.x read them for that install.
-- **`AI_DEV_MODEL_PATH` names the folder above the models** (Д-62): `~/.ai-dev/models`, holding
+- **`AI_DEV_MODEL_PATH` names the folder above the models**: `~/.ai-dev/models`, holding
   `bge-m3-onnx/`, mounted at `/models`. In 2.0.0 it named the model's own folder, mounted at
   `/models/bge-m3`. The 2.x launchers refuse that value now — `docker/run-mcp.sh` with exit 64,
   `run-mcp.ps1` with an error — and so do both bootstraps and `ai-dev clients install --docker
-  --model`, each saying to name the folder above it (Д-68).
+  --model`, each saying to name the folder above it.
 - **614 skills.** The 2,614 Membrane connectors the catalogue no longer carries are dropped from the
   registry on the first start, and are found no more.
 - **Search.** `AND`, `OR`, `NOT` and `NEAR` are words, not query syntax. `search_knowledge` searches
@@ -104,8 +104,8 @@ it, what moves by itself, what needs one command, and how to go back.
   others, and with no entry the projects folder is `~/AI-Dev-Projects` and no model folder is
   mounted; entries that name different projects folders stop them until one is named (Д-403,
   Д-573). The configs for a 2.x image are written by `:3`, the 3.x line, unless
-  `AI_DEV_INSTALLER_IMAGE` names another — not `:latest`, which a rollback points at 2.x (Д-572). They no longer install Docker or Node, start a long-lived container or compile a proxy.
-- **Image tags** (decision D9): `:latest` moves only with a release tag of the newest line, and no
+  `AI_DEV_INSTALLER_IMAGE` names another — not `:latest`, which a rollback points at 2.x. They no longer install Docker or Node, start a long-lived container or compile a proxy.
+- **Image tags**: `:latest` moves only with a release tag of the newest line, and no
   longer with 2.x; `:edge` follows `main`; `:2` follows the 2.x line — a manual run copies 2.x's
   `:latest` to it before 3.0 is tagged, and after that only a `v2.*` tag moves it.
 - **Agent hooks** 2.x installed keep running where `node` is on the client's `PATH`; run
@@ -169,7 +169,7 @@ has it with what each one says.
   —, its agent hooks and engineering rules, and the MCP servers its configs start. Every change
   runs only after you confirm it in the main process's dialog; a removal goes through the tool
   console's confirmation.
-- **Docker: the AI clients run the image themselves** (`docs/DEFECTS.md`, Д-89, Д-105).
+- **Docker: the AI clients run the image themselves**.
   `ai-dev clients install --docker` writes a `docker run -i --rm …` entry into every client found —
   the Docker CLI by its full path, the data volume, the projects folder, the host's state folder
   where it can be shared, a host model folder if named — and `ai-dev clients entry <client>
@@ -178,7 +178,7 @@ has it with what each one says.
   answered `initialize` themselves with none. Measured: a new volume answers in 1.6–2.5 s (2.x:
   6.5 s on the image of the program's start, 18.6–21.2 s on production's 2.x image), the next
   session in about a second. `ai-dev clients doctor` starts these entries like any other.
-- **The local model through the data volume** (Д-99). `docker run --rm -it --network bridge
+- **The local model through the data volume**. `docker run --rm -it --network bridge
   --mount type=volume,source=ai-dev-system-data,target=/data <image> ai-dev model install` puts the
   model in the volume with its progress, resume and sha256 checks, and embeds the documents the
   index holds; every session after it keeps `--network none`. A host folder mounted at `/models`
@@ -187,7 +187,7 @@ has it with what each one says.
   (top dense score 0.98). 2.x pinned the model to a host mount and never embedded the documents.
 - **A `-browser` variant of the image** (`--target browser`, published as `…-browser`) with
   Playwright and Chromium for Frontend QA; its pnpm is the one `frontend-qa/package.json` names in
-  `packageManager`, read at build time, and CI checks they are equal (Д-111).
+  `packageManager`, read at build time, and CI checks they are equal.
 - **`npm run docker:upgrade-check -- --old-image <2.x> --new-image <image>`**: a 2.x volume and
   the 2.x launchers against the new image — 2.x fills a volume and starts a task, the user edits a
   seed skill and adds one; the new image under the 2.x launcher keeps the task and the edit and
@@ -205,9 +205,9 @@ has it with what each one says.
   512 MB of dependencies alone; the installer is 183 MB. The NSIS installer builds on Linux too,
   under Wine, and on `windows-latest` (`.github/workflows/desktop-windows.yml`); signing comes from
   `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD` or the `AI_DEV_SIGN_AZURE_*` variables with
-  `AI_DEV_SIGN_PUBLISHER`, all four or the build stops (Д-303), and an unsigned build works. The
+  `AI_DEV_SIGN_PUBLISHER`, all four or the build stops, and an unsigned build works. The
   build reads its `bundle.json` back with the app's own parser and stops when the app's version is
-  not the runtime's (Д-306).
+  not the runtime's.
 - **One path for every AI client, whatever the update.** The app copies the shipped runtime into
   `%USERPROFILE%\.ai-dev\app\<version>-<fingerprint>`, checking each file's sha256, and points the
   junction `%USERPROFILE%\.ai-dev\app\current` at it; client configs name
@@ -215,24 +215,24 @@ has it with what each one says.
   new runtime beside the old one and moves the junction: no file a running client holds is written
   over, no config changes, and a client started before the update keeps being answered from the
   old copy (`desktop/test/e2e/bundle.test.mjs`). At every start the copy is checked file by file
-  and what went missing is put back from the program folder (Д-300). A drive that cannot hold a
+  and what went missing is put back from the program folder. A drive that cannot hold a
   junction — whatever it answers — runs the copy itself, Status says so, and the copy the clients
-  name is kept (Д-295, Д-299). An update of the app prunes its own copies only, never one `npx …
-  setup` made (Д-301). `current\ai-dev.cmd` is the CLI for a terminal.
+  name is kept. An update of the app prunes its own copies only, never one `npx …
+  setup` made. `current\ai-dev.cmd` is the CLI for a terminal.
 - **Updates of the installed app** from the GitHub Releases of `stonebridgeway/ai-dev-system`
   (electron-updater): checked a minute after the start and every six hours, offered in the tray,
   installed at Quit. Chromium's resolver, closed for the app's page since Д-260, resolves only the
   three update hosts by their exact names, and the updater's session lets nothing else through;
   `AI_DEV_DESKTOP_UPDATES=0` turns it off.
 - **`ai-dev uninstall [--clients] [--data] --yes`**, which the uninstaller runs after asking its
-  two questions — asked unless `/S` is given (Д-296): it stops the daemon, removes the runtime copies
+  two questions — asked unless `/S` is given: it stops the daemon, removes the runtime copies
   and their link, the `ai-dev` entries that run this install (another install's stay), and — asked
   separately, No by default — the runtime home, only when what is at its top, and inside its
-  `models`, `cache` and `backups` folders, is AI Dev's own (Д-297, Д-307), and not while a runtime
-  copy is in use (Д-309). Files an AI client still runs: the uninstaller offers Retry (exit status
+  `models`, `cache` and `backups` folders, is AI Dev's own, and not while a runtime
+  copy is in use. Files an AI client still runs: the uninstaller offers Retry (exit status
   3, Д-302); the data kept: it says so (4).
 
-- **One daemon serves every client** (`docs/DEFECTS.md`, Д-97). `ai-dev mcp` — what each
+- **One daemon serves every client**. `ai-dev mcp` — what each
   client's config runs — hands the client's stdio to the daemon, starting it detached and
   without a window when none runs; the index and the model are in memory once, and the state
   has one writer. The handshake passes through, so the client gets the daemon's own
@@ -247,7 +247,7 @@ has it with what each one says.
   (live — 2.x always said 0), the clients, memory, address and log
   (`~/.ai-dev/logs/daemon.log`); `stop` is a control request on every system — Windows has no
   signal to send. `npm run daemon` is `ai-dev daemon run`.
-- **Progress and cancellation reach the tools** (Д-187). A request's progress token and its
+- **Progress and cancellation reach the tools**. A request's progress token and its
   cancellation go with the call: `rebuild_search_index` reports the text index being written
   and the documents being embedded as one rising count, and a cancelled rebuild rolls its
   write back whole — measured on 6,000 notes, cancelled at 64 of them, the index unchanged.
@@ -264,7 +264,7 @@ has it with what each one says.
   touch data. From a clone it is `npm run ai-dev -- <command>`, or `ai-dev` after `npm link`;
   `npm run setup`, `doctor`, `clients:install`, `model`, `dense:doctor`, `dashboard`,
   `galaxy`, `refresh`, `backup` and `distribution` are its aliases.
-- **`npm run setup` connects the AI clients** (`docs/DEFECTS.md`, Д-95). At a terminal it
+- **`npm run setup` connects the AI clients**. At a terminal it
   asks: connect the clients found here, download the local model, install Frontend QA;
   `--yes` takes the defaults (clients yes, downloads no), `--clients=<names>`,
   `--no-clients`, `--model` and `--frontend-qa` answer ahead of time, and without a terminal
@@ -292,14 +292,14 @@ has it with what each one says.
   `doctor` starts each entry's command and checks that it answers `initialize` with
   instructions (six of six, 313–361 ms), naming a command that died by its error line — a long one
   by its start and its end, cut between two characters, not inside a surrogate pair; for Docker, its
-  reason, not a warning it printed first (Д-427, Д-438, Д-455);
+  reason, not a warning it printed first;
   `--timeout=<seconds>` gives each more than 30 s, and a command still running a few seconds after
   it is told to stop is killed, so that the doctor returns — for `docker run` the Docker CLI, as one
   waiting on an engine that hangs: a container whose first process ignores SIGTERM runs on until that
-  process ends (`--rm` then removes it) (Д-437, Д-451); `--dry-run` shows what would change.
+  process ends (`--rm` then removes it); `--dry-run` shows what would change.
 
 - **The local model is one command, and gets through a broken connection, a proxy and a
-  mirror** (`docs/DEFECTS.md`, Д-98; Д-73's missing resume). `npm run model -- install`
+  mirror** (Д-73's missing resume). `npm run model -- install`
   (and `npm run setup -- --model`, which uses it) keeps a broken download as `<file>.part`
   with a `.part.json` naming the revision and sha256 it is the start of; the next run hashes
   those bytes again and asks for the rest with `Range` — measured: a transfer cut at 50 % of
@@ -332,7 +332,7 @@ has it with what each one says.
   written from code. Through it the real worker — transformers.js 4.3.0, onnxruntime-node
   1.30 — loads and embeds in the test suite, and an end-to-end test imports it from a zip,
   embeds a vault and runs a hybrid search through the real MCP server whose winner only the
-  dense half can find (Д-101). `AI_DEV_MODEL_MANIFEST` names a manifest other than the
+  dense half can find. `AI_DEV_MODEL_MANIFEST` names a manifest other than the
   shipped one, which is how the tests point everything at it.
 
 - **All of search runs in Node, and Python is optional** (`docs/DEFECTS.md`, Д-85, Д-102;
@@ -362,7 +362,7 @@ has it with what each one says.
   holds — notes, skills as their registry entry and card, project cards — so a skill's other files (its
   references: `read_skill` reads them), the generated all-skills and registry pages, and notes
   in folders such as `build`, `env`, `venv` or `.next` are no longer found by it: 149 of the 515
-  files the old scan read on the seed (Д-142). WAL and a cross-process rebuild lock that honours
+  files the old scan read on the seed. WAL and a cross-process rebuild lock that honours
   `AI_DEV_SEARCH_REBUILD_LOCK_TIMEOUT`, refreshed while held so a holder killed mid-rebuild
   frees it within a minute, let several clients share the index; the `node:sqlite`
   ExperimentalWarning is suppressed and no other warning is.
@@ -440,7 +440,7 @@ has it with what each one says.
   for `fast-uri`, `hono` and `qs`, an override flagged breaking for `sharp`.
 
 - **Dependency scanning for pnpm, Yarn, Bun and OSV, wherever the lockfile is**
-  (`docs/DEFECTS.md`, Д-83). `run_security_scan` had one JavaScript adapter,
+. `run_security_scan` had one JavaScript adapter,
   `npm audit`, and ran it only at the repository root: a pnpm, Yarn or Bun
   project, or a repository whose `frontend/` and `backend/` each keep their own
   lockfile, came back `unchecked`. Four adapters join the catalogue —
@@ -491,14 +491,14 @@ has it with what each one says.
   - The module line ceiling now covers `src/galaxy/`, the viewer's browser
     modules.
 
-- **Dense search runs without Python** (`docs/DEFECTS.md`, Д-62). The local
+- **Dense search runs without Python**. The local
   BGE-M3 model runs behind the contract it always had — text in, a normalized
   1024-dimension vector out — on `@huggingface/transformers` over
-  `onnxruntime-node`, two pinned npm packages (optional ones, Д-174).
+  `onnxruntime-node`, two pinned npm packages (optional ones).
   `npm run setup -- --model` downloads a pinned, checksum-verified ONNX export
   (about 600 MB) and dense search works; there is no virtualenv, no
   `torch==2.14.0+cpu` from the PyTorch index and no 2.3 GB snapshot, and Node
-  writes the vectors into the index (Д-85). It is the only backend: the Python
+  writes the vectors into the index. It is the only backend: the Python
   one is gone (see Removed).
 
   Inference runs on a `worker_thread`. `onnxruntime-node`'s binding declares
@@ -506,19 +506,19 @@ has it with what each one says.
   returns outputs rather than a promise, so on the main thread an indexing pass
   would hold the MCP stdio loop for minutes.
 
-- **`npm run dense:doctor`** (Д-62). Six stages in the order they depend on each
+- **`npm run dense:doctor`**. Six stages in the order they depend on each
   other — Node, the native binding, the manifest, the model files and their
   checksums, the model loading, a trial embedding whose width and norm are
   measured — stopping at the first that fails and naming it in words, with the
   command to run. Never a traceback. Exit code 0 when dense search is ready.
 
-- **`models/bge-m3.manifest.json`** (Д-42, Д-62). The pinned export — model,
+- **`models/bge-m3.manifest.json`**. The pinned export — model,
   revision, dtype, dimensions, pooling, licence and a sha256 for every file —
   carried over from the `codex/commit-all-20260908` snapshot branch along with
   its downloader. Changing the quantisation is now a field in this file rather
   than a code change. After this, nothing in that branch is missing from `main`.
 
-- **`.github/workflows/dense-eval.yml`** (Д-62). Dispatch-only: downloads the
+- **`.github/workflows/dense-eval.yml`**. Dispatch-only: downloads the
   pinned ONNX model, builds the index with it, runs the golden cases and publishes
   a table of the results. The weights come from hosts a development sandbox cannot
   reach, so this is where dense search is measured on the real model.
@@ -592,7 +592,7 @@ has it with what each one says.
   when both changed, named by `ai-dev doctor` (`vault_seed`) until merged — a deleted one stays
   deleted, one the seed dropped goes unless changed, and an older version never rolls the vault
   back. Two servers starting at once sync it once.
-- **`ai-dev backup` and `ai-dev restore`, on every system and in every layout** (Д-104). A
+- **`ai-dev backup` and `ai-dev restore`, on every system and in every layout**. A
   backup is the vault this install reads plus AI Dev's `state/`, every file with its sha256,
   and a `.sha256` beside the archive; a restore checks both, asks for `--confirm`, writes over
   nothing without `--overwrite` (checked before the first file), and takes a 2.x archive into a
@@ -667,16 +667,16 @@ has it with what each one says.
   it does, the value in force and where it comes from, and when a change applies; a value the
   daemon refuses is not written, a change for new sessions reaches the app when it reconnects
   (Reconnect now), and the model's mirror and folder and the profiles are saved only after the
-  person confirms the new values in a dialog of the main process (Д-288). Log: the daemon's log
+  person confirms the new values in a dialog of the main process. Log: the daemon's log
   and the part set aside, with Follow. The tool console lists every tool the daemon gives the
   app's session — what an agent gets, and the control API — builds a form from each tool's input
   schema and shows the answer readable and as JSON; a tool the daemon marks read-only runs at
   once, any other only after the person confirms a dialog the main process shows, every argument
   on a line of its own, as it is, and Cancel the default — the page can open it, not answer it,
-  and sends only the arguments the tool's schema names (Д-287). Each screen says when it loads,
+  and sends only the arguments the tool's schema names. Each screen says when it loads,
   when there is nothing yet and what failed; the screens work from the keyboard (a skip link, a
   visible focus ring, each screen's heading focused), and the colours meet WCAG AA in the light
-  and the dark scheme. A screen that only reads asks the daemon for no health checks (Д-286).
+  and the dark scheme. A screen that only reads asks the daemon for no health checks.
   Tests: a Playwright scenario per screen, in English and Russian, the console's Cancel and Run, a
   fresh install's empty screens, a daemon stopped under a screen.
 - **`openControlClient`** (`src/core/control-client.mjs`): an MCP SDK client on the daemon of an
@@ -694,7 +694,7 @@ has it with what each one says.
 
 ### Changed
 
-- **The Docker image is the distribution** (Д-313). It is built from what `npm run dist` makes,
+- **The Docker image is the distribution**. It is built from what `npm run dist` makes,
   checked file by file against its `distribution.json` during the build, with `onnxruntime-node`
   for its own platform only and no build caches in `/data`: 716 MB, where the 2.x image was
   1.84 GB without its browser (node_modules 126 MB instead of 528). The registry, the search index
@@ -703,44 +703,44 @@ has it with what each one says.
   `generate_ui_ux_design_system` answer there that they need it, and the health check marks
   `ui_ux_knowledge` skipped. The server lives in `/opt/ai-dev/ai-dev-mcp-server`;
   `/opt/ai-dev/app`, which 2.x configs and volumes name, links to it.
-- **The volume's seed is kept current by the seed's manifest**, not 2.x's `cp -n` (Д-99): what
+- **The volume's seed is kept current by the seed's manifest**, not 2.x's `cp -n`: what
   2.x shipped and 3.0 dropped goes, a seed file the user edited keeps the edit with the update
   beside it as `.seed-new`, the user's own files are not touched. A 2.x volume has no record of
   what its image put there; `data/seed-history.json` — every version of every seed file a commit
-  of the 2.x line held — tells those files from the user's (Д-315). Measured on production's 2.x
+  of the 2.x line held — tells those files from the user's. Measured on production's 2.x
   image: 3,229 skills in its volume become the new seed's 614 and the user's own one. A rollback to
   `:2` puts them all back with `cp -n`, and its manifest with them; the next 3.0 start finds that
-  manifest and removes them again (Д-317). A vault named by `AI_DEV_VAULT_ROOT` other than the
+  manifest and removes them again. A vault named by `AI_DEV_VAULT_ROOT` other than the
   image's is the user's, read where it is, unless a seed is there already — a sync's record or
-  2.x's manifest (Д-321). Three sessions starting at once on one volume build it one at a time,
+  2.x's manifest. Three sessions starting at once on one volume build it one at a time,
   the seed sync too, each holder beating every 3 s so a slow machine's start is not taken for
   a dead one and a killed one is let go of within 20 s; a start still waiting 40 s after it
   began serves what is built — a client gives `initialize` 60 s — and one that could not wait
-  out the seed sync builds nothing (Д-326, Д-330, Д-336, Д-340). A start that lands in the copy
+  out the seed sync builds nothing. A start that lands in the copy
   Docker makes of the image's data into a new volume for another client's start waits for the
   copy — at most 20 s — before it reads the volume: one of two clients started together built the
-  skill registry from 51–437 of 614 skills in 7 rounds of 8, and now none builds anything (Д-355).
+  skill registry from 51–437 of 614 skills in 7 rounds of 8, and now none builds anything.
   Sessions rebuild the skill
   registry and its taxonomy one at a time, across containers too, and a rebuild's own reads
   never wait for it; the taxonomy reads the registry through its freshness check again (Д-345,
   Д-347, Д-348, Д-356). A session ends when its client closes stdin, once
   what it asked for is answered: the model's worker no longer keeps its container running
-  (Д-354). A user's own file named
+. A user's own file named
   `public-seed.manifest.json` stays, and does not make a vault named by `AI_DEV_VAULT_ROOT` a
-  seeded one (Д-336, Д-343).
+  seeded one.
 - **The projects are mounted at their own path** on macOS and Linux, so a path the agent names is
-  one the server opens (Д-312); on Windows they stay at `/workspace`. **The server and the agent
+  one the server opens; on Windows they stay at `/workspace`. **The server and the agent
   hooks keep one state**: the host's `~/.ai-dev/state` is mounted where the container's user,
   uid 1000, is the host's — macOS and Windows through Docker Desktop, Linux once a container of
   the image has written a file there that came out the user's (tried whatever the uid; on a
-  rootful Docker that is uid 1000) — and the volume's state moves into it (Д-103, Д-322, Д-334). Elsewhere — another uid, rootless Docker, userns-remap,
+  rootful Docker that is uid 1000) — and the volume's state moves into it. Elsewhere — another uid, rootless Docker, userns-remap,
   Podman — the server keeps its state in the volume and cannot write into the projects, as in
-  2.x, and `ai-dev clients install --docker` says so (Д-318). On Windows the folder is shared
+  2.x, and `ai-dev clients install --docker` says so. On Windows the folder is shared
   but only its usage ledger is common: tasks and the hooks' handoffs are kept by project, and
-  the server sees `/workspace/<name>`, the hooks `C:\…\<name>` (Д-324, Д-333);
+  the server sees `/workspace/<name>`, the hooks `C:\…\<name>`;
   and what a 2.x server remembered of a project under `/workspace/<name>` stays there. git in the image trusts the mounted projects
   whoever owns them, which 2.x refused as "dubious ownership" and so gave a project the wrong
-  identity (Д-311).
+  identity.
 - **`bootstrap.sh` and `bootstrap.ps1` check Docker, pull the image, check the server's own
   handshake and write the configs** — and nothing else. They no longer install Docker or Node,
   start a long-lived container, or compile a proxy; `bootstrap.sh` runs the config installer in
@@ -752,10 +752,10 @@ has it with what each one says.
   mounted where the link spells it; a link into the home itself, above it or the root is not
   followed, and a folder Docker will not mount costs that client alone — every client's folders
   are looked at in one run first, and a look that fails while Docker runs nothing at all blames
-  no folder (Д-352, Д-358, Д-360); one client that cannot be
+  no folder; one client that cannot be
   written does not stop the others — the exit is 1 and the 2.x container stays — and `--clients`
-  that names none is refused (Д-335, Д-336, Д-338, Д-339). Each script's last line says what it did
-  with the configs, after the warning of a stale image, if any (Д-419): "Restart the AI clients to
+  that names none is refused. Each script's last line says what it did
+  with the configs, after the warning of a stale image, if any: "Restart the AI clients to
   load ai-dev." when there were clients to connect — written, already current, or Claude Code's
   entry printed for you to add; with no client installed it writes none and says so —
   `bootstrap.sh` with "No AI client found here (…). Name one to write its config anyway, --clients
@@ -764,24 +764,24 @@ has it with what each one says.
   array, which `-Clients` refuses) and `run bootstrap.ps1 again` — and ends "no AI client is
   connected to it yet" (`bootstrap.ps1` not where it cannot read the installer's answer, below); with
   `--skip-client-install` (`-SkipClientInstall`) it ends "the AI clients' configs were left as they
-  were" (Д-406, Д-415, Д-421). `bootstrap.ps1` asks the installer first (`--dry-run --json`) whether
+  were". `bootstrap.ps1` asks the installer first (`--dry-run --json`) whether
   there is a client, its answer read as the UTF-8 Node writes — in a double-byte console code page a
   folder's name past ASCII made it unreadable — the console's code page given back after it even
-  when the dry run ends in an error, as when the node it found is gone by then (Д-456); and only a
+  when the dry run ends in an error, as when the node it found is gone by then; and only a
   dry run that passed and lists none means none: one that failed over a client's config it cannot
   read goes on to the install, which writes the others, names that one and exits 1, as in
   `bootstrap.sh`, and so does one whose answer it cannot read — now only on a host that refuses the
   UTF-8 setting — the install's own words and result standing as they are: with no client, its CLI
   hint `--clients=cursor,vscode,…`, then `bootstrap.ps1`'s own "AI Dev is ready. Restart the AI
-  clients to load ai-dev." (Д-428, Д-435, Д-452). `bootstrap.ps1` runs under Windows
-  PowerShell 5.1 with the image's stderr thrown away safely (Д-320), and no longer prints the
-  engine's version first (Д-438).
-- **The image's tags** (owner decision D9, Д-108): a push to `main` is `:edge`; a release tag
+  clients to load ai-dev.". `bootstrap.ps1` runs under Windows
+  PowerShell 5.1 with the image's stderr thrown away safely, and no longer prints the
+  engine's version first.
+- **The image's tags**: a push to `main` is `:edge`; a release tag
   `vX.Y.Z` is `:X.Y.Z`, `:X.Y`, `:X` and `:latest`, a prerelease only its own name; the browser
   variant has the same tags with `-browser`. A manual run with `freeze_2x` copies the current
   `:latest` to `:2` once, and refuses once a 3.x release is tagged (a prerelease does not count);
   a 2.x tag after 3.0, on a commit that carries this workflow, updates `:2`, never `:latest`
-  (Д-325, Д-336).
+.
 - **Hints the image gives are commands for the host**: `docker run --rm -it … <image> ai-dev …` into
   the volume — the one at the image's `/data` by the name Docker or Podman keeps it under, which a
   folder of the host's whose path ends `volumes/<name>/_data` reads as too; the default, named as the
@@ -790,35 +790,35 @@ has it with what each one says.
   name, a folder of the host's or a volume made with a driver's options (Д-528, Д-539, Д-540, Д-545,
   Д-547, Д-560) — with the network only for a download, and in the image `ai-dev model doctor` and
   `ai-dev model status` send a model folder of the host's mounted at `/models` back to the host, as
-  the start report does, not to the volume the sessions would not read (Д-558, Д-566, Д-569); Frontend
+  the start report does, not to the volume the sessions would not read; Frontend
   QA in the default image points at the `-browser` variant instead of an install that cannot run in a
   client's container, and the start report says the same instead of setup's `--model` and
-  `--frontend-qa` (Д-316, Д-328).
+  `--frontend-qa`.
   The report checks the model, the vectors and the browser as `setup` does, so a volume with
-  the model says it has it (Д-332); a check that cannot be made is said and never stops the
+  the model says it has it; a check that cannot be made is said and never stops the
   start, and a model mounted from the host is embedded with `ai-dev setup --model`, not
-  downloaded again (Д-337, Д-341); the server reads that model too, which it had stopped
-  doing with the image's `BGE_M3_ONNX_DIR` (Д-346); one it cannot read — its files or its
+  downloaded again; the server reads that model too, which it had stopped
+  doing with the image's `BGE_M3_ONNX_DIR`; one it cannot read — its files or its
   folders — or that is not whole, is said as that, not as an error or a model to install, by
   the sessions, `setup`, `model status` and the control API alike (its `model.unreadable`,
   contract 1.2.0), with the advice its error calls for, and the vectors it made before are said
-  as kept (Д-349, Д-350, Д-357 … Д-359, Д-361, Д-363 … Д-366, Д-369 … Д-371). The desktop app's
+  as kept. The desktop app's
   first-run wizard and Status screen read that field too: they say why the model cannot be read
-  and what to do, and offer no download over it (Д-367). A developer's shell with
+  and what to do, and offer no download over it. A developer's shell with
   `AI_DEV_RUNTIME=docker` makes neither the tests nor `npm run check`'s smokes the image's: the
   smokes run the server in a runtime tree of their own, with none of the shell's `AI_DEV_*` or
-  `BGE_M3_*` places, and leave `~/.ai-dev` and those places alone (Д-547, Д-559, Д-567).
+  `BGE_M3_*` places, and leave `~/.ai-dev` and those places alone.
 - **Trying the shared state folder** tells a container that could not write it from a Docker that
   did not run the image — an engine that does not answer, an image not here, which the probe no
   longer pulls: then nothing was tried, and the install says to run it again once Docker runs
-  the image (Д-331); `bootstrap.sh`, which decides it, says why once, with a step its user has
-  (Д-342, Д-344). `ai-dev clients entry --docker` tries it as `install` does, and
-  `install --dry-run` says it did not (Д-334). `ai-dev clients remove` finds the record a Docker
-  install wrote with `AI_DEV_STATE_ROOT` set (Д-336).
+  the image; `bootstrap.sh`, which decides it, says why once, with a step its user has
+. `ai-dev clients entry --docker` tries it as `install` does, and
+  `install --dry-run` says it did not. `ai-dev clients remove` finds the record a Docker
+  install wrote with `AI_DEV_STATE_ROOT` set.
 - **`npm run check` runs `npm run packaging:check`**, red since phase 7 without a gate to see it
-  (Д-314).
+.
 
-- **The daemon's channel is this user's** (`docs/DEFECTS.md`, Д-107). Each start draws a
+- **The daemon's channel is this user's**. Each start draws a
   random socket or pipe name (96 bits) and publishes it, with a 256-bit secret, only in
   `run/daemon-<build>.json` (mode 0600); each side's first line proves it holds the secret with an
   HMAC bound to both nonces, without sending it. A Unix socket is created under umask 077 in a
@@ -828,13 +828,13 @@ has it with what each one says.
   directories and socket opened to everyone the handshake is still refused.
 - **Each daemon session lists the tools of its client's own `AI_DEV_PROFILES`**; the bridge
   prints the same note on stderr as the stdio server.
-- **Each daemon session runs in its own client's environment** (`docs/DEFECTS.md`, Д-190). The
+- **Each daemon session runs in its own client's environment**. The
   bridge sends the client's environment once the daemon has proven itself, and the daemon runs
   that session's tools, processes and downloads in it — a terminal's PATH with gitleaks, a
   proxy, its own `NODE_EXTRA_CA_CERTS` — as the client's own process did in 2.x. Measured: a
   client whose PATH has gitleaks and semgrep, served by a daemon a GUI app with a short PATH
   started, saw 3 of 10 scanners; now 5 of 10, as in its own process.
-- **A daemon serves one build, and builds no longer replace each other** (Д-191, Д-199). The
+- **A daemon serves one build, and builds no longer replace each other**. The
   build is the code, its version, the Node it runs on and where the data is — the home, runtime
   home, vault, state, index and model folder, resolved as the server resolves them, so
   `C:\Vault` and `c:\vault`, a trailing slash, or Git Bash's `HOME` beside a GUI client's
@@ -889,7 +889,7 @@ has it with what each one says.
   every other one.
 
 - **`AI_DEV_HOME` is the runtime folder itself, and a 2.x tree moves there**
-  (`docs/DEFECTS.md`, Д-90; owner decision D2). The documentation and the
+. The documentation and the
   Dockerfile always meant it that way; the code appended `.ai-dev`, so
   `AI_DEV_HOME=/x/.ai-dev` put everything in `/x/.ai-dev/.ai-dev`. The server,
   `npm run setup` and the `ai-dev` CLI now move such a tree up when they start —
@@ -903,19 +903,19 @@ has it with what each one says.
   once and look at `runtime_home`; run `install_agent_hooks` again in the
   repositories where you installed hooks.
 
-- **`npm ci` and `npm install` need no flag** (Д-86). The server's `.npmrc`
+- **`npm ci` and `npm install` need no flag**. The server's `.npmrc`
   turns dependency install scripts off — onnxruntime-node's downloaded a CUDA
   provider the server never loads and failed offline or behind a proxy — so the
   guides say plain `npm ci`, CI runs it, and `npm run packaging:check` fails if
   the setting goes. The Dockerfile keeps `--ignore-scripts`: its build context
   has no `.npmrc`.
 
-- **The lockfile is regenerated with npm 11.17.0** (Д-87): no duplicate keys,
+- **The lockfile is regenerated with npm 11.17.0**: no duplicate keys,
   one onnxruntime-node (1.30.0), and no `sharp` override — `npm ls sharp` shows
   the 0.35.4 it pinned without it.
 
 - **`npm run setup -- --frontend-qa` installs the lockfile and Chromium, and
-  passes only when the browser launches** (Д-93). The pnpm the runner pins
+  passes only when the browser launches**. The pnpm the runner pins
   installs exactly `pnpm-lock.yaml` (fetched through `npm exec`; no pnpm on the
   PATH needed), Playwright installs its own Chromium build, and the step is
   checked the way `doctor` checks it. It used to run whichever package manager
@@ -925,7 +925,7 @@ has it with what each one says.
   images.** A fork that works in its own `main` no longer builds and pushes an
   image of its own from every push.
 
-- **Dense vectors record where they came from** (Д-62). Every vector in the
+- **Dense vectors record where they came from**. Every vector in the
   index now carries its backend, revision and dtype alongside the model name,
   and a cached vector is reused only when all of them still match. An int8 ONNX
   vector and an fp32 torch vector for one sentence differ far more than two
@@ -933,14 +933,14 @@ has it with what each one says.
   backends silently mixed two vector spaces in one ranking. An index written
   before this cannot say what produced it, so it is re-embedded once.
 
-- **One model mount point for the container** (Д-62). `AI_DEV_MODEL_PATH` is now
+- **One model mount point for the container**. `AI_DEV_MODEL_PATH` is now
   the folder *above* the models — `~/.ai-dev/models` — bound at `/models`, with
   `bge-m3-onnx/` under it, instead of one model's directory bound at
   `/models/bge-m3`. The client entries `ai-dev clients install --docker --model`
   writes, both bootstraps' `--model-path`, the 2.x launchers, the Compose example
   and both INSTALL guides say the same thing. **Existing setups must update the
   variable**: a value that names the model's own folder is refused with
-  directions (Д-68).
+  directions.
 
 - **The README leads with what the system is for.** It had grown to 871 lines and
   opened with a release summary and an inventory; a reader could not tell in the
@@ -959,17 +959,17 @@ has it with what each one says.
   clone, `ai-dev setup --model` from a global install, `npx ai-dev-system setup
   --model` from npx; when the model runtime is missing, the way back for the install at hand
   instead of "run npm ci".
-- **The local model's packages are optional dependencies** (Д-174). `@huggingface/transformers`
+- **The local model's packages are optional dependencies**. `@huggingface/transformers`
   and `onnxruntime-node` are `optionalDependencies`, still pinned exactly (the security gate now
   checks optional dependencies too): an install whose onnxruntime-node postinstall cannot fetch
   its CUDA provider goes on, without dense search, and says how to get it.
 
-- **The dashboard's runtime rows are the health checks as they ran** (`docs/DEFECTS.md`, Д-106):
+- **The dashboard's runtime rows are the health checks as they ran**:
   eight rows that said Ready whatever was true — the static, coverage and security gates, Archify,
   the context compiler, outcome analytics, the reference factory, search ranking — are gone; each
   check is a row with its verdict and evidence, and the page says when they ran. Before setup,
   `ai-dev dashboard` says to run `ai-dev setup` instead of naming the file it could not open.
-- **A search index belongs to the vault it was built from** (Д-195, Д-219, Д-229). The first vault
+- **A search index belongs to the vault it was built from**. The first vault
   keeps the index file a runtime home has always had, named by a claim beside it; any other vault
   gets its own file, so two vaults on one runtime home no longer answer with each other's notes. An
   index written before the claim goes only to the vault it was built from: at least half of the
@@ -980,7 +980,7 @@ has it with what each one says.
   and takes it only by starting first.
 - **The tool reference counts 148 tools**: the 135 an agent sees and the 13 of the control API.
   A narrowed session's stderr note counts the opt-in tools apart.
-- **A stopped `ai-dev setup` reports no failures** (Д-223): the step Ctrl-C cut short and the ones
+- **A stopped `ai-dev setup` reports no failures**: the step Ctrl-C cut short and the ones
   after it are skipped, and none of them is announced.
 
 - **`npm run check` covers the desktop app**: the static gate checks the syntax of `desktop/`'s
@@ -991,22 +991,22 @@ has it with what each one says.
 - **The install guides follow the three paths.** `README.md`, `README.ru.md` and `docs/INSTALL.md`
   (with `docs/ru/INSTALL.md`) start from the Windows installer, `npx ai-dev-system`
   and Docker, then a clone for working on AI Dev; what 3.0 removed is gone from them, and the 2.x
-  ways are in the migration note (Д-376). The guides to guardrails, capabilities, the demo, the
-  galaxy, recovery and security, the server's README and the architecture describe 3.0 (Д-377), and
+  ways are in the migration note. The guides to guardrails, capabilities, the demo, the
+  galaxy, recovery and security, the server's README and the architecture describe 3.0, and
   `AGENTS.md` and `CONTRIBUTING.md` name where the code lives now — `bin/`, `src/cli/`, `desktop/`,
-  the distribution — and how branches flow (Д-378).
+  the distribution — and how branches flow.
 - **One manual acceptance plan** (`docs/TEST-PLAN.ru.md`): three systems, about 40 minutes each,
   along the paths a person takes; it replaces the four plans written for 2.1.0 and `RETEST.ru.md`.
 
 ### Deprecated
 
 - **`docker/run-mcp.sh`, `docker/run-mcp.ps1` and `ClaudeMcpProxy.exe`**, the 2.x Docker
-  launchers (owner decision D10). Configs that name them keep working until 4.0. The 3.0 scripts
+  launchers. Configs that name them keep working until 4.0. The 3.0 scripts
   run the image and pass the server's own handshake through — they no longer answer `initialize`
   themselves — and say on stderr what replaced them. An installed `ClaudeMcpProxy.exe` is the one
   2.x compiled: it keeps answering `initialize` itself, without the server's instructions or a
   warning, until `bootstrap.ps1` rewrites Claude's config to `docker run`; `docker/ClaudeMcpProxy.cs`
-  is a byte pipe now, for whoever builds it (Д-327).
+  is a byte pipe now, for whoever builds it.
 
 - **`node scripts/ai-dev.mjs`, `scripts/start-local.ps1` and
   `scripts/install-local-mcp-clients.mjs`** are `ai-dev`, `ai-dev mcp` and
@@ -1032,11 +1032,11 @@ has it with what each one says.
   and the launchers' `docker exec` path into it, and **the compilation of the Windows proxy** by
   bootstrap, with the handshake of its source (see Deprecated). **Installing Docker from
   bootstrap**: `bootstrap.sh --install-prerequisites` is accepted and only says that bootstrap no
-  longer installs Docker, and where to get it (Д-92). **Python 3, Playwright and Chromium in
+  longer installs Docker, and where to get it. **Python 3, Playwright and Chromium in
   the default image** (Chromium is in `-browser`), and `BGE_M3_ONNX_DIR` in its environment,
   which hid a model installed into the volume.
 
-- **The Python dense backend** (decision D3; `docs/DEFECTS.md`, Д-62, Д-98): `embeddings/`
+- **The Python dense backend**: `embeddings/`
   (`bge_m3_embed.py`, `bge_m3_worker.py`, `requirements-bge-m3.txt`), the worker pool in
   `src/core/embedding-workers.mjs`, the image's `INSTALL_BGE_M3` stack, its
   `AI_DEV_DENSE_INSTALLED` and `BGE_M3_MODEL_DIR`, `python3-venv`, the Python job of
@@ -1053,7 +1053,7 @@ has it with what each one says.
   used and what replaced it: the model put into the data volume once with
   `docker run … <image> ai-dev model install`, or a host folder holding `bge-m3-onnx/`
   mounted at `/models` (`bootstrap.sh --model-path`). The argument stays declared for that until
-  4.0 (Д-375). BuildKit's terminal view folds a finished step's output, which `--progress=plain`
+  4.0. BuildKit's terminal view folds a finished step's output, which `--progress=plain`
   keeps on screen; a step taken from the cache prints nothing, so a later build of the same tree
   shows the notice only with `--no-cache`.
 - **The Python search helper** — `search-index/search_cli.py`, its `unittest` suite
@@ -1063,7 +1063,7 @@ has it with what each one says.
   more. A 2.x volume keeps a dangling `09-mcp/search-index` link, which the index skips.
   `scripts/run-acceptance.ps1` no longer runs Python tests.
 
-- **`~/.codex` is no longer read** (`docs/DEFECTS.md`, Д-104, Д-389). 2.x used
+- **`~/.codex` is no longer read**. 2.x used
   `.codex/state/ai-dev-system`, its index, models and artifacts in its home — `AI_DEV_HOME` when
   that was set, otherwise the user's — whenever they existed and the `.ai-dev` ones did not, while
   the hooks always wrote to `.ai-dev/state`: the server and the hooks kept two histories. What AI
@@ -1071,132 +1071,132 @@ has it with what each one says.
   for that install: `~/.codex`, or `$AI_DEV_HOME/.codex` with `AI_DEV_HOME` set, so one install
   never takes another's; an `AI_DEV_HOME` naming `~/.ai-dev` itself, as a 3.0 setting may — through
   a home that is a link too, from the first start — takes `~/.codex` when its own `.codex` holds none
-  of AI Dev's folders (Д-394, Д-417). Nothing is overwritten, identical files are dropped, ledgers
+  of AI Dev's folders. Nothing is overwritten, identical files are dropped, ledgers
   merged, conflicts named by `ai-dev doctor`, and the start's log names the folder it moved from, a
   move that failed half-way too; a record goes into `state/runtime-home-migration.json`. The rest of
   `.codex` is Codex's own and stays.
-- **The Homebrew formula and the AUR package** (`packaging/`; decision D8). Neither was ever
+- **The Homebrew formula and the AUR package** (`packaging/`). Neither was ever
   published, and the formula still pointed at `v1.0.0`. `npm run packaging:check` now checks what
   the install guides and the bootstrap scripts promise each other.
 
 ### Fixed
 
-- **A 2.0.0 index keeps its vectors** (Д-571). 2.0.0's `dense_vectors` table records no model:
+- **A 2.0.0 index keeps its vectors**. 2.0.0's `dense_vectors` table records no model:
   3.0 read it as no vectors at all, a rebuild dropped it, and a hybrid search with a query vector
   failed on the missing `backend` column. Such a table now reads as the vectors of 2.x's Python
   backend, the one 2.0.0 had — another model's, waiting for `setup --model` like any 2.x Python
   vectors — and gains the three columns when it is next written instead of being dropped. The
-  upgrade test starts from v2.0.0 too, prod's only 2.x release, with its own vector seed (Д-570).
-- **The daemon died on a long home** (Д-97). A socket path over 107 bytes was cut short by
+  upgrade test starts from v2.0.0 too, prod's only 2.x release, with its own vector seed.
+- **The daemon died on a long home**. A socket path over 107 bytes was cut short by
   libuv, the next `chmod` failed and the lock stayed behind; a home of 181 bytes — or any home
   below this session's 87-byte scratch folder — never started a daemon. The socket now moves
   to `$XDG_RUNTIME_DIR/ai-dev` or `/tmp/ai-dev-<uid>` when the path, counted in bytes, would
   pass 100; a 196-byte home serves three clients.
-- **A hook in a package of a monorepo keyed its memory to the repository** (Д-164). It went up
+- **A hook in a package of a monorepo keyed its memory to the repository**. It went up
   to the Git root before looking for a project boundary, so in `<repo>/apps/web` the hook and
   the server named different projects; the hook now takes the nearest boundary from its own
   directory, as the server does.
 
 - **`node scripts/ai-dev.mjs start` served nothing, and a typo moved data**
-  (`docs/DEFECTS.md`, Д-161). `start` imported a server that runs only when started directly
+. `start` imported a server that runs only when started directly
   and exited 0 after 292 ms with nothing on stdout; it now serves MCP (the `initialize` answer
   carries 1,048 characters of instructions). An unknown command migrated `AI_DEV_HOME` and
   loaded the whole runtime before printing the help; it now answers in about 50 ms with exit
   2 and touches nothing.
-- **The Docker client installer stopped halfway and could break Codex's config** (Д-162). An
+- **The Docker client installer stopped halfway and could break Codex's config**. An
   empty `mcp.json` or a comment in Gemini's `settings.json` ended the run with a stack trace,
   some clients written and some not; a `[mcp_servers.ai-dev.env]` subtable or a quoted
   `[mcp_servers."ai-dev"]` header left a second definition, and a TOML reader then refused
   the whole file. `ai-dev clients install --docker`, which replaces it, writes the empty and the
   JSONC file (the comment kept), fails a broken file only for its own client, and leaves a Codex
   file that parses.
-- **An interrupted client install could leave `~/.claude.json` empty** (Д-163). Both
+- **An interrupted client install could leave `~/.claude.json` empty**. Both
   installers rewrote the file in place; killed during the write, a 21 MB `~/.claude.json`
   was left at 0 bytes in 10 of 10 runs. Writes go through a temp file and a rename now — 0 of
   20 torn — with a re-read before the rename, so a client saving the file at the same moment
   keeps its change; a temp file a killed run left behind is removed on the next run.
-- **Re-running `install_agent_hooks` dropped hooks a person had added next to ours** (Д-165).
+- **Re-running `install_agent_hooks` dropped hooks a person had added next to ours**.
   A registration group holding one AI Dev command was replaced whole, and with it any hook the
   person had put in the same group — Claude Code's `/hooks` adds a hook for an event without a
   matcher to the group already there. Only the AI Dev commands are taken out now; the group
   stays with the rest. The re-install is the step that moves 2.x hooks to the Node launcher.
 - **A skill rewritten while the skill registry was being rebuilt could stay unseen**
-  (`docs/DEFECTS.md`, Д-135, Д-160). The registry is dated by when its sources were read,
+. The registry is dated by when its sources were read,
   and the clock that stamps files lags the process's own by up to a tick (a second on
   HFS+, two on FAT): a skill a `git pull` rewrote just after that moment was stamped
   earlier and missed in 284 of 300 runs. The registry is now dated two seconds earlier
   still, at the cost of one extra rebuild at most, and a change stamped in the current
   millisecond no longer reads as one from the future — 0 of 300 for both.
-- **The supply-chain hook and the fix-version lookup ignored `HTTPS_PROXY`** (Д-145).
+- **The supply-chain hook and the fix-version lookup ignored `HTTPS_PROXY`**.
   Behind a proxy every lookup failed with `fetch failed`: the hook warned "not fully
   checked" on every install and `run_security_scan` offered no fix versions. Both now go
   through the proxy — the hook through its own copy of the server's client
   (`hooks/http-proxy.mjs`) — including the POSTs to the advisory endpoint and OSV, and ask
-  for compressed answers as `fetch` did (Д-167): typescript's registry document is 2.0 MB
+  for compressed answers as `fetch` did: typescript's registry document is 2.0 MB
   gzipped and 15.8 MB plain, and the hook has three seconds for it.
 
 - **`setup -- --dense` no longer embeds after the download failed, and its advice is
-  true** (Д-98). The vector step needs the model step and is skipped, with that said, when
+  true**. The vector step needs the model step and is skipped, with that said, when
   the download failed — it used to fail again and advise the command that had just failed.
   `dense:doctor` no longer offers `AI_DEV_DENSE_BACKEND=python`; for a missing model it
   names the download, the mirror and proxy variables and `npm run model -- import`; for a
   download that stopped partway, that it continues; for files that do not match, that the
   download replaces them.
-- **An Intel Mac is told the model cannot run there** (Д-101). onnxruntime-node 1.30 ships
+- **An Intel Mac is told the model cannot run there**. onnxruntime-node 1.30 ships
   no `darwin-x64` build; `dense:doctor` said `Cannot find module '…/darwin/x64/
   onnxruntime_binding.node'` with a require stack and advised `npm rebuild`, which cannot
   build it. Now the runtime stage, the health check and `embedding_status` say so in a
   sentence, `setup -- --dense` refuses before downloading 600 MB that cannot load, and
   `npm run model -- install` still fetches the files, for a container to mount.
-- **The server no longer hashes the model every minute** (Д-143). Whether the model is
+- **The server no longer hashes the model every minute**. Whether the model is
   installed was answered by hashing all five files — about 570 MB, 1.0–1.1 s on a fast disk —
   on the first hybrid search and again every minute of use. A check that hashes a file right
   now leaves a record (size, times, inode) in the runtime cache, and an unchanged file is not
   read again; `npm run model -- verify` and `dense:doctor` still hash everything.
-- **`validate_skill_library` with semantic duplicates uses the installed model** (Д-144).
+- **`validate_skill_library` with semantic duplicates uses the installed model**.
   It went to the Python worker pool whatever backend was selected, and its failure took the
   whole quality report down; now it embeds through the same model as search, and without one
   the pairs keep their lexical verdict and the report says why.
-- **Why dense search cannot run is said for what was found** (Д-146). `embedding_status`,
+- **Why dense search cannot run is said for what was found**. `embedding_status`,
   `embed_texts` and a dense rebuild said "the model is not on this machine" also when all
   its files were there and one was not the pinned file, or when a download had stopped
   partway. They now name the files that differ and the command that fetches them again, the
   download that continues, or the files a folder lacks; "not on this machine" is kept for a
   folder with none of them.
-- **The health check advises a dense smoke only where the model runs** (Д-147). Taking that
+- **The health check advises a dense smoke only where the model runs**. Taking that
   advice on a machine without the optional model turned a healthy install into "fail" with
   "did not return dense-scored results"; a dense smoke asked for there still fails, with the
   reason and the command.
 - **A download no source could serve names the ways round it.** Behind a proxy that refuses
   huggingface.co, `setup -- --dense` said exactly that and stopped; the error now adds
   `AI_DEV_MODEL_MIRROR`, `HTTPS_PROXY` and `npm run model -- import`.
-- **A 2.x index the Python backend embedded is re-embedded by `setup -- --dense`** (Д-148).
+- **A 2.x index the Python backend embedded is re-embedded by `setup -- --dense`**.
   It counted as fully embedded, so the step the migration notes point to was skipped, and
   hybrid search — which compares only its own model's vectors — silently ran without its
   dense half. The index status now counts vectors per model (`dense_other_model_documents`
   for another model's, which wait); the step runs; a hybrid search with no vector of its
   model says so; the freshness check warns.
-- **The model download cannot hang in its size probe** (Д-149): a source or proxy that takes
+- **The model download cannot hang in its size probe**: a source or proxy that takes
   the connection and never answers costs one stall window, and is asked last afterwards.
-- **A disk that will not take the model is said as that** (Д-150): quota, read-only, rights
+- **A disk that will not take the model is said as that**: quota, read-only, rights
   or I/O errors no longer read "the connection closed", and a short write is finished
   before the next chunk.
-- **Proxy and mirror passwords stay out of messages, `--json` and `.part.json`** (Д-151). A
+- **Proxy and mirror passwords stay out of messages, `--json` and `.part.json`**. A
   proxy that answers 407 is told apart: one that wants NTLM or Kerberos is pointed at a local
   forwarding proxy (cntlm, px), and one that refused the password in the proxy URL says so.
 - **Through a proxy, an IP-literal source's certificate is checked against that address**
-  (Д-152), not against the proxy's name.
-- **`npm run model -- remove` acts only on a folder it recognises as the model's** (Д-153);
-  a lock it cannot create says why (Д-154); zips written with `\` between folders import
-  (Д-155); `install` and `import` exit 1 when the model is not whole (Д-156).
-- **The Docker launchers no longer take `bge-m3/` for a model** (Д-158): `run-mcp.sh`,
+, not against the proxy's name.
+- **`npm run model -- remove` acts only on a folder it recognises as the model's**;
+  a lock it cannot create says why; zips written with `\` between folders import
+; `install` and `import` exit 1 when the model is not whole.
+- **The Docker launchers no longer take `bge-m3/` for a model**: `run-mcp.sh`,
   `run-mcp.ps1` and `ClaudeMcpProxy` recognise `bge-m3-onnx/` only and name a lone `bge-m3/`
   as the removed Python backend's weights, and both bootstraps look for `bge-m3-onnx/` only.
   After Ctrl-C, `setup` says it stopped instead of running the health check and calling it a
   failure.
 
 - **Writers of the search index no longer wait each other out or stop the server**
-  (`docs/DEFECTS.md`, Д-120 … Д-122, found by the review of the Node index). A rebuild lock
+  (found by the review of the Node index). A rebuild lock
   left by a process that died — a container killed mid-refresh on a shared volume — held
   every other refresh for half an hour; now the holder refreshes the lock every 10 s, one not
   refreshed for a minute is abandoned whatever host it names, and a process exiting on a
@@ -1209,8 +1209,8 @@ has it with what each one says.
   Windows, not yet run on Windows). Setting a damaged file aside is retried for a few
   seconds, every reader closes the file after 5 s idle and on finding it damaged, and the
   walk enters a linked folder once per real path, as `os.walk` enters a junction.
-- **The status cache trusts a file only when its ctime is old too** (Д-125), and five
-  smaller divergences from the Python helper are gone (Д-126): a document rewritten in
+- **The status cache trusts a file only when its ctime is old too**, and five
+  smaller divergences from the Python helper are gone: a document rewritten in
   place keeps its rowid, so tied results keep their order; a leading BOM survives; exact
   ties of large numbers round as Python rounds them (0 of 200,000 random ties differ, were
   3,100); `dense:doctor` no longer passes Node 23; the Д-117 test for `NOT` tests something.
@@ -1225,20 +1225,20 @@ has it with what each one says.
   registry and everything built from it; a subgroup that lost its skills loses its
   generated note. `npm run upgrade:test` checks it.
 
-- **A damaged search index no longer stops search for good** (docs/DEFECTS.md, Д-116).
+- **A damaged search index no longer stops search for good**.
   A file that is not a database was the answer to every `status` and `rebuild`
   until someone deleted it; it is now reported (`index_unreadable`), set aside as
   `<index>.corrupt` and rebuilt.
-- **Two project cards for one repository no longer break the index** (Д-114): the
+- **Two project cards for one repository no longer break the index**: the
   rebuild died on the documents' primary key, and with it every search. One document
   per id is kept.
-- **One unreadable `.md` no longer aborts the index** (Д-115): a broken symlink, or a
+- **One unreadable `.md` no longer aborts the index**: a broken symlink, or a
   folder named `*.md` among the project cards, ended `rebuild` and `status` alike.
-- **AND, OR, NOT and NEAR in capitals are words in keyword and hybrid search** (Д-117):
+- **AND, OR, NOT and NEAR in capitals are words in keyword and hybrid search**:
   "frontend AND backend testing" was an FTS5 syntax error, found nothing by keyword, and
   left hybrid search ranking by its semantic half alone (keyword score 0 for all ten
   results; now 7 of 10 score on keywords).
-- **`embed_texts` embeds through the ONNX model search uses** (Д-133). It always
+- **`embed_texts` embeds through the ONNX model search uses**. It always
   called the legacy Python worker pool, so with the ONNX model installed and no legacy
   virtualenv it refused with "BGE-M3 Python runtime not found"; with no model at all it
   now answers with the command that installs one, as hybrid search and the rebuild do.
@@ -1248,7 +1248,7 @@ has it with what each one says.
   ONNX export was missing — "spawn …/.venv/bin/python ENOENT"; it now answers "Dense
   search is not installed: the model is not on this machine. Run
   `npm run setup -- --model` …" and leaves the index as it was.
-- **What the second review of the Node index found is fixed** (`docs/DEFECTS.md`, Д-127 … Д-132).
+- **What the second review of the Node index found is fixed**.
   A refresh that both changed a note and added one fell back to rewriting the whole index (7 of
   8 trials; 731 ms instead of 60 ms on the seed) — changed documents now go back to their rowids
   before new ones are appended. The skill registry is dated by when its sources were read, so a
@@ -1262,7 +1262,7 @@ has it with what each one says.
   lets go of the file after a failed read too, `ensure-skill-index` rebuilds an out-of-date
   registry before the tests start, the NUL rule leaves extensionless programs alone, and
   `pythonRound(x, 0)` rounds 1e15 ≤ |x| < 2^52 as Python does.
-- **No NUL bytes in the bundled skill texts** (Д-113). Upstream's Membrane `confluent`
+- **No NUL bytes in the bundled skill texts**. Upstream's Membrane `confluent`
   skill carries 150 NUL bytes where its one-line description should be, and
   `read_skill` passed all 150 to the agent; they are dropped, and nothing else in the
   file differs from upstream. The distribution audit — `docker:seed:verify`, the seed
@@ -1272,7 +1272,7 @@ has it with what each one says.
   the galaxy or written project cards: generated output is neither in the manifest nor
   in the image.
 
-- **Claude on Windows with Docker gets dense search** (Д-88). `ClaudeMcpProxy.cs`
+- **Claude on Windows with Docker gets dense search**. `ClaudeMcpProxy.cs`
   mounted the model folder at `/models/bge-m3`, one level below where the image
   looks. `bootstrap.ps1` now writes Claude's entry as a `docker run` that mounts a
   named model folder at `/models`, as every client's entry does; the proxy's source,
@@ -1282,31 +1282,31 @@ has it with what each one says.
   runs `docker run`; the `ClaudeMcpProxy.exe` 2.x compiled keeps the old mount.
 
 - **Membrane connectors stay out of unrelated results in the bundled seed too**
-  (Д-91). The filters tested the vault's path, and the seed keeps the catalogue
+. The filters tested the vault's path, and the seed keeps the catalogue
   elsewhere: all 3,074 connectors were embedded and ranked like any skill. Now
   decided by source: dense eligibility 370 of 3,444 instead of 3,444, and no
   connectors in the top ten for "add authentication to the API" (seven before);
   integration queries still get them.
 
 - **One Python interpreter choice for the server and the client installer**
-  (Д-94). The installer wrote `AI_DEV_PYTHON=python3` into every client on
+. The installer wrote `AI_DEV_PYTHON=python3` into every client on
   Windows, where Python answers to `python`. **Re-check after upgrading:** on
   Windows, run `npm run clients:install` once more.
 
-- **Concurrent writers no longer lose records** (Д-96). Three processes
+- **Concurrent writers no longer lose records**. Three processes
   appending 200 records each kept 208–223 of 600; JSON stores updated by
   read-modify-write kept 202–222. A cross-process lock file — with stale-lock
   recovery for a killed writer, in the server and in the hooks' copy — makes it
   600 of 600 in ten runs out of ten, and `kill -9` mid-run leaves no broken line.
 
-- **The documentation says what a measurement says** (`docs/DEFECTS.md`, Д-100).
+- **The documentation says what a measurement says**.
   - Clients are connected with `npm run clients:install`, which README and
     INSTALL never mentioned, instead of editing JSON by hand (on Windows it
     needed `AI_DEV_PYTHON=python` until Д-94 was fixed).
   - Schema sizes are the bytes of the `tools/list` result, with the command that
     measures them: 22,858 for `core`, 32,737 for `core,git`, 139,148 for all 135
     tools. The pages said 15, 23 and 98 KB, and the README promised about 15 KB
-    for `core,git`, the figure for `core` alone (Д-82).
+    for `core,git`, the figure for `core` alone.
   - The README counts 9 tools in `security` and 614 skills.
   - The server README no longer documents `AI_DEV_RUNTIME_CONFIG`, which nothing
     reads, and describes `--dense` as the ONNX export it is, not a 2.3 GB Python
@@ -1316,7 +1316,7 @@ has it with what each one says.
   Д-85 … Д-108 and Д-110, each with a measurement or, where this sandbox cannot
   run it, a file and line.
 
-- **The Stop hook saw every changed file but the first** (Д-84). The hooks'
+- **The Stop hook saw every changed file but the first**. The hooks'
   `git()` trims its output, so ` M src/api.ts` on the first line of `git status
   --porcelain` arrived as `M src/api.ts`, and cutting three characters off it
   read `rc/api.ts` — a file that does not exist, skipped by every end-of-response
@@ -1331,7 +1331,7 @@ four of those arrived as upstream issues #63–#66.
   `spawn python ENOENT`, `npm run setup` reported a failed step and
   `npm run doctor` said `fail` on a machine where nothing was wrong. It is
   `python3` off Windows now, the same choice `install-local-mcp-clients.mjs`
-  already made (Д-72), and the index itself needs no Python any more (Д-85).
+  already made, and the index itself needs no Python any more.
 
 - **A stalled download is given up on, and an abandoned one is swept.** `fetch`
   has no timeout of its own: on Windows a CDN sent 510 MB of 542 and then went
@@ -1340,41 +1340,41 @@ four of those arrived as upstream issues #63–#66.
   slow link is not cut off, only a silent one. Separately, a `.part` file left
   by a killed process was invisible to later runs, because its name carries the
   dead process's pid; those older than an hour are now swept before a download
-  starts (Д-73).
+  starts.
 - **One empty `mcp.json` no longer blocks every client.** A zero-byte file — the
   one VS Code ships — threw `Unexpected end of JSON input`, and because the
   install loop had no guard, all four clients were left untouched. Empty now
   reads as empty, a failure is reported against the client it belongs to, and
   the rest are installed. The editor's configuration tree is also resolved per
   platform: `--apply` on macOS used to create `~/AppData/Roaming/Code/User/`
-  and write where VS Code would never look (Д-74).
+  and write where VS Code would never look.
 - **The first run says how many documents it indexed**, instead of
   `? document(s) indexed` — it read three key names, none of which was the
-  `document_count` the rebuild actually returns (Д-75, upstream #63).
+  `document_count` the rebuild actually returns (upstream #63).
 - **A pull request is named after the code, not the bookkeeping.** `.ai-dev/` is
   rewritten on nearly every task and outvoted the change itself, producing
   `feat(ai-dev): …`. Housekeeping is dropped before the vote — adding it to the
   generic-directory list, as upstream proposed, was measured and does not work
-  (Д-76, upstream #64).
+  (upstream #64).
 - **`npm run doctor -- --dense-smoke`** exists, so the health check's own
-  recommendation can be taken from the command that prints it (Д-77, #66).
+  recommendation can be taken from the command that prints it (#66).
 - **A failed setup no longer ends with `Health: ok`.** That check describes the
   vault, not the run that just failed, and it was the last line the reader saw
-  (Д-78).
+.
 - **A Docker client is told the real version**, not `1.0.0`: the 2.x launchers
   answered `initialize` themselves with a version of their own, and the server
   answers its own handshake now; a contract test holds every launcher to
-  answering none itself (Д-79, #65).
+  answering none itself (#65).
 - **The `--dense` step describes what it downloads** — about 600 MB of
   checksum-verified ONNX weights, no Python — rather than the legacy stack's
-  Python environment and 2.3 GB (Д-80).
+  Python environment and 2.3 GB.
 
 - **`dense-eval`'s `max_cases` input reaches the measurement.** The workflow offered a
   case count per backend and nothing passed it on: `dense-benchmark.mjs` read only
   `--out` and `--label` and called `run_search_eval` with a literal 50, so a dispatch
   asking for 20 scored all 45 golden cases and said nothing about it. The workflow now hands
   the input to the benchmark, the report records the count it was given, and a dispatch
-  that names no count still scores the default (Д-62). The same report's index size was
+  that names no count still scores the default. The same report's index size was
   always absent — it read `document_count`, which `search_index_status` does not have —
   and now carries the real number.
 - **The launchers recognise the 2.0.0 value of `AI_DEV_MODEL_PATH`.** The variable
@@ -1382,13 +1382,13 @@ four of those arrived as upstream issues #63–#66.
   mounted one level too deep and dense search reported "not set up" to a user who had
   followed the previous instructions. `docker/run-mcp.sh` and `run-mcp.ps1` stop with
   directions instead, and a folder with no model in it yet is a warning, not a refusal
-  (Д-68).
+.
 - **The default Docker install can reach the model weights at all.** The fast-start
   runtime never mounted `/models`, and the client configurations never carried
   `AI_DEV_MODEL_PATH`, so on the path `bootstrap.sh` sets up the weights had nowhere to
   go. `bootstrap.sh --model-path` / `bootstrap.ps1 -ModelPath` (default:
   `AI_DEV_MODEL_PATH`) put the folder, read-only at `/models`, into every client's
-  `docker run` entry; `--plan` gains `model_path` only when one was given (Д-69).
+  `docker run` entry; `--plan` gains `model_path` only when one was given.
 - **A correct fresh install passes its own health check.** A new volume came up
   `degraded` for two reasons that had nothing to do with the install. The skill
   quality report is written only by `validate_skill_library` with
@@ -1401,7 +1401,7 @@ four of those arrived as upstream issues #63–#66.
   writes a dashboard note into the vault and building it afterwards left the
   index stale. An empty registry is `ok` and names `bootstrap_project`. A fresh
   emulated image now reports `ok`, 18 checks ok and none warning, where it
-  reported `degraded` with two warnings before (Д-63).
+  reported `degraded` with two warnings before.
 
 - **`cargo` on the PATH is no longer mistaken for `cargo audit`.** The health
   check read scanner availability off the executable each scanner names, and
@@ -1412,7 +1412,7 @@ four of those arrived as upstream issues #63–#66.
   A scanner that is a subcommand of another tool now declares a probe, and
   availability comes from running it — argv array, `shell: false`, ten seconds.
   The report names the gap it found, so having cargo without cargo-audit reads
-  as the different fix it is (Д-64).
+  as the different fix it is.
 
 - **The installer leaves no smoke-check directory in `/tmp`.** The fast-start
   smoke waited on a launcher that could hang for as long as the user let it, and
@@ -1421,14 +1421,14 @@ four of those arrived as upstream issues #63–#66.
   terminal, a `kill` — `bootstrap.sh` left an `ai-dev-smoke.*` directory in
   `/tmp`. The smoke check now sends the handshake to the image through
   `docker run` and creates no directory, in either bootstrap. `--plan` and the
-  69/70 exit codes are unchanged (Д-65).
+  69/70 exit codes are unchanged.
 
 - **The README links the taste-skill repository that exists.** Both READMEs
   pointed at `tt-a1i/taste-skill`, which `git ls-remote` does not find;
   `THIRD_PARTY_NOTICES.md` has recorded `Leonxlnx/taste-skill` as the source
   since the import. A test now requires every GitHub repository a README links
   to be one the notices file records as a source, and both READMEs to credit the
-  same set (Д-66).
+  same set.
 
 - **The quality gate says when it ran on a Node the project did not ask for.**
   In the container the gate's commands run on the image's Node. The report named
@@ -1441,7 +1441,7 @@ four of those arrived as upstream issues #63–#66.
   only after something else failed is not a warning. The range parser is its own
   and deliberately partial: it reads `20`, `^20`, `~20.1`, `>=20`, `20.x`,
   `18 || 20` and `>=18 <21`, and answers "not read" for everything else rather
-  than inventing a warning out of a misparse. It never blocks (Д-67).
+  than inventing a warning out of a misparse. It never blocks.
 
 - **One `package.json` in the home directory no longer merges every project
   below it.** The project-boundary walk ran to the root of the filesystem and
@@ -1458,7 +1458,7 @@ four of those arrived as upstream issues #63–#66.
   neither variable is set the rule does not apply at all. The rule is one pure
   function taking the platform and the home as parameters, present in the server
   and in the hooks copy that ships into other repositories, with both copies
-  answering the same fourteen layouts in the tests (Д-48).
+  answering the same fourteen layouts in the tests.
 
 - **A fresh clone finishes its install instead of failing the smoke check.**
   `bootstrap.sh`, `docker/run-mcp.sh` and `docker/entrypoint.sh` were committed
@@ -1467,7 +1467,7 @@ four of those arrived as upstream issues #63–#66.
   exit 70, with the smoke check blameless. The three files now carry the execute
   bit, and the smoke check runs no file of the clone — it sends the handshake to
   the image through `docker run` — so a zip download of the repository, which
-  always drops the bit, installs too (Д-58, upstream #51).
+  always drops the bit, installs too (upstream #51).
 
 - **A failed `docker pull` no longer installs whatever was in the cache.**
   Bootstrap printed one line to stderr and carried on with the stale local
@@ -1477,7 +1477,7 @@ four of those arrived as upstream issues #63–#66.
   copy was created and its digest. `--allow-stale-image` (`-AllowStaleImage` on
   Windows) installs it anyway, repeating the warning at the end of the run so
   the choice stays visible. A locally built image, which has no `RepoDigests`,
-  reports the digest as absent instead of aborting (Д-60, upstream #53).
+  reports the digest as absent instead of aborting (upstream #53).
 
 - **A fresh container no longer fails its own health check** (upstream #50). The
   entrypoint built the skill registry and stopped; `npm run setup` also built
@@ -1502,7 +1502,7 @@ four of those arrived as upstream issues #63–#66.
   looks for the other three.
 
 - **Missing BGE-M3 weights are no longer a critical failure, and the advice
-  now fits where it is read** (upstream #52, Д-157). The search index was one of
+  now fits where it is read** (upstream #52). The search index was one of
   the embedding backend's requirements, so on a fresh container one missing
   artefact was counted as two critical failures and the soft "dense is not set
   up" tipped into `fail`. The index has its own critical check and the backend
@@ -1563,7 +1563,7 @@ four of those arrived as upstream issues #63–#66.
   Every check in a verification that did not come back good now carries a
   `detail` with the first meaningful line of its output and that hint. The gate
   still runs the project's commands exactly as written and rewrites nothing.
-  (upstream #47, docs/DEFECTS.md Д-54)
+  (upstream #47)
 
 - **A security scan that ran nothing is `unchecked`, not `pass`.** With none of
   the six scanners installed — which is every run of the published image, since
@@ -1579,129 +1579,129 @@ four of those arrived as upstream issues #63–#66.
   warns when the machine has none of them. `docker/README.md` carries the matrix
   of what can actually run under `--network none`, and both INSTALL guides point
   to it.
-  (upstream #48, docs/DEFECTS.md Д-55)
+  (upstream #48)
 
-- **`npx` from the package's tarball failed on Linux x64, silently** (Д-174). onnxruntime-node's
+- **`npx` from the package's tarball failed on Linux x64, silently**. onnxruntime-node's
   postinstall fetches a 236 MB CUDA provider the server never loads; where api.nuget.org is out
   of reach the install exited 1 after 17 s with nothing printed. Now: exit 0, `Health: ok`, the
   model runtime installed in the app home without the download, and the server answers MCP.
 - **`npm pack` dropped a file of the seed, and an installed package's vault was never filled**
-  (Д-175). npm leaves `.gitignore`, `.npmrc` and a few other names out of every tarball; the
+. npm leaves `.gitignore`, `.npmrc` and a few other names out of every tarball; the
   seed had one, and the vault sync stopped on it with 128 of 1,575 files missing and no record,
   again at every start. The seed no longer carries it, a seed refresh skips such names, the
   build refuses them and checks the tarball against its list, and a sync goes on past a file a
   package lacks.
-- **`AI_DEV_HOME` did not reach the client configs** (Д-176): a client started from the Dock
+- **`AI_DEV_HOME` did not reach the client configs**: a client started from the Dock
   looked for the index, the state and a package's vault in `~/.ai-dev` while setup had built
   them in `$AI_DEV_HOME`. The entry carries it now.
 
-- **The phase 7 review's findings** (`docs/DEFECTS.md`, Д-177 … Д-185), each reproduced
+- **The phase 7 review's findings**, each reproduced
   before the fix:
   - with `AI_DEV_VAULT_ROOT` set, a package npx ran wrote client configs pointing into npx's
-    cache and named clone-only commands (Д-177): the install kind no longer follows that
+    cache and named clone-only commands: the install kind no longer follows that
     variable;
   - `ai-dev restore --overwrite` stopped halfway on a bad entry and left old and new files
-    mixed (Д-178): every file is unpacked and checked first, replaced files are set aside and
+    mixed: every file is unpacked and checked first, replaced files are set aside and
     put back if anything fails;
-  - a backup missed the state `AI_DEV_STATE_ROOT` moves (Д-179); a file dated after 2107
+  - a backup missed the state `AI_DEV_STATE_ROOT` moves; a file dated after 2107
     ended every backup, and an archive of exactly 65,535 entries could not be read back
-    (Д-180); file modes were lost on restore (Д-185);
-  - the app-home prune could remove the copy setup had just chosen again (Д-181);
-  - a seed rename by case only deleted the file on Windows and macOS (Д-182), and an update
-    wrote through a folder the user had linked into the vault (Д-185);
+; file modes were lost on restore;
+  - the app-home prune could remove the copy setup had just chosen again;
+  - a seed rename by case only deleted the file on Windows and macOS, and an update
+    wrote through a folder the user had linked into the vault;
   - a Codex-era search index or half a download was a conflict for `doctor` to report
-    forever (Д-183): such caches are dropped when `~/.ai-dev` has its own;
+    forever: such caches are dropped when `~/.ai-dev` has its own;
   - after Д-176 a client started from the Dock ran its server with `AI_DEV_HOME` and its
-    hooks without it (Д-184): `install_agent_hooks` records the folder beside the hooks
+    hooks without it: `install_agent_hooks` records the folder beside the hooks
     (`.ai-dev/hooks/.ai-dev-home`, kept out of git);
-  - smaller ones (Д-185): the server's runtime root with `HOME` unset, a hex-only app folder
+  - smaller ones: the server's runtime root with `HOME` unset, a hex-only app folder
     name, npm's full list of names it leaves out of a tarball, a build that stops on a seed
     file differing from its manifest, hints inside the image, `ai-dev distribution` in a
     package, the Frontend QA tests back in `run-acceptance.ps1`.
 
-- **The phase 8 review's findings** (`docs/DEFECTS.md`, Д-188 … Д-194), each reproduced before
+- **The phase 8 review's findings**, each reproduced before
   the fix:
   - the bridge decoded each 64 KB read on its own, so a character cut by a read's edge became
-    two U+FFFD — a Russian note of 390 KB came back with 18 of them, on disk too (Д-188): lines
+    two U+FFFD — a Russian note of 390 KB came back with 18 of them, on disk too: lines
     are decoded whole, and an 8 MB line takes 23 ms instead of 338 ms;
   - the Д-164 change left hooks in a monorepo package without the workspace's policy, secret
-    check, config guard, formatter and stop checks (Д-189): only the memory keys and the active
+    check, config guard, formatter and stop checks: only the memory keys and the active
     task follow the package;
-  - the daemon ran every client's tools with the PATH of the client that started it (Д-190), and
+  - the daemon ran every client's tools with the PATH of the client that started it, and
     clients that differed in PATH or proxy replaced each other's daemon, one per session, none of
-    the old ones visible (Д-191) — see "Changed";
-  - requests piped in with the input closed got no answer (Д-192): the bridge waits for what it
+    the old ones visible — see "Changed";
+  - requests piped in with the input closed got no answer: the bridge waits for what it
     owes and exits 1 when a request went unanswered;
-  - an empty daemon lock in the making was taken at once (Д-193): the lock follows the protocol
+  - an empty daemon lock in the making was taken at once: the lock follows the protocol
     of every other lock, with a heartbeat;
-  - smaller ones (Д-194): a 30-day idle timeout made the daemon leave at once (cut to 24.8 days); a
+  - smaller ones: a 30-day idle timeout made the daemon leave at once (cut to 24.8 days); a
     relative `AI_DEV_HOME` meant one folder to the client and another to the daemon; a cancelled
     request was answered with an error when the daemon later died; a message over 10 MB read as
     "the daemon went away" and is answered with its size; `stop` with a stale descriptor failed;
     the watch retired a healthy daemon on one unreadable look; a rebuild's collection held other
     clients' searches for 1.7 s (now under 1.1 s on 13 000 notes); a long-lived daemon's log
     never rotated.
-- **The second phase 8 review's findings** (`docs/DEFECTS.md`, Д-196 … Д-201), each reproduced
+- **The second phase 8 review's findings**, each reproduced
   before the fix:
   - a client with a 20 000-character name made `status` say "Not running" and `stop` fail
-    (Д-196): control answers have their own bound, client names are cut to 200 characters, and
+: control answers have their own bound, client names are cut to 200 characters, and
     `stop` reaches a daemon that did not answer `status`;
   - a lock taken over from a daemon that hung removed its socket, so the retired daemon could be
-    neither seen nor stopped (Д-197), and a retired daemon's record whose pid another program had
-    since been given made `stop` fail for good (Д-198): the socket of a live daemon is left, every
+    neither seen nor stopped, and a retired daemon's record whose pid another program had
+    since been given made `stop` fail for good: the socket of a live daemon is left, every
     retired daemon is listed, and a retired record has a lock as a descriptor does;
-  - the same data spelled two ways made two daemons (Д-199) — see "Changed";
+  - the same data spelled two ways made two daemons — see "Changed";
   - a session's own certificate was not used for an `https://` proxy, and the error blamed the
-    host's certificate (Д-200);
-  - smaller ones (Д-201): the CLI's `daemon` commands did not resolve a relative `AI_DEV_HOME`;
+    host's certificate;
+  - smaller ones: the CLI's `daemon` commands did not resolve a relative `AI_DEV_HOME`;
     the bridge waited out its 10 minutes after refusing the last request; `Object.freeze` on
     the daemon's `process.env` broke every later listing of it; sizes and texts; the daemon
     tests now run on macOS and Windows CI too.
-- **The third phase 8 review's findings** (`docs/DEFECTS.md`, Д-202 … Д-206), each reproduced
+- **The third phase 8 review's findings**, each reproduced
   before the fix:
   - a runtime home reached through a link — every `$TMPDIR` on macOS, a moved home — changed the
     build as its folders were created: the first start waited out its limit beside a daemon that
-    was listening, and one data set got two daemons (Д-202). A folder is now resolved through its
+    was listening, and one data set got two daemons. A folder is now resolved through its
     deepest existing part, so it is one folder before it exists and after;
   - on Windows a variable written `Ai_Dev_Vault_Root` was read by the daemon and not by the bridge
-    (Д-203); a difference in `USERPROFILE` alone, which the server reads for the runtime home and
-    the protected project root, now splits daemons too (Д-205);
+; a difference in `USERPROFILE` alone, which the server reads for the runtime home and
+    the protected project root, now splits daemons too;
   - `ai-dev daemon stop` said "Not running." of a retired daemon that was alive but hung past its
-    lock's life, and the daemon came back without a lock (Д-204): a record whose address still
+    lock's life, and the daemon came back without a lock: a record whose address still
     takes connections stays, `stop` asks it and says it did not stop, and a daemon takes its lock
     again before it lists itself;
   - an `https://` proxy's certificate was checked against the name of the host behind it, so no
-    real `https://` proxy could be used for the download (Д-206) — it is checked against the
+    real `https://` proxy could be used for the download — it is checked against the
     proxy's own name now;
-  - smaller ones (Д-205): the socket of a crashed daemon whose pid another program had was never
+  - smaller ones: the socket of a crashed daemon whose pid another program had was never
     cleared; a daemon of code from before a change of the build's parts was never asked to
     retire; a runtime home deleted under a retiring daemon came back with mode 755; two tests that
     did not test what they named.
-- **The fourth phase 8 review's findings** (`docs/DEFECTS.md`, Д-207 … Д-209), each reproduced
+- **The fourth phase 8 review's findings**, each reproduced
   before the fix:
   - the hooks' own copy of the proxy client still checked an `https://` proxy's certificate
-    against the target's name (Д-207, Д-206 in its second copy): behind a real `https://` proxy
+    against the target's name (Д-206 in its second copy): behind a real `https://` proxy
     the supply-chain hook could look nothing up and only warned. It now connects as the server's
     copy does, and a test holds it to that;
   - a daemon hung with its connection queue full — some 500 connections on Linux — was taken for
-    a gone one: `stop` said "Not running." and removed its record (Д-208). Only a refused
+    a gone one: `stop` said "Not running." and removed its record. Only a refused
     connection or a missing socket now means nothing listens there, and a retired daemon puts
     back a record taken away while it lives;
-  - a test that left its daemon running after its folder was gone (Д-209);
+  - a test that left its daemon running after its folder was gone;
   - and, found re-reading that fix, a retired daemon leaving at the moment its watch looked could
-    put its record back after it was gone (Д-210).
-- **The fifth phase 8 review's findings** (Д-213): the daemon's `run/` folder could come back
+    put its record back after it was gone.
+- **The fifth phase 8 review's findings**: the daemon's `run/` folder could come back
   with mode 0755 when its lock had to make it, and a retired daemon whose runtime home was deleted
   left the folders it made again behind; both fixed, and the texts on a full connection queue now
   say what macOS does.
-- **The sixth phase 8 review's findings** (Д-214 … Д-216): a retired daemon remembered the first
+- **The sixth phase 8 review's findings**: a retired daemon remembered the first
   folder it made again, not the highest, so a runtime home deleted after its `run/` stayed behind,
   empty; `run/` could still come out 0755 when `ai-dev daemon stop` cleared a gone daemon's
   descriptor as the folder went, or when it was already 0755 — left so by the lock race fixed in
   Д-213, or moved up by the 2.x layout's migration — and the socket lived elsewhere. The daemon now
   removes up to the highest folder it made, and a starting daemon makes a looser `run/` of this
   user's 0700.
-- **The seventh phase 8 review's findings** (Д-224 … Д-226): on Windows `fs.mkdir` names the folder
+- **The seventh phase 8 review's findings**: on Windows `fs.mkdir` names the folder
   it made in the `\\?\` namespace, so a retired daemon never matched it and removed nothing; the
   folders are compared in that form now. A starting daemon said `run/` was 0700 without looking and
   said nothing when it could not make it so; it now opens `run/` without following a link, changes
@@ -1710,10 +1710,10 @@ four of those arrived as upstream issues #63–#66.
   deleted under it stays deleted, and a folder the retired record's own lock made again is removed
   with the others. A second daemon in the same deleted runtime home still leaves the folders it did
   not make; SECURITY.md says so.
-- **A socket folder a file system leaves open is passed over** (Д-227): the daemon changed the mode
+- **A socket folder a file system leaves open is passed over**: the daemon changed the mode
   of its socket's folder without looking at what came of it, and on a mount that keeps its modes
   listened in a `run/` that stayed 0755. It now checks again and listens in the next folder.
-- **The eighth phase 8 review's findings** (Д-235): the folder a retired record's lock made was
+- **The eighth phase 8 review's findings**: the folder a retired record's lock made was
   forgotten when another process wrote that lock first, and stayed behind; the lock now names it
   whether it is taken or not. A look at `run/` that failed was logged as `run/` being open to
   other users; it now says the folder cannot be checked. A private folder of another user's that
@@ -1721,20 +1721,20 @@ four of those arrived as upstream issues #63–#66.
   a `chmod` that changes nothing or is refused, and a highest folder spelled outside the `\\?\`
   namespace.
 
-- **`search_index_status` no longer says vectors came from Python when there are none** (Д-186):
+- **`search_index_status` no longer says vectors came from Python when there are none**:
   an index without vectors has no backend, revision or type for them.
-- **A program reaching the daemon of another runtime home than its own** (Д-217): the client
+- **A program reaching the daemon of another runtime home than its own**: the client
   looked for the daemon's descriptor, and opened its log, in its own runtime home, so it waited out
   its limit beside a daemon that was listening. The daemon's paths now come from the environment
   the client is given; `ai-dev daemon status` and `stop` read them the same way.
-- **HTTPS through a proxy sent `Host: <name>:80`** (Д-211): a request tunnelled through any proxy —
+- **HTTPS through a proxy sent `Host: <name>:80`**: a request tunnelled through any proxy —
   the model download and the supply-chain hook alike — named port 80 in its Host header for an
   https:// address, which a virtual host, a CDN or a TLS-inspecting proxy may refuse. It names no
   port now, and a port the address names.
-- **The supply-chain hook's message when a proxy refuses the credentials in its URL** (Д-212): it
+- **The supply-chain hook's message when a proxy refuses the credentials in its URL**: it
   advised putting them in the URL, where they already were; it now says the proxy did not accept
   them, as the download says.
-- **The phase 9 review's findings** (Д-218 … Д-223): a stored model folder kept the app's
+- **The phase 9 review's findings**: a stored model folder kept the app's
   transport from reaching its daemon, and a stored mirror was used by no app session; a 2.x index
   went to a vault that shares the skill catalog with its owner, who lost its vectors; `setup_run`
   refused a misspelt client only after building everything; the idle time took text, booleans and
@@ -1742,7 +1742,7 @@ four of those arrived as upstream issues #63–#66.
   eleven smaller ones — among them `logs_tail` following a link, a NUL in a path setting, the opt-in
   `control` as everyone's default profile, and a fractional idle time breaking `system_status`'s
   contract.
-- **The second phase 9 review's findings** (Д-228 … Д-233): a model folder saved in the middle of a
+- **The second phase 9 review's findings**: a model folder saved in the middle of a
   session moved the control tools to it while the daemon's search stayed in the old one, so setup
   failed beside a model it had just installed; one note copied with its time made a vault the owner
   of a 2.x index, and a clone into the same folder lost it; `upgrade:test`'s check of that never ran;
@@ -1750,7 +1750,7 @@ four of those arrived as upstream issues #63–#66.
   case and the file's gave the daemon another build; and eleven smaller ones — among them
   `logs_tail` reading a hard link, a real failure during a stop reported as skipped, and the idle
   time shown otherwise than the daemon reads it.
-- **The third phase 9 review's findings** (Д-236 … Д-238): a set-up vault cloned again into its
+- **The third phase 9 review's findings**: a set-up vault cloned again into its
   folder lost its 2.x index and vectors, because the notes the server writes itself — skill and
   project cards, group notes, dashboards — told against it; they no longer count. `settings_get`
   called a model folder saved in the same session the one in force while the session's tools kept
@@ -1761,7 +1761,7 @@ four of those arrived as upstream issues #63–#66.
   FIFO, `schema_version` read and written alike, Ctrl-C during the Frontend QA check reported as a
   stop, the spelling of a variable Node passes on read on Windows, and the daemon transport's
   default profiles taken from the settings.
-- **A repository AI Dev has not seen yet is told where its checks come from** (Д-380). README's
+- **A repository AI Dev has not seen yet is told where its checks come from**. README's
   first task on a new repository stopped at `verify_task`: the project had no
   `.ai-dev/quality-gate.md`, the check came back `unavailable` with "Quality gate file not found"
   and nothing more, and `complete_task` refused. Only the routed `ai-dev-orchestrator` skill said
@@ -1769,7 +1769,7 @@ four of those arrived as upstream issues #63–#66.
   unknowns, and the refusal — from `run_quality_gate` or inside `verify_task`, kept in the
   verification's record — names `prepare_project` as the next step; with it the first task runs
   to `complete_task` in a clean container.
-- **`ai-dev daemon stop` no longer calls a daemon that has exited "still running"** (Д-234). A
+- **`ai-dev daemon stop` no longer calls a daemon that has exited "still running"**. A
   daemon that exited while the program that started it kept its own event loop busy is a zombie
   until that program collects it, and `kill(pid, 0)` answers for a zombie as for a live process: a
   program that ran `stop` synchronously got "did not stop: it is still running" and exit 1 for a
@@ -1777,8 +1777,8 @@ four of those arrived as upstream issues #63–#66.
   exited now: the same `stop` says "Stopped" in 129 ms, exit 0. Where neither can tell, the message
   says the process is still there, running or not yet collected. A process `kill` finds that `/proc`
   does not show — `hidepid`, someone else's — is there, not gone, so a lock it holds is not broken
-  (Д-386).
-- **A `block` rule of `.ai-dev/policy.json` blocks on a busy machine too** (Д-239). Its pattern is
+.
+- **A `block` rule of `.ai-dev/policy.json` blocks on a busy machine too**. Its pattern is
   matched in a worker thread under a 250 ms budget, and the budget's timer started before the thread
   did, so a thread that was slow to start was charged to the first rule: on four cores with sixteen
   busy loops, 17 of 30 `./deploy-prod.sh` went through, with "matching its pattern took longer than
@@ -1787,52 +1787,52 @@ four of those arrived as upstream issues #63–#66.
   30 of 30 blocked under sixteen busy loops and under 32. A rule the thread never reached is
   reported as not run (`not_run`) — the guard says the machine was too busy to check it ("this
   command", or "this write", went unchecked), and `upsert_policy_rule` refuses to store, for a rule
-  that is on, a pattern or an example it could not try (Д-383) — never as a pattern that took too
+  that is on, a pattern or an example it could not try — never as a pattern that took too
   long. A thread that fails rather than starts slowly is answered as run, with its error, and the
-  guard says it failed (Д-384) — once for all the rules it failed on, where it made and lost a thread
-  per rule (Д-397). Such an answer is no check either, and nor is a job the matcher gave no answer
+  guard says it failed — once for all the rules it failed on, where it made and lost a thread
+  per rule. Such an answer is no check either, and nor is a job the matcher gave no answer
   for: for a rule that is on, `upsert_policy_rule` refuses the pattern, the example or the
   counter-example the worker failed on, naming which — after what a sample says of the rule, a
   missed example or a matched counter-example — writes the rule with an example only once it was
-  seen to fire on it, and `list_policy_rules` shows `match_error` (Д-393, Д-417). A rule that is off
+  seen to fire on it, and `list_policy_rules` shows `match_error`. A rule that is off
   after the edit — switched off, edited while off, created off — is checked for its shape only, as
   the guard does not run it: it can be switched off where no worker thread starts, and it is matched
-  when it is switched on (Д-413). So its samples may never have matched: `list_policy_rules` says of
+  when it is switched on. So its samples may never have matched: `list_policy_rules` says of
   an example that does not match it, or a counter-example that does, that `upsert_policy_rule` will
   not switch the rule on until the pattern or that sample is fixed — not that an edit narrowed the
   pattern, nor that switching it on is refused, as a hand edit of `policy.json` switches it on all
   the same — and of a pattern that backtracks catastrophically on a sample, that `upsert_policy_rule`
   will not switch the rule on until the pattern is fixed — not that the guard runs it on every
   command, which it does not; it still counts each in `broken`, and the tool's description names
-  all three (Д-420, Д-436, Д-458).
-- **The static gate reads what the code does, not how it is spelled** (Д-267). It looked for the usual
+  all three.
+- **The static gate reads what the code does, not how it is spelled**. It looked for the usual
   spellings of `exec`, `shell: true` and `eval`, and every equivalent passed: `import * as cp` with
   `cp.exec(…)`, a default import, `execSync`, `{ "shell": true }`, `{ shell: "/bin/sh" }`,
   `globalThis["ev" + "al"](…)`. `src/core/code-tokens.mjs` reads the source as tokens — every escape
   decoded, a name ended where JavaScript ends it (a no-break space too), a template without
   substitutions read as the string it is, `?.[` as `[`, an object literal told from a block by what
   stands before it — any operator, `/`, `<` and a `>` that ends no arrow included, a `for` head's `of`
-  and its `;`, `for (; { shell: true }; )` (Д-527), the word `extends` but not a member so named,
-  `o.extends {` (Д-507, Д-516) —, a slash told from a division by what stands before it (a statement
+  and its `;`, `for (; { shell: true }; )`, the word `extends` but not a member so named,
+  `o.extends {` —, a slash told from a division by what stands before it (a statement
   head's `)`; a block's `}`, a label's or a `case`'s too, but not a class or function expression's —
-  an arrow's concise body is one, `(b) => class {} / 2` (Д-520), and so is one after a `for` head's
-  `;` (Д-527), and what its heritage holds, a template's substitutions included, is not taken for its
+  an arrow's concise body is one, `(b) => class {} / 2`, and so is one after a `for` head's
+  `;`, and what its heritage holds, a template's substitutions included, is not taken for its
   end — nor one after `delete`, `in` or `instanceof`, nor a template's end, whatever its last
-  substitution ends with, `${yield}` / 2 too (Д-520, Д-531); a property named `in`, a name `of`
+  substitution ends with, `${yield}` / 2 too; a property named `in`, a name `of`
   anywhere but right after a `for` head's binding (`for (k in of / 2)`, `o.for(of / 2)`), as any name,
-  `of++ / 2` too (Д-517), in a template's substitution there too (Д-555); a regular expression after
-  `break`, `continue`, `debugger` or an import's module, `import x from "./m.mjs"⏎/re/` (Д-537) — a
+  `of++ / 2` too, in a template's substitution there too; a regular expression after
+  `break`, `continue`, `debugger` or an import's module, `import x from "./m.mjs"⏎/re/` — a
   string, not a template, after an `import` that is no member or after a `from` that follows a clause
   — an import's or an export's list, `export *`, a name after `import` or `as`, `export * as "a b"` —,
-  so `return from⏎"x" / 2` and `if (s) {}⏎from⏎"x" / 2` divide (Д-549, Д-562)), a member's name read
+  so `return from⏎"x" / 2` and `if (s) {}⏎from⏎"x" / 2` divide), a member's name read
   as a name whatever word it is (`it.return`, `this.#class`, `stats.new++ / 2`), a statement begun
-  where a line break ends one (after `return`, `yield`, `x++`, `o.new++`) (Д-508) and where one stands
+  where a line break ends one (after `return`, `yield`, `x++`, `o.new++`) and where one stands
   before a `++` or `--`, a prefix there — `a⏎++/re/.lastIndex` holds a regular expression,
-  `a⏎++⏎{ shell: true }.shell` a literal (Д-515) —, a `class` after a word `as` on the line before a
+  `a⏎++⏎{ shell: true }.shell` a literal —, a `class` after a word `as` on the line before a
   class, since an alias's `as` stands on its line, after an `export *` whose `export` is no member —
   `o.export * as⏎class` is a product and a class — or in an export list, whose `}` ends the wait,
-  `export { a as class }`, `export * as⏎class from …` (Д-518, Д-530, Д-551), a U+2028 or U+2029 in a
-  string counted as the line break it is (Д-522), a `.cjs` file's HTML-like comments read as a script
+  `export { a as class }`, `export * as⏎class from …`, a U+2028 or U+2029 in a
+  string counted as the line break it is, a `.cjs` file's HTML-like comments read as a script
   reads them — `-->` where no token stands before it on its line, after a comment that spans lines too
   — and `src/core/forbidden-calls.mjs` asks the rules of them, in the server and in `desktop/`: the
   six spellings appended to a server file and a desktop file give twelve findings, where the gate
@@ -1849,10 +1849,10 @@ four of those arrived as upstream issues #63–#66.
   `.shell =`, `["shell"]:` and shell accessors; a `shell` key counts only in an object literal — a
   default value or an iterated array is one, behind an operator, a condition or `!` too,
   `options = win ? { shell: true } : {}`, since a bracket is part of a pattern only as a whole entry
-  of the one around it (Д-561), and so is a literal in a function's, a method's, an arrow's or a
+  of the one around it, and so is a literal in a function's, a method's, an arrow's or a
   class's body, which is no part of a pattern around it, a default value's too,
-  `toOptions = () => { return { shell: true }; }` (Д-548), and one in a computed name, of a pattern's
-  key or of a class's member, `m() {}⏎[{ shell: true }] = 1` (Д-555, Д-556) — so an import, a
+  `toOptions = () => { return { shell: true }; }`, and one in a computed name, of a pattern's
+  key or of a class's member, `m() {}⏎[{ shell: true }] = 1` — so an import, a
   parameter or an argument named `shell` passes; a rest parameter,
   `function g(...run)`, binds a name and spreads nothing, whatever else the name is bound to; a call's
   arguments are values, whatever follows them — a block on the next line, or a class's body after a
@@ -1862,38 +1862,38 @@ four of those arrived as upstream issues #63–#66.
   is named (`with`, `#catch`) and wherever the `{` stands — or a body begun on the line it ends on; a
   word `const`, `let` or `var` declares only with a name, `{` or `[` after it, none right in a
   template's substitution, where a script's `let` is a name, and none right in a class's body, where
-  it names a member (Д-509) — a JSON Schema's `const:` key declares nothing; the one on the line after
+  it names a member — a JSON Schema's `const:` key declares nothing; the one on the line after
   a declaration with no `;` declares too, and so does the one after a value that ends in a member
-  named like a keyword, `o.default` (Д-506), in a name `of` (Д-517), in a template, whatever its code
-  ends with (Д-531), or in a `yield` a line break ends (Д-537); a value that has ended ends its
+  named like a keyword, `o.default`, in a name `of`, in a template, whatever its code
+  ends with, or in a `yield` a line break ends; a value that has ended ends its
   declaration before a line that begins with a `++` or `--` as well, so `1⏎++b, c = cp` assigns `c`
-  (Д-515), and before one that begins with `!`, `~`, a string or a number (Д-553), but not after
-  `extends`, whose heritage that line holds (Д-562) — after a postfix or
-  such a `yield`, before one that begins with a template, `(` or `[` too (Д-537), after such a `yield`
-  with a regular expression, `+` or `-` (Д-553), but not after a postfix or a `yield` that ends a
-  template's code, the template being the operand (Д-550) —, and so does an arrow's body, which no
-  call follows, before any line but one that begins with a `:` (Д-521), unless the body ends a
-  template's code, which the template goes on after (Д-533) — and `function`, `function*` or `class`
+, and before one that begins with `!`, `~`, a string or a number, but not after
+  `extends`, whose heritage that line holds — after a postfix or
+  such a `yield`, before one that begins with a template, `(` or `[` too, after such a `yield`
+  with a regular expression, `+` or `-`, but not after a postfix or a `yield` that ends a
+  template's code, the template being the operand —, and so does an arrow's body, which no
+  call follows, before any line but one that begins with a `:`, unless the body ends a
+  template's code, which the template goes on after — and `function`, `function*` or `class`
   only where it is no member; a pattern before `in` is one only as a `for` head's binding, so
-  `[{ shell: true }] in o` is an array, in the head's test too (Д-521), and one before `of` only
+  `[{ shell: true }] in o` is an array, in the head's test too, and one before `of` only
   before a `for` head's keyword, so a literal in a function before the call `of(…)` is a literal
-  (Д-534); none is looked for beyond the template a literal stands in, and a literal before `from` is
-  a clause only before the module's string, `{ shell: true }⏎from(list)` a literal (Д-537); a call of
+; none is looked for beyond the template a literal stands in, and a literal before `from` is
+  a clause only before the module's string, `{ shell: true }⏎from(list)` a literal; a call of
   a name `of`, or of a member of any name, `x.default(cp)`, is a call, not parentheses around a value
-  (Д-537), and so is a `(` after a template's end, ``return `${yield}`(cp)`` (Д-555); a member's index
+, and so is a `(` after a template's end, ``return `${yield}`(cp)``; a member's index
   is no pattern, nor is it part of one, a line break before its `[` or not —
   `f()⏎[{ shell: true }] = v` indexes what `f()` returns —, and neither is a literal a pattern assigns
-  a member of, `[{ shell: true }.x] = v` (Д-538), nor one in the index of a member named `let`,
-  `const` or `var` or of a template that ends with a postfix (Д-552); nothing takes a template's `,`
+  a member of, `[{ shell: true }.x] = v`, nor one in the index of a member named `let`,
+  `const` or `var` or of a template that ends with a postfix; nothing takes a template's `,`
   for the list's around it or its name for an object literal's key, so ``(0, `${a, cp}`)`` is a string
-  (Д-519), and a declaration's or an argument list's walk begun in a template ends with it, at a `?.`
-  too (Д-504, Д-510); a substitution of a field's template is an expression's place — a class or
-  function expression there is one, a name there assigns (Д-503, Д-505); a class's field is a member,
+, and a declaration's or an argument list's walk begun in a template ends with it, at a `?.`
+  too; a substitution of a field's template is an expression's place — a class or
+  function expression there is one, a name there assigns; a class's field is a member,
   neither an alias nor an export (one on the line after `n++` or after a word an operand follows — a
   field named `in`, `return`, `default` and the like, or a member of such a name, `this.in` — is still
   read as an assignment, and a member named `class` or `function` there as declaring the name after
   it; after such a word, `return`, `yield` and a member's name aside, a `class` waits for a body too
-  (Д-523)), and a member named `class` or `function` waits for no body, so the static block or the
+), and a member named `class` or `function` waits for no body, so the static block or the
   method after it is what it is; and a file it cannot read to its end — a template or a comment that
   never closes — is refused rather than passed, and a list that never closes is reported rather than
   thrown on (Д-382, Д-398, Д-399, Д-407 … Д-410, Д-422 … Д-424, Д-426, Д-432, Д-440 … Д-443, Д-446 …
@@ -1901,7 +1901,7 @@ four of those arrived as upstream issues #63–#66.
   Д-499, Д-501, Д-503 … Д-510, Д-515 … Д-523, Д-527, Д-530, Д-531, Д-533, Д-534, Д-537, Д-538, Д-548 …
   Д-556, Д-561, Д-562). A block that begins a line after a value's end is still read as its
   declaration going on, `export let r = 1⏎{}⏎(a), run = cp` taken to export `run`, as a body begun on
-  the next line must be (Д-563). It follows the module object and the global objects through plain
+  the next line must be. It follows the module object and the global objects through plain
   re-binding and nothing else: a module name built from parts, `createRequire`, `Reflect.get`, a
   loader bound to another name or reached any other way (`.bind`, `Reflect.apply`, a condition, an
   array, `require["call"]`), the module put in an object or an array (`module.exports = { cp }`,
@@ -1910,15 +1910,15 @@ four of those arrived as upstream issues #63–#66.
   an exported `let` or `var` a pattern declares or whose name the file declares again — a local, a
   parameter, a function, a class — a global taken out of itself by a pattern (`{ globalThis: g } =
   globalThis`), and `await`, `yield` or `let` written as a name in a script are past it, and said to
-  be (Д-431, Д-432, Д-440, Д-448, Д-450, Д-459, Д-460, Д-464, Д-476, Д-555). Bracket pairs are worked
+  be. Bracket pairs are worked
   out once, a closing bracket of another kind looks only a few levels down, a `from` that begins no
   clause stops at once, whether a bracket is a pattern is asked once, a key in brackets is read
   without copying them, a value's plain name is worked out once for each place it starts, a
   declaration's walk ends where its statement does or with the template it began in, and no word it
-  passed is walked again (Д-474, Д-501), a loader's `.call(` that never closes is not walked for its
-  first argument, and the walk of its arguments ends with the template it began in (Д-501, Д-510), a
+  passed is walked again, a loader's `.call(` that never closes is not walked for its
+  first argument, and the walk of its arguments ends with the template it began in, a
   chain is walked back only for a call with the module's name, and where a regular expression's
-  reading failed on a line no later one reads it again in the state it read it (Д-476), so a file
+  reading failed on a line no later one reads it again in the state it read it, so a file
   costs what its length does — each the median of five runs in a fresh process on an otherwise idle
   machine, all on the final code: 5,892 dependency files (84 MB) are read to the end in about 15 s, a
   448 kB minified line in 0.28 s, where it took 10 s, 552 kB of keys in arrays nested 4,000 deep in
@@ -1932,48 +1932,48 @@ four of those arrived as upstream issues #63–#66.
   Д-461, Д-463, Д-474, Д-488, Д-501, Д-510, Д-526). A test plants a finding of each rule and each
   check in each folder the gate walks — `bin/`, `src/`, `scripts/`, `hooks/` with its shell script,
   the app's code, scripts, `.cjs` (read as the script it is) and tests — and expects exactly that set:
-  a folder left unwalked or a rule's findings dropped fails it (Д-396, Д-411, Д-445). 76 of 77 mutants
-  of round 4 failed its tests, the one left equivalent (Д-425). Round 5 counted 63 of its 65 failing
+  a folder left unwalked or a rule's findings dropped fails it. 76 of 77 mutants
+  of round 4 failed its tests, the one left equivalent. Round 5 counted 63 of its 65 failing
   and the two left equivalent; the sixth review showed that each of those two changes an answer on
-  valid code, and ten more of its own alive (Д-445, Д-462). Of the 193 run on round 7's code — round
+  valid code, and ten more of its own alive. Of the 193 run on round 7's code — round
   6's 139, less the six whose code the parameter rule replaced, 22 for that rule, the seventh review's
   17, and 21 for the declaration, template and field fixes — 190 failed its tests, and of the three
   left the eighth review showed that one does change an answer: an `=` that ends a value would end
-  `cp⏎ === undefined` at its line; a test holds it now (Д-475, Д-482). Of the 222 run on round 8's
+  `cp⏎ === undefined` at its line; a test holds it now. Of the 222 run on round 8's
   code — round 7's 193, 17 of the eighth review's own, and 12 for round 8's rules — 216 fail its
   tests, and of the six left three do change an answer on a program V8 accepts: a statement keyword
-  asked of a head that is no name, a method named `"if"` in a literal after `>` (Д-466), and a `;`
+  asked of a head that is no name, a method named `"if"` in a literal after `>`, and a `;`
   that ends only a class's wait and a `(` that ends one at any depth, on the fields round 9 fixed; a
-  test held the first until Д-507 made a literal after `>` a literal (Д-489, Д-500, Д-524). Of the 245
+  test held the first until Д-507 made a literal after `>` a literal. Of the 245
   run on round 9's code — round 8's 222, 14 of the ninth review's own, and 9 for round 9's rules — 227
   failed its tests, and 8 of the 18 left changed an answer where the gate is right: what ends a wait
   after a field named `in`, a class whose heritage holds a field named `class`, and a script's `let`
   right in a substitution; tests hold them now, and 235 fail. Of the ten left, the tenth review showed
   three changing an answer the reasons round 9 gave did not cover — a `class` right after an operand
-  on its line taken for a member's name, on a class in a field's later substitution (Д-503); a list
-  that never closes taken for a list, on `(o.in++ / 2) / 3` (Д-508); and the line a list begins on
-  asked instead of the one it ends on, after `<`, `/` and `of` too (Д-507) — and six of its own, on
-  round 9's conditions, that change one on code V8 accepts; tests hold those six now (Д-511). Of the
+  on its line taken for a member's name, on a class in a field's later substitution; a list
+  that never closes taken for a list, on `(o.in++ / 2) / 3`; and the line a list begins on
+  asked instead of the one it ends on, after `<`, `/` and `of` too — and six of its own, on
+  round 9's conditions, that change one on code V8 accepts; tests hold those six now. Of the
   281 run on round 10's code — round 9's 245, 15 of the tenth review's own, and 21 for round 10's
   rules — 259 failed its tests, and 6 of the 22 left changed an answer where the gate is right — a
   member named like a keyword, `this.#in`, or a postfix on a member, `o.new++`, `this.#new++`, read as
   no value's end, the same postfix at a line's end before a block, and an arrow's `=>` and any `of`
   taken for a literal's place; tests hold them now. Sorting the other 16 found a `++` after a line
-  break read as a postfix (Д-515); of the 287 run on its fix — the 281 and 6 for its rules — 271 fail,
+  break read as a postfix; of the 287 run on its fix — the 281 and 6 for its rules — 271 fail,
   and the 16 left are those 16. The eleventh review showed four of them changing an answer on code V8
   accepts, each through a reading round 11 fixed — a statement keyword asked of a string head, the
   line a list begins on asked instead of the one it ends on (R4, 225 in the run, where R1 … R14 are
   named twice), and a `,` that ends the wait for a body (X, 164), through a heritage that ends in a
-  member named `extends` (Д-516); a list that never closes taken for a list (R5, 226), through a class
-  expression that is an arrow's concise body (Д-520) — and one of its own alive that changes one, a
-  postfix on a `#` member taken for none; a test holds that one now (Д-524). Of the 326 run on round
+  member named `extends`; a list that never closes taken for a list (R5, 226), through a class
+  expression that is an arrow's concise body — and one of its own alive that changes one, a
+  postfix on a `#` member taken for none; a test holds that one now. Of the 326 run on round
   11's code — the 287, 7 of the eleventh review's own, and 32 for round 11's rules — 301 fail its
   tests, and 5 of the 25 left changed an answer where the gate is right: an `of` a `for` head marks as
   no keyword taken for no operand's end, and the keyword taken for one, `for (const k of
   ++/"/.lastIndex)`; any `>`, and any block's end, taken for an arrow's body, which ends a declaration
   at a line that goes on with its value; and a U+2029 in a string not counted. A sixth, a `;` in any
   parenthesis taken for a `for` head's, changed none — only a `for` head's `(` holds one in code V8
-  accepts — and was widened while the run went on to a `;` in any bracket, which does (Д-532); tests
+  accepts — and was widened while the run went on to a `;` in any bracket, which does; tests
   hold those six now, and 307 fail. Of the 19 left, six change no answer by construction: a member
   check added to `endsAtBreak`, whose callers ask it too; a `,` that ends the wait for a body, which
   stands at a wait's level only after a `class` or `function` named in an import or export clause,
@@ -1992,15 +1992,15 @@ four of those arrived as upstream issues #63–#66.
   taken for a list, a class body's mark kept on an object literal's brace, and an `export` that no
   longer stops a declaration's walk, which a value's end before it stops first since Д-517 — no
   program tried tells apart: neither 304,352 programs V8 accepts from five fuzzers, nor 20,741 files
-  of real code, nor 375 probes (Д-511, Д-515, Д-524). The twelfth review showed one of those four, the
+  of real code, nor 375 probes. The twelfth review showed one of those four, the
   walk that asks for the outermost template, changing an answer on code V8 accepts — a template in
   another's substitution — and six of the others changing one only through two readings round 12
-  fixed: a `class` after `export * as` on the line before (Д-530) and a template whose last
-  substitution ends with `yield` (Д-531); and eight of its own alive that change one too (Д-535,
+  fixed: a `class` after `export * as` on the line before and a template whose last
+  substitution ends with `yield`; and eight of its own alive that change one too (Д-535,
   Д-536). Of the 359 run on round 12's fixes — round 11's 326, seventeen of them repointed where round
   12 rewrote the code, 20 for round 12's rules, and the twelfth review's 13, three of those repointed
   — 336 failed its tests, and two of the 23 left changed an answer: a member named `yield` taken for
-  the keyword, and a name `from` before a string for an import's; tests hold them now (Д-537). With 10
+  the keyword, and a name `from` before a string for an import's; tests hold them now. With 10
   for Д-538's rules, 347 of the 369 fail on the final code, and of the 22 left round 11's 18 keep the
   reasons above, the walk that asks for the outermost template failing now, and three change no answer
   by construction: an alias only after `export *`, since an `as` on `class`'s line stands only in an
@@ -2010,11 +2010,11 @@ four of those arrived as upstream issues #63–#66.
   marked after any word right after its `(`, failing until Д-538, changes one only past the limit
   above: a `[` a name stands before is a member's index now, where the pattern's climb stops before it
   asks the mark, but `yield` or `await` written as a name in a script is read as the keyword, `for
-  (yield[{ shell: true }] in o)` (Д-542). Again no program tried tells the five above apart: neither
+  (yield[{ shell: true }] in o)`. Again no program tried tells the five above apart: neither
   320,488 programs V8 accepts from six fuzzers, nor 20,743 files of real code, nor 564 probes (Д-535,
   Д-538). Of the 422 run on round 13's fixes — the 369 above, E12's parentheses balanced and 25
   repointed where round 13 rewrote the code, the thirteenth review's 18 that still apply, and 35 for
-  round 13's rules, each first checked to parse, since one that does not is no kill (Д-554) — 391
+  round 13's rules, each first checked to parse, since one that does not is no kill — 391
   failed its tests, and eight of the 31 left changed an answer on code V8 accepts: a class's body that
   no longer stopped the pattern's climb, a computed key only after `{`, a `[` after `{` or `,` taken
   for a key whatever follows its `]`, a line that begins with `!=`, or with `+` or `-` after a
@@ -2027,15 +2027,15 @@ four of those arrived as upstream issues #63–#66.
   of those ends at no pattern either way. On the final code 12 of the 23, four of the five above among
   them, were each run against it: none differs on 336,107 programs V8 accepts from seven fuzzers, and
   on 721 probes only the three that change one past the limit above do, each on a `class` after a
-  field named `in` (Д-554). Round 15's rule for a pattern's bracket (Д-561) took the place of the
+  field named `in`. Round 15's rule for a pattern's bracket took the place of the
   stops C1 … C4 and C8 change: this account is of `538a632`'s code.
-- **The app tells a model it cannot read from one that is not there** (Д-367). A model folder the
+- **The app tells a model it cannot read from one that is not there**. A model folder the
   account could not read — rights, a link to a disk not connected, a share — was "not installed",
   and the wizard offered to download the model over it. Status and the wizard now say it cannot be
   read, with the reason (`EACCES`, a folder that is a file, a loop of links, a share), what to fix,
   and **Check again**; nothing is downloaded over it. An `EPERM` names macOS's Privacy & Security too
-  (Д-387).
-- **A host model folder whose `bge-m3-onnx` is a link works in Docker** (Д-368). Docker resolves a
+.
+- **A host model folder whose `bge-m3-onnx` is a link works in Docker**. Docker resolves a
   bind mount's source on the host, so a link that pointed at another disk was mounted as the folder
   that held it, and the link inside led nowhere: the model was "not installed". A 3.0 entry mounts
   the link itself at `/models/bge-m3-onnx`, which Docker follows on the host — measured: "Installed:
@@ -2049,9 +2049,9 @@ four of those arrived as upstream issues #63–#66.
   link that leads nowhere — the folder's own, or one on its path, as to a disk not connected — under
   a file, in a folder you may not write to, as the root-owned mount point of a disk not connected, or
   on a root that is not there, as on Windows the drive of a disk not connected (`E:\`); a reason
-  both share is said once (Д-385, Д-397, Д-414, Д-417, Д-429, Д-430, Д-434, Д-454). On Windows the
+  both share is said once. On Windows the
   command is quoted for PowerShell and cmd.exe alike, in double quotes — in single ones, which only
-  PowerShell reads, for a word with a `$`, a backtick or a double quote (Д-430). It reads a `--mount`
+  PowerShell reads, for a word with a `$`, a backtick or a double quote. It reads a `--mount`
   as Docker 29 does — the value trimmed, up to the image, a `bind-create-src` source never missing,
   the path it mounts at cleaned as Docker cleans it (`/data/` is `/data`) —
   but does not judge an entry by that: one with a `--mount` Docker 29 cannot read — the CLIs before
@@ -2082,19 +2082,19 @@ four of those arrived as upstream issues #63–#66.
   cleaned, and the test that runs the policy rules with no worker thread failed on the Node 24 that CI
   runs. The write now goes on unflushed where the permission model refuses the flush, and a config's
   copy is given the old file's mode only when it lacks it — where that is refused, it is left with the
-  mode it was made with, the old one narrowed by umask or a default ACL (Д-532), never wider; any
+  mode it was made with, the old one narrowed by umask or a default ACL, never wider; any
   other failure of either fails the write. One write still fails there: a config root writes in a home
   it does not own, whose copy it hands to the home's user with the `fchown` the permission model
-  refuses (Д-168), and the backup it made of that config stays beside it (Д-514). And a test that
+  refuses, and the backup it made of that config stays beside it. And a test that
   asserted `node:sqlite`'s cut of a text at a NUL — which Node 22.16 … 22.23, 24.0 … 24.15, 25.0, 25.9
   and 26.0 make, and 24.16 … 24.22 and 26.12 do not — takes either reading: the text read back through
-  a BLOB is whole on all of them (Д-471).
-- **The tests pass with a temporary folder that is a link or a long path** (Д-258, Д-259, Д-373).
+  a BLOB is whole on all of them.
+- **The tests pass with a temporary folder that is a link or a long path**.
   Four tests compared a resolved path with one built from `os.tmpdir()`, and the bridge test bound a
   socket that a 112-byte `TMPDIR` cut short, so parallel runs collided (`EADDRINUSE` in 6 of 12):
   the whole suite now passes with `TMPDIR` a link, and 12 parallel runs under a long one.
 - **A shared server: a user who never ran `setup`, and one who cannot write to the install**
-  (Д-575, Д-576). A vault without a skill registry routed nothing: `begin_task` and
+. A vault without a skill registry routed nothing: `begin_task` and
   `recommend_skills` failed on the missing file until `ai-dev setup` ran — in a client entry
   written by hand, and for every new user of a shared server. The registry is now built at the
   first request that needs it. A clone run by a user who cannot write to it — a team server that
@@ -2104,20 +2104,20 @@ four of those arrived as upstream issues #63–#66.
   asks for that where the clone is writable. Measured the way the workspace runs it: a new
   participant's `begin_task` … `complete_task` pass and nothing is written into the build.
   [INSTALL.md, "A shared server"](docs/INSTALL.md#a-shared-server).
-- **Windows: a request sent as the daemon died goes to the next daemon** (Д-578). The bridge hears that a
+- **Windows: a request sent as the daemon died goes to the next daemon**. The bridge hears that a
   daemon's pipe closed only when it writes into it, so the first call after a crash was answered "the daemon
   went away while tools/call ran; repeat this call", though the daemon never had it. A request the daemon never
   took now goes to the new one; only one it took gets that error.
-- **Windows: a file of the user's where the seed needs a folder no longer stops the seed's update** (Д-577).
+- **Windows: a file of the user's where the seed needs a folder no longer stops the seed's update**.
   Windows says such a path is not there, where POSIX says it is not a folder, and the copy failed the whole
   update; the file is kept, as on Linux and macOS.
-- **The tests pass on GitHub's macOS and Windows runners** (Д-579 … Д-581), where 3.0's CI ran for the first
+- **The tests pass on GitHub's macOS and Windows runners**, where 3.0's CI ran for the first
   time in its pull request: 57 failures in five jobs, all but Д-577's in tests that assumed a POSIX host, a
-  deletable open file, a runner uid of 0 or 1000, or a registry that stays missing (Д-575).
+  deletable open file, a runner uid of 0 or 1000, or a registry that stays missing.
 
 ### Security
 
-- **The server passes its own security gate again** (Д-82). `run_security_scan`
+- **The server passes its own security gate again**. `run_security_scan`
   on `ai-dev-mcp-server` itself came back `block`: 16 findings, 7 of them high —
   five host-confusion and SSRF advisories in `fast-uri` 3.1.4 and two inherited
   libvips/libheif advisories in `sharp` 0.34.5 — plus moderate ones in `hono` and
@@ -2126,7 +2126,7 @@ four of those arrived as upstream issues #63–#66.
   back so a fix never lands on a release younger than that. `sharp` sat outside
   `@huggingface/transformers` 3.7.5's `^0.34.1`; it is 0.35.4 now through
   transformers 4.3.0, which asks for `sharp ^0.35.4` itself, with no override
-  (Д-87). After: `pass`, 0 findings.
+. After: `pass`, 0 findings.
 
 ## [2.0.0] - 2026-09-13
 
@@ -2208,7 +2208,7 @@ this release.
   `npm run test:search-helper` on its own), and CI runs the same suite directly
   on a runner that always has Python. A checkout without Python gets a skip that
   names the reason, never a failure, and tells "no interpreter" apart from "the
-  one you named does not answer" (Д-53).
+  one you named does not answer".
 
 ### Removed
 
@@ -2313,7 +2313,7 @@ this release.
   cannot be merged — moving main to it would be 744,638 deletions, taking the
   vendored skill catalogue and everything since the server was split into
   modules. `tool-profile.mjs`, `project-trust.mjs` and `scripts/models.mjs`
-  are still there, unported (Д-42).
+  are still there, unported.
 
 
 - **A root `AGENTS.md`.** The project whose whole purpose is putting protocols
@@ -2326,7 +2326,7 @@ this release.
   files run inside other people's repositories, a defect written down with a
   measurement before and after, and a session that ends with ten gate runs
   rather than one. Written by hand: here the file is the source, not
-  `install_project_rules`'s output (Д-43).
+  `install_project_rules`'s output.
 
 - **`npm run acceptance`**: the rule this project ends a session on, as a
   command. Ten consecutive `npm run check` runs and the line "N падений из 10",

@@ -4,7 +4,7 @@
  * waits: it is written once the file takes it — looked for twice a second,
  * and once more at the tray's Quit. Writes go one at a time, in the order the
  * choices came, so an earlier choice never lands over a later one
- * (docs/DEFECTS.md, Д-271, п. 4; Д-276, п. 2, 3; Д-279).
+ * (3).
  */
 
 /** How often a waiting language is looked at again. */
@@ -35,7 +35,7 @@ export function createLanguageKeeper({ server, env, settled = () => undefined, l
   let looking = null;
   let attempt = null;
   // When the tray's Quit stops waiting: every write that starts after it
-  // waits for the lock no longer than that (Д-284).
+  // waits for the lock no longer than that.
   let quitBy = null;
 
   // One write at a time, in the order asked.
@@ -137,7 +137,7 @@ export function createLanguageKeeper({ server, env, settled = () => undefined, l
      * At start-up, with the file read (`stored`: the values it holds that this
      * version reads): the language to use, or null for the file's own. A
      * choice made while the file could not be read gives way to a language
-     * the file names now — the empty one, the system's, too (Д-276, п. 2).
+     * the file names now — the empty one, the system's, too.
      */
     atStart(stored) {
       const choice = waiting;
@@ -157,7 +157,7 @@ export function createLanguageKeeper({ server, env, settled = () => undefined, l
     /**
      * The tray's Quit: one more write of what waits, every write waiting for
      * the lock a second at most from now — the one already waiting included —
-     * and no more looks (Д-283, п. 1; Д-284).
+     * and no more looks.
      */
     async quit() {
       try {

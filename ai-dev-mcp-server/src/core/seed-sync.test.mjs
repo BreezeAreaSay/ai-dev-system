@@ -240,7 +240,7 @@ test("at the server's start a package's vault is filled; a failure is said, not 
   assert.match(describeSyncResult(await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0" })), /left as it is: it was brought up to 3\.1\.0/);
 });
 
-test("a package missing a seed file still fills the vault; the file arrives once the package is whole (Д-175)", async (t) => {
+test("a package missing a seed file still fills the vault; the file arrives once the package is whole", async (t) => {
   const root = await scratch(t);
   const vault = path.join(root, "vault");
   const seed = await writeSeed(path.join(root, "seed"), { "a/.gitignore": "x\n", "a/b.md": "b\n", "z.md": "z\n" });
@@ -264,7 +264,7 @@ test("a package missing a seed file still fills the vault; the file arrives once
   assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0" })).status, "current");
 });
 
-test("a seed rename by case only keeps the file; a linked folder of the user's is never written through (Д-182, Д-185)", async (t) => {
+test("a seed rename by case only keeps the file; a linked folder of the user's is never written through", async (t) => {
   const root = await scratch(t);
   // Case: on Windows and macOS both names are one file — a hard link stands in for that
   // where the filesystem tells them apart.
@@ -290,7 +290,7 @@ test("a seed rename by case only keeps the file; a linked folder of the user's i
   assert.ok(update.kept.includes("skills/a/SKILL.md"));
 });
 
-test("a conflict resolved by deleting the file leaves no .seed-new behind; build metadata does not order versions (Д-185)", async (t) => {
+test("a conflict resolved by deleting the file leaves no .seed-new behind; build metadata does not order versions", async (t) => {
   const root = await scratch(t);
   const vault = path.join(root, "vault");
   await syncSeed({ seedRoot: await writeSeed(path.join(root, "s1"), { "n.md": "1\n" }), contentRoot: vault, version: "1.0.0" });
@@ -367,7 +367,7 @@ test("a vault with no record — a 2.x volume `cp -n` filled — is read against
 /** What a 2.x image's `cp -n` leaves in the vault's root beside its seed. */
 const TWO_X_MANIFEST = `${JSON.stringify({ schema_version: 1, files: [{ path: "03-skills-catalog/sources/x/culled/SKILL.md" }] })}\n`;
 
-test("a vault a 2.x image ran on since its last sync gives back what that image's `cp -n` put there again (Д-317)", async (t) => {
+test("a vault a 2.x image ran on since its last sync gives back what that image's `cp -n` put there again", async (t) => {
   const root = await scratch(t);
   const vault = path.join(root, "vault");
   const shippedBefore = new Set([
@@ -408,13 +408,13 @@ test("a vault a 2.x image ran on since its last sync gives back what that image'
   assert.equal(await exists(path.join(vault, "public-seed.manifest.json")), false);
   assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "current");
 
-  // A file of the user's by that name, which is no seed manifest, is theirs (Д-336).
+  // A file of the user's by that name, which is no seed manifest, is theirs.
   await fs.writeFile(path.join(vault, "public-seed.manifest.json"), "my notes on the seed\n");
   assert.equal((await syncSeed({ seedRoot: seed, contentRoot: vault, version: "3.0.0", history })).status, "current");
   assert.equal(await read(vault, "public-seed.manifest.json"), "my notes on the seed\n");
 });
 
-test("a seed manifest is told by its content: JSON with a files list, not just the name (Д-343)", async (t) => {
+test("a seed manifest is told by its content: JSON with a files list, not just the name", async (t) => {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "seed-manifest-"));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
   const file = (name, text) => fs.writeFile(path.join(root, name), text).then(() => path.join(root, name));
@@ -434,7 +434,7 @@ test("the shipped history names versions by path and sha256, sorted and unique",
   assert.equal(keys.size, history.pairs.length);
   // The 2.x line's, from a named commit back, whatever the current manifest
   // holds: a 3.0 edit of a file 2.x shipped leaves its 2.x version known
-  // (docs/DEFECTS.md, Д-315). scripts/seed-history.test.mjs checks it against git.
+  //. scripts/seed-history.test.mjs checks it against git.
   assert.match(history.base, /^[0-9a-f]{40}$/);
   assert.equal((await readSeedHistory(path.join(os.tmpdir(), "no-such-history.json"))).size, 0);
 });

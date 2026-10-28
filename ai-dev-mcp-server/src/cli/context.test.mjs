@@ -10,11 +10,11 @@ import { localLaunch } from "./context.mjs";
 const clone = { kind: "clone", ephemeral: false, appHome: false, root: "/src/ai-dev-system" };
 const home = path.resolve("/home/me");
 
-test("a runtime folder named by AI_DEV_HOME goes into the client's entry; the home itself does not (Д-176)", () => {
+test("a runtime folder named by AI_DEV_HOME goes into the client's entry; the home itself does not", () => {
   const named = localLaunch({ env: { HOME: home, AI_DEV_HOME: "/data/ai" }, execPath: "/usr/bin/node", cliPath: "/src/cli.mjs", serverRoot: "/src/x", layout: clone });
   assert.deepEqual(named, { command: "/usr/bin/node", args: ["/src/cli.mjs", "mcp"], env: { AI_DEV_HOME: path.resolve("/data/ai") } });
   const homeItself = localLaunch({ env: { HOME: home, AI_DEV_HOME: home }, execPath: "/usr/bin/node", cliPath: "/src/cli.mjs", serverRoot: "/src/x", layout: clone });
-  assert.deepEqual(homeItself.env, {}, "AI_DEV_HOME naming the home keeps its 2.x meaning, <home>/.ai-dev (Д-90)");
+  assert.deepEqual(homeItself.env, {}, "AI_DEV_HOME naming the home keeps its 2.x meaning, <home>/.ai-dev");
   const vault = localLaunch({ env: { HOME: home, AI_DEV_VAULT_ROOT: "/vault", AI_DEV_HOME: "/data/ai" }, execPath: "/usr/bin/node", cliPath: "/c", serverRoot: "/s", layout: clone });
   assert.deepEqual(vault.env, { AI_DEV_VAULT_ROOT: path.resolve("/vault"), AI_DEV_HOME: path.resolve("/data/ai") });
 });
@@ -33,7 +33,7 @@ test("the Windows install is launched through its stable link, so an update chan
   const noLink = localLaunch({ env: { HOME: home }, execPath: "/real/copy/node.exe", cliPath: "/real/copy/cli.mjs", serverRoot: windows.root, layout: windows, stable: () => null });
   assert.deepEqual(noLink.args, ["/real/copy/cli.mjs", "mcp"], "without its link the copy is named as any install is");
   assert.equal(noLink.command, "/real/copy/node.exe");
-  // The installer's own runtime, in the program's folder, is never named: an update replaces it (Д-305).
+  // The installer's own runtime, in the program's folder, is never named: an update replaces it.
   const shipped = { ...windows, appHome: false, root: path.join(root, "Programs", "AI Dev", "resources", "runtime") };
   assert.throws(() => localLaunch({ env: { HOME: home }, execPath: "/p/node.exe", cliPath: "/p/cli.mjs", serverRoot: shipped.root, layout: shipped, stable: () => null }),
     (error) => error.exitCode === EXIT.failed && /program folder .* Start AI Dev once/.test(error.message));

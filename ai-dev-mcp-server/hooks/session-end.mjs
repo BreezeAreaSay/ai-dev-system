@@ -120,7 +120,7 @@ async function main() {
   const summary = extract(input.transcriptPath);
   if (!summary || summary.userMessages.length < 2) process.exit(0);
   // The capture is memory, keyed by the project the server names for this
-  // directory: in a monorepo, the package (docs/DEFECTS.md, Д-164).
+  // directory: in a monorepo, the package.
   const projectRoot = identityRootOf(input.cwd);
   const isGit = Boolean(git(projectRoot, ["rev-parse", "--show-toplevel"]));
   // Captures land under the repository key so a task worktree and the main

@@ -2,7 +2,7 @@
  * Taking the search index for writing, and handing it back, without stopping
  * anyone: the cross-process rebuild lock, SQLite's write lock waited for
  * between turns of the event loop, the checkpoint after a full rewrite, and a
- * damaged file set aside (docs/DEFECTS.md, Д-116, Д-120 … Д-123).
+ * damaged file set aside.
  *
  * `search-store.mjs` writes the index; this is what keeps several writers —
  * other clients' servers, a 2.x server's Python helper, another container on

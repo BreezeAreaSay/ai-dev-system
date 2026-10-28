@@ -812,7 +812,7 @@ async function frontendQaEnvironmentStatus(options) {
   let browser = null;
   // `launch: false` asks only whether the browser is on disk: setup reads that
   // to decide whether the install step is still needed, and starting Chromium
-  // for it would cost a second for nothing (docs/DEFECTS.md, Д-93).
+  // for it would cost a second for nothing.
   const launch = options.launch !== false;
   if (executable?.isFile() && launch) {
     try {

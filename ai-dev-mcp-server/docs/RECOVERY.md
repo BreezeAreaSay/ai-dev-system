@@ -26,7 +26,7 @@ if you changed any. Links are not followed and are listed as left out. The archi
 notes: keep it private.
 
 2.x had a PowerShell script for this that worked only inside a full vault
-(docs/DEFECTS.md, Д-104); `scripts/backup-ai-dev-system.ps1` is now a wrapper over this command
+; `scripts/backup-ai-dev-system.ps1` is now a wrapper over this command
 until 4.0.
 
 ## Restoring

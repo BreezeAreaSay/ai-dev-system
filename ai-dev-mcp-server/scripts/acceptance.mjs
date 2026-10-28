@@ -4,7 +4,7 @@
  *
  * Ten consecutive `npm run check` runs and the line "N падений из 10". One green
  * run is not proof: the failure this is built around appears in about two runs
- * out of ten and in none of the other eight (Д-11).
+ * out of ten and in none of the other eight.
  *
  * Usage: npm run acceptance [-- --runs 10] [--keep-logs]
  */

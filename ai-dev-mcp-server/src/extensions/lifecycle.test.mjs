@@ -171,7 +171,7 @@ test("verify_task runs the gate and hygiene, and a passing run meets its criteri
   assert.equal(verified.verification.passed, true);
   // The scanners run next to hygiene, and a run where none of them could run is
   // `unchecked` rather than a failure nobody can act on — it still does not
-  // block, but it no longer reads as "checked and clean" (Д-55).
+  // block, but it no longer reads as "checked and clean".
   assert.deepEqual(calls.find(([name]) => name === "runSecurityScan")[1], { project_path: "/repo/atlas", scanners: undefined });
   const securityCheck = verified.verification.checks.at(-1).result;
   assert.equal(securityCheck.status, "unchecked");
@@ -242,7 +242,7 @@ test("an unavailable runner becomes a failing check rather than an exception", a
   assert.equal(verified.verification.passed, false);
 });
 
-test("a project with no gate yet is told what writes one (Д-380)", async () => {
+test("a project with no gate yet is told what writes one", async () => {
   const hint = "prepare_project writes .ai-dev/quality-gate.md from the project's own scripts.";
   const { registry } = createFixture({ qualityGateThrows: true, qualityGateError: { code: "QUALITY_GATE_MISSING", hint } });
   const verified = await call(registry, "verify_task", { task_id: "task-1", run_hygiene: false });

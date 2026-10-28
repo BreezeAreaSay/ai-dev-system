@@ -118,7 +118,7 @@ export async function run(argv, io) {
   if (layout.kind === "package" && layout.ephemeral) return continueFromAppHome({ argv, io, layout });
 
   // Data a 2.x install left one level too deep moves first, so every step
-  // below finds it (docs/DEFECTS.md, Д-90).
+  // below finds it.
   const { prepareRuntimeHome } = await import("../core/runtime-home-migration.mjs");
   await prepareRuntimeHome();
   const { callTool, shutdownBgeWorkers, vaultRoot, searchIndexPath, skillRoutingEvalCasesPath } = await import("../mcp-stdio.mjs");
@@ -173,7 +173,7 @@ async function setup({ options, io, runtime, steps }) {
   const inspection = await inspectSetup({ runtime, env: io.env, steps });
   const { manifest: denseManifest, modelDir: onnxModelDir, indexStatus, qaDependencies, modelInstalled, modelUnreadable } = inspection;
   // The model is the ONNX export and nothing else; what a 2.x install left of
-  // the Python backend is named once, with what replaced it (D3, Д-98).
+  // the Python backend is named once, with what replaced it.
   const legacyWeightsDir = io.env.BGE_M3_MODEL_DIR || path.join(resolveRuntimeStateRoot("", io.env), "models", "bge-m3");
   const legacyNotes = [
     ...(options.densePython ? ["--dense-python asked for the Python backend, which 3.0 removed; installing the ONNX model instead (the same as --model)."] : []),
@@ -204,7 +204,7 @@ async function setup({ options, io, runtime, steps }) {
   }
   let wantModel = options.model;
   if (wantModel === undefined) {
-    // A model here this user cannot read is not offered for download over it (Д-359).
+    // A model here this user cannot read is not offered for download over it.
     wantModel = !modelInstalled && !modelUnreadable && asking
       ? await io.ask("Download the local search model too? About 600 MB, for semantic search; word search works without it.", false)
       : false;
@@ -254,7 +254,7 @@ async function setup({ options, io, runtime, steps }) {
 
   let clientsFailed = false;
   if (controller.signal.aborted) {
-    // A stop is not a fault, and nothing after it says anything new (Д-158).
+    // A stop is not a fault, and nothing after it says anything new.
     say("");
     say("Stopped with Ctrl-C. What was done is kept; run setup again to continue from there.");
     return EXIT.interrupted;
@@ -280,7 +280,7 @@ async function setup({ options, io, runtime, steps }) {
     say(`Health: ${doc.status} — ${checks.length} check(s), ${unhappy.length} not passing.`);
     for (const check of unhappy) say(`  ${check.status}: ${check.name} — ${String(check.summary).replace(/\s+/g, " ").slice(0, 120)}`);
     // The health check describes the vault, not this run; when a step here
-    // failed, "Health: ok" must not be the last word (Д-78).
+    // failed, "Health: ok" must not be the last word.
     if (!firstRunSucceeded(results)) {
       say("");
       say("That health check describes the vault, not this run — a step above failed. Fix it and run setup again.");

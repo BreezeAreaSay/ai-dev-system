@@ -81,7 +81,7 @@ test("POSIX expects the cross-platform runner and claims no PowerShell", () => {
   const expectations = distributionExpectations("posix");
   assert.equal(expectations.commands.start, "node bin/ai-dev.mjs mcp");
   assert.equal(expectations.commands.acceptance, "node scripts/acceptance.mjs");
-  assert.equal(expectations.commands.backup, "node bin/ai-dev.mjs backup <label>", "backup is a command on every system (Д-104)");
+  assert.equal(expectations.commands.backup, "node bin/ai-dev.mjs backup <label>", "backup is a command on every system");
   const plan = distributionFilePlan("posix", { serverRoot: "/srv", vaultRoot: "/vault" });
   assert.equal(plan.acceptance.path, path.join("/srv", "scripts", "acceptance.mjs"));
   assert.equal(plan.backup.path, path.join("/srv", "src", "cli", "backup.mjs"));
@@ -167,7 +167,7 @@ test("the rendered document names no script the flavor does not have", () => {
   }
 });
 
-test("an installed package is not asked for the acceptance runner it does not ship (Д-185)", () => {
+test("an installed package is not asked for the acceptance runner it does not ship", () => {
   const packaged = distributionExpectations("posix", { packaged: true });
   assert.equal(packaged.commands.acceptance, undefined);
   assert.equal(packaged.commands.backup, "node bin/ai-dev.mjs backup <label>");

@@ -1,6 +1,6 @@
 /**
  * `ai-dev mcp` as a bridge: the AI client's stdin and stdout on one side, the
- * daemon on the other (docs/DEFECTS.md, Д-97).
+ * daemon on the other.
  *
  * MCP passes through untouched, one JSON-RPC message per line — the
  * handshake too, so the client gets the daemon's own `initialize` answer with
@@ -15,7 +15,7 @@
  * The next message from the client reconnects — to a daemon started for it,
  * or, when none can be, to a server in this process. When the client closes
  * its end, the bridge stops reading and waits for the answers to what it
- * already sent before it leaves (docs/DEFECTS.md, Д-192).
+ * already sent before it leaves.
  */
 import { MAX_MESSAGE_BYTES } from "../transport/socket.mjs";
 
@@ -49,7 +49,7 @@ const isResponse = (message) => message?.method === undefined && message?.id !==
  * pipe hands over 64 KB at a time, and a character cut by a chunk's edge,
  * decoded on its own, became two U+FFFD that `JSON.parse` took without a word —
  * a Russian note of a few hundred kilobytes came out changed, on disk too
- * (docs/DEFECTS.md, Д-188). Each byte is looked at once and each line joined
+ *. Each byte is looked at once and each line joined
  * once, so a line of many megabytes costs what its size does. A line past
  * `longest` bytes is skipped unread, and `onTooLong` hears of it.
  *
@@ -233,7 +233,7 @@ export class StdioBridge {
   #fromClient(message, bytes = 0) {
     if (this.#ended || this.#inputEnded) return;
     // A server refuses a message past its limit by dropping the connection; the
-    // client hears why instead, and the session goes on (docs/DEFECTS.md, Д-194).
+    // client hears why instead, and the session goes on.
     if (bytes > MAX_MESSAGE_BYTES) {
       const [size, limit] = sizes(bytes);
       if (isRequest(message)) {
@@ -272,7 +272,7 @@ export class StdioBridge {
     }
     // A daemon that died while idle may not have been heard of yet: Windows
     // closes a killed process's pipe after the process is already gone, and a
-    // write into it in between is taken (docs/DEFECTS.md, Д-578).
+    // write into it in between is taken.
     if (isRequest(message) && this.#upstream.alive?.() === false) {
       const gone = this.#upstream;
       this.#lost(this.#generation, `${gone.describe ?? "the daemon"} is gone`);

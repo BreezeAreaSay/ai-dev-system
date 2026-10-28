@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 // The cold launch path of the Docker launcher, driven against a `docker` that
 // only writes down what it was asked to run. What is under test is the model
-// mount after Д-62 moved AI_DEV_MODEL_PATH one level up (docs/DEFECTS.md Д-68).
+// mount after Д-62 moved AI_DEV_MODEL_PATH one level up.
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const launcher = path.resolve(scriptDir, "..", "..", "docker", "run-mcp.sh");
@@ -67,7 +67,7 @@ test("the folder above the models is mounted read-only as /models", async (conte
   }
 });
 
-test("3.0 keeps the 2.x launcher working, says so, and runs the configured image even for a 2.x runtime-container config (D10, Д-89)", async (context) => {
+test("3.0 keeps the 2.x launcher working, says so, and runs the configured image even for a 2.x runtime-container config", async (context) => {
   const models = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-"));
   await fs.mkdir(path.join(models, "bge-m3-onnx"));
   try {
@@ -97,7 +97,7 @@ test("a model folder with no model in it launches, and says why dense will be mi
   }
 });
 
-test("a 2.x launcher mounts a linked bge-m3-onnx itself, and says when the link leads nowhere (Д-368)", async (context) => {
+test("a 2.x launcher mounts a linked bge-m3-onnx itself, and says when the link leads nowhere", async (context) => {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-")));
   try {
     const real = path.join(root, "disk2", "bge-m3-onnx-real");
@@ -122,7 +122,7 @@ test("a 2.x launcher mounts a linked bge-m3-onnx itself, and says when the link 
   }
 });
 
-test("a model folder with only the removed Python backend's weights is named as that (Д-158)", async (context) => {
+test("a model folder with only the removed Python backend's weights is named as that", async (context) => {
   const models = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-weights-"));
   await fs.mkdir(path.join(models, "bge-m3"));
   try {
@@ -154,12 +154,12 @@ for (const marker of ["pytorch_model.bin", "modules.json", "config.json", "onnx"
 }
 
 // The PowerShell launcher makes the same promises, and was written on a machine
-// that could not run it (docs/DEFECTS.md Д-70). pwsh is on the ubuntu and macOS
+// that could not run it. pwsh is on the ubuntu and macOS
 // runners as well as on Windows; the recording docker is a shell script, so
 // this half runs where sh is the shell.
 // pwsh renders a thrown message through its ConciseView: coloured even with no
 // terminal, a gutter on every line, and wrapped at whatever width the host
-// reports — 80 on the runner, wider here (docs/DEFECTS.md Д-71). The message is
+// reports — 80 on the runner, wider here. The message is
 // what is under test, so the view is taken back off before matching.
 function powerShellMessage(rendered) {
   return rendered
@@ -255,7 +255,7 @@ for (const marker of ["pytorch_model.bin", "modules.json", "config.json", "onnx"
   });
 }
 
-test("no launcher answers the handshake itself any more: no serverInfo, no version of its own (Д-89)", async () => {
+test("no launcher answers the handshake itself any more: no serverInfo, no version of its own", async () => {
   // Д-79 (upstream #65): both launchers answered `initialize` themselves so a
   // client would not time out while the container started, with a version
   // written in them — "1.0.0" for the whole of 2.0. In 3.0 the server answers:

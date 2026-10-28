@@ -5,7 +5,7 @@
  * a synchronous call into the engine, and a pattern that backtracks
  * catastrophically holds the thread until it finishes. Measured on this
  * repository: `(a|a)+$` against twenty-eight `a` and a `!` takes 38.8 seconds
- * (docs/DEFECTS.md, Д-16). One such rule in `.ai-dev/policy.json`
+ *. One such rule in `.ai-dev/policy.json`
  * stalls the guard on every Bash command and every file write.
  *
  * A worker thread *can* be terminated, so that is what this module does: the
@@ -33,7 +33,7 @@ export const DEFAULT_MATCH_BUDGET_MS = 250;
  * The per-job budget bounds one rule; it does not bound an event. Thirty rules
  * that each overstay cost thirty budgets — measured on this repository, thirty
  * `(a|a)+$` rules held the guard for 8.7 seconds and the client abandons a hook
- * at ten (docs/DEFECTS.md, Д-22). So the batch has a deadline of its
+ * at ten. So the batch has a deadline of its
  * own: when it passes, the jobs behind it come back unchecked instead of being
  * run, and the caller reports them rather than paying for them.
  *
@@ -102,7 +102,7 @@ export function clampMatchInput(text, limit = MAX_MATCH_INPUT) {
 
 // Why a worker failed, in words that are never empty: a worker that throws
 // `new Error("")` has failed all the same. The hooks' copy reads a failure with
-// this same expression, so both say the same of one (docs/DEFECTS.md, Д-397).
+// this same expression, so both say the same of one.
 function failureReason(cause) {
   return String((cause && cause.message) || cause || "").trim() || "it gave no reason";
 }
@@ -111,7 +111,7 @@ function failureReason(cause) {
 // Until the worker says `ready` it is only starting up: that has its own
 // ceiling, `startMs`, and a worker that does not start within it comes back
 // `notStarted` with no job charged. The per-job timer starts on `ready`
-// (docs/DEFECTS.md, Д-239). `startupMs` is how long the start took. A worker
+//. `startupMs` is how long the start took. A worker
 // that cannot be made, errors or exits comes back `failed`, with its reason in
 // `error` — told from a slow start by the flag, never by the reason's text.
 function runBatch(jobs, budgetMs, startMs) {
@@ -175,7 +175,7 @@ function runBatch(jobs, budgetMs, startMs) {
  *   pattern too slow). The caller says so instead of paying for it.
  *
  * The deadline counts the time the jobs run, not the time workers take to
- * start; that has its own allowance, `startMs`, for the whole batch (Д-239).
+ * start; that has its own allowance, `startMs`, for the whole batch.
  *
  * @param {Array<{ pattern: string, flags?: string, haystack?: string }>} jobs
  * @param {{ budgetMs?: number, deadlineMs?: number, startMs?: number, maxInput?: number }} [options]
@@ -225,7 +225,7 @@ export async function matchWithBudget(jobs, {
     if (notStarted) {
       // A worker that failed before it was ready ran none of these jobs, and the
       // next one would fail the same way: every job left is answered with its
-      // error, instead of a thread made and lost per job (docs/DEFECTS.md, Д-397).
+      // error, instead of a thread made and lost per job.
       for (let index = offset; index < prepared.length; index += 1) {
         answers[index] = { matched: null, checked: true, timed_out: false, error, truncated: prepared[index].truncated };
       }

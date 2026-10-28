@@ -210,7 +210,7 @@ Beside them sit the reserved roles (`RESERVED_ROUTING_ROLES`), which do not cons
   `pickTaskSpecialist` in `core/skill-recommendation.mjs`. It earns the slot the way its author
   intended: by its `use_when` answering the task's situation. The 101 skills imported from ECC
   could otherwise never appear at all, because our own three always fill the conventional slots
-  (docs/DEFECTS.md, Д-1).
+.
 
 The specialist is matched through `core/task-vocabulary.mjs`, which translates the concepts a
 Russian task names into the English terms an imported catalogue is written in — "настроить
@@ -227,7 +227,7 @@ Imported skills carry `trust: known-upstream` and `instruction_policy: data-unti
 are **metadata, not a mechanism**: nothing in this server reads `instruction_policy` before doing
 or refusing anything, and changing it to `trusted` would change no behaviour. They are an
 inventory — they say the catalogue contains text nobody here has read — and a decision built on
-them is a decision built on a label (docs/DEFECTS.md, Д-7).
+them is a decision built on a label.
 
 What actually keeps a hundred imported texts out of an agent's context is the shape of the
 context pack:
@@ -397,13 +397,13 @@ Providers must be cheap, read-only, and must not throw. A provider that fails is
 Code, `.cursor/hooks.json` for Cursor — merging into whatever is already there and
 replacing only previous AI Dev entries. The agent then spawns each script per event, with the event
 JSON on stdin — on macOS and Linux through `hooks/with-node.sh`, which finds Node without relying
-on the client's PATH (docs/DEFECTS.md, Д-103). The hooks reach the network only in the
+on the client's PATH. The hooks reach the network only in the
 supply-chain check, through `hooks/http-proxy.mjs`, their own copy of the server's proxy-aware
-client (Д-145).
+client.
 
 The Cursor side is a versioned adapter: `CURSOR_HOOKS_CONTRACT` (in `core/agent-hooks.mjs`) pins the
 `hooks.json` format version, the event names, the deny-response shape and the secondary sources they were
-reconstructed from — Cursor itself could not be reached (docs/DEFECTS.md, Д-2) — and grades each claim: the
+reconstructed from — Cursor itself could not be reached — and grades each claim: the
 version and the deny shape are corroborated; the three session events (`sessionStart`, `sessionEnd`,
 `preCompact`) and the rule that Cursor runs only the first entry of an event are unverified.
 `install_agent_hooks` returns those as `cursor_unverified`, and `npm run verify:cursor` prints the check a person
@@ -487,7 +487,7 @@ second copy, not an import (AGENTS.md, rule 3), and a test holds each copy to th
 Two things are written rather than copied: the server's secret, leftover and protected-config patterns, as
 `.ai-dev/hooks/patterns.json` (`renderHookPatterns`), so the guard, the git hooks and the hygiene scan read one
 table; and the runtime folder the installing server ran with, as `.ai-dev-home` beside the hooks, for hooks a
-client started from the Dock or the Start menu runs without `AI_DEV_HOME` (Д-184).
+client started from the Dock or the Start menu runs without `AI_DEV_HOME`.
 
 ### State roots
 
@@ -656,7 +656,7 @@ A task record (`${AI_DEV_HOME}/state/tasks/<task-id>.json`) is the authoritative
 ## The CLI
 
 `bin/ai-dev.mjs` hands its arguments to `src/cli/main.mjs`, which loads a command's module only when that command
-runs, so `help`, `version` and a mistyped command touch no data (docs/DEFECTS.md, Д-161). Before a command runs,
+runs, so `help`, `version` and a mistyped command touch no data. Before a command runs,
 `applySettingsToEnvironment` fills the variables the environment leaves unset from `config.json`, for the command
 and every process it starts. From a clone the CLI is `npm run ai-dev -- <command>` (`npm run setup`, `doctor`,
 `model`, `daemon` and `backup` are aliases); `scripts/ai-dev.mjs`, its 2.x path, runs the same `main` until 4.0.
@@ -676,7 +676,7 @@ and every process it starts. From a clone the CLI is `npm run ai-dev -- <command
 Every command exits 0 when done, 1 when it failed, 2 on wrong usage and 130 when stopped with Ctrl-C (`EXIT` in
 `core/cli-args.mjs`). `daemon status` exits 1 when no daemon runs for this install, `model status` and
 `model doctor` when the model is not ready, and `mcp` when the client closed with a request no server answered
-(Д-192); `uninstall` adds 3, something is in use, and 4, the data was kept.
+; `uninstall` adds 3, something is in use, and 4, the data was kept.
 
 ## The Daemon
 
@@ -684,14 +684,14 @@ Every command exits 0 when done, 1 when it failed, 2 on wrong usage and 130 when
 the handshake included, to the daemon of its build and back, and starts that daemon — `ai-dev daemon run`,
 detached and windowless — when none runs (`core/daemon-client.mjs`). A build is the code (its folder, version and a
 fingerprint of its sources), where its data is, and the Node it runs on (`describeBuild` in
-`core/daemon-channel.mjs` over `daemonIdentity`); clients that differ in any of these get a daemon each (Д-191).
+`core/daemon-channel.mjs` over `daemonIdentity`); clients that differ in any of these get a daemon each.
 When no daemon can serve, the bridge runs the server in its own process and says why on stderr; when the daemon
 goes away mid-session, each unanswered request gets an error and the next message reconnects, replaying the
 client's `initialize`. `AI_DEV_DAEMON=0` makes `ai-dev mcp` serve without a bridge.
 
 The daemon (`src/daemon.mjs`) holds its build's lock beside `run/daemon-<build>.json` — refreshed every 5 s, stale
 after 60 s — and keeps in that descriptor (mode 0600) its pid, version, address, secret and session count. It
-listens on a random address (`core/runtime-paths.mjs`; Д-97, Д-107): a Unix socket in the first of `run/`,
+listens on a random address (`core/runtime-paths.mjs`): a Unix socket in the first of `run/`,
 `$XDG_RUNTIME_DIR/ai-dev` and `/tmp/ai-dev-<uid>` where its path fits in 100 bytes and it can bind, in a folder
 only the user can open; a randomly named pipe on Windows. A connection is served only after an HMAC handshake over
 both sides' nonces; an MCP connection then sends its environment, and its session runs in it (`core/session-env.mjs`).
@@ -731,7 +731,7 @@ and how its commands are spelled:
 | `docker` | `AI_DEV_RUNTIME=docker` | `/data/ai-dev-system`, synced from the image's seed |
 
 `AI_DEV_VAULT_ROOT` names the content root and nothing else: it never changes the kind, and a package copies no
-seed into a vault named that way (Д-177). A package is also `ephemeral` when run from a one-run cache (`_npx`,
+seed into a vault named that way. A package is also `ephemeral` when run from a one-run cache (`_npx`,
 `dlx`, `bunx`), which no client config may name; `appHome` when it runs from a copy under `<runtime>/app/`;
 `bundle` when it is the Windows install's runtime (`bundle.json`). `hint()` rewrites a clone's
 `npm run …` advice into the layout's words — `ai-dev …`, `npx ai-dev-system …`, the Windows
@@ -747,7 +747,7 @@ Docker volume — is read against every seed file a 2.x image shipped (`data/see
 ## The Runtime Home
 
 `AI_DEV_HOME` names the runtime folder itself; unset, or set to the home directory as some 2.x setups did, it is
-`~/.ai-dev` (`core/runtime-home.mjs`; owner decision D2, Д-90):
+`~/.ai-dev` (`core/runtime-home.mjs`):
 
 ```text
 ${AI_DEV_HOME}/             default ~/.ai-dev
@@ -766,10 +766,10 @@ same way for a daemon's build. `config.json` holds what a person sets in the app
 projects folder, capability profiles, model mirror and folder, the daemon's idle time and autostart, the language —
 and a setting that stands for a variable is only its default: the environment wins (`core/settings.mjs`).
 `models/bge-m3/` and `python/` are 2.x leftovers. `ai-dev uninstall --data` deletes the folder only when all it
-holds, at its top and in `models/`, `cache/` and `backups/`, is of a kind AI Dev makes (Д-297).
+holds, at its top and in `models/`, `cache/` and `backups/`, is of a kind AI Dev makes.
 
 **File locks.** A file several processes write — bridges, the daemon, the hooks, containers sharing a volume — is
-guarded by `core/file-lock.mjs` (Д-96): `<target>.lock`, created exclusively, holding `{ pid, host, token,
+guarded by `core/file-lock.mjs`: `<target>.lock`, created exclusively, holding `{ pid, host, token,
 acquired_at }`, stale when its process is gone from this host, when it outlives its bound (30 s unless the holder
 sets one) or when it has had no readable holder for 2 s, broken only if it is still the file judged stale, and
 released only by its own token; a long holder refreshes it. `processState` tells `gone`, `exited` (a zombie
@@ -784,12 +784,12 @@ their synchronous copy of the protocol.
 process and before anything chooses a path: `mcp-stdio.mjs` awaits it as it loads, and the daemon, `setup`,
 `backup` and the CLI commands that call a tool run it first. Three moves, each under its own lock:
 
-- `<AI_DEV_HOME>/.ai-dev` into `<AI_DEV_HOME>`: 2.x appended `.ai-dev` to the variable (Д-90);
+- `<AI_DEV_HOME>/.ai-dev` into `<AI_DEV_HOME>`: 2.x appended `.ai-dev` to the variable;
 - AI Dev's folders in the `.codex` 2.x read — `$AI_DEV_HOME/.codex` when `AI_DEV_HOME` is set, else `~/.codex`
-  (Д-389) — (`state/ai-dev-system`, `state/archify-receipts`, `cache/ai-dev-system/search-index`,
+ — (`state/ai-dev-system`, `state/archify-receipts`, `cache/ai-dev-system/search-index`,
   `artifacts/frontend-qa`, `artifacts/archify`, `models/bge-m3-onnx`) into the runtime home, unless a variable
-  names the place; the rest of `.codex` is Codex's and stays (Д-104);
-- in the image, the volume's `state/` into the host's state folder the entry mounts, at every start (Д-103).
+  names the place; the rest of `.codex` is Codex's and stays;
+- in the image, the volume's `state/` into the host's state folder the entry mounts, at every start.
 
 Nothing is written over: an identical file is dropped from the old place, a JSONL ledger is merged in time order,
 anything else on both sides — and a file that cannot move — stays and is reported, and in the `.codex` move a
@@ -805,7 +805,7 @@ volume's vault is read against the seed history, and a client's `ai-dev-system` 
 what to run (`planFirstRun`): the skill registry, the skill quality report, the search index and the routing
 benchmark are required; Frontend QA's dependencies and browser, the model, and the documents' vectors made with it
 are optional and run only when asked for. The required steps are `scripts/first-run-steps.mjs`, shared by
-`ai-dev setup` and the container's start (Д-57); `core/setup-runner.mjs` adds the optional ones and runs the plan
+`ai-dev setup` and the container's start; `core/setup-runner.mjs` adds the optional ones and runs the plan
 for `ai-dev setup` and for `setup_run`, which the desktop wizard calls through the daemon with progress and a
 cancel. At a terminal `setup` asks about the clients it found, the model and Frontend QA; `--yes` connects the
 clients and skips the downloads; without either, no client config is written unless `--clients` names some.
@@ -833,8 +833,8 @@ runtime home), for `ai-dev model` and the control tools alike; a file once hashe
   (`src/workers/dense-onnx-worker.mjs`) that loads the verified folder with `@huggingface/transformers` over
   `onnxruntime-node`, remote models off — the runtime's inference is synchronous native work and would otherwise
   hold the MCP loop. Both are optional dependencies, so an install whose onnxruntime-node postinstall failed still
-  runs (Д-174). `denseRuntimeSupport` reads the installed onnxruntime-node for a build of this platform: 1.30 has
-  none for Intel Macs, which search with the keyword and sparse halves only (Д-101).
+  runs. `denseRuntimeSupport` reads the installed onnxruntime-node for a build of this platform: 1.30 has
+  none for Intel Macs, which search with the keyword and sparse halves only.
 - **Diagnosis**: `ai-dev model doctor` (`core/dense-doctor.mjs`) checks Node, the runtime, the manifest, the
   files, loading and a trial embedding, and stops at the first failure; the health check grades
   `embedding_status` in `core/embedding-health.mjs` — `ok`; `skipped` when not installed or unsupported; `warn`
@@ -858,12 +858,12 @@ control tools and the Docker installers — and `core/client-connections.mjs` de
 
 A config is edited as text (`core/jsonc-edit.mjs`, `core/toml-edit.mjs`), so everything else in it stays byte for
 byte; it is written through a temp file and a rename after checking it did not change meanwhile, with its old bytes
-kept as `<file>.backup-<time>`. Writing `ai-dev` removes `ai-dev-system`, the 2.x local installer's name (Д-95).
+kept as `<file>.backup-<time>`. Writing `ai-dev` removes `ai-dev-system`, the 2.x local installer's name.
 What was written is recorded in `mcp-clients.json` in the state folder, so `remove` restores a file nothing else
 has touched since — less any `ai-dev` or `ai-dev-system` entry the install replaced, which the backup beside it keeps
 — and cuts the entry out of one that was. A **local entry** is this Node by its full path, the CLI
 and `mcp` — a client started from the Dock does not have the shell's `PATH` — with `AI_DEV_VAULT_ROOT` when one is
-set or the server sits in a vault, and `AI_DEV_HOME` when one is set (Д-176); an npx package is launched from its
+set or the server sits in a vault, and `AI_DEV_HOME` when one is set; an npx package is launched from its
 app-home copy, the Windows install through `<runtime>/app/current`. A **Docker entry** (`--docker`,
 `core/docker-launch.mjs`) is `docker run -i --rm` with a read-only root, no network, no capabilities and
 `no-new-privileges`, mounting the volume at `/data`, the host's state folder at `/ai-dev-state` where the image's
@@ -876,7 +876,7 @@ answers `initialize`.
 ## Distribution And The npm Package
 
 `npm run dist` (`scripts/build-dist.mjs`) builds `dist/ai-dev/`, which every installed form is made from: the npm
-package `ai-dev-system` (owner decision D4), the Windows installer's runtime and the image's build
+package `ai-dev-system`, the Windows installer's runtime and the image's build
 context. Its files come from `distribution.allowlist.json` — groups (the server, Frontend QA's runner, the search
 cases, the seed as its manifest lists it, the notices), each mapped to where it lands in each target, read by
 `core/distribution-build.mjs`; a pattern that matches nothing stops the build. Beside them it writes the package's
@@ -903,10 +903,10 @@ no network. It has no Python, and no browser except in the `browser` target, tag
 - **The prepared `/data`.** At build time `scripts/docker-prepare-data.mjs` builds into `/data` what a first start
   builds — the seed in the vault, the skill registry, the quality report, the index, the routing benchmark — and
   fails the build if another pass would rebuild anything. Docker copies `/data` into each new named volume, whose
-  first start waits for that copy, gives the skill folders their times back (`core/image-data.mjs`, Д-355), and
+  first start waits for that copy, gives the skill folders their times back (`core/image-data.mjs`), and
   builds nothing.
 - **Every start** loads the server module — which moves the volume's state into the host's state folder when the
-  entry mounts one, and syncs the vault from the image's seed, where 2.x's `cp -n` never updated a file (Д-99) — then
+  entry mounts one, and syncs the vault from the image's seed, where 2.x's `cp -n` never updated a file — then
   runs the required steps under the volume's first-run lock, building only what is missing or stale; a start that
   waited 40 s on another serves what is built.
 - **The model** is `/models/bge-m3-onnx` when the host mounts a folder holding it at `/models`, else
@@ -942,29 +942,29 @@ model through onnxruntime-node. Two tools still run a Python script, `query_ui_u
 `generate_ui_ux_design_system` over the UI UX Pro Max dataset, through the one place that picks an interpreter
 (`core/python-command.mjs`); without Python they say so, and the health check marks `ui_ux_knowledge` skipped.
 `scripts/no-python-check.mjs` runs `npm ci`, the first run, the health check and the protocol smoke with every
-interpreter taken off `PATH`, on Linux, macOS and Windows in CI (Д-85). A setting of the removed Python backend
+interpreter taken off `PATH`, on Linux, macOS and Windows in CI. A setting of the removed Python backend
 (`AI_DEV_DENSE_BACKEND=python`, `BGE_M3_MODEL_DIR` …) is read only to say what replaced it
-(`core/dense-backend.mjs`, decision D3).
+(`core/dense-backend.mjs`).
 
 `ai-dev backup [label]` writes `ai-dev-system_<time>_<label>.zip` and its `.sha256` — to `backups/` in the runtime
 home unless `--to` names a folder — with the content root and the runtime's `state/` and a manifest
 (`BACKUP-MANIFEST.json`) of every file's sha256; indexes, caches, models and dependencies are rebuilt, not backed
 up (`core/backup-archive.mjs`, `node:zlib`, no dependency). `ai-dev restore <archive> --confirm` checks the archive
 and every file, and writes over nothing unless `--overwrite`, which it checks before the first write. Both run in
-every layout on every system; 2.x's PowerShell scripts worked only inside the owner's vault (Д-104).
+every layout on every system; 2.x's PowerShell scripts worked only inside the owner's vault.
 
 ## Line Budgets
 
 `scripts/static-quality.mjs` enforces two ceilings, whose rules are `core/line-budget.mjs`, tested by
-`core/line-budget.test.mjs` without breaking a real file (docs/DEFECTS.md, Д-12):
+`core/line-budget.test.mjs` without breaking a real file:
 
 - `src/mcp-stdio.mjs` may not exceed `SYSTEM_LINE_CEILING`, which lives in `core/system-health.mjs` so the System
   Dashboard reports the ceiling the gate enforces. Stage 1 took the file from 10,018 lines to 4,775 in six
   extractions, and the ceiling was re-pinned to its size plus roughly 300 lines of working room after each, so it
   can be edited but not re-grown. New capabilities go into `src/extensions/`.
 - Every module under `bin/`, `src/cli/`, `src/core/`, `src/extensions/` and `src/galaxy/`, and the desktop app's
-  code in `desktop/src` and `desktop/scripts` (Д-256), stays within `MODULE_LINE_CEILING` (800) — the soft ceiling
-  `COMMON_RULES` puts on user projects. `hooks/` is exempt: each hook is one file by design (Д-172).
+  code in `desktop/src` and `desktop/scripts`, stays within `MODULE_LINE_CEILING` (800) — the soft ceiling
+  `COMMON_RULES` puts on user projects. `hooks/` is exempt: each hook is one file by design.
 
 `MODULE_LINE_EXCEPTIONS` pins the two modules that were over the ceiling when the rule landed,
 `core/frontend-product-quality.mjs` and `core/reference-factory.mjs`, at that day's size: a pinned module may only
@@ -974,13 +974,13 @@ The same walk runs `node --check` over `bin/`, `src/`, `scripts/`, `hooks/` and 
 launcher, and refuses the calls AGENTS.md forbids (`core/forbidden-calls.mjs`), read as tokens by `core/code-tokens.mjs` —
 comments, strings, template text and regular expressions set aside, every escape decoded, a name ended where JavaScript ends
 it — a member's name a name whatever word it is — a statement begun where a line break ends one, a `.cjs` file's HTML-like
-comments read as a script reads them (Д-267, Д-382, Д-398, Д-407, Д-423, Д-424, Д-442, Д-447, Д-461, Д-463): `eval` and the
+comments read as a script reads them: `eval` and the
 `Function` constructor, called or handed on; a computed member of `globalThis`, `window`, `global` or `self` whose key is not
 one plain string naming neither; `exec` and `execSync` of `child_process` through any import, `require`, `import()` or
 `process.getBuiltinModule` of the module — called by name, as a member or by a plain-string key, in parentheses, or through
 `.call` or `.apply` — and any name it is plainly re-bound to, above or below, and the module object itself exported: whole —
 on one line or over several, not a value it takes part in — by a declaration, by a pattern that declares it from the module
-itself, or through an exported `let` or `var` it is assigned to, by name or by a pattern (Д-432, Д-440, Д-459, Д-460, Д-464);
+itself, or through an exported `let` or `var` it is assigned to, by name or by a pattern;
 and a `shell` option that is not plainly off. So `import * as cp` then `cp.exec(…)`, `{ "shell": true }` and
 `globalThis["ev" + "al"]` are refused like the usual forms, and a file it cannot read to its end is refused, not trusted. It
 follows the module object and the global objects through plain re-binding and nothing else — a module name built from parts,

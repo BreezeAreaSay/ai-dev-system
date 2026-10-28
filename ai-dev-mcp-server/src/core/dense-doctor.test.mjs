@@ -133,7 +133,7 @@ test("files that are there but wrong get different advice from files that are ab
   assert.ok(!/start the download/.test(report), "not the advice for files that are absent");
 });
 
-test("in the image, the host's folder at /models is fixed on the host, as the start report says (Д-558)", async () => {
+test("in the image, the host's folder at /models is fixed on the host, as the start report says", async () => {
   const lacking = async () => ({ ready: false, dir: "/models/bge-m3-onnx", present: ["config.json"], missing: ["tokenizer.json"], mismatched: [] });
   const report = renderDenseDoctorReport(await doctor({ inContainer: true, verifyFiles: lacking }));
   assert.match(report, /What to do: In this container, the folder is the host's, mounted read-only at \/models \(AI_DEV_MODEL_PATH\): put the model right there on the host/);
@@ -144,7 +144,7 @@ test("in the image, the host's folder at /models is fixed on the host, as the st
   const volume = await doctor({ inContainer: true, verifyFiles: async () => ({ ...await lacking(), dir: "/data/runtime-home/.ai-dev/models/bge-m3-onnx" }) });
   assert.match(renderDenseDoctorReport(volume), /to start the download/);
   assert.match(renderDenseDoctorReport(await doctor({ verifyFiles: lacking })), /to start the download/);
-  // Files that verified and do not load: the host's folder is still put right on the host (Д-569).
+  // Files that verified and do not load: the host's folder is still put right on the host.
   const whole = async () => ({ ready: true, dir: "/models/bge-m3-onnx", present: ["config.json"], missing: [], mismatched: [] });
   const broken = async () => { throw new Error("Protobuf parsing failed"); };
   const load = renderDenseDoctorReport(await doctor({ inContainer: true, verifyFiles: whole, loadModel: broken }));

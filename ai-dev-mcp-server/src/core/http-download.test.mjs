@@ -87,7 +87,7 @@ test("HTTPS goes through a CONNECT tunnel, and TLS is with the host, not the pro
   assert.equal(host.requests[0].host, `${TEST_HOST}:${host.port}`);
 });
 
-test("through the tunnel an IP-literal host is held to its own address, not the proxy's name (Д-152)", async (t) => {
+test("through the tunnel an IP-literal host is held to its own address, not the proxy's name", async (t) => {
   const host = await startModelHost({ files: FILES, tls: true });
   t.after(() => host.close());
   // The certificate names models.example.test, localhost and 127.0.0.1 — not this address.
@@ -98,7 +98,7 @@ test("through the tunnel an IP-literal host is held to its own address, not the 
   assert.deepEqual(proxy.seen, ["CONNECT 10.255.255.1:443"], "it was the tunnel, and the check that refused");
 });
 
-test("credentials in a proxy or mirror address never reach a message (Д-151)", () => {
+test("credentials in a proxy or mirror address never reach a message", () => {
   const secret = ["s3cret", "PW"].join("");
   assert.equal(redactCredentials(`http://alice:${secret}@proxy.corp:3128`), "http://***@proxy.corp:3128");
   assert.equal(redactCredentials(`https://token${secret}@mirror.example/Xenova`), "https://***@mirror.example/Xenova", "a token as the user name too");
@@ -192,7 +192,7 @@ test("an error page is read for its first words only, and a describer leaves abo
   assert.match(describeNetworkError(Object.assign(new Error("x"), { code: "ENOTFOUND" }), new URL("https://a.b/"), new URL("http://p:1")).message, /the proxy http:\/\/p:1 could not be found/);
 });
 
-test("a session's own NODE_EXTRA_CA_CERTS is trusted, as its own process would have trusted it (Д-191)", async (t) => {
+test("a session's own NODE_EXTRA_CA_CERTS is trusted, as its own process would have trusted it", async (t) => {
   const host = await startModelHost({ files: FILES, tls: true });
   // The test host is reached the way a corporate network reaches the internet: through a proxy.
   const proxy = await startProxy({ hosts: { [TEST_HOST]: host.port } });
@@ -219,17 +219,17 @@ test("a session's own NODE_EXTRA_CA_CERTS is trusted, as its own process would h
   assert.deepEqual(trustedAuthorities({ ...own, NODE_EXTRA_CA_CERTS: path.join(directory, "missing.pem") }), base, "an unreadable file is skipped, as Node skips it");
 });
 
-test("an https:// proxy is trusted by the session's own certificates too, and a proxy that is not is named (Д-200)", async (t) => {
+test("an https:// proxy is trusted by the session's own certificates too, and a proxy that is not is named", async (t) => {
   const host = await startModelHost({ files: FILES, tls: true });
   // Plain HTTP goes to a name only the proxy resolves: a loopback address
-  // would go around the proxy, and test nothing of it (docs/DEFECTS.md, Д-205).
+  // would go around the proxy, and test nothing of it.
   const plain = await startModelHost({ files: FILES });
   const plainHost = "plain.example.test";
   const proxy = await startProxy({ hosts: { [TEST_HOST]: host.port, [plainHost]: plain.port }, tls: true });
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-ca-"));
   t.after(() => Promise.all([host.close(), plain.close(), proxy.close(), fs.rm(directory, { recursive: true, force: true })]));
   // The session's file holds both: the proxy's certificate names localhost
-  // alone, the host's its own name — as a corporate proxy's does (Д-206).
+  // alone, the host's its own name — as a corporate proxy's does.
   const file = path.join(directory, "corp.pem");
   await fs.writeFile(file, `${TEST_TLS.cert}${TEST_PROXY_TLS.cert}`);
   const url = `https://${TEST_HOST}:${host.port}/m/config.json`;
@@ -257,7 +257,7 @@ test("a session that asks for the system's store gets it, and only then", () => 
   const own = { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS ?? "" };
   const bundled = tls.rootCertificates.length;
   // A machine behind a corporate proxy may run this very test with the store
-  // already on (docs/DEFECTS.md, Д-205): then asking for it changes nothing.
+  // already on: then asking for it changes nothing.
   const startedWithIt = usesSystemStore(process.env, process.execArgv);
   const system = trustedAuthorities({ ...own, NODE_OPTIONS: "--max-old-space-size=4096 --use-system-ca" });
   if (startedWithIt) {

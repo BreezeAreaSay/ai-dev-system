@@ -62,17 +62,17 @@ test("without the model, embedding is refused with the reason and the commands",
   await assert.rejects(runtime.embed({ texts: ["x"] }), /Dense search is not installed: the model is not on this machine\. Run `npm run setup -- --model`/);
   assert.deepEqual(calls.embed, []);
   const inContainer = runtimeWith({ ready: false, env: { AI_DEV_RUNTIME: "docker" } });
-  // Its folder here is the host's mount at /models: the fix is on the host (Д-157).
+  // Its folder here is the host's mount at /models: the fix is on the host.
   assert.match((await inContainer.runtime.describe()).reason, /mounted read-only at \/models .*put the model right there on the host/);
   const intel = runtimeWith({ supported: false });
   assert.match((await intel.runtime.describe()).reason, /darwin-x64/);
-  // Files that are there but not the pinned ones are not "not on this machine" (Д-146).
+  // Files that are there but not the pinned ones are not "not on this machine".
   const tampered = runtimeWith({ found: { ready: false, dir: "/models/bge-m3-onnx", present: ["config.json"], missing: [], mismatched: ["onnx/model_int8.onnx"] } });
   await assert.rejects(tampered.runtime.embed({ texts: ["x"] }),
     /^Error: Dense search is not ready: onnx\/model_int8\.onnx in \/models\/bge-m3-onnx is not the pinned file \(the sha256 differs from the manifest\)\. Run `npm run setup -- --model`: it fetches it again\.$/);
 });
 
-test("a model this process cannot read is not ready, and says why: the health check and embedding_status stand (Д-349)", async (t) => {
+test("a model this process cannot read is not ready, and says why: the health check and embedding_status stand", async (t) => {
   const denied = Object.assign(new Error("EACCES: permission denied, open '/models/bge-m3-onnx/config.json'"), { code: "EACCES", syscall: "open" });
   const { runtime } = runtimeWith({ verifyError: denied, env: { AI_DEV_RUNTIME: "docker" } });
   const status = await runtime.describe();
@@ -82,7 +82,7 @@ test("a model this process cannot read is not ready, and says why: the health ch
   assert.equal(status.onnx.unreadable, "EACCES: permission denied, open '/models/bge-m3-onnx/config.json'");
   assert.equal("unreadable" in (await runtimeWith({}).runtime.describe()).onnx, false, "a readable model has no such field");
   await assert.rejects(runtime.embed({ texts: ["x"] }), /cannot be read/);
-  // Its files are not missing, only unseen (Д-358); one not there at all is (Д-366).
+  // Its files are not missing, only unseen; one not there at all is.
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "dense-runtime-unread-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   await fs.mkdir(path.join(dir, "onnx"));
@@ -93,17 +93,17 @@ test("a model this process cannot read is not ready, and says why: the health ch
   await fs.rm(path.join(dir, "config.json"));
   const gap = runtimeWith({ verifyError: denied, onnxModelDir: dir });
   assert.deepEqual((await gap.runtime.describe()).onnx.missing, ["config.json"]);
-  // A stopped download of the missing file beside it: what is said first is why the model cannot be read (Д-369).
+  // A stopped download of the missing file beside it: what is said first is why the model cannot be read.
   await fs.writeFile(path.join(dir, "config.json.part"), "{\"half\":");
   await fs.writeFile(path.join(dir, "config.json.part.json"), JSON.stringify({ format: 1, revision: MANIFEST.revision, sha256: MANIFEST.files["config.json"], size: 182 }));
   const stopped = await runtimeWith({ verifyError: denied, onnxModelDir: dir }).runtime.describe();
   assert.deepEqual(stopped.partial, []);
   assert.match(stopped.reason, /cannot be read \(EACCES/);
-  // A fault of the code is a check that could not be made, not a model that cannot be read (Д-371).
+  // A fault of the code is a check that could not be made, not a model that cannot be read.
   const fault = await runtimeWith({ verifyError: new TypeError("Cannot read properties of undefined (reading 'files')") }).runtime.describe();
   assert.equal(fault.available, false);
   assert.equal("unreadable" in fault.onnx, false);
-  assert.equal(fault.onnx.unchecked, "Cannot read properties of undefined (reading 'files')", "the details say why (Д-372)");
+  assert.equal(fault.onnx.unchecked, "Cannot read properties of undefined (reading 'files')", "the details say why");
   assert.equal(fault.reason, `Dense search is not ready: the model in ${path.resolve("/models/bge-m3-onnx")} could not be checked (Cannot read properties of undefined (reading 'files')).`);
   const local = runtimeWith({ verifyError: denied, onnxModelDir: "/home/me/.ai-dev/models/bge-m3-onnx" });
   assert.match((await local.runtime.describe()).reason, /cannot be read .*Make the folder and its files readable to the user this runs as\./);
@@ -129,7 +129,7 @@ test("the check trusts the record for a minute, and a refresh reads every file",
   assert.equal(noStamp.calls.verify[0].stampFile, "", "no record kept without a place for it");
 });
 
-test("a record rewritten by an install, import or remove ends the cached answer early (Д-148)", async (t) => {
+test("a record rewritten by an install, import or remove ends the cached answer early", async (t) => {
   const stampDir = await fs.mkdtemp(path.join(os.tmpdir(), "dense-runtime-stamp-"));
   t.after(() => fs.rm(stampDir, { recursive: true, force: true }));
   let clock = 0;

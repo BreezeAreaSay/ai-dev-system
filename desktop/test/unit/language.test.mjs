@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { LOCK_WAIT_MS, LOOK_EVERY_MS, createLanguageKeeper } from "../../src/main/language.mjs";
 
 // The language the person chose, against the install's own settings code: a
-// real file, a real lock (docs/DEFECTS.md, Д-279).
+// real file, a real lock.
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const serverRoot = path.resolve(process.env.AI_DEV_SERVER_ROOT || path.join(desktopRoot, "..", "ai-dev-mcp-server"));
@@ -61,7 +61,7 @@ test("a choice the file takes is written at once, waiting a second at most for i
   assert.equal(await keeper.choose("ru"), true);
   assert.equal(await stored(), "ru");
   assert.equal(keeper.waiting(), null);
-  // The app hears of it: the file changed, and it names Russian (Д-282).
+  // The app hears of it: the file changed, and it names Russian.
   assert.deepEqual(outcomes, [{ changed: true, language: "ru" }]);
   assert.equal(await keeper.choose("ru"), true);
   assert.deepEqual(outcomes.at(-1), { changed: false, language: "ru" }, "the same language again changes nothing");
@@ -84,7 +84,7 @@ test("a choice made while the file is broken waits, and is written within a look
   assert.equal(await until(() => keeper.waiting() === null), true);
 });
 
-test("it gives way to a language the person writes into the fixed file — decided under the file's lock, the empty one too (Д-279)", async (t) => {
+test("it gives way to a language the person writes into the fixed file — decided under the file's lock, the empty one too", async (t) => {
   const { file, keeper, writes, stored, hold, outcomes } = await stage(t, "{ not json");
   await keeper.choose("ru");
   const free = await hold();
@@ -97,7 +97,7 @@ test("it gives way to a language the person writes into the fixed file — decid
   await free();
   assert.equal(await until(() => keeper.waiting() === null), true);
   assert.equal(await stored(), "en");
-  // The app hears the file's own language, which it then speaks (Д-283, п. 2).
+  // The app hears the file's own language, which it then speaks.
   assert.deepEqual(outcomes, [{ changed: false, language: "en" }]);
   await sleep(2 * LOOK_EVERY_MS);
   assert.equal(await stored(), "en", "and nothing is written over it later");
@@ -109,7 +109,7 @@ test("it gives way to a language the person writes into the fixed file — decid
   assert.equal(await empty.stored(), "");
 });
 
-test("a later choice is never written over by an earlier one that waited (Д-279)", async (t) => {
+test("a later choice is never written over by an earlier one that waited", async (t) => {
   const { file, keeper, writes, stored, hold } = await stage(t, "{ not json");
   await keeper.choose("ru");
   const free = await hold();
@@ -126,7 +126,7 @@ test("a later choice is never written over by an earlier one that waited (Д-279
   assert.equal(await stored(), "en");
 });
 
-test("a later choice made while the file is still broken is not given way to the earlier one this app wrote (Д-279)", async (t) => {
+test("a later choice made while the file is still broken is not given way to the earlier one this app wrote", async (t) => {
   const { file, keeper, writes, stored, hold } = await stage(t, "{ not json");
   await keeper.choose("ru");
   const free = await hold();
@@ -141,7 +141,7 @@ test("a later choice made while the file is still broken is not given way to the
   assert.equal(await stored(), "en", "Russian, which this app wrote, is no language of the person's own");
 });
 
-test("a choice whose write failed on a readable file is written once it can be, over the file's language (Д-279)", async (t) => {
+test("a choice whose write failed on a readable file is written once it can be, over the file's language", async (t) => {
   const { keeper, stored, hold } = await stage(t, JSON.stringify({ schema_version: 1, language: "en" }));
   const free = await hold();
   const started = Date.now();
@@ -153,7 +153,7 @@ test("a choice whose write failed on a readable file is written once it can be, 
   assert.equal(await until(() => keeper.waiting() === null), true);
 });
 
-test("a file a newer AI Dev wrote: the choice holds, and the file is not tried again (Д-279)", async (t) => {
+test("a file a newer AI Dev wrote: the choice holds, and the file is not tried again", async (t) => {
   const { file, keeper, writes } = await stage(t, JSON.stringify({ schema_version: 2, projects_root: "" }));
   assert.equal(await keeper.choose("ru"), false);
   assert.equal(keeper.waiting(), "ru");
@@ -163,7 +163,7 @@ test("a file a newer AI Dev wrote: the choice holds, and the file is not tried a
   assert.deepEqual(JSON.parse(await fs.readFile(file, "utf8")), { schema_version: 2, projects_root: "" });
 });
 
-test("Quit: one more write of what waits, the lock waited for a second at most, the look already waiting included (Д-279, Д-283)", async (t) => {
+test("Quit: one more write of what waits, the lock waited for a second at most, the look already waiting included", async (t) => {
   const { file, keeper, writes, stored, hold } = await stage(t, "{ not json");
   await keeper.choose("ru");
   const free = await hold();
@@ -180,7 +180,7 @@ test("Quit: one more write of what waits, the lock waited for a second at most, 
   assert.equal(await stored(), "ru");
 });
 
-test("Quit's second bounds a choice made just before it too, behind the look already waiting (Д-284)", async (t) => {
+test("Quit's second bounds a choice made just before it too, behind the look already waiting", async (t) => {
   const { file, keeper, writes, hold } = await stage(t, "{ not json");
   await keeper.choose("ru");
   const free = await hold();
@@ -196,7 +196,7 @@ test("Quit's second bounds a choice made just before it too, behind the look alr
   await free();
 });
 
-test("at start-up the choice holds — unless it was made while the file could not be read and the file, fixed, names a language (Д-276, п. 2)", async (t) => {
+test("at start-up the choice holds — unless it was made while the file could not be read and the file, fixed, names a language", async (t) => {
   const broken = await stage(t, "{ not json");
   await broken.keeper.choose("ru");
   assert.equal(broken.keeper.atStart({}), "ru", "a fixed file that names none: the choice");
@@ -237,7 +237,7 @@ function slowFirst() {
   return { file, started, module };
 }
 
-test("a slow earlier write in flight is never landed over a later choice (Д-283 п. 5, Д-284)", async (t) => {
+test("a slow earlier write in flight is never landed over a later choice", async (t) => {
   const { file, started, module } = slowFirst();
   const keeper = createLanguageKeeper({ server: () => module, env: {} });
   t.after(() => keeper.stop());
@@ -249,7 +249,7 @@ test("a slow earlier write in flight is never landed over a later choice (Д-283
   assert.equal(file.language, "en");
 });
 
-test("only the last choice's outcome is said: a write a later choice superseded says nothing (Д-284)", async (t) => {
+test("only the last choice's outcome is said: a write a later choice superseded says nothing", async (t) => {
   const { started, module } = slowFirst();
   const outcomes = [];
   const keeper = createLanguageKeeper({ server: () => module, env: {}, settled: (outcome) => outcomes.push(outcome) });

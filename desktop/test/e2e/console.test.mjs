@@ -56,7 +56,7 @@ test("a read-only tool runs at once; one that changes something runs only after 
   await page.click('[data-action="run"]');
   await page.waitForSelector('[data-field="not-confirmed"]');
   const [asked] = await messageBoxes(app);
-  // A long value goes on in indented rows (Д-292): read each argument whole.
+  // A long value goes on in indented rows: read each argument whole.
   asked.detail = asked.detail.replace(/\n {4}/g, "");
   assert.match(asked.message, /Run record_decision\?/);
   assert.match(asked.detail, /^title: "Use Stripe for payments"$/m);

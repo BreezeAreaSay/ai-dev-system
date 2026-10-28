@@ -13,7 +13,7 @@
  * stranger's machine reaches — is a test case. What comes from the process
  * itself: how this install spells its commands (the install layout `hint()`
  * reads once), the platform where a caller names none, and in a container the
- * volume at its `/data` (docs/DEFECTS.md, Д-528, Д-541, Д-547).
+ * volume at its `/data`.
  */
 import { DEFAULT_DOCKER_VOLUME, dataVolume } from "./docker-launch.mjs";
 import { dockerCommand, hint } from "./install-layout.mjs";
@@ -95,7 +95,7 @@ export function legacyDenseNotes(env = {}, { legacyWeightsDir = "" } = {}) {
  * Whether dense search runs, and the sentence that says why or why not.
  *
  * Not installed is a state, not a failure: hybrid search runs its keyword and
- * sparse halves without any model (docs/DEFECTS.md, Д-59). The sentence names
+ * sparse halves without any model. The sentence names
  * the command that changes it — a download, or a copy from another machine for
  * one that cannot reach the download — and, in a container, the mount.
  *
@@ -107,7 +107,7 @@ export function legacyDenseNotes(env = {}, { legacyWeightsDir = "" } = {}) {
  * @param {boolean} [options.inContainer]
  * @param {{ dir?: string, present?: string[], missing?: string[], mismatched?: string[], partial?: string[] }} [options.files]
  *   What the check found, so the sentence says which of "not here", "not all here",
- *   "stopped partway" and "not the pinned files" it is (docs/DEFECTS.md, Д-146).
+ *   "stopped partway" and "not the pinned files" it is.
  * @returns {{ backend: string, available: boolean, reason: string, requested: string }}
  */
 export function selectDenseBackend({ requested = "auto", onnxReady = false, supported = true, supportReason = "", inContainer = false, files = {} } = {}) {
@@ -132,16 +132,16 @@ export function selectDenseBackend({ requested = "auto", onnxReady = false, supp
 export const DOCKER_MOUNTED_MODEL_DIR = "/models/bge-m3-onnx";
 
 // Where a model goes in a container: the data volume — the default one by its name, as the start report names it — or,
-// where /data holds a mount with no volume's name, what the sessions keep there (docs/DEFECTS.md, Д-547, Д-560).
+// where /data holds a mount with no volume's name, what the sessions keep there.
 const dataPlaceOf = (volume) => (volume === null ? "where your sessions keep /data"
   : volume === DEFAULT_DOCKER_VOLUME ? `into the default volume, ${volume}` : "into the data volume");
 
 /**
  * What fixes the model inside a container, by the folder it is read from. The
  * host's folder at /models is a read-only mount, fixed on the host
- * (docs/DEFECTS.md, Д-157); the volume's is fixed by installing the model into
- * it, with the network that one run needs (Д-99) — and where `/data` holds a
- * mount with no volume's name, into what the sessions keep there (Д-547).
+ *; the volume's is fixed by installing the model into
+ * it, with the network that one run needs — and where `/data` holds a
+ * mount with no volume's name, into what the sessions keep there.
  *
  * @param {string} [dir] - The model folder the container reads.
  * @param {string | null} [volume] - The volume at `/data` ({@link dataVolume}).
@@ -158,7 +158,7 @@ export function containerModelAdvice(dir = "", volume = dataVolume()) {
 
 /**
  * What to do about a model that could not be read, by why it could not: only
- * permissions are put right by making it readable (docs/DEFECTS.md, Д-365).
+ * permissions are put right by making it readable.
  *
  * @param {string} unreadable - The error, as `EACCES: permission denied, …`.
  * @param {{ mounted?: boolean, platform?: string, volume?: string | null }} [options] - `mounted`: the host's folder at
@@ -175,7 +175,7 @@ export function unreadableModelAdvice(unreadable, { mounted = false, platform = 
       : "Make the folder and its files readable to the user this runs as.";
   }
   // Not the file's mode, often: on macOS a folder under Documents, Desktop or
-  // Downloads is kept from an app until it is given access (Д-371, Д-372).
+  // Downloads is kept from an app until it is given access.
   if (code === "EPERM") {
     if (mounted) {
       return "The image runs as uid 1000: make the folder and its files readable to it on the host (on macOS, give Docker "
@@ -194,7 +194,7 @@ export function unreadableModelAdvice(unreadable, { mounted = false, platform = 
   return mounted ? `Look at that folder on the host${orVolume}.` : "Look at that folder.";
 }
 
-/** The errors of a disk or network share that is there and cannot be reached (Д-361, Д-371). */
+/** The errors of a disk or network share that is there and cannot be reached. */
 export const SHARE_UNREACHABLE = new Set(["EIO", "ESTALE", "ENOTCONN", "EHOSTDOWN", "ETIMEDOUT", "ECONNABORTED", "ECONNRESET"]);
 
 /** The model is not usable; say which way, and what changes it. */

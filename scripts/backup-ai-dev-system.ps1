@@ -7,7 +7,7 @@ param(
 
 # 2.x backed up with this script, and only inside a full vault. It is
 # `ai-dev backup` now: every layout, every system, the vault and AI Dev's state
-# with each file's sha256 (docs/DEFECTS.md, Д-104). This wrapper stays until
+# with each file's sha256. This wrapper stays until
 # 4.0 and says so on stderr.
 $ErrorActionPreference = "Stop"
 [Console]::Error.WriteLine("ai-dev: scripts/backup-ai-dev-system.ps1 is ``ai-dev backup`` now; this wrapper stays until 4.0.")

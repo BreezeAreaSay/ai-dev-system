@@ -81,7 +81,7 @@ const COMMAND_LABELS = {
 };
 
 // Backup and restore are `ai-dev` commands on every system since 3.0; 2.x had
-// two PowerShell scripts that worked only inside a full vault (Д-104).
+// two PowerShell scripts that worked only inside a full vault.
 const BACKUP_FILE = Object.freeze({ root: "server", segments: ["src", "cli", "backup.mjs"] });
 const BACKUP_COMMANDS = Object.freeze({
   backup: "node bin/ai-dev.mjs backup <label>",
@@ -154,7 +154,7 @@ const EXPECTATIONS = {
  *
  * An installed package (`npm run dist`, the npm package) ships neither the
  * tests nor the acceptance runner, so acceptance does not apply to it: asking
- * for it made every package report itself not ready (Д-185).
+ * for it made every package report itself not ready.
  *
  * @param {string} flavor - One of {@link RUNTIME_FLAVORS}; anything else falls back to `posix`.
  * @param {{ packaged?: boolean }} [options]
@@ -311,7 +311,7 @@ export function renderRuntimeDistribution(manifest) {
     .join("\n");
   const commandContext = manifest.command_context ? `\n\n${manifest.command_context}` : "";
   // A flavor without scripts states why instead of printing a PowerShell path
-  // it does not have (docs/DEFECTS.md, Д-61).
+  // it does not have.
   const recoveryLines = manifest.recovery?.backup_command
     ? [
       `- Backup: \`${manifest.recovery.backup_command}\``,

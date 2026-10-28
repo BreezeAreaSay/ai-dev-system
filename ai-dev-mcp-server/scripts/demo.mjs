@@ -9,7 +9,7 @@
  * report, a failing verification, the fix, a passing one, and the pull request
  * text - then deletes everything it made. Nothing touches your repositories or
  * your runtime home: the server and the skill registry check before it run with
- * a runtime home in the temporary folder (docs/DEFECTS.md, Д-374). A clone
+ * a runtime home in the temporary folder. A clone
  * with no skill registry yet gets one built, as `npm run setup` builds it.
  *
  * This is also what to record: `docs/DEMO.md` quotes this script's output, so a
@@ -128,10 +128,10 @@ test("a request with a valid token is served", () => {
 }
 
 // The server gets a runtime home of its own in the temporary folder: the search index it builds, and its claim on
-// the index folder, go with the rest instead of into yours (docs/DEFECTS.md, Д-374). So does the registry check
+// the index folder, go with the rest instead of into yours. So does the registry check
 // before it — a process that loads the server claims the index folder of the home it is given. Every place the
 // Codex-era migration takes from a `.codex` folder is named too, as the tests name them: whatever the server
-// would move into its home goes when the demo deletes that home (Д-389).
+// would move into its home goes when the demo deletes that home.
 const runtimeHome = path.join(tempRoot, "home");
 const serverEnv = {
   ...process.env,
@@ -200,7 +200,7 @@ try {
     say(dim(`    ${file.path} - ${file.reasons.join(", ")}`));
   }
   say("");
-  // Both numbers measured, not written down (Д-110).
+  // Both numbers measured, not written down.
   const library = await call("list_skill_groups", {});
   const total = Number(library.data?.total_skills ?? JSON.parse(library.text || "{}").total_skills);
   say(bold(`It routed ${(task.skills ?? []).length} skills out of ${total.toLocaleString("en-US")} - nobody named them:`));

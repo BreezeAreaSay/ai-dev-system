@@ -5,9 +5,9 @@
  *
  * The development sandbox cannot run it: `huggingface.co` is closed to it, so
  * the model cannot be fetched there. It runs in `.github/workflows/dense-eval.yml`,
- * on the ONNX export, the one backend 3.0 has (decision D3); the comparison of
+ * on the ONNX export, the one backend 3.0 has; the comparison of
  * int8 with fp32 that Д-62's criterion (2) asks for is the 2.x line's, whose
- * copy of that workflow keeps a job for each (Д-491).
+ * copy of that workflow keeps a job for each.
  *
  * What it measures, in the order a user meets them: how long the backend takes
  * to answer its first query (cold start, which for ONNX is the session load),

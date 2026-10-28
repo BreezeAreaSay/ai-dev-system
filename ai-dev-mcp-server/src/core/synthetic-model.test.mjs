@@ -33,7 +33,7 @@ test("written to a folder, it verifies against its own manifest", async (t) => {
   assert.equal(status.ready, true);
 });
 
-test("through the real worker — transformers.js 4.3 and onnxruntime-node — it embeds: 1024 numbers, unit length, topics apart (Д-101)", async (t) => {
+test("through the real worker — transformers.js 4.3 and onnxruntime-node — it embeds: 1024 numbers, unit length, topics apart", async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "synthetic-model-"));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const modelDir = path.join(dir, "bge-m3-onnx");

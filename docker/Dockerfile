@@ -18,7 +18,7 @@
 # THIRD_PARTY_NOTICES.md.
 #
 # Every image argument is declared before the first FROM: an ARG after a FROM
-# belongs to that stage alone (docs/DEFECTS.md, Д-70). BASE_IMAGE is any Debian
+# belongs to that stage alone. BASE_IMAGE is any Debian
 # or Ubuntu with apt and glibc; Node comes from NODE_IMAGE.
 ARG GITLEAKS_IMAGE=ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 ARG NODE_IMAGE=node:24-bookworm-slim
@@ -44,8 +44,7 @@ LABEL org.opencontainers.image.title="AI Dev MCP System" \
 # git for the project tools, tini as PID 1. The account is 2.x's: `node`,
 # uid 1000 (a base that already has a uid 1000, as Ubuntu's `ubuntu`, gives it up).
 # git trusts the projects mounted into the container whoever owns them on the
-# host: without it a project of another uid was silently "not a repository"
-# (docs/DEFECTS.md, Д-311).
+# host: without it a project of another uid was silently "not a repository".
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates git tini \
     && rm -rf /var/lib/apt/lists/* \
@@ -64,10 +63,10 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # The dependencies first, from the distribution's own shrinkwrap, so a change to
 # the code does not reinstall them. --ignore-scripts on purpose (docs/DEFECTS.md,
 # Д-86): onnxruntime-node ships its binaries inside the package, and the step
-# proves they load (Д-62). Only this platform's are kept: the package carries
-# macOS and Windows builds too, 245 MB no container runs (Д-313); and
+# proves they load. Only this platform's are kept: the package carries
+# macOS and Windows builds too, 245 MB no container runs; and
 # onnxruntime-web, which transformers.js bundles into its Node build. HOME is a
-# scratch folder, so no cache lands in /data, which every new volume copies (Д-313).
+# scratch folder, so no cache lands in /data, which every new volume copies.
 WORKDIR /opt/ai-dev
 COPY ai-dev/package.json ai-dev/npm-shrinkwrap.json ./
 RUN HOME=/tmp/build-home npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
@@ -105,7 +104,7 @@ RUN chmod 0755 /usr/local/bin/ai-dev-entrypoint \
 
 # The 2.x names, kept: a config or a volume of 2.x reads them. The model is found
 # in /models when the host mounts it there, else in the volume, where
-# `ai-dev model install` puts it (docs/DEFECTS.md, Д-99).
+# `ai-dev model install` puts it.
 ENV NODE_ENV=production \
     AI_DEV_RUNTIME=docker \
     AI_DEV_VAULT_ROOT=/data/ai-dev-system \
@@ -126,8 +125,8 @@ USER node
 RUN mkdir -p "${AI_DEV_VAULT_ROOT}" "${AI_DEV_STATE_ROOT}" "${AI_DEV_SEARCH_INDEX_DIR}" "${AI_DEV_FRONTEND_QA_ARTIFACT_ROOT}" \
     && node /opt/ai-dev/ai-dev-mcp-server/scripts/docker-prepare-data.mjs
 
-# Removed in 3.0 with the dense backend it installed (decision D3), and declared until 4.0 so that a build passing
-# it is told what replaced it rather than having it dropped without a word (docs/DEFECTS.md, Д-375). Last in the
+# Removed in 3.0 with the dense backend it installed, and declared until 4.0 so that a build passing
+# it is told what replaced it rather than having it dropped without a word. Last in the
 # stage, as every RUN after an ARG sees it: a build that passes it reruns only this.
 ARG INSTALL_BGE_M3=0
 RUN if [ "${INSTALL_BGE_M3}" = "1" ]; then \
@@ -141,7 +140,7 @@ ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/ai-dev-entrypoint"]
 CMD ["node", "/opt/ai-dev/app/src/server.mjs"]
 
 # The browser variant: Chromium and its libraries for Frontend QA. pnpm is the
-# version Frontend QA names in its packageManager, not one written here (Д-111).
+# version Frontend QA names in its packageManager, not one written here.
 # Chromium is fetched in a stage of its own, so everything else can be built
 # where its download host is closed.
 FROM server-build AS browser-deps

@@ -181,7 +181,7 @@ export class InstinctStore {
 
   async update(mutator) {
     // The queue orders this process's writers; the file lock orders this
-    // process against the other clients' servers (docs/DEFECTS.md, Д-96).
+    // process against the other clients' servers.
     this.queue = this.queue.catch(() => undefined).then(() => withExclusiveFile(this.filePath, async () => {
       const store = await this.read();
       const next = (await mutator(store)) ?? store;

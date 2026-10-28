@@ -4,7 +4,7 @@
  *
  * Before this the download printed "downloading model_int8.onnx" and then
  * nothing for ten minutes, which is what a stalled CDN looks like too
- * (docs/DEFECTS.md, Д-73, Д-98). In a terminal the line is rewritten in place;
+ *. In a terminal the line is rewritten in place;
  * into a log or a pipe it is printed at most every few seconds and whenever
  * the file or the phase changes, so CI output stays readable.
  */

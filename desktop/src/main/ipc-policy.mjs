@@ -9,7 +9,7 @@
  * get is changed from the page only after such a confirmation too
  * (CONFIRMED_SETTINGS) — a page that something managed to run script in can
  * still do only what the screens' buttons do, and cannot send what the daemon
- * reads anywhere (docs/DEFECTS.md, Д-288).
+ * reads anywhere.
  */
 
 /** Every channel the page invokes, and what it does. */
@@ -98,7 +98,7 @@ export const PAGE_TOOL_ARGUMENTS = Object.freeze({
  * repository's rules and hooks — which run only after the person confirms
  * them in a dialog of the main process, as the tool console's do: a page that
  * something managed to run script in cannot put a skill an agent follows, or
- * a rule, where the person did not say so (docs/DEFECTS.md, Д-288). A dry run
+ * a rule, where the person did not say so. A dry run
  * changes nothing and is not asked about. Removing a skill or a rule is not a
  * screens' call at all: its button goes through the tool console, which asks
  * too, as every call that takes back what it cannot undo does.
@@ -118,8 +118,7 @@ export function callToConfirm(request) {
 
 /**
  * The arguments the interface always sends; a call without one is refused.
- * The daemon reads a `clients_install` that names no client as all of them
- * (docs/DEFECTS.md, Д-271, п. 2).
+ * The daemon reads a `clients_install` that names no client as all of them.
  */
 export const PAGE_REQUIRED_ARGUMENTS = Object.freeze({
   model_import: ["source"],
@@ -148,7 +147,7 @@ export const PAGE_TOOLS = Object.freeze(Object.keys(PAGE_TOOL_ARGUMENTS));
  * dialog of the main process: the model's download mirror (where the daemon
  * reaches out to — with it, anything the daemon reads could leave in a request's
  * address), the model folder (what the daemon reads and writes as the model) and
- * the tool profiles AI clients get (docs/DEFECTS.md, Д-288).
+ * the tool profiles AI clients get.
  */
 export const CONFIRMED_SETTINGS = Object.freeze(["model_mirror", "model_dir", "profiles"]);
 
@@ -170,7 +169,7 @@ const MAX_ARGUMENT_BYTES = 64 * 1024;
 const MAX_TEXT = 4096;
 const CLIENT_NAME = /^[a-z][a-z0-9-]{1,31}$/;
 
-/** An object as JSON makes it — not a Date, a Map or another class's (Д-266, п. 1). */
+/** An object as JSON makes it — not a Date, a Map or another class's. */
 function plainObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
@@ -230,7 +229,7 @@ export function refuseCall(request) {
  * Why `clients_install` from the page is refused, given what `clients_list`
  * says now: the wizard offers only the clients found on this computer whose
  * config can be read, so the page connects no other — not `all`, not one the
- * person has not got (docs/DEFECTS.md, Д-266, п. 1).
+ * person has not got.
  *
  * @param {string[]} names - The page's `clients`.
  * @param {Array<{ client: string, found: boolean, entry?: string }>} listed - `clients_list`'s `clients`.

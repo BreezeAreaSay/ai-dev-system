@@ -130,7 +130,7 @@ clone's top-level `dist/` folder (`../dist` from `ai-dev-mcp-server`) — and ru
 never loads, and offline or behind a proxy that download fails; npm then leaves the package out,
 and the local model has nothing to run on in that install. The copy `setup` makes is installed
 with install scripts off and is not affected. For a global install, put
-`ONNXRUNTIME_NODE_INSTALL=skip` before `npm install -g` (docs/DEFECTS.md, Д-174);
+`ONNXRUNTIME_NODE_INSTALL=skip` before `npm install -g`;
 `ai-dev model doctor` names the way back for the install you have.
 
 **Your vault.** The package's own folder is read-only to the server: what it writes — registries,
@@ -150,7 +150,7 @@ comes back, and every file you changed is kept and named as above.
 `AI_DEV_HOME`, when set, names the runtime home in place of `~/.ai-dev`; it is written into
 every client's entry, and beside the hooks `install_agent_hooks` puts into a repository, so a
 client started from the Dock or the Start menu — its server and its hooks — finds the same data
-as the terminal you ran setup from (Д-176, Д-184).
+as the terminal you ran setup from.
 
 ## Docker
 
@@ -224,11 +224,11 @@ entries mount, a 2.x entry's too, unless `--project-path` or `--model-path` name
 says which it kept. To build the image from the clone
 instead of pulling it: `sh ./bootstrap.sh --build-local`. A client whose config cannot be written
 is named and the others are written all the same; the exit is then 1, and the 2.x runtime
-container stays until every config is rewritten (docs/DEFECTS.md, Д-335). A config that is a link
+container stays until every config is rewritten. A config that is a link
 into a dotfiles repository is written through it — each folder it leads to is mounted for the
 installer at the path the link spells — but a link into your home itself, a folder above it or
 the root is not followed, and a folder Docker will not mount (one outside Docker Desktop's file
-sharing) costs that client alone (Д-338, Д-339).
+sharing) costs that client alone.
 
 If the registry cannot be reached and an older copy of the image is in the local cache, bootstrap
 stops rather than installing it, and says when that copy was built and its digest. Installing it
@@ -239,7 +239,7 @@ The way back to 2.x is `sh ./bootstrap.sh --image ghcr.io/stonebridgeway/ai-dev-
 the folders the entries it replaces mount. A 2.x image has no installer of its own, so the configs that run it are written by an
 image of 3.0 or later: `AI_DEV_INSTALLER_IMAGE`, `ghcr.io/stonebridgeway/ai-dev-system:3` by
 default — the 3.x line, which a rollback of `:latest` to 2.x leaves alone. It is pulled — a copy cached before 3.0 would be a 2.x one — and used only once it is seen
-to have the installer; otherwise bootstrap stops and asks for one (Д-323, Д-329). `:2` exists once
+to have the installer; otherwise bootstrap stops and asks for one. `:2` exists once
 3.0 is released — 2.x's `:latest`, copied to it before the 3.0 tag. Until then the 2.x image is
 `ghcr.io/stonebridgeway/ai-dev-system:latest` itself, the default installer too, so the installer
 has to be the 3.0 image you built: `AI_DEV_INSTALLER_IMAGE=ai-dev-system:local sh ./bootstrap.sh
@@ -290,7 +290,7 @@ The state folder, `%USERPROFILE%\.ai-dev\state`, is the server's too, as on macO
 only the usage ledger in it is one. The server sees a project as `/workspace/<name>` and the hooks
 as `C:\…\<name>` — two projects to either side — and tasks and the hooks' session handoffs are
 kept by project: the Stop hook does not remind you of a task the server began, and the server does
-not see a handoff the hooks wrote (docs/DEFECTS.md, Д-324, Д-333).
+not see a handoff the hooks wrote.
 
 For a different project folder and some of the clients:
 
@@ -316,22 +316,22 @@ docker run -i --rm --read-only --tmpfs /tmp … --network none --security-opt no
 
 - **The projects at their own path** (`~/AI-Dev-Projects` by default): the path an agent names is
   the path the server opens. 2.x mounted them at `/workspace`, and a host path was "not found"
-  (docs/DEFECTS.md, Д-312).
+.
 - **The state the agent hooks keep** is the server's: your `~/.ai-dev/state`. The hooks run on
-  your machine; with one state, the Stop hook sees the task the server started (Д-103). This takes
+  your machine; with one state, the Stop hook sees the task the server started. This takes
   the container's user — uid 1000, the image's — being yours: on macOS Docker Desktop maps it, on
   Linux it is the first user's uid — and on Linux the installer tries it first: a container of the
   image writes a file into the folder, and the file has to come out yours. With another uid, or
   where Docker maps the container's users to others (rootless Docker, userns-remap, Podman), the
   server keeps its state in the volume and cannot write into your projects — installing hooks or
   rules there is refused — as in 2.x; `ai-dev clients install --docker` says so, and on such a
-  machine [npx](#one-command-with-node-npx) is the path to take (Д-318, Д-322).
+  machine [npx](#one-command-with-node-npx) is the path to take.
 - **One container per session**, started in about a second; there is no long-lived container any
   more, and the one 2.x kept (`ai-dev-system-runtime-<uid>`) is removed by `bootstrap.sh`.
 - **A new volume** starts with what a first start would build — the skill registry, its quality
   report, the search index, the routing benchmark — built into the image. Docker fills a new
   volume as the first container on it starts; a second client started a moment later waits for
-  that copy, at most 20 s, before it reads the volume (Д-355).
+  that copy, at most 20 s, before it reads the volume.
 
 ### The image and its tags
 
@@ -339,7 +339,7 @@ docker run -i --rm --read-only --tmpfs /tmp … --network none --security-opt no
 docker pull ghcr.io/stonebridgeway/ai-dev-system:latest
 ```
 
-The tags (owner decision D9): `:latest` is the newest release — a `vX.Y.Z` tag that is not a
+The tags: `:latest` is the newest release — a `vX.Y.Z` tag that is not a
 prerelease, of the newest line; `:edge` follows `main`; a release is also `:X.Y.Z`, `:X.Y` and
 `:X`. `:2` is the 2.x line and the way back: 2.x's `:latest` is copied to it before 3.0 is tagged,
 and after that only a `v2.Y.Z` tag moves it — with `:2.Y` and `:2.Y.Z`, never `:latest`. Frontend
@@ -392,7 +392,7 @@ The container also runs with `--network none`, and of the six security scanners 
 which is in the image — works with no network at all. So a scan there is one scanner, not six;
 [docker/README.md](../docker/README.md) (in Russian) has the full matrix. A scan in which not one
 scanner ran comes back `unchecked`, never `pass`. git in the image trusts the mounted projects
-whoever owns them on the host: 2.x saw a project of another user as no repository at all (Д-311).
+whoever owns them on the host: 2.x saw a project of another user as no repository at all.
 
 ### Docker Compose
 
@@ -587,21 +587,21 @@ sh ./bootstrap.sh --model-path "$HOME/.ai-dev/models"
 ```
 
 The image reads `/models/bge-m3-onnx` first when it holds anything — the sessions and its own checks
-alike (docs/DEFECTS.md, Д-346) — so a model there that is not whole is put right on the host, or the
+alike — so a model there that is not whole is put right on the host, or the
 mount dropped. A folder that holds model files itself (`pytorch_model.bin`, `config.json`, `onnx/`) is
 the value the variable had before 2.1, and every installer refuses it with directions rather than
 mounting it one level too deep. When `bge-m3-onnx` is a link to another disk, the entry mounts the
 link itself, which Docker follows on the host — in the container the link alone would lead nowhere;
-one that leads nowhere on the host either is refused (Д-368). Every session mounts what it leads
+one that leads nowhere on the host either is refused. Every session mounts what it leads
 to, so while that disk is away Docker starts no session at all — the client's log shows Docker's
 "bind source path does not exist". Writing the entries says so, and where the command line is
-installed, `ai-dev clients doctor` names the entry whose mounted folder is gone (Д-385). The model's
+installed, `ai-dev clients doctor` names the entry whose mounted folder is gone. The model's
 files and folders have to be readable to the image's user, uid 1000; when they are not, the start
-report, `embedding_status`, `ai-dev setup` and `ai-dev model status` say so (Д-337, Д-357). The
+report, `embedding_status`, `ai-dev setup` and `ai-dev model status` say so. The
 documents are embedded with it, with no download and no network, by `docker run --rm -it --mount
 type=volume,source=ai-dev-system-data,target=/data --mount type=bind,source=<the folder above
 bge-m3-onnx>,target=/models,readonly ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model`
-(Д-341).
+.
 
 ### If you want the weights inside the image
 
@@ -628,7 +628,7 @@ user — stays as it was.
 
 2.x could run dense search on a Python virtualenv with torch and 2.3 GB of weights
 (`--dense-python`, `AI_DEV_DENSE_BACKEND=python`, an image built with `INSTALL_BGE_M3=1`). 3.0
-removed it (decision D3). One command moves you over — in a clone `npm run setup -- --model`, with
+removed it. One command moves you over — in a clone `npm run setup -- --model`, with
 npx `npx ai-dev-system setup --model`.
 
 It installs the ONNX model and embeds the documents again: vectors made by the Python backend are
@@ -638,7 +638,7 @@ leftover setting — `AI_DEV_DENSE_BACKEND=python`, `BGE_M3_PYTHON`, `AI_DEV_EMB
 `AI_DEV_PYTHON_BASE`, `BGE_M3_PYTHON_REVISION`, `BGE_M3_MODEL_DIR` — is no longer read; the health
 check names each one it finds, and the `~/.ai-dev/models/bge-m3` folder of torch weights can be
 deleted. `--dense-python` still works as a name and does what `--model` does, and a Docker build
-passing `INSTALL_BGE_M3=1` is told what replaced it (Д-375). BuildKit's terminal view folds a
+passing `INSTALL_BGE_M3=1` is told what replaced it. BuildKit's terminal view folds a
 finished step's output, which `--progress=plain` keeps on screen; a step taken from the cache prints
 nothing, so a later build of the same tree shows the notice only with `--no-cache`.
 
@@ -831,9 +831,9 @@ user has a vault, state and daemon of their own, in their own `~/.ai-dev`.
   `~/.ai-dev/vault` from its `docker/public-seed`, as a package fills it from its seed.
   `AI_DEV_VAULT=home` asks for the same where the clone is writable: set it for everyone, so the
   records of the user who built the clone do not live in a folder the next build replaces
-  (docs/DEFECTS.md, Д-576).
+.
 - **No `setup` per user.** A vault without a skill registry gets one at the first request that
-  needs it, in about two seconds (Д-575). `setup` is still what connects a person's own clients
+  needs it, in about two seconds. `setup` is still what connects a person's own clients
   and fetches the model.
 
 A session runs `node <install>/ai-dev-mcp-server/bin/ai-dev.mjs mcp` on Node 22.16 or newer. With
@@ -872,7 +872,7 @@ npm run setup
 
 `npm ci` runs no dependency install scripts: the package's `.npmrc` turns them off. The one that
 matters, onnxruntime-node's, downloads a CUDA provider the server never loads and fails offline or
-behind a proxy (docs/DEFECTS.md, Д-86); `npm install` behaves the same. `npm run setup` is
+behind a proxy; `npm install` behaves the same. `npm run setup` is
 [the same setup](#one-command-with-node-npx) as npx's, in place: the clients' entries name this
 clone's `bin/ai-dev.mjs`, and without a vault the server reads the bundled seed,
 `docker/public-seed`. Entries 2.x wrote keep working: `node <clone>/ai-dev-mcp-server/src/server.mjs`

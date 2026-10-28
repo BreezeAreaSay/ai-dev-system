@@ -142,7 +142,7 @@ test("the copy the link names is never pruned, however many npx copies come afte
   assert.equal(folders.length, 3, `the linked copy and the two newest npx copies, kept by a count of their own: ${folders.join(", ")}`);
 });
 
-test("an update of the app prunes its own copies only: the npx copy the clients set up by npx run stays (Д-301)", async (t) => {
+test("an update of the app prunes its own copies only: the npx copy the clients set up by npx run stays", async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
   const now = clock();
@@ -235,14 +235,14 @@ test("the stable launch names the link's Node and CLI, and only for the Windows 
 
 test("a drive that cannot hold the link still runs the copy, whatever it answers: the paths name the copy, and say why there is no link", async (t) => {
   const root = await scratch(t);
-  // Wine says ENOTSUP; FAT32 and exFAT, through libuv, EISDIR (Д-299); a share EPERM; anything else as well.
+  // Wine says ENOTSUP; FAT32 and exFAT, through libuv, EISDIR; a share EPERM; anything else as well.
   for (const code of ["ENOTSUP", "EISDIR", "EPERM", "EIO"]) {
     const runtime = path.join(root, `.ai-dev-${code}`);
     const refuse = async () => { throw Object.assign(new Error(`${code}: no link here, symlink`), { code }); };
     const provisioned = await provisionBundle({ ...isolated(root), bundleRoot: (await writeBundle(path.join(root, "runtime"))).root, runtimeRoot: runtime, symlink: refuse });
     assert.equal(provisioned.status, "installed", code);
     assert.equal(provisioned.current, "");
-    assert.equal(provisioned.linkError, `${code}: no link here, symlink`, "the code once, though Node's message starts with it (Д-310, п. 1)");
+    assert.equal(provisioned.linkError, `${code}: no link here, symlink`, "the code once, though Node's message starts with it");
     assert.equal(provisioned.node, path.join(provisioned.folder, "node", "node.exe"));
     assert.equal(await fs.readFile(provisioned.cli, "utf8"), "// cli a\n");
     assert.equal(stableLaunch({ kind: "package", bundle: true, root: provisioned.folder, runtimeRoot: runtime }), null, "no link: configs name the copy, as any install's do");
@@ -253,7 +253,7 @@ test("a drive that cannot hold the link still runs the copy, whatever it answers
   await assert.rejects(provisionBundle({ ...isolated(root), bundleRoot: path.join(root, "runtime"), runtimeRoot: taken }), /is not the link AI Dev keeps there/);
 });
 
-test("without a link, the copy a client's config names is not pruned by the updates that come after it (Д-299)", async (t) => {
+test("without a link, the copy a client's config names is not pruned by the updates that come after it", async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
   const { home, env } = isolated(root);
@@ -288,7 +288,7 @@ test("the copies the clients' entries name by their own folder, never through th
   assert.deepEqual(await copiesNamedByClients({ appsRoot, env, home }), [legacy, copy].sort());
 });
 
-test("a copy that lost a file is put back from the installer at the next start; a damaged installer is said so (Д-300)", async (t) => {
+test("a copy that lost a file is put back from the installer at the next start; a damaged installer is said so", async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
   const { root: bundleRoot } = await writeBundle(path.join(root, "runtime"), { extra: { "node_modules/onnxruntime-node/bin/onnxruntime.dll": "dll" } });
@@ -326,7 +326,7 @@ test("a folder at the copy's name that is not a finished copy is moved aside who
   assert.deepEqual((await fs.readdir(path.join(runtime, "app"))).sort(), [path.basename(folder), "current"], "nothing left aside");
 });
 
-test("a copy whose marker is not JSON is copied again, not a start that stops (Д-308)", async (t) => {
+test("a copy whose marker is not JSON is copied again, not a start that stops", async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
   const { root: bundleRoot } = await writeBundle(path.join(root, "runtime"));
@@ -340,7 +340,7 @@ test("a copy whose marker is not JSON is copied again, not a start that stops (�
   assert.deepEqual((await fs.readdir(path.join(runtime, "app"))).sort(), [path.basename(first.folder), "current"], "nothing left aside");
 });
 
-test("the npx prune leaves a copy a client's config still names, as the app's does (Д-310, п. 6)", async (t) => {
+test("the npx prune leaves a copy a client's config still names, as the app's does", async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
   const { home, env } = isolated(root);
@@ -369,7 +369,7 @@ test("the npx prune leaves a copy a client's config still names, as the app's do
     "the copies nobody names go by the count; the one Cursor runs stays");
 });
 
-test("on macOS the copy is the files' bytes and modes, not their attributes: a quarantine stays with the app (Д-583)", { skip: process.platform === "win32" && "file modes" }, async (t) => {
+test("on macOS the copy is the files' bytes and modes, not their attributes: a quarantine stays with the app", { skip: process.platform === "win32" && "file modes" }, async (t) => {
   const root = await scratch(t);
   const runtime = path.join(root, ".ai-dev");
   const { root: bundleRoot } = await writeBundle(path.join(root, "resources", "runtime"), { extra: { "ai-dev": "#!/bin/sh\n", "node/bin/node": "node mac" } });

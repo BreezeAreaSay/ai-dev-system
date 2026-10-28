@@ -6,7 +6,7 @@
  *                            [--helper <search_cli.py> | --helper-rev <git revision>]
  *
  * A development check, not a test. The helper left the repository when search
- * moved to Node (docs/DEFECTS.md, Д-85); this takes it from git history — the
+ * moved to Node; this takes it from git history — the
  * last revision that had `search-index/search_cli.py`, or the one named — and
  * needs Python 3 to run it. The vault it reads should have its skill registry
  * built (`npm run setup`). It
@@ -29,7 +29,7 @@
  *    byte.
  *
  * Every ranking discrepancy is printed with a reason: a question with
- * AND/OR/NOT/NEAR, where the helper had a bug (Д-117); a tie in score, where
+ * AND/OR/NOT/NEAR, where the helper had a bug; a tie in score, where
  * order is the database's to choose; or "unexplained", which fails the run.
  */
 import { execFile, execFileSync, spawnSync } from "node:child_process";
@@ -181,7 +181,7 @@ function loadCases() {
 
 /** Why two rankings differ, or "unexplained". */
 function explain(testCase, left, right) {
-  if (OPERATOR.test(testCase.query)) return "operator word in the question (Д-117)";
+  if (OPERATOR.test(testCase.query)) return "operator word in the question";
   const scores = new Map();
   for (const item of [...left, ...right]) {
     const known = scores.get(item.path);

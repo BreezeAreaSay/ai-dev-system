@@ -7,7 +7,7 @@
  * What a client's ai-dev entry runs, in the page's words, and whether it is
  * chosen by default: a client with nothing, or with the 2.x entry, is; one that
  * runs another install, Docker or another program is not — connecting replaces
- * that entry — and one whose config cannot be read cannot be chosen (Д-248).
+ * that entry — and one whose config cannot be read cannot be chosen.
  */
 export function clientChoice(view, client) {
   if (!client.found) return { note: view.t("wizard.clients.notFound"), checked: false, disabled: true };
@@ -28,7 +28,7 @@ export function clientResult(view, item) {
 /**
  * Why a setup step did what it did, in the page's words where the reason is
  * one the setup plan gives; the server's own words otherwise. A failed step
- * shows its error (Д-248).
+ * shows its error.
  */
 export function stepReason(view, step) {
   if (step.status === "failed") return step.error || step.reason || "";
@@ -68,7 +68,7 @@ export function unreadableCode(reason) {
 /**
  * What the page says of a model this user cannot read: not "not installed",
  * and no download over it — the folder is what needs a look, and what to do
- * depends on why it cannot be read (Д-367).
+ * depends on why it cannot be read.
  *
  * @param {{ t: (key: string, params?: object) => string }} view
  * @param {{ dir?: string, unreadable: string }} model
@@ -77,7 +77,7 @@ export function unreadableCode(reason) {
 export function modelUnreadable(view, model) {
   const code = unreadableCode(model.unreadable);
   // EPERM is not the file's mode, often: on macOS a folder under Documents, Desktop or Downloads is kept from an
-  // app until it is given access, as the daemon's own advice says (dense-backend.mjs; Д-387).
+  // app until it is given access, as the daemon's own advice says (dense-backend.mjs).
   const advice = code === "EACCES" ? "access"
     : code === "EPERM" ? "permission"
     : code === "ENOTDIR" ? "notDirectory"

@@ -46,8 +46,7 @@ export function tildify(target, home = os.homedir()) {
  * Where the record of written configs lives: the state folder the agent hooks
  * use — AI_DEV_STATE_ROOT, else the runtime home's — where a Docker install's
  * record goes too, so `clients remove` finds what either wrote. A record kept
- * in the runtime home before, with the variable set, stays the one used
- * (docs/DEFECTS.md, Д-336).
+ * in the runtime home before, with the variable set, stays the one used.
  */
 export function clientStatePath(env = process.env) {
   const runtimeRecord = path.join(resolveRuntimeStateRoot("", env), "state", "mcp-clients.json");
@@ -82,7 +81,7 @@ function installedAppCli(layout) {
  * `mcp`. A vault install passes its vault on, as 2.x did, and a runtime folder
  * named by `AI_DEV_HOME` goes with it too: a client started from the Dock does
  * not see the shell's variables, and its server would look for the index,
- * the state and a package's vault in ~/.ai-dev instead (docs/DEFECTS.md, Д-176).
+ * the state and a package's vault in ~/.ai-dev instead.
  *
  * A package npx runs from its cache is launched from the copy `setup`
  * installed in the app home, never from the cache npm may clear. The Windows
@@ -105,7 +104,7 @@ export function localLaunch({ env = process.env, execPath = process.execPath, cl
     cli = link.cli;
   } else if (layout.kind === "package" && layout.bundle && !existsSync(path.join(layout.root, APP_MARKER))) {
     // The installer's own runtime, in the program's folder: an update moves
-    // that folder aside, and a file a client holds there stops it (Д-305).
+    // that folder aside, and a file a client holds there stops it.
     throw Object.assign(new Error(`This is the runtime in AI Dev's program folder (${layout.root}), which an update replaces, so a client config must not name it. `
       + "Start AI Dev once: it copies the runtime into its data folder and connects the clients to that copy."), { exitCode: EXIT.failed });
   } else if (layout.kind === "package" && layout.ephemeral) {
@@ -157,8 +156,7 @@ export function clientLabel(target) {
  * written into an entry ({@link probeStateSharing}). In the image neither can
  * be done: its root is read-only and holds none of the host's folders but the
  * clients' and the state's, and it has no Docker. There `bootstrap.sh` made the
- * folders and tried the sharing itself, and says so with `shareState`
- * (docs/DEFECTS.md, Д-319, Д-322).
+ * folders and tried the sharing itself, and says so with `shareState`.
  *
  * @param {object} input
  * @param {string} [input.image]
@@ -188,7 +186,7 @@ export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEF
     volume,
     platform,
     projects: paths.resolve(projects || paths.join(home, "AI-Dev-Projects")),
-    // Its bge-m3-onnx mounted itself when it is a link; checked for leading somewhere where the host is to be seen (Д-368).
+    // Its bge-m3-onnx mounted itself when it is a link; checked for leading somewhere where the host is to be seen.
     model: model ? modelMount(checkModelFolder(paths.resolve(model)), { verify: onHost, join: paths.join }) : "",
     // The record of written configs stays the host's either way.
     record: hostState,
@@ -196,7 +194,7 @@ export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEF
   };
   if (apply && onHost) for (const folder of [resolved.projects, hostState]) await fs.mkdir(folder, { recursive: true });
   const probing = !shareState && platform === "linux" && onHost && tryState;
-  // The probe mounts the state folder, as install would: made for it, as install makes it (Д-334).
+  // The probe mounts the state folder, as install would: made for it, as install makes it.
   if (probing && !apply) await fs.mkdir(hostState, { recursive: true });
   const byUid = sharesHostState({ platform, uid });
   // On Linux the sharing is tried, whatever the uid: a remapping Docker may give
@@ -213,7 +211,7 @@ export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEF
     sharing = { shared: tried.shared, kind: tried.shared ? "shared" : tried.tried ? "refused" : "untried", reason: tried.reason };
   }
   // Decided by the caller (`--shared-state`), it is the caller's to explain: bootstrap.sh says it once,
-  // in its own words, and not once per run of the installer (docs/DEFECTS.md, Д-342, Д-344).
+  // in its own words, and not once per run of the installer.
   return { ...resolved, state: sharing.shared ? hostState : "", sharedState: sharing.shared, sharedStateKind: sharing.kind, sharedStateReason: sharing.reason, sharedStateGiven: Boolean(shareState) };
 }
 
@@ -223,17 +221,17 @@ const TRIED_AND_REFUSED = "trying it, the image's user could not write your stat
 export function unsharedStateNote(docker, uid = process.getuid?.()) {
   if (!docker || docker.sharedStateGiven) return "";
   if (docker.sharedStateKind === "dry") {
-    return "On Linux, sharing your state folder with the server is tried with the image when the configs are written; a dry run does not try it (docs/INSTALL.md; Д-322).";
+    return "On Linux, sharing your state folder with the server is tried with the image when the configs are written; a dry run does not try it (docs/INSTALL.md).";
   }
   if (docker.sharedState) return "";
   if (docker.sharedStateKind === "untried") {
     return `Your state folder is not shared with the server for now: ${docker.sharedStateReason || "the sharing could not be tried"}. `
-      + "The server keeps its state in the volume; run `ai-dev clients install --docker` again once Docker runs the image (Д-331).";
+      + "The server keeps its state in the volume; run `ai-dev clients install --docker` again once Docker runs the image.";
   }
   const why = docker.sharedStateReason
     || `the image's user (uid ${IMAGE_UID}) is not yours (uid ${uid}), so a folder of yours is not one the container may share`;
   return `The agent hooks keep their state apart from the server's: ${why}. The server keeps its state in the volume, as 2.x did, `
-    + "and cannot write into your projects. On this machine the local install is the one to use (docs/INSTALL.md; Д-318, Д-322).";
+    + "and cannot write into your projects. On this machine the local install is the one to use (docs/INSTALL.md).";
 }
 
 /**

@@ -2,7 +2,7 @@
 // in the client's environment, which its daemon inherits): the first time a
 // retired daemon makes its run folder and finds it already there, the runtime
 // home goes before the daemon takes its record's lock — the lock makes the
-// folders again (docs/DEFECTS.md, Д-226).
+// folders again.
 import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";

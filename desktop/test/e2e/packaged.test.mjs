@@ -35,7 +35,7 @@ test("the installed app copies its runtime, links it, and runs on it", { skip: !
   const bundle = JSON.parse(await fs.readFile(path.join(copy, "bundle.json"), "utf8"));
   assert.equal(bundle.platform, process.platform);
   if (process.platform === "darwin") {
-    // The workflow puts a download's quarantine on the shipped runtime: the copy does not carry it (Д-583).
+    // The workflow puts a download's quarantine on the shipped runtime: the copy does not carry it.
     const attributes = spawnSync("/usr/bin/xattr", ["-r", "-l", copy], { encoding: "utf8", shell: false });
     assert.equal(attributes.status, 0, attributes.stderr);
     assert.doesNotMatch(attributes.stdout, /com\.apple\.quarantine/);

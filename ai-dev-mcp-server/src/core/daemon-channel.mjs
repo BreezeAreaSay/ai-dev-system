@@ -2,7 +2,7 @@
  * The channel between AI Dev's daemon and whoever talks to it: the `ai-dev mcp`
  * bridge an AI client starts, and `ai-dev daemon status|stop`.
  *
- * Three things keep the channel this user's (docs/DEFECTS.md, Д-97, Д-107):
+ * Three things keep the channel this user's:
  *
  * - the address is drawn at random on every start and published only in the
  *   daemon's descriptor, written with mode 0600 inside the user's runtime home —
@@ -16,7 +16,7 @@
  *   another process took over — finds out before it sends anything else.
  *
  * Then an MCP client sends one more line: its environment, which the daemon
- * runs the session in (`session-env.mjs`, Д-190). After that the connection
+ * runs the session in (`session-env.mjs`). After that the connection
  * carries MCP exactly as stdio does, one JSON-RPC message per line; or, on a
  * control connection, one request and one answer.
  */
@@ -48,7 +48,7 @@ export const SESSION_LINE_BYTES = 1024 * 1024;
  * The longest answer to a control request. `status` lists every client with
  * the name and version it gave itself; a client with a long name, or a few
  * hundred sessions, made the answer longer than a handshake line and both
- * `status` and `stop` fail (docs/DEFECTS.md, Д-196).
+ * `status` and `stop` fail.
  */
 export const CONTROL_ANSWER_BYTES = 1024 * 1024;
 
@@ -288,11 +288,11 @@ export const nothingListens = (error) => NOTHING_LISTENS.has(error?.code);
  * Whether something takes connections at a daemon's address: a daemon that is
  * alive — even one hung in a debugger, whose lock went stale, as the kernel
  * still accepts into its backlog — or nothing, when the process that listened
- * there is gone, whoever has its pid now (docs/DEFECTS.md, Д-204). An address
+ * there is gone, whoever has its pid now. An address
  * that neither takes nor refuses within the time counts as taken.
  *
  * On macOS a full queue is refused like a dead socket, so there a hung daemon
- * met by some hundreds of connections looks gone (Д-208): a retired one puts
+ * met by some hundreds of connections looks gone: a retired one puts
  * its record back once it runs, a serving one finds its descriptor gone and
  * retires.
  *
@@ -462,7 +462,7 @@ const digest = (value) => crypto.createHash("sha256").update(String(value)).dige
  * what that code is now, and where its data is (`daemonIdentity` in
  * `session-env.mjs`). A client of another build — a `git pull`, a new package,
  * another vault — is served by a daemon of its own build, never by a stale
- * one; two spellings of one folder are one build (docs/DEFECTS.md, Д-199).
+ * one; two spellings of one folder are one build.
  * Each part appears as a digest: the build is printed by
  * `ai-dev daemon status` and kept in the descriptor, and a path may be one a
  * person would rather not show.
@@ -523,7 +523,7 @@ export function buildDifferences(mine, theirs) {
  * to retire; a daemon of another folder or environment serves clients of its
  * own and is left alone. New code may count other parts of a build than the
  * code it replaced: the parts both builds have decide, or a daemon of the old
- * code would never be asked to go (docs/DEFECTS.md, Д-205).
+ * code would never be asked to go.
  *
  * @param {{ version: string, root: string, source: string, environment: Record<string, string> }} newer
  * @param {object | null | undefined} older

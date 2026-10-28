@@ -26,7 +26,7 @@ test("Settings: a change is saved and says when it applies; one for new sessions
   await assert.rejects(stored(s), "no file was written");
 
   // The mirror applies at once; the model folder to new sessions. Both are
-  // saved only once the person confirms them in the system's dialog (Д-288).
+  // saved only once the person confirms them in the system's dialog.
   const models = path.join(s.root, "models-elsewhere");
   await page.fill("#setting-daemon_idle_minutes", "");
   await page.fill("#setting-model_mirror", "https://hf-mirror.example");
@@ -72,7 +72,7 @@ test("a screen whose daemon stops says so and offers Start; Follow on the Log st
   await open(page, "log");
   await page.waitForSelector(".log-lines");
   // Every read of the log that reaches the main process is counted: a Follow
-  // that goes on after its screen is gone shows nowhere on the page (Д-285).
+  // that goes on after its screen is gone shows nowhere on the page.
   await app.evaluate(() => {
     const { link } = globalThis.aiDevTest;
     const call = link.call.bind(link);

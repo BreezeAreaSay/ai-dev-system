@@ -67,8 +67,7 @@ const transport = new StdioClientTransport({
   args: [path.join(serverRoot, "src", "server.mjs")],
   cwd: serverRoot,
   // The host's server in a runtime tree of its own: AI_DEV_RUNTIME=docker in a developer's shell would move their real
-  // ~/.ai-dev/state into this folder, removed below, and their other AI_DEV_* or BGE_M3_* places would be written to
-  // (docs/DEFECTS.md, Д-559, Д-567).
+  // ~/.ai-dev/state into this folder, removed below, and their other AI_DEV_* or BGE_M3_* places would be written to.
   env: {
     ...hostEnv,
     AI_DEV_HOME: path.join(tempRoot, "home"),
@@ -103,7 +102,7 @@ try {
   // capability (Archify) or a specialist the task named. The reserved ones sit
   // beside the routed core, never instead of it, so counting them against the
   // limit is what this assertion used to do only because an English task could
-  // not reach a specialist at all (Д-29).
+  // not reach a specialist at all.
   // begin_task records the role as `routing_role`; `recommend_skills` answers
   // with `role`. Read both rather than pick one.
   const roleOf = (skill) => skill.routing_role ?? skill.role ?? "";

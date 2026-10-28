@@ -174,7 +174,7 @@ test("a seeded container volume is not held to a private vault's notes", () => {
     repositoryRoot: "/opt/ai-dev",
     exists
   });
-  // Resolved like the neighbours: on Windows the container path lands on a drive (Д-71).
+  // Resolved like the neighbours: on Windows the container path lands on a drive.
   assert.deepEqual(mcpReadme, { path: path.resolve("/opt/ai-dev", "README.md"), source: "repository" });
 });
 

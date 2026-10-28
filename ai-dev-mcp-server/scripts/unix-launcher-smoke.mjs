@@ -20,10 +20,10 @@ if (!shell) {
   process.exit(0);
 }
 
-// The 2.x launcher in 3.0 (owner decision D10): a config naming it still
+// The 2.x launcher in 3.0: a config naming it still
 // works, it says on stderr that it is the 2.x one, and the server answers its
 // own handshake — 2.x answered `initialize` in the launcher and the server's
-// instructions never reached the client (docs/DEFECTS.md, Д-89). A config that
+// instructions never reached the client. A config that
 // names the 2.x runtime container gets a session of the configured image too:
 // that container kept the image it was started with.
 const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-unix-launcher-"));

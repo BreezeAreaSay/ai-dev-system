@@ -8,7 +8,7 @@ import { modelUnreadable } from "./setup-words.js";
 /**
  * The rebuild Status started, while it runs: its id for Cancel, its last
  * progress, who to tell. It outlives a redraw — a person who goes to Setup
- * and back finds it still there (docs/DEFECTS.md, Д-266, п. 6).
+ * and back finds it still there.
  */
 let rebuilding = null;
 
@@ -51,7 +51,7 @@ function checkItem(view, check) {
     details ? h("details", {}, h("summary", {}, view.t("status.details")), details) : null);
 }
 
-/** The model's line: installed, cannot be read and why (Д-367), or not installed. */
+/** The model's line: installed, cannot be read and why, or not installed. */
 function modelRow(view, model) {
   if (model.installed) return view.t("status.model.installed");
   return model.unreadable ? modelUnreadable(view, model).status : view.t("status.model.missing");
@@ -69,8 +69,8 @@ function overview(view, status) {
 
 /**
  * Why the install is not ok, in the daemon's words, and the settings file's
- * problems (Д-246) — each once: one the summary already says is not listed
- * again (Д-266, п. 8).
+ * problems — each once: one the summary already says is not listed
+ * again.
  */
 function why(view, status) {
   if (status.status === "ok") return null;
@@ -86,7 +86,7 @@ function why(view, status) {
  * What the app says of its runtime, when it has something to say
  * (`runtimeNotice`, src/main/bundle.mjs): it runs from its copy, the drive
  * holding no link — after an update the clients must be connected again — or
- * it put back files that went missing (docs/DEFECTS.md, Д-299, Д-300).
+ * it put back files that went missing.
  */
 function runtimeNotes(view) {
   const runtime = view.connection.runtime;
@@ -118,7 +118,7 @@ export function statusScreen(view, navigate) {
 
   // A rebuild running — started now, or before the screen was drawn again:
   // its progress and Cancel. Started now, the focus moves to Cancel; when it
-  // ends, a focus left on Cancel goes back to Rebuild (Д-271, п. 1).
+  // ends, a focus left on Cancel goes back to Rebuild.
   const showRebuild = (running, { focus = false } = {}) => {
     const bar = progressBar();
     bar.update(running.progress);

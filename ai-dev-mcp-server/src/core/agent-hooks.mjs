@@ -18,13 +18,13 @@ const COMMAND_MARKER = ".ai-dev/hooks/";
 /**
  * The shell script that finds Node for a hook (hooks/with-node.sh). A hook
  * command used to be a bare `node`, which an editor or Git client opened from
- * the Dock or a launcher does not have on its PATH (docs/DEFECTS.md, Д-103).
+ * the Dock or a launcher does not have on its PATH.
  */
 export const NODE_LAUNCHER = "with-node.sh";
 /** The Node the hooks were installed with, on this machine; git ignores it. */
 export const NODE_PATH_FILE = ".node-path";
 
-/** Beside the hooks: the runtime folder `AI_DEV_HOME` named for the server that installed them (Д-184). */
+/** Beside the hooks: the runtime folder `AI_DEV_HOME` named for the server that installed them. */
 export const RUNTIME_HOME_FILE = ".ai-dev-home";
 
 /**
@@ -274,7 +274,7 @@ export const CURSOR_HOOKS_CONTRACT = {
  * not, and what they should see if it works.
  *
  * The contract above records its confidence claim by claim because cursor.com
- * is unreachable from where this was built (Д-2). That leaves three statements
+ * is unreachable from where this was built. That leaves three statements
  * standing on secondary sources: whether Cursor knows the three session events,
  * whether the first registration for an event shadows the rest, and whether a
  * denial actually reaches the user. Each one is five minutes in front of a real
@@ -373,7 +373,7 @@ function isOurs(entry) {
  * A registration group with the AI Dev commands taken out, or null when
  * nothing else was in it. Dropping the whole group took with it the hooks a
  * person had added next to ours — and Claude Code's `/hooks` adds a hook for
- * an event without a matcher to the group already there (docs/DEFECTS.md, Д-165).
+ * an event without a matcher to the group already there.
  */
 function withoutOurs(entry) {
   if (!Array.isArray(entry?.hooks)) return isOurs(entry) ? null : entry;
@@ -454,7 +454,7 @@ export function cursorHookWarnings(current, ours) {
  * The stub git runs. It is three lines of `sh` rather than a Node script so the
  * shebang question never comes up: Git for Windows runs hooks through its own
  * shell. Node is found by the launcher, not by PATH alone: a Git client opened
- * from the Dock commits without the shell's PATH (Д-103), and the stub's own
+ * from the Dock commits without the shell's PATH, and the stub's own
  * folder comes from `${0%/*}` rather than `dirname`, which needs one too.
  * Paths are relative to the stub, so moving or cloning the repository keeps
  * it working.
@@ -524,7 +524,7 @@ async function readText(target) {
  * kept out of git): the Node running this server, which the client found.
  * `runtimeHome` — the folder `AI_DEV_HOME` names for this server — is recorded
  * beside it (`.ai-dev-home`), so hooks a client runs without that variable keep
- * their state where the server does (docs/DEFECTS.md, Д-184). In a container
+ * their state where the server does. In a container
  * neither is the host's, so nothing is recorded there.
  *
  * @param {{ projectRoot: string, hooksSourceDir: string, targets?: string[], profile?: string, overwrite?: boolean, dryRun?: boolean, cursorFormatVersion?: number, platform?: string, nodePath?: string, runtimeHome?: string }} input
@@ -571,7 +571,7 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
   await writeManaged(`${HOOKS_RELATIVE_DIR}/.gitignore`, `${NODE_PATH_FILE}\n${RUNTIME_HOME_FILE}\n`);
   // Shell scripts keep the line endings they are written with: Git for Windows
   // with core.autocrlf checks text out with CRLF, and a shell script with CRLF
-  // is a syntax error (docs/DEFECTS.md, Д-171).
+  // is a syntax error.
   await writeManaged(`${HOOKS_RELATIVE_DIR}/.gitattributes`, "*.sh text eol=lf\n");
   if (nodePath) await writeManaged(`${HOOKS_RELATIVE_DIR}/${NODE_PATH_FILE}`, `${platform === "win32" ? nodePath.replaceAll("\\", "/") : nodePath}\n`);
   const runtimeRecord = `${HOOKS_RELATIVE_DIR}/${RUNTIME_HOME_FILE}`;
@@ -642,7 +642,7 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
         // lost its executable bit to a checkout, an unzip, or a copy.
         if (!dryRun) await fs.chmod(path.join(root, ...relativePath.split("/")), 0o755).catch(() => undefined);
       }
-      // The stubs are shell scripts without an extension: all of them LF (Д-171).
+      // The stubs are shell scripts without an extension: all of them LF.
       await writeManaged(`${GIT_HOOKS_RELATIVE_DIR}/.gitattributes`, "* text eol=lf\n");
       if (foreign) {
         warnings.push(`core.hooksPath already points at ${configured}; it was left alone. Point it at ${GIT_HOOKS_RELATIVE_DIR}, or copy the two stubs there, to run these hooks.`);
@@ -665,7 +665,7 @@ export async function installAgentHooks({ projectRoot, hooksSourceDir, targets =
   }
 
   // What this adapter could not check itself, said where the person installing
-  // will see it rather than only in a source comment (Д-2).
+  // will see it rather than only in a source comment.
   const cursorUnverified = targets.includes("cursor") ? cursorVerificationPlan().unverified : [];
   return {
     profile,
@@ -741,8 +741,7 @@ export async function agentHooksStatus(projectRoot, { platform = process.platfor
     cursor_contract: CURSOR_HOOKS_CONTRACT,
     // Registrations still written by 2.x run a bare `node`, which a client
     // started from the Dock may not find; install_agent_hooks rewrites them.
-    // On Windows `node …` is what it writes, so there is nothing to rewrite
-    // (docs/DEFECTS.md, Д-172).
+    // On Windows `node …` is what it writes, so there is nothing to rewrite.
     bare_node_commands: platform === "win32" ? 0 : commands.filter((line) => /^node\s/.test(line)).length,
     recorded_node: recordedNode,
     recorded_node_exists: recordedNode ? await fs.access(recordedNode).then(() => true, () => false) : null

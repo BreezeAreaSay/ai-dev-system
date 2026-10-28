@@ -21,7 +21,7 @@
  *   Nobody installs all ten. A scan that fails because `trivy` is absent would
  *   teach an agent to stop running scans. A run where *none* of them could run
  *   is still not a failure — it is `unchecked`, which passes without claiming
- *   anything was checked (docs/DEFECTS.md, Д-55).
+ *   anything was checked.
  * - **A scanner that needs the network says so instead of hanging.** All but
  *   two fetch an advisory database. Offline they fail slowly and in their
  *   own way, so they are skipped up front when the run is declared offline, and
@@ -172,7 +172,7 @@ export const SECURITY_SCANNERS = Object.freeze([
     // `cargo` is Rust's package manager; `cargo audit` is a plugin installed
     // separately with `cargo install cargo-audit`. Finding `cargo` on the PATH
     // therefore proves nothing about this scanner, and a machine with Rust and
-    // no plugin was told the scanner was installed (docs/DEFECTS.md, Д-64). A
+    // no plugin was told the scanner was installed. A
     // scanner that is a subcommand of something else declares the probe that
     // answers the question instead of being believed on its executable.
     probeArgs: ["audit", "--version"],
@@ -493,7 +493,7 @@ export function findingBlocks(item) {
  * of the skip. But a run where not one of them could run proves nothing, and
  * calling that `pass` made "security: pass" mean "checked and clean" when it
  * meant "nobody looked": `checked: 0` was the only thing that said otherwise
- * and nothing read it (docs/DEFECTS.md, Д-55). Such a run is `unchecked`.
+ * and nothing read it. Such a run is `unchecked`.
  *
  * `unchecked` still does not block — the rule that a missing scanner cannot
  * stop a verification is unchanged — it only stops the run claiming a result it
@@ -633,7 +633,7 @@ export const OFFLINE_CAPABLE_SCANNERS = Object.freeze(["gitleaks", "semgrep"]);
  * `cargo` is on the PATH of every Rust machine and `cargo audit` is a plugin
  * most of them have never installed. Such a scanner carries `probeArgs`, and
  * the probe — the tool asked for its own version, argv array, `shell: false`,
- * seconds not minutes — decides (docs/DEFECTS.md, Д-64).
+ * seconds not minutes — decides.
  *
  * The probe runs in a temporary directory rather than in a project: it asks a
  * version, and it must not be able to read, or be confused by, whatever
@@ -701,8 +701,7 @@ function firstOutputLine(output) {
  * `run_security_scan` comes back `unchecked`, which is a gap worth naming and
  * not a broken system. It is named here because the scan itself is only run on
  * demand, and the published image ships with one of them at most — so
- * without this check the gap is invisible until a task asks for a scan
- * (docs/DEFECTS.md, Д-55).
+ * without this check the gap is invisible until a task asks for a scan.
  *
  * @param {Array<{ id: string, tool: string, executable: string, installed: boolean }>} availability
  * @returns {{ status: string, summary: string, details: object }}
@@ -717,7 +716,7 @@ export function evaluateSecurityScanners(availability) {
     offline_capable: installed.filter((item) => OFFLINE_CAPABLE_SCANNERS.includes(item.id)).map((item) => item.id),
     // Why each absent scanner is absent, when the answer is more than "it is
     // not on the PATH" — "you have cargo but not cargo-audit" is a different
-    // gap, and a different fix, from "you have no Rust" (docs/DEFECTS.md, Д-64).
+    // gap, and a different fix, from "you have no Rust".
     missing_reasons: Object.fromEntries(
       missing.filter((item) => item.reason).map((item) => [item.id, item.reason])
     )

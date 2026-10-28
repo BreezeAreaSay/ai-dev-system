@@ -189,7 +189,7 @@ test("the guard asks nothing when there is nothing to ask, or when it is switche
   assert.deepEqual(unchecked.warns, [
     "[supply-chain] p@1 was not fully checked: the registry could not be read: the proxy refused to connect to registry.npmjs.org:443 (HTTP 403).",
     "[supply-chain] p@1 was not fully checked: OSV could not be read: no answer in 3s."
-  ], "one full stop, not two (Д-172)");
+  ], "one full stop, not two");
 });
 
 test("a changed manifest or lockfile is a note to the agent; other edits are not", () => {

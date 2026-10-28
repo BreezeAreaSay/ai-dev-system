@@ -6,7 +6,7 @@
  * `scripts/ai-dev.mjs` imported the whole runtime and migrated the runtime home
  * before it looked at the command, so a typo moved files and then printed the
  * help, and its `start` imported a server that only starts when run directly —
- * exit 0, nothing served (docs/DEFECTS.md, Д-161).
+ * exit 0, nothing served.
  *
  * Exit codes: 0 done, 1 failed, 2 wrong usage, 130 stopped with Ctrl-C.
  */

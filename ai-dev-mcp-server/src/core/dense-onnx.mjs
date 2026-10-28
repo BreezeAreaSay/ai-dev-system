@@ -287,8 +287,7 @@ export { DOCKER_MOUNTED_MODEL_DIR };
 /**
  * The errors that say a folder is there and this user cannot read it (a host's
  * folders 0700) or cannot reach it (a share that dropped). Any other — not
- * there, a file, a link that loops, no descriptor left — is no model mounted
- * (docs/DEFECTS.md, Д-357, Д-361, Д-365, Д-366, Д-371).
+ * there, a file, a link that loops, no descriptor left — is no model mounted.
  */
 const THERE_UNREAD = new Set(["EACCES", "EPERM", ...SHARE_UNREACHABLE]);
 
@@ -315,7 +314,7 @@ export function holdsFiles(folder, list = readdirSync) {
  * `models/bge-m3`; that folder is never read and never written here.
  *
  * In the image the runtime home is in the volume, where `ai-dev model install`
- * puts the model once (docs/DEFECTS.md, Д-99); a folder the host mounts at
+ * puts the model once; a folder the host mounts at
  * `/models`, as the 2.x launchers do, is used first. The 2.x image named the
  * mount in its ENV, so a model could not be put in the volume at all.
  *

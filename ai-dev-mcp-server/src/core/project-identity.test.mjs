@@ -28,7 +28,7 @@ import {
  * Point the home rule at a directory of this test's own making. The rule reads
  * the environment, but `os.tmpdir()` sits inside the user profile on Windows,
  * so a test that left the real home in place would be deciding a different
- * layout there than here (docs/DEFECTS.md, Д-48).
+ * layout there than here.
  */
 function withHome(t, homeDir) {
   const previous = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
@@ -299,7 +299,7 @@ test("the hooks copy of the derivation answers exactly like the server", async (
   }
 });
 
-test("a hook started in a package of a monorepo keys its memory to the package, as the server does (Д-164)", async (t) => {
+test("a hook started in a package of a monorepo keys its memory to the package, as the server does", async (t) => {
   // The hook went up to the Git root first and looked for a boundary only from
   // there, so a session in `apps/web` wrote its handoff under the repository's
   // key while the server read the package's.
@@ -317,7 +317,7 @@ test("a hook started in a package of a monorepo keys its memory to the package, 
     assert.equal(projectIdOf(identityRoot), identity.project_id, cwd);
     assert.equal(repositoryIdOf(identityRoot), identity.repository_id, cwd);
     assert.deepEqual(memoryKeysOf(identityRoot), memoryScopeKeys(identity), cwd);
-    // Policy, git and formatters stay the workspace's: the repository (Д-189).
+    // Policy, git and formatters stay the workspace's: the repository.
     assert.equal(projectRootOf(cwd), await fs.realpath(repo), cwd);
   }
   assert.notEqual(projectIdOf(identityRootOf(path.join(repo, "apps", "web"))), projectIdOf(identityRootOf(repo)));

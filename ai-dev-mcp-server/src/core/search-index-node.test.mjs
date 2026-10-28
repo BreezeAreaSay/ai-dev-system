@@ -148,7 +148,7 @@ test("the legacy Python backend embeds the passages, and Node writes them into t
   assert.deepEqual([status.dense_backend, status.dense_documents], ["python", built.dense_documents]);
 });
 
-test("a dense rebuild with no model leaves the index as it was and says what to install (Д-98)", needsSqlite, async (t) => {
+test("a dense rebuild with no model leaves the index as it was and says what to install", needsSqlite, async (t) => {
   const { runtime, calls } = createFixture(t, {
     describe: async () => ({ backend: "onnx", available: false, reason: "Dense search is not installed. Run `npm run setup -- --model`." })
   });
@@ -172,7 +172,7 @@ test("hybrid search runs in Node: the question embedded here, a missing model on
   assert.deepEqual([...await runtime.hybridSearch({ query: "   " })], [], "a blank question finds nothing rather than everything");
 });
 
-test("status and rebuild bring the skill registry up to date first, and survive it failing (Д-119)", needsSqlite, async (t) => {
+test("status and rebuild bring the skill registry up to date first, and survive it failing", needsSqlite, async (t) => {
   // The index takes its skill documents from the registry; a registry still
   // listing skills a pull removed would put them straight back in the index.
   const order = [];

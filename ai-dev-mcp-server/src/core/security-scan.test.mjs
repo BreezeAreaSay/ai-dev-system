@@ -156,7 +156,7 @@ test("a network failure in the output is read as offline, not as a broken scan",
   assert.match(npmAudit.reason, /exited 1 without reaching the network/);
   assert.match(npmAudit.reason, /npm error code ENOTFOUND/, "the first line of stderr, not a slice of the report");
   // The one scanner on this machine never reached the network, so this run
-  // checked nothing (Д-55).
+  // checked nothing.
   assert.equal(scan.status, "unchecked");
 });
 
@@ -399,7 +399,7 @@ test("a machine with no scanner installed is a warning, not a failure", () => {
 
 // A machine with Rust and no plugin: `cargo` is on the PATH, `cargo audit` is
 // not installed, and health used to count the scanner as present because it
-// only ever asked about the executable (docs/DEFECTS.md, Д-64).
+// only ever asked about the executable.
 const CARGO_WITHOUT_PLUGIN = "error: no such command: `audit`";
 
 function catalogueEntry(id) {

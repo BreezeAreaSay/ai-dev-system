@@ -19,7 +19,7 @@
  * - `node_modules/` with the production dependencies, unless `--no-deps`;
  * - with `--pack`, the tarball beside the folder, checked against the list.
  *
- * Nothing is published: `npm publish` is the owner's (brief, section 2).
+ * Nothing is published: `npm publish` is the owner's (section 2).
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
@@ -114,7 +114,7 @@ async function pack(output) {
   const unpacked = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-dist-unpack-"));
   try {
     // Windows' own bsdtar by its path: a GNU tar from Git Bash first on PATH reads
-    // `C:` in `C:\…` as a remote host (Д-185).
+    // `C:` in `C:\…` as a remote host.
     const systemTar = path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
     const tarCommand = process.platform === "win32" && await fs.access(systemTar).then(() => true, () => false) ? systemTar : "tar";
     const tar = await resolveSpawnInvocation(tarCommand, ["-xzf", tarball, "-C", unpacked]);
@@ -151,7 +151,7 @@ async function pack(output) {
 export async function stageDistribution(stage, { deps = true } = {}) {
   const plan = await planDistribution({ repositoryRoot, target: "dist" });
   // Said before anything is copied: a file npm leaves out of the tarball is
-  // one every installed package would be missing (docs/DEFECTS.md, Д-175).
+  // one every installed package would be missing.
   const dropped = plan.filter((item) => npmLeavesOut(item.destination)).map((item) => item.destination);
   if (dropped.length) throw new Error(`npm pack would leave out ${dropped.length} file(s) the distribution needs: ${dropped.join(", ")}.`);
   for (const item of plan) await copyDistributionFile(item.source, path.join(stage, ...item.destination.split("/")));

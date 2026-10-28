@@ -13,7 +13,7 @@
  */
 export async function openTools() {
   // What 2.x left in AI_DEV_HOME/.ai-dev moves first: the tools read the
-  // runtime tree (docs/DEFECTS.md, Д-90).
+  // runtime tree.
   const { prepareRuntimeHome } = await import("../core/runtime-home-migration.mjs");
   await prepareRuntimeHome();
   const { callTool, shutdownBgeWorkers } = await import("../mcp-stdio.mjs");

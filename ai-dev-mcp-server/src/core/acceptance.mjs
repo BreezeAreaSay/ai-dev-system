@@ -5,7 +5,7 @@
  * `npm run check` runs and the line "N падений из 10", because one green run has
  * twice hidden a failure that appears in two runs out of ten (docs/DEFECTS.md,
  * Д-11). Kept as an agreement it was honoured about half the time
- * (Д-4); kept as a command it is honoured by running the command.
+ *; kept as a command it is honoured by running the command.
  *
  * The two kinds of failure are not the same thing and the report must not blur
  * them: a run where a test failed is the suite telling you something, and a run

@@ -169,7 +169,7 @@ test("a check that came back good carries no detail, and neither does a silent f
   assert.equal(Object.hasOwn(passed, "detail"), false, "a passing check explains nothing");
 
   // `unchecked` passes, so it is not dressed up as a failure either — its
-  // `next_step` is what says nothing ran (Д-55).
+  // `next_step` is what says nothing ran.
   const [unchecked] = verificationCheckSummary([
     check("security_scan", { status: "unchecked", summary: { checked: 0 } })
   ]);

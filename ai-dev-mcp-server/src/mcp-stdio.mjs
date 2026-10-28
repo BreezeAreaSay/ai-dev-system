@@ -198,9 +198,9 @@ const installLayout = currentInstallLayout();
 const vaultRoot = installLayout.contentRoot;
 
 // Home for regenerable runtime data (task state, search cache, models, QA
-// artifacts): the layout's, as the hooks have it (Д-185), overridable per
+// artifacts): the layout's, as the hooks have it, overridable per
 // directory with the AI_DEV_* env vars. What 2.x left in AI_DEV_HOME/.ai-dev
-// (Д-90) or in ~/.codex (Д-104) moves here first; ~/.codex is not read any more.
+// or in ~/.codex moves here first; ~/.codex is not read any more.
 await prepareRuntimeHome();
 const seedSync = await prepareUserVault(installLayout, { version: packageVersion });
 const userHome = resolveUserHome(vaultRoot);
@@ -282,8 +282,8 @@ const sessionStore = new SessionStore({ stateRoot: taskStateRoot });
 const instinctStore = new InstinctStore({ stateRoot: taskStateRoot });
 const skillOutcomeStore = new SkillOutcomeStore({ stateRoot: taskStateRoot });
 const pilotStore = new PilotStore({ stateRoot: taskStateRoot });
-// The ONNX export — in the image a host's folder mounted at /models first, as the CLI finds it (Д-346). 2.x kept
-// the Python backend's torch weights beside it in models/bge-m3; that folder is only looked at to say it can go (D3, Д-98).
+// The ONNX export — in the image a host's folder mounted at /models first, as the CLI finds it. 2.x kept
+// the Python backend's torch weights beside it in models/bge-m3; that folder is only looked at to say it can go.
 const defaultBgeM3OnnxDir = defaultOnnxModelDir({ aiDevHome: runtimeStateRoot });
 const denseManifest = readDenseManifest();
 let searchHardNegativeCache = null;
@@ -307,8 +307,7 @@ const onnxDenseRuntime = createOnnxDenseRuntime({
 });
 /**
  * Whether dense search runs, asked here once so `embedding_status`, the health
- * check, a rebuild and every embedding cannot each answer differently
- * (docs/DEFECTS.md, Д-62, Д-133, Д-144).
+ * check, a rebuild and every embedding cannot each answer differently.
  */
 const denseRuntime = createDenseRuntime({
   manifest: denseManifest,
@@ -410,7 +409,7 @@ async function readText(relativePath) {
   return fs.readFile(safePath(relativePath), "utf8");
 }
 
-// Rebuilt first when its skills changed on disk (docs/DEFECTS.md, Д-119).
+// Rebuilt first when its skills changed on disk.
 const skillRegistry = createSkillRegistryReader({ registryPath: skillIndexPath, catalogRoot: skillCatalogRoot, rebuild: () => rebuildIndex(), onError: (error) => console.error(`[ai-dev] skill registry: ${error.message}`) });
 const readSkillIndex = () => skillRegistry.read();
 
@@ -1353,7 +1352,7 @@ async function readSkillOverlayDocument({ create = true } = {}) {
   return document;
 }
 
-const rebuildSkillTaxonomy = (args) => withCurrentSkillRegistry(skillRegistry, registryDir, () => rebuildSkillTaxonomyHeld(args)); // its folders are rebuild_index's (Д-348, Д-356)
+const rebuildSkillTaxonomy = (args) => withCurrentSkillRegistry(skillRegistry, registryDir, () => rebuildSkillTaxonomyHeld(args)); // its folders are rebuild_index's
 async function rebuildSkillTaxonomyHeld({ sync_cards = true } = {}) {
   const current = await readSkillIndex();
   const overlays = await readSkillOverlayDocument();
@@ -1867,8 +1866,7 @@ async function frontendQaEnvironmentStatus() {
   //
   // Which of the two ERR_MODULE_NOT_FOUND shapes it is decides what the health
   // check says, so the reason is read out of the whole output rather than taken
-  // from its first line, which is the frame Node threw from and never the cause
-  // (docs/DEFECTS.md, Д-56).
+  // from its first line, which is the frame Node threw from and never the cause.
   let output;
   try {
     output = await runFrontendQaStatus();
@@ -3042,7 +3040,7 @@ async function updateFrontendProductBrief({
   };
   const saved = await writeFrontendProductState(projectRoot, next);
   const brief = buildFrontendProductFiles(saved).get(FRONTEND_PRODUCT_PATHS.designBrief);
-  await writeProjectFile(projectRoot, FRONTEND_PRODUCT_PATHS.designBrief, brief, true);
+  await writeProjectFile(projectRoot, FRONTEND_PRODUCT_PATHS.designBrief, true);
   return {
     action: "frontend_product_brief_updated",
     project_path: projectRoot,
@@ -4580,7 +4578,7 @@ async function readSkill({ name, source }) {
 }
 
 async function dispatchTool(name, args, context = {}) {
-  // Over the search index, not every file on disk (docs/DEFECTS.md, Д-102).
+  // Over the search index, not every file on disk.
   if (name === "search_knowledge") return textContent(await searchRuntime.searchKnowledge(args));
   if (name === "read_knowledge") return textContent(await readText(args.path));
   if (name === "search_skills") return textContent(await searchSkills(args));

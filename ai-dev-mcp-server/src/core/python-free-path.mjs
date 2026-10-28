@@ -3,7 +3,7 @@
  *
  * Every GitHub runner carries Python, so for months nothing noticed that search
  * could not run without it: the first run failed on a clean machine with
- * "spawn python3 ENOENT", and CI stayed green (docs/DEFECTS.md, Д-85). The
+ * "spawn python3 ENOENT", and CI stayed green. The
  * check that closes the blind spot runs the install, the first run, the health
  * check and the protocol smoke on a PATH from which every interpreter is gone.
  *

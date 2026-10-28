@@ -1,11 +1,11 @@
 /**
- * Updates of the installed app (owner decision D7): electron-updater, from
+ * Updates of the installed app: electron-updater, from
  * the GitHub Releases of the production repository, `stonebridgeway/ai-dev-system`
  * — the feed the build writes into `resources/app-update.yml`. A signed build
  * has its downloads checked against the signature of the app that runs; an
  * unsigned one against the sha512 the release lists.
  *
- * The app's Chromium resolves no host name (`host-resolver-rules`, Д-260): its
+ * The app's Chromium resolves no host name (`host-resolver-rules`): its
  * page has no network. The updater's requests go through Chromium too, so the
  * rule makes an exception for the update hosts — by their exact names, never
  * a wildcard a page could put a word of its own into — and the updater's own

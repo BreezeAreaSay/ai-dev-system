@@ -4,7 +4,7 @@
     "What ships, for every way this system ships: `npm run dist` (dist/ai-dev: the npm package, the Windows installer and, in `ai-dev/`, the Docker image's build context) and the files only the image's build needs beside it (`npm run docker:prepare`).",
     "Paths are relative to the repository root. `to` says where a group lands in each target; a group without a target in `to` is not part of it.",
     "Globs: `*` is any name within one folder, `**` any depth. A group with `manifest` ships exactly the files that manifest lists, and the manifest itself.",
-    "Before 3.0 each target listed its files in its own code and the lists drifted apart (docs/DEFECTS.md, Д-37, Д-38, Д-56, Д-57)."
+    "Before 3.0 each target listed its files in its own code and the lists drifted apart."
   ],
   "groups": [
     {

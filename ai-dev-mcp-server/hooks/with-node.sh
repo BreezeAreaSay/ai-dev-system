@@ -8,15 +8,14 @@
 # the hook, and an editor or a Git client opened from the Dock, a launcher or
 # the Start menu does not have the shell's PATH: Node from nvm, fnm, Volta or
 # Homebrew is not on it, and the hook failed with "node: not found" while the
-# guard, the session handoff and the Stop check silently did nothing
-# (docs/DEFECTS.md, Д-103).
+# guard, the session handoff and the Stop check silently did nothing.
 #
 # Node is taken from, in order: AI_DEV_NODE; the Node this repository's hooks
 # were installed with on this machine (.node-path next to this file, which
 # git ignores); `node` on PATH; the places installers put it.
 #
 # A mistake here exits 1, never 2: Claude Code reads 2 from a hook as "block",
-# and a launcher called wrongly would refuse every tool call (Д-171).
+# and a launcher called wrongly would refuse every tool call.
 
 # The folder of this file, without `dirname`: the PATH may hold nothing.
 case $0 in
@@ -32,7 +31,7 @@ shift
 
 # A Node is an executable file. `-x` alone is true of a folder as well, and
 # AI_DEV_NODE naming Node's bin folder ended every hook in "Permission
-# denied", exit 126, without trying anything else (Д-171).
+# denied", exit 126, without trying anything else.
 runnable() {
   [ -n "$1" ] && [ -f "$1" ] && [ -x "$1" ]
 }

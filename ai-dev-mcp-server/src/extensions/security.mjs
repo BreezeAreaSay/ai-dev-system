@@ -27,7 +27,7 @@ export const SECURITY_SCAN_STAMP = path.join(".ai-dev", "security", "last-scan.j
  * @param {string} via - The tool that ran it.
  */
 async function stampScan(projectRoot, scan, via) {
-  // The stamp is this machine's: kept out of the project's history (Д-597).
+  // The stamp is this machine's: kept out of the project's history.
   await ignoreMachineFiles(projectRoot);
   await atomicWriteJson(path.join(projectRoot, SECURITY_SCAN_STAMP), {
     at: new Date().toISOString(),

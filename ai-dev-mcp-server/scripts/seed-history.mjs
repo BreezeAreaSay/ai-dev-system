@@ -8,7 +8,7 @@
  *   node scripts/seed-history.mjs --check    exit 1 when the file is not what git says
  *
  * 2.x images copied their seed into the volume with `cp -n` and kept no record
- * (docs/DEFECTS.md, Д-99). The sync that replaces it (`src/core/seed-sync.mjs`)
+ *. The sync that replaces it (`src/core/seed-sync.mjs`)
  * tells a file the user changed from one an update should replace by that
  * record; a 2.x volume has none, so every skill an older image left there would
  * look like the user's own, and none would ever be updated or removed. This
@@ -20,7 +20,7 @@
  * are published from the production repository alone, so no volume without a
  * record holds a seed of this program's commits. Nothing is left out for being
  * in the current manifest either — a 3.0 edit of such a file would otherwise
- * turn the 2.x version of it into "the user's" (Д-315). So the file changes
+ * turn the 2.x version of it into "the user's". So the file changes
  * only when the base does: when production ships another 2.x, the base moves to
  * it and the history is written again, from a clone that has that history.
  */

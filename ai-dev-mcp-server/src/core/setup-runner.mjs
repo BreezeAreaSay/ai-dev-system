@@ -36,7 +36,7 @@ export function loadSetupSteps() {
 /**
  * The error a stop ends a step with — a stop asked for, or Ctrl-C at a
  * terminal, which reaches the commands setup runs as well as setup — so the
- * step is reported stopped, not failed (docs/DEFECTS.md, Д-238).
+ * step is reported stopped, not failed.
  */
 function stopped(signal, what) {
   return signal?.reason ?? Object.assign(new Error(`${what} was stopped with Ctrl-C.`), { name: "AbortError" });
@@ -165,7 +165,7 @@ export async function inspectSetup({ runtime, env, steps }) {
   };
 }
 
-/** Whether the model is in place, and why not when this user cannot read it (docs/DEFECTS.md, Д-359). */
+/** Whether the model is in place, and why not when this user cannot read it. */
 async function modelInspection({ manifest, dir, env }) {
   const status = await modelStatus({ manifest, dir, env });
   return { modelInstalled: status.installed, modelUnreadable: status.unreadable ?? "" };
@@ -196,7 +196,7 @@ export async function runSetup({ runtime, env, steps, inspection, want = {}, for
   const present = {
     ...inspection.present,
     // Installed means the browser too, and asked for by name it means one that
-    // launches — the check `doctor` makes (docs/DEFECTS.md, Д-93).
+    // launches — the check `doctor` makes.
     frontend_qa: frontendQaInstalled({
       dependencies: qaDependencies,
       status: qaDependencies ? await frontendQaStatus(vaultRoot, { launch: Boolean(want.frontendQa) }) : null,
@@ -221,13 +221,13 @@ export async function runSetup({ runtime, env, steps, inspection, want = {}, for
       return `pnpm@${pnpmVersion} install --frozen-lockfile, playwright install chromium; ${verdict.summary}`;
     },
     async dense_model() {
-      // A model here this user cannot read is not one to download over (Д-359).
+      // A model here this user cannot read is not one to download over.
       if (modelUnreadable) {
         const mounted = String(env.AI_DEV_RUNTIME ?? "") === "docker" && modelDir === DOCKER_MOUNTED_MODEL_DIR;
         throw new Error(`The model in ${modelDir} cannot be read (${modelUnreadable}). ${unreadableModelAdvice(modelUnreadable, { mounted })}`);
       }
       // Where the runtime has no build, 600 MB that cannot load is not a
-      // favour (Д-101); `ai-dev model install` still fetches them for a container.
+      // favour; `ai-dev model install` still fetches them for a container.
       const support = denseRuntimeSupport();
       if (!support.supported) throw new Error(support.reason);
       const result = await installModel({ manifest, dir: modelDir, env, signal, onProgress: stepProgress("dense_model"), log });
@@ -263,8 +263,8 @@ export async function runSetup({ runtime, env, steps, inspection, want = {}, for
     ...(want.model ? { dense_model: true, dense_index: true } : {}),
     ...(want.frontendQa ? { frontend_qa: true } : {})
   };
-  // Not asked for, a model this user cannot read is said as that, not as one to install (Д-359); the
-  // vectors it made before are said as kept (Д-363).
+  // Not asked for, a model this user cannot read is said as that, not as one to install; the
+  // vectors it made before are said as kept.
   const vectors = Number(indexStatus?.dense_documents || 0);
   const unreadableReason = {
     dense_model: `cannot be read (${modelUnreadable})`,

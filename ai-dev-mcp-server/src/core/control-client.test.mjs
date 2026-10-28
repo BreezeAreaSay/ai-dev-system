@@ -44,7 +44,7 @@ async function stage(t) {
 
 const answer = async (client, name, args = {}) => (await client.callTool({ name, arguments: args })).structuredContent.result;
 
-test("a program reaches the install's daemon: none is started when it says not to, one is when it may (Д-255)", async (t) => {
+test("a program reaches the install's daemon: none is started when it says not to, one is when it may", async (t) => {
   const { env } = await stage(t);
   await assert.rejects(openControlClient({ serverRoot, env, start: false, name: "probe" }), (error) => error.code === "ENOTRUNNING");
   assert.deepEqual((await stopDaemons({ env, timeoutMs: 1000 })).daemons, [], "nothing was started");
@@ -85,7 +85,7 @@ test("the Node of an AI client's ai-dev entry: this install's first, then others
   assert.deepEqual(new Set(await clientNodePaths({ env, home })), new Set([ours, theirs]), "without the install's own entry point, each client's");
 });
 
-test("a daemon told to retire says so to the sessions it keeps: served_by.retired (Д-245, Д-265)", async (t) => {
+test("a daemon told to retire says so to the sessions it keeps: served_by.retired", async (t) => {
   const { env } = await stage(t);
   const { client } = await openControlClient({ serverRoot, env, name: "probe" });
   t.after(() => client.close().catch(() => undefined));

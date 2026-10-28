@@ -8,7 +8,7 @@ import { NO_SANDBOX, desktopRoot, launch, serverModule, serverRoot, shot, stage,
 
 const require = createRequire(import.meta.url);
 
-// What the window says when the app cannot get going (Д-242).
+// What the window says when the app cannot get going.
 
 /** Another writer — `ai-dev`, the daemon — holds the settings file's lock until the returned function is called. */
 async function holdSettings(t, file) {
@@ -31,7 +31,7 @@ test("a broken settings file is said with what to do, and Try again goes on once
   await page.waitForSelector('[data-screen="broken"]', { timeout: 60_000 });
   assert.equal(await page.textContent("h1"), "AI Dev could not start");
   assert.match(await page.textContent('[data-field="broken-error"]'), /config\.json is not JSON\.$/);
-  // What to do is said once, in the app's words (Д-269).
+  // What to do is said once, in the app's words.
   assert.doesNotMatch(await page.textContent('[data-field="broken-error"]'), /Fix or remove it/);
   assert.equal(await page.textContent('[data-field="broken-hint"]'), "Fix the file or remove it — without it the defaults are used — then press Try again.");
   assert.equal(await page.textContent("#retry"), "Try again");
@@ -55,19 +55,19 @@ test("a server without its packages is said, with the command that installs them
   await shot(page, "broken-no-packages");
 });
 
-test("on a Russian system the start-up failure is said in Russian, and again in the language chosen after (Д-264)", { timeout: 180_000 }, async (t) => {
+test("on a Russian system the start-up failure is said in Russian, and again in the language chosen after", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   await fs.writeFile(path.join(s.home, ".ai-dev", "config.json"), "{ this is not json");
   const { page } = await launch(t, { ...s.env, LANG: "ru_RU.UTF-8", LC_ALL: "ru_RU.UTF-8", LANGUAGE: "ru" });
   await page.waitForSelector('[data-screen="broken"]', { timeout: 60_000 });
   assert.equal(await page.textContent("h1"), "AI Dev не смог запуститься");
-  assert.match(await page.textContent('[data-field="broken-hint"]'), /^Исправьте файл или удалите его — /, "what to do, in Russian (Д-269)");
+  assert.match(await page.textContent('[data-field="broken-hint"]'), /^Исправьте файл или удалите его — /, "what to do, in Russian");
   await page.selectOption("#language", "en");
   await page.waitForFunction(() => document.querySelector("h1")?.textContent === "AI Dev could not start");
   assert.match(await page.textContent('[data-field="broken-hint"]'), /^Fix the file or remove it — /, "the main process's words in the new language too");
 });
 
-test("a language chosen on the failure screen holds once Try again gets going, and is written then (Д-271, п. 4)", { timeout: 180_000 }, async (t) => {
+test("a language chosen on the failure screen holds once Try again gets going, and is written then", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const settings = path.join(s.home, ".ai-dev", "config.json");
   await fs.writeFile(settings, "{ this is not json");
@@ -76,11 +76,11 @@ test("a language chosen on the failure screen holds once Try again gets going, a
   assert.equal(await page.textContent("h1"), "AI Dev could not start");
   await page.selectOption("#language", "ru");
   await page.waitForFunction(() => document.querySelector("h1")?.textContent === "AI Dev не смог запуститься");
-  // The main process has tried to write it, and could not, before the file is fixed (Д-275).
+  // The main process has tried to write it, and could not, before the file is fixed.
   await page.evaluate(() => window.aiDev.setLanguage("ru"));
   assert.equal(await fs.readFile(settings, "utf8"), "{ this is not json", "a broken file is not written over");
   // Fixed, and Try again pressed, while another writer holds the settings lock: what the page says
-  // is the start-up's rule alone, not a write that came first (Д-281).
+  // is the start-up's rule alone, not a write that came first.
   const free = await holdSettings(t, settings);
   await fs.writeFile(settings, JSON.stringify({ schema_version: 1 }));
   await page.click("#retry");
@@ -92,7 +92,7 @@ test("a language chosen on the failure screen holds once Try again gets going, a
   assert.equal(await storedLanguage(settings), "ru", "written once the file could be");
 });
 
-test("a second launch tries a failed start again: fixed meanwhile, the first window goes on (Д-242, Д-265)", { timeout: 180_000 }, async (t) => {
+test("a second launch tries a failed start again: fixed meanwhile, the first window goes on", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const settings = path.join(s.home, ".ai-dev", "config.json");
   await fs.writeFile(settings, "{ this is not json");
@@ -106,7 +106,7 @@ test("a second launch tries a failed start again: fixed meanwhile, the first win
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
 });
 
-test("Restart AI Dev asks Electron to start the app again, and to leave this run (Д-242, Д-265)", { timeout: 180_000 }, async (t) => {
+test("Restart AI Dev asks Electron to start the app again, and to leave this run", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const bare = path.join(s.root, "server-without-packages");
   await fs.cp(serverRoot, bare, { recursive: true, filter: (source) => !source.split(path.sep).includes("node_modules") });
@@ -124,7 +124,7 @@ test("Restart AI Dev asks Electron to start the app again, and to leave this run
   assert.deepEqual(await app.evaluate(() => globalThis.restartAsked), ["relaunch", "exit 0"]);
 });
 
-test("a fixed settings file that names a language of its own is not written over (Д-276, п. 2)", { timeout: 180_000 }, async (t) => {
+test("a fixed settings file that names a language of its own is not written over", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const settings = path.join(s.home, ".ai-dev", "config.json");
   await fs.writeFile(settings, "{ this is not json");
@@ -142,12 +142,12 @@ test("a fixed settings file that names a language of its own is not written over
   assert.equal(JSON.parse(await fs.readFile(settings, "utf8")).language, "en", "and nothing is written over it once the lock is free");
 });
 
-test("the tray's Quit writes a language that waits, and waits for the settings lock a second at most (Д-279)", { timeout: 180_000 }, async (t) => {
+test("the tray's Quit writes a language that waits, and waits for the settings lock a second at most", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const settings = path.join(s.home, ".ai-dev", "config.json");
   // The lock is free a moment after Quit: the language is written before the app leaves. It is held
   // for seconds: the app leaves without it, about a second after Quit — the look already waiting
-  // for the lock included (Д-283, п. 1).
+  // for the lock included.
   for (const [holdMs, written] of [[900, "ru"], [8_000, undefined]]) {
     await fs.writeFile(settings, "{ this is not json");
     const { app, page } = await launch(t, s.env);
@@ -185,7 +185,7 @@ async function storedLanguage(file) {
   return stored?.language;
 }
 
-test("a language chosen while the settings file is broken is written once it is fixed — online (Д-276, п. 3)", { timeout: 180_000 }, async (t) => {
+test("a language chosen while the settings file is broken is written once it is fixed — online", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const settings = path.join(s.home, ".ai-dev", "config.json");
   const { page } = await launch(t, s.env);
@@ -198,7 +198,7 @@ test("a language chosen while the settings file is broken is written once it is 
   assert.equal(await storedLanguage(settings), "ru");
 });
 
-test("a language chosen while the settings file is broken is written once it is fixed — offline, with no daemon (Д-276, п. 3)", { timeout: 180_000 }, async (t) => {
+test("a language chosen while the settings file is broken is written once it is fixed — offline, with no daemon", { timeout: 180_000 }, async (t) => {
   const s = await stage(t, { settings: { daemon_autostart: false } });
   const settings = path.join(s.home, ".ai-dev", "config.json");
   const { page } = await launch(t, s.env);
@@ -212,7 +212,7 @@ test("a language chosen while the settings file is broken is written once it is 
   assert.equal(await page.getAttribute("[data-screen]", "data-screen"), "offline", "no daemon was needed");
 });
 
-test("a language chosen online that fixes the settings file is checked again at once (Д-282)", { timeout: 180_000 }, async (t) => {
+test("a language chosen online that fixes the settings file is checked again at once", { timeout: 180_000 }, async (t) => {
   const s = await stage(t, { settings: { language: "fr" } });
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
@@ -243,7 +243,7 @@ test("a language chosen online that fixes the settings file is checked again at 
   assert.equal(await app.evaluate(() => globalThis.checksAsked), asked);
 });
 
-test("a choice that gives way to the language the fixed file names: the window speaks the file's at once (Д-283, п. 2)", { timeout: 180_000 }, async (t) => {
+test("a choice that gives way to the language the fixed file names: the window speaks the file's at once", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const settings = path.join(s.home, ".ai-dev", "config.json");
   const { app, page } = await launch(t, s.env);
@@ -257,12 +257,12 @@ test("a choice that gives way to the language the fixed file names: the window s
   await page.waitForFunction(() => document.querySelector('[data-nav="status"]')?.textContent === "Status", null, { timeout: 10_000 });
   assert.equal(await page.inputValue("#language"), "en");
   assert.equal(JSON.parse(await fs.readFile(settings, "utf8")).language, "en");
-  // The tray follows (Д-284).
+  // The tray follows.
   for (const deadline = Date.now() + 5_000; (await trayNow(app)).menu[0].label !== "Open AI Dev" && Date.now() < deadline;) await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal((await trayNow(app)).menu[0].label, "Open AI Dev");
 });
 
-test("on the failure screen, a choice that gives way to the fixed file's language: the screen's words follow (Д-284)", { timeout: 180_000 }, async (t) => {
+test("on the failure screen, a choice that gives way to the fixed file's language: the screen's words follow", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const settings = path.join(s.home, ".ai-dev", "config.json");
   await fs.writeFile(settings, "{ this is not json");

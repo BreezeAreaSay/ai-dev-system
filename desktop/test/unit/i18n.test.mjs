@@ -39,7 +39,7 @@ test("every key the code names is in the table", () => {
   assert.deepEqual(missing, []);
 });
 
-test("every key the code builds from parts is in the table, for every value the part takes (Д-290)", () => {
+test("every key the code builds from parts is in the table, for every value the part takes", () => {
   const source = (file) => fs.readFileSync(path.join(renderer, "renderer", file), "utf8");
   const shownSettings = Object.keys(SETTINGS).filter((name) => name !== "language");
   // Each family the code builds a key of, and the values it builds it with —
@@ -62,7 +62,7 @@ test("every key the code builds from parts is in the table, for every value the 
     "rules.action": ["block", "warn"],
     "rules.profile": ["minimal", "standard", "strict"],
     "wizard.clients": [...new Set([...source("setup-words.js").match(/const known = \{([^}]*)\}/)[1].matchAll(/: "(\w+)"/g)].map((match) => match[1]))],
-    // What to do about a model that cannot be read, by why (Д-367): the lower-case words of the choice.
+    // What to do about a model that cannot be read, by why: the lower-case words of the choice.
     "wizard.model.unreadable": [...source("setup-words.js").match(/const advice = ([^;]*);/)[1].matchAll(/"([a-z]\w*)"/g)].map((match) => match[1]),
     wizard: [...source("wizard.js").match(/const STEPS = \[([^\]]*)\]/)[1].matchAll(/"(\w+)"/g)].map((match) => `${match[1]}.title`)
   };

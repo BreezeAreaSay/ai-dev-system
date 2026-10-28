@@ -38,7 +38,7 @@ test("a trailing flag with no value does not swallow the option before it", () =
 // The defect was not in the parsing but in the wiring: the workflow offered the
 // input and no one passed it on. These two read the files the dispatch actually
 // runs, because nothing else can — the benchmark needs the weights to run at
-// all, and that is the one thing CI pays 600 MB for (docs/DEFECTS.md, Д-62).
+// all, and that is the one thing CI pays 600 MB for.
 const repoRoot = new URL("../../", import.meta.url);
 const denseEval = await fs.readFile(new URL(".github/workflows/dense-eval.yml", repoRoot), "utf8");
 const benchmark = await fs.readFile(new URL("dense-benchmark.mjs", import.meta.url), "utf8");
@@ -56,7 +56,7 @@ test("the benchmark scores the count it was given, not a number of its own", () 
 });
 
 test("the workflow measures the ONNX export alone, and keeps nothing of the Python job", () => {
-  // The Python backend went in 3.0 (D3, docs/DEFECTS.md, Д-98); its job, its
+  // The Python backend went in 3.0; its job, its
   // torch cache and its revision pin went with it. The comparison is taken on
   // the 2.x line, whose copy of the workflow keeps both jobs.
   assert.doesNotMatch(denseEval, /^ {2}python:$/m);

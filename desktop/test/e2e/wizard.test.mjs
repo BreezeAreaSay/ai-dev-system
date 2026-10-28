@@ -33,7 +33,7 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   assert.equal(await page.isChecked('li[data-client="cursor"] input'), true, "a client found and not connected is chosen");
   assert.equal(await page.isDisabled('li[data-client="claude-desktop"] input'), true, "a client not found cannot be chosen");
   await shot(page, "wizard-2-clients");
-  // With nothing chosen, Connect cannot be pressed rather than do nothing (Д-248).
+  // With nothing chosen, Connect cannot be pressed rather than do nothing.
   await page.uncheck('li[data-client="cursor"] input');
   assert.equal(await page.isDisabled('[data-action="connect-clients"]'), true, "nothing chosen: Connect is disabled");
   await page.check('li[data-client="cursor"] input');
@@ -51,9 +51,9 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   await page.waitForFunction(() => document.querySelector(".progress-text")?.textContent?.length > 0);
   await shot(page, "wizard-3-model-downloading");
   // While it runs the wizard stays on it; a person who goes to Status and
-  // back finds it still running, with its Cancel (Д-249).
+  // back finds it still running, with its Cancel.
   assert.deepEqual([await page.isDisabled('[data-action="next"]'), await page.isDisabled('[data-action="back"]')], [true, true]);
-  assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "cancel", "the focus is on Cancel, not lost (Д-257, п. 4)");
+  assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "cancel", "the focus is on Cancel, not lost");
   await page.click('[data-nav="status"]');
   await page.waitForSelector('[data-screen="status"]');
   await page.click('[data-nav="wizard"]');
@@ -84,20 +84,20 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   // 4. The index, with the model's vectors; the wizard waits for it.
   await page.click('[data-action="build-index"]');
   await page.waitForSelector('[data-step="index"] [data-action="cancel"]');
-  assert.deepEqual([await page.isDisabled('[data-action="next"]'), await page.isDisabled('[data-action="back"]')], [true, true], "no leaving a build behind (Д-249)");
+  assert.deepEqual([await page.isDisabled('[data-action="next"]'), await page.isDisabled('[data-action="back"]')], [true, true], "no leaving a build behind");
   await page.waitForSelector('[data-field="index-result"]', { timeout: 240_000 });
   const result = await page.textContent('[data-field="index-result"]');
   assert.match(result, /, 0 failed$/, result);
   assert.equal(await page.getAttribute('[data-step="dense_index"]', "data-status"), "done");
-  // The focus goes on, to Next — not to Build again, which Enter would press (Д-271, п. 1).
+  // The focus goes on, to Next — not to Build again, which Enter would press.
   assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "next");
   await shot(page, "wizard-6-index");
-  // Left and come back to, the step still shows the build's outcome (Д-249).
+  // Left and come back to, the step still shows the build's outcome.
   await page.click('[data-nav="status"]');
   await page.waitForSelector('[data-screen="status"]');
   await page.click('[data-nav="wizard"]');
   assert.equal(await page.textContent('[data-step="index"] [data-field="index-result"]'), result);
-  // And it builds again from there — the way back from Status's "Run setup again" (Д-261).
+  // And it builds again from there — the way back from Status's "Run setup again".
   await page.evaluate(() => { document.querySelector('[data-field="index-result"]').dataset.before = "1"; });
   await page.click('[data-action="build-index"]');
   await page.waitForSelector('[data-field="index-result"]:not([data-before])', { timeout: 240_000 });
@@ -119,7 +119,7 @@ test("the wizard runs to the end on a real daemon; a cancelled download leaves a
   assert.deepEqual(tray.menu.map((item) => [item.id, item.enabled]), [["open", true], ["rebuild", true], ["stop", true], ["quit", true]]);
 
   // A settings problem is said once — by the summary, or under it — whatever else the summary
-  // holds on this machine (Д-266 п. 8, Д-270, Д-275).
+  // holds on this machine.
   const file = path.join(s.home, ".ai-dev", "config.json");
   await fs.writeFile(file, JSON.stringify({ ...JSON.parse(await fs.readFile(file, "utf8")), daemon_idle_minutes: "forever" }));
   await page.evaluate(() => { document.querySelector('[data-field="overall"]').dataset.before = "1"; });
@@ -138,7 +138,7 @@ test("Status shows each health check with its details and what to do, in Russian
   await page.click('[data-nav="status"]');
   await page.waitForSelector('[data-field="overall"]', { timeout: 120_000 });
   assert.equal(await page.getAttribute('[data-field="overall"]', "data-status"), "failed", "nothing is built yet");
-  // The summary is full of what is not built: the settings problem is listed under it, once (Д-246, Д-275).
+  // The summary is full of what is not built: the settings problem is listed under it, once.
   const problem = (await mainCall(app, "system_status", { checks: false })).result.settings_problems[0];
   assert.match(problem, /^daemon_idle_minutes/);
   const why = await page.textContent('[data-field="why"]');
@@ -159,7 +159,7 @@ test("Status shows each health check with its details and what to do, in Russian
   // The tray's rebuild runs the tool and comes back to the menu.
   assert.equal((await trayNow(app)).state, "failed");
 
-  // Russian: the page, the checks' names, the tray, the stored choice (Д-250).
+  // Russian: the page, the checks' names, the tray, the stored choice.
   await page.selectOption("#language", "ru");
   await page.waitForSelector('[data-nav="status"]:has-text("Статус")');
   await page.waitForSelector('h1:has-text("Статус")');
@@ -172,7 +172,7 @@ test("Status shows each health check with its details and what to do, in Russian
   await shot(page, "status-ru");
 });
 
-test("a download the daemon's going away ends, while the person is on Status, is said on the step when they come back (Д-263, Д-266 п. 7)", { timeout: 180_000 }, async (t) => {
+test("a download the daemon's going away ends, while the person is on Status, is said on the step when they come back", { timeout: 180_000 }, async (t) => {
   const s = await stage(t, { stall: true });
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-step="projects"]', { timeout: 60_000 });
@@ -188,14 +188,14 @@ test("a download the daemon's going away ends, while the person is on Status, is
   await page.click("#start-daemon");
   await page.waitForSelector('[data-step="model"] .step-body .error', { timeout: 60_000 });
   assert.match(await page.textContent('[data-step="model"] .step-body .error'), /The daemon went away/);
-  // Absence is counted: a failing check on an element handle would print all of Playwright (Д-272).
+  // Absence is counted: a failing check on an element handle would print all of Playwright.
   assert.equal(await page.locator('[data-step="model"] .notice').count(), 0, "not called cancelled");
-  // The link's own words, said again in the language chosen (Д-283, п. 3).
+  // The link's own words, said again in the language chosen.
   await page.selectOption("#language", "ru");
   await page.waitForFunction(() => document.querySelector('[data-step="model"] .step-body .error')?.textContent.includes("Демон пропал."));
   await page.selectOption("#language", "en");
   await page.waitForFunction(() => document.querySelector('[data-step="model"] .step-body .error')?.textContent.includes("The daemon went away."));
-  // An answer that the model is not ready is said on the step (Д-270, R7). This daemon never gives
+  // An answer that the model is not ready is said on the step (R7). This daemon never gives
   // one — it throws instead — so the main process is handed one in its place.
   await app.evaluate(() => {
     const { link } = globalThis.aiDevTest;
@@ -210,7 +210,7 @@ test("a download the daemon's going away ends, while the person is on Status, is
   await page.waitForSelector('[data-step="model"] .step-body .error:has-text("onnx/model_int8.onnx")', { timeout: 30_000 });
   await app.evaluate(() => { delete globalThis.aiDevTest.link.call; });
   // The model installed meanwhile, not from this screen: the step says installed, and the old
-  // outcome no longer (Д-271, п. 5).
+  // outcome no longer.
   assert.equal((await mainCall(app, "model_import", { source: s.usb })).ok, true);
   await page.click('[data-nav="status"]');
   await page.waitForSelector('[data-screen="status"]');
@@ -219,7 +219,7 @@ test("a download the daemon's going away ends, while the person is on Status, is
   assert.equal(await page.locator('[data-step="model"] .step-body .error').count(), 0, "no outcome that the model's state contradicts");
 });
 
-test("Status's rebuild keeps its progress and Cancel across a visit elsewhere; Cancel ends it, and the focus comes back to Rebuild (Д-266 п. 6, Д-270, Д-271 п. 1)", { timeout: 180_000 }, async (t) => {
+test("Status's rebuild keeps its progress and Cancel across a visit elsewhere; Cancel ends it, and the focus comes back to Rebuild", { timeout: 180_000 }, async (t) => {
   const s = await stage(t);
   const { app, page } = await launch(t, s.env);
   await page.waitForSelector('[data-screen="wizard"]', { timeout: 60_000 });
@@ -234,7 +234,7 @@ test("Status's rebuild keeps its progress and Cancel across a visit elsewhere; C
   }
   assert.equal(typeof held.release, "function", "the test holds the rebuild lock");
   t.after(() => held.release().catch(() => undefined));
-  // The wizard's build, cancelled: the focus goes to the step's own main button, not to Next (Д-275).
+  // The wizard's build, cancelled: the focus goes to the step's own main button, not to Next.
   await page.click('[data-action="next"]');
   await page.waitForSelector('[data-step="clients"]');
   await page.click('[data-action="next"]');
@@ -262,7 +262,7 @@ test("Status's rebuild keeps its progress and Cancel across a visit elsewhere; C
   assert.equal(await page.isDisabled('[data-action="rebuild"]'), false);
   assert.equal(await page.locator('[data-action="cancel-rebuild"]').count(), 0);
   assert.equal(await page.evaluate(() => document.activeElement?.dataset.action), "rebuild", "the focus back on Rebuild, not lost");
-  // A rebuild that ends while the person is elsewhere leaves the focus where they put it (Д-275).
+  // A rebuild that ends while the person is elsewhere leaves the focus where they put it.
   await page.click('[data-action="rebuild"]');
   await page.waitForSelector('[data-action="cancel-rebuild"]');
   await page.focus('[data-action="refresh"]');

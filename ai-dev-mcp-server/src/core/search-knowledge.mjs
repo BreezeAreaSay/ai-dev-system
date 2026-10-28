@@ -2,7 +2,7 @@
  * `search_knowledge` over the search index instead of over the disk.
  *
  * The tool read every Markdown file of the vault on every call — 2.5 s on the
- * 2.x catalogue (docs/DEFECTS.md, Д-102). The index already holds the vault's
+ * 2.x catalogue. The index already holds the vault's
  * notes, its skills and their cards, kept fresh by the search runtime, so the
  * same scoring runs over what it holds: each word of the question found in the
  * path or the first 8,000 characters scores 1, the whole question found in
@@ -11,7 +11,7 @@
  * `{ path, score, preview }`, best first, ties by path.
  *
  * What changes is what counts as the vault's text, and it is narrower
- * (docs/DEFECTS.md, Д-142): a skill is its registry entry and its card, not
+ *: a skill is its registry entry and its card, not
  * every file under `sources/` — its references are read with `read_skill` —
  * and whatever the index leaves out is left out here too: the generated
  * registries' Markdown, the all-skills group pages, and notes in folders named

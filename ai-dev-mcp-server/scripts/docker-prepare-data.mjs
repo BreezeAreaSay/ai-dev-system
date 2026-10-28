@@ -66,7 +66,7 @@ export async function prepareImageData({ layout = currentInstallLayout(), now = 
   }
   const stateRoot = process.env.AI_DEV_STATE_ROOT || path.join(layout.runtimeRoot, "state");
   await fs.rm(stateRoot, { recursive: true, force: true });
-  // A start makes its state folder before it looks at a new volume: neither side counts it (docs/DEFECTS.md, Д-355).
+  // A start makes its state folder before it looks at a new volume: neither side counts it.
   await writePreparedMarker(dataRoot, { seconds, version, skip: [stateRoot] });
   return { seed: { status: seed.status, added: seed.added }, seed_dated: seconds, first: built(first), second: built(second), third: built(third) };
 }

@@ -72,8 +72,8 @@ export function createDenseRuntime({
       probe = await verify({ manifest, dir: onnxModelDir, stampFile, trustStamp: !refresh });
     } catch (error) {
       // A model this process cannot read is a model that is not ready, and why:
-      // not an error that takes the health check and `embedding_status` down
-      //. Its files are not missing, only unseen;
+      // not an error that takes the health check and `embedding_status` down.
+      // Its files are not missing, only unseen;
       // those not there at all are. A fault of the code is a check that
       // could not be made, not a model that cannot be read.
       const message = String(error?.message ?? error);

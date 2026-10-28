@@ -48,8 +48,8 @@ const isResponse = (message) => message?.method === undefined && message?.id !==
  * Bytes are kept as they come and a line is decoded only once it is whole: a
  * pipe hands over 64 KB at a time, and a character cut by a chunk's edge,
  * decoded on its own, became two U+FFFD that `JSON.parse` took without a word —
- * a Russian note of a few hundred kilobytes came out changed, on disk too
- *. Each byte is looked at once and each line joined
+ * a Russian note of a few hundred kilobytes came out changed, on disk too.
+ * Each byte is looked at once and each line joined
  * once, so a line of many megabytes costs what its size does. A line past
  * `longest` bytes is skipped unread, and `onTooLong` hears of it.
  *

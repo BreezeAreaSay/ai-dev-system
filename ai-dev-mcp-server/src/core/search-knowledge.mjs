@@ -10,8 +10,8 @@
  * outside the vault stay out, as they did. The answer keeps its shape —
  * `{ path, score, preview }`, best first, ties by path.
  *
- * What changes is what counts as the vault's text, and it is narrower
- *: a skill is its registry entry and its card, not
+ * What changes is what counts as the vault's text, and it is narrower:
+ * a skill is its registry entry and its card, not
  * every file under `sources/` — its references are read with `read_skill` —
  * and whatever the index leaves out is left out here too: the generated
  * registries' Markdown, the all-skills group pages, and notes in folders named

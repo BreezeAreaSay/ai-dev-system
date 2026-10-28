@@ -4,8 +4,8 @@
  * Node has no way to interrupt a match in progress: `RegExp.prototype.test` is
  * a synchronous call into the engine, and a pattern that backtracks
  * catastrophically holds the thread until it finishes. Measured on this
- * repository: `(a|a)+$` against twenty-eight `a` and a `!` takes 38.8 seconds
- *. One such rule in `.ai-dev/policy.json`
+ * repository: `(a|a)+$` against twenty-eight `a` and a `!` takes 38.8 seconds.
+ * One such rule in `.ai-dev/policy.json`
  * stalls the guard on every Bash command and every file write.
  *
  * A worker thread *can* be terminated, so that is what this module does: the
@@ -110,8 +110,8 @@ function failureReason(cause) {
 // One worker, jobs in order, resolved as soon as a job outlives the budget.
 // Until the worker says `ready` it is only starting up: that has its own
 // ceiling, `startMs`, and a worker that does not start within it comes back
-// `notStarted` with no job charged. The per-job timer starts on `ready`
-//. `startupMs` is how long the start took. A worker
+// `notStarted` with no job charged. The per-job timer starts on `ready`.
+// `startupMs` is how long the start took. A worker
 // that cannot be made, errors or exits comes back `failed`, with its reason in
 // `error` — told from a slow start by the flag, never by the reason's text.
 function runBatch(jobs, budgetMs, startMs) {

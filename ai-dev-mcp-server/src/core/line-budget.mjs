@@ -5,8 +5,8 @@
  * growing back and `src/core` modules from turning into second main modules.
  * Its five branches used to live inside the walk over the tree, which meant the
  * only way to test them was to break a real file on purpose and put it back —
- * a check that happened once, by hand, and could not run again
- *. A rewrite of the gate that silently
+ * a check that happened once, by hand, and could not run again.
+ * A rewrite of the gate that silently
  * disabled a branch would have passed `npm run check`.
  *
  * So the rules are here, over a list of `{ path, lines }` the caller has

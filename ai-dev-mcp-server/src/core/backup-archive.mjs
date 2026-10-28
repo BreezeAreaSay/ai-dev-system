@@ -3,8 +3,8 @@
  *
  * 2.x backed up and restored with two PowerShell scripts that only worked
  * inside the owner's full vault: run from a clone they stopped at their first
- * check, and `ai-dev backup` refused every system but Windows
- *. This runs wherever Node does and keeps what an
+ * check, and `ai-dev backup` refused every system but Windows.
+ * This runs wherever Node does and keeps what an
  * install of any layout writes: the content root the server writes into (a
  * vault, the user vault of a package install, a clone's seed folder) and the
  * runtime's `state/` — tasks, sessions, the usage ledger, instincts, the

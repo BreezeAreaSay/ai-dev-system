@@ -455,8 +455,8 @@ export async function openUrl(target, { method = "GET", headers = {}, body, env 
 /**
  * What `proxyFetch` asks for, as `fetch` does. A registry document is a
  * tenth of its size compressed — typescript's is 15.8 MB as sent plain and
- * 2.0 MB gzipped — and the supply-chain hook has three seconds for it
- *. The download asks for none: a `Range` resumes
+ * 2.0 MB gzipped — and the supply-chain hook has three seconds for it.
+ * The download asks for none: a `Range` resumes
  * bytes of the file itself.
  */
 const ACCEPT_ENCODING = "gzip, deflate, br";

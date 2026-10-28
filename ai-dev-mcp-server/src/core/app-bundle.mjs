@@ -169,8 +169,8 @@ async function inspectCopy(folder, bundle, expected) {
  * A file's bytes and mode, and nothing else. On macOS `fs.copyFile` is
  * copyfile(3), which carries the extended attributes along: the quarantine a
  * downloaded app's files hold among them, and a quarantined library is
- * refused by Gatekeeper once it is loaded from outside the app it came in
- *. What lands is checked against bundle.json, which
+ * refused by Gatekeeper once it is loaded from outside the app it came in.
+ * What lands is checked against bundle.json, which
  * the app's signature seals, as every copy is.
  */
 async function copyBytes(from, to) {

@@ -138,8 +138,8 @@ const dataPlaceOf = (volume) => (volume === null ? "where your sessions keep /da
 
 /**
  * What fixes the model inside a container, by the folder it is read from. The
- * host's folder at /models is a read-only mount, fixed on the host
- *; the volume's is fixed by installing the model into
+ * host's folder at /models is a read-only mount, fixed on the host;
+ * the volume's is fixed by installing the model into
  * it, with the network that one run needs — and where `/data` holds a
  * mount with no volume's name, into what the sessions keep there.
  *

@@ -229,8 +229,8 @@ export function tableColumns(db, name) {
 const UTF8 = new TextDecoder("utf-8", { ignoreBOM: true });
 
 /**
- * A text column read whole. `node:sqlite` cuts a TEXT value at its first NUL
- *, so free text is selected `CAST(... AS BLOB)` and
+ * A text column read whole. `node:sqlite` cuts a TEXT value at its first NUL,
+ * so free text is selected `CAST(... AS BLOB)` and
  * decoded here.
  *
  * @param {Uint8Array|string|null} value

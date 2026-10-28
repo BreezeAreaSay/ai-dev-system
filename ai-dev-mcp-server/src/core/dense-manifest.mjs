@@ -211,8 +211,8 @@ export async function stampVerifiedFiles({ stampFile, dir, manifest, verified })
 
 /**
  * The manifest's files that are not there at all, by a look that reads none of
- * them: of a model this user cannot read, the ones that are missing as well
- *. A file it may not even look at is not counted.
+ * them: of a model this user cannot read, the ones that are missing as well.
+ * A file it may not even look at is not counted.
  *
  * @param {{ manifest: object, dir: string }} input
  * @returns {Promise<string[]>}

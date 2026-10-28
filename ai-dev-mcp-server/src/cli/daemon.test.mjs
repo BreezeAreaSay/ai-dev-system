@@ -10,8 +10,8 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 // The daemon as a client meets it: `ai-dev mcp`, the command every client
-// config runs, with nothing but the environment the client gives it
-//. Real processes: the bridges, the daemons they start.
+// config runs, with nothing but the environment the client gives it.
+// Real processes: the bridges, the daemons they start.
 
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = path.join(serverRoot, "bin", "ai-dev.mjs");

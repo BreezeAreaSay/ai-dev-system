@@ -507,8 +507,8 @@ export function createSearchTools(host) {
       explain_search: (args) => explainSearch(host, args),
       run_search_eval: (args) => runSearchEval(host, args),
       // Through the same model hybrid search and the rebuild use, and with
-      // none installed, the reason and the command that installs it
-      //. The texts are checked here, where a client
+      // none installed, the reason and the command that installs it.
+      // The texts are checked here, where a client
       // decides how many it sends.
       embed_texts: async (args = {}) => host.dense.embed({ ...args, texts: cleanEmbedTexts(args) }),
       embedding_status: (args = {}) => host.embeddingStatus(args),

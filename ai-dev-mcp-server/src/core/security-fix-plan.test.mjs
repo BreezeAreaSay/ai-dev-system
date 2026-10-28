@@ -36,7 +36,7 @@ function finding(overrides) {
 
 // An old lockfile of ai-dev-mcp-server, reduced to the four packages
 // that were vulnerable and the parents that asked for them.
-const PRE_D82 = {
+const OLD_LOCKFILE = {
   "package.json": { name: "server", dependencies: { "@modelcontextprotocol/sdk": "1.30.0", "@huggingface/transformers": "3.7.5" } },
   "package-lock.json": {
     lockfileVersion: 3,
@@ -51,22 +51,22 @@ const PRE_D82 = {
     }
   }
 };
-const PRE_D82_FINDINGS = [
+const OLD_LOCKFILE_FINDINGS = [
   finding({ package: "fast-uri", rule: "GHSA-7p8r-x3mc-p8w7", vulnerable: ">=3.0.0 <3.1.5" }),
   finding({ package: "fast-uri", rule: "GHSA-f65p-4m7j-42xc", vulnerable: ">=3.0.0 <3.1.6" }),
   finding({ package: "sharp", rule: "GHSA-rgj7-g3m4-5g8c", vulnerable: "<0.35.4" }),
   finding({ package: "hono", rule: "GHSA-gqvv-2mrq-wpjv", severity: "medium", vulnerable: "<4.13.5" })
 ];
-const PRE_D82_REGISTRY = {
+const OLD_LOCKFILE_REGISTRY = {
   "fast-uri": { "3.1.4": 90, "3.1.5": 58, "3.1.6": 35, "3.1.8": 12 },
   sharp: { "0.34.5": 300, "0.35.0": 60, "0.35.4": 32, "0.35.5-rc.1": 0 },
   hono: { "4.12.32": 60, "4.13.5": 20, "4.13.9": 3 }
 };
 
 test("a vulnerable lockfile as a plan: in-range updates for what the parents allow, an override for what they do not", async (t) => {
-  const root = await project(t, PRE_D82);
-  const { fetchMetadata } = registry(PRE_D82_REGISTRY);
-  const plan = await buildFixPlan({ projectRoot: root, findings: PRE_D82_FINDINGS, fetchMetadata, now: NOW });
+  const root = await project(t, OLD_LOCKFILE);
+  const { fetchMetadata } = registry(OLD_LOCKFILE_REGISTRY);
+  const plan = await buildFixPlan({ projectRoot: root, findings: OLD_LOCKFILE_FINDINGS, fetchMetadata, now: NOW });
   const byName = Object.fromEntries(plan.items.map((item) => [item.package, item]));
 
   assert.deepEqual(
@@ -197,8 +197,8 @@ test("malware leads the plan: replaced when a safe version exists, removed throu
 });
 
 test("offline, the plan uses the fixes the advisories name, and says their age is unchecked", async (t) => {
-  const root = await project(t, PRE_D82);
-  const { fetchMetadata, calls } = registry(PRE_D82_REGISTRY);
+  const root = await project(t, OLD_LOCKFILE);
+  const { fetchMetadata, calls } = registry(OLD_LOCKFILE_REGISTRY);
   const plan = await buildFixPlan({
     projectRoot: root,
     findings: [finding({ package: "fast-uri", vulnerable: ">=3.0.0 <3.1.6", fixed_in: "3.1.6" }), finding({ package: "hono", vulnerable: "<4.13.5" })],
@@ -216,7 +216,7 @@ test("offline, the plan uses the fixes the advisories name, and says their age i
 });
 
 test("a registry that cannot answer is named in the plan, and the package is not guessed at", async (t) => {
-  const root = await project(t, PRE_D82);
+  const root = await project(t, OLD_LOCKFILE);
   const plan = await buildFixPlan({ projectRoot: root, findings: [finding({ package: "hono", vulnerable: "<4.13.5" })], fetchMetadata: async () => ({ ok: false, reason: "https://registry.npmjs.org/hono answered 503" }), now: NOW });
   assert.match(plan.registry, /partly unavailable: https:\/\/registry\.npmjs\.org\/hono answered 503/);
   assert.equal(plan.items[0].action, "no-fix");

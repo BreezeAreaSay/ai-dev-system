@@ -46,8 +46,8 @@ const DESTRUCTIVE = new Set(["model_remove", "clients_remove", "custom_skills_re
 /**
  * The health checks `system_status` leaves out on purpose — each takes seconds
  * and runs a search of its own. They are not listed: skipped by this call is
- * not a state of the install, and an app showed them as "not set up"
- *. `ai-dev doctor` runs them.
+ * not a state of the install, and an app showed them as "not set up".
+ * `ai-dev doctor` runs them.
  */
 const NOT_RUN_HERE = new Set(["search_smoke", "dense_smoke", "search_eval"]);
 

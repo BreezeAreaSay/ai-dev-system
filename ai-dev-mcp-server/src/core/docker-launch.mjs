@@ -5,8 +5,8 @@
  * 2.x wrote a launcher into the config instead — `docker/run-mcp.sh`,
  * `run-mcp.ps1`, or on Windows for Claude a C# proxy compiled on the user's
  * machine — and the launchers answered `initialize` themselves while the
- * container came up, so the server's instructions never reached the client
- *. The image answers in about a second, so the
+ * container came up, so the server's instructions never reached the client.
+ * The image answers in about a second, so the
  * client runs Docker itself and the server answers its own handshake.
  *
  * What the command mounts:

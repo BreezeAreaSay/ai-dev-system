@@ -188,8 +188,8 @@ const REPOSITORY_URL = "https://github.com/stonebridgeway/ai-dev-system";
 
 /**
  * The package's own `package.json`: the server's name for itself is
- * `ai-dev-mcp-server`, private; the package is `ai-dev-system`
- *, with the server's dependencies and the CLI as its bin.
+ * `ai-dev-mcp-server`, private; the package is `ai-dev-system`,
+ * with the server's dependencies and the CLI as its bin.
  *
  * @param {object} input
  * @param {object} input.server - The server's package.json.

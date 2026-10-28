@@ -32,8 +32,8 @@
  *   (`export const { default: run } = …`), an exported `let` or `var` the
  *   module is assigned to, by name or by a pattern
  *   (`({ default: run } = await import(…))`), `module.exports =`,
- *   `exports["cp"] =`, `export default` — whose `exec` would come from here
- *. The module itself, a whole value: one a line
+ *   `exports["cp"] =`, `export default` — whose `exec` would come from here.
+ * The module itself, a whole value: one a line
  *   break ends only where the next line cannot carry it on, so
  *   `cp⏎  !== undefined`, a value it takes part in, binds and hands on nothing;
  * - a `shell` option with any value but `false`, `null`, `undefined`, `0` or

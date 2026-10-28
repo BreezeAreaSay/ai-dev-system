@@ -48,8 +48,8 @@ import { hint } from "./install-layout.mjs";
  * No byte has arrived for this long, so the transfer is dead.
  *
  * A stalled CDN is not a slow one: the Windows acceptance run watched a
- * connection send 510 MB of 542 and then nothing, with no error and no end
- *. The timer is re-armed by every chunk, so a slow link
+ * connection send 510 MB of 542 and then nothing, with no error and no end.
+ * The timer is re-armed by every chunk, so a slow link
  * is not cut off; only a silent one is. It covers connecting too.
  */
 export const DOWNLOAD_STALL_MS = 60_000;

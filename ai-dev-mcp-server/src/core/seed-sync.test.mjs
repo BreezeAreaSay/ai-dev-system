@@ -433,8 +433,8 @@ test("the shipped history names versions by path and sha256, sorted and unique",
   const keys = await readSeedHistory();
   assert.equal(keys.size, history.pairs.length);
   // The 2.x line's, from a named commit back, whatever the current manifest
-  // holds: a 3.0 edit of a file 2.x shipped leaves its 2.x version known
-  //. scripts/seed-history.test.mjs checks it against git.
+  // holds: a 3.0 edit of a file 2.x shipped leaves its 2.x version known.
+  // scripts/seed-history.test.mjs checks it against git.
   assert.match(history.base, /^[0-9a-f]{40}$/);
   assert.equal((await readSeedHistory(path.join(os.tmpdir(), "no-such-history.json"))).size, 0);
 });

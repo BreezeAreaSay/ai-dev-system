@@ -297,8 +297,8 @@ export async function runDaemon({ env = process.env, log = writeLog } = {}) {
   // The lock on a retired daemon's record, taken before the record is written.
   // A daemon hung past the lock's life (a debugger, SIGSTOP, swap) finds it
   // broken and its record cleared when it wakes, and takes it again before it
-  // lists itself: a record nobody holds is one `stop` may clear
-  //. Its folder is made private as the run folder
+  // lists itself: a record nobody holds is one `stop` may clear.
+  // Its folder is made private as the run folder
   // always is, even where the runtime home was deleted meanwhile.
   const holdRetiredRecord = async () => {
     if (await retiredLock?.holds().catch(() => false)) return true;

@@ -45,8 +45,8 @@ async function makeCatalog(t) {
  * file it has been asked about to the nanosecond, Date.now() to the
  * millisecond: checked in the same millisecond, a change reads as a time in
  * the future, and this suite failed once in ten runs under load. Seeing a
- * change that early is the product's question, recorded on its own
- *; here every rule is checked once the change
+ * change that early is the product's question, recorded on its own;
+ * here every rule is checked once the change
  * is behind the clock.
  */
 async function staleness({ catalog, registryPath }, nowMs = Date.now() + 1000) {
@@ -384,8 +384,8 @@ test("a rebuild that leaves the registry stale is not run in a loop, but is trie
 test("skills changed, added or removed while the rebuild runs are put right by the next looks", async (t) => {
   const fixture = await makeCatalog(t);
   // Later than every write below, however slow the machine: the reader takes
-  // a file stamped after its clock for one from the future and ignores it
-  //. Time still moves only by the steps below.
+  // a file stamped after its clock for one from the future and ignores it.
+  // Time still moves only by the steps below.
   const clock = { now: Date.now() + 60_000 };
   const put = async (relative, text) => {
     await fs.mkdir(path.dirname(path.join(fixture.catalog, relative)), { recursive: true });

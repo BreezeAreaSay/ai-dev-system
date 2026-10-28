@@ -242,8 +242,8 @@ export function codeTokens(source, { script = false } = {}) {
     // One that begins a class's member — right in its body, after `{`, `;` or `}` — is a computed name, a value.
     if (type === "punct" && value === "[" && innermost().classBody === true && ["{", ";", "}"].some((end) => isPunct(tokens.at(-1), end))) token.index = true;
     if (type === "punct" && value === "{") {
-      // Right after the word `extends` it begins the heritage, an object literal, and the class still waits for its body
-      //; after a member of that name, `o.extends {`, it is the body.
+      // Right after the word `extends` it begins the heritage, an object literal, and the class still waits for its body;
+      // after a member of that name, `o.extends {`, it is the body.
       const owner = bodies.at(-1)?.depth === level() && !(isName(tokens.at(-1), "extends") && !isMember(tokens.length - 1)) ? bodies.pop() : null;
       token.literal = !owner && (fresh || valueAfter(tokens.length - 1, where));
       // A class's body: what stands right before it is the class's heritage, a call there too.

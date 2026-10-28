@@ -587,8 +587,8 @@ test("a function's, a method's, an arrow's or a class's body or a computed key e
 });
 
 test("a literal in a default value behind an operator, a condition or ! is a value; a } or * ends a clause only an import's or an export's, and no member's import, export or as begins one; extends at a line's end goes on", () => {
-  // A bracket climbs on to a pattern only as a whole entry of the bracket around it: after {, [, ,, (, ... or a key's :
-  //. A shell option behind a condition is the usual way to write one for Windows alone.
+  // A bracket climbs on to a pattern only as a whole entry of the bracket around it: after {, [, ,, (, ... or a key's :.
+  // A shell option behind a condition is the usual way to write one for Windows alone.
   const behind = {
     "a parameter's condition": "import { spawn } from \"node:child_process\";\nexport function run(cmd, args, options = process.platform === \"win32\" ? { shell: true } : {}) {\n  return spawn(cmd, args, options);\n}\n",
     "||": "export function f(a = x || { shell: true }) { return a; }\nvar x;\n",

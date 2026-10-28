@@ -218,8 +218,8 @@ function verificationOf({ checked_as: checkedAs, example, counter }) {
  * The batch also has a deadline, so a policy full of slow rules cannot make
  * this listing cost the sum of their budgets. A rule the deadline cut
  * off comes back `not_checked`, which reads differently from "matched nothing";
- * `not_run` says why: the deadline, or a machine too busy to start the match
- *. A sample the worker failed on is no check either: `match_error`
+ * `not_run` says why: the deadline, or a machine too busy to start the match.
+ * A sample the worker failed on is no check either: `match_error`
  * carries what the worker said — and so is one the matcher gave no
  * answer for.
  *

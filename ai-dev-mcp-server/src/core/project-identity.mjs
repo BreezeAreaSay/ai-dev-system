@@ -85,8 +85,8 @@ export function userHomeDirectory(options = {}) {
  * marker, so a single `package.json` in `~` — and anyone who has once run npm
  * from their home directory has one — made every project below it collapse
  * onto one memory key: the session handoffs, instincts and context of one
- * project served to an agent working in another, silently
- *. So a marker sitting in the home directory itself, or
+ * project served to an agent working in another, silently.
+ * So a marker sitting in the home directory itself, or
  * anywhere above it, is not a boundary. Below the home directory, and outside
  * it entirely (`/srv/app`, `C:\work\app`), nothing changes.
  *

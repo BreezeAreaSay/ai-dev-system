@@ -7,8 +7,8 @@
  * correct install without it is not unhealthy. Files
  * that are there and wrong are a `warn`, and so is anything left of the
  * removed Python backend: a 2.x setting that nothing reads any more is worth
- * a sentence and the command that replaces it, every time someone looks
- *. A machine the runtime has no build for is `skipped`
+ * a sentence and the command that replaces it, every time someone looks.
+ * A machine the runtime has no build for is `skipped`
  * with that said plainly.
  */
 import { containerModelAdvice } from "./dense-backend.mjs";

@@ -233,7 +233,7 @@ package, so what they share with the server is a second copy, not an import —
 project identity above all. When you change one side, change the other and keep
 the two behaving identically; a test holds each copy to the server's answers
 ([Hook and server duplicates](ai-dev-mcp-server/docs/ARCHITECTURE.md#hook-and-server-duplicates)).
-Two copies that disagree is the bug to look for.
+The bug to watch for is the two copies disagreeing.
 
 **Commands run as argument arrays with `shell: false`.** Never interpolate a
 variable into a command string. The static gate reads the server's code and the
@@ -243,9 +243,9 @@ desktop app's as tokens (`src/core/code-tokens.mjs`, its rules in
 `Function` constructor (only the desktop app's tests may use them), and a computed
 member of `globalThis`, `window`, `global` or `self`, in their usual spellings and
 plain equivalents. It follows plain re-binding and nothing else, so it keeps honest
-code honest and is not a security boundary: what it reads and where it stops is in
-[Line Budgets](ai-dev-mcp-server/docs/ARCHITECTURE.md#line-budgets); the trust model
-is in [`docs/SECURITY.md`](ai-dev-mcp-server/docs/SECURITY.md).
+code honest and is not a security boundary. What it reads and where it stops is in
+the architecture's [Line Budgets](ai-dev-mcp-server/docs/ARCHITECTURE.md#line-budgets);
+the trust model is in [`docs/SECURITY.md`](ai-dev-mcp-server/docs/SECURITY.md).
 
 **A change is finished with the acceptance run, not with one green gate.**
 

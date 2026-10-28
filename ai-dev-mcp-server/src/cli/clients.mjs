@@ -284,8 +284,8 @@ export function commandWord(word, platform = process.platform) {
 }
 
 /**
- * What `clients doctor` says of a Docker entry whose mounted folder is not here
- *: the folder — for a link, where it leads — and what to do. The model
+ * What `clients doctor` says of a Docker entry whose mounted folder is not here:
+ * the folder — for a link, where it leads — and what to do. The model
  * is optional, so the entries can be written without one; a projects or state
  * folder is one install makes again — but not through a link that leads
  * nowhere, nor where this user may not write, so for that one the command takes

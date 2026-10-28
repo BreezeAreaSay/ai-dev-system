@@ -129,8 +129,8 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
   }
   // A clone one OS user built and others run — a shared server's build of it,
   // an `/opt` checkout — wrote its vault into the clone: EACCES for everyone
-  // but its owner, and the owner's records gone with the next build
-  //. Such a clone serves each user from a vault of
+  // but its owner, and the owner's records gone with the next build.
+  // Such a clone serves each user from a vault of
   // their own, filled from its seed; `AI_DEV_VAULT=home` asks for that where
   // the clone is writable too.
   const homeVault = kind === "clone"

@@ -469,7 +469,7 @@ this release.
   changed.
 
 - **`npm run acceptance`**: ten consecutive `npm run check` runs and the line
-  "N падений из 10", with the two kinds of failure kept apart — a run with a
+  "N failures out of 10", with the two kinds of failure kept apart — a run with a
   failing test is the suite telling you something, a run that exits non-zero
   with `# fail 0` is the coverage reporter and says nothing about the code.
   `--runs N` for a longer sample.

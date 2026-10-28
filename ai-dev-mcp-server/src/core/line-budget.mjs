@@ -30,8 +30,8 @@ export const MODULE_LINE_CEILING = 800;
  * Modules that were already over the ceiling when the rule landed, each pinned
  * at its size on that day.
  *
- * Both are the frontend pair. Stage 1.3 moved the frontend tools out of
- * `mcp-stdio.mjs` on top of these two rather than into them, so neither
+ * Both are the frontend pair. Moving the frontend tools out of
+ * `mcp-stdio.mjs` put them on top of these two rather than into them, so neither
  * shrank: what left the main module was orchestration, and what these hold is
  * the product state machine and the reference manifest logic. Splitting them is
  * its own piece of work, not a side effect of an extraction.

@@ -173,7 +173,7 @@ npm run docker:seed:verify                       # if you touched the seed
 Before a release, and at the end of any larger change, the slower checks:
 
 ```bash
-npm run acceptance                      # npm run check ten times in a row: prints "N падений из 10"
+npm run acceptance                      # npm run check ten times in a row: prints "N failures out of 10"
 npm run upgrade:test                    # a 2.x clone from git history, updated to this one (Python 3, git; ~3 minutes)
 npm run docker:smoke -- --image ai-dev-system:local
 npm run docker:upgrade-check -- --old-image <a 2.x image> --new-image ai-dev-system:local
@@ -254,7 +254,7 @@ cd ai-dev-mcp-server
 npm run acceptance          # ten consecutive `npm run check` runs
 ```
 
-It prints `N падений из 10`; quote that line in the pull request. One green run is
+It prints `N failures out of 10`; quote that line in the pull request. One green run is
 not evidence: some failures show up in one run out of ten, and the point of the
 rule is that they show up before a user finds them. Note which kind of failure you
 got: a run with a failing test is the suite telling you something; a run that exits
@@ -325,7 +325,7 @@ PR checklist:
 - [ ] `npm run check` passes from `ai-dev-mcp-server/` (and `npm test` from `desktop/` if you touched the app)
 - [ ] new behaviour has tests; `src/core/` additions have JSDoc
 - [ ] a bug fix comes with a test that fails before the fix and passes after it
-- [ ] `npm run acceptance` run at the end, and its `N падений из 10` line quoted in the PR
+- [ ] `npm run acceptance` run at the end, and its `N failures out of 10` line quoted in the PR
 - [ ] `CHANGELOG.md` updated
 - [ ] no personal data, secrets, or machine-specific paths
 - [ ] docs updated (`README.md` / `README.ru.md` for the product story,

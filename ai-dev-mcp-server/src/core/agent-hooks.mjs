@@ -273,8 +273,8 @@ export const CURSOR_HOOKS_CONTRACT = {
  * What a person with a real Cursor has to do to settle what this adapter could
  * not, and what they should see if it works.
  *
- * The contract above records its confidence claim by claim because cursor.com
- * is unreachable from where this was built. That leaves three statements
+ * The contract above records its confidence claim by claim because not every
+ * claim could be checked against a running Cursor. That leaves three statements
  * standing on secondary sources: whether Cursor knows the three session events,
  * whether the first registration for an event shadows the rest, and whether a
  * denial actually reaches the user. Each one is five minutes in front of a real

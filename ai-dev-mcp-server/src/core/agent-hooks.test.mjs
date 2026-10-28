@@ -239,7 +239,7 @@ test("the Cursor adapter is pinned to a checked hooks.json format version", () =
 
 test("what the Cursor adapter could not verify is said at install time, and has a check", () => {
   // Three statements in the contract stand on secondary sources, because
-  // cursor.com is unreachable from where this was built. They were recorded in
+  // they could not be checked against a running Cursor. They were recorded in
   // a source comment, which is the one place the person installing never looks.
   const plan = cursorVerificationPlan();
   assert.deepEqual(plan.unverified, ["events", "limits"]);

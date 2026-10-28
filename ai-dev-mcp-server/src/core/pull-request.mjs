@@ -44,6 +44,9 @@ export const TYPE_PATTERNS = Object.freeze([
   ["chore", /\b(?:chore|bump|upgrade|dependenc(?:y|ies))\b|зависимост/i]
 ]);
 
+/** A task that opens with one of these verbs adds something. */
+const LEADING_FEATURE = /^(?:add|adds|implement|create|introduce|support|allow|enable)\b|^(?:добав|реализу|созда|сделай)/i;
+
 const GENERIC_DIRS = new Set(["src", "lib", "app", "source", "sources", "packages", "pkg"]);
 
 /**
@@ -224,7 +227,13 @@ export function groupChangedFiles(files) {
  * @returns {string} Conventional-commit type.
  */
 export function pullRequestType(task) {
-  const text = String(task || "");
+  const text = String(task || "").trim();
+  // The first clause says what the change is; "add X, cover it with tests" is a feature, not a test.
+  const first = text.split(/[,;:.]\s|\s(?:and|then|и|затем)\s/i)[0];
+  for (const [type, pattern] of TYPE_PATTERNS) {
+    if (pattern.test(first)) return type;
+  }
+  if (LEADING_FEATURE.test(text)) return "feat";
   for (const [type, pattern] of TYPE_PATTERNS) {
     if (pattern.test(text)) return type;
   }
@@ -289,8 +298,12 @@ export function pullRequestTitle({ task, files = [], type = "", scope = "", maxL
   const room = Math.max(12, maxLength - prefix.length);
   if (subject.length > room) {
     const cut = subject.slice(0, room);
+    // A whole clause before a word: the subject should not end on "and".
+    const clause = Math.max(cut.lastIndexOf(", "), cut.lastIndexOf("; "));
     const boundary = cut.lastIndexOf(" ");
-    subject = (boundary > room * 0.5 ? cut.slice(0, boundary) : cut).replace(/[\s,;:-]+$/, "");
+    subject = (clause > room * 0.5 ? cut.slice(0, clause) : boundary > room * 0.5 ? cut.slice(0, boundary) : cut)
+      .replace(/[\s,;:-]+$/, "")
+      .replace(/(?:\s+(?:and|or|with|to|for|the|a|an|of|in|on|и|или|с|для|в|на))+$/i, "");
   }
   return `${prefix}${subject || "update"}`;
 }

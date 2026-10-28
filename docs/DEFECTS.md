@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 600 записей. Закрыто 592, открыто 8. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 602 записи. Закрыто 595, открыто 7. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -23153,7 +23153,7 @@ AI Dev 3.0.0 · degraded: search_index_freshness: Search index is stale: 2 added
 
 ## Д-599. Мелочи ручной приёмки 2026-10-28
 
-**Статус:** открыт, мелкий: п. 2 и 3 закрыты (`34bb829`), п. 1 и 4 — нет. Нашла та же приёмка.
+**Статус:** закрыт, 2026-10-28: п. 2 и 3 — `34bb829`, п. 1 и 4 — вместе с Д-601 и Д-602. Нашла та же приёмка.
 
 1. Заголовок PR из задачи обрезан посреди фразы и с типом по тестам: «test: add CSV export for the report, cover the change
    with tests, and».
@@ -23170,6 +23170,16 @@ AI Dev 3.0.0 · degraded: search_index_freshness: Search index is stale: 2 added
 **Как закрыто, п. 2 и 3** (`34bb829`). Русский интерфейс говорит «навыки» везде (`messages-ru.js`, восемь строк);
 `ai-dev servers` в терминале называет `ai-dev clients install` (тест в `configure.test.mjs`). П. 1 (заголовок PR) и п. 4
 («degraded» рядом с «Everything this install needs is in place») — открыты.
+
+**Как закрыто, п. 1 и 4.** П. 1: тип заголовка берётся из первой части задачи («add …» — `feat`, даже если дальше
+сказано о тестах), а тема обрезается по целой части фразы и не кончается на «and» (`pullRequestType`,
+`pullRequestTitle`; тест в `pull-request.test.mjs`). П. 4: `system_status`, когда состояние не «ok», всегда говорит
+почему — устаревший индекс называется со счётом добавленных, изменённых и удалённых, а без причин фраза «всё на месте»
+больше не стоит рядом с «degraded» (тест в `control.test.mjs`).
+
+**Замер после.** `pullRequestTitle` для задачи приёмки: «feat: add CSV export for the report, cover the change with
+tests». `system_status` с заметкой, которой индекс не видел: «degraded», «the search index is out of date: 1 added,
+0 changed, 0 deleted; rebuilding it picks them up».
 
 ---
 
@@ -23213,6 +23223,63 @@ macOS, Daemon tests: tests 19, pass 19, fail 0
 ```
 
 Здесь: `skill-registry-freshness.test.mjs` — 24 из 24; тест Д-214 отдельно — pass.
+
+
+## Д-601. `record_decision` со строкой вместо списка падает непонятной ошибкой
+
+**Статус:** закрыт, 2026-10-28. Нашла съёмка демо для README, 2026-10-28.
+
+Схема инструмента объявляет `alternatives`, `consequences` и `tags` массивами строк, а агенты нередко присылают одну строку.
+`decision-ledger.mjs` зовёт у значения `.map`, и решение не записывается.
+
+**Чем грозит.** Агент получает ответ без смысла — ни какого поля, ни что прислать — и решение теряется.
+
+**Замер до** (демо-установка, запись Cursor, `record_decision` с `alternatives: "XLSX through a library; JSON only."`):
+
+```
+## record_decision [isError]: ((intermediate value) ?? []).map is not a function
+```
+
+**Как закрыто.** Поле-список, присланное одной строкой, — список из одного пункта; пустая строка — пустой список
+(`listOf` в `decision-ledger.mjs`; тест «a list field sent as one string is a list of one»).
+
+**Замер после** (сервер из исправленного клона, тот же проект, `alternatives: "Store formatted strings"`):
+
+```
+recorded ADR-0003; alternatives ["Store formatted strings"]
+```
+
+## Д-602. `ai-dev servers`: строка сервера на символ шире терминала, находки рвутся посреди слова
+
+**Статус:** закрыт, 2026-10-28. Нашла та же съёмка (терминал 108 колонок, `ai-dev servers --project … --mine`).
+
+Ширина под команду сервера считается как `width - column - where.length - 3`, а к ней добавляются два пробела, скобки и
+имена клиентов — строка выходит на один символ шире терминала, и `)` уезжает на следующую строку. Находка обрезается до
+`width * 2` символов без учёта префикса и переносится терминалом посреди слова.
+
+**Замер до** (терминал 108 × 44):
+
+```
+  ai-dev    /home/demo/.ai-dev/app/current/node/bin/node /home/demo/.ai-dev/app/curre…  (claude-code, cursor
+)
+  warn · github: npx -y @modelcontextprotocol/server-github fetches and runs whatever the registry serves at
+ start-up, with the install prompt answered in advance. Pin the version (@modelcontextprotocol/server-github
+@1.2.3) or vendo…
+```
+
+**Как закрыто.** Строки собирает `serverLines` (`src/cli/servers.mjs`): команда сервера режется так, чтобы строка с
+клиентами была на колонку уже терминала, а находка переносится по словам с отступом в четыре пробела и выводится
+целиком. Тест — `src/cli/servers.test.mjs`: ширина 60, 80 и 108, ни одна строка не длиннее, от находки не теряется
+ни слова.
+
+**Замер после** (тот же проект, ширина 100; число — длина строки в байтах, «…» — три байта):
+
+```
+101:   ai-dev    /home/demo/.ai-dev/app/current/node/bin/node /home/demo/.ai-dev…  (claude-code, cursor)
+99:   warn · github: npx -y @modelcontextprotocol/server-github fetches and runs whatever the registry
+84:     serves at start-up, with the install prompt answered in advance. Pin the version
+69:     (@modelcontextprotocol/server-github@1.2.3) or vendor the server.
+```
 
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 

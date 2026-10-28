@@ -39,7 +39,7 @@ LABEL org.opencontainers.image.title="AI Dev MCP System" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.source="${SOURCE_URL}" \
-      org.opencontainers.image.licenses="MIT"
+      org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 
 # git for the project tools, tini as PID 1. The account is 2.x's: `node`,
 # uid 1000 (a base that already has a uid 1000, as Ubuntu's `ubuntu`, gives it up).

@@ -203,7 +203,7 @@ export function packageManifest({ server, entries, name }) {
     version: server.version,
     description: "Local MCP server for AI coding agents: task lifecycle, skill routing, hybrid search and a local model. "
       + "Set up with one command: npx " + name + " setup",
-    license: "MIT",
+    license: "PolyForm-Noncommercial-1.0.0",
     type: "module",
     bin: { "ai-dev": "ai-dev-mcp-server/bin/ai-dev.mjs" },
     engines: server.engines,

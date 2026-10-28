@@ -59,6 +59,10 @@ it, what moves by itself, what needs one command, and how to go back.
 
 **Breaking**
 
+- **The licence is the PolyForm Noncommercial License 1.0.0**, © 2026 stonebridgeway, not MIT:
+  personal use, study, research, hobby projects and noncommercial organisations are free, changes
+  included; commercial use needs a commercial licence from the author. 2.x and earlier stay under
+  MIT, and the code 3.0 grew from keeps its MIT notice in `THIRD_PARTY_NOTICES.md`.
 - **The server's name in a client is `ai-dev`**, not `ai-dev-system`. Setup and `ai-dev clients
   install` replace the 2.x entry and say so; a 2.x entry keeps working until 4.0.
 - **Node 22.16 or newer (or 24+)** for a local install; 2.x took 22.12.

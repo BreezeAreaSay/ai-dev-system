@@ -39,6 +39,9 @@ on a Mac yet: the code is in the repository and CI tests it there, but it has no
 Read [Moving from 2.x to 3.0](https://github.com/stonebridgeway/ai-dev-system/blob/main/docs/MIGRATION.md): what changes for a clone, a Docker install and
 Windows, what moves by itself, and what needs one command. In short:
 
+- the licence: 3.0 is under the [PolyForm Noncommercial License 1.0.0](https://github.com/stonebridgeway/ai-dev-system/blob/main/LICENSE),
+  © 2026 stonebridgeway — free for personal and noncommercial use; commercial use needs a licence from
+  the author. 2.x stays under MIT;
 - the client entry is `ai-dev` (the 2.x `ai-dev-system` entry keeps working until 4.0);
 - Node 22.16 or newer;
 - the Python dense backend is gone: `npx ai-dev-system setup --model` moves to the

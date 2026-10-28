@@ -26,6 +26,11 @@ A new machine needs none of this: install 3.0 [any of the three ways](INSTALL.md
 
 ## Everyone
 
+- **The licence changes.** 3.0 is under the [PolyForm Noncommercial License 1.0.0](../LICENSE),
+  © 2026 stonebridgeway: personal use, study, research, hobby projects and noncommercial
+  organisations are free, changes included; using 3.0 commercially — at work, in a company's product
+  or service — needs a commercial licence from the author. 2.x was released under MIT and stays under
+  it: an install that does not update keeps those terms.
 - **The server's name in a client is `ai-dev`.** 2.x wrote `ai-dev-system` for a local install and
   `ai-dev` for Docker, and a client could hold both. `setup` and `clients install` write one `ai-dev`
   entry, remove the `ai-dev-system` one and say so; each client keeps one `ai-dev`, the last install

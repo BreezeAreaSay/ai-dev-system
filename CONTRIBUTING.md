@@ -5,9 +5,9 @@ form it ships in: the `ai-dev` command line and the daemon behind it, the npm pa
 `ai-dev-system`, the Docker image, and the desktop app with its packages for Windows and Linux (macOS:
 in development, built and tested but not released) — plus a small public skill seed.
 
-By contributing you agree that your contributions are licensed under the
-[MIT License](LICENSE), and that you follow the
-[Code of Conduct](CODE_OF_CONDUCT.md).
+AI Dev is © stonebridgeway, under the [PolyForm Noncommercial License 1.0.0](LICENSE). By
+contributing you agree that stonebridgeway may use, change and license your contribution under that
+licence and under commercial licences, and that you follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 **Working through an AI agent?** [AGENTS.md](AGENTS.md) holds the rules an agent
 gets wrong on this repository — where a new tool goes, three constraints that

@@ -485,5 +485,6 @@ test("a rewrite of the registry from itself keeps the date of the sources it des
   // A skill changed before the rewrite is still newer than the registry.
   await fs.writeFile(path.join(fixture.catalog, "sources/custom/alpha/SKILL.md"), "# alpha, pulled\n");
   await keepSkillRegistryDate(fixture.registryPath, () => fs.writeFile(fixture.registryPath, JSON.stringify(fixture.skills.map((relative) => ({ path: relative })))));
-  assert.equal((await checkSkillRegistry({ registryPath: fixture.registryPath, catalogRoot: fixture.catalog })).stale, true);
+  // Asked a second later, as every check here is: in the same millisecond the change reads as future (Д-600).
+  assert.equal((await staleness(fixture)).stale, true);
 });

@@ -92,6 +92,13 @@ const gone = (pid) => {
   }
 };
 
+/**
+ * How long a daemon has to notice what was done to its files: it looks every
+ * five seconds (`WATCH_INTERVAL_MS`), and a runner under load stretches that —
+ * one on which a build took ten times as long missed a 20-second wait (Д-600).
+ */
+const RETIRE_WAIT_MS = 60_000;
+
 async function until(check, what, timeoutMs = 10_000) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
@@ -279,13 +286,13 @@ test("a retired daemon whose run folder and then whole runtime home were deleted
   // Its descriptor taken away, it retires and keeps its session.
   await fs.rm(path.join(run, `daemon-${info.build}.json`), { force: true });
   const record = path.join(run, `retired-${info.pid}.json`);
-  await until(() => existsSync(record), "the retired record", 20_000);
+  await until(() => existsSync(record), "the retired record", RETIRE_WAIT_MS);
   // run/ deleted, then the whole runtime home: each time the record comes back
   // in a folder made again, the second time one level higher.
   await fs.rm(run, { recursive: true, force: true });
-  await until(() => existsSync(record), "the record in run/ made again", 15_000);
+  await until(() => existsSync(record), "the record in run/ made again", RETIRE_WAIT_MS);
   await fs.rm(runtimeHome, { recursive: true, force: true });
-  await until(() => existsSync(record), "the record in the runtime home made again", 15_000);
+  await until(() => existsSync(record), "the record in the runtime home made again", RETIRE_WAIT_MS);
   await one.session.close();
   await until(() => gone(info.pid), "the retired daemon to leave after its last session", 20_000);
   assert.equal(existsSync(runtimeHome), false, "the runtime home it made again goes with it, empty");

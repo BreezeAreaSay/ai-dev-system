@@ -284,6 +284,11 @@ has it with what each one says.
   person added, and a `block` rule blocks on a busy machine too.
 - **Verification.** A security scan in which no scanner ran is `unchecked`, not `pass`; `cargo` is
   no longer mistaken for `cargo audit`; `run_quality_gate` names the Node that ran the commands.
+- **Small things a person sees.** A pull request title for "add X, cover it with tests" is a
+  `feat`, and its subject ends on a whole clause, not on "and". `ai-dev servers` keeps each line
+  within the terminal and wraps a finding at words. A status that is not `ok` always says why —
+  a stale index included — instead of "Everything this install needs is in place". A decision
+  whose alternatives or consequences arrive as one sentence is recorded instead of refused.
 
 ### Security
 

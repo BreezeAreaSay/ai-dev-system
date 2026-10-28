@@ -293,10 +293,12 @@ export function createControlTools(host) {
           ...checks.filter((check) => check.status === "fail" || check.status === "warn").map((check) => `${check.name}: ${check.summary}`),
           ...settings
         ];
+        // A state that is not ok always says why: a stale index, or what the checks found.
+        if (built && index.stale && !problems.length) problems.push(`the search index is out of date: ${index.added_count ?? 0} added, ${index.changed_count ?? 0} changed, ${index.deleted_count ?? 0} deleted; rebuilding it picks them up`);
         return {
           api_version: CONTROL_API_VERSION,
           status,
-          summary: problems.length ? problems.slice(0, 3).join("; ") : "Everything this install needs is in place.",
+          summary: problems.length ? problems.slice(0, 3).join("; ") : status === "ok" ? "Everything this install needs is in place." : "It works; the health checks say what is missing.",
           version,
           install: { kind: layout.kind, root: layout.root, vault_root: host.vaultRoot, runtime_root: layout.runtimeRoot },
           served_by: servingProcess(),

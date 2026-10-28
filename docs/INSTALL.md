@@ -110,8 +110,8 @@ scripts off) — and goes on from that copy:
    what a first start needs: the skill registry, its quality report, the search index and the
    routing benchmark.
 3. **It connects the clients**: each gets one entry, `ai-dev`, that starts your Node by its full
-   path with the copy's `bin/ai-dev.mjs mcp`, so a client started from the Dock or the Start
-   menu finds it too. What it writes, and how to take it out again:
+   path with the copy's `bin/ai-dev.mjs mcp`, so a client started from the Start menu or a
+   desktop launcher finds it too. What it writes, and how to take it out again:
    [Connecting AI clients](#connecting-ai-clients).
 4. **It prints the health check.**
 
@@ -121,9 +121,9 @@ a global install, `npm install -g ai-dev-system`, gives it the name `ai-dev`, an
 `ai-dev setup` then connects the clients to the global install. The hints the server prints are
 spelled for the install you have.
 
-Until the package is published, build its tarball from a clone — `cd ai-dev-mcp-server && npm
-ci && npm run dist:pack`, which leaves `ai-dev-system-<version>.tgz` in the
-clone's top-level `dist/` folder (`../dist` from `ai-dev-mcp-server`) — and run
+To install a version you built yourself, build its tarball from a clone — `cd ai-dev-mcp-server &&
+npm ci && npm run dist:pack`, which leaves `ai-dev-system-<version>.tgz` in the clone's top-level
+`dist/` folder (`../dist` from `ai-dev-mcp-server`) — and run
 `npx --yes ./ai-dev-system-<version>.tgz setup` in that folder.
 
 **On Linux x64**, onnxruntime-node's install script downloads a 236 MB CUDA provider the server
@@ -149,7 +149,7 @@ comes back, and every file you changed is kept and named as above.
 
 `AI_DEV_HOME`, when set, names the runtime home in place of `~/.ai-dev`; it is written into
 every client's entry, and beside the hooks `install_agent_hooks` puts into a repository, so a
-client started from the Dock or the Start menu — its server and its hooks — finds the same data
+client started from the Start menu or a desktop launcher — its server and its hooks — finds the same data
 as the terminal you ran setup from.
 
 ## Docker
@@ -190,10 +190,9 @@ Three steps:
    asking to restart the clients.) With `--skip-client-install` (`-SkipClientInstall`) no
    config is written, and the last line says the clients' configs were left as they were.
 
-Until 3.0 is published, `:latest` is still a 2.x image, which has no installer of its own:
-bootstrap stops there with exit 69 ("… has no installer either (a 2.x image too)"). Build the 3.0
-image from the clone and install that one, in one step that needs no Node here — a
-`node:24-bookworm-slim` container prepares the build context:
+To run an image built from your clone instead of the published one — your own changes, or a
+machine that cannot reach the registry — build it and install it in one step that needs no Node
+here: a `node:24-bookworm-slim` container prepares the build context:
 
 ```bash
 sh ./bootstrap.sh --build-local   # builds ai-dev-system:local from the clone, then installs it
@@ -266,9 +265,8 @@ compiled any more: 2.x built a C# proxy for Claude on your machine, and the laun
 `C:\ProgramData\AI-Dev-System` are only brought up to date if they are there (see
 [Updating, and coming from 2.x](#updating-and-coming-from-2x)).
 
-Until 3.0 is published, `:latest` is still a 2.x image, and the entries `bootstrap.ps1` writes
-would run it. Build the 3.0 image from the clone and install that one, in one step — the Node the
-script needs anyway prepares the build context:
+To run an image built from your clone instead of the published one, build it and install it in
+one step — the Node the script needs anyway prepares the build context:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1 -BuildLocal

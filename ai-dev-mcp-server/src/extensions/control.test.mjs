@@ -91,7 +91,7 @@ async function refusal(client, name, args) {
 }
 
 test("the control tools answer through the daemon as the contract says, refuse what is wrong, and stop when cancelled", { timeout: 300_000 }, async (t) => {
-  const { env, host, usb } = await stage(t);
+  const { env, host, usb, vault } = await stage(t);
   const client = await connect(t, env);
 
   // Listed to a session that names the profile, each with its contract.
@@ -124,6 +124,12 @@ test("the control tools answer through the daemon as the contract says, refuse w
   assert.ok(setup.steps.some((step) => step.id === "search_index"));
   assert.match(await refusal(client, "setup_run", { model: "yes" }), /model must be true or false/);
   assert.equal((await call(client, "system_status", { checks: false })).index.exists, true);
+  // A note the index has not seen: the state is degraded, and the summary says why.
+  const later = path.join(vault, "02-knowledge", "added-later.md");
+  await fs.writeFile(later, "# Added later\n\nA note the index has not seen.\n");
+  const stale = await call(client, "system_status", { checks: false });
+  assert.deepEqual([stale.status, /^the search index is out of date: 1 added/.test(stale.summary)], ["degraded", true], stale.summary);
+  await fs.rm(later);
 
   // With the health checks: each says whether the install fails without it,
   // and the ones this call does not run are not listed as if they were a state.

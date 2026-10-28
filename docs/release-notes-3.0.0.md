@@ -41,7 +41,7 @@ Windows, what moves by itself, and what needs one command. In short:
 
 - the licence: 3.0 is under the [PolyForm Noncommercial License 1.0.0](https://github.com/stonebridgeway/ai-dev-system/blob/main/LICENSE),
   © 2026 stonebridgeway — free for personal and noncommercial use; commercial use needs a licence from
-  the author. 2.x stays under MIT;
+  the author, [Telegram @stonebridgeway](https://t.me/stonebridgeway). 2.x stays under MIT;
 - the client entry is `ai-dev` (the 2.x `ai-dev-system` entry keeps working until 4.0);
 - Node 22.16 or newer;
 - the Python dense backend is gone: `npx ai-dev-system setup --model` moves to the

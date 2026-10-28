@@ -8,6 +8,7 @@ in development, built and tested but not released) — plus a small public skill
 AI Dev is © stonebridgeway, under the [PolyForm Noncommercial License 1.0.0](LICENSE). By
 contributing you agree that stonebridgeway may use, change and license your contribution under that
 licence and under commercial licences, and that you follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Commercial licences: [Telegram @stonebridgeway](https://t.me/stonebridgeway).
 
 **Working through an AI agent?** [AGENTS.md](AGENTS.md) holds the rules an agent
 gets wrong on this repository — where a new tool goes, three constraints that

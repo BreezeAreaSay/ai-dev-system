@@ -205,7 +205,7 @@ Security reports: [SECURITY.md](SECURITY.md).
 AI Dev is © 2026 stonebridgeway, under the [PolyForm Noncommercial License 1.0.0](LICENSE) from 3.0:
 free for personal use, study, research, hobby projects and noncommercial organisations, changes
 included; any commercial use — at work, in a company's product or service — needs a commercial
-licence from the author. 2.x and earlier were released under MIT and stay under it.
+licence from the author: [Telegram @stonebridgeway](https://t.me/stonebridgeway). 2.x and earlier were released under MIT and stay under it.
 
 The bundled skill catalogue is imported work, not written here. Every source is
 MIT, ships its licence text beside its own files under

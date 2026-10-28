@@ -243,7 +243,13 @@ export async function addCustomSkill({ root, source, name, replace = false, seed
   return { name: skillName, description: checkedDescription(meta.description), folder: target, files: files.length + 1, bytes, skipped, replaced: Boolean(existing) };
 }
 
-/** A new skill's SKILL.md: the frontmatter the registry reads and the sections a good skill has. */
+/**
+ * A new skill's SKILL.md: the frontmatter the registry reads and the sections a
+ * good skill has — a workflow of steps, its constraints, how it is verified —
+ * so that a skill just started passes the structure check the health check
+ * holds every skill of yours to (docs/DEFECTS.md, Д-598). Each line says what
+ * to write there.
+ */
 export function skillTemplate(name, description) {
   const title = name.split("-").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
   return [
@@ -257,15 +263,23 @@ export function skillTemplate(name, description) {
     "## When to use",
     "",
     "- The situation this skill is for, in the words a request would use.",
+    "- What it is not for, when a neighbouring skill fits better.",
     "",
-    "## Steps",
+    "## Workflow",
     "",
-    "1. What to do first.",
-    "2. What to check before calling it done.",
+    "1. Read the request and the files it names; confirm what done means before changing anything.",
+    "2. Implement the smallest change that meets the request, one step at a time.",
+    "3. Run the project's checks — its tests, its linter — and read what they print.",
+    "4. Report what changed and the evidence that it works.",
     "",
-    "## Done when",
+    "## Constraints",
     "",
-    "- The evidence that shows the work is finished.",
+    "- Do not change what the request does not ask for.",
+    "- Never report a check that did not run, or a result nobody saw.",
+    "",
+    "## Verification",
+    "",
+    "- The evidence that shows the work is finished: the command that was run and what it printed.",
     ""
   ].join("\n");
 }

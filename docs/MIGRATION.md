@@ -3,7 +3,7 @@
 [← README](../README.md) · [Install](INSTALL.md) · [Upgrade test](UPGRADE-TEST.md) · [Changelog](../CHANGELOG.md)
 
 3.0 is the same server. An agent sees 135 tools — two more than 2.0.0, `plan_security_fixes` and
-`render_knowledge_galaxy` — and an app can opt into 13 more; the vault and the task state keep their
+`render_knowledge_galaxy` — and an app can opt into 16 more; the vault and the task state keep their
 format, and the index 2.x built is read without a rebuild. What changed is how AI Dev is installed,
 how a client reaches it, and where it keeps a few things. A 2.x install goes on working after the
 update, except where this page says otherwise: it says what changes for it, what moves by itself on

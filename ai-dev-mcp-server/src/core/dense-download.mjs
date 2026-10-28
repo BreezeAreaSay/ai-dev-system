@@ -450,7 +450,10 @@ async function fetchFile({ url, target, relative, expected, revision, env, signa
       }
     } catch (error) {
       if (signal?.aborted || stall.signal.aborted || error?.code === "ENOSPC" || error?.writeFailed) throw error;
-      const expectedBytes = size === null ? "" : ` of ${formatBytes(size - offset)}`;
+      const wanted = size === null ? null : size - offset;
+      // Rounded alike, a few bytes short would read as all of it (Д-595).
+      const expectedBytes = wanted === null ? "" : formatBytes(received) === formatBytes(wanted)
+        ? `, ${wanted - received} bytes short of ${formatBytes(wanted)}` : ` of ${formatBytes(wanted)}`;
       throw new Error(`the connection to ${sourceName(url)} closed after ${formatBytes(received)}${expectedBytes}.`);
     } finally {
       await out.close();
@@ -608,6 +611,7 @@ export async function downloadDenseModel({
   let resumed = 0;
   for (const file of pending) {
     let lastError = null;
+    const failures = [];
     for (const source of [...sources.filter((entry) => !silent.has(entry)), ...sources.filter((entry) => silent.has(entry))]) {
       const url = fileUrl(source, file.relative);
       try {
@@ -630,19 +634,28 @@ export async function downloadDenseModel({
         if (error?.final) throw error;
         if (error?.stalled) silent.add(source);
         lastError = error;
+        failures.push({ source, error });
         progress.restart();
         log(`source failed for ${file.relative}: ${error.message}`);
       }
     }
     if (lastError) {
       const kept = await fileSize(`${file.target}${PART_SUFFIX}`);
-      const reason = String(lastError.message).trim();
-      // Kept bytes mean a source answered, so running again is the advice;
-      // nothing kept, and nothing that merely did not match, means no source
-      // could be reached from here.
-      throw new Error(`Could not fetch ${file.relative}: ${reason}${/[.!?]$/.test(reason) ? "" : "."}`
+      // Every source's answer, by its host, when there were several: the last
+      // one alone would hide a mirror that served other bytes (Д-595).
+      const said = (error) => String(error.message).trim().replace(/[.!?]$/, "");
+      const reason = failures.length > 1 ? failures.map((entry) => `${sourceName(entry.source)}: ${said(entry.error)}`).join("; ") : said(lastError);
+      const mismatched = failures.find((entry) => entry.error?.mismatch);
+      // A mirror of the person's choosing, not the manifest's own source, is the one to point elsewhere.
+      const mirror = mismatched && !(manifest.sources ?? []).includes(mismatched.source);
+      // Kept bytes mean a source answered, so running again is the advice; a
+      // source that answered with other bytes is not a mirror of this
+      // revision; nothing at all means no source could be reached from here.
+      throw new Error(`Could not fetch ${file.relative}: ${reason}.`
         + (kept ? ` ${formatBytes(kept)} of it are kept; running the install again continues from there.`
-          : lastError.mismatch ? "" : ` ${BLOCKED_DOWNLOAD_ADVICE}`));
+          : mismatched ? (!mirror ? "" : ` ${sourceName(mismatched.source)} is not a mirror of ${manifest.export} at revision ${String(manifest.revision).slice(0, 12)}: `
+            + `point AI_DEV_MODEL_MIRROR at one that is, or copy the model from a machine that has it: \`${hint("npm run model -- import <folder or .zip>")}\`.`)
+            : ` ${BLOCKED_DOWNLOAD_ADVICE}`));
     }
   }
   progress.end();

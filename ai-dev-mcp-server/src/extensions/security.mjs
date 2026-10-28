@@ -1,5 +1,6 @@
 import path from "node:path";
 import { atomicWriteJson } from "../core/atomic-files.mjs";
+import { ignoreMachineFiles } from "../core/project-ignore.mjs";
 import { buildFixPlan, renderFixPlanMarkdown } from "../core/security-fix-plan.mjs";
 import { DEFAULT_MIN_RELEASE_AGE_DAYS } from "../core/security-fix-registry.mjs";
 import { MALWARE_REMEDIATION } from "../core/security-scan-parsers.mjs";
@@ -26,6 +27,8 @@ export const SECURITY_SCAN_STAMP = path.join(".ai-dev", "security", "last-scan.j
  * @param {string} via - The tool that ran it.
  */
 async function stampScan(projectRoot, scan, via) {
+  // The stamp is this machine's: kept out of the project's history (Д-597).
+  await ignoreMachineFiles(projectRoot);
   await atomicWriteJson(path.join(projectRoot, SECURITY_SCAN_STAMP), {
     at: new Date().toISOString(),
     via,

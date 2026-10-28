@@ -248,6 +248,11 @@ test("every source failing reports the last reason and the ways round it; no sou
   const mismatch = await attempt({ manifest: manifestFor([corrupt.base]), targetDir: await stageDir(t) });
   assert.doesNotMatch(mismatch.message, /AI_DEV_MODEL_MIRROR/, "a source that answered with other bytes is not a blocked network");
   assert.match((await attempt({ manifest: manifestFor([]), targetDir: await stageDir(t) })).message, /lists no sources/);
+  // A mirror that serves other bytes, then the manifest's own source unreachable: the mirror is named, not the network (Д-595).
+  const served = await attempt({ manifest: manifestFor([dead.base]), env: { AI_DEV_MODEL_MIRROR: `${corrupt.base}/mirror` }, targetDir: await stageDir(t) });
+  assert.match(served.message, /Could not fetch config\.json: 127\.0\.0\.1:\d+: .*; 127\.0\.0\.1:\d+: .*HTTP 500/s, "each source's answer, by its host");
+  assert.match(served.message, /127\.0\.0\.1:\d+ is not a mirror of .* at revision \w{12}: point AI_DEV_MODEL_MIRROR at one that is/);
+  assert.ok(!served.message.endsWith(BLOCKED_DOWNLOAD_ADVICE), "the network is not what failed");
   const offline = await attempt({ manifest: manifestFor(["http://127.0.0.1:1/m"]), targetDir: await stageDir(t), env: { AI_DEV_OFFLINE: "1" } });
   assert.match(offline.message, /AI_DEV_OFFLINE=1 prevents downloads.*npm run model -- import/s);
 });

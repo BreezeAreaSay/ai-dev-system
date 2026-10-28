@@ -126,7 +126,7 @@ If it tries to close early, it will not be allowed to. That is the point.
 
 ## What you get
 
-The server exposes 135 tools to an agent (and 13 more, the [control API](ai-dev-mcp-server/docs/CONTROL-API.md), to an app that asks for them). You do not need to know them — they are grouped
+The server exposes 135 tools to an agent (and 16 more, the [control API](ai-dev-mcp-server/docs/CONTROL-API.md), to an app that asks for them). You do not need to know them — they are grouped
 into eight **capability profiles**, and only `core` is on the critical path:
 
 | Profile | Tools | What it adds |

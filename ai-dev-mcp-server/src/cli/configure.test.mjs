@@ -246,6 +246,11 @@ test("skills, rules, servers and status run the server's tools from a terminal",
   assert.equal(servers.code, 0, servers.stderr);
   assert.match(servers.stdout, /pg\s+npx -y @example\/pg\s+\(claude-code\)/);
   assert.match(servers.stdout, /warn · pg: npx -y @example\/pg fetches and runs/);
+  // None at all: the advice is a command at a terminal, not an agent's tool (Д-599, п. 3).
+  await fs.mkdir(path.join(root, "bare"), { recursive: true });
+  const bare = await runCli(["servers", "--project", path.join(root, "bare")], { env });
+  assert.match(bare.stdout, /`ai-dev clients install` \(or the client's own settings\) registers one/);
+  assert.doesNotMatch(bare.stdout, /install_local_mcp_clients/);
 
   // The state in a few lines: nothing is built in this home, and it says so.
   const status = await runCli(["status", "--quick"], { env });

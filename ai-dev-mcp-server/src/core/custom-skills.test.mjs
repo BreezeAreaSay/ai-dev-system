@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { evaluateSkillQuality } from "../skill-quality.mjs";
 import { addCustomSkill, createCustomSkill, listCustomSkills, removeCustomSkill, seedSkillNames, skillTemplate } from "./custom-skills.mjs";
 
 async function stage(t) {
@@ -90,6 +91,15 @@ test("a new skill starts from the template, and its name and description are che
   await assert.rejects(createCustomSkill({ root: custom, name: "x", description: "" }), /needs a description/);
   await assert.rejects(createCustomSkill({ root: custom, name: "x", description: "d".repeat(1025) }), /at most 1024 characters/);
   await assert.rejects(createCustomSkill({ root: custom, name: "-x", description: "Fine." }), /lowercase letters/);
+});
+
+test("a skill just started from the template passes the structure check the health check holds it to (Д-598)", () => {
+  for (const description of ["Check a deploy before calling it done.", "x"]) {
+    const verdict = evaluateSkillQuality({ name: "deploy-check", description, source: "custom" }, skillTemplate("deploy-check", description));
+    assert.equal(verdict.status, "pass", JSON.stringify(verdict.findings));
+    assert.deepEqual(verdict.findings.filter((finding) => finding.severity === "error"), []);
+    assert.ok(verdict.findings.every((finding) => /description|trigger/.test(finding.code)), "what is left to say is the person's own description");
+  }
 });
 
 test("removing takes only a skill of yours: not the seed's, not a link, not a folder without a SKILL.md", async (t) => {

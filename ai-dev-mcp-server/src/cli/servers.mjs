@@ -61,7 +61,8 @@ export async function run(argv, io) {
     for (const finding of listed.findings ?? []) io.out(`  ${finding.severity} · ${finding.server}: ${cut(finding.message, width * 2)}`);
     const unreadable = listed.sources.filter((source) => source.exists && !source.readable);
     for (const source of unreadable) io.out(`  ${source.path} could not be read: ${source.error}`);
-    if (listed.next_step) io.out(listed.next_step);
+    // The tool speaks to an agent; at a terminal its tool is a command (Д-599, п. 3).
+    if (listed.next_step) io.out(String(listed.next_step).replaceAll("install_local_mcp_clients", "`ai-dev clients install`"));
     return EXIT.ok;
   });
 }

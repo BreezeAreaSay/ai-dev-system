@@ -15,7 +15,9 @@ check`, `npm run acceptance`, `npm run upgrade:test`, `docker:smoke`, `docker:up
   `cd desktop && npm ci && npm run dist:win` (вне Windows нужен Wine).
 - **Пакет npm.** Пока он не опубликован — tarball: `cd ai-dev-mcp-server && npm ci && npm run
   dist:pack`, файл `../dist/ai-dev-system-<версия>.tgz` (папка `dist/` в корне
-  клона); везде ниже вместо `npx ai-dev-system` запускайте `npx --yes <путь к tgz>`.
+  клона); везде ниже вместо `npx ai-dev-system` запускайте из этой папки `npx --yes
+  ./ai-dev-system-<версия>.tgz`, а из любой другой — `npx --yes --package=<путь к tgz> ai-dev`. Полный путь к архиву
+  первым словом npm 10 принимает за команду и запускает сам архив: «Permission denied», код 126 (Д-594).
 - **Образ.** Пока 3.0 не опубликован — свой: `cd ai-dev-mcp-server && npm run docker:build` даёт
   `ai-dev-system:local`. Во всех шагах ниже запускайте bootstrap с `--image ai-dev-system:local
   --allow-stale-image` (`-Image ai-dev-system:local -AllowStaleImage` на Windows): bootstrap сначала

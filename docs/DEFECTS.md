@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 593 записи. Закрыто 586, открыто 7. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 599 записей. Закрыто 586, открыто 13. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -22989,6 +22989,127 @@ CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
 **Замер после.** Здесь: тот же конец скрипта вокруг обещания, которое не разрешается, — та строка и `exit 1`;
 `build-desktop.mjs --target linux-x64 --check` — `exit 0`; неизвестная цель — `exit 1`. В CI на `144237f` сборка Mac дошла до
 «6. The runtime in the packed app…» и отчёта: `.dmg` (221 489 018 байт), `.zip` (219 439 126 байт) и их `.blockmap`, 183 с.
+
+---
+
+## Д-594. План ручной приёмки: `npx --yes <путь к tgz>` с полным путём npm 10.9 запускает сам архив
+
+**Статус:** открыт, мелкий. Нашла ручная приёмка 2026-10-28 на Linux (`d00c84e`, шаг L1).
+
+`docs/TEST-PLAN.ru.md` («Что подготовить») велит везде вместо `npx ai-dev-system` писать `npx --yes <путь к tgz>`. С
+абсолютным путём npm 10.9.4 принимает архив за команду и запускает его. `docs/INSTALL.md` и русский пишут правильно —
+`npx --yes ./ai-dev-system-<версия>.tgz` из папки архива.
+
+**Чем грозит.** Приёмка спотыкается на первом же шаге, и человек не знает, его ли это ошибка.
+
+**Замер до:**
+
+```
+$ npx --yes /home/user/ai-dev-system/dist/ai-dev-system-3.0.0.tgz setup --yes
+sh: 1: /home/user/ai-dev-system/dist/ai-dev-system-3.0.0.tgz: Permission denied        (exit 126)
+$ npx --yes --package=/home/user/ai-dev-system/dist/ai-dev-system-3.0.0.tgz ai-dev version   → ai-dev 3.0.0 …   (exit 0)
+$ cd dist && npx --yes ./ai-dev-system-3.0.0.tgz version                                     → ai-dev 3.0.0 …   (exit 0)
+```
+
+---
+
+## Д-595. Загрузка модели через зеркало: итог называет только последний источник и советует задать уже заданное зеркало
+
+**Статус:** открыт, мелкий. Нашла та же приёмка (шаг L2: huggingface.co закрыт песочницей, зеркало — локальное).
+
+`fetchModel` (`src/core/dense-download.mjs`) пробует источники по очереди — сначала `AI_DEV_MODEL_MIRROR`, потом
+huggingface.co — и бросает ошибку последнего. Отдай зеркало файл не того содержимого («checksum mismatch»), а huggingface.co
+будь недоступен, итог говорит только про 403 и советует задать `AI_DEV_MODEL_MIRROR`, хотя оно задано и как раз отдало
+не тот файл; про несовпадение — лишь строка журнала выше. Заодно обрыв на 26 КБ раньше конца выглядит как «closed after
+40.2 MB of 40.2 MB»: округление прячет недостачу.
+
+**Чем грозит.** Человек с зеркалом, которое отдаёт не те веса, правит не то: проверяет прокси и сеть, а не зеркало.
+
+**Замер до** (`AI_DEV_MODEL_MIRROR=http://127.0.0.1:8765`, файлы из нулей):
+
+```
+source failed for config.json: checksum mismatch for config.json: got 3b6a07d0…, manifest says 734a79bf…
+source failed for config.json: the proxy http://127.0.0.1:35489 refused to connect to huggingface.co:443 (HTTP 403).
+Could not fetch config.json: the proxy … refused to connect to huggingface.co:443 (HTTP 403). If this network blocks the
+download, set AI_DEV_MODEL_MIRROR to a Hugging Face mirror or HTTPS_PROXY to a proxy that reaches it, …
+```
+
+---
+
+## Д-596. README и MIGRATION называют 13 инструментов control API, а их 16
+
+**Статус:** открыт, мелкий. Нашла та же приёмка.
+
+С `custom_skills_*` control API — 16 инструментов (всего 151); AGENTS, SECURITY, CAPABILITIES, справочник это говорят, а
+`README.md` и `README.ru.md` («and 13 more» / «и ещё 13»), `docs/MIGRATION.md` и `docs/ru/MIGRATION.md` — нет.
+
+**Замер до:** `grep -rn "13 more\|ещё 13" --include=*.md` → README.md:129, README.ru.md:129, docs/MIGRATION.md:6,
+docs/ru/MIGRATION.md:6; `npm run docs:tools:check` → 151.
+
+---
+
+## Д-597. Кэши AI Dev остаются в репозитории пользователя неигнорируемыми, и описание PR считает их исходным кодом
+
+**Статус:** открыт. Нашла та же приёмка (шаг L3, первая задача из README).
+
+`verify_task` пишет `.ai-dev/cache/import-graph.json` (граф импортов) и `.ai-dev/security/last-scan.json` (отметку сканера) в
+сам проект, а `.gitignore` для них нет ни в проекте, ни в `.ai-dev/`. Описание PR (`.ai-dev/pr/<id>.md`) перечисляет оба
+среди изменённых файлов, в разделе **Source**.
+
+**Чем грозит.** `git add -A` уносит машинные кэши в коммит и в PR каждого, кто работает с AI Dev; отметка сканера одной
+машины спорит с отметкой другой.
+
+**Замер до** (`~/projects/report` после `complete_task`):
+
+```
+$ git status --short --untracked-files=all
+?? .ai-dev/cache/import-graph.json
+?? .ai-dev/security/last-scan.json
+…
+.ai-dev/pr/task-20261028T111247-52aece0e.md: **Source** (3) — `.ai-dev/cache/import-graph.json` — added,
+  `.ai-dev/security/last-scan.json` — added, `report.js` — modified
+```
+
+---
+
+## Д-598. Навык, начатый по шаблону, роняет проверку здоровья: `ai-dev status` — «failed» сразу после «Новый навык»
+
+**Статус:** открыт. Нашла та же приёмка (меню в терминале: «Skills → Start a new skill», затем «Status»).
+
+Шаблон `skillTemplate` (`src/core/custom-skills.mjs`) — два пронумерованных шага и разделы «When to use», «Steps», «Done
+when». Рубрика качества (`evaluateSkillQuality`, `src/skill-quality.mjs`) требует раздел процесса или три шага — иначе ошибка
+`missing-workflow`, навык «fail». Свои навыки лежат в источнике custom, то есть «важные», и `skill_quality` проверки
+здоровья падает, пока хоть один важный навык не готов по структуре.
+
+**Чем грозит.** Человек сделал ровно то, что предлагают меню, команда `ai-dev skills new` и экран приложения, — и статус
+стал красным (`ai-dev status` выходит с 1), без слова о том, что виноват шаблон.
+
+**Замер до** (меню, `npx … ai-dev-system`):
+
+```
+$ ai-dev skills new -- release-notes 'Write release notes from the merged pull requests of a version.'
+$ ai-dev status
+AI Dev 3.0.0 · failed: …; skill_quality: Skill quality is incomplete: schema 615/615, important structurally ready 28/29, report present.
+(exit 1)
+```
+
+---
+
+## Д-599. Мелочи ручной приёмки 2026-10-28
+
+**Статус:** открыт, мелкий. Нашла та же приёмка.
+
+1. Заголовок PR из задачи обрезан посреди фразы и с типом по тестам: «test: add CSV export for the report, cover the change
+   with tests, and».
+2. Экран «Навыки» приложения по-русски смешивает «навыки» и «скиллы»: «Ваши скиллы», «Новый скилл…», «Реестр скиллов
+   пересобран» под заголовком «Навыки».
+3. `ai-dev servers` в терминале советует инструмент агента: «install_local_mcp_clients (or the client's own settings)
+   registers one» — человеку в терминале нужна команда `ai-dev clients install`.
+4. `ai-dev status --quick` под Wine: «AI Dev 3.0.0 · degraded: Everything this install needs is in place.» — состояние и
+   фраза спорят.
+
+**Замер до:** выдержки выше — `.ai-dev/pr/task-20261028T111247-52aece0e.md`, снимок `3-skill-added.png`, вывод меню
+(шаг «MCP servers»), вывод `ai-dev.cmd status --quick` под Wine 9.0.
 
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 

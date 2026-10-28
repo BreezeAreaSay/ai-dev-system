@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 599 записей. Закрыто 586, открыто 13. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 599 записей. Закрыто 591, открыто 8. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -22994,7 +22994,7 @@ CSC_LINK, CSC_KEY_PASSWORD, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
 
 ## Д-594. План ручной приёмки: `npx --yes <путь к tgz>` с полным путём npm 10.9 запускает сам архив
 
-**Статус:** открыт, мелкий. Нашла ручная приёмка 2026-10-28 на Linux (`d00c84e`, шаг L1).
+**Статус:** закрыт (`34bb829`), 2026-10-28, мелкий. Нашла ручная приёмка 2026-10-28 на Linux (`d00c84e`, шаг L1).
 
 `docs/TEST-PLAN.ru.md` («Что подготовить») велит везде вместо `npx ai-dev-system` писать `npx --yes <путь к tgz>`. С
 абсолютным путём npm 10.9.4 принимает архив за команду и запускает его. `docs/INSTALL.md` и русский пишут правильно —
@@ -23011,11 +23011,17 @@ $ npx --yes --package=/home/user/ai-dev-system/dist/ai-dev-system-3.0.0.tgz ai-d
 $ cd dist && npx --yes ./ai-dev-system-3.0.0.tgz version                                     → ai-dev 3.0.0 …   (exit 0)
 ```
 
+**Как закрыто** (`34bb829`). `docs/TEST-PLAN.ru.md`: из папки архива — `npx --yes ./ai-dev-system-<версия>.tgz`, из любой другой —
+`npx --yes --package=<путь к tgz> ai-dev`; почему полный путь первым словом не годится — там же.
+
+**Замер после:** обе формы из плана — `ai-dev 3.0.0 (Node 22.22.0, linux-x64)`, exit 0 (замер выше); весь прогон приёмки на
+Linux шёл формой `./`.
+
 ---
 
 ## Д-595. Загрузка модели через зеркало: итог называет только последний источник и советует задать уже заданное зеркало
 
-**Статус:** открыт, мелкий. Нашла та же приёмка (шаг L2: huggingface.co закрыт песочницей, зеркало — локальное).
+**Статус:** закрыт (`34bb829`), 2026-10-28, мелкий. Нашла та же приёмка (шаг L2: huggingface.co закрыт песочницей, зеркало — локальное).
 
 `fetchModel` (`src/core/dense-download.mjs`) пробует источники по очереди — сначала `AI_DEV_MODEL_MIRROR`, потом
 huggingface.co — и бросает ошибку последнего. Отдай зеркало файл не того содержимого («checksum mismatch»), а huggingface.co
@@ -23034,11 +23040,26 @@ Could not fetch config.json: the proxy … refused to connect to huggingface.co:
 download, set AI_DEV_MODEL_MIRROR to a Hugging Face mirror or HTTPS_PROXY to a proxy that reaches it, …
 ```
 
+**Как закрыто** (`34bb829`). Итог перечисляет ответ каждого источника с его хостом, когда источников было несколько. Источник,
+отдавший другие байты, если это зеркало человека, а не источник манифеста, назван прямо: «… is not a mirror of
+Xenova/bge-m3 at revision 4de132583038: point AI_DEV_MODEL_MIRROR at one that is, or copy the model …». Совет про
+заблокированную сеть — только когда не ответил никто. Обрыв на несколько байт раньше конца назван в байтах. Тест —
+`dense-download.test.mjs` (зеркало с другими байтами, затем источник манифеста с HTTP 500).
+
+**Замер после** (`node bin/ai-dev.mjs model install`, то же зеркало):
+
+```
+Could not fetch config.json: 127.0.0.1:8765: checksum mismatch for config.json: got 3b6a07d0…, manifest says 734a79bf…;
+huggingface.co: the proxy http://127.0.0.1:35489 refused to connect to huggingface.co:443 (HTTP 403). 127.0.0.1:8765 is not
+a mirror of Xenova/bge-m3 at revision 4de132583038: point AI_DEV_MODEL_MIRROR at one that is, or copy the model from a
+machine that has it: `npm run model -- import <folder or .zip>`.
+```
+
 ---
 
 ## Д-596. README и MIGRATION называют 13 инструментов control API, а их 16
 
-**Статус:** открыт, мелкий. Нашла та же приёмка.
+**Статус:** закрыт (`34bb829`), 2026-10-28, мелкий. Нашла та же приёмка.
 
 С `custom_skills_*` control API — 16 инструментов (всего 151); AGENTS, SECURITY, CAPABILITIES, справочник это говорят, а
 `README.md` и `README.ru.md` («and 13 more» / «и ещё 13»), `docs/MIGRATION.md` и `docs/ru/MIGRATION.md` — нет.
@@ -23046,11 +23067,15 @@ download, set AI_DEV_MODEL_MIRROR to a Hugging Face mirror or HTTPS_PROXY to a p
 **Замер до:** `grep -rn "13 more\|ещё 13" --include=*.md` → README.md:129, README.ru.md:129, docs/MIGRATION.md:6,
 docs/ru/MIGRATION.md:6; `npm run docs:tools:check` → 151.
 
+**Как закрыто** (`34bb829`). README (EN, RU) и MIGRATION (EN, RU): 16.
+
+**Замер после:** `grep -rn "13 more\|ещё 13"` по этим четырём файлам — пусто; `npm run docs:links` — 355 ссылок, 0 битых.
+
 ---
 
 ## Д-597. Кэши AI Dev остаются в репозитории пользователя неигнорируемыми, и описание PR считает их исходным кодом
 
-**Статус:** открыт. Нашла та же приёмка (шаг L3, первая задача из README).
+**Статус:** закрыт (`34bb829`), 2026-10-28. Нашла та же приёмка (шаг L3, первая задача из README).
 
 `verify_task` пишет `.ai-dev/cache/import-graph.json` (граф импортов) и `.ai-dev/security/last-scan.json` (отметку сканера) в
 сам проект, а `.gitignore` для них нет ни в проекте, ни в `.ai-dev/`. Описание PR (`.ai-dev/pr/<id>.md`) перечисляет оба
@@ -23070,11 +23095,27 @@ $ git status --short --untracked-files=all
   `.ai-dev/security/last-scan.json` — added, `report.js` — modified
 ```
 
+**Как закрыто** (`34bb829`). `ignoreMachineFiles` (`src/core/project-ignore.mjs`) кладёт `.ai-dev/.gitignore` с `cache/` и
+`security/` там, где пишутся граф импортов (`loadImportGraph`) и отметка сканера (`stampScan`). Файл, который там уже есть,
+дополняется, а не заменяется. Остальное в `.ai-dev/` (бриф, quality gate, политика, хуки) — общее для команды и не
+игнорируется. Тесты — `project-ignore.test.mjs`: файл, его дополнение и `git status` после `loadImportGraph`.
+
+**Замер после** (исправленная установка из пакета, свежий git-репозиторий, `begin_task`, `verify_task`):
+
+```
+$ git status --short --untracked-files=all
+?? .ai-dev/.gitignore
+$ cat .ai-dev/.gitignore
+# Written by AI Dev: what this machine keeps for itself, not part of the project.
+cache/
+security/
+```
+
 ---
 
 ## Д-598. Навык, начатый по шаблону, роняет проверку здоровья: `ai-dev status` — «failed» сразу после «Новый навык»
 
-**Статус:** открыт. Нашла та же приёмка (меню в терминале: «Skills → Start a new skill», затем «Status»).
+**Статус:** закрыт (`34bb829`), 2026-10-28. Нашла та же приёмка (меню в терминале: «Skills → Start a new skill», затем «Status»).
 
 Шаблон `skillTemplate` (`src/core/custom-skills.mjs`) — два пронумерованных шага и разделы «When to use», «Steps», «Done
 when». Рубрика качества (`evaluateSkillQuality`, `src/skill-quality.mjs`) требует раздел процесса или три шага — иначе ошибка
@@ -23093,11 +23134,26 @@ AI Dev 3.0.0 · failed: …; skill_quality: Skill quality is incomplete: schema 
 (exit 1)
 ```
 
+**Как закрыто** (`34bb829`). Шаблон — разделы «When to use», «Workflow» (четыре шага), «Constraints», «Verification»: рубрика
+даёт ему «pass», 86, и предупреждения остаются только об описании, которое пишет человек. Тест — `custom-skills.test.mjs`,
+«a skill just started from the template passes the structure check».
+
+**Замер после** (пакет с исправлением, чистый дом, `npx … setup --yes`, затем `skills new`, затем `status`):
+
+```
+The skill registry is rebuilt: 615 skills, 29 in the custom source.
+AI Dev 3.0.0 · degraded: search_index_freshness: Search index is stale: 2 added, 2 changed, 0 deleted.
+  checks    18 ok, 1 warn, 0 fail, 2 skipped
+```
+
+Предупреждение об индексе остаётся: `skills new` пересобирает реестр, а поисковый индекс — `ai-dev reindex`, о чём статус и
+говорит.
+
 ---
 
 ## Д-599. Мелочи ручной приёмки 2026-10-28
 
-**Статус:** открыт, мелкий. Нашла та же приёмка.
+**Статус:** открыт, мелкий: п. 2 и 3 закрыты (`34bb829`), п. 1 и 4 — нет. Нашла та же приёмка.
 
 1. Заголовок PR из задачи обрезан посреди фразы и с типом по тестам: «test: add CSV export for the report, cover the change
    with tests, and».
@@ -23110,6 +23166,10 @@ AI Dev 3.0.0 · failed: …; skill_quality: Skill quality is incomplete: schema 
 
 **Замер до:** выдержки выше — `.ai-dev/pr/task-20261028T111247-52aece0e.md`, снимок `3-skill-added.png`, вывод меню
 (шаг «MCP servers»), вывод `ai-dev.cmd status --quick` под Wine 9.0.
+
+**Как закрыто, п. 2 и 3** (`34bb829`). Русский интерфейс говорит «навыки» везде (`messages-ru.js`, восемь строк);
+`ai-dev servers` в терминале называет `ai-dev clients install` (тест в `configure.test.mjs`). П. 1 (заголовок PR) и п. 4
+(«degraded» рядом с «Everything this install needs is in place») — открыты.
 
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 

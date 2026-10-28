@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 599 записей. Закрыто 591, открыто 8. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 600 записей. Закрыто 591, открыто 9. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -23170,6 +23170,34 @@ AI Dev 3.0.0 · degraded: search_index_freshness: Search index is stale: 2 added
 **Как закрыто, п. 2 и 3** (`34bb829`). Русский интерфейс говорит «навыки» везде (`messages-ru.js`, восемь строк);
 `ai-dev servers` в терминале называет `ai-dev clients install` (тест в `configure.test.mjs`). П. 1 (заголовок PR) и п. 4
 («degraded» рядом с «Everything this install needs is in place») — открыты.
+
+---
+
+## Д-600. Два теста падают на раннерах CI по раз: свежесть реестра на Windows и отставной демон на macOS
+
+**Статус:** открыт. Нашёл CI PR stonebridgeway/ai-dev-system#86 на `f4b74f2` и `c1ee37e` (вторая — только документация).
+
+1. `skill-registry-freshness.test.mjs`, «a rewrite of the registry from itself keeps the date of the sources it describes»:
+   строка 488 — единственная в файле, где `checkSkillRegistry` спрошен напрямую, в ту же миллисекунду, что и правка навыка, а
+   не через помощник `staleness` — «на секунду позже», который файл заводит ровно для этого (Д-159, Д-160): изменение,
+   датированное позже `Date.now()`, читается как будущее и не считается.
+2. `daemon.test.mjs`, «a retired daemon whose run folder and then whole runtime home were deleted … (Д-214)»: отставную
+   запись ждёт 20 с, а демон смотрит на свой дескриптор раз в 5 с (`WATCH_INTERVAL_MS`). На раннере macOS, где в тот же час
+   сборка Mac шла 27,5 мин вместо 2,5, четырёх тиков не хватило.
+
+**Чем грозит.** Красный CI на изменении, которое тестов не трогало, и привычка перезапускать — то, ради чего правило
+«плавает — не причина» и заведено.
+
+**Замер до:**
+
+```
+f4b74f2, macOS, Daemon tests: ✖ a retired daemon whose run folder … (Д-214) (20504 ms)
+  AssertionError: timed out waiting for the retired record   at daemon.test.mjs:282
+c1ee37e, macOS: ✔ тот же тест (21470 ms) — на грани своих 20 с
+c1ee37e, Windows, Core unit tests: tests 1672, pass 1635, fail 1
+  ✖ a rewrite of the registry from itself keeps the date of the sources it describes   false !== true   at :488
+f4b74f2, Windows: тот же тест прошёл (fail 0)
+```
 
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 

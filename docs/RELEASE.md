@@ -23,7 +23,13 @@ refuse (`aidevsystem`, `ai_dev_system`, `ai.dev.system`): publish soon, since th
 | The 2.x line, to go back to | `:2`, a copy of today's `:latest` | the same workflow, job `freeze-2x` | runs it once, after the merge and before the tag |
 | The npm package | `ai-dev-system@3.0.0` | `npm run dist:pack` | `npm publish` of the tarball |
 | The Windows installer | the GitHub release `v3.0.0`, as a draft | `.github/workflows/desktop-windows.yml`, jobs `build` (builds and signs) and `release` | signing (optional); publishing the draft |
-| The macOS and Linux apps | the same draft release: the `.dmg` and `.zip` (Apple silicon), the AppImage and the `.deb` | `.github/workflows/desktop-macos-linux.yml`, jobs `build` (builds, runs the shipped runtime and the app) and `release` | a Developer ID certificate for the Mac app (optional); publishing the draft |
+| The Linux app | the same draft release: the AppImage and the `.deb` | `.github/workflows/desktop-macos-linux.yml`, jobs `build` (builds, runs the shipped runtime and the app) and `release` | publishing the draft |
+
+**macOS is in development and not in 3.0** (owner's decision, 2026-10-28): it was not accepted on a
+Mac (`docs/TEST-PLAN.ru.md`), so the release carries no `.dmg` and the guides do not offer the terminal
+or Docker install on a Mac. Its code stays — the Mac app's target, its signing, the macOS paths of the
+server — and CI keeps building and testing it, so that it is ready when a Mac acceptance passes. The
+`release` job takes only the Linux packages and does not wait for the Mac build to pass.
 
 Today (checked 2026-10-20, read only): production `main` is `7bef129`, an ancestor of the fork; its tags
 are `v1.0.0` and `v2.0.0`; the image's tags are `:latest` and `:main` (both `7bef129`'s build,
@@ -63,12 +69,12 @@ On the pull request's last commit, every job of three workflows:
 | CI | MCP server (Node 22.16 floor) | the oldest Node the package accepts |
 | CI | Desktop app (Electron, xvfb) | the app's tests and its end-to-end screens |
 | CI | MCP server (vault-coupled suite + smokes) | the whole suite, the protocol and lifecycle smokes |
-| CI | macOS (core + hook tests, first run) | macOS |
+| CI | macOS (core + hook tests, first run) | macOS, in development: its code still runs |
 | CI | Windows (PowerShell syntax, bootstrap plan, installer, core + hook tests) | Windows, `bootstrap.ps1`, the installer's scripts |
 | Docker | validate, validate-browser | the image and its browser variant build, answer MCP, write a client, upgrade a 2.x volume |
 | Docker | unix-launcher (ubuntu-latest), (macos-latest) | the 2.x launchers still start the server |
 | Windows installer | Build the installer (windows-latest) | the installer builds on Windows, unsigned here |
-| macOS and Linux apps | Build the app (darwin-arm64), (linux-x64) | the packages build, their runtime runs a setup and a skill, the built app copies and runs its runtime |
+| macOS and Linux apps | Build the app (linux-x64), (darwin-arm64) | the packages build, their runtime runs a setup and a skill, the built app copies and runs its runtime; the Mac app is in development and not released |
 
 
 ### Dense search on the real weights
@@ -148,13 +154,13 @@ git tag -a v3.0.0 -m "AI Dev System 3.0.0" && git push "$PROD" v3.0.0
 ```
 
 The tag publishes `:3.0.0`, `:3.0`, `:3`, `:latest` and `:sha-<commit>`, each with `-browser`, and
-builds the Windows installer, the Mac app and the Linux packages onto a **draft** release `v3.0.0`. A prerelease tag (`v3.0.0-rc.1`)
+builds the Windows installer and the Linux packages onto a **draft** release `v3.0.0` (the Mac app is built too, as a check, and not put on it). A prerelease tag (`v3.0.0-rc.1`)
 publishes only its own name and `:sha-<commit>`, and does not move `:latest`.
 
 ```sh
 docker buildx imagetools inspect ghcr.io/stonebridgeway/ai-dev-system:latest    # now 3.0.0
 docker run --rm --entrypoint ai-dev ghcr.io/stonebridgeway/ai-dev-system:3.0.0 version   # ai-dev 3.0.0 (Node 24…)
-gh release view v3.0.0 --repo stonebridgeway/ai-dev-system                      # draft, with the .exe, .dmg, .zip, .AppImage, .deb
+gh release view v3.0.0 --repo stonebridgeway/ai-dev-system                      # draft, with the .exe, .AppImage, .deb
 ```
 
 ## 4. npm
@@ -173,7 +179,8 @@ A package with no scope is public as published. The tarball is about 10 MB, 1,83
 
 ## 5. The desktop app
 
-The macOS app is signed ad hoc unless the production repository has a Developer ID Application
+The macOS app is in development and not released; what follows is how its build is signed now. It
+is signed ad hoc unless the production repository has a Developer ID Application
 certificate in the secrets `MAC_CSC_LINK` (the `.p12`, base64) and `MAC_CSC_KEY_PASSWORD`; with
 `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` too, it is sent for notarization. That
 path is not finished: notarization wants every Mach-O file in the app signed with the Developer ID,
@@ -207,7 +214,8 @@ gh release edit v3.0.0 --repo stonebridgeway/ai-dev-system --notes-file docs/rel
   the clone with `--allow-stale-image`, `:latest` as the 2.x image: `README.md`, `README.ru.md`,
   `docs/INSTALL.md`, `docs/ru/INSTALL.md`, `docker/README.md`, `docs/UPGRADE-TEST.md` (and RU),
   `docs/TEST-PLAN.ru.md`, `docs/MIGRATION.md` (and RU) — one pull request after the tag.
-- The manual acceptance on three systems (`docs/TEST-PLAN.ru.md`) on the released artefacts.
+- The manual acceptance on Windows and Linux (`docs/TEST-PLAN.ru.md`) on the released artefacts; macOS
+  once it is out of development.
 
 ## Rollback
 
@@ -242,4 +250,6 @@ commit `819e8cd` unless another is named. Nothing was pushed or published.
 | — | `npm run check`; `npm run acceptance` | the phase 15 report (`docs/program/reports/phase-15.md`) |
 
 Not run here: anything that pushes or publishes, production's CI, `dense-eval` on the real weights, Windows
-and macOS — `docs/TEST-PLAN.ru.md` is the manual acceptance on the released artefacts.
+and macOS — `docs/TEST-PLAN.ru.md` is the manual acceptance on the released artefacts. Linux, and Windows
+under Wine, were accepted on 2026-10-28 (`docs/program/reports/manual-acceptance-3.0.md`); macOS was not,
+and is out of 3.0.

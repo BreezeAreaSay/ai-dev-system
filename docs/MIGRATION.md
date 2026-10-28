@@ -20,6 +20,7 @@ the first start, what needs one command from you, and how to go back.
 | A 2.x clone, set up with `npm run setup` | `git pull`, then `cd ai-dev-mcp-server && npm ci && npm run setup`; restart every AI client | One `ai-dev` entry per client, served by one daemon; your vault, tasks and index as they were |
 | 2.x through Docker (`bootstrap.sh`, `bootstrap.ps1`, `run-mcp.sh`, `run-mcp.ps1`, `ClaudeMcpProxy.exe`) | `git pull`, then run `bootstrap.sh` (`bootstrap.ps1` on Windows) again — it keeps the projects folder and the model folder your 2.x entries name; restart every AI client | `docker run` entries; the volume kept, its skills brought up to the 3.0 seed; on macOS and Linux, 2.x's long-lived container removed (2.x kept none on Windows) |
 | A 2.x install you are not ready to touch | Nothing yet | It keeps working, and the warnings below say what to run when you are |
+| 2.x on a Mac | Stay on 2.x for now: macOS is in development, and 3.0 is released for Windows and Linux only. Do not `git pull`; with Docker, point 2.x's launchers at the 2.x line, `AI_DEV_IMAGE=ghcr.io/stonebridgeway/ai-dev-system:2`, since `:latest` becomes 3.x with the release ([The way back](#the-way-back)) | 2.x as it is, until 3.0 is accepted on a Mac |
 
 A new machine needs none of this: install 3.0 [any of the three ways](INSTALL.md#choose-a-path).
 

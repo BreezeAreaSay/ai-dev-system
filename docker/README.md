@@ -50,7 +50,8 @@ Windows (нужны Docker Desktop, Node.js 22.12+ и клон репозито�
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
 ```
 
-macOS и Linux (нужен только запущенный Docker):
+Linux (нужен только запущенный Docker; на macOS скрипт тоже работает, но macOS в разработке и в 3.0 не
+поддерживается):
 
 ```bash
 sh ./bootstrap.sh

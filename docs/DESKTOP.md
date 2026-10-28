@@ -7,8 +7,9 @@ shares. The app is in `desktop/`, built on Electron (owner decision D5; the vers
 `ai-dev mcp` reaches, through the control API
 ([CONTROL-API.md](../ai-dev-mcp-server/docs/CONTROL-API.md)).
 
-On Windows, macOS (Apple silicon) and Linux the app comes as a package that brings everything it
-needs — see [The desktop install](#the-desktop-install). To work on the app, it runs from a
+On Windows and Linux the app comes as a package that brings everything it needs — see
+[The desktop install](#the-desktop-install). macOS (Apple silicon) is in development: the app builds
+and runs there, but 3.0 does not release it. To work on the app, it runs from a
 checkout:
 
 ```bash
@@ -222,10 +223,12 @@ and sha256 in `desktop/build/node-<system>.json`).
 | System | Package | Installs to |
 | --- | --- | --- |
 | Windows (x64) | `AI-Dev-Setup-<version>.exe` | `%LOCALAPPDATA%\Programs\ai-dev-desktop`, for the person running it — no administrator, with a Start menu and a desktop shortcut |
-| macOS (Apple silicon) | `AI-Dev-<version>-mac-arm64.dmg`, and a `.zip` of the same app | `/Applications/AI Dev.app`, dragged there from the `.dmg` |
+| macOS (Apple silicon), in development: not released | `AI-Dev-<version>-mac-arm64.dmg`, and a `.zip` of the same app, built from a clone | `/Applications/AI Dev.app`, dragged there from the `.dmg` |
 | Linux (x64) | `AI-Dev-<version>-linux-amd64.deb`, or `AI-Dev-<version>-linux-x86_64.AppImage` | the `.deb` installs to `/opt/AI Dev`, with a menu entry and an AppArmor profile, by `sudo apt install ./AI-Dev-….deb`; an AppImage runs where it is (`chmod +x` it first), with FUSE 2 (`libfuse2t64` on Ubuntu 24.04) |
 
-None needs Node, Python or Docker. A Mac with an Intel processor has no package: onnxruntime-node,
+None needs Node, Python or Docker. The Mac app is in development: 3.0's release carries the Windows
+and Linux packages only, and what follows about the Mac is how its build behaves today. A Mac with an
+Intel processor has no package: onnxruntime-node,
 which the local model runs on, ships no build for it — the npm package or Docker serve it, with
 word search. A Mac app that is not signed with a Developer ID and notarized (the project's builds are
 not, unless the owner adds a certificate) is refused the first time: on macOS 15 and later it is

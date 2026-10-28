@@ -2,8 +2,8 @@
 
 Thanks for your interest in contributing. This repository holds the AI Dev MCP server and every
 form it ships in: the `ai-dev` command line and the daemon behind it, the npm package
-`ai-dev-system`, the Docker image, and the desktop app with its packages for Windows, macOS and Linux —
-plus a small public skill seed.
+`ai-dev-system`, the Docker image, and the desktop app with its packages for Windows and Linux (macOS:
+in development, built and tested but not released) — plus a small public skill seed.
 
 By contributing you agree that your contributions are licensed under the
 [MIT License](LICENSE), and that you follow the
@@ -209,7 +209,8 @@ from one a user edited; `npm run docker:seed` keeps it current.
   to `main`. CI runs on every pull request; merge when it is green.
 - A push to `main` publishes the `:edge` image and nothing else. A release is a `vX.Y.Z` tag: the
   images `:X.Y.Z`, `:X.Y`, `:X` and `:latest` (each with its `-browser` twin), and a draft release
-  with the Windows installer and the macOS and Linux packages, which the owner publishes. A fix to the 2.x line ships as a `v2.Y.Z`
+  with the Windows installer and the Linux packages, which the owner publishes (the Mac app is built as
+a check and not released while macOS is in development). A fix to the 2.x line ships as a `v2.Y.Z`
   tag and moves only `:2` and its own tags. Every step of a release, and how each is taken back:
   [Releasing 3.0](docs/RELEASE.md).
 - [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): subject`.

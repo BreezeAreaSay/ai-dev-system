@@ -18,7 +18,8 @@ still apply. This file is the part an agent gets wrong.
 A local-first MCP server (151 tools — 135 for agents, 16 in the opt-in control
 API — over stdio, or one warm daemon) and every form it ships in: the `ai-dev`
 command line, the npm package `ai-dev-system`, the Docker image,
-and the desktop app with its packages for Windows, macOS and Linux — plus a public skill seed. It
+and the desktop app with its packages for Windows and Linux (macOS: in development, built and
+tested but not released) — plus a public skill seed. It
 opens no network port. What it fetches is what a person asks for — the local
 model, Frontend QA's browser — and the installed desktop app looks for an update
 in the project's GitHub releases. The full Obsidian vault it normally reads is

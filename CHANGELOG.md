@@ -21,13 +21,17 @@ it, what moves by itself, what needs one command, and how to go back.
 - **Two products from one system.** For a server AI agents run on, everything is configured from
   the terminal, over SSH too: `ai-dev` alone opens a menu, and `ai-dev settings`, `skills`, `rules`,
   `servers` and `status` do the same from a script. For a person at their own computer, the desktop
-  app — now for Windows, macOS (Apple silicon) and Linux — has screens for the same: settings, your
-  own skills, a repository's rules and hooks, the MCP servers it starts.
+  app — now for Windows and Linux — has screens for the same: settings, your own skills, a
+  repository's rules and hooks, the MCP servers it starts.
 - **Three ways in, none of them a clone.** The desktop app — a Windows installer for the current
-  user, a `.dmg` for macOS, an AppImage and a `.deb` for Linux; no Node, Python or Docker; `npx ai-dev-system setup`, one command
-  on any system, which installs a copy that outlives npx's cache; and Docker, where `bootstrap.sh`
+  user, an AppImage and a `.deb` for Linux; no Node, Python or Docker; `npx ai-dev-system setup`,
+  one command, which installs a copy that outlives npx's cache; and Docker, where `bootstrap.sh`
   and `bootstrap.ps1` write `docker run` entries and nothing runs between sessions. A clone with
   `npm run setup` stays the way to work on AI Dev itself.
+- **macOS is in development.** 3.0 is released for Windows and Linux: it was not accepted on a Mac,
+  so the release has no Mac app and the guides do not offer the terminal or Docker install there.
+  The code for macOS stays — the Mac app's build, the server's macOS paths — and CI keeps testing
+  it on a Mac.
 - **No Python.** Search, its SQLite index and hybrid ranking run on `node:sqlite`; the local BGE-M3
   model is an ONNX export on `onnxruntime-node`, installed with progress, resume, a proxy or a
   mirror, and checked file by file against a pinned manifest (`ai-dev model install | import |
@@ -144,8 +148,9 @@ has it with what each one says.
   never removed or replaced. A copy leaves out links and folders such as `.git`, holds at most 500
   files and 20 MB, and lands whole or not at all. 151 tools in all: 135 for agents, 16 in the
   opt-in control API.
-- **The desktop app for macOS and Linux.** `npm run dist:mac` builds a `.dmg` and a `.zip` for Apple
-  silicon, `npm run dist:linux` an AppImage and a `.deb`, each with the runtime for its system and a
+- **The desktop app for Linux, and for macOS in development.** `npm run dist:linux` builds an
+  AppImage and a `.deb`, `npm run dist:mac` a `.dmg` and a `.zip` for Apple silicon (not released:
+  macOS is in development), each with the runtime for its system and a
   Node of its own (24.22.0, pinned by sha256 like the Windows one), copied into `~/.ai-dev/app` and
   run through `~/.ai-dev/app/current` as on Windows; `~/.ai-dev/app/current/ai-dev` is the command
   line beside it. The AppImage updates itself from the releases; a Mac app does when it is signed

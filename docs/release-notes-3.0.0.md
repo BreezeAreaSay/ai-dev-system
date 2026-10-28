@@ -8,12 +8,16 @@ the search index read without a rebuild. What is new is the way in.
 
 - **Windows:** `AI-Dev-Setup-3.0.0.exe` below — for the current user, no administrator, nothing else
   to install first. The app updates itself from these releases.
-- **Any system with Node 22.16+:** `npx ai-dev-system setup`
-- **Docker:** `sh ./bootstrap.sh` (macOS, Linux) or `.\bootstrap.ps1` (Windows) from the repository —
+- **Linux:** the AppImage below, which updates itself from these releases, or the `.deb`.
+- **Windows or Linux with Node 22.16+:** `npx ai-dev-system setup`
+- **Docker:** `sh ./bootstrap.sh` (Linux) or `.\bootstrap.ps1` (Windows) from the repository —
   [Install](https://github.com/stonebridgeway/ai-dev-system/blob/main/docs/INSTALL.md) has the details.
 
 Each one finds the AI clients on the machine — Claude Code, Claude Desktop, Cursor, VS Code, Codex and
 Gemini CLI — and connects them.
+
+**macOS is in development.** 3.0 has no Mac app, and the terminal and Docker installs are not supported
+on a Mac yet: the code is in the repository and CI tests it there, but it has not been accepted on a Mac.
 
 ## What is new
 
@@ -23,8 +27,8 @@ Gemini CLI — and connects them.
   528 MB, and take 391 MB.
 - **One command line, `ai-dev`:** `setup`, `clients`, `model`, `daemon`, `doctor`, `backup`,
   `restore`, `uninstall`.
-- **A desktop app** in English and Russian: health in the tray, a first-run wizard, the projects,
-  costs, skills and log, a console for every tool, settings.
+- **A desktop app** for Windows and Linux, in English and Russian: health in the tray, a first-run
+  wizard, the projects, costs, skills and log, a console for every tool, settings.
 - **Docker as a server mode:** each session is its own container — 1.6–2.5 s on a new volume, about a
   second after it; the image is 716 MB (2.x: 1.84 GB), with a `-browser` variant for Frontend QA.
 - **614 skills instead of 3,228** — the integration connectors cut to the ones developers use;

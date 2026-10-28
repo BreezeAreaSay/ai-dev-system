@@ -64,9 +64,13 @@ Three ways, one system — pick by what you have:
 
 | | |
 | --- | --- |
-| **The desktop app** — Windows, macOS, Linux, no terminal | Download the package for your system from the project's releases: `AI-Dev-Setup-<version>.exe`, the `.dmg` (Apple silicon), or the AppImage / `.deb`. No Node, Python or Docker: the app brings its own Node; its wizard connects your AI clients and sets up the local model, and its screens change everything else — settings, your own skills, a repository's rules, the MCP servers it starts ([The desktop install](docs/DESKTOP.md#the-desktop-install)). |
-| **A server for AI agents, from the terminal** — macOS, Linux, Windows | `npx ai-dev-system setup` — Node.js 22.16+ (or 24+), and nothing else. Then `ai-dev` alone opens a menu over every setting, and `ai-dev settings`, `skills`, `rules`, `servers`, `status` do the same from a script, over SSH too ([Configuring a server from the terminal](docs/INSTALL.md#configuring-a-server-from-the-terminal)). |
-| **Docker** — the server in a container | `sh ./bootstrap.sh` on macOS and Linux, `bootstrap.ps1` on Windows, with Docker running; on Windows also Node.js 22.12+ and a clone of the repository, since Node writes the clients' configs. For a machine that should not hold a personal vault, or a team that wants one image everybody runs the same way. |
+| **The desktop app** — Windows, Linux, no terminal | Download the package for your system from the project's releases: `AI-Dev-Setup-<version>.exe`, or the AppImage / `.deb`. No Node, Python or Docker: the app brings its own Node; its wizard connects your AI clients and sets up the local model, and its screens change everything else — settings, your own skills, a repository's rules, the MCP servers it starts ([The desktop install](docs/DESKTOP.md#the-desktop-install)). |
+| **A server for AI agents, from the terminal** — Linux, Windows | `npx ai-dev-system setup` — Node.js 22.16+ (or 24+), and nothing else. Then `ai-dev` alone opens a menu over every setting, and `ai-dev settings`, `skills`, `rules`, `servers`, `status` do the same from a script, over SSH too ([Configuring a server from the terminal](docs/INSTALL.md#configuring-a-server-from-the-terminal)). |
+| **Docker** — the server in a container | `sh ./bootstrap.sh` on Linux, `bootstrap.ps1` on Windows, with Docker running; on Windows also Node.js 22.12+ and a clone of the repository, since Node writes the clients' configs. For a machine that should not hold a personal vault, or a team that wants one image everybody runs the same way. |
+
+**macOS is in development.** Its code is in the repository and CI runs its tests on a Mac, but 3.0
+has no Mac app in its release, and the terminal and Docker installs on a Mac are not supported until
+it is accepted there ([Releasing 3.0](docs/RELEASE.md#what-goes-out)).
 
 ```bash
 npx ai-dev-system setup
@@ -89,7 +93,7 @@ broken download continues where it stopped, and `AI_DEV_MODEL_MIRROR` and `HTTPS
 honoured. In Docker, one `docker run … ai-dev model install` puts it in the data volume.
 
 Until 3.0 is published, build from a clone what is not out yet: the desktop app
-(`cd desktop && npm ci && npm run dist:win` — or `dist:mac` on a Mac, `dist:linux` on Linux — leaves
+(`cd desktop && npm ci && npm run dist:win` — or `dist:linux` on Linux — leaves
 the packages in the clone's `dist/`; the Windows installer outside Windows needs Wine —
 [Building it](docs/DESKTOP.md#building-it)),
 the npm package ([npx](docs/INSTALL.md#one-command-with-node-npx)), and the image, whose `:latest`
@@ -111,7 +115,7 @@ add CSV export for the report, cover the change with tests, and run verify_task.
 With Docker the server sees only the projects folder bootstrap mounted — `AI-Dev-Projects` in your
 home, unless `--project-path` (`-ProjectPath` on Windows) or the entries bootstrap replaced named another —
 so keep the project there.
-On macOS and Linux the server sees it at its own path; on Windows it sees the folder as
+On Linux the server sees it at its own path; on Windows it sees the folder as
 `/workspace`: name the project `/workspace/my-project`.
 
 What you should see: the agent calls `begin_task`, reports the context it

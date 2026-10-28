@@ -23,6 +23,13 @@
 | Линия 2.x, чтобы вернуться | `:2`, копия нынешнего `:latest` | тот же workflow, задание `freeze-2x` | запускает его один раз — после слияния и до тега |
 | Пакет npm | `ai-dev-system@3.0.0` | `npm run dist:pack` | `npm publish` тарбола |
 | Установщик Windows | релиз GitHub `v3.0.0`, черновиком | `.github/workflows/desktop-windows.yml`, задания `build` (собирает и подписывает) и `release` | подпись (по желанию); публикация черновика |
+| Приложение для Linux | тот же черновик релиза: AppImage и `.deb` | `.github/workflows/desktop-macos-linux.yml`, задания `build` (собирает, запускает рантайм из пакета и само приложение) и `release` | публикация черновика |
+
+**macOS в разработке и в 3.0 не входит** (решение владельца, 2026-10-28): на Mac приёмку не проводили
+(`docs/TEST-PLAN.ru.md`), поэтому в релизе нет `.dmg`, а руководства не предлагают установку из
+терминала и через Docker на Mac. Код остаётся — цель сборки приложения для Mac, его подпись, пути
+macOS в сервере, — и CI по-прежнему собирает и тестирует его, чтобы он был готов, когда пройдёт приёмка
+на Mac. Задание `release` берёт только пакеты Linux и не ждёт, что сборка для Mac пройдёт.
 
 Сейчас (проверено 2026-10-20, только чтением): `main` основного репозитория — `7bef129`, предок форка;
 его теги — `v1.0.0` и `v2.0.0`; теги образа — `:latest` и `:main` (оба — сборка `7bef129`,
@@ -61,11 +68,12 @@ Pull request из форка не получает секретов, и его �
 | CI | MCP server (Node 22.16 floor) | самую старую Node, которую принимает пакет |
 | CI | Desktop app (Electron, xvfb) | тесты приложения и его сквозные экраны |
 | CI | MCP server (vault-coupled suite + smokes) | весь набор, смоуки протокола и жизненного цикла |
-| CI | macOS (core + hook tests, first run) | macOS |
+| CI | macOS (core + hook tests, first run) | macOS в разработке: его код по-прежнему работает |
 | CI | Windows (PowerShell syntax, bootstrap plan, installer, core + hook tests) | Windows, `bootstrap.ps1`, скрипты установщика |
 | Docker | validate, validate-browser | образ и его вариант с браузером собираются, отвечают по MCP, пишут клиента, обновляют том 2.x |
 | Docker | unix-launcher (ubuntu-latest), (macos-latest) | лаунчеры 2.x по-прежнему запускают сервер |
 | Windows installer | Build the installer (windows-latest) | установщик собирается на Windows, здесь — без подписи |
+| macOS and Linux apps | Build the app (linux-x64), (darwin-arm64) | пакеты собираются, их рантайм проходит установку и навык, собранное приложение копирует и запускает свой рантайм; приложение для Mac в разработке и не выпускается |
 
 ### Плотный поиск на настоящих весах
 
@@ -143,13 +151,14 @@ git tag -a v3.0.0 -m "AI Dev System 3.0.0" && git push "$PROD" v3.0.0
 ```
 
 Тег публикует `:3.0.0`, `:3.0`, `:3`, `:latest` и `:sha-<commit>`, у каждого двойник `-browser`, и
-собирает установщик Windows в **черновик** релиза `v3.0.0`. Тег предрелиза (`v3.0.0-rc.1`) публикует
+собирает установщик Windows и пакеты Linux в **черновик** релиза `v3.0.0` (приложение для Mac тоже
+собирается — как проверка, — но в релиз не кладётся). Тег предрелиза (`v3.0.0-rc.1`) публикует
 только своё имя и `:sha-<commit>` и `:latest` не двигает.
 
 ```sh
 docker buildx imagetools inspect ghcr.io/stonebridgeway/ai-dev-system:latest    # теперь 3.0.0
 docker run --rm --entrypoint ai-dev ghcr.io/stonebridgeway/ai-dev-system:3.0.0 version   # ai-dev 3.0.0 (Node 24…)
-gh release view v3.0.0 --repo stonebridgeway/ai-dev-system                      # черновик, с .exe
+gh release view v3.0.0 --repo stonebridgeway/ai-dev-system                      # черновик, с .exe, .AppImage, .deb
 ```
 
 ## 4. npm
@@ -191,7 +200,8 @@ gh release edit v3.0.0 --repo stonebridgeway/ai-dev-system --notes-file docs/rel
   `:latest` как образ 2.x: `README.md`, `README.ru.md`, `docs/INSTALL.md`, `docs/ru/INSTALL.md`,
   `docker/README.md`, `docs/UPGRADE-TEST.md` (и RU), `docs/TEST-PLAN.ru.md`, `docs/MIGRATION.md` (и RU) —
   одним pull request'ом после тега.
-- Ручная приёмка на трёх системах (`docs/TEST-PLAN.ru.md`) на выпущенных артефактах.
+- Ручная приёмка на Windows и Linux (`docs/TEST-PLAN.ru.md`) на выпущенных артефактах; на macOS —
+  когда он выйдет из разработки.
 
 ## Откат
 
@@ -226,4 +236,6 @@ gh release edit v3.0.0 --repo stonebridgeway/ai-dev-system --notes-file docs/rel
 | — | `npm run check`; `npm run acceptance` | отчёт фазы 15 (`docs/program/reports/phase-15.md`) |
 
 Здесь не прогнано: всё, что пушит или публикует, CI основного репозитория, `dense-eval` на настоящих весах,
-Windows и macOS — ручная приёмка на выпущенных артефактах — `docs/TEST-PLAN.ru.md`.
+Windows и macOS — ручная приёмка на выпущенных артефактах — `docs/TEST-PLAN.ru.md`. Linux и Windows
+под Wine приняты 2026-10-28 (`docs/program/reports/manual-acceptance-3.0.md`); macOS — нет, и в 3.0 он
+не входит.

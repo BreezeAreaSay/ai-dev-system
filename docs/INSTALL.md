@@ -10,7 +10,7 @@ has the rest.
 ## Contents
 
 - [Choose a path](#choose-a-path)
-- [The desktop app: Windows, macOS, Linux](#the-desktop-app-windows-macos-linux)
+- [The desktop app: Windows, Linux](#the-desktop-app-windows-linux)
 - [One command with Node: npx](#one-command-with-node-npx)
 - [Docker](#docker)
 - [Connecting AI clients](#connecting-ai-clients)
@@ -32,12 +32,17 @@ client's entry — see [Capabilities](CAPABILITIES.md).
 | | The desktop app | One command with Node | Docker |
 | --- | --- | --- | --- |
 | For | a person at their own computer, without a terminal | a server agents run on, configured from the terminal; or your own machine | the server in a container: a machine that should not hold your vault, a team on one image |
-| You need | 64-bit Windows, a Mac with Apple silicon, or 64-bit Linux | Node.js 22.16+ (or 24+) and npm | Docker Desktop (macOS, Windows) or Docker Engine (Linux), running; on Windows also Node.js 22.12+ and a clone of the repository, since Node writes the clients' configs |
-| You run | `AI-Dev-Setup-<version>.exe`, the `.dmg`, or the AppImage / `.deb` | `npx ai-dev-system setup` | `sh ./bootstrap.sh` (macOS, Linux) or `bootstrap.ps1` (Windows) |
+| You need | 64-bit Windows or 64-bit Linux | Node.js 22.16+ (or 24+) and npm | Docker Desktop (Windows) or Docker Engine (Linux), running; on Windows also Node.js 22.12+ and a clone of the repository, since Node writes the clients' configs |
+| You run | `AI-Dev-Setup-<version>.exe`, or the AppImage / `.deb` | `npx ai-dev-system setup` | `sh ./bootstrap.sh` (Linux) or `bootstrap.ps1` (Windows) |
 | The server runs | on its own Node, from `~/.ai-dev/app` (`%USERPROFILE%\.ai-dev\app`) | on your Node, from `~/.ai-dev/app` | in a container per session; your data in the volume `ai-dev-system-data` |
 | You configure it | in its window: settings, skills, rules, MCP servers | `ai-dev` alone opens a menu; or `ai-dev settings`, `skills`, `rules` ([from the terminal](#configuring-a-server-from-the-terminal)) | the same commands, through `docker run … ai-dev …` |
 | The local model | the wizard's model step | `setup --model` | `docker run … ai-dev model install`, once |
 | Updates | offered by the app (Windows, the AppImage) or the new package | the same command, `@latest` | `docker pull` |
+
+**macOS is in development.** 3.0 is released for Windows and Linux: there is no Mac app in the
+release, and the terminal and Docker installs are not supported on a Mac until they are accepted
+there. The code stays and CI tests it on a Mac, so what this page says about macOS — its paths, Docker
+Desktop, the Mac app — describes that code, not a supported install.
 
 None of them needs Python. Two tools, `query_ui_ux_knowledge` and
 `generate_ui_ux_design_system`, run the UI UX Pro Max dataset's own Python script (`python3`;
@@ -46,7 +51,7 @@ the health check marks `ui_ux_knowledge` skipped, and nothing else changes. The 
 Python. The local model needs none either: 3.0 removed the Python dense backend (see
 [Coming from the Python backend](#coming-from-the-python-backend)).
 
-## The desktop app: Windows, macOS, Linux
+## The desktop app: Windows, Linux
 
 For a person who wants no terminal. Download the package for your system from the project's
 [releases](https://github.com/stonebridgeway/ai-dev-system/releases):
@@ -54,15 +59,13 @@ For a person who wants no terminal. Download the package for your system from th
 - **Windows** — `AI-Dev-Setup-<version>.exe`; run it. It installs for your account, no
   administrator. An installer that is not signed makes Windows SmartScreen warn on its first run;
   **More info → Run anyway** goes on.
-- **macOS** (Apple silicon) — `AI-Dev-<version>-mac-arm64.dmg`; open it and drag **AI Dev** to
-  Applications. Unless the release is signed with a Developer ID and notarized, macOS refuses it the
-  first time: on macOS 15 and later open it once, then **System Settings → Privacy & Security →
-  Open Anyway**; on macOS 14 and earlier, right click → **Open**. macOS remembers the answer.
 - **Linux** (x64) — `sudo apt install ./AI-Dev-<version>-linux-amd64.deb` for a menu entry; or
   `AI-Dev-<version>-linux-x86_64.AppImage`: `chmod +x` it and run it. An AppImage needs FUSE 2,
   which Ubuntu 22.04 and later leave out (`sudo apt install libfuse2t64` on 24.04, `libfuse2` on
   22.04), and where unprivileged user namespaces are refused — Ubuntu 24.04's default — it starts
   without Chromium's sandbox; the `.deb` brings the AppArmor profile that keeps it.
+- **macOS** — in development: 3.0 has no Mac package. The app builds for Apple silicon from a clone
+  (`npm run dist:mac`), unsigned and not accepted.
 
 None needs Node, Python or Docker: the app brings a Node of its own and the server it runs. The
 first start copies the runtime into `~/.ai-dev/app`, fills your vault, `~/.ai-dev/vault`, from the
@@ -72,20 +75,20 @@ settings, your own skills (add a folder, start one from a template, import a Git
 skills), a repository's guard rules, hooks and engineering rules, and the MCP servers it starts.
 
 Updates come from the same releases: the Windows app and the AppImage look for one a minute after
-they start and every six hours, download it in the background and offer to restart; the `.deb` and
-an unsigned Mac app are updated by installing the new package. Uninstalling on Windows asks whether
+they start and every six hours, download it in the background and offer to restart; the `.deb` is
+updated by installing the new package. Uninstalling on Windows asks whether
 to take AI Dev out of your AI clients (yes by default) and whether to delete its data (no by
-default); on macOS and Linux run `~/.ai-dev/app/current/ai-dev uninstall --clients --yes` first,
-then remove the app.
+default); on Linux run `~/.ai-dev/app/current/ai-dev uninstall --clients --yes` first, then
+remove the app.
 
 What goes where, why every client runs it through `~/.ai-dev/app/current`, the command line for a
-terminal, and how to build the packages yourself (`cd desktop && npm run dist:win`, `dist:mac`,
-`dist:linux`): [The desktop install](DESKTOP.md#the-desktop-install). The window, the tray and the
+terminal, and how to build the packages yourself (`cd desktop && npm run dist:win`, `dist:linux`): [The desktop install](DESKTOP.md#the-desktop-install). The window, the tray and the
 screens: [Desktop app](DESKTOP.md).
 
 ## One command with Node: npx
 
-For your own machine — macOS, Linux or Windows — with Node.js 22.16 or newer (or 24+) and npm.
+For your own machine — Linux or Windows; macOS is in development — with Node.js 22.16 or newer (or
+24+) and npm.
 Node 22.13–22.15 and 23.x ship `node:sqlite` without the FTS5 the search index needs: there the
 server starts, and every search tool answers with the version it needs.
 

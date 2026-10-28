@@ -475,8 +475,9 @@ folder against the list, and `dist:pack` checks the tarball, unpacked, byte for 
 published from here.
 
 The desktop app's packages are made from the same folder: `cd ../desktop && npm run dist:win`
-(`dist:mac`, `dist:linux`) adds the dependencies for the target, a pinned Node and `bundle.json`,
-and builds the NSIS installer, the `.dmg` and `.zip`, or the AppImage and `.deb`
+(`dist:linux`; `dist:mac` too, though macOS is in development and its `.dmg` is not released) adds
+the dependencies for the target, a pinned Node and `bundle.json`, and builds the NSIS installer, the
+AppImage and `.deb`, or the `.dmg` and `.zip`
 ([The desktop install](../docs/DESKTOP.md#the-desktop-install)). `ai-dev uninstall [--clients]
 [--data] --yes` is what the Windows uninstaller runs, and what a person runs before removing the app
 on macOS or Linux: it stops the daemon and removes the runtime copies the

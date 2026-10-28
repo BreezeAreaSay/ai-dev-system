@@ -1,13 +1,19 @@
 name: macOS and Linux apps
 
-# The desktop app for macOS (Apple silicon: a .dmg and a .zip) and Linux (an
-# AppImage and a .deb), docs/DESKTOP.md, "The desktop install": each built on
-# its own system by the one command a person runs there — `npm run dist:mac`,
-# `npm run dist:linux` — then the runtime it ships is run as an AI client runs
-# it, and the packages are kept as the run's artifacts. On a v* tag of the
-# production repository they are also put on that tag's GitHub release, as a
-# draft when the release does not exist yet (owner decision D7); the Windows
-# installer comes from desktop-windows.yml.
+# The desktop app for Linux (an AppImage and a .deb) and, in development, for
+# macOS (Apple silicon: a .dmg and a .zip), docs/DESKTOP.md, "The desktop
+# install": each built on its own system by the one command a person runs
+# there — `npm run dist:linux`, `npm run dist:mac` — then the runtime it ships
+# is run as an AI client runs it, and the packages are kept as the run's
+# artifacts. On a v* tag of the production repository the Linux packages are
+# also put on that tag's GitHub release, as a draft when the release does not
+# exist yet (owner decision D7); the Windows installer comes from
+# desktop-windows.yml.
+#
+# macOS is in development and not part of a release (owner decision,
+# 2026-10-28, docs/program/PROGRESS.md): the Mac app is built and run here so
+# that its code keeps working, but the release neither waits for it nor
+# carries its .dmg.
 #
 # A Mac build is signed ad hoc unless a Developer ID certificate is given
 # (CSC_LINK with CSC_KEY_PASSWORD); with one it is signed with the hardened
@@ -196,17 +202,20 @@ jobs:
 
   release:
     # The production repository only, on a version tag: a fork that works in
-    # its own main publishes nothing.
-    if: github.repository == 'stonebridgeway/ai-dev-system' && startsWith(github.ref, 'refs/tags/v')
+    # its own main publishes nothing. It waits for both builds but needs only
+    # Linux's packages: macOS is in development, and a red Mac build does not
+    # hold the release.
+    if: ${{ !cancelled() && github.repository == 'stonebridgeway/ai-dev-system' && startsWith(github.ref, 'refs/tags/v') }}
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Take the packages
+      - name: Take the Linux packages
         uses: actions/download-artifact@v4
         with:
-          path: artifact
+          name: linux-app
+          path: artifact/linux-app
 
       - name: Put them on the tag's release
         env:
@@ -219,5 +228,4 @@ jobs:
             || gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           shopt -s nullglob
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
-            artifact/macos-app/installer/*.dmg artifact/macos-app/installer/*.zip artifact/macos-app/installer/*.blockmap artifact/macos-app/installer/latest-mac.yml \
             artifact/linux-app/installer/*.AppImage artifact/linux-app/installer/*.deb artifact/linux-app/installer/*.blockmap artifact/linux-app/installer/latest-linux.yml

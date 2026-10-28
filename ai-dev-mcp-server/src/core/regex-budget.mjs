@@ -51,8 +51,8 @@ export const DEFAULT_MATCH_DEADLINE_MS = 1000;
  * budget. Charged to the first job, that startup made an honest pattern
  * `timed_out` and its `block` rule let the command through: under 32 busy
  * loops on 4 cores the guard let a forbidden command through 27 times in 30,
- * telling the user to fix a pattern that had never run (docs/DEFECTS.md,
- * Д-239). So startup has its own allowance and the deadline counts matching
+ * telling the user to fix a pattern that had never run. So startup has its own
+ * allowance and the deadline counts matching
  * only: a busy machine slows a check down instead of switching rules off.
  * Together the two still end an event well inside the ten seconds a client
  * gives a hook.

@@ -1,12 +1,10 @@
 #!/usr/bin/env node
 /**
- * Dense search measured on a machine that has the real weights (docs/DEFECTS.md,
- * Д-101).
+ * Dense search measured on a machine that has the real weights.
  *
- * The development sandbox cannot run it: `huggingface.co` is closed to it, so
- * the model cannot be fetched there. It runs in `.github/workflows/dense-eval.yml`,
- * on the ONNX export, the one backend 3.0 has; the comparison of
- * int8 with fp32 that Д-62's criterion (2) asks for is the 2.x line's, whose
+ * It needs `huggingface.co`, where the model is fetched from. It runs in
+ * `.github/workflows/dense-eval.yml`, on the ONNX export, the one backend 3.0
+ * has; the comparison of int8 with fp32 is the 2.x line's, whose
  * copy of that workflow keeps a job for each.
  *
  * What it measures, in the order a user meets them: how long the backend takes
@@ -14,11 +12,12 @@
  * how long a warm query takes, how much resident memory the process holds
  * afterwards, and how the golden cases rank with dense scoring on.
  *
- * Note on the metric names. Д-62 asks for "Recall@3/5"; the eval harness in
- * this repository does not compute recall — its golden cases have one expected
- * note each, so it reports mean reciprocal rank, top-1 accuracy and mean nDCG
- * instead. Those are what is printed, under their own names. Inventing a
- * recall column the harness cannot fill would be worse than a rename.
+ * Note on the metric names. Dense search is often judged by "Recall@3/5"; the
+ * eval harness in this repository does not compute recall — its golden cases
+ * have one expected note each, so it reports mean reciprocal rank, top-1
+ * accuracy and mean nDCG instead. Those are what is printed, under their own
+ * names. Inventing a recall column the harness cannot fill would be worse
+ * than a rename.
  *
  * Usage: node scripts/dense-benchmark.mjs --out report.json [--label onnx]
  *        [--max-cases 50]

@@ -64,10 +64,9 @@ export function hostTarget(platform = process.platform, arch = process.arch) {
 }
 
 /**
- * What the runtime never loads on any system, cut from its `node_modules`
- * (brief, phase 12: "onnxruntime-web и sharp-wasm32 убрать, если импорт это
- * позволяет"). Checked on the code it ships: the dense model's end-to-end test
- * passes without them (docs/program/reports/phase-12.md).
+ * What the runtime never loads on any system, cut from its `node_modules`.
+ * Checked on the code it ships: the dense model's end-to-end test passes
+ * without them.
  */
 export const TRIMMED = Object.freeze([
   Object.freeze({ path: "onnxruntime-web", why: "transformers 4.3.0 carries the web runtime inside its own file; its Node build loads onnxruntime-node" }),
@@ -280,7 +279,7 @@ export async function writeBundleMarker({ runtimeDir, name, version, node, finge
   return marker;
 }
 
-/** What a runtime holds, by top-level folder (and inside node_modules, by package): the composition the phase report asks for. */
+/** What a runtime holds, by top-level folder (and inside node_modules, by package): the composition the build report carries. */
 export function compositionReport(files) {
   const groups = new Map();
   for (const file of files) {
@@ -467,7 +466,7 @@ export function builderConfig({ desktopRoot, runtimeDir, icon, output, env = pro
     files: ["package.json", "src/**/*"],
     // electron-builder leaves out a `node_modules` folder at the top of what
     // it copies, so the runtime's dependencies are a second entry of their own:
-    // without it the installed runtime had none (docs/program/reports/phase-12.md).
+    // without it the installed runtime would have none.
     extraResources: [
       { from: runtimeDir, to: "runtime", filter: ["**/*"] },
       { from: path.join(runtimeDir, "node_modules"), to: "runtime/node_modules", filter: ["**/*"] }

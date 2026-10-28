@@ -81,7 +81,7 @@ requireText(bootstrapWindows, /ghcr\.io\/stonebridgeway\/ai-dev-system:latest/, 
 requireText(bootstrapWindows, /\[switch\]\$BuildLocal/, "bootstrap.ps1");
 requireText(bootstrapWindows, /\[switch\]\$AllowStaleImage/, "bootstrap.ps1");
 // The model folder is mounted the same way on both platforms, and the launchers
-// refuse the pre-Д-62 value — the model directory itself — with the same words.
+// refuse the 2.0.0 value — the model directory itself — with the same words.
 requireText(bootstrapUnix, /--model-path/, "bootstrap.sh");
 requireText(bootstrapWindows, /\[string\]\$ModelPath/, "bootstrap.ps1");
 requireText(runMcpUnix, /holds model files itself/, "docker/run-mcp.sh");

@@ -108,7 +108,7 @@ test("the newest copies stay; older ones, stopped installs and nothing of anyone
 test("the folder is named by version and fingerprint, and nothing in either escapes it", () => {
   assert.equal(appFolder("/r", { version: "3.0.0", content_fingerprint: "0123456789abcdef" }), path.join("/r", "app", "3.0.0-01234567"));
   assert.equal(appFolder("/r", { version: "../../x", content_fingerprint: "" }), path.join("/r", "app", ".._.._x-unknown"));
-  assert.equal(appFolder("/r", { version: "3.0.0", content_fingerprint: "../../.." }), path.join("/r", "app", "3.0.0-unknown"), "Д-185");
+  assert.equal(appFolder("/r", { version: "3.0.0", content_fingerprint: "../../.." }), path.join("/r", "app", "3.0.0-unknown"));
   assert.equal(appFolder("/r", { version: "3.0.0", content_fingerprint: "ab/../cd" }), path.join("/r", "app", "3.0.0-abcd"));
 });
 

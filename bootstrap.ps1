@@ -126,7 +126,7 @@ function Assert-ModelFolder {
     }
     # The folder above the model, holding bge-m3-onnx\, mounted read-only as
     # /models. A folder that holds model files itself is
-    # the pre-Д-62 value and would leave the model one level too deep.
+    # the 2.0.0 value and would leave the model one level too deep.
     foreach ($marker in @("pytorch_model.bin", "modules.json", "config.json", "onnx")) {
         if (Test-Path -LiteralPath (Join-Path $Folder $marker)) {
             throw "-ModelPath names the folder above the models, and $Folder holds model files itself ($marker). Point it at the parent folder that contains bge-m3-onnx\ (docs/INSTALL.md)."
@@ -304,8 +304,7 @@ if ($staleWarning) {
     Write-Warning "Installed from a stale image. $staleWarning"
 }
 # The last line says what was done to the clients, no more, in bootstrap.sh's words, and after the stale image's
-# warning, as there: a restart when there were clients to connect, written or already current (Д-406, Д-415,
-# Д-419, Д-421).
+# warning, as there: a restart when there were clients to connect, written or already current.
 if ($SkipClientInstall) {
     Write-Host "AI Dev is ready; the AI clients' configs were left as they were."
 } elseif ($noClient) {

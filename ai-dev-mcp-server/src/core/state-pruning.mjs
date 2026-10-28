@@ -1,5 +1,5 @@
 /**
- * Housekeeping for `~/.ai-dev/state` (PLAN.md, stage 3.12).
+ * Housekeeping for `~/.ai-dev/state`.
  *
  * Four things grow without bound and nothing removes them:
  *

@@ -56,7 +56,7 @@ test("the PowerShell plan renders, and carries model_path only when -ModelPath i
   }
 });
 
-test("the PowerShell installer refuses the pre-Д-62 model path before it looks for Docker", async (context) => {
+test("the PowerShell installer refuses the 2.0.0 model path before it looks for Docker", async (context) => {
   // A validation that let this through would go on to Assert-Docker, which on
   // Windows may start Docker Desktop; the refusal is asserted where it cannot.
   if (process.platform === "win32") {

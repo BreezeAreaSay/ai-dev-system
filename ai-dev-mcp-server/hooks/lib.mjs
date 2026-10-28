@@ -143,8 +143,8 @@ export function projectRootOf(cwd) {
  * resolveProjectIdentity derives it: the nearest project boundary at or above
  * `cwd` first, the Git root only when there is none, then `cwd` itself. The
  * memory a hook reads and writes is keyed by it, so that a session in
- * `<repo>/apps/web` meets the memory the server keeps for `apps/web`
- *. For everything else the hooks use
+ * `<repo>/apps/web` meets the memory the server keeps for `apps/web`.
+ * For everything else the hooks use
  * {@link projectRootOf}.
  */
 export function identityRootOf(cwd) {
@@ -196,8 +196,8 @@ export function userHomeDirectory(options = {}) {
  * marker, so a single `package.json` in `~` — and anyone who has once run npm
  * from their home directory has one — made every project below it collapse
  * onto one memory key: the session handoffs, instincts and context of one
- * project served to an agent working in another, silently
- *. So a marker sitting in the home directory itself, or
+ * project served to an agent working in another, silently.
+ * So a marker sitting in the home directory itself, or
  * anywhere above it, is not a boundary. Below the home directory, and outside
  * it entirely (`/srv/app`, `C:\work\app`), nothing changes.
  *
@@ -336,8 +336,8 @@ export function stateRoot() {
  * The runtime tree itself — `AI_DEV_HOME`, else `<home>/.ai-dev` — which is what
  * the server's `resolveRuntimeStateRoot` returns (src/core/runtime-home.mjs).
  *
- * `AI_DEV_HOME` names the runtime folder itself (owner decision D2,
- * docs/DEFECTS.md Д-90); 2.x appended `.ai-dev` to it on both sides. The one
+ * `AI_DEV_HOME` names the runtime folder itself; 2.x appended `.ai-dev` to it
+ * on both sides. The one
  * value that keeps the 2.x meaning is the home directory itself: taken at its
  * word it would scatter the runtime tree across the home.
  *
@@ -858,7 +858,7 @@ export function usageLedgerPath() {
  * The usage ledger is written by every MCP server process and by these hooks
  * at once, so an append or a prune that does not hold the lock loses somebody's
  * lines. The protocol must stay identical to the
- * server's (AGENTS.md, rule 3): the lock is `<target>.lock`, created exclusively
+ * server's: the lock is `<target>.lock`, created exclusively
  * and holding `{ pid, host, token, acquired_at }`; it is stale when its process
  * is gone (same host), when it is older than LOCK_STALE_MS, or when it has no
  * readable holder for EMPTY_LOCK_GRACE_MS; a stale lock is broken under

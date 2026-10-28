@@ -195,7 +195,7 @@ test("a download the daemon's going away ends, while the person is on Status, is
   await page.waitForFunction(() => document.querySelector('[data-step="model"] .step-body .error')?.textContent.includes("Демон пропал."));
   await page.selectOption("#language", "en");
   await page.waitForFunction(() => document.querySelector('[data-step="model"] .step-body .error')?.textContent.includes("The daemon went away."));
-  // An answer that the model is not ready is said on the step (R7). This daemon never gives
+  // An answer that the model is not ready is said on the step. This daemon never gives
   // one — it throws instead — so the main process is handed one in its place.
   await app.evaluate(() => {
     const { link } = globalThis.aiDevTest;

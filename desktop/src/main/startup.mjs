@@ -1,6 +1,6 @@
 /**
- * What the window says when the app cannot get going (docs/DEFECTS.md,
- * Д-242): the server is not where the app looks, its packages are not
+ * What the window says when the app cannot get going: the server is not
+ * where the app looks, its packages are not
  * installed, the settings file is broken. Each with what to do, and whether
  * Try again can work in this process or the app has to start again — a
  * module that failed to load stays failed until it does.

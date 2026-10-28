@@ -10,7 +10,7 @@ const lock = JSON.parse(await fs.readFile(path.join(root, "package-lock.json"), 
 
 if (Number(lock.lockfileVersion) < 3) findings.push("package-lock.json must use lockfileVersion 3 or newer.");
 // The local model's packages are optional (an install that cannot build them
-// still works, docs/DEFECTS.md, Д-174), not exempt: they are pinned the same way.
+// still works), not exempt: they are pinned the same way.
 const direct = { ...manifest.dependencies, ...manifest.optionalDependencies };
 for (const [name, range] of Object.entries(direct)) {
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(String(range))) {

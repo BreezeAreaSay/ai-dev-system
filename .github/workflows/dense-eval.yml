@@ -1,12 +1,11 @@
 name: Dense search evaluation
 
 # Dense search on the real weights, measured where they can be fetched: the
-# model comes from huggingface.co, which the development sandbox cannot reach.
-# Runners can.
+# model comes from huggingface.co, which runners can reach.
 #
 # 3.0 runs dense search on the ONNX export alone; the Python backend it was
 # once compared with is gone. That
-# comparison — Д-62's criterion (2), int8 against fp32 — can still be taken on
+# comparison — int8 against fp32 — can still be taken on
 # the 2.x line, whose copy of this workflow keeps both jobs. If int8 ever loses
 # by more than noise, the manifest's `dtype` moves to fp16 or fp32: a field,
 # not a code change.
@@ -63,8 +62,8 @@ jobs:
         working-directory: ai-dev-mcp-server
         run: npm ci --no-audit --no-fund
 
-      # No dependency install scripts ran: the package's .npmrc turns them off
-      #, and the Dockerfile passes --ignore-scripts.
+      # No dependency install scripts ran: the package's .npmrc turns them off,
+      # and the Dockerfile passes --ignore-scripts.
       # onnxruntime-node ships its prebuilt binaries inside the npm package, so
       # that must not break it; if that ever changes, this is where it is caught
       # rather than in a user's first search.

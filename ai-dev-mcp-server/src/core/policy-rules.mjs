@@ -211,8 +211,8 @@ function verificationOf({ checked_as: checkedAs, example, counter }) {
  *
  * The budget is the point. A pattern that backtracks catastrophically cannot be
  * interrupted in this thread (Node has no such switch), so every match runs in
- * a worker that is killed when it overstays — see `regex-budget.mjs` and
- * docs/DEFECTS.md, Д-16. One worker serves the whole batch, so
+ * a worker that is killed when it overstays — see `regex-budget.mjs`. One
+ * worker serves the whole batch, so
  * listing a policy costs one thread, not one per rule.
  *
  * The batch also has a deadline, so a policy full of slow rules cannot make

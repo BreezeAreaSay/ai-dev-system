@@ -399,7 +399,7 @@ test("Docker's quotes are read back, not made again: a character Go 1.26 does no
     ["type=bind,source=/x\u{1CC00},target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\U0001cc00,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
     ["type=bind,source=/x\u{10D4A},target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\U00010d4a,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
     ["type=bind,source=/home/me/Models \u{1FAE9},target=/models,readonly=TRUE", "invalid argument \"type=bind,source=/home/me/Models \\U0001fae9,target=/models,readonly=TRUE\" for \"--mount\" flag: invalid value for 'readonly': invalid boolean value (\"TRUE\"): must be one of \"true\", \"1\", \"false\", or \"0\" (default \"true\")"],
-    // Each escape Go writes, the ones the lines of Д-433 do not have.
+    // Each escape Go writes, the ones the lines above do not have.
     ["type=bind,source=/x\u0007,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\a,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
     ["type=bind,source=/x\b,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\b,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],
     ["type=bind,source=/x\fz,target=/y,bogus=1", "invalid argument \"type=bind,source=/x\\fz,target=/y,bogus=1\" for \"--mount\" flag: unknown option 'bogus' in 'bogus=1'"],

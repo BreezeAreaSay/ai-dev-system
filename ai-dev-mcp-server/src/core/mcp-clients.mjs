@@ -345,8 +345,8 @@ function sameBytes(left, right) {
  * Who is to own what is written for `file`: the owner of the file, or of the
  * nearest folder above it that exists — when root writes it. `sudo` with the
  * user's HOME left every config, backup and folder it touched to root, and
- * the user's own client could no longer read its config (docs/DEFECTS.md,
- * Д-168). Anyone but root creates what is theirs already: null.
+ * the user's own client could no longer read its config. Anyone but root
+ * creates what is theirs already: null.
  */
 async function ownerFor(file) {
   if (process.getuid?.() !== 0) return null;

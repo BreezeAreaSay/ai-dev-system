@@ -1,6 +1,6 @@
 #!/bin/sh
-# The 2.x launcher, kept so that the client configs naming it work until 4.0
-#. 3.0 writes `docker run -i --rm …` into a client's config
+# The 2.x launcher, kept so that the client configs naming it work until 4.0.
+# 3.0 writes `docker run -i --rm …` into a client's config
 # itself — ./bootstrap.sh, or `ai-dev clients install --docker` — and this file
 # runs the same image the way 2.x's cold path did.
 #
@@ -47,10 +47,10 @@ if [ -n "${AI_DEV_MODEL_PATH:-}" ]; then
   esac
   model_path="$(cd "${AI_DEV_MODEL_PATH}" && pwd -P)"
   # The folder above the model: it holds bge-m3-onnx/.
-  # A bge-m3/ beside it is the Python backend's weights, which 3.0 removed
-  #: said, not taken for a model.
+  # A bge-m3/ beside it is the Python backend's weights, which 3.0 removed:
+  # said, not taken for a model.
   #
-  # Before Д-62 the variable named the model directory itself. A folder that
+  # In 2.0.0 the variable named the model directory itself. A folder that
   # holds model files is that old value; mounted at /models it would leave both
   # backends looking one level too deep and reporting "not set up".
   for marker in pytorch_model.bin modules.json config.json onnx; do

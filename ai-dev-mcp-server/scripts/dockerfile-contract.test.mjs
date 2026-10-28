@@ -45,7 +45,7 @@ test("the image is the distribution, checked file by file, with no Python and th
 });
 
 test("a build passing INSTALL_BGE_M3=1 is told what replaced it, until 4.0", () => {
-  // Removing a public name goes through a notice until 4.0 (rule 5.2 of the 3.0 program): the argument stays declared.
+  // Removing a public name goes through a notice until 4.0: the argument stays declared.
   assert.ok(instructions.includes("ARG INSTALL_BGE_M3=0"));
   const notice = /RUN if \[ "\$\{INSTALL_BGE_M3\}" = "1" \]; then \\\n\s+echo "([^"]+)" >&2/.exec(dockerfile)?.[1] ?? "";
   assert.match(notice, /^INSTALL_BGE_M3=1 is no longer used: 3\.0 removed the dense backend it installed/);

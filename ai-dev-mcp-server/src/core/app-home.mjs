@@ -11,9 +11,8 @@
  * sha256, plus its dependencies installed by `npm ci --ignore-scripts` from the
  * package's own `npm-shrinkwrap.json`: the tree the gates ran, and no
  * onnxruntime-node postinstall — which on Linux x64 fetches a 236 MB CUDA
- * provider the server never loads, and fails behind a proxy (docs/DEFECTS.md,
- * Д-174). The npm cache npx just filled serves it, so nothing is downloaded
- * twice.
+ * provider the server never loads, and fails behind a proxy. The npm cache npx
+ * just filled serves it, so nothing is downloaded twice.
  *
  * The folder carries the content fingerprint, not just the version: a rebuilt
  * package of the same version gets a folder of its own instead of replacing

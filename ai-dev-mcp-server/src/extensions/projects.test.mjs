@@ -96,7 +96,7 @@ test("a dry run selects and blocks without executing anything", async () => {
   assert.ok(result.started_at <= result.finished_at);
 });
 
-// Д-54: on the Docker path the image's Node runs the project's commands, and a
+// On the Docker path the image's Node runs the project's commands, and a
 // script that behaves differently across majors disagreed with the user's own
 // terminal with nothing on the record to say which Node had run it.
 test("the report names the Node that ran the commands", async () => {

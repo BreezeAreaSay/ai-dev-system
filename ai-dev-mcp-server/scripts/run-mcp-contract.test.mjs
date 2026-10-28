@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 // The cold launch path of the Docker launcher, driven against a `docker` that
 // only writes down what it was asked to run. What is under test is the model
-// mount after Д-62 moved AI_DEV_MODEL_PATH one level up.
+// mount since AI_DEV_MODEL_PATH moved one level up.
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const launcher = path.resolve(scriptDir, "..", "..", "docker", "run-mcp.sh");
@@ -256,7 +256,7 @@ for (const marker of ["pytorch_model.bin", "modules.json", "config.json", "onnx"
 }
 
 test("no launcher answers the handshake itself any more: no serverInfo, no version of its own", async () => {
-  // Д-79 (upstream #65): both launchers answered `initialize` themselves so a
+  // Issue #65: both launchers answered `initialize` themselves so a
   // client would not time out while the container started, with a version
   // written in them — "1.0.0" for the whole of 2.0. In 3.0 the server answers:
   // its instructions reach the client, and there is no version here to keep.

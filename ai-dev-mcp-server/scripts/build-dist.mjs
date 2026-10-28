@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * `npm run dist` — the folder every installed form of the system is made from:
- * `dist/ai-dev/`, the npm package `ai-dev-system` (owner
- * decision D4), the Windows installer and the Docker image, whose build context
+ * `dist/ai-dev/`, the npm package `ai-dev-system`, the Windows installer and
+ * the Docker image, whose build context
  * holds this very folder (`npm run docker:prepare`).
  *
  *   node scripts/build-dist.mjs [--output <folder below dist/>] [--no-deps] [--pack]
@@ -19,7 +19,7 @@
  * - `node_modules/` with the production dependencies, unless `--no-deps`;
  * - with `--pack`, the tarball beside the folder, checked against the list.
  *
- * Nothing is published: `npm publish` is the owner's (section 2).
+ * Nothing is published: `npm publish` is the owner's.
  */
 import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
@@ -83,7 +83,7 @@ async function npm(args, { cwd, capture = false }) {
 const readJson = async (file) => JSON.parse(await fs.readFile(file, "utf8"));
 const writeJson = (file, value) => fs.writeFile(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 
-/** What the tarball holds, by top-level folder: the composition the phase report asks for. */
+/** What the tarball holds, by top-level folder: the composition the pack report carries. */
 function composition(files) {
   const groups = new Map();
   for (const file of files) {

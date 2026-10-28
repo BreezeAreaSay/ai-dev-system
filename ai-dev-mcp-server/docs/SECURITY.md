@@ -16,7 +16,7 @@
   the current Node executable; no `cmd.exe` interpolation is used.
 - Shell interpreters, control operators, inline code, dynamic package execution, and network tools fail closed.
 - Output, duration, and process trees are bounded.
-- Password notes are left unchanged by explicit owner decision. They are not exposed as MCP resources.
+- Password notes are deliberately left unchanged. They are not exposed as MCP resources.
 - Backup archives may contain those owner-kept local notes. `ai-dev backup` writes them into the
   AI Dev home, `<home>/backups` (`~/.ai-dev/backups`, or `$AI_DEV_HOME/backups`), on every system
   unless `--to` names another folder, the archive and its `.sha256` with mode 0600 (on Windows
@@ -42,8 +42,8 @@ it, would read what the agents read and tell them what to do. What stands in the
   name is not a secret: Linux lists every socket path in `/proc/net/unix`, which anyone can read,
   and any Windows user can list the names of the pipes. What the random name prevents is a
   process creating the pipe first and waiting for clients on it: a fixed name —
-  `\\.\pipe\ai-dev-<user>` until 3.0 — could be taken before the daemon started (docs/DEFECTS.md,
-  Д-107). Access itself is decided by the directory, the pipe's permissions and the handshake.
+  `\\.\pipe\ai-dev-<user>` until 3.0 — could be taken before the daemon started. Access itself
+  is decided by the directory, the pipe's permissions and the handshake.
 - **Who it talks to.** The first line each side sends proves it holds the 256-bit secret in the
   descriptor, without sending it: the client answers the daemon's nonce with an HMAC-SHA256
   bound to both nonces, and the daemon answers the client's with another, bound to both nonces
@@ -61,8 +61,7 @@ it, would read what the agents read and tell them what to do. What stands in the
   the same Node, and the same data — the home, the runtime home, the vault, the state, the index
   and the model folder, each resolved as the server resolves it, so two spellings of one folder
   are one, and a folder under a link is one before it exists and after (`daemonIdentity` in
-  `src/core/session-env.mjs`; an AI Dev variable it does not know counts as part of the build;
-  Д-199, Д-202). A
+  `src/core/session-env.mjs`; an AI Dev variable it does not know counts as part of the build). A
   client of another build gets a daemon of its own, with its own descriptor and lock; the
   daemon of code replaced where it lies — a `git pull`, an update in place — retires: it takes
   no new client, finishes the sessions it has and is listed in `run/retired-<pid>.json` until it
@@ -80,7 +79,7 @@ it, would read what the agents read and tell them what to do. What stands in the
   once it runs, its socket — if a new daemon removed it — does not. Its `run/` folder is made
   0700 by the daemon and by the daemon's locks that have to make it; `ai-dev daemon stop` makes
   none, so a runtime home deleted under it stays deleted. A starting daemon that finds `run/`
-  looser — left so by the lock race fixed in Д-213, or moved up by the 2.x layout's migration —
+  looser — left so by an earlier lock race, or moved up by the 2.x layout's migration —
   opens it without following a link and, when it is a plain folder of this user's, makes it
   0700, checks the mode it got and logs what came of it: made private, or open and staying so,
   and why (a mode it may not change, a file system that keeps the modes it has). The folders a
@@ -108,11 +107,11 @@ profile shapes an agent's context, it does not guard anything. What guards them:
   `confirm: true` and carry `destructiveHint`, so a client asks its user first.
 - **Every argument is checked before anything happens**, and one the tool does not take is refused
   rather than ignored: a refused call changes nothing (a misspelt client is refused before setup
-  builds anything, Д-220).
+  builds anything).
 - **`logs_tail`** reads only plain files named in the runtime home's `logs` folder — no path, no
-  `..`, no symbolic link out of it, no hard link to a file elsewhere, no folder or FIFO (Д-223,
-  Д-233). The file is opened without following a link put in place meanwhile where the system has
-  the flag for it, never waiting on a FIFO, and checked to be the very file it looked at — on
+  `..`, no symbolic link out of it, no hard link to a file elsewhere, no folder or FIFO. The file
+  is opened without following a link put in place meanwhile where the system has the flag for it,
+  never waiting on a FIFO, and checked to be the very file it looked at — on
   Windows, which has no such flag, that check is what refuses the link — and at most 1,000
   lines are read.
 - **`settings_set`** checks every value before it writes any (absolute paths and a mirror without
@@ -141,14 +140,13 @@ runtime AI clients run, and the app copies it out of the program folder before a
   does not ship.
 - **A copy is checked again at every start**, each file by its size against `bundle.json`; one
   missing or changed is put back from the program folder, checked by its sha256 as the copy was, and
-  moved into place beside the file it replaces — never written over in place (docs/DEFECTS.md,
-  Д-300). A folder in the copy's place that is not a finished copy is moved aside whole, never
+  moved into place beside the file it replaces — never written over in place. A folder in the
+  copy's place that is not a finished copy is moved aside whole, never
   removed in place.
 - **The stable link is AI Dev's own.** `<runtime>/app/current` is replaced only when it is a link;
   a real folder of that name stops the start rather than being taken for it. The copy it names is
   never removed by a prune, nor is a copy an AI client's config names by its own folder.
-  The runtime in the program folder is never written into a client config: an update replaces it
-.
+  The runtime in the program folder is never written into a client config: an update replaces it.
 - **No running file is written over.** An update copies the new runtime beside the old one and
   moves the link; a client keeps the files it opened.
 - **Updates come from one place.** The installed app's updater reads the GitHub Releases of

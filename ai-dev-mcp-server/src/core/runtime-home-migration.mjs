@@ -19,9 +19,9 @@ const LINK_UNSUPPORTED = new Set(["EPERM", "EACCES", "ENOTSUP", "EOPNOTSUPP", "E
  *
  * Before 3.0 the code appended `.ai-dev` to `AI_DEV_HOME` while every document
  * and the Docker image treated the variable as the runtime folder itself, so the
- * data of everyone who set it landed one level deeper than they were told
- *. The owner's decision D2 keeps the documented meaning;
- * this moves the data to match. Nothing is lost:
+ * data of everyone who set it landed one level deeper than they were told.
+ * 3.0 keeps the documented meaning, and this moves the data to match.
+ * Nothing is lost:
  *
  * - a file or link that does not exist at the destination is moved — never
  *   over one that appears meanwhile;

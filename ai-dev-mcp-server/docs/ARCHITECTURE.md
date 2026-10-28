@@ -139,9 +139,9 @@ file. The line ceiling below covers that directory too.
 
 `core/` is not only pure logic. A handful of modules there are services: they run processes
 or own state, but know nothing about MCP and take everything environment-specific as a
-dependency. `process-runner.mjs` and `input-process-runner.mjs` were the first; stage 1.4
-added `search-index.mjs` and the embedding pool (since 3.0, `dense-runtime.mjs` over the ONNX
-worker), and stage 1.5 `project-detection.mjs`.
+dependency. `process-runner.mjs` and `input-process-runner.mjs` were the first; then came
+`search-index.mjs` and the embedding pool (since 3.0, `dense-runtime.mjs` over the ONNX
+worker), and `project-detection.mjs`.
 The rule they follow is that the launcher, the paths and the collaborators arrive as
 arguments, so the module is testable against a stub rather than against an installed
 toolchain.
@@ -188,7 +188,7 @@ human decision. `complete_task` prepares the same file and links it from `next_s
 `system`, `skills`, `frontend-design`, `frontend-qa`, `search`, `projects` and `lifecycle` are
 extractions from `mcp-stdio.mjs` rather than new capabilities; each moved out with its
 definitions and each splits the same way, I/O in the extension and judgement in `core/`. Those
-six steps (stage 1 of the modularity work) took the main module from 10,018 lines to 4,775;
+six steps took the main module from 10,018 lines to 4,775;
 [Line Budgets](#line-budgets) keeps it from growing back.
 
 `system` carries `system_health_check`, `rebuild_system_dashboard` and `system_dashboard_status`.
@@ -209,8 +209,7 @@ Beside them sit the reserved roles (`RESERVED_ROUTING_ROLES`), which do not cons
 - `specialist` — at most one imported skill (`external/*`, `design/*`), picked by
   `pickTaskSpecialist` in `core/skill-recommendation.mjs`. It earns the slot the way its author
   intended: by its `use_when` answering the task's situation. The 101 skills imported from ECC
-  could otherwise never appear at all, because our own three always fill the conventional slots
-.
+  could otherwise never appear at all, because our own three always fill the conventional slots.
 
 The specialist is matched through `core/task-vocabulary.mjs`, which translates the concepts a
 Russian task names into the English terms an imported catalogue is written in — "настроить
@@ -471,7 +470,7 @@ under `rates.unpriced_models` rather than counted as free.
 ### Hook and server duplicates
 
 The hooks run inside other people's repositories without this package, so what they share with the server is a
-second copy, not an import (AGENTS.md, rule 3), and a test holds each copy to the server's answers:
+second copy, not an import, and a test holds each copy to the server's answers:
 
 | What | Server | Hooks | Held together by |
 | --- | --- | --- | --- |
@@ -773,7 +772,7 @@ guarded by `core/file-lock.mjs`: `<target>.lock`, created exclusively, holding `
 acquired_at }`, stale when its process is gone from this host, when it outlives its bound (30 s unless the holder
 sets one) or when it has had no readable holder for 2 s, broken only if it is still the file judged stale, and
 released only by its own token; a long holder refreshes it. `processState` tells `gone`, `exited` (a zombie
-`kill(pid, 0)` still answers for, Д-234), `running` and `unknown`. Locks guard the JSON stores and ledgers
+`kill(pid, 0)` still answers for), `running` and `unknown`. Locks guard the JSON stores and ledgers
 (`core/atomic-files.mjs`), the daemon's descriptor, the index rebuild, the skill registry, the model folder, a
 vault's seed record, each migration and a container's first start; the hooks take the usage ledger's lock through
 their synchronous copy of the protocol.
@@ -884,7 +883,7 @@ cases, the seed as its manifest lists it, the notices), each mapped to where it 
 `scripts/verify-distribution.mjs`), the server's lockfile as `npm-shrinkwrap.json`, and `distribution.json` — every
 file's size and sha256 and a content fingerprint: the marker `install-layout.mjs` knows a package by, and the list
 `verify-distribution.mjs` checks a tree against, in the image's build too. `node_modules/` is added unless
-`--no-deps`, and `--pack` adds the tarball. Nothing is published: that is the owner's. `npm run docker:prepare`
+`--no-deps`, and `--pack` adds the tarball. Nothing is published: publishing is done by hand. `npm run docker:prepare`
 stages the distribution, without dependencies, in `.docker/build-context/ai-dev/` beside the Dockerfile and the
 entrypoint.
 
@@ -951,7 +950,7 @@ home unless `--to` names a folder — with the content root and the runtime's `s
 (`BACKUP-MANIFEST.json`) of every file's sha256; indexes, caches, models and dependencies are rebuilt, not backed
 up (`core/backup-archive.mjs`, `node:zlib`, no dependency). `ai-dev restore <archive> --confirm` checks the archive
 and every file, and writes over nothing unless `--overwrite`, which it checks before the first write. Both run in
-every layout on every system; 2.x's PowerShell scripts worked only inside the owner's vault.
+every layout on every system; 2.x's PowerShell scripts worked only inside one particular vault.
 
 ## Line Budgets
 
@@ -959,9 +958,9 @@ every layout on every system; 2.x's PowerShell scripts worked only inside the ow
 `core/line-budget.test.mjs` without breaking a real file:
 
 - `src/mcp-stdio.mjs` may not exceed `SYSTEM_LINE_CEILING`, which lives in `core/system-health.mjs` so the System
-  Dashboard reports the ceiling the gate enforces. Stage 1 took the file from 10,018 lines to 4,775 in six
-  extractions, and the ceiling was re-pinned to its size plus roughly 300 lines of working room after each, so it
-  can be edited but not re-grown. New capabilities go into `src/extensions/`.
+  Dashboard reports the ceiling the gate enforces. Six extractions took the file from 10,018 lines to 4,775, and
+  the ceiling was re-pinned to its size plus roughly 300 lines of working room after each, so it can be edited but
+  not re-grown. New capabilities go into `src/extensions/`.
 - Every module under `bin/`, `src/cli/`, `src/core/`, `src/extensions/` and `src/galaxy/`, and the desktop app's
   code in `desktop/src` and `desktop/scripts`, stays within `MODULE_LINE_CEILING` (800) — the soft ceiling
   `COMMON_RULES` puts on user projects. `hooks/` is exempt: each hook is one file by design.
@@ -971,7 +970,7 @@ every layout on every system; 2.x's PowerShell scripts worked only inside the ow
 shrink, and the gate demands the pin go once its module is back under the ceiling or gone.
 
 The same walk runs `node --check` over `bin/`, `src/`, `scripts/`, `hooks/` and the desktop app, `sh -n` over the hook
-launcher, and refuses the calls AGENTS.md forbids (`core/forbidden-calls.mjs`), read as tokens by `core/code-tokens.mjs` —
+launcher, and refuses the forbidden calls (`core/forbidden-calls.mjs`), read as tokens by `core/code-tokens.mjs` —
 comments, strings, template text and regular expressions set aside, every escape decoded, a name ended where JavaScript ends
 it — a member's name a name whatever word it is — a statement begun where a line break ends one, a `.cjs` file's HTML-like
 comments read as a script reads them: `eval` and the
@@ -991,9 +990,8 @@ part of a value (`cp || fallback`) and a name bound to that, an exported `let` o
 file declares again, a global taken out of itself by a pattern (`{ globalThis: g } = globalThis`), `await`, `yield` or `let`
 written as a name in a script, and a class's member on the line after `n++` or a word an operand follows (a field named `in`
 or `return`, `this.in`), which it reads as an assignment or, named `class` or `function`, as declaring the name after it — a
-`class` after a field named `in` and the like, not `return` or `yield`, as waiting for a body too —, are past it (Д-431,
-Д-432, Д-440, Д-448, Д-450, Д-459, Д-460, Д-464, Д-476, Д-490, Д-496, Д-499, Д-509, Д-517, Д-523, Д-555): it keeps honest code
-honest and is no sandbox. Only the desktop app's tests may call `eval` and `new Function`, to show that the page's policy
+`class` after a field named `in` and the like, not `return` or `yield`, as waiting for a body too —, are past it: it keeps
+honest code honest and is no sandbox. Only the desktop app's tests may call `eval` and `new Function`, to show that the page's policy
 refuses them.
 
 ## Operations And Distribution

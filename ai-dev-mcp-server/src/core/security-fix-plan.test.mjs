@@ -34,7 +34,7 @@ function finding(overrides) {
   return { tool: "npm audit", kind: "dependency", severity: "high", file: "package-lock.json", line: 0, message: "m", rule: "GHSA-aaaa-bbbb-cccc", package: "p", version: "", vulnerable: "", fixed_in: "", aliases: [], ...overrides };
 }
 
-// The lockfile of ai-dev-mcp-server before Д-82, reduced to the four packages
+// An old lockfile of ai-dev-mcp-server, reduced to the four packages
 // that were vulnerable and the parents that asked for them.
 const PRE_D82 = {
   "package.json": { name: "server", dependencies: { "@modelcontextprotocol/sdk": "1.30.0", "@huggingface/transformers": "3.7.5" } },
@@ -63,7 +63,7 @@ const PRE_D82_REGISTRY = {
   hono: { "4.12.32": 60, "4.13.5": 20, "4.13.9": 3 }
 };
 
-test("Д-82 as a plan: in-range updates for what the parents allow, an override for what they do not", async (t) => {
+test("a vulnerable lockfile as a plan: in-range updates for what the parents allow, an override for what they do not", async (t) => {
   const root = await project(t, PRE_D82);
   const { fetchMetadata } = registry(PRE_D82_REGISTRY);
   const plan = await buildFixPlan({ projectRoot: root, findings: PRE_D82_FINDINGS, fetchMetadata, now: NOW });
@@ -72,7 +72,7 @@ test("Д-82 as a plan: in-range updates for what the parents allow, an override 
   assert.deepEqual(
     { action: byName["fast-uri"].action, target: byName["fast-uri"].target, upgrade: byName["fast-uri"].upgrade, commands: byName["fast-uri"].commands },
     { action: "update-in-range", target: "3.1.6", upgrade: "patch", commands: ["npm update fast-uri --before=2026-09-20"] },
-    "the command that closed Д-82 by hand"
+    "the command that fixed it by hand"
   );
   assert.equal(byName.hono.action, "update-in-range");
   assert.equal(byName.hono.target, "4.13.5", "4.13.9 is three days old");

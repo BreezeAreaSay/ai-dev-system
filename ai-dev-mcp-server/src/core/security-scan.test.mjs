@@ -333,7 +333,7 @@ test("the gate's vocabulary is the one the plan states", () => {
   assert.equal(findingBlocks({}), false);
 });
 
-// Д-55: a scan where not one scanner could run used to come back `pass`, and
+// A scan where not one scanner could run used to come back `pass`, and
 // `verify_task` reduced that to `security_scan: pass` — "checked and clean" for
 // a run in which nobody looked.
 test("a scan where nothing could run is unchecked, not pass", async (t) => {
@@ -493,7 +493,7 @@ test("the machine with cargo and no plugin counts one scanner, not two", async (
   assert.equal(after.details.missing_reasons.cargo_audit, undefined);
 });
 
-// Д-83: the package managers' audits only ever ran at the root, and only npm's
+// The package managers' audits only ever ran at the root, and only npm's
 // existed. A repository with `frontend/` and `backend/` and no lockfile at the
 // root had no dependency scan at all.
 test("each package manager's audit runs in every directory that holds its lockfile", async (t) => {

@@ -347,8 +347,8 @@ export function evaluateFrontendQaEnvironment(status, layout) {
   const because = String(status.launch_error || "").replace(/\s+/g, " ").trim();
   // A runner that could not start says nothing about Playwright, and reading
   // its three `false`s as "the optional install was skipped" is how a container
-  // with Playwright in it was told to install Playwright (docs/DEFECTS.md,
-  // Д-56). A file the runner imports being absent is a broken install.
+  // with Playwright in it was told to install Playwright. A file the runner
+  // imports being absent is a broken install.
   if (status.launch_failure === LAUNCH_MISSING_FILE) {
     return {
       status: "fail",

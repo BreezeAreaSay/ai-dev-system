@@ -3,10 +3,9 @@
  *
  * Ten adapters: `npm audit`, `pnpm audit`, `yarn audit`, `bun audit`,
  * `osv-scanner`, `pip-audit`, `cargo audit`, `gitleaks`, `semgrep` and
- * `trivy fs` (the first six of PLAN.md stage 3.3, and the JavaScript package
- * managers and OSV after docs/DEFECTS.md, Д-83). Each one knows three things —
- * how to tell whether its binary is there, whether this project is the kind it
- * has anything to say about, and how to read its output — and nothing else.
+ * `trivy fs`. Each one knows three things — how to tell whether its binary is
+ * there, whether this project is the kind it has anything to say about, and
+ * how to read its output — and nothing else.
  * The findings come back in one shape (`security-scan-parsers.mjs`) so
  * `verify_task` can grade them without knowing which tool produced them.
  *

@@ -8,8 +8,8 @@ param(
 )
 
 # 2.x restored with this script, and only a whole vault. It is `ai-dev restore`
-# now: an archive of either kind, checked file by file (docs/DEFECTS.md,
-# Д-104). Without -TargetRoot a backup `ai-dev backup` made goes back where it
+# now: an archive of either kind, checked file by file. Without -TargetRoot a
+# backup `ai-dev backup` made goes back where it
 # came from. This wrapper stays until 4.0 and says so on stderr.
 $ErrorActionPreference = "Stop"
 [Console]::Error.WriteLine("ai-dev: scripts/restore-ai-dev-system.ps1 is ``ai-dev restore`` now; this wrapper stays until 4.0.")

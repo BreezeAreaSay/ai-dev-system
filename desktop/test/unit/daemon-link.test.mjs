@@ -209,7 +209,7 @@ test("the daemon goes away while the link's first checks run: offline, and back 
   assert.equal((await daemon.call("clients_list", {}, { id: "call-1" })).ok, true);
 });
 
-test("without a daemon the link looks for one and never starts it; Stop is followed by the same look (N1, N2)", async (t) => {
+test("without a daemon the link looks for one and never starts it; Stop is followed by the same look", async (t) => {
   const { server, opens } = fakeServer();
   server.down = true;
   const daemon = link(t, server);
@@ -229,7 +229,7 @@ test("without a daemon the link looks for one and never starts it; Stop is follo
   assert.equal(daemon.state.phase, "online", "after Stop, the app comes back when a client starts the daemon");
 });
 
-test("a quick system_status the page asks for is not the tray's verdict (N4)", async (t) => {
+test("a quick system_status the page asks for is not the tray's verdict", async (t) => {
   const { server } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000 });
   await daemon.connect({ start: true });
@@ -348,7 +348,7 @@ test("the move's own first checks find that daemon retired too: the link moves a
   assert.deepEqual(clients.map((client) => client.closed), [true, true, false]);
 });
 
-test("the daemon going away while the move waits for a call ends the wait: nothing starts a daemon (R2)", async (t) => {
+test("the daemon going away while the move waits for a call ends the wait: nothing starts a daemon", async (t) => {
   const { server, clients, opens } = fakeServer();
   const daemon = link(t, server, { statusEveryMs: 60_000, retryEveryMs: 60_000 });
   await daemon.connect({ start: true });

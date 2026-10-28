@@ -270,8 +270,7 @@ export async function openChannel(info, { mode = "mcp", profiles = null, environ
 /**
  * The errors that say nothing listens at an address: refused, or no socket
  * there. Any other — `EAGAIN` from a listener whose queue is full because it
- * hangs, a busy pipe, a permission — leaves the address taken (docs/DEFECTS.md,
- * Д-208).
+ * hangs, a busy pipe, a permission — leaves the address taken.
  */
 const NOTHING_LISTENS = new Set(["ECONNREFUSED", "ENOENT", "ENOTDIR", "ENOTSOCK"]);
 

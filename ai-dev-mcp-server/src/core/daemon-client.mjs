@@ -188,8 +188,8 @@ async function reach(info, options, build) {
  */
 export async function connectDaemon({ serverRoot, cliPath, version, env: given = process.env, mode = "mcp", profiles = null, timeoutMs = startTimeoutMs(given), spawnImpl = spawn, restartAfterMs = RESTART_AFTER_MS, execPath = process.execPath, start: startOne = true }) {
   // The daemon runs in another folder than its caller: a relative path in the
-  // environment means, for it too, what it means here (docs/DEFECTS.md, Д-194,
-  // Д-201); and it runs with the settings applied.
+  // environment means, for it too, what it means here; and it runs with the
+  // settings applied.
   const env = daemonEnvironment(given);
   // The build includes the Node the daemon runs on: a caller that is not
   // that Node — the desktop app is Electron — names it (`execPath`).

@@ -3,7 +3,7 @@
  * `npm run upgrade:test` — does a 2.x install keep working after an upgrade?
  *
  * The test installs the production 2.x line from a commit (default `86aba56`,
- * production `main` when the 3.0 program started) into a git worktree, uses
+ * production `main` when work on 3.0 started) into a git worktree, uses
  * the 2.x server to create the state a real user has — a task with a
  * checkpoint, a decision, an instinct, a session handoff, the search index,
  * agent hooks in a repository, client configurations in both 2.x formats — and
@@ -24,13 +24,13 @@
  * and must be migrated without loss; the layout of
  * the Docker image's /data volume — `AI_DEV_HOME` under the home plus explicit
  * state, index and artifact roots, the environment the Dockerfile sets — run
- * here without a container; and one on the Python dense backend 3.0 removed
- *, whose index holds the Python backend's vectors and whose
+ * here without a container; and one on the Python dense backend 3.0 removed,
+ * whose index holds the Python backend's vectors and whose
  * client config still says `AI_DEV_DENSE_BACKEND=python`: told what replaced
  * it, nothing of the index lost, and moved over by the one command; and one
  * who came from the Codex desktop runtime, whose 2.x server kept its state in
- * `~/.codex/state/ai-dev-system` while the hooks wrote to `~/.ai-dev/state`
- *: moved into `~/.ai-dev` once, with a record of it,
+ * `~/.codex/state/ai-dev-system` while the hooks wrote to `~/.ai-dev/state`:
+ * moved into `~/.ai-dev` once, with a record of it,
  * and seen by the 2.x hook from then on.
  *
  * Then each goes back the way `docs/MIGRATION.md` gives for a clone
@@ -347,8 +347,8 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
   const serverEnv = { ...env, ...(local?.env || {}) };
   // But first a command from a shell with another vault — a copy of the same
   // seed, without this user's notes — the first to run after the upgrade: it
-  // must leave the index this install's clients built to them
-  //. It has to run: a refused option never reached
+  // must leave the index this install's clients built to them.
+  // It has to run: a refused option never reached
   // the index.
   const otherVault = path.join(temp, `other-vault-${label.toLowerCase().replace(/[^a-z]+/g, "-")}`);
   const ownNotes = ownNotesFolder(baseRoot);
@@ -414,7 +414,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
       const refreshed = await call(client, "rebuild_search_index", {});
       const after = denseDigest(status.index_path);
       // Every vector the rebuild keeps is a 2.x vector, unchanged; those of
-      // documents gone or rewritten (Membrane's connectors, by Д-91, and the
+      // documents gone or rewritten (Membrane's connectors, and the
       // group notes the smaller catalogue rewrote) are dropped and the
       // documents wait for an embedding run.
       const altered = [...after.byId].filter(([id, row]) => byId.get(id) !== row).length;
@@ -438,7 +438,7 @@ async function verifyUpgradedScenario({ label, base, baseRoot, env, project, exp
     const hybridHits = Array.isArray(hybrid) ? hybrid.length : (hybrid.results?.length ?? 0);
     check(`${label}: hybrid search reads the index the upgraded server keeps`, hybridHits > 0, `${hybridHits} result(s)`);
     if (pythonBackend) {
-      // D3: the backend is gone, and saying so is the server's job.
+      // The backend is gone, and saying so is the server's job.
       const embedding = await call(client, "embedding_status", {});
       const notes = embedding.dense_backend?.legacy?.notes ?? [];
       check(`${label}: embedding_status names what is left of the Python backend, with the one command`,

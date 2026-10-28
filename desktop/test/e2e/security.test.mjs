@@ -69,7 +69,7 @@ test("the page has no Node, no file system, no network, and reaches only the int
       agentTool: await window.aiDev.call("record_decision", { title: "x", decision: "y" }, "call-agent"),
       badId: await window.aiDev.call("system_status", {}, "../../etc"),
       trayId: await window.aiDev.call("system_status", {}, "tray-rebuild"),
-      // The language goes through setLanguage, never settings_set (phase 11 opened the Settings screen's own).
+      // The language goes through setLanguage, never settings_set (which takes the Settings screen's own).
       otherSetting: await window.aiDev.call("settings_set", { settings: { language: "ru" } }, "call-language"),
       // Where the daemon downloads the model from: only after the person confirms it.
       mirror: await window.aiDev.call("settings_set", { settings: { model_mirror: "http://127.0.0.1:9/x" } }, "call-mirror"),
@@ -152,7 +152,7 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   await new Promise((resolve) => setTimeout(resolve, 500));
   assert.deepEqual({ candidates: rtc.filter((type) => type !== "host"), stun: stun.length, turn: turn.length }, { candidates: [], stun: 0, turn: 0 });
   // What WebRTC's TCP would go to: the page's session sends everything — loopback too — to a
-  // proxy that is not there (M18).
+  // proxy that is not there.
   const proxies = await app.evaluate(({ session }) => Promise.all(["https://example.com/", "http://127.0.0.1:8080/"].map((url) => session.fromPartition("ai-dev-page").resolveProxy(url))));
   assert.deepEqual(proxies, ["PROXY 127.0.0.1:9", "PROXY 127.0.0.1:9"]);
 
@@ -179,7 +179,7 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   assert.ok(logged.length > 1000, "the net log has events");
   assert.equal(logged.includes(mark), false, "no name the page chose was looked up");
 
-  // The session cancels what is not the app's page, whoever asks for it (Д-254: M4, M13).
+  // The session cancels what is not the app's page, whoever asks for it.
   const loads = await app.evaluate(async ({ BrowserWindow }, urls) => {
     // A window on the page's own session, where app://ai-dev is served.
     const window = new BrowserWindow({ show: false, webPreferences: { partition: "ai-dev-page" } });
@@ -198,7 +198,7 @@ test("nothing leaves the window: WebRTC, a request made for it, another page wit
   for (const [url, outcome] of Object.entries(loads)) assert.match(outcome, /ERR_BLOCKED_BY_CLIENT/, url);
   assert.deepEqual(requests, [], "no request reached the server");
 
-  // Another page with the same preload gets nothing from the main process (Д-254: M1): it has
+  // Another page with the same preload gets nothing from the main process: it has
   // window.aiDev, and every channel answers it null.
   const stranger = await app.evaluate(async ({ BrowserWindow }, preload) => {
     const window = new BrowserWindow({ show: false, webPreferences: { preload, contextIsolation: true, sandbox: true } });

@@ -132,7 +132,7 @@ export function createRequiredActions({ callTool, onProgress, signal }) {
         // `document_count` is what the rebuild path of search_cli.py returns, and
         // none of the other three names existed on a first run — so the very
         // first thing a new user saw was "? document(s) indexed" while the
-        // index was in fact built (upstream #63).
+        // index was in fact built (issue #63).
         `${doc.indexed_document_count ?? doc.current_document_count ?? doc.document_count ?? doc.documents ?? "?"} document(s) indexed`
       ));
     },
@@ -231,8 +231,8 @@ export async function readRequiredState({ paths, callTool, serverRoot, skillRout
  * model download that failed only failed again.
  *
  * A stop (`signal`) is not a fault: the step it cuts short and the
- * steps after it are skipped and say so, and none of the rest is announced
- *. A step that fails of something else as the stop comes — a full
+ * steps after it are skipped and say so, and none of the rest is announced.
+ * A step that fails of something else as the stop comes — a full
  * disk — failed, and says so.
  *
  * @param {Array<{ id: string, run: boolean }>} plan - From `planFirstRun`.

@@ -350,7 +350,7 @@ test("a rule written here is the rule the installed guard enforces", async (t) =
 });
 
 
-// Д-16. `(a|a)+$` passes every structural check here — the quantifier is over an
+// `(a|a)+$` passes every structural check here — the quantifier is over an
 // alternation, not over another quantifier — and needs 38.8 seconds against
 // twenty-eight characters. Two ways in, so two defences: the tool refuses to
 // write it, and the guard refuses to spend more than the budget on it even when
@@ -645,7 +645,7 @@ test("where no worker thread can be made at all, a rule is still switched off, a
   const root = await fs.realpath(await tempProject(t, defaultPolicy("standard")));
   await upsertPolicyRule({ projectRoot: root, rule: RULE });
   const module = pathToFileURL(fileURLToPath(new URL("./policy-rules.mjs", import.meta.url))).href;
-  // Under --permission without --allow-worker no thread can be made: what Д-413 measured, with the real matcher.
+  // Under --permission without --allow-worker no thread can be made: measured here with the real matcher.
   const script = `const { upsertPolicyRule } = await import(${JSON.stringify(module)});
 const projectRoot = ${JSON.stringify(root)};
 const off = await upsertPolicyRule({ projectRoot, rule: { id: "block-force-push", enabled: false } });

@@ -8,7 +8,7 @@
 //
 // This is the server's client (src/core/http-download.mjs) copied, not
 // imported: the hooks run inside other people's repositories without the
-// server's package (AGENTS.md, rule 3). The proxy choice — HTTPS_PROXY,
+// server's package. The proxy choice — HTTPS_PROXY,
 // HTTP_PROXY, NO_PROXY with suffixes, ports, CIDR blocks and `*`, loopback
 // always direct — is the same code, and a test holds the two copies to the
 // same answers. Zero dependencies, like every hook.
@@ -259,8 +259,8 @@ async function openUrl(target, { method = "GET", headers = {}, body, env = proce
 /**
  * What `proxyFetch` asks for, as `fetch` does. A registry document is a
  * tenth of its size compressed — typescript's is 15.8 MB as sent plain and
- * 2.0 MB gzipped — and the supply-chain hook has three seconds for it
- *. The download asks for none: a `Range` resumes
+ * 2.0 MB gzipped — and the supply-chain hook has three seconds for it.
+ * The download asks for none: a `Range` resumes
  * bytes of the file itself.
  */
 const ACCEPT_ENCODING = "gzip, deflate, br";

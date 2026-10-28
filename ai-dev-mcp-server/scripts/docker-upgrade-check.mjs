@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
  * `npm run docker:upgrade-check -- --old-image <2.x ref> --new-image <ref>` —
- * what a 2.x Docker user meets when the image is updated under them (program
- * phase 13, owner decision D10):
+ * what a 2.x Docker user meets when the image is updated under them:
  *
  * 1. the 2.x image fills a volume the way 2.x did (`cp -n` of its seed) and
  *    starts a task; the user edits a skill of the seed and adds one of their own;
@@ -17,8 +16,7 @@
  * 4. a 3.0 entry (`ai-dev clients entry … --docker`) on the same volume moves
  *    the volume's state, the task with it, into the host's state folder;
  * 5. the way back as `bootstrap.sh --image …:2` writes it — the 2.x image run
- *    by a 3.0 entry — answers, and sees the task in that state folder (Д-323,
- *    Д-333);
+ *    by a 3.0 entry — answers, and sees the task in that state folder;
  * 6. back on the new image, what the 2.x start's `cp -n` put back into the
  *    volume is removed again.
  *

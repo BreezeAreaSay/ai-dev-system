@@ -279,8 +279,8 @@ export function createSearchIndexRuntime({
    *
    * `onProgress` hears the text index being written (`indexing`) and the
    * documents being embedded (`embedding`); `signal` stops either between two
-   * slices. A cancelled text write is rolled back whole (docs/DEFECTS.md,
-   * Д-187). Over MCP both come from the request — its progress token and its
+   * slices. A cancelled text write is rolled back whole. Over MCP both come
+   * from the request — its progress token and its
    * cancellation — never from the arguments, which are JSON.
    */
   async function rebuild({
@@ -374,8 +374,7 @@ export function createSearchIndexRuntime({
    * A rebuild for callers whose own work does not depend on search —
    * `prepare_project`, `refresh_project_memory`. On a Node where search cannot
    * run, what they wrote stands and the answer says the index was skipped and
-   * why, instead of reporting their finished work as failed (docs/DEFECTS.md,
-   * Д-141).
+   * why, instead of reporting their finished work as failed.
    */
   async function rebuildIfSupported(options) {
     try {

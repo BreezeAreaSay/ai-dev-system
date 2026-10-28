@@ -3,8 +3,8 @@
  *
  * Since 3.0 dense search has one backend: the pinned ONNX export, run by
  * onnxruntime-node in a worker thread. The legacy Python backend — a
- * virtualenv, torch and 2.3 GB of weights — is gone (decision D3,
- * docs/DEFECTS.md, Д-98). What remains of it here is its settings, read for
+ * virtualenv, torch and 2.3 GB of weights — is gone. What remains of it here
+ * is its settings, read for
  * one reason: whoever still has `AI_DEV_DENSE_BACKEND=python` in a client
  * config, or a 2.x image's variables, is told in a sentence what replaced it
  * and the one command that moves them over, instead of being silently ignored.

@@ -252,8 +252,8 @@ function semanticCandidates(db, filters, cache) {
  * The documents a filter admits that have a dense vector, with it — only
  * vectors from the model that embedded the question, when the caller says
  * which: a 2.x index holds the Python backend's fp32 vectors, and a dot
- * product across two models ranks by nothing (decision D3, docs/DEFECTS.md,
- * Д-98). Those wait for `npm run setup -- --model` to embed them again.
+ * product across two models ranks by nothing. Those wait for
+ * `npm run setup -- --model` to embed them again.
  */
 function denseCandidates(db, filters, cache, provenance = null) {
   const where = [...filters.where];

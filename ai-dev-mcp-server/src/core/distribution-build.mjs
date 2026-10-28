@@ -4,8 +4,8 @@
  * `npm run dist` (the folder the npm package and the Windows installer are
  * made from) and `npm run docker:prepare` (the image's build context) used to
  * list their files in their own code, and the lists drifted: a file one target
- * needed was missing from another until a user hit it (docs/DEFECTS.md, Д-37,
- * Д-38, Д-56, Д-57). `distribution.allowlist.json` names the groups once; each
+ * needed was missing from another until a user hit it.
+ * `distribution.allowlist.json` names the groups once; each
  * target maps a group to the folder it lands in, or leaves it out.
  *
  * No dependency beyond Node: the image's publish job and `bootstrap.sh` build

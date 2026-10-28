@@ -187,9 +187,8 @@ Three steps:
    Windows) — and ends "AI Dev is ready; no AI client is connected to it yet." (Where `bootstrap.ps1`
    cannot read the installer's answer — only on a host that will not switch its console to UTF-8 —
    the installer's own words stand instead: its `--clients=` hint, then `bootstrap.ps1`'s own line
-   asking to restart the clients; Д-452.) With `--skip-client-install` (`-SkipClientInstall`) no
-   config is written, and the last line says the clients' configs were left as they were (Д-406,
-   Д-415).
+   asking to restart the clients.) With `--skip-client-install` (`-SkipClientInstall`) no
+   config is written, and the last line says the clients' configs were left as they were.
 
 Until 3.0 is published, `:latest` is still a 2.x image, which has no installer of its own:
 bootstrap stops there with exit 69 ("… has no installer either (a 2.x image too)"). Build the 3.0
@@ -315,8 +314,7 @@ docker run -i --rm --read-only --tmpfs /tmp … --network none --security-opt no
 ```
 
 - **The projects at their own path** (`~/AI-Dev-Projects` by default): the path an agent names is
-  the path the server opens. 2.x mounted them at `/workspace`, and a host path was "not found"
-.
+  the path the server opens. 2.x mounted them at `/workspace`, and a host path was "not found".
 - **The state the agent hooks keep** is the server's: your `~/.ai-dev/state`. The hooks run on
   your machine; with one state, the Stop hook sees the task the server started. This takes
   the container's user — uid 1000, the image's — being yours: on macOS Docker Desktop maps it, on
@@ -600,8 +598,7 @@ files and folders have to be readable to the image's user, uid 1000; when they a
 report, `embedding_status`, `ai-dev setup` and `ai-dev model status` say so. The
 documents are embedded with it, with no download and no network, by `docker run --rm -it --mount
 type=volume,source=ai-dev-system-data,target=/data --mount type=bind,source=<the folder above
-bge-m3-onnx>,target=/models,readonly ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model`
-.
+bge-m3-onnx>,target=/models,readonly ghcr.io/stonebridgeway/ai-dev-system:latest ai-dev setup --model`.
 
 ### If you want the weights inside the image
 
@@ -651,8 +648,7 @@ model can run and why: `installed` and `available` are the answer, `reason` is a
 than a flag, and `partial` lists downloads that stopped partway. Under `dense_backend.onnx`,
 `missing` lists files that are not there and `mismatched` lists files that are there and are not
 the pinned export — the first means the mount did not arrive, the second means the bytes are wrong;
-`unreadable`, when present, says why this user could not read the model at all (docs/DEFECTS.md,
-Д-358). Anything left of a 2.x Python install is under `dense_backend.legacy`, and makes the health
+`unreadable`, when present, says why this user could not read the model at all. Anything left of a 2.x Python install is under `dense_backend.legacy`, and makes the health
 check a `warn` until it is cleaned up. Then `search_index_status` reports `dense_documents` against
 `dense_pending_documents`: a fresh index has vectors for none of its documents until the model is
 installed (or, for a model mounted from the host, `ai-dev setup --model` as above).
@@ -830,8 +826,7 @@ user has a vault, state and daemon of their own, in their own `~/.ai-dev`.
 - **A clone** does too. Run by a user who cannot write to it, it fills that user's
   `~/.ai-dev/vault` from its `docker/public-seed`, as a package fills it from its seed.
   `AI_DEV_VAULT=home` asks for the same where the clone is writable: set it for everyone, so the
-  records of the user who built the clone do not live in a folder the next build replaces
-.
+  records of the user who built the clone do not live in a folder the next build replaces.
 - **No `setup` per user.** A vault without a skill registry gets one at the first request that
   needs it, in about two seconds. `setup` is still what connects a person's own clients
   and fetches the model.
@@ -852,9 +847,8 @@ connections → Server from sources):
 | Build | none |
 | Launch | `env AI_DEV_VAULT=home AI_DEV_PROFILES=core node bin/ai-dev.mjs mcp`; it guesses `node bin/ai-dev.mjs`, which prints the help |
 
-Measured on a sandbox that does what the workspace does, bubblewrap aside: the clone built with
-`npm ci` as one OS user in a clean environment, the server started as another through `sudo -n -u`
-and the workspace's own launch line. The build is 330 MB (the workspace allows 1 GB). A new
+Measured with the clone built by `npm ci` as one OS user in a clean environment and the server
+started as another through `sudo -n -u` with the workspace's own launch line. The build is 330 MB (the workspace allows 1 GB). A new
 participant's first session connects in 2.2 s and its first `prepare_project` takes 3.2 s, the
 vault filled and the registry built; `begin_task` … `complete_task` pass, and nothing is written
 into the build; the next session connects in 0.2 s. Each participant keeps a daemon of 90–180 MB

@@ -40,8 +40,8 @@ export const EVENT_CHANNELS = Object.freeze({
  * null — back to its default. The rest of the control API (`model_remove`,
  * `clients_remove`) and the agent's tools that change something are not here,
  * and neither is any argument the screens do not send — a forced rebuild,
- * Frontend QA, the language (which goes through setLanguage) (docs/DEFECTS.md,
- * Д-253). The tool console reaches the rest behind a confirmation.
+ * Frontend QA, the language (which goes through setLanguage). The tool console
+ * reaches the rest behind a confirmation.
  */
 export const PAGE_TOOL_ARGUMENTS = Object.freeze({
   system_status: { checks: "boolean" },

@@ -12,8 +12,8 @@
 #
 # gitleaks is the only one of the six security scanners that works with no
 # network at all, and the container runs with `--network none`. Without it
-# `run_security_scan` in the image comes back `unchecked` (docs/DEFECTS.md,
-# Д-55). A static Go binary, copied out of the upstream image; the digest is the
+# `run_security_scan` in the image comes back `unchecked`. A static Go binary,
+# copied out of the upstream image; the digest is the
 # multi-arch index for v8.30.1 (linux/amd64 and linux/arm64). MIT licensed; see
 # THIRD_PARTY_NOTICES.md.
 #
@@ -61,8 +61,8 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && node --version && npm --version
 
 # The dependencies first, from the distribution's own shrinkwrap, so a change to
-# the code does not reinstall them. --ignore-scripts on purpose (docs/DEFECTS.md,
-# Д-86): onnxruntime-node ships its binaries inside the package, and the step
+# the code does not reinstall them. --ignore-scripts on purpose:
+# onnxruntime-node ships its binaries inside the package, and the step
 # proves they load. Only this platform's are kept: the package carries
 # macOS and Windows builds too, 245 MB no container runs; and
 # onnxruntime-web, which transformers.js bundles into its Node build. HOME is a

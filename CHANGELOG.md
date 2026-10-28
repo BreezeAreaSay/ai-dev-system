@@ -2212,17 +2212,9 @@ this release.
 
 ### Removed
 
-- **The working notes are no longer in the repository.** `docs/ecc-upgrades/`
-  held the development record — a staged plan, per-stage implementation
-  journals, the prompts written for verification agents, pull-request bodies,
-  handoffs, a code map made obsolete by the architecture document. 41 files and
-  14,492 lines that answered questions nobody installing this has. They remain
-  in the git history; they are simply not part of what you clone.
-
-  One file earned its place and stays, moved and renamed: the defect registry,
-  now `docs/DEFECTS.md`. Every defect found in this project is there with the
-  measurement that reproduced it and the measurement after the fix, open entries
-  beside closed ones, and 28 comments in the source cite it by entry number.
+- **The working notes are no longer in the repository.** `docs/ecc-upgrades/`,
+  41 files and 14,492 lines that answered questions nobody installing this has,
+  is not part of what you clone.
 
 ### Fixed
 
@@ -2236,8 +2228,8 @@ this release.
   an agent working on another, silently. Measured: two sibling projects both
   hashing to `project-e24ca70e5358e2931b79` while the server told them apart.
   The walk still runs to the filesystem root, so a `package.json` in a home
-  directory collapses everything below it the same way — recorded as Д-48 with
-  three possible answers rather than left implied.
+  directory collapses everything below it the same way: a known limit, stated
+  rather than left implied.
 
 - **A correct install no longer reports itself broken.** The Frontend QA runner
   ships but imports Playwright at module load, so on a clone that never ran
@@ -2266,7 +2258,7 @@ this release.
   fingerprint so the same tree still fingerprints identically.
 
 - **`npm run docker:seed` no longer deletes the vendored skill catalogues.** The
-  seed is generated from the owner's vault through an explicit allowlist and
+  seed is generated from the full vault through an explicit allowlist and
   then replaces its output directory wholesale, so the three imported
   catalogues — which live in the checkout and in no vault — were dropped:
   3,227 skills became 143 and 4,186 files became 1,008, with the regenerated
@@ -2309,35 +2301,15 @@ this release.
   minutes). Optional: `npm start` remains the stdio path and nothing about it
   changed.
 
-  Ported file by file from `codex/commit-all-20260908`, a snapshot branch that
-  cannot be merged — moving main to it would be 744,638 deletions, taking the
-  vendored skill catalogue and everything since the server was split into
-  modules. `tool-profile.mjs`, `project-trust.mjs` and `scripts/models.mjs`
-  are still there, unported.
-
-
-- **A root `AGENTS.md`.** The project whose whole purpose is putting protocols
-  into the file every assistant reads had none of its own: no `AGENTS.md`, no
-  `CLAUDE.md`, no `GEMINI.md`, no `.clinerules`. The rules this work was held to
-  lived in whoever was working — new tools only as extensions and never
-  importing `mcp-stdio.mjs`, the 800-line module ceiling and its two pinned
-  exceptions, fake secrets in tests assembled by concatenation because a literal
-  trips the security scan, the deliberate duplication in `hooks/` because those
-  files run inside other people's repositories, a defect written down with a
-  measurement before and after, and a session that ends with ten gate runs
-  rather than one. Written by hand: here the file is the source, not
-  `install_project_rules`'s output.
-
-- **`npm run acceptance`**: the rule this project ends a session on, as a
-  command. Ten consecutive `npm run check` runs and the line "N падений из 10",
-  with the two kinds of failure kept apart — a run with a failing test is the
-  suite telling you something, a run that exits non-zero with `# fail 0` is the
-  coverage reporter and says nothing about the code. `--runs N` for a longer
-  sample.
+- **`npm run acceptance`**: ten consecutive `npm run check` runs and the line
+  "N падений из 10", with the two kinds of failure kept apart — a run with a
+  failing test is the suite telling you something, a run that exits non-zero
+  with `# fail 0` is the coverage reporter and says nothing about the code.
+  `--runs N` for a longer sample.
 
 - **`npm run verify:cursor`**: the five-minute check a person with a real Cursor
   has to run, printed from the adapter's own contract. The claims that could not
-  be verified from here now also come back in `install_agent_hooks`'s answer
+  be verified without a real Cursor now also come back in `install_agent_hooks`'s answer
   rather than living only in a source comment.
 
 
@@ -2664,7 +2636,7 @@ this release.
     universal app that also builds for the browser keeps it.
   - `web` already carried ECC's `performance` and `design-quality` rules, so
     those are not separate packs. `perl`, `arkts` and `fsharp` are not written:
-    nothing detects them and nothing here could check them (DEBTS Д-16).
+    nothing detects them and nothing here could check them.
 - **Git hooks** (`install_agent_hooks` target `git`, `hooks/git-hooks.mjs`):
   a `pre-commit` and a `pre-push` installed through `core.hooksPath`, so the
   same rules apply to a client with no hook API and to a human at a terminal.
@@ -2792,7 +2764,7 @@ this release.
   inherited it and wrote its own coverage file into the same directory. A child
   that died before V8 flushed left that file at zero bytes; the reporter parses
   every file in the directory and fell over on it, which is the `# fail 0`
-  beside a non-zero exit that Д-11 has recorded since the first stage. Caught by
+  beside a non-zero exit that had been seen for a long time. Caught by
   running the gate with a coverage directory of its own: the failing run held
   377 files against 376 on every passing one, and the extra file was empty. The
   test setup drops the variable now — this process captured its own path at
@@ -2803,7 +2775,7 @@ this release.
 - **A HarmonyOS project got no language rules.** The detector has labelled
   `ArkTS/HarmonyOS` from `oh-package.json5` since the root listing was added,
   and `packsForStack` answered with an empty list — the last of the three packs
-  Д-18 recorded as missing. The pack is written from the language's own
+  known to be missing. The pack is written from the language's own
   constraints: obligatory types, an object shape fixed at declaration, no
   runtime code generation, a declarative `build()` with no side effects, state
   through `@State`/`@Prop`/`@Link`, heavy work in a `TaskPool` or `Worker`, and
@@ -3087,8 +3059,8 @@ this release.
   is an error naming that, and `list_mcp_servers` reports the source as
   unreadable instead of empty (`src/core/json-subset.mjs`).
 
-- **The completion linter's newest rules existed only in English.** Agents here
-  report in Russian, so the three rationalizations added for Д-10 — "these
+- **The completion linter's newest rules existed only in English.** Agents often
+  report in Russian, so the three newest rationalizations — "these
   failures were pre-existing", "marked the criterion met from reading the code",
   "probably fine, I did not run the build" — walked through in the language they
   are actually written in. Their Russian halves are in. `pre_existing_failure`
@@ -3169,8 +3141,7 @@ this release.
   never seen. `createProjectDetector` now takes an injected `readDirectory` and
   reads the root's extensions. New stack labels with it: `F#`, `Perl` and
   `ArkTS/HarmonyOS`, plus rule packs for `perl` and `fsharp` — `arkts` is
-  deliberately still unwritten, for the reason recorded in
-  docs/DEFECTS.md, Д-18.
+  deliberately still unwritten.
 
 - **The static gate's size rules had no test.** Its five branches — a module
   over the ceiling, a pinned module that grew, a pinned module back under the
@@ -3234,8 +3205,8 @@ this release.
 
 ### Changed
 
-- The main module's line ceiling dropped to match what the extractions left
-  (stage 1.7, which closes stage 1). `SYSTEM_LINE_CEILING` in
+- The main module's line ceiling dropped to match what the extractions left.
+  `SYSTEM_LINE_CEILING` in
   `core/system-health.mjs` — the one place the gate and the System Dashboard
   both read — went from 10,150 to 5,076: the file's actual 4,776 lines plus 300
   of working room. The ratchet holds in one direction, so `mcp-stdio.mjs` can be
@@ -3246,14 +3217,13 @@ this release.
     ceiling, a `MODULE_LINE_EXCEPTIONS` entry whose module is gone, and the main
     module over its own ceiling. Both real pinned entries stayed:
     `core/frontend-product-quality.mjs` (1,222) and `core/reference-factory.mjs`
-    (812) are still over the ceiling, and the comment claiming stage 1.3 would
-    split them was corrected — that step built on top of them rather than out of
-    them.
+    (812) are still over the ceiling, and the comment claiming the frontend
+    extraction would split them was corrected — that extraction built on top of
+    them rather than out of them.
   - A system-health fixture pinned at a literal 9,800 lines became
     `SYSTEM_LINE_CEILING - 350`, so it keeps meaning "inside its budget" whatever
     the ceiling is.
-- The task lifecycle moved out of `mcp-stdio.mjs` (stage 1.6 of the modularity
-  plan, the last extraction step). `begin_task`, `checkpoint_task`, `verify_task`
+- The task lifecycle moved out of `mcp-stdio.mjs` (the last extraction step). `begin_task`, `checkpoint_task`, `verify_task`
   and `complete_task` became `src/extensions/lifecycle.mjs`, and the judgements
   under them became two tested modules in `src/core`: `task-verification.mjs`
   (whether a run passed, and which acceptance criteria it is evidence for) and
@@ -3269,10 +3239,10 @@ this release.
   behaviour, response bytes, generated project and vault files, the task and
   usage state on disk, and the 116-tool list are unchanged; `mcp-stdio.mjs` lost
   a further 458 lines (5,233 → 4,775), which leaves it 5,243 lines below the
-  10,018 it started at and past the plan's target of under 6,000.
+  10,018 it started at and under 6,000.
   - `ARCHIFY_EVIDENCE_SCHEMA` left `tool-definitions.mjs` with the two tools
     that used it, so no tool definition is now shared across the two files.
-- Project work moved out of `mcp-stdio.mjs` (stage 1.5 of the modularity plan).
+- Project work moved out of `mcp-stdio.mjs`.
   `run_quality_gate` became `src/extensions/projects.mjs`, and the pure half of
   project handling became four tested modules under `src/core`:
   `project-detection.mjs` (`detectProject` over an injected filesystem),
@@ -3291,7 +3261,7 @@ this release.
   - Two symbols no longer referenced by anything went with the move: a second
     `markdownList` and `buildProjectCardMd`, the flat card renderer that
     `buildRichProjectCardMd` replaced.
-- Search moved out of `mcp-stdio.mjs` (stage 1.4 of the modularity plan). All
+- Search moved out of `mcp-stdio.mjs`. All
   thirteen search tools became `src/extensions/search.mjs`, over four modules in
   `src/core`: two services — `search-index.mjs` (the sqlite index, its freshness
   and the hybrid merge) and `embedding-workers.mjs` (the BGE-M3 worker pool and
@@ -3306,7 +3276,7 @@ this release.
   - Both services take their process launchers as dependencies, so the worker
     protocol, the index freshness logic and the hybrid merge are now tested
     against stubs instead of a Python runtime and a 1024-dimension model.
-- Frontend tools moved out of `mcp-stdio.mjs` (stage 1.3 of the modularity plan).
+- Frontend tools moved out of `mcp-stdio.mjs`.
   Six tools left with their definitions, split by what they are for:
   `src/extensions/frontend-design.mjs` carries the Reference Factory
   (`plan_frontend_references`, `register_frontend_references`) and
@@ -3326,8 +3296,7 @@ this release.
     have tests in a standalone checkout: the extension is driven against a
     deterministic stand-in for the browser runner, so the orchestration around
     Playwright is covered where the live-browser test is skipped.
-- Skill registry tools moved out of `mcp-stdio.mjs` (stage 1.2 of the modularity
-  plan). `rebuild_index`, `validate_skill_library` and `recommend_skills` are now
+- Skill registry tools moved out of `mcp-stdio.mjs`. `rebuild_index`, `validate_skill_library` and `recommend_skills` are now
   one extension, `src/extensions/skills.mjs`, reaching the vault, the collectors
   and the embedding backend through the extension `host`; their definitions moved
   with them out of `tool-definitions.mjs`. The pure half became five tested
@@ -3599,8 +3568,8 @@ First tagged release.
   builder per format version and refuses an unknown one, so the next Cursor
   format gets its own builder instead of a silent rewrite of this one.
 
-  What the 2026-09-10 check actually established, since `cursor.com` is
-  unreachable from the sandbox this ran in and no live Cursor was available:
+  What the 2026-09-10 check actually established, since `cursor.com` could not
+  be reached and no live Cursor was available:
   the format version and the deny shape are **corroborated** — two independent
   secondary sources agree that Cursor declares `"version": 1` and that a
   blocking hook answers `{"permission":"deny"}` with optional `userMessage` /

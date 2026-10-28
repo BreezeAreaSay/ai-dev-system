@@ -113,7 +113,7 @@ test("the 3.0 image is a distribution: its seed is synced into the volume's vaul
   // A 2.x image has no distribution: its entrypoint copied the seed, and nothing syncs it.
   const old = resolveInstallLayout({ serverRoot: "/opt/ai-dev/app", env: env({ AI_DEV_RUNTIME: "docker", AI_DEV_VAULT_ROOT: "/data/ai-dev-system" }), exists: only("/opt/ai-dev/public-seed/public-seed.manifest.json") });
   assert.equal(old.seedRoot, "");
-  // A package keeps the rule of Д-177: a vault of the user's own is not seeded.
+  // A package keeps the rule: a vault of the user's own is not seeded.
   const own = resolveInstallLayout({ serverRoot: "/pkg/ai-dev-mcp-server", env: env({ AI_DEV_VAULT_ROOT: "/home/me/Vault" }), exists: only("/pkg/distribution.json", "/pkg/seed/public-seed.manifest.json") });
   assert.deepEqual([own.kind, own.seedRoot], ["package", ""]);
 });

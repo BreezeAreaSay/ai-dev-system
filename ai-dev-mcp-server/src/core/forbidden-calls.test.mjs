@@ -116,8 +116,8 @@ test("the reader keeps lines, reads template substitutions as code, and survives
   }
 });
 
-// The probes of phase 14's first review, each a spelling the gate let through or an honest line it refused.
-test("the spellings the first review of the gate found it let through are each refused", () => {
+// Spellings the gate once let through, and honest lines it once refused.
+test("spellings the gate once let through are each refused", () => {
   const BT = "`";
   const refused = {
     "optional computed member": 'import * as cp from "node:child_process";\ncp?.["exec"]("ls");',
@@ -148,7 +148,7 @@ test("the spellings the first review of the gate found it let through are each r
   for (const [name, source] of Object.entries(refused)) assert.ok(rules(source).length > 0, `${name}: ${source}`);
 });
 
-test("honest code the first review found the gate refused passes now", () => {
+test("honest code the gate once refused passes now", () => {
   const honest = {
     "electron's shell": 'import { app, shell } from "electron";\nshell.openExternal("https://example.invalid");',
     "a default import beside it": 'import electron, { shell } from "electron";\nshell.beep();',
@@ -184,9 +184,8 @@ test("a regular expression that begins a line after a block does not hide what f
   assert.deepEqual(codeTokens(`a?.[b] ${BT}plain${BT}`).map((token) => [token.type, token.value]), [["name", "a"], ["punct", "["], ["name", "b"], ["punct", "]"], ["string", "plain"]]);
 });
 
-// The probes of phase 14's second review: spellings inside the contract that still passed, three of them since the
-// first review's fix, and what the reader got wrong.
-test("the spellings the second review found the gate let through are each refused", () => {
+// Spellings inside the contract that still passed, three of them after an earlier fix, and what the reader got wrong.
+test("spellings inside the contract the gate let through are each refused", () => {
   const LS = String.fromCharCode(0x2028);
   const refused = {
     "shell in a parameter's default": "function run(cmd, options = { shell: true }) {\n  return spawnSync(cmd, [], options);\n}",
@@ -297,10 +296,9 @@ test("the reader stays linear where its questions used to search: one minified l
   assert.ok(timed(`x = globalThis${".globalThis".repeat(20000)}["a"];`) < 4000, "a chain of globals");
 });
 
-// The probes of phase 14's third review: a space JavaScript ends a name at, a label's or a case's block taken for an
-// object literal, a comma list around a re-bound value, and three ways to the module the gate did not know (Д-407 …
-// Д-410).
-test("the spellings the third review found the gate let through are each refused", () => {
+// A space JavaScript ends a name at, a label's or a case's block taken for an object literal, a comma list around a
+// re-bound value, and three ways to the module the gate did not know.
+test("a space that ends a name, a label's or a case's block, a comma list and other ways to the module are each refused", () => {
   const NBSP = String.fromCharCode(0xa0);
   const IDEOGRAPHIC = String.fromCharCode(0x3000);
   const lines = (source) => forbiddenCalls(source).map((finding) => [finding.rule, finding.line]);
@@ -336,7 +334,7 @@ test("the spellings the third review found the gate let through are each refused
   for (const [name, [source, expected]] of Object.entries(refused)) assert.deepEqual(lines(source), expected, `${name}: ${source}`);
 });
 
-test("honest code stays honest past the third review's fixes", () => {
+test("honest code stays honest past the fixes for spaces, blocks and comma lists", () => {
   const MATH_X = String.fromCodePoint(0x1d465);
   const honest = {
     "a name that only begins with another": `const ${MATH_X}eval = 1;`,
@@ -388,42 +386,41 @@ test("the reader stays linear on brackets left open and on a from in every line"
   assert.equal(closing(codeTokens(`(${"[".repeat(100)})`), 0), -1);
 });
 
-// The probes of phase 14's fourth review: two spellings round 3's changes let through, and what the gate's own texts
-// promised but it did not keep.
-test("the spellings the fourth review found the gate let through are each refused", () => {
+// Two spellings an earlier change let through, and what the gate's own texts promised but it did not keep.
+test("spellings the gate's own texts promised to refuse are each refused", () => {
   const BT = "`";
   const lines = (source, options) => forbiddenCalls(source, options).map((finding) => [finding.rule, finding.line]);
   const refused = {
-    // Д-422: a string after `as` in an export's clause.
+    // A string after `as` in an export's clause.
     'export * as "cp" from': ['export * as "cp" from "node:child_process";', [["child_process.exec", 1]]],
     'export * as "default" from': ['export * as "default" from "node:child_process";', [["child_process.exec", 1]]],
-    // Д-423: what follows `return`, `yield`, a postfix `++` or `async` at a line break begins a statement.
+    // What follows `return`, `yield`, a postfix `++` or `async` at a line break begins a statement.
     "a declaration after return⏎": [`function outer(ready) {\n  if (ready) return\n  function inner() {}\n  /${BT}/.test(s); eval("1"); const t = /${BT}/;\n}`, [["eval", 4]]],
     "a declaration after yield⏎": [`function* outer() {\n  yield\n  function inner() {}\n  /${BT}/.test(s); eval("1"); const t = /${BT}/;\n}`, [["eval", 4]]],
     "a class after n++⏎": [`let n = 0\nn++\nclass A {}\n/${BT}/.test(s); eval("1"); const t = /${BT}/;`, [["eval", 4]]],
     "a declaration after async⏎": [`let x, async = 1;\nx = async\nfunction f() {}\n/${BT}/.test(s); eval("1"); const t = /${BT}/;`, [["eval", 4]]],
     "a block after x++⏎": ['let x = 0\nx++\n{\n  eval("1")\n  {}\n}', [["eval", 4]]],
     "a block after yield⏎": ['function* g() {\n  yield\n  {\n    eval("1")\n    {}\n  }\n}', [["eval", 4]]],
-    // Д-424: chains of assignments, above the use too.
+    // Chains of assignments, above the use too.
     "let a = b = cp, used above": ['import * as cp from "node:child_process";\nlet b;\nexport function run() { return a.exec("ls"); }\nlet a = b = cp;', [["child_process.exec", 3]]],
     "const a = (b = cp)": ['import * as cp from "node:child_process";\nlet b;\nconst a = (b = cp);\na.exec("ls");', [["child_process.exec", 4]]],
     "const g = h = globalThis": ['let h;\nconst g = h = globalThis;\ng["ev" + "al"]("1");', [["global-member", 3]]],
     "[a = cp] = [], used above": ['import * as cp from "node:child_process";\nexport function run() { return a.exec("ls"); }\nconst [a = cp] = [];', [["child_process.exec", 2]]],
-    // Д-424: the module exported by a declaration.
+    // The module exported by a declaration.
     "export const run = cp": ['import * as cp from "node:child_process";\nexport const run = cp;', [["child_process.exec", 2]]],
     "export let run = require(…)": ['export let run = require("node:child_process");', [["child_process.exec", 1]]],
     "export const a = 1, run = (0, cp)": ['import * as cp from "node:child_process";\nexport const a = 1, run = (0, cp);', [["child_process.exec", 2]]],
-    // Д-424: a global's member keyed by a global's member; what follows a global's parentheses.
+    // A global's member keyed by a global's member; what follows a global's parentheses.
     "globalThis[globalThis.k]": ['globalThis.k = "ev" + "al";\nglobalThis[globalThis.k]("1");', [["global-member", 2]]],
     "globalThis[self.k]": ['globalThis[self.k]("1");', [["global-member", 1]]],
     "(0, globalThis).globalThis re-bound": ["const g = (0, globalThis).globalThis;\ng[k];", [["global-member", 2]]],
-    // Д-424: a body inside another's heritage or parameters.
+    // A body inside another's heritage or parameters.
     "class extends f(function () {}) {} / 2": ['const C = class extends f(function () {}) {} / 2; eval("1"); const r = 1 / 1;', [["eval", 1]]],
     "function (a = function () {}) {} / 2": ['const F = function (a = function () {}) {} / 2; eval("1"); const r = 1 / 1;', [["eval", 1]]],
-    // Д-424: `+ +` is a plus and a unary plus; `of` is a name outside a `for` head.
+    // `+ +` is a plus and a unary plus; `of` is a name outside a `for` head.
     "a + + /re/": [`const n = a + + /${BT}/.test(s);\neval("1");\nconst m = /${BT}/.test(s);`, [["eval", 2]]],
     "of / 2": ['const of = 10;\nconst half = of / 2; eval("1"); const r = 1 / 1;', [["eval", 2]]],
-    // Д-426: the loaders by other spellings.
+    // The loaders by other spellings.
     'process["getBuiltinModule"](…)': ['process["getBuiltinModule"]("child_process").exec("ls");', [["child_process.exec", 1]]],
     "(0, process.getBuiltinModule)(…)": ['(0, process.getBuiltinModule)("child_process").exec("ls");', [["child_process.exec", 1]]],
     "getBuiltinModule.call": ['process.getBuiltinModule.call(process, "child_process").exec("ls");', [["child_process.exec", 1]]],
@@ -433,7 +430,7 @@ test("the spellings the fourth review found the gate let through are each refuse
     'require(("child_process"))': ['require(("child_process")).exec("ls");', [["child_process.exec", 1]]]
   };
   for (const [name, [source, expected]] of Object.entries(refused)) assert.deepEqual(lines(source), expected, `${name}: ${source}`);
-  // Д-424: a script's HTML-like comment, read as the script reads it — and in a module, `<!--` is `< ! --`.
+  // A script's HTML-like comment, read as the script reads it — and in a module, `<!--` is `< ! --`.
   const html = `const x = 1 <!-- ${BT}\neval("1")\n// ${BT}`;
   assert.deepEqual(lines(html, { script: true }), [["eval", 2]]);
   assert.deepEqual(lines(html), [], "in a module the backtick opens a template that holds the call");
@@ -442,7 +439,7 @@ test("the spellings the fourth review found the gate let through are each refuse
   assert.deepEqual(lines('let await = 4;\nconst h = await / 2\neval("1");'), [["eval", 3]]);
 });
 
-test("honest code stays honest past the fourth review's fixes, and every new branch is held", () => {
+test("honest code stays honest past the fixes for statements, exports and loaders, and every new branch is held", () => {
   const BT = "`";
   const honest = {
     "return⏎, then a declaration and a regular expression": `export function quoted(s) {\n  if (!s) return\n  function inner() { return 1 }\n  /${BT}/.test(s) && inner()\n}`,
@@ -458,7 +455,7 @@ test("honest code stays honest past the fourth review's fixes, and every new bra
     "a global's member by a plain key": 'const page = globalThis["innerWidth"];'
   };
   for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
-  // Each branch of round 3's class and function bodies: an async function expression, a class opening a
+  // Each branch of the class and function bodies: an async function expression, a class opening a
   // substitution, a key named class, parameters that hold a literal, `export { a as class }` then a literal at that depth.
   const refused = {
     "an async function expression divides": ['const f = async function () {} / 2; eval("1"); const r = 1 / 1;', ["eval"]],
@@ -474,38 +471,37 @@ test("honest code stays honest past the fourth review's fixes, and every new bra
   for (const [name, [source, expected]] of Object.entries(refused)) assert.deepEqual(rules(source), expected, `${name}: ${source}`);
 });
 
-// The probes of phase 14's fifth review: what the texts promised of exports and patterns, round 4's regressions — a
-// member named like a keyword, a body's wait past a field of that name — a script's HTML-like comments, and the words
-// after which a value or a statement begins.
-test("the spellings the fifth review found the gate let through are each refused", () => {
+// What the texts promised of exports and patterns, two regressions — a member named like a keyword, a body's wait
+// past a field of that name — a script's HTML-like comments, and the words after which a value or a statement begins.
+test("spellings of exports, patterns, keyword-named members and HTML-like comments are each refused", () => {
   const BT = "`";
   const lines = (source, options) => forbiddenCalls(source, options).map((finding) => [finding.rule, finding.line]);
   const refused = {
-    // Д-432: an exported let or var the module is assigned to below.
+    // An exported let or var the module is assigned to below.
     "export let run; run = cp": ['import * as cp from "node:child_process";\nexport let run;\nrun = cp;', [["child_process.exec", 3]]],
     "export var run; run = require(…)": ['export var run;\nrun = require("node:child_process");', [["child_process.exec", 2]]],
-    // Д-440: a pattern an export declares.
+    // A pattern an export declares.
     "export const { default: run } = await import(…)": ['export const { default: run } = await import("node:child_process");', [["child_process.exec", 1]]],
     "export const { spawn, ...rest } = cp": ['import * as cp from "node:child_process";\nexport const { spawn, ...rest } = cp;', [["child_process.exec", 2]]],
-    // Д-442: a member named like a keyword at a line's end, and the statement is over.
+    // A member named like a keyword at a line's end, and the statement is over.
     "o.default⏎function": [`const v = o.default\nfunction h(a = function () {}) {}\n/${BT}/.test(s); eval("1"); const t = /${BT}/;`, [["eval", 3]]],
     "it.return⏎{ }": [`const done = it.return\n{\n}\n/${BT}/.test(s); eval("1"); const t = /${BT}/;`, [["eval", 4]]],
-    // Д-443: a field named class or function, and #class, end the wait for a body.
+    // A field named class or function, and #class, end the wait for a body.
     "a field named class": ["export class A {\n  class = 1;\n  static options = { shell: true };\n}", [["shell", 3]]],
     "a static field named function": ["export class A {\n  static function = 1;\n  options = { shell: true };\n}", [["shell", 3]]],
     "#class read": ["export class A {\n  #class = 1;\n  run() {\n    const n = this.#class;\n    const o = { shell: true };\n    return [n, o];\n  }\n}", [["shell", 5]]],
     "#class in a substitution": [`export class A {\n  #class = 1;\n  run() {\n    const t = ${BT}\${this.#class}${BT};\n    const o = { shell: true };\n    return [t, o];\n  }\n}`, [["shell", 5]]],
-    // Д-446: a global's own name after its parentheses.
+    // A global's own name after its parentheses.
     "(0, globalThis).globalThis[k]": ['(0, globalThis).globalThis[k]("1");', [["global-member", 1]]],
     "(globalThis).window[k]": ['(globalThis).window[k]("1");', [["global-member", 1]]],
-    // Д-448: after delete, in and instanceof a value begins; after break, continue and debugger a statement.
+    // After delete, in and instanceof a value begins; after break, continue and debugger a statement.
     "delete class {} / 2": ['x = delete class A {} / 2; eval("1"); const r = 1 / 1;', [["eval", 1]]],
     "in { } / 2": ['x = "a" in { a: 1 } / 2; eval("1"); const r = 1 / 1;', [["eval", 1]]],
     "debugger⏎/r/": ['debugger\n/r/ / 2; eval("1"); const r = 1 / 1;', [["eval", 2]]],
     "break outer⏎/r/": ['outer: for (;;) {\n  break outer\n  /r/ / 2; eval("1"); const r = 1 / 1;\n}', [["eval", 3]]]
   };
   for (const [name, [source, expected]] of Object.entries(refused)) assert.deepEqual(lines(source), expected, `${name}: ${source}`);
-  // Д-447: a script's `-->` begins a comment where no token stands before it on its line — after a comment that spans
+  // A script's `-->` begins a comment where no token stands before it on its line — after a comment that spans
   // a line too — and nowhere else.
   const comment = `${BT} a comment to the end of the line\neval("1")\n// ${BT}`;
   assert.deepEqual(lines(`let y = 2 /*\n*/ --> ${comment}`, { script: true }), [["eval", 3]], "after a comment that spans lines");
@@ -514,10 +510,10 @@ test("the spellings the fifth review found the gate let through are each refused
   assert.deepEqual(lines('let n = 2;\nwhile (n --> 0) eval("1");', { script: true }), [["eval", 2]], "mid-line it is a decrement and a comparison");
 });
 
-test("honest code stays honest past the fifth review's fixes, and every branch round 4 left unheld is held", () => {
+test("honest code stays honest past the fixes for exports, patterns and keyword-named members, and every branch is held", () => {
   const BT = "`";
   const honest = {
-    // Д-441: a value the module only takes part in is not the module.
+    // A value the module only takes part in is not the module.
     "cp !== undefined": 'import * as cp from "node:child_process";\nexport const available = cp !== undefined;',
     "cp ? … : …": 'import * as cp from "node:child_process";\nexport const kind = cp ? "real" : "none";',
     "cp === other": 'import * as cp from "node:child_process";\nimport other from "x";\nexport const same = cp === other;',
@@ -528,16 +524,16 @@ test("honest code stays honest past the fifth review's fixes, and every branch r
     "export default cp !== undefined": 'import * as cp from "node:child_process";\nexport default cp !== undefined;',
     "export const a = n++⏎, then a declaration": 'let n = 0\nexport const a = n++\nlet b = 1, run = require("node:child_process")\nrun.spawn("x")',
     "export, then a declaration without semicolons": 'export const a = 1\nconst b = 2, run = require("child_process")\nrun.spawn("x")',
-    // Д-442, Д-443: members named like keywords, and #class.
+    // Members named like keywords, and #class.
     "mod.default⏎{ block }": `const lib = mod.default\n{\n  console.log(lib)\n}\n/${BT}/.test(s) && console.log("tick")`,
     "it.return⏎class": `const r = it.return\nclass K extends mix(function () {}) {}\n/${BT}/.test(s) && console.log(r, K)`,
     "#class, then a literal divided": `export class A {\n  #class = 1;\n  run() {\n    this.#class;\n    const n = { valueOf() { return 4 } } / 2, s = ${BT}/${BT};\n    return [n, s];\n  }\n}`,
-    // Д-448: `of` in a for head's initialiser is a name.
+    // `of` in a for head's initialiser is a name.
     "of / 2 in an initialiser": `let of = 4, n = 0;\nfor (let i = of / 2, s = ${BT}/${BT}; i < 3; i++) n += i;`,
     "of / 2 past an empty initialiser": `let of = 4, s = "";\nfor (; of / 2 > 1; of -= 1) s += ${BT}/${BT};`
   };
   for (const [name, source] of Object.entries(honest)) assert.deepEqual(rules(source), [], `${name}: ${source}`);
-  // Each branch of round 4's code no test held, from the fifth review's table.
+  // Each branch no other test holds.
   const held = {
     "for await (… of /re/)": [`async function f(s) {\n  for await (const m of /${BT}/.exec(s) ?? []) console.log(m);\n  eval("1");\n  const t = /${BT}/;\n}`, ["eval"]],
     "a keyed loader bound to a name": ['const cp = process["getBuiltinModule"]("child_process");\ncp.exec("ls");', ["child_process.exec"]],
@@ -545,7 +541,7 @@ test("honest code stays honest past the fifth review's fixes, and every branch r
     "require.call(f(a, b), …)": ['require.call(f(a, b), "child_process").exec("ls");', ["child_process.exec"]],
     "export const a = b ||⏎ c, run = cp": ['import * as cp from "node:child_process";\nexport const a = b ||\n  c, run = cp;', ["child_process.exec"]],
     "a + ++⏎{ … }.shell": ["let x = a + ++\n{ shell: true }.shell;", ["shell"]],
-    // And round 5's own: a chain of globals in parentheses, #class in a statement head's parentheses, `-->` first in a
+    // And more: a chain of globals in parentheses, #class in a statement head's parentheses, `-->` first in a
     // file, a member named if, a prefix ++ at a line's end, a member named export, the ways a value ends.
     "(global.globalThis)[k]": ['(global.globalThis)[k]("1");', ["global-member"]],
     "if (this.#class) {}, then a literal": ["export class A {\n  #class = 1;\n  run(f) {\n    if (this.#class) {}\n    f({ shell: true });\n  }\n}", ["shell"]],
@@ -585,17 +581,17 @@ test("the reader stays linear on declarations without semicolons, chains of assi
   assert.ok(timed(`x${'["require"]'.repeat(n)};`) < 4000, "and keyed");
 });
 
-test("the spellings the sixth review found the gate let through are each refused, and each condition round 5 left unheld is held", () => {
+test("a heritage's substitutions, of as a name and a pattern assigned to an export are each refused, and each condition is held", () => {
   const BT = "`";
   const CP = 'import * as cp from "node:child_process";\n';
   const lines = (source, options) => forbiddenCalls(source, options).map((finding) => [finding.rule, finding.line]);
   const refused = {
-    // Д-461: a substitution in a class's heritage is a level of its own — an `=`, `=>`, `:` or `,` there ends no wait.
+    // A substitution in a class's heritage is a level of its own — an `=`, `=>`, `:` or `,` there ends no wait.
     "${a = 1} in a heritage": [`let a, x;\nconst f = () => Object;\nx = class extends f${BT}\${a = 1}${BT} {} / 2; eval("1"); const r = 1 / 1;`, [["eval", 3]]],
     "${(a) => 1} in a heritage": [`let x;\nconst f = () => Object;\nx = class extends f${BT}\${(a) => 1}${BT} {} / 2; eval("1"); const r = 1 / 1;`, [["eval", 3]]],
     "${a ? 1 : 2} in a heritage": [`let a, x;\nconst f = () => Object;\nx = class extends f${BT}\${a ? 1 : 2}${BT} {} / 2; eval("1"); const r = 1 / 1;`, [["eval", 3]]],
     "${a, b} in a heritage": [`let a, b, x;\nconst f = () => Object;\nx = class extends f${BT}\${a, b}${BT} {} / 2; eval("1"); const r = 1 / 1;`, [["eval", 3]]],
-    // Д-464: `of` past `in` and past the keyword is a name, and so is a member named for; a pattern assigned to an
+    // `of` past `in` and past the keyword is a name, and so is a member named for; a pattern assigned to an
     // exported let.
     "for (k in of / 2)": ['let of = 4, n = 0, k;\nfor (k in of / 2) n += k; eval("1"); n = n / 2;', [["eval", 2]]],
     "for (const k of of / 2 ? of : of)": ['let of = [4];\nfor (const k of of / 2 ? of : of) console.log(k); eval("1"); const r = 1 / 1;', [["eval", 2]]],
@@ -603,7 +599,7 @@ test("the spellings the sixth review found the gate let through are each refused
     "a⏎of / 2": ['let a = 1, of = 4;\na\nof / 2; eval("1"); const r = 1 / 1;', [["eval", 3]]],
     "({ default: run } = await import(…))": ['export let run;\n({ default: run } = await import("node:child_process"));', [["child_process.exec", 2]]],
     "({ default: run } = cp)": [`${CP}export let run;\n({ default: run } = cp);`, [["child_process.exec", 3]]],
-    // Д-462: what round 5's surviving mutants changed — a body's waits ended together, a label only on its own line,
+    // Conditions no other test holds — a body's waits ended together, a label only on its own line,
     // break and continue ending a statement, the ways a whole value ends, an alias's value past its `.default`.
     "import { class as c, function as f }, then a literal": ['import { class as c, function as f } from "x";\nconst list = [{ shell: true }];', [["shell", 2]]],
     "break⏎n / 2": ['let n = 4;\nfor (;;) {\n  break\n  n / 2; eval("1"); const r = 1 / 1;\n}', [["eval", 4]]],
@@ -633,11 +629,11 @@ test("the spellings the sixth review found the gate let through are each refused
   assert.deepEqual(lines('(require, 0)("child_process").exec("ls");', { script: true }), []);
 });
 
-test("honest code the sixth review found the gate refused passes, and a value ends where the next line cannot carry it on", () => {
+test("honest code the gate once refused passes, and a value ends where the next line cannot carry it on", () => {
   const BT = "`";
   const CP = 'import * as cp from "node:child_process";\n';
   const honest = {
-    // Д-459: a value the module only takes part in, carried over lines, and a name bound to such a value.
+    // A value the module only takes part in, carried over lines, and a name bound to such a value.
     "cp⏎!== undefined": `${CP}export const available = cp\n  !== undefined;`,
     "cp⏎&& typeof cp.spawn": `${CP}export const canSpawn = cp\n  && typeof cp.spawn === "function";`,
     "cp⏎? … : …": `${CP}export const kind = cp\n  ? "real"\n  : "none";`,
@@ -655,7 +651,7 @@ test("honest code the sixth review found the gate refused passes, and a value en
     "const ok = cp !== undefined; export { ok }": `${CP}const ok = cp !== undefined;\nexport { ok };`,
     "const ok = cp !== undefined; export default ok": `${CP}const ok = cp !== undefined;\nexport default ok;`,
     "let ok; ok = cp⏎!== undefined; export { ok }": `${CP}let ok;\nok = cp\n  !== undefined;\nexport { ok };`,
-    // Д-460: a local, a member, a parameter, a function or a class named like an exported let or var.
+    // A local, a member, a parameter, a function or a class named like an exported let or var.
     "a local const": 'export let cp = null;\nexport function f() {\n  const cp = require("node:child_process");\n  return cp.spawn("x");\n}',
     "a local let, assigned below": 'import * as childProcess from "node:child_process";\nexport let runner = null;\nexport function f() {\n  let runner;\n  runner = childProcess;\n  return runner.spawn("x");\n}',
     "a second declarator": `${CP}export let run = null;\nexport function g() {\n  let a = 1, run = cp;\n  return [a, run];\n}`,
@@ -663,7 +659,7 @@ test("honest code the sixth review found the gate refused passes, and a value en
     "a declared array pattern": `${CP}export let run = null;\nexport function g(o) {\n  let [run] = o;\n  run = cp;\n  return run;\n}`,
     "a declared pattern's rest element": `${CP}export let run = null;\nexport function g(o) {\n  let { a, ...run } = o;\n  run = cp;\n  return [a, run];\n}`,
     "a rest parameter": `${CP}export let run = null;\nexport function g(...run) {\n  run = cp;\n  return run;\n}`,
-    // Д-465: a rest parameter binds a name; it spreads nothing.
+    // A rest parameter binds a name; it spreads nothing.
     "a rest parameter, the module assigned to it": `${CP}export function g(...run) {\n  run = cp;\n  return run;\n}`,
     "an arrow's rest parameter named like an alias": `${CP}const run = cp;\nrun.spawn("x");\nexport const f = (...run) => run.length;`,
     "a method's rest parameter named like an alias": `${CP}const proc = cp;\nproc.spawn("x");\nexport class A {\n  m(...proc) {\n    return proc.length;\n  }\n}`,
@@ -681,7 +677,7 @@ test("honest code the sixth review found the gate refused passes, and a value en
     "a class": `${CP}export let run = null;\nexport function g() {\n  class run {}\n  return run;\n}\nrun = cp;`,
     // A const is never assigned: the assignment throws, and nothing goes out with it.
     "an exported const assigned": `${CP}export const run = 1;\nexport function swap() {\n  run = cp;\n}`,
-    // Д-461, Д-464: a substitution's arrow in a heritage, `of` after typeof.
+    // A substitution's arrow in a heritage, `of` after typeof.
     "!class extends f`${(a) => a}` {} / 2": `const f = () => Object;\nconst n = !class extends f${BT}\${(a) => a}${BT} {} / 2 + "/${BT}".length;`,
     "for (typeof of / 2;;)": `let of = 4, s = "";\nfor (typeof of / 2; s.length < 1; ) s += ${BT}/${BT};`
   };

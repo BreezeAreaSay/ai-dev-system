@@ -1,5 +1,5 @@
 /**
- * Grading a repository's agent harness (PLAN.md, stage 3.22).
+ * Grading a repository's agent harness.
  *
  * `list_mcp_servers` answers "what programs will an agent's editor start here".
  * This answers the wider question: what is this repository allowed to make an

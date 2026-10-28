@@ -51,7 +51,7 @@ test("Unix bootstrap defaults to the published image without a local build", asy
     assert.equal(output.node_on_host_required, false);
     assert.equal(output.clients, "all");
     assert.equal(output.state_path, path.join(home, ".ai-dev", "state"));
-    // Д-69: the model folder is optional, and an absent option leaves the plan exactly as it was.
+    // The model folder is optional, and an absent option leaves the plan exactly as it was.
     assert.equal("model_path" in output, false);
     assert.equal("runtime_container" in output, false, "3.0 keeps no long-lived container");
   } finally {
@@ -79,9 +79,8 @@ test("Unix bootstrap keeps local source builds explicit, and --model-path shows 
 });
 
 // bootstrap.sh is run by sh, the entrypoint by the image, the 2.x launcher by
-// configs that name it. All were committed as 100644 once (docs/DEFECTS.md
-// Д-58); the repository does store the bit, so the mode is asserted rather than
-// trusted.
+// configs that name it. All were committed as 100644 once; the repository does
+// store the bit, so the mode is asserted rather than trusted.
 test("the shell scripts that get executed are committed as executable", async (context) => {
   const executables = ["bootstrap.sh", "docker/run-mcp.sh", "docker/entrypoint.sh"];
   const result = spawnSync("git", ["ls-files", "-s", "--", ...executables], { cwd: repositoryRoot, encoding: "utf8" });
@@ -624,7 +623,7 @@ test("a model folder is mounted read-only for the installer, checked, and handed
   assert.equal(warned.status, 0);
   assert.match(warned.stderr, /holds no bge-m3-onnx\/ yet; dense search will report that it is not set up/);
 
-  // The pre-Д-62 value — the model directory itself — is refused with directions, before anything runs.
+  // The 2.0.0 value — the model directory itself — is refused with directions, before anything runs.
   const oldStyle = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-bge-m3-"));
   t.after(() => fs.rm(oldStyle, { recursive: true, force: true }));
   await fs.writeFile(path.join(oldStyle, "pytorch_model.bin"), "");

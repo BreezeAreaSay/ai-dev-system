@@ -33,7 +33,7 @@ import crypto from "node:crypto";
 import { accessSync, constants as fsConstants, existsSync, lstatSync, readFileSync, readlinkSync, rmSync, statSync } from "node:fs";
 import path from "node:path";
 
-/** The image a client runs unless told otherwise (owner decision D9: `:latest` is the released line). */
+/** The image a client runs unless told otherwise (`:latest` is the released line). */
 export const DEFAULT_DOCKER_IMAGE = "ghcr.io/stonebridgeway/ai-dev-system:latest";
 
 /** The named volume the data lives in; 2.x's name, so an upgrade keeps it. */
@@ -50,8 +50,7 @@ export const DEFAULT_DOCKER_VOLUME = "ai-dev-system-data";
  * default's place, as with no `/data` at all — and so is a volume named so, as
  * `docker volume create` names one it is given no name for. Anything else at
  * `/data` — a folder of the host's, a volume made with a driver's options, a
- * volume's subfolder, a tmpfs — has no name to give: null (docs/DEFECTS.md,
- * Д-528, Д-539, Д-540, Д-545).
+ * volume's subfolder, a tmpfs — has no name to give: null.
  *
  * @param {string} mountinfo
  * @returns {string | null}
@@ -81,8 +80,7 @@ export function dataMount(volume) {
  * Where a command with {@link dataMount} of `volume` puts what it writes, in
  * words: this volume, for a name read at `/data`; the default by its name,
  * since the image cannot tell it from a run with no volume of its own there;
- * where the sessions keep `/data`, for a mount with no name (docs/DEFECTS.md,
- * Д-539, Д-545).
+ * where the sessions keep `/data`, for a mount with no name.
  *
  * @param {string | null} volume
  * @returns {string}
@@ -132,14 +130,14 @@ export const CONTAINER_MODEL_DIR = `${CONTAINER_MODELS}/bge-m3-onnx`;
 
 /**
  * Files that make a folder a model folder itself rather than the one holding
- * `bge-m3-onnx/`: the value 2.x documented before Д-62, refused by every copy.
+ * `bge-m3-onnx/`: the value 2.x documented, refused by every copy.
  */
 export const MODEL_FOLDER_MARKERS = Object.freeze(["pytorch_model.bin", "modules.json", "config.json", "onnx"]);
 
 /**
  * Docker reads a `--mount` value as one CSV record: a comma splits it, and a
  * double quote outside a quoted field fails every session ("bare \" in
- * non-quoted-field"; docs/DEFECTS.md, Д-328).
+ * non-quoted-field").
  */
 function mountable(label, folder) {
   const bad = [",", "\""].find((character) => folder.includes(character));
@@ -277,7 +275,7 @@ function isFile(file) {
 
 /**
  * Refuse a model folder that is not one: missing, or a model folder itself (2.x
- * documented that before Д-62, and the server never found the files under it).
+ * documented that, and the server never found the files under it).
  *
  * @param {string} folder
  * @param {{ exists?: (target: string) => boolean }} [options]
@@ -625,8 +623,8 @@ function unmakeable(folder, io) {
  * is passed over, not the ones beside it: Docker 29 refuses the whole command
  * over it before it looks at any folder, but the CLIs before it read some such
  * values, and a folder gone is gone for every one of them — so `clients doctor`
- * starts such an entry, and says the folder unless the start answered (Д-417,
- * Д-427, Д-433). `path` is the host's path rules, Windows' on Windows.
+ * starts such an entry, and says the folder unless the start answered.
+ * `path` is the host's path rules, Windows' on Windows.
  *
  * @param {string[]} args
  * @param {{ stat?: (file: string) => unknown, lstat?: typeof lstatSync, readlink?: typeof readlinkSync, access?: typeof accessSync, path?: typeof path }} [options]

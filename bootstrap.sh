@@ -188,7 +188,7 @@ settle_model() {
   fi
   model_path=$(CDPATH= cd -- "$model_path" && pwd -P)
   # The folder above the model, holding bge-m3-onnx/:
-  # one that holds model files itself is the pre-Д-62 value and leaves the model
+  # one that holds model files itself is the 2.0.0 value and leaves the model
   # a level too deep; a lone bge-m3/ is the removed Python backend's weights.
   for marker in pytorch_model.bin modules.json config.json onnx; do
     if [ -e "${model_path}/${marker}" ]; then
@@ -490,8 +490,7 @@ if [ "$skip_client_install" -ne 1 ]; then
   # costs that client alone. A client whose look passes shows that
   # Docker runs the image, so the others' were refused; only when none passes is
   # Docker asked to run it with no folder at all, and if that fails too it is the
-  # engine: said once, and the install goes on and says what fails (Д-358,
-  # Д-360, Д-362).
+  # engine: said once, and the install goes on and says what fails.
   look=0
   refused=""
   if [ "$candidates" != "," ]; then

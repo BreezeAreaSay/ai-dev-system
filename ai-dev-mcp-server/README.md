@@ -418,8 +418,7 @@ AI_DEV_DAEMON_START_TIMEOUT_MS   how long `ai-dev mcp` waits for a daemon it sta
 ```
 
 `AI_DEV_HOME` is the runtime folder itself: `state/`, `cache/` and `models/` sit directly in
-it. Earlier versions put them one level deeper, in `$AI_DEV_HOME/.ai-dev` (docs/DEFECTS.md,
-Д-90). The server, `npm run setup` and the `ai-dev` CLI move such a tree up when they start:
+it. Earlier versions put them one level deeper, in `$AI_DEV_HOME/.ai-dev`. The server, `npm run setup` and the `ai-dev` CLI move such a tree up when they start:
 files missing at the new place are moved, identical ones dropped, JSONL ledgers appended, and a
 file that differs on the two sides stays where it was. `npm run doctor` names what is left in its
 `runtime_home` check, and `state/runtime-home-migration.json` records every run that found something. `AI_DEV_HOME`

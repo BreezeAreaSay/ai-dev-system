@@ -1,6 +1,6 @@
 // Preloaded into a daemon a test starts (`NODE_OPTIONS=--import <this file>`):
-// what a file system may do to the daemon's look at its run folder
-//. `AI_DEV_TEST_RUN_FOLDER` says which:
+// what a file system may do to the daemon's look at its run folder.
+// `AI_DEV_TEST_RUN_FOLDER` says which:
 // `chmod-ignored` — a chmod through a handle is taken and changes nothing, as
 // on drvfs or a FUSE mount; `stat-fails` — the first look through a handle on
 // a folder named `run` fails with EIO, as on a flaky network mount.

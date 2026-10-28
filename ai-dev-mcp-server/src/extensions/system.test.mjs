@@ -212,7 +212,7 @@ test("health check runs every check through the host", async (t) => {
   assert.match(result.recommendations[0], /include_dense_smoke=true/);
 });
 
-// Д-55: nothing told a user that this machine cannot run a single scanner, so
+// Nothing told a user that this machine cannot run a single scanner, so
 // `run_security_scan` came back empty and nobody knew why until they read it.
 test("a machine with no security scanner installed is warned about, not failed", async (t) => {
   const { calls, host, registry } = await createFixture(t);

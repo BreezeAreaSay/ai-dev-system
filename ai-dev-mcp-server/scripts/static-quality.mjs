@@ -10,8 +10,8 @@ import { fileURLToPath } from "node:url";
 // step, so the file can be edited but not re-grown.
 import { SYSTEM_LINE_CEILING } from "../src/core/system-health.mjs";
 // The size rules themselves live in src/core so they can be tested without
-// breaking a real file on purpose and putting it back
-//. This file is the input and output
+// breaking a real file on purpose and putting it back.
+// This file is the input and output
 // around them.
 import {
   MODULE_LINE_CEILING,
@@ -60,8 +60,8 @@ const files = [
 // to the same rules: the syntax check, the forbidden calls and the line
 // ceiling. Its tests call eval and new Function inside
 // the page on purpose — to show the page's policy refuses them — so those two
-// are looked for in its code only; a shell and exec in its tests too
-//. A copy of this package without the app (the npm package, the
+// are looked for in its code only; a shell and exec in its tests too.
+// A copy of this package without the app (the npm package, the
 // image) has nothing to check.
 const desktopRoot = path.join(root, "..", "desktop");
 const DESKTOP_EXTENSIONS = [".mjs", ".js", ".cjs"];

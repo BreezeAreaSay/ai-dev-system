@@ -10,9 +10,8 @@ name: macOS and Linux apps
 # exist yet; the Windows installer comes from
 # desktop-windows.yml.
 #
-# macOS is in development and not part of a release (owner decision,
-# 2026-10-28, docs/program/PROGRESS.md): the Mac app is built and run here so
-# that its code keeps working, but the release neither waits for it nor
+# macOS is in development and not part of a release: the Mac app is built and
+# run here so that its code keeps working, but the release neither waits for it nor
 # carries its .dmg.
 #
 # A Mac build is signed ad hoc unless a Developer ID certificate is given
@@ -20,7 +19,7 @@ name: macOS and Linux apps
 # runtime and sent for notarization when APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD
 # and APPLE_TEAM_ID are set (desktop/scripts/runtime-bundle.mjs) — a path not
 # finished yet: the runtime's native modules are not signed with the
-# Developer ID (docs/RELEASE.md, "The desktop app").
+# Developer ID.
 
 on:
   pull_request:
@@ -136,8 +135,8 @@ jobs:
 
       # The AppImage as a person on Ubuntu 24.04 starts it: unprivileged user
       # namespaces are refused there by default, so Chromium's sandbox cannot
-      # start, and the AppImage's AppRun starts the app without it
-      #. The same test as below, on the AppImage.
+      # start, and the AppImage's AppRun starts the app without it.
+      # The same test as below, on the AppImage.
       - name: Run the AppImage where Chromium's sandbox cannot start
         if: runner.os == 'Linux'
         working-directory: desktop

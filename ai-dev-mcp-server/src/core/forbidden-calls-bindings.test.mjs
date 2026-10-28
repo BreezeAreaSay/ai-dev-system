@@ -4,9 +4,7 @@ import { performance } from "node:perf_hooks";
 import { forbiddenCalls } from "./forbidden-calls.mjs";
 
 // What the static gate reads as declaring a name, binding one or holding a pattern: a parameter list, a declaration, a
-// class's field. Its own file since forbidden-calls.test.mjs would have passed the 800 lines a module keeps
-// (docs/DEFECTS.md, Д-466, Д-472 … Д-476, Д-480 … Д-482, Д-486 … Д-489, Д-499 … Д-511, Д-515 … Д-522, Д-524, Д-527, Д-530, Д-531,
-// Д-533 … Д-538, Д-548 … Д-556).
+// class's field. Its own file since forbidden-calls.test.mjs would have passed the 800 lines a module keeps.
 
 const rules = (source, options) => forbiddenCalls(source, options).map((finding) => finding.rule);
 const BT = "`";
@@ -211,25 +209,25 @@ test("a member named class or function opens no wait for a class's body, whateve
   assert.deepEqual(rules("export class A {\n  x = () => class {\n    m({ shell })\n    {\n      return shell;\n    }\n  };\n}"), []);
 });
 
-test("the conditions the mutants left untested: a method named by a string, a computed one, a private one named function, what ends a wait", () => {
-  // A method named by a string in a literal read after `>`: no statement keyword's parentheses (P17 until Д-507).
+test("conditions no other test holds: a method named by a string, a computed one, a private one named function, what ends a wait", () => {
+  // A method named by a string in a literal read after `>`: no statement keyword's parentheses.
   assert.deepEqual(rules('const a = 1;\nexport const x = a > { "if"({ shell }) { return shell; } };'), []);
-  // A computed method whose body begins on its own line: its place, not its head (R3).
+  // A computed method whose body begins on its own line: its place, not its head.
   assert.deepEqual(rules(`${CP}export let run;\nconst k = "m";\nexport class A {\n  [k](run)\n  {\n    run = cp;\n  }\n}`), []);
-  // A declarator after a template in the same declaration still declares: the walk ends with its own template only (M7).
+  // A declarator after a template in the same declaration still declares: the walk ends with its own template only.
   assert.deepEqual(rules(`${CP}export let run;\nexport function f(x) {\n  const a = ${BT}\${x}${BT}, run = cp;\n  return [a, run];\n}`), []);
-  // A private method named function, called, a block after it: a call (R13).
+  // A private method named function, called, a block after it: a call.
   assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  #function(x) { return x; }\n  m() {\n    this.#function(run)\n    {\n    }\n  }\n}\nrun = cp;`), ["child_process.exec"]);
   // Where a field named class still waits for a body — after one named in —, a ; or an = ends the wait, an extends
-  // deeper than it marks no heritage (Q17, N4, M15); a static ends a wait at its own depth only, so the class whose
-  // heritage holds such a field keeps its body (R7).
+  // deeper than it marks no heritage; a static ends a wait at its own depth only, so the class whose
+  // heritage holds such a field keeps its body.
   const after = (members) => `${CP}export let run;\nconst o = { extends: "k" };\nexport class A {\n  in\n${members}\n}`;
   assert.deepEqual(rules(after("  class;\n  static {\n    run = cp;\n  }")), ["child_process.exec"]);
   assert.deepEqual(rules(after("  class = { run = cp } = {};")), ["child_process.exec"]);
   assert.deepEqual(rules(after("  class\n  [o.extends]() {\n    run = cp;\n  }")), ["child_process.exec"]);
   assert.deepEqual(rules(`${CP}export let run;\nexport const B = class extends (class {\n  class\n  static {}\n}) {\n  run = cp;\n};`), []);
   // A script's `let` right in a substitution — the first, a later one, one in a template within another's parentheses —
-  // is a name and declares nothing: the spread after it is the module's (Z7, Z9, Z10, R6).
+  // is a name and declares nothing: the spread after it is the module's.
   for (const code of ["${let}${{ ...cp }}", "${0}${let}${{ ...cp }}", "${f(`${let}${{ ...cp }}`)}"]) {
     const source = `const cp = require("node:child_process");\nconst f = (s) => s;\nvar let = 1;\nmodule.exports = ${BT}${code}${BT};\n`;
     assert.deepEqual(rules(source, { script: true }), ["child_process.exec"], code);
@@ -408,7 +406,7 @@ test("a member named extends before a body, the name of, a word as on the line b
   assert.deepEqual(rules("export class T {\n  #in = 0;\n  share(n) {\n    const r = this.#in-- / n; const g = eval; return g / 2 + r;\n  }\n}\n"), ["eval"]);
 });
 
-test("an alias after export * before a default, an arrow's body ending a template's code, a bracket before the name of, a template's end as an operand's, a nested template's comma, the conditions round 12's mutants took away, and the gate's nits of round 12", () => {
+test("an alias after export * before a default, an arrow's body ending a template's code, a bracket before the name of, a template's end as an operand's, a nested template's comma, and the gate's other edge cases", () => {
   // An alias's as after export *, the clause followed by a default; a * that multiplies and an export default that names a
   // value are no such clause, and a class after them on the next line declares.
   for (const word of ["class", "function"]) {
@@ -433,7 +431,7 @@ test("an alias after export * before a default, an arrow's body ending a templat
   assert.deepEqual(rules("let of = 0\nexport default { shell: true }\nof++\n"), ["shell"]);
   assert.deepEqual(rules(`const of = 1;\nexport const s = ${BT}\${{ shell: true }}\${of}${BT};\n`), ["shell"]);
   assert.deepEqual(rules("const x = [];\nexport let shell;\nfor (const { shell } of x) break;\n"), []);
-  // V6: a nested template's , is its own template's; the conditions of round 11 the mutants J… took away.
+  // A nested template's , is its own template's; then conditions no other test holds.
   assert.deepEqual(rules(`${CP}const a = 1;\nexport const x = ${BT}\${(0, ${BT}\${a, cp}${BT}).exec}${BT};\n`), []);
   assert.deepEqual(rules(`const a = 1, shell = 2;\nexport const x = ${BT}\${JSON.stringify({ x: ${BT}\${a, shell}${BT} })}${BT};\n`), []);
   assert.deepEqual(rules(`const a = 1, k = "x";\nlet g;\nexport const x = ${BT}\${g = (0, ${BT}\${a, globalThis}${BT})}${BT};\nexport const v = g[k];\n`), []);
@@ -444,7 +442,7 @@ test("an alias after export * before a default, an arrow's body ending a templat
   assert.deepEqual(rules(`${CP}export let run;\nlet a;\nconst handler = () => {}\n[a] = [1], run = cp;\nexport { handler };\n`), ["child_process.exec"]);
   assert.deepEqual(rules("const o = {};\nexport function f() {\n  for (const\n    [k, { shell }] in o) return [k, shell];\n}\n"), []);
   assert.deepEqual(rules("export function f() {\n  for (;\n    { shell: true };) return 1;\n}\n"), ["shell"]);
-  // The gate's nits of round 12: a literal in a template is no pattern of the parameter or the declaration
+  // A literal in a template is no pattern of the parameter or the declaration
   // around it; a call of a name of or of a member named like a keyword is a call; from after a literal is a call too; a
   // / after an import's module begins a regular expression; a yield and a postfix that end a line end the declaration.
   assert.deepEqual(rules("export function f(a = `${{ shell: true }}`) { return a; }\n"), ["shell"]);
@@ -459,7 +457,7 @@ test("an alias after export * before a default, an arrow's body ending a templat
   for (const value of [`${BT}x${BT}`, "(a)", "[a]"]) {
     assert.deepEqual(rules(`${CP}export let run;\nlet n = 0, a = 1;\nconst r = n++\n${value}, run = cp;\nexport { r };\n`), ["child_process.exec"], value);
   }
-  // What round 12's mutants showed untested: a function after o.as on the line before declares, and its parameters are a
+  // Conditions no other test holds: a function after o.as on the line before declares, and its parameters are a
   // pattern; a member named yield goes on to its call; a name from that ends a statement before a string is no import's.
   assert.deepEqual(rules("const o = { as: 1 };\nlet v = o.as\nfunction f({ shell }) {\n  return shell;\n}\nexport { v, f };\n"), []);
   assert.deepEqual(rules(`${CP}export let run;\nconst o = { yield: (v) => v }, a = 1;\nexport function f() {\n  const r = o.yield\n  (a), run = cp;\n  return [r, run];\n}\n`), []);
@@ -491,7 +489,7 @@ test("a member's index is no pattern, nor what is in it, a line break before its
   assert.deepEqual(rules(`let shell;\nconst o = [{}];\nexport const s = ${BT}\${[{ shell }] = o}${BT};\nexport { shell };\n`), []);
 });
 
-test("a function's, a method's, an arrow's or a class's body or a computed key ends the climb to a pattern; a module's string is one only after import or a clause's from; a template's end ends no line, and a ( after it calls it; an alias's export no member; the index after members named let, const or var; what begins a statement after a value or a yield; a class member's computed name; the conditions round 13's mutants found untested", () => {
+test("a function's, a method's, an arrow's or a class's body or a computed key ends the climb to a pattern; a module's string is one only after import or a clause's from; a template's end ends no line, and a ( after it calls it; an alias's export no member; the index after members named let, const or var; what begins a statement after a value or a yield; a class member's computed name; and conditions no other test holds", () => {
   // A literal a default value's body returns is a value: the climb stops at the body, an arrow's, a function's, a
   // method's or a class's, and at a computed key; an arrow whose body is a pattern assigned keeps it one.
   const bodies = {
@@ -569,7 +567,7 @@ test("a function's, a method's, an arrow's or a class's body or a computed key e
   for (const line of ["/x/g.test(s)", "!s", "\"x\"", "-s"]) {
     assert.deepEqual(rules(`${CP}export let run;\nexport function* g(s) {\n  const r = yield\n  ${line}, run = cp;\n  return r;\n}\n`), ["child_process.exec"], line);
   }
-  // The conditions round 13's mutants found untested, and an of in a for head's substitution, a name.
+  // Conditions no other test holds, and an of in a for head's substitution, a name.
   assert.deepEqual(rules(`${CP}export class A {\n  #delete(m) { return m; }\n  run() {\n    return this.#delete(cp).exec("ls");\n  }\n}\n`), []);
   assert.deepEqual(rules(`${CP}export let run;\nexport class A {\n  #yield = (v) => v;\n  m(a) {\n    const r = this.#yield\n    (a), run = cp;\n    return [r, run];\n  }\n}\n`), []);
   assert.deepEqual(rules(`const o = {};\nexport const s = ${BT}\${({ a = ${BT}\${{ shell: true }}${BT} } = o)}${BT};\n`), ["shell"]);

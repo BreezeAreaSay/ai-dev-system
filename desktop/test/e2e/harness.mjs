@@ -148,7 +148,7 @@ export function answerFolderDialog(app, folder) {
   }, folder);
 }
 
-/** A screenshot for the phase report, in desktop/test-results. */
+/** A screenshot, in desktop/test-results. */
 export async function shot(page, name) {
   await fs.mkdir(resultsDir, { recursive: true });
   const file = path.join(resultsDir, `${name}.png`);

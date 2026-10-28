@@ -69,7 +69,7 @@ test("a staged tree that imports what it does not carry is reported before an im
 });
 
 test("the Frontend QA runner's imports of the server resolve in the distribution's own layout", async (t) => {
-  // Д-56: the runner imports the server as `../ai-dev-mcp-server`. Every target
+  // The runner imports the server as `../ai-dev-mcp-server`. Every target
   // is laid out as the distribution is, so the staged tree answers for it as is:
   // a file the runner needs and the allowlist dropped is caught before a build.
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "runtime-imports-"));

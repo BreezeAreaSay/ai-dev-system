@@ -2,7 +2,7 @@
 
 A tray icon, a first-run wizard, a Status screen, the screens of your work — projects, costs,
 skills, settings, the daemon's log — and a console for every tool, over the daemon every AI client
-shares. The app is in `desktop/`, built on Electron (owner decision D5; the version is pinned in
+shares. The app is in `desktop/`, built on Electron (the version is pinned in
 `desktop/package.json`). It does not run AI Dev itself: it drives the same daemon the clients'
 `ai-dev mcp` reaches, through the control API
 ([CONTROL-API.md](../ai-dev-mcp-server/docs/CONTROL-API.md)).
@@ -239,8 +239,7 @@ Chromium's sandbox needs unprivileged user namespaces, which Ubuntu 24.04 refuse
 program without an AppArmor profile. The `.deb` installs one, and the sandbox stays. An AppImage
 cannot: its `AppRun` (electron-builder's) tries `unshare -Ur true` and, where that is refused, starts
 the app with `--no-sandbox`. The page it shows is the app's own, with no network, isolated from Node
-(above), so that costs a second wall, not the first; where it matters, install the `.deb`
-.
+(above), so that costs a second wall, not the first; where it matters, install the `.deb`.
 
 ### How AI clients reach it
 
@@ -388,7 +387,7 @@ every update against — a wrong one would refuse every update. Without either t
 unsigned, and Windows SmartScreen warns about it on first run. macOS: a Developer ID Application
 certificate in `CSC_LINK` with `CSC_KEY_PASSWORD` signs the app with the hardened runtime, and
 `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` send it for notarization, a path not
-finished yet (docs/RELEASE.md, "The desktop app"); without one the app
+finished yet (the runtime's native modules are not signed with the Developer ID); without one the app
 is signed ad hoc — Apple silicon runs nothing unsigned — and does not update itself. The Linux
 packages are not signed.
 

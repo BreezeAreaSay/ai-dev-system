@@ -2,7 +2,7 @@
  * The ONNX dense backend: text in, a normalized 1024-dimension vector out, with
  * no Python anywhere in the path.
  *
- * This is the backend Д-62 chose, and since 3.0 the only one: the legacy
+ * This is the dense backend, and since 3.0 the only one: the legacy
  * Python pool reached the same contract through a virtualenv, a CPU build of
  * torch and `sentence-transformers`; this one reaches it through
  * `@huggingface/transformers` over `onnxruntime-node`, both ordinary npm

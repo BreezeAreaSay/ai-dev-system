@@ -161,8 +161,8 @@ jobs:
         run: sh -n bootstrap.sh docker/run-mcp.sh docker/entrypoint.sh
 
   publish:
-    # The production repository only. A fork that works in its own main (this
-    # program does) must not publish an image of its own from every push.
+    # The production repository only. A fork that works in its own main must
+    # not publish an image of its own from every push.
     #
     # The tags: a push to main is
     # `:edge`, never `:latest` — a merge is not a release; a release tag vX.Y.Z

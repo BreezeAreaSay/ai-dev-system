@@ -70,9 +70,8 @@
  * in a script, read as the keyword; and a class's member on the line after `n++` or
  * a word an operand follows (`in`), read as an assignment or, named `class` or
  * `function`, as declaring the name after it, and a `class` after one but `return`
- * or `yield` as waiting for a body, are past it (Д-410, Д-426, Д-432, Д-440, Д-448,
- * Д-459, Д-460, Д-464, Д-476, Д-509, Д-523, Д-532, Д-555). No accident writes such
- * code; the gate keeps honest code honest. A computed member of a global it cannot
+ * or `yield` as waiting for a body, are past it. No accident writes such code;
+ * the gate keeps honest code honest. A computed member of a global it cannot
  * read is refused rather than trusted, and so is a file it could not read to its
  * end — a template or a comment that never closes, leaving what follows unchecked.
  */
@@ -377,7 +376,7 @@ export function forbiddenCalls(source, { allowEval = false, script = false } = {
   };
   // A member's name is no binding: `target.run`, `this.#run`, and a class's field — a name right in its body, not in a
   // substitution there, after `{`, `;`, `}` or `static`, or on a line of its own after an operand (not after `n++` or
-  // a word an operand follows, Д-509): `class A { run = cp }`, but not `x =⏎ run = cp`, which assigns.
+  // a word an operand follows): `class A { run = cp }`, but not `x =⏎ run = cp`, which assigns.
   const isMember = (index) => {
     if (isPunct(tokens[index - 1], ".") || isPunct(tokens[index - 1], "#")) return true;
     const before = tokens[index - 1];

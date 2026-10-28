@@ -12,7 +12,7 @@ import {
   taskNamesSkill
 } from "./task-vocabulary.mjs";
 
-// The two skills Д-1 names, verbatim from the imported registry.
+// Two imported skills, verbatim from the imported registry.
 const TDD_WORKFLOW = {
   name: "tdd-workflow",
   use_when: "Use this skill when writing new features, fixing bugs, or refactoring code. Enforces test-driven development with 80%+ coverage including unit, integration, and E2E tests.",

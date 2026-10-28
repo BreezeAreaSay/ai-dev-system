@@ -160,7 +160,7 @@ button:focus-visible, select:focus-visible, input:focus-visible, summary:focus-v
   font-size: 12px;
 }
 
-/* Phase 11: navigation for more screens, the data screens, the tool console. */
+/* Navigation for more screens, the data screens, the tool console. */
 
 .skip-link {
   position: absolute;

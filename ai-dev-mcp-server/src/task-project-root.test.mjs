@@ -7,8 +7,7 @@ import { assertNotProtectedProjectRoot, resolveTaskProjectRoot, safeProjectRoot,
 
 /**
  * A new folder under the temp folder, by its real path: the lifecycle answers with resolved paths, and the temp
- * folder can be a link — `/var` → `/private/var` on macOS, any TMPDIR a user points elsewhere (docs/DEFECTS.md,
- * Д-259).
+ * folder can be a link — `/var` → `/private/var` on macOS, any TMPDIR a user points elsewhere.
  */
 async function realTemporaryFolder(prefix) {
   return fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), prefix)));

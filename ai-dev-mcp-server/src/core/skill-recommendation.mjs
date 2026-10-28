@@ -235,7 +235,7 @@ export const SPECIALIST_NARROW_STACK_PENALTY = 2;
 /**
  * The one imported skill that best answers this task, or `null`.
  *
- * This is the whole of the answer to Д-1. Our own skills are routed by name and
+ * Our own skills are routed by name and
  * fill all three conventional slots, so an imported skill could never appear —
  * and it should not appear by displacing one, because the routed core carries
  * the verification contract. It gets a slot of its own instead, and earns it the

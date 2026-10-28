@@ -177,8 +177,7 @@ export function settingsPath(env = process.env) {
 /**
  * The format a file says it was written in: an integer from 1, or null when
  * it says none or something no version writes — 1.5, 1e400, a word — which
- * is read as this version's and replaced by the next change (docs/DEFECTS.md,
- * Д-238).
+ * is read as this version's and replaced by the next change.
  */
 function declaredSchema(stored) {
   const value = Number(stored.schema_version);

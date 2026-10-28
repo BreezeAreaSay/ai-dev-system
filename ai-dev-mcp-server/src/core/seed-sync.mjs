@@ -351,8 +351,8 @@ export async function syncSeed({ seedRoot, contentRoot, version = "", now = () =
       const source = inside(seedRoot, relative);
       const target = inside(contentRoot, relative);
       const previous = shipped[relative];
-      // A damaged package — or one npm packed without a file (docs/DEFECTS.md,
-      // Д-175) — still brings everything else; what it lacks keeps its old
+      // A damaged package — or one npm packed without a file — still brings
+      // everything else; what it lacks keeps its old
       // record, so the next complete seed treats it as before.
       if (await entryKind(source) !== "file") {
         counts.missing.push(relative);

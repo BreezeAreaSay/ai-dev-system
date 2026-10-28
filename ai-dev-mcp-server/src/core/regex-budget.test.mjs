@@ -16,7 +16,7 @@ import {
   riskyPatternProbes
 } from "./regex-budget.mjs";
 
-// The pattern from Д-16: the heuristic in policy-rules.mjs does not see it
+// A pattern the heuristic in policy-rules.mjs does not see
 // (the quantifier is over an alternation, not over another quantifier), and it
 // takes 38.8 seconds against twenty-eight characters.
 const CATASTROPHIC = "(a|a)+$";
@@ -242,7 +242,7 @@ test("the probes are built from the pattern's own alphabet, with a tail it canno
 });
 
 test("a probe exposes the patterns the nested-quantifier heuristic misses", async () => {
-  // Both forms named in Д-16 as passing the structural check.
+  // Both forms known to pass the structural check.
   for (const pattern of [CATASTROPHIC, "(\\w|\\d)+$"]) {
     const probes = riskyPatternProbes(pattern);
     const answers = await matchWithBudget(probes.map((haystack) => ({ pattern, flags: "i", haystack })), { budgetMs: 200 });

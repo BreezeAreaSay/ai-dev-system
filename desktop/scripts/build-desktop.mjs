@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * The desktop app, in one command per system (brief, phase 12; docs/DESKTOP.md,
+ * The desktop app, in one command per system (docs/DESKTOP.md,
  * "The desktop install"):
  *
  *   node scripts/build-desktop.mjs [--target win32-x64|darwin-arm64|linux-x64] [--dir] [--check]
  *   npm run dist:win | dist:mac | dist:linux
  *
- * 1. the server's distribution (`ai-dev-mcp-server/scripts/build-dist.mjs`,
- *    phase 7) into `dist/<target>/runtime`;
+ * 1. the server's distribution (`ai-dev-mcp-server/scripts/build-dist.mjs`)
+ *    into `dist/<target>/runtime`;
  * 2. its production dependencies for the target (`npm ci --os --cpu`, so one
  *    machine builds another's tree where the native packages allow), less
  *    what the runtime never loads there (`runtime-bundle.mjs`, `TRIMMED`);
@@ -28,7 +28,7 @@
  * target is this machine's when not named. A `.dmg` is made on macOS only; on
  * Linux and macOS the NSIS installer needs Wine (32-bit too): its uninstaller
  * is made by running the installer. Nothing is published: a release is the
- * owner's (section 2).
+ * owner's.
  */
 import { spawn } from "node:child_process";
 import crypto from "node:crypto";

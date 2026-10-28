@@ -11,8 +11,8 @@
  * user's history, no stash entry appears in their stash list.
  *
  * The capture is `git add --all` into a throwaway index, `git write-tree`, then
- * `git commit-tree` with HEAD as the parent. `PLAN.md` (3.2) names
- * `git stash create` for this, and that is the idiom for tracked changes — but
+ * `git commit-tree` with HEAD as the parent, not `git stash create`: that is
+ * the idiom for tracked changes — but
  * it records only tracked ones, and a turn that adds a file is exactly the turn
  * worth undoing. The throwaway index is seeded from the repository's own index
  * (see {@link seedIndex}), so the stat cache is reused and `add --all` does not
@@ -29,7 +29,7 @@
  * never silently rewritten by us.
  *
  * Snapshots are deleted when the task closes (`complete_task`) or when state is
- * pruned (`prune_state`, PLAN.md 3.12, which reuses `pruneTaskSnapshots`).
+ * pruned (`prune_state`, which reuses `pruneTaskSnapshots`).
  */
 import crypto from "node:crypto";
 import fs from "node:fs/promises";

@@ -1,5 +1,5 @@
 /**
- * Which module depends on which, read out of the source (PLAN.md, stage 3.8).
+ * Which module depends on which, read out of the source.
  *
  * The project map already says what a repository is made of. What it could not
  * say is where the weight sits: which module half the codebase imports, which

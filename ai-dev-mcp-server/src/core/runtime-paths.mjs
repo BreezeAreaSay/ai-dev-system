@@ -76,8 +76,7 @@ export const MAX_SOCKET_PATH_BYTES = 100;
  *
  * Every daemon start draws its own, and its descriptor says which it is. A fixed
  * name — `\\.\pipe\ai-dev-<user>` until 3.0 — is one any local process can
- * create first and so receive every client's connection (docs/DEFECTS.md,
- * Д-107).
+ * create first and so receive every client's connection.
  *
  * @param {Buffer} [bytes]
  * @returns {string}
@@ -166,7 +165,7 @@ const FOLDER_FLAGS = fsConstants.O_RDONLY | (fsConstants.O_DIRECTORY ?? 0) | (fs
 /**
  * The owner of a folder this user may not open, when it is someone else: a
  * private folder of another user's refuses the open itself, and the refusal
- * should say whose it is, as it did before Д-226.
+ * should say whose it is.
  *
  * @returns {Promise<number | undefined>}
  */
@@ -178,7 +177,7 @@ async function foreignOwner(directory, uid, error) {
 
 /**
  * Make a folder of this user's private when group or others can get into it:
- * the daemon's run folder, as the lock race before Д-213's fix or the 2.x
+ * the daemon's run folder, as an older version's lock race or the 2.x
  * layout's migration left it. The folder is opened
  * without following a link, checked and changed through that handle, and
  * checked again — a file system that takes the change and keeps its mode

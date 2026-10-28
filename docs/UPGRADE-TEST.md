@@ -44,7 +44,7 @@ scratch directory it:
    catalogue curation of 2026-10-11 removed 2,614 connectors) leave the skill registry and are
    no longer found; that a rebuild keeps byte for byte every vector whose
    document is still there unchanged and drops those of documents gone or rewritten — among them
-   Membrane's connectors, which a 2.x older than the Д-91 fix embedded — leaving the rewritten
+   Membrane's connectors, which older 2.x releases embedded — leaving the rewritten
    ones to the next embedding run; that keyword and hybrid search answer, that nothing is left in
    `$AI_DEV_HOME/.ai-dev`, and that the 2.x hook still runs — and, where its copy of the old
    path cannot see the migrated task, sees it after `install_agent_hooks`; that the hook
@@ -93,8 +93,7 @@ scratch volume and a scratch folder, both removed at the end:
 2. **The new image under the 2.x launcher.** The same launcher (its cold path) with the new
    image: the server answers the handshake with its own instructions; the task is there; the
    volume's skills are the new seed's plus the user's own — what 2.x shipped and 3.0 dropped is
-   gone, and the edited skill keeps the edit with `SKILL.md.seed-new` beside it (docs/DEFECTS.md,
-   Д-99).
+   gone, and the edited skill keeps the edit with `SKILL.md.seed-new` beside it.
 3. **The 2.x warm path.** A runtime container of the new image, as the 2.x bootstrap started it,
    still serves a session through the 2.x launcher; the 3.0 script of the same name passes the
    server's own handshake through and says on stderr that it is the 2.x launcher.

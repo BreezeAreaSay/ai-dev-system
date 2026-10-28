@@ -2339,7 +2339,7 @@ ${autoCommandsMarkdown()}
 async function buildProjectMapMd(detected) {
   const tree = await projectTree(detected.project_path);
   // The graph is re-read only when the source files moved; the fingerprint
-  // costs a directory walk, the parse costs the whole tree (PLAN.md 3.8).
+  // costs a directory walk, the parse costs the whole tree.
   const importGraph = await loadImportGraph(detected.project_path).catch(() => null);
   return `# Project Map
 

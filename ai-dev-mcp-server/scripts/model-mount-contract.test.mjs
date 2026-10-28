@@ -29,7 +29,7 @@ const MOUNT_TARGETS = [
   { file: "docker/compose.local.example.yaml", pattern: /source: \$\{AI_DEV_MODEL_PATH[^\n]*\n\s*#?\s*target: (\S+)/g }
 ];
 
-/** Where each copy refuses the pre-Д-62 value: the files a model folder itself holds. */
+/** Where each copy refuses the 2.0.0 value: the files a model folder itself holds. */
 const MARKER_LISTS = [
   { file: "docker/run-mcp.sh", pattern: /for marker in ([^;]+); do/g, split: (text) => text.trim().split(/\s+/) },
   { file: "bootstrap.sh", pattern: /for marker in ([^;]+); do/g, split: (text) => text.trim().split(/\s+/) },
@@ -45,7 +45,7 @@ function quotedList(text) {
 /**
  * The folder the image looks for a mounted model directory in: the server's
  * own (`dense-backend.mjs`). Since 3.0 there is one, the ONNX export's (the
- * Python backend's torch folder went with it, decision D3), and the image does
+ * Python backend's torch folder went with it), and the image does
  * not name it in its ENV: there it would hide the model `ai-dev model install`
  * puts in the volume.
  */

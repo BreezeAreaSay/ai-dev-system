@@ -119,7 +119,7 @@ test("recommendations name every failure and warning, plus the dense smoke hint 
   assert.equal(recommendations[1], "Fix failed check: search_smoke - no results");
   assert.equal(recommendations[2], "Review warning: required_notes - 1 missing");
   assert.deepEqual(healthRecommendations([{ name: "dense_smoke", status: "ok", summary: "ran" }]), []);
-  // Д-147: without the model the advice only turned a healthy install into a failure.
+  // Without the model the advice only turned a healthy install into a failure.
   for (const backend of [[], [{ name: "embedding_backend", status: "skipped", summary: "not installed" }]]) {
     assert.deepEqual(healthRecommendations([...backend, { name: "dense_smoke", status: "skipped", summary: "skipped" }]), []);
   }
@@ -521,7 +521,7 @@ test("system snapshot falls back when quality, projects, and card shapes are spa
 });
 
 test("a Frontend QA runner that never started is not reported as Playwright missing", () => {
-  // Д-56: in the image Playwright and Chromium are installed and the runner
+  // In the image Playwright and Chromium are installed and the runner
   // dies importing the server, so all three flags are false for a reason that
   // has nothing to do with the optional install. Saying "run `npm run setup --
   // --frontend-qa`" sent the reader after software that was already there, and

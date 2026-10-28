@@ -375,7 +375,7 @@ test("quality tasks add review, and backend tasks add the backend pair", () => {
 });
 
 
-// Д-1. 101 imported skills were in the index and none of them could ever be
+// 101 imported skills were in the index and none of them could ever be
 // recommended: our own three fill every conventional slot, and an imported
 // skill's English `use_when` shares no substring with a Russian task. The fix
 // is a reserved slot plus the bilingual expansion, and the thing it must not do

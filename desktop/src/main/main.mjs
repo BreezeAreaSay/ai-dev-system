@@ -62,8 +62,8 @@ function applicationMenu() {
 
 // Chromium resolves no host name in this app: the page has no network, and a
 // name it hands to WebRTC or a dns-prefetch would otherwise still go to the
-// system's resolver — a way out for what a script put in it (docs/DEFECTS.md,
-// Д-260). The daemon is reached from Node, over a socket; Node's own lookups
+// system's resolver — a way out for what a script put in it. The daemon is
+// reached from Node, over a socket; Node's own lookups
 // do not go through this rule. The installed app's updater is the one
 // exception: the update hosts, by their exact names (updates.mjs).
 app.commandLine.appendSwitch("host-resolver-rules", resolverRules({ updates }));
@@ -142,8 +142,7 @@ if (!app.requestSingleInstanceLock()) {
   const quit = async () => {
     quitting = true;
     // A language that waits is written once more; the file's lock is waited
-    // for a second at most, the write already waiting for it included (Д-279,
-    // Д-283, п. 1; Д-284).
+    // for a second at most, the write already waiting for it included.
     await languages.quit().catch(() => undefined);
     await link.close();
     app.quit();

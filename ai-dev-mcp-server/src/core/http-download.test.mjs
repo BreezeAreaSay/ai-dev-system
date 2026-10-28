@@ -207,7 +207,7 @@ test("a session's own NODE_EXTRA_CA_CERTS is trusted, as its own process would h
   // A session without it in the same process: the certificate is not trusted.
   await assert.rejects(openUrl(url, { env: { HTTPS_PROXY: proxy.url } }), /certificate/i);
   // What this process started with, the system's store included where it
-  // asked for it (a machine behind a corporate proxy may: Д-205).
+  // asked for it (a machine behind a corporate proxy may).
   const system = usesSystemStore(process.env, process.execArgv);
   const own = {
     ...(process.env.NODE_EXTRA_CA_CERTS ? { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS } : {}),

@@ -403,7 +403,7 @@ test("stop makes no folder again when the runtime home goes while it looks at a 
 
 test("a daemon starting makes a run folder open to others private, and says so", { skip: process.platform === "win32" && "Windows folders have no mode bits" }, async (t) => {
   const { env, home, run } = await stage(t);
-  // As the lock race before Д-213's fix, or the 2.x layout's migration, left it;
+  // As an older version's lock race, or the 2.x layout's migration, left it;
   // the home is too long for a socket, so the socket lives elsewhere.
   await fs.mkdir(run, { recursive: true });
   await fs.chmod(run, 0o755);

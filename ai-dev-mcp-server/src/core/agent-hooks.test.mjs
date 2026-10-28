@@ -132,10 +132,10 @@ test("hook path helpers are platform-agnostic", async (t) => {
 });
 
 test("the hook decides the project boundary without climbing into the home directory", async (t) => {
-  // Д-48, the hook's copy of the rule. It is spelled out here as well as in
+  // The hook's copy of the rule. It is spelled out here as well as in
   // project-identity.test.mjs because this file is the one that travels with
-  // the hooks, and the two copies have already drifted three times (Д-45,
-  // Д-51, Д-52). Platform and home are parameters: os.tmpdir() sits inside the
+  // the hooks, and the two copies have already drifted apart three times.
+  // Platform and home are parameters: os.tmpdir() sits inside the
   // user profile on Windows, so an environment-driven test would be deciding a
   // different layout there than here.
   const { isProjectBoundaryCandidate, projectIdOf, projectRootOf, userHomeDirectory } =
@@ -238,7 +238,7 @@ test("the Cursor adapter is pinned to a checked hooks.json format version", () =
 });
 
 test("what the Cursor adapter could not verify is said at install time, and has a check", () => {
-  // Д-2: three statements in the contract stand on secondary sources, because
+  // Three statements in the contract stand on secondary sources, because
   // cursor.com is unreachable from where this was built. They were recorded in
   // a source comment, which is the one place the person installing never looks.
   const plan = cursorVerificationPlan();

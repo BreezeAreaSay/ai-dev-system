@@ -174,7 +174,7 @@ test("a line too long to keep whole is cut between characters, never inside a su
       setImmediate(() => child.emit("close", 1, null));
     })
   })).error.replace("it exited with code 1 before answering: ", "");
-  // The review's line: 301 characters, an emoji at 149 and 150, where the head is cut.
+  // A long line: 301 characters, an emoji at 149 and 150, where the head is cut.
   const head = `Error: ${"x".repeat(142)}\u{1F600}${"y".repeat(150)}`;
   assert.equal(await said(head), `Error: ${"x".repeat(142)}\u2026${"y".repeat(149)}`);
   // An emoji at the first two places the tail keeps: it is kept whole.

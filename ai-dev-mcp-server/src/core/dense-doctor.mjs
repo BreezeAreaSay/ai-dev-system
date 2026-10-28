@@ -3,7 +3,7 @@
  * to work, checked in the order they depend on each other, and reported as
  * sentences.
  *
- * Д-62 asked for this by name and said why: the old path failed through a
+ * Why it exists: the old path failed through a
  * Python traceback, which tells a user who has just run an installer nothing
  * they can act on. A stage list fails at exactly one place, and the name of
  * that place *is* the diagnosis — "the model files are not here" and "the model

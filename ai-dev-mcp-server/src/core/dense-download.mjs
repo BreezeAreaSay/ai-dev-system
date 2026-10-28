@@ -12,8 +12,8 @@
  *
  * A broken transfer keeps its `.part`, and the next run asks for the rest with
  * `Range` instead of starting over — the Windows acceptance run lost 510 MB of
- * 542 to one stalled connection and fetched them all again (docs/DEFECTS.md,
- * Д-73, Д-98). Bytes on disk are only worth continuing if they are known to be
+ * 542 to one stalled connection and fetched them all again. Bytes on disk are
+ * only worth continuing if they are known to be
  * the start of the right file, so every `.part` has a `.part.json` beside it
  * naming the revision and the sha256 it is a prefix of; a `.part` without one,
  * or with another revision's, is deleted rather than trusted. The existing

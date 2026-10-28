@@ -354,7 +354,7 @@ test("cancelling keeps what arrived, and the next run continues from it", async 
 });
 
 test("a source that goes silent is given up on within the stall window, and its bytes are kept", async (t) => {
-  // Д-73: a CDN that sent 510 MB of 542 and then nothing held a Windows run
+  // A CDN that sent 510 MB of 542 and then nothing held a Windows run
   // past ten minutes. Now it costs the stall window and none of the bytes.
   const host = await startModelHost({ files: FILES, stallAfter: new Map([["onnx/model_int8.onnx", 10_000]]) });
   t.after(() => host.close());
@@ -460,7 +460,7 @@ test("2.x .part files of killed runs are swept; this version's .part is never sw
 });
 
 test("a download that does not fit is refused before a byte is fetched, and a partial one needs only the rest", async (t) => {
-  // Д-81: 601 MB of model against 280 MB of disk.
+  // 601 MB of model against 280 MB of disk.
   const host = await startModelHost({ files: FILES, headSizes: { "onnx/model_int8.onnx": 601 * MB } });
   t.after(() => host.close());
   const dir = await stageDir(t);

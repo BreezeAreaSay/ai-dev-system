@@ -22,7 +22,7 @@ test("a run is read by what failed, not by whether something did", () => {
   assert.deepEqual(summarizeAcceptanceRun({ exitCode: 0, output: CLEAN }), {
     ok: true, test_failures: 0, coverage_reporter_failed: false, kind: "passed"
   });
-  // Д-11: exit 1 with no failing test is the reporter, and saying "1 падение"
+  // Exit 1 with no failing test is the reporter, and saying "1 падение"
   // without saying which kind is what made the number meaningless.
   assert.equal(summarizeAcceptanceRun({ exitCode: 1, output: REPORTER }).kind, "coverage reporter");
   assert.equal(summarizeAcceptanceRun({ exitCode: 1, output: BROKEN }).kind, "tests failed");

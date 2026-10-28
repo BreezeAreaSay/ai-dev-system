@@ -52,7 +52,7 @@ test("runtime flavor follows the platform unless the image marks itself", () => 
   assert.equal(runtimeFlavor(), "posix");
 });
 
-test("the Windows layout is the one that shipped (Д-61 changes nothing there)", () => {
+test("the Windows layout is the one that shipped", () => {
   const expectations = distributionExpectations("windows");
   assert.deepEqual(expectations.commands, {
     start: "node bin/ai-dev.mjs mcp",

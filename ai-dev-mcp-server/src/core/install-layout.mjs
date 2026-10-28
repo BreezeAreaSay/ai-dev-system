@@ -139,8 +139,8 @@ export function resolveInstallLayout({ serverRoot = OWN_SERVER_ROOT, env = proce
   const distributed = exists(path.join(root, DISTRIBUTION_MARKER)) && exists(path.join(shipped, SEED_MANIFEST));
   const contentRoot = path.resolve(explicit || ownContent);
   // The image's own vault is the seed's to keep current: 2.x's entrypoint copied
-  // the seed into it with `cp -n`, which never updated a file (docs/DEFECTS.md,
-  // Д-99). A vault named instead is the user's, read where it is, as a package
+  // the seed into it with `cp -n`, which never updated a file. A vault named
+  // instead is the user's, read where it is, as a package
   // reads one — unless a seed is there already: a sync's record, or the manifest
   // 2.x's `cp -n` put beside its seed, a manifest and not a file of the user's
   // that has its name. A 2.x image has no distribution and syncs
@@ -240,8 +240,8 @@ export function hint(command, layout = currentInstallLayout()) {
  * A command of the image's CLI as its user runs it: nobody has a shell in a
  * client's container, so it is a `docker run` of its own on the host, into the
  * data volume — with the network only for a download — and `setup --model`
- * there is the model's install, which embeds the index too (docs/DEFECTS.md,
- * Д-185, п. 7; Д-316). `<image>` is the one the client runs; the volume, the
+ * there is the model's install, which embeds the index too. `<image>` is the
+ * one the client runs; the volume, the
  * one at its `/data`, or a placeholder where `/data` holds a mount with no name
  * to give.
  *
@@ -262,8 +262,7 @@ export function dockerCommand(words, volume = dataVolume()) {
 /**
  * The command that embeds the documents with a model folder of the host's,
  * mounted at `/models` as `--model` writes it: `setup --model` finds the model
- * whole and downloads nothing, so it needs no network (docs/DEFECTS.md, Д-341,
- * Д-546).
+ * whole and downloads nothing, so it needs no network.
  *
  * @param {string | null} [volume]
  * @returns {string}

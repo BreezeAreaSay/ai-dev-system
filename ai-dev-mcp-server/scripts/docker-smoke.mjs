@@ -179,7 +179,7 @@ try {
   await connect(session(), async ({ ms }) => { report.next_session_ms = ms; });
 
   // 3. Two sessions on a new volume, the second 200 ms after the first, as a second client starts: it lands in the
-  //    copy Docker makes for the first and waits for it — before Д-355 one built from part of the catalogue in 8 rounds
+  //    copy Docker makes for the first and waits for it — without the wait one built from part of the catalogue in 8 rounds
   //    of 10, and a start built something in all 10. A race: a run that misses it passes either way.
   const pairVolume = `${volume}-pair`;
   try {
@@ -213,8 +213,8 @@ try {
         throw new Error(`On a volume made with a driver's options the health check's advice for the model is "${advice}".`);
       }
     });
-    // A host's model folder the image cannot read, on that volume: no data volume to install the model into either
-    //. A host that lets the image read it all the same, as some file sharing does, says so and checks nothing.
+    // A host's model folder the image cannot read, on that volume: no data volume to install the model into either.
+    // A host that lets the image read it all the same, as some file sharing does, says so and checks nothing.
     const unreadable = await fs.mkdtemp(path.join(os.tmpdir(), "ai-dev-smoke-unreadable-"));
     try {
       await fs.chmod(unreadable, 0o755);

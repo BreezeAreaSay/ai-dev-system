@@ -421,8 +421,7 @@ export class DaemonLink extends EventEmitter {
    * daemon stopped — the session is closed, not left open; it would not stop
    * — the session stays, and the answer says why. Not knowing which daemon
    * is its own, the link keeps the session while any daemon still runs: if
-   * that one was the session's, the session ends by itself (docs/DEFECTS.md,
-   * Д-273, Д-278).
+   * that one was the session's, the session ends by itself.
    */
   async stopDaemon() {
     const client = this.#client;

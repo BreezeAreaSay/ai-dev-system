@@ -198,8 +198,8 @@ export async function dockerOptions({ image = DEFAULT_DOCKER_IMAGE, volume = DEF
   if (probing && !apply) await fs.mkdir(hostState, { recursive: true });
   const byUid = sharesHostState({ platform, uid });
   // On Linux the sharing is tried, whatever the uid: a remapping Docker may give
-  // a uid-1000 user's folder to someone else, and another uid's to them (Д-322,
-  // Д-334). Docker Desktop on macOS and Windows maps it to the user.
+  // a uid-1000 user's folder to someone else, and another uid's to them.
+  // Docker Desktop on macOS and Windows maps it to the user.
   let sharing;
   if (shareState === "yes") sharing = { shared: true, kind: "shared", reason: "" };
   else if (shareState === "no") sharing = { shared: false, kind: "refused", reason: byUid ? TRIED_AND_REFUSED : "" };

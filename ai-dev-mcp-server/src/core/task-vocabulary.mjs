@@ -8,8 +8,7 @@
  * skills imported from ECC: their `use_when` is English, and the tasks this
  * server is asked to route are usually Russian. "настроить разработку через
  * тесты" and `tdd-workflow`'s "test-driven development" share no substring, so
- * the skill scored zero and never reached the answer (docs/DEFECTS.md,
- * Д-1).
+ * the skill scored zero and never reached the answer.
  *
  * So the task is expanded before it is scored: a concept the task names in
  * Russian contributes the English terms the catalogue uses for the same thing.

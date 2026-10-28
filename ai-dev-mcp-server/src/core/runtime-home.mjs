@@ -55,11 +55,11 @@ export function sameDirectory(left, right, { platform = process.platform, realpa
 /**
  * `AI_DEV_HOME`, when it names a runtime folder rather than the home itself.
  *
- * `AI_DEV_HOME` is the runtime folder (owner decision D2; docs/DEFECTS.md,
- * Д-90). One value cannot mean that: the home directory itself, which some
- * 2.x setups used because 2.x appended `.ai-dev` to the variable. Taken at its
- * word it would scatter `state/`, `cache/` and `models/` across the home, so it
- * keeps meaning what 2.x made of it — `<home>/.ai-dev`.
+ * `AI_DEV_HOME` is the runtime folder. One value cannot mean that: the home
+ * directory itself, which some 2.x setups used because 2.x appended `.ai-dev`
+ * to the variable. Taken at its word it would scatter `state/`, `cache/` and
+ * `models/` across the home, so it keeps meaning what 2.x made of it —
+ * `<home>/.ai-dev`.
  *
  * @param {NodeJS.ProcessEnv} [env]
  * @param {{ platform?: string, realpath?: (value: string) => string }} [options] - for tests

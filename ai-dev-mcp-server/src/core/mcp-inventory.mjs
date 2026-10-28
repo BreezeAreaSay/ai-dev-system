@@ -17,7 +17,7 @@
  *
  * The findings stop at what a config file can prove. Grading the whole agent
  * harness (`CLAUDE.md` auto-run, `Bash(*)` permissions, hook interpolation) is
- * `scan_agent_config`, PLAN.md 3.22, which builds on this inventory.
+ * `scan_agent_config`, which builds on this inventory.
  */
 import fs from "node:fs/promises";
 import os from "node:os";

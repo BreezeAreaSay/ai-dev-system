@@ -3,13 +3,13 @@
  *
  * The rule is older than any code here: a session ends with ten consecutive
  * `npm run check` runs and the line "N падений из 10", because one green run has
- * twice hidden a failure that appears in two runs out of ten (docs/DEFECTS.md,
- * Д-11). Kept as an agreement it was honoured about half the time
- *; kept as a command it is honoured by running the command.
+ * twice hidden a failure that appears in two runs out of ten. Kept as an
+ * agreement it was honoured about half the time; kept as a command it is
+ * honoured by running the command.
  *
  * The two kinds of failure are not the same thing and the report must not blur
  * them: a run where a test failed is the suite telling you something, and a run
- * that exited non-zero with `# fail 0` is Д-11 — the coverage reporter falling
+ * that exited non-zero with `# fail 0` is the coverage reporter falling
  * over on a partially written file, which says nothing about the code.
  */
 

@@ -97,8 +97,8 @@ internal static class ClaudeMcpProxy
 
     // As in run-mcp.sh and run-mcp.ps1: the folder holds bge-m3-onnx\, and the
     // image looks for it under /models. This copy mounted it at /models/bge-m3,
-    // one level too deep, so Claude on Windows never had dense search
-    //. A lone bge-m3\ is the removed Python backend's
+    // one level too deep, so Claude on Windows never had dense search.
+    // A lone bge-m3\ is the removed Python backend's
     // weights.
     private static readonly string[] ModelFileMarkers = { "pytorch_model.bin", "modules.json", "config.json", "onnx" };
 
@@ -106,7 +106,7 @@ internal static class ClaudeMcpProxy
     {
         var fullPath = MountSource("AI_DEV_MODEL_PATH");
         if (fullPath == null) return null;
-        // Before Д-62 the variable named the model directory itself. A folder
+        // In 2.0.0 the variable named the model directory itself. A folder
         // that holds model files is that old value, and mounted at /models it
         // would leave both backends looking one level too deep.
         foreach (var marker in ModelFileMarkers)

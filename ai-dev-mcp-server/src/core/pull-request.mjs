@@ -52,8 +52,7 @@ const GENERIC_DIRS = new Set(["src", "lib", "app", "source", "sources", "package
  * `.ai-dev/` holds the brief, the map, the quality gate, the context packs and
  * their caches — rewritten on nearly every task, and usually outnumbering the
  * code the task was about, so the majority vote below named the bookkeeping:
- * "feat(ai-dev): add a subtract function to the widget" (docs/DEFECTS.md, Д-76;
- * upstream #64).
+ * "feat(ai-dev): add a subtract function to the widget".
  *
  * They are dropped before the vote rather than added to GENERIC_DIRS, which was
  * the fix upstream proposed: a generic directory is *skipped over* to reach the

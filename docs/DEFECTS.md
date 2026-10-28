@@ -12,7 +12,7 @@
 внутренние документы и номера пунктов плана, которых в репозитории больше нет — они были
 рабочими заметками; сами записи от этого не теряют смысла.
 
-Состояние: 600 записей. Закрыто 591, открыто 9. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
+Состояние: 600 записей. Закрыто 592, открыто 8. Из закрытых девять — заходом по долгам Д-20 … Д-28, шесть
 (Д-30 … Д-34, Д-36) — по замеру с машины пользователя после мержа, шесть (Д-43, Д-49 … Д-53) —
 заходом на кроссплатформенность и на подготовку 2.0, восемь (Д-54 … Д-61) — заходом по тикетам
 апстрима #47–#54 с опубликованного Docker-образа, девять (Д-42, Д-48, Д-63 … Д-69) — вторым
@@ -23175,7 +23175,7 @@ AI Dev 3.0.0 · degraded: search_index_freshness: Search index is stale: 2 added
 
 ## Д-600. Два теста падают на раннерах CI по раз: свежесть реестра на Windows и отставной демон на macOS
 
-**Статус:** открыт. Нашёл CI PR stonebridgeway/ai-dev-system#86 на `f4b74f2` и `c1ee37e` (вторая — только документация).
+**Статус:** закрыт (`ac7ada6`), 2026-10-28. Нашёл CI PR stonebridgeway/ai-dev-system#86 на `f4b74f2` и `c1ee37e` (вторая — только документация).
 
 1. `skill-registry-freshness.test.mjs`, «a rewrite of the registry from itself keeps the date of the sources it describes»:
    строка 488 — единственная в файле, где `checkSkillRegistry` спрошен напрямую, в ту же миллисекунду, что и правка навыка, а
@@ -23198,6 +23198,21 @@ c1ee37e, Windows, Core unit tests: tests 1672, pass 1635, fail 1
   ✖ a rewrite of the registry from itself keeps the date of the sources it describes   false !== true   at :488
 f4b74f2, Windows: тот же тест прошёл (fail 0)
 ```
+
+**Как закрыто** (`ac7ada6`). 1 — проверка в этом тесте спрошена через `staleness`, на секунду позже, как все остальные в
+файле. 2 — ожидания отставной записи в тесте Д-214 — минута (`RETIRE_WAIT_MS`): тест о том, куда ложится запись, а не о
+том, как быстро.
+
+**Замер после** (CI на `ac7ada6`, 16 из 16, 4 пропущены по условию):
+
+```
+Windows, Core unit tests: tests 1672, pass 1636, fail 0, skipped 36
+  ✔ a rewrite of the registry from itself keeps the date of the sources it describes (25 ms)
+macOS, Daemon tests: tests 19, pass 19, fail 0
+  ✔ a retired daemon whose run folder and then whole runtime home were deleted … (Д-214) (20 781 ms)
+```
+
+Здесь: `skill-registry-freshness.test.mjs` — 24 из 24; тест Д-214 отдельно — pass.
 
 ## Д-1. Импортированные скиллы ECC не попадают в роутинг
 

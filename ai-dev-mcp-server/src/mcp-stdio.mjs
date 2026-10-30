@@ -132,6 +132,7 @@ import { captureProjectState } from "./core/evidence.mjs";
 import { filterToolsByProfiles, profilesFromEnvironment } from "./core/tool-profiles.mjs";
 import { TaskStore } from "./core/task-lifecycle.mjs";
 import { UsageLedger, usageHintsFromArgs } from "./core/usage-ledger.mjs";
+import { answerMeasures, skillGroupsView, skillRow, wantsDetails } from "./core/response-budget.mjs";
 import { SessionStore } from "./core/session-memory.mjs";
 import { InstinctStore } from "./core/instincts.mjs";
 import { SkillOutcomeStore } from "./core/skill-outcomes.mjs";
@@ -354,7 +355,7 @@ function textContent(value) {
     content: [
       {
         type: "text",
-        text: typeof value === "string" ? value : JSON.stringify(value, null, 2)
+        text: typeof value === "string" ? value : JSON.stringify(value)
       }
     ]
   };
@@ -4581,11 +4582,11 @@ async function dispatchTool(name, args, context = {}) {
   // Over the search index, not every file on disk.
   if (name === "search_knowledge") return textContent(await searchRuntime.searchKnowledge(args));
   if (name === "read_knowledge") return textContent(await readText(args.path));
-  if (name === "search_skills") return textContent(await searchSkills(args));
+  if (name === "search_skills") return textContent(await searchSkills(args).then((found) => (wantsDetails(args) ? found : found.map(skillRow))));
   if (name === "read_skill") return textContent(await readSkill(args));
   if (name === "query_ui_ux_knowledge") return textContent(await queryUiUxKnowledge(args));
-  if (name === "list_skill_groups") return textContent(await listSkillGroups(args));
-  if (name === "browse_skill_group") return textContent(await browseSkillGroup(args));
+  if (name === "list_skill_groups") return textContent(await listSkillGroups(args).then((listing) => (wantsDetails(args) ? listing : skillGroupsView(listing))));
+  if (name === "browse_skill_group") return textContent(await browseSkillGroup(args).then((found) => (wantsDetails(args) ? found : { ...found, results: found.results.map(skillRow) })));
   if (name === "rebuild_skill_taxonomy") return textContent(await rebuildSkillTaxonomy(args));
   if (name === "sync_skill_overlays") return textContent(await syncSkillOverlays(args));
   if (name === "list_skill_overlays") return textContent(await listSkillOverlays(args));
@@ -4672,14 +4673,14 @@ async function callTool(name, args, { transportMs = 0, ...context } = {}) {
   const startedAt = Date.now();
   const overhead = Math.max(0, Number(transportMs) || 0);
   const hints = usageHintsFromArgs(args);
-  const record = (ok, error = "") => {
+  const record = (ok, error = "", answer = error) => {
     usageLedger
-      .recordToolCall({ tool: name, ok, durationMs: Date.now() - startedAt + overhead, error, ...hints })
+      .recordToolCall({ tool: name, ok, durationMs: Date.now() - startedAt + overhead, error, ...hints, ...answerMeasures(args, answer) })
       .catch(() => undefined);
   };
   try {
     const result = await dispatchTool(name, args, context);
-    record(true);
+    record(true, "", result?.content?.map((item) => item.text ?? "").join("") ?? "");
     return result;
   } catch (error) {
     record(false, error instanceof Error ? error.message : String(error));

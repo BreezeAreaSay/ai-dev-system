@@ -82,6 +82,14 @@ A new machine needs none of this: install 3.0 [any of the three ways](INSTALL.md
   project cards — so a skill's reference files (`read_skill` reads them) and notes in folders such as
   `build` or `.next` are no longer found by it. The dashboard is stale once after the update:
   `ai-dev dashboard` rebuilds it.
+- **The task tools answer with a summary.** `begin_task`, `begin_task_in_worktree`,
+  `checkpoint_task`, `verify_task` and `complete_task` return the task, its criteria and what changed,
+  not the whole task record; a check command that passed comes without its output, and the long
+  output of one that failed is cut to its first 1,200 and last 800 characters. A script or a client
+  that read the record from those answers reads it from `get_task`, passes `include_details: true`,
+  or sets `AI_DEV_RESPONSE_MODE=full` in the client's environment, which answers as 2.x did.
+  `search_skills`, `browse_skill_group` and `list_skill_groups` answer with short rows
+  (`include_details: true` for every field), and an answer's JSON comes without indentation.
 - **New files** in the runtime home: `<file>.lock` beside the files several processes write,
   `run/` (the daemon's descriptors), `logs/daemon.log`, `state/mcp-clients.json`. 2.x ignores them.
 

@@ -36,6 +36,7 @@ export function buildToolDefinitions({
     inputSchema: {
       type: "object",
       properties: {
+        include_details: { type: "boolean", default: false, description: "Return every field of each skill instead of the short row." },
         query: { type: "string" },
         limit: { type: "number", default: 10 },
         source: { type: "string" },
@@ -99,6 +100,7 @@ export function buildToolDefinitions({
     inputSchema: {
       type: "object",
       properties: {
+        include_details: { type: "boolean", default: false, description: "Return each group's twenty example skills with their paths instead of five names." },
         query: { type: "string", description: "Optional query for finding a domain by intent." },
         include_empty: { type: "boolean", default: false }
       }
@@ -110,6 +112,7 @@ export function buildToolDefinitions({
     inputSchema: {
       type: "object",
       properties: {
+        include_details: { type: "boolean", default: false, description: "Return every field of each skill instead of the short row." },
         group: { type: "string" },
         subgroup: { type: "string" },
         query: { type: "string" },

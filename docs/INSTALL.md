@@ -25,7 +25,9 @@ has the rest.
 - [From a clone](#from-a-clone)
 
 To start an agent with a narrowed tool surface, add `AI_DEV_PROFILES` to the `env` block of a
-client's entry — see [Capabilities](CAPABILITIES.md).
+client's entry — see [Capabilities](CAPABILITIES.md). `AI_DEV_RESPONSE_MODE=full` there makes the
+lifecycle tools answer with the whole task record, as they did before 3.0
+([What the four tools answer](WORKFLOW.md#working-with-the-agent)).
 
 ## Choose a path
 

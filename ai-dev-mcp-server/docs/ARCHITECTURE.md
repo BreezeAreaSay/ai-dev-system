@@ -453,6 +453,12 @@ context injection. `save_session` with `confirm_hook_draft: true` promotes one: 
 fields win, the draft fills the rest, the saved record is marked `confirmed` with `confirmed_from`,
 and the draft file is removed.
 
+Every tool call the dispatcher runs is a `kind: "tool_call"` event in the same ledger: the tool,
+the outcome and the duration, the size of the arguments and of the answer (`bytes_in`,
+`bytes_out`) and a 16-character sha256 of each (`args_hash`, `result_hash`) — never the arguments
+or the answer themselves. `usage_report` gives each tool's average, 95th-percentile and largest
+answer from them; the hashes tell a repeated call from a new one.
+
 What `cost-capture` writes is tokens, not money. A Claude Code transcript is append-only JSONL, so
 the hook keeps a byte cursor per session (`state/usage/sessions/<session>.json`), reads only what
 arrived since the last Stop, sums `usage` per model over the assistant messages in it — subagent

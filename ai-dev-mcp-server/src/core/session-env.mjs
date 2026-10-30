@@ -64,6 +64,8 @@ const DAEMON_WIDE = new Set(DAEMON_WIDE_VARIABLES);
 export const NOT_DAEMON_WIDE = Object.freeze({
   session: Object.freeze([
     "AI_DEV_PROFILES",
+    // How much a tool answers: the summary, or the whole record (`response-budget.mjs`).
+    "AI_DEV_RESPONSE_MODE",
     "AI_DEV_OFFLINE",
     "AI_DEV_MODEL_MIRROR",
     "AI_DEV_PYTHON",

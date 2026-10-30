@@ -33,6 +33,9 @@ with it. The server is the one 2.x users know; what is new is the way in.
   export, downloaded with progress and resume and checked file by file.
 - **One daemon for every client.** The index and the model are loaded once: three clients took
   528 MB, and take 391 MB.
+- **Answers an agent can afford.** The task tools answer with what changed instead of the whole
+  record every time: the task in [the demo](docs/DEMO.md) costs 33 KB of tool output instead of
+  242 KB.
 - **Docker as a server mode.** Each session is its own container, about a second to start; the
   image is 716 MB (2.x: 1.84 GB).
 - **614 curated skills** instead of 3,228 — the connectors cut to the ones developers use, with
@@ -210,7 +213,7 @@ into eight **capability profiles**, and only `core` is on the critical path:
 | `advanced` | 36 | Diagrams, the search and skill indexes, the dashboard, usage, packaging. |
 
 Set `AI_DEV_PROFILES=core,git` and the server advertises 34 tools instead of 135
-— about 33 KB of `tools/list` schema for the client instead of 139 KB, before
+— about 34 KB of `tools/list` schema for the client instead of 141 KB, before
 the model has read a word of your request (measured; the command is in
 [Capabilities](docs/CAPABILITIES.md#what-narrowing-actually-costs-and-saves)). Unset, everything is on and nothing is hidden —
 unless profiles were chosen in the settings (`profiles` in `~/.ai-dev/config.json`, which the

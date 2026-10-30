@@ -212,6 +212,10 @@ test("skills, rules, servers and status run the server's tools from a terminal",
   assert.match(mine.stdout, /\d+ more came with AI Dev/);
   const found = await runCli(["skills", "search", "deploy", "before", "done", "--limit", "3"], { env });
   assert.match(found.stdout, /deploy-check/);
+  // The lines print the short rows an agent gets; --json hands over every field.
+  const foundJson = await runCli(["skills", "search", "deploy", "before", "done", "--limit", "3", "--json"], { env });
+  const row = JSON.parse(foundJson.stdout).find((item) => item.name === "deploy-check");
+  assert.ok(row?.type, foundJson.stdout.slice(0, 400));
   const unasked = await runCli(["skills", "remove", "probe"], { env });
   assert.equal(unasked.code, 1, "nobody to ask: nothing removed");
   assert.match(unasked.stdout, /Add --yes to remove it/);

@@ -42,6 +42,7 @@ import { compileContextPack } from "../core/context-compiler.mjs";
 import { loadContextExtras } from "../core/context-extras.mjs";
 import { bindEvidence } from "../core/evidence.mjs";
 import { evaluateFrontendProductGate } from "../core/frontend-product-quality.mjs";
+import { beginTaskView, checkpointView, completeView, verifyView, wantsDetails } from "../core/response-budget.mjs";
 import { taskLooksFrontendProduct } from "../core/skill-recommendation.mjs";
 import {
   activeWorktree,
@@ -618,6 +619,11 @@ async function completeTask(host, {
   };
 }
 
+/** The summary an agent acts on, or the whole record when the call or the environment asks for it. */
+function shaped(args, result, view) {
+  return wantsDetails(args) ? result : view(result);
+}
+
 /**
  * @param {object} host - Shared runtime services (see `src/tool-extensions.mjs`).
  * @returns {{ definitions: Array<object>, handlers: object, readOnly: Array<string> }}
@@ -631,6 +637,7 @@ export function createLifecycleTools(host) {
         inputSchema: {
           type: "object",
           properties: {
+            include_details: { type: "boolean", default: false, description: "Return the whole task record instead of the summary. get_task returns it too." },
             project_path: { type: "string" },
             project_name: { type: "string" },
             task: { type: "string" },
@@ -649,6 +656,7 @@ export function createLifecycleTools(host) {
         inputSchema: {
           type: "object",
           properties: {
+            include_details: { type: "boolean", default: false, description: "Return the whole task record instead of the summary. get_task returns it too." },
             task_id: { type: "string" },
             summary: { type: "string" },
             changed_files: {
@@ -682,6 +690,7 @@ export function createLifecycleTools(host) {
         inputSchema: {
           type: "object",
           properties: {
+            include_details: { type: "boolean", default: false, description: "Return the whole task record instead of the summary. get_task returns it too." },
             task_id: { type: "string" },
             run_quality: { type: "boolean", default: true },
             quality_labels: { type: "array", items: { type: "string" }, default: [] },
@@ -703,6 +712,7 @@ export function createLifecycleTools(host) {
         inputSchema: {
           type: "object",
           properties: {
+            include_details: { type: "boolean", default: false, description: "Return the whole task record instead of the summary. get_task returns it too." },
             task_id: { type: "string" },
             summary: { type: "string" },
             allow_waived: { type: "boolean", default: false },
@@ -715,10 +725,10 @@ export function createLifecycleTools(host) {
       },
     ],
     handlers: {
-      begin_task: (args) => beginTask(host, args),
-      checkpoint_task: (args) => checkpointTask(host, args),
-      verify_task: (args) => verifyTask(host, args),
-      complete_task: (args) => completeTask(host, args)
+      begin_task: async (args) => shaped(args, await beginTask(host, args), beginTaskView),
+      checkpoint_task: async (args) => shaped(args, await checkpointTask(host, args), checkpointView),
+      verify_task: async (args) => shaped(args, await verifyTask(host, args), verifyView),
+      complete_task: async (args) => shaped(args, await completeTask(host, args), completeView)
     },
     readOnly: []
   };

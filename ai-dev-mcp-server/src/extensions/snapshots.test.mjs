@@ -190,7 +190,8 @@ test("checkpoint_task snapshots the turn it records, and says so when it cannot"
   const plain = await call("checkpoint_task", { task_id: moved.id, summary: "Outline drafted." });
   assert.equal(plain.snapshot.status, "skipped");
   assert.match(plain.snapshot.reason, /Not a git repository/);
-  assert.equal(plain.checkpoints.length, 1, "the checkpoint itself is recorded either way");
+  assert.equal(plain.checkpoints, 1, "the checkpoint itself is recorded either way");
+  assert.equal(plain.checkpoint.summary, "Outline drafted.");
 });
 
 test("complete_task deletes the task's snapshot refs and reports what it deleted", async (t) => {

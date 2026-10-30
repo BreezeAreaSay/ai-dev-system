@@ -126,13 +126,15 @@ export async function run(argv, io) {
     if (rest.length > count) throw new CliUsageError(`\`ai-dev skills ${command}\` takes ${count ? `only ${form}` : "no arguments"}, and was given ${rest.slice(count).map((word) => JSON.stringify(word)).join(" ")} as well.`);
   };
   const json = Boolean(values.json);
+  // The lines below print the short rows; --json hands over every field.
+  const details = json ? { include_details: true } : {};
   const limit = wholeNumber(values.limit, "--limit", { max: 200 });
 
   switch (command) {
     case "search":
       needs(1, "search <words>");
       return withTools(async ({ call }) => {
-        const found = await call("search_skills", { query: rest.join(" "), limit: limit ?? 10, ...(values.group ? { group: values.group } : {}) });
+        const found = await call("search_skills", { query: rest.join(" "), limit: limit ?? 10, ...(values.group ? { group: values.group } : {}), ...details });
         if (json) io.out(JSON.stringify(found, null, 2));
         else printSkills(io, found, "No skill fits those words. `ai-dev skills groups` shows what there is.");
         return EXIT.ok;
@@ -140,7 +142,7 @@ export async function run(argv, io) {
     case "groups":
       noMore(0);
       return withTools(async ({ call }) => {
-        const groups = await call("list_skill_groups", {});
+        const groups = await call("list_skill_groups", details);
         if (json) {
           io.out(JSON.stringify(groups, null, 2));
           return EXIT.ok;
@@ -156,7 +158,7 @@ export async function run(argv, io) {
       needs(1, "browse <group>");
       noMore(1, "the group");
       return withTools(async ({ call }) => {
-        const found = await call("browse_skill_group", { group: rest[0], limit: limit ?? 30 });
+        const found = await call("browse_skill_group", { group: rest[0], limit: limit ?? 30, ...details });
         if (json) {
           io.out(JSON.stringify(found, null, 2));
           return EXIT.ok;

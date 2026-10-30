@@ -292,6 +292,20 @@ function roundCosts(row) {
   };
 }
 
+/**
+ * How large a tool's answers were, over the calls that recorded it: the average, the
+ * 95th percentile and the largest, in bytes. Nothing when no call recorded a size.
+ */
+function answerSizes(sizes = []) {
+  if (!sizes.length) return {};
+  const sorted = [...sizes].sort((left, right) => left - right);
+  return {
+    average_bytes_out: Math.round(sorted.reduce((sum, size) => sum + size, 0) / sorted.length),
+    p95_bytes_out: sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * 0.95) - 1)],
+    max_bytes_out: sorted.at(-1)
+  };
+}
+
 /** Fold a set of ledger events into per-tool, per-task, per-model and total rows. */
 function accumulate(events, rates) {
   const tools = new Map();
@@ -309,8 +323,9 @@ function accumulate(events, rates) {
   for (const event of events) {
     if (event.kind === "tool_call") {
       toolCalls += 1;
-      const entry = tools.get(event.tool) ?? { tool: event.tool, calls: 0, failures: 0, total_ms: 0, max_ms: 0 };
+      const entry = tools.get(event.tool) ?? { tool: event.tool, calls: 0, failures: 0, total_ms: 0, max_ms: 0, sizes: [] };
       entry.calls += 1;
+      if (Number.isFinite(event.bytes_out)) entry.sizes.push(event.bytes_out);
       if (!event.ok) entry.failures += 1;
       entry.total_ms += Number(event.duration_ms) || 0;
       entry.max_ms = Math.max(entry.max_ms, Number(event.duration_ms) || 0);
@@ -440,9 +455,9 @@ export class UsageLedger {
   /**
    * Record one MCP tool invocation (name, duration, outcome, task/project hints).
    *
-   * @param {{ tool: string, ok: boolean, durationMs: number, taskId?: string, projectPath?: string, error?: string, client?: string }} input
+   * @param {{ tool: string, ok: boolean, durationMs: number, taskId?: string, projectPath?: string, error?: string, client?: string, bytesIn?: number, bytesOut?: number, argsHash?: string, resultHash?: string }} input
    */
-  async recordToolCall({ tool, ok, durationMs, taskId = "", projectPath = "", error = "", client = "" }) {
+  async recordToolCall({ tool, ok, durationMs, taskId = "", projectPath = "", error = "", client = "", bytesIn, bytesOut, argsHash = "", resultHash = "" }) {
     return this.append({
       at: now(),
       kind: "tool_call",
@@ -452,7 +467,12 @@ export class UsageLedger {
       task_id: String(taskId || ""),
       project_path: String(projectPath || ""),
       error: String(error || "").slice(0, 300),
-      client: String(client || "")
+      client: String(client || ""),
+      // Sizes and hashes, never the arguments or the answer themselves.
+      ...(Number.isFinite(bytesIn) ? { bytes_in: bytesIn } : {}),
+      ...(Number.isFinite(bytesOut) ? { bytes_out: bytesOut } : {}),
+      ...(argsHash ? { args_hash: String(argsHash) } : {}),
+      ...(resultHash ? { result_hash: String(resultHash) } : {})
     });
   }
 
@@ -527,10 +547,11 @@ export class UsageLedger {
     });
     const { tools, tasks, models, usage, unpriced, historicalModels, toolCalls } = accumulate(events, rates);
     const toolRows = [...tools.values()]
-      .map((item) => ({
+      .map(({ sizes, ...item }) => ({
         ...item,
         average_ms: item.calls ? Math.round(item.total_ms / item.calls) : 0,
-        failure_rate: item.calls ? round(item.failures / item.calls, 4) : 0
+        failure_rate: item.calls ? round(item.failures / item.calls, 4) : 0,
+        ...answerSizes(sizes)
       }))
       .sort((left, right) => right.calls - left.calls || left.tool.localeCompare(right.tool))
       .slice(0, Math.max(1, Math.min(Number(limitTools) || 15, 200)));

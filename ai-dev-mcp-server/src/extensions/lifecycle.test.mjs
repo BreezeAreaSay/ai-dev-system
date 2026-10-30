@@ -128,6 +128,18 @@ test("begin_task routes at most three skills and compiles a bounded context pack
   assert.match(begun.next_actions[0], /Confirm or refine acceptance criteria/);
 });
 
+test("a lifecycle answer is the summary; include_details returns the whole record", async () => {
+  const { registry } = createFixture({ record: { context: { compiled_context: "- Stack: Node.js", project_identity: { id: "x" } }, verifications: [{ id: "verification-0", passed: true }] } });
+  const summary = await call(registry, "verify_task", { task_id: "task-1", run_hygiene: false, run_security_scan: false });
+  assert.equal(summary.task.id, "task-1");
+  assert.match(summary.task.details, /get_task returns the whole record/);
+  for (const key of ["context", "verifications", "skills"]) assert.equal(key in summary.task, false, key);
+
+  const whole = await call(registry, "verify_task", { task_id: "task-1", run_hygiene: false, run_security_scan: false, include_details: true });
+  assert.ok(Array.isArray(whole.task.verifications));
+  assert.equal(whole.task.context.compiled_context, "- Stack: Node.js");
+});
+
 test("checkpoint_task lints the report before it writes anything", async () => {
   const { registry, calls } = createFixture();
   const checkpointed = await call(registry, "checkpoint_task", {

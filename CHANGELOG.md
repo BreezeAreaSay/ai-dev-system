@@ -38,6 +38,13 @@ it, what moves by itself, what needs one command, and how to go back.
 - **One daemon for every client.** Each client's entry hands its session to one warm server, so the
   index and the model are loaded once and the state has one writer: three clients took 528 MB in
   three processes, and take 391 MB.
+- **Answers an agent can afford.** The lifecycle tools answer with what changed — the checkpoint,
+  each check with the part of a failing output that says why, the closed task and its pull
+  request — instead of the whole task record every time, and every answer is compact JSON: the
+  task in the demo costs 33 KB of tool output instead of 242 KB. `get_task` and
+  `include_details: true` return the whole record; `AI_DEV_RESPONSE_MODE=full` restores it for every
+  call. Skill searches, group listings and browsing answer with short rows the same way, and
+  `usage_report` gives each tool's average and 95th-percentile answer size.
 - **One command line, `ai-dev`** — `setup`, `clients`, `model`, `daemon`, `doctor`, `backup`,
   `restore`, `uninstall` and the 2.x maintenance commands — with one parser, a one-sentence answer
   to every mistake and the same exit codes everywhere, to which `uninstall` adds 3 (something is in
@@ -182,8 +189,8 @@ has it with what each one says.
   install` puts the model into the data volume once, and every session after it keeps
   `--network none`. A `-browser` variant carries Playwright and Chromium for Frontend QA.
 - **Capability profiles.** The 135 tools fall into eight profiles (`core`, `coding`, `memory`,
-  `git`, `frontend`, `qa`, `security`, `advanced`); `AI_DEV_PROFILES=core` lists 25 tools, 22,858
-  bytes of schema instead of 139,148. Every tool can still be called by name; unset, all are on.
+  `git`, `frontend`, `qa`, `security`, `advanced`); `AI_DEV_PROFILES=core` lists 25 tools, 23,574
+  bytes of schema instead of 140,645. Every tool can still be called by name; unset, all are on.
 - **The control API** (`ai-dev-mcp-server/docs/CONTROL-API.md`, version 1.3.0): 16 opt-in tools a
   desktop app or a script drives the install with — status, setup, the model, the clients, logs,
   settings, a workspace overview and a person's own skills. Only a session that names the
@@ -235,6 +242,10 @@ has it with what each one says.
   launches.
 - **The dashboard shows the health checks as they ran**, a search index belongs to the vault it
   was built from, and the README leads with what the system is for.
+- **Tool answers are summaries.** `begin_task`, `begin_task_in_worktree`, `checkpoint_task`,
+  `verify_task` and `complete_task` no longer return the whole task record, the skill tools return
+  short rows, and JSON answers carry no indentation. What to recheck, and how to get the 2.x answers
+  back (`AI_DEV_RESPONSE_MODE=full`), is in `docs/MIGRATION.md`.
 
 ### Deprecated
 
